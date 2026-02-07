@@ -1,7 +1,7 @@
 # Session Handover: 2026-02-08 Session 02
 
 ## Step Completed
-Step 1: Design System and Theme
+Step 1: Design System and Theme (commit b31fc33)
 
 ## Summary
 Established the visual foundation for the crypto portfolio tracker: Binance Pro Dark theme with oklch color tokens, Inter + JetBrains Mono typography, the cn() utility, and 6 base shadcn/ui components. All subsequent steps build on this design system.
@@ -66,9 +66,10 @@ Installed via `npx shadcn@latest add` (new-york style, Tailwind v4):
 - `npm run typecheck` -- clean (0 type errors)
 - `npm run test` -- 35/35 tests pass (5 test files)
 - `npm run build` -- success (static pages generated)
+- Visual check via Chrome DevTools MCP -- dark theme renders correctly
 
 ## Current State
-- Git: main branch, Step 1 committed
+- Git: 3 commits on main (latest b31fc33)
 - Design system fully operational: theme, fonts, utilities, 6 components
 - No Providers wrapper yet (requires NextAuth + React Query from Steps 2-4)
 - No Toaster yet (requires sonner, defer to when first needed)
@@ -89,6 +90,10 @@ Step 2: MongoDB Models and Auth Foundation
 - `src/app/page.tsx` -- replaced with themed placeholder
 - `package.json` / `package-lock.json` -- 5 production deps + shadcn transitive deps
 - `changelogs/CHANGELOG.md` -- Step 1 additions
+- `PLAN.md` -- marked Step 0 as DONE with commit hash
+
+### Renamed
+- `sessions/2025-02-08-session-01-handover.md` -> `sessions/2026-02-08-session-01-handover.md` (year typo fix)
 
 ### Created
 - `src/lib/utils.ts`
