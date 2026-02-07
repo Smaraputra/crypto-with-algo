@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- MongoDB Mongoose singleton client with globalThis cache, retry-on-failure, bufferCommands disabled
+- Upstash Redis client with graceful degradation (null when env vars missing)
+- `cachedFetch<T>()` cache-aside helper with try-catch on Redis operations (no double-stringify)
+- Sliding window rate limiter factory (`createRateLimiter`) with singleton pattern
+- `rateLimit()` helper returning 429 NextResponse with rate limit headers
+- Reusable Redis mock (`src/__mocks__/redis.ts`) for future test files
+- Integration tests for MongoDB (mongodb-memory-server): connection, caching, env validation, retry
+- Unit tests for Redis client and cachedFetch: cache hit/miss, error handling, no double-stringify
+- Unit tests for rate limiter: null redis, allow/block, IP extraction, error fallthrough
 - Binance Pro Dark theme with oklch color tokens (globals.css)
 - Inter (sans) + JetBrains Mono (mono) font configuration
 - `cn()` utility (clsx + tailwind-merge) for class composition
