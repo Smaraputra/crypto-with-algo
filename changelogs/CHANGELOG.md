@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Binance Pro Dark theme with oklch color tokens (globals.css)
+- Inter (sans) + JetBrains Mono (mono) font configuration
+- `cn()` utility (clsx + tailwind-merge) for class composition
+- shadcn/ui base components: Button, Card, Input, Label, Badge, Separator
+- Trading color tokens: bullish (green), bearish (red), accent (yellow)
+- Price display utilities: `.price-display`, `.price-lg`, `.price-md`, `.price-sm`
+- Price flash animations: flash-bullish/bearish, price-up/down, shimmer, pulse-ring
+- Custom scrollbar styling, live indicator, scrollbar-hide utility
+- Reduced motion media query support
+- Unit tests for cn(), Button, Card, Badge components (35 tests total)
 - Vitest test framework with jsdom environment and Testing Library
 - Playwright E2E test framework configuration
 - GitHub Actions CI pipeline (lint, type-check, unit tests, build)
