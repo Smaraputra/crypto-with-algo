@@ -328,9 +328,9 @@ Jobs: lint + type-check, unit tests (Vitest), build, E2E (Playwright + Docker Mo
 
 ## Phase 1: Core Foundation (16 Steps)
 
-### Step 0: Project Infrastructure [CURRENT]
+### Step 0: Project Infrastructure [DONE]
 **Scope:** Test framework, CI pipeline, project configs, reference setup.
-**Commit:** `chore: scaffold project with Vitest, Playwright, and CI pipeline`
+**Commit:** `chore: scaffold project with Vitest, Playwright, and CI pipeline` (22e3252)
 
 ### Step 1: Design System and Theme
 **Scope:** globals.css (oklch Binance Pro Dark), root layout (Inter + JetBrains Mono), `cn()` utility, base shadcn/ui components (button, card, input, label, badge, separator).
