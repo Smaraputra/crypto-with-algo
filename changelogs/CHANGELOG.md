@@ -25,3 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker Compose for local MongoDB + Redis
 - Environment variable template with configurable Binance URLs
 - Canary test verifying test infrastructure works
+- Zustand UI store (`useUIStore`) with sidebar, symbol, and interval state
+- Market type definitions: `OHLCV`, `Symbol`, `Ticker24h`, `TickerPrice`
+- NextAuth.js v5 module augmentation for typed `Session`, `User`, `JWT`
+- Unit tests for uiStore (11 tests)
