@@ -30,8 +30,18 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
+!.env.example
+
+# reference code from Phase 1 rebuild
+/_reference/
+
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+.playwright-mcp/
 
 # vercel
 .vercel
@@ -39,3 +49,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+CLAUDE.md
