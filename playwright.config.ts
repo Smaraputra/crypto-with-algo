@@ -12,9 +12,28 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
+    // Auth setup -- runs first, saves storage state for authenticated tests
     {
-      name: 'chromium',
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
+
+    // Unauthenticated tests -- no dependencies, no stored auth
+    {
+      name: 'unauthenticated',
       use: { ...devices['Desktop Chrome'] },
+      testMatch: /auth\.spec\.ts/,
+    },
+
+    // Authenticated tests -- depend on setup project
+    {
+      name: 'authenticated',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'e2e/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testIgnore: /auth\.(spec|setup)\.ts/,
     },
   ],
   webServer: {

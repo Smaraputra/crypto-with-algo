@@ -435,10 +435,10 @@ Alert data model, CRUD API, cron evaluator, notification API, create alert UI, a
 
 After each step:
 1. `npm run lint` -- zero errors
-2. `npx tsc --noEmit` -- zero type errors
+2. `npm run typecheck` -- zero type errors
 3. `npm run test` -- all unit tests pass
 4. `npm run build` -- clean build
-5. E2E tests pass (when applicable, from Step 5 onward)
+5. `npm run test:e2e` -- all E2E tests pass (requires `docker-compose up -d` for MongoDB)
 
 ## Anti-Scope-Creep Rules
 
