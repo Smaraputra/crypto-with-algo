@@ -71,3 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Price ticker API route (`GET /api/prices`) -- returns top 15 USDT pairs with 30s Redis cache
 - OHLCV history API route (`GET /api/prices/history`) -- Zod-validated params (symbol, interval, limit), interval-specific TTLs (10s-600s)
 - Unit tests for price routes (14 tests): success, validation, TTL verification, cache key structure, error handling
+- Generic `useWebSocket<T>` hook with auto-reconnect, exponential backoff, pub/sub message handlers
+- `useBinanceTicker(symbols)` hook for real-time 24h ticker streams (multi-symbol multiplexing)
+- `useBinanceKline(symbol, interval)` hook for real-time candlestick streams with OHLCV transform
+- `MockWebSocket` test utility for deterministic WebSocket unit testing
+- Unit tests for WebSocket hooks (29 tests): connection lifecycle, reconnection, backoff, message handling, URL changes
+
+### Changed
+- `NEXT_PUBLIC_BINANCE_WS_URL` in `.env.example` now omits `/ws` suffix (hooks append path segments as needed)
