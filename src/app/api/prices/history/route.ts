@@ -3,21 +3,34 @@ import { z } from 'zod';
 import { fetchKlines } from '@/lib/binance';
 import { cachedFetch } from '@/lib/redis';
 
-const VALID_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'] as const;
+const VALID_INTERVALS = [
+  '1m', '3m', '5m', '15m', '30m',
+  '1h', '2h', '4h', '6h', '12h',
+  '1d', '1w', '1M',
+] as const;
 
 const querySchema = z.object({
   symbol: z.string().min(1),
   interval: z.enum(VALID_INTERVALS),
   limit: z.coerce.number().int().min(1).max(1000).default(500),
+  startTime: z.coerce.number().int().positive().optional(),
+  endTime: z.coerce.number().int().positive().optional(),
 });
 
 const TTL_MAP: Record<string, number> = {
   '1m': 10,
+  '3m': 15,
   '5m': 30,
   '15m': 60,
+  '30m': 60,
   '1h': 120,
+  '2h': 180,
   '4h': 300,
+  '6h': 300,
+  '12h': 600,
   '1d': 600,
+  '1w': 1800,
+  '1M': 3600,
 };
 
 export async function GET(req: NextRequest) {
@@ -26,6 +39,8 @@ export async function GET(req: NextRequest) {
     symbol: searchParams.get('symbol'),
     interval: searchParams.get('interval'),
     limit: searchParams.get('limit') ?? undefined,
+    startTime: searchParams.get('startTime') ?? undefined,
+    endTime: searchParams.get('endTime') ?? undefined,
   });
 
   if (!parsed.success) {
@@ -35,13 +50,17 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { symbol, interval, limit } = parsed.data;
+  const { symbol, interval, limit, startTime, endTime } = parsed.data;
   const ttl = TTL_MAP[interval] ?? 60;
+
+  const cacheKey = startTime || endTime
+    ? `klines:${symbol}:${interval}:${limit}:${startTime ?? ''}:${endTime ?? ''}`
+    : `klines:${symbol}:${interval}:${limit}`;
 
   try {
     const data = await cachedFetch(
-      `klines:${symbol}:${interval}:${limit}`,
-      () => fetchKlines(symbol, interval, limit),
+      cacheKey,
+      () => fetchKlines(symbol, interval, limit, startTime, endTime),
       ttl
     );
 

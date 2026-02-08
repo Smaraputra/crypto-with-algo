@@ -25,6 +25,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -67,12 +68,22 @@ export const DEFAULT_INDICATORS: IndicatorConfig[] = [
 
 export const INTERVALS: { value: string; label: string; period: Period }[] = [
   { value: '1m', label: '1m', period: { type: 'minute', span: 1 } },
+  { value: '3m', label: '3m', period: { type: 'minute', span: 3 } },
   { value: '5m', label: '5m', period: { type: 'minute', span: 5 } },
   { value: '15m', label: '15m', period: { type: 'minute', span: 15 } },
+  { value: '30m', label: '30m', period: { type: 'minute', span: 30 } },
   { value: '1h', label: '1H', period: { type: 'hour', span: 1 } },
+  { value: '2h', label: '2H', period: { type: 'hour', span: 2 } },
   { value: '4h', label: '4H', period: { type: 'hour', span: 4 } },
+  { value: '6h', label: '6H', period: { type: 'hour', span: 6 } },
+  { value: '12h', label: '12H', period: { type: 'hour', span: 12 } },
   { value: '1d', label: '1D', period: { type: 'day', span: 1 } },
+  { value: '1w', label: '1W', period: { type: 'week', span: 1 } },
+  { value: '1M', label: '1M', period: { type: 'month', span: 1 } },
 ];
+
+export const PRIMARY_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
+export const MORE_INTERVALS = ['3m', '30m', '2h', '6h', '12h', '1w', '1M'];
 
 export function periodToInterval(period: Period): string {
   switch (period.type) {
@@ -355,7 +366,7 @@ export function TradingChart({ symbol, interval, onIntervalChange }: TradingChar
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
           <Tabs defaultValue={interval} onValueChange={(val) => onIntervalChange?.(val)}>
             <TabsList className="h-8 bg-muted/50">
-              {INTERVALS.map((int) => (
+              {INTERVALS.filter((int) => PRIMARY_INTERVALS.includes(int.value)).map((int) => (
                 <TabsTrigger
                   key={int.value}
                   value={int.value}
@@ -366,6 +377,32 @@ export function TradingChart({ symbol, interval, onIntervalChange }: TradingChar
               ))}
             </TabsList>
           </Tabs>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={MORE_INTERVALS.includes(interval) ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 gap-1 text-xs"
+              >
+                {MORE_INTERVALS.includes(interval)
+                  ? INTERVALS.find((i) => i.value === interval)?.label
+                  : 'More'}
+                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-24">
+              {INTERVALS.filter((int) => MORE_INTERVALS.includes(int.value)).map((int) => (
+                <DropdownMenuItem
+                  key={int.value}
+                  className={interval === int.value ? 'bg-accent' : ''}
+                  onSelect={() => onIntervalChange?.(int.value)}
+                >
+                  {int.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Separator orientation="vertical" className="h-6" />
 

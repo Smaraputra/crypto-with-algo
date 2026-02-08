@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { periodToInterval, TradingChart } from './TradingChart';
+import { periodToInterval, TradingChart, INTERVALS, PRIMARY_INTERVALS, MORE_INTERVALS } from './TradingChart';
 
 // Mock klinecharts module (canvas-based, won't work in jsdom)
 const mockCreateIndicator = vi.fn().mockReturnValue('pane_1');
@@ -113,14 +113,44 @@ describe('periodToInterval', () => {
     expect(periodToInterval({ type: 'day', span: 1 })).toBe('1d');
   });
 
+  it('converts week period to interval string', () => {
+    expect(periodToInterval({ type: 'week', span: 1 })).toBe('1w');
+  });
+
+  it('converts month period to interval string', () => {
+    expect(periodToInterval({ type: 'month', span: 1 })).toBe('1M');
+  });
+
   it('returns 1h for unknown period type', () => {
     expect(periodToInterval({ type: 'year' as never, span: 1 })).toBe('1h');
   });
 });
 
+describe('interval constants', () => {
+  it('INTERVALS has 13 entries', () => {
+    expect(INTERVALS).toHaveLength(13);
+  });
+
+  it('PRIMARY_INTERVALS has 6 entries', () => {
+    expect(PRIMARY_INTERVALS).toHaveLength(6);
+    expect(PRIMARY_INTERVALS).toEqual(['1m', '5m', '15m', '1h', '4h', '1d']);
+  });
+
+  it('MORE_INTERVALS has 7 entries', () => {
+    expect(MORE_INTERVALS).toHaveLength(7);
+    expect(MORE_INTERVALS).toEqual(['3m', '30m', '2h', '6h', '12h', '1w', '1M']);
+  });
+
+  it('all INTERVALS have corresponding period mappings', () => {
+    for (const interval of INTERVALS) {
+      expect(periodToInterval(interval.period)).toBe(interval.value);
+    }
+  });
+});
+
 describe('TradingChart', () => {
   describe('toolbar rendering', () => {
-    it('renders all 6 interval tab triggers', () => {
+    it('renders 6 primary interval tab triggers', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
       expect(screen.getByRole('tab', { name: '1m' })).toBeInTheDocument();
@@ -129,6 +159,35 @@ describe('TradingChart', () => {
       expect(screen.getByRole('tab', { name: '1H' })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: '4H' })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: '1D' })).toBeInTheDocument();
+    });
+
+    it('renders "More" dropdown for additional intervals', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(screen.getByRole('button', { name: /more/i })).toBeInTheDocument();
+    });
+
+    it('shows selected interval label in "More" button when a secondary interval is active', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="2h" />);
+
+      // When interval is 2h (a MORE_INTERVAL), the button should show "2H" instead of "More"
+      expect(screen.getByRole('button', { name: /2H/i })).toBeInTheDocument();
+    });
+
+    it('renders more interval options in dropdown', async () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      const moreButton = screen.getByRole('button', { name: /more/i });
+      fireEvent.pointerDown(moreButton, { button: 0, pointerType: 'mouse' });
+
+      const item3m = await screen.findByRole('menuitem', { name: '3m' });
+      expect(item3m).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: '30m' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: '2H' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: '6H' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: '12H' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: '1W' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: '1M' })).toBeInTheDocument();
     });
 
     it('renders the indicators dropdown button', () => {

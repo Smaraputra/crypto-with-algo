@@ -59,7 +59,7 @@ describe('GET /api/prices/history', () => {
   });
 
   it('returns 400 for invalid interval', async () => {
-    const res = await GET(makeRequest({ symbol: 'BTCUSDT', interval: '2h' }));
+    const res = await GET(makeRequest({ symbol: 'BTCUSDT', interval: '7m' }));
     expect(res.status).toBe(400);
 
     const data = await res.json();
@@ -138,5 +138,82 @@ describe('GET /api/prices/history', () => {
 
     const data = await res.json();
     expect(data.error).toBe('Failed to fetch price history');
+  });
+
+  describe('new intervals', () => {
+    it.each([
+      ['3m', 15],
+      ['30m', 60],
+      ['2h', 180],
+      ['6h', 300],
+      ['12h', 600],
+      ['1w', 1800],
+      ['1M', 3600],
+    ])('accepts %s interval with TTL %d', async (interval, expectedTtl) => {
+      vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+      const res = await GET(makeRequest({ symbol: 'BTCUSDT', interval }));
+      expect(res.status).toBe(200);
+
+      expect(cachedFetch).toHaveBeenCalledWith(
+        `klines:BTCUSDT:${interval}:500`,
+        expect.any(Function),
+        expectedTtl
+      );
+    });
+  });
+
+  describe('time range parameters', () => {
+    it('passes startTime and endTime to fetchKlines', async () => {
+      vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+      await GET(makeRequest({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        startTime: '1700000000000',
+        endTime: '1700100000000',
+      }));
+
+      // Cache key includes time range
+      expect(cachedFetch).toHaveBeenCalledWith(
+        'klines:BTCUSDT:1h:500:1700000000000:1700100000000',
+        expect.any(Function),
+        120
+      );
+    });
+
+    it('passes only startTime when endTime is omitted', async () => {
+      vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+      await GET(makeRequest({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        startTime: '1700000000000',
+      }));
+
+      expect(cachedFetch).toHaveBeenCalledWith(
+        'klines:BTCUSDT:1h:500:1700000000000:',
+        expect.any(Function),
+        120
+      );
+    });
+
+    it('returns 400 for non-numeric startTime', async () => {
+      const res = await GET(makeRequest({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        startTime: 'abc',
+      }));
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 for negative startTime', async () => {
+      const res = await GET(makeRequest({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        startTime: '-1',
+      }));
+      expect(res.status).toBe(400);
+    });
   });
 });

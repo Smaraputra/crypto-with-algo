@@ -19,11 +19,19 @@ export async function fetchTickers(): Promise<Ticker24h[]> {
 export async function fetchKlines(
   symbol: string,
   interval: string,
-  limit = 500
+  limit = 500,
+  startTime?: number,
+  endTime?: number
 ): Promise<OHLCV[]> {
-  const res = await fetch(
-    `${getBaseUrl()}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
-  );
+  const params = new URLSearchParams({
+    symbol,
+    interval,
+    limit: String(limit),
+  });
+  if (startTime !== undefined) params.set('startTime', String(startTime));
+  if (endTime !== undefined) params.set('endTime', String(endTime));
+
+  const res = await fetch(`${getBaseUrl()}/klines?${params}`);
   if (!res.ok) {
     throw new Error(`Failed to fetch klines for ${symbol}: HTTP ${res.status}`);
   }

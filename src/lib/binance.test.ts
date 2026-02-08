@@ -174,6 +174,36 @@ describe('fetchKlines', () => {
     expect(url).toContain('limit=200');
   });
 
+  it('passes startTime when provided', async () => {
+    mockFetch.mockResolvedValue(okResponse([]));
+
+    await fetchKlines('BTCUSDT', '1h', 500, 1700000000000);
+
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain('startTime=1700000000000');
+    expect(url).not.toContain('endTime');
+  });
+
+  it('passes startTime and endTime when both provided', async () => {
+    mockFetch.mockResolvedValue(okResponse([]));
+
+    await fetchKlines('BTCUSDT', '1h', 500, 1700000000000, 1700100000000);
+
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain('startTime=1700000000000');
+    expect(url).toContain('endTime=1700100000000');
+  });
+
+  it('omits startTime and endTime when not provided', async () => {
+    mockFetch.mockResolvedValue(okResponse([]));
+
+    await fetchKlines('BTCUSDT', '1h');
+
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).not.toContain('startTime');
+    expect(url).not.toContain('endTime');
+  });
+
   it('throws on HTTP error', async () => {
     mockFetch.mockResolvedValue(errorResponse(429));
 
