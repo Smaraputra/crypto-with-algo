@@ -2,21 +2,13 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { fetchJson } from '@/lib/fetch-json';
 import type {
   AlertListResponse,
   AlertResponse,
   CreateAlertInput,
   UpdateAlertInput,
 } from '@/types/alert';
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Request failed with status ${res.status}`);
-  }
-  return res.json();
-}
 
 export function useAlerts(status?: string) {
   const url = status ? `/api/alerts?status=${status}` : '/api/alerts';
