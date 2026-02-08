@@ -17,6 +17,8 @@ import {
   Activity,
   BarChart2,
   ChevronDown,
+  Maximize2,
+  Minimize2,
   TrendingUp,
   Minus,
   Move,
@@ -120,11 +122,13 @@ export function periodToInterval(period: Period): string {
 
 export function TradingChart({ symbol, interval, chartType = 'candle_solid', onIntervalChange, onChartTypeChange }: TradingChartProps) {
   const chartRef = useRef<Chart | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
   const [indicators, setIndicators] = useState<IndicatorConfig[]>(DEFAULT_INDICATORS);
   const [isLoading, setIsLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
   const [crosshairData, setCrosshairData] = useState<KLineData | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
 
@@ -384,6 +388,28 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     };
   }, [hasValidDimensions]);
 
+  // Track fullscreen changes (e.g. Escape key exits natively)
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(!!document.fullscreenElement);
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!wrapperRef.current) return;
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (document.fullscreenEnabled) {
+      wrapperRef.current.requestFullscreen();
+    } else {
+      // CSS fallback when Fullscreen API is not available
+      setIsFullscreen((prev) => !prev);
+    }
+  }, []);
+
   const activateDrawingTool = (tool: string) => {
     if (!chartRef.current) return;
 
@@ -412,7 +438,12 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
   const volumeIndicators = indicators.filter((ind) => ind.category === 'volume');
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-sm border border-border bg-card shadow-sm">
+    <div
+      ref={wrapperRef}
+      className={`flex h-full flex-col overflow-hidden rounded-sm border border-border bg-card shadow-sm ${
+        isFullscreen && !document.fullscreenElement ? 'fixed inset-0 z-50 bg-background' : ''
+      }`}
+    >
       {/* Top Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card p-2">
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
@@ -573,6 +604,16 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
             disabled={isLoading}
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </Button>
         </div>
       </div>

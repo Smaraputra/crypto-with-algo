@@ -419,6 +419,46 @@ describe('TradingChart', () => {
     });
   });
 
+  describe('fullscreen mode', () => {
+    it('renders fullscreen button', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      expect(screen.getByLabelText('Enter fullscreen')).toBeInTheDocument();
+    });
+
+    it('calls requestFullscreen when clicking fullscreen button', () => {
+      const mockRequestFullscreen = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(document, 'fullscreenEnabled', { value: true, writable: true });
+      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true });
+
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      // Get the wrapper div and add requestFullscreen mock
+      const wrapperDiv = screen.getByLabelText('Enter fullscreen').closest('.flex.h-full');
+      if (wrapperDiv) {
+        (wrapperDiv as HTMLElement).requestFullscreen = mockRequestFullscreen;
+      }
+
+      fireEvent.click(screen.getByLabelText('Enter fullscreen'));
+      expect(mockRequestFullscreen).toHaveBeenCalled();
+    });
+
+    it('updates aria-label based on fullscreen state', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      // Initially not fullscreen
+      expect(screen.getByLabelText('Enter fullscreen')).toBeInTheDocument();
+
+      // Simulate fullscreenchange event
+      Object.defineProperty(document, 'fullscreenElement', { value: document.body, writable: true });
+      fireEvent(document, new Event('fullscreenchange'));
+
+      expect(screen.getByLabelText('Exit fullscreen')).toBeInTheDocument();
+
+      // Reset
+      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true });
+    });
+  });
+
   describe('CHART_TYPES constant', () => {
     it('has 4 chart types', () => {
       expect(CHART_TYPES).toHaveLength(4);
