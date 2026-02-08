@@ -111,6 +111,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests for TradingChart (19 tests): periodToInterval utility, toolbar rendering, chart init, indicators, drawing tools, cleanup
 - Unit tests for DashboardChart (3 tests): store defaults, interval change propagation, symbol reflection
 
+- Watchlist Mongoose model (`src/lib/models/watchlist.ts`) with userId (unique, indexed) and symbols (default: BTC, ETH, SOL)
+- Watchlist CRUD API (`GET/PUT /api/watchlist`) with inline `auth()` session checks
+- GET auto-creates default watchlist on first access; PUT validates with Zod (string items, max 50) and upserts
+- Unit tests for Watchlist model (5 tests) with MongoMemoryServer integration
+- Unit tests for watchlist API routes (10 tests): auth guards, validation, CRUD operations
+
 ### Changed
 - Dashboard page now renders `<DashboardChart />` below `<MarketOverview />` for live trading chart
 - Removed Step 1 demo card page (`src/app/page.tsx`), replaced by `(dashboard)/page.tsx`
