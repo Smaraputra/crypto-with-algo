@@ -63,3 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Suspense boundary for `useSearchParams` in login page
 - Unit tests for Providers (3 tests), login page (9 tests), register page (11 tests)
 - E2E test specs for auth pages (5 tests, requires Docker services)
+- Binance REST client (`src/lib/binance.ts`) with configurable `BINANCE_API_URL` env var
+- `fetchTickers()` -- fetches 24h tickers filtered to USDT pairs
+- `fetchKlines(symbol, interval, limit?)` -- fetches OHLCV klines with float parsing
+- `fetchSymbols()` -- fetches exchange info filtered to TRADING status + USDT quote
+- Unit tests for Binance client (14 tests): tickers, klines, symbols, base URL config
