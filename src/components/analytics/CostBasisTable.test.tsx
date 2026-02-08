@@ -67,6 +67,7 @@ describe('CostBasisTable', () => {
     expect(table).toBeInTheDocument();
     expect(screen.getByText('BTC')).toBeInTheDocument();
     expect(screen.getByText('Cost Basis (FIFO)')).toBeInTheDocument();
+    expect(screen.getByTestId('method-selector')).toBeInTheDocument();
   });
 
   it('expands row to show tax lots on click', async () => {

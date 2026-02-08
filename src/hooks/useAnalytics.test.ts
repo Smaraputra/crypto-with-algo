@@ -103,7 +103,7 @@ describe('useCostBasis', () => {
     renderHook(() => useCostBasis('p1'), { wrapper });
 
     const cache = queryClient.getQueryCache().findAll();
-    expect(cache[0].queryKey).toEqual(['analytics', 'cost-basis', 'p1']);
+    expect(cache[0].queryKey).toEqual(['analytics', 'cost-basis', 'p1', 'fifo']);
   });
 
   it('fetches from correct URL', async () => {
@@ -114,7 +114,7 @@ describe('useCostBasis', () => {
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
-        '/api/analytics/cost-basis?portfolioId=p1',
+        '/api/analytics/cost-basis?portfolioId=p1&method=fifo',
         undefined
       );
     });
@@ -258,7 +258,7 @@ describe('useExportCsv', () => {
     vi.spyOn(document.body, 'appendChild').mockImplementation(() => null as never);
     vi.spyOn(document.body, 'removeChild').mockImplementation(() => null as never);
 
-    result.current.mutate(2024);
+    result.current.mutate({ year: 2024 });
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(

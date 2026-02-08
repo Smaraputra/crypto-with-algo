@@ -4,10 +4,11 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Portfolio, type IHolding } from '@/lib/models/portfolio';
 import { computeHoldingCostBasis } from '@/lib/cost-basis';
-import type { CostBasisResult, CostBasisHolding } from '@/types/analytics';
+import type { CostBasisResult, CostBasisHolding, CostBasisMethod } from '@/types/analytics';
 
 const querySchema = z.object({
   portfolioId: z.string().min(1),
+  method: z.enum(['fifo', 'lifo', 'hifo']).default('fifo'),
 });
 
 export async function GET(req: NextRequest) {
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { portfolioId } = parsed.data;
+  const { portfolioId, method } = parsed.data;
   await connectDB();
 
   const portfolio = await Portfolio.findOne({
@@ -37,13 +38,14 @@ export async function GET(req: NextRequest) {
   }
 
   const holdings: CostBasisHolding[] = portfolio.holdings.map((h: IHolding) =>
-    computeHoldingCostBasis(h.transactions, h.symbol)
+    computeHoldingCostBasis(h.transactions, h.symbol, method as CostBasisMethod)
   );
 
   const costBasis: CostBasisResult = {
     holdings,
     totalRealizedGain: holdings.reduce((s: number, h: CostBasisHolding) => s + h.totalRealizedGain, 0),
     totalUnrealizedCostBasis: holdings.reduce((s: number, h: CostBasisHolding) => s + h.totalCost, 0),
+    method: method as CostBasisMethod,
   };
 
   return NextResponse.json({ costBasis });

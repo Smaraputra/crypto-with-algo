@@ -7,6 +7,7 @@ import type {
   PortfolioHistoryResponse,
   CostBasisResponse,
   RiskMetricsResponse,
+  CostBasisMethod,
 } from '@/types/analytics';
 
 const STALE_TIME = 5 * 60 * 1000;
@@ -21,11 +22,11 @@ export function usePortfolioHistory(portfolioId: string | null, range = 30) {
   });
 }
 
-export function useCostBasis(portfolioId: string | null) {
+export function useCostBasis(portfolioId: string | null, method: CostBasisMethod = 'fifo') {
   return useQuery<CostBasisResponse>({
-    queryKey: ['analytics', 'cost-basis', portfolioId],
+    queryKey: ['analytics', 'cost-basis', portfolioId, method],
     queryFn: () =>
-      fetchJson(`/api/analytics/cost-basis?portfolioId=${portfolioId}`),
+      fetchJson(`/api/analytics/cost-basis?portfolioId=${portfolioId}&method=${method}`),
     enabled: !!portfolioId,
     staleTime: STALE_TIME,
   });
@@ -41,12 +42,18 @@ export function useRiskMetrics(portfolioId: string | null, range = 90) {
   });
 }
 
+export interface ExportCsvOptions {
+  year?: number;
+  method?: CostBasisMethod;
+}
+
 export function useExportCsv(portfolioId: string | null) {
   const downloadCsv = useCallback(
-    async (year?: number) => {
+    async (opts?: ExportCsvOptions) => {
       if (!portfolioId) return;
       const params = new URLSearchParams({ portfolioId });
-      if (year) params.set('year', String(year));
+      if (opts?.year) params.set('year', String(opts.year));
+      if (opts?.method) params.set('method', opts.method);
 
       const res = await fetch(`/api/analytics/export?${params}`);
       if (!res.ok) throw new Error('Export failed');
@@ -55,7 +62,7 @@ export function useExportCsv(portfolioId: string | null) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = year ? `tax-report-${year}.csv` : 'tax-report.csv';
+      a.download = opts?.year ? `tax-report-${opts.year}.csv` : 'tax-report.csv';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -1,19 +1,49 @@
 import type { Transaction } from '@/types/portfolio';
-import type { TaxLot, RealizedGain, CostBasisHolding } from '@/types/analytics';
+import type { TaxLot, RealizedGain, CostBasisHolding, CostBasisMethod } from '@/types/analytics';
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-export interface FIFOResult {
+export interface CostBasisComputeResult {
   openLots: TaxLot[];
   realizedGains: RealizedGain[];
   totalRealizedGain: number;
   totalUnrealizedCostBasis: number;
 }
 
-export function computeFIFO(
+/** @deprecated Use CostBasisComputeResult instead */
+export type FIFOResult = CostBasisComputeResult;
+
+type LotSelector = (lots: TaxLot[]) => TaxLot | undefined;
+
+function selectFIFO(lots: TaxLot[]): TaxLot | undefined {
+  return lots.find((l) => l.remainingQuantity > 0);
+}
+
+function selectLIFO(lots: TaxLot[]): TaxLot | undefined {
+  return lots.findLast((l) => l.remainingQuantity > 0);
+}
+
+function selectHIFO(lots: TaxLot[]): TaxLot | undefined {
+  let best: TaxLot | undefined;
+  for (const lot of lots) {
+    if (lot.remainingQuantity > 0 && (!best || lot.pricePerUnit > best.pricePerUnit)) {
+      best = lot;
+    }
+  }
+  return best;
+}
+
+const LOT_SELECTORS: Record<CostBasisMethod, LotSelector> = {
+  fifo: selectFIFO,
+  lifo: selectLIFO,
+  hifo: selectHIFO,
+};
+
+export function computeCostBasis(
+  method: CostBasisMethod,
   transactions: Transaction[],
   symbol: string
-): FIFOResult {
+): CostBasisComputeResult {
   if (transactions.length === 0) {
     return {
       openLots: [],
@@ -22,6 +52,8 @@ export function computeFIFO(
       totalUnrealizedCostBasis: 0,
     };
   }
+
+  const selectLot = LOT_SELECTORS[method];
 
   const sorted = [...transactions].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
@@ -49,19 +81,19 @@ export function computeFIFO(
       const sellDate = new Date(tx.date);
 
       while (remaining > 0 && lots.length > 0) {
-        const oldest = lots.find((l) => l.remainingQuantity > 0);
-        if (!oldest) break;
+        const selected = selectLot(lots);
+        if (!selected) break;
 
-        const depleted = Math.min(remaining, oldest.remainingQuantity);
+        const depleted = Math.min(remaining, selected.remainingQuantity);
         const proceeds = depleted * tx.price;
         const feeShare = (depleted / tx.quantity) * sellFee;
         const adjustedProceeds = proceeds - feeShare;
-        const costBasis = depleted * oldest.pricePerUnit;
-        const holdingMs = sellDate.getTime() - oldest.date.getTime();
+        const costBasis = depleted * selected.pricePerUnit;
+        const holdingMs = sellDate.getTime() - selected.date.getTime();
 
         gains.push({
           sellDate,
-          buyDate: oldest.date,
+          buyDate: selected.date,
           quantity: depleted,
           proceeds: adjustedProceeds,
           costBasis,
@@ -70,11 +102,11 @@ export function computeFIFO(
           symbol,
         });
 
-        oldest.remainingQuantity -= depleted;
+        selected.remainingQuantity -= depleted;
         remaining -= depleted;
 
-        if (oldest.remainingQuantity <= 0) {
-          const idx = lots.indexOf(oldest);
+        if (selected.remainingQuantity <= 0) {
+          const idx = lots.indexOf(selected);
           lots.splice(idx, 1);
         }
       }
@@ -96,11 +128,20 @@ export function computeFIFO(
   };
 }
 
-export function computeHoldingCostBasis(
+/** Backward-compatible wrapper: computes cost basis using FIFO */
+export function computeFIFO(
   transactions: Transaction[],
   symbol: string
+): CostBasisComputeResult {
+  return computeCostBasis('fifo', transactions, symbol);
+}
+
+export function computeHoldingCostBasis(
+  transactions: Transaction[],
+  symbol: string,
+  method: CostBasisMethod = 'fifo'
 ): CostBasisHolding {
-  const result = computeFIFO(transactions, symbol);
+  const result = computeCostBasis(method, transactions, symbol);
   const totalQuantity = result.openLots.reduce(
     (sum, l) => sum + l.remainingQuantity,
     0
