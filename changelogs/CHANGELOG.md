@@ -156,6 +156,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests for dashboard error page (3 tests): error message, button render, reset callback
 - Unit tests for dashboard page (5 tests): heading, welcome with/without name, MarketOverview present, DashboardChart present
 
+- Expanded price history API to support 13 intervals (added 3m, 30m, 2h, 6h, 12h, 1w, 1M) with startTime/endTime range params
+- Symbol search command palette (Cmd+K) with `/api/symbols` endpoint, 1h Redis cache, client-side filtering via cmdk
+- Chart type selector dropdown: Candles, Hollow, OHLC, Area modes via `chart.setStyles({ candle: { type } })`
+- Indicator parameter customization panel with per-indicator settings popover (sliders + number inputs), live preview via `chart.overrideIndicator()`
+- `indicator-params.ts` with parameter metadata (labels, defaults, min, max, step) for all 9 indicators
+- Crosshair OHLCV legend overlay showing symbol, O/H/L/C (color-coded), volume (K/M formatted), and change %
+- `ChartLegend` component with `formatPrice()` and `formatVolume()` utilities
+- Fullscreen mode with native Fullscreen API and CSS fixed-position fallback
+- Enhanced drawing tools: 8 tools (trendline, horizontal line, ray, extended line, horizontal ray, vertical line, Fibonacci retracement, parallel channel)
+- Magnet mode toggle for drawing tool snapping (`weak_magnet` OverlayMode)
+- Drawing persistence via localStorage keyed by symbol (`chart-storage.ts`: saveOverlays, loadOverlays, clearOverlays)
+- Overlays auto-save on draw/move events and auto-load on symbol change
+- `useSymbols` TanStack Query hook with 1h staleTime
+- `SymbolSearch` component integrated into Header with search button
+- shadcn/ui components: Command, Popover, ScrollArea, Slider
+- Unit tests for chart-storage (10), IndicatorSettings (6), ChartLegend (10), indicator-params (9), SymbolSearch (7), useSymbols (3), symbols route (5)
+
 ### Changed
 - Sidebar: Portfolio nav item enabled (was disabled with "Soon" badge), now links to `/portfolio`
 - Dashboard page now renders `<DashboardChart />` below `<MarketOverview />` for live trading chart

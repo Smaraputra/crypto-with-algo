@@ -10,18 +10,24 @@ import {
   type DataLoaderGetBarsParams,
   type DataLoaderSubscribeBarParams,
   type KLineData,
+  type OverlayMode,
   type Period,
 } from 'klinecharts';
 import { useChartResize } from '@/hooks/useChartResize';
 import {
   Activity,
+  ArrowRight,
   BarChart2,
   ChevronDown,
+  Magnet,
   Maximize2,
   Minimize2,
+  MoveRight,
   TrendingUp,
   Minus,
+  MoveVertical,
   Move,
+  Slash,
   Trash2,
   RefreshCw,
 } from 'lucide-react';
@@ -41,6 +47,7 @@ import { Separator } from '@/components/ui/separator';
 import { IndicatorSettings } from './IndicatorSettings';
 import { ChartLegend } from './ChartLegend';
 import { getDefaultCalcParams } from './indicator-params';
+import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
 const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
 
@@ -103,6 +110,17 @@ export const INTERVALS: { value: string; label: string; period: Period }[] = [
 export const PRIMARY_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 export const MORE_INTERVALS = ['3m', '30m', '2h', '6h', '12h', '1w', '1M'];
 
+export const DRAWING_TOOLS: { id: string; label: string; icon: 'segment' | 'horizontalStraightLine' | 'fibonacciLine' | 'parallelStraightLine' | 'rayLine' | 'straightLine' | 'horizontalRayLine' | 'verticalStraightLine' }[] = [
+  { id: 'segment', label: 'Trendline', icon: 'segment' },
+  { id: 'horizontalStraightLine', label: 'Horizontal Line', icon: 'horizontalStraightLine' },
+  { id: 'rayLine', label: 'Ray', icon: 'rayLine' },
+  { id: 'straightLine', label: 'Extended Line', icon: 'straightLine' },
+  { id: 'horizontalRayLine', label: 'Horizontal Ray', icon: 'horizontalRayLine' },
+  { id: 'verticalStraightLine', label: 'Vertical Line', icon: 'verticalStraightLine' },
+  { id: 'fibonacciLine', label: 'Fibonacci Retracement', icon: 'fibonacciLine' },
+  { id: 'parallelStraightLine', label: 'Parallel Channel', icon: 'parallelStraightLine' },
+];
+
 export function periodToInterval(period: Period): string {
   switch (period.type) {
     case 'minute':
@@ -120,6 +138,20 @@ export function periodToInterval(period: Period): string {
   }
 }
 
+function DrawingToolIcon({ icon }: { icon: string }) {
+  switch (icon) {
+    case 'segment': return <TrendingUp className="h-4 w-4" />;
+    case 'horizontalStraightLine': return <Minus className="h-4 w-4" />;
+    case 'rayLine': return <ArrowRight className="h-4 w-4" />;
+    case 'straightLine': return <Slash className="h-4 w-4" />;
+    case 'horizontalRayLine': return <MoveRight className="h-4 w-4" />;
+    case 'verticalStraightLine': return <MoveVertical className="h-4 w-4" />;
+    case 'fibonacciLine': return <Activity className="h-4 w-4" />;
+    case 'parallelStraightLine': return <Move className="h-4 w-4" />;
+    default: return <TrendingUp className="h-4 w-4" />;
+  }
+}
+
 export function TradingChart({ symbol, interval, chartType = 'candle_solid', onIntervalChange, onChartTypeChange }: TradingChartProps) {
   const chartRef = useRef<Chart | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -129,6 +161,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
   const [wsConnected, setWsConnected] = useState(false);
   const [crosshairData, setCrosshairData] = useState<KLineData | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [magnetMode, setMagnetMode] = useState<OverlayMode>('normal');
   const wsRef = useRef<WebSocket | null>(null);
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
 
@@ -192,6 +225,49 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     },
     []
   );
+
+  const persistOverlays = useCallback(() => {
+    if (!chartRef.current) return;
+    const allOverlays = chartRef.current.getOverlays();
+    const serialized: SerializedOverlay[] = allOverlays
+      .filter((o) => o.points.length > 0)
+      .map((o) => ({
+        name: o.name,
+        points: o.points.map((p) => ({
+          ...(p.dataIndex !== undefined && { dataIndex: p.dataIndex }),
+          ...(p.timestamp !== undefined && { timestamp: p.timestamp }),
+          ...(p.value !== undefined && { value: p.value }),
+        })),
+      }));
+    saveOverlays(symbol, serialized);
+  }, [symbol]);
+
+  const activateDrawingTool = useCallback((tool: string) => {
+    if (!chartRef.current) return;
+
+    if (activeDrawingTool === tool) {
+      chartRef.current.removeOverlay();
+      setActiveDrawingTool(null);
+    } else {
+      chartRef.current.createOverlay({
+        name: tool,
+        mode: magnetMode,
+        onDrawEnd: () => { persistOverlays(); },
+        onPressedMoveEnd: () => { persistOverlays(); },
+      });
+      setActiveDrawingTool(tool);
+    }
+  }, [activeDrawingTool, magnetMode, persistOverlays]);
+
+  const clearDrawings = useCallback(() => {
+    chartRef.current?.removeOverlay();
+    setActiveDrawingTool(null);
+    clearOverlays(symbol);
+  }, [symbol]);
+
+  const toggleMagnetMode = useCallback(() => {
+    setMagnetMode((prev) => (prev === 'normal' ? 'weak_magnet' : 'normal'));
+  }, []);
 
   // Initialize chart with DataLoader
   useEffect(() => {
@@ -388,6 +464,23 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     };
   }, [hasValidDimensions]);
 
+  // Load saved overlays when symbol changes
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const chart = chartRef.current;
+    const saved = loadOverlays(symbol);
+    for (const overlay of saved) {
+      chart.createOverlay({
+        name: overlay.name,
+        points: overlay.points,
+        mode: magnetMode,
+        onDrawEnd: () => { persistOverlays(); },
+        onPressedMoveEnd: () => { persistOverlays(); },
+        onRemoved: () => { persistOverlays(); },
+      });
+    }
+  }, [symbol, hasValidDimensions, magnetMode, persistOverlays]);
+
   // Track fullscreen changes (e.g. Escape key exits natively)
   useEffect(() => {
     function handleFullscreenChange() {
@@ -409,23 +502,6 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
       setIsFullscreen((prev) => !prev);
     }
   }, []);
-
-  const activateDrawingTool = (tool: string) => {
-    if (!chartRef.current) return;
-
-    if (activeDrawingTool === tool) {
-      chartRef.current.removeOverlay();
-      setActiveDrawingTool(null);
-    } else {
-      chartRef.current.createOverlay(tool);
-      setActiveDrawingTool(tool);
-    }
-  };
-
-  const clearDrawings = () => {
-    chartRef.current?.removeOverlay();
-    setActiveDrawingTool(null);
-  };
 
   const handleRefresh = () => {
     if (!chartRef.current) return;
@@ -621,63 +697,39 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
       {/* Drawing Toolbar */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-muted/20 p-1">
         <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={activeDrawingTool === 'segment' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => activateDrawingTool('segment')}
-              >
-                <TrendingUp className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Trendline</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={activeDrawingTool === 'horizontalStraightLine' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => activateDrawingTool('horizontalStraightLine')}
-              >
-                <Minus className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Horizontal Line</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={activeDrawingTool === 'fibonacciLine' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => activateDrawingTool('fibonacciLine')}
-              >
-                <Activity className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Fibonacci Retracement</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={activeDrawingTool === 'parallelStraightLine' ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-7 w-7 p-0"
-                onClick={() => activateDrawingTool('parallelStraightLine')}
-              >
-                <Move className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Parallel Channel</TooltipContent>
-          </Tooltip>
+          {DRAWING_TOOLS.map((tool) => (
+            <Tooltip key={tool.id}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={activeDrawingTool === tool.id ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => activateDrawingTool(tool.id)}
+                  aria-label={tool.label}
+                >
+                  <DrawingToolIcon icon={tool.icon} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{tool.label}</TooltipContent>
+            </Tooltip>
+          ))}
 
           <Separator orientation="vertical" className="mx-1 h-4" />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={magnetMode === 'weak_magnet' ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={toggleMagnetMode}
+                aria-label={magnetMode === 'weak_magnet' ? 'Disable magnet mode' : 'Enable magnet mode'}
+              >
+                <Magnet className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{magnetMode === 'weak_magnet' ? 'Magnet: On' : 'Magnet: Off'}</TooltipContent>
+          </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -686,6 +738,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
                 size="sm"
                 className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 onClick={clearDrawings}
+                aria-label="Clear drawings"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
