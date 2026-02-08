@@ -57,16 +57,17 @@ describe('Sidebar', () => {
     expect(dashboardLink?.closest('a')).toHaveAttribute('href', '/');
   });
 
-  it('renders Portfolio item with Soon badge', () => {
+  it('renders Portfolio item linking to /portfolio', () => {
     render(<Sidebar />);
-    expect(screen.getAllByText('Portfolio').length).toBeGreaterThan(0);
-    const soonBadges = screen.getAllByText('Soon');
-    expect(soonBadges.length).toBeGreaterThanOrEqual(2); // desktop + mobile
+    const portfolioLinks = screen.getAllByText('Portfolio');
+    const link = portfolioLinks.find((el) => el.closest('a'))?.closest('a');
+    expect(link).toHaveAttribute('href', '/portfolio');
   });
 
   it('renders Alerts item with Soon badge', () => {
     render(<Sidebar />);
-    expect(screen.getAllByText('Alerts').length).toBeGreaterThan(0);
+    const soonBadges = screen.getAllByText('Soon');
+    expect(soonBadges.length).toBeGreaterThanOrEqual(1);
   });
 
   it('highlights active item when pathname matches', () => {
@@ -88,8 +89,8 @@ describe('Sidebar', () => {
 
   it('applies disabled styles to disabled items', () => {
     render(<Sidebar />);
-    const portfolioLinks = screen.getAllByText('Portfolio');
-    const link = portfolioLinks.find((el) => el.closest('a'))?.closest('a');
+    const alertsLinks = screen.getAllByText('Alerts');
+    const link = alertsLinks.find((el) => el.closest('a'))?.closest('a');
     expect(link?.className).toContain('pointer-events-none');
     expect(link?.className).toContain('opacity-40');
   });
