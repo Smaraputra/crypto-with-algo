@@ -20,7 +20,12 @@ vi.mock('@/stores/uiStore', () => ({
     selector({
       toggleSidebar: mockToggleSidebar,
       setMobileSidebarOpen: mockSetMobileSidebarOpen,
+      setSelectedSymbol: vi.fn(),
     }),
+}));
+
+vi.mock('@/hooks/useSymbols', () => ({
+  useSymbols: () => ({ data: [], isLoading: false }),
 }));
 
 import { Header } from './Header';
@@ -71,6 +76,11 @@ describe('Header', () => {
   it('does not show user dropdown when no session', () => {
     render(<Header />);
     expect(screen.queryByText('Test User')).not.toBeInTheDocument();
+  });
+
+  it('renders search button for symbol search', () => {
+    render(<Header />);
+    expect(screen.getByLabelText('Search trading pairs')).toBeInTheDocument();
   });
 
   it('calls signOut with callbackUrl on sign out click', async () => {

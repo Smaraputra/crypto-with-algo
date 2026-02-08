@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useUIStore } from '@/stores/uiStore';
+import { SymbolSearch } from '@/components/market/SymbolSearch';
 
 export function Header() {
   const { data: session } = useSession();
@@ -42,6 +43,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        <SymbolSearch />
         {session?.user && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
