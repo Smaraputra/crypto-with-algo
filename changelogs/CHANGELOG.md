@@ -131,7 +131,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - E2E dashboard feature tests (5 tests): market overview, chart container, interval tabs, watchlist symbols, add dropdown
 - `e2e/.auth/` added to `.gitignore` for ephemeral session state
 
+- `ErrorBoundary` class component with default fallback, static fallback, and render-function fallback support
+- Route-level `error.tsx` for dashboard route group with centered error card and retry button
+- Dashboard page wraps `MarketOverview` and `DashboardChart` in independent `ErrorBoundary` components
+- Security headers in `next.config.ts`: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- Unit tests for ErrorBoundary (6 tests): children render, default fallback, reset, onError callback, static fallback, render-function fallback
+- Unit tests for dashboard error page (3 tests): error message, button render, reset callback
+- Unit tests for dashboard page (5 tests): heading, welcome with/without name, MarketOverview present, DashboardChart present
+
 ### Changed
 - Dashboard page now renders `<DashboardChart />` below `<MarketOverview />` for live trading chart
+- Dashboard page wraps `MarketOverview` and `DashboardChart` in `ErrorBoundary` for independent failure isolation
 - Removed Step 1 demo card page (`src/app/page.tsx`), replaced by `(dashboard)/page.tsx`
 - `NEXT_PUBLIC_BINANCE_WS_URL` in `.env.example` now omits `/ws` suffix (hooks append path segments as needed)
