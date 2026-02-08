@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeFIFO, computeHoldingCostBasis } from './cost-basis';
+import { computeFIFO, computeCostBasis, computeHoldingCostBasis } from './cost-basis';
 import type { Transaction } from '@/types/portfolio';
 
 function tx(
@@ -270,6 +270,115 @@ describe('computeFIFO', () => {
   });
 });
 
+describe('computeCostBasis with LIFO', () => {
+  it('depletes lots in LIFO order (last bought first sold)', () => {
+    const transactions = [
+      tx({ type: 'buy', quantity: 0.5, price: 30000, date: new Date('2024-01-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 50000, date: new Date('2024-02-01') }),
+      tx({ type: 'sell', quantity: 0.3, price: 60000, date: new Date('2024-06-15') }),
+    ];
+    const result = computeCostBasis('lifo', transactions, 'BTCUSDT');
+
+    // LIFO picks the second lot (50000) first
+    expect(result.realizedGains).toHaveLength(1);
+    expect(result.realizedGains[0].costBasis).toBeCloseTo(0.3 * 50000);
+    expect(result.realizedGains[0].gain).toBeCloseTo(0.3 * (60000 - 50000));
+
+    // Remaining: lot1 fully intact, lot2 partially depleted
+    expect(result.openLots).toHaveLength(2);
+    expect(result.openLots[0].pricePerUnit).toBe(30000);
+    expect(result.openLots[0].remainingQuantity).toBe(0.5);
+    expect(result.openLots[1].pricePerUnit).toBe(50000);
+    expect(result.openLots[1].remainingQuantity).toBeCloseTo(0.2);
+  });
+
+  it('depletes multiple lots in LIFO order', () => {
+    const transactions = [
+      tx({ type: 'buy', quantity: 0.5, price: 30000, date: new Date('2024-01-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 50000, date: new Date('2024-02-01') }),
+      tx({ type: 'sell', quantity: 0.7, price: 60000, date: new Date('2024-06-15') }),
+    ];
+    const result = computeCostBasis('lifo', transactions, 'BTCUSDT');
+
+    // LIFO depletes lot2 (0.5@50k) fully, then lot1 (0.2@30k)
+    expect(result.realizedGains).toHaveLength(2);
+    expect(result.realizedGains[0].quantity).toBe(0.5);
+    expect(result.realizedGains[0].costBasis).toBe(25000);
+    expect(result.realizedGains[1].quantity).toBeCloseTo(0.2);
+    expect(result.realizedGains[1].costBasis).toBeCloseTo(6000);
+
+    expect(result.openLots).toHaveLength(1);
+    expect(result.openLots[0].pricePerUnit).toBe(30000);
+    expect(result.openLots[0].remainingQuantity).toBeCloseTo(0.3);
+  });
+
+  it('returns empty result for no transactions', () => {
+    const result = computeCostBasis('lifo', [], 'BTCUSDT');
+    expect(result.openLots).toEqual([]);
+    expect(result.realizedGains).toEqual([]);
+  });
+});
+
+describe('computeCostBasis with HIFO', () => {
+  it('depletes highest-cost lot first', () => {
+    const transactions = [
+      tx({ type: 'buy', quantity: 0.5, price: 30000, date: new Date('2024-01-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 50000, date: new Date('2024-02-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 40000, date: new Date('2024-03-01') }),
+      tx({ type: 'sell', quantity: 0.3, price: 60000, date: new Date('2024-06-15') }),
+    ];
+    const result = computeCostBasis('hifo', transactions, 'BTCUSDT');
+
+    // HIFO picks the 50000 lot first (highest cost)
+    expect(result.realizedGains).toHaveLength(1);
+    expect(result.realizedGains[0].costBasis).toBeCloseTo(0.3 * 50000);
+    expect(result.realizedGains[0].gain).toBeCloseTo(0.3 * (60000 - 50000));
+  });
+
+  it('moves to next highest lot when first is depleted', () => {
+    const transactions = [
+      tx({ type: 'buy', quantity: 0.5, price: 30000, date: new Date('2024-01-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 50000, date: new Date('2024-02-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 40000, date: new Date('2024-03-01') }),
+      tx({ type: 'sell', quantity: 0.8, price: 60000, date: new Date('2024-06-15') }),
+    ];
+    const result = computeCostBasis('hifo', transactions, 'BTCUSDT');
+
+    // HIFO depletes 50k lot (0.5), then 40k lot (0.3)
+    expect(result.realizedGains).toHaveLength(2);
+    expect(result.realizedGains[0].costBasis).toBe(0.5 * 50000);
+    expect(result.realizedGains[1].costBasis).toBeCloseTo(0.3 * 40000);
+
+    expect(result.openLots).toHaveLength(2);
+    // Remaining: 30k lot fully intact, 40k lot partially
+    const remaining30k = result.openLots.find((l) => l.pricePerUnit === 30000);
+    const remaining40k = result.openLots.find((l) => l.pricePerUnit === 40000);
+    expect(remaining30k?.remainingQuantity).toBe(0.5);
+    expect(remaining40k?.remainingQuantity).toBeCloseTo(0.2);
+  });
+
+  it('minimizes gain by selecting highest cost lots', () => {
+    const transactions = [
+      tx({ type: 'buy', quantity: 1, price: 30000, date: new Date('2024-01-01') }),
+      tx({ type: 'buy', quantity: 1, price: 55000, date: new Date('2024-02-01') }),
+      tx({ type: 'sell', quantity: 1, price: 60000, date: new Date('2024-06-15') }),
+    ];
+    const fifo = computeCostBasis('fifo', transactions, 'BTCUSDT');
+    const hifo = computeCostBasis('hifo', transactions, 'BTCUSDT');
+
+    // FIFO sells the 30k lot (gain = 30000), HIFO sells the 55k lot (gain = 5000)
+    expect(fifo.totalRealizedGain).toBe(30000);
+    expect(hifo.totalRealizedGain).toBe(5000);
+    expect(hifo.totalRealizedGain).toBeLessThan(fifo.totalRealizedGain);
+  });
+
+  it('returns empty result for no transactions', () => {
+    const result = computeCostBasis('hifo', [], 'BTCUSDT');
+    expect(result.openLots).toEqual([]);
+    expect(result.realizedGains).toEqual([]);
+  });
+});
+
 describe('computeHoldingCostBasis', () => {
   it('computes holding-level summary from transactions', () => {
     const transactions = [
@@ -296,5 +405,29 @@ describe('computeHoldingCostBasis', () => {
 
     expect(result.totalQuantity).toBe(0);
     expect(result.averageCost).toBe(0);
+  });
+
+  it('supports method parameter for LIFO', () => {
+    const transactions = [
+      tx({ type: 'buy', quantity: 0.5, price: 30000, date: new Date('2024-01-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 50000, date: new Date('2024-02-01') }),
+      tx({ type: 'sell', quantity: 0.3, price: 60000, date: new Date('2024-06-15') }),
+    ];
+    const result = computeHoldingCostBasis(transactions, 'BTCUSDT', 'lifo');
+
+    // LIFO sells from the 50k lot
+    expect(result.totalRealizedGain).toBeCloseTo(0.3 * (60000 - 50000));
+  });
+
+  it('defaults to FIFO when no method specified', () => {
+    const transactions = [
+      tx({ type: 'buy', quantity: 0.5, price: 30000, date: new Date('2024-01-01') }),
+      tx({ type: 'buy', quantity: 0.5, price: 50000, date: new Date('2024-02-01') }),
+      tx({ type: 'sell', quantity: 0.3, price: 60000, date: new Date('2024-06-15') }),
+    ];
+    const defaultResult = computeHoldingCostBasis(transactions, 'BTCUSDT');
+    const fifoResult = computeHoldingCostBasis(transactions, 'BTCUSDT', 'fifo');
+
+    expect(defaultResult.totalRealizedGain).toBe(fifoResult.totalRealizedGain);
   });
 });

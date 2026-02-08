@@ -56,10 +56,13 @@ export interface CostBasisHolding {
   totalRealizedGain: number;
 }
 
+export type CostBasisMethod = 'fifo' | 'lifo' | 'hifo';
+
 export interface CostBasisResult {
   holdings: CostBasisHolding[];
   totalRealizedGain: number;
   totalUnrealizedCostBasis: number;
+  method: CostBasisMethod;
 }
 
 export interface RiskMetrics {

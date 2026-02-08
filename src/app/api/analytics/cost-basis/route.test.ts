@@ -109,4 +109,79 @@ describe('GET /api/analytics/cost-basis', () => {
       userId: 'user-1',
     });
   });
+
+  it('accepts method=lifo parameter', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(Portfolio.findOne).mockResolvedValue({
+      _id: 'p1',
+      userId: 'user-1',
+      holdings: [
+        {
+          symbol: 'BTCUSDT',
+          transactions: [
+            { type: 'buy', quantity: 1, price: 30000, date: new Date('2024-01-01') },
+            { type: 'buy', quantity: 1, price: 50000, date: new Date('2024-02-01') },
+            { type: 'sell', quantity: 1, price: 60000, date: new Date('2024-06-15') },
+          ],
+        },
+      ],
+    } as never);
+
+    const res = await GET(makeRequest({ portfolioId: 'p1', method: 'lifo' }));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.costBasis.method).toBe('lifo');
+    // LIFO sells from 50k lot: gain = 60k - 50k = 10k
+    expect(data.costBasis.totalRealizedGain).toBe(10000);
+  });
+
+  it('accepts method=hifo parameter', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(Portfolio.findOne).mockResolvedValue({
+      _id: 'p1',
+      userId: 'user-1',
+      holdings: [
+        {
+          symbol: 'BTCUSDT',
+          transactions: [
+            { type: 'buy', quantity: 1, price: 30000, date: new Date('2024-01-01') },
+            { type: 'buy', quantity: 1, price: 50000, date: new Date('2024-02-01') },
+            { type: 'sell', quantity: 1, price: 60000, date: new Date('2024-06-15') },
+          ],
+        },
+      ],
+    } as never);
+
+    const res = await GET(makeRequest({ portfolioId: 'p1', method: 'hifo' }));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.costBasis.method).toBe('hifo');
+    // HIFO sells from 50k lot (highest): gain = 60k - 50k = 10k
+    expect(data.costBasis.totalRealizedGain).toBe(10000);
+  });
+
+  it('defaults to FIFO when method not specified', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(Portfolio.findOne).mockResolvedValue({
+      _id: 'p1',
+      userId: 'user-1',
+      holdings: [
+        {
+          symbol: 'BTCUSDT',
+          transactions: [
+            { type: 'buy', quantity: 1, price: 30000, date: new Date('2024-01-01') },
+            { type: 'buy', quantity: 1, price: 50000, date: new Date('2024-02-01') },
+            { type: 'sell', quantity: 1, price: 60000, date: new Date('2024-06-15') },
+          ],
+        },
+      ],
+    } as never);
+
+    const res = await GET(makeRequest({ portfolioId: 'p1' }));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.costBasis.method).toBe('fifo');
+    // FIFO sells from 30k lot: gain = 60k - 30k = 30k
+    expect(data.costBasis.totalRealizedGain).toBe(30000);
+  });
 });

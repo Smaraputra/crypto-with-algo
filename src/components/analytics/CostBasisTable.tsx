@@ -4,12 +4,25 @@ import { useState } from 'react';
 import { ChevronRight, ChevronDown, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useCostBasis, useExportCsv } from '@/hooks/useAnalytics';
-import type { CostBasisHolding } from '@/types/analytics';
+import type { CostBasisHolding, CostBasisMethod } from '@/types/analytics';
 
 interface CostBasisTableProps {
   portfolioId: string | null;
 }
+
+const METHOD_LABELS: Record<CostBasisMethod, string> = {
+  fifo: 'FIFO',
+  lifo: 'LIFO',
+  hifo: 'HIFO',
+};
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -25,7 +38,8 @@ function formatQuantity(value: number): string {
 }
 
 export function CostBasisTable({ portfolioId }: CostBasisTableProps) {
-  const { data, isLoading } = useCostBasis(portfolioId);
+  const [method, setMethod] = useState<CostBasisMethod>('fifo');
+  const { data, isLoading } = useCostBasis(portfolioId, method);
   const exportCsv = useExportCsv(portfolioId);
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
 
@@ -56,18 +70,35 @@ export function CostBasisTable({ portfolioId }: CostBasisTableProps) {
   return (
     <Card data-testid="cost-basis-table">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium">Cost Basis (FIFO)</CardTitle>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 text-xs"
-          onClick={() => exportCsv.mutate(undefined)}
-          disabled={exportCsv.isPending}
-          data-testid="export-csv-button"
-        >
-          <Download className="h-3 w-3" />
-          {exportCsv.isPending ? 'Exporting...' : 'Export CSV'}
-        </Button>
+        <CardTitle className="text-sm font-medium">
+          Cost Basis ({METHOD_LABELS[method]})
+        </CardTitle>
+        <div className="flex items-center gap-2">
+          <Select
+            value={method}
+            onValueChange={(v) => setMethod(v as CostBasisMethod)}
+          >
+            <SelectTrigger className="h-7 w-24 text-xs" data-testid="method-selector">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fifo">FIFO</SelectItem>
+              <SelectItem value="lifo">LIFO</SelectItem>
+              <SelectItem value="hifo">HIFO</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={() => exportCsv.mutate({ method })}
+            disabled={exportCsv.isPending}
+            data-testid="export-csv-button"
+          >
+            <Download className="h-3 w-3" />
+            {exportCsv.isPending ? 'Exporting...' : 'Export CSV'}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
@@ -77,7 +108,7 @@ export function CostBasisTable({ portfolioId }: CostBasisTableProps) {
                 <th className="pb-2 pr-4" />
                 <th className="pb-2 pr-4">Asset</th>
                 <th className="pb-2 pr-4 text-right">Qty Held</th>
-                <th className="pb-2 pr-4 text-right">FIFO Avg Cost</th>
+                <th className="pb-2 pr-4 text-right">{METHOD_LABELS[method]} Avg Cost</th>
                 <th className="pb-2 pr-4 text-right">Total Cost</th>
                 <th className="pb-2 pr-4 text-right">Realized P&L</th>
               </tr>

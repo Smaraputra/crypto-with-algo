@@ -94,6 +94,7 @@ export const mockCostBasisResult: CostBasisResult = {
   holdings: [mockCostBasisHolding],
   totalRealizedGain: 4996,
   totalUnrealizedCostBasis: 12006,
+  method: 'fifo',
 };
 
 export const mockRiskMetrics: RiskMetrics = {

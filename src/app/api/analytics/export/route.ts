@@ -5,10 +5,12 @@ import { connectDB } from '@/lib/mongodb';
 import { Portfolio, type IHolding } from '@/lib/models/portfolio';
 import { computeHoldingCostBasis } from '@/lib/cost-basis';
 import { generateTaxCsv } from '@/lib/csv-export';
+import type { CostBasisMethod } from '@/types/analytics';
 
 const querySchema = z.object({
   portfolioId: z.string().min(1),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
+  method: z.enum(['fifo', 'lifo', 'hifo']).default('fifo'),
 });
 
 export async function GET(req: NextRequest) {
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { portfolioId, year } = parsed.data;
+  const { portfolioId, year, method } = parsed.data;
   await connectDB();
 
   const portfolio = await Portfolio.findOne({
@@ -38,7 +40,7 @@ export async function GET(req: NextRequest) {
   }
 
   const holdingsData = portfolio.holdings.map((h: IHolding) => {
-    const costBasis = computeHoldingCostBasis(h.transactions, h.symbol);
+    const costBasis = computeHoldingCostBasis(h.transactions, h.symbol, method as CostBasisMethod);
     return {
       symbol: h.symbol,
       transactions: h.transactions,
