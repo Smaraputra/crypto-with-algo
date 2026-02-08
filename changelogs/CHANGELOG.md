@@ -173,7 +173,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - shadcn/ui components: Command, Popover, ScrollArea, Slider
 - Unit tests for chart-storage (10), IndicatorSettings (6), ChartLegend (10), indicator-params (9), SymbolSearch (7), useSymbols (3), symbols route (5)
 
+- Alert Mongoose model (`src/lib/models/alert.ts`) with 6 alert types: price_above, price_below, price_change_pct, portfolio_value_above, portfolio_value_below, holding_change_pct
+- Alert types (`src/types/alert.ts`): AlertType, AlertStatus unions, Alert interface, CRUD input types
+- Compound indexes on `{ userId, status }` and `{ status }` for efficient querying
+- Alert CRUD API: GET list with `?status=` filter, POST create with conditional Zod validation per alert type
+- Alert single-resource API: GET, PATCH, DELETE with ownership enforcement
+- Per-user alert limit of 50 enforced at API creation time
+- `fetchTickerPrices()` Binance function for batch price fetching via `/api/v3/ticker/price?symbols=`
+- Cron alert evaluator (`GET /api/cron/check-alerts`) with CRON_SECRET bearer token auth
+- Price alert evaluation: fetches current prices, triggers on threshold crossing
+- Portfolio value alert evaluation: calculates portfolio total value from holdings and current prices
+- Holding change alert evaluation: compares current price against average buy price for P&L %
+- Recurring alert support with cooldown logic (`lastTriggeredAt` + `cooldownMinutes`)
+- Alert TanStack Query hooks: useAlerts, useAlert, useCreateAlert, useUpdateAlert, useDeleteAlert, useAcknowledgeAlert, useUnreadAlertCount (30s polling)
+- `CreateAlertForm` dialog with Price Alert / Portfolio Alert tabs, conditional fields per subtype, recurring toggle with cooldown
+- `AlertList` component with status badges (active=green, triggered=yellow, paused=gray), pause/resume/delete/acknowledge actions, loading skeletons, empty state
+- Alerts management page (`/alerts`) with filter tabs (All/Active/Triggered/Paused), ErrorBoundary wrapping
+- `NotificationBell` component in Header: bell icon with red unread count badge, popover with triggered alerts, dismiss/mark all read, "View All Alerts" link
+- E2E tests for alerts (11 tests): sidebar navigation, page rendering, filter tabs, create alert dialog, create price alert, pause/resume, delete, notification bell visibility and popover
+- Unit tests for alert model (13), alert CRUD API (16), alert single-resource API (12), cron evaluator (11), fetchTickerPrices (3), alert hooks (17), CreateAlertForm (11), AlertList (14), alerts page (3), NotificationBell (10)
+
 ### Changed
+- Sidebar: Alerts nav item enabled (was disabled with "Soon" badge), now links to `/alerts`
 - Sidebar: Portfolio nav item enabled (was disabled with "Soon" badge), now links to `/portfolio`
 - Dashboard page now renders `<DashboardChart />` below `<MarketOverview />` for live trading chart
 - Dashboard page wraps `MarketOverview` and `DashboardChart` in `ErrorBoundary` for independent failure isolation
