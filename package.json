@@ -24,6 +24,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "klinecharts": "^10.0.0-beta1",
+    "lightweight-charts": "^5.1.0",
     "lucide-react": "^0.563.0",
     "mongoose": "^9.1.6",
     "next": "16.1.6",
