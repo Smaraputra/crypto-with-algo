@@ -4,6 +4,16 @@ import { useState } from 'react';
 import { ChevronDown, Plus, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -32,6 +42,7 @@ export function PortfolioSelector({ selectedId, onSelect }: PortfolioSelectorPro
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const portfolios = data?.portfolios ?? [];
   const selected = portfolios.find((p) => p._id === selectedId);
@@ -60,12 +71,18 @@ export function PortfolioSelector({ selectedId, onSelect }: PortfolioSelectorPro
   };
 
   const handleDelete = (id: string) => {
-    deletePortfolio.mutate(id, {
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirmId) return;
+    deletePortfolio.mutate(deleteConfirmId, {
       onSuccess: () => {
-        if (selectedId === id && portfolios.length > 1) {
-          const remaining = portfolios.find((p) => p._id !== id);
+        if (selectedId === deleteConfirmId && portfolios.length > 1) {
+          const remaining = portfolios.find((p) => p._id !== deleteConfirmId);
           if (remaining) onSelect(remaining._id);
         }
+        setDeleteConfirmId(null);
       },
     });
   };
@@ -202,6 +219,26 @@ export function PortfolioSelector({ selectedId, onSelect }: PortfolioSelectorPro
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <AlertDialog open={!!deleteConfirmId} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete portfolio?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the portfolio and all its holdings and transactions. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

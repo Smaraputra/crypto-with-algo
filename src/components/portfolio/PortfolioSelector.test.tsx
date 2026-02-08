@@ -81,4 +81,19 @@ describe('PortfolioSelector', () => {
     expect(screen.getByLabelText('Rename My Portfolio')).toBeInTheDocument();
     expect(screen.getByLabelText('Delete My Portfolio')).toBeInTheDocument();
   });
+
+  it('shows confirmation dialog before deleting', async () => {
+    const user = userEvent.setup();
+    render(<PortfolioSelector selectedId="p1" onSelect={vi.fn()} />);
+
+    await user.click(screen.getByTestId('portfolio-selector-trigger'));
+    await user.click(screen.getByLabelText('Delete My Portfolio'));
+
+    // Confirmation dialog should appear
+    expect(screen.getByText('Delete portfolio?')).toBeInTheDocument();
+    expect(screen.getByText(/permanently delete/)).toBeInTheDocument();
+
+    // Delete should not have been called yet
+    expect(mockDeleteMutate).not.toHaveBeenCalled();
+  });
 });

@@ -3,6 +3,7 @@
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -46,6 +47,9 @@ export function TransactionHistory({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Transaction History - {symbol}</DialogTitle>
+          <DialogDescription>
+            All recorded transactions for this holding.
+          </DialogDescription>
         </DialogHeader>
         {isLoading ? (
           <div className="space-y-2" data-testid="tx-history-skeleton">

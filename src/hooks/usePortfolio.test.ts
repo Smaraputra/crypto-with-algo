@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
+
+const mockToast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast: mockToast }));
+
 import {
   usePortfolios,
   usePortfolio,
@@ -297,6 +301,40 @@ describe('useTransactions', () => {
 
     await waitFor(() => {
       expect(result.current.data).toBeDefined();
+    });
+  });
+});
+
+describe('toast notifications', () => {
+  it('shows success toast on mutation success', async () => {
+    mockFetch({ portfolio: { _id: 'p2', name: 'Trading' } }, 201);
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCreatePortfolio(), { wrapper });
+
+    act(() => {
+      result.current.mutate('Trading');
+    });
+
+    await waitFor(() => {
+      expect(mockToast.success).toHaveBeenCalledWith('Portfolio created');
+    });
+  });
+
+  it('shows error toast on mutation failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Duplicate name' }), { status: 409 })
+    );
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCreatePortfolio(), { wrapper });
+
+    act(() => {
+      result.current.mutate('Existing');
+    });
+
+    await waitFor(() => {
+      expect(mockToast.error).toHaveBeenCalledWith('Duplicate name');
     });
   });
 });

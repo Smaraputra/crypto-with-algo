@@ -131,6 +131,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - E2E dashboard feature tests (5 tests): market overview, chart container, interval tabs, watchlist symbols, add dropdown
 - `e2e/.auth/` added to `.gitignore` for ephemeral session state
 
+- Portfolio Mongoose model with embedded holdings and transactions, compound unique index `{ userId, name }`
+- Portfolio types (`src/types/portfolio.ts`): Transaction, Holding, Portfolio, PortfolioListItem, API input types
+- Portfolio CRUD API: GET (list with auto-create default), POST (create), PATCH (rename), DELETE (with ownership checks)
+- Holdings API: POST add holding via transaction with cost basis recalculation, DELETE remove holding
+- Transaction history API: GET sorted descending, POST with sell validation and holding state recalculation
+- `calculateHoldingState()` pure function for weighted average cost basis including fees
+- Portfolio TanStack Query hooks with optimistic updates: usePortfolios, usePortfolio, useCreatePortfolio, useRenamePortfolio, useDeletePortfolio, useAddHolding, useRemoveHolding, useRecordTransaction, useTransactions
+- Portfolio page (`/portfolio`) with auto-selected first portfolio, error boundaries, and add holding button
+- `PortfolioSelector` dropdown with create, rename, and delete portfolio actions
+- `PortfolioSummary` cards: Total Value, Total P&L, 24h Change, connection status (live price merge pattern)
+- `HoldingsList` DataTable with `@tanstack/react-table`: sorting, desktop table + mobile card stack, P&L colors
+- `TransactionForm` dialog with buy/sell toggle, Zod validation, add-holding and record-transaction modes
+- `TransactionHistory` dialog with buy/sell badges, date-sorted table
+- Portfolio test fixtures (`src/__fixtures__/portfolio.ts`)
+- E2E portfolio tests (6 tests): sidebar navigation, heading/selector, auto-created default, add holding dialog, submit holding, create second portfolio
+- Unit tests for portfolio model (9), CRUD API (19), holdings API (12), transaction API (10), portfolio-utils (6), hooks (14), PortfolioSelector (6), PortfolioSummary (7), page (4), error page (2), HoldingsList (12), TransactionForm (8), TransactionHistory (5)
+
 - `ErrorBoundary` class component with default fallback, static fallback, and render-function fallback support
 - Route-level `error.tsx` for dashboard route group with centered error card and retry button
 - Dashboard page wraps `MarketOverview` and `DashboardChart` in independent `ErrorBoundary` components
@@ -140,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests for dashboard page (5 tests): heading, welcome with/without name, MarketOverview present, DashboardChart present
 
 ### Changed
+- Sidebar: Portfolio nav item enabled (was disabled with "Soon" badge), now links to `/portfolio`
 - Dashboard page now renders `<DashboardChart />` below `<MarketOverview />` for live trading chart
 - Dashboard page wraps `MarketOverview` and `DashboardChart` in `ErrorBoundary` for independent failure isolation
 - Removed Step 1 demo card page (`src/app/page.tsx`), replaced by `(dashboard)/page.tsx`

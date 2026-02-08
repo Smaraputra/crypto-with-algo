@@ -88,6 +88,11 @@ export async function POST(
     });
   }
 
+  // Remove holding if quantity reached zero after a full sell
+  portfolio.holdings = portfolio.holdings.filter(
+    (h: { quantity: number }) => h.quantity > 0
+  );
+
   await portfolio.save();
 
   return NextResponse.json({ portfolio }, { status: 200 });
