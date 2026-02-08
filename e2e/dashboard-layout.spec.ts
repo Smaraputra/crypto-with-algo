@@ -12,6 +12,7 @@ test.describe('Dashboard layout (authenticated)', () => {
     await expect(sidebar.getByText('Dashboard')).toBeVisible();
     await expect(sidebar.getByText('Portfolio')).toBeVisible();
     await expect(sidebar.getByText('Alerts')).toBeVisible();
+    await expect(sidebar.getByText('Analytics')).toBeVisible();
   });
 
   test('dashboard page shows heading and welcome text', async ({ page }) => {
