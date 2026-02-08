@@ -68,3 +68,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `fetchKlines(symbol, interval, limit?)` -- fetches OHLCV klines with float parsing
 - `fetchSymbols()` -- fetches exchange info filtered to TRADING status + USDT quote
 - Unit tests for Binance client (14 tests): tickers, klines, symbols, base URL config
+- Price ticker API route (`GET /api/prices`) -- returns top 15 USDT pairs with 30s Redis cache
+- OHLCV history API route (`GET /api/prices/history`) -- Zod-validated params (symbol, interval, limit), interval-specific TTLs (10s-600s)
+- Unit tests for price routes (14 tests): success, validation, TTL verification, cache key structure, error handling
