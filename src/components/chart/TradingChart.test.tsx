@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { periodToInterval, TradingChart, INTERVALS, PRIMARY_INTERVALS, MORE_INTERVALS, CHART_TYPES } from './TradingChart';
+import { periodToInterval, TradingChart, INTERVALS, PRIMARY_INTERVALS, MORE_INTERVALS, CHART_TYPES, DRAWING_TOOLS } from './TradingChart';
 
 // Mock klinecharts module (canvas-based, won't work in jsdom)
 const mockCreateIndicator = vi.fn().mockReturnValue('pane_1');
@@ -16,6 +16,8 @@ const mockSetStyles = vi.fn();
 const mockSubscribeAction = vi.fn();
 const mockUnsubscribeAction = vi.fn();
 const mockOverrideIndicator = vi.fn();
+const mockGetOverlays = vi.fn().mockReturnValue([]);
+const mockOverrideOverlay = vi.fn();
 const mockResize = vi.fn();
 const mockDispose = vi.fn();
 
@@ -30,6 +32,8 @@ const mockChart = {
   setPeriod: mockSetPeriod,
   setStyles: mockSetStyles,
   overrideIndicator: mockOverrideIndicator,
+  getOverlays: mockGetOverlays,
+  overrideOverlay: mockOverrideOverlay,
   subscribeAction: mockSubscribeAction,
   unsubscribeAction: mockUnsubscribeAction,
   resetData: mockResetData,
@@ -41,6 +45,16 @@ const mockInit = vi.fn().mockReturnValue(mockChart);
 vi.mock('klinecharts', () => ({
   init: (...args: unknown[]) => mockInit(...args),
   dispose: (...args: unknown[]) => mockDispose(...args),
+}));
+
+const mockSaveOverlays = vi.fn();
+const mockLoadOverlays = vi.fn().mockReturnValue([]);
+const mockClearOverlays = vi.fn();
+
+vi.mock('@/lib/chart-storage', () => ({
+  saveOverlays: (...args: unknown[]) => mockSaveOverlays(...args),
+  loadOverlays: (...args: unknown[]) => mockLoadOverlays(...args),
+  clearOverlays: (...args: unknown[]) => mockClearOverlays(...args),
 }));
 
 // Mock useChartResize to provide valid dimensions
@@ -204,14 +218,14 @@ describe('TradingChart', () => {
       expect(screen.getByRole('button', { name: /indicators/i })).toBeInTheDocument();
     });
 
-    it('renders drawing tool buttons and clear button', () => {
+    it('renders all 8 drawing tool buttons, magnet toggle, and clear button', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
-      // 4 drawing tools + 1 clear button = 5 buttons in drawing toolbar
-      // Plus the indicators button + refresh button in main toolbar
-      const allButtons = screen.getAllByRole('button');
-      // There should be at least 7 buttons (indicators, 4 drawings, clear, refresh)
-      expect(allButtons.length).toBeGreaterThanOrEqual(7);
+      for (const tool of DRAWING_TOOLS) {
+        expect(screen.getByLabelText(tool.label)).toBeInTheDocument();
+      }
+      expect(screen.getByLabelText('Enable magnet mode')).toBeInTheDocument();
+      expect(screen.getByLabelText('Clear drawings')).toBeInTheDocument();
     });
 
     it('shows WS status as Connecting initially', () => {
@@ -285,34 +299,75 @@ describe('TradingChart', () => {
   });
 
   describe('drawing tools', () => {
-    it('calls createOverlay when clicking a drawing tool', () => {
+    it('calls createOverlay with name and mode when clicking a drawing tool', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
-      // The trendline button (first drawing tool) - find by the button role within drawing toolbar
-      const buttons = screen.getAllByRole('button');
-      // Find the trendline button (it's after the main toolbar buttons)
-      const trendlineButton = buttons.find((btn) =>
-        btn.closest('.bg-muted\\/20') && btn.querySelector('svg')
-      );
+      fireEvent.click(screen.getByLabelText('Trendline'));
 
-      if (trendlineButton) {
-        fireEvent.click(trendlineButton);
-        expect(mockCreateOverlay).toHaveBeenCalledWith('segment');
-      }
+      expect(mockCreateOverlay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'segment',
+          mode: 'normal',
+        })
+      );
     });
 
-    it('calls removeOverlay when clicking clear drawings', () => {
+    it('calls removeOverlay and clearOverlays when clicking clear drawings', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
-      // Find the clear (trash) button - it has text-destructive class
-      const clearButton = screen.getAllByRole('button').find((btn) =>
-        btn.className.includes('text-destructive')
-      );
+      fireEvent.click(screen.getByLabelText('Clear drawings'));
 
-      if (clearButton) {
-        fireEvent.click(clearButton);
-        expect(mockRemoveOverlay).toHaveBeenCalled();
-      }
+      expect(mockRemoveOverlay).toHaveBeenCalled();
+      expect(mockClearOverlays).toHaveBeenCalledWith('BTCUSDT');
+    });
+
+    it('toggles magnet mode when clicking magnet button', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      // Initially normal mode
+      expect(screen.getByLabelText('Enable magnet mode')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText('Enable magnet mode'));
+
+      // After click, magnet is enabled
+      expect(screen.getByLabelText('Disable magnet mode')).toBeInTheDocument();
+    });
+
+    it('passes weak_magnet mode to createOverlay when magnet is enabled', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      // Enable magnet mode
+      fireEvent.click(screen.getByLabelText('Enable magnet mode'));
+
+      // Click a drawing tool
+      fireEvent.click(screen.getByLabelText('Ray'));
+
+      expect(mockCreateOverlay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'rayLine',
+          mode: 'weak_magnet',
+        })
+      );
+    });
+
+    it('loads saved overlays on mount', () => {
+      mockLoadOverlays.mockReturnValue([
+        { name: 'segment', points: [{ timestamp: 1000, value: 50 }] },
+      ]);
+
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(mockLoadOverlays).toHaveBeenCalledWith('BTCUSDT');
+      expect(mockCreateOverlay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'segment',
+          points: [{ timestamp: 1000, value: 50 }],
+        })
+      );
+    });
+
+    it('has 8 drawing tools defined', () => {
+      expect(DRAWING_TOOLS).toHaveLength(8);
     });
   });
 
