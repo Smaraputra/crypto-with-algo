@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth';
 import { MarketOverview } from '@/components/market/MarketOverview';
+import { DashboardChart } from '@/components/chart/DashboardChart';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -11,6 +12,7 @@ export default async function DashboardPage() {
         Welcome{session?.user?.name ? `, ${session.user.name}` : ''}.
       </p>
       <MarketOverview />
+      <DashboardChart />
     </div>
   );
 }
