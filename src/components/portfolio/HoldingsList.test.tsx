@@ -63,6 +63,16 @@ describe('HoldingsList', () => {
     expect(screen.getByTestId('holdings-skeleton')).toBeInTheDocument();
   });
 
+  it('has aria-live on loading skeleton', () => {
+    mockUsePortfolio.mockReturnValue({ data: null, isLoading: true });
+
+    render(<HoldingsList portfolioId="p1" />);
+
+    const skeleton = screen.getByTestId('holdings-skeleton');
+    expect(skeleton).toHaveAttribute('aria-live', 'polite');
+    expect(skeleton).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('shows empty state when no holdings', () => {
     mockUsePortfolio.mockReturnValue({
       data: { portfolio: { _id: 'p1', holdings: [] } },

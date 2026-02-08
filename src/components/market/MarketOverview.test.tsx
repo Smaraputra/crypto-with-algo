@@ -52,6 +52,15 @@ describe('MarketOverview', () => {
     expect(shimmers).toHaveLength(8);
   });
 
+  it('has aria-live on loading container', () => {
+    mockUseTickers.mockReturnValue({ data: undefined, isLoading: true });
+
+    const { container } = render(<MarketOverview />);
+    const grid = container.firstElementChild;
+    expect(grid).toHaveAttribute('aria-live', 'polite');
+    expect(grid).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('renders price cards after data loads', () => {
     mockUseTickers.mockReturnValue({ data: mockTickers, isLoading: false });
 

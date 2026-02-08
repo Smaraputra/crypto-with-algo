@@ -97,6 +97,18 @@ describe('CreateAlertForm', () => {
     expect(screen.getByText('Symbol is required')).toBeInTheDocument();
   });
 
+  it('links error messages to inputs via aria-describedby', async () => {
+    const user = userEvent.setup();
+    render(<CreateAlertForm {...defaultProps} />);
+
+    await user.click(screen.getByRole('button', { name: 'Create Alert' }));
+
+    const symbolInput = screen.getByLabelText('Symbol');
+    expect(symbolInput).toHaveAttribute('aria-describedby', 'error-alert-symbol');
+    expect(symbolInput).toHaveAttribute('aria-invalid', 'true');
+    expect(document.getElementById('error-alert-symbol')).toHaveTextContent('Symbol is required');
+  });
+
   it('calls createAlert mutation with price_above data', async () => {
     const user = userEvent.setup();
     render(<CreateAlertForm {...defaultProps} />);

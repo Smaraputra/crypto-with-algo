@@ -166,6 +166,20 @@ describe('AlertList', () => {
     expect(mockDeleteMutate).toHaveBeenCalledWith('a1');
   });
 
+  it('has aria-label on icon-only buttons', () => {
+    const alerts = [
+      makeAlert({ _id: 'a1', status: 'active' }),
+      makeAlert({ _id: 'a2', status: 'triggered', triggeredAt: new Date(), notifiedAt: null }),
+    ];
+
+    render(<AlertList alerts={alerts} isLoading={false} />);
+
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Acknowledge' })).toBeInTheDocument();
+    // Delete buttons (one per alert)
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(2);
+  });
+
   it('renders alert message when present', () => {
     const alerts = [makeAlert({ message: 'Buy the dip' })];
 

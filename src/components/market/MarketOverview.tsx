@@ -19,7 +19,7 @@ export function MarketOverview() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8" aria-live="polite" aria-busy="true">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="h-24 rounded-sm animate-shimmer" />
         ))}

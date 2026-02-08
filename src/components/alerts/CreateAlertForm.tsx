@@ -188,9 +188,11 @@ export function CreateAlertForm({
                   placeholder="BTCUSDT"
                   value={symbol}
                   onChange={(e) => setSymbol(e.target.value)}
+                  aria-describedby={errors.symbol ? 'error-alert-symbol' : undefined}
+                  aria-invalid={!!errors.symbol}
                 />
                 {errors.symbol && (
-                  <p className="text-xs text-destructive">{errors.symbol}</p>
+                  <p id="error-alert-symbol" className="text-xs text-destructive">{errors.symbol}</p>
                 )}
               </div>
 
@@ -224,9 +226,11 @@ export function CreateAlertForm({
                     placeholder="5"
                     value={percentChange}
                     onChange={(e) => setPercentChange(e.target.value)}
+                    aria-describedby={errors.percentChange ? 'error-percent-change' : undefined}
+                    aria-invalid={!!errors.percentChange}
                   />
                   {errors.percentChange && (
-                    <p className="text-xs text-destructive">
+                    <p id="error-percent-change" className="text-xs text-destructive">
                       {errors.percentChange}
                     </p>
                   )}
@@ -242,9 +246,11 @@ export function CreateAlertForm({
                     placeholder="100000"
                     value={targetPrice}
                     onChange={(e) => setTargetPrice(e.target.value)}
+                    aria-describedby={errors.targetPrice ? 'error-target-price' : undefined}
+                    aria-invalid={!!errors.targetPrice}
                   />
                   {errors.targetPrice && (
-                    <p className="text-xs text-destructive">
+                    <p id="error-target-price" className="text-xs text-destructive">
                       {errors.targetPrice}
                     </p>
                   )}
@@ -260,6 +266,8 @@ export function CreateAlertForm({
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
                   value={portfolioId}
                   onChange={(e) => setPortfolioId(e.target.value)}
+                  aria-describedby={errors.portfolioId ? 'error-portfolio-select' : undefined}
+                  aria-invalid={!!errors.portfolioId}
                 >
                   <option value="">Select portfolio</option>
                   {portfolios.map((p) => (
@@ -269,7 +277,7 @@ export function CreateAlertForm({
                   ))}
                 </select>
                 {errors.portfolioId && (
-                  <p className="text-xs text-destructive">
+                  <p id="error-portfolio-select" className="text-xs text-destructive">
                     {errors.portfolioId}
                   </p>
                 )}
@@ -304,6 +312,8 @@ export function CreateAlertForm({
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
                       value={holdingSymbol}
                       onChange={(e) => setHoldingSymbol(e.target.value)}
+                      aria-describedby={errors.holdingSymbol ? 'error-holding-symbol' : undefined}
+                      aria-invalid={!!errors.holdingSymbol}
                     >
                       <option value="">Select holding</option>
                       {holdings.map((h) => (
@@ -313,7 +323,7 @@ export function CreateAlertForm({
                       ))}
                     </select>
                     {errors.holdingSymbol && (
-                      <p className="text-xs text-destructive">
+                      <p id="error-holding-symbol" className="text-xs text-destructive">
                         {errors.holdingSymbol}
                       </p>
                     )}
@@ -327,9 +337,11 @@ export function CreateAlertForm({
                       placeholder="-10"
                       value={holdingPercent}
                       onChange={(e) => setHoldingPercent(e.target.value)}
+                      aria-describedby={errors.holdingPercent ? 'error-holding-percent' : undefined}
+                      aria-invalid={!!errors.holdingPercent}
                     />
                     {errors.holdingPercent && (
-                      <p className="text-xs text-destructive">
+                      <p id="error-holding-percent" className="text-xs text-destructive">
                         {errors.holdingPercent}
                       </p>
                     )}
@@ -348,9 +360,11 @@ export function CreateAlertForm({
                     placeholder="50000"
                     value={portfolioThreshold}
                     onChange={(e) => setPortfolioThreshold(e.target.value)}
+                    aria-describedby={errors.portfolioThreshold ? 'error-portfolio-threshold' : undefined}
+                    aria-invalid={!!errors.portfolioThreshold}
                   />
                   {errors.portfolioThreshold && (
-                    <p className="text-xs text-destructive">
+                    <p id="error-portfolio-threshold" className="text-xs text-destructive">
                       {errors.portfolioThreshold}
                     </p>
                   )}

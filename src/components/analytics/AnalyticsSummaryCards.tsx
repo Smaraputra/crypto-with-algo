@@ -30,7 +30,7 @@ export function AnalyticsSummaryCards({ portfolioId, range }: AnalyticsSummaryCa
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="summary-cards-skeleton">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="summary-cards-skeleton" aria-live="polite" aria-busy="true">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-24 rounded-sm animate-shimmer" />
         ))}
