@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { periodToInterval, TradingChart, INTERVALS, PRIMARY_INTERVALS, MORE_INTERVALS } from './TradingChart';
+import { periodToInterval, TradingChart, INTERVALS, PRIMARY_INTERVALS, MORE_INTERVALS, CHART_TYPES } from './TradingChart';
 
 // Mock klinecharts module (canvas-based, won't work in jsdom)
 const mockCreateIndicator = vi.fn().mockReturnValue('pane_1');
@@ -12,6 +12,7 @@ const mockSetDataLoader = vi.fn();
 const mockSetSymbol = vi.fn();
 const mockSetPeriod = vi.fn();
 const mockResetData = vi.fn();
+const mockSetStyles = vi.fn();
 const mockResize = vi.fn();
 const mockDispose = vi.fn();
 
@@ -24,6 +25,7 @@ const mockChart = {
   setDataLoader: mockSetDataLoader,
   setSymbol: mockSetSymbol,
   setPeriod: mockSetPeriod,
+  setStyles: mockSetStyles,
   resetData: mockResetData,
   resize: mockResize,
 };
@@ -347,6 +349,65 @@ describe('TradingChart', () => {
       unmount();
 
       expect(mockDispose).toHaveBeenCalled();
+    });
+  });
+
+  describe('chart type selector', () => {
+    it('renders chart type dropdown with default "Candles" label', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(screen.getByRole('button', { name: /candles/i })).toBeInTheDocument();
+    });
+
+    it('renders chart type options in dropdown', async () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      const trigger = screen.getByRole('button', { name: /candles/i });
+      fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' });
+
+      expect(await screen.findByRole('menuitem', { name: 'Candles' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Hollow' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'OHLC' })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: 'Area' })).toBeInTheDocument();
+    });
+
+    it('calls onChartTypeChange when a chart type is selected', async () => {
+      const onChartTypeChange = vi.fn();
+      render(<TradingChart symbol="BTCUSDT" interval="1h" onChartTypeChange={onChartTypeChange} />);
+
+      const trigger = screen.getByRole('button', { name: /candles/i });
+      fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' });
+
+      const ohlcItem = await screen.findByRole('menuitem', { name: 'OHLC' });
+      fireEvent.click(ohlcItem);
+
+      expect(onChartTypeChange).toHaveBeenCalledWith('ohlc');
+    });
+
+    it('calls setStyles when chartType prop changes', () => {
+      const { rerender } = render(<TradingChart symbol="BTCUSDT" interval="1h" chartType="candle_solid" />);
+
+      mockSetStyles.mockClear();
+      rerender(<TradingChart symbol="BTCUSDT" interval="1h" chartType="area" />);
+
+      expect(mockSetStyles).toHaveBeenCalledWith({ candle: { type: 'area' } });
+    });
+
+    it('shows current chart type label', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" chartType="ohlc" />);
+
+      expect(screen.getByRole('button', { name: /ohlc/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('CHART_TYPES constant', () => {
+    it('has 4 chart types', () => {
+      expect(CHART_TYPES).toHaveLength(4);
+    });
+
+    it('includes candle_solid, candle_stroke, ohlc, and area', () => {
+      const values = CHART_TYPES.map((t) => t.value);
+      expect(values).toEqual(['candle_solid', 'candle_stroke', 'ohlc', 'area']);
     });
   });
 });
