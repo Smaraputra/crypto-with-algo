@@ -27,6 +27,14 @@ vi.mock('@/components/portfolio/PortfolioSummary', () => ({
   ),
 }));
 
+vi.mock('@/components/portfolio/HoldingsList', () => ({
+  HoldingsList: () => <div data-testid="holdings-list">HoldingsList</div>,
+}));
+
+vi.mock('@/components/portfolio/TransactionForm', () => ({
+  TransactionForm: () => <div data-testid="transaction-form">TransactionForm</div>,
+}));
+
 import PortfolioPage from './page';
 import { usePortfolios } from '@/hooks/usePortfolio';
 
