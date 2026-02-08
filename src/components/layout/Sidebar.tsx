@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/uiStore';
+import { WatchlistSidebar } from '@/components/market/WatchlistSidebar';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, disabled: false },
@@ -49,6 +50,10 @@ function SidebarContent() {
       </nav>
 
       <Separator className="mx-2" />
+
+      <div className="flex-1 overflow-y-auto p-2">
+        <WatchlistSidebar />
+      </div>
     </div>
   );
 }

@@ -27,6 +27,10 @@ let mockSidebarOpen = true;
 let mockMobileSidebarOpen = false;
 const mockSetMobileSidebarOpen = vi.fn();
 
+vi.mock('@/components/market/WatchlistSidebar', () => ({
+  WatchlistSidebar: () => <div data-testid="watchlist-sidebar" />,
+}));
+
 vi.mock('@/stores/uiStore', () => ({
   useUIStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
@@ -110,5 +114,11 @@ describe('Sidebar', () => {
     render(<Sidebar />);
     const headers = screen.getAllByText('Crypto Tracker');
     expect(headers.length).toBeGreaterThan(0);
+  });
+
+  it('renders watchlist sidebar component', () => {
+    render(<Sidebar />);
+    const watchlists = screen.getAllByTestId('watchlist-sidebar');
+    expect(watchlists.length).toBeGreaterThan(0);
   });
 });
