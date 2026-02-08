@@ -1,7 +1,7 @@
 import { auth } from '@/lib/auth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MarketOverview } from '@/components/market/MarketOverview';
-import { DashboardChart } from '@/components/chart/DashboardChart';
+import { LazyDashboardChart } from '@/components/chart/LazyDashboardChart';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -28,7 +28,7 @@ export default async function DashboardPage() {
           </div>
         }
       >
-        <DashboardChart />
+        <LazyDashboardChart />
       </ErrorBoundary>
     </div>
   );

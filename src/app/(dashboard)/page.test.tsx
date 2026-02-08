@@ -15,9 +15,9 @@ vi.mock('@/components/market/MarketOverview', () => ({
   MarketOverview: () => <div data-testid="market-overview">MarketOverview</div>,
 }));
 
-vi.mock('@/components/chart/DashboardChart', () => ({
-  DashboardChart: () => (
-    <div data-testid="dashboard-chart">DashboardChart</div>
+vi.mock('@/components/chart/LazyDashboardChart', () => ({
+  LazyDashboardChart: () => (
+    <div data-testid="lazy-dashboard-chart">DashboardChart</div>
   ),
 }));
 
@@ -81,6 +81,6 @@ describe('DashboardPage', () => {
     const jsx = await DashboardPage();
     render(jsx);
 
-    expect(screen.getByTestId('dashboard-chart')).toBeInTheDocument();
+    expect(screen.getByTestId('lazy-dashboard-chart')).toBeInTheDocument();
   });
 });
