@@ -7,6 +7,7 @@ const initialState = {
   mobileSidebarOpen: false,
   selectedSymbol: 'BTCUSDT',
   selectedInterval: '1h',
+  chartType: 'candle_solid' as const,
 };
 
 describe('uiStore', () => {
@@ -89,6 +90,22 @@ describe('uiStore', () => {
       expect(useUIStore.getState().sidebarOpen).toBe(true);
       useUIStore.getState().toggleSidebar();
       expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
+    });
+  });
+
+  describe('chartType', () => {
+    it('defaults to candle_solid', () => {
+      expect(useUIStore.getState().chartType).toBe('candle_solid');
+    });
+
+    it('sets chart type', () => {
+      useUIStore.getState().setChartType('ohlc');
+      expect(useUIStore.getState().chartType).toBe('ohlc');
+    });
+
+    it('sets chart type to area', () => {
+      useUIStore.getState().setChartType('area');
+      expect(useUIStore.getState().chartType).toBe('area');
     });
   });
 

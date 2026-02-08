@@ -5,6 +5,7 @@ import {
   init,
   dispose,
   type Chart,
+  type CandleType,
   type DataLoaderGetBarsParams,
   type DataLoaderSubscribeBarParams,
   type KLineData,
@@ -13,6 +14,7 @@ import {
 import { useChartResize } from '@/hooks/useChartResize';
 import {
   Activity,
+  BarChart2,
   ChevronDown,
   TrendingUp,
   Minus,
@@ -43,8 +45,17 @@ function getBinanceWsBase(): string {
 export interface TradingChartProps {
   symbol: string;
   interval: string;
+  chartType?: CandleType;
   onIntervalChange?: (interval: string) => void;
+  onChartTypeChange?: (type: CandleType) => void;
 }
+
+export const CHART_TYPES: { value: CandleType; label: string }[] = [
+  { value: 'candle_solid', label: 'Candles' },
+  { value: 'candle_stroke', label: 'Hollow' },
+  { value: 'ohlc', label: 'OHLC' },
+  { value: 'area', label: 'Area' },
+];
 
 export interface IndicatorConfig {
   id: string;
@@ -102,7 +113,7 @@ export function periodToInterval(period: Period): string {
   }
 }
 
-export function TradingChart({ symbol, interval, onIntervalChange }: TradingChartProps) {
+export function TradingChart({ symbol, interval, chartType = 'candle_solid', onIntervalChange, onChartTypeChange }: TradingChartProps) {
   const chartRef = useRef<Chart | null>(null);
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
   const [indicators, setIndicators] = useState<IndicatorConfig[]>(DEFAULT_INDICATORS);
@@ -332,6 +343,12 @@ export function TradingChart({ symbol, interval, onIntervalChange }: TradingChar
     }
   }, [symbol, interval]);
 
+  // Update chart type when prop changes
+  useEffect(() => {
+    if (!chartRef.current) return;
+    chartRef.current.setStyles({ candle: { type: chartType } });
+  }, [chartType]);
+
   const activateDrawingTool = (tool: string) => {
     if (!chartRef.current) return;
 
@@ -399,6 +416,29 @@ export function TradingChart({ symbol, interval, onIntervalChange }: TradingChar
                   onSelect={() => onIntervalChange?.(int.value)}
                 >
                   {int.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Separator orientation="vertical" className="h-6" />
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs">
+                <BarChart2 className="h-3.5 w-3.5" />
+                {CHART_TYPES.find((t) => t.value === chartType)?.label ?? 'Candles'}
+                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-28">
+              {CHART_TYPES.map((t) => (
+                <DropdownMenuItem
+                  key={t.value}
+                  className={chartType === t.value ? 'bg-accent' : ''}
+                  onSelect={() => onChartTypeChange?.(t.value)}
+                >
+                  {t.label}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
