@@ -213,6 +213,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - E2E tests for analytics (8 tests): sidebar link, navigation, tab rendering, overview chart, cost basis table, export button, risk metrics cards, tab switching
 - Unit tests for PortfolioSnapshot model (16), fetchJson (6), snapshot cron (11), FIFO engine (19), risk metrics (13), analytics API routes (18), analytics hooks (17), chart component (6), summary cards (2), cost basis table (5), risk metrics cards (3), analytics page (4), CSV export utility (14), CSV export API (9)
 
+- Lazy-loaded chart components: `DashboardChart` and `PortfolioValueChart` via `next/dynamic` with `ssr: false` and shimmer loading placeholders
+- `LazyDashboardChart` client wrapper component for server component compatibility with `next/dynamic` `ssr: false`
+- Zustand selector optimization: combined 5 separate `useUIStore` selectors into single `useShallow` call in `DashboardChart`
+- TanStack Query tuning: `gcTime: 10min`, `retry: 1` defaults in `QueryClient` configuration
+- LIFO and HIFO cost basis methods via strategy pattern: `selectFIFO`, `selectLIFO`, `selectHIFO` lot selectors with `computeCostBasis(method, ...)` dispatcher
+- `CostBasisMethod` type (`'fifo' | 'lifo' | 'hifo'`) and method selector dropdown in CostBasisTable
+- Cost basis API accepts `method` query param (default: `'fifo'`)
+- Koinly CSV adapter: UTC datetime format, Sent/Received Amount columns, fee fields
+- CoinTracker CSV adapter: standard date format, Buy/In and Sell/Out Amount columns
+- `CsvFormat` type (`'generic' | 'koinly' | 'cointracker'`) and export format dropdown in CostBasisTable
+- Export API accepts `format` query param (default: `'generic'`), filename includes format name
+- `aria-describedby` and `aria-invalid` on form inputs with validation errors in TransactionForm and CreateAlertForm
+- `aria-label` on icon-only buttons in AlertList (Acknowledge, Pause, Resume, Delete)
+- `aria-live="polite"` and `aria-busy` on loading skeletons in MarketOverview, HoldingsList, AnalyticsSummaryCards
+- GitHub Actions E2E test job with Docker MongoDB 7 service container, Playwright Chromium, artifact upload on failure
+- E2E tests for cost basis method selector (FIFO/LIFO/HIFO) and CSV export format dropdown (Generic/Koinly/CoinTracker)
+- shadcn/ui Select component
+- Unit tests for LIFO (4), HIFO (4), backward compatibility (4), method API param (2), Koinly adapter (4), CoinTracker adapter (4), generic adapter parity (1), aria attributes (6)
+
 ### Changed
 - Sidebar: Analytics nav item added with BarChart3 icon, links to `/analytics`
 - Sidebar: Alerts nav item enabled (was disabled with "Soon" badge), now links to `/alerts`
