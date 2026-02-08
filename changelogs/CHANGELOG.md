@@ -95,8 +95,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - shadcn/ui `Skeleton` primitive component
 - Unit tests for PriceCard (12 tests): formatting, bullish/bearish styling, flash animations, live indicator, selection, click handler
 - Unit tests for MarketOverview (7 tests): loading skeletons, data merge, REST fallback, symbol selection, live indicator
+- `TradingChart` component -- KlineCharts v10 with DataLoader integration, Binance kline WebSocket, Binance Pro Dark theme styling
+- `periodToInterval()` exported utility for KlineCharts Period to Binance interval conversion
+- Configurable WebSocket base URL via `NEXT_PUBLIC_BINANCE_WS_URL` env var (matching `useBinanceStream` pattern)
+- Interval selector tabs (1m, 5m, 15m, 1H, 4H, 1D) with KlineCharts Period mapping
+- Technical indicators dropdown with overlay (MA, EMA, BOLL, SAR), oscillator (MACD, RSI, KDJ), and volume (VOL, OBV) groups
+- Drawing tools toolbar: Trendline, Horizontal Line, Fibonacci Retracement, Parallel Channel, Clear
+- Live/Connecting WebSocket status indicator with tooltip
+- Loading overlay with spinner animation during data fetch
+- Refresh button to reset chart data
+- `DashboardChart` wrapper component wiring Zustand store (selectedSymbol, selectedInterval) to TradingChart
+- `useChartResize` hook -- native ResizeObserver with 100ms debounce for responsive chart sizing
+- shadcn/ui Tabs and Tooltip components
+- Unit tests for useChartResize (8 tests): dimensions, debouncing, resize callback, observer lifecycle
+- Unit tests for TradingChart (19 tests): periodToInterval utility, toolbar rendering, chart init, indicators, drawing tools, cleanup
+- Unit tests for DashboardChart (3 tests): store defaults, interval change propagation, symbol reflection
 
 ### Changed
-- Dashboard page now renders `<MarketOverview />` client island below welcome message
+- Dashboard page now renders `<DashboardChart />` below `<MarketOverview />` for live trading chart
 - Removed Step 1 demo card page (`src/app/page.tsx`), replaced by `(dashboard)/page.tsx`
 - `NEXT_PUBLIC_BINANCE_WS_URL` in `.env.example` now omits `/ws` suffix (hooks append path segments as needed)
