@@ -85,7 +85,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dashboard home page with server-side `auth()` session greeting
 - E2E test spec for dashboard layout (6 tests, auth-gated tests require Docker)
 - Unit tests for Header (8 tests), Sidebar (9 tests), uiStore mobileSidebarOpen (4 tests)
+- `useTickers()` TanStack Query hook for REST ticker data with 30s polling interval
+- `useMarketData(symbol, interval, limit?)` TanStack Query hook for OHLCV candlestick history with 60s staleTime
+- Test fixtures (`src/__fixtures__/binance.ts`) with mock `Ticker24h[]` and `OHLCV[]` data
+- Unit tests for useTickers (5 tests): fetch, success, error, query key, refetchInterval
+- Unit tests for useMarketData (7 tests): URL params, success, error, disabled state, default limit, query key, cache separation
+- `PriceCard` component -- compact button with symbol/price/change, flash-up/flash-down animations on price changes, live indicator dot, selected state styling
+- `MarketOverview` component -- 8-symbol responsive grid (BTC, ETH, BNB, SOL, XRP, DOGE, ADA, AVAX), merges REST + WebSocket data with live priority, shimmer loading state
+- shadcn/ui `Skeleton` primitive component
+- Unit tests for PriceCard (12 tests): formatting, bullish/bearish styling, flash animations, live indicator, selection, click handler
+- Unit tests for MarketOverview (7 tests): loading skeletons, data merge, REST fallback, symbol selection, live indicator
 
 ### Changed
+- Dashboard page now renders `<MarketOverview />` client island below welcome message
 - Removed Step 1 demo card page (`src/app/page.tsx`), replaced by `(dashboard)/page.tsx`
 - `NEXT_PUBLIC_BINANCE_WS_URL` in `.env.example` now omits `/ws` suffix (hooks append path segments as needed)
