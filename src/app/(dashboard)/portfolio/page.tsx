@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PortfolioSelector } from '@/components/portfolio/PortfolioSelector';
 import { PortfolioSummary } from '@/components/portfolio/PortfolioSummary';
+import { HoldingsList } from '@/components/portfolio/HoldingsList';
 import { usePortfolios } from '@/hooks/usePortfolio';
 
 export default function PortfolioPage() {
@@ -29,6 +30,15 @@ export default function PortfolioPage() {
         }
       >
         <PortfolioSummary portfolioId={selectedId} />
+      </ErrorBoundary>
+      <ErrorBoundary
+        fallback={
+          <p className="text-sm text-muted-foreground">
+            Holdings list unavailable
+          </p>
+        }
+      >
+        <HoldingsList portfolioId={selectedId} />
       </ErrorBoundary>
     </div>
   );
