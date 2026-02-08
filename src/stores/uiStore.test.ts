@@ -4,6 +4,7 @@ import { useUIStore } from './uiStore';
 
 const initialState = {
   sidebarOpen: true,
+  mobileSidebarOpen: false,
   selectedSymbol: 'BTCUSDT',
   selectedInterval: '1h',
 };
@@ -64,6 +65,30 @@ describe('uiStore', () => {
     it('updates the selected interval', () => {
       useUIStore.getState().setSelectedInterval('4h');
       expect(useUIStore.getState().selectedInterval).toBe('4h');
+    });
+  });
+
+  describe('mobileSidebarOpen', () => {
+    it('defaults to false', () => {
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('sets mobileSidebarOpen to true', () => {
+      useUIStore.getState().setMobileSidebarOpen(true);
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
+    });
+
+    it('sets mobileSidebarOpen back to false', () => {
+      useUIStore.getState().setMobileSidebarOpen(true);
+      useUIStore.getState().setMobileSidebarOpen(false);
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(false);
+    });
+
+    it('is independent of sidebarOpen', () => {
+      useUIStore.getState().setMobileSidebarOpen(true);
+      expect(useUIStore.getState().sidebarOpen).toBe(true);
+      useUIStore.getState().toggleSidebar();
+      expect(useUIStore.getState().mobileSidebarOpen).toBe(true);
     });
   });
 
