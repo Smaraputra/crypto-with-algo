@@ -1,7 +1,8 @@
 import type { Transaction } from '@/types/portfolio';
 import type { RealizedGain } from '@/types/analytics';
+import type { CsvFormat } from '@/types/analytics';
 
-interface CsvTransaction {
+export interface CsvTransaction {
   date: Date;
   type: 'buy' | 'sell';
   symbol: string;
@@ -14,10 +15,12 @@ interface CsvTransaction {
   holdingPeriod?: 'short-term' | 'long-term';
 }
 
-const CSV_HEADER =
-  'Date,Type,Asset,Quantity,Price (USD),Fee (USD),Proceeds (USD),Cost Basis (USD),Gain/Loss (USD),Holding Period';
+interface CsvAdapter {
+  header: string;
+  buildRow(row: CsvTransaction): string;
+}
 
-function escapeField(value: string | number): string {
+export function escapeField(value: string | number): string {
   const str = String(value);
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
     return `"${str.replace(/"/g, '""')}"`;
@@ -25,17 +28,123 @@ function escapeField(value: string | number): string {
   return str;
 }
 
-function formatDate(date: Date): string {
+export function formatDate(date: Date): string {
   const d = new Date(date);
   return d.toISOString().split('T')[0];
 }
 
-function formatNumber(value: number, decimals: number): string {
+function formatDateUTC(date: Date): string {
+  const d = new Date(date);
+  return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+}
+
+export function formatNumber(value: number, decimals: number): string {
   return value.toFixed(decimals);
 }
 
-function stripQuoteAsset(symbol: string): string {
+export function stripQuoteAsset(symbol: string): string {
   return symbol.replace(/USDT$/, '');
+}
+
+function quantityStr(qty: number): string {
+  return formatNumber(qty, qty < 1 ? 8 : 4);
+}
+
+const genericAdapter: CsvAdapter = {
+  header:
+    'Date,Type,Asset,Quantity,Price (USD),Fee (USD),Proceeds (USD),Cost Basis (USD),Gain/Loss (USD),Holding Period',
+  buildRow(row: CsvTransaction): string {
+    const fields = [
+      escapeField(formatDate(row.date)),
+      escapeField(row.type === 'buy' ? 'Buy' : 'Sell'),
+      escapeField(stripQuoteAsset(row.symbol)),
+      escapeField(quantityStr(row.quantity)),
+      escapeField(formatNumber(row.price, 2)),
+      escapeField(formatNumber(row.fee, 2)),
+      row.proceeds !== undefined ? escapeField(formatNumber(row.proceeds, 2)) : '',
+      row.costBasis !== undefined ? escapeField(formatNumber(row.costBasis, 2)) : '',
+      row.gain !== undefined ? escapeField(formatNumber(row.gain, 2)) : '',
+      row.holdingPeriod
+        ? escapeField(row.holdingPeriod === 'long-term' ? 'Long-term' : 'Short-term')
+        : '',
+    ];
+    return fields.join(',');
+  },
+};
+
+const koinlyAdapter: CsvAdapter = {
+  header:
+    'Date,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount,Fee Currency,Label',
+  buildRow(row: CsvTransaction): string {
+    const asset = stripQuoteAsset(row.symbol);
+    if (row.type === 'buy') {
+      // Buying crypto: sent USD, received crypto
+      const totalCost = row.quantity * row.price + row.fee;
+      return [
+        escapeField(formatDateUTC(row.date)),
+        escapeField(formatNumber(totalCost, 2)),
+        'USD',
+        escapeField(quantityStr(row.quantity)),
+        escapeField(asset),
+        row.fee > 0 ? escapeField(formatNumber(row.fee, 2)) : '',
+        row.fee > 0 ? 'USD' : '',
+        '',
+      ].join(',');
+    }
+    // Selling crypto: sent crypto, received USD
+    const received = row.proceeds ?? row.quantity * row.price;
+    return [
+      escapeField(formatDateUTC(row.date)),
+      escapeField(quantityStr(row.quantity)),
+      escapeField(asset),
+      escapeField(formatNumber(received, 2)),
+      'USD',
+      row.fee > 0 ? escapeField(formatNumber(row.fee, 2)) : '',
+      row.fee > 0 ? 'USD' : '',
+      '',
+    ].join(',');
+  },
+};
+
+const cointrackerAdapter: CsvAdapter = {
+  header:
+    'Date,Type,Buy/In Amount,Buy/In Currency,Sell/Out Amount,Sell/Out Currency,Fee,Fee Currency',
+  buildRow(row: CsvTransaction): string {
+    const asset = stripQuoteAsset(row.symbol);
+    if (row.type === 'buy') {
+      return [
+        escapeField(formatDate(row.date)),
+        'Buy',
+        escapeField(quantityStr(row.quantity)),
+        escapeField(asset),
+        escapeField(formatNumber(row.quantity * row.price, 2)),
+        'USD',
+        row.fee > 0 ? escapeField(formatNumber(row.fee, 2)) : '',
+        row.fee > 0 ? 'USD' : '',
+      ].join(',');
+    }
+    const sellAmount = row.proceeds ?? row.quantity * row.price;
+    return [
+      escapeField(formatDate(row.date)),
+      'Sell',
+      escapeField(formatNumber(sellAmount, 2)),
+      'USD',
+      escapeField(quantityStr(row.quantity)),
+      escapeField(asset),
+      row.fee > 0 ? escapeField(formatNumber(row.fee, 2)) : '',
+      row.fee > 0 ? 'USD' : '',
+    ].join(',');
+  },
+};
+
+const ADAPTERS: Record<CsvFormat, CsvAdapter> = {
+  generic: genericAdapter,
+  koinly: koinlyAdapter,
+  cointracker: cointrackerAdapter,
+};
+
+export function getAdapter(format: CsvFormat): CsvAdapter {
+  return ADAPTERS[format];
 }
 
 /**
@@ -93,8 +202,10 @@ export function generateTaxCsv(
     transactions: Transaction[];
     realizedGains: RealizedGain[];
   }>,
-  year?: number
+  year?: number,
+  format: CsvFormat = 'generic'
 ): string {
+  const adapter = getAdapter(format);
   const allRows: CsvTransaction[] = [];
 
   for (const holding of holdingsData) {
@@ -109,21 +220,7 @@ export function generateTaxCsv(
 
   allRows.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  const lines = allRows.map((row) => {
-    const fields = [
-      escapeField(formatDate(row.date)),
-      escapeField(row.type === 'buy' ? 'Buy' : 'Sell'),
-      escapeField(stripQuoteAsset(row.symbol)),
-      escapeField(formatNumber(row.quantity, row.quantity < 1 ? 8 : 4)),
-      escapeField(formatNumber(row.price, 2)),
-      escapeField(formatNumber(row.fee, 2)),
-      row.proceeds !== undefined ? escapeField(formatNumber(row.proceeds, 2)) : '',
-      row.costBasis !== undefined ? escapeField(formatNumber(row.costBasis, 2)) : '',
-      row.gain !== undefined ? escapeField(formatNumber(row.gain, 2)) : '',
-      row.holdingPeriod ? escapeField(row.holdingPeriod === 'long-term' ? 'Long-term' : 'Short-term') : '',
-    ];
-    return fields.join(',');
-  });
+  const lines = allRows.map((row) => adapter.buildRow(row));
 
-  return [CSV_HEADER, ...lines].join('\n');
+  return [adapter.header, ...lines].join('\n');
 }

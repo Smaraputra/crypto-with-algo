@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCsvRows, generateTaxCsv } from './csv-export';
+import { buildCsvRows, generateTaxCsv, getAdapter } from './csv-export';
 import type { Transaction } from '@/types/portfolio';
 import type { RealizedGain } from '@/types/analytics';
 
@@ -218,6 +218,111 @@ describe('csv-export', () => {
       expect(fields[7]).toBe(''); // Cost Basis
       expect(fields[8]).toBe(''); // Gain/Loss
       expect(fields[9]).toBe(''); // Holding Period
+    });
+
+    it('generic format produces identical output to default', () => {
+      const defaultCsv = generateTaxCsv([
+        { symbol: 'BTCUSDT', transactions: [buyTx], realizedGains: [gain] },
+      ]);
+      const genericCsv = generateTaxCsv(
+        [{ symbol: 'BTCUSDT', transactions: [buyTx], realizedGains: [gain] }],
+        undefined,
+        'generic'
+      );
+      expect(genericCsv).toBe(defaultCsv);
+    });
+  });
+
+  describe('Koinly adapter', () => {
+    it('has correct header', () => {
+      const adapter = getAdapter('koinly');
+      expect(adapter.header).toBe(
+        'Date,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount,Fee Currency,Label'
+      );
+    });
+
+    it('generates buy row with UTC date format', () => {
+      const csv = generateTaxCsv(
+        [{ symbol: 'BTCUSDT', transactions: [buyTx], realizedGains: [] }],
+        undefined,
+        'koinly'
+      );
+      const lines = csv.split('\n');
+      expect(lines).toHaveLength(2);
+      // Buy: sent USD, received BTC
+      expect(lines[1]).toContain('UTC');
+      expect(lines[1]).toContain('USD');
+      expect(lines[1]).toContain('BTC');
+    });
+
+    it('generates sell row correctly', () => {
+      const csv = generateTaxCsv(
+        [{ symbol: 'BTCUSDT', transactions: [], realizedGains: [gain] }],
+        undefined,
+        'koinly'
+      );
+      const lines = csv.split('\n');
+      expect(lines).toHaveLength(2);
+      // Sell: sent BTC, received USD
+      const fields = lines[1].split(',');
+      expect(fields[2]).toBe('BTC'); // Sent Currency
+      expect(fields[4]).toBe('USD'); // Received Currency
+    });
+
+    it('includes fee fields when fee > 0', () => {
+      const csv = generateTaxCsv(
+        [{ symbol: 'BTCUSDT', transactions: [buyTx], realizedGains: [] }],
+        undefined,
+        'koinly'
+      );
+      const lines = csv.split('\n');
+      expect(lines[1]).toContain('10.00'); // Fee
+      expect(lines[1]).toMatch(/USD.*USD/); // Fee currency
+    });
+  });
+
+  describe('CoinTracker adapter', () => {
+    it('has correct header', () => {
+      const adapter = getAdapter('cointracker');
+      expect(adapter.header).toBe(
+        'Date,Type,Buy/In Amount,Buy/In Currency,Sell/Out Amount,Sell/Out Currency,Fee,Fee Currency'
+      );
+    });
+
+    it('generates buy row with standard date format', () => {
+      const csv = generateTaxCsv(
+        [{ symbol: 'BTCUSDT', transactions: [buyTx], realizedGains: [] }],
+        undefined,
+        'cointracker'
+      );
+      const lines = csv.split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toContain('2024-01-15');
+      expect(lines[1]).toContain('Buy');
+      expect(lines[1]).toContain('BTC');
+    });
+
+    it('generates sell row correctly', () => {
+      const csv = generateTaxCsv(
+        [{ symbol: 'BTCUSDT', transactions: [], realizedGains: [gain] }],
+        undefined,
+        'cointracker'
+      );
+      const lines = csv.split('\n');
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toContain('Sell');
+      expect(lines[1]).toContain('USD');
+      expect(lines[1]).toContain('BTC');
+    });
+
+    it('includes fee fields when fee > 0', () => {
+      const csv = generateTaxCsv(
+        [{ symbol: 'BTCUSDT', transactions: [buyTx], realizedGains: [] }],
+        undefined,
+        'cointracker'
+      );
+      const lines = csv.split('\n');
+      expect(lines[1]).toContain('10.00');
     });
   });
 });

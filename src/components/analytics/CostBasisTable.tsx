@@ -11,8 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useCostBasis, useExportCsv } from '@/hooks/useAnalytics';
-import type { CostBasisHolding, CostBasisMethod } from '@/types/analytics';
+import type { CostBasisHolding, CostBasisMethod, CsvFormat } from '@/types/analytics';
 
 interface CostBasisTableProps {
   portfolioId: string | null;
@@ -87,17 +93,31 @@ export function CostBasisTable({ portfolioId }: CostBasisTableProps) {
               <SelectItem value="hifo">HIFO</SelectItem>
             </SelectContent>
           </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={() => exportCsv.mutate({ method })}
-            disabled={exportCsv.isPending}
-            data-testid="export-csv-button"
-          >
-            <Download className="h-3 w-3" />
-            {exportCsv.isPending ? 'Exporting...' : 'Export CSV'}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                disabled={exportCsv.isPending}
+                data-testid="export-csv-button"
+              >
+                <Download className="h-3 w-3" />
+                {exportCsv.isPending ? 'Exporting...' : 'Export CSV'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {(['generic', 'koinly', 'cointracker'] as CsvFormat[]).map((fmt) => (
+                <DropdownMenuItem
+                  key={fmt}
+                  onClick={() => exportCsv.mutate({ method, format: fmt })}
+                  data-testid={`export-${fmt}`}
+                >
+                  {fmt === 'generic' ? 'Generic CSV' : fmt === 'koinly' ? 'Koinly' : 'CoinTracker'}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </CardHeader>
       <CardContent>

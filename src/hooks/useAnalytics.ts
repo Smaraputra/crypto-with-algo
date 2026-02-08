@@ -8,6 +8,7 @@ import type {
   CostBasisResponse,
   RiskMetricsResponse,
   CostBasisMethod,
+  CsvFormat,
 } from '@/types/analytics';
 
 const STALE_TIME = 5 * 60 * 1000;
@@ -45,6 +46,7 @@ export function useRiskMetrics(portfolioId: string | null, range = 90) {
 export interface ExportCsvOptions {
   year?: number;
   method?: CostBasisMethod;
+  format?: CsvFormat;
 }
 
 export function useExportCsv(portfolioId: string | null) {
@@ -54,6 +56,7 @@ export function useExportCsv(portfolioId: string | null) {
       const params = new URLSearchParams({ portfolioId });
       if (opts?.year) params.set('year', String(opts.year));
       if (opts?.method) params.set('method', opts.method);
+      if (opts?.format) params.set('format', opts.format);
 
       const res = await fetch(`/api/analytics/export?${params}`);
       if (!res.ok) throw new Error('Export failed');
