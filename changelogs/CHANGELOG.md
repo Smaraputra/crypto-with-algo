@@ -76,6 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `useBinanceKline(symbol, interval)` hook for real-time candlestick streams with OHLCV transform
 - `MockWebSocket` test utility for deterministic WebSocket unit testing
 - Unit tests for WebSocket hooks (29 tests): connection lifecycle, reconnection, backoff, message handling, URL changes
+- Dashboard layout shell with `(dashboard)` route group
+- Header component with desktop sidebar toggle, mobile menu button, user dropdown with sign-out
+- Sidebar component with collapsible desktop aside and controlled mobile Sheet (fixed broken reference Sheet)
+- Dashboard nav items: Dashboard (active), Portfolio (disabled, "Soon"), Alerts (disabled, "Soon")
+- `mobileSidebarOpen` state in Zustand uiStore (independent of desktop `sidebarOpen`)
+- shadcn/ui DropdownMenu and Sheet components
+- Dashboard home page with server-side `auth()` session greeting
+- E2E test spec for dashboard layout (6 tests, auth-gated tests require Docker)
+- Unit tests for Header (8 tests), Sidebar (9 tests), uiStore mobileSidebarOpen (4 tests)
 
 ### Changed
+- Removed Step 1 demo card page (`src/app/page.tsx`), replaced by `(dashboard)/page.tsx`
 - `NEXT_PUBLIC_BINANCE_WS_URL` in `.env.example` now omits `/ws` suffix (hooks append path segments as needed)
