@@ -53,3 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Market type definitions: `OHLCV`, `Symbol`, `Ticker24h`, `TickerPrice`
 - NextAuth.js v5 module augmentation for typed `Session`, `User`, `JWT`
 - Unit tests for uiStore (11 tests)
+- Login page with email/password form, Zod validation, `signIn('credentials')` with error handling
+- Register page with name/email/password/confirm form, Zod `.refine()` for password match
+- OAuth buttons (Google, GitHub) on both login and register pages
+- Auto-login after registration with graceful fallback message on failure
+- `Providers` wrapper component with `SessionProvider` and `QueryClientProvider` (staleTime 30s)
+- `Toaster` from sonner in root layout (dark theme, bottom-right)
+- Auth layout with centered card container (`max-w-md`)
+- Suspense boundary for `useSearchParams` in login page
+- Unit tests for Providers (3 tests), login page (9 tests), register page (11 tests)
+- E2E test specs for auth pages (5 tests, requires Docker services)
