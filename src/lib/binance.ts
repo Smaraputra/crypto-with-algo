@@ -1,4 +1,4 @@
-import type { OHLCV, Ticker24h, Symbol } from '@/types/market';
+import type { OHLCV, Ticker24h, TickerPrice, Symbol } from '@/types/market';
 
 const DEFAULT_BASE_URL = 'https://api.binance.com/api/v3';
 
@@ -45,6 +45,28 @@ export async function fetchKlines(
     close: parseFloat(k[4] as string),
     volume: parseFloat(k[5] as string),
   }));
+}
+
+export async function fetchTickerPrices(
+  symbols: string[]
+): Promise<Record<string, number>> {
+  if (symbols.length === 0) return {};
+
+  const params = new URLSearchParams({
+    symbols: JSON.stringify(symbols),
+  });
+
+  const res = await fetch(`${getBaseUrl()}/ticker/price?${params}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ticker prices: HTTP ${res.status}`);
+  }
+
+  const data: TickerPrice[] = await res.json();
+  const result: Record<string, number> = {};
+  for (const item of data) {
+    result[item.symbol] = parseFloat(item.price);
+  }
+  return result;
 }
 
 export async function fetchSymbols(): Promise<Symbol[]> {

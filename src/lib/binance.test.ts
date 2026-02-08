@@ -4,6 +4,7 @@ import type { Ticker24h } from '@/types/market';
 
 let fetchTickers: typeof import('./binance').fetchTickers;
 let fetchKlines: typeof import('./binance').fetchKlines;
+let fetchTickerPrices: typeof import('./binance').fetchTickerPrices;
 let fetchSymbols: typeof import('./binance').fetchSymbols;
 
 const mockFetch = vi.fn();
@@ -24,6 +25,7 @@ async function importModule() {
   const mod = await import('./binance');
   fetchTickers = mod.fetchTickers;
   fetchKlines = mod.fetchKlines;
+  fetchTickerPrices = mod.fetchTickerPrices;
   fetchSymbols = mod.fetchSymbols;
 }
 
@@ -209,6 +211,42 @@ describe('fetchKlines', () => {
 
     await expect(fetchKlines('BTCUSDT', '1h')).rejects.toThrow(
       'Failed to fetch klines for BTCUSDT: HTTP 429'
+    );
+  });
+});
+
+describe('fetchTickerPrices', () => {
+  beforeEach(async () => {
+    await importModule();
+  });
+
+  it('returns empty object for empty symbols array', async () => {
+    const result = await fetchTickerPrices([]);
+    expect(result).toEqual({});
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('returns price map for given symbols', async () => {
+    mockFetch.mockResolvedValue(
+      okResponse([
+        { symbol: 'BTCUSDT', price: '100000.50' },
+        { symbol: 'ETHUSDT', price: '3500.25' },
+      ])
+    );
+
+    const result = await fetchTickerPrices(['BTCUSDT', 'ETHUSDT']);
+
+    expect(result).toEqual({ BTCUSDT: 100000.5, ETHUSDT: 3500.25 });
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain('ticker/price');
+    expect(url).toContain('symbols=');
+  });
+
+  it('throws on HTTP error', async () => {
+    mockFetch.mockResolvedValue(errorResponse(403));
+
+    await expect(fetchTickerPrices(['BTCUSDT'])).rejects.toThrow(
+      'Failed to fetch ticker prices: HTTP 403'
     );
   });
 });
