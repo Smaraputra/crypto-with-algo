@@ -11,7 +11,7 @@ import { WatchlistSidebar } from '@/components/market/WatchlistSidebar';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, disabled: false },
-  { href: '#', label: 'Portfolio', icon: Briefcase, disabled: true },
+  { href: '/portfolio', label: 'Portfolio', icon: Briefcase, disabled: false },
   { href: '#', label: 'Alerts', icon: Bell, disabled: true },
 ];
 
