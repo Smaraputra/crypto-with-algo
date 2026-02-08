@@ -13,6 +13,9 @@ const mockSetSymbol = vi.fn();
 const mockSetPeriod = vi.fn();
 const mockResetData = vi.fn();
 const mockSetStyles = vi.fn();
+const mockSubscribeAction = vi.fn();
+const mockUnsubscribeAction = vi.fn();
+const mockOverrideIndicator = vi.fn();
 const mockResize = vi.fn();
 const mockDispose = vi.fn();
 
@@ -26,6 +29,9 @@ const mockChart = {
   setSymbol: mockSetSymbol,
   setPeriod: mockSetPeriod,
   setStyles: mockSetStyles,
+  overrideIndicator: mockOverrideIndicator,
+  subscribeAction: mockSubscribeAction,
+  unsubscribeAction: mockUnsubscribeAction,
   resetData: mockResetData,
   resize: mockResize,
 };
@@ -397,6 +403,19 @@ describe('TradingChart', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" chartType="ohlc" />);
 
       expect(screen.getByRole('button', { name: /ohlc/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('crosshair legend', () => {
+    it('subscribes to onCrosshairChange on mount', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      expect(mockSubscribeAction).toHaveBeenCalledWith('onCrosshairChange', expect.any(Function));
+    });
+
+    it('unsubscribes from onCrosshairChange on unmount', () => {
+      const { unmount } = render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      unmount();
+      expect(mockUnsubscribeAction).toHaveBeenCalledWith('onCrosshairChange', expect.any(Function));
     });
   });
 

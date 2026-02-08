@@ -6,6 +6,7 @@ import {
   dispose,
   type Chart,
   type CandleType,
+  type Crosshair,
   type DataLoaderGetBarsParams,
   type DataLoaderSubscribeBarParams,
   type KLineData,
@@ -36,6 +37,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { IndicatorSettings } from './IndicatorSettings';
+import { ChartLegend } from './ChartLegend';
 import { getDefaultCalcParams } from './indicator-params';
 
 const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
@@ -122,6 +124,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
   const [indicators, setIndicators] = useState<IndicatorConfig[]>(DEFAULT_INDICATORS);
   const [isLoading, setIsLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
+  const [crosshairData, setCrosshairData] = useState<KLineData | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
 
@@ -364,6 +367,22 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     if (!chartRef.current) return;
     chartRef.current.setStyles({ candle: { type: chartType } });
   }, [chartType]);
+
+  // Subscribe to crosshair changes for OHLCV legend
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const chart = chartRef.current;
+
+    const handleCrosshairChange = (data: unknown) => {
+      const crosshair = data as Crosshair;
+      setCrosshairData(crosshair?.kLineData ?? null);
+    };
+
+    chart.subscribeAction('onCrosshairChange', handleCrosshairChange);
+    return () => {
+      chart.unsubscribeAction('onCrosshairChange', handleCrosshairChange);
+    };
+  }, [hasValidDimensions]);
 
   const activateDrawingTool = (tool: string) => {
     if (!chartRef.current) return;
@@ -638,6 +657,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
       {/* Chart Area */}
       <div className="relative min-h-0 flex-1 bg-background">
         <div ref={containerRef} className="absolute inset-0 h-full w-full" />
+        <ChartLegend symbol={symbol} kLineData={crosshairData} />
 
         {isLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
