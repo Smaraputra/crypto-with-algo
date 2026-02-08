@@ -64,10 +64,11 @@ describe('Sidebar', () => {
     expect(link).toHaveAttribute('href', '/portfolio');
   });
 
-  it('renders Alerts item with Soon badge', () => {
+  it('renders Alerts item linking to /alerts', () => {
     render(<Sidebar />);
-    const soonBadges = screen.getAllByText('Soon');
-    expect(soonBadges.length).toBeGreaterThanOrEqual(1);
+    const alertsLinks = screen.getAllByText('Alerts');
+    const link = alertsLinks.find((el) => el.closest('a'))?.closest('a');
+    expect(link).toHaveAttribute('href', '/alerts');
   });
 
   it('highlights active item when pathname matches', () => {
@@ -87,12 +88,12 @@ describe('Sidebar', () => {
     expect(link?.className).not.toContain('text-sidebar-accent-foreground');
   });
 
-  it('applies disabled styles to disabled items', () => {
+  it('does not apply disabled styles to enabled items', () => {
     render(<Sidebar />);
     const alertsLinks = screen.getAllByText('Alerts');
     const link = alertsLinks.find((el) => el.closest('a'))?.closest('a');
-    expect(link?.className).toContain('pointer-events-none');
-    expect(link?.className).toContain('opacity-40');
+    expect(link?.className).not.toContain('pointer-events-none');
+    expect(link?.className).not.toContain('opacity-40');
   });
 
   it('renders desktop sidebar with w-56 when sidebarOpen is true', () => {
