@@ -1,14 +1,24 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { PortfolioSelector } from '@/components/portfolio/PortfolioSelector';
-import { PortfolioValueChart } from '@/components/analytics/PortfolioValueChart';
 import { AnalyticsSummaryCards } from '@/components/analytics/AnalyticsSummaryCards';
 import { CostBasisTable } from '@/components/analytics/CostBasisTable';
 import { RiskMetricsCards } from '@/components/analytics/RiskMetricsCards';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { usePortfolios } from '@/hooks/usePortfolio';
+
+const PortfolioValueChart = dynamic(
+  () => import('@/components/analytics/PortfolioValueChart').then((m) => m.PortfolioValueChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[300px] rounded-lg border border-border animate-shimmer" />
+    ),
+  }
+);
 
 export default function AnalyticsPage() {
   const { data } = usePortfolios();
