@@ -1,32 +1,34 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Dashboard layout', () => {
-  test('unauthenticated / redirects to /login', async ({ page }) => {
+test.describe('Dashboard layout (authenticated)', () => {
+  test('dashboard shows header with Crypto Tracker', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByText('Crypto Tracker').first()).toBeVisible();
   });
 
-  // The following tests require a signed-in user (Docker auth services needed).
-  // They will be run in CI or locally with `docker-compose up -d`.
+  test('sidebar shows navigation items', async ({ page }) => {
+    await page.goto('/');
+    const sidebar = page.locator('aside');
+    await expect(sidebar.getByText('Dashboard')).toBeVisible();
+    await expect(sidebar.getByText('Portfolio')).toBeVisible();
+    await expect(sidebar.getByText('Alerts')).toBeVisible();
+  });
 
-  test.describe('authenticated user', () => {
-    test.skip(true, 'Requires Docker services for auth');
+  test('dashboard page shows heading and welcome text', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(page.getByText(/Welcome/)).toBeVisible();
+  });
 
-    test('dashboard shows header with Crypto Tracker', async ({ page }) => {
-      await page.goto('/');
-      await expect(page.getByText('Crypto Tracker')).toBeVisible();
-    });
+  test('sidebar shows watchlist section', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText('Watchlist').first()).toBeVisible();
+  });
 
-    test('sidebar shows navigation items', async ({ page }) => {
-      await page.goto('/');
-      await expect(page.getByText('Dashboard')).toBeVisible();
-      await expect(page.getByText('Portfolio')).toBeVisible();
-      await expect(page.getByText('Alerts')).toBeVisible();
-    });
-
-    test('dashboard page shows heading', async ({ page }) => {
-      await page.goto('/');
-      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-    });
+  test('header shows user dropdown', async ({ page }) => {
+    await page.goto('/');
+    // The user button should be visible (shows name or email)
+    const userButton = page.locator('header').getByRole('button').filter({ has: page.locator('svg') }).last();
+    await expect(userButton).toBeVisible();
   });
 });

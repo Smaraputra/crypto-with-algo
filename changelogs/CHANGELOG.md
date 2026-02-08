@@ -123,6 +123,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unit tests for Watchlist model (5 tests) with MongoMemoryServer integration
 - Unit tests for watchlist API routes (10 tests): auth guards, validation, CRUD operations
 
+- Playwright E2E test infrastructure with auth setup project pattern
+- `e2e/auth.setup.ts` -- registers test user via API, logs in via UI, saves `storageState` for reuse
+- Playwright config with 3 projects: `setup`, `unauthenticated`, `authenticated` (depends on setup)
+- E2E auth tests (6 tests): redirect, login/register form rendering, bad credentials, nav links, full register-then-login flow
+- E2E dashboard layout tests (5 tests): header, sidebar nav items, heading, watchlist section, user dropdown
+- E2E dashboard feature tests (5 tests): market overview, chart container, interval tabs, watchlist symbols, add dropdown
+- `e2e/.auth/` added to `.gitignore` for ephemeral session state
+
 ### Changed
 - Dashboard page now renders `<DashboardChart />` below `<MarketOverview />` for live trading chart
 - Removed Step 1 demo card page (`src/app/page.tsx`), replaced by `(dashboard)/page.tsx`
