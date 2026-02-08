@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -135,6 +136,11 @@ export function TransactionForm({
           <DialogTitle>
             {isRecordMode ? `Record Transaction - ${fixedSymbol}` : 'Add Holding'}
           </DialogTitle>
+          <DialogDescription>
+            {isRecordMode
+              ? 'Record a buy or sell transaction for this holding.'
+              : 'Add a new holding to your portfolio by recording the first transaction.'}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           {!isRecordMode && (

@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import type {
   PortfolioListResponse,
   PortfolioResponse,
@@ -42,6 +43,8 @@ export function useCreatePortfolio() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       }),
+    onSuccess: () => toast.success('Portfolio created'),
+    onError: (err) => toast.error(err.message || 'Failed to create portfolio'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolios'] });
     },
@@ -58,6 +61,8 @@ export function useRenamePortfolio() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       }),
+    onSuccess: () => toast.success('Portfolio renamed'),
+    onError: (err) => toast.error(err.message || 'Failed to rename portfolio'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolios'] });
     },
@@ -70,6 +75,8 @@ export function useDeletePortfolio() {
   return useMutation({
     mutationFn: (id: string) =>
       fetchJson(`/api/portfolio/${id}`, { method: 'DELETE' }),
+    onSuccess: () => toast.success('Portfolio deleted'),
+    onError: (err) => toast.error(err.message || 'Failed to delete portfolio'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolios'] });
     },
@@ -86,6 +93,8 @@ export function useAddHolding(portfolioId: string) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       }),
+    onSuccess: () => toast.success('Holding added'),
+    onError: (err) => toast.error(err.message || 'Failed to add holding'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] });
       queryClient.invalidateQueries({ queryKey: ['portfolios'] });
@@ -101,6 +110,8 @@ export function useRemoveHolding(portfolioId: string) {
       fetchJson(`/api/portfolio/${portfolioId}/holdings/${symbol}`, {
         method: 'DELETE',
       }),
+    onSuccess: () => toast.success('Holding removed'),
+    onError: (err) => toast.error(err.message || 'Failed to remove holding'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] });
       queryClient.invalidateQueries({ queryKey: ['portfolios'] });
@@ -121,6 +132,8 @@ export function useRecordTransaction(portfolioId: string, symbol: string) {
           body: JSON.stringify(input),
         }
       ),
+    onSuccess: () => toast.success('Transaction recorded'),
+    onError: (err) => toast.error(err.message || 'Failed to record transaction'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] });
       queryClient.invalidateQueries({

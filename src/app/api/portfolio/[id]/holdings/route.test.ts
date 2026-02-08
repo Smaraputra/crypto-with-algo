@@ -162,4 +162,31 @@ describe('POST /api/portfolio/[id]/holdings', () => {
     const res = await POST(req, makeParams('p1'));
     expect(res.status).toBe(400);
   });
+
+  it('removes holding when sell brings quantity to zero', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    const mockPortfolio = {
+      _id: 'p1',
+      userId: 'user-1',
+      holdings: [
+        {
+          symbol: 'BTCUSDT',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          quantity: 0.5,
+          avgBuyPrice: 40000,
+          transactions: [
+            { type: 'buy', quantity: 0.5, price: 40000, date: new Date(), fee: 0 },
+          ],
+        },
+      ],
+      save: vi.fn(),
+    };
+    vi.mocked(Portfolio.findOne).mockResolvedValue(mockPortfolio as never);
+
+    const req = makeRequest({ ...validInput, type: 'sell', quantity: 0.5 });
+    const res = await POST(req, makeParams('p1'));
+    expect(res.status).toBe(200);
+    expect(mockPortfolio.holdings).toHaveLength(0);
+  });
 });

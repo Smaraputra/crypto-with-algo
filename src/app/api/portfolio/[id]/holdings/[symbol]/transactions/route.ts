@@ -112,6 +112,11 @@ export async function POST(
   holding.quantity = state.quantity;
   holding.avgBuyPrice = state.avgBuyPrice;
 
+  // Remove holding if quantity reached zero after a full sell
+  portfolio.holdings = portfolio.holdings.filter(
+    (h: { quantity: number }) => h.quantity > 0
+  );
+
   await portfolio.save();
 
   return NextResponse.json({ portfolio });
