@@ -83,6 +83,55 @@ test.describe('Analytics page (authenticated)', () => {
     ).toBeVisible({ timeout: 10000 });
   });
 
+  test('cost basis method selector shows FIFO/LIFO/HIFO options', async ({ page }) => {
+    await page.goto('/analytics');
+    await page.getByRole('tab', { name: 'Cost Basis' }).click();
+
+    const methodSelector = page.getByTestId('method-selector');
+    const empty = page.getByTestId('cost-basis-empty');
+
+    // Method selector only renders when there are holdings
+    const hasTable = await methodSelector.isVisible().catch(() => false);
+    if (!hasTable) {
+      await expect(empty).toBeVisible({ timeout: 10000 });
+      return;
+    }
+
+    // Open the method selector dropdown
+    await methodSelector.click();
+    await expect(page.getByRole('option', { name: 'FIFO' })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'LIFO' })).toBeVisible();
+    await expect(page.getByRole('option', { name: 'HIFO' })).toBeVisible();
+
+    // Select LIFO and verify title updates
+    await page.getByRole('option', { name: 'LIFO' }).click();
+    await expect(page.getByText('Cost Basis (LIFO)')).toBeVisible();
+  });
+
+  test('export CSV dropdown shows format options', async ({ page }) => {
+    await page.goto('/analytics');
+    await page.getByRole('tab', { name: 'Cost Basis' }).click();
+
+    const exportButton = page.getByTestId('export-csv-button');
+    const empty = page.getByTestId('cost-basis-empty');
+
+    // Export button only renders when there are holdings
+    const hasExport = await exportButton.isVisible().catch(() => false);
+    if (!hasExport) {
+      await expect(empty).toBeVisible({ timeout: 10000 });
+      return;
+    }
+
+    // Open the export dropdown
+    await exportButton.click();
+    await expect(page.getByTestId('export-generic')).toBeVisible();
+    await expect(page.getByTestId('export-koinly')).toBeVisible();
+    await expect(page.getByTestId('export-cointracker')).toBeVisible();
+
+    // Close dropdown with Escape
+    await page.keyboard.press('Escape');
+  });
+
   test('tab switching works correctly', async ({ page }) => {
     await page.goto('/analytics');
 
