@@ -144,6 +144,7 @@ export function AlertList({ alerts, isLoading }: AlertListProps) {
                 className="size-8"
                 onClick={() => acknowledgeAlert.mutate(alert._id)}
                 title="Acknowledge"
+                aria-label="Acknowledge"
               >
                 <Check className="size-4 text-[#0ecb81]" />
               </Button>
@@ -161,6 +162,7 @@ export function AlertList({ alerts, isLoading }: AlertListProps) {
                   })
                 }
                 title={alert.status === 'active' ? 'Pause' : 'Resume'}
+                aria-label={alert.status === 'active' ? 'Pause' : 'Resume'}
               >
                 {alert.status === 'active' ? (
                   <Pause className="size-4" />
@@ -177,6 +179,7 @@ export function AlertList({ alerts, isLoading }: AlertListProps) {
                   size="icon"
                   className="size-8 text-destructive hover:text-destructive"
                   title="Delete"
+                  aria-label="Delete"
                 >
                   <Trash2 className="size-4" />
                 </Button>

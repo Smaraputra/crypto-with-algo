@@ -86,6 +86,18 @@ describe('TransactionForm', () => {
     expect(screen.getByText(/symbol is required/i)).toBeInTheDocument();
   });
 
+  it('links error messages to inputs via aria-describedby', async () => {
+    const user = userEvent.setup();
+    render(<TransactionForm {...defaultProps} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    const symbolInput = screen.getByLabelText('Symbol');
+    expect(symbolInput).toHaveAttribute('aria-describedby', 'error-symbol');
+    expect(symbolInput).toHaveAttribute('aria-invalid', 'true');
+    expect(document.getElementById('error-symbol')).toHaveTextContent(/symbol is required/i);
+  });
+
   it('calls addHolding mutation in add-holding mode', async () => {
     const user = userEvent.setup();
     render(<TransactionForm {...defaultProps} />);

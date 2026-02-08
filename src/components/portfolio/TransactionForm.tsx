@@ -152,9 +152,11 @@ export function TransactionForm({
                   placeholder="BTCUSDT"
                   value={symbol}
                   onChange={(e) => setSymbol(e.target.value)}
+                  aria-describedby={errors.symbol ? 'error-symbol' : undefined}
+                  aria-invalid={!!errors.symbol}
                 />
                 {errors.symbol && (
-                  <p className="text-xs text-destructive">{errors.symbol}</p>
+                  <p id="error-symbol" className="text-xs text-destructive">{errors.symbol}</p>
                 )}
               </div>
               <div className="space-y-1">
@@ -164,9 +166,11 @@ export function TransactionForm({
                   placeholder="BTC"
                   value={baseAsset}
                   onChange={(e) => setBaseAsset(e.target.value)}
+                  aria-describedby={errors.baseAsset ? 'error-baseAsset' : undefined}
+                  aria-invalid={!!errors.baseAsset}
                 />
                 {errors.baseAsset && (
-                  <p className="text-xs text-destructive">{errors.baseAsset}</p>
+                  <p id="error-baseAsset" className="text-xs text-destructive">{errors.baseAsset}</p>
                 )}
               </div>
               <div className="space-y-1">
@@ -213,9 +217,11 @@ export function TransactionForm({
                 placeholder="0.5"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
+                aria-describedby={errors.quantity ? 'error-quantity' : undefined}
+                aria-invalid={!!errors.quantity}
               />
               {errors.quantity && (
-                <p className="text-xs text-destructive">{errors.quantity}</p>
+                <p id="error-quantity" className="text-xs text-destructive">{errors.quantity}</p>
               )}
             </div>
             <div className="space-y-1">
@@ -228,9 +234,11 @@ export function TransactionForm({
                 placeholder="40000"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
+                aria-describedby={errors.price ? 'error-price' : undefined}
+                aria-invalid={!!errors.price}
               />
               {errors.price && (
-                <p className="text-xs text-destructive">{errors.price}</p>
+                <p id="error-price" className="text-xs text-destructive">{errors.price}</p>
               )}
             </div>
           </div>

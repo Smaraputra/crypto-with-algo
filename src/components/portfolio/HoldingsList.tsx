@@ -72,7 +72,7 @@ export function HoldingsList({ portfolioId, onRecordTransaction }: HoldingsListP
 
   if (isLoading) {
     return (
-      <div className="space-y-2" data-testid="holdings-skeleton">
+      <div className="space-y-2" data-testid="holdings-skeleton" aria-live="polite" aria-busy="true">
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="h-12 rounded-sm animate-shimmer" />
         ))}

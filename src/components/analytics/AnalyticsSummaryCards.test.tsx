@@ -37,6 +37,14 @@ describe('AnalyticsSummaryCards', () => {
     expect(screen.getByTestId('summary-cards-skeleton')).toBeInTheDocument();
   });
 
+  it('has aria-live on loading skeleton', async () => {
+    mockFetch({ history: [] });
+    await renderCards();
+    const skeleton = screen.getByTestId('summary-cards-skeleton');
+    expect(skeleton).toHaveAttribute('aria-live', 'polite');
+    expect(skeleton).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('renders summary cards with values', async () => {
     // Mock history and cost-basis responses
     vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
