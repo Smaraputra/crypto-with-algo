@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronRight, ChevronDown } from 'lucide-react';
+import { ChevronRight, ChevronDown, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useCostBasis } from '@/hooks/useAnalytics';
+import { Button } from '@/components/ui/button';
+import { useCostBasis, useExportCsv } from '@/hooks/useAnalytics';
 import type { CostBasisHolding } from '@/types/analytics';
 
 interface CostBasisTableProps {
@@ -25,6 +26,7 @@ function formatQuantity(value: number): string {
 
 export function CostBasisTable({ portfolioId }: CostBasisTableProps) {
   const { data, isLoading } = useCostBasis(portfolioId);
+  const exportCsv = useExportCsv(portfolioId);
   const [expandedSymbol, setExpandedSymbol] = useState<string | null>(null);
 
   if (isLoading) {
@@ -53,8 +55,19 @@ export function CostBasisTable({ portfolioId }: CostBasisTableProps) {
 
   return (
     <Card data-testid="cost-basis-table">
-      <CardHeader className="pb-2">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium">Cost Basis (FIFO)</CardTitle>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={() => exportCsv.mutate(undefined)}
+          disabled={exportCsv.isPending}
+          data-testid="export-csv-button"
+        >
+          <Download className="h-3 w-3" />
+          {exportCsv.isPending ? 'Exporting...' : 'Export CSV'}
+        </Button>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">

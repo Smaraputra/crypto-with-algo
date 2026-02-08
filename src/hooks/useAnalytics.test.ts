@@ -7,6 +7,7 @@ import {
   usePortfolioHistory,
   useCostBasis,
   useRiskMetrics,
+  useExportCsv,
 } from './useAnalytics';
 
 function createWrapper() {
@@ -202,6 +203,71 @@ describe('useRiskMetrics', () => {
 
     await waitFor(() => {
       expect(result.current.isError).toBe(true);
+    });
+  });
+});
+
+describe('useExportCsv', () => {
+  it('returns a mutation with mutate function', () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useExportCsv('p1'), { wrapper });
+
+    expect(result.current.mutate).toBeDefined();
+    expect(result.current.isPending).toBe(false);
+  });
+
+  it('does not fetch when portfolioId is null', async () => {
+    const fetchSpy = mockFetch('');
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useExportCsv(null), { wrapper });
+
+    result.current.mutate(undefined);
+
+    // Give it a tick
+    await waitFor(() => {
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('calls fetch with correct URL when triggered', async () => {
+    const csvContent = 'Date,Type,Asset\n2024-01-15,Buy,BTC';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(csvContent, {
+        status: 200,
+        headers: { 'Content-Type': 'text/csv' },
+      })
+    );
+
+    // Mock DOM methods for download after render
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useExportCsv('p1'), { wrapper });
+
+    // Now mock createElement for the download anchor (after renderHook)
+    const origCreateElement = document.createElement.bind(document);
+    const mockClick = vi.fn();
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      if (tag === 'a') {
+        return { href: '', download: '', click: mockClick } as never;
+      }
+      return origCreateElement(tag);
+    });
+    vi.spyOn(document.body, 'appendChild').mockImplementation(() => null as never);
+    vi.spyOn(document.body, 'removeChild').mockImplementation(() => null as never);
+
+    result.current.mutate(2024);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/analytics/export?portfolioId=p1&year=2024'
+      );
+    });
+
+    await waitFor(() => {
+      expect(mockClick).toHaveBeenCalled();
     });
   });
 });

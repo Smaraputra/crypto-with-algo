@@ -98,6 +98,32 @@ describe('CostBasisTable', () => {
     expect(screen.getByText('Open Tax Lots')).toBeInTheDocument();
   });
 
+  it('shows export CSV button when holdings exist', async () => {
+    mockFetch({
+      costBasis: {
+        holdings: [
+          {
+            symbol: 'BTCUSDT',
+            totalQuantity: 0.5,
+            averageCost: 40000,
+            totalCost: 20000,
+            openLots: [],
+            realizedGains: [],
+            totalRealizedGain: 5000,
+          },
+        ],
+        totalRealizedGain: 5000,
+        totalUnrealizedCostBasis: 20000,
+      },
+    });
+
+    await renderTable();
+
+    await screen.findByTestId('cost-basis-table');
+    expect(screen.getByTestId('export-csv-button')).toBeInTheDocument();
+    expect(screen.getByTestId('export-csv-button')).toHaveTextContent('Export CSV');
+  });
+
   it('shows total row', async () => {
     mockFetch({
       costBasis: {
