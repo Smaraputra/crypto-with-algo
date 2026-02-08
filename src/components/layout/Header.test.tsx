@@ -28,6 +28,12 @@ vi.mock('@/hooks/useSymbols', () => ({
   useSymbols: () => ({ data: [], isLoading: false }),
 }));
 
+vi.mock('@/hooks/useAlerts', () => ({
+  useUnreadAlertCount: () => 0,
+  useAlerts: () => ({ data: { alerts: [] } }),
+  useAcknowledgeAlert: () => ({ mutate: vi.fn() }),
+}));
+
 import { Header } from './Header';
 
 beforeEach(() => {
