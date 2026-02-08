@@ -35,6 +35,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
+import { IndicatorSettings } from './IndicatorSettings';
+import { getDefaultCalcParams } from './indicator-params';
 
 const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
 
@@ -63,18 +65,19 @@ export interface IndicatorConfig {
   category: 'overlay' | 'oscillator' | 'volume';
   enabled: boolean;
   paneId?: string;
+  calcParams: number[];
 }
 
 export const DEFAULT_INDICATORS: IndicatorConfig[] = [
-  { id: 'MA', name: 'Moving Average', category: 'overlay', enabled: true },
-  { id: 'EMA', name: 'EMA', category: 'overlay', enabled: false },
-  { id: 'BOLL', name: 'Bollinger Bands', category: 'overlay', enabled: false },
-  { id: 'SAR', name: 'Parabolic SAR', category: 'overlay', enabled: false },
-  { id: 'VOL', name: 'Volume', category: 'volume', enabled: true },
-  { id: 'MACD', name: 'MACD', category: 'oscillator', enabled: false },
-  { id: 'RSI', name: 'RSI', category: 'oscillator', enabled: false },
-  { id: 'KDJ', name: 'Stochastic KDJ', category: 'oscillator', enabled: false },
-  { id: 'OBV', name: 'On Balance Volume', category: 'volume', enabled: false },
+  { id: 'MA', name: 'Moving Average', category: 'overlay', enabled: true, calcParams: getDefaultCalcParams('MA') },
+  { id: 'EMA', name: 'EMA', category: 'overlay', enabled: false, calcParams: getDefaultCalcParams('EMA') },
+  { id: 'BOLL', name: 'Bollinger Bands', category: 'overlay', enabled: false, calcParams: getDefaultCalcParams('BOLL') },
+  { id: 'SAR', name: 'Parabolic SAR', category: 'overlay', enabled: false, calcParams: getDefaultCalcParams('SAR') },
+  { id: 'VOL', name: 'Volume', category: 'volume', enabled: true, calcParams: getDefaultCalcParams('VOL') },
+  { id: 'MACD', name: 'MACD', category: 'oscillator', enabled: false, calcParams: getDefaultCalcParams('MACD') },
+  { id: 'RSI', name: 'RSI', category: 'oscillator', enabled: false, calcParams: getDefaultCalcParams('RSI') },
+  { id: 'KDJ', name: 'Stochastic KDJ', category: 'oscillator', enabled: false, calcParams: getDefaultCalcParams('KDJ') },
+  { id: 'OBV', name: 'On Balance Volume', category: 'volume', enabled: false, calcParams: getDefaultCalcParams('OBV') },
 ];
 
 export const INTERVALS: { value: string; label: string; period: Period }[] = [
@@ -168,6 +171,19 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
       );
     },
     [indicators, addIndicatorToChart, removeIndicatorFromChart]
+  );
+
+  const updateIndicatorParams = useCallback(
+    (indicatorId: string, params: number[]) => {
+      if (!chartRef.current) return;
+      chartRef.current.overrideIndicator({ name: indicatorId, calcParams: params });
+      setIndicators((prev) =>
+        prev.map((ind) =>
+          ind.id === indicatorId ? { ...ind, calcParams: params } : ind
+        )
+      );
+    },
+    []
   );
 
   // Initialize chart with DataLoader
@@ -489,6 +505,20 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {indicators.filter((ind) => ind.enabled).map((ind) => (
+            <div key={ind.id} className="flex items-center gap-0.5">
+              <span className="text-xs text-muted-foreground">
+                {ind.id}({ind.calcParams.join(',')})
+              </span>
+              <IndicatorSettings
+                indicatorId={ind.id}
+                indicatorName={ind.name}
+                calcParams={ind.calcParams}
+                onParamsChange={updateIndicatorParams}
+              />
+            </div>
+          ))}
         </div>
 
         <div className="flex items-center gap-2">
