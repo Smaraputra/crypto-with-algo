@@ -57,6 +57,7 @@ export interface CostBasisHolding {
 }
 
 export type CostBasisMethod = 'fifo' | 'lifo' | 'hifo';
+export type CsvFormat = 'generic' | 'koinly' | 'cointracker';
 
 export interface CostBasisResult {
   holdings: CostBasisHolding[];

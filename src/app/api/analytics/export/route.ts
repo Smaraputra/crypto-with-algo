@@ -5,12 +5,13 @@ import { connectDB } from '@/lib/mongodb';
 import { Portfolio, type IHolding } from '@/lib/models/portfolio';
 import { computeHoldingCostBasis } from '@/lib/cost-basis';
 import { generateTaxCsv } from '@/lib/csv-export';
-import type { CostBasisMethod } from '@/types/analytics';
+import type { CostBasisMethod, CsvFormat } from '@/types/analytics';
 
 const querySchema = z.object({
   portfolioId: z.string().min(1),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   method: z.enum(['fifo', 'lifo', 'hifo']).default('fifo'),
+  format: z.enum(['generic', 'koinly', 'cointracker']).default('generic'),
 });
 
 export async function GET(req: NextRequest) {
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { portfolioId, year, method } = parsed.data;
+  const { portfolioId, year, method, format } = parsed.data;
   await connectDB();
 
   const portfolio = await Portfolio.findOne({
@@ -48,8 +49,9 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const csv = generateTaxCsv(holdingsData, year);
-  const filename = year ? `tax-report-${year}.csv` : 'tax-report.csv';
+  const csv = generateTaxCsv(holdingsData, year, format as CsvFormat);
+  const prefix = format === 'generic' ? 'tax-report' : `tax-report-${format}`;
+  const filename = year ? `${prefix}-${year}.csv` : `${prefix}.csv`;
 
   return new NextResponse(csv, {
     status: 200,
