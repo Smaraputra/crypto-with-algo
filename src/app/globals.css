@@ -302,6 +302,48 @@
   animation: fade-in-up 0.6s ease-out both;
 }
 
+/* Marketing dark theme - scoped to landing + auth pages only */
+.marketing-dark {
+  --background: oklch(0.07 0.005 260);
+  --card: oklch(0.10 0.005 260);
+  --card-hover: oklch(0.13 0.008 260);
+  --border: oklch(0.15 0.008 260);
+  --popover: oklch(0.10 0.005 260);
+  --popover-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.13 0.005 260);
+  --muted: oklch(0.13 0.005 260);
+  --input: oklch(0.13 0.005 260);
+}
+
+/* Gradient text heading utility */
+.gradient-heading {
+  background: linear-gradient(135deg, #0ecb81, #00d4aa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Grid card overlay (Ethena-inspired fine grid pattern) */
+.grid-card-overlay {
+  position: relative;
+}
+.grid-card-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(0deg, oklch(1 0 0 / 0.02) 0px, oklch(1 0 0 / 0.02) 1px, transparent 1px, transparent 40px),
+    repeating-linear-gradient(90deg, oklch(1 0 0 / 0.02) 0px, oklch(1 0 0 / 0.02) 1px, transparent 1px, transparent 40px);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Gradient separator line */
+.gradient-separator {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, oklch(0.72 0.18 160 / 0.3), transparent);
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

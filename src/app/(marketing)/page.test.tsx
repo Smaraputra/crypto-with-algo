@@ -7,20 +7,11 @@ vi.mock('@/components/marketing/LandingNav', () => ({
 vi.mock('@/components/marketing/HeroSection', () => ({
   HeroSection: () => <section data-testid="hero-section" />,
 }));
-vi.mock('@/components/marketing/CoinSceneWrapper', () => ({
-  CoinSceneWrapper: () => <section data-testid="coin-scene-wrapper" />,
-}));
-vi.mock('@/components/marketing/AnimatedChartSection', () => ({
-  AnimatedChartSection: () => <section data-testid="animated-chart-section" />,
-}));
 vi.mock('@/components/marketing/FeaturesSection', () => ({
   FeaturesSection: () => <section data-testid="features-section" />,
 }));
 vi.mock('@/components/marketing/HowItWorksSection', () => ({
   HowItWorksSection: () => <section data-testid="how-it-works-section" />,
-}));
-vi.mock('@/components/marketing/StatsSection', () => ({
-  StatsSection: () => <section data-testid="stats-section" />,
 }));
 vi.mock('@/components/marketing/CTASection', () => ({
   CTASection: () => <section data-testid="cta-section" />,
@@ -37,11 +28,8 @@ describe('LandingPage', () => {
 
     expect(screen.getByTestId('landing-nav')).toBeInTheDocument();
     expect(screen.getByTestId('hero-section')).toBeInTheDocument();
-    expect(screen.getByTestId('coin-scene-wrapper')).toBeInTheDocument();
-    expect(screen.getByTestId('animated-chart-section')).toBeInTheDocument();
     expect(screen.getByTestId('features-section')).toBeInTheDocument();
     expect(screen.getByTestId('how-it-works-section')).toBeInTheDocument();
-    expect(screen.getByTestId('stats-section')).toBeInTheDocument();
     expect(screen.getByTestId('cta-section')).toBeInTheDocument();
     expect(screen.getByTestId('footer')).toBeInTheDocument();
   });

@@ -6,6 +6,9 @@ vi.mock('@gsap/react', async () => await import('@/__mocks__/@gsap/react'));
 vi.mock('./HeroBackground', () => ({
   HeroBackground: () => <div data-testid="hero-background" />,
 }));
+vi.mock('./GlobeScene', () => ({
+  default: () => <div data-testid="globe-scene" />,
+}));
 
 import { HeroSection } from './HeroSection';
 
@@ -48,5 +51,13 @@ describe('HeroSection', () => {
     expect(ticker).toHaveAttribute('role', 'status');
     expect(ticker).toHaveAttribute('aria-label', 'Live cryptocurrency prices');
     expect(ticker).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('renders stats grid with 6 stats', () => {
+    render(<HeroSection />);
+    const statsGrid = screen.getByTestId('stats-grid');
+    expect(statsGrid).toBeInTheDocument();
+    const articles = statsGrid.querySelectorAll('article');
+    expect(articles).toHaveLength(6);
   });
 });

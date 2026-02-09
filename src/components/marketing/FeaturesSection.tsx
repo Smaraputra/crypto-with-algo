@@ -102,15 +102,18 @@ export function FeaturesSection() {
   return (
     <section
       ref={sectionRef}
-      className="border-t border-border bg-card/30 py-16 sm:py-24"
+      id="features"
+      className="py-16 sm:py-24"
     >
       <div className="mx-auto max-w-6xl px-4">
         <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
-          Everything You Need
+          <span className="gradient-heading">Everything You Need</span>
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
           Professional-grade tools for managing your cryptocurrency portfolio.
         </p>
+
+        <div className="gradient-separator mx-auto mt-6 max-w-xs" />
 
         <div
           className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
@@ -121,7 +124,7 @@ export function FeaturesSection() {
               key={feature.title}
               data-feature-card
               onMouseMove={handleMouseMove}
-              className="group relative overflow-hidden rounded-lg border border-border/50 bg-card p-6 transition-colors hover:border-accent/30"
+              className="grid-card-overlay group relative overflow-hidden rounded-xl border border-border/50 bg-card p-6 transition-all duration-300 hover:border-[#0ecb81]/30 hover:shadow-lg hover:shadow-[#0ecb81]/5"
               style={
                 {
                   '--mouse-x': '50%',
@@ -131,15 +134,17 @@ export function FeaturesSection() {
             >
               {/* Mouse spotlight */}
               <div
-                className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
                 aria-hidden="true"
                 style={{
                   background:
-                    'radial-gradient(250px circle at var(--mouse-x) var(--mouse-y), oklch(0.85 0.17 85 / 0.06), transparent 80%)',
+                    'radial-gradient(250px circle at var(--mouse-x) var(--mouse-y), oklch(0.72 0.18 160 / 0.06), transparent 80%)',
                 }}
               />
-              <div className="relative">
-                <feature.icon className="mb-3 h-8 w-8 text-primary transition-transform duration-300 group-hover:scale-110" />
+              <div className="relative z-10">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-primary/20 bg-primary/5">
+                  <feature.icon className="h-5 w-5 text-primary transition-transform duration-300 group-hover:scale-110" />
+                </div>
                 <h3 className="text-sm font-semibold">{feature.title}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {feature.description}

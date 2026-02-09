@@ -80,15 +80,18 @@ export function HowItWorksSection() {
   return (
     <section
       ref={sectionRef}
-      className="border-t border-border py-16 sm:py-24"
+      id="how-it-works"
+      className="py-16 sm:py-24"
     >
       <div className="mx-auto max-w-6xl px-4">
         <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
-          How It Works
+          <span className="gradient-heading">How It Works</span>
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
           Get started in three simple steps.
         </p>
+
+        <div className="gradient-separator mx-auto mt-6 max-w-xs" />
 
         <div className="mt-12 grid gap-8 sm:grid-cols-3" data-testid="how-it-works-grid">
           {STEPS.map((step, i) => (
@@ -97,7 +100,11 @@ export function HowItWorksSection() {
               {i < STEPS.length - 1 && (
                 <div
                   data-connector
-                  className="absolute top-8 left-[calc(50%+2rem)] hidden h-px w-[calc(100%-4rem)] origin-left bg-accent/30 sm:block"
+                  className="absolute top-8 left-[calc(50%+2rem)] hidden h-px w-[calc(100%-4rem)] origin-left sm:block"
+                  style={{
+                    background: 'linear-gradient(90deg, #0ecb81, transparent)',
+                    opacity: 0.3,
+                  }}
                   aria-hidden="true"
                 />
               )}
@@ -106,8 +113,8 @@ export function HowItWorksSection() {
                 data-step-card
                 className="flex flex-col items-center"
               >
-                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-accent/30 bg-accent/5">
-                  <step.icon className="h-7 w-7 text-accent" />
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-primary/30 bg-primary/5">
+                  <step.icon className="h-7 w-7 text-primary" />
                 </div>
                 <div className="mt-1 font-mono text-xs text-muted-foreground">
                   Step {step.number}

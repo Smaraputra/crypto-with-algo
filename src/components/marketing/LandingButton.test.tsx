@@ -17,10 +17,10 @@ describe('LandingButton', () => {
     expect(link.querySelector('[aria-hidden="true"]')).toBeInTheDocument();
   });
 
-  it('renders solid variant with accent background', () => {
+  it('renders solid variant with primary background', () => {
     render(<LandingButton variant="solid" href="#">Solid</LandingButton>);
     const link = screen.getByRole('link');
-    expect(link.className).toContain('bg-accent');
+    expect(link.className).toContain('bg-primary');
     expect(link.querySelector('[aria-hidden="true"]')).not.toBeInTheDocument();
   });
 
@@ -28,5 +28,18 @@ describe('LandingButton', () => {
     render(<LandingButton size="lg" href="#">Large</LandingButton>);
     const link = screen.getByRole('link');
     expect(link.className).toContain('h-12');
+  });
+
+  it('renders pill shape (rounded-full)', () => {
+    render(<LandingButton href="#">Pill</LandingButton>);
+    const link = screen.getByRole('link');
+    expect(link.className).toContain('rounded-full');
+  });
+
+  it('renders gradient-border variant with gradient wrapper', () => {
+    render(<LandingButton variant="gradient-border" href="#">Gradient</LandingButton>);
+    const link = screen.getByRole('link');
+    expect(link.className).toContain('rounded-full');
+    expect(link.className).toContain('p-px');
   });
 });

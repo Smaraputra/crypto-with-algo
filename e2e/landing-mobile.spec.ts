@@ -47,7 +47,7 @@ test.describe('Landing page (mobile viewport)', () => {
 
   test('how it works section is visible at mobile width', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('How It Works')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'How It Works' })).toBeVisible();
   });
 
   test('skip-to-content link is accessible', async ({ page }) => {
