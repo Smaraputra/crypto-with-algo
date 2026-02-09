@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Alerts page (authenticated)', () => {
   test('navigates to alerts page via sidebar', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     // Click Alerts in the sidebar navigation
     const sidebar = page.locator('[data-testid="desktop-sidebar"]');
@@ -155,7 +155,7 @@ test.describe('Alerts page (authenticated)', () => {
   });
 
   test('notification bell is visible in header', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     await expect(
       page.getByRole('button', { name: 'Notifications' })
@@ -163,7 +163,7 @@ test.describe('Alerts page (authenticated)', () => {
   });
 
   test('notification bell opens popover', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     await page.getByRole('button', { name: 'Notifications' }).click();
 

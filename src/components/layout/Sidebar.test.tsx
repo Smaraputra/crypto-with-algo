@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-let mockPathname = '/';
+let mockPathname = '/dashboard';
 
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
@@ -44,17 +44,17 @@ import { Sidebar } from './Sidebar';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockPathname = '/';
+  mockPathname = '/dashboard';
   mockSidebarOpen = true;
   mockMobileSidebarOpen = false;
 });
 
 describe('Sidebar', () => {
-  it('renders Dashboard nav item linking to /', () => {
+  it('renders Dashboard nav item linking to /dashboard', () => {
     render(<Sidebar />);
     const links = screen.getAllByText('Dashboard');
     const dashboardLink = links.find((el) => el.closest('a'));
-    expect(dashboardLink?.closest('a')).toHaveAttribute('href', '/');
+    expect(dashboardLink?.closest('a')).toHaveAttribute('href', '/dashboard');
   });
 
   it('renders Portfolio item linking to /portfolio', () => {
@@ -72,7 +72,7 @@ describe('Sidebar', () => {
   });
 
   it('highlights active item when pathname matches', () => {
-    mockPathname = '/';
+    mockPathname = '/dashboard';
     render(<Sidebar />);
     const dashboardLinks = screen.getAllByText('Dashboard');
     const link = dashboardLinks.find((el) => el.closest('a'))?.closest('a');

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const publicPaths = ['/login', '/register'];
+const publicPrefixes = ['/login', '/register'];
+const publicExact = ['/'];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  const isPublic = publicPaths.some((path) => pathname.startsWith(path));
+  const isPublic =
+    publicExact.includes(pathname) ||
+    publicPrefixes.some((path) => pathname.startsWith(path));
   if (isPublic) return NextResponse.next();
 
   // Check for the session token cookie. Cryptographic verification

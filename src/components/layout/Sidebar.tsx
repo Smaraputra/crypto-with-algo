@@ -10,7 +10,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { WatchlistSidebar } from '@/components/market/WatchlistSidebar';
 
 const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard, disabled: false },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, disabled: false },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase, disabled: false },
   { href: '/alerts', label: 'Alerts', icon: Bell, disabled: false },
   { href: '/analytics', label: 'Analytics', icon: BarChart3, disabled: false },

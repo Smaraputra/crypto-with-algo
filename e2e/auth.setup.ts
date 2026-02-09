@@ -24,7 +24,7 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
   await page.getByRole('button', { name: 'Sign In' }).click();
 
   // Wait for redirect to dashboard
-  await expect(page).toHaveURL('/', { timeout: 10000 });
+  await expect(page).toHaveURL('/dashboard', { timeout: 10000 });
 
   // Verify we landed on the authenticated dashboard
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();

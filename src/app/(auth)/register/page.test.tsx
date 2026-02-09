@@ -185,7 +185,7 @@ describe('RegisterPage', () => {
     await user.click(screen.getByRole('button', { name: 'Create Account' }));
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith('/');
+      expect(mockPush).toHaveBeenCalledWith('/dashboard');
     });
   });
 

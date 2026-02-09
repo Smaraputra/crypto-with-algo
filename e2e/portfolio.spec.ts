@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Portfolio (authenticated)', () => {
   test('sidebar portfolio link navigates to /portfolio', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 10000 });
 
     // Click Portfolio in the sidebar nav
