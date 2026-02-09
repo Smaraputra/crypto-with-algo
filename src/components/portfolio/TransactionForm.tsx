@@ -190,7 +190,7 @@ export function TransactionForm({
               type="button"
               variant={type === 'buy' ? 'default' : 'outline'}
               size="sm"
-              className={type === 'buy' ? 'bg-[#0ecb81] hover:bg-[#0ecb81]/90 text-white' : ''}
+              className={type === 'buy' ? 'bg-bullish hover:bg-bullish/90 text-white' : ''}
               onClick={() => setType('buy')}
             >
               Buy
@@ -199,7 +199,7 @@ export function TransactionForm({
               type="button"
               variant={type === 'sell' ? 'default' : 'outline'}
               size="sm"
-              className={type === 'sell' ? 'bg-[#f6465d] hover:bg-[#f6465d]/90 text-white' : ''}
+              className={type === 'sell' ? 'bg-bearish hover:bg-bearish/90 text-white' : ''}
               onClick={() => setType('sell')}
             >
               Sell

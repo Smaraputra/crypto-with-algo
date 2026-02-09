@@ -63,19 +63,19 @@ export function AnalyticsSummaryCards({ portfolioId, range }: AnalyticsSummaryCa
       label: 'Unrealized P&L',
       value: formatCurrency(unrealizedPnl),
       sub: formatPercent(unrealizedPnlPercent),
-      color: unrealizedPnl >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]',
+      color: unrealizedPnl >= 0 ? 'text-bullish' : 'text-bearish',
     },
     {
       label: 'Realized P&L',
       value: formatCurrency(realizedGain),
       sub: 'FIFO cost basis',
-      color: realizedGain >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]',
+      color: realizedGain >= 0 ? 'text-bullish' : 'text-bearish',
     },
     {
       label: 'Period Return',
       value: formatPercent(periodReturn),
       sub: `${range}-day period`,
-      color: periodReturn >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]',
+      color: periodReturn >= 0 ? 'text-bullish' : 'text-bearish',
     },
   ];
 

@@ -83,7 +83,7 @@ export function createHoldingColumns(options: {
       cell: ({ row }) => {
         const pnl = row.original.pnl;
         if (pnl === null) return <span className="font-mono tabular-nums">--</span>;
-        const color = pnl >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]';
+        const color = pnl >= 0 ? 'text-bullish' : 'text-bearish';
         const sign = pnl >= 0 ? '+' : '';
         return (
           <span className={`font-mono tabular-nums ${color}`}>
@@ -98,7 +98,7 @@ export function createHoldingColumns(options: {
       cell: ({ row }) => {
         const pct = row.original.pnlPercent;
         if (pct === null) return <span className="font-mono tabular-nums">--</span>;
-        const color = pct >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]';
+        const color = pct >= 0 ? 'text-bullish' : 'text-bearish';
         const sign = pct >= 0 ? '+' : '';
         return (
           <span className={`font-mono tabular-nums ${color}`}>

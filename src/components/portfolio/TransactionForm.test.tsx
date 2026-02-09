@@ -74,7 +74,7 @@ describe('TransactionForm', () => {
     render(<TransactionForm {...defaultProps} />);
 
     const buyButton = screen.getByRole('button', { name: 'Buy' });
-    expect(buyButton.className).toContain('bg-[#0ecb81]');
+    expect(buyButton.className).toContain('bg-bullish');
   });
 
   it('shows validation errors for empty required fields', async () => {

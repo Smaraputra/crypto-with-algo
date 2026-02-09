@@ -55,19 +55,19 @@ export function RiskMetricsCards({ portfolioId, range }: RiskMetricsCardsProps) 
       label: 'Sharpe Ratio',
       value: formatRatio(metrics.sharpeRatio),
       sub: 'Risk-adjusted return',
-      color: metrics.sharpeRatio !== null && metrics.sharpeRatio > 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]',
+      color: metrics.sharpeRatio !== null && metrics.sharpeRatio > 0 ? 'text-bullish' : 'text-bearish',
     },
     {
       label: 'Sortino Ratio',
       value: formatRatio(metrics.sortinoRatio),
       sub: 'Downside risk-adjusted',
-      color: metrics.sortinoRatio !== null && metrics.sortinoRatio > 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]',
+      color: metrics.sortinoRatio !== null && metrics.sortinoRatio > 0 ? 'text-bullish' : 'text-bearish',
     },
     {
       label: 'Max Drawdown',
       value: formatPercent(metrics.maxDrawdown),
       sub: metrics.maxDrawdownDate ? new Date(metrics.maxDrawdownDate).toLocaleDateString() : '',
-      color: 'text-[#f6465d]',
+      color: 'text-bearish',
     },
     {
       label: 'Volatility',
@@ -79,13 +79,13 @@ export function RiskMetricsCards({ portfolioId, range }: RiskMetricsCardsProps) 
       label: 'Best Day',
       value: metrics.bestDay ? formatPercent(metrics.bestDay.return) : '--',
       sub: metrics.bestDay ? new Date(metrics.bestDay.date).toLocaleDateString() : '',
-      color: 'text-[#0ecb81]',
+      color: 'text-bullish',
     },
     {
       label: 'Worst Day',
       value: metrics.worstDay ? formatPercent(metrics.worstDay.return) : '--',
       sub: metrics.worstDay ? new Date(metrics.worstDay.date).toLocaleDateString() : '',
-      color: 'text-[#f6465d]',
+      color: 'text-bearish',
     },
   ];
 

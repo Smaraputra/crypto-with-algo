@@ -85,7 +85,7 @@ export function TransactionHistory({
                         variant={tx.type === 'buy' ? 'default' : 'destructive'}
                         className={
                           tx.type === 'buy'
-                            ? 'bg-[#0ecb81] hover:bg-[#0ecb81]/90'
+                            ? 'bg-bullish hover:bg-bullish/90'
                             : ''
                         }
                       >

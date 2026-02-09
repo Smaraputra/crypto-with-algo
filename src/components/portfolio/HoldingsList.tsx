@@ -127,7 +127,7 @@ export function HoldingsList({ portfolioId, onRecordTransaction }: HoldingsListP
       {/* Mobile card stack */}
       <div className="space-y-2 md:hidden" data-testid="holdings-cards">
         {rows.map((row) => {
-          const pnlColor = (row.pnl ?? 0) >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]';
+          const pnlColor = (row.pnl ?? 0) >= 0 ? 'text-bullish' : 'text-bearish';
           return (
             <Card key={row.symbol}>
               <CardContent className="py-3">
