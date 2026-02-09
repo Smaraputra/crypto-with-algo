@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Dashboard layout (authenticated)', () => {
-  test('dashboard shows header with Crypto Tracker', async ({ page }) => {
+  test('dashboard shows header with AlgoCrypto', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByText('Crypto Tracker').first()).toBeVisible();
+    await expect(page.getByText('AlgoCrypto').first()).toBeVisible();
   });
 
   test('sidebar shows navigation items', async ({ page }) => {

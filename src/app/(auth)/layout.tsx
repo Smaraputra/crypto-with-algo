@@ -1,4 +1,4 @@
-import { Star } from 'lucide-react';
+import { Zap } from 'lucide-react';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -24,9 +24,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       <div className="relative z-10 w-full max-w-md px-4">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <Star className="h-6 w-6 text-accent" />
+          <Zap className="h-6 w-6 text-accent" />
           <span className="text-lg font-semibold tracking-tight">
-            Crypto Portfolio Tracker
+            AlgoCrypto
           </span>
         </div>
         {children}
