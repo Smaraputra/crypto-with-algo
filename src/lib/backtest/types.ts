@@ -1,5 +1,13 @@
 import type { SignalWeights, SignalTier } from '@/types/signal';
 
+export type PositionSizingMethod = 'fixed_percent' | 'fixed_fractional' | 'kelly' | 'risk_based';
+
+export interface PositionSizingConfig {
+  method: PositionSizingMethod;
+  riskPerTrade: number;         // fraction of equity risked (e.g. 0.02 = 2%)
+  fractionKelly?: number;       // Kelly scaling factor (default 0.5 = half-Kelly)
+}
+
 export interface BacktestConfig {
   entryThreshold: number;       // score above this to enter long (default 30)
   exitThreshold: number;        // score below this to exit long (default -10)
@@ -8,6 +16,7 @@ export interface BacktestConfig {
   stopLossPercent: number;      // e.g. 0.05 = 5%
   takeProfitPercent: number;    // e.g. 0.10 = 10%
   positionSizePercent: number;  // fraction of equity per trade (default 0.10 = 10%)
+  positionSizing?: PositionSizingConfig;
   allowShorts: boolean;
   feePercent: number;           // e.g. 0.001 = 0.1%
   weights: SignalWeights;

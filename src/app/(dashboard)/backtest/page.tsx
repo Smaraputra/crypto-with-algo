@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { Play, Plus, Square } from 'lucide-react';
+import { Play, Plus, Save, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -12,6 +12,7 @@ import { BacktestProgress } from '@/components/backtest/BacktestProgress';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { BacktestMetricsCards } from '@/components/backtest/BacktestMetricsCards';
 import { TradeList } from '@/components/backtest/TradeList';
+import { JournalList } from '@/components/backtest/JournalList';
 import {
   useStrategies,
   useCreateStrategy,
@@ -19,6 +20,7 @@ import {
   useDeleteStrategy,
 } from '@/hooks/useStrategies';
 import { useBacktest } from '@/hooks/useBacktest';
+import { useSaveBacktestResult, useBacktestResults, useDeleteBacktestResult } from '@/hooks/useBacktestResults';
 import { useUIStore } from '@/stores/uiStore';
 import { DEFAULT_BACKTEST_CONFIG } from '@/lib/backtest/types';
 import type { Strategy, CreateStrategyInput } from '@/types/strategy';
@@ -46,6 +48,9 @@ export default function BacktestPage() {
   const updateMutation = useUpdateStrategy();
   const deleteMutation = useDeleteStrategy();
   const backtest = useBacktest();
+  const saveMutation = useSaveBacktestResult();
+  const { data: savedResults } = useBacktestResults();
+  const deleteResultMutation = useDeleteBacktestResult();
 
   const strategies = useMemo(() => data?.strategies ?? [], [data]);
   const selectedStrategy = strategies.find((s) => s._id === selectedStrategyId);
@@ -106,6 +111,31 @@ export default function BacktestPage() {
     [strategies]
   );
 
+  const handleSaveResult = useCallback(() => {
+    if (!backtest.result) return;
+    const r = backtest.result;
+    saveMutation.mutate({
+      strategyId: selectedStrategyId ?? undefined,
+      symbol: r.symbol,
+      interval: r.interval,
+      config: r.config as unknown as Record<string, unknown>,
+      metrics: r.metrics as unknown as Record<string, unknown>,
+      trades: r.trades as unknown as Record<string, unknown>[],
+      equityCurve: r.equityCurve as unknown as Record<string, unknown>[],
+      totalBars: r.totalBars,
+      warmupBars: r.warmupBars,
+      startTime: r.startTime,
+      endTime: r.endTime,
+    });
+  }, [backtest.result, selectedStrategyId, saveMutation]);
+
+  const handleDeleteResult = useCallback(
+    (id: string) => {
+      deleteResultMutation.mutate(id);
+    },
+    [deleteResultMutation]
+  );
+
   const handleRunBacktest = useCallback(async () => {
     const symbol = selectedStrategy?.symbols[0] ?? selectedSymbol;
     const interval = BINANCE_WS_INTERVALS[backtestInterval] ?? '1h';
@@ -147,6 +177,8 @@ export default function BacktestPage() {
           <TabsTrigger value="results" disabled={!backtest.result}>
             Results
           </TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="journal">Journal</TabsTrigger>
         </TabsList>
 
         <TabsContent value="configure" className="space-y-4">
@@ -236,6 +268,18 @@ export default function BacktestPage() {
         <TabsContent value="results" className="space-y-4">
           {backtest.result && (
             <>
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSaveResult}
+                  disabled={saveMutation.isPending}
+                  data-testid="save-backtest-button"
+                >
+                  <Save className="mr-1 size-3.5" />
+                  {saveMutation.isPending ? 'Saving...' : 'Save Result'}
+                </Button>
+              </div>
               <BacktestMetricsCards metrics={backtest.result.metrics} />
               <EquityCurveChart
                 equityCurve={backtest.result.equityCurve}
@@ -244,6 +288,68 @@ export default function BacktestPage() {
               <TradeList trades={backtest.result.trades} />
             </>
           )}
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-4">
+          {(savedResults?.results ?? []).length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground" data-testid="history-empty">
+              No saved backtest results yet. Run a backtest and save the results.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="history-table">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                    <th className="pb-2 pr-4">Date</th>
+                    <th className="pb-2 pr-4">Symbol</th>
+                    <th className="pb-2 pr-4">Interval</th>
+                    <th className="pb-2 pr-4">PnL</th>
+                    <th className="pb-2 pr-4">Win Rate</th>
+                    <th className="pb-2 pr-4">Trades</th>
+                    <th className="pb-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(savedResults?.results ?? []).map((r) => (
+                    <tr key={r._id} className="border-b border-border/50">
+                      <td className="py-2 pr-4 text-xs text-muted-foreground">
+                        {new Date(r.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-2 pr-4 text-xs">{r.symbol}</td>
+                      <td className="py-2 pr-4 text-xs">{r.interval}</td>
+                      <td className="py-2 pr-4 font-mono tabular-nums text-xs">
+                        <span style={{ color: r.metrics.totalPnl > 0 ? '#0ecb81' : '#f6465d' }}>
+                          {r.metrics.totalPnl > 0 ? '+' : ''}
+                          {r.metrics.totalPnlPercent.toFixed(2)}%
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 font-mono tabular-nums text-xs">
+                        {(r.metrics.winRate * 100).toFixed(1)}%
+                      </td>
+                      <td className="py-2 pr-4 font-mono tabular-nums text-xs">
+                        {r.metrics.totalTrades}
+                      </td>
+                      <td className="py-2 text-xs">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 text-[10px] text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteResult(r._id)}
+                          disabled={deleteResultMutation.isPending}
+                        >
+                          Delete
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="journal">
+          <JournalList />
         </TabsContent>
       </Tabs>
 

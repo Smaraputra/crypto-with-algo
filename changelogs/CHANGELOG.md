@@ -30,6 +30,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 147 new unit tests across 23 test files (1189 total, 136 files)
 - Test fixtures for strategies (`src/__fixtures__/strategies.ts`)
 
+### Added (Phase 8: Backtesting Engine -- Steps 77-80)
+- Signal journal model (`src/lib/models/journal-entry.ts`) with userId+symbol indexes for tracking signal outcomes
+- Signal journal types and Zod schemas (`src/types/journal.ts`) with create/update validation
+- Journal CRUD API routes (`/api/journal`, `/api/journal/[id]`) with auth, 500-entry limit, symbol filtering
+- TanStack Query hooks for journal (`useJournalEntries`, `useJournalEntry`, `useCreateJournalEntry`, `useUpdateJournalEntry`, `useDeleteJournalEntry`)
+- Position sizing calculators (`src/lib/backtest/position-sizing.ts`): fixed fractional, Kelly criterion (half-Kelly default), risk-based
+- `PositionSizingConfig` type with `fixed_percent | fixed_fractional | kelly | risk_based` methods
+- Backtest engine now uses position sizing method selection (falls back to fixed percent if not configured)
+- Backtest results persistence model (`src/lib/models/backtest-result.ts`) with 50-result limit
+- Backtest results types (`src/types/backtest.ts`) with summary vs detail response types
+- Backtest results API routes (`/api/backtests`, `/api/backtests/[id]`) with list (summaries, no trades/equityCurve), detail, save, delete
+- TanStack Query hooks for saved results (`useBacktestResults`, `useBacktestResultDetail`, `useSaveBacktestResult`, `useDeleteBacktestResult`)
+- "Save Result" button on backtest Results tab
+- "History" tab on backtest page showing saved results table with PnL, win rate, delete action
+- "Journal" tab on backtest page with full journal list, symbol filtering, and entry cards
+- `JournalEntryCard` component with action badges (color-coded buy/sell/hold/skip), PnL display, notes
+- `JournalList` component with symbol filter buttons, loading/empty states, delete support
+- `JournalForm` dialog component with action selector, notes textarea, pre-filled signal data
+- "Log to Journal" button on Signals page (visible when a signal is computed)
+- E2E tests for backtest page (7 specs: tabs, intervals, history, journal, strategy form)
+- 82 new unit tests across 11 test files (1271 total, 147 files)
+- Test fixtures for journal entries (`src/__fixtures__/journal.ts`)
+- shadcn/ui Textarea component added
+
 ### Added (Landing Page Redesign)
 - GSAP ScrollTrigger animations replacing Framer Motion on all marketing sections
 - Lenis smooth momentum scrolling for marketing layout (SmoothScroll wrapper)
