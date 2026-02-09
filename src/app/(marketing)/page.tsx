@@ -9,7 +9,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <LandingNav />
-      <main>
+      <main id="main-content">
         <HeroSection />
         <FeaturesSection />
         <StatsSection />

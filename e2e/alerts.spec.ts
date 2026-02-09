@@ -122,36 +122,41 @@ test.describe('Alerts page (authenticated)', () => {
   test('deletes an alert', async ({ page }) => {
     await page.goto('/alerts');
 
+    // Wait for loading to complete
+    await expect(page.getByTestId('alert-list-loading')).toBeHidden({
+      timeout: 10000,
+    });
+
     // Ensure there's at least one alert
-    const hasAlerts =
-      (await page.locator('[data-testid^="alert-item-"]').count()) > 0;
-    if (!hasAlerts) {
+    const alertItems = page.locator('[data-testid^="alert-item-"]');
+    if ((await alertItems.count()) === 0) {
       await page.getByRole('button', { name: /create alert/i }).click();
       await page.getByLabel('Symbol').fill('SOLUSDT');
       await page.getByLabel('Target Price').fill('777777');
       await page.getByRole('button', { name: 'Create Alert' }).click();
-      await page.waitForTimeout(1000);
+      await expect(alertItems.first()).toBeVisible({ timeout: 10000 });
     }
 
-    // Count alerts before delete
-    const beforeCount = await page
-      .locator('[data-testid^="alert-item-"]')
-      .count();
+    // Capture the first alert's testid so we can wait for it to disappear
+    const firstItem = alertItems.first();
+    const testId = await firstItem.getAttribute('data-testid');
 
-    // Click delete button on first alert
-    await page.getByTitle('Delete').first().click();
+    // Click delete button on the first alert
+    await firstItem.getByTitle('Delete').click();
 
-    // Confirm deletion in dialog
-    await expect(page.getByText('Delete Alert')).toBeVisible();
-    await page.getByRole('button', { name: 'Delete' }).click();
+    // Confirm deletion in the visible dialog
+    await expect(page.getByText('Are you sure you want to delete')).toBeVisible();
+    // The AlertDialogAction is the only "Delete" button inside the visible dialog content
+    await page
+      .locator('[role="alertdialog"]')
+      .filter({ hasText: 'Are you sure' })
+      .getByRole('button', { name: 'Delete' })
+      .click();
 
-    // Wait for alert to be removed
-    await page.waitForTimeout(1000);
-    const afterCount = await page
-      .locator('[data-testid^="alert-item-"]')
-      .count();
-
-    expect(afterCount).toBeLessThan(beforeCount);
+    // Wait for the specific alert item to be removed after React Query refetch
+    await expect(page.locator(`[data-testid="${testId}"]`)).toHaveCount(0, {
+      timeout: 10000,
+    });
   });
 
   test('notification bell is visible in header', async ({ page }) => {

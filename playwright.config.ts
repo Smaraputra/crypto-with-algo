@@ -25,6 +25,16 @@ export default defineConfig({
       testMatch: /auth\.spec\.ts|landing\.spec\.ts/,
     },
 
+    // Mobile viewport tests -- unauthenticated, small screen
+    {
+      name: 'mobile',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 375, height: 667 },
+      },
+      testMatch: /landing-mobile\.spec\.ts/,
+    },
+
     // Authenticated tests -- depend on setup project
     {
       name: 'authenticated',
@@ -33,7 +43,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: /auth\.(spec|setup)\.ts/,
+      testIgnore: /auth\.(spec|setup)\.ts|landing-mobile\.spec\.ts/,
     },
   ],
   webServer: {
