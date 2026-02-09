@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 7: MVP Signal System)
+- Server-side technical analysis engine using `technicalindicators` (EMA, SMA, RSI, MACD, Bollinger Bands, ATR, StochasticRSI, WilliamsR, IchimokuCloud, OBV, MFI)
+- Custom SuperTrend indicator implementation using ATR bands
+- Signal interpretation layer converting raw indicators into categorized bullish/bearish/neutral signals
+- Binance Futures REST client (funding rates, open interest, long/short ratio) with `BINANCE_FUTURES_API_URL` env var
+- Auth-gated Futures API routes with Redis caching (`/api/futures/funding`, `/api/futures/open-interest`, `/api/futures/long-short`)
+- Weighted confluence signal scoring engine (6 categories: trend 25%, momentum 25%, volume 15%, volatility 10%, futures 15%, sentiment 10%)
+- Signal tier classification: strong_buy (>60), buy (30-60), neutral (-30 to 30), sell (-60 to -30), strong_sell (<-60)
+- Signal and Strategy Mongoose models with 90-day TTL auto-cleanup
+- Signal computation API (`POST /api/signals/compute`) and listing API (`GET /api/signals`)
+- Cron-based batch signal computation (`GET /api/cron/compute-signals`) for active strategies
+- TanStack Query hooks: `useSignals`, `useLatestSignal`, `useComputeSignal`, `useFundingRate`, `useOpenInterest`, `useLongShortRatio`
+- SVG semicircular SignalGauge component with gradient arc and animated needle
+- SignalBreakdown component with per-category score bars and indicator badges
+- FuturesPanel component with funding rate, open interest, and long/short ratio visualization
+- Signals page at `/signals` with symbol selector, interval picker, compute button, gauge, breakdown, futures panel, and history table
+- Signals nav item in sidebar with Activity icon
+- Test fixtures for signals and futures data (`src/__fixtures__/signals.ts`, `src/__fixtures__/futures.ts`)
+- 239 new unit tests across 29 test files (1042 total)
+- 8 new E2E tests for signals page (70 total)
+
+### Dependencies
+- Added: `technicalindicators` (server-side TA computation)
+
 ### Added
 - Framer Motion scroll-triggered animations on HeroSection (staggered entrance), FeaturesSection (card stagger), and AnimatedChartSection (SVG path draw)
 - 3D rotating coin section using Three.js + React Three Fiber (dynamically imported, SSR-disabled)
