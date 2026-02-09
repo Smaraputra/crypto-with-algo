@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 8: Backtesting Engine -- Steps 70-76)
+- Strategy CRUD API routes (`/api/strategies`, `/api/strategies/[id]`) with auth, Zod validation, ownership checks, and 5-per-user limit
+- Strategy types and schemas (`src/types/strategy.ts`) with weight sum validation (must equal 1.0)
+- TanStack Query hooks for strategies (`useStrategies`, `useStrategy`, `useCreateStrategy`, `useUpdateStrategy`, `useDeleteStrategy`)
+- Strategy configuration UI: `StrategyForm` (dialog with weight sliders, symbol/interval selectors) and `StrategyList` (card grid with edit/delete)
+- Backtest engine core (`src/lib/backtest/engine.ts`): bar-by-bar signal evaluation over pre-computed indicators
+- Backtest metrics calculator (`src/lib/backtest/metrics.ts`): Sharpe, Sortino, Calmar ratios, profit factor, max drawdown, win rate, consecutive streaks
+- Indicator bar interpreter (`src/lib/indicators/interpret-at-bar.ts`): reads pre-computed indicator arrays at offset-aligned indices for backtesting
+- Exported 12 individual interpreter functions from `src/lib/indicators/interpret.ts` for reuse in backtest engine
+- IndexedDB candle cache (`src/lib/candle-cache.ts`) with TTL (1h intraday, 6h daily), LRU eviction, max 50 entries
+- Web Worker backtest runner (`src/workers/backtest.worker.ts`) with progress callback messages
+- `useBacktest` hook managing Worker lifecycle (idle/running/complete/error states, progress tracking, cancel)
+- Equity curve chart (`EquityCurveChart`) using lightweight-charts v5 AreaSeries with green/red profit coloring
+- Backtest metrics cards (`BacktestMetricsCards`) with 12 metric items in responsive grid
+- Trade list table (`TradeList`) with color-coded rows, PnL formatting, exit reason display
+- Backtest configuration panel (`BacktestConfigPanel`) with inputs for thresholds, SL/TP, position size, fees, starting capital
+- Progress bar component (`BacktestProgress`) with bars-processed counter and accessible progressbar role
+- Full backtest page with tabs (Configure/Results), strategy selector, interval selector, run/cancel controls
+- Backtest error boundary page
+- "Backtest" navigation item in sidebar (FlaskConical icon)
+- 147 new unit tests across 23 test files (1189 total, 136 files)
+- Test fixtures for strategies (`src/__fixtures__/strategies.ts`)
+
+### Added (Landing Page Redesign)
+- GSAP ScrollTrigger animations replacing Framer Motion on all marketing sections
+- Lenis smooth momentum scrolling for marketing layout (SmoothScroll wrapper)
+- GSAP utility module (`src/lib/gsap.ts`) registering ScrollTrigger and TextPlugin
+- LandingButton component with fill-sweep hover effect (outline variant) and solid accent variant
+- HeroBackground with parallax gradient orbs and self-drawing SVG chart line
+- Interactive 3D wireframe globe (GlobeScene) with fibonacci sphere distribution, mouse-reactive tilt, and connection lines
+- HowItWorksSection (Connect, Configure, Automate) with GSAP staggered reveal and horizontal connector lines
+- StatsSection with GSAP-powered animated number counters (99.9% Uptime, 50ms Latency, 10K+ Users, 24/7 Monitoring)
+- Mouse-tracking radial gradient spotlight effect on feature cards
+- Rotating conic-gradient border glow on CTA card
+- Footer social links (GitHub, X/Twitter)
+- GSAP and Lenis test mocks (`src/__mocks__/gsap.ts`, `src/__mocks__/@gsap/react.ts`, `src/__mocks__/lenis.ts`)
+- 47 new unit tests across 14 test files (1089 total, 123 files)
+- 6 new E2E assertions for new sections (76 total)
+
+### Changed (Landing Page Redesign)
+- HeroSection: GSAP TextPlugin typewriter on accent span, staggered entry via `data-hero-anim` attributes
+- AnimatedChartSection: GSAP strokeDashoffset draw with data points, price labels, glow filter, dot grid background
+- FeaturesSection: GSAP ScrollTrigger stagger with mouse spotlight cards (CSS custom properties)
+- CTASection: GSAP fade-in, rotating gradient border, dot grid background pattern
+- CoinSceneWrapper: renamed to reference GlobeScene, heading changed to "Global Algorithmic Network"
+- Footer: added tagline "Built for traders, by traders." and social links
+- Landing page section order: Hero > Globe > Chart > Features > HowItWorks > Stats > CTA
+
+### Dependencies (Landing Page Redesign)
+- Added: `gsap`, `@gsap/react`, `lenis`
+
 ### Added (Phase 7: MVP Signal System)
 - Server-side technical analysis engine using `technicalindicators` (EMA, SMA, RSI, MACD, Bollinger Bands, ATR, StochasticRSI, WilliamsR, IchimokuCloud, OBV, MFI)
 - Custom SuperTrend indicator implementation using ATR bands
