@@ -109,6 +109,21 @@ describe('RegisterPage', () => {
     });
   });
 
+  it('renders error div with role="alert"', async () => {
+    const user = userEvent.setup();
+    render(<RegisterPage />);
+
+    await user.type(screen.getByLabelText('Name'), 'A');
+    await user.type(screen.getByLabelText('Email'), 'test@example.com');
+    await user.type(screen.getByLabelText('Password'), 'secret123');
+    await user.type(screen.getByLabelText('Confirm Password'), 'secret123');
+    await user.click(screen.getByRole('button', { name: 'Create Account' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Name must be at least 2 characters');
+    });
+  });
+
   it('shows API error message on non-ok response', async () => {
     vi.stubGlobal(
       'fetch',
