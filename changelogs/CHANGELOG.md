@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auth page branding: grid pattern background, radial gradient glow, Star icon header
 - Landing page E2E tests (6 tests in `e2e/landing.spec.ts`)
 - Unit tests for all marketing components (17 tests across 5 test files)
+- Skip-to-content link in marketing layout for keyboard navigation
+- Focus trap and Escape-key close for mobile hamburger menu
+- ARIA attributes on animated ticker: `role="status"`, `aria-label`, `aria-live="polite"`
+- `aria-expanded` attribute on hamburger toggle button
+- Mobile viewport Playwright project with 7 E2E tests (`e2e/landing-mobile.spec.ts`)
+- Marketing layout unit tests (3 tests)
+- Data seeder script (`scripts/seed.ts`) with real Binance market data and fallback prices
+- `npm run seed` command for populating demo account with portfolio, watchlist, alerts, and 30-day snapshots
+- Seeder unit tests (15 tests in `scripts/seed.test.ts`)
 
 ### Changed
 - Dashboard route moved from `/` to `/dashboard` to make room for public landing page
@@ -28,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Base border radius bumped from `0.25rem` to `0.5rem` (fixes `radius-sm` computing to 0px)
 
 ### Fixed
+- Flaky E2E alert deletion test: replaced `waitForTimeout` with proper Playwright assertions that wait for DOM state changes
 - Toaster color bug: CSS variables wrapped in `hsl()` but containing oklch values; now uses raw `var()` references
 - WCAG AA contrast: bumped `--muted-foreground` luminance from 0.6 to 0.65, `--destructive` and `--bearish` from 0.62 to 0.68
 - Removed opacity modifiers (`/50`, `/70`) on `text-muted-foreground` in AlertList empty state

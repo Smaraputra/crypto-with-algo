@@ -51,4 +51,34 @@ describe('LandingNav', () => {
     const mobileSignIn = screen.getAllByText('Sign In');
     expect(mobileSignIn.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('hamburger button has aria-expanded attribute', async () => {
+    const user = userEvent.setup();
+    render(<LandingNav />);
+
+    const toggle = screen.getByLabelText('Toggle menu');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('mobile menu has role="menu"', async () => {
+    const user = userEvent.setup();
+    render(<LandingNav />);
+
+    await user.click(screen.getByLabelText('Toggle menu'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('closes mobile menu on Escape key', async () => {
+    const user = userEvent.setup();
+    render(<LandingNav />);
+
+    await user.click(screen.getByLabelText('Toggle menu'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
 });

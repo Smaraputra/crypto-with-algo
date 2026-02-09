@@ -33,4 +33,10 @@ describe('LandingPage', () => {
     expect(screen.getByTestId('cta-section')).toBeInTheDocument();
     expect(screen.getByTestId('footer')).toBeInTheDocument();
   });
+
+  it('main element has id="main-content" for skip link', () => {
+    render(<LandingPage />);
+    const main = screen.getByRole('main');
+    expect(main).toHaveAttribute('id', 'main-content');
+  });
 });

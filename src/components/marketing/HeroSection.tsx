@@ -34,7 +34,13 @@ function AnimatedTicker() {
   }, []);
 
   return (
-    <div className="flex flex-wrap justify-center gap-3" data-testid="hero-ticker">
+    <div
+      className="flex flex-wrap justify-center gap-3"
+      data-testid="hero-ticker"
+      role="status"
+      aria-label="Live cryptocurrency prices"
+      aria-live="polite"
+    >
       {tickers.map((t) => (
         <div
           key={t.symbol}

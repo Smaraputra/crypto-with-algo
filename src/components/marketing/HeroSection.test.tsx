@@ -47,4 +47,12 @@ describe('HeroSection', () => {
       screen.getByText(/Live market data from Binance/)
     ).toBeInTheDocument();
   });
+
+  it('ticker has aria-label and role="status"', () => {
+    render(<HeroSection />);
+    const ticker = screen.getByTestId('hero-ticker');
+    expect(ticker).toHaveAttribute('role', 'status');
+    expect(ticker).toHaveAttribute('aria-label', 'Live cryptocurrency prices');
+    expect(ticker).toHaveAttribute('aria-live', 'polite');
+  });
 });
