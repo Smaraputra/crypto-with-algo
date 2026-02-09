@@ -42,6 +42,25 @@ describe('GET /api/prices/history', () => {
     expect(data).toEqual(mockKlines);
   });
 
+  it('includes Cache-Control header matching interval TTL', async () => {
+    vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+    const res = await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1h' }));
+    // 1h TTL is 120, stale-while-revalidate is 240
+    expect(res.headers.get('Cache-Control')).toBe(
+      'public, s-maxage=120, stale-while-revalidate=240'
+    );
+  });
+
+  it('uses short Cache-Control for 1m interval', async () => {
+    vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+    const res = await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1m' }));
+    expect(res.headers.get('Cache-Control')).toBe(
+      'public, s-maxage=10, stale-while-revalidate=20'
+    );
+  });
+
   it('returns 400 for missing symbol', async () => {
     const res = await GET(makeRequest({ interval: '1h' }));
     expect(res.status).toBe(400);

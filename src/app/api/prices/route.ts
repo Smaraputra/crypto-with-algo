@@ -15,7 +15,11 @@ export async function GET() {
       return all.filter((t) => TOP_SYMBOLS.includes(t.symbol));
     }, 30);
 
-    return NextResponse.json(tickers);
+    return NextResponse.json(tickers, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+      },
+    });
   } catch (error) {
     console.error('Failed to fetch tickers:', error);
     return NextResponse.json({ error: 'Failed to fetch prices' }, { status: 500 });
