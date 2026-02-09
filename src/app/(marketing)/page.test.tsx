@@ -1,0 +1,36 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+
+vi.mock('@/components/marketing/LandingNav', () => ({
+  LandingNav: () => <nav data-testid="landing-nav" />,
+}));
+vi.mock('@/components/marketing/HeroSection', () => ({
+  HeroSection: () => <section data-testid="hero-section" />,
+}));
+vi.mock('@/components/marketing/FeaturesSection', () => ({
+  FeaturesSection: () => <section data-testid="features-section" />,
+}));
+vi.mock('@/components/marketing/StatsSection', () => ({
+  StatsSection: () => <section data-testid="stats-section" />,
+}));
+vi.mock('@/components/marketing/CTASection', () => ({
+  CTASection: () => <section data-testid="cta-section" />,
+}));
+vi.mock('@/components/marketing/Footer', () => ({
+  Footer: () => <footer data-testid="footer" />,
+}));
+
+import LandingPage from './page';
+
+describe('LandingPage', () => {
+  it('renders all sections', () => {
+    render(<LandingPage />);
+
+    expect(screen.getByTestId('landing-nav')).toBeInTheDocument();
+    expect(screen.getByTestId('hero-section')).toBeInTheDocument();
+    expect(screen.getByTestId('features-section')).toBeInTheDocument();
+    expect(screen.getByTestId('stats-section')).toBeInTheDocument();
+    expect(screen.getByTestId('cta-section')).toBeInTheDocument();
+    expect(screen.getByTestId('footer')).toBeInTheDocument();
+  });
+});
