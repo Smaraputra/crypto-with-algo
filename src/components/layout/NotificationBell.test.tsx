@@ -158,6 +158,16 @@ describe('NotificationBell', () => {
     expect(mockAcknowledgeMutate).toHaveBeenCalledWith('a2');
   });
 
+  it('notification list container has aria-live="polite"', async () => {
+    const user = userEvent.setup();
+    render(<NotificationBell />);
+
+    await user.click(screen.getByLabelText('Notifications'));
+
+    const container = screen.getByText('No new notifications').closest('[aria-live]');
+    expect(container).toHaveAttribute('aria-live', 'polite');
+  });
+
   it('contains View All link to alerts page', async () => {
     const user = userEvent.setup();
     render(<NotificationBell />);

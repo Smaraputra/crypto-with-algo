@@ -110,6 +110,20 @@ describe('LoginPage', () => {
     });
   });
 
+  it('renders error div with role="alert"', async () => {
+    mockSignIn.mockResolvedValue({ error: 'CredentialsSignin' });
+    const user = userEvent.setup();
+    render(<LoginPage />);
+
+    await user.type(screen.getByLabelText('Email'), 'test@example.com');
+    await user.type(screen.getByLabelText('Password'), 'wrongpass');
+    await user.click(screen.getByRole('button', { name: 'Sign In' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Invalid email or password');
+    });
+  });
+
   it('calls router.push on successful signIn', async () => {
     mockSignIn.mockResolvedValue({ error: null });
     const user = userEvent.setup();
