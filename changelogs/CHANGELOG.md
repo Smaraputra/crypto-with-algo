@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Phase 9: Polish & Accessibility -- Steps 81-85)
+- `useBinanceTicker` now batches WebSocket messages via `requestAnimationFrame` instead of per-message setState (Step 81)
+- `PriceCard` wrapped in `React.memo` with custom comparator for skip-render optimization (Step 81)
+- `MarketOverview` merged tickers wrapped in `useMemo` (Step 81)
+- Replaced hardcoded hex colors (#0ecb81, #f6465d, #848e9c, text-green-500, text-red-500) with CSS theme variables across SignalGauge, SignalBreakdown, FuturesPanel, TradeList, BacktestMetricsCards (Step 83)
+
+### Added (Phase 9: Polish & Accessibility -- Steps 81-85)
+- Skip-to-content link and `id="main-content"` on dashboard layout (Step 82)
+- `role="alert"` on error divs in login and register pages (Step 82)
+- `aria-live="polite"` on NotificationBell notification list (Step 82)
+- `aria-label="Select {symbol}/USDT"` on PriceCard buttons (Step 81)
+- Signal tier CSS variables: `--signal-strong-buy`, `--signal-buy`, `--signal-neutral`, `--signal-sell`, `--signal-strong-sell` (Step 83)
+- `Cache-Control` headers on `/api/prices` (30s) and `/api/prices/history` (TTL-based per interval) (Step 84)
+- Toast error feedback on watchlist mutation failure via sonner (Step 85)
+
 ### Changed (Landing Page Redesign -- Ethena-Inspired)
 - Redesigned landing page with ultra-dark, premium aesthetic inspired by ethena.fi
 - Scoped darker theme to marketing and auth layouts via `.marketing-dark` CSS class
