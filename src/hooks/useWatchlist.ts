@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export function useWatchlist() {
   const queryClient = useQueryClient();
@@ -34,6 +35,7 @@ export function useWatchlist() {
       if (context?.previous) {
         queryClient.setQueryData(['watchlist'], context.previous);
       }
+      toast.error('Failed to update watchlist');
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['watchlist'] });
