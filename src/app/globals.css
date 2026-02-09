@@ -79,14 +79,14 @@
 
   /* Muted */
   --muted: oklch(0.22 0.01 250);
-  --muted-foreground: oklch(0.6 0.02 250);
+  --muted-foreground: oklch(0.65 0.02 250);
 
   /* Accent - Binance Yellow */
   --accent: oklch(0.82 0.17 85);
   --accent-foreground: oklch(0.13 0.01 250);
 
   /* Destructive - Red */
-  --destructive: oklch(0.62 0.22 25);
+  --destructive: oklch(0.68 0.22 25);
   --destructive-foreground: oklch(0.98 0 0);
 
   /* Borders */
@@ -98,7 +98,7 @@
   /* Trading colors */
   --bullish: oklch(0.72 0.18 160);
   --bullish-muted: oklch(0.25 0.06 160);
-  --bearish: oklch(0.62 0.22 25);
+  --bearish: oklch(0.68 0.22 25);
   --bearish-muted: oklch(0.22 0.08 25);
 
   /* Chart colors */
@@ -140,10 +140,10 @@
   --secondary: oklch(0.22 0.01 250);
   --secondary-foreground: oklch(0.98 0 0);
   --muted: oklch(0.22 0.01 250);
-  --muted-foreground: oklch(0.6 0.02 250);
+  --muted-foreground: oklch(0.65 0.02 250);
   --accent: oklch(0.82 0.17 85);
   --accent-foreground: oklch(0.13 0.01 250);
-  --destructive: oklch(0.62 0.22 25);
+  --destructive: oklch(0.68 0.22 25);
   --destructive-foreground: oklch(0.98 0 0);
   --border: oklch(0.22 0.01 250);
   --border-strong: oklch(0.28 0.01 250);
@@ -151,7 +151,7 @@
   --ring: oklch(0.72 0.18 160);
   --bullish: oklch(0.72 0.18 160);
   --bullish-muted: oklch(0.25 0.06 160);
-  --bearish: oklch(0.62 0.22 25);
+  --bearish: oklch(0.68 0.22 25);
   --bearish-muted: oklch(0.22 0.08 25);
   --sidebar: oklch(0.15 0.01 250);
   --sidebar-foreground: oklch(0.98 0 0);
