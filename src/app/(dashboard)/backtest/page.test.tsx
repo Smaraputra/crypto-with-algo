@@ -21,6 +21,12 @@ vi.mock('@/hooks/useBacktest', () => ({
   })),
 }));
 
+vi.mock('@/hooks/useBacktestResults', () => ({
+  useSaveBacktestResult: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useBacktestResults: vi.fn(() => ({ data: undefined })),
+  useDeleteBacktestResult: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+}));
+
 vi.mock('@/stores/uiStore', () => ({
   useUIStore: vi.fn(() => 'BTCUSDT'),
 }));
@@ -55,6 +61,10 @@ vi.mock('@/components/backtest/TradeList', () => ({
   TradeList: () => <div data-testid="trade-list" />,
 }));
 
+vi.mock('@/components/backtest/JournalList', () => ({
+  JournalList: () => <div data-testid="journal-list" />,
+}));
+
 import BacktestPage from './page';
 
 describe('BacktestPage', () => {
@@ -68,10 +78,12 @@ describe('BacktestPage', () => {
     expect(screen.getByText('New Strategy')).toBeInTheDocument();
   });
 
-  it('renders Configure and Results tabs', () => {
+  it('renders all tabs', () => {
     render(<BacktestPage />);
     expect(screen.getByText('Configure')).toBeInTheDocument();
     expect(screen.getByText('Results')).toBeInTheDocument();
+    expect(screen.getByText('History')).toBeInTheDocument();
+    expect(screen.getByText('Journal')).toBeInTheDocument();
   });
 
   it('renders Run Backtest button', () => {

@@ -5,6 +5,7 @@ import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import { computeWarmupBars, interpretIndicatorsAtBar } from '@/lib/indicators/interpret-at-bar';
 import { computeMetrics } from './metrics';
+import { fixedFractional, kellyCriterion, riskBased } from './position-sizing';
 import type {
   BacktestConfig,
   BacktestResult,
@@ -114,7 +115,7 @@ export function runBacktest(
     } else {
       // Check entry conditions
       if (composite.score >= config.entryThreshold) {
-        const quantity = (equity * config.positionSizePercent) / candle.close;
+        const quantity = computePositionSize(equity, candle.close, 'long', config, trades);
         position = {
           entryBar: bar,
           entryTime: candle.timestamp,
@@ -125,7 +126,7 @@ export function runBacktest(
           entryTier: composite.tier,
         };
       } else if (config.allowShorts && composite.score <= config.shortEntryThreshold) {
-        const quantity = (equity * config.positionSizePercent) / candle.close;
+        const quantity = computePositionSize(equity, candle.close, 'short', config, trades);
         position = {
           entryBar: bar,
           entryTime: candle.timestamp,
@@ -270,4 +271,50 @@ function closeTrade(
 
 function computeEquityAfterTrade(equity: number, trade: BacktestTrade): number {
   return equity + trade.pnl;
+}
+
+function computePositionSize(
+  equity: number,
+  entryPrice: number,
+  side: TradeSide,
+  config: BacktestConfig,
+  trades: BacktestTrade[]
+): number {
+  const sizing = config.positionSizing;
+  if (!sizing || sizing.method === 'fixed_percent') {
+    return (equity * config.positionSizePercent) / entryPrice;
+  }
+
+  const stopLossPrice = side === 'long'
+    ? entryPrice * (1 - config.stopLossPercent)
+    : entryPrice * (1 + config.stopLossPercent);
+
+  switch (sizing.method) {
+    case 'fixed_fractional':
+      return fixedFractional(equity, sizing.riskPerTrade, entryPrice, stopLossPrice);
+
+    case 'kelly': {
+      const completedTrades = trades.filter((t) => t.pnl !== 0);
+      if (completedTrades.length < 5) {
+        // Not enough history for Kelly, fall back to fixed percent
+        return (equity * config.positionSizePercent) / entryPrice;
+      }
+      const wins = completedTrades.filter((t) => t.pnl > 0);
+      const losses = completedTrades.filter((t) => t.pnl < 0);
+      const winRate = wins.length / completedTrades.length;
+      const avgWin = wins.length > 0
+        ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length
+        : 0;
+      const avgLoss = losses.length > 0
+        ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length
+        : -1;
+      return kellyCriterion(equity, winRate, avgWin, avgLoss, entryPrice, sizing.fractionKelly ?? 0.5);
+    }
+
+    case 'risk_based':
+      return riskBased(equity, sizing.riskPerTrade, entryPrice, stopLossPrice);
+
+    default:
+      return (equity * config.positionSizePercent) / entryPrice;
+  }
 }

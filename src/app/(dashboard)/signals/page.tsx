@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FuturesPanel } from '@/components/signals/FuturesPanel';
 import { SignalBreakdown } from '@/components/signals/SignalBreakdown';
 import { SignalGauge } from '@/components/signals/SignalGauge';
+import { JournalForm } from '@/components/backtest/JournalForm';
 import { Button } from '@/components/ui/button';
 import { useFundingRate, useLongShortRatio, useOpenInterest } from '@/hooks/useFutures';
 import { useComputeSignal, useLatestSignal, useSignals } from '@/hooks/useSignals';
@@ -136,6 +137,15 @@ export default function SignalsPage() {
         >
           {computeMutation.isPending ? 'Computing...' : 'Compute Now'}
         </Button>
+
+        {latestSignal && (
+          <JournalForm
+            symbol={selectedSymbol}
+            interval={interval}
+            score={latestSignal.score}
+            tier={latestSignal.tier}
+          />
+        )}
       </div>
 
       {/* Main content grid */}
