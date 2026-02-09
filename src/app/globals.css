@@ -54,7 +54,7 @@
 
 /* Binance Pro Dark - always dark */
 :root {
-  --radius: 0.25rem;
+  --radius: 0.5rem;
 
   /* Background layers (darkest to lightest) */
   --background: oklch(0.13 0.01 250);
