@@ -45,6 +45,11 @@ test.describe('Landing page (mobile viewport)', () => {
     await expect(page.getByText('Everything You Need')).toBeVisible();
   });
 
+  test('how it works section is visible at mobile width', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText('How It Works')).toBeVisible();
+  });
+
   test('skip-to-content link is accessible', async ({ page }) => {
     await page.goto('/');
     // Tab to reveal the skip link

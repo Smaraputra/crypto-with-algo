@@ -1,16 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-vi.mock('framer-motion', async () => await import('@/__mocks__/framer-motion'));
-
-vi.mock('next/link', () => ({
-  default: ({
-    children,
-    href,
-  }: {
-    children: React.ReactNode;
-    href: string;
-  }) => <a href={href}>{children}</a>,
+vi.mock('@/lib/gsap', async () => await import('@/__mocks__/gsap'));
+vi.mock('@gsap/react', async () => await import('@/__mocks__/@gsap/react'));
+vi.mock('./HeroBackground', () => ({
+  HeroBackground: () => <div data-testid="hero-background" />,
 }));
 
 import { HeroSection } from './HeroSection';
@@ -18,20 +12,18 @@ import { HeroSection } from './HeroSection';
 describe('HeroSection', () => {
   it('renders main heading', () => {
     render(<HeroSection />);
-    expect(
-      screen.getByRole('heading', { level: 1 })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
   });
 
   it('renders Get Started Free CTA linking to /register', () => {
     render(<HeroSection />);
-    const link = screen.getByRole('link', { name: 'Get Started Free' });
+    const link = screen.getByRole('link', { name: /Get Started Free/i });
     expect(link).toHaveAttribute('href', '/register');
   });
 
   it('renders Sign In CTA linking to /login', () => {
     render(<HeroSection />);
-    const link = screen.getByRole('link', { name: 'Sign In' });
+    const link = screen.getByRole('link', { name: /Sign In/i });
     expect(link).toHaveAttribute('href', '/login');
   });
 

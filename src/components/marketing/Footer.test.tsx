@@ -25,6 +25,11 @@ describe('Footer', () => {
     expect(screen.getByText('AlgoCrypto')).toBeInTheDocument();
   });
 
+  it('renders tagline', () => {
+    render(<Footer />);
+    expect(screen.getByText('Built for traders, by traders.')).toBeInTheDocument();
+  });
+
   it('renders Sign In link to /login', () => {
     render(<Footer />);
     const link = screen.getByRole('link', { name: 'Sign In' });
@@ -35,6 +40,12 @@ describe('Footer', () => {
     render(<Footer />);
     const link = screen.getByRole('link', { name: 'Register' });
     expect(link).toHaveAttribute('href', '/register');
+  });
+
+  it('renders social links', () => {
+    render(<Footer />);
+    expect(screen.getByLabelText('GitHub')).toBeInTheDocument();
+    expect(screen.getByLabelText('X (Twitter)')).toBeInTheDocument();
   });
 
   it('renders copyright text', () => {

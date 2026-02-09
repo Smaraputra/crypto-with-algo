@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { LazyMotion, domAnimation, motion } from 'framer-motion';
-import { Button } from '@/components/ui/button';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { useGSAP } from '@gsap/react';
+import { gsap } from '@/lib/gsap';
 import { cn } from '@/lib/utils';
+import { HeroBackground } from './HeroBackground';
+import { LandingButton } from './LandingButton';
 
 interface TickerItem {
   symbol: string;
@@ -19,24 +21,9 @@ const MOCK_TICKERS: TickerItem[] = [
   { symbol: 'BNB', price: '612.33', change: 1.45 },
 ];
 
-const containerVariants = {
-  hidden: {},
-  visible: {
-    transition: { staggerChildren: 0.15 },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, ease: 'easeOut' as const },
-  },
-};
-
 function AnimatedTicker() {
   const [tickers, setTickers] = useState(MOCK_TICKERS);
+  const tickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -52,6 +39,7 @@ function AnimatedTicker() {
 
   return (
     <div
+      ref={tickerRef}
       className="flex flex-wrap justify-center gap-3"
       data-testid="hero-ticker"
       role="status"
@@ -61,7 +49,7 @@ function AnimatedTicker() {
       {tickers.map((t) => (
         <div
           key={t.symbol}
-          className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+          className="flex items-center gap-2 rounded-lg border border-border bg-card/50 px-3 py-2 backdrop-blur-sm"
         >
           <span className="text-xs font-medium text-muted-foreground">
             {t.symbol}
@@ -83,58 +71,97 @@ function AnimatedTicker() {
 }
 
 export function HeroSection() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const headlineRef = useRef<HTMLHeadingElement>(null);
+
+  useGSAP(
+    () => {
+      if (!sectionRef.current) return;
+      const prefersReduced = window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches;
+
+      const elements = sectionRef.current.querySelectorAll('[data-hero-anim]');
+      if (prefersReduced) {
+        // Show everything immediately
+        gsap.set(elements, { opacity: 1, y: 0 });
+        return;
+      }
+
+      // Staggered entry for all hero elements
+      gsap.from(elements, {
+        opacity: 0,
+        y: 30,
+        duration: 0.7,
+        stagger: 0.15,
+        ease: 'power3.out',
+        delay: 0.2,
+      });
+
+      // Headline typewriter effect on the accent part
+      if (headlineRef.current) {
+        const accentSpan =
+          headlineRef.current.querySelector('[data-type-text]');
+        if (accentSpan) {
+          const fullText = accentSpan.textContent || '';
+          gsap.from(accentSpan, {
+            text: { value: '', delimiter: '' },
+            duration: 1.2,
+            delay: 0.6,
+            ease: 'none',
+          });
+          // Ensure final text is correct
+          gsap.set(accentSpan, { text: fullText, delay: 1.9 });
+        }
+      }
+    },
+    { scope: sectionRef }
+  );
+
   return (
-    <LazyMotion features={domAnimation}>
-      <section className="relative overflow-hidden pt-28 pb-16 sm:pt-36 sm:pb-24">
-        {/* Decorative gradient orbs */}
-        <div
-          className="absolute -top-40 left-1/4 h-80 w-80 rounded-full opacity-10 blur-[100px]"
-          style={{ background: 'var(--bullish)' }}
-        />
-        <div
-          className="absolute -bottom-20 right-1/4 h-60 w-60 rounded-full opacity-10 blur-[100px]"
-          style={{ background: 'var(--accent)' }}
-        />
+    <section
+      ref={sectionRef}
+      className="relative overflow-hidden pt-28 pb-16 sm:pt-36 sm:pb-24"
+    >
+      <HeroBackground />
 
-        <motion.div
-          className="relative mx-auto max-w-4xl px-4 text-center"
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
+      <div className="relative mx-auto max-w-4xl px-4 text-center">
+        <h1
+          ref={headlineRef}
+          className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
+          data-hero-anim
         >
-          <motion.h1
-            className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
-            variants={itemVariants}
-          >
-            Algorithmic Crypto Intelligence
-            <br />
-            <span className="text-primary">Powered by AlgoCrypto</span>
-          </motion.h1>
-          <motion.p
-            className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground"
-            variants={itemVariants}
-          >
-            Live market data from Binance, interactive trading charts, portfolio
-            analytics, and smart price alerts -- all in one dashboard.
-          </motion.p>
+          Algorithmic Crypto Intelligence
+          <br />
+          <span className="text-primary" data-type-text>
+            Powered by AlgoCrypto
+          </span>
+        </h1>
+        <p
+          className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground"
+          data-hero-anim
+        >
+          Live market data from Binance, interactive trading charts, portfolio
+          analytics, and smart price alerts -- all in one dashboard.
+        </p>
 
-          <motion.div
-            className="mt-8 flex flex-wrap items-center justify-center gap-4"
-            variants={itemVariants}
-          >
-            <Button size="lg" asChild>
-              <Link href="/register">Get Started Free</Link>
-            </Button>
-            <Button variant="outline" size="lg" asChild>
-              <Link href="/login">Sign In</Link>
-            </Button>
-          </motion.div>
+        <div
+          className="mt-8 flex flex-wrap items-center justify-center gap-4"
+          data-hero-anim
+        >
+          <LandingButton variant="solid" size="lg" href="/register">
+            Get Started Free
+            <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+          </LandingButton>
+          <LandingButton variant="outline" size="lg" href="/login">
+            Sign In
+          </LandingButton>
+        </div>
 
-          <motion.div className="mt-12" variants={itemVariants}>
-            <AnimatedTicker />
-          </motion.div>
-        </motion.div>
-      </section>
-    </LazyMotion>
+        <div className="mt-12" data-hero-anim>
+          <AnimatedTicker />
+        </div>
+      </div>
+    </section>
   );
 }

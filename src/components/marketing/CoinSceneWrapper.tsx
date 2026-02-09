@@ -2,11 +2,11 @@
 
 import dynamic from 'next/dynamic';
 
-const CoinScene = dynamic(() => import('./CoinScene'), {
+const GlobeScene = dynamic(() => import('./GlobeScene'), {
   ssr: false,
   loading: () => (
     <div className="flex h-full w-full items-center justify-center">
-      <div className="h-32 w-32 animate-pulse rounded-full bg-accent/10" />
+      <div className="h-32 w-32 animate-pulse rounded-full border border-accent/20" />
     </div>
   ),
 });
@@ -16,16 +16,17 @@ export function CoinSceneWrapper() {
     <section className="py-16 sm:py-24">
       <div className="mx-auto max-w-6xl px-4">
         <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
-          Next-Generation Technology
+          Global Algorithmic Network
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-          Built on cutting-edge infrastructure for speed, reliability, and precision.
+          Distributed infrastructure analyzing markets across every major
+          exchange in real time.
         </p>
         <div
-          className="mx-auto mt-10 h-[300px] w-full max-w-md sm:h-[400px]"
+          className="mx-auto mt-10 h-[300px] w-full max-w-lg sm:h-[400px]"
           data-testid="coin-scene"
         >
-          <CoinScene />
+          <GlobeScene />
         </div>
       </div>
     </section>

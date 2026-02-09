@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-vi.mock('framer-motion', async () => await import('@/__mocks__/framer-motion'));
+vi.mock('@/lib/gsap', async () => await import('@/__mocks__/gsap'));
+vi.mock('@gsap/react', async () => await import('@/__mocks__/@gsap/react'));
 
 import { FeaturesSection } from './FeaturesSection';
 
@@ -16,7 +17,7 @@ describe('FeaturesSection', () => {
   it('renders 6 feature cards', () => {
     render(<FeaturesSection />);
     const grid = screen.getByTestId('features-grid');
-    const cards = grid.querySelectorAll('[data-slot="card"]');
+    const cards = grid.querySelectorAll('[data-feature-card]');
     expect(cards).toHaveLength(6);
   });
 

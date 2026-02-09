@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+
+vi.mock('@/components/marketing/SmoothScroll', () => ({
+  SmoothScroll: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+}));
+
 import MarketingLayout from './layout';
 
 describe('MarketingLayout', () => {
