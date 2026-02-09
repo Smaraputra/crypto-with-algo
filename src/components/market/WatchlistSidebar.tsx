@@ -110,7 +110,7 @@ export function WatchlistSidebar() {
             }}
             className={cn(
               'group flex w-full cursor-pointer items-center justify-between rounded-sm px-2 py-1.5 text-left transition-colors',
-              'hover:bg-sidebar-accent/50',
+              'hover:bg-sidebar-accent',
               selectedSymbol === symbol && 'bg-sidebar-accent'
             )}
           >

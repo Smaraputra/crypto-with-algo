@@ -35,7 +35,7 @@ function SidebarContent() {
               'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
               pathname === item.href
                 ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
+                : 'text-sidebar-foreground hover:bg-sidebar-accent',
               item.disabled && 'pointer-events-none opacity-40'
             )}
           >
