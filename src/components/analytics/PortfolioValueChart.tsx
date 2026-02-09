@@ -54,23 +54,23 @@ export function PortfolioValueChart({ portfolioId }: PortfolioValueChartProps) {
     const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: 'oklch(0.7 0 0)',
+        textColor: '#b3b3b3',
       },
       grid: {
-        vertLines: { color: 'oklch(0.25 0 0)' },
-        horzLines: { color: 'oklch(0.25 0 0)' },
+        vertLines: { color: '#3b3b3b' },
+        horzLines: { color: '#3b3b3b' },
       },
       width: chartContainerRef.current.clientWidth,
       height: 300,
       rightPriceScale: {
-        borderColor: 'oklch(0.3 0 0)',
+        borderColor: '#4d4d4d',
       },
       timeScale: {
-        borderColor: 'oklch(0.3 0 0)',
+        borderColor: '#4d4d4d',
       },
       crosshair: {
-        horzLine: { color: 'oklch(0.5 0 0)' },
-        vertLine: { color: 'oklch(0.5 0 0)' },
+        horzLine: { color: '#777777' },
+        vertLine: { color: '#777777' },
       },
     });
 

@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Crypto Portfolio Tracker',
-  description: 'Real-time cryptocurrency portfolio tracker with live market data',
+  title: 'AlgoCrypto',
+  description: 'Real-time cryptocurrency portfolio tracking with live market data, interactive charts, and smart alerts',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

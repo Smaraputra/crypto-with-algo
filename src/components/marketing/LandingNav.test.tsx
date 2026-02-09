@@ -23,7 +23,7 @@ import { LandingNav } from './LandingNav';
 describe('LandingNav', () => {
   it('renders branding text', () => {
     render(<LandingNav />);
-    expect(screen.getByText('Crypto Portfolio Tracker')).toBeInTheDocument();
+    expect(screen.getByText('AlgoCrypto')).toBeInTheDocument();
   });
 
   it('renders Sign In link pointing to /login', () => {

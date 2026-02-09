@@ -33,6 +33,6 @@ test.describe('Landing page (unauthenticated)', () => {
     await page.goto('/');
     const footer = page.locator('footer');
     await expect(footer).toBeVisible();
-    await expect(footer.getByText('Crypto Portfolio Tracker', { exact: true })).toBeVisible();
+    await expect(footer.getByText('AlgoCrypto', { exact: true })).toBeVisible();
   });
 });

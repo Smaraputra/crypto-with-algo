@@ -22,7 +22,7 @@ import { Footer } from './Footer';
 describe('Footer', () => {
   it('renders branding text', () => {
     render(<Footer />);
-    expect(screen.getByText('Crypto Portfolio Tracker')).toBeInTheDocument();
+    expect(screen.getByText('AlgoCrypto')).toBeInTheDocument();
   });
 
   it('renders Sign In link to /login', () => {

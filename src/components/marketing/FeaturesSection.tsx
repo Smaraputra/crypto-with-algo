@@ -1,3 +1,6 @@
+'use client';
+
+import { useRef } from 'react';
 import {
   Briefcase,
   TrendingUp,
@@ -6,6 +9,7 @@ import {
   CandlestickChart,
   Download,
 } from 'lucide-react';
+import { LazyMotion, domAnimation, motion, useInView } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 
 const FEATURES = [
@@ -47,34 +51,61 @@ const FEATURES = [
   },
 ];
 
-export function FeaturesSection() {
-  return (
-    <section className="border-t border-border bg-card/30 py-16 sm:py-24">
-      <div className="mx-auto max-w-6xl px-4">
-        <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
-          Everything You Need
-        </h2>
-        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-          Professional-grade tools for managing your cryptocurrency portfolio.
-        </p>
+const containerVariants = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.1 },
+  },
+};
 
-        <div
-          className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-          data-testid="features-grid"
-        >
-          {FEATURES.map((feature) => (
-            <Card key={feature.title} className="border-border/50">
-              <CardContent className="pt-6">
-                <feature.icon className="mb-3 h-8 w-8 text-primary" />
-                <h3 className="text-sm font-semibold">{feature.title}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {feature.description}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.4, ease: 'easeOut' as const },
+  },
+};
+
+export function FeaturesSection() {
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(sectionRef, { once: true, amount: 0.2 });
+
+  return (
+    <LazyMotion features={domAnimation}>
+      <section className="border-t border-border bg-card/30 py-16 sm:py-24">
+        <div className="mx-auto max-w-6xl px-4">
+          <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
+            Everything You Need
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
+            Professional-grade tools for managing your cryptocurrency portfolio.
+          </p>
+
+          <motion.div
+            ref={sectionRef}
+            className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            data-testid="features-grid"
+            variants={containerVariants}
+            initial="hidden"
+            animate={isInView ? 'visible' : 'hidden'}
+          >
+            {FEATURES.map((feature) => (
+              <motion.div key={feature.title} variants={cardVariants}>
+                <Card className="border-border/50">
+                  <CardContent className="pt-6">
+                    <feature.icon className="mb-3 h-8 w-8 text-primary" />
+                    <h3 className="text-sm font-semibold">{feature.title}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {feature.description}
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </motion.div>
         </div>
-      </div>
-    </section>
+      </section>
+    </LazyMotion>
   );
 }

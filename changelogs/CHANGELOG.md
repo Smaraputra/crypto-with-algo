@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Framer Motion scroll-triggered animations on HeroSection (staggered entrance), FeaturesSection (card stagger), and AnimatedChartSection (SVG path draw)
+- 3D rotating coin section using Three.js + React Three Fiber (dynamically imported, SSR-disabled)
+- AnimatedChartSection with SVG upward-trending price curve, gradient fill, and useInView scroll trigger
+- CoinSceneWrapper with skeleton loading state and dynamic import
+- Test mocks for framer-motion, @react-three/fiber, and @react-three/drei
+- CSP `worker-src 'self' blob:` directive for Three.js web worker support
+- 34 new unit tests across 4 new test files (CoinScene, CoinSceneWrapper, AnimatedChartSection + updated existing)
+
+### Changed
+- Rebranded from "Crypto Portfolio Tracker" / "Crypto Tracker" to "AlgoCrypto" across all files, tests, and E2E specs
+- Replaced Star icon with Zap icon (lucide-react) in nav, footer, sidebar, and auth layout
+- Hero heading updated to "Algorithmic Crypto Intelligence / Powered by AlgoCrypto"
+- Landing page section order: Hero, CoinScene, AnimatedChart, Features, CTA (removed StatsSection)
+- FeaturesSection converted to client component with framer-motion scroll animations
+
+### Removed
+- StatsSection component (replaced by AnimatedChartSection and CoinSceneWrapper)
+
+### Dependencies
+- Added: framer-motion, three, @react-three/fiber, @react-three/drei, @types/three (devDep)
+
+### Added
 - Public marketing landing page at `/` with LandingNav, HeroSection, FeaturesSection, StatsSection, CTASection, and Footer
 - Marketing route group `(marketing)` with bare layout
 - Animated mock price ticker on hero section (BTC, ETH, SOL, BNB)

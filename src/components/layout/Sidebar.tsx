@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Star } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Bell, BarChart3, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
@@ -22,8 +22,8 @@ function SidebarContent() {
   return (
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex h-12 items-center border-b border-sidebar-border px-4">
-        <Star className="mr-2 h-4 w-4 text-accent" />
-        <span className="text-sm font-semibold">Crypto Tracker</span>
+        <Zap className="mr-2 h-4 w-4 text-accent" />
+        <span className="text-sm font-semibold">AlgoCrypto</span>
       </div>
 
       <nav className="space-y-1 p-2">

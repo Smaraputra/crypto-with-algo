@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
+vi.mock('framer-motion', async () => await import('@/__mocks__/framer-motion'));
+
 vi.mock('next/link', () => ({
   default: ({
     children,

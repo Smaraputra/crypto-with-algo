@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { Star, Menu, X } from 'lucide-react';
+import { Zap, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -76,9 +76,9 @@ export function LandingNav() {
     >
       <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2">
-          <Star className="h-5 w-5 text-accent" />
+          <Zap className="h-5 w-5 text-accent" />
           <span className="text-sm font-semibold tracking-tight">
-            Crypto Portfolio Tracker
+            AlgoCrypto
           </span>
         </Link>
 
