@@ -92,11 +92,11 @@ export function AlertList({ alerts, isLoading }: AlertListProps) {
   if (alerts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center" data-testid="alert-list-empty">
-        <Bell className="mb-3 size-10 text-muted-foreground/50" />
+        <Bell className="mb-3 size-10 text-muted-foreground" />
         <p className="text-sm font-medium text-muted-foreground">
           No alerts yet
         </p>
-        <p className="text-xs text-muted-foreground/70">
+        <p className="text-xs text-muted-foreground">
           Create an alert to get notified about market conditions
         </p>
       </div>
