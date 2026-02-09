@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Public marketing landing page at `/` with LandingNav, HeroSection, FeaturesSection, StatsSection, CTASection, and Footer
+- Marketing route group `(marketing)` with bare layout
+- Animated mock price ticker on hero section (BTC, ETH, SOL, BNB)
+- CSS animations: `animate-float` and `animate-fade-in-up` for landing page
+- Auth page branding: grid pattern background, radial gradient glow, Star icon header
+- Landing page E2E tests (6 tests in `e2e/landing.spec.ts`)
+- Unit tests for all marketing components (17 tests across 5 test files)
+
+### Changed
+- Dashboard route moved from `/` to `/dashboard` to make room for public landing page
+- Sidebar nav Dashboard link updated from `/` to `/dashboard`
+- Auth callbacks (login/register) redirect to `/dashboard` instead of `/`
+- Middleware: `/` is now a public route (exact match); `/login` and `/register` remain prefix-matched
+- All hardcoded hex colors replaced with design tokens (`text-bullish`, `text-bearish`, `bg-bullish`, `bg-bearish`, `text-accent`, `border-accent`)
+- Ghost button hover changed from `bg-accent` to `bg-muted` for subtler dark-on-dark appearance
+- Sidebar and watchlist hover states removed `/50` opacity for better visibility
+- Table row hover changed from `bg-muted/50` to `bg-muted`
+- Base border radius bumped from `0.25rem` to `0.5rem` (fixes `radius-sm` computing to 0px)
+
+### Fixed
+- Toaster color bug: CSS variables wrapped in `hsl()` but containing oklch values; now uses raw `var()` references
+- WCAG AA contrast: bumped `--muted-foreground` luminance from 0.6 to 0.65, `--destructive` and `--bearish` from 0.62 to 0.68
+- Removed opacity modifiers (`/50`, `/70`) on `text-muted-foreground` in AlertList empty state
+
+### Added
 - NextAuth.js v5 configuration with Credentials, Google, and GitHub providers
 - Mongoose User model with name, email, password (optional), image, emailVerified, timestamps
 - JWT session strategy with `jwt` and `session` callbacks injecting user.id
