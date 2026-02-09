@@ -1,8 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-
-vi.mock('@/lib/gsap', async () => await import('@/__mocks__/gsap'));
-vi.mock('@gsap/react', async () => await import('@/__mocks__/@gsap/react'));
 
 import { HeroBackground } from './HeroBackground';
 

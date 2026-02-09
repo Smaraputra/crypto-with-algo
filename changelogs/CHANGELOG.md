@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Landing Page Redesign -- Ethena-Inspired)
+- Redesigned landing page with ultra-dark, premium aesthetic inspired by ethena.fi
+- Scoped darker theme to marketing and auth layouts via `.marketing-dark` CSS class
+- LandingNav: pill-shaped container with center anchor links (Features, How It Works), backdrop blur
+- LandingButton: pill shape (`rounded-full`), new `gradient-border` variant
+- HeroSection: two-column layout with left-aligned text and right-side 3D globe, integrated stats bar (6 stats with gradient values and icons)
+- HeroBackground: simplified to radial gradient glow with dot-matrix pattern overlay
+- FeaturesSection: gradient heading, grid-overlay cards with green glow hover, `id="features"` anchor
+- HowItWorksSection: gradient heading, green-tinted connector lines, `id="how-it-works"` anchor
+- CTASection: full-width layout with dot-grid pattern background, gradient heading
+- Footer: multi-column layout (Brand, Product, Resources, Account columns)
+- GlobeScene: recolored from yellow (#f0b90b) to green (#0ecb81) to match primary accent
+- Auth layout: darker aesthetic via marketing-dark class
+
+### Added (Landing Page Redesign -- Ethena-Inspired)
+- CSS utilities: `.gradient-heading`, `.grid-card-overlay`, `.gradient-separator`
+- Marketing-scoped CSS custom properties (darker bg, card, border values)
+
+### Removed (Landing Page Redesign -- Ethena-Inspired)
+- CoinScene and CoinSceneWrapper components (globe moved into HeroSection)
+- AnimatedChartSection component
+- StatsSection component (stats merged into HeroSection stats bar)
+
 ### Added (Phase 8: Backtesting Engine -- Steps 70-76)
 - Strategy CRUD API routes (`/api/strategies`, `/api/strategies/[id]`) with auth, Zod validation, ownership checks, and 5-per-user limit
 - Strategy types and schemas (`src/types/strategy.ts`) with weight sum validation (must equal 1.0)

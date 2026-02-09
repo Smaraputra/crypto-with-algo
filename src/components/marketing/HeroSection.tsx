@@ -1,12 +1,22 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { ArrowRight, Activity, Clock, Users, Eye, Globe, Zap } from 'lucide-react';
 import { useGSAP } from '@gsap/react';
 import { gsap } from '@/lib/gsap';
 import { cn } from '@/lib/utils';
 import { HeroBackground } from './HeroBackground';
 import { LandingButton } from './LandingButton';
+
+const GlobeSceneDynamic = dynamic(() => import('./GlobeScene'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center">
+      <div className="h-32 w-32 animate-pulse rounded-full border border-primary/20" />
+    </div>
+  ),
+});
 
 interface TickerItem {
   symbol: string;
@@ -19,6 +29,15 @@ const MOCK_TICKERS: TickerItem[] = [
   { symbol: 'ETH', price: '3,521.45', change: -0.87 },
   { symbol: 'SOL', price: '142.67', change: 5.12 },
   { symbol: 'BNB', price: '612.33', change: 1.45 },
+];
+
+const STATS = [
+  { value: '99.9%', label: 'Uptime', icon: Activity },
+  { value: '<50ms', label: 'Latency', icon: Clock },
+  { value: '10K+', label: 'Users', icon: Users },
+  { value: '24/7', label: 'Monitoring', icon: Eye },
+  { value: '6', label: 'Exchanges', icon: Globe },
+  { value: 'Live', label: 'Real-time Data', icon: Zap },
 ];
 
 function AnimatedTicker() {
@@ -49,7 +68,7 @@ function AnimatedTicker() {
       {tickers.map((t) => (
         <div
           key={t.symbol}
-          className="flex items-center gap-2 rounded-lg border border-border bg-card/50 px-3 py-2 backdrop-blur-sm"
+          className="flex items-center gap-2 rounded-full border border-border/50 bg-card/50 px-3 py-1.5 backdrop-blur-sm"
         >
           <span className="text-xs font-medium text-muted-foreground">
             {t.symbol}
@@ -83,12 +102,10 @@ export function HeroSection() {
 
       const elements = sectionRef.current.querySelectorAll('[data-hero-anim]');
       if (prefersReduced) {
-        // Show everything immediately
         gsap.set(elements, { opacity: 1, y: 0 });
         return;
       }
 
-      // Staggered entry for all hero elements
       gsap.from(elements, {
         opacity: 0,
         y: 30,
@@ -98,7 +115,6 @@ export function HeroSection() {
         delay: 0.2,
       });
 
-      // Headline typewriter effect on the accent part
       if (headlineRef.current) {
         const accentSpan =
           headlineRef.current.querySelector('[data-type-text]');
@@ -110,7 +126,6 @@ export function HeroSection() {
             delay: 0.6,
             ease: 'none',
           });
-          // Ensure final text is correct
           gsap.set(accentSpan, { text: fullText, delay: 1.9 });
         }
       }
@@ -125,40 +140,77 @@ export function HeroSection() {
     >
       <HeroBackground />
 
-      <div className="relative mx-auto max-w-4xl px-4 text-center">
-        <h1
-          ref={headlineRef}
-          className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
-          data-hero-anim
-        >
-          Algorithmic Crypto Intelligence
-          <br />
-          <span className="text-primary" data-type-text>
-            Powered by AlgoCrypto
-          </span>
-        </h1>
-        <p
-          className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground"
-          data-hero-anim
-        >
-          Live market data from Binance, interactive trading charts, portfolio
-          analytics, and smart price alerts -- all in one dashboard.
-        </p>
+      <div className="relative mx-auto max-w-6xl px-4">
+        {/* Two-column layout */}
+        <div className="grid items-center gap-12 lg:grid-cols-2">
+          {/* Left: text content */}
+          <div className="text-center lg:text-left">
+            <h1
+              ref={headlineRef}
+              className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
+              data-hero-anim
+            >
+              Algorithmic Crypto Intelligence
+              <br />
+              <span className="gradient-heading" data-type-text>
+                Powered by AlgoCrypto
+              </span>
+            </h1>
+            <p
+              className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground lg:mx-0"
+              data-hero-anim
+            >
+              Live market data from Binance, interactive trading charts, portfolio
+              analytics, and smart price alerts -- all in one dashboard.
+            </p>
 
-        <div
-          className="mt-8 flex flex-wrap items-center justify-center gap-4"
-          data-hero-anim
-        >
-          <LandingButton variant="solid" size="lg" href="/register">
-            Get Started Free
-            <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
-          </LandingButton>
-          <LandingButton variant="outline" size="lg" href="/login">
-            Sign In
-          </LandingButton>
+            <div
+              className="mt-8 flex flex-wrap items-center justify-center gap-4 lg:justify-start"
+              data-hero-anim
+            >
+              <LandingButton variant="solid" size="lg" href="/register">
+                Get Started Free
+                <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+              </LandingButton>
+              <LandingButton variant="gradient-border" size="lg" href="/login">
+                Sign In
+              </LandingButton>
+            </div>
+          </div>
+
+          {/* Right: globe */}
+          <div
+            className="relative mx-auto h-[300px] w-full max-w-lg lg:h-[400px]"
+            data-hero-anim
+          >
+            <GlobeSceneDynamic />
+          </div>
         </div>
 
-        <div className="mt-12" data-hero-anim>
+        {/* Gradient separator */}
+        <div className="gradient-separator mt-12 sm:mt-16" />
+
+        {/* Stats bar */}
+        <div
+          data-testid="stats-grid"
+          className="mt-8 grid grid-cols-2 gap-6 sm:mt-10 md:grid-cols-3 lg:grid-cols-6"
+          data-hero-anim
+        >
+          {STATS.map((stat) => (
+            <article key={stat.label} className="text-center">
+              <div className="flex items-center justify-center gap-1.5">
+                <stat.icon className="h-4 w-4 text-muted-foreground" />
+                <span className="gradient-heading font-mono text-xl font-bold tabular-nums sm:text-2xl">
+                  {stat.value}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{stat.label}</p>
+            </article>
+          ))}
+        </div>
+
+        {/* Ticker */}
+        <div className="mt-8" data-hero-anim>
           <AnimatedTicker />
         </div>
       </div>

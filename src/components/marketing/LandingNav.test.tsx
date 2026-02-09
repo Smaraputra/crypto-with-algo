@@ -40,6 +40,12 @@ describe('LandingNav', () => {
     expect(desktopLink?.closest('a')).toHaveAttribute('href', '/register');
   });
 
+  it('renders center nav links (Features, How It Works)', () => {
+    render(<LandingNav />);
+    expect(screen.getAllByText('Features').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('How It Works').length).toBeGreaterThanOrEqual(1);
+  });
+
   it('toggles mobile menu on hamburger click', async () => {
     const user = userEvent.setup();
     render(<LandingNav />);

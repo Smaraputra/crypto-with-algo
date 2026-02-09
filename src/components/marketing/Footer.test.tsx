@@ -53,4 +53,17 @@ describe('Footer', () => {
     const year = new Date().getFullYear().toString();
     expect(screen.getByText(new RegExp(year))).toBeInTheDocument();
   });
+
+  it('renders product link columns', () => {
+    render(<Footer />);
+    expect(screen.getByText('Product')).toBeInTheDocument();
+    expect(screen.getByText('Resources')).toBeInTheDocument();
+    expect(screen.getByText('Account')).toBeInTheDocument();
+  });
+
+  it('renders product links', () => {
+    render(<Footer />);
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
+    expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/dashboard/portfolio');
+  });
 });

@@ -31,7 +31,7 @@ test.describe('Landing page (unauthenticated)', () => {
 
   test('how it works section is visible', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('How It Works')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'How It Works' })).toBeVisible();
   });
 
   test('stats section is visible', async ({ page }) => {

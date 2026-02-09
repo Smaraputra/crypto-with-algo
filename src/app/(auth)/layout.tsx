@@ -2,7 +2,7 @@ import { Zap } from 'lucide-react';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background">
+    <div className="marketing-dark relative flex min-h-screen items-center justify-center bg-background">
       {/* Grid pattern overlay */}
       <div
         className="absolute inset-0 opacity-[0.03]"

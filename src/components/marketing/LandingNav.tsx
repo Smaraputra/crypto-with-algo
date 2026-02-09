@@ -66,28 +66,44 @@ export function LandingNav() {
   }, [menuOpen]);
 
   return (
-    <header
-      className={cn(
-        'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
-        scrolled
-          ? 'bg-background/95 backdrop-blur-sm border-b border-border'
-          : 'bg-transparent'
-      )}
-    >
-      <nav className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
+    <header className="fixed top-0 left-0 right-0 z-50 px-4 pt-4">
+      <nav
+        className={cn(
+          'mx-auto flex h-14 max-w-5xl items-center justify-between rounded-full border px-4 transition-all duration-300',
+          scrolled
+            ? 'border-border/50 bg-background/90 backdrop-blur-md shadow-lg shadow-black/20'
+            : 'border-border/30 bg-background/60 backdrop-blur-sm'
+        )}
+      >
         <Link href="/" className="flex items-center gap-2">
-          <Zap className="h-5 w-5 text-accent" />
+          <Zap className="h-5 w-5 text-primary" />
           <span className="text-sm font-semibold tracking-tight">
             AlgoCrypto
           </span>
         </Link>
 
-        {/* Desktop */}
+        {/* Center links - desktop only */}
+        <div className="hidden items-center gap-6 sm:flex">
+          <a
+            href="#features"
+            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Features
+          </a>
+          <a
+            href="#how-it-works"
+            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            How It Works
+          </a>
+        </div>
+
+        {/* Right side - desktop */}
         <div className="hidden items-center gap-3 sm:flex">
-          <Button variant="ghost" size="sm" asChild>
+          <Button variant="ghost" size="sm" className="rounded-full" asChild>
             <Link href="/login">Sign In</Link>
           </Button>
-          <Button size="sm" asChild>
+          <Button size="sm" className="rounded-full" asChild>
             <Link href="/register">Get Started</Link>
           </Button>
         </div>
@@ -111,15 +127,32 @@ export function LandingNav() {
         <div
           ref={menuRef}
           role="menu"
-          className="border-b border-border bg-background px-4 pb-4 sm:hidden"
+          className="mx-auto mt-2 max-w-5xl rounded-2xl border border-border/50 bg-background/95 px-4 py-4 backdrop-blur-md sm:hidden"
         >
           <div className="flex flex-col gap-2">
+            <a
+              href="#features"
+              role="menuitem"
+              className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+              onClick={closeMenu}
+            >
+              Features
+            </a>
+            <a
+              href="#how-it-works"
+              role="menuitem"
+              className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+              onClick={closeMenu}
+            >
+              How It Works
+            </a>
+            <div className="my-1 h-px bg-border/50" />
             <Button variant="ghost" size="sm" asChild>
               <Link href="/login" role="menuitem" onClick={closeMenu}>
                 Sign In
               </Link>
             </Button>
-            <Button size="sm" asChild>
+            <Button size="sm" className="rounded-full" asChild>
               <Link href="/register" role="menuitem" onClick={closeMenu}>
                 Get Started
               </Link>

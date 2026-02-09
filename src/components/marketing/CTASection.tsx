@@ -40,42 +40,49 @@ export function CTASection() {
   return (
     <section
       ref={sectionRef}
-      className="border-t border-border py-16 sm:py-24"
+      className="relative py-16 sm:py-24"
     >
-      <div className="mx-auto max-w-2xl px-4 text-center">
-        <div
-          data-cta-card
-          className="relative overflow-hidden rounded-lg border border-accent/30 p-8 sm:p-12"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle, oklch(1 0 0 / 0.02) 1px, transparent 1px)',
-            backgroundSize: '16px 16px',
-          }}
-        >
-          {/* Rotating gradient border glow */}
-          <div
-            className="pointer-events-none absolute -inset-px -z-10 rounded-lg opacity-30"
-            aria-hidden="true"
-            style={{
-              background:
-                'conic-gradient(from 0deg, transparent, #f0b90b, transparent, #0ecb81, transparent)',
-              animation: 'spin 6s linear infinite',
-            }}
-          />
-          <div className="absolute inset-[1px] -z-10 rounded-lg bg-background" />
+      {/* Pattern background */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle, oklch(1 0 0 / 0.4) 1px, transparent 1px)',
+          backgroundSize: '20px 20px',
+        }}
+      />
 
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Start Tracking Today
-          </h2>
-          <p className="mt-3 text-muted-foreground">
-            Create your free account and connect to live market data in seconds.
-          </p>
-          <div className="mt-6">
-            <LandingButton variant="solid" size="lg" href="/register">
-              Create Free Account
-              <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
-            </LandingButton>
-          </div>
+      {/* Gradient glow */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        aria-hidden="true"
+        style={{
+          background:
+            'radial-gradient(ellipse 600px 300px at 50% 50%, oklch(0.72 0.18 160 / 0.06), transparent)',
+        }}
+      />
+
+      <div className="relative mx-auto max-w-3xl px-4 text-center" data-cta-card>
+        <div className="gradient-separator mb-12" />
+
+        <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          <span className="gradient-heading">Start Tracking Today</span>
+        </h2>
+        <p className="mt-3 text-muted-foreground">
+          Create your free account and connect to live market data in seconds.
+        </p>
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+          <LandingButton variant="solid" size="lg" href="/register">
+            Create Free Account
+            <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+          </LandingButton>
+          <a
+            href="#features"
+            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Learn More &rarr;
+          </a>
         </div>
       </div>
     </section>

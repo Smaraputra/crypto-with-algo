@@ -89,7 +89,7 @@ function GlobeDots() {
           />
         </bufferGeometry>
         <pointsMaterial
-          color="#f0b90b"
+          color="#0ecb81"
           size={0.04}
           sizeAttenuation
           transparent
@@ -105,14 +105,14 @@ function GlobeDots() {
             args={[linePositions, 3]}
           />
         </bufferGeometry>
-        <lineBasicMaterial color="#f0b90b" transparent opacity={0.15} />
+        <lineBasicMaterial color="#0ecb81" transparent opacity={0.15} />
       </lineSegments>
 
       {/* Glow sphere */}
       <mesh>
         <sphereGeometry args={[GLOBE_RADIUS * 1.02, 32, 32]} />
         <meshBasicMaterial
-          color="#f0b90b"
+          color="#0ecb81"
           transparent
           opacity={0.03}
           side={THREE.BackSide}
