@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Zap } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase, disabled: false },
   { href: '/alerts', label: 'Alerts', icon: Bell, disabled: false },
   { href: '/analytics', label: 'Analytics', icon: BarChart3, disabled: false },
+  { href: '/signals', label: 'Signals', icon: Activity, disabled: false },
 ];
 
 function SidebarContent() {
