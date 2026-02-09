@@ -3,9 +3,9 @@ import { render, screen } from '@testing-library/react';
 
 vi.mock('next/dynamic', () => ({
   default: () => {
-    const MockCoinScene = () => <div data-testid="coin-scene-dynamic" />;
-    MockCoinScene.displayName = 'MockCoinScene';
-    return MockCoinScene;
+    const MockGlobeScene = () => <div data-testid="globe-scene-dynamic" />;
+    MockGlobeScene.displayName = 'MockGlobeScene';
+    return MockGlobeScene;
   },
 }));
 
@@ -15,18 +15,18 @@ describe('CoinSceneWrapper', () => {
   it('renders section heading', () => {
     render(<CoinSceneWrapper />);
     expect(
-      screen.getByRole('heading', { name: 'Next-Generation Technology' })
+      screen.getByRole('heading', { name: 'Global Algorithmic Network' })
     ).toBeInTheDocument();
   });
 
   it('renders description text', () => {
     render(<CoinSceneWrapper />);
     expect(
-      screen.getByText(/Built on cutting-edge infrastructure/)
+      screen.getByText(/Distributed infrastructure/)
     ).toBeInTheDocument();
   });
 
-  it('renders coin scene container', () => {
+  it('renders scene container', () => {
     render(<CoinSceneWrapper />);
     expect(screen.getByTestId('coin-scene')).toBeInTheDocument();
   });

@@ -29,6 +29,21 @@ test.describe('Landing page (unauthenticated)', () => {
     await expect(page.getByText('Everything You Need')).toBeVisible();
   });
 
+  test('how it works section is visible', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText('How It Works')).toBeVisible();
+  });
+
+  test('stats section is visible', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('stats-grid')).toBeVisible();
+  });
+
+  test('CTA section is visible', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText('Start Tracking Today')).toBeVisible();
+  });
+
   test('footer is visible', async ({ page }) => {
     await page.goto('/');
     const footer = page.locator('footer');

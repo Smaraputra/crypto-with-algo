@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-vi.mock('framer-motion', async () => await import('@/__mocks__/framer-motion'));
+vi.mock('@/lib/gsap', async () => await import('@/__mocks__/gsap'));
+vi.mock('@gsap/react', async () => await import('@/__mocks__/@gsap/react'));
 
 import { AnimatedChartSection } from './AnimatedChartSection';
 
@@ -15,9 +16,7 @@ describe('AnimatedChartSection', () => {
 
   it('renders description text', () => {
     render(<AnimatedChartSection />);
-    expect(
-      screen.getByText(/Track price movements/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Track price movements/)).toBeInTheDocument();
   });
 
   it('renders chart container', () => {
@@ -30,5 +29,10 @@ describe('AnimatedChartSection', () => {
     expect(
       screen.getByRole('img', { name: /Animated price chart/ })
     ).toBeInTheDocument();
+  });
+
+  it('renders data point labels', () => {
+    render(<AnimatedChartSection />);
+    expect(screen.getByText('$72,300')).toBeInTheDocument();
   });
 });

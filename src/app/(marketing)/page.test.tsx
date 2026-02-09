@@ -16,6 +16,12 @@ vi.mock('@/components/marketing/AnimatedChartSection', () => ({
 vi.mock('@/components/marketing/FeaturesSection', () => ({
   FeaturesSection: () => <section data-testid="features-section" />,
 }));
+vi.mock('@/components/marketing/HowItWorksSection', () => ({
+  HowItWorksSection: () => <section data-testid="how-it-works-section" />,
+}));
+vi.mock('@/components/marketing/StatsSection', () => ({
+  StatsSection: () => <section data-testid="stats-section" />,
+}));
 vi.mock('@/components/marketing/CTASection', () => ({
   CTASection: () => <section data-testid="cta-section" />,
 }));
@@ -34,6 +40,8 @@ describe('LandingPage', () => {
     expect(screen.getByTestId('coin-scene-wrapper')).toBeInTheDocument();
     expect(screen.getByTestId('animated-chart-section')).toBeInTheDocument();
     expect(screen.getByTestId('features-section')).toBeInTheDocument();
+    expect(screen.getByTestId('how-it-works-section')).toBeInTheDocument();
+    expect(screen.getByTestId('stats-section')).toBeInTheDocument();
     expect(screen.getByTestId('cta-section')).toBeInTheDocument();
     expect(screen.getByTestId('footer')).toBeInTheDocument();
   });

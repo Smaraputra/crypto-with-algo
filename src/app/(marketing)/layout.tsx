@@ -1,3 +1,5 @@
+import { SmoothScroll } from '@/components/marketing/SmoothScroll';
+
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
@@ -7,7 +9,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       >
         Skip to content
       </a>
-      {children}
+      <SmoothScroll>{children}</SmoothScroll>
     </>
   );
 }

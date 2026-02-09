@@ -3,11 +3,11 @@ import { render, screen } from '@testing-library/react';
 
 vi.mock('@react-three/fiber', async () => await import('@/__mocks__/@react-three/fiber'));
 
-import CoinScene from './CoinScene';
+import GlobeScene from './GlobeScene';
 
-describe('CoinScene', () => {
+describe('GlobeScene', () => {
   it('renders the canvas container', () => {
-    render(<CoinScene />);
+    render(<GlobeScene />);
     expect(screen.getByTestId('r3f-canvas')).toBeInTheDocument();
   });
 });
