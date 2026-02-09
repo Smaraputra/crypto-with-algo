@@ -64,7 +64,11 @@ export async function GET(req: NextRequest) {
       ttl
     );
 
-    return NextResponse.json(data);
+    return NextResponse.json(data, {
+      headers: {
+        'Cache-Control': `public, s-maxage=${ttl}, stale-while-revalidate=${ttl * 2}`,
+      },
+    });
   } catch (error) {
     console.error('Failed to fetch klines:', error);
     return NextResponse.json({ error: 'Failed to fetch price history' }, { status: 500 });

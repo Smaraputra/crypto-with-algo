@@ -55,6 +55,15 @@ describe('GET /api/prices', () => {
     expect(data).toEqual(mockTickers);
   });
 
+  it('includes Cache-Control header', async () => {
+    vi.mocked(cachedFetch).mockResolvedValue(mockTickers);
+
+    const res = await GET();
+    expect(res.headers.get('Cache-Control')).toBe(
+      'public, s-maxage=30, stale-while-revalidate=60'
+    );
+  });
+
   it('calls cachedFetch with correct key and TTL', async () => {
     vi.mocked(cachedFetch).mockResolvedValue([]);
 
