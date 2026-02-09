@@ -170,11 +170,11 @@ describe('HoldingsList', () => {
     render(<HoldingsList portfolioId="p1" />);
 
     // BTC is profitable: green
-    const greenElements = screen.getByTestId('holdings-table').querySelectorAll('.text-\\[\\#0ecb81\\]');
+    const greenElements = screen.getByTestId('holdings-table').querySelectorAll('.text-bullish');
     expect(greenElements.length).toBeGreaterThan(0);
 
     // ETH is at a loss: red
-    const redElements = screen.getByTestId('holdings-table').querySelectorAll('.text-\\[\\#f6465d\\]');
+    const redElements = screen.getByTestId('holdings-table').querySelectorAll('.text-bearish');
     expect(redElements.length).toBeGreaterThan(0);
   });
 

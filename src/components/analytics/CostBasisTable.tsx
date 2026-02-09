@@ -157,8 +157,8 @@ export function CostBasisTable({ portfolioId }: CostBasisTableProps) {
                 <td
                   className={`pt-2 text-right font-mono tabular-nums ${
                     (data?.costBasis.totalRealizedGain ?? 0) >= 0
-                      ? 'text-[#0ecb81]'
-                      : 'text-[#f6465d]'
+                      ? 'text-bullish'
+                      : 'text-bearish'
                   }`}
                 >
                   {formatCurrency(data?.costBasis.totalRealizedGain ?? 0)}
@@ -205,7 +205,7 @@ function HoldingRow({
         </td>
         <td
           className={`py-2 text-right font-mono tabular-nums ${
-            holding.totalRealizedGain >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'
+            holding.totalRealizedGain >= 0 ? 'text-bullish' : 'text-bearish'
           }`}
         >
           {formatCurrency(holding.totalRealizedGain)}

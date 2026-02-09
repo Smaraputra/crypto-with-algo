@@ -57,8 +57,8 @@ function StatusBadge({ status }: { status: Alert['status'] }) {
       paused: 'secondary',
     };
   const colors: Record<string, string> = {
-    active: 'bg-[#0ecb81] text-white hover:bg-[#0ecb81]/80',
-    triggered: 'border-[#f0b90b] text-[#f0b90b]',
+    active: 'bg-bullish text-white hover:bg-bullish/80',
+    triggered: 'border-accent text-accent',
     paused: '',
   };
 
@@ -146,7 +146,7 @@ export function AlertList({ alerts, isLoading }: AlertListProps) {
                 title="Acknowledge"
                 aria-label="Acknowledge"
               >
-                <Check className="size-4 text-[#0ecb81]" />
+                <Check className="size-4 text-bullish" />
               </Button>
             )}
 

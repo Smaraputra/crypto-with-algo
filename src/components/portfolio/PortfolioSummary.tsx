@@ -118,19 +118,19 @@ export function PortfolioSummary({ portfolioId }: PortfolioSummaryProps) {
       label: 'Total P&L',
       value: formatCurrency(summary.totalPnL),
       sub: formatPercent(summary.totalPnLPercent),
-      color: summary.totalPnL >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]',
+      color: summary.totalPnL >= 0 ? 'text-bullish' : 'text-bearish',
     },
     {
       label: '24h Change',
       value: formatCurrency(summary.totalChange24h),
       sub: formatPercent(summary.change24hPercent),
-      color: summary.totalChange24h >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]',
+      color: summary.totalChange24h >= 0 ? 'text-bullish' : 'text-bearish',
     },
     {
       label: 'Connection',
       value: isConnected ? 'Live' : 'REST',
       sub: isConnected ? 'WebSocket active' : 'Delayed prices',
-      color: isConnected ? 'text-[#0ecb81]' : 'text-muted-foreground',
+      color: isConnected ? 'text-bullish' : 'text-muted-foreground',
     },
   ];
 
