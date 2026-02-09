@@ -22,7 +22,7 @@ export default defineConfig({
     {
       name: 'unauthenticated',
       use: { ...devices['Desktop Chrome'] },
-      testMatch: /auth\.spec\.ts/,
+      testMatch: /auth\.spec\.ts|landing\.spec\.ts/,
     },
 
     // Authenticated tests -- depend on setup project
