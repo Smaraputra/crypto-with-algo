@@ -43,6 +43,11 @@
   --color-bearish-muted: var(--bearish-muted);
   --color-card-hover: var(--card-hover);
   --color-border-strong: var(--border-strong);
+  --color-signal-strong-buy: var(--signal-strong-buy);
+  --color-signal-buy: var(--signal-buy);
+  --color-signal-neutral: var(--signal-neutral);
+  --color-signal-sell: var(--signal-sell);
+  --color-signal-strong-sell: var(--signal-strong-sell);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -118,6 +123,13 @@
   --sidebar-border: oklch(0.22 0.01 250);
   --sidebar-ring: oklch(0.72 0.18 160);
 
+  /* Signal tier colors */
+  --signal-strong-buy: oklch(0.72 0.18 160);
+  --signal-buy: oklch(0.58 0.14 162);
+  --signal-neutral: oklch(0.62 0.02 250);
+  --signal-sell: oklch(0.60 0.18 22);
+  --signal-strong-sell: oklch(0.68 0.22 25);
+
   /* Chart-specific hex (for KlineCharts) */
   --chart-grid-hex: #1e2329;
   --chart-crosshair-hex: #848e9c;
@@ -153,6 +165,11 @@
   --bullish-muted: oklch(0.25 0.06 160);
   --bearish: oklch(0.68 0.22 25);
   --bearish-muted: oklch(0.22 0.08 25);
+  --signal-strong-buy: oklch(0.72 0.18 160);
+  --signal-buy: oklch(0.58 0.14 162);
+  --signal-neutral: oklch(0.62 0.02 250);
+  --signal-sell: oklch(0.60 0.18 22);
+  --signal-strong-sell: oklch(0.68 0.22 25);
   --sidebar: oklch(0.15 0.01 250);
   --sidebar-foreground: oklch(0.98 0 0);
   --sidebar-primary: oklch(0.72 0.18 160);

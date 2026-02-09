@@ -21,19 +21,19 @@ function formatNumber(value: number): string {
 }
 
 function FundingRateColor(rate: number): string {
-  if (rate > 0.001) return '#f6465d'; // High positive = bearish
-  if (rate > 0) return '#e6553f';
-  if (rate < -0.001) return '#0ecb81'; // Negative = bullish
-  if (rate < 0) return '#26a17b';
-  return '#848e9c';
+  if (rate > 0.001) return 'var(--signal-strong-sell)'; // High positive = bearish
+  if (rate > 0) return 'var(--signal-sell)';
+  if (rate < -0.001) return 'var(--signal-strong-buy)'; // Negative = bullish
+  if (rate < 0) return 'var(--signal-buy)';
+  return 'var(--signal-neutral)';
 }
 
 function LSRatioColor(ratio: number): string {
-  if (ratio > 1.5) return '#f6465d'; // Heavily long = bearish contrarian
-  if (ratio > 1.1) return '#e6553f';
-  if (ratio < 0.67) return '#0ecb81'; // Heavily short = bullish contrarian
-  if (ratio < 0.9) return '#26a17b';
-  return '#848e9c';
+  if (ratio > 1.5) return 'var(--signal-strong-sell)'; // Heavily long = bearish contrarian
+  if (ratio > 1.1) return 'var(--signal-sell)';
+  if (ratio < 0.67) return 'var(--signal-strong-buy)'; // Heavily short = bullish contrarian
+  if (ratio < 0.9) return 'var(--signal-buy)';
+  return 'var(--signal-neutral)';
 }
 
 export function FuturesPanel({
@@ -119,13 +119,13 @@ export function FuturesPanel({
             <div className="flex gap-3 text-xs">
               <span>
                 <span className="text-muted-foreground">L: </span>
-                <span className="font-mono tabular-nums text-green-500">
+                <span className="font-mono tabular-nums text-bullish">
                   {(longShortRatio.longAccount * 100).toFixed(1)}%
                 </span>
               </span>
               <span>
                 <span className="text-muted-foreground">S: </span>
-                <span className="font-mono tabular-nums text-red-500">
+                <span className="font-mono tabular-nums text-bearish">
                   {(longShortRatio.shortAccount * 100).toFixed(1)}%
                 </span>
               </span>
@@ -135,11 +135,11 @@ export function FuturesPanel({
           {/* Visual bar */}
           <div className="mt-2 flex h-1.5 rounded-full overflow-hidden">
             <div
-              className="bg-green-500"
+              className="bg-bullish"
               style={{ width: `${longShortRatio.longAccount * 100}%` }}
             />
             <div
-              className="bg-red-500"
+              className="bg-bearish"
               style={{ width: `${longShortRatio.shortAccount * 100}%` }}
             />
           </div>

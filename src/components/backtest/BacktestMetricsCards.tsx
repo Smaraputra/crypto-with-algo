@@ -24,8 +24,8 @@ function formatUSD(value: number): string {
 }
 
 function pnlColor(value: number): string {
-  if (value > 0) return 'text-green-500';
-  if (value < 0) return 'text-red-500';
+  if (value > 0) return 'text-bullish';
+  if (value < 0) return 'text-bearish';
   return 'text-muted-foreground';
 }
 
@@ -59,19 +59,19 @@ export function BacktestMetricsCards({ metrics }: BacktestMetricsCardsProps) {
     {
       label: 'Max Drawdown',
       value: formatPct(-metrics.maxDrawdownPercent),
-      color: 'text-red-500',
+      color: 'text-bearish',
     },
     { label: 'Sharpe Ratio', value: formatNum(metrics.sharpeRatio) },
     { label: 'Sortino Ratio', value: formatNum(metrics.sortinoRatio) },
     {
       label: 'Avg Win',
       value: formatUSD(metrics.avgWin),
-      color: 'text-green-500',
+      color: 'text-bullish',
     },
     {
       label: 'Avg Loss',
       value: formatUSD(metrics.avgLoss),
-      color: 'text-red-500',
+      color: 'text-bearish',
     },
     { label: 'Total Fees', value: formatUSD(metrics.totalFees) },
     {

@@ -61,9 +61,9 @@ export function TradeList({ trades }: TradeListProps) {
           {trades.map((trade, i) => {
             const isWin = trade.pnl > 0;
             const rowClass = isWin
-              ? 'bg-green-500/5'
+              ? 'bg-bullish/5'
               : trade.pnl < 0
-                ? 'bg-red-500/5'
+                ? 'bg-bearish/5'
                 : '';
 
             return (
@@ -80,7 +80,7 @@ export function TradeList({ trades }: TradeListProps) {
                 <TableCell className="text-xs">
                   <span
                     className={
-                      trade.side === 'long' ? 'text-green-500' : 'text-red-500'
+                      trade.side === 'long' ? 'text-bullish' : 'text-bearish'
                     }
                   >
                     {trade.side.toUpperCase()}
@@ -94,7 +94,7 @@ export function TradeList({ trades }: TradeListProps) {
                 </TableCell>
                 <TableCell
                   className={`text-right font-mono text-xs tabular-nums ${
-                    isWin ? 'text-green-500' : 'text-red-500'
+                    isWin ? 'text-bullish' : 'text-bearish'
                   }`}
                 >
                   {trade.pnl >= 0 ? '+' : ''}
@@ -102,7 +102,7 @@ export function TradeList({ trades }: TradeListProps) {
                 </TableCell>
                 <TableCell
                   className={`text-right font-mono text-xs tabular-nums ${
-                    isWin ? 'text-green-500' : 'text-red-500'
+                    isWin ? 'text-bullish' : 'text-bearish'
                   }`}
                 >
                   {trade.pnlPercent >= 0 ? '+' : ''}

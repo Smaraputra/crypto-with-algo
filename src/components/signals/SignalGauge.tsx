@@ -18,11 +18,11 @@ const TIER_LABELS: Record<SignalTier, string> = {
 };
 
 const TIER_COLORS: Record<SignalTier, string> = {
-  strong_buy: '#0ecb81',
-  buy: '#26a17b',
-  neutral: '#848e9c',
-  sell: '#e6553f',
-  strong_sell: '#f6465d',
+  strong_buy: 'var(--signal-strong-buy)',
+  buy: 'var(--signal-buy)',
+  neutral: 'var(--signal-neutral)',
+  sell: 'var(--signal-sell)',
+  strong_sell: 'var(--signal-strong-sell)',
 };
 
 export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGaugeProps) {
@@ -65,11 +65,11 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
       >
         <defs>
           <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#f6465d" />
-            <stop offset="25%" stopColor="#e6553f" />
-            <stop offset="50%" stopColor="#848e9c" />
-            <stop offset="75%" stopColor="#26a17b" />
-            <stop offset="100%" stopColor="#0ecb81" />
+            <stop offset="0%" stopColor="var(--signal-strong-sell)" />
+            <stop offset="25%" stopColor="var(--signal-sell)" />
+            <stop offset="50%" stopColor="var(--signal-neutral)" />
+            <stop offset="75%" stopColor="var(--signal-buy)" />
+            <stop offset="100%" stopColor="var(--signal-strong-buy)" />
           </linearGradient>
         </defs>
 
