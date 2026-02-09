@@ -31,14 +31,14 @@ function ScoreBar({ score }: { score: number }) {
           style={{
             left: isPositive ? '50%' : `${50 - absScore / 2}%`,
             width: `${absScore / 2}%`,
-            backgroundColor: isPositive ? '#0ecb81' : '#f6465d',
+            backgroundColor: isPositive ? 'var(--bullish)' : 'var(--bearish)',
           }}
           data-testid="score-bar-fill"
         />
       </div>
       <span
         className="text-xs font-mono tabular-nums w-10 text-right"
-        style={{ color: score > 0 ? '#0ecb81' : score < 0 ? '#f6465d' : '#848e9c' }}
+        style={{ color: score > 0 ? 'var(--bullish)' : score < 0 ? 'var(--bearish)' : 'var(--signal-neutral)' }}
       >
         {score > 0 ? '+' : ''}{Math.round(score)}
       </span>
@@ -48,8 +48,8 @@ function ScoreBar({ score }: { score: number }) {
 
 function DirectionBadge({ direction }: { direction: string }) {
   const colors: Record<string, string> = {
-    bullish: 'bg-green-500/15 text-green-500',
-    bearish: 'bg-red-500/15 text-red-500',
+    bullish: 'bg-bullish-muted text-bullish',
+    bearish: 'bg-bearish-muted text-bearish',
     neutral: 'bg-muted text-muted-foreground',
   };
 
@@ -79,7 +79,7 @@ export function SignalBreakdown({ components }: SignalBreakdownProps) {
             <span
               className="text-xs font-mono tabular-nums"
               style={{
-                color: component.weightedScore > 0 ? '#0ecb81' : component.weightedScore < 0 ? '#f6465d' : '#848e9c',
+                color: component.weightedScore > 0 ? 'var(--bullish)' : component.weightedScore < 0 ? 'var(--bearish)' : 'var(--signal-neutral)',
               }}
             >
               {component.weightedScore > 0 ? '+' : ''}
