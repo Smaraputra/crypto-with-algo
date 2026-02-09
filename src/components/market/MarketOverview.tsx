@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useTickers } from '@/hooks/usePrices';
 import { useBinanceTicker } from '@/hooks/useBinanceStream';
 import { useUIStore } from '@/stores/uiStore';
@@ -17,6 +18,12 @@ export function MarketOverview() {
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
   const setSelectedSymbol = useUIStore((s) => s.setSelectedSymbol);
 
+  const mergedTickers = useMemo(() => DEFAULT_SYMBOLS.map((symbol) => {
+    const live = liveTickers[symbol];
+    const rest = restTickers?.find((t) => t.symbol === symbol);
+    return (live ?? rest ?? null) as Ticker24h | null;
+  }).filter(Boolean) as Ticker24h[], [liveTickers, restTickers]);
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8" aria-live="polite" aria-busy="true">
@@ -26,12 +33,6 @@ export function MarketOverview() {
       </div>
     );
   }
-
-  const mergedTickers = DEFAULT_SYMBOLS.map((symbol) => {
-    const live = liveTickers[symbol];
-    const rest = restTickers?.find((t) => t.symbol === symbol);
-    return (live ?? rest ?? null) as Ticker24h | null;
-  }).filter(Boolean) as Ticker24h[];
 
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">

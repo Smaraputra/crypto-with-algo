@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { memo, useEffect, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import type { Ticker24h } from '@/types/market';
 
@@ -11,7 +11,7 @@ interface PriceCardProps {
   selected?: boolean;
 }
 
-export function PriceCard({ ticker, isLive, onClick, selected }: PriceCardProps) {
+export const PriceCard = memo(function PriceCard({ ticker, isLive, onClick, selected }: PriceCardProps) {
   const [prevPrice, setPrevPrice] = useState(ticker.lastPrice);
   const [flashClass, setFlashClass] = useState('');
   const clearFlash = useCallback(() => setFlashClass(''), []);
@@ -41,6 +41,7 @@ export function PriceCard({ ticker, isLive, onClick, selected }: PriceCardProps)
   return (
     <button
       onClick={onClick}
+      aria-label={`Select ${symbol}/USDT`}
       className={cn(
         'flex w-full flex-col gap-1 rounded-sm border p-3 text-left transition-colors',
         'hover:bg-card-hover',
@@ -66,4 +67,11 @@ export function PriceCard({ ticker, isLive, onClick, selected }: PriceCardProps)
       </span>
     </button>
   );
-}
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.ticker.lastPrice === nextProps.ticker.lastPrice &&
+    prevProps.ticker.priceChangePercent === nextProps.ticker.priceChangePercent &&
+    prevProps.isLive === nextProps.isLive &&
+    prevProps.selected === nextProps.selected
+  );
+});

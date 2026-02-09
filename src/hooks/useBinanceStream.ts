@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useWebSocket } from './useWebSocket';
 import type { Ticker24h, OHLCV } from '@/types/market';
 
@@ -54,6 +54,8 @@ function buildKlineStreamUrl(
 
 export function useBinanceTicker(symbols: string[]) {
   const [tickers, setTickers] = useState<Record<string, Ticker24h>>({});
+  const pendingUpdatesRef = useRef<Record<string, Ticker24h>>({});
+  const rafIdRef = useRef<number | null>(null);
 
   // Stabilize URL: only recompute when the actual symbol list changes,
   // not when the caller passes a new array reference with the same values.
@@ -69,27 +71,41 @@ export function useBinanceTicker(symbols: string[]) {
     data: BinanceTickerMsg;
   }>(url, { reconnect: true, maxReconnectAttempts: 10 });
 
+  const flushUpdates = useCallback(() => {
+    const updates = pendingUpdatesRef.current;
+    pendingUpdatesRef.current = {};
+    rafIdRef.current = null;
+    setTickers((prev) => ({ ...prev, ...updates }));
+  }, []);
+
   useEffect(() => {
     const unsub = subscribe((msg) => {
       const d = msg.data;
-      setTickers((prev) => ({
-        ...prev,
-        [d.s]: {
-          symbol: d.s,
-          lastPrice: d.c,
-          priceChange: d.p,
-          priceChangePercent: d.P,
-          highPrice: d.h,
-          lowPrice: d.l,
-          volume: d.v,
-          quoteVolume: d.q,
-          openPrice: d.o,
-          count: d.n,
-        },
-      }));
+      pendingUpdatesRef.current[d.s] = {
+        symbol: d.s,
+        lastPrice: d.c,
+        priceChange: d.p,
+        priceChangePercent: d.P,
+        highPrice: d.h,
+        lowPrice: d.l,
+        volume: d.v,
+        quoteVolume: d.q,
+        openPrice: d.o,
+        count: d.n,
+      };
+
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(flushUpdates);
+      }
     });
-    return unsub;
-  }, [subscribe]);
+    return () => {
+      unsub();
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, [subscribe, flushUpdates]);
 
   return { tickers, isConnected };
 }

@@ -4,11 +4,22 @@ import { MockWebSocket } from '@/test/mock-websocket';
 
 vi.stubGlobal('WebSocket', MockWebSocket);
 
+// Mock requestAnimationFrame/cancelAnimationFrame for batching tests
+let rafCallbacks: Array<FrameRequestCallback> = [];
+let rafId = 0;
+
 describe('useBinanceTicker', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     MockWebSocket.resetMock();
     vi.stubEnv('NEXT_PUBLIC_BINANCE_WS_URL', 'wss://test-ws.example.com');
+    rafCallbacks = [];
+    rafId = 0;
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return ++rafId;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
   });
 
   afterEach(() => {
@@ -39,7 +50,7 @@ describe('useBinanceTicker', () => {
     expect(result.current.isConnected).toBe(false);
   });
 
-  it('updates tickers from messages', async () => {
+  it('updates tickers from messages after rAF flush', async () => {
     const { useBinanceTicker } = await importModule();
     const { result } = renderHook(() => useBinanceTicker(['BTCUSDT']));
 
@@ -65,6 +76,12 @@ describe('useBinanceTicker', () => {
           n: 50000,
         },
       });
+    });
+
+    // Flush rAF
+    act(() => {
+      for (const cb of rafCallbacks) cb(0);
+      rafCallbacks = [];
     });
 
     expect(result.current.tickers).toHaveProperty('BTCUSDT');
@@ -112,6 +129,56 @@ describe('useBinanceTicker', () => {
           v: '5000', q: '12750000', n: 30000,
         },
       });
+    });
+
+    // Flush rAF
+    act(() => {
+      for (const cb of rafCallbacks) cb(0);
+      rafCallbacks = [];
+    });
+
+    expect(result.current.tickers['BTCUSDT'].lastPrice).toBe('40500');
+    expect(result.current.tickers['ETHUSDT'].lastPrice).toBe('2550');
+  });
+
+  it('batches multiple rapid messages into single state update', async () => {
+    const { useBinanceTicker } = await importModule();
+    const { result } = renderHook(() =>
+      useBinanceTicker(['BTCUSDT', 'ETHUSDT'])
+    );
+
+    const ws = MockWebSocket.lastInstance!;
+    act(() => {
+      ws.simulateOpen();
+    });
+
+    // Send multiple messages without flushing rAF in between
+    act(() => {
+      ws.simulateMessage({
+        stream: 'btcusdt@ticker',
+        data: {
+          e: '24hrTicker', s: 'BTCUSDT', p: '500', P: '1.25',
+          c: '40500', o: '40000', h: '41000', l: '39500',
+          v: '1000', q: '40500000', n: 50000,
+        },
+      });
+      ws.simulateMessage({
+        stream: 'ethusdt@ticker',
+        data: {
+          e: '24hrTicker', s: 'ETHUSDT', p: '50', P: '2.00',
+          c: '2550', o: '2500', h: '2600', l: '2450',
+          v: '5000', q: '12750000', n: 30000,
+        },
+      });
+    });
+
+    // Only one rAF should have been scheduled for both messages
+    expect(rafCallbacks).toHaveLength(1);
+
+    // Flush the single rAF -- both updates arrive in one batch
+    act(() => {
+      for (const cb of rafCallbacks) cb(0);
+      rafCallbacks = [];
     });
 
     expect(result.current.tickers['BTCUSDT'].lastPrice).toBe('40500');

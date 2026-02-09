@@ -80,6 +80,11 @@ describe('PriceCard', () => {
     expect(button.className).toContain('bg-card-hover');
   });
 
+  it('has aria-label with symbol name', () => {
+    render(<PriceCard ticker={makeTicker({ symbol: 'ETHUSDT' })} />);
+    expect(screen.getByLabelText('Select ETH/USDT')).toBeInTheDocument();
+  });
+
   it('calls onClick handler', async () => {
     vi.useRealTimers();
     const user = userEvent.setup();
