@@ -5,7 +5,7 @@ import type {
 } from './types';
 import type { computeAllIndicators } from './compute';
 
-type RawIndicators = ReturnType<typeof computeAllIndicators>;
+export type RawIndicators = ReturnType<typeof computeAllIndicators>;
 
 function signal(
   name: string,
@@ -25,7 +25,7 @@ function signal(
 
 // Trend signals
 
-function interpretEMACross(ema12: number, ema26: number, close: number): IndicatorSignal {
+export function interpretEMACross(ema12: number, ema26: number, close: number): IndicatorSignal {
   const spread = ((ema12 - ema26) / ema26) * 100;
   const aboveEma = close > ema12;
 
@@ -50,7 +50,7 @@ function interpretEMACross(ema12: number, ema26: number, close: number): Indicat
   );
 }
 
-function interpretSMATrend(
+export function interpretSMATrend(
   close: number,
   sma50: number,
   sma200: number
@@ -75,7 +75,7 @@ function interpretSMATrend(
   return signal('SMA Trend', close, 'neutral', 30, 'Mixed SMA signals');
 }
 
-function interpretIchimoku(
+export function interpretIchimoku(
   ichimoku: RawIndicators['ichimoku'],
   close: number
 ): IndicatorSignal | null {
@@ -103,7 +103,7 @@ function interpretIchimoku(
 
 // Momentum signals
 
-function interpretRSI(rsi: number): IndicatorSignal {
+export function interpretRSI(rsi: number): IndicatorSignal {
   if (rsi >= 80) {
     return signal('RSI', rsi, 'bearish', 90, `RSI extremely overbought at ${rsi.toFixed(1)}`);
   }
@@ -126,7 +126,7 @@ function interpretRSI(rsi: number): IndicatorSignal {
   return signal('RSI', rsi, 'neutral', 10, `RSI neutral at ${rsi.toFixed(1)}`);
 }
 
-function interpretMACD(macd: RawIndicators['macd']['current']): IndicatorSignal {
+export function interpretMACD(macd: RawIndicators['macd']['current']): IndicatorSignal {
   const { histogram, MACD: macdLine } = macd;
 
   if (macdLine > 0 && histogram > 0) {
@@ -147,7 +147,7 @@ function interpretMACD(macd: RawIndicators['macd']['current']): IndicatorSignal 
   return signal('MACD', histogram, 'neutral', 10, 'MACD at zero line');
 }
 
-function interpretStochasticRSI(stochRSI: RawIndicators['stochasticRSI']['current']): IndicatorSignal {
+export function interpretStochasticRSI(stochRSI: RawIndicators['stochasticRSI']['current']): IndicatorSignal {
   const { k, d } = stochRSI;
 
   if (k > 80 && d > 80) {
@@ -166,7 +166,7 @@ function interpretStochasticRSI(stochRSI: RawIndicators['stochasticRSI']['curren
   return signal('StochRSI', k, 'neutral', 20, `StochRSI neutral (K: ${k.toFixed(1)})`);
 }
 
-function interpretWilliamsR(wr: number): IndicatorSignal {
+export function interpretWilliamsR(wr: number): IndicatorSignal {
   // Williams %R ranges from -100 to 0
   if (wr > -20) {
     return signal('Williams %R', wr, 'bearish', 65, `Williams %R overbought at ${wr.toFixed(1)}`);
@@ -180,7 +180,8 @@ function interpretWilliamsR(wr: number): IndicatorSignal {
 
 // Volatility signals
 
-function interpretBollingerBands(bb: RawIndicators['bollingerBands']['current'], _close: number): IndicatorSignal {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function interpretBollingerBands(bb: RawIndicators['bollingerBands']['current'], _close: number): IndicatorSignal {
   const { pb, upper, lower } = bb;
   const bandwidth = ((upper - lower) / bb.middle) * 100;
 
@@ -206,7 +207,7 @@ function interpretBollingerBands(bb: RawIndicators['bollingerBands']['current'],
   );
 }
 
-function interpretATR(
+export function interpretATR(
   atr: RawIndicators['atr'],
   close: number
 ): IndicatorSignal {
@@ -225,7 +226,7 @@ function interpretATR(
 
 // Volume signals
 
-function interpretOBV(obv: RawIndicators['obv']): IndicatorSignal {
+export function interpretOBV(obv: RawIndicators['obv']): IndicatorSignal {
   const { current, sma20 } = obv;
 
   if (current > sma20) {
@@ -239,7 +240,7 @@ function interpretOBV(obv: RawIndicators['obv']): IndicatorSignal {
   return signal('OBV', current, 'bearish', strength, 'OBV below 20-period average');
 }
 
-function interpretMFI(mfi: number): IndicatorSignal {
+export function interpretMFI(mfi: number): IndicatorSignal {
   if (mfi >= 80) {
     return signal('MFI', mfi, 'bearish', 70, `MFI overbought at ${mfi.toFixed(1)}`);
   }
@@ -256,7 +257,7 @@ function interpretMFI(mfi: number): IndicatorSignal {
   return signal('MFI', mfi, 'neutral', 10, `MFI neutral at ${mfi.toFixed(1)}`);
 }
 
-function interpretVolume(va: RawIndicators['volumeAnalysis']): IndicatorSignal {
+export function interpretVolume(va: RawIndicators['volumeAnalysis']): IndicatorSignal {
   const { ratio } = va;
 
   if (ratio > 2.0) {
