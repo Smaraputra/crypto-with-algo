@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Auth pages (unauthenticated)', () => {
-  test('unauthenticated user visiting / redirects to /login', async ({ page }) => {
+  test('unauthenticated user visiting / sees landing page', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page).toHaveURL('/');
   });
 
   test('login page renders form and OAuth buttons', async ({ page }) => {
@@ -64,7 +65,7 @@ test.describe('Auth pages (unauthenticated)', () => {
     await page.getByRole('button', { name: 'Sign In' }).click();
 
     // Should redirect to dashboard
-    await expect(page).toHaveURL('/', { timeout: 10000 });
+    await expect(page).toHaveURL('/dashboard', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
   });
 });

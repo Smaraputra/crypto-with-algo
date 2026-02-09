@@ -2,13 +2,13 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Analytics page (authenticated)', () => {
   test('sidebar shows Analytics nav link', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
     const sidebar = page.locator('[data-testid="desktop-sidebar"]');
     await expect(sidebar.getByText('Analytics')).toBeVisible();
   });
 
   test('navigates to analytics page via sidebar', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
     const sidebar = page.locator('[data-testid="desktop-sidebar"]');
     await sidebar.getByText('Analytics').click();
 

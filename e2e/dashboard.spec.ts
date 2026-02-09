@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Dashboard features (authenticated)', () => {
   test('market overview section renders price cards or loading state', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     // MarketOverview renders either shimmer skeletons (loading) or price card buttons.
     // Binance REST may 403 from US IPs so we accept either state.
@@ -16,7 +16,7 @@ test.describe('Dashboard features (authenticated)', () => {
   });
 
   test('trading chart container renders', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     // The chart section should have interval selector tabs
     const chartSection = page.locator('[class*="space-y"]').filter({
@@ -26,7 +26,7 @@ test.describe('Dashboard features (authenticated)', () => {
   });
 
   test('chart interval tabs are visible', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     // Check for at least some interval tabs
     await expect(page.getByRole('tab', { name: '1m' })).toBeVisible({ timeout: 10000 });
@@ -35,7 +35,7 @@ test.describe('Dashboard features (authenticated)', () => {
   });
 
   test('watchlist shows default symbols', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     // Default watchlist symbols are BTC, ETH, SOL (from Watchlist model defaults)
     // They display as "BTC", "ETH", "SOL" (with USDT stripped in the UI)
@@ -45,7 +45,7 @@ test.describe('Dashboard features (authenticated)', () => {
   });
 
   test('watchlist add button opens dropdown', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/dashboard');
 
     // Wait for watchlist to load
     await expect(page.getByText('Watchlist').first()).toBeVisible({ timeout: 10000 });

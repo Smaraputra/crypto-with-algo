@@ -17,6 +17,12 @@ function makeRequest(
 }
 
 describe('middleware', () => {
+  it('allows / (landing page) without authentication', () => {
+    const res = middleware(makeRequest('/'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
   it('allows /login without authentication', () => {
     const res = middleware(makeRequest('/login'));
     expect(res.status).toBe(200);

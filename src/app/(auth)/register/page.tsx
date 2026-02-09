@@ -85,7 +85,7 @@ export default function RegisterPage() {
       return;
     }
 
-    router.push('/');
+    router.push('/dashboard');
   }
 
   return (
@@ -152,13 +152,13 @@ export default function RegisterPage() {
         <div className="grid grid-cols-2 gap-3">
           <Button
             variant="outline"
-            onClick={() => signIn('google', { callbackUrl: '/' })}
+            onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
           >
             Google
           </Button>
           <Button
             variant="outline"
-            onClick={() => signIn('github', { callbackUrl: '/' })}
+            onClick={() => signIn('github', { callbackUrl: '/dashboard' })}
           >
             GitHub
           </Button>
