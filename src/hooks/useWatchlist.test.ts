@@ -2,6 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
+
+const mockToastError = vi.fn();
+vi.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mockToastError(...args) },
+}));
+
 import { useWatchlist } from './useWatchlist';
 
 function createWrapper() {
@@ -204,6 +210,34 @@ describe('useWatchlist', () => {
     // Resolve the PUT
     act(() => {
       resolvePut?.(new Response(JSON.stringify({ symbols: ['BTCUSDT', 'ETHUSDT'] }), { status: 200 }));
+    });
+  });
+
+  it('shows toast error on mutation failure', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ symbols: ['BTCUSDT'] }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'Failed' }), { status: 500 })
+      )
+      .mockResolvedValue(
+        new Response(JSON.stringify({ symbols: ['BTCUSDT'] }), { status: 200 })
+      );
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useWatchlist(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.symbols).toEqual(['BTCUSDT']);
+    });
+
+    act(() => {
+      result.current.addSymbol('ETHUSDT');
+    });
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Failed to update watchlist');
     });
   });
 
