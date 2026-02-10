@@ -1,41 +1,45 @@
 'use client';
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { ArrowRight } from 'lucide-react';
-import { useGSAP } from '@gsap/react';
-import { gsap, ScrollTrigger } from '@/lib/gsap';
+import { gsap } from '@/lib/gsap';
 import { LandingButton } from './LandingButton';
 
 export function CTASection() {
   const sectionRef = useRef<HTMLElement>(null);
 
-  useGSAP(
-    () => {
-      if (!sectionRef.current) return;
-      const prefersReduced = window.matchMedia(
-        '(prefers-reduced-motion: reduce)'
-      ).matches;
+  useEffect(() => {
+    if (!sectionRef.current) return;
+    const section = sectionRef.current;
+    const prefersReduced = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    ).matches;
 
-      if (prefersReduced) return;
+    if (prefersReduced) return;
 
-      gsap.from(sectionRef.current.querySelector('[data-cta-card]')!, {
-        opacity: 0,
-        y: 30,
-        duration: 0.7,
-        ease: 'power3.out',
-        scrollTrigger: {
-          trigger: sectionRef.current,
-          start: 'top 80%',
-          once: true,
-        },
-      });
+    const ctaCard = section.querySelector<HTMLElement>('[data-cta-card]');
+    if (!ctaCard) return;
 
-      return () => {
-        ScrollTrigger.getAll().forEach((t) => t.kill());
-      };
-    },
-    { scope: sectionRef }
-  );
+    gsap.set(ctaCard, { opacity: 0, y: 30 });
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          gsap.to(ctaCard, {
+            opacity: 1,
+            y: 0,
+            duration: 0.7,
+            ease: 'power3.out',
+          });
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(section);
+
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section
@@ -77,12 +81,12 @@ export function CTASection() {
             Create Free Account
             <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
           </LandingButton>
-          <a
+          {/* <a
             href="#features"
             className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             Learn More &rarr;
-          </a>
+          </a> */}
         </div>
       </div>
     </section>

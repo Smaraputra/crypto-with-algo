@@ -12,6 +12,11 @@ export const gsap = {
     add: vi.fn().mockReturnThis(),
   })),
   registerPlugin: vi.fn(),
+  ticker: {
+    add: vi.fn(),
+    remove: vi.fn(),
+    lagSmoothing: vi.fn(),
+  },
 };
 
 export const ScrollTrigger = {

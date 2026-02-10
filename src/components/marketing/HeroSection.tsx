@@ -33,11 +33,11 @@ const MOCK_TICKERS: TickerItem[] = [
 
 const STATS = [
   { value: '99.9%', label: 'Uptime', icon: Activity },
-  { value: '<50ms', label: 'Latency', icon: Clock },
-  { value: '10K+', label: 'Users', icon: Users },
+  // { value: '<50ms', label: 'Latency', icon: Clock },
+  // { value: '10K+', label: 'Users', icon: Users },
   { value: '24/7', label: 'Monitoring', icon: Eye },
   { value: '6', label: 'Exchanges', icon: Globe },
-  { value: 'Live', label: 'Real-time Data', icon: Zap },
+  // { value: 'Live', label: 'Real-time Data', icon: Zap },
 ];
 
 function AnimatedTicker() {
@@ -152,16 +152,16 @@ export function HeroSection() {
             >
               Algorithmic Crypto Intelligence
               <br />
-              <span className="gradient-heading" data-type-text>
+              {/* <span className="gradient-heading" data-type-text>
                 Powered by AlgoCrypto
-              </span>
+              </span> */}
             </h1>
             <p
               className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground lg:mx-0"
               data-hero-anim
             >
               Live market data from Binance, interactive trading charts, portfolio
-              analytics, and smart price alerts -- all in one dashboard.
+              analytics, and smart price alerts all in one dashboard.
             </p>
 
             <div
@@ -193,7 +193,7 @@ export function HeroSection() {
         {/* Stats bar */}
         <div
           data-testid="stats-grid"
-          className="mt-8 grid grid-cols-2 gap-6 sm:mt-10 md:grid-cols-3 lg:grid-cols-6"
+          className="mt-8 grid grid-cols-3 gap-3 sm:mt-10 md:grid-cols-3 lg:grid-cols-3"
           data-hero-anim
         >
           {STATS.map((stat) => (

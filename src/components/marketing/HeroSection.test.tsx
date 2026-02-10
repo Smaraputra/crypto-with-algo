@@ -53,11 +53,11 @@ describe('HeroSection', () => {
     expect(ticker).toHaveAttribute('aria-live', 'polite');
   });
 
-  it('renders stats grid with 6 stats', () => {
+  it('renders stats grid with 3 stats', () => {
     render(<HeroSection />);
     const statsGrid = screen.getByTestId('stats-grid');
     expect(statsGrid).toBeInTheDocument();
     const articles = statsGrid.querySelectorAll('article');
-    expect(articles).toHaveLength(6);
+    expect(articles).toHaveLength(3);
   });
 });
