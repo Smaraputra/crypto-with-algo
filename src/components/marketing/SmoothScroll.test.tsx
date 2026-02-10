@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/gsap', async () => await import('@/__mocks__/gsap'));
-vi.mock('lenis', async () => await import('@/__mocks__/lenis'));
+vi.mock('lenis', () => ({
+  default: class Lenis {
+    raf() {}
+    destroy() {}
+  },
+}));
 
 import { SmoothScroll } from './SmoothScroll';
 

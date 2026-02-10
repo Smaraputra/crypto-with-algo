@@ -1,12 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/gsap', async () => await import('@/__mocks__/gsap'));
-vi.mock('@gsap/react', async () => await import('@/__mocks__/@gsap/react'));
 
 import { CTASection } from './CTASection';
 
 describe('CTASection', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockReturnValue({ matches: false }),
+    });
+    global.IntersectionObserver = class IntersectionObserver {
+      constructor() {}
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    } as unknown as typeof globalThis.IntersectionObserver;
+  });
+
   it('renders section heading', () => {
     render(<CTASection />);
     expect(

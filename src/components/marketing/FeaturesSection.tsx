@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   Briefcase,
   TrendingUp,
@@ -9,8 +9,7 @@ import {
   CandlestickChart,
   Download,
 } from 'lucide-react';
-import { useGSAP } from '@gsap/react';
-import { gsap, ScrollTrigger } from '@/lib/gsap';
+import { gsap } from '@/lib/gsap';
 
 const FEATURES = [
   {
@@ -54,40 +53,42 @@ const FEATURES = [
 export function FeaturesSection() {
   const sectionRef = useRef<HTMLElement>(null);
 
-  useGSAP(
-    () => {
-      if (!sectionRef.current) return;
-      const prefersReduced = window.matchMedia(
-        '(prefers-reduced-motion: reduce)'
-      ).matches;
+  useEffect(() => {
+    if (!sectionRef.current) return;
+    const prefersReduced = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    ).matches;
 
-      const cards =
-        sectionRef.current.querySelectorAll<HTMLElement>('[data-feature-card]');
+    const cards =
+      sectionRef.current.querySelectorAll<HTMLElement>('[data-feature-card]');
 
-      if (prefersReduced) {
-        gsap.set(cards, { opacity: 1, y: 0 });
-        return;
-      }
+    if (prefersReduced) {
+      gsap.set(cards, { opacity: 1, y: 0 });
+      return;
+    }
 
-      gsap.from(cards, {
-        opacity: 0,
-        y: 30,
-        duration: 0.5,
-        stagger: 0.1,
-        ease: 'power3.out',
-        scrollTrigger: {
-          trigger: sectionRef.current,
-          start: 'top 75%',
-          once: true,
-        },
-      });
+    // Set initial hidden state
+    gsap.set(cards, { opacity: 0, y: 30 });
 
-      return () => {
-        ScrollTrigger.getAll().forEach((t) => t.kill());
-      };
-    },
-    { scope: sectionRef }
-  );
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          gsap.to(cards, {
+            opacity: 1,
+            y: 0,
+            duration: 0.5,
+            stagger: 0.1,
+            ease: 'power3.out',
+          });
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(sectionRef.current);
+
+    return () => observer.disconnect();
+  }, []);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {

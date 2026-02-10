@@ -1,9 +1,8 @@
 'use client';
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Lock, SlidersHorizontal, Zap } from 'lucide-react';
-import { useGSAP } from '@gsap/react';
-import { gsap, ScrollTrigger } from '@/lib/gsap';
+import { gsap } from '@/lib/gsap';
 
 const STEPS = [
   {
@@ -31,51 +30,51 @@ const STEPS = [
 export function HowItWorksSection() {
   const sectionRef = useRef<HTMLElement>(null);
 
-  useGSAP(
-    () => {
-      if (!sectionRef.current) return;
-      const prefersReduced = window.matchMedia(
-        '(prefers-reduced-motion: reduce)'
-      ).matches;
+  useEffect(() => {
+    if (!sectionRef.current) return;
+    const section = sectionRef.current;
+    const prefersReduced = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    ).matches;
 
-      if (prefersReduced) {
-        gsap.set('[data-step-card]', { opacity: 1, y: 0 });
-        gsap.set('[data-connector]', { scaleX: 1 });
-        return;
-      }
+    const stepCards = section.querySelectorAll<HTMLElement>('[data-step-card]');
+    const connectors = section.querySelectorAll<HTMLElement>('[data-connector]');
 
-      gsap.from('[data-step-card]', {
-        opacity: 0,
-        y: 40,
-        duration: 0.6,
-        stagger: 0.2,
-        ease: 'power3.out',
-        scrollTrigger: {
-          trigger: sectionRef.current,
-          start: 'top 75%',
-          once: true,
-        },
-      });
+    if (prefersReduced) {
+      gsap.set(stepCards, { opacity: 1, y: 0 });
+      gsap.set(connectors, { scaleX: 1 });
+      return;
+    }
 
-      gsap.from('[data-connector]', {
-        scaleX: 0,
-        duration: 0.8,
-        stagger: 0.3,
-        delay: 0.4,
-        ease: 'power2.out',
-        scrollTrigger: {
-          trigger: sectionRef.current,
-          start: 'top 75%',
-          once: true,
-        },
-      });
+    gsap.set(stepCards, { opacity: 0, y: 40 });
+    gsap.set(connectors, { scaleX: 0 });
 
-      return () => {
-        ScrollTrigger.getAll().forEach((t) => t.kill());
-      };
-    },
-    { scope: sectionRef }
-  );
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          gsap.to(stepCards, {
+            opacity: 1,
+            y: 0,
+            duration: 0.6,
+            stagger: 0.2,
+            ease: 'power3.out',
+          });
+          gsap.to(connectors, {
+            scaleX: 1,
+            duration: 0.8,
+            stagger: 0.3,
+            delay: 0.4,
+            ease: 'power2.out',
+          });
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(section);
+
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section
