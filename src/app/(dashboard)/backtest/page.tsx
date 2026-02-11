@@ -9,10 +9,11 @@ import { StrategyForm } from '@/components/backtest/StrategyForm';
 import { StrategyList } from '@/components/backtest/StrategyList';
 import { BacktestConfigPanel } from '@/components/backtest/BacktestConfigPanel';
 import { BacktestProgress } from '@/components/backtest/BacktestProgress';
+import { DataStatus } from '@/components/backtest/DataStatus';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { BacktestMetricsCards } from '@/components/backtest/BacktestMetricsCards';
 import { TradeList } from '@/components/backtest/TradeList';
-import { JournalList } from '@/components/backtest/JournalList';
+import Link from 'next/link';
 import {
   useStrategies,
   useCreateStrategy,
@@ -33,6 +34,16 @@ const BINANCE_WS_INTERVALS: Record<string, string> = {
   '1d': '1d',
 };
 
+const DATA_RANGE_OPTIONS = [
+  { label: '500 bars', value: 'legacy', months: 0 },
+  { label: '3 months', value: '3m', months: 3 },
+  { label: '6 months', value: '6m', months: 6 },
+  { label: '1 year', value: '1y', months: 12 },
+  { label: '2 years', value: '2y', months: 24 },
+] as const;
+
+type DataRange = (typeof DATA_RANGE_OPTIONS)[number]['value'];
+
 export default function BacktestPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Strategy | undefined>(undefined);
@@ -40,6 +51,8 @@ export default function BacktestPage() {
   const [selectedStrategyId, setSelectedStrategyId] = useState<string | null>(null);
   const [config, setConfig] = useState<BacktestConfig>(DEFAULT_BACKTEST_CONFIG);
   const [backtestInterval, setBacktestInterval] = useState('1h');
+  const [dataRange, setDataRange] = useState<DataRange>('6m');
+  const [fetchingCandles, setFetchingCandles] = useState(false);
 
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
 
@@ -139,27 +152,51 @@ export default function BacktestPage() {
   const handleRunBacktest = useCallback(async () => {
     const symbol = selectedStrategy?.symbols[0] ?? selectedSymbol;
     const interval = BINANCE_WS_INTERVALS[backtestInterval] ?? '1h';
+    const rangeOption = DATA_RANGE_OPTIONS.find((r) => r.value === dataRange);
+
+    setFetchingCandles(true);
 
     try {
-      // Fetch candles from Binance API
-      const res = await fetch(
-        `/api/market/klines?symbol=${symbol}&interval=${interval}&limit=500`
-      );
-      if (!res.ok) {
-        toast.error('Failed to fetch candle data');
-        return;
+      let klines;
+
+      if (dataRange === 'legacy' || !rangeOption) {
+        // Legacy: fetch 500 candles directly from Binance proxy
+        const res = await fetch(
+          `/api/prices/history?symbol=${symbol}&interval=${interval}&limit=500`
+        );
+        if (!res.ok) {
+          toast.error('Failed to fetch candle data');
+          return;
+        }
+        klines = await res.json();
+      } else {
+        // Deep history: fetch from MongoDB via /api/candles
+        const startTime = Date.now() - rangeOption.months * 30 * 24 * 60 * 60 * 1000;
+        const res = await fetch(
+          `/api/candles?symbol=${symbol}&interval=${interval}&startTime=${startTime}&limit=50000`
+        );
+        if (!res.ok) {
+          toast.error('Failed to fetch candle data');
+          return;
+        }
+        const data = await res.json();
+        klines = data.candles;
       }
-      const { klines } = await res.json();
+
       if (!klines || klines.length < 200) {
-        toast.error('Insufficient candle data for backtest');
+        toast.error(
+          `Insufficient candle data (${klines?.length ?? 0} bars). Try downloading history first.`
+        );
         return;
       }
 
       backtest.run(klines, config, symbol, interval);
     } catch {
       toast.error('Failed to start backtest');
+    } finally {
+      setFetchingCandles(false);
     }
-  }, [selectedStrategy, selectedSymbol, backtestInterval, config, backtest]);
+  }, [selectedStrategy, selectedSymbol, backtestInterval, dataRange, config, backtest]);
 
   return (
     <div className="space-y-4">
@@ -226,17 +263,40 @@ export default function BacktestPage() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Data Range:</p>
+            <div className="flex flex-wrap gap-2">
+              {DATA_RANGE_OPTIONS.map((opt) => (
+                <Button
+                  key={opt.value}
+                  size="sm"
+                  variant={dataRange === opt.value ? 'default' : 'outline'}
+                  className="h-7 text-xs"
+                  onClick={() => setDataRange(opt.value)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <DataStatus
+            symbol={selectedStrategy?.symbols[0] ?? selectedSymbol}
+            interval={backtestInterval}
+          />
+
           <BacktestConfigPanel config={config} onChange={setConfig} />
 
           <div className="flex items-center gap-2">
-            {backtest.status === 'running' ? (
+            {backtest.status === 'running' || fetchingCandles ? (
               <Button
                 size="sm"
                 variant="destructive"
                 onClick={backtest.cancel}
+                disabled={fetchingCandles}
               >
                 <Square className="mr-1 size-4" />
-                Cancel
+                {fetchingCandles ? 'Loading data...' : 'Cancel'}
               </Button>
             ) : (
               <Button
@@ -349,7 +409,17 @@ export default function BacktestPage() {
         </TabsContent>
 
         <TabsContent value="journal">
-          <JournalList />
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <p className="text-sm text-muted-foreground mb-3">
+              The journal has moved to its own dedicated page.
+            </p>
+            <Link
+              href="/journal"
+              className="text-sm text-primary underline underline-offset-4 hover:text-primary/80"
+            >
+              Open Journal
+            </Link>
+          </div>
         </TabsContent>
       </Tabs>
 
