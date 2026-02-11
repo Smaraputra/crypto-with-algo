@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { fetchKlines } from '@/lib/binance';
+import { getCandles } from '@/lib/candle-ingestion';
 import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { interpretIndicators } from '@/lib/indicators/interpret';
@@ -11,7 +12,9 @@ import { Strategy } from '@/lib/models/strategy';
 import { connectDB } from '@/lib/mongodb';
 import { cachedFetch } from '@/lib/redis';
 import { computeSignalScore } from '@/lib/signals/scorer';
+import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import type { FuturesData } from '@/types/futures';
+import type { SentimentData } from '@/types/signal';
 
 const MAX_PAIRS_PER_RUN = 20;
 
@@ -91,6 +94,9 @@ export async function GET(req: NextRequest) {
   // Limit to MAX_PAIRS_PER_RUN
   const pairs = [...pairsSet].slice(0, MAX_PAIRS_PER_RUN);
 
+  // Fetch sentiment once for all pairs (cached 5min)
+  const sentimentData: SentimentData | null = await fetchFearAndGreed().catch(() => null);
+
   let computed = 0;
   let errors = 0;
 
@@ -101,7 +107,17 @@ export async function GET(req: NextRequest) {
       const [candles, futuresData] = await Promise.all([
         cachedFetch(
           `klines:${symbol}:${interval}:${RECOMMENDED_CANDLES}`,
-          () => fetchKlines(symbol, interval, RECOMMENDED_CANDLES),
+          async () => {
+            const dbCandles = await getCandles(
+              symbol,
+              interval,
+              undefined,
+              undefined,
+              RECOMMENDED_CANDLES
+            );
+            if (dbCandles.length >= RECOMMENDED_CANDLES) return dbCandles;
+            return fetchKlines(symbol, interval, RECOMMENDED_CANDLES);
+          },
           60
         ),
         fetchFuturesDataSafe(symbol),
@@ -117,7 +133,7 @@ export async function GET(req: NextRequest) {
         const signal = computeSignalScore(
           indicators,
           futuresData,
-          null,
+          sentimentData,
           weights,
           superTrend
         );

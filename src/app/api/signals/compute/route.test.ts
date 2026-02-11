@@ -25,6 +25,13 @@ vi.mock('@/lib/binance-futures', () => ({
   fetchLongShortRatio: vi.fn(),
 }));
 
+vi.mock('@/lib/external/fear-greed', () => ({
+  fetchFearAndGreed: vi.fn().mockResolvedValue({
+    fearGreedIndex: 50,
+    label: 'Neutral',
+  }),
+}));
+
 vi.mock('@/lib/models/signal', () => ({
   Signal: {
     create: vi.fn().mockResolvedValue({ _id: 'signal-1' }),

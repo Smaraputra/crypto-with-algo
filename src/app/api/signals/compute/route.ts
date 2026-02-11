@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { auth } from '@/lib/auth';
 import { fetchKlines } from '@/lib/binance';
+import { getCandles } from '@/lib/candle-ingestion';
 import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { interpretIndicators } from '@/lib/indicators/interpret';
@@ -12,7 +13,9 @@ import { Signal } from '@/lib/models/signal';
 import { connectDB } from '@/lib/mongodb';
 import { cachedFetch } from '@/lib/redis';
 import { computeSignalScore } from '@/lib/signals/scorer';
+import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import type { FuturesData } from '@/types/futures';
+import type { SentimentData } from '@/types/signal';
 
 const computeSchema = z.object({
   symbol: z.string().min(1),
@@ -70,13 +73,25 @@ export async function POST(req: NextRequest) {
 
   try {
     // Fetch candle data and futures data in parallel
-    const [candles, futuresData] = await Promise.all([
+    // Try MongoDB first (faster, avoids Binance rate limits), fall back to direct API
+    const [candles, futuresData, sentimentData] = await Promise.all([
       cachedFetch(
         `klines:${symbol}:${interval}:${RECOMMENDED_CANDLES}`,
-        () => fetchKlines(symbol, interval, RECOMMENDED_CANDLES),
+        async () => {
+          const dbCandles = await getCandles(
+            symbol,
+            interval,
+            undefined,
+            undefined,
+            RECOMMENDED_CANDLES
+          );
+          if (dbCandles.length >= RECOMMENDED_CANDLES) return dbCandles;
+          return fetchKlines(symbol, interval, RECOMMENDED_CANDLES);
+        },
         60
       ),
       fetchFuturesDataSafe(symbol),
+      fetchFearAndGreed().catch((): SentimentData | null => null),
     ]);
 
     // Compute indicators
@@ -88,7 +103,7 @@ export async function POST(req: NextRequest) {
     const signal = computeSignalScore(
       indicators,
       futuresData,
-      null, // Sentiment not yet implemented
+      sentimentData,
       undefined, // Default weights
       superTrend
     );
