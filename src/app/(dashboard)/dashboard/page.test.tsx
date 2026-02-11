@@ -21,6 +21,10 @@ vi.mock('@/components/chart/LazyDashboardChart', () => ({
   ),
 }));
 
+vi.mock('@/components/market/NewsFeed', () => ({
+  NewsFeed: () => <div data-testid="news-feed">NewsFeed</div>,
+}));
+
 import DashboardPage from './page';
 import { auth } from '@/lib/auth';
 
