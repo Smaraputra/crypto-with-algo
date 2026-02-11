@@ -1,3 +1,4 @@
+/** @deprecated Use EnhancedJournalForm from @/components/journal/EnhancedJournalForm instead. */
 'use client';
 
 import { useState } from 'react';
