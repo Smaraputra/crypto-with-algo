@@ -40,6 +40,10 @@ vi.mock('@/components/signals/FuturesPanel', () => ({
   FuturesPanel: () => <div data-testid="futures-panel" />,
 }));
 
+vi.mock('@/components/journal/EnhancedJournalForm', () => ({
+  EnhancedJournalForm: () => <div data-testid="enhanced-journal-form" />,
+}));
+
 import SignalsPage from './page';
 
 describe('SignalsPage', () => {
