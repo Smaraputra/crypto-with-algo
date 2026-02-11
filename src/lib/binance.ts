@@ -69,6 +69,50 @@ export async function fetchTickerPrices(
   return result;
 }
 
+const KLINES_PAGE_SIZE = 1000;
+const RATE_LIMIT_DELAY_MS = 200;
+
+export async function fetchKlinesRange(
+  symbol: string,
+  interval: string,
+  startTime: number,
+  endTime: number,
+  onProgress?: (fetched: number) => void
+): Promise<OHLCV[]> {
+  const allCandles: OHLCV[] = [];
+  let cursor = startTime;
+
+  while (cursor < endTime) {
+    const batch = await fetchKlines(
+      symbol,
+      interval,
+      KLINES_PAGE_SIZE,
+      cursor,
+      endTime
+    );
+
+    if (batch.length === 0) break;
+
+    allCandles.push(...batch);
+    onProgress?.(allCandles.length);
+
+    const lastTimestamp = batch[batch.length - 1].timestamp;
+    cursor = lastTimestamp + 1;
+
+    if (batch.length < KLINES_PAGE_SIZE) break;
+
+    await new Promise((r) => setTimeout(r, RATE_LIMIT_DELAY_MS));
+  }
+
+  // Deduplicate by timestamp (shouldn't happen, but defensive)
+  const seen = new Set<number>();
+  return allCandles.filter((c) => {
+    if (seen.has(c.timestamp)) return false;
+    seen.add(c.timestamp);
+    return true;
+  });
+}
+
 export async function fetchSymbols(): Promise<Symbol[]> {
   const res = await fetch(`${getBaseUrl()}/exchangeInfo`);
   if (!res.ok) {

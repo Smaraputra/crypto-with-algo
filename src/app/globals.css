@@ -294,6 +294,25 @@
   display: none;
 }
 
+/* Hero grid animation */
+@keyframes grid-scroll {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 60px; }
+}
+
+.animate-grid-scroll {
+  animation: grid-scroll 20s linear infinite;
+}
+
+@keyframes connector-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+.animate-connector-pulse {
+  animation: connector-pulse 3s ease-in-out infinite;
+}
+
 /* Landing page animations */
 @keyframes float {
   0%, 100% { transform: translateY(0); }

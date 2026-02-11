@@ -1,4 +1,5 @@
 import { SmoothScroll } from '@/components/marketing/SmoothScroll';
+import { CursorGlow } from '@/components/marketing/CursorGlow';
 
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       >
         Skip to content
       </a>
+      <CursorGlow />
       <SmoothScroll>{children}</SmoothScroll>
     </div>
   );

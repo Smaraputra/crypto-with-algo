@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/gsap', async () => await import('@/__mocks__/gsap'));
@@ -11,6 +11,35 @@ vi.mock('./GlobeScene', () => ({
 }));
 
 import { HeroSection } from './HeroSection';
+
+beforeEach(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+
+  // Mock IntersectionObserver for CountUp component
+  global.IntersectionObserver = class MockIntersectionObserver {
+    callback: IntersectionObserverCallback;
+    constructor(callback: IntersectionObserverCallback) {
+      this.callback = callback;
+    }
+    observe() {
+      this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    }
+    unobserve() {}
+    disconnect() {}
+    get root() { return null; }
+    get rootMargin() { return ''; }
+    get thresholds() { return []; }
+    takeRecords() { return []; }
+  } as unknown as typeof IntersectionObserver;
+});
 
 describe('HeroSection', () => {
   it('renders main heading', () => {

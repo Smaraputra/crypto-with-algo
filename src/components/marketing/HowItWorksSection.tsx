@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { Lock, SlidersHorizontal, Zap } from 'lucide-react';
 import { gsap } from '@/lib/gsap';
+import { SpotlightCard } from './SpotlightCard';
 
 const STEPS = [
   {
@@ -95,34 +96,32 @@ export function HowItWorksSection() {
         <div className="mt-12 grid gap-8 sm:grid-cols-3" data-testid="how-it-works-grid">
           {STEPS.map((step, i) => (
             <div key={step.title} className="relative flex flex-col items-center text-center">
-              {/* Connector line between steps (hidden on mobile, visible sm+) */}
+              {/* Connector line between steps */}
               {i < STEPS.length - 1 && (
                 <div
                   data-connector
-                  className="absolute top-8 left-[calc(50%+2rem)] hidden h-px w-[calc(100%-4rem)] origin-left sm:block"
+                  className="animate-connector-pulse absolute top-8 left-[calc(50%+2rem)] hidden h-px w-[calc(100%-4rem)] origin-left sm:block"
                   style={{
                     background: 'linear-gradient(90deg, #0ecb81, transparent)',
-                    opacity: 0.3,
                   }}
                   aria-hidden="true"
                 />
               )}
 
-              <div
-                data-step-card
-                className="flex flex-col items-center"
-              >
-                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-primary/30 bg-primary/5">
-                  <step.icon className="h-7 w-7 text-primary" />
+              <SpotlightCard className="w-full p-6" data-testid={`step-card-${step.number}`}>
+                <div data-step-card className="flex flex-col items-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full border border-primary/30 bg-primary/5">
+                    <step.icon className="h-7 w-7 text-primary" />
+                  </div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">
+                    Step {step.number}
+                  </div>
+                  <h3 className="mt-3 text-lg font-semibold">{step.title}</h3>
+                  <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+                    {step.description}
+                  </p>
                 </div>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">
-                  Step {step.number}
-                </div>
-                <h3 className="mt-3 text-lg font-semibold">{step.title}</h3>
-                <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-                  {step.description}
-                </p>
-              </div>
+              </SpotlightCard>
             </div>
           ))}
         </div>

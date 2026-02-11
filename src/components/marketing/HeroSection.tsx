@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ArrowRight, Activity, Clock, Users, Eye, Globe, Zap } from 'lucide-react';
+import { ArrowRight, Activity, Eye, Globe } from 'lucide-react';
 import { useGSAP } from '@gsap/react';
 import { gsap } from '@/lib/gsap';
 import { cn } from '@/lib/utils';
@@ -32,17 +32,63 @@ const MOCK_TICKERS: TickerItem[] = [
 ];
 
 const STATS = [
-  { value: '99.9%', label: 'Uptime', icon: Activity },
-  // { value: '<50ms', label: 'Latency', icon: Clock },
-  // { value: '10K+', label: 'Users', icon: Users },
-  { value: '24/7', label: 'Monitoring', icon: Eye },
-  { value: '6', label: 'Exchanges', icon: Globe },
-  // { value: 'Live', label: 'Real-time Data', icon: Zap },
+  { value: '99.9', suffix: '%', label: 'Uptime', icon: Activity },
+  { value: '24/7', suffix: '', label: 'Monitoring', icon: Eye },
+  { value: '6', suffix: '', label: 'Exchanges', icon: Globe },
 ];
+
+function CountUp({ value, suffix }: { value: string; suffix: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [displayed, setDisplayed] = useState(value + suffix);
+
+  useEffect(() => {
+    const prefersReduced = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    ).matches;
+    if (prefersReduced) return;
+
+    // Only animate purely numeric values (skip "24/7" etc.)
+    if (!/^\d+(\.\d+)?$/.test(value)) return;
+    const numericPart = parseFloat(value);
+
+    const duration = 1500;
+    const start = performance.now();
+
+    const tick = (now: number) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      const current = numericPart * eased;
+
+      if (value.includes('.')) {
+        setDisplayed(current.toFixed(1) + suffix);
+      } else {
+        setDisplayed(Math.round(current) + suffix);
+      }
+
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          requestAnimationFrame(tick);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.5 }
+    );
+
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [value, suffix]);
+
+  return <span ref={ref}>{displayed}</span>;
+}
 
 function AnimatedTicker() {
   const [tickers, setTickers] = useState(MOCK_TICKERS);
-  const tickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -58,7 +104,6 @@ function AnimatedTicker() {
 
   return (
     <div
-      ref={tickerRef}
       className="flex flex-wrap justify-center gap-3"
       data-testid="hero-ticker"
       role="status"
@@ -92,6 +137,7 @@ function AnimatedTicker() {
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null);
   const headlineRef = useRef<HTMLHeadingElement>(null);
+  const globeRef = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
@@ -128,6 +174,31 @@ export function HeroSection() {
           });
           gsap.set(accentSpan, { text: fullText, delay: 1.9 });
         }
+      }
+
+      // Globe entrance + scroll parallax
+      if (globeRef.current) {
+        gsap.from(globeRef.current, {
+          opacity: 0,
+          y: 30,
+          duration: 0.7,
+          delay: 0.65,
+          ease: 'power3.out',
+          onComplete: () => {
+            if (!globeRef.current || !sectionRef.current) return;
+            gsap.to(globeRef.current, {
+              y: -40,
+              opacity: 0.6,
+              ease: 'none',
+              scrollTrigger: {
+                trigger: sectionRef.current,
+                start: 'top top',
+                end: 'bottom top',
+                scrub: 1,
+              },
+            });
+          },
+        });
       }
     },
     { scope: sectionRef }
@@ -180,8 +251,8 @@ export function HeroSection() {
 
           {/* Right: globe */}
           <div
+            ref={globeRef}
             className="relative mx-auto h-[300px] w-full max-w-lg lg:h-[400px]"
-            data-hero-anim
           >
             <GlobeSceneDynamic />
           </div>
@@ -201,7 +272,7 @@ export function HeroSection() {
               <div className="flex items-center justify-center gap-1.5">
                 <stat.icon className="h-4 w-4 text-muted-foreground" />
                 <span className="gradient-heading font-mono text-xl font-bold tabular-nums sm:text-2xl">
-                  {stat.value}
+                  <CountUp value={stat.value} suffix={stat.suffix} />
                 </span>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">{stat.label}</p>

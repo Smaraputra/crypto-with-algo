@@ -35,6 +35,26 @@ describe('middleware', () => {
     expect(res.headers.get('location')).toBeNull();
   });
 
+  it('redirects authenticated users from /login to /dashboard', () => {
+    const res = middleware(
+      makeRequest('/login', { 'authjs.session-token': 'some-token' })
+    );
+    expect(res.status).toBe(307);
+    const location = new URL(res.headers.get('location')!);
+    expect(location.pathname).toBe('/dashboard');
+  });
+
+  it('redirects authenticated users from /register to /dashboard', () => {
+    const res = middleware(
+      makeRequest('/register', {
+        '__Secure-authjs.session-token': 'some-token',
+      })
+    );
+    expect(res.status).toBe(307);
+    const location = new URL(res.headers.get('location')!);
+    expect(location.pathname).toBe('/dashboard');
+  });
+
   it('redirects unauthenticated requests to /login', () => {
     const res = middleware(makeRequest('/dashboard'));
     expect(res.status).toBe(307);
@@ -67,4 +87,13 @@ describe('middleware', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('location')).toBeNull();
   });
+
+  it.each(['/docs', '/api-reference', '/blog', '/features', '/how-it-works'])(
+    'allows %s without authentication',
+    (path) => {
+      const res = middleware(makeRequest(path));
+      expect(res.status).toBe(200);
+      expect(res.headers.get('location')).toBeNull();
+    }
+  );
 });
