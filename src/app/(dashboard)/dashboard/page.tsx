@@ -3,6 +3,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MarketOverview } from '@/components/market/MarketOverview';
 import { LazyDashboardChart } from '@/components/chart/LazyDashboardChart';
 import { NewsFeed } from '@/components/market/NewsFeed';
+import { SentimentGauge } from '@/components/market/SentimentGauge';
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -31,6 +32,16 @@ export default async function DashboardPage() {
       >
         <LazyDashboardChart />
       </ErrorBoundary>
+      <div className="rounded-lg border border-border p-4">
+        <h2 className="text-sm font-semibold mb-3">Market Sentiment</h2>
+        <ErrorBoundary
+          fallback={
+            <p className="text-sm text-muted-foreground">Sentiment unavailable</p>
+          }
+        >
+          <SentimentGauge />
+        </ErrorBoundary>
+      </div>
       <div className="rounded-lg border border-border p-4">
         <h2 className="text-sm font-semibold mb-3">Crypto News</h2>
         <ErrorBoundary

@@ -25,6 +25,10 @@ vi.mock('@/components/market/NewsFeed', () => ({
   NewsFeed: () => <div data-testid="news-feed">NewsFeed</div>,
 }));
 
+vi.mock('@/components/market/SentimentGauge', () => ({
+  SentimentGauge: () => <div data-testid="sentiment-gauge">SentimentGauge</div>,
+}));
+
 import DashboardPage from './page';
 import { auth } from '@/lib/auth';
 
