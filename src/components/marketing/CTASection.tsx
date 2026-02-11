@@ -70,7 +70,7 @@ export function CTASection() {
       <div className="relative mx-auto max-w-3xl px-4 text-center" data-cta-card>
         <div className="gradient-separator mb-12" />
 
-        <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+        <h2 className="animate-float text-2xl font-bold tracking-tight sm:text-3xl">
           <span className="gradient-heading">Start Tracking Today</span>
         </h2>
         <p className="mt-3 text-muted-foreground">
@@ -81,12 +81,6 @@ export function CTASection() {
             Create Free Account
             <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
           </LandingButton>
-          {/* <a
-            href="#features"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Learn More &rarr;
-          </a> */}
         </div>
       </div>
     </section>

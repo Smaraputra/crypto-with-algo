@@ -9,9 +9,8 @@ const PRODUCT_LINKS = [
 ];
 
 const RESOURCE_LINKS = [
-  { label: 'Documentation', href: '#' },
-  { label: 'API', href: '#' },
-  { label: 'Blog', href: '#' },
+  { label: 'Documentation', href: '/docs' },
+  { label: 'Blog', href: '/blog' },
 ];
 
 export function Footer() {

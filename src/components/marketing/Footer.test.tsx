@@ -66,4 +66,10 @@ describe('Footer', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
     expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/dashboard/portfolio');
   });
+
+  it('renders resource links with correct hrefs', () => {
+    render(<Footer />);
+    expect(screen.getByRole('link', { name: 'Documentation' })).toHaveAttribute('href', '/docs');
+    expect(screen.getByRole('link', { name: 'Blog' })).toHaveAttribute('href', '/blog');
+  });
 });

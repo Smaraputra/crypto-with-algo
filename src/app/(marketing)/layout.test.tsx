@@ -7,6 +7,10 @@ vi.mock('@/components/marketing/SmoothScroll', () => ({
   ),
 }));
 
+vi.mock('@/components/marketing/CursorGlow', () => ({
+  CursorGlow: () => <div data-testid="cursor-glow" />,
+}));
+
 import MarketingLayout from './layout';
 
 describe('MarketingLayout', () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   Briefcase,
   TrendingUp,
@@ -10,6 +10,7 @@ import {
   Download,
 } from 'lucide-react';
 import { gsap } from '@/lib/gsap';
+import { SpotlightCard } from './SpotlightCard';
 
 const FEATURES = [
   {
@@ -67,7 +68,6 @@ export function FeaturesSection() {
       return;
     }
 
-    // Set initial hidden state
     gsap.set(cards, { opacity: 0, y: 30 });
 
     const observer = new IntersectionObserver(
@@ -90,16 +90,6 @@ export function FeaturesSection() {
     return () => observer.disconnect();
   }, []);
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const card = e.currentTarget;
-      const rect = card.getBoundingClientRect();
-      card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-      card.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
-    },
-    []
-  );
-
   return (
     <section
       ref={sectionRef}
@@ -121,28 +111,8 @@ export function FeaturesSection() {
           data-testid="features-grid"
         >
           {FEATURES.map((feature) => (
-            <div
-              key={feature.title}
-              data-feature-card
-              onMouseMove={handleMouseMove}
-              className="grid-card-overlay group relative overflow-hidden rounded-xl border border-border/50 bg-card p-6 transition-all duration-300 hover:border-[#0ecb81]/30 hover:shadow-lg hover:shadow-[#0ecb81]/5"
-              style={
-                {
-                  '--mouse-x': '50%',
-                  '--mouse-y': '50%',
-                } as React.CSSProperties
-              }
-            >
-              {/* Mouse spotlight */}
-              <div
-                className="pointer-events-none absolute inset-0 z-10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                aria-hidden="true"
-                style={{
-                  background:
-                    'radial-gradient(250px circle at var(--mouse-x) var(--mouse-y), oklch(0.72 0.18 160 / 0.06), transparent 80%)',
-                }}
-              />
-              <div className="relative z-10">
+            <SpotlightCard key={feature.title} className="p-6">
+              <div data-feature-card>
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-primary/20 bg-primary/5">
                   <feature.icon className="h-5 w-5 text-primary transition-transform duration-300 group-hover:scale-110" />
                 </div>
@@ -151,7 +121,7 @@ export function FeaturesSection() {
                   {feature.description}
                 </p>
               </div>
-            </div>
+            </SpotlightCard>
           ))}
         </div>
       </div>

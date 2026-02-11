@@ -2,11 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { Zap, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export function LandingNav() {
+  const { data: session } = useSession();
+  const isAuthenticated = !!session?.user;
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -84,28 +87,48 @@ export function LandingNav() {
 
         {/* Center links - desktop only */}
         <div className="hidden items-center gap-6 sm:flex">
-          <a
-            href="#features"
+          <Link
+            href="/features"
             className="text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             Features
-          </a>
-          <a
-            href="#how-it-works"
+          </Link>
+          <Link
+            href="/how-it-works"
             className="text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             How It Works
-          </a>
+          </Link>
+          <Link
+            href="/docs"
+            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Docs
+          </Link>
+          <Link
+            href="/blog"
+            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Blog
+          </Link>
         </div>
 
         {/* Right side - desktop */}
         <div className="hidden items-center gap-3 sm:flex">
-          <Button variant="ghost" size="sm" className="rounded-full" asChild>
-            <Link href="/login">Sign In</Link>
-          </Button>
-          <Button size="sm" className="rounded-full" asChild>
-            <Link href="/register">Get Started</Link>
-          </Button>
+          {isAuthenticated ? (
+            <Button size="sm" className="rounded-full" asChild>
+              <Link href="/dashboard">Dashboard</Link>
+            </Button>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" className="rounded-full" asChild>
+                <Link href="/login">Sign In</Link>
+              </Button>
+              <Button size="sm" className="rounded-full" asChild>
+                <Link href="/register">Get Started</Link>
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Mobile toggle */}
@@ -130,33 +153,59 @@ export function LandingNav() {
           className="mx-auto mt-2 max-w-5xl rounded-2xl border border-border/50 bg-background/95 px-4 py-4 backdrop-blur-md sm:hidden"
         >
           <div className="flex flex-col gap-2">
-            <a
-              href="#features"
+            <Link
+              href="/features"
               role="menuitem"
               className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
               onClick={closeMenu}
             >
               Features
-            </a>
-            <a
-              href="#how-it-works"
+            </Link>
+            <Link
+              href="/how-it-works"
               role="menuitem"
               className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
               onClick={closeMenu}
             >
               How It Works
-            </a>
+            </Link>
+            <Link
+              href="/docs"
+              role="menuitem"
+              className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+              onClick={closeMenu}
+            >
+              Docs
+            </Link>
+            <Link
+              href="/blog"
+              role="menuitem"
+              className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+              onClick={closeMenu}
+            >
+              Blog
+            </Link>
             <div className="my-1 h-px bg-border/50" />
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/login" role="menuitem" onClick={closeMenu}>
-                Sign In
-              </Link>
-            </Button>
-            <Button size="sm" className="rounded-full" asChild>
-              <Link href="/register" role="menuitem" onClick={closeMenu}>
-                Get Started
-              </Link>
-            </Button>
+            {isAuthenticated ? (
+              <Button size="sm" className="rounded-full" asChild>
+                <Link href="/dashboard" role="menuitem" onClick={closeMenu}>
+                  Dashboard
+                </Link>
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link href="/login" role="menuitem" onClick={closeMenu}>
+                    Sign In
+                  </Link>
+                </Button>
+                <Button size="sm" className="rounded-full" asChild>
+                  <Link href="/register" role="menuitem" onClick={closeMenu}>
+                    Get Started
+                  </Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
