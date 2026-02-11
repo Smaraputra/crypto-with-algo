@@ -48,9 +48,28 @@ export async function PATCH(
   const { id } = await params;
   await connectDB();
 
+  const updateData = { ...parsed.data } as Record<string, unknown>;
+
+  // Auto-compute P&L when both entry and exit prices are available
+  if (updateData.exitPrice != null) {
+    const existing = await JournalEntry.findOne({
+      _id: id,
+      userId: session.user.id,
+    });
+    if (existing?.entryPrice != null) {
+      const entryPrice = existing.entryPrice;
+      const exitPrice = updateData.exitPrice as number;
+      if (existing.action === 'sell') {
+        updateData.outcomePnlPercent = ((entryPrice - exitPrice) / entryPrice) * 100;
+      } else {
+        updateData.outcomePnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
+      }
+    }
+  }
+
   const entry = await JournalEntry.findOneAndUpdate(
     { _id: id, userId: session.user.id },
-    parsed.data,
+    updateData,
     { new: true }
   );
 

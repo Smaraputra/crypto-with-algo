@@ -12,14 +12,58 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const symbolFilter = req.nextUrl.searchParams.get('symbol');
-  const query: Record<string, string> = { userId: session.user.id };
-  if (symbolFilter) {
-    query.symbol = symbolFilter;
+  const params = req.nextUrl.searchParams;
+  const query: Record<string, unknown> = { userId: session.user.id };
+
+  const symbol = params.get('symbol');
+  if (symbol) query.symbol = symbol;
+
+  const tag = params.get('tag');
+  if (tag) query.tags = tag;
+
+  const action = params.get('action');
+  if (action) query.action = action;
+
+  const setupType = params.get('setupType');
+  if (setupType) query.setupType = setupType;
+
+  const marketCondition = params.get('marketCondition');
+  if (marketCondition) query.marketCondition = marketCondition;
+
+  const startDate = params.get('startDate');
+  const endDate = params.get('endDate');
+  if (startDate || endDate) {
+    const dateFilter: Record<string, Date> = {};
+    if (startDate) dateFilter.$gte = new Date(startDate);
+    if (endDate) dateFilter.$lte = new Date(endDate);
+    query.createdAt = dateFilter;
   }
 
-  const entries = await JournalEntry.find(query).sort({ createdAt: -1 }).limit(100);
-  return NextResponse.json({ entries });
+  const page = Math.max(1, parseInt(params.get('page') || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(params.get('limit') || '50', 10)));
+  const sort = params.get('sort') || '-createdAt';
+
+  const sortObj: Record<string, 1 | -1> = {};
+  if (sort.startsWith('-')) {
+    sortObj[sort.slice(1)] = -1;
+  } else {
+    sortObj[sort] = 1;
+  }
+
+  const [entries, total] = await Promise.all([
+    JournalEntry.find(query)
+      .sort(sortObj)
+      .skip((page - 1) * limit)
+      .limit(limit),
+    JournalEntry.countDocuments(query),
+  ]);
+
+  return NextResponse.json({
+    entries,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit),
+  });
 }
 
 export async function POST(req: NextRequest) {

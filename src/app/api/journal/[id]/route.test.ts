@@ -91,6 +91,7 @@ describe('PATCH /api/journal/[id]', () => {
 
   it('returns 404 when not found', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue(null);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue(null);
 
     const res = await PATCH(makeRequest('PATCH', { notes: 'updated' }), { params });
@@ -101,6 +102,96 @@ describe('PATCH /api/journal/[id]', () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     const res = await PATCH(makeRequest('PATCH', { exitPrice: -100 }), { params });
     expect(res.status).toBe(400);
+  });
+
+  it('auto-computes P&L for buy action', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: 40000,
+      action: 'buy',
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      exitPrice: 44000,
+      outcomePnlPercent: 10,
+    } as never);
+
+    await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.objectContaining({ outcomePnlPercent: 10 }),
+      { new: true }
+    );
+  });
+
+  it('auto-computes P&L for sell action (inverted)', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: 2200,
+      action: 'sell',
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      exitPrice: 2100,
+      outcomePnlPercent: expect.any(Number),
+    } as never);
+
+    await PATCH(makeRequest('PATCH', { exitPrice: 2100 }), { params });
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.objectContaining({
+        outcomePnlPercent: expect.closeTo(4.545, 2),
+      }),
+      { new: true }
+    );
+  });
+
+  it('does not compute P&L when entry has no entryPrice', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: null,
+      action: 'buy',
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      exitPrice: 44000,
+    } as never);
+
+    await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.not.objectContaining({ outcomePnlPercent: expect.anything() }),
+      { new: true }
+    );
+  });
+
+  it('updates new fields (tags, lessonsLearned)', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      tags: ['breakout'],
+      lessonsLearned: 'Good timing',
+    } as never);
+
+    const res = await PATCH(
+      makeRequest('PATCH', {
+        tags: ['breakout'],
+        lessonsLearned: 'Good timing',
+      }),
+      { params }
+    );
+    expect(res.status).toBe(200);
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.objectContaining({
+        tags: ['breakout'],
+        lessonsLearned: 'Good timing',
+      }),
+      { new: true }
+    );
   });
 });
 
