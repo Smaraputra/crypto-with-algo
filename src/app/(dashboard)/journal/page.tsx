@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JournalFilterBar } from '@/components/journal/JournalFilterBar';
 import { JournalEntryList } from '@/components/journal/JournalEntryList';
 import { ReviewQueue } from '@/components/journal/ReviewQueue';
+import { PlaybookView } from '@/components/journal/PlaybookView';
 import type { JournalFilters } from '@/hooks/useJournal';
 
 export default function JournalPage() {
@@ -36,11 +37,7 @@ export default function JournalPage() {
         </TabsContent>
 
         <TabsContent value="playbook" className="mt-4">
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-sm text-muted-foreground">
-              Research notes and playbook coming soon.
-            </p>
-          </div>
+          <PlaybookView />
         </TabsContent>
 
         <TabsContent value="analytics" className="mt-4">
