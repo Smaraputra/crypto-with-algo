@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, Zap } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase, disabled: false },
   { href: '/alerts', label: 'Alerts', icon: Bell, disabled: false },
   { href: '/analytics', label: 'Analytics', icon: BarChart3, disabled: false },
+  { href: '/journal', label: 'Journal', icon: BookOpen, disabled: false },
   { href: '/signals', label: 'Signals', icon: Activity, disabled: false },
   { href: '/backtest', label: 'Backtest', icon: FlaskConical, disabled: false },
 ];
@@ -24,7 +25,7 @@ function SidebarContent() {
   return (
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex h-12 items-center border-b border-sidebar-border px-4">
-        <Zap className="mr-2 h-4 w-4 text-accent" />
+        <Zap className="mr-2 h-4 w-4 text-primary" />
         <span className="text-sm font-semibold">AlgoCrypto</span>
       </div>
 

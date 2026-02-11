@@ -118,6 +118,13 @@ describe('Sidebar', () => {
     expect(headers.length).toBeGreaterThan(0);
   });
 
+  it('renders Journal item linking to /journal', () => {
+    render(<Sidebar />);
+    const journalLinks = screen.getAllByText('Journal');
+    const link = journalLinks.find((el) => el.closest('a'))?.closest('a');
+    expect(link).toHaveAttribute('href', '/journal');
+  });
+
   it('renders watchlist sidebar component', () => {
     render(<Sidebar />);
     const watchlists = screen.getAllByTestId('watchlist-sidebar');
