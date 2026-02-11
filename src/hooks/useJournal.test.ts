@@ -14,8 +14,10 @@ import { toast } from 'sonner';
 import {
   useJournalEntries,
   useJournalEntry,
+  useJournalTags,
   useCreateJournalEntry,
   useUpdateJournalEntry,
+  useReviewJournalEntry,
   useDeleteJournalEntry,
 } from './useJournal';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -25,8 +27,9 @@ function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return ({ children }: { children: React.ReactNode }) =>
-    React.createElement(QueryClientProvider, { client: queryClient }, children);
+  return function Wrapper({ children }: { children: React.ReactNode }) {
+    return React.createElement(QueryClientProvider, { client: queryClient }, children);
+  };
 }
 
 beforeEach(() => {
@@ -34,8 +37,8 @@ beforeEach(() => {
 });
 
 describe('useJournalEntries', () => {
-  it('fetches entries', async () => {
-    vi.mocked(fetchJson).mockResolvedValue({ entries: [{ _id: 'j1' }] });
+  it('fetches entries with no filters', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({ entries: [{ _id: 'j1' }], total: 1, page: 1, totalPages: 1 });
     const { result } = renderHook(() => useJournalEntries(), {
       wrapper: createWrapper(),
     });
@@ -43,13 +46,35 @@ describe('useJournalEntries', () => {
     expect(fetchJson).toHaveBeenCalledWith('/api/journal');
   });
 
-  it('passes symbol filter', async () => {
-    vi.mocked(fetchJson).mockResolvedValue({ entries: [] });
+  it('accepts string symbol filter (backward compat)', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({ entries: [], total: 0, page: 1, totalPages: 0 });
     const { result } = renderHook(() => useJournalEntries('BTCUSDT'), {
       wrapper: createWrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(fetchJson).toHaveBeenCalledWith('/api/journal?symbol=BTCUSDT');
+  });
+
+  it('accepts filter object', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({ entries: [], total: 0, page: 1, totalPages: 0 });
+    const { result } = renderHook(
+      () => useJournalEntries({ tag: 'breakout', page: 2, limit: 10 }),
+      { wrapper: createWrapper() }
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchJson).toHaveBeenCalledWith('/api/journal?tag=breakout&page=2&limit=10');
+  });
+
+  it('builds URL with multiple filters', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({ entries: [], total: 0, page: 1, totalPages: 0 });
+    const { result } = renderHook(
+      () => useJournalEntries({ symbol: 'BTCUSDT', action: 'buy', marketCondition: 'trending_up' }),
+      { wrapper: createWrapper() }
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchJson).toHaveBeenCalledWith(
+      '/api/journal?symbol=BTCUSDT&action=buy&marketCondition=trending_up'
+    );
   });
 });
 
@@ -68,6 +93,20 @@ describe('useJournalEntry', () => {
       wrapper: createWrapper(),
     });
     expect(fetchJson).not.toHaveBeenCalled();
+  });
+});
+
+describe('useJournalTags', () => {
+  it('fetches tags', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({
+      tags: [{ tag: 'breakout', count: 5 }],
+    });
+    const { result } = renderHook(() => useJournalTags(), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchJson).toHaveBeenCalledWith('/api/journal/tags');
+    expect(result.current.data?.tags).toHaveLength(1);
   });
 });
 
@@ -101,6 +140,23 @@ describe('useUpdateJournalEntry', () => {
     result.current.mutate({ id: 'j1', notes: 'updated' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(toast.success).toHaveBeenCalledWith('Journal entry updated');
+  });
+});
+
+describe('useReviewJournalEntry', () => {
+  it('marks entry as reviewed', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({ entry: { _id: 'j1', reviewedAt: '2025-01-01' } });
+    const { result } = renderHook(() => useReviewJournalEntry(), {
+      wrapper: createWrapper(),
+    });
+
+    result.current.mutate({ id: 'j1', lessonsLearned: 'Good timing' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(toast.success).toHaveBeenCalledWith('Entry reviewed');
+    expect(fetchJson).toHaveBeenCalledWith('/api/journal/j1', expect.objectContaining({
+      method: 'PATCH',
+      body: expect.stringContaining('lessonsLearned'),
+    }));
   });
 });
 

@@ -10,10 +10,42 @@ import type {
   UpdateJournalEntryInput,
 } from '@/types/journal';
 
-export function useJournalEntries(symbol?: string) {
-  const url = symbol ? `/api/journal?symbol=${symbol}` : '/api/journal';
+export interface JournalFilters {
+  symbol?: string;
+  tag?: string;
+  action?: string;
+  setupType?: string;
+  marketCondition?: string;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  limit?: number;
+  sort?: string;
+}
+
+function buildJournalUrl(filters: JournalFilters = {}): string {
+  const params = new URLSearchParams();
+  if (filters.symbol) params.set('symbol', filters.symbol);
+  if (filters.tag) params.set('tag', filters.tag);
+  if (filters.action) params.set('action', filters.action);
+  if (filters.setupType) params.set('setupType', filters.setupType);
+  if (filters.marketCondition) params.set('marketCondition', filters.marketCondition);
+  if (filters.startDate) params.set('startDate', filters.startDate);
+  if (filters.endDate) params.set('endDate', filters.endDate);
+  if (filters.page) params.set('page', String(filters.page));
+  if (filters.limit) params.set('limit', String(filters.limit));
+  if (filters.sort) params.set('sort', filters.sort);
+  const qs = params.toString();
+  return qs ? `/api/journal?${qs}` : '/api/journal';
+}
+
+export function useJournalEntries(filters?: JournalFilters | string) {
+  const normalizedFilters: JournalFilters =
+    typeof filters === 'string' ? { symbol: filters } : (filters ?? {});
+  const url = buildJournalUrl(normalizedFilters);
+
   return useQuery<JournalEntryListResponse>({
-    queryKey: symbol ? ['journal', symbol] : ['journal'],
+    queryKey: ['journal', normalizedFilters],
     queryFn: () => fetchJson(url),
   });
 }
@@ -23,6 +55,13 @@ export function useJournalEntry(id: string | null) {
     queryKey: ['journal-entry', id],
     queryFn: () => fetchJson(`/api/journal/${id}`),
     enabled: !!id,
+  });
+}
+
+export function useJournalTags() {
+  return useQuery<{ tags: Array<{ tag: string; count: number }> }>({
+    queryKey: ['journal-tags'],
+    queryFn: () => fetchJson('/api/journal/tags'),
   });
 }
 
@@ -40,6 +79,7 @@ export function useCreateJournalEntry() {
     onError: (err) => toast.error(err.message || 'Failed to create journal entry'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['journal'] });
+      queryClient.invalidateQueries({ queryKey: ['journal-tags'] });
     },
   });
 }
@@ -59,6 +99,29 @@ export function useUpdateJournalEntry() {
     onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({ queryKey: ['journal'] });
       queryClient.invalidateQueries({ queryKey: ['journal-entry', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['journal-tags'] });
+    },
+  });
+}
+
+export function useReviewJournalEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, lessonsLearned }: { id: string; lessonsLearned: string }) =>
+      fetchJson(`/api/journal/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reviewedAt: new Date().toISOString(),
+          lessonsLearned,
+        }),
+      }),
+    onSuccess: () => toast.success('Entry reviewed'),
+    onError: (err) => toast.error(err.message || 'Failed to review entry'),
+    onSettled: (_data, _err, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['journal'] });
+      queryClient.invalidateQueries({ queryKey: ['journal-entry', variables.id] });
     },
   });
 }
@@ -73,6 +136,7 @@ export function useDeleteJournalEntry() {
     onError: (err) => toast.error(err.message || 'Failed to delete journal entry'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['journal'] });
+      queryClient.invalidateQueries({ queryKey: ['journal-tags'] });
     },
   });
 }
