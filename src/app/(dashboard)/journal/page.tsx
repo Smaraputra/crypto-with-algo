@@ -6,6 +6,7 @@ import { JournalFilterBar } from '@/components/journal/JournalFilterBar';
 import { JournalEntryList } from '@/components/journal/JournalEntryList';
 import { ReviewQueue } from '@/components/journal/ReviewQueue';
 import { PlaybookView } from '@/components/journal/PlaybookView';
+import { AnalyticsView } from '@/components/journal/analytics/AnalyticsView';
 import type { JournalFilters } from '@/hooks/useJournal';
 
 export default function JournalPage() {
@@ -41,11 +42,7 @@ export default function JournalPage() {
         </TabsContent>
 
         <TabsContent value="analytics" className="mt-4">
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-sm text-muted-foreground">
-              Journal analytics coming soon.
-            </p>
-          </div>
+          <AnalyticsView />
         </TabsContent>
       </Tabs>
     </div>
