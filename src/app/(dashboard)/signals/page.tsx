@@ -10,6 +10,8 @@ import { EnhancedJournalForm } from '@/components/journal/EnhancedJournalForm';
 import { Button } from '@/components/ui/button';
 import { useFundingRate, useLongShortRatio, useOpenInterest } from '@/hooks/useFutures';
 import { useComputeSignal, useLatestSignal, useSignals } from '@/hooks/useSignals';
+import { useFearAndGreed } from '@/hooks/useSentiment';
+import { SentimentGauge } from '@/components/market/SentimentGauge';
 import { useUIStore } from '@/stores/uiStore';
 
 function SignalHistory({ symbol }: { symbol: string }) {
@@ -85,9 +87,13 @@ export default function SignalsPage() {
   const { data: fundingData, isLoading: fundingLoading } = useFundingRate(selectedSymbol);
   const { data: oiData, isLoading: oiLoading } = useOpenInterest(selectedSymbol);
   const { data: lsData, isLoading: lsLoading } = useLongShortRatio(selectedSymbol);
+  const { data: sentimentData } = useFearAndGreed();
 
   const latestSignal = latestData?.signals?.[0];
   const futuresLoading = fundingLoading || oiLoading || lsLoading;
+  const sentiment = sentimentData?.sentiment
+    ? { fearGreedIndex: sentimentData.sentiment.fearGreedIndex, fearGreedLabel: sentimentData.sentiment.label }
+    : null;
 
   const popularSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
 
@@ -145,6 +151,7 @@ export default function SignalsPage() {
             score={latestSignal.score}
             tier={latestSignal.tier}
             confidence={latestSignal.confidence}
+            sentiment={sentiment}
           />
         )}
       </div>
@@ -193,7 +200,7 @@ export default function SignalsPage() {
           )}
         </div>
 
-        {/* Right column: Futures panel */}
+        {/* Right column: Futures panel + Sentiment */}
         <div className="space-y-4">
           <div className="rounded-lg border border-border p-4">
             <h2 className="text-sm font-semibold mb-3">Futures Data</h2>
@@ -208,6 +215,16 @@ export default function SignalsPage() {
                 longShortRatio={lsData?.longShortRatio?.[0] ?? null}
                 isLoading={futuresLoading}
               />
+            </ErrorBoundary>
+          </div>
+          <div className="rounded-lg border border-border p-4">
+            <h2 className="text-sm font-semibold mb-3">Market Sentiment</h2>
+            <ErrorBoundary
+              fallback={
+                <p className="text-sm text-muted-foreground">Sentiment unavailable</p>
+              }
+            >
+              <SentimentGauge />
             </ErrorBoundary>
           </div>
         </div>

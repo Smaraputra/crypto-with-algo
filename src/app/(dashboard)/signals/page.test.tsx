@@ -44,6 +44,14 @@ vi.mock('@/components/journal/EnhancedJournalForm', () => ({
   EnhancedJournalForm: () => <div data-testid="enhanced-journal-form" />,
 }));
 
+vi.mock('@/hooks/useSentiment', () => ({
+  useFearAndGreed: () => ({ data: null, isLoading: false, isError: false }),
+}));
+
+vi.mock('@/components/market/SentimentGauge', () => ({
+  SentimentGauge: () => <div data-testid="sentiment-gauge" />,
+}));
+
 import SignalsPage from './page';
 
 describe('SignalsPage', () => {
