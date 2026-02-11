@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 12: Journal Analytics -- Steps 98-101)
+- Journal analytics API with MongoDB aggregation pipelines: summary stats, tag performance, action distribution, setup type analysis, market condition breakdown, monthly P&L, signal tier accuracy (`/api/journal/analytics`)
+- AnalyticsSummaryCards component (total trades, win rate, P&L, profit factor)
+- WinRateByTag component with horizontal color-coded bars
+- PerformanceBySetup table with win rate and avg P&L per setup type
+- MonthlyPnL diverging bar chart (green/red by month)
+- SignalAccuracy table showing avg P&L and win rate per signal tier
+- TradingPatterns behavioral analysis (overtrading detection, streak detection, profit factor assessment)
+- AnalyticsView composition component wiring all analytics sub-components
+- Journal page Analytics tab activated (replaces placeholder)
+- Journal page unit tests and E2E spec
+- `useJournalAnalytics` React Query hook
+
+### Added (Phase 11: Research Notes & Sentiment -- Steps 92-97)
+- ResearchNote Mongoose model with categories, tags, related symbols, pin support
+- Research notes API routes (CRUD, filter by category/tag/search, pagination)
+- Research notes React Query hooks (list, create, update, delete)
+- PlaybookView two-panel layout (search, category filter, note list, markdown detail)
+- ResearchNoteCard and ResearchNoteForm components
+- Fear & Greed Index integration via alternative.me API (`fetchFearAndGreed`)
+- Sentiment data now feeds into signal computation (`scoreSentiment` activated)
+- Crypto news aggregation via CryptoCompare API (`fetchCryptoNews`)
+- NewsFeed dashboard widget with time-ago formatting
+- `/api/sentiment` endpoint and `useFearAndGreed` hook
+- SentimentGauge component with color-coded bar (0-100)
+- Sentiment display on signals page and auto-populate in EnhancedJournalForm
+
+### Added (Phase 10: Enhanced Journal -- Steps 86-91)
+- Journal schema expansion: tags, indicator snapshots, strategy/backtest links, lessons learned, setup type, market condition, sentiment
+- Journal API filtering (tag, action, setup, condition, date range), pagination, auto P&L computation
+- Tags endpoint (`/api/journal/tags`) via MongoDB aggregation
+- Enhanced journal form with markdown notes, tag input, indicator snapshot capture
+- JournalEntryDetail full card view with snapshot grid and tags
+- ReviewDialog for closed trade review with lessons learned
+- Dedicated `/journal` page with Entries, Review Queue, Playbook, Analytics tabs
+- JournalFilterBar, JournalEntryList, ReviewQueue components
+- Sidebar Journal navigation item
+- `useIndicatorSnapshot` hook for live signal data extraction
+
 ### Changed (Phase 9: Polish & Accessibility -- Steps 81-85)
 - `useBinanceTicker` now batches WebSocket messages via `requestAnimationFrame` instead of per-message setState (Step 81)
 - `PriceCard` wrapped in `React.memo` with custom comparator for skip-render optimization (Step 81)
