@@ -24,8 +24,8 @@ describe('TermsPage', () => {
     expect(screen.getByText(/Last updated:/)).toBeInTheDocument();
   });
 
-  it('renders placeholder content', () => {
+  it('renders acceptance section', () => {
     render(<TermsPage />);
-    expect(screen.getByText(/Terms of service content to be added/)).toBeInTheDocument();
+    expect(screen.getByText(/By accessing and using AlgoCrypto/)).toBeInTheDocument();
   });
 });
