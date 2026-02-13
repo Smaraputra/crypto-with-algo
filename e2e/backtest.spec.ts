@@ -40,10 +40,11 @@ test.describe('Backtest page (authenticated)', () => {
     expect(hasEmpty || hasTable).toBe(true);
   });
 
-  test('Journal tab shows journal list', async ({ page }) => {
+  test('Journal tab shows link to journal page', async ({ page }) => {
     await page.goto('/backtest');
     await page.getByRole('tab', { name: 'Journal' }).click();
-    await expect(page.getByTestId('journal-list')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('The journal has moved to its own dedicated page')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('link', { name: 'Open Journal' })).toBeVisible();
   });
 
   test('New Strategy button opens form dialog', async ({ page }) => {
