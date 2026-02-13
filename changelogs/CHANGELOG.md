@@ -7,12 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Landing page mobile UX and content accuracy
+  - Increased base font sizes for better mobile readability (text-xs → text-sm on mobile)
+  - Reduced hero section padding on mobile (pt-24 pb-12)
+  - Reduced globe height on mobile (h-[250px])
+  - Increased touch target height for buttons (h-10 → h-11)
+  - Disabled CursorGlow animation on touch devices for better performance
+  - Removed fake statistics ("99.9% Uptime", "6 Exchanges")
+  - Removed misleading API key integration claims from How It Works steps
+  - Fixed GitHub social link to point to actual repository
+  - Removed dead X/Twitter link
+  - Replaced dead Blog and Documentation links with Features and How It Works
+
+### Added
+- Legal placeholder pages (/terms, /privacy) with proper navigation
+- Legal links in Footer (Terms of Service, Privacy Policy)
+- Test for CursorGlow touch device detection
+
 ### Changed
 - VPS deployment guide now uses Caddy reverse proxy instead of Nginx
   - Automatic HTTPS with Let's Encrypt (zero manual certificate management)
   - Simpler configuration syntax (Caddy vs Nginx+certbot)
   - Built-in HTTP/2 and HTTP/3 support
   - Multi-site setup with automatic SSL for all domains
+- Updated HeroSection stats to reflect actual implementation (24/7 Monitoring, < 1s Updates, 100% Free)
+- Updated HowItWorks steps to match session-based auth flow (Register, Configure, Track)
+- Updated Features platform highlights to clarify manual portfolio entry
+- Updated hero subheadline to emphasize free tier and no API key requirement
+- Container widths expanded on large screens (max-w-6xl lg:max-w-7xl)
 
 ### Added (Test Suite Audit Phase 3)
 - Comprehensive tests for candles API routes (26 new tests, 2 test files)
