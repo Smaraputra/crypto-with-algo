@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- VPS deployment guide now uses Caddy reverse proxy instead of Nginx
+  - Automatic HTTPS with Let's Encrypt (zero manual certificate management)
+  - Simpler configuration syntax (Caddy vs Nginx+certbot)
+  - Built-in HTTP/2 and HTTP/3 support
+  - Multi-site setup with automatic SSL for all domains
+
 ### Added (Test Suite Audit Phase 3)
 - Comprehensive tests for candles API routes (26 new tests, 2 test files)
   - GET /api/candles route tests (auth, validation, auto-backfill logic, error handling)

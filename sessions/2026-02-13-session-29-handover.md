@@ -180,7 +180,7 @@ All project convention checks passing:
 
 | |
 |---|
-| `2db8ad9` test(e2e): fix failing E2E tests with viewport and component updates<br>`cf06391` docs: add Phase 1 test suite audit completion to changelog and session handover<br>`b4edc2b` docs: add Phase 2 test audit completion to changelog<br>`befeb56` test(api): add comprehensive tests for candles API routes |
+| `2db8ad9` test(e2e): fix failing E2E tests with viewport and component updates<br>`cf06391` docs: add Phase 1 test suite audit completion to changelog and session handover<br>`b4edc2b` docs: add Phase 2 test audit completion to changelog<br>`befeb56` test(api): add comprehensive tests for candles API routes<br>`369e476` docs(deploy): replace Nginx with Caddy in VPS deployment guide |
 
 ## Notes
 
@@ -188,6 +188,8 @@ All project convention checks passing:
 - The backtest Journal tab change happened in Phase 10 when journal was moved to dedicated page - test was overlooked during that refactor
 - Port 3300 chosen to avoid common dev server conflicts (3000 often in use)
 - All fixes were configuration/test updates - no production code changes required
+- VPS deployment guide updated to use Caddy instead of Nginx for simpler SSL management and automatic HTTPS
+- Port configuration documented for multi-site VPS deployment (PORT for dev/prod, TEST_PORT for E2E tests)
 
 ## Handover to Next Session
 
