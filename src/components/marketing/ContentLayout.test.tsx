@@ -48,7 +48,7 @@ describe('ContentLayout', () => {
         <p>Content</p>
       </ContentLayout>
     );
-    expect(screen.getAllByText('AlgoCrypto').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('CryptoWithAlgo').length).toBeGreaterThanOrEqual(1);
   });
 
   it('has skip-to-content target (main#main-content)', () => {

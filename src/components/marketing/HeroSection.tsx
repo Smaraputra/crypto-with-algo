@@ -211,7 +211,7 @@ export function HeroSection() {
     >
       <HeroBackground />
 
-      <div className="relative mx-auto max-w-6xl px-4 lg:max-w-7xl">
+      <div className="relative mx-auto max-w-6xl px-4 lg:max-w-6xl">
         {/* Two-column layout */}
         <div className="grid items-center gap-12 lg:grid-cols-2">
           {/* Left: text content */}
@@ -224,7 +224,7 @@ export function HeroSection() {
               Algorithmic Crypto Intelligence
               <br />
               {/* <span className="gradient-heading" data-type-text>
-                Powered by AlgoCrypto
+                Powered by CryptoWithAlgo
               </span> */}
             </h1>
             <p
@@ -232,7 +232,7 @@ export function HeroSection() {
               data-hero-anim
             >
               Track cryptocurrency portfolios with live Binance data, technical charts,
-              risk analytics, and intelligent price alerts—all free, no API keys needed.
+              risk analytics, and intelligent price alerts, all free, no API keys needed.
             </p>
 
             <div

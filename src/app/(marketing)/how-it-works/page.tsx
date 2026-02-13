@@ -62,7 +62,7 @@ const STEPS = [
     title: 'Analyze',
     subtitle: 'Signals, backtesting, and real-time alerts',
     description:
-      'AlgoCrypto continuously monitors markets via WebSocket feeds. Review trading signals powered by RSI, MACD, and more. Backtest strategies against historical data before committing capital.',
+      'CryptoWithAlgo continuously monitors markets via WebSocket feeds. Review trading signals powered by RSI, MACD, and more. Backtest strategies against historical data before committing capital.',
     details: [
       {
         icon: Zap,

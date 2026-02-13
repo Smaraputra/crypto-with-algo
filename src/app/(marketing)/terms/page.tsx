@@ -12,14 +12,14 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">1. Acceptance of Terms</h2>
           <p>
-            By accessing and using AlgoCrypto (the &quot;Service&quot;), you accept and agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service.
+            By accessing and using CryptoWithAlgo (the &quot;Service&quot;), you accept and agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service.
           </p>
         </section>
 
         <section>
           <h2 className="text-lg font-semibold text-foreground">2. Description of Service</h2>
           <p>
-            AlgoCrypto is a cryptocurrency portfolio tracking and analytics platform that provides:
+            CryptoWithAlgo is a cryptocurrency portfolio tracking and analytics platform that provides:
           </p>
           <ul className="list-disc pl-6 space-y-1">
             <li>Real-time cryptocurrency price data from Binance</li>
@@ -92,7 +92,7 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">7. Intellectual Property</h2>
           <p>
-            The Service, including its design, features, code, and content, is owned by AlgoCrypto and protected by intellectual property laws. You may not:
+            The Service, including its design, features, code, and content, is owned by CryptoWithAlgo and protected by intellectual property laws. You may not:
           </p>
           <ul className="list-disc pl-6 space-y-1">
             <li>Copy, modify, or create derivative works of the Service</li>
@@ -120,14 +120,14 @@ export default function TermsPage() {
             <li>Security of data transmission or storage</li>
           </ul>
           <p className="mt-2 font-semibold">
-            AlgoCrypto is not a financial advisor. Nothing on this Service constitutes financial, investment, trading, or legal advice. You are solely responsible for your investment decisions.
+            CryptoWithAlgo is not a financial advisor. Nothing on this Service constitutes financial, investment, trading, or legal advice. You are solely responsible for your investment decisions.
           </p>
         </section>
 
         <section>
           <h2 className="text-lg font-semibold text-foreground">9. Limitation of Liability</h2>
           <p className="font-semibold uppercase">
-            To the maximum extent permitted by law, AlgoCrypto shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to:
+            To the maximum extent permitted by law, CryptoWithAlgo shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to:
           </p>
           <ul className="list-disc pl-6 space-y-1">
             <li>Loss of profits, revenue, or trading opportunities</li>
@@ -144,7 +144,7 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">10. Indemnification</h2>
           <p>
-            You agree to indemnify and hold harmless AlgoCrypto, its officers, directors, employees, and agents from any claims, damages, losses, liabilities, and expenses (including legal fees) arising from:
+            You agree to indemnify and hold harmless CryptoWithAlgo, its officers, directors, employees, and agents from any claims, damages, losses, liabilities, and expenses (including legal fees) arising from:
           </p>
           <ul className="list-disc pl-6 space-y-1">
             <li>Your use of the Service</li>
@@ -196,7 +196,7 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">14. Governing Law and Disputes</h2>
           <p>
-            These Terms are governed by the laws of [Your Jurisdiction], without regard to conflict of law principles. Any disputes shall be resolved through binding arbitration in [Your Jurisdiction], except where prohibited by law.
+            These Terms are governed by the laws of Indonesia, without regard to conflict of law principles. Any disputes shall be resolved through binding arbitration in Indonesia, except where prohibited by law.
           </p>
           <p className="mt-2">
             You agree to waive any right to a jury trial or to participate in a class action lawsuit.
@@ -223,7 +223,7 @@ export default function TermsPage() {
 
         <section className="border-t border-border pt-6 mt-8">
           <p className="text-xs text-muted-foreground italic">
-            By using AlgoCrypto, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.
+            By using CryptoWithAlgo, you acknowledge that you have read, understood, and agree to be bound by these Terms of Service.
           </p>
         </section>
       </div>

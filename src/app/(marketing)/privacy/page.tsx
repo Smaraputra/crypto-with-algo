@@ -12,10 +12,10 @@ export default function PrivacyPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">1. Introduction</h2>
           <p>
-            AlgoCrypto (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our cryptocurrency portfolio tracking service.
+            CryptoWithAlgo (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our cryptocurrency portfolio tracking service.
           </p>
           <p className="mt-2">
-            By using AlgoCrypto, you agree to the collection and use of information in accordance with this Privacy Policy.
+            By using CryptoWithAlgo, you agree to the collection and use of information in accordance with this Privacy Policy.
           </p>
         </section>
 
@@ -189,7 +189,7 @@ export default function PrivacyPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">7. Children&#39;s Privacy</h2>
           <p>
-            AlgoCrypto is not intended for users under 18 years of age. We do not knowingly collect personal information from children. If we discover that a child has provided us with personal information, we will delete it immediately.
+            CryptoWithAlgo is not intended for users under 18 years of age. We do not knowingly collect personal information from children. If we discover that a child has provided us with personal information, we will delete it immediately.
           </p>
           <p className="mt-2">
             If you believe a child has provided us with personal information, please contact us at smara.putra2001@gmail.com.
@@ -207,7 +207,7 @@ export default function PrivacyPage() {
             <li>Infrastructure providers with privacy certifications</li>
           </ul>
           <p className="mt-2">
-            By using AlgoCrypto, you consent to the transfer of your information to these jurisdictions.
+            By using CryptoWithAlgo, you consent to the transfer of your information to these jurisdictions.
           </p>
         </section>
 
@@ -245,7 +245,7 @@ export default function PrivacyPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">11. Do Not Track Signals</h2>
           <p>
-            Some browsers support &quot;Do Not Track&quot; (DNT) signals. Currently, there is no industry standard for responding to DNT signals. AlgoCrypto does not respond to DNT browser settings at this time.
+            Some browsers support &quot;Do Not Track&quot; (DNT) signals. Currently, there is no industry standard for responding to DNT signals. CryptoWithAlgo does not respond to DNT browser settings at this time.
           </p>
         </section>
 
@@ -266,7 +266,7 @@ export default function PrivacyPage() {
 
         <section className="border-t border-border pt-6 mt-8">
           <p className="text-xs text-muted-foreground italic">
-            This Privacy Policy is effective as of {lastUpdated} and applies to all users of AlgoCrypto.
+            This Privacy Policy is effective as of {lastUpdated} and applies to all users of CryptoWithAlgo.
           </p>
         </section>
       </div>

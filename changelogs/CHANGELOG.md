@@ -260,9 +260,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 34 new unit tests across 4 new test files (CoinScene, CoinSceneWrapper, AnimatedChartSection + updated existing)
 
 ### Changed
-- Rebranded from "Crypto Portfolio Tracker" / "Crypto Tracker" to "AlgoCrypto" across all files, tests, and E2E specs
+- Rebranded from "Crypto Portfolio Tracker" / "Crypto Tracker" to "CryptoWithAlgo" across all files, tests, and E2E specs
 - Replaced Star icon with Zap icon (lucide-react) in nav, footer, sidebar, and auth layout
-- Hero heading updated to "Algorithmic Crypto Intelligence / Powered by AlgoCrypto"
+- Hero heading updated to "Algorithmic Crypto Intelligence / Powered by CryptoWithAlgo"
 - Landing page section order: Hero, CoinScene, AnimatedChart, Features, CTA (removed StatsSection)
 - FeaturesSection converted to client component with framer-motion scroll animations
 

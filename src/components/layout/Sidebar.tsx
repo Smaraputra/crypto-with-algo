@@ -26,7 +26,7 @@ function SidebarContent() {
     <div className="flex h-full flex-col bg-sidebar">
       <div className="flex h-12 items-center border-b border-sidebar-border px-4">
         <Zap className="mr-2 h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold">AlgoCrypto</span>
+        <span className="text-sm font-semibold">CryptoWithAlgo</span>
       </div>
 
       <nav className="space-y-1 p-2">

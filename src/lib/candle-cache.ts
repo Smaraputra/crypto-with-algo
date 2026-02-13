@@ -1,6 +1,6 @@
 import type { OHLCV } from '@/types/market';
 
-const DB_NAME = 'algocrypto-candles';
+const DB_NAME = 'cryptowithalgo-candles';
 const DB_VERSION = 1;
 const STORE_NAME = 'candles';
 const MAX_ENTRIES = 50;

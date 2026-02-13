@@ -43,6 +43,6 @@ describe('DocsPage', () => {
 
   it('renders nav and footer', () => {
     render(<DocsPage />);
-    expect(screen.getAllByText('AlgoCrypto').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('CryptoWithAlgo').length).toBeGreaterThanOrEqual(2);
   });
 });

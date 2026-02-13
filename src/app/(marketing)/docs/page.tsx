@@ -53,7 +53,7 @@ export default function DocsPage() {
   return (
     <ContentLayout
       title="Documentation"
-      subtitle="Learn how to get the most out of AlgoCrypto's cryptocurrency portfolio tracking platform."
+      subtitle="Learn how to get the most out of CryptoWithAlgo's cryptocurrency portfolio tracking platform."
     >
       {/* Getting Started */}
       <section className="mb-16">

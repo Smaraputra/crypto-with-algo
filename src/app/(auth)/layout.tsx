@@ -26,7 +26,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="mb-6 flex items-center justify-center gap-2">
           <Zap className="h-6 w-6 text-accent" />
           <span className="text-lg font-semibold tracking-tight">
-            AlgoCrypto
+            CryptoWithAlgo
           </span>
         </div>
         {children}
