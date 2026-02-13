@@ -52,6 +52,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Visual weight bars showing changes from current template
   - One-click template activation with confirmation
   - Admin section in sidebar (visible when on admin pages)
+- **E2E Tests for Optimization System** (`e2e/optimization.spec.ts`)
+  - Comprehensive E2E test suite with 12 tests (3 passing, 9 skipped for non-admin)
+  - Admin access control and redirect tests
+  - Form field validation and parameter change tests
+  - Tab navigation tests (Optimize, History, Compare)
+  - Sidebar admin section visibility tests
+  - Fixed Sidebar unit tests to mock next-auth/react useSession
 - New UI components:
   - Alert component for notifications and error messages
   - Progress component for progress bars
