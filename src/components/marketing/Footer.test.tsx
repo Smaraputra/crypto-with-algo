@@ -71,7 +71,9 @@ describe('Footer', () => {
   it('renders product links', () => {
     render(<Footer />);
     expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
-    expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/dashboard/portfolio');
+    expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/portfolio');
+    expect(screen.getByRole('link', { name: 'Alerts' })).toHaveAttribute('href', '/alerts');
+    expect(screen.getByRole('link', { name: 'Signals' })).toHaveAttribute('href', '/signals');
   });
 
   it('renders resource links with correct hrefs', () => {
