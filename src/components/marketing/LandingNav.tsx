@@ -72,7 +72,7 @@ export function LandingNav() {
     <header className="fixed top-0 left-0 right-0 z-50 px-4 pt-4">
       <nav
         className={cn(
-          'mx-auto flex h-14 max-w-5xl items-center justify-between rounded-full border px-4 transition-all duration-300',
+          'mx-auto flex h-14 max-w-6xl items-center justify-between rounded-full border px-4 transition-all duration-300',
           scrolled
             ? 'border-border/50 bg-background/90 backdrop-blur-md shadow-lg shadow-black/20'
             : 'border-border/30 bg-background/60 backdrop-blur-sm'

@@ -7,6 +7,10 @@ export function CursorGlow() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    // Skip on touch devices (mobile, tablet)
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouchDevice) return;
+
     const prefersReduced = window.matchMedia(
       '(prefers-reduced-motion: reduce)'
     ).matches;

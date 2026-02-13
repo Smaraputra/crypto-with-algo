@@ -42,10 +42,17 @@ describe('Footer', () => {
     expect(link).toHaveAttribute('href', '/register');
   });
 
-  it('renders social links', () => {
+  it('renders GitHub social link with correct href', () => {
     render(<Footer />);
-    expect(screen.getByLabelText('GitHub')).toBeInTheDocument();
-    expect(screen.getByLabelText('X (Twitter)')).toBeInTheDocument();
+    const githubLink = screen.getByLabelText('GitHub');
+    expect(githubLink).toBeInTheDocument();
+    expect(githubLink).toHaveAttribute('href', 'https://github.com/Smaraputra/crypto-with-algo');
+  });
+
+  it('renders legal links', () => {
+    render(<Footer />);
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
   });
 
   it('renders copyright text', () => {
@@ -69,7 +76,7 @@ describe('Footer', () => {
 
   it('renders resource links with correct hrefs', () => {
     render(<Footer />);
-    expect(screen.getByRole('link', { name: 'Documentation' })).toHaveAttribute('href', '/docs');
-    expect(screen.getByRole('link', { name: 'Blog' })).toHaveAttribute('href', '/blog');
+    expect(screen.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '/features');
+    expect(screen.getByRole('link', { name: 'How It Works' })).toHaveAttribute('href', '/how-it-works');
   });
 });

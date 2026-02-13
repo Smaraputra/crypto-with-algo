@@ -25,8 +25,10 @@ describe('FeaturesPage', () => {
 
   it('renders platform highlights', () => {
     render(<FeaturesPage />);
-    expect(screen.getByText('Real-Time Architecture')).toBeInTheDocument();
-    expect(screen.getByText('Security First')).toBeInTheDocument();
+    expect(screen.getByText('WebSocket Architecture')).toBeInTheDocument();
+    expect(screen.getByText('Secure Authentication')).toBeInTheDocument();
+    expect(screen.getByText('Manual Portfolio Entry')).toBeInTheDocument();
+    expect(screen.getByText('Automated Alerts')).toBeInTheDocument();
   });
 
   it('renders core features section', () => {

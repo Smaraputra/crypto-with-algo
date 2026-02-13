@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ArrowRight, Activity, Eye, Globe } from 'lucide-react';
+import { ArrowRight, Activity, Zap, Heart } from 'lucide-react';
 import { useGSAP } from '@gsap/react';
 import { gsap } from '@/lib/gsap';
 import { cn } from '@/lib/utils';
@@ -32,9 +32,9 @@ const MOCK_TICKERS: TickerItem[] = [
 ];
 
 const STATS = [
-  { value: '99.9', suffix: '%', label: 'Uptime', icon: Activity },
-  { value: '24/7', suffix: '', label: 'Monitoring', icon: Eye },
-  { value: '6', suffix: '', label: 'Exchanges', icon: Globe },
+  { value: '24/7', suffix: '', label: 'Monitoring', icon: Activity },
+  { value: '< 1s', suffix: '', label: 'Updates', icon: Zap },
+  { value: '100%', suffix: '', label: 'Free', icon: Heart },
 ];
 
 function CountUp({ value, suffix }: { value: string; suffix: string }) {
@@ -104,7 +104,7 @@ function AnimatedTicker() {
 
   return (
     <div
-      className="flex flex-wrap justify-center gap-3"
+      className="flex flex-wrap justify-center gap-2 sm:gap-3"
       data-testid="hero-ticker"
       role="status"
       aria-label="Live cryptocurrency prices"
@@ -115,7 +115,7 @@ function AnimatedTicker() {
           key={t.symbol}
           className="flex items-center gap-2 rounded-full border border-border/50 bg-card/50 px-3 py-1.5 backdrop-blur-sm"
         >
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className="text-sm font-medium text-muted-foreground sm:text-xs">
             {t.symbol}
           </span>
           <span className="font-mono tabular-nums text-sm">${t.price}</span>
@@ -207,18 +207,18 @@ export function HeroSection() {
   return (
     <section
       ref={sectionRef}
-      className="relative overflow-hidden pt-28 pb-16 sm:pt-36 sm:pb-24"
+      className="relative overflow-hidden pt-24 pb-12 sm:pt-36 sm:pb-24"
     >
       <HeroBackground />
 
-      <div className="relative mx-auto max-w-6xl px-4">
+      <div className="relative mx-auto max-w-6xl px-4 lg:max-w-7xl">
         {/* Two-column layout */}
         <div className="grid items-center gap-12 lg:grid-cols-2">
           {/* Left: text content */}
           <div className="text-center lg:text-left">
             <h1
               ref={headlineRef}
-              className="text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
+              className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-6xl"
               data-hero-anim
             >
               Algorithmic Crypto Intelligence
@@ -231,8 +231,8 @@ export function HeroSection() {
               className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground lg:mx-0"
               data-hero-anim
             >
-              Live market data from Binance, interactive trading charts, portfolio
-              analytics, and smart price alerts all in one dashboard.
+              Track cryptocurrency portfolios with live Binance data, technical charts,
+              risk analytics, and intelligent price alerts—all free, no API keys needed.
             </p>
 
             <div
@@ -252,7 +252,7 @@ export function HeroSection() {
           {/* Right: globe */}
           <div
             ref={globeRef}
-            className="relative mx-auto h-[300px] w-full max-w-lg lg:h-[400px]"
+            className="relative mx-auto h-[250px] w-full max-w-lg lg:h-[400px]"
           >
             <GlobeSceneDynamic />
           </div>
@@ -264,7 +264,7 @@ export function HeroSection() {
         {/* Stats bar */}
         <div
           data-testid="stats-grid"
-          className="mt-8 grid grid-cols-3 gap-3 sm:mt-10 md:grid-cols-3 lg:grid-cols-3"
+          className="mt-8 grid grid-cols-3 gap-4 sm:mt-10 sm:gap-3 md:grid-cols-3 lg:grid-cols-3"
           data-hero-anim
         >
           {STATS.map((stat) => (
@@ -275,7 +275,7 @@ export function HeroSection() {
                   <CountUp value={stat.value} suffix={stat.suffix} />
                 </span>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">{stat.label}</p>
+              <p className="mt-1 text-sm text-muted-foreground sm:text-xs">{stat.label}</p>
             </article>
           ))}
         </div>

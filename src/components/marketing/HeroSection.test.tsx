@@ -70,7 +70,7 @@ describe('HeroSection', () => {
   it('renders value proposition text', () => {
     render(<HeroSection />);
     expect(
-      screen.getByText(/Live market data from Binance/)
+      screen.getByText(/Track cryptocurrency portfolios with live Binance data/)
     ).toBeInTheDocument();
   });
 

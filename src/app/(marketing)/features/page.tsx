@@ -8,7 +8,7 @@ import {
   FlaskConical,
   Wifi,
   Shield,
-  Layers,
+  Database,
   Clock,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/marketing/ContentLayout';
@@ -96,27 +96,27 @@ const FEATURES = [
 const PLATFORM_HIGHLIGHTS = [
   {
     icon: Wifi,
-    title: 'Real-Time Architecture',
+    title: 'WebSocket Architecture',
     description:
-      'Built on WebSocket connections for instant price updates. No polling, no delays.',
+      'Live Binance price feeds with sub-second updates. No polling, no delays.',
   },
   {
     icon: Shield,
-    title: 'Security First',
+    title: 'Secure Authentication',
     description:
-      'Session-based authentication with encrypted credentials. No exchange keys required.',
+      'Session-based auth with OAuth support (Google, GitHub). No exchange keys stored.',
   },
   {
-    icon: Layers,
-    title: 'Multi-Exchange Ready',
+    icon: Database,
+    title: 'Manual Portfolio Entry',
     description:
-      'Binance integration live. Architecture designed for additional exchange support.',
+      'Add holdings with custom quantity, purchase price, and date. Track real-time P&L.',
   },
   {
     icon: Clock,
-    title: '24/7 Monitoring',
+    title: 'Automated Alerts',
     description:
-      'Continuous market monitoring with automated alert evaluation every minute.',
+      'Continuous monitoring with cron-based alert evaluation every minute.',
   },
 ];
 
@@ -136,7 +136,7 @@ export default function FeaturesPage() {
             >
               <item.icon className="mx-auto h-5 w-5 text-primary" />
               <h3 className="mt-2 text-sm font-semibold">{item.title}</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-sm text-muted-foreground sm:text-xs">
                 {item.description}
               </p>
             </div>

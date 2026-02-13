@@ -1,30 +1,30 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { Lock, SlidersHorizontal, Zap } from 'lucide-react';
+import { UserPlus, SlidersHorizontal, TrendingUp } from 'lucide-react';
 import { gsap } from '@/lib/gsap';
 import { SpotlightCard } from './SpotlightCard';
 
 const STEPS = [
   {
     number: 1,
-    icon: Lock,
-    title: 'Connect',
-    description: 'Link your exchange API keys securely with read-only access.',
+    icon: UserPlus,
+    title: 'Register',
+    description: 'Create a free account with email or OAuth (Google, GitHub).',
   },
   {
     number: 2,
     icon: SlidersHorizontal,
     title: 'Configure',
     description:
-      'Set risk parameters, alert thresholds, and portfolio targets.',
+      'Set up watchlist, create portfolios, and configure alert thresholds.',
   },
   {
     number: 3,
-    icon: Zap,
-    title: 'Automate',
+    icon: TrendingUp,
+    title: 'Track',
     description:
-      'Let AlgoCrypto analyze markets and alert you in real time.',
+      'Monitor live market data from Binance with real-time price alerts.',
   },
 ];
 
@@ -83,7 +83,7 @@ export function HowItWorksSection() {
       id="how-it-works"
       className="py-16 sm:py-24"
     >
-      <div className="mx-auto max-w-6xl px-4">
+      <div className="mx-auto max-w-6xl px-4 lg:max-w-7xl">
         <h2 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
           <span className="gradient-heading">How It Works</span>
         </h2>
