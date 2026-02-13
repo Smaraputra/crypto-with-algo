@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Test Suite Audit Phase 3)
+- Comprehensive tests for candles API routes (26 new tests, 2 test files)
+  - GET /api/candles route tests (auth, validation, auto-backfill logic, error handling)
+  - POST /api/candles/backfill route tests (auth, validation, backfill stats, error handling)
+  - Increases total test coverage to 194 files with 1691 tests (from 192 files, 1665 tests)
+
 ### Fixed (Test Suite Audit Phases 1-2)
 - **Phase 1 - E2E Tests**: Fixed 4 failing E2E tests (viewport, timing, outdated assertions)
   - Playwright config now sets explicit desktop viewport (1280x720) for unauthenticated tests
