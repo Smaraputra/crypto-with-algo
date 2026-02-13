@@ -41,6 +41,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `POST /api/admin/activate-template` - Activate optimized template
   - 37 new unit tests (all passing)
   - Automated discovery of optimal signal weights from historical data
+- **Admin Optimization UI Dashboard** (`/admin/optimization`)
+  - Comprehensive optimization dashboard with tabbed interface
+  - Optimization form with validation (trading style, symbol, interval, months)
+  - Real-time progress monitoring with live polling (2s intervals)
+  - Progress bar, ETA calculation, and statistics display
+  - Optimization history table with status badges and filtering
+  - Template comparison view with side-by-side weight analysis
+  - Performance metrics diff (Sharpe ratio, win rate improvements)
+  - Visual weight bars showing changes from current template
+  - One-click template activation with confirmation
+  - Admin section in sidebar (visible when on admin pages)
+- New UI components:
+  - Alert component for notifications and error messages
+  - Progress component for progress bars
+  - Form components (full react-hook-form integration)
+- Badge success variant (green) for completed states
+- Dependencies: react-hook-form, @hookform/resolvers, date-fns
 - `holdTimeBars` field to BacktestTrade type for trade duration tracking
 - Comprehensive Terms of Service (16 sections)
   - Service description and user responsibilities
