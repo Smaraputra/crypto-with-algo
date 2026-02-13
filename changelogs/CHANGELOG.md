@@ -22,7 +22,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaced dead Blog and Documentation links in Footer with Features and How It Works
 
 ### Added
-- Legal placeholder pages (/terms, /privacy) with proper navigation
+- Comprehensive Terms of Service (16 sections)
+  - Service description and user responsibilities
+  - Prohibited activities and data disclaimers
+  - Intellectual property and liability limitations
+  - Strong financial disclaimer ("not financial advice")
+  - Third-party service integrations
+  - Account termination and dispute resolution
+  - Indemnification and severability clauses
+- Comprehensive Privacy Policy (12 sections)
+  - Detailed data collection and usage disclosure
+  - GDPR rights (EU users) and CCPA rights (California users)
+  - Data security measures and retention policies
+  - Third-party integrations (Binance, OAuth, MongoDB, Redis)
+  - Data breach notification procedures
+  - International data transfer safeguards
+  - Children's privacy protection
 - Legal links in Footer (Terms of Service, Privacy Policy)
 - Test for CursorGlow touch device detection
 
