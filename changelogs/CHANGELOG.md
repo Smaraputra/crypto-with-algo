@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed misleading API key integration claims from How It Works steps
   - Fixed GitHub social link to point to actual repository
   - Removed dead X/Twitter link
-  - Replaced dead Blog and Documentation links with Features and How It Works
+  - Removed dead Blog and Docs links from navigation bar and mobile menu
+  - Replaced dead Blog and Documentation links in Footer with Features and How It Works
 
 ### Added
 - Legal placeholder pages (/terms, /privacy) with proper navigation
