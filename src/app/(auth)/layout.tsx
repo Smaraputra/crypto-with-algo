@@ -1,4 +1,4 @@
-import { Zap } from 'lucide-react';
+import Image from 'next/image';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -24,7 +24,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       <div className="relative z-10 w-full max-w-md px-4">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <Zap className="h-6 w-6 text-accent" />
+          <Image
+            src="/logo.png"
+            alt="CryptoWithAlgo"
+            width={24}
+            height={24}
+            className="h-6 w-6"
+          />
           <span className="text-lg font-semibold tracking-tight">
             CryptoWithAlgo
           </span>

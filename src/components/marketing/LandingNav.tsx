@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { Zap, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -79,7 +80,13 @@ export function LandingNav() {
         )}
       >
         <Link href="/" className="flex items-center gap-2">
-          <Zap className="h-5 w-5 text-primary" />
+          <Image
+            src="/logo.png"
+            alt="CryptoWithAlgo"
+            width={20}
+            height={20}
+            className="h-5 w-5"
+          />
           <span className="text-sm font-semibold tracking-tight">
             CryptoWithAlgo
           </span>
