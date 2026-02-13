@@ -53,24 +53,30 @@ Completed comprehensive landing page mobile optimization and content accuracy fi
    - New: "Track cryptocurrency portfolios with live Binance data, technical charts, risk analytics, and intelligent price alerts—all free, no API keys needed."
    - Emphasizes: manual tracking, free tier, no API key requirement
 
-5. **Footer Links** (`src/components/marketing/Footer.tsx`)
+5. **Navigation Links** (`src/components/marketing/LandingNav.tsx`)
+   - Removed dead Blog link from desktop and mobile navigation
+   - Removed dead Docs link from desktop and mobile navigation
+   - Now only shows: Features, How It Works
+
+6. **Footer Links** (`src/components/marketing/Footer.tsx`)
    - Fixed GitHub link: `https://github.com` → `https://github.com/Smaraputra/crypto-with-algo`
    - Removed dead X/Twitter link (no project account)
    - Added legal links: Terms of Service, Privacy Policy
    - Replaced dead Resource links (Blog, Documentation) with Features and How It Works
 
-6. **Legal Pages**
+7. **Legal Pages**
    - Created `/terms/page.tsx` with placeholder content
    - Created `/privacy/page.tsx` with placeholder content
    - Both use ContentLayout for consistency
 
 ### Test Updates
 
-All tests updated and passing (1720 total):
+All tests updated and passing (1719 total):
 
 - `HeroSection.test.tsx`: Updated stats expectations and value proposition text
 - `HowItWorksSection.test.tsx`: Updated step titles and descriptions
 - `Footer.test.tsx`: Updated GitHub URL, legal links, and resource links
+- `LandingNav.test.tsx`: Removed Blog and Docs link assertions
 - `CursorGlow.test.tsx`: Added touch device detection test, fixed navigator.maxTouchPoints mocking
 - `features/page.test.tsx`: Updated platform highlight titles
 - Created `terms/page.test.tsx` and `privacy/page.test.tsx`
@@ -98,7 +104,7 @@ All tests updated and passing (1720 total):
 ```bash
 npm run test -- --run
 # Test Files  200 passed (200)
-# Tests       1720 passed (1720)
+# Tests       1719 passed (1719)
 
 npm run lint
 # ✓ Only pre-existing warnings (no new issues)
@@ -110,11 +116,11 @@ npm run typecheck
 # ✓ One pre-existing error in historical-snapshots (staged, unrelated)
 ```
 
-## Commit
+## Commits
 
-```
-feat(landing): optimize mobile UX and fix content accuracy
-```
+1. `feat(landing): optimize mobile UX and fix content accuracy` - Main implementation
+2. `docs: update changelog and create session 30 handover` - Documentation
+3. `fix(nav): remove dead Blog and Docs links from navigation` - Additional cleanup
 
 ## Status
 
