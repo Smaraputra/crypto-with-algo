@@ -14,7 +14,7 @@ export function sampleEquityCurve(
 ): Array<{ timestamp: number; equity: number }> {
   if (equityCurve.length <= maxPoints) {
     return equityCurve.map(point => ({
-      timestamp: point.timestamp,
+      timestamp: point.time,
       equity: point.equity,
     }));
   }
@@ -26,16 +26,16 @@ export function sampleEquityCurve(
     const index = Math.floor(i * step);
     const point = equityCurve[index];
     sampled.push({
-      timestamp: point.timestamp,
+      timestamp: point.time,
       equity: point.equity,
     });
   }
 
   // Always include the last point
   const last = equityCurve[equityCurve.length - 1];
-  if (sampled[sampled.length - 1].timestamp !== last.timestamp) {
+  if (sampled[sampled.length - 1].timestamp !== last.time) {
     sampled.push({
-      timestamp: last.timestamp,
+      timestamp: last.time,
       equity: last.equity,
     });
   }
@@ -58,7 +58,9 @@ export function createTradeSummary(trades: BacktestTrade[]): IBacktestResultV2['
   }
 
   const winningTrades = trades.filter(t => t.pnl > 0).length;
-  const avgHoldTimeBars = trades.reduce((sum, t) => sum + t.holdBars, 0) / trades.length;
+
+  // Calculate avgHoldTimeBars from entryBar and exitBar
+  const avgHoldTimeBars = trades.reduce((sum, t) => sum + (t.exitBar - t.entryBar), 0) / trades.length;
 
   // Find best and worst trades
   let bestTrade = trades[0];
@@ -109,8 +111,8 @@ export function compressBacktestResult(
     tradingStyle,
     symbol: result.symbol,
     interval: result.interval,
-    config: result.config as Record<string, unknown>,
-    metrics: result.metrics as Record<string, unknown>,
+    config: result.config as unknown as Record<string, unknown>,
+    metrics: result.metrics as unknown as Record<string, unknown>,
     tradeSummary: createTradeSummary(result.trades),
     equityCurveSampled: sampleEquityCurve(result.equityCurve),
     startTime: result.startTime,

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
-import { BacktestResult, MAX_BACKTEST_RESULTS_PER_USER } from '@/lib/models/backtest-result';
+import { BacktestResultV2 } from '@/lib/models/backtest-result-v2';
+import { Strategy } from '@/lib/models/strategy';
 import { saveBacktestResultSchema } from '@/types/backtest';
+import { compressBacktestResult } from '@/lib/backtest/compress-results';
+import type { BacktestResult } from '@/lib/backtest/types';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -12,10 +15,21 @@ export async function GET() {
 
   await connectDB();
 
-  // Return summaries without equityCurve and trades for performance
-  const results = await BacktestResult.find({ userId: session.user.id })
-    .select('-trades -equityCurve -config')
-    .sort({ createdAt: -1 });
+  const { searchParams } = new URL(req.url);
+  const strategyId = searchParams.get('strategyId');
+  const tradingStyle = searchParams.get('tradingStyle');
+  const symbol = searchParams.get('symbol');
+
+  const filter: Record<string, unknown> = { userId: session.user.id };
+  if (strategyId) filter.strategyId = strategyId;
+  if (tradingStyle) filter.tradingStyle = tradingStyle;
+  if (symbol) filter.symbol = symbol;
+
+  // Return summaries without equityCurve for performance
+  const results = await BacktestResultV2.find(filter)
+    .select('-equityCurveSampled -config')
+    .sort({ createdAt: -1 })
+    .limit(100); // Limit to last 100 for UI performance
 
   return NextResponse.json({ results });
 }
@@ -37,18 +51,48 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const count = await BacktestResult.countDocuments({ userId: session.user.id });
-  if (count >= MAX_BACKTEST_RESULTS_PER_USER) {
-    return NextResponse.json(
-      { error: `Maximum of ${MAX_BACKTEST_RESULTS_PER_USER} saved backtest results per user` },
-      { status: 400 }
-    );
+  // Get strategy to determine trading style and template
+  let tradingStyle = 'day_trading'; // Default
+  let templateId: string | null = null;
+
+  if (parsed.data.strategyId) {
+    const strategy = await Strategy.findOne({
+      _id: parsed.data.strategyId,
+      userId: session.user.id,
+    });
+
+    if (strategy) {
+      tradingStyle = strategy.tradingStyle;
+      templateId = strategy.templateId?.toString() || null;
+    }
   }
 
-  const result = await BacktestResult.create({
-    userId: session.user.id,
-    ...parsed.data,
-  });
+  // Compress the backtest result
+  const backtestResult: BacktestResult = {
+    symbol: parsed.data.symbol,
+    interval: parsed.data.interval,
+    startTime: parsed.data.startTime,
+    endTime: parsed.data.endTime,
+    totalBars: parsed.data.totalBars,
+    warmupBars: parsed.data.warmupBars,
+    config: parsed.data.config as never,
+    metrics: parsed.data.metrics as never,
+    trades: (parsed.data.trades || []) as never,
+    equityCurve: (parsed.data.equityCurve || []) as never,
+  };
+
+  const compressed = compressBacktestResult(
+    backtestResult,
+    session.user.id,
+    parsed.data.strategyId || null,
+    tradingStyle as never
+  );
+
+  if (templateId) {
+    compressed.templateId = templateId as never;
+  }
+
+  const result = await BacktestResultV2.create(compressed);
 
   return NextResponse.json({ result }, { status: 201 });
 }
