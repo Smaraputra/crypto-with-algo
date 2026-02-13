@@ -1,4 +1,5 @@
 import mongoose, { Schema, type Document } from 'mongoose';
+import type { TradingStyle } from './signal-template';
 
 export interface IStrategy extends Document {
   userId: string;
@@ -12,6 +13,15 @@ export interface IStrategy extends Document {
     volatility: number;
     futures: number;
     sentiment: number;
+  };
+  tradingStyle: TradingStyle;
+  templateId: mongoose.Types.ObjectId | null;
+  autoOptimize: boolean;
+  lastOptimizedAt: Date | null;
+  optimizationMetrics: {
+    backtestsRun: number;
+    bestSharpe: number;
+    currentGeneration: number;
   };
   active: boolean;
   createdAt: Date;
@@ -40,6 +50,26 @@ const strategySchema = new Schema<IStrategy>(
         volatility: 0.10,
         futures: 0.15,
         sentiment: 0.10,
+      }),
+    },
+    tradingStyle: {
+      type: String,
+      enum: ['scalping', 'day_trading', 'swing_trading', 'position_trading'],
+      default: 'day_trading',
+    },
+    templateId: { type: Schema.Types.ObjectId, default: null },
+    autoOptimize: { type: Boolean, default: false },
+    lastOptimizedAt: { type: Date, default: null },
+    optimizationMetrics: {
+      type: {
+        backtestsRun: { type: Number, default: 0 },
+        bestSharpe: { type: Number, default: 0 },
+        currentGeneration: { type: Number, default: 0 },
+      },
+      default: () => ({
+        backtestsRun: 0,
+        bestSharpe: 0,
+        currentGeneration: 0,
       }),
     },
     active: { type: Boolean, default: true },

@@ -20,7 +20,7 @@ describe('GET /api/historical-snapshots', () => {
 
   it('should reject unauthenticated requests', async () => {
     const { auth } = await import('@/lib/auth');
-    vi.mocked(auth).mockResolvedValue(null);
+    vi.mocked(auth).mockResolvedValue(null as never);
 
     const req = new Request('http://localhost:3000/api/historical-snapshots?symbol=BTCUSDT&interval=1h&startTime=1000&endTime=2000');
     const res = await GET(req);
