@@ -2,29 +2,35 @@
 
 ## Overview
 
-This guide covers deploying the Crypto Portfolio Tracker to a VPS (Virtual Private Server) alongside multiple other sites using Nginx reverse proxy.
+This guide covers deploying the Crypto Portfolio Tracker to a VPS (Virtual Private Server) alongside multiple other sites using Caddy reverse proxy.
+
+**Why Caddy?**
+- Automatic HTTPS via Let's Encrypt
+- Simpler configuration than Nginx
+- No manual SSL certificate management
+- Built-in HTTP/2 and HTTP/3 support
 
 ## Architecture
 
 ```
 Internet (Port 80/443)
         ↓
-   Nginx Reverse Proxy (yourdomain.com)
+   Caddy Reverse Proxy (Auto SSL)
         ↓
    ├─→ Site 1 (localhost:3000) → site1.yourdomain.com
    ├─→ Site 2 (localhost:3001) → site2.yourdomain.com
    └─→ CryptoTracker (localhost:3002) → crypto.yourdomain.com
 ```
 
-Each Next.js app runs on a different internal port, and Nginx routes traffic based on domain/subdomain.
+Each Next.js app runs on a different internal port, and Caddy routes traffic based on domain/subdomain with automatic SSL.
 
 ## Prerequisites
 
 - Ubuntu/Debian VPS with sudo access
 - Node.js 18+ installed
 - MongoDB installed (or MongoDB Atlas)
-- Domain name pointing to your VPS IP
-- SSL certificate (via Let's Encrypt)
+- Domain name(s) pointing to your VPS IP (A records)
+- Caddy will handle SSL automatically
 
 ## Step 1: System Setup
 
@@ -32,7 +38,7 @@ Each Next.js app runs on a different internal port, and Nginx routes traffic bas
 
 | |
 |---|
-| `sudo apt update`<br>`sudo apt install -y nginx git curl build-essential`<br><br>`# Install Node.js 20 (via nvm)`<br>`curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh \| bash`<br>`source ~/.bashrc`<br>`nvm install 20`<br>`nvm use 20`<br><br>`# Install PM2 (process manager)`<br>`npm install -g pm2`<br><br>`# Install MongoDB (optional, if not using MongoDB Atlas)`<br>`wget -qO - https://www.mongodb.org/static/pgp/server-7.0.asc \| sudo apt-key add -`<br>`echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" \| sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list`<br>`sudo apt update`<br>`sudo apt install -y mongodb-org`<br>`sudo systemctl start mongod`<br>`sudo systemctl enable mongod` |
+| `sudo apt update`<br>`sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https git curl build-essential`<br><br>`# Install Caddy`<br>`curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \| sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg`<br>`curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \| sudo tee /etc/apt/sources.list.d/caddy-stable.list`<br>`sudo apt update`<br>`sudo apt install -y caddy`<br><br>`# Install Node.js 20 (via nvm)`<br>`curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh \| bash`<br>`source ~/.bashrc`<br>`nvm install 20`<br>`nvm use 20`<br><br>`# Install PM2 (process manager)`<br>`npm install -g pm2`<br><br>`# Install MongoDB (optional, if not using MongoDB Atlas)`<br>`wget -qO - https://www.mongodb.org/static/pgp/server-7.0.asc \| sudo apt-key add -`<br>`echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" \| sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list`<br>`sudo apt update`<br>`sudo apt install -y mongodb-org`<br>`sudo systemctl start mongod`<br>`sudo systemctl enable mongod` |
 
 ## Step 2: Deploy Application
 
@@ -84,27 +90,35 @@ Create `/var/www/crypto-tracker/ecosystem.config.js`:
 |---|
 | `pm2 status                 # View status`<br>`pm2 logs crypto-tracker    # View logs`<br>`pm2 restart crypto-tracker # Restart app`<br>`pm2 stop crypto-tracker    # Stop app`<br>`pm2 delete crypto-tracker  # Remove from PM2` |
 
-## Step 4: Nginx Reverse Proxy
+## Step 4: Caddy Reverse Proxy
 
-### Install SSL Certificate (Let's Encrypt)
+### Configure Caddyfile
 
-| |
-|---|
-| `sudo apt install -y certbot python3-certbot-nginx`<br>`sudo certbot --nginx -d crypto.yourdomain.com` |
-
-### Configure Nginx
-
-Create `/etc/nginx/sites-available/crypto-tracker`:
+Edit `/etc/caddy/Caddyfile`:
 
 | |
 |---|
-| `# Redirect HTTP to HTTPS`<br>`server {`<br>`    listen 80;`<br>`    server_name crypto.yourdomain.com;`<br>`    return 301 https://$server_name$request_uri;`<br>`}`<br><br>`# HTTPS Server`<br>`server {`<br>`    listen 443 ssl http2;`<br>`    server_name crypto.yourdomain.com;`<br><br>`    # SSL certificates (managed by certbot)`<br>`    ssl_certificate /etc/letsencrypt/live/crypto.yourdomain.com/fullchain.pem;`<br>`    ssl_certificate_key /etc/letsencrypt/live/crypto.yourdomain.com/privkey.pem;`<br>`    include /etc/letsencrypt/options-ssl-nginx.conf;`<br>`    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;`<br><br>`    # Security headers`<br>`    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;`<br>`    add_header X-Frame-Options "SAMEORIGIN" always;`<br>`    add_header X-Content-Type-Options "nosniff" always;`<br>`    add_header X-XSS-Protection "1; mode=block" always;`<br><br>`    # Proxy to Next.js app on port 3002`<br>`    location / {`<br>`        proxy_pass http://localhost:3002;`<br>`        proxy_http_version 1.1;`<br>`        proxy_set_header Upgrade $http_upgrade;`<br>`        proxy_set_header Connection 'upgrade';`<br>`        proxy_set_header Host $host;`<br>`        proxy_cache_bypass $http_upgrade;`<br>`        proxy_set_header X-Real-IP $remote_addr;`<br>`        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`<br>`        proxy_set_header X-Forwarded-Proto $scheme;`<br>`    }`<br><br>`    # Rate limiting (optional)`<br>`    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;`<br>`    location /api/ {`<br>`        limit_req zone=api_limit burst=20 nodelay;`<br>`        proxy_pass http://localhost:3002;`<br>`        proxy_http_version 1.1;`<br>`        proxy_set_header Host $host;`<br>`        proxy_set_header X-Real-IP $remote_addr;`<br>`        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`<br>`        proxy_set_header X-Forwarded-Proto $scheme;`<br>`    }`<br>`}` |
+| `# CryptoTracker`<br>`crypto.yourdomain.com {`<br>`    reverse_proxy localhost:3002`<br>`    encode gzip`<br>`    header {`<br>`        Strict-Transport-Security "max-age=31536000; includeSubDomains"`<br>`        X-Frame-Options "SAMEORIGIN"`<br>`        X-Content-Type-Options "nosniff"`<br>`        X-XSS-Protection "1; mode=block"`<br>`    }`<br>`}`<br><br>`# Example: Add more sites`<br>`# site2.yourdomain.com {`<br>`#     reverse_proxy localhost:3001`<br>`#     encode gzip`<br>`# }` |
 
-### Enable Site
+**That's it!** Caddy automatically:
+- Obtains SSL certificates from Let's Encrypt
+- Redirects HTTP to HTTPS
+- Renews certificates automatically
+- Handles HTTP/2 and HTTP/3
+
+### Apply Configuration
 
 | |
 |---|
-| `sudo ln -s /etc/nginx/sites-available/crypto-tracker /etc/nginx/sites-enabled/`<br>`sudo nginx -t`<br>`sudo systemctl reload nginx` |
+| `# Test configuration`<br>`sudo caddy validate --config /etc/caddy/Caddyfile`<br><br>`# Reload Caddy`<br>`sudo systemctl reload caddy`<br><br>`# Check status`<br>`sudo systemctl status caddy` |
+
+### Verify DNS
+
+Before Caddy can issue SSL certificates, ensure DNS is pointing to your VPS:
+
+| |
+|---|
+| `# Check DNS resolution`<br>`dig crypto.yourdomain.com +short`<br>`# Should return your VPS IP address` |
 
 ## Step 5: Database Setup
 
@@ -128,7 +142,7 @@ Create `/etc/nginx/sites-available/crypto-tracker`:
 
 | |
 |---|
-| `# PM2 logs`<br>`pm2 logs crypto-tracker`<br><br>`# Nginx logs`<br>`sudo tail -f /var/log/nginx/access.log`<br>`sudo tail -f /var/log/nginx/error.log`<br><br>`# MongoDB logs`<br>`sudo tail -f /var/log/mongodb/mongod.log` |
+| `# PM2 logs`<br>`pm2 logs crypto-tracker`<br><br>`# Caddy logs`<br>`sudo journalctl -u caddy --no-pager \| tail -n 50`<br>`sudo journalctl -u caddy -f  # Follow mode`<br><br>`# MongoDB logs`<br>`sudo tail -f /var/log/mongodb/mongod.log` |
 
 ### Updates
 
@@ -142,13 +156,15 @@ Create `/etc/nginx/sites-available/crypto-tracker`:
 |---|
 | `# MongoDB backup`<br>`mongodump --uri="mongodb://localhost:27017/crypto_prod" --out=/backup/mongo-$(date +%Y%m%d)`<br><br>`# Application backup`<br>`tar -czf /backup/app-$(date +%Y%m%d).tar.gz /var/www/crypto-tracker` |
 
-### SSL Renewal
+### SSL Certificate Management
 
-Certbot auto-renews. Test renewal:
+Caddy manages certificates automatically. No manual renewal needed!
+
+Check certificate status:
 
 | |
 |---|
-| `sudo certbot renew --dry-run` |
+| `sudo caddy list-modules \| grep tls`<br>`# View certificate info in Caddy logs`<br>`sudo journalctl -u caddy \| grep certificate` |
 
 ## Step 7: Multi-Site Setup
 
@@ -165,8 +181,10 @@ For each site, assign a different port:
 Each site needs:
 1. Separate directory in `/var/www/`
 2. PM2 config with unique port
-3. Nginx config with matching domain
-4. SSL certificate via certbot
+3. Entry in Caddyfile with domain → port mapping
+4. DNS A record pointing to VPS IP
+
+Caddy handles SSL automatically for all domains!
 
 ## Troubleshooting
 
@@ -180,7 +198,7 @@ Each site needs:
 
 | |
 |---|
-| `# Check if app is running`<br>`pm2 status`<br><br>`# Check Nginx config`<br>`sudo nginx -t`<br><br>`# Check app logs`<br>`pm2 logs crypto-tracker` |
+| `# Check if app is running`<br>`pm2 status`<br><br>`# Check Caddy config`<br>`sudo caddy validate --config /etc/caddy/Caddyfile`<br><br>`# Check Caddy logs`<br>`sudo journalctl -u caddy -n 50`<br><br>`# Check app logs`<br>`pm2 logs crypto-tracker` |
 
 ### MongoDB connection issues
 
@@ -194,28 +212,26 @@ Each site needs:
 - [ ] SSH key-only authentication
 - [ ] MongoDB authentication enabled
 - [ ] Environment variables not committed to git
-- [ ] SSL certificate installed and auto-renewing
-- [ ] Security headers in Nginx config
+- [ ] DNS A records pointing to VPS IP (for Caddy SSL)
+- [ ] Security headers in Caddyfile
 - [ ] Regular backups configured
 - [ ] PM2 restart limits configured
-- [ ] API rate limiting configured
 - [ ] OAuth redirect URIs updated in Google/GitHub
+- [ ] Caddy running and certificates obtained
 
 ## Performance Optimization
 
-### Enable Nginx Caching
+### Caddy Caching (Optional)
 
-Add to Nginx config:
-
-| |
-|---|
-| `proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=nextjs_cache:10m max_size=10g inactive=60m;`<br><br>`location /_next/static/ {`<br>`    proxy_cache nextjs_cache;`<br>`    proxy_cache_valid 200 60m;`<br>`    proxy_pass http://localhost:3002;`<br>`}` |
-
-### Enable Gzip
+Add to Caddyfile for static assets:
 
 | |
 |---|
-| `gzip on;`<br>`gzip_vary on;`<br>`gzip_proxied any;`<br>`gzip_comp_level 6;`<br>`gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;` |
+| `crypto.yourdomain.com {`<br>`    reverse_proxy localhost:3002`<br>`    encode gzip`<br><br>`    # Cache static assets`<br>`    @static {`<br>`        path /_next/static/*`<br>`    }`<br>`    header @static Cache-Control "public, max-age=31536000, immutable"`<br><br>`    # Security headers`<br>`    header {`<br>`        Strict-Transport-Security "max-age=31536000"`<br>`        X-Frame-Options "SAMEORIGIN"`<br>`        X-Content-Type-Options "nosniff"`<br>`    }`<br>`}` |
+
+### Compression
+
+Caddy enables gzip compression by default with `encode gzip` directive (already included above).
 
 ## Cost Optimization
 
@@ -224,9 +240,25 @@ Add to Nginx config:
 - Single VPS can host multiple Next.js apps
 - Consider CloudFlare CDN (free tier)
 
+## Caddy Advanced Configuration
+
+### Multiple Sites Example
+
+Complete `/etc/caddy/Caddyfile` for multiple sites:
+
+| |
+|---|
+| `# Site 1`<br>`site1.yourdomain.com {`<br>`    reverse_proxy localhost:3000`<br>`    encode gzip`<br>`}`<br><br>`# Site 2`<br>`site2.yourdomain.com {`<br>`    reverse_proxy localhost:3001`<br>`    encode gzip`<br>`}`<br><br>`# CryptoTracker`<br>`crypto.yourdomain.com {`<br>`    reverse_proxy localhost:3002`<br>`    encode gzip`<br>`    header {`<br>`        Strict-Transport-Security "max-age=31536000"`<br>`        X-Frame-Options "SAMEORIGIN"`<br>`        X-Content-Type-Options "nosniff"`<br>`    }`<br>`}` |
+
+### Rate Limiting (Optional)
+
+| |
+|---|
+| `crypto.yourdomain.com {`<br>`    rate_limit {`<br>`        zone crypto_api {`<br>`            key {remote_host}`<br>`            events 100`<br>`            window 1m`<br>`        }`<br>`        zone_file /var/lib/caddy/ratelimit.json`<br>`    }`<br>`    reverse_proxy localhost:3002`<br>`}` |
+
 ## References
 
 - Next.js Deployment: https://nextjs.org/docs/deployment
 - PM2 Documentation: https://pm2.keymetrics.io/docs/usage/quick-start/
-- Nginx Reverse Proxy: https://www.nginx.com/blog/websocket-nginx/
-- Let's Encrypt: https://letsencrypt.org/getting-started/
+- Caddy Documentation: https://caddyserver.com/docs/
+- Caddy Reverse Proxy: https://caddyserver.com/docs/quick-starts/reverse-proxy
