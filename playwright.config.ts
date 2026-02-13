@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = process.env.PORT || '3000';
+// E2E tests use dedicated TEST_PORT (defaults to 3300) to avoid conflicts with dev server
+const TEST_PORT = process.env.TEST_PORT || '3300';
 
 export default defineConfig({
   testDir: './e2e',
@@ -10,7 +11,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? 'github' : 'html',
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: `http://localhost:${TEST_PORT}`,
     trace: 'on-first-retry',
   },
   projects: [
@@ -52,8 +53,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `PORT=${PORT} npm run dev`,
-    url: `http://localhost:${PORT}`,
+    command: `PORT=${TEST_PORT} npm run dev`,
+    url: `http://localhost:${TEST_PORT}`,
     reuseExistingServer: !process.env.CI,
   },
 });
