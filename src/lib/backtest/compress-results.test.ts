@@ -80,6 +80,7 @@ describe('createTradeSummary', () => {
         exitReason: 'signal',
         entryScore: 50,
         exitScore: 10,
+        holdTimeBars: 5,
       },
       {
         entryBar: 20,
@@ -97,6 +98,7 @@ describe('createTradeSummary', () => {
         exitReason: 'signal',
         entryScore: 40,
         exitScore: 10,
+        holdTimeBars: 5,
       },
       {
         entryBar: 30,
@@ -114,6 +116,7 @@ describe('createTradeSummary', () => {
         exitReason: 'signal',
         entryScore: 60,
         exitScore: 5,
+        holdTimeBars: 10,
       },
     ];
 
@@ -170,6 +173,7 @@ describe('compressBacktestResult', () => {
           exitReason: 'signal',
           entryScore: 50,
           exitScore: 10,
+          holdTimeBars: 5,
         },
       ],
       equityCurve: [

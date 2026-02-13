@@ -20,6 +20,7 @@ function makeTrade(overrides: Partial<BacktestTrade> = {}): BacktestTrade {
     entryScore: 40,
     exitScore: -15,
     entryTier: 'buy',
+    holdTimeBars: 1,
     ...overrides,
   };
 }

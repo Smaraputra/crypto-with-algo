@@ -59,8 +59,8 @@ export function createTradeSummary(trades: BacktestTrade[]): IBacktestResultV2['
 
   const winningTrades = trades.filter(t => t.pnl > 0).length;
 
-  // Calculate avgHoldTimeBars from entryBar and exitBar
-  const avgHoldTimeBars = trades.reduce((sum, t) => sum + (t.exitBar - t.entryBar), 0) / trades.length;
+  // Calculate avgHoldTimeBars from holdTimeBars field
+  const avgHoldTimeBars = trades.reduce((sum, t) => sum + t.holdTimeBars, 0) / trades.length;
 
   // Find best and worst trades
   let bestTrade = trades[0];
