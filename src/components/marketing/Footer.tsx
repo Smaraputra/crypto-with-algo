@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Zap } from 'lucide-react';
+import Image from 'next/image';
 
 const PRODUCT_LINKS = [
   { label: 'Dashboard', href: '/dashboard' },
@@ -21,7 +21,13 @@ export function Footer() {
           {/* Brand column */}
           <div className="lg:col-span-2">
             <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-primary" />
+              <Image
+                src="/logo.png"
+                alt="CryptoWithAlgo"
+                width={16}
+                height={16}
+                className="h-4 w-4"
+              />
               <span className="text-sm font-semibold">CryptoWithAlgo</span>
             </div>
             <p className="mt-2 max-w-xs text-xs text-muted-foreground">
