@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Middleware blocking logo and icon static assets
+  - Updated matcher pattern to exclude logo.png, icon.png, opengraph-image.png, apple-icon.png
+  - Fixed Next.js Image optimization 400 errors preventing logos from displaying
+  - Logo now displays correctly in navbar, footer, sidebar, and auth pages
 - Landing page mobile UX and content accuracy
   - Increased base font sizes for better mobile readability (text-xs → text-sm on mobile)
   - Reduced hero section padding on mobile (pt-24 pb-12)
