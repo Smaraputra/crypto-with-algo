@@ -63,6 +63,7 @@ export interface BacktestTrade {
   entryScore: number;
   exitScore: number;
   entryTier: SignalTier;
+  holdTimeBars: number;
 }
 
 export interface EquityPoint {

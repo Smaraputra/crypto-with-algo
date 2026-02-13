@@ -1,9 +1,9 @@
 import type { OHLCV } from '@/types/market';
-import type { SuperTrendPoint } from '@/lib/indicators/supertrend';
+import type { IndicatorSuite } from '@/lib/indicators/types';
 import { computeAllIndicators } from '@/lib/indicators/compute';
-import { computeSuperTrend } from '@/lib/indicators/supertrend';
-import { computeSignalScore } from '@/lib/signals/scorer';
 import { computeWarmupBars, interpretIndicatorsAtBar } from '@/lib/indicators/interpret-at-bar';
+import { computeSignalScore } from '@/lib/signals/scorer';
+import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { computeMetrics } from './metrics';
 import { fixedFractional, kellyCriterion, riskBased } from './position-sizing';
 import type {
@@ -15,6 +15,7 @@ import type {
   ExitReason,
   BacktestProgressCallback,
 } from './types';
+import type { SuperTrendPoint } from '@/lib/indicators/supertrend';
 
 interface OpenPosition {
   entryBar: number;
@@ -26,19 +27,59 @@ interface OpenPosition {
   entryTier: BacktestTrade['entryTier'];
 }
 
-export function runBacktest(
-  candles: OHLCV[],
+/**
+ * Pre-computed indicators for optimization
+ */
+export interface PreparedBacktest {
+  candles: OHLCV[];
+  indicators: IndicatorSuite[]; // Pre-computed for all bars
+  superTrend: SuperTrendPoint[];
+  warmupBars: number;
+  stOffset: number;
+}
+
+/**
+ * Prepare backtest: compute indicators once
+ * Reuse for multiple weight candidates
+ */
+export function prepareBacktest(candles: OHLCV[], symbol: string, interval: string): PreparedBacktest {
+  // Compute raw indicators
+  const raw = computeAllIndicators(candles, symbol, interval);
+  const superTrend = computeSuperTrend(candles);
+  const warmup = computeWarmupBars(raw);
+
+  // Pre-compute interpreted indicators for all bars
+  const indicators: IndicatorSuite[] = [];
+  for (let bar = 0; bar < candles.length; bar++) {
+    const suite = interpretIndicatorsAtBar(raw, bar, candles);
+    indicators.push(suite);
+  }
+
+  const stOffset = candles.length - superTrend.values.length;
+
+  return {
+    candles,
+    indicators,
+    superTrend: superTrend.values,
+    warmupBars: warmup,
+    stOffset,
+  };
+}
+
+/**
+ * Run backtest with pre-computed indicators
+ * Only weights differ between runs
+ */
+export function runOptimizedBacktest(
+  prepared: PreparedBacktest,
   config: BacktestConfig,
   symbol: string,
   interval: string,
   onProgress?: BacktestProgressCallback
 ): BacktestResult {
-  // 1. Compute all indicators once
-  const raw = computeAllIndicators(candles, symbol, interval);
-  const superTrend = computeSuperTrend(candles);
-  const warmup = computeWarmupBars(raw);
+  const { candles, indicators, superTrend, warmupBars, stOffset } = prepared;
 
-  const totalBars = candles.length - warmup;
+  const totalBars = candles.length - warmupBars;
   const trades: BacktestTrade[] = [];
   const equityCurve: EquityPoint[] = [];
 
@@ -46,52 +87,38 @@ export function runBacktest(
   let peakEquity = equity;
   let position: OpenPosition | null = null;
 
-  // 2. Iterate bar-by-bar from warmup to end
-  for (let bar = warmup; bar < candles.length; bar++) {
+  // Iterate bar-by-bar from warmup to end
+  for (let bar = warmupBars; bar < candles.length; bar++) {
     const candle = candles[bar];
 
     // Get SuperTrend at this bar
-    const stOffset = candles.length - superTrend.values.length;
     const stIdx = bar - stOffset;
     const superTrendAtBar: SuperTrendPoint | undefined =
-      stIdx >= 0 && stIdx < superTrend.values.length
-        ? superTrend.values[stIdx]
-        : undefined;
+      stIdx >= 0 && stIdx < superTrend.length ? superTrend[stIdx] : undefined;
 
-    // 2a. Check stop-loss / take-profit against candle high/low
+    // Check stop-loss / take-profit
     if (position) {
-      const { exitReason, exitPrice } = checkStopTakeProfit(
-        position,
-        candle,
-        config
-      );
+      const { exitReason, exitPrice } = checkStopTakeProfit(position, candle, config);
       if (exitReason) {
-        closeTrade(
-          position,
-          exitPrice,
-          bar,
-          candle.timestamp,
-          exitReason,
-          0, // exit score not meaningful for SL/TP
-          trades,
-          config
-        );
+        closeTrade(position, exitPrice, bar, candle.timestamp, exitReason, 0, trades, config);
         equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
         position = null;
       }
     }
 
-    // 2b. Interpret indicators at this bar
-    const suite = interpretIndicatorsAtBar(raw, bar, candles);
+    // Get pre-computed indicators for this bar
+    const suite = indicators[bar];
+
+    // Compute signal score with config weights
     const composite = computeSignalScore(
       suite,
       null, // no futures in backtest
       null, // no sentiment in backtest
       config.weights,
-      superTrendAtBar ? { values: superTrend.values, current: superTrendAtBar } : null
+      superTrendAtBar ? { values: superTrend, current: superTrendAtBar } : null
     );
 
-    // 2c. Check entry/exit based on signal score
+    // Check entry/exit based on signal score
     if (position) {
       // Check exit condition
       const shouldExit =
@@ -139,7 +166,7 @@ export function runBacktest(
       }
     }
 
-    // 2d. Update equity curve
+    // Update equity curve
     if (equity > peakEquity) peakEquity = equity;
     const drawdown = peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0;
     equityCurve.push({
@@ -149,15 +176,15 @@ export function runBacktest(
       drawdown,
     });
 
-    // 2e. Report progress
+    // Report progress
     if (onProgress) {
-      const barsProcessed = bar - warmup + 1;
+      const barsProcessed = bar - warmupBars + 1;
       const progress = Math.round((barsProcessed / totalBars) * 100);
       onProgress(progress, barsProcessed, totalBars);
     }
   }
 
-  // 3. Close any open position at end of data
+  // Close any open position at end of data
   if (position) {
     const lastCandle = candles[candles.length - 1];
     closeTrade(
@@ -178,7 +205,7 @@ export function runBacktest(
     }
   }
 
-  // 4. Compute metrics
+  // Compute metrics
   const metrics = computeMetrics(trades, equityCurve, config.startEquity);
 
   return {
@@ -188,10 +215,10 @@ export function runBacktest(
     trades,
     equityCurve,
     metrics,
-    startTime: candles[warmup]?.timestamp ?? candles[0].timestamp,
+    startTime: candles[warmupBars]?.timestamp ?? candles[0].timestamp,
     endTime: candles[candles.length - 1].timestamp,
     totalBars,
-    warmupBars: warmup,
+    warmupBars,
   };
 }
 
@@ -248,7 +275,10 @@ function closeTrade(
     pnl = (position.entryPrice - exitPrice) * position.quantity - fees;
   }
 
-  const pnlPercent = entryNotional > 0 ? (pnl / entryNotional) * 100 : 0;
+  const pnlPercent =
+    position.side === 'long'
+      ? ((exitPrice - position.entryPrice) / position.entryPrice) * 100
+      : ((position.entryPrice - exitPrice) / position.entryPrice) * 100;
 
   trades.push({
     entryBar: position.entryBar,
@@ -270,35 +300,35 @@ function closeTrade(
   });
 }
 
-function computeEquityAfterTrade(equity: number, trade: BacktestTrade): number {
-  return equity + trade.pnl;
+function computeEquityAfterTrade(currentEquity: number, trade: BacktestTrade): number {
+  return currentEquity + trade.pnl;
 }
 
 function computePositionSize(
   equity: number,
-  entryPrice: number,
+  price: number,
   side: TradeSide,
   config: BacktestConfig,
   trades: BacktestTrade[]
 ): number {
   const sizing = config.positionSizing;
   if (!sizing || sizing.method === 'fixed_percent') {
-    return (equity * config.positionSizePercent) / entryPrice;
+    return (equity * config.positionSizePercent) / price;
   }
 
   const stopLossPrice = side === 'long'
-    ? entryPrice * (1 - config.stopLossPercent)
-    : entryPrice * (1 + config.stopLossPercent);
+    ? price * (1 - config.stopLossPercent)
+    : price * (1 + config.stopLossPercent);
 
   switch (sizing.method) {
     case 'fixed_fractional':
-      return fixedFractional(equity, sizing.riskPerTrade, entryPrice, stopLossPrice);
+      return fixedFractional(equity, sizing.riskPerTrade, price, stopLossPrice);
 
     case 'kelly': {
       const completedTrades = trades.filter((t) => t.pnl !== 0);
       if (completedTrades.length < 5) {
         // Not enough history for Kelly, fall back to fixed percent
-        return (equity * config.positionSizePercent) / entryPrice;
+        return (equity * config.positionSizePercent) / price;
       }
       const wins = completedTrades.filter((t) => t.pnl > 0);
       const losses = completedTrades.filter((t) => t.pnl < 0);
@@ -309,13 +339,13 @@ function computePositionSize(
       const avgLoss = losses.length > 0
         ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length
         : -1;
-      return kellyCriterion(equity, winRate, avgWin, avgLoss, entryPrice, sizing.fractionKelly ?? 0.5);
+      return kellyCriterion(equity, winRate, avgWin, avgLoss, price, sizing.fractionKelly ?? 0.5);
     }
 
     case 'risk_based':
-      return riskBased(equity, sizing.riskPerTrade, entryPrice, stopLossPrice);
+      return riskBased(equity, sizing.riskPerTrade, price, stopLossPrice);
 
     default:
-      return (equity * config.positionSizePercent) / entryPrice;
+      return (equity * config.positionSizePercent) / price;
   }
 }
