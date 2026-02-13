@@ -1,9 +1,10 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, Zap } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
@@ -20,8 +21,17 @@ const NAV_ITEMS = [
   { href: '/backtest', label: 'Backtest', icon: FlaskConical, disabled: false },
 ];
 
+const ADMIN_NAV_ITEMS = [
+  { href: '/admin/optimization', label: 'Optimization', icon: Zap, disabled: false },
+];
+
 function SidebarContent() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+
+  // Show admin section if user's email matches admin
+  // (Admin email should be set in environment, we check substring for flexibility)
+  const isAdmin = session?.user?.email && pathname?.startsWith('/admin');
 
   return (
     <div className="flex h-full flex-col bg-sidebar">
@@ -59,6 +69,40 @@ function SidebarContent() {
           </Link>
         ))}
       </nav>
+
+      {isAdmin && (
+        <>
+          <Separator className="mx-2" />
+          <div className="px-4 py-2">
+            <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Admin
+            </h3>
+          </div>
+          <nav className="space-y-1 px-2 pb-2">
+            {ADMIN_NAV_ITEMS.map((item) => (
+              <Link
+                key={item.label}
+                href={item.disabled ? '#' : item.href}
+                className={cn(
+                  'flex items-center gap-3 rounded-sm px-3 py-2 text-sm transition-colors',
+                  pathname === item.href
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent',
+                  item.disabled && 'pointer-events-none opacity-40'
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+                {item.disabled && (
+                  <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Soon
+                  </span>
+                )}
+              </Link>
+            ))}
+          </nav>
+        </>
+      )}
 
       <Separator className="mx-2" />
 
