@@ -26,6 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaced dead Blog and Documentation links in Footer with Features and How It Works
 
 ### Added
+- **Phase 13D: Walk-Forward Optimization System**
+  - Weight generator with constrained randomization (±20% from base template)
+  - Seeded RNG for reproducible weight generation
+  - Robustness filter for backtest results (Sharpe ≥ 0.5, win rate ≥ 40%, DD ≤ 30%, min 10 trades)
+  - Ensemble system to average top N performers
+  - Template versioning with manual activation requirement
+  - Optimized backtest engine with pre-computed indicators (10-50x faster)
+  - Walk-forward optimization using anchored expanding windows
+  - OptimizationJob model with progress tracking
+  - Admin API endpoints:
+    - `POST /api/admin/optimize-template` - Trigger optimization
+    - `GET /api/admin/optimize-template/:jobId` - Poll job status
+    - `POST /api/admin/activate-template` - Activate optimized template
+  - 37 new unit tests (all passing)
+  - Automated discovery of optimal signal weights from historical data
+- `holdTimeBars` field to BacktestTrade type for trade duration tracking
 - Comprehensive Terms of Service (16 sections)
   - Service description and user responsibilities
   - Prohibited activities and data disclaimers
