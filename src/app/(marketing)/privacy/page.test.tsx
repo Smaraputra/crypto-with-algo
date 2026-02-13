@@ -24,8 +24,8 @@ describe('PrivacyPage', () => {
     expect(screen.getByText(/Last updated:/)).toBeInTheDocument();
   });
 
-  it('renders placeholder content', () => {
+  it('renders introduction section', () => {
     render(<PrivacyPage />);
-    expect(screen.getByText(/Privacy policy content to be added/)).toBeInTheDocument();
+    expect(screen.getByText(/AlgoCrypto.*is committed to protecting your privacy/)).toBeInTheDocument();
   });
 });
