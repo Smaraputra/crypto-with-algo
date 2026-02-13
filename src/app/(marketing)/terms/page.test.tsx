@@ -26,6 +26,6 @@ describe('TermsPage', () => {
 
   it('renders acceptance section', () => {
     render(<TermsPage />);
-    expect(screen.getByText(/By accessing and using AlgoCrypto/)).toBeInTheDocument();
+    expect(screen.getByText(/By accessing and using CryptoWithAlgo/)).toBeInTheDocument();
   });
 });

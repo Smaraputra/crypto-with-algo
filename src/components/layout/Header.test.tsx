@@ -42,9 +42,9 @@ beforeEach(() => {
 });
 
 describe('Header', () => {
-  it('renders AlgoCrypto title', () => {
+  it('renders CryptoWithAlgo title', () => {
     render(<Header />);
-    expect(screen.getByText('AlgoCrypto')).toBeInTheDocument();
+    expect(screen.getByText('CryptoWithAlgo')).toBeInTheDocument();
   });
 
   it('renders desktop toggle sidebar button', () => {

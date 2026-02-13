@@ -35,7 +35,7 @@ describe('LandingNav', () => {
 
   it('renders branding text', () => {
     render(<LandingNav />);
-    expect(screen.getByText('AlgoCrypto')).toBeInTheDocument();
+    expect(screen.getByText('CryptoWithAlgo')).toBeInTheDocument();
   });
 
   it('renders Sign In link pointing to /login when unauthenticated', () => {

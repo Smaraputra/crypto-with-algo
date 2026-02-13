@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'AlgoCrypto',
+  title: 'CryptoWithAlgo',
   description: 'Real-time cryptocurrency portfolio tracking with live market data, interactive charts, and smart alerts',
 };
 

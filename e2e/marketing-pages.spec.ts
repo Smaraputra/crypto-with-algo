@@ -4,7 +4,7 @@ test.describe('Marketing Pages', () => {
   test('Docs page renders heading, nav, and footer', async ({ page }) => {
     await page.goto('/docs');
     await expect(page.getByRole('heading', { name: 'Documentation' })).toBeVisible();
-    await expect(page.getByText('AlgoCrypto').first()).toBeVisible();
+    await expect(page.getByText('CryptoWithAlgo').first()).toBeVisible();
     await expect(page.getByText('Getting Started')).toBeVisible();
     await expect(page.getByText('Feature Reference')).toBeVisible();
   });

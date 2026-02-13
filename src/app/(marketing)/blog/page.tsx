@@ -7,7 +7,7 @@ const ARTICLES = [
     readTime: '8 min read',
     category: 'Education',
     excerpt:
-      'Learn how RSI, MACD, and Bollinger Bands work together to provide actionable trading signals. We break down each indicator and explain how AlgoCrypto combines them for multi-factor analysis.',
+      'Learn how RSI, MACD, and Bollinger Bands work together to provide actionable trading signals. We break down each indicator and explain how CryptoWithAlgo combines them for multi-factor analysis.',
   },
   {
     title: 'Building a Diversified Crypto Portfolio',
@@ -23,7 +23,7 @@ const ARTICLES = [
     readTime: '10 min read',
     category: 'Tutorial',
     excerpt:
-      'A step-by-step guide to using the AlgoCrypto backtesting engine. Configure entry/exit rules, set position sizing with Kelly criterion, and interpret performance metrics like Sharpe ratio and max drawdown.',
+      'A step-by-step guide to using the CryptoWithAlgo backtesting engine. Configure entry/exit rules, set position sizing with Kelly criterion, and interpret performance metrics like Sharpe ratio and max drawdown.',
   },
   {
     title: 'Real-Time Alerts: Never Miss a Market Move',
@@ -46,7 +46,7 @@ export default function BlogPage() {
   return (
     <ContentLayout
       title="Blog"
-      subtitle="Insights, tutorials, and product updates from the AlgoCrypto team."
+      subtitle="Insights, tutorials, and product updates from the CryptoWithAlgo team."
     >
       <div className="grid gap-6 sm:grid-cols-2">
         {ARTICLES.map((article) => (

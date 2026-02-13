@@ -40,7 +40,7 @@ export function Header() {
         >
           <Menu className="h-4 w-4" />
         </Button>
-        <span className="text-sm font-semibold text-foreground">AlgoCrypto</span>
+        <span className="text-sm font-semibold text-foreground">CryptoWithAlgo</span>
       </div>
 
       <div className="flex items-center gap-2">

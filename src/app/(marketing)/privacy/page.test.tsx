@@ -26,6 +26,6 @@ describe('PrivacyPage', () => {
 
   it('renders introduction section', () => {
     render(<PrivacyPage />);
-    expect(screen.getByText(/AlgoCrypto.*is committed to protecting your privacy/)).toBeInTheDocument();
+    expect(screen.getByText(/CryptoWithAlgo.*is committed to protecting your privacy/)).toBeInTheDocument();
   });
 });

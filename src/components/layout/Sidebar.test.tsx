@@ -114,7 +114,7 @@ describe('Sidebar', () => {
 
   it('renders sidebar header with app name', () => {
     render(<Sidebar />);
-    const headers = screen.getAllByText('AlgoCrypto');
+    const headers = screen.getAllByText('CryptoWithAlgo');
     expect(headers.length).toBeGreaterThan(0);
   });
 

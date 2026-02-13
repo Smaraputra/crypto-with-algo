@@ -50,7 +50,7 @@ Completed comprehensive landing page mobile optimization and content accuracy fi
 
 4. **Hero Subheadline**
    - Old: "Live market data from Binance, interactive trading charts, portfolio analytics, and smart price alerts all in one dashboard."
-   - New: "Track cryptocurrency portfolios with live Binance data, technical charts, risk analytics, and intelligent price alerts—all free, no API keys needed."
+   - New: "Track cryptocurrency portfolios with live Binance data, technical charts, risk analytics, and intelligent price alerts, all free, no API keys needed."
    - Emphasizes: manual tracking, free tier, no API key requirement
 
 5. **Navigation Links** (`src/components/marketing/LandingNav.tsx`)

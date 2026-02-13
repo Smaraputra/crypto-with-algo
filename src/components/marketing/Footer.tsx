@@ -22,7 +22,7 @@ export function Footer() {
           <div className="lg:col-span-2">
             <div className="flex items-center gap-2">
               <Zap className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">AlgoCrypto</span>
+              <span className="text-sm font-semibold">CryptoWithAlgo</span>
             </div>
             <p className="mt-2 max-w-xs text-xs text-muted-foreground">
               Built for traders, by traders.
@@ -122,7 +122,7 @@ export function Footer() {
         {/* Bottom bar */}
         <div className="mt-10 border-t border-border pt-6">
           <p className="text-center text-xs text-muted-foreground">
-            &copy; {new Date().getFullYear()} AlgoCrypto
+            &copy; {new Date().getFullYear()} CryptoWithAlgo
           </p>
         </div>
       </div>
