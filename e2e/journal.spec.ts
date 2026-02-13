@@ -22,9 +22,10 @@ test.describe('Journal page (authenticated)', () => {
     await page.goto('/journal');
 
     await page.getByRole('tab', { name: 'Review Queue' }).click();
-    // Review queue should show either entries or empty state
+    // Wait for loading to complete, then check for either entries or empty state
+    await page.waitForSelector('[data-testid="review-queue"], [data-testid="review-queue-empty"]', { timeout: 10000 });
     const reviewContent = page.getByTestId('review-queue');
-    const emptyState = page.getByText(/No entries to review/i);
+    const emptyState = page.getByTestId('review-queue-empty');
     const hasReview = await reviewContent.count() > 0;
     const hasEmpty = await emptyState.count() > 0;
     expect(hasReview || hasEmpty).toBe(true);

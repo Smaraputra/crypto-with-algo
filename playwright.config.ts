@@ -8,7 +8,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? 'github' : 'html',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:3300',
     trace: 'on-first-retry',
   },
   projects: [
@@ -21,7 +21,10 @@ export default defineConfig({
     // Unauthenticated tests -- no dependencies, no stored auth
     {
       name: 'unauthenticated',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1280, height: 720 },
+      },
       testMatch: /auth\.spec\.ts|landing\.spec\.ts|marketing-pages\.spec\.ts/,
     },
 
@@ -43,12 +46,12 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: /auth\.(spec|setup)\.ts|landing-mobile\.spec\.ts/,
+      testIgnore: /auth\.(spec|setup)\.ts|landing\.spec\.ts|landing-mobile\.spec\.ts|marketing-pages\.spec\.ts/,
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
+    command: 'PORT=3300 npm run dev',
+    url: 'http://localhost:3300',
     reuseExistingServer: !process.env.CI,
   },
 });
