@@ -3,9 +3,9 @@ import { Zap } from 'lucide-react';
 
 const PRODUCT_LINKS = [
   { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Portfolio', href: '/dashboard/portfolio' },
-  { label: 'Charts', href: '/dashboard/chart' },
-  { label: 'Alerts', href: '/dashboard/alerts' },
+  { label: 'Portfolio', href: '/portfolio' },
+  { label: 'Alerts', href: '/alerts' },
+  { label: 'Signals', href: '/signals' },
 ];
 
 const RESOURCE_LINKS = [
