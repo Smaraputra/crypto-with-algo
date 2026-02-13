@@ -35,15 +35,15 @@ describe('HowItWorksSection', () => {
 
   it('renders step titles', () => {
     render(<HowItWorksSection />);
-    expect(screen.getByText('Connect')).toBeInTheDocument();
+    expect(screen.getByText('Register')).toBeInTheDocument();
     expect(screen.getByText('Configure')).toBeInTheDocument();
-    expect(screen.getByText('Automate')).toBeInTheDocument();
+    expect(screen.getByText('Track')).toBeInTheDocument();
   });
 
   it('renders step descriptions', () => {
     render(<HowItWorksSection />);
-    expect(screen.getByText(/Link your exchange API keys/)).toBeInTheDocument();
-    expect(screen.getByText(/Set risk parameters/)).toBeInTheDocument();
-    expect(screen.getByText(/analyze markets/)).toBeInTheDocument();
+    expect(screen.getByText(/Create a free account/)).toBeInTheDocument();
+    expect(screen.getByText(/Set up watchlist/)).toBeInTheDocument();
+    expect(screen.getByText(/Monitor live market data/)).toBeInTheDocument();
   });
 });
