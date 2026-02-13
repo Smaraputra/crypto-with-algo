@@ -1,0 +1,79 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        NEXT_PUBLIC_BINANCE_WS_URL: ${NEXT_PUBLIC_BINANCE_WS_URL:-wss://stream.binance.com:9443}
+    container_name: crypto-app-prod
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - internal
+
+  mongodb:
+    image: mongo:7
+    container_name: crypto-mongodb-prod
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD}
+      MONGO_APP_USER: ${MONGO_APP_USER:-appuser}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:-apppassword}
+    volumes:
+      - mongodb_prod_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: crypto-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - internal
+
+  cron:
+    image: alpine:3.20
+    container_name: crypto-cron
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/cron-entrypoint.sh"]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET}
+    volumes:
+      - ./docker/crontab.template:/etc/crontab.template:ro
+      - ./docker/cron-entrypoint.sh:/etc/cron-entrypoint.sh:ro
+    depends_on:
+      - app
+    networks:
+      - internal
+
+volumes:
+  mongodb_prod_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,44 @@
+node_modules
+.next
+.git
+.gitignore
+
+# Reference code
+_reference/
+
+# Test files
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.playwright-mcp/
+e2e/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+src/test/
+src/__fixtures__/
+src/__mocks__/
+vitest.config.ts
+playwright.config.ts
+
+# Documentation and session files
+changelogs/
+sessions/
+plans/
+CLAUDE.md
+SHIPPING.md
+*.md
+!README.md
+
+# Dev configs
+docker-compose.yml
+.env*
+!.env.production.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
