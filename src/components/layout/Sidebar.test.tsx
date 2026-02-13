@@ -2,9 +2,14 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 let mockPathname = '/dashboard';
+let mockSession: { user: { email: string } } | null = null;
 
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+}));
+
+vi.mock('next-auth/react', () => ({
+  useSession: () => ({ data: mockSession, status: mockSession ? 'authenticated' : 'unauthenticated' }),
 }));
 
 vi.mock('next/link', () => ({
@@ -47,6 +52,7 @@ beforeEach(() => {
   mockPathname = '/dashboard';
   mockSidebarOpen = true;
   mockMobileSidebarOpen = false;
+  mockSession = null;
 });
 
 describe('Sidebar', () => {
