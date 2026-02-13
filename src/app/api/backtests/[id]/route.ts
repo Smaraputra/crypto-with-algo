@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
-import { BacktestResult } from '@/lib/models/backtest-result';
+import { BacktestResultV2 } from '@/lib/models/backtest-result-v2';
 
 export async function GET(
   _req: NextRequest,
@@ -14,7 +14,7 @@ export async function GET(
 
   const { id } = await params;
   await connectDB();
-  const result = await BacktestResult.findOne({
+  const result = await BacktestResultV2.findOne({
     _id: id,
     userId: session.user.id,
   });
@@ -37,7 +37,7 @@ export async function DELETE(
 
   const { id } = await params;
   await connectDB();
-  const result = await BacktestResult.findOneAndDelete({
+  const result = await BacktestResultV2.findOneAndDelete({
     _id: id,
     userId: session.user.id,
   });

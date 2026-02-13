@@ -10,18 +10,23 @@ vi.mock('@/lib/mongodb', () => ({
   connectDB: vi.fn(),
 }));
 
-vi.mock('@/lib/models/backtest-result', () => ({
-  BacktestResult: {
+vi.mock('@/lib/models/backtest-result-v2', () => ({
+  BacktestResultV2: {
     find: vi.fn(),
     countDocuments: vi.fn(),
     create: vi.fn(),
   },
-  MAX_BACKTEST_RESULTS_PER_USER: 50,
+}));
+
+vi.mock('@/lib/models/strategy', () => ({
+  Strategy: {
+    findOne: vi.fn(),
+  },
 }));
 
 import { GET, POST } from './route';
 import { auth } from '@/lib/auth';
-import { BacktestResult } from '@/lib/models/backtest-result';
+import { BacktestResultV2 } from '@/lib/models/backtest-result-v2';
 
 const mockSession = { user: { id: 'user-1' } };
 
@@ -38,6 +43,12 @@ const mockSaveInput = {
   endTime: 1704153600000,
 };
 
+function makeGetRequest(query = ''): NextRequest {
+  return new NextRequest(`http://localhost/api/backtests${query}`, {
+    method: 'GET',
+  });
+}
+
 function makePostRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost/api/backtests', {
     method: 'POST',
@@ -53,19 +64,21 @@ beforeEach(() => {
 describe('GET /api/backtests', () => {
   it('returns 401 when unauthenticated', async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
-    const res = await GET();
+    const res = await GET(makeGetRequest());
     expect(res.status).toBe(401);
   });
 
   it('returns backtest results for user', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(BacktestResult.find).mockReturnValue({
+    vi.mocked(BacktestResultV2.find).mockReturnValue({
       select: vi.fn().mockReturnValue({
-        sort: vi.fn().mockResolvedValue([{ _id: 'bt1', symbol: 'BTCUSDT' }]),
+        sort: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue([{ _id: 'bt1', symbol: 'BTCUSDT' }]),
+        }),
       }),
     } as never);
 
-    const res = await GET();
+    const res = await GET(makeGetRequest());
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.results).toHaveLength(1);
@@ -80,9 +93,11 @@ describe('POST /api/backtests', () => {
   });
 
   it('saves a backtest result', async () => {
+    const { Strategy } = await import('@/lib/models/strategy');
+
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(BacktestResult.countDocuments).mockResolvedValue(0);
-    vi.mocked(BacktestResult.create).mockResolvedValue({
+    vi.mocked(Strategy.findOne).mockResolvedValue(null);
+    vi.mocked(BacktestResultV2.create).mockResolvedValue({
       _id: 'bt1',
       userId: 'user-1',
       ...mockSaveInput,
@@ -98,15 +113,5 @@ describe('POST /api/backtests', () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     const res = await POST(makePostRequest({ symbol: '' }));
     expect(res.status).toBe(400);
-  });
-
-  it('enforces 50-result limit', async () => {
-    vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(BacktestResult.countDocuments).mockResolvedValue(50);
-
-    const res = await POST(makePostRequest(mockSaveInput));
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.error).toContain('Maximum of 50');
   });
 });

@@ -10,8 +10,8 @@ vi.mock('@/lib/mongodb', () => ({
   connectDB: vi.fn(),
 }));
 
-vi.mock('@/lib/models/backtest-result', () => ({
-  BacktestResult: {
+vi.mock('@/lib/models/backtest-result-v2', () => ({
+  BacktestResultV2: {
     findOne: vi.fn(),
     findOneAndDelete: vi.fn(),
   },
@@ -19,7 +19,7 @@ vi.mock('@/lib/models/backtest-result', () => ({
 
 import { GET, DELETE } from './route';
 import { auth } from '@/lib/auth';
-import { BacktestResult } from '@/lib/models/backtest-result';
+import { BacktestResultV2 } from '@/lib/models/backtest-result-v2';
 
 const mockSession = { user: { id: 'user-1' } };
 const params = Promise.resolve({ id: 'bt-1' });
@@ -41,7 +41,7 @@ describe('GET /api/backtests/[id]', () => {
 
   it('returns backtest result', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(BacktestResult.findOne).mockResolvedValue({
+    vi.mocked(BacktestResultV2.findOne).mockResolvedValue({
       _id: 'bt-1',
       symbol: 'BTCUSDT',
       metrics: {},
@@ -55,7 +55,7 @@ describe('GET /api/backtests/[id]', () => {
 
   it('returns 404 when not found', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(BacktestResult.findOne).mockResolvedValue(null);
+    vi.mocked(BacktestResultV2.findOne).mockResolvedValue(null);
 
     const res = await GET(makeRequest('GET'), { params });
     expect(res.status).toBe(404);
@@ -71,7 +71,7 @@ describe('DELETE /api/backtests/[id]', () => {
 
   it('deletes backtest result', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(BacktestResult.findOneAndDelete).mockResolvedValue({ _id: 'bt-1' } as never);
+    vi.mocked(BacktestResultV2.findOneAndDelete).mockResolvedValue({ _id: 'bt-1' } as never);
 
     const res = await DELETE(makeRequest('DELETE'), { params });
     expect(res.status).toBe(200);
@@ -81,7 +81,7 @@ describe('DELETE /api/backtests/[id]', () => {
 
   it('returns 404 when not found', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(BacktestResult.findOneAndDelete).mockResolvedValue(null);
+    vi.mocked(BacktestResultV2.findOneAndDelete).mockResolvedValue(null);
 
     const res = await DELETE(makeRequest('DELETE'), { params });
     expect(res.status).toBe(404);

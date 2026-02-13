@@ -9,9 +9,9 @@ import type { BacktestResult, BacktestTrade, EquityPoint } from './types';
 describe('sampleEquityCurve', () => {
   it('should return all points if count <= maxPoints', () => {
     const curve: EquityPoint[] = [
-      { bar: 0, timestamp: 1000, equity: 10000 },
-      { bar: 1, timestamp: 2000, equity: 10050 },
-      { bar: 2, timestamp: 3000, equity: 10100 },
+      { bar: 0, time: 1000, equity: 10000, drawdown: 0 },
+      { bar: 1, time: 2000, equity: 10050, drawdown: 0 },
+      { bar: 2, time: 3000, equity: 10100, drawdown: 0 },
     ];
 
     const sampled = sampleEquityCurve(curve, 200);
@@ -26,7 +26,7 @@ describe('sampleEquityCurve', () => {
   it('should sample to max 200 points', () => {
     const curve: EquityPoint[] = [];
     for (let i = 0; i < 1000; i++) {
-      curve.push({ bar: i, timestamp: 1000 + i * 1000, equity: 10000 + i * 10 });
+      curve.push({ bar: i, time: 1000 + i * 1000, equity: 10000 + i * 10, drawdown: 0 });
     }
 
     const sampled = sampleEquityCurve(curve, 200);
@@ -38,14 +38,14 @@ describe('sampleEquityCurve', () => {
   it('should always include last point', () => {
     const curve: EquityPoint[] = [];
     for (let i = 0; i < 500; i++) {
-      curve.push({ bar: i, timestamp: 1000 + i * 1000, equity: 10000 + i * 10 });
+      curve.push({ bar: i, time: 1000 + i * 1000, equity: 10000 + i * 10, drawdown: 0 });
     }
 
     const sampled = sampleEquityCurve(curve, 200);
     const lastOriginal = curve[curve.length - 1];
     const lastSampled = sampled[sampled.length - 1];
 
-    expect(lastSampled.timestamp).toBe(lastOriginal.timestamp);
+    expect(lastSampled.timestamp).toBe(lastOriginal.time);
     expect(lastSampled.equity).toBe(lastOriginal.equity);
   });
 });
@@ -75,7 +75,7 @@ describe('createTradeSummary', () => {
         quantity: 1,
         pnl: 5,
         pnlPercent: 5,
-        holdBars: 5,
+        fees: 0,
         entryTier: 'buy',
         exitReason: 'signal',
         entryScore: 50,
@@ -92,7 +92,7 @@ describe('createTradeSummary', () => {
         quantity: 1,
         pnl: -3,
         pnlPercent: -2.86,
-        holdBars: 5,
+        fees: 0,
         entryTier: 'buy',
         exitReason: 'signal',
         entryScore: 40,
@@ -109,7 +109,7 @@ describe('createTradeSummary', () => {
         quantity: 1,
         pnl: 8,
         pnlPercent: 7.84,
-        holdBars: 10,
+        fees: 0,
         entryTier: 'buy',
         exitReason: 'signal',
         entryScore: 60,
@@ -147,12 +147,12 @@ describe('compressBacktestResult', () => {
       config: {
         startEquity: 10000,
         weights: { trend: 0.25, momentum: 0.25, volume: 0.15, volatility: 0.1, futures: 0.15, sentiment: 0.1 },
-      },
+      } as never,
       metrics: {
         totalReturn: 10,
         sharpeRatio: 1.5,
         winRate: 0.6,
-      },
+      } as never,
       trades: [
         {
           entryBar: 10,
@@ -165,17 +165,17 @@ describe('compressBacktestResult', () => {
           quantity: 1,
           pnl: 5,
           pnlPercent: 5,
-          holdBars: 5,
+          fees: 0,
           entryTier: 'buy',
           exitReason: 'signal',
           entryScore: 50,
           exitScore: 10,
         },
-      ] as BacktestTrade[],
+      ],
       equityCurve: [
-        { bar: 0, timestamp: 1000, equity: 10000 },
-        { bar: 1, timestamp: 2000, equity: 10050 },
-        { bar: 2, timestamp: 3000, equity: 10100 },
+        { bar: 0, time: 1000, equity: 10000, drawdown: 0 },
+        { bar: 1, time: 2000, equity: 10050, drawdown: 0 },
+        { bar: 2, time: 3000, equity: 10100, drawdown: 0 },
       ],
     };
 
@@ -206,8 +206,8 @@ describe('compressBacktestResult', () => {
       endTime: 5000,
       totalBars: 100,
       warmupBars: 50,
-      config: {},
-      metrics: {},
+      config: {} as never,
+      metrics: {} as never,
       trades: [],
       equityCurve: [],
     };
