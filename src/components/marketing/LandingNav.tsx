@@ -99,18 +99,6 @@ export function LandingNav() {
           >
             How It Works
           </Link>
-          <Link
-            href="/docs"
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Docs
-          </Link>
-          <Link
-            href="/blog"
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Blog
-          </Link>
         </div>
 
         {/* Right side - desktop */}
@@ -168,22 +156,6 @@ export function LandingNav() {
               onClick={closeMenu}
             >
               How It Works
-            </Link>
-            <Link
-              href="/docs"
-              role="menuitem"
-              className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
-              onClick={closeMenu}
-            >
-              Docs
-            </Link>
-            <Link
-              href="/blog"
-              role="menuitem"
-              className="rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
-              onClick={closeMenu}
-            >
-              Blog
             </Link>
             <div className="my-1 h-px bg-border/50" />
             {isAuthenticated ? (

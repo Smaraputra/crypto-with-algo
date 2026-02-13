@@ -52,19 +52,10 @@ describe('LandingNav', () => {
     expect(desktopLink?.closest('a')).toHaveAttribute('href', '/register');
   });
 
-  it('renders center nav links (Features, How It Works, Docs, Blog)', () => {
+  it('renders center nav links (Features, How It Works)', () => {
     render(<LandingNav />);
     expect(screen.getAllByText('Features').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('How It Works').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Docs').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Blog').length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('renders Docs link pointing to /docs', () => {
-    render(<LandingNav />);
-    const docsLinks = screen.getAllByText('Docs');
-    const desktopLink = docsLinks.find((el) => el.closest('a'));
-    expect(desktopLink?.closest('a')).toHaveAttribute('href', '/docs');
   });
 
   it('renders Features link pointing to /features', () => {
