@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (Test Suite Audit Phase 1)
+- E2E tests failing due to viewport configuration (landing page nav elements hidden on small viewports)
+- Playwright config now sets explicit desktop viewport (1280x720) for unauthenticated tests
+- Journal review queue E2E test now waits for loading state completion before assertions
+- Backtest Journal tab E2E test updated to match current implementation (redirect message instead of JournalList)
+- Test project configuration updated to properly exclude unauthenticated tests from authenticated project
+- Dev server port changed to 3300 to avoid conflicts
+- All 87 E2E tests now passing (previously 83/87)
+
 ### Added (Phase 12: Journal Analytics -- Steps 98-101)
 - Journal analytics API with MongoDB aggregation pipelines: summary stats, tag performance, action distribution, setup type analysis, market condition breakdown, monthly P&L, signal tier accuracy (`/api/journal/analytics`)
 - AnalyticsSummaryCards component (total trades, win rate, P&L, profit factor)
