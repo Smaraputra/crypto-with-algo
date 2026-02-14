@@ -8,12 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- DataStatus component now auto-fetches candle counts on mount and when symbol/interval changes (removed manual "Check Status" button)
+- E2E signals tests updated for CardTitle div elements (getByRole('heading') to getByText())
 - Null assertion crash in monthly-orchestrator when `getCandleRange` returns null `newest` value
 - Silent error swallowing in compute-engine bulk insert fallback -- now logs errors and adjusts computed/errors counts
 - Registration race condition: concurrent duplicate email now returns 409 instead of 500 (MongoDB error code 11000)
 - Unused variable lint warning in walk-forward.ts (`testDoc`)
 
 ### Changed
+- Standardized button sizes: replaced `size="sm" className="h-7 text-xs"` overrides with `size="xs"`, `size="icon-xs"` variants across all pages
+- Replaced hardcoded hex colors (#0ecb81/#f6465d, text-green-400/text-red-400) with CSS variable classes (text-bullish/text-bearish) in ~18 components
+- Replaced `text-[10px]` with `text-xs` (12px) across ~26 components for readability
+- Standardized Card/CardHeader/CardContent usage on Signals, Backtest, and Research pages; added consistent `p-4` page padding
 - Strengthened weak test assertions: replaced `.toBeDefined()` with type/range/enum checks in compute-for-style, compute-engine, and scorer tests
 - Removed conditional guard in E2E dashboard watchlist test that silently skipped assertions
 - Exported `calculateWindows` from walk-forward.ts for direct unit testing
