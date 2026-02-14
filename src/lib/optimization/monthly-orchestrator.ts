@@ -3,7 +3,7 @@ import type { TradingStyle } from '@/lib/models/signal-template';
 import { CronRun, type ICronRun } from '@/lib/models/cron-run';
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { SignalTemplate } from '@/lib/models/signal-template';
-import { fetchKlines } from '@/lib/binance';
+import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 import { runWalkForward } from './walk-forward';
 import { createTemplateVersion } from './template-versioning';
 import { shouldAutoActivate, executeAutoActivation } from './auto-activation';
@@ -69,10 +69,18 @@ export async function runMonthlyOptimization(
         }
       );
 
-      // Fetch historical candles
+      // Fetch historical candles from stored data (backfill if needed)
       const endTime = Date.now();
       const startTime = endTime - months * 30 * 24 * 60 * 60 * 1000; // Approximate months
-      const candles = await fetchKlines(symbol, interval, startTime, endTime);
+
+      // Ensure we have sufficient stored data
+      const range = await getCandleRange(symbol, interval);
+      const needsBackfill = !range.oldest || range.oldest > startTime || !range.newest || range.newest < endTime - 60000;
+      if (needsBackfill) {
+        await backfillCandles(symbol, interval, months);
+      }
+
+      const candles = await getCandles(symbol, interval, startTime, endTime, 50000);
 
       if (candles.length < DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars + DEFAULT_OPTIMIZATION_CONFIG.testWindowBars) {
         throw new Error(`Insufficient data: ${candles.length} bars (need ${DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars + DEFAULT_OPTIMIZATION_CONFIG.testWindowBars})`);
