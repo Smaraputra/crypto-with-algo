@@ -7,12 +7,11 @@ test.describe('Backtest page (authenticated)', () => {
     await expect(page.getByText('New Strategy')).toBeVisible();
   });
 
-  test('renders tab navigation with Configure, Results, History, Journal', async ({ page }) => {
+  test('renders tab navigation with Configure, Results, History', async ({ page }) => {
     await page.goto('/backtest');
     await expect(page.getByRole('tab', { name: 'Configure' })).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('tab', { name: 'Results' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'History' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Journal' })).toBeVisible();
   });
 
   test('shows interval selector buttons', async ({ page }) => {
@@ -40,11 +39,10 @@ test.describe('Backtest page (authenticated)', () => {
     expect(hasEmpty || hasTable).toBe(true);
   });
 
-  test('Journal tab shows link to journal page', async ({ page }) => {
+  test('Results tab shows empty state when no backtest run', async ({ page }) => {
     await page.goto('/backtest');
-    await page.getByRole('tab', { name: 'Journal' }).click();
-    await expect(page.getByText('The journal has moved to its own dedicated page')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('link', { name: 'Open Journal' })).toBeVisible();
+    await page.getByRole('tab', { name: 'Results' }).click();
+    await expect(page.getByTestId('results-empty')).toBeVisible({ timeout: 5000 });
   });
 
   test('New Strategy button opens form dialog', async ({ page }) => {

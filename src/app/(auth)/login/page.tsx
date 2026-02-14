@@ -3,7 +3,6 @@
 import { Suspense, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
@@ -132,12 +131,6 @@ function LoginForm() {
           </Button>
         </div>
 
-        <p className="text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{' '}
-          <Link href="/register" className="text-primary hover:underline">
-            Sign up
-          </Link>
-        </p>
       </CardContent>
     </Card>
   );

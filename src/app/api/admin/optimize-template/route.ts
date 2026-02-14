@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { OptimizationJob } from '@/lib/models/optimization-job';
-import { fetchKlines } from '@/lib/binance';
+import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 import { runWalkForward } from '@/lib/optimization/walk-forward';
 import { createTemplateVersion, markResultsAsContributors } from '@/lib/optimization/template-versioning';
 import { DEFAULT_TEMPLATE_THRESHOLDS, type TradingStyle } from '@/lib/models/signal-template';
@@ -39,11 +39,18 @@ export async function POST(req: Request) {
 
     await connectDB();
 
-    // 3. Fetch historical candles from Binance
+    // 3. Fetch historical candles from stored data (backfill if needed)
     const endTime = Date.now();
     const startTime = endTime - months * 30 * 24 * 60 * 60 * 1000; // Approximate months
 
-    const candles = await fetchKlines(symbol, interval, 1000, startTime, endTime);
+    // Ensure we have sufficient stored data
+    const range = await getCandleRange(symbol, interval);
+    const needsBackfill = !range.oldest || range.oldest > startTime || range.newest! < endTime - 60000;
+    if (needsBackfill) {
+      await backfillCandles(symbol, interval, months);
+    }
+
+    const candles = await getCandles(symbol, interval, startTime, endTime, 50000);
 
     if (candles.length < DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars + DEFAULT_OPTIMIZATION_CONFIG.testWindowBars) {
       return NextResponse.json(

@@ -136,4 +136,11 @@ describe('Sidebar', () => {
     const watchlists = screen.getAllByTestId('watchlist-sidebar');
     expect(watchlists.length).toBeGreaterThan(0);
   });
+
+  it('renders Research item linking to /research', () => {
+    render(<Sidebar />);
+    const researchLinks = screen.getAllByText('Research');
+    const link = researchLinks.find((el) => el.closest('a'))?.closest('a');
+    expect(link).toHaveAttribute('href', '/research');
+  });
 });

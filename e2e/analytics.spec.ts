@@ -10,9 +10,9 @@ test.describe('Analytics page (authenticated)', () => {
   test('navigates to analytics page via sidebar', async ({ page }) => {
     await page.goto('/dashboard');
     const sidebar = page.locator('[data-testid="desktop-sidebar"]');
-    await sidebar.getByText('Analytics').click();
+    await sidebar.getByRole('link', { name: 'Analytics' }).click();
 
-    await expect(page).toHaveURL('/analytics');
+    await expect(page).toHaveURL('/analytics', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible();
   });
 

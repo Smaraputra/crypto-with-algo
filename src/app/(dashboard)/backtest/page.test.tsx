@@ -61,8 +61,12 @@ vi.mock('@/components/backtest/TradeList', () => ({
   TradeList: () => <div data-testid="trade-list" />,
 }));
 
-vi.mock('@/components/backtest/JournalList', () => ({
-  JournalList: () => <div data-testid="journal-list" />,
+vi.mock('@/components/backtest/DataStatus', () => ({
+  DataStatus: () => <div data-testid="data-status" />,
+}));
+
+vi.mock('@/components/backtest/WeightSliders', () => ({
+  WeightSliders: () => <div data-testid="weight-sliders" />,
 }));
 
 import BacktestPage from './page';
@@ -78,12 +82,11 @@ describe('BacktestPage', () => {
     expect(screen.getByText('New Strategy')).toBeInTheDocument();
   });
 
-  it('renders all tabs', () => {
+  it('renders all tabs (Configure, Results, History)', () => {
     render(<BacktestPage />);
     expect(screen.getByText('Configure')).toBeInTheDocument();
     expect(screen.getByText('Results')).toBeInTheDocument();
     expect(screen.getByText('History')).toBeInTheDocument();
-    expect(screen.getByText('Journal')).toBeInTheDocument();
   });
 
   it('renders Run Backtest button', () => {
@@ -102,5 +105,32 @@ describe('BacktestPage', () => {
   it('renders config panel', () => {
     render(<BacktestPage />);
     expect(screen.getByTestId('backtest-config-panel')).toBeInTheDocument();
+  });
+
+  it('renders Strategy section heading', () => {
+    render(<BacktestPage />);
+    expect(screen.getByText('Strategy')).toBeInTheDocument();
+  });
+
+  it('renders Market & Data section heading', () => {
+    render(<BacktestPage />);
+    expect(screen.getByText('Market & Data')).toBeInTheDocument();
+  });
+
+  it('renders data range options', () => {
+    render(<BacktestPage />);
+    expect(screen.getByText('500 bars')).toBeInTheDocument();
+    expect(screen.getByText('6 months')).toBeInTheDocument();
+    expect(screen.getByText('2 years')).toBeInTheDocument();
+  });
+
+  it('renders run summary line', () => {
+    render(<BacktestPage />);
+    expect(screen.getByTestId('run-summary')).toBeInTheDocument();
+  });
+
+  it('renders DataStatus component', () => {
+    render(<BacktestPage />);
+    expect(screen.getByTestId('data-status')).toBeInTheDocument();
   });
 });

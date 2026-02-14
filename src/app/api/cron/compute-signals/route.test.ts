@@ -40,6 +40,18 @@ vi.mock('@/lib/models/strategy', () => ({
   },
 }));
 
+const mockComputeSignalBatch = vi.fn();
+const mockBuildTasksForStyle = vi.fn();
+
+vi.mock('@/lib/signals/compute-engine', () => ({
+  computeSignalBatch: (...args: unknown[]) => mockComputeSignalBatch(...args),
+  buildTasksForStyle: (...args: unknown[]) => mockBuildTasksForStyle(...args),
+}));
+
+vi.mock('@/lib/signals/signal-symbols', () => ({
+  SIGNAL_SYMBOLS: ['BTCUSDT', 'ETHUSDT'],
+}));
+
 import { GET } from './route';
 import { cachedFetch } from '@/lib/redis';
 import { Signal } from '@/lib/models/signal';
@@ -68,10 +80,16 @@ function generateCandles(count: number): OHLCV[] {
   return candles;
 }
 
-function makeRequest(secret?: string): NextRequest {
+function makeRequest(secret?: string, params?: Record<string, string>): NextRequest {
+  const url = new URL('http://localhost/api/cron/compute-signals');
+  if (params) {
+    for (const [key, val] of Object.entries(params)) {
+      url.searchParams.set(key, val);
+    }
+  }
   const headers: Record<string, string> = {};
   if (secret) headers.authorization = `Bearer ${secret}`;
-  return new NextRequest('http://localhost/api/cron/compute-signals', { headers });
+  return new NextRequest(url, { headers });
 }
 
 beforeEach(() => {
@@ -174,5 +192,119 @@ describe('GET /api/cron/compute-signals', () => {
     const data = await res.json();
     expect(data.errors).toBe(1);
     expect(data.computed).toBe(0);
+  });
+});
+
+describe('GET /api/cron/compute-signals?style=', () => {
+  it('returns 400 for invalid trading style', async () => {
+    const res = await GET(makeRequest('test-secret', { style: 'invalid_style' }));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain('Invalid trading style');
+  });
+
+  it('calls computeSignalBatch for valid style', async () => {
+    const mockTasks = [
+      { symbol: 'BTCUSDT', interval: '15m', tradingStyle: 'day_trading' },
+      { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+      { symbol: 'ETHUSDT', interval: '15m', tradingStyle: 'day_trading' },
+      { symbol: 'ETHUSDT', interval: '1h', tradingStyle: 'day_trading' },
+    ];
+    mockBuildTasksForStyle.mockReturnValue(mockTasks);
+    mockComputeSignalBatch.mockResolvedValue({
+      computed: 4,
+      errors: 0,
+      skipped: 0,
+      details: [],
+    });
+
+    const res = await GET(makeRequest('test-secret', { style: 'day_trading' }));
+    expect(res.status).toBe(200);
+
+    const data = await res.json();
+    expect(data.mode).toBe('global');
+    expect(data.style).toBe('day_trading');
+    expect(data.computed).toBe(4);
+    expect(data.errors).toBe(0);
+    expect(data.tasks).toBe(4);
+
+    expect(mockBuildTasksForStyle).toHaveBeenCalledWith('day_trading', ['BTCUSDT', 'ETHUSDT']);
+    expect(mockComputeSignalBatch).toHaveBeenCalledWith(mockTasks);
+  });
+
+  it('returns mode:global for scalping style', async () => {
+    mockBuildTasksForStyle.mockReturnValue([]);
+    mockComputeSignalBatch.mockResolvedValue({
+      computed: 0,
+      errors: 0,
+      skipped: 0,
+      details: [],
+    });
+
+    const res = await GET(makeRequest('test-secret', { style: 'scalping' }));
+    const data = await res.json();
+    expect(data.mode).toBe('global');
+    expect(data.style).toBe('scalping');
+  });
+
+  it('returns mode:global for position_trading style', async () => {
+    mockBuildTasksForStyle.mockReturnValue([
+      { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+    ]);
+    mockComputeSignalBatch.mockResolvedValue({
+      computed: 1,
+      errors: 0,
+      skipped: 0,
+      details: [],
+    });
+
+    const res = await GET(makeRequest('test-secret', { style: 'position_trading' }));
+    const data = await res.json();
+    expect(data.mode).toBe('global');
+    expect(data.style).toBe('position_trading');
+    expect(data.computed).toBe(1);
+  });
+
+  it('reports errors from compute batch', async () => {
+    mockBuildTasksForStyle.mockReturnValue([
+      { symbol: 'BTCUSDT', interval: '1m', tradingStyle: 'scalping' },
+    ]);
+    mockComputeSignalBatch.mockResolvedValue({
+      computed: 0,
+      errors: 1,
+      skipped: 0,
+      details: [
+        { symbol: 'BTCUSDT', interval: '1m', tradingStyle: 'scalping', status: 'error', error: 'API error' },
+      ],
+    });
+
+    const res = await GET(makeRequest('test-secret', { style: 'scalping' }));
+    const data = await res.json();
+    expect(data.errors).toBe(1);
+    expect(data.computed).toBe(0);
+  });
+
+  it('does not run legacy computation when style param is present', async () => {
+    mockBuildTasksForStyle.mockReturnValue([]);
+    mockComputeSignalBatch.mockResolvedValue({
+      computed: 0, errors: 0, skipped: 0, details: [],
+    });
+
+    await GET(makeRequest('test-secret', { style: 'swing_trading' }));
+
+    // Legacy path uses Strategy.find -- should NOT be called
+    expect(Strategy.find).not.toHaveBeenCalled();
+    expect(Signal.create).not.toHaveBeenCalled();
+  });
+
+  it('legacy path runs when no style param', async () => {
+    vi.mocked(Strategy.find).mockResolvedValue([]);
+
+    const res = await GET(makeRequest('test-secret'));
+    const data = await res.json();
+    expect(data.mode).toBe('legacy');
+
+    expect(Strategy.find).toHaveBeenCalledTimes(1);
+    expect(mockBuildTasksForStyle).not.toHaveBeenCalled();
   });
 });
