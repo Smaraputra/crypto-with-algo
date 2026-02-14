@@ -74,6 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Round-robin symbol distribution from top 5 by volume
   - Auto-activation when Sharpe improves by ≥10%
   - Comprehensive error handling and individual job failure tolerance
+  - 40 new unit tests (all passing):
+    - `top-symbols.test.ts` (17 tests) - API, caching, filtering, sorting
+    - `auto-activation.test.ts` (14 tests) - Decision logic, threshold validation
+    - `cron-run.test.ts` (9 tests) - Model validation, schema, updates
 - New environment variables:
   - `ADMIN_EMAIL` - Email address for admin authorization
   - `CRON_SECRET` - Bearer token for cron endpoint authentication
