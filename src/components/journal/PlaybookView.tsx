@@ -78,7 +78,7 @@ export function PlaybookView() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search notes..."
-            className="h-7 pl-7 text-xs"
+            className="h-8 pl-7 text-xs"
             data-testid="playbook-search"
           />
         </div>
@@ -86,8 +86,7 @@ export function PlaybookView() {
         <div className="flex flex-wrap gap-1">
           <Button
             variant={categoryFilter === '' ? 'default' : 'outline'}
-            size="sm"
-            className="h-5 text-[10px] px-1.5"
+            size="xs"
             onClick={() => setCategoryFilter('')}
           >
             All
@@ -96,8 +95,7 @@ export function PlaybookView() {
             <Button
               key={cat}
               variant={categoryFilter === cat ? 'default' : 'outline'}
-              size="sm"
-              className="h-5 text-[10px] px-1.5"
+              size="xs"
               onClick={() => setCategoryFilter(cat)}
             >
               {CATEGORY_LABELS[cat]}
@@ -153,8 +151,7 @@ export function PlaybookView() {
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
+                  size="icon-xs"
                   onClick={() => handleTogglePin(selectedNote)}
                   title={selectedNote.isPinned ? 'Unpin' : 'Pin'}
                 >
@@ -163,15 +160,15 @@ export function PlaybookView() {
                 <ResearchNoteForm
                   note={selectedNote}
                   trigger={
-                    <Button variant="ghost" size="sm" className="h-6 text-[10px] px-1.5">
+                    <Button variant="ghost" size="xs">
                       Edit
                     </Button>
                   }
                 />
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0 text-destructive"
+                  size="icon-xs"
+                  className="text-destructive"
                   onClick={() => handleDelete(selectedNote)}
                   data-testid="delete-note-button"
                 >

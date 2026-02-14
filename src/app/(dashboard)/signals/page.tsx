@@ -6,112 +6,90 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { FuturesPanel } from '@/components/signals/FuturesPanel';
 import { SignalBreakdown } from '@/components/signals/SignalBreakdown';
 import { SignalGauge } from '@/components/signals/SignalGauge';
+import { StyleTabs } from '@/components/signals/StyleTabs';
+import { AutoUpdateStatus } from '@/components/signals/AutoUpdateStatus';
+import { SignalTimeline } from '@/components/signals/SignalTimeline';
+import { MultiStyleOverview } from '@/components/signals/MultiStyleOverview';
 import { EnhancedJournalForm } from '@/components/journal/EnhancedJournalForm';
 import { Button } from '@/components/ui/button';
 import { useFundingRate, useLongShortRatio, useOpenInterest } from '@/hooks/useFutures';
-import { useComputeSignal, useLatestSignal, useSignals } from '@/hooks/useSignals';
+import {
+  useGlobalSignals,
+  useLatestSignals,
+  useLatestSignalForStyle,
+  useComputeGlobalSignal,
+} from '@/hooks/useSignals';
 import { useFearAndGreed } from '@/hooks/useSentiment';
 import { SentimentGauge } from '@/components/market/SentimentGauge';
 import { useUIStore } from '@/stores/uiStore';
-
-function SignalHistory({ symbol }: { symbol: string }) {
-  const { data, isLoading } = useSignals(symbol, null, 20);
-
-  if (isLoading) {
-    return (
-      <div className="space-y-2">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-10 bg-muted animate-pulse rounded" />
-        ))}
-      </div>
-    );
-  }
-
-  const signals = data?.signals ?? [];
-
-  if (signals.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground text-center py-4">
-        No signal history yet. Click &quot;Compute Now&quot; to generate a signal.
-      </p>
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto" data-testid="signal-history">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border text-left text-xs text-muted-foreground">
-            <th className="pb-2 pr-4">Time</th>
-            <th className="pb-2 pr-4">Score</th>
-            <th className="pb-2 pr-4">Tier</th>
-            <th className="pb-2">Confidence</th>
-          </tr>
-        </thead>
-        <tbody>
-          {signals.map((signal) => (
-            <tr key={signal._id} className="border-b border-border/50">
-              <td className="py-2 pr-4 text-xs text-muted-foreground">
-                {new Date(signal.createdAt).toLocaleString()}
-              </td>
-              <td className="py-2 pr-4 font-mono tabular-nums">
-                <span
-                  style={{
-                    color: signal.score > 0 ? '#0ecb81' : signal.score < 0 ? '#f6465d' : '#848e9c',
-                  }}
-                >
-                  {signal.score > 0 ? '+' : ''}
-                  {Math.round(signal.score)}
-                </span>
-              </td>
-              <td className="py-2 pr-4 text-xs capitalize">
-                {signal.tier.replace('_', ' ')}
-              </td>
-              <td className="py-2 text-xs">{signal.confidence}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
+import type { TradingStyle } from '@/lib/models/signal-template';
 
 export default function SignalsPage() {
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
   const setSelectedSymbol = useUIStore((s) => s.setSelectedSymbol);
-  const [interval, setInterval] = useState('1h');
+  const [tradingStyle, setTradingStyle] = useState<TradingStyle>('day_trading');
 
-  const { data: latestData, isLoading: signalLoading } = useLatestSignal(selectedSymbol);
-  const computeMutation = useComputeSignal();
+  const styleConfig = STYLE_CONFIGS[tradingStyle];
+  const preferredIntervals = styleConfig.preferredIntervals;
+  const [interval, setInterval] = useState(preferredIntervals[0]);
 
+  // Global signal data
+  const { data: latestAllData, isLoading: latestAllLoading } = useLatestSignals(selectedSymbol);
+  const { data: latestStyleData, isLoading: styleLoading } = useLatestSignalForStyle(
+    selectedSymbol,
+    tradingStyle
+  );
+  const { data: historyData, isLoading: historyLoading } = useGlobalSignals(
+    selectedSymbol,
+    tradingStyle,
+    null,
+    20
+  );
+  const computeMutation = useComputeGlobalSignal();
+
+  // Futures data
   const { data: fundingData, isLoading: fundingLoading } = useFundingRate(selectedSymbol);
   const { data: oiData, isLoading: oiLoading } = useOpenInterest(selectedSymbol);
   const { data: lsData, isLoading: lsLoading } = useLongShortRatio(selectedSymbol);
   const { data: sentimentData } = useFearAndGreed();
 
-  const latestSignal = latestData?.signals?.[0];
+  const latestSignal = latestStyleData?.signal ?? null;
   const futuresLoading = fundingLoading || oiLoading || lsLoading;
   const sentiment = sentimentData?.sentiment
     ? { fearGreedIndex: sentimentData.sentiment.fearGreedIndex, fearGreedLabel: sentimentData.sentiment.label }
     : null;
 
-  const popularSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
+  function handleStyleChange(style: TradingStyle) {
+    setTradingStyle(style);
+    const newIntervals = STYLE_CONFIGS[style].preferredIntervals;
+    if (!newIntervals.includes(interval)) {
+      setInterval(newIntervals[0]);
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-foreground">Signals</h1>
+        <AutoUpdateStatus
+          tradingStyle={tradingStyle}
+          lastUpdated={latestSignal?.createdAt ?? null}
+        />
       </div>
+
+      {/* Style tabs */}
+      <StyleTabs value={tradingStyle} onValueChange={handleStyleChange} />
 
       {/* Symbol selector + interval + compute button */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1">
-          {popularSymbols.map((sym) => (
+          {SIGNAL_SYMBOLS.map((sym) => (
             <Button
               key={sym}
               variant={selectedSymbol === sym ? 'default' : 'outline'}
-              size="sm"
-              className="text-xs"
+              size="xs"
               onClick={() => setSelectedSymbol(sym)}
             >
               {sym.replace('USDT', '')}
@@ -125,18 +103,18 @@ export default function SignalsPage() {
           onChange={(e) => setInterval(e.target.value)}
           data-testid="interval-select"
         >
-          <option value="15m">15m</option>
-          <option value="1h">1h</option>
-          <option value="4h">4h</option>
-          <option value="1d">1D</option>
+          {preferredIntervals.map((iv) => (
+            <option key={iv} value={iv}>
+              {iv}
+            </option>
+          ))}
         </select>
 
         <Button
           size="sm"
           variant="default"
-          className="text-xs"
           onClick={() =>
-            computeMutation.mutate({ symbol: selectedSymbol, interval })
+            computeMutation.mutate({ symbol: selectedSymbol, interval, tradingStyle })
           }
           disabled={computeMutation.isPending}
           data-testid="compute-button"
@@ -162,7 +140,7 @@ export default function SignalsPage() {
         <div className="lg:col-span-2 space-y-4">
           {/* Signal gauge */}
           <div className="rounded-lg border border-border p-4">
-            {signalLoading ? (
+            {styleLoading ? (
               <div className="flex justify-center py-8">
                 <div className="h-[168px] w-[240px] bg-muted animate-pulse rounded" />
               </div>
@@ -186,7 +164,7 @@ export default function SignalsPage() {
           </div>
 
           {/* Signal breakdown */}
-          {latestSignal && (
+          {latestSignal && latestSignal.components.length > 0 && (
             <div className="rounded-lg border border-border p-4">
               <h2 className="text-sm font-semibold mb-3">Signal Breakdown</h2>
               <ErrorBoundary
@@ -200,8 +178,32 @@ export default function SignalsPage() {
           )}
         </div>
 
-        {/* Right column: Futures panel + Sentiment */}
+        {/* Right column: Multi-style overview + Futures + Sentiment */}
         <div className="space-y-4">
+          {/* Multi-style comparison */}
+          <div className="rounded-lg border border-border p-4">
+            <h2 className="text-sm font-semibold mb-3">All Styles</h2>
+            <ErrorBoundary
+              fallback={
+                <p className="text-sm text-muted-foreground">Overview unavailable</p>
+              }
+            >
+              <MultiStyleOverview
+                signals={
+                  latestAllData?.signals ?? {
+                    scalping: null,
+                    day_trading: null,
+                    swing_trading: null,
+                    position_trading: null,
+                  }
+                }
+                isLoading={latestAllLoading}
+                activeStyle={tradingStyle}
+                onStyleSelect={handleStyleChange}
+              />
+            </ErrorBoundary>
+          </div>
+
           <div className="rounded-lg border border-border p-4">
             <h2 className="text-sm font-semibold mb-3">Futures Data</h2>
             <ErrorBoundary
@@ -230,7 +232,7 @@ export default function SignalsPage() {
         </div>
       </div>
 
-      {/* Signal history */}
+      {/* Signal history timeline */}
       <div className="rounded-lg border border-border p-4">
         <h2 className="text-sm font-semibold mb-3">Signal History</h2>
         <ErrorBoundary
@@ -238,7 +240,10 @@ export default function SignalsPage() {
             <p className="text-sm text-muted-foreground">History unavailable</p>
           }
         >
-          <SignalHistory symbol={selectedSymbol} />
+          <SignalTimeline
+            signals={historyData?.signals ?? []}
+            isLoading={historyLoading}
+          />
         </ErrorBoundary>
       </div>
 
