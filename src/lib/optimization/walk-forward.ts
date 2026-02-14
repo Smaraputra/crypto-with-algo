@@ -12,6 +12,7 @@ import { filterRobustResults } from './robustness-filter';
 import { createEnsemble } from './ensemble';
 import { compressBacktestResult } from '@/lib/backtest/compress-results';
 import { DEFAULT_ROBUSTNESS } from '@/types/optimization';
+import { getStyleConfig } from '@/lib/indicators/style-configs';
 import mongoose from 'mongoose';
 
 export interface WalkForwardConfig {
@@ -53,9 +54,11 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     jobId,
   } = config;
 
-  // Get base template weights
+  // Get base template weights and style-specific indicator config
   const baseWeights = DEFAULT_TEMPLATE_WEIGHTS[tradingStyle];
   const thresholds = DEFAULT_TEMPLATE_THRESHOLDS[tradingStyle];
+  const styleProfile = getStyleConfig(tradingStyle);
+  const indicatorConfig = styleProfile.config;
 
   // Calculate walk-forward windows
   const windows = calculateWindows(
@@ -82,8 +85,8 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     // 1. Extract training data
     const trainingCandles = candles.slice(window.trainStart, window.trainEnd + 1);
 
-    // 2. Prepare backtest (compute indicators once)
-    const prepared = prepareBacktest(trainingCandles, symbol, interval);
+    // 2. Prepare backtest (compute indicators once with style-specific params)
+    const prepared = prepareBacktest(trainingCandles, symbol, interval, indicatorConfig);
 
     // 3. Generate weight candidates
     const candidates = generateWeightCandidates(
@@ -166,7 +169,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
 
     // 7. Validate on test window (out-of-sample)
     const testCandles = candles.slice(window.testStart, window.testEnd + 1);
-    const testPrepared = prepareBacktest(testCandles, symbol, interval);
+    const testPrepared = prepareBacktest(testCandles, symbol, interval, indicatorConfig);
 
     const testConfig: BacktestConfig = {
       weights: bestWeights,
@@ -199,7 +202,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       1,
       bestCandidate._id.toString()
     );
-    const testDoc = await BacktestResultV2.create(testCompressed);
+    await BacktestResultV2.create(testCompressed);
 
     // 8. Store window result
     windowResults.push({
@@ -258,7 +261,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
 /**
  * Calculate walk-forward windows (anchored expanding)
  */
-function calculateWindows(
+export function calculateWindows(
   totalBars: number,
   minTrainingBars: number,
   testWindowBars: number,
