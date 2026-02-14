@@ -1,4 +1,4 @@
-export { computeAllIndicators } from './compute';
+export { computeAllIndicators, computeMinCandles } from './compute';
 export { interpretIndicators } from './interpret';
 export { computeSuperTrend } from './supertrend';
 export type { SuperTrendResult, SuperTrendPoint } from './supertrend';

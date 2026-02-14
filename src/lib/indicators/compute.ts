@@ -28,7 +28,7 @@ import type {
   VolumeAnalysis,
   WilliamsRResult,
 } from './types';
-import { DEFAULT_CONFIG, MIN_CANDLES } from './types';
+import { DEFAULT_CONFIG } from './types';
 
 function extractOHLCV(candles: OHLCV[]) {
   return {
@@ -269,15 +269,42 @@ export function computeVolumeAnalysis(volumes: number[]): VolumeAnalysis {
   };
 }
 
+/**
+ * Compute the minimum number of candles needed for a given indicator config.
+ * Driven by the longest warmup period -- typically SMA long or Ichimoku span+displacement.
+ * Pass skipIndicators to exclude skipped indicators from the calculation.
+ */
+export function computeMinCandles(config: IndicatorConfig, skipIndicators: string[] = []): number {
+  const periods = [
+    config.ema.slow,
+    config.sma.long,
+    config.rsi.period,
+    config.macd.slow + config.macd.signal,
+    config.bollingerBands.period,
+    config.atr.period,
+    config.stochasticRSI.rsiPeriod + config.stochasticRSI.stochasticPeriod,
+    config.williamsR.period,
+    config.mfi.period,
+  ];
+
+  if (!skipIndicators.includes('ichimoku')) {
+    periods.push(config.ichimoku.spanPeriod + config.ichimoku.displacement);
+  }
+
+  // Need at least the longest warmup period plus a small buffer
+  return Math.max(...periods) + 10;
+}
+
 export function computeAllIndicators(
   candles: OHLCV[],
   symbol: string,
   interval: string,
   config: IndicatorConfig = DEFAULT_CONFIG
 ) {
-  if (candles.length < MIN_CANDLES) {
+  const minCandles = computeMinCandles(config);
+  if (candles.length < minCandles) {
     throw new Error(
-      `Insufficient candle data: got ${candles.length}, need at least ${MIN_CANDLES}`
+      `Insufficient candle data: got ${candles.length}, need at least ${minCandles}`
     );
   }
 

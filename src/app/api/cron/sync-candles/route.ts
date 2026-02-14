@@ -3,10 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncCandles } from '@/lib/candle-ingestion';
 import { Strategy } from '@/lib/models/strategy';
 import { Watchlist } from '@/lib/models/watchlist';
-import { VALID_INTERVALS } from '@/lib/models/candle';
+import { VALID_INTERVALS, type CandleInterval } from '@/lib/models/candle';
 import { connectDB } from '@/lib/mongodb';
 
 const MAX_PAIRS_PER_RUN = 20;
+
+/** Standard intervals synced by default (excludes HF intervals 1m/5m) */
+const STANDARD_INTERVALS: CandleInterval[] = ['15m', '1h', '4h', '1d'];
 
 function verifyCronSecret(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -15,12 +18,31 @@ function verifyCronSecret(req: NextRequest): boolean {
   return header === `Bearer ${secret}`;
 }
 
+/**
+ * Parse the ?intervals= query param into validated CandleInterval[].
+ * Supports comma-separated values: ?intervals=1m,5m
+ * Falls back to STANDARD_INTERVALS if not provided.
+ */
+function parseIntervals(req: NextRequest): CandleInterval[] {
+  const param = req.nextUrl.searchParams.get('intervals');
+  if (!param) return STANDARD_INTERVALS;
+
+  const requested = param.split(',').map((s) => s.trim());
+  const valid = requested.filter((i): i is CandleInterval =>
+    (VALID_INTERVALS as readonly string[]).includes(i)
+  );
+
+  return valid.length > 0 ? valid : STANDARD_INTERVALS;
+}
+
 export async function GET(req: NextRequest) {
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   await connectDB();
+
+  const intervals = parseIntervals(req);
 
   // Collect unique symbols from strategies and watchlists
   const symbolSet = new Set<string>();
@@ -42,7 +64,7 @@ export async function GET(req: NextRequest) {
   // Build (symbol, interval) pairs
   const pairs: Array<{ symbol: string; interval: string }> = [];
   for (const symbol of symbolSet) {
-    for (const interval of VALID_INTERVALS) {
+    for (const interval of intervals) {
       pairs.push({ symbol, interval });
     }
   }
@@ -69,5 +91,6 @@ export async function GET(req: NextRequest) {
     errors,
     totalInserted,
     pairs: toSync.length,
+    intervals,
   });
 }
