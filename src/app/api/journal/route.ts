@@ -30,6 +30,15 @@ export async function GET(req: NextRequest) {
   const marketCondition = params.get('marketCondition');
   if (marketCondition) query.marketCondition = marketCondition;
 
+  // Trade status filter: open = has entryPrice but no exitPrice, closed = has exitPrice
+  const status = params.get('status');
+  if (status === 'open') {
+    query.entryPrice = { $ne: null };
+    query.exitPrice = null;
+  } else if (status === 'closed') {
+    query.exitPrice = { $ne: null };
+  }
+
   const startDate = params.get('startDate');
   const endDate = params.get('endDate');
   if (startDate || endDate) {
@@ -50,12 +59,13 @@ export async function GET(req: NextRequest) {
     sortObj[sort] = 1;
   }
 
-  const [entries, total] = await Promise.all([
+  const [entries, total, totalUserEntries] = await Promise.all([
     JournalEntry.find(query)
       .sort(sortObj)
       .skip((page - 1) * limit)
       .limit(limit),
     JournalEntry.countDocuments(query),
+    JournalEntry.countDocuments({ userId: session.user.id }),
   ]);
 
   return NextResponse.json({
@@ -63,6 +73,8 @@ export async function GET(req: NextRequest) {
     total,
     page,
     totalPages: Math.ceil(total / limit),
+    entryLimit: MAX_JOURNAL_ENTRIES_PER_USER,
+    totalUserEntries,
   });
 }
 

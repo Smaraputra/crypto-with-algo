@@ -73,4 +73,72 @@ describe('BacktestConfigPanel', () => {
       expect.objectContaining({ allowShorts: true })
     );
   });
+
+  // Group headings
+  it('renders group headings', () => {
+    render(<BacktestConfigPanel {...defaultProps} />);
+    expect(screen.getByTestId('group-signal-thresholds')).toHaveTextContent('Signal Thresholds');
+    expect(screen.getByTestId('group-risk-management')).toHaveTextContent('Risk Management');
+    expect(screen.getByTestId('group-capital')).toHaveTextContent('Capital');
+  });
+
+  // Presets
+  it('renders preset buttons', () => {
+    render(<BacktestConfigPanel {...defaultProps} />);
+    expect(screen.getByTestId('config-presets')).toBeInTheDocument();
+    expect(screen.getByText('Conservative')).toBeInTheDocument();
+    expect(screen.getByText('Balanced')).toBeInTheDocument();
+    expect(screen.getByText('Aggressive')).toBeInTheDocument();
+  });
+
+  it('applies conservative preset on click', () => {
+    const onChange = vi.fn();
+    render(<BacktestConfigPanel {...defaultProps} onChange={onChange} />);
+
+    fireEvent.click(screen.getByText('Conservative'));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stopLossPercent: 0.03,
+        positionSizePercent: 0.05,
+        entryThreshold: 40,
+        allowShorts: false,
+      })
+    );
+  });
+
+  it('applies aggressive preset with shorts enabled', () => {
+    const onChange = vi.fn();
+    render(<BacktestConfigPanel {...defaultProps} onChange={onChange} />);
+
+    fireEvent.click(screen.getByText('Aggressive'));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stopLossPercent: 0.08,
+        positionSizePercent: 0.20,
+        allowShorts: true,
+        shortEntryThreshold: -20,
+        shortExitThreshold: 15,
+      })
+    );
+  });
+
+  // Conditional short thresholds
+  it('does not show short thresholds when allowShorts is false', () => {
+    render(<BacktestConfigPanel {...defaultProps} />);
+    expect(screen.queryByTestId('short-entry-threshold')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('short-exit-threshold')).not.toBeInTheDocument();
+  });
+
+  it('shows short thresholds when allowShorts is true', () => {
+    render(
+      <BacktestConfigPanel
+        {...defaultProps}
+        config={{ ...DEFAULT_BACKTEST_CONFIG, allowShorts: true }}
+      />
+    );
+    expect(screen.getByTestId('short-entry-threshold')).toBeInTheDocument();
+    expect(screen.getByTestId('short-exit-threshold')).toBeInTheDocument();
+    expect(screen.getByLabelText('Entry Threshold (short)')).toHaveValue(-30);
+    expect(screen.getByLabelText('Exit Threshold (short)')).toHaveValue(10);
+  });
 });

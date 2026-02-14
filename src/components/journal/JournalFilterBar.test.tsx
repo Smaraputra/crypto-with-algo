@@ -5,6 +5,10 @@ vi.mock('@/hooks/useJournal', () => ({
   useJournalTags: vi.fn(() => ({
     data: { tags: [{ tag: 'breakout', count: 5 }, { tag: 'reversal', count: 3 }] },
   })),
+  useJournalEntries: vi.fn(() => ({
+    data: { entries: [] },
+    isLoading: false,
+  })),
 }));
 
 vi.stubGlobal(
@@ -24,44 +28,39 @@ describe('JournalFilterBar', () => {
     expect(screen.getByTestId('journal-filter-bar')).toBeInTheDocument();
   });
 
-  it('renders symbol select', () => {
+  it('renders filter trigger button', () => {
     render(<JournalFilterBar filters={{}} onChange={vi.fn()} />);
-    expect(screen.getByText('All Symbols')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-trigger')).toBeInTheDocument();
+    expect(screen.getByText('Filters')).toBeInTheDocument();
   });
 
-  it('renders action select', () => {
+  it('renders export button', () => {
     render(<JournalFilterBar filters={{}} onChange={vi.fn()} />);
-    expect(screen.getByText('All Actions')).toBeInTheDocument();
+    expect(screen.getByTestId('export-csv-button')).toBeInTheDocument();
   });
 
-  it('renders condition select', () => {
-    render(<JournalFilterBar filters={{}} onChange={vi.fn()} />);
-    expect(screen.getByText('All Conditions')).toBeInTheDocument();
-  });
-
-  it('shows active filter badges', () => {
+  it('shows active filter count when filters are set', () => {
     render(
       <JournalFilterBar
         filters={{ symbol: 'BTCUSDT', action: 'buy' }}
         onChange={vi.fn()}
       />
     );
-    expect(screen.getByText(/symbol: BTCUSDT/)).toBeInTheDocument();
-    expect(screen.getByText(/action: buy/)).toBeInTheDocument();
+    expect(screen.getByTestId('active-filter-count')).toHaveTextContent('2');
   });
 
-  it('shows clear all button when filters active', () => {
+  it('does not show filter count when no active filters', () => {
+    render(<JournalFilterBar filters={{}} onChange={vi.fn()} />);
+    expect(screen.queryByTestId('active-filter-count')).not.toBeInTheDocument();
+  });
+
+  it('does not count page/limit/sort in active filters', () => {
     render(
       <JournalFilterBar
-        filters={{ symbol: 'BTCUSDT' }}
+        filters={{ page: 2, limit: 20, sort: '-createdAt', symbol: 'BTCUSDT' }}
         onChange={vi.fn()}
       />
     );
-    expect(screen.getByText('Clear all')).toBeInTheDocument();
-  });
-
-  it('does not show clear all when no filters', () => {
-    render(<JournalFilterBar filters={{}} onChange={vi.fn()} />);
-    expect(screen.queryByText('Clear all')).not.toBeInTheDocument();
+    expect(screen.getByTestId('active-filter-count')).toHaveTextContent('1');
   });
 });

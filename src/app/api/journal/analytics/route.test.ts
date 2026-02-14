@@ -53,6 +53,7 @@ describe('GET /api/journal/analytics', () => {
     expect(data.summary.losses).toBe(0);
     expect(data.summary.winRate).toBe(0);
     expect(data.summary.profitFactor).toBeNull();
+    expect(data.incompleteTradeCount).toBe(0);
     expect(data.byTag).toEqual([]);
     expect(data.byAction).toEqual([]);
     expect(data.byMonth).toEqual([]);
@@ -60,7 +61,9 @@ describe('GET /api/journal/analytics', () => {
 
   it('computes summary from P&L entries', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(JournalEntry.countDocuments).mockResolvedValue(5);
+    const countMock = vi.mocked(JournalEntry.countDocuments);
+    countMock.mockResolvedValueOnce(5); // allEntries
+    countMock.mockResolvedValueOnce(2); // incompleteTradeCount
     vi.mocked(JournalEntry.find).mockReturnValue({
       lean: vi.fn().mockResolvedValue([
         { outcomePnlPercent: 5 },
@@ -82,6 +85,7 @@ describe('GET /api/journal/analytics', () => {
     expect(data.summary.worstTrade).toBe(-3);
     expect(data.summary.totalPnlPercent).toBe(10);
     expect(data.summary.profitFactor).toBe(3); // 15 / 5
+    expect(data.incompleteTradeCount).toBe(2);
   });
 
   it('maps tag aggregation results', async () => {

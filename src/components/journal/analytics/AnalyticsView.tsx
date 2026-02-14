@@ -31,6 +31,16 @@ export function AnalyticsView() {
 
   return (
     <div className="space-y-6" data-testid="analytics-view">
+      {data.incompleteTradeCount > 0 && (
+        <div
+          className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-400"
+          data-testid="incomplete-trade-banner"
+        >
+          {data.incompleteTradeCount} trade{data.incompleteTradeCount !== 1 ? 's' : ''} without
+          P&L data. Close open trades with an exit price for more accurate analytics.
+        </div>
+      )}
+
       <AnalyticsSummaryCards summary={data.summary} />
 
       <div className="grid gap-4 lg:grid-cols-2">

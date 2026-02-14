@@ -62,7 +62,7 @@ describe('GET /api/journal', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns paginated journal entries', async () => {
+  it('returns paginated journal entries with entry limit info', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     mockFindChain([{ _id: 'j1', symbol: 'BTCUSDT' }]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(1);
@@ -74,6 +74,8 @@ describe('GET /api/journal', () => {
     expect(data.total).toBe(1);
     expect(data.page).toBe(1);
     expect(data.totalPages).toBe(1);
+    expect(data.entryLimit).toBe(1000);
+    expect(data.totalUserEntries).toBe(1);
   });
 
   it('filters by symbol', async () => {
@@ -128,6 +130,33 @@ describe('GET /api/journal', () => {
     await GET(makeGetRequest('marketCondition=trending_up'));
     expect(JournalEntry.find).toHaveBeenCalledWith(
       expect.objectContaining({ marketCondition: 'trending_up' })
+    );
+  });
+
+  it('filters by status=open', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    mockFindChain([]);
+    vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
+
+    await GET(makeGetRequest('status=open'));
+    expect(JournalEntry.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryPrice: { $ne: null },
+        exitPrice: null,
+      })
+    );
+  });
+
+  it('filters by status=closed', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    mockFindChain([]);
+    vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
+
+    await GET(makeGetRequest('status=closed'));
+    expect(JournalEntry.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        exitPrice: { $ne: null },
+      })
     );
   });
 

@@ -28,6 +28,7 @@ const mockAnalytics = {
   byMarketCondition: [],
   byMonth: [],
   bySignalTier: [],
+  incompleteTradeCount: 0,
 };
 
 describe('AnalyticsView', () => {
@@ -78,5 +79,41 @@ describe('AnalyticsView', () => {
     expect(screen.getByText('Win Rate by Tag')).toBeInTheDocument();
     expect(screen.getByText('Signal Accuracy')).toBeInTheDocument();
     expect(screen.getByText('Performance by Setup')).toBeInTheDocument();
+  });
+
+  it('does not show incomplete trade banner when count is 0', () => {
+    mockUseJournalAnalytics.mockReturnValue({
+      data: mockAnalytics,
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useJournalAnalytics>);
+
+    render(<AnalyticsView />);
+    expect(screen.queryByTestId('incomplete-trade-banner')).not.toBeInTheDocument();
+  });
+
+  it('shows incomplete trade banner when trades have no P&L', () => {
+    mockUseJournalAnalytics.mockReturnValue({
+      data: { ...mockAnalytics, incompleteTradeCount: 3 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useJournalAnalytics>);
+
+    render(<AnalyticsView />);
+    const banner = screen.getByTestId('incomplete-trade-banner');
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent('3 trades without');
+  });
+
+  it('uses singular form for 1 incomplete trade', () => {
+    mockUseJournalAnalytics.mockReturnValue({
+      data: { ...mockAnalytics, incompleteTradeCount: 1 },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useJournalAnalytics>);
+
+    render(<AnalyticsView />);
+    const banner = screen.getByTestId('incomplete-trade-banner');
+    expect(banner.textContent).toMatch(/^1 trade without/);
   });
 });

@@ -26,9 +26,17 @@ export async function GET() {
   // Entries with a P&L outcome (both entry and exit price set)
   const pnlMatch = { userId, outcomePnlPercent: { $ne: null } };
 
+  // Entries with entryPrice but no outcomePnlPercent (incomplete trades)
+  const incompleteMatch = {
+    userId,
+    entryPrice: { $ne: null },
+    outcomePnlPercent: null,
+  };
+
   const [
     allEntries,
     pnlEntries,
+    incompleteTradeCount,
     tagAgg,
     actionAgg,
     setupAgg,
@@ -44,6 +52,9 @@ export async function GET() {
       outcomePnlPercent: 1,
       action: 1,
     }).lean(),
+
+    // Incomplete trades (have entry price but no P&L)
+    JournalEntry.countDocuments(incompleteMatch),
 
     // By tag
     JournalEntry.aggregate([
@@ -208,6 +219,7 @@ export async function GET() {
 
   return NextResponse.json({
     summary,
+    incompleteTradeCount,
     byTag,
     byAction,
     bySetupType,
