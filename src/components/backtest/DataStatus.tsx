@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Database, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ export interface CandleRangeInfo {
 interface DataStatusProps {
   symbol: string;
   interval: string;
+  compact?: boolean;
   onBackfillComplete?: () => void;
 }
 
@@ -26,50 +27,30 @@ function formatDate(ms: number): string {
   });
 }
 
-export function DataStatus({ symbol, interval, onBackfillComplete }: DataStatusProps) {
+export function DataStatus({ symbol, interval, compact, onBackfillComplete }: DataStatusProps) {
   const [range, setRange] = useState<CandleRangeInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
-  const [fetched, setFetched] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/candles?symbol=${symbol}&interval=${interval}&limit=1`
+        `/api/candles/range?symbol=${symbol}&interval=${interval}`
       );
       if (!res.ok) throw new Error('Failed to fetch status');
-      const data = await res.json();
-
-      // Use a separate endpoint to get the range info -- piggyback on a minimal query
-      // For count/range, we need a small trick: fetch 1 candle to see if data exists,
-      // then use the count from response
-      setRange({
-        oldest: data.candles.length > 0 ? data.candles[0].timestamp : null,
-        newest: null,
-        count: data.count,
-      });
-
-      // Fetch the actual range with a large limit query for newest
-      const res2 = await fetch(
-        `/api/candles?symbol=${symbol}&interval=${interval}&limit=1&endTime=${Date.now()}`
-      );
-      if (res2.ok) {
-        const data2 = await res2.json();
-        if (data2.candles.length > 0) {
-          setRange((prev) => prev ? {
-            ...prev,
-            newest: data2.candles[data2.candles.length - 1]?.timestamp ?? null,
-          } : null);
-        }
-      }
+      const data: CandleRangeInfo = await res.json();
+      setRange(data);
     } catch {
       toast.error('Failed to check data status');
     } finally {
       setLoading(false);
-      setFetched(true);
     }
   }, [symbol, interval]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   const handleBackfill = useCallback(async () => {
     setBackfilling(true);
@@ -102,6 +83,66 @@ export function DataStatus({ symbol, interval, onBackfillComplete }: DataStatusP
     }
   }, [symbol, interval, onBackfillComplete]);
 
+  const content = (
+    <div className="space-y-3" data-testid="data-status-content">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          {symbol} / {interval}
+        </span>
+        {loading && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+      </div>
+
+      {!loading && range && (
+        <div className="space-y-1.5 text-xs">
+          {range.count > 0 ? (
+            <>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Candles stored:</span>
+                <span className="font-mono tabular-nums">{range.count.toLocaleString()}</span>
+              </div>
+              {range.oldest && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">From:</span>
+                  <span>{formatDate(range.oldest)}</span>
+                </div>
+              )}
+              {range.newest && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">To:</span>
+                  <span>{formatDate(range.newest)}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-muted-foreground">No historical data stored yet.</p>
+          )}
+        </div>
+      )}
+
+      {!loading && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full"
+          onClick={handleBackfill}
+          disabled={backfilling}
+          data-testid="backfill-button"
+        >
+          {backfilling ? (
+            <Loader2 className="mr-1 size-3 animate-spin" />
+          ) : (
+            <Download className="mr-1 size-3" />
+          )}
+          {backfilling ? 'Downloading...' : 'Download 2yr History'}
+        </Button>
+      )}
+    </div>
+  );
+
+  if (compact) {
+    return <div data-testid="data-status">{content}</div>;
+  }
+
   return (
     <Card data-testid="data-status">
       <CardHeader className="pb-3">
@@ -110,72 +151,7 @@ export function DataStatus({ symbol, interval, onBackfillComplete }: DataStatusP
           Historical Data
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            {symbol} / {interval}
-          </span>
-          {!fetched && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
-              onClick={fetchStatus}
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="mr-1 size-3 animate-spin" />
-              ) : null}
-              Check Status
-            </Button>
-          )}
-        </div>
-
-        {fetched && range && (
-          <div className="space-y-1.5 text-xs">
-            {range.count > 0 ? (
-              <>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Candles stored:</span>
-                  <span className="font-mono tabular-nums">{range.count.toLocaleString()}</span>
-                </div>
-                {range.oldest && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">From:</span>
-                    <span>{formatDate(range.oldest)}</span>
-                  </div>
-                )}
-                {range.newest && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">To:</span>
-                    <span>{formatDate(range.newest)}</span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-muted-foreground">No historical data stored yet.</p>
-            )}
-          </div>
-        )}
-
-        {fetched && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 w-full text-xs"
-            onClick={handleBackfill}
-            disabled={backfilling}
-            data-testid="backfill-button"
-          >
-            {backfilling ? (
-              <Loader2 className="mr-1 size-3 animate-spin" />
-            ) : (
-              <Download className="mr-1 size-3" />
-            )}
-            {backfilling ? 'Downloading...' : 'Download 2yr History'}
-          </Button>
-        )}
-      </CardContent>
+      <CardContent>{content}</CardContent>
     </Card>
   );
 }
