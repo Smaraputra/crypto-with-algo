@@ -148,9 +148,5 @@ describe('LoginPage', () => {
     ).toBeInTheDocument();
   });
 
-  it('renders link to register page', () => {
-    render(<LoginPage />);
-    const link = screen.getByRole('link', { name: 'Sign up' });
-    expect(link).toHaveAttribute('href', '/register');
-  });
+  // Register link removed: registration currently disabled
 });

@@ -111,7 +111,8 @@ describe('runBacktest', () => {
   });
 
   it('handles degenerate case with minimal candles', () => {
-    const candles = generateTrendingCandles(201);
+    // computeMinCandles with DEFAULT_CONFIG requires 210 (ichimoku span 52 + displacement 26 + SMA 200 overlap)
+    const candles = generateTrendingCandles(215);
     const config = { ...DEFAULT_BACKTEST_CONFIG };
 
     const result = runBacktest(candles, config, 'BTCUSDT', '1h');

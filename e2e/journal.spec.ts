@@ -6,36 +6,61 @@ test.describe('Journal page (authenticated)', () => {
 
     await expect(page.getByRole('heading', { name: 'Trading Journal' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Entries' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Review Queue' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Playbook' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Open Trades' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Closed Trades' })).toBeVisible();
     await expect(page.getByRole('tab', { name: 'Analytics' })).toBeVisible();
   });
 
-  test('entries tab shows filter bar and list', async ({ page }) => {
+  test('entries tab shows filter bar and export button', async ({ page }) => {
     await page.goto('/journal');
 
-    // Filter bar should be visible in default entries tab
     await expect(page.getByTestId('journal-filter-bar')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('filter-trigger')).toBeVisible();
+    await expect(page.getByTestId('export-csv-button')).toBeVisible();
   });
 
-  test('review queue tab switches content', async ({ page }) => {
+  test('new entry button is visible', async ({ page }) => {
     await page.goto('/journal');
 
-    await page.getByRole('tab', { name: 'Review Queue' }).click();
-    // Wait for loading to complete, then check for either entries or empty state
-    await page.waitForSelector('[data-testid="review-queue"], [data-testid="review-queue-empty"]', { timeout: 10000 });
-    const reviewContent = page.getByTestId('review-queue');
-    const emptyState = page.getByTestId('review-queue-empty');
-    const hasReview = await reviewContent.count() > 0;
-    const hasEmpty = await emptyState.count() > 0;
-    expect(hasReview || hasEmpty).toBe(true);
+    await expect(page.getByTestId('new-entry-button')).toBeVisible({ timeout: 10000 });
   });
 
-  test('playbook tab shows research notes view', async ({ page }) => {
+  test('pnl summary strip is visible', async ({ page }) => {
     await page.goto('/journal');
 
-    await page.getByRole('tab', { name: 'Playbook' }).click();
-    await expect(page.getByTestId('playbook-view')).toBeVisible({ timeout: 10000 });
+    // Summary strip shows either loaded data or loading state
+    const strip = page.getByTestId('pnl-summary-strip');
+    const loading = page.getByTestId('pnl-strip-loading');
+
+    await expect(strip.or(loading)).toBeVisible({ timeout: 10000 });
+  });
+
+  test('open trades tab switches content', async ({ page }) => {
+    await page.goto('/journal');
+
+    await page.getByRole('tab', { name: 'Open Trades' }).click();
+
+    const list = page.getByTestId('open-trades-list');
+    const loading = page.getByTestId('open-trades-loading');
+    const empty = page.getByTestId('open-trades-empty');
+
+    await expect(
+      list.or(loading).or(empty)
+    ).toBeVisible({ timeout: 10000 });
+  });
+
+  test('closed trades tab switches content', async ({ page }) => {
+    await page.goto('/journal');
+
+    await page.getByRole('tab', { name: 'Closed Trades' }).click();
+
+    const list = page.getByTestId('closed-trades-list');
+    const loading = page.getByTestId('closed-trades-loading');
+    const empty = page.getByTestId('closed-trades-empty');
+
+    await expect(
+      list.or(loading).or(empty)
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test('analytics tab shows analytics view', async ({ page }) => {
@@ -43,12 +68,10 @@ test.describe('Journal page (authenticated)', () => {
 
     await page.getByRole('tab', { name: 'Analytics' }).click();
 
-    // Analytics should show either loaded content, loading, or error state
     const analyticsView = page.getByTestId('analytics-view');
     const analyticsLoading = page.getByTestId('analytics-loading');
     const analyticsError = page.getByTestId('analytics-error');
 
-    // Wait for any of these to appear
     await expect(
       analyticsView.or(analyticsLoading).or(analyticsError)
     ).toBeVisible({ timeout: 10000 });
@@ -57,7 +80,6 @@ test.describe('Journal page (authenticated)', () => {
   test('sidebar has journal link', async ({ page }) => {
     await page.goto('/dashboard');
 
-    // The sidebar should contain a link to /journal
     const journalLinks = page.getByRole('link', { name: /journal/i });
     await expect(journalLinks.first()).toBeVisible({ timeout: 10000 });
   });

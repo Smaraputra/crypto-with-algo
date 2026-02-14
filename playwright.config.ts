@@ -53,7 +53,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `PORT=${TEST_PORT} npm run dev`,
+    command: `PORT=${TEST_PORT} ALLOW_REGISTRATION=true npm run dev`,
     url: `http://localhost:${TEST_PORT}`,
     reuseExistingServer: !process.env.CI,
   },

@@ -7,17 +7,21 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { connectDB } from './mongodb';
 import { User } from './models/user';
-import type { MongoClient } from 'mongodb';
-import mongoose from 'mongoose';
+import { MongoClient } from 'mongodb';
 
 export const loginSchema = z.object({
   email: z.email(),
   password: z.string().min(6),
 });
 
+let adapterClient: MongoClient | null = null;
+
 async function getMongoClient(): Promise<MongoClient> {
-  await connectDB();
-  return mongoose.connection.getClient() as unknown as MongoClient;
+  if (adapterClient) return adapterClient;
+  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/cryptowithalgo';
+  adapterClient = new MongoClient(uri);
+  await adapterClient.connect();
+  return adapterClient;
 }
 
 export async function authorizeCredentials(
