@@ -1,19 +1,20 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Play, Plus, Save, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StrategyForm } from '@/components/backtest/StrategyForm';
 import { StrategyList } from '@/components/backtest/StrategyList';
 import { BacktestConfigPanel } from '@/components/backtest/BacktestConfigPanel';
 import { BacktestProgress } from '@/components/backtest/BacktestProgress';
 import { DataStatus } from '@/components/backtest/DataStatus';
+import { WeightSliders } from '@/components/backtest/WeightSliders';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { BacktestMetricsCards } from '@/components/backtest/BacktestMetricsCards';
 import { TradeList } from '@/components/backtest/TradeList';
-import Link from 'next/link';
 import {
   useStrategies,
   useCreateStrategy,
@@ -32,6 +33,14 @@ const BINANCE_WS_INTERVALS: Record<string, string> = {
   '1h': '1h',
   '4h': '4h',
   '1d': '1d',
+};
+
+/** Milliseconds per bar for each interval, used to compute startTime for N bars */
+const INTERVAL_MS: Record<string, number> = {
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000,
 };
 
 const DATA_RANGE_OPTIONS = [
@@ -53,6 +62,7 @@ export default function BacktestPage() {
   const [backtestInterval, setBacktestInterval] = useState('1h');
   const [dataRange, setDataRange] = useState<DataRange>('6m');
   const [fetchingCandles, setFetchingCandles] = useState(false);
+  const [activeTab, setActiveTab] = useState('configure');
 
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
 
@@ -64,6 +74,13 @@ export default function BacktestPage() {
   const saveMutation = useSaveBacktestResult();
   const { data: savedResults } = useBacktestResults();
   const deleteResultMutation = useDeleteBacktestResult();
+
+  // Auto-navigate to results when backtest completes
+  useEffect(() => {
+    if (backtest.status === 'complete') {
+      setActiveTab('results');
+    }
+  }, [backtest.status]);
 
   const strategies = useMemo(() => data?.strategies ?? [], [data]);
   const selectedStrategy = strategies.find((s) => s._id === selectedStrategyId);
@@ -160,15 +177,18 @@ export default function BacktestPage() {
       let klines;
 
       if (dataRange === 'legacy' || !rangeOption) {
-        // Legacy: fetch 500 candles directly from Binance proxy
+        // Legacy: fetch 500 candles from stored data
+        const barMs = INTERVAL_MS[interval] ?? 3600000;
+        const startTime = Date.now() - 500 * barMs;
         const res = await fetch(
-          `/api/prices/history?symbol=${symbol}&interval=${interval}&limit=500`
+          `/api/candles?symbol=${symbol}&interval=${interval}&startTime=${startTime}&limit=500`
         );
         if (!res.ok) {
           toast.error('Failed to fetch candle data');
           return;
         }
-        klines = await res.json();
+        const data = await res.json();
+        klines = data.candles;
       } else {
         // Deep history: fetch from MongoDB via /api/candles
         const startTime = Date.now() - rangeOption.months * 30 * 24 * 60 * 60 * 1000;
@@ -200,133 +220,163 @@ export default function BacktestPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-foreground">Backtest</h1>
-        <Button size="sm" onClick={() => setFormOpen(true)}>
-          <Plus className="mr-1 size-4" />
-          New Strategy
-        </Button>
-      </div>
+      <h1 className="text-lg font-semibold text-foreground">Backtest</h1>
 
-      <Tabs defaultValue="configure">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="configure">Configure</TabsTrigger>
-          <TabsTrigger value="results" disabled={!backtest.result}>
-            Results
-          </TabsTrigger>
+          <TabsTrigger value="results">Results</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="journal">Journal</TabsTrigger>
         </TabsList>
 
         <TabsContent value="configure" className="space-y-4">
-          <StrategyList
-            strategies={strategies}
-            isLoading={isLoading}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            deletingId={deletingId}
-          />
-
-          {strategies.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Select a strategy to backtest:</p>
-              <div className="flex flex-wrap gap-2">
-                {strategies.map((s) => (
-                  <Button
-                    key={s._id}
-                    size="sm"
-                    variant={selectedStrategyId === s._id ? 'default' : 'outline'}
-                    className="h-7 text-xs"
-                    onClick={() => handleSelectStrategy(s._id)}
-                  >
-                    {s.name}
-                  </Button>
-                ))}
+          {/* Strategy section */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium">Strategy</CardTitle>
+                <Button size="sm" variant="outline" onClick={() => setFormOpen(true)}>
+                  <Plus className="mr-1 size-3" />
+                  New Strategy
+                </Button>
               </div>
-            </div>
-          )}
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <StrategyList
+                strategies={strategies}
+                isLoading={isLoading}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                deletingId={deletingId}
+              />
 
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Interval:</p>
-            <div className="flex gap-2">
-              {Object.keys(BINANCE_WS_INTERVALS).map((iv) => (
-                <Button
-                  key={iv}
-                  size="sm"
-                  variant={backtestInterval === iv ? 'default' : 'outline'}
-                  className="h-7 text-xs"
-                  onClick={() => setBacktestInterval(iv)}
-                >
-                  {iv}
-                </Button>
-              ))}
-            </div>
-          </div>
+              {strategies.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Select a strategy to backtest:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {strategies.map((s) => (
+                      <Button
+                        key={s._id}
+                        size="xs"
+                        variant={selectedStrategyId === s._id ? 'default' : 'outline'}
+                        onClick={() => handleSelectStrategy(s._id)}
+                      >
+                        {s.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Data Range:</p>
-            <div className="flex flex-wrap gap-2">
-              {DATA_RANGE_OPTIONS.map((opt) => (
-                <Button
-                  key={opt.value}
-                  size="sm"
-                  variant={dataRange === opt.value ? 'default' : 'outline'}
-                  className="h-7 text-xs"
-                  onClick={() => setDataRange(opt.value)}
-                >
-                  {opt.label}
-                </Button>
-              ))}
-            </div>
-          </div>
+              {selectedStrategy && (
+                <WeightSliders
+                  weights={config.weights}
+                  onChange={(weights) => setConfig((prev) => ({ ...prev, weights }))}
+                />
+              )}
+            </CardContent>
+          </Card>
 
-          <DataStatus
-            symbol={selectedStrategy?.symbols[0] ?? selectedSymbol}
-            interval={backtestInterval}
-          />
+          {/* Market & Data section */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Market &amp; Data</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground font-mono">
+                  {selectedStrategy?.symbols[0] ?? selectedSymbol}
+                </span>
+              </div>
 
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Interval:</p>
+                <div className="flex gap-2">
+                  {Object.keys(BINANCE_WS_INTERVALS).map((iv) => (
+                    <Button
+                      key={iv}
+                      size="xs"
+                      variant={backtestInterval === iv ? 'default' : 'outline'}
+                      onClick={() => setBacktestInterval(iv)}
+                    >
+                      {iv}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">Data Range:</p>
+                <div className="flex flex-wrap gap-2">
+                  {DATA_RANGE_OPTIONS.map((opt) => (
+                    <Button
+                      key={opt.value}
+                      size="xs"
+                      variant={dataRange === opt.value ? 'default' : 'outline'}
+                      onClick={() => setDataRange(opt.value)}
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <DataStatus
+                symbol={selectedStrategy?.symbols[0] ?? selectedSymbol}
+                interval={backtestInterval}
+                compact
+              />
+            </CardContent>
+          </Card>
+
+          {/* Configuration */}
           <BacktestConfigPanel config={config} onChange={setConfig} />
 
-          <div className="flex items-center gap-2">
-            {backtest.status === 'running' || fetchingCandles ? (
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={backtest.cancel}
-                disabled={fetchingCandles}
-              >
-                <Square className="mr-1 size-4" />
-                {fetchingCandles ? 'Loading data...' : 'Cancel'}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={handleRunBacktest}
-              >
-                <Play className="mr-1 size-4" />
-                Run Backtest
-              </Button>
+          {/* Run section */}
+          <div className="rounded-lg border border-border p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              {backtest.status === 'running' || fetchingCandles ? (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="w-full"
+                  onClick={backtest.cancel}
+                  disabled={fetchingCandles}
+                >
+                  <Square className="mr-1 size-4" />
+                  {fetchingCandles ? 'Loading data...' : 'Cancel'}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={handleRunBacktest}
+                >
+                  <Play className="mr-1 size-4" />
+                  Run Backtest
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground text-center" data-testid="run-summary">
+              {selectedStrategy?.symbols[0] ?? selectedSymbol} / {backtestInterval} / {DATA_RANGE_OPTIONS.find((r) => r.value === dataRange)?.label ?? dataRange}
+            </p>
+
+            {backtest.status === 'running' && (
+              <BacktestProgress
+                progress={backtest.progress}
+                barsProcessed={backtest.barsProcessed}
+                totalBars={backtest.totalBars}
+              />
             )}
-            <span className="text-xs text-muted-foreground">
-              {selectedStrategy?.symbols[0] ?? selectedSymbol} / {backtestInterval}
-            </span>
+
+            {backtest.status === 'error' && (
+              <p className="text-sm text-destructive">{backtest.error}</p>
+            )}
           </div>
-
-          {backtest.status === 'running' && (
-            <BacktestProgress
-              progress={backtest.progress}
-              barsProcessed={backtest.barsProcessed}
-              totalBars={backtest.totalBars}
-            />
-          )}
-
-          {backtest.status === 'error' && (
-            <p className="text-sm text-destructive">{backtest.error}</p>
-          )}
         </TabsContent>
 
         <TabsContent value="results" className="space-y-4">
-          {backtest.result && (
+          {backtest.result ? (
             <>
               <div className="flex justify-end">
                 <Button
@@ -347,6 +397,10 @@ export default function BacktestPage() {
               />
               <TradeList trades={backtest.result.trades} />
             </>
+          ) : (
+            <p className="py-8 text-center text-sm text-muted-foreground" data-testid="results-empty">
+              Run a backtest to see results.
+            </p>
           )}
         </TabsContent>
 
@@ -391,9 +445,9 @@ export default function BacktestPage() {
                       </td>
                       <td className="py-2 text-xs">
                         <Button
-                          size="sm"
+                          size="xs"
                           variant="ghost"
-                          className="h-6 text-[10px] text-destructive hover:text-destructive"
+                          className="text-destructive hover:text-destructive"
                           onClick={() => handleDeleteResult(r._id)}
                           disabled={deleteResultMutation.isPending}
                         >
@@ -408,19 +462,6 @@ export default function BacktestPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="journal">
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-sm text-muted-foreground mb-3">
-              The journal has moved to its own dedicated page.
-            </p>
-            <Link
-              href="/journal"
-              className="text-sm text-primary underline underline-offset-4 hover:text-primary/80"
-            >
-              Open Journal
-            </Link>
-          </div>
-        </TabsContent>
       </Tabs>
 
       <StrategyForm

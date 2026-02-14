@@ -78,18 +78,17 @@ export function StrategyList({
               </div>
               <div className="flex gap-1">
                 <Button
-                  size="sm"
+                  size="icon-xs"
                   variant="ghost"
-                  className="h-7 w-7 p-0"
                   onClick={() => onEdit(strategy)}
                   aria-label={`Edit ${strategy.name}`}
                 >
                   <Edit className="size-3.5" />
                 </Button>
                 <Button
-                  size="sm"
+                  size="icon-xs"
                   variant="ghost"
-                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                  className="text-destructive hover:text-destructive"
                   onClick={() => onDelete(strategy._id)}
                   disabled={deletingId === strategy._id}
                   aria-label={`Delete ${strategy.name}`}
