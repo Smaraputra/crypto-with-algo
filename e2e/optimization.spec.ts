@@ -103,6 +103,11 @@ test.describe('Optimization Dashboard', () => {
     const historyTab = page.getByRole('tab', { name: /History/i });
     await expect(historyTab).toHaveAttribute('data-state', 'active');
 
+    // Switch to Cron Runs
+    await page.getByRole('tab', { name: /Cron Runs/i }).click();
+    const cronTab = page.getByRole('tab', { name: /Cron Runs/i });
+    await expect(cronTab).toHaveAttribute('data-state', 'active');
+
     // Switch to Compare
     await page.getByRole('tab', { name: /Compare/i }).click();
     const compareTab = page.getByRole('tab', { name: /Compare/i });
@@ -170,6 +175,65 @@ test.describe('Optimization Dashboard', () => {
     await expect(page.getByLabel(/Symbol/i)).toHaveValue('ETHUSDT');
     await expect(page.getByRole('combobox', { name: /Interval/i })).toContainText('4h');
     await expect(page.getByRole('slider')).toHaveValue('3');
+  });
+});
+
+test.describe('Cron Runs Tab', () => {
+  test.use({ storageState: 'e2e/.auth/user.json' });
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/admin/optimization');
+  });
+
+  test('should show Cron Runs tab', async ({ page }) => {
+    const url = page.url();
+    if (url.includes('/dashboard')) {
+      test.skip();
+    }
+
+    const cronTab = page.getByRole('tab', { name: /Cron Runs/i });
+    await expect(cronTab).toBeVisible();
+  });
+
+  test('should show table headers or empty state in Cron Runs tab', async ({ page }) => {
+    const url = page.url();
+    if (url.includes('/dashboard')) {
+      test.skip();
+    }
+
+    await page.getByRole('tab', { name: /Cron Runs/i }).click();
+
+    // Either table headers or empty state should appear
+    const dateHeader = page.getByRole('columnheader', { name: /Date/i });
+    const emptyState = page.getByText(/No cron runs yet/i);
+
+    await expect(dateHeader.or(emptyState)).toBeVisible();
+  });
+
+  test('should show Trigger Optimization button in Cron tab', async ({ page }) => {
+    const url = page.url();
+    if (url.includes('/dashboard')) {
+      test.skip();
+    }
+
+    await page.getByRole('tab', { name: /Cron Runs/i }).click();
+
+    await expect(page.getByRole('button', { name: /Trigger Optimization/i })).toBeVisible();
+  });
+
+  test('should open trigger dialog when button is clicked', async ({ page }) => {
+    const url = page.url();
+    if (url.includes('/dashboard')) {
+      test.skip();
+    }
+
+    await page.getByRole('tab', { name: /Cron Runs/i }).click();
+    await page.getByRole('button', { name: /Trigger Optimization/i }).click();
+
+    await expect(page.getByRole('heading', { name: /Trigger Monthly Optimization/i })).toBeVisible();
+    await expect(page.getByLabel(/Symbols/i)).toBeVisible();
+    await expect(page.getByLabel(/Historical Data/i)).toBeVisible();
+    await expect(page.getByLabel(/Auto-Activate/i)).toBeVisible();
   });
 });
 
