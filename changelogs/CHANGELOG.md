@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Null assertion crash in monthly-orchestrator when `getCandleRange` returns null `newest` value
+- Silent error swallowing in compute-engine bulk insert fallback -- now logs errors and adjusts computed/errors counts
+- Registration race condition: concurrent duplicate email now returns 409 instead of 500 (MongoDB error code 11000)
+- Unused variable lint warning in walk-forward.ts (`testDoc`)
+
+### Changed
+- Strengthened weak test assertions: replaced `.toBeDefined()` with type/range/enum checks in compute-for-style, compute-engine, and scorer tests
+- Removed conditional guard in E2E dashboard watchlist test that silently skipped assertions
+- Exported `calculateWindows` from walk-forward.ts for direct unit testing
+
+### Added
+- Unit tests for walk-forward `calculateWindows` (8 tests: boundaries, anchoring, expanding, step size)
+- Unit tests for template-versioning (7 tests: versioning, activation, deactivation, error handling)
+- Unit tests for monthly-orchestrator (5 tests: happy path, insufficient data, backfill, null regression, empty candles)
+- Regression test for BUG-1 null `range.newest` in orchestrator backfill check
+- Test for BUG-2 individual insert failure count adjustment in compute-engine
+- Tests for BUG-3 duplicate key (11000) and non-duplicate error handling in registration route
+
+### Fixed (previous)
 - Middleware blocking logo and icon static assets
   - Updated matcher pattern to exclude logo.png, icon.png, opengraph-image.png, apple-icon.png
   - Fixed Next.js Image optimization 400 errors preventing logos from displaying
@@ -26,6 +45,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaced dead Blog and Documentation links in Footer with Features and How It Works
 
 ### Added
+- **Phase 14: Enhanced Signal System with Per-Style Differentiation**
+  - Per-style indicator config profiles (scalping, day trading, swing, position) with differentiated EMA, RSI, MACD, Bollinger, ATR, StochRSI, Ichimoku parameters
+  - Style-aware indicator computation wrapper (`computeIndicatorsForStyle`)
+  - High-frequency candle intervals (1m, 5m) with TTL-based auto-cleanup
+  - GlobalSignal model for shared, pre-computed signals per symbol/style/interval
+  - Batch signal compute engine with candle deduplication across styles
+  - Top 10 symbols configuration (BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, DOT, LINK)
+  - Per-style cron scheduling (1min scalping, 5min day trading, 15min swing, hourly position)
+  - Global signal API routes (`/api/signals/global`, `/api/signals/latest`)
+  - Client hooks (`useGlobalSignals`, `useLatestSignals`, `useLatestSignalForStyle`, `useComputeGlobalSignal`)
+  - Enhanced signals page UI with style tabs, auto-update status bar, signal timeline sparkline, multi-style comparison cards
+  - Backtest integration: walk-forward optimizer uses style-specific indicator configs
+  - 132 new unit tests for Phase 14 features
+- **Comprehensive Test Coverage and Bug Fixes**
+  - Added 10 unit tests for cron sync-candles route (intervals parsing, dedup, limits, errors)
+  - Added 7 unit tests for cron compute-signals global `?style=` path
+  - Added 6 unit tests for prepareBacktest with style-specific indicatorConfig passthrough
+  - Rewrote E2E signals spec: 15 tests covering style tabs, interval switching, 10 symbols, multi-style overview, auto-update status, signal history, compute button
+  - Fixed register route: env-gated registration (`ALLOW_REGISTRATION=true`) replacing hardcoded 403
+  - Fixed register page test: updated for redirect-to-login behavior
+  - Fixed login page test: removed stale register link test
+  - Fixed backtest engine degenerate test: aligned candle count with dynamic `computeMinCandles`
+  - Fixed E2E auth tests: updated for registration-disabled register page redirect
+  - 2044 unit tests passing (229 test files), 0 failures
+  - 94 E2E tests passing, 0 failures
+
 - **Phase 13D: Walk-Forward Optimization System**
   - Weight generator with constrained randomization (±20% from base template)
   - Seeded RNG for reproducible weight generation
