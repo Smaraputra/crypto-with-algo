@@ -58,6 +58,7 @@ export interface SignalTierAccuracy {
 
 export interface JournalAnalyticsResponse {
   summary: JournalAnalyticsSummary;
+  incompleteTradeCount: number;
   byTag: TagPerformance[];
   byAction: ActionDistribution[];
   bySetupType: SetupPerformance[];

@@ -50,26 +50,63 @@ export async function PATCH(
 
   const updateData = { ...parsed.data } as Record<string, unknown>;
 
-  // Auto-compute P&L when both entry and exit prices are available
-  if (updateData.exitPrice != null) {
-    const existing = await JournalEntry.findOne({
-      _id: id,
-      userId: session.user.id,
-    });
-    if (existing?.entryPrice != null) {
-      const entryPrice = existing.entryPrice;
-      const exitPrice = updateData.exitPrice as number;
-      if (existing.action === 'sell') {
-        updateData.outcomePnlPercent = ((entryPrice - exitPrice) / entryPrice) * 100;
-      } else {
-        updateData.outcomePnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
-      }
+  const existing = await JournalEntry.findOne({
+    _id: id,
+    userId: session.user.id,
+  });
+
+  if (!existing) {
+    return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+  }
+
+  // Reject exitPrice when entry has no entryPrice
+  if (updateData.exitPrice != null && existing.entryPrice == null) {
+    return NextResponse.json(
+      { error: 'Cannot set exit price on an entry without an entry price' },
+      { status: 400 }
+    );
+  }
+
+  // Auto-compute P&L only for buy/sell actions with both prices
+  if (
+    updateData.exitPrice != null &&
+    existing.entryPrice != null &&
+    (existing.action === 'buy' || existing.action === 'sell')
+  ) {
+    const entryPrice = existing.entryPrice;
+    const exitPrice = updateData.exitPrice as number;
+    if (existing.action === 'sell') {
+      updateData.outcomePnlPercent = ((entryPrice - exitPrice) / entryPrice) * 100;
+    } else {
+      updateData.outcomePnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
     }
+  }
+
+  // Preserve review history when overwriting lessonsLearned
+  const mongoUpdate: Record<string, unknown> = { ...updateData };
+  if (
+    updateData.lessonsLearned != null &&
+    existing.lessonsLearned &&
+    existing.reviewedAt
+  ) {
+    delete mongoUpdate.$push;
+    const pushOp = {
+      reviewHistory: {
+        lessonsLearned: existing.lessonsLearned,
+        reviewedAt: existing.reviewedAt,
+      },
+    };
+    const entry = await JournalEntry.findOneAndUpdate(
+      { _id: id, userId: session.user.id },
+      { $set: mongoUpdate, $push: pushOp },
+      { new: true }
+    );
+    return NextResponse.json({ entry });
   }
 
   const entry = await JournalEntry.findOneAndUpdate(
     { _id: id, userId: session.user.id },
-    updateData,
+    mongoUpdate,
     { new: true }
   );
 

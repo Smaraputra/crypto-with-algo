@@ -7,6 +7,14 @@ vi.mock('@/hooks/useJournal', () => ({
     mutate: vi.fn(),
     isPending: false,
   })),
+  useUpdateJournalEntry: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+  useDeleteJournalEntry: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
 }));
 
 vi.stubGlobal(
@@ -40,6 +48,7 @@ const closedUnreviewed: JournalEntry = {
   strategyId: null,
   backtestResultId: null,
   lessonsLearned: '',
+  reviewHistory: [],
   setupType: '',
   marketCondition: null,
   sentiment: null,

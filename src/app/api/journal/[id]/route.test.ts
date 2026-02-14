@@ -78,6 +78,11 @@ describe('PATCH /api/journal/[id]', () => {
 
   it('updates entry', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      lessonsLearned: '',
+      reviewedAt: null,
+    } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       notes: 'updated',
@@ -92,7 +97,6 @@ describe('PATCH /api/journal/[id]', () => {
   it('returns 404 when not found', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.findOne).mockResolvedValue(null);
-    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue(null);
 
     const res = await PATCH(makeRequest('PATCH', { notes: 'updated' }), { params });
     expect(res.status).toBe(404);
@@ -148,12 +152,27 @@ describe('PATCH /api/journal/[id]', () => {
     );
   });
 
-  it('does not compute P&L when entry has no entryPrice', async () => {
+  it('returns 400 when setting exitPrice on entry without entryPrice', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.findOne).mockResolvedValue({
       _id: 'journal-1',
       entryPrice: null,
       action: 'buy',
+    } as never);
+
+    const res = await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain('entry price');
+    expect(JournalEntry.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not compute P&L for hold action', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: 40000,
+      action: 'hold',
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
@@ -168,8 +187,94 @@ describe('PATCH /api/journal/[id]', () => {
     );
   });
 
+  it('does not compute P&L for skip action', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: 40000,
+      action: 'skip',
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      exitPrice: 44000,
+    } as never);
+
+    await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.not.objectContaining({ outcomePnlPercent: expect.anything() }),
+      { new: true }
+    );
+  });
+
+  it('pushes previous review to reviewHistory when updating lessonsLearned', async () => {
+    const existingReviewedAt = new Date('2025-01-15T00:00:00Z');
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      lessonsLearned: 'First review',
+      reviewedAt: existingReviewedAt,
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      lessonsLearned: 'Second review',
+      reviewHistory: [{ lessonsLearned: 'First review', reviewedAt: existingReviewedAt }],
+    } as never);
+
+    const res = await PATCH(
+      makeRequest('PATCH', { lessonsLearned: 'Second review', reviewedAt: new Date().toISOString() }),
+      { params }
+    );
+    expect(res.status).toBe(200);
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      {
+        $set: expect.objectContaining({ lessonsLearned: 'Second review' }),
+        $push: {
+          reviewHistory: {
+            lessonsLearned: 'First review',
+            reviewedAt: existingReviewedAt,
+          },
+        },
+      },
+      { new: true }
+    );
+  });
+
+  it('does not push reviewHistory on first review', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      lessonsLearned: '',
+      reviewedAt: null,
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      lessonsLearned: 'First review',
+    } as never);
+
+    await PATCH(
+      makeRequest('PATCH', { lessonsLearned: 'First review', reviewedAt: new Date().toISOString() }),
+      { params }
+    );
+    // Should use simple update, not $set/$push
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.objectContaining({ lessonsLearned: 'First review' }),
+      { new: true }
+    );
+    // Verify no $push was used
+    const updateArg = vi.mocked(JournalEntry.findOneAndUpdate).mock.calls[0][1] as Record<string, unknown>;
+    expect(updateArg.$push).toBeUndefined();
+  });
+
   it('updates new fields (tags, lessonsLearned)', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      lessonsLearned: '',
+      reviewedAt: null,
+    } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       tags: ['breakout'],

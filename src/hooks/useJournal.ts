@@ -16,6 +16,7 @@ export interface JournalFilters {
   action?: string;
   setupType?: string;
   marketCondition?: string;
+  status?: 'open' | 'closed';
   startDate?: string;
   endDate?: string;
   page?: number;
@@ -30,6 +31,7 @@ function buildJournalUrl(filters: JournalFilters = {}): string {
   if (filters.action) params.set('action', filters.action);
   if (filters.setupType) params.set('setupType', filters.setupType);
   if (filters.marketCondition) params.set('marketCondition', filters.marketCondition);
+  if (filters.status) params.set('status', filters.status);
   if (filters.startDate) params.set('startDate', filters.startDate);
   if (filters.endDate) params.set('endDate', filters.endDate);
   if (filters.page) params.set('page', String(filters.page));

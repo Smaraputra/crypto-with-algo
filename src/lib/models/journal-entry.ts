@@ -10,6 +10,11 @@ export const MARKET_CONDITIONS = [
   'calm',
 ] as const;
 
+export interface IReviewHistoryEntry {
+  lessonsLearned: string;
+  reviewedAt: Date;
+}
+
 export interface IJournalEntry extends Document {
   userId: string;
   symbol: string;
@@ -27,6 +32,7 @@ export interface IJournalEntry extends Document {
   strategyId: string | null;
   backtestResultId: string | null;
   lessonsLearned: string;
+  reviewHistory: IReviewHistoryEntry[];
   setupType: string;
   marketCondition: (typeof MARKET_CONDITIONS)[number] | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
@@ -56,13 +62,35 @@ const journalEntrySchema = new Schema<IJournalEntry>(
     strategyId: { type: String, default: null },
     backtestResultId: { type: String, default: null },
     lessonsLearned: { type: String, default: '' },
+    reviewHistory: {
+      type: [
+        {
+          lessonsLearned: { type: String, required: true },
+          reviewedAt: { type: Date, required: true },
+        },
+      ],
+      default: [],
+    },
     setupType: { type: String, default: '' },
     marketCondition: {
       type: String,
       enum: [...MARKET_CONDITIONS, null],
       default: null,
     },
-    sentiment: { type: Schema.Types.Mixed, default: null },
+    sentiment: {
+      type: Schema.Types.Mixed,
+      default: null,
+      validate: {
+        validator: function (v: unknown) {
+          if (v == null) return true;
+          if (typeof v !== 'object') return false;
+          const obj = v as Record<string, unknown>;
+          if (typeof obj.fearGreedIndex !== 'number') return false;
+          return obj.fearGreedIndex >= 0 && obj.fearGreedIndex <= 100;
+        },
+        message: 'fearGreedIndex must be between 0 and 100',
+      },
+    },
   },
   { timestamps: true }
 );

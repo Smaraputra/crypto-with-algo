@@ -56,6 +56,11 @@ export const updateJournalEntrySchema = z.object({
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntrySchema>;
 export type UpdateJournalEntryInput = z.infer<typeof updateJournalEntrySchema>;
 
+export interface ReviewHistoryEntry {
+  lessonsLearned: string;
+  reviewedAt: string;
+}
+
 export interface JournalEntry {
   _id: string;
   userId: string;
@@ -74,6 +79,7 @@ export interface JournalEntry {
   strategyId: string | null;
   backtestResultId: string | null;
   lessonsLearned: string;
+  reviewHistory: ReviewHistoryEntry[];
   setupType: string;
   marketCondition: MarketCondition | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
@@ -86,6 +92,8 @@ export interface JournalEntryListResponse {
   total?: number;
   page?: number;
   totalPages?: number;
+  entryLimit?: number;
+  totalUserEntries?: number;
 }
 
 export interface JournalEntryResponse {

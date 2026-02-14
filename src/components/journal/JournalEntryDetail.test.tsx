@@ -1,8 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 vi.mock('@/hooks/useJournal', () => ({
   useReviewJournalEntry: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+  useUpdateJournalEntry: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+  useDeleteJournalEntry: vi.fn(() => ({
     mutate: vi.fn(),
     isPending: false,
   })),
@@ -31,7 +39,7 @@ describe('JournalEntryDetail', () => {
     expect(screen.getByText('BUY')).toBeInTheDocument();
   });
 
-  it('renders signal score', () => {
+  it('renders signal score in context row', () => {
     render(<JournalEntryDetail entry={mockJournalEntry} />);
     expect(screen.getByText('45')).toBeInTheDocument();
   });
@@ -46,9 +54,10 @@ describe('JournalEntryDetail', () => {
 
   it('renders setup type badge', () => {
     render(<JournalEntryDetail entry={mockJournalEntry} />);
-    // setupType "breakout" is shown as an outline badge
+    // setupType "breakout" shown as outline badge in context row
+    // and "breakout" also in tags -- there should be 2 occurrences
     const breakoutBadges = screen.getAllByText('breakout');
-    expect(breakoutBadges.length).toBe(2); // one tag + one setupType
+    expect(breakoutBadges.length).toBe(2);
   });
 
   it('renders market condition', () => {
@@ -64,11 +73,17 @@ describe('JournalEntryDetail', () => {
 
   it('renders PnL for entry with exit price', () => {
     render(<JournalEntryDetail entry={mockJournalEntry2} />);
-    expect(screen.getByText('+4.55%')).toBeInTheDocument();
+    expect(screen.getByTestId('entry-pnl')).toHaveTextContent('+4.55%');
   });
 
-  it('renders notes via markdown preview', () => {
+  it('renders collapsible notes toggle', () => {
     render(<JournalEntryDetail entry={mockJournalEntry} />);
+    expect(screen.getByTestId('toggle-notes')).toBeInTheDocument();
+  });
+
+  it('expands notes on toggle click', () => {
+    render(<JournalEntryDetail entry={mockJournalEntry} />);
+    fireEvent.click(screen.getByTestId('toggle-notes'));
     expect(screen.getByText('Strong momentum signal')).toBeInTheDocument();
   });
 
@@ -77,9 +92,14 @@ describe('JournalEntryDetail', () => {
     expect(screen.getByText('Good entry timing, should have held longer')).toBeInTheDocument();
   });
 
-  it('renders indicator snapshot values', () => {
+  it('renders collapsible indicator snapshot toggle', () => {
     render(<JournalEntryDetail entry={mockJournalEntry} />);
-    // RSI should be in the snapshot grid
+    expect(screen.getByTestId('toggle-snapshot')).toBeInTheDocument();
+  });
+
+  it('expands snapshot on toggle click', () => {
+    render(<JournalEntryDetail entry={mockJournalEntry} />);
+    fireEvent.click(screen.getByTestId('toggle-snapshot'));
     expect(screen.getByText('RSI')).toBeInTheDocument();
     expect(screen.getByText('62.00')).toBeInTheDocument();
   });
@@ -94,14 +114,30 @@ describe('JournalEntryDetail', () => {
     expect(screen.queryByText('Review')).not.toBeInTheDocument();
   });
 
+  it('shows close trade button for open trades', () => {
+    render(<JournalEntryDetail entry={mockJournalEntry} />);
+    expect(screen.getByText('Close Trade')).toBeInTheDocument();
+  });
+
   it('renders skipped entry without prices', () => {
     render(<JournalEntryDetail entry={mockSkippedEntry} />);
     expect(screen.getByText('SKIP')).toBeInTheDocument();
-    expect(screen.queryByText(/Entry:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Entry/)).not.toBeInTheDocument();
+  });
+
+  it('renders entry actions menu trigger', () => {
+    render(<JournalEntryDetail entry={mockJournalEntry} />);
+    expect(screen.getByTestId('entry-actions-trigger')).toBeInTheDocument();
   });
 
   it('has testid', () => {
     render(<JournalEntryDetail entry={mockJournalEntry} />);
     expect(screen.getByTestId('journal-entry-detail')).toBeInTheDocument();
+  });
+
+  it('shows entry and exit prices prominently', () => {
+    render(<JournalEntryDetail entry={mockJournalEntry2} />);
+    expect(screen.getByText('$2,200')).toBeInTheDocument();
+    expect(screen.getByText('$2,100')).toBeInTheDocument();
   });
 });

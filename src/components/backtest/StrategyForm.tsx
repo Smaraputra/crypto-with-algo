@@ -10,9 +10,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Slider } from '@/components/ui/slider';
 import { VALID_INTERVALS, VALID_SYMBOLS } from '@/types/strategy';
 import { DEFAULT_WEIGHTS } from '@/types/signal';
+import { WeightSliders } from './WeightSliders';
 import type { CreateStrategyInput, Strategy } from '@/types/strategy';
 import type { SignalWeights } from '@/types/signal';
 
@@ -27,15 +27,6 @@ interface StrategyFormProps {
 const WEIGHT_KEYS: (keyof SignalWeights)[] = [
   'trend', 'momentum', 'volume', 'volatility', 'futures', 'sentiment',
 ];
-
-const WEIGHT_LABELS: Record<keyof SignalWeights, string> = {
-  trend: 'Trend',
-  momentum: 'Momentum',
-  volume: 'Volume',
-  volatility: 'Volatility',
-  futures: 'Futures',
-  sentiment: 'Sentiment',
-};
 
 function StrategyFormInner({
   onSubmit,
@@ -67,10 +58,6 @@ function StrategyFormInner({
         ? prev.filter((i) => i !== interval)
         : [...prev, interval]
     );
-  };
-
-  const updateWeight = (key: keyof SignalWeights, value: number) => {
-    setWeights((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleSubmit = () => {
@@ -128,39 +115,7 @@ function StrategyFormInner({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs">Weights</Label>
-          <span
-            className={`text-xs font-mono tabular-nums ${
-              isWeightValid ? 'text-green-500' : 'text-red-500'
-            }`}
-          >
-            Total: {(totalWeight * 100).toFixed(0)}%
-          </span>
-        </div>
-        {WEIGHT_KEYS.map((key) => (
-          <div key={key} className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                {WEIGHT_LABELS[key]}
-              </span>
-              <span className="font-mono text-xs tabular-nums">
-                {(weights[key] * 100).toFixed(0)}%
-              </span>
-            </div>
-            <Slider
-              value={[weights[key] * 100]}
-              onValueChange={([v]) => updateWeight(key, v / 100)}
-              min={0}
-              max={100}
-              step={5}
-              className="h-4"
-              aria-label={`${WEIGHT_LABELS[key]} weight`}
-            />
-          </div>
-        ))}
-      </div>
+      <WeightSliders weights={weights} onChange={setWeights} />
 
       <Button
         onClick={handleSubmit}

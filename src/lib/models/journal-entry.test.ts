@@ -73,6 +73,7 @@ describe('JournalEntry model', () => {
     expect(entry.reviewedAt).toBeNull();
     expect(entry.exitPrice).toBeNull();
     expect(entry.outcomePnlPercent).toBeNull();
+    expect(entry.reviewHistory).toEqual([]);
   });
 
   it('stores tags array', async () => {
@@ -142,6 +143,47 @@ describe('JournalEntry model', () => {
     );
 
     expect(entry.lessonsLearned).toBe('Should have waited for confirmation');
+  });
+
+  it('stores reviewHistory array', async () => {
+    const JournalEntry = await getModel();
+    const entry = await JournalEntry.create(
+      makeEntryData({
+        reviewHistory: [
+          { lessonsLearned: 'First review', reviewedAt: new Date('2025-01-10') },
+        ],
+      })
+    );
+
+    expect(entry.reviewHistory).toHaveLength(1);
+    expect(entry.reviewHistory[0].lessonsLearned).toBe('First review');
+    expect(entry.reviewHistory[0].reviewedAt).toBeInstanceOf(Date);
+  });
+
+  it('rejects sentiment with fearGreedIndex out of range', async () => {
+    const JournalEntry = await getModel();
+    await expect(
+      JournalEntry.create(
+        makeEntryData({ sentiment: { fearGreedIndex: 150, fearGreedLabel: 'Extreme' } })
+      )
+    ).rejects.toThrow();
+  });
+
+  it('rejects sentiment with negative fearGreedIndex', async () => {
+    const JournalEntry = await getModel();
+    await expect(
+      JournalEntry.create(
+        makeEntryData({ sentiment: { fearGreedIndex: -5, fearGreedLabel: 'Invalid' } })
+      )
+    ).rejects.toThrow();
+  });
+
+  it('allows null sentiment', async () => {
+    const JournalEntry = await getModel();
+    const entry = await JournalEntry.create(
+      makeEntryData({ sentiment: null })
+    );
+    expect(entry.sentiment).toBeNull();
   });
 
   it('rejects invalid action enum', async () => {
