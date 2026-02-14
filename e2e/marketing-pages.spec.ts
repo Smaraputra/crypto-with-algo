@@ -34,18 +34,18 @@ test.describe('Marketing Pages', () => {
 
   test('Nav links navigate to correct pages', async ({ page }) => {
     await page.goto('/');
-    // Click Docs in the desktop nav
-    await page.getByRole('link', { name: 'Docs' }).first().click();
-    await expect(page).toHaveURL(/\/docs/);
-    await expect(page.getByRole('heading', { name: 'Documentation' })).toBeVisible();
+    // Click Features in the desktop nav
+    await page.getByRole('link', { name: 'Features' }).first().click();
+    await expect(page).toHaveURL(/\/features/);
+    await expect(page.getByRole('heading', { name: 'Features', level: 1 })).toBeVisible();
   });
 
   test('Footer links navigate to correct pages', async ({ page }) => {
     await page.goto('/');
-    // Scroll to footer and click Documentation link
-    const docLink = page.getByRole('link', { name: 'Documentation' });
-    await docLink.scrollIntoViewIfNeeded();
-    await docLink.click();
-    await expect(page).toHaveURL(/\/docs/);
+    // Scroll to footer and click How It Works link
+    const howItWorksLink = page.getByRole('link', { name: 'How It Works' }).last();
+    await howItWorksLink.scrollIntoViewIfNeeded();
+    await howItWorksLink.click();
+    await expect(page).toHaveURL(/\/how-it-works/);
   });
 });
