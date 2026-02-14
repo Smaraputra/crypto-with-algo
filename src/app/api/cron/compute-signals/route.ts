@@ -7,11 +7,15 @@ import { computeAllIndicators } from '@/lib/indicators/compute';
 import { interpretIndicators } from '@/lib/indicators/interpret';
 import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { RECOMMENDED_CANDLES } from '@/lib/indicators/types';
+import { TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { Signal } from '@/lib/models/signal';
 import { Strategy } from '@/lib/models/strategy';
+import type { TradingStyle } from '@/lib/models/signal-template';
 import { connectDB } from '@/lib/mongodb';
 import { cachedFetch } from '@/lib/redis';
 import { computeSignalScore } from '@/lib/signals/scorer';
+import { computeSignalBatch, buildTasksForStyle } from '@/lib/signals/compute-engine';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import type { FuturesData } from '@/types/futures';
 import type { SentimentData } from '@/types/signal';
@@ -23,6 +27,10 @@ function verifyCronSecret(req: NextRequest): boolean {
   if (!secret) return false;
   const header = req.headers.get('authorization');
   return header === `Bearer ${secret}`;
+}
+
+function isValidTradingStyle(style: string): style is TradingStyle {
+  return (TRADING_STYLES as readonly string[]).includes(style);
 }
 
 async function fetchFuturesDataSafe(symbol: string): Promise<FuturesData> {
@@ -57,20 +65,33 @@ async function fetchFuturesDataSafe(symbol: string): Promise<FuturesData> {
   return result;
 }
 
-export async function GET(req: NextRequest) {
-  if (!verifyCronSecret(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+/**
+ * New global signal computation for a specific trading style.
+ * Uses the compute engine to batch-process all configured symbols.
+ */
+async function computeGlobalSignals(style: TradingStyle) {
+  const tasks = buildTasksForStyle(style, [...SIGNAL_SYMBOLS]);
+  const result = await computeSignalBatch(tasks);
 
-  await connectDB();
+  return NextResponse.json({
+    mode: 'global',
+    style,
+    computed: result.computed,
+    errors: result.errors,
+    skipped: result.skipped,
+    tasks: tasks.length,
+  });
+}
 
-  // Find all active strategies
+/**
+ * Legacy per-user signal computation from user strategies.
+ */
+async function computeLegacySignals() {
   const strategies = await Strategy.find({ active: true });
   if (strategies.length === 0) {
-    return NextResponse.json({ computed: 0, errors: 0 });
+    return NextResponse.json({ mode: 'legacy', computed: 0, errors: 0 });
   }
 
-  // Deduplicate (symbol, interval) pairs across all strategies
   const pairsSet = new Set<string>();
   const userPairsMap = new Map<string, Array<{ userId: string; weights: typeof strategies[0]['weights'] }>>();
 
@@ -91,10 +112,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Limit to MAX_PAIRS_PER_RUN
   const pairs = [...pairsSet].slice(0, MAX_PAIRS_PER_RUN);
-
-  // Fetch sentiment once for all pairs (cached 5min)
   const sentimentData: SentimentData | null = await fetchFearAndGreed().catch(() => null);
 
   let computed = 0;
@@ -127,7 +145,6 @@ export async function GET(req: NextRequest) {
       const indicators = interpretIndicators(raw);
       const superTrend = computeSuperTrend(candles);
 
-      // Create a signal for each user who has this pair in their strategy
       const users = userPairsMap.get(pair) || [];
       for (const { userId, weights } of users) {
         const signal = computeSignalScore(
@@ -155,5 +172,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ computed, errors, pairs: pairs.length });
+  return NextResponse.json({ mode: 'legacy', computed, errors, pairs: pairs.length });
+}
+
+export async function GET(req: NextRequest) {
+  if (!verifyCronSecret(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  await connectDB();
+
+  // Check for ?style= query param for style-based global signal computation
+  const styleParam = req.nextUrl.searchParams.get('style');
+
+  if (styleParam) {
+    if (!isValidTradingStyle(styleParam)) {
+      return NextResponse.json(
+        { error: `Invalid trading style: ${styleParam}` },
+        { status: 400 }
+      );
+    }
+    return computeGlobalSignals(styleParam);
+  }
+
+  // No style param: run legacy per-user computation
+  return computeLegacySignals();
 }

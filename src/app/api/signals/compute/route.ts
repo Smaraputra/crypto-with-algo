@@ -7,11 +7,15 @@ import { getCandles } from '@/lib/candle-ingestion';
 import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { interpretIndicators } from '@/lib/indicators/interpret';
+import { TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { RECOMMENDED_CANDLES } from '@/lib/indicators/types';
+import { GlobalSignal } from '@/lib/models/global-signal';
 import { Signal } from '@/lib/models/signal';
+import type { TradingStyle } from '@/lib/models/signal-template';
 import { connectDB } from '@/lib/mongodb';
 import { cachedFetch } from '@/lib/redis';
+import { computeSignalBatch } from '@/lib/signals/compute-engine';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import type { FuturesData } from '@/types/futures';
@@ -20,6 +24,7 @@ import type { SentimentData } from '@/types/signal';
 const computeSchema = z.object({
   symbol: z.string().min(1),
   interval: z.string().default('1h'),
+  tradingStyle: z.enum(TRADING_STYLES as unknown as [string, ...string[]]).optional(),
 });
 
 async function fetchFuturesDataSafe(symbol: string): Promise<FuturesData> {
@@ -69,9 +74,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { symbol, interval } = parsed.data;
+  const { symbol, interval, tradingStyle } = parsed.data;
 
   try {
+    // Global signal path: use compute-engine batch infrastructure
+    if (tradingStyle) {
+      await connectDB();
+      await computeSignalBatch([
+        { symbol, interval, tradingStyle: tradingStyle as TradingStyle },
+      ]);
+
+      const doc = await GlobalSignal.findOne({
+        symbol,
+        interval,
+        tradingStyle,
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      if (!doc) {
+        return NextResponse.json(
+          { error: 'Signal computation produced no result' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ signal: doc });
+    }
+
+    // Legacy per-user signal path (no tradingStyle)
     // Fetch candle data and futures data in parallel
     // Try MongoDB first (faster, avoids Binance rate limits), fall back to direct API
     const [candles, futuresData, sentimentData] = await Promise.all([

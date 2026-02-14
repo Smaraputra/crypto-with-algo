@@ -1,4 +1,4 @@
-import { Candle, type ICandle } from '@/lib/models/candle';
+import { Candle, type ICandle, computeExpiresAt } from '@/lib/models/candle';
 import { fetchKlinesRange } from '@/lib/binance';
 import { connectDB } from '@/lib/mongodb';
 import type { OHLCV } from '@/types/market';
@@ -207,24 +207,31 @@ async function bulkUpsertCandles(
 ): Promise<number> {
   if (candles.length === 0) return 0;
 
-  const ops = candles.map((c) => ({
-    updateOne: {
-      filter: { symbol, interval, timestamp: c.timestamp },
-      update: {
-        $set: {
-          symbol,
-          interval,
-          timestamp: c.timestamp,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume,
-        },
+  const expiresAt = computeExpiresAt(interval);
+
+  const ops = candles.map((c) => {
+    const setFields: Record<string, unknown> = {
+      symbol,
+      interval,
+      timestamp: c.timestamp,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+    };
+    if (expiresAt) {
+      setFields.expiresAt = expiresAt;
+    }
+
+    return {
+      updateOne: {
+        filter: { symbol, interval, timestamp: c.timestamp },
+        update: { $set: setFields },
+        upsert: true,
       },
-      upsert: true,
-    },
-  }));
+    };
+  });
 
   const result = await Candle.bulkWrite(ops, { ordered: false });
   return result.upsertedCount;

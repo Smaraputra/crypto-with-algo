@@ -1,4 +1,20 @@
-*/5  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/check-alerts >> /var/log/cron.log 2>&1
-*/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/sync-candles >> /var/log/cron.log 2>&1
-*/10 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/compute-signals >> /var/log/cron.log 2>&1
-0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1
+# Alerts
+*/5  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3000/api/cron/check-alerts >> /var/log/cron.log 2>&1
+
+# Candle sync - standard intervals (15m, 1h, 4h, 1d)
+*/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3000/api/cron/sync-candles >> /var/log/cron.log 2>&1
+# Candle sync - high-frequency intervals
+*/1  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://127.0.0.1:3000/api/cron/sync-candles?intervals=1m" >> /var/log/cron.log 2>&1
+*/5  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://127.0.0.1:3000/api/cron/sync-candles?intervals=5m" >> /var/log/cron.log 2>&1
+
+# Global signal computation - per style at appropriate frequencies
+*/1  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://127.0.0.1:3000/api/cron/compute-signals?style=scalping" >> /var/log/cron.log 2>&1
+*/5  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://127.0.0.1:3000/api/cron/compute-signals?style=day_trading" >> /var/log/cron.log 2>&1
+*/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://127.0.0.1:3000/api/cron/compute-signals?style=swing_trading" >> /var/log/cron.log 2>&1
+0    * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://127.0.0.1:3000/api/cron/compute-signals?style=position_trading" >> /var/log/cron.log 2>&1
+
+# Legacy per-user signals (backward compat, runs less frequently)
+*/10 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3000/api/cron/compute-signals >> /var/log/cron.log 2>&1
+
+# Portfolio snapshots
+0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://127.0.0.1:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1

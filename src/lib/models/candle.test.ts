@@ -9,6 +9,13 @@ import {
 } from 'vitest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import {
+  VALID_INTERVALS,
+  HF_INTERVALS,
+  HF_TTL_MS,
+  isHighFrequencyInterval,
+  computeExpiresAt,
+} from './candle';
 
 let mongoServer: MongoMemoryServer;
 
@@ -150,5 +157,97 @@ describe('Candle model', () => {
 
     expect((candle as Record<string, unknown>).createdAt).toBeUndefined();
     expect((candle as Record<string, unknown>).updatedAt).toBeUndefined();
+  });
+
+  it('stores expiresAt for HF candles', async () => {
+    const Candle = await getCandle();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const candle = await Candle.create(makeCandleData({ interval: '1m', expiresAt }));
+
+    expect(candle.expiresAt).toBeDefined();
+    expect(candle.expiresAt!.getTime()).toBe(expiresAt.getTime());
+  });
+
+  it('stores null expiresAt for non-HF candles', async () => {
+    const Candle = await getCandle();
+    const candle = await Candle.create(makeCandleData({ interval: '1h' }));
+
+    expect(candle.expiresAt).toBeNull();
+  });
+
+  it('includes expiresAt TTL index', async () => {
+    const Candle = await getCandle();
+    await Candle.syncIndexes();
+    const indexes = await Candle.collection.indexes();
+
+    const ttlIndex = indexes.find((idx) => 'expiresAt' in idx.key);
+    expect(ttlIndex).toBeDefined();
+    expect(ttlIndex!.expireAfterSeconds).toBe(0);
+  });
+});
+
+describe('VALID_INTERVALS', () => {
+  it('includes high-frequency intervals', () => {
+    expect(VALID_INTERVALS).toContain('1m');
+    expect(VALID_INTERVALS).toContain('5m');
+  });
+
+  it('includes all standard intervals', () => {
+    expect(VALID_INTERVALS).toContain('15m');
+    expect(VALID_INTERVALS).toContain('1h');
+    expect(VALID_INTERVALS).toContain('4h');
+    expect(VALID_INTERVALS).toContain('1d');
+  });
+
+  it('has 6 intervals total', () => {
+    expect(VALID_INTERVALS).toHaveLength(6);
+  });
+});
+
+describe('HF_INTERVALS', () => {
+  it('contains 1m and 5m', () => {
+    expect(HF_INTERVALS).toEqual(['1m', '5m']);
+  });
+});
+
+describe('HF_TTL_MS', () => {
+  it('1m TTL is 7 days', () => {
+    expect(HF_TTL_MS['1m']).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it('5m TTL is 14 days', () => {
+    expect(HF_TTL_MS['5m']).toBe(14 * 24 * 60 * 60 * 1000);
+  });
+});
+
+describe('isHighFrequencyInterval', () => {
+  it('returns true for 1m and 5m', () => {
+    expect(isHighFrequencyInterval('1m')).toBe(true);
+    expect(isHighFrequencyInterval('5m')).toBe(true);
+  });
+
+  it('returns false for standard intervals', () => {
+    expect(isHighFrequencyInterval('15m')).toBe(false);
+    expect(isHighFrequencyInterval('1h')).toBe(false);
+    expect(isHighFrequencyInterval('4h')).toBe(false);
+    expect(isHighFrequencyInterval('1d')).toBe(false);
+  });
+});
+
+describe('computeExpiresAt', () => {
+  it('returns a Date for HF intervals', () => {
+    const before = Date.now();
+    const result = computeExpiresAt('1m');
+    const after = Date.now();
+
+    expect(result).toBeInstanceOf(Date);
+    expect(result!.getTime()).toBeGreaterThanOrEqual(before + HF_TTL_MS['1m']);
+    expect(result!.getTime()).toBeLessThanOrEqual(after + HF_TTL_MS['1m']);
+  });
+
+  it('returns null for non-HF intervals', () => {
+    expect(computeExpiresAt('1h')).toBeNull();
+    expect(computeExpiresAt('4h')).toBeNull();
+    expect(computeExpiresAt('1d')).toBeNull();
   });
 });

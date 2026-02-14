@@ -55,7 +55,7 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
   const tierLabel = TIER_LABELS[tier];
 
   return (
-    <div className="flex flex-col items-center" data-testid="signal-gauge">
+    <div className="flex flex-col items-center text-white" data-testid="signal-gauge">
       <svg
         viewBox={`0 0 ${size} ${size * 0.7}`}
         width={size}
@@ -77,7 +77,7 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
         <path
           d={`M ${arcStartX} ${arcStartY} A ${radius} ${radius} 0 0 1 ${arcEndX} ${arcEndY}`}
           fill="none"
-          stroke="hsl(var(--muted))"
+          stroke="var(--muted)"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
         />
@@ -111,7 +111,7 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
           x={cx}
           y={cy - radius * 0.15}
           textAnchor="middle"
-          fill="hsl(var(--foreground))"
+          fill="var(--foreground)"
           fontSize={size * 0.14}
           fontWeight="bold"
           fontFamily="monospace"
@@ -125,7 +125,7 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
           x={arcStartX}
           y={cy + size * 0.08}
           textAnchor="middle"
-          fill="hsl(var(--muted-foreground))"
+          fill="var(--muted-foreground)"
           fontSize={size * 0.04}
         >
           -100
@@ -134,7 +134,7 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
           x={arcEndX}
           y={cy + size * 0.08}
           textAnchor="middle"
-          fill="hsl(var(--muted-foreground))"
+          fill="var(--muted-foreground)"
           fontSize={size * 0.04}
         >
           +100

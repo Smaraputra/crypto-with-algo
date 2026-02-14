@@ -1,5 +1,5 @@
 import type { OHLCV } from '@/types/market';
-import type { IndicatorSuite } from '@/lib/indicators/types';
+import type { IndicatorConfig, IndicatorSuite } from '@/lib/indicators/types';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { computeWarmupBars, interpretIndicatorsAtBar } from '@/lib/indicators/interpret-at-bar';
 import { computeSignalScore } from '@/lib/signals/scorer';
@@ -41,10 +41,16 @@ export interface PreparedBacktest {
 /**
  * Prepare backtest: compute indicators once
  * Reuse for multiple weight candidates
+ * Optional indicatorConfig allows style-specific indicator parameters
  */
-export function prepareBacktest(candles: OHLCV[], symbol: string, interval: string): PreparedBacktest {
-  // Compute raw indicators
-  const raw = computeAllIndicators(candles, symbol, interval);
+export function prepareBacktest(
+  candles: OHLCV[],
+  symbol: string,
+  interval: string,
+  indicatorConfig?: IndicatorConfig
+): PreparedBacktest {
+  // Compute raw indicators with optional style-specific config
+  const raw = computeAllIndicators(candles, symbol, interval, indicatorConfig);
   const superTrend = computeSuperTrend(candles);
   const warmup = computeWarmupBars(raw);
 
