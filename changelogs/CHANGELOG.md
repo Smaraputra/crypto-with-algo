@@ -74,7 +74,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Round-robin symbol distribution from top 5 by volume
   - Auto-activation when Sharpe improves by ≥10%
   - Comprehensive error handling and individual job failure tolerance
-  - 80 new tests (all passing):
+  - Admin UI for cron run management:
+    - CronHistory component with expandable job details and status badges
+    - TriggerOptimizationDialog for manual monthly optimization triggering
+    - `GET /api/admin/cron-runs` endpoint for listing cron run history
+    - "Cron Runs" tab in OptimizationDashboard (4-tab layout)
+    - Conditional auto-refresh (5s) when runs are active
+  - 110 new tests (all passing):
     - Unit tests (40 tests):
       - `top-symbols.test.ts` (17 tests) - API, caching, filtering, sorting
       - `auto-activation.test.ts` (14 tests) - Decision logic, threshold validation
@@ -83,6 +89,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       - `api/cron/monthly-optimization/route.test.ts` (11 tests) - Cron trigger, auth, job creation
       - `api/cron/monthly-optimization/[cronRunId]/route.test.ts` (15 tests) - Status polling, progress
       - `api/admin/trigger-monthly-optimization/route.test.ts` (14 tests) - Manual trigger, validation
+    - UI tests (30 tests):
+      - `api/admin/cron-runs/route.test.ts` (8 tests) - Listing API auth, sorting, transform
+      - `CronHistory.test.tsx` (14 tests) - Loading, empty, table, expand, badges, duration
+      - `TriggerOptimizationDialog.test.tsx` (8 tests) - Form, submit, error, success callback
+    - E2E tests (4 tests):
+      - Cron Runs tab visibility, content, trigger button, dialog opening
 - New environment variables:
   - `ADMIN_EMAIL` - Email address for admin authorization
   - `CRON_SECRET` - Bearer token for cron endpoint authentication
