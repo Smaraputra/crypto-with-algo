@@ -56,7 +56,7 @@ describe('computeSignalScore', () => {
     expect(result.interval).toBe('1h');
     expect(result.score).toBeGreaterThanOrEqual(-100);
     expect(result.score).toBeLessThanOrEqual(100);
-    expect(result.tier).toBeDefined();
+    expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(result.tier);
     expect(result.confidence).toBeGreaterThanOrEqual(0);
     expect(result.confidence).toBeLessThanOrEqual(100);
     expect(result.components).toHaveLength(6);
@@ -245,6 +245,9 @@ describe('computeSignalScore', () => {
     const trendComponent = result.components.find((c) => c.category === 'trend');
     const stSignal = trendComponent!.signals.find((s) => s.name === 'SuperTrend');
     expect(stSignal).toBeDefined();
+    expect(stSignal!.name).toBe('SuperTrend');
+    expect(['bullish', 'bearish', 'neutral']).toContain(stSignal!.direction);
+    expect(typeof stSignal!.strength).toBe('number');
   });
 
   it('score is clamped to [-100, 100]', () => {
@@ -273,8 +276,9 @@ describe('computeSignalScore', () => {
     const result = computeSignalScore(suite, null, null);
 
     // Should still produce a valid signal from TA only
-    expect(result.score).toBeDefined();
-    expect(result.tier).toBeDefined();
     expect(typeof result.score).toBe('number');
+    expect(result.score).toBeGreaterThanOrEqual(-100);
+    expect(result.score).toBeLessThanOrEqual(100);
+    expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(result.tier);
   });
 });

@@ -53,10 +53,9 @@ test.describe('Dashboard features (authenticated)', () => {
     // Click the add button (Plus icon button near Watchlist header)
     const watchlistSection = page.locator('div').filter({ hasText: /^Watchlist$/ }).first();
     const addButton = watchlistSection.locator('button').first();
-    if (await addButton.isVisible()) {
-      await addButton.click();
-      // Dropdown should show search input
-      await expect(page.getByPlaceholder('Search symbol...')).toBeVisible();
-    }
+    await expect(addButton).toBeVisible({ timeout: 5000 });
+    await addButton.click();
+    // Dropdown should show search input
+    await expect(page.getByPlaceholder('Search symbol...')).toBeVisible();
   });
 });
