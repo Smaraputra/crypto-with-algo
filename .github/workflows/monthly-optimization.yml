@@ -1,0 +1,31 @@
+name: Monthly Template Optimization
+
+on:
+  schedule:
+    # Run at 00:00 UTC on 1st of each month
+    - cron: '0 0 1 * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger optimization
+        run: |
+          response=$(curl -s -w "\n%{http_code}" -X POST ${{ secrets.PRODUCTION_URL }}/api/cron/monthly-optimization \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 409 ]; then
+            echo "✅ Optimization triggered successfully or already running"
+            exit 0
+          else
+            echo "❌ Failed to trigger optimization"
+            exit 1
+          fi
