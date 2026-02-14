@@ -72,7 +72,7 @@ export function MultiStyleOverview({
                   {signal.score > 0 ? '+' : ''}
                   {Math.round(signal.score)}
                 </div>
-                <div className="text-[10px] text-muted-foreground capitalize">
+                <div className="text-xs text-muted-foreground capitalize">
                   {tierLabel(signal.tier)}
                 </div>
               </>

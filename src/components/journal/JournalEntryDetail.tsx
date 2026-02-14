@@ -124,17 +124,17 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">{entry.symbol.replace('USDT', '')}</span>
-            <Badge className={`text-[10px] ${ACTION_COLORS[entry.action]}`}>
+            <Badge className={`text-xs ${ACTION_COLORS[entry.action]}`}>
               {entry.action.toUpperCase()}
             </Badge>
-            <span className="text-[10px] text-muted-foreground">{entry.interval}</span>
-            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+            <span className="text-xs text-muted-foreground">{entry.interval}</span>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
               {new Date(entry.createdAt).toLocaleDateString()}
             </span>
           </div>
           <div className="flex items-center gap-1">
             {isReviewed && (
-              <Badge variant="secondary" className="text-[10px]">
+              <Badge variant="secondary" className="text-xs">
                 Reviewed
               </Badge>
             )}
@@ -178,13 +178,13 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
         )}
 
         {/* Context Row (small, muted) */}
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <span>
             Score: <span className="font-mono tabular-nums">{Math.round(entry.signalScore)}</span>
           </span>
           <span className="capitalize">{entry.signalTier.replace('_', ' ')}</span>
           {!editing && entry.setupType && (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="outline" className="text-xs">
               {entry.setupType}
             </Badge>
           )}
@@ -205,7 +205,7 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
         {editing && (
           <div className="space-y-2 border border-border/50 rounded-md p-3" data-testid="inline-edit-form">
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">
                 Setup Type
               </label>
               <Input
@@ -217,7 +217,7 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">
                 Market Condition
               </label>
               <select
@@ -235,13 +235,13 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">
                 Tags
               </label>
               <TagInput value={editTags} onChange={setEditTags} />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">
                 Notes
               </label>
               <Textarea
@@ -276,7 +276,7 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
         {!editing && entry.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {entry.tags.map((tag) => (
-              <Badge key={tag} variant="secondary" className="text-[10px]">
+              <Badge key={tag} variant="secondary" className="text-xs">
                 {tag}
               </Badge>
             ))}
@@ -288,7 +288,7 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
           <div className="border-t border-border/50 pt-2">
             <button
               type="button"
-              className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+              className="flex items-center gap-1 text-xs text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
               onClick={() => setNotesExpanded((prev) => !prev)}
               data-testid="toggle-notes"
             >
@@ -310,7 +310,7 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
         {/* Lessons Learned */}
         {entry.lessonsLearned && (
           <div className="border-t border-border/50 pt-2">
-            <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+            <p className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">
               Lessons Learned
             </p>
             <p className="text-xs text-muted-foreground">{entry.lessonsLearned}</p>
@@ -322,7 +322,7 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
           <div className="border-t border-border/50 pt-2">
             <button
               type="button"
-              className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+              className="flex items-center gap-1 text-xs text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
               onClick={() => setSnapshotExpanded((prev) => !prev)}
               data-testid="toggle-snapshot"
             >
@@ -334,7 +334,7 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
               Indicator Snapshot
             </button>
             {snapshotExpanded && (
-              <div className="grid grid-cols-4 gap-x-3 gap-y-0.5 text-[10px] mt-1">
+              <div className="grid grid-cols-4 gap-x-3 gap-y-0.5 text-xs mt-1">
                 {(Object.entries(SNAPSHOT_LABELS) as [keyof IndicatorSnapshot, string][]).map(
                   ([key, label]) => {
                     const val = snapshot[key];

@@ -179,7 +179,7 @@ export function ResearchNoteForm({ note, trigger, onClose }: ResearchNoteFormPro
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-5 text-[10px] px-1.5"
+                className="h-5 text-xs px-1.5"
                 onClick={() => setPreviewMode(!previewMode)}
               >
                 {previewMode ? (

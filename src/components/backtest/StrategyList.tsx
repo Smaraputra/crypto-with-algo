@@ -58,19 +58,19 @@ export function StrategyList({
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center gap-2">
                   <p className="truncate text-sm font-medium">{strategy.name}</p>
-                  <Badge variant={strategy.active ? 'default' : 'secondary'} className="text-[10px]">
+                  <Badge variant={strategy.active ? 'default' : 'secondary'} className="text-xs">
                     {strategy.active ? 'Active' : 'Inactive'}
                   </Badge>
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {strategy.symbols.map((s) => (
-                    <span key={s} className="text-[10px] text-muted-foreground">
+                    <span key={s} className="text-xs text-muted-foreground">
                       {s.replace('USDT', '')}
                     </span>
                   ))}
-                  <span className="text-[10px] text-muted-foreground">|</span>
+                  <span className="text-xs text-muted-foreground">|</span>
                   {strategy.intervals.map((iv) => (
-                    <span key={iv} className="text-[10px] text-muted-foreground">
+                    <span key={iv} className="text-xs text-muted-foreground">
                       {iv}
                     </span>
                   ))}

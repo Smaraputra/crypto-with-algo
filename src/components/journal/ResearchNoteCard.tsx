@@ -41,16 +41,16 @@ export function ResearchNoteCard({ note, isSelected, onClick }: ResearchNoteCard
             <span className="font-medium truncate">{note.title}</span>
           </div>
           <div className="flex items-center gap-1 mt-1">
-            <Badge variant="secondary" className="text-[10px] px-1 py-0">
+            <Badge variant="secondary" className="text-xs px-1 py-0">
               {CATEGORY_LABELS[note.category] || note.category}
             </Badge>
             {note.tags.slice(0, 2).map((tag) => (
-              <Badge key={tag} variant="outline" className="text-[10px] px-1 py-0">
+              <Badge key={tag} variant="outline" className="text-xs px-1 py-0">
                 {tag}
               </Badge>
             ))}
             {note.tags.length > 2 && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 +{note.tags.length - 2}
               </span>
             )}

@@ -129,11 +129,11 @@ export function PlaybookView() {
               <div>
                 <h3 className="text-sm font-semibold">{selectedNote.title}</h3>
                 <div className="flex items-center gap-1 mt-1">
-                  <Badge variant="secondary" className="text-[10px]">
+                  <Badge variant="secondary" className="text-xs">
                     {CATEGORY_LABELS[selectedNote.category]}
                   </Badge>
                   {selectedNote.tags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="text-[10px]">
+                    <Badge key={tag} variant="outline" className="text-xs">
                       {tag}
                     </Badge>
                   ))}
@@ -141,7 +141,7 @@ export function PlaybookView() {
                 {selectedNote.relatedSymbols.length > 0 && (
                   <div className="flex items-center gap-1 mt-1">
                     {selectedNote.relatedSymbols.map((sym) => (
-                      <span key={sym} className="text-[10px] font-mono text-muted-foreground">
+                      <span key={sym} className="text-xs font-mono text-muted-foreground">
                         {sym}
                       </span>
                     ))}
@@ -181,7 +181,7 @@ export function PlaybookView() {
               <MarkdownPreview content={selectedNote.content} />
             </div>
 
-            <div className="text-[10px] text-muted-foreground">
+            <div className="text-xs text-muted-foreground">
               Updated {new Date(selectedNote.updatedAt).toLocaleDateString()}
             </div>
           </div>

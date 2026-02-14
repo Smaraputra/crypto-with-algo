@@ -88,7 +88,7 @@ export function BacktestMetricsCards({ metrics }: BacktestMetricsCardsProps) {
       {items.map((item) => (
         <Card key={item.label} className="p-0">
           <CardContent className="px-3 py-2">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
               {item.label}
             </p>
             <p
