@@ -34,11 +34,8 @@ export function MonthlyPnL({ data }: MonthlyPnLProps) {
               ) : (
                 <div className="w-1/2 flex justify-end">
                   <div
-                    className="h-4 rounded-sm"
-                    style={{
-                      width: `${barWidth}%`,
-                      backgroundColor: '#f6465d',
-                    }}
+                    className="h-4 rounded-sm bg-bearish"
+                    style={{ width: `${barWidth}%` }}
                     data-testid={`bar-${month.month}`}
                   />
                 </div>
@@ -46,11 +43,8 @@ export function MonthlyPnL({ data }: MonthlyPnLProps) {
               {isPositive ? (
                 <div className="w-1/2">
                   <div
-                    className="h-4 rounded-sm"
-                    style={{
-                      width: `${barWidth}%`,
-                      backgroundColor: '#0ecb81',
-                    }}
+                    className="h-4 rounded-sm bg-bullish"
+                    style={{ width: `${barWidth}%` }}
                     data-testid={`bar-${month.month}`}
                   />
                 </div>
@@ -59,8 +53,7 @@ export function MonthlyPnL({ data }: MonthlyPnLProps) {
               )}
             </div>
             <span
-              className="w-20 text-right font-mono tabular-nums shrink-0"
-              style={{ color: isPositive ? '#0ecb81' : '#f6465d' }}
+              className={`w-20 text-right font-mono tabular-nums shrink-0 ${isPositive ? 'text-bullish' : 'text-bearish'}`}
             >
               {isPositive ? '+' : ''}
               {month.pnlPercent.toFixed(2)}%

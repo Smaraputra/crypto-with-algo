@@ -36,12 +36,12 @@ describe('WinRateByTag', () => {
   it('uses green color for winning tags', () => {
     render(<WinRateByTag data={mockData} />);
     const bar = screen.getByTestId('tag-bar-breakout');
-    expect(bar).toHaveStyle({ backgroundColor: '#0ecb81' });
+    expect(bar.className).toContain('bg-bullish');
   });
 
   it('uses red color for losing tags', () => {
     render(<WinRateByTag data={mockData} />);
     const bar = screen.getByTestId('tag-bar-reversal');
-    expect(bar).toHaveStyle({ backgroundColor: '#f6465d' });
+    expect(bar.className).toContain('bg-bearish');
   });
 });

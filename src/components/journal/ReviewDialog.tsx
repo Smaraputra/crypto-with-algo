@@ -79,7 +79,7 @@ export function ReviewDialog({ entry, trigger }: ReviewDialogProps) {
                 <span className="text-muted-foreground">P&L:</span>{' '}
                 <span
                   className={`font-mono tabular-nums ${
-                    isWin ? 'text-green-400' : pnl < 0 ? 'text-red-400' : 'text-muted-foreground'
+                    isWin ? 'text-bullish' : pnl < 0 ? 'text-bearish' : 'text-muted-foreground'
                   }`}
                 >
                   {pnl > 0 ? '+' : ''}

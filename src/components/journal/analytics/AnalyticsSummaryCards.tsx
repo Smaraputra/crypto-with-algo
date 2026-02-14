@@ -9,11 +9,11 @@ interface AnalyticsSummaryCardsProps {
 function StatCard({
   label,
   value,
-  color,
+  colorClass,
 }: {
   label: string;
   value: string;
-  color?: string;
+  colorClass?: string;
 }) {
   return (
     <div className="rounded-lg border border-border p-3">
@@ -21,14 +21,19 @@ function StatCard({
         {label}
       </p>
       <p
-        className="text-lg font-mono tabular-nums font-semibold mt-0.5"
-        style={color ? { color } : undefined}
+        className={`text-lg font-mono tabular-nums font-semibold mt-0.5 ${colorClass ?? ''}`}
         data-testid={`stat-${label.toLowerCase().replace(/\s+/g, '-')}`}
       >
         {value}
       </p>
     </div>
   );
+}
+
+function pnlClass(value: number): string | undefined {
+  if (value > 0) return 'text-bullish';
+  if (value < 0) return 'text-bearish';
+  return undefined;
 }
 
 export function AnalyticsSummaryCards({ summary }: AnalyticsSummaryCardsProps) {
@@ -44,46 +49,43 @@ export function AnalyticsSummaryCards({ summary }: AnalyticsSummaryCardsProps) {
     profitFactor,
   } = summary;
 
-  const pnlColor = totalPnlPercent > 0 ? '#0ecb81' : totalPnlPercent < 0 ? '#f6465d' : undefined;
-  const avgColor = avgPnlPercent > 0 ? '#0ecb81' : avgPnlPercent < 0 ? '#f6465d' : undefined;
-
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" data-testid="analytics-summary">
       <StatCard label="Total Trades" value={String(totalTrades)} />
       <StatCard
         label="Win Rate"
         value={`${winRate.toFixed(1)}%`}
-        color={winRate >= 50 ? '#0ecb81' : winRate > 0 ? '#f6465d' : undefined}
+        colorClass={winRate >= 50 ? 'text-bullish' : winRate > 0 ? 'text-bearish' : undefined}
       />
       <StatCard label="Wins / Losses" value={`${wins} / ${losses}`} />
       <StatCard
         label="Total P&L"
         value={`${totalPnlPercent > 0 ? '+' : ''}${totalPnlPercent.toFixed(2)}%`}
-        color={pnlColor}
+        colorClass={pnlClass(totalPnlPercent)}
       />
       <StatCard
         label="Avg P&L"
         value={`${avgPnlPercent > 0 ? '+' : ''}${avgPnlPercent.toFixed(2)}%`}
-        color={avgColor}
+        colorClass={pnlClass(avgPnlPercent)}
       />
       <StatCard
         label="Best Trade"
         value={bestTrade !== null ? `+${bestTrade.toFixed(2)}%` : '-'}
-        color={bestTrade !== null ? '#0ecb81' : undefined}
+        colorClass={bestTrade !== null ? 'text-bullish' : undefined}
       />
       <StatCard
         label="Worst Trade"
         value={worstTrade !== null ? `${worstTrade.toFixed(2)}%` : '-'}
-        color={worstTrade !== null ? '#f6465d' : undefined}
+        colorClass={worstTrade !== null ? 'text-bearish' : undefined}
       />
       <StatCard
         label="Profit Factor"
         value={profitFactor !== null ? profitFactor.toFixed(2) : '-'}
-        color={
+        colorClass={
           profitFactor !== null
             ? profitFactor >= 1
-              ? '#0ecb81'
-              : '#f6465d'
+              ? 'text-bullish'
+              : 'text-bearish'
             : undefined
         }
       />

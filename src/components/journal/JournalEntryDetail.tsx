@@ -21,8 +21,8 @@ interface JournalEntryDetailProps {
 }
 
 const ACTION_COLORS: Record<string, string> = {
-  buy: 'bg-green-500/20 text-green-400',
-  sell: 'bg-red-500/20 text-red-400',
+  buy: 'bg-bullish-muted text-bullish',
+  sell: 'bg-bearish-muted text-bearish',
   hold: 'bg-yellow-500/20 text-yellow-400',
   skip: 'bg-muted text-muted-foreground',
 };
@@ -85,9 +85,9 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
   const pnlColor =
     pnl != null
       ? pnl > 0
-        ? 'text-green-400'
+        ? 'text-bullish'
         : pnl < 0
-          ? 'text-red-400'
+          ? 'text-bearish'
           : 'text-muted-foreground'
       : 'text-muted-foreground';
 
@@ -355,8 +355,8 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
                     <span
                       className={
                         snapshot.superTrendDirection === 'up'
-                          ? 'text-green-400'
-                          : 'text-red-400'
+                          ? 'text-bullish'
+                          : 'text-bearish'
                       }
                     >
                       {snapshot.superTrendDirection === 'up' ? 'Bullish' : 'Bearish'}

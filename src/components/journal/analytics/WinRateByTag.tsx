@@ -29,11 +29,8 @@ export function WinRateByTag({ data }: WinRateByTagProps) {
           </div>
           <div className="relative h-2 w-full rounded-full bg-muted overflow-hidden">
             <div
-              className="absolute left-0 top-0 h-full rounded-full transition-all"
-              style={{
-                width: `${(tag.count / maxCount) * 100}%`,
-                backgroundColor: tag.winRate >= 50 ? '#0ecb81' : '#f6465d',
-              }}
+              className={`absolute left-0 top-0 h-full rounded-full transition-all ${tag.winRate >= 50 ? 'bg-bullish' : 'bg-bearish'}`}
+              style={{ width: `${(tag.count / maxCount) * 100}%` }}
               data-testid={`tag-bar-${tag.tag}`}
             />
           </div>

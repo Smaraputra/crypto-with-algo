@@ -44,12 +44,12 @@ describe('MonthlyPnL', () => {
   it('renders green bar for positive months', () => {
     render(<MonthlyPnL data={mockData} />);
     const bar = screen.getByTestId('bar-2025-01');
-    expect(bar).toHaveStyle({ backgroundColor: '#0ecb81' });
+    expect(bar.className).toContain('bg-bullish');
   });
 
   it('renders red bar for negative months', () => {
     render(<MonthlyPnL data={mockData} />);
     const bar = screen.getByTestId('bar-2025-02');
-    expect(bar).toHaveStyle({ backgroundColor: '#f6465d' });
+    expect(bar.className).toContain('bg-bearish');
   });
 });

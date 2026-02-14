@@ -432,7 +432,7 @@ export default function BacktestPage() {
                       <td className="py-2 pr-4 text-xs">{r.symbol}</td>
                       <td className="py-2 pr-4 text-xs">{r.interval}</td>
                       <td className="py-2 pr-4 font-mono tabular-nums text-xs">
-                        <span style={{ color: r.metrics.totalPnl > 0 ? '#0ecb81' : '#f6465d' }}>
+                        <span className={r.metrics.totalPnl > 0 ? 'text-bullish' : 'text-bearish'}>
                           {r.metrics.totalPnl > 0 ? '+' : ''}
                           {r.metrics.totalPnlPercent.toFixed(2)}%
                         </span>
