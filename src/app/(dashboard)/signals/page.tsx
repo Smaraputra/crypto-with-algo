@@ -12,6 +12,7 @@ import { SignalTimeline } from '@/components/signals/SignalTimeline';
 import { MultiStyleOverview } from '@/components/signals/MultiStyleOverview';
 import { EnhancedJournalForm } from '@/components/journal/EnhancedJournalForm';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useFundingRate, useLongShortRatio, useOpenInterest } from '@/hooks/useFutures';
 import {
   useGlobalSignals,
@@ -70,7 +71,7 @@ export default function SignalsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-foreground">Signals</h1>
         <AutoUpdateStatus
@@ -139,113 +140,135 @@ export default function SignalsPage() {
         {/* Left column: Gauge + Breakdown */}
         <div className="lg:col-span-2 space-y-4">
           {/* Signal gauge */}
-          <div className="rounded-lg border border-border p-4">
-            {styleLoading ? (
-              <div className="flex justify-center py-8">
-                <div className="h-[168px] w-[240px] bg-muted animate-pulse rounded" />
-              </div>
-            ) : latestSignal ? (
-              <ErrorBoundary
-                fallback={<p className="text-sm text-muted-foreground">Gauge unavailable</p>}
-              >
-                <SignalGauge
-                  score={latestSignal.score}
-                  tier={latestSignal.tier}
-                  confidence={latestSignal.confidence}
-                />
-              </ErrorBoundary>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                No signal computed yet for {selectedSymbol}.
-                <br />
-                Click &quot;Compute Now&quot; to analyze.
-              </div>
-            )}
-          </div>
+          <Card>
+            <CardContent>
+              {styleLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="h-[168px] w-[240px] bg-muted animate-pulse rounded" />
+                </div>
+              ) : latestSignal ? (
+                <ErrorBoundary
+                  fallback={<p className="text-sm text-muted-foreground">Gauge unavailable</p>}
+                >
+                  <SignalGauge
+                    score={latestSignal.score}
+                    tier={latestSignal.tier}
+                    confidence={latestSignal.confidence}
+                  />
+                </ErrorBoundary>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  No signal computed yet for {selectedSymbol}.
+                  <br />
+                  Click &quot;Compute Now&quot; to analyze.
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Signal breakdown */}
           {latestSignal && latestSignal.components.length > 0 && (
-            <div className="rounded-lg border border-border p-4">
-              <h2 className="text-sm font-semibold mb-3">Signal Breakdown</h2>
-              <ErrorBoundary
-                fallback={
-                  <p className="text-sm text-muted-foreground">Breakdown unavailable</p>
-                }
-              >
-                <SignalBreakdown components={latestSignal.components} />
-              </ErrorBoundary>
-            </div>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Signal Breakdown</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ErrorBoundary
+                  fallback={
+                    <p className="text-sm text-muted-foreground">Breakdown unavailable</p>
+                  }
+                >
+                  <SignalBreakdown components={latestSignal.components} />
+                </ErrorBoundary>
+              </CardContent>
+            </Card>
           )}
         </div>
 
         {/* Right column: Multi-style overview + Futures + Sentiment */}
         <div className="space-y-4">
           {/* Multi-style comparison */}
-          <div className="rounded-lg border border-border p-4">
-            <h2 className="text-sm font-semibold mb-3">All Styles</h2>
-            <ErrorBoundary
-              fallback={
-                <p className="text-sm text-muted-foreground">Overview unavailable</p>
-              }
-            >
-              <MultiStyleOverview
-                signals={
-                  latestAllData?.signals ?? {
-                    scalping: null,
-                    day_trading: null,
-                    swing_trading: null,
-                    position_trading: null,
-                  }
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">All Styles</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ErrorBoundary
+                fallback={
+                  <p className="text-sm text-muted-foreground">Overview unavailable</p>
                 }
-                isLoading={latestAllLoading}
-                activeStyle={tradingStyle}
-                onStyleSelect={handleStyleChange}
-              />
-            </ErrorBoundary>
-          </div>
+              >
+                <MultiStyleOverview
+                  signals={
+                    latestAllData?.signals ?? {
+                      scalping: null,
+                      day_trading: null,
+                      swing_trading: null,
+                      position_trading: null,
+                    }
+                  }
+                  isLoading={latestAllLoading}
+                  activeStyle={tradingStyle}
+                  onStyleSelect={handleStyleChange}
+                />
+              </ErrorBoundary>
+            </CardContent>
+          </Card>
 
-          <div className="rounded-lg border border-border p-4">
-            <h2 className="text-sm font-semibold mb-3">Futures Data</h2>
-            <ErrorBoundary
-              fallback={
-                <p className="text-sm text-muted-foreground">Futures data unavailable</p>
-              }
-            >
-              <FuturesPanel
-                fundingRate={fundingData?.fundingRates?.[0] ?? null}
-                openInterest={oiData?.openInterest ?? null}
-                longShortRatio={lsData?.longShortRatio?.[0] ?? null}
-                isLoading={futuresLoading}
-              />
-            </ErrorBoundary>
-          </div>
-          <div className="rounded-lg border border-border p-4">
-            <h2 className="text-sm font-semibold mb-3">Market Sentiment</h2>
-            <ErrorBoundary
-              fallback={
-                <p className="text-sm text-muted-foreground">Sentiment unavailable</p>
-              }
-            >
-              <SentimentGauge />
-            </ErrorBoundary>
-          </div>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Futures Data</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ErrorBoundary
+                fallback={
+                  <p className="text-sm text-muted-foreground">Futures data unavailable</p>
+                }
+              >
+                <FuturesPanel
+                  fundingRate={fundingData?.fundingRates?.[0] ?? null}
+                  openInterest={oiData?.openInterest ?? null}
+                  longShortRatio={lsData?.longShortRatio?.[0] ?? null}
+                  isLoading={futuresLoading}
+                />
+              </ErrorBoundary>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Market Sentiment</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ErrorBoundary
+                fallback={
+                  <p className="text-sm text-muted-foreground">Sentiment unavailable</p>
+                }
+              >
+                <SentimentGauge />
+              </ErrorBoundary>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
       {/* Signal history timeline */}
-      <div className="rounded-lg border border-border p-4">
-        <h2 className="text-sm font-semibold mb-3">Signal History</h2>
-        <ErrorBoundary
-          fallback={
-            <p className="text-sm text-muted-foreground">History unavailable</p>
-          }
-        >
-          <SignalTimeline
-            signals={historyData?.signals ?? []}
-            isLoading={historyLoading}
-          />
-        </ErrorBoundary>
-      </div>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">Signal History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorBoundary
+            fallback={
+              <p className="text-sm text-muted-foreground">History unavailable</p>
+            }
+          >
+            <SignalTimeline
+              signals={historyData?.signals ?? []}
+              isLoading={historyLoading}
+            />
+          </ErrorBoundary>
+        </CardContent>
+      </Card>
 
       {/* Compute error */}
       {computeMutation.isError && (

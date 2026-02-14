@@ -219,7 +219,7 @@ export default function BacktestPage() {
   }, [selectedStrategy, selectedSymbol, backtestInterval, dataRange, config, backtest]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4">
       <h1 className="text-lg font-semibold text-foreground">Backtest</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -333,7 +333,8 @@ export default function BacktestPage() {
           <BacktestConfigPanel config={config} onChange={setConfig} />
 
           {/* Run section */}
-          <div className="rounded-lg border border-border p-4 space-y-3">
+          <Card>
+            <CardContent className="space-y-3">
             <div className="flex items-center gap-2">
               {backtest.status === 'running' || fetchingCandles ? (
                 <Button
@@ -372,7 +373,8 @@ export default function BacktestPage() {
             {backtest.status === 'error' && (
               <p className="text-sm text-destructive">{backtest.error}</p>
             )}
-          </div>
+          </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="results" className="space-y-4">

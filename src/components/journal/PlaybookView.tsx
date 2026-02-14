@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Search, Pin, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { MarkdownPreview } from './MarkdownPreview';
@@ -67,7 +68,7 @@ export function PlaybookView() {
   return (
     <div className="flex gap-4" data-testid="playbook-view">
       {/* Left sidebar: note list */}
-      <div className="w-64 flex-shrink-0 space-y-2">
+      <div className="w-72 flex-shrink-0 space-y-2">
         <div className="flex items-center gap-1">
           <ResearchNoteForm />
         </div>
@@ -124,7 +125,8 @@ export function PlaybookView() {
       {/* Right panel: note detail */}
       <div className="flex-1 min-w-0">
         {selectedNote ? (
-          <div className="rounded-lg border border-border p-4 space-y-3" data-testid="playbook-detail">
+          <Card data-testid="playbook-detail">
+            <CardContent className="space-y-3">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-sm font-semibold">{selectedNote.title}</h3>
@@ -184,7 +186,8 @@ export function PlaybookView() {
             <div className="text-xs text-muted-foreground">
               Updated {new Date(selectedNote.updatedAt).toLocaleDateString()}
             </div>
-          </div>
+            </CardContent>
+          </Card>
         ) : (
           <div
             className="flex flex-col items-center justify-center h-full min-h-[200px] text-center"
