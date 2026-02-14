@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { OptimizationForm } from './OptimizationForm';
 import { OptimizationProgress } from './OptimizationProgress';
 import { OptimizationHistory } from './OptimizationHistory';
+import { CronHistory } from './CronHistory';
 import { TemplateComparison } from './TemplateComparison';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { TradingStyle } from '@/lib/models/signal-template';
@@ -31,9 +32,10 @@ export function OptimizationDashboard() {
       )}
 
       <Tabs defaultValue="optimize" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="optimize">New Optimization</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="cron">Cron Runs</TabsTrigger>
           <TabsTrigger value="compare">Compare Templates</TabsTrigger>
         </TabsList>
 
@@ -48,6 +50,10 @@ export function OptimizationDashboard() {
           <OptimizationHistory
             onViewComparison={handleViewComparison}
           />
+        </TabsContent>
+
+        <TabsContent value="cron" className="space-y-4">
+          <CronHistory />
         </TabsContent>
 
         <TabsContent value="compare" className="space-y-4">
