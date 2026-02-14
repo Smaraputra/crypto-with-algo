@@ -45,10 +45,24 @@ function makeRequest(body?: unknown): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('ALLOW_REGISTRATION', 'true');
   vi.mocked(rateLimit).mockResolvedValue(null);
 });
 
 describe('POST /api/auth/register', () => {
+  it('returns 403 when registration is disabled', async () => {
+    vi.stubEnv('ALLOW_REGISTRATION', '');
+    const req = makeRequest({
+      name: 'Test',
+      email: 'test@example.com',
+      password: 'secret123',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toBe('Registration is currently disabled');
+  });
+
   it('returns 400 for malformed JSON', async () => {
     const req = makeRequest();
     const res = await POST(req);
@@ -138,6 +152,39 @@ describe('POST /api/auth/register', () => {
     await POST(req);
 
     expect(bcrypt.hash).toHaveBeenCalledWith('mypassword', 12);
+  });
+
+  it('returns 409 on concurrent duplicate email (MongoDB 11000)', async () => {
+    vi.mocked(User.findOne).mockResolvedValue(null);
+    vi.mocked(bcrypt.hash).mockResolvedValue('$2a$12$hashed' as never);
+    const duplicateError = Object.assign(new Error('E11000 duplicate key'), { code: 11000 });
+    vi.mocked(User.create).mockRejectedValue(duplicateError);
+
+    const req = makeRequest({
+      name: 'Test',
+      email: 'race@example.com',
+      password: 'secret123',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe('Email already registered');
+  });
+
+  it('returns 500 for non-duplicate database errors', async () => {
+    vi.mocked(User.findOne).mockResolvedValue(null);
+    vi.mocked(bcrypt.hash).mockResolvedValue('$2a$12$hashed' as never);
+    vi.mocked(User.create).mockRejectedValue(new Error('Connection timeout'));
+
+    const req = makeRequest({
+      name: 'Test',
+      email: 'test@example.com',
+      password: 'secret123',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(500);
+    const data = await res.json();
+    expect(data.error).toBe('Internal server error');
   });
 
   it('returns 429 when rate limited', async () => {
