@@ -15,11 +15,11 @@ const TIER_LABELS: Record<string, string> = {
 };
 
 const TIER_COLORS: Record<string, string> = {
-  strong_buy: '#0ecb81',
-  buy: '#93c47d',
-  neutral: '#848e9c',
-  sell: '#f0945d',
-  strong_sell: '#f6465d',
+  strong_buy: 'bg-bullish',
+  buy: 'bg-bullish/60',
+  neutral: 'bg-muted-foreground',
+  sell: 'bg-bearish/60',
+  strong_sell: 'bg-bearish',
 };
 
 export function SignalAccuracy({ data }: SignalAccuracyProps) {
@@ -47,8 +47,7 @@ export function SignalAccuracy({ data }: SignalAccuracyProps) {
             <tr key={row.tier} className="border-b border-border/50">
               <td className="py-1.5 pr-4 text-xs font-medium">
                 <span
-                  className="inline-block w-2 h-2 rounded-full mr-1.5"
-                  style={{ backgroundColor: TIER_COLORS[row.tier] ?? '#848e9c' }}
+                  className={`inline-block w-2 h-2 rounded-full mr-1.5 ${TIER_COLORS[row.tier] ?? 'bg-muted-foreground'}`}
                 />
                 {TIER_LABELS[row.tier] ?? row.tier}
               </td>
@@ -56,16 +55,14 @@ export function SignalAccuracy({ data }: SignalAccuracyProps) {
                 {row.count}
               </td>
               <td
-                className="py-1.5 pr-4 text-xs text-right font-mono tabular-nums"
-                style={{ color: row.winRate >= 50 ? '#0ecb81' : '#f6465d' }}
+                className={`py-1.5 pr-4 text-xs text-right font-mono tabular-nums ${row.winRate >= 50 ? 'text-bullish' : 'text-bearish'}`}
               >
                 {row.winRate.toFixed(1)}%
               </td>
               <td
-                className="py-1.5 text-xs text-right font-mono tabular-nums"
-                style={{
-                  color: row.avgPnlPercent > 0 ? '#0ecb81' : row.avgPnlPercent < 0 ? '#f6465d' : undefined,
-                }}
+                className={`py-1.5 text-xs text-right font-mono tabular-nums ${
+                  row.avgPnlPercent > 0 ? 'text-bullish' : row.avgPnlPercent < 0 ? 'text-bearish' : ''
+                }`}
               >
                 {row.avgPnlPercent > 0 ? '+' : ''}
                 {row.avgPnlPercent.toFixed(2)}%

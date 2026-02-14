@@ -13,8 +13,8 @@ interface JournalEntryCardProps {
 }
 
 const ACTION_COLORS: Record<string, string> = {
-  buy: 'bg-green-500/20 text-green-400',
-  sell: 'bg-red-500/20 text-red-400',
+  buy: 'bg-bullish-muted text-bullish',
+  sell: 'bg-bearish-muted text-bearish',
   hold: 'bg-yellow-500/20 text-yellow-400',
   skip: 'bg-muted text-muted-foreground',
 };
@@ -23,9 +23,9 @@ export function JournalEntryCard({ entry, onDelete, isDeleting }: JournalEntryCa
   const pnlColor =
     entry.outcomePnlPercent != null
       ? entry.outcomePnlPercent > 0
-        ? 'text-green-400'
+        ? 'text-bullish'
         : entry.outcomePnlPercent < 0
-          ? 'text-red-400'
+          ? 'text-bearish'
           : 'text-muted-foreground'
       : 'text-muted-foreground';
 
@@ -74,9 +74,9 @@ export function JournalEntryCard({ entry, onDelete, isDeleting }: JournalEntryCa
               {new Date(entry.createdAt).toLocaleDateString()}
             </span>
             <Button
-              size="sm"
+              size="icon-xs"
               variant="ghost"
-              className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+              className="text-destructive hover:text-destructive"
               onClick={() => onDelete(entry._id)}
               disabled={isDeleting}
               aria-label={`Delete journal entry`}

@@ -34,16 +34,14 @@ export function PerformanceBySetup({ data }: PerformanceBySetupProps) {
                 {row.count}
               </td>
               <td
-                className="py-1.5 pr-4 text-xs text-right font-mono tabular-nums"
-                style={{ color: row.winRate >= 50 ? '#0ecb81' : '#f6465d' }}
+                className={`py-1.5 pr-4 text-xs text-right font-mono tabular-nums ${row.winRate >= 50 ? 'text-bullish' : 'text-bearish'}`}
               >
                 {row.winRate.toFixed(1)}%
               </td>
               <td
-                className="py-1.5 text-xs text-right font-mono tabular-nums"
-                style={{
-                  color: row.avgPnlPercent > 0 ? '#0ecb81' : row.avgPnlPercent < 0 ? '#f6465d' : undefined,
-                }}
+                className={`py-1.5 text-xs text-right font-mono tabular-nums ${
+                  row.avgPnlPercent > 0 ? 'text-bullish' : row.avgPnlPercent < 0 ? 'text-bearish' : ''
+                }`}
               >
                 {row.avgPnlPercent > 0 ? '+' : ''}
                 {row.avgPnlPercent.toFixed(2)}%
