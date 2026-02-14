@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { BookOpen, Eye, PenLine } from 'lucide-react';
+import { Plus, Eye, PenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -22,21 +22,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCreateJournalEntry } from '@/hooks/useJournal';
-import { useIndicatorSnapshot } from '@/hooks/useIndicatorSnapshot';
 import { TagInput } from './TagInput';
 import { MarkdownPreview } from './MarkdownPreview';
 import { JOURNAL_ACTIONS, MARKET_CONDITIONS } from '@/types/journal';
-import type { SignalTier } from '@/types/signal';
-import type { IndicatorSnapshot } from '@/types/indicator-snapshot';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
-interface EnhancedJournalFormProps {
-  symbol: string;
-  interval: string;
-  score: number;
-  tier: SignalTier;
-  confidence?: number;
-  sentiment?: { fearGreedIndex: number; fearGreedLabel: string } | null;
-}
+const COMMON_INTERVALS = ['15m', '1h', '4h', '1d'] as const;
 
 const MARKET_CONDITION_LABELS: Record<string, string> = {
   trending_up: 'Trending Up',
@@ -46,40 +37,32 @@ const MARKET_CONDITION_LABELS: Record<string, string> = {
   calm: 'Calm',
 };
 
-export function EnhancedJournalForm({
-  symbol,
-  interval,
-  score,
-  tier,
-  confidence,
-  sentiment,
-}: EnhancedJournalFormProps) {
+export function ManualJournalForm() {
   const [open, setOpen] = useState(false);
-  const [action, setAction] = useState<(typeof JOURNAL_ACTIONS)[number]>('hold');
+  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [customSymbol, setCustomSymbol] = useState('');
+  const [interval, setInterval] = useState('1h');
+  const [action, setAction] = useState<(typeof JOURNAL_ACTIONS)[number]>('buy');
   const [entryPrice, setEntryPrice] = useState('');
   const [notes, setNotes] = useState('');
   const [previewMode, setPreviewMode] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
   const [setupType, setSetupType] = useState('');
   const [marketCondition, setMarketCondition] = useState<string>('');
-  const [capturedSnapshot, setCapturedSnapshot] = useState<IndicatorSnapshot | null>(null);
 
   const createEntry = useCreateJournalEntry();
-  const { data: liveSnapshot } = useIndicatorSnapshot(open ? symbol : null, interval);
 
-  function handleCaptureSnapshot() {
-    if (liveSnapshot) {
-      setCapturedSnapshot(liveSnapshot);
-    }
-  }
+  const effectiveSymbol = symbol === 'custom' ? customSymbol.toUpperCase().trim() : symbol;
 
   function handleSubmit() {
+    if (!effectiveSymbol) return;
+
     createEntry.mutate(
       {
-        symbol,
+        symbol: effectiveSymbol,
         interval,
-        signalScore: score,
-        signalTier: tier,
+        signalScore: 0,
+        signalTier: 'neutral',
         action,
         entryPrice: entryPrice ? parseFloat(entryPrice) : undefined,
         notes: notes || undefined,
@@ -88,10 +71,6 @@ export function EnhancedJournalForm({
         marketCondition: marketCondition
           ? (marketCondition as (typeof MARKET_CONDITIONS)[number])
           : undefined,
-        indicatorSnapshot: capturedSnapshot
-          ? (capturedSnapshot as unknown as Record<string, unknown>)
-          : undefined,
-        sentiment: sentiment || undefined,
       },
       {
         onSuccess: () => {
@@ -103,56 +82,82 @@ export function EnhancedJournalForm({
   }
 
   function resetForm() {
-    setAction('hold');
+    setSymbol('BTCUSDT');
+    setCustomSymbol('');
+    setInterval('1h');
+    setAction('buy');
     setEntryPrice('');
     setNotes('');
     setPreviewMode(false);
     setTags([]);
     setSetupType('');
     setMarketCondition('');
-    setCapturedSnapshot(null);
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs"
-          data-testid="enhanced-journal-button"
-        >
-          <BookOpen className="mr-1 size-3.5" />
-          Log to Journal
+        <Button size="sm" data-testid="new-entry-button">
+          <Plus className="mr-1 size-4" />
+          New Entry
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Log Signal to Journal</DialogTitle>
+          <DialogTitle>New Journal Entry</DialogTitle>
           <DialogDescription>
-            Record your trading decision for {symbol} {interval}.
+            Record a trade or observation manually.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Signal Context */}
-          <div className="flex items-center gap-2 text-xs bg-muted/50 rounded px-2 py-1.5">
-            <span className="font-medium">{symbol}</span>
-            <span className="text-muted-foreground">{interval}</span>
-            <span className="font-mono tabular-nums">Score: {Math.round(score)}</span>
-            <span className="capitalize text-muted-foreground">
-              {tier.replace('_', ' ')}
-            </span>
-            {confidence != null && (
-              <span className="text-muted-foreground">
-                ({Math.round(confidence)}% conf)
-              </span>
+          {/* Symbol */}
+          <div className="space-y-1">
+            <Label className="text-xs">Symbol</Label>
+            <Select value={symbol} onValueChange={setSymbol}>
+              <SelectTrigger className="h-7 text-xs" data-testid="symbol-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SIGNAL_SYMBOLS.map((s) => (
+                  <SelectItem key={s} value={s} className="text-xs">
+                    {s}
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom" className="text-xs">
+                  Custom...
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {symbol === 'custom' && (
+              <Input
+                type="text"
+                value={customSymbol}
+                onChange={(e) => setCustomSymbol(e.target.value)}
+                placeholder="e.g. MATICUSDT"
+                className="h-7 text-xs font-mono mt-1"
+                data-testid="custom-symbol-input"
+              />
             )}
-            {sentiment && (
-              <span className="text-muted-foreground">
-                F&G: {sentiment.fearGreedIndex}
-              </span>
-            )}
+          </div>
+
+          {/* Interval */}
+          <div className="space-y-1">
+            <Label className="text-xs">Interval</Label>
+            <div className="flex gap-1">
+              {COMMON_INTERVALS.map((iv) => (
+                <Button
+                  key={iv}
+                  type="button"
+                  size="sm"
+                  variant={interval === iv ? 'default' : 'outline'}
+                  className="h-7 text-xs"
+                  onClick={() => setInterval(iv)}
+                >
+                  {iv}
+                </Button>
+              ))}
+            </div>
           </div>
 
           {/* Action */}
@@ -185,6 +190,7 @@ export function EnhancedJournalForm({
               className="h-7 text-xs font-mono"
               step="any"
               min="0"
+              data-testid="entry-price-input"
             />
           </div>
 
@@ -258,7 +264,7 @@ export function EnhancedJournalForm({
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
                   setNotes(e.target.value)
                 }
-                placeholder="Why did you choose this action? Markdown supported."
+                placeholder="Why did you enter this trade? Markdown supported."
                 className="text-xs"
                 rows={3}
                 maxLength={10000}
@@ -267,36 +273,13 @@ export function EnhancedJournalForm({
             )}
           </div>
 
-          {/* Indicator Snapshot */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs">Indicator Snapshot</Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-5 text-xs px-1.5"
-                onClick={handleCaptureSnapshot}
-                disabled={!liveSnapshot}
-                data-testid="capture-snapshot-button"
-              >
-                {capturedSnapshot ? 'Recapture' : 'Capture'}
-              </Button>
-            </div>
-            {capturedSnapshot && (
-              <p className="text-xs text-muted-foreground">
-                Snapshot captured (RSI: {capturedSnapshot.rsi ?? '-'}, ATR:{' '}
-                {capturedSnapshot.atr ?? '-'})
-              </p>
-            )}
-          </div>
-
           {/* Submit */}
           <Button
             size="sm"
             className="w-full"
             onClick={handleSubmit}
-            disabled={createEntry.isPending}
+            disabled={createEntry.isPending || !effectiveSymbol}
+            data-testid="save-entry-button"
           >
             {createEntry.isPending ? 'Saving...' : 'Save Entry'}
           </Button>

@@ -34,7 +34,7 @@ export function WinRateByTag({ data }: WinRateByTagProps) {
               data-testid={`tag-bar-${tag.tag}`}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-muted-foreground">
+          <div className="flex justify-between text-xs text-muted-foreground">
             <span>
               {tag.wins}W / {tag.losses}L
             </span>

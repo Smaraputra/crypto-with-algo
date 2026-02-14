@@ -35,7 +35,7 @@ export function JournalList() {
                 ? 'default'
                 : 'outline'
             }
-            className="h-6 text-[10px]"
+            className="h-6 text-xs"
             onClick={() => setSymbolFilter(sym === 'All' ? undefined : sym)}
           >
             {sym === 'All' ? 'All' : sym.replace('USDT', '')}

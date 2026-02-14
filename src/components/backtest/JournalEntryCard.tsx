@@ -36,10 +36,10 @@ export function JournalEntryCard({ entry, onDelete, isDeleting }: JournalEntryCa
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{entry.symbol.replace('USDT', '')}</span>
-              <Badge className={`text-[10px] ${ACTION_COLORS[entry.action]}`}>
+              <Badge className={`text-xs ${ACTION_COLORS[entry.action]}`}>
                 {entry.action.toUpperCase()}
               </Badge>
-              <span className="text-[10px] text-muted-foreground">{entry.interval}</span>
+              <span className="text-xs text-muted-foreground">{entry.interval}</span>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="text-muted-foreground">
@@ -66,11 +66,11 @@ export function JournalEntryCard({ entry, onDelete, isDeleting }: JournalEntryCa
               )}
             </div>
             {entry.notes && (
-              <p className="text-[10px] text-muted-foreground truncate">{entry.notes}</p>
+              <p className="text-xs text-muted-foreground truncate">{entry.notes}</p>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
               {new Date(entry.createdAt).toLocaleDateString()}
             </span>
             <Button

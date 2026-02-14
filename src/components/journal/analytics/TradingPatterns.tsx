@@ -139,7 +139,7 @@ export function TradingPatterns({ summary, byMonth }: TradingPatternsProps) {
           <PatternIcon type={pattern.type} />
           <div>
             <p className="text-xs font-medium">{pattern.label}</p>
-            <p className="text-[10px] text-muted-foreground">{pattern.description}</p>
+            <p className="text-xs text-muted-foreground">{pattern.description}</p>
           </div>
         </div>
       ))}

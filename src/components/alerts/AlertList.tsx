@@ -118,7 +118,7 @@ export function AlertList({ alerts, isLoading }: AlertListProps) {
               </span>
               <StatusBadge status={alert.status} />
               {alert.recurring && (
-                <Badge variant="outline" className="text-[10px]">
+                <Badge variant="outline" className="text-xs">
                   recurring
                 </Badge>
               )}

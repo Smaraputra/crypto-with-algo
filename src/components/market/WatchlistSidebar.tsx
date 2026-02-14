@@ -117,7 +117,7 @@ export function WatchlistSidebar() {
             <div className="flex flex-col">
               <span className="text-xs font-medium">{symbol.replace('USDT', '')}</span>
               {ticker && (
-                <span className="price-sm text-[10px] text-muted-foreground">
+                <span className="price-sm text-xs text-muted-foreground">
                   ${parseFloat(ticker.lastPrice).toLocaleString()}
                 </span>
               )}
@@ -126,7 +126,7 @@ export function WatchlistSidebar() {
               {ticker && (
                 <span
                   className={cn(
-                    'text-[10px] font-medium',
+                    'text-xs font-medium',
                     isBullish ? 'text-bullish' : 'text-bearish'
                   )}
                 >

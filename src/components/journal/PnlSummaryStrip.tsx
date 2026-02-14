@@ -70,7 +70,7 @@ export function PnlSummaryStrip() {
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline gap-1.5">
-      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+      <span className="text-xs text-muted-foreground uppercase tracking-wider">
         {label}
       </span>
       <span className="text-xs font-medium">{value}</span>

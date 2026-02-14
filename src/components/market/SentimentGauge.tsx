@@ -53,7 +53,7 @@ export function SentimentGauge() {
         </span>
       </div>
       <GaugeBar value={fearGreedIndex} />
-      <div className="flex justify-between text-[10px] text-muted-foreground">
+      <div className="flex justify-between text-xs text-muted-foreground">
         <span>Extreme Fear</span>
         <span>Extreme Greed</span>
       </div>

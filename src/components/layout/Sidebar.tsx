@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, Zap } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, FileText, Zap } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/alerts', label: 'Alerts', icon: Bell, disabled: false },
   { href: '/analytics', label: 'Analytics', icon: BarChart3, disabled: false },
   { href: '/journal', label: 'Journal', icon: BookOpen, disabled: false },
+  { href: '/research', label: 'Research', icon: FileText, disabled: false },
   { href: '/signals', label: 'Signals', icon: Activity, disabled: false },
   { href: '/backtest', label: 'Backtest', icon: FlaskConical, disabled: false },
 ];
@@ -62,7 +63,7 @@ function SidebarContent() {
             <item.icon className="h-4 w-4" />
             {item.label}
             {item.disabled && (
-              <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span className="ml-auto text-xs uppercase tracking-wider text-muted-foreground">
                 Soon
               </span>
             )}
@@ -94,7 +95,7 @@ function SidebarContent() {
                 <item.icon className="h-4 w-4" />
                 {item.label}
                 {item.disabled && (
-                  <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="ml-auto text-xs uppercase tracking-wider text-muted-foreground">
                     Soon
                   </span>
                 )}

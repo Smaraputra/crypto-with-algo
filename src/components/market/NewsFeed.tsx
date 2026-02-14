@@ -29,8 +29,8 @@ function NewsCard({ article }: { article: CryptoNewsItem }) {
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium line-clamp-2">{article.title}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] text-muted-foreground">{article.source}</span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">{article.source}</span>
+            <span className="text-xs text-muted-foreground">
               {timeAgo(article.publishedOn)}
             </span>
           </div>

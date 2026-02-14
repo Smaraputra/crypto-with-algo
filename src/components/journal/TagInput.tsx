@@ -52,7 +52,7 @@ export function TagInput({ value, onChange, maxTags = 20 }: TagInputProps) {
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1">
         {value.map((tag) => (
-          <Badge key={tag} variant="secondary" className="text-[10px] gap-1 pr-1">
+          <Badge key={tag} variant="secondary" className="text-xs gap-1 pr-1">
             {tag}
             <button
               type="button"
@@ -84,7 +84,7 @@ export function TagInput({ value, onChange, maxTags = 20 }: TagInputProps) {
               type="button"
               variant="ghost"
               size="sm"
-              className="h-5 text-[10px] px-1.5 text-muted-foreground"
+              className="h-5 text-xs px-1.5 text-muted-foreground"
               onClick={() => addTag(preset)}
             >
               +{preset}

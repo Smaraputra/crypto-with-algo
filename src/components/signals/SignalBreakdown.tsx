@@ -54,7 +54,7 @@ function DirectionBadge({ direction }: { direction: string }) {
   };
 
   return (
-    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${colors[direction] || colors.neutral}`}>
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${colors[direction] || colors.neutral}`}>
       {direction}
     </span>
   );

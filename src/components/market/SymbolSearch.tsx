@@ -47,7 +47,7 @@ export function SymbolSearch() {
       >
         <Search className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">Search</span>
-        <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
+        <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-xs font-medium opacity-100 sm:flex">
           <span className="text-xs">&#8984;</span>K
         </kbd>
       </Button>
