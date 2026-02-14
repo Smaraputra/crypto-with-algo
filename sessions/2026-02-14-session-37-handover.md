@@ -28,22 +28,23 @@ Completed Phase 13E by adding the admin UI for cron run management with CronHist
 
 ### Commit 3: `docs: add session 37 handover and update changelog`
 
+### Commit 4: `fix(e2e): update marketing page tests for removed Docs/Blog links`
+
+Fixed 2 pre-existing E2E failures in `e2e/marketing-pages.spec.ts`. Nav and Footer tests referenced Docs/Documentation links removed in a prior session. Updated to test Features and How It Works links instead.
+
 ## Test Results
 
 **Before Session:**
 - Total tests: 1848
 - Test files: 212
-- E2E tests: 87 passing
+- E2E tests: 87 passing (2 failing)
 
 **After Session:**
 - Total tests: 1878 (+30)
 - Test files: 215 (+3)
-- E2E tests: 91 passing (+4)
-- Duration: ~19.8s (unit), ~1.7m (E2E)
-- Status: All passing
-
-**Pre-existing E2E failures (2):**
-- `marketing-pages.spec.ts` Nav links / Footer links - unrelated to this session
+- E2E tests: 89 passing (+2), 0 failures
+- Duration: ~19.8s (unit), ~54s (E2E)
+- Status: All passing, zero failures
 
 ## Files Changed
 
@@ -55,9 +56,10 @@ Completed Phase 13E by adding the admin UI for cron run management with CronHist
 - `src/components/admin/optimization/TriggerOptimizationDialog.tsx`
 - `src/components/admin/optimization/TriggerOptimizationDialog.test.tsx`
 
-**Modified (3):**
+**Modified (4):**
 - `src/components/admin/optimization/OptimizationDashboard.tsx`
 - `e2e/optimization.spec.ts`
+- `e2e/marketing-pages.spec.ts`
 - `changelogs/CHANGELOG.md`
 
 ## Phase 13E Status
