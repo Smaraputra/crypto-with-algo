@@ -59,6 +59,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tab navigation tests (Optimize, History, Compare)
   - Sidebar admin section visibility tests
   - Fixed Sidebar unit tests to mock next-auth/react useSession
+- **Phase 13E: Automated Monthly Optimization**
+  - CronRun model for tracking monthly optimization runs
+  - Top symbols utility with Binance 24hr volume API and Redis caching
+  - Auto-activation logic with 10% Sharpe improvement threshold
+  - Monthly orchestrator running all 4 trading styles sequentially
+  - Cron endpoints:
+    - `POST /api/cron/monthly-optimization` - Cron trigger (CRON_SECRET auth)
+    - `GET /api/cron/monthly-optimization/:cronRunId` - Status polling
+    - `POST /api/admin/trigger-monthly-optimization` - Manual trigger (admin-only)
+  - Vercel cron schedule (0 0 1 * *) - 1st of each month at 00:00 UTC
+  - GitHub Actions workflow as fallback mechanism
+  - Background job execution (no timeout issues)
+  - Round-robin symbol distribution from top 5 by volume
+  - Auto-activation when Sharpe improves by ≥10%
+  - Comprehensive error handling and individual job failure tolerance
+- New environment variables:
+  - `ADMIN_EMAIL` - Email address for admin authorization
+  - `CRON_SECRET` - Bearer token for cron endpoint authentication
 - New UI components:
   - Alert component for notifications and error messages
   - Progress component for progress bars
