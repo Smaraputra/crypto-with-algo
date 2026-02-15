@@ -17,12 +17,7 @@ import {
 } from '@/lib/sentiment-analysis';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
 
-function verifyCronSecret(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('authorization');
-  return header === `Bearer ${secret}`;
-}
+import { verifyCronSecret } from '@/lib/cron-auth';
 
 /**
  * Ingest historical snapshots for active symbols

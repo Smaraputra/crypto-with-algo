@@ -8,11 +8,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? 1 : 3,
+  timeout: 60000,
   reporter: process.env.CI ? 'github' : 'html',
   use: {
     baseURL: `http://localhost:${TEST_PORT}`,
     trace: 'on-first-retry',
+    navigationTimeout: 30000,
   },
   projects: [
     // Auth setup -- runs first, saves storage state for authenticated tests

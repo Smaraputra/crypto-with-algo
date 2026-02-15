@@ -23,11 +23,13 @@ test.describe('Dashboard layout (authenticated)', () => {
 
   test('sidebar shows watchlist section', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByText('Watchlist').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Watchlist').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('header shows user dropdown', async ({ page }) => {
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
     // The user button should be visible (shows name or email)
     const userButton = page.locator('header').getByRole('button').filter({ has: page.locator('svg') }).last();
     await expect(userButton).toBeVisible();

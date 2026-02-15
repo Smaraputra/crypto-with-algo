@@ -21,8 +21,21 @@ export async function GET() {
   ).sort({ createdAt: 1 });
 
   if (portfolios.length === 0) {
-    const defaultPortfolio = await Portfolio.create({ userId: session.user.id });
-    portfolios = [defaultPortfolio];
+    try {
+      const defaultPortfolio = await Portfolio.create({ userId: session.user.id });
+      portfolios = [defaultPortfolio];
+    } catch (err: unknown) {
+      // Race condition: another concurrent request already created the default portfolio.
+      // Re-fetch instead of crashing on duplicate key (E11000).
+      if (err && typeof err === 'object' && 'code' in err && err.code === 11000) {
+        portfolios = await Portfolio.find(
+          { userId: session.user.id },
+          { name: 1, holdings: 1, createdAt: 1, updatedAt: 1 }
+        ).sort({ createdAt: 1 });
+      } else {
+        throw err;
+      }
+    }
   }
 
   const items = portfolios.map((p) => ({

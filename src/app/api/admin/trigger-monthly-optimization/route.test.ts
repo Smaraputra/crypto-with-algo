@@ -378,6 +378,6 @@ describe('POST /api/admin/trigger-monthly-optimization', () => {
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data.error).toContain('Connection failed');
+    expect(data.error).toBe('Internal server error');
   });
 });

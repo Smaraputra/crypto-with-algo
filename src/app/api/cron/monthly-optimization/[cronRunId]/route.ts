@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import { auth } from '@/lib/auth';
 import { CronRun } from '@/lib/models/cron-run';
+import { verifyCronSecret } from '@/lib/cron-auth';
 
 interface RouteParams {
   params: Promise<{
@@ -9,16 +10,12 @@ interface RouteParams {
   }>;
 }
 
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     const { cronRunId } = await params;
 
     // Auth: Admin or CRON_SECRET
-    const authHeader = _req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-    const isValidCron = process.env.CRON_SECRET && token === process.env.CRON_SECRET;
-
-    if (!isValidCron) {
+    if (!verifyCronSecret(req)) {
       const session = await auth();
       if (!session?.user?.email || session.user.email !== process.env.ADMIN_EMAIL) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -64,7 +61,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   } catch (error) {
     console.error('Cron status error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

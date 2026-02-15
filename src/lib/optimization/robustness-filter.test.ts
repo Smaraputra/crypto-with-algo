@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { isRobust, filterRobustResults, getRobustnessScore } from './robustness-filter';
-import { DEFAULT_ROBUSTNESS } from '@/types/optimization';
 import type { IBacktestResultV2 } from '@/lib/models/backtest-result-v2';
 
 describe('robustness-filter', () => {

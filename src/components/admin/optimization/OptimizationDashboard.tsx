@@ -7,7 +7,7 @@ import { OptimizationHistory } from './OptimizationHistory';
 import { CronHistory } from './CronHistory';
 import { TemplateComparison } from './TemplateComparison';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { TradingStyle } from '@/lib/models/signal-template';
+
 
 export function OptimizationDashboard() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);

@@ -17,9 +17,14 @@ export function createRateLimiter(
 
 export async function rateLimit(
   req: NextRequest,
-  limiter: Ratelimit | null
+  limiter: Ratelimit | null,
+  options?: { failClosed?: boolean }
 ): Promise<NextResponse | null> {
-  if (!limiter) return null;
+  if (!limiter) {
+    // Redis not configured at all -- allow the request through.
+    // failClosed only applies to runtime Redis errors, not missing config.
+    return null;
+  }
 
   const ip =
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';
@@ -39,8 +44,14 @@ export async function rateLimit(
         }
       );
     }
-  } catch {
-    // Redis/rate-limiter failure -- allow request through
+  } catch (error) {
+    console.error('Rate limiter Redis error:', error);
+    if (options?.failClosed) {
+      return NextResponse.json(
+        { error: 'Service temporarily unavailable' },
+        { status: 503 }
+      );
+    }
   }
 
   return null;

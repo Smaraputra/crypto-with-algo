@@ -55,7 +55,7 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Test',
       email: 'test@example.com',
-      password: 'secret123',
+      password: 'Secret1!',
     });
     const res = await POST(req);
     expect(res.status).toBe(403);
@@ -81,7 +81,7 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Test',
       email: 'not-email',
-      password: 'secret123',
+      password: 'Secret1!',
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -103,7 +103,7 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Test',
       email: 'dupe@example.com',
-      password: 'secret123',
+      password: 'Secret1!',
     });
     const res = await POST(req);
     expect(res.status).toBe(409);
@@ -123,7 +123,7 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Alice',
       email: 'alice@example.com',
-      password: 'secret123',
+      password: 'Secret1!',
     });
     const res = await POST(req);
     expect(res.status).toBe(201);
@@ -147,11 +147,11 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Test',
       email: 'test@example.com',
-      password: 'mypassword',
+      password: 'MyPass1!',
     });
     await POST(req);
 
-    expect(bcrypt.hash).toHaveBeenCalledWith('mypassword', 12);
+    expect(bcrypt.hash).toHaveBeenCalledWith('MyPass1!', 12);
   });
 
   it('returns 409 on concurrent duplicate email (MongoDB 11000)', async () => {
@@ -163,7 +163,7 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Test',
       email: 'race@example.com',
-      password: 'secret123',
+      password: 'Secret1!',
     });
     const res = await POST(req);
     expect(res.status).toBe(409);
@@ -179,7 +179,7 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Test',
       email: 'test@example.com',
-      password: 'secret123',
+      password: 'Secret1!',
     });
     const res = await POST(req);
     expect(res.status).toBe(500);
@@ -196,7 +196,7 @@ describe('POST /api/auth/register', () => {
     const req = makeRequest({
       name: 'Test',
       email: 'test@example.com',
-      password: 'secret123',
+      password: 'Secret1!',
     });
     const res = await POST(req);
     expect(res.status).toBe(429);

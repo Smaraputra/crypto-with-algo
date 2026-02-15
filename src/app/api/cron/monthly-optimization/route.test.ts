@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
 import { POST } from './route';
 
 // Mock dependencies
@@ -49,7 +50,7 @@ describe('POST /api/cron/monthly-optimization', () => {
   });
 
   it('should reject requests without authorization header', async () => {
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
     });
 
@@ -64,7 +65,7 @@ describe('POST /api/cron/monthly-optimization', () => {
   it('should reject requests with invalid CRON_SECRET', async () => {
     process.env.CRON_SECRET = 'valid-secret';
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer invalid-secret',
@@ -82,7 +83,7 @@ describe('POST /api/cron/monthly-optimization', () => {
   it('should reject when CRON_SECRET is not configured', async () => {
     // CRON_SECRET not set
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer any-token',
@@ -108,7 +109,7 @@ describe('POST /api/cron/monthly-optimization', () => {
       jobs: [],
     });
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -133,7 +134,7 @@ describe('POST /api/cron/monthly-optimization', () => {
       status: 'running',
     });
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -156,7 +157,7 @@ describe('POST /api/cron/monthly-optimization', () => {
     const cronRunId = 'cronrun123';
     mockCreate.mockResolvedValue({ _id: cronRunId });
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -190,7 +191,7 @@ describe('POST /api/cron/monthly-optimization', () => {
     mockFindOne.mockResolvedValue(null);
     mockCreate.mockResolvedValue({ _id: 'cronrun123' });
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -210,7 +211,7 @@ describe('POST /api/cron/monthly-optimization', () => {
     const topSymbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
     mockGetTopSymbols.mockResolvedValue(topSymbols);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -230,7 +231,7 @@ describe('POST /api/cron/monthly-optimization', () => {
     const cronRunId = 'cronrun123';
     mockCreate.mockResolvedValue({ _id: cronRunId });
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -254,7 +255,7 @@ describe('POST /api/cron/monthly-optimization', () => {
     process.env.CRON_SECRET = 'valid-secret';
     mockConnectDB.mockRejectedValue(new Error('Connection failed'));
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -265,7 +266,7 @@ describe('POST /api/cron/monthly-optimization', () => {
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data.error).toContain('Connection failed');
+    expect(data.error).toBe('Internal server error');
   });
 
   it('should handle CronRun creation errors', async () => {
@@ -273,7 +274,7 @@ describe('POST /api/cron/monthly-optimization', () => {
     mockFindOne.mockResolvedValue(null);
     mockCreate.mockRejectedValue(new Error('Database error'));
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer valid-secret',
@@ -284,6 +285,6 @@ describe('POST /api/cron/monthly-optimization', () => {
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data.error).toContain('Database error');
+    expect(data.error).toBe('Internal server error');
   });
 });

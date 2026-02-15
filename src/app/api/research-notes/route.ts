@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { ResearchNote, MAX_RESEARCH_NOTES_PER_USER } from '@/lib/models/research-note';
 import { createResearchNoteSchema } from '@/types/research-note';
+import { escapeRegex } from '@/lib/utils';
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   const search = params.get('search');
   if (search) {
-    query.title = { $regex: search, $options: 'i' };
+    query.title = { $regex: escapeRegex(search), $options: 'i' };
   }
 
   const pinned = params.get('pinned');
@@ -31,7 +32,11 @@ export async function GET(req: NextRequest) {
 
   const page = Math.max(1, parseInt(params.get('page') || '1', 10));
   const limit = Math.min(50, Math.max(1, parseInt(params.get('limit') || '20', 10)));
-  const sort = params.get('sort') || '-createdAt';
+
+  const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'title', 'category'];
+  const rawSort = params.get('sort') || '-createdAt';
+  const sortField = rawSort.startsWith('-') ? rawSort.slice(1) : rawSort;
+  const sort = ALLOWED_SORT_FIELDS.includes(sortField) ? rawSort : '-createdAt';
 
   const sortObj: Record<string, 1 | -1> = {};
   if (sort.startsWith('-')) {

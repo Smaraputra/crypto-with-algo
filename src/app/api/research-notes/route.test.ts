@@ -109,7 +109,7 @@ describe('GET /api/research-notes', () => {
     await GET(makeGetRequest('search=breakout'));
 
     expect(ResearchNote.find).toHaveBeenCalledWith(
-      expect.objectContaining({ title: { $regex: 'breakout', $options: 'i' } })
+      expect.objectContaining({ title: { $regex: expect.stringContaining('breakout'), $options: 'i' } })
     );
   });
 

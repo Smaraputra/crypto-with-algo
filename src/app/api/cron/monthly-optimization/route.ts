@@ -1,16 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import { CronRun } from '@/lib/models/cron-run';
 import { getTopSymbols } from '@/lib/optimization/top-symbols';
 import { runMonthlyOptimization } from '@/lib/optimization/monthly-orchestrator';
+import { verifyCronSecret } from '@/lib/cron-auth';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     // 1. Verify authorization header
-    const authHeader = req.headers.get('authorization');
-    const token = authHeader?.replace('Bearer ', '');
-
-    if (!process.env.CRON_SECRET || token !== process.env.CRON_SECRET) {
+    if (!verifyCronSecret(req)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -82,7 +80,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Cron endpoint error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

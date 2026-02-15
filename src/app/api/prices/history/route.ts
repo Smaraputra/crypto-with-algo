@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { auth } from '@/lib/auth';
 import { fetchKlines } from '@/lib/binance';
 import { cachedFetch } from '@/lib/redis';
+import { createRateLimiter, rateLimit } from '@/lib/rate-limit';
 
 const VALID_INTERVALS = [
   '1m', '3m', '5m', '15m', '30m',
@@ -33,7 +35,17 @@ const TTL_MAP: Record<string, number> = {
   '1M': 3600,
 };
 
+const limiter = createRateLimiter(20, '60 s');
+
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const limited = await rateLimit(req, limiter);
+  if (limited) return limited;
+
   const { searchParams } = req.nextUrl;
   const parsed = querySchema.safeParse({
     symbol: searchParams.get('symbol'),

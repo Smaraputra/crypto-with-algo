@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { OHLCV } from '@/types/market';
-import type { IndicatorConfig } from '@/lib/indicators/types';
-import { DEFAULT_CONFIG } from '@/lib/indicators/types';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { prepareBacktest } from './optimized-engine';
 

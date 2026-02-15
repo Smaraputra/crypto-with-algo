@@ -82,10 +82,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   } catch (error) {
     console.error('Template comparison error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
