@@ -8,7 +8,14 @@ import { createRateLimiter, rateLimit } from '@/lib/rate-limit';
 const registerSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.email(),
-  password: z.string().min(6).max(100),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(100)
+    .regex(
+      /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
+      'Password must contain at least one uppercase letter, one digit, and one special character'
+    ),
 });
 
 const limiter = createRateLimiter(5, '60 s');
@@ -21,7 +28,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const limited = await rateLimit(req, limiter);
+  const limited = await rateLimit(req, limiter, { failClosed: true });
   if (limited) return limited;
 
   let body: unknown;

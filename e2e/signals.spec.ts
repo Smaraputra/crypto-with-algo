@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Signals page (authenticated)', () => {
   test('navigates to signals page via sidebar', async ({ page }) => {
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
     const sidebar = page.locator('[data-testid="desktop-sidebar"]');
     await sidebar.getByRole('link', { name: 'Signals' }).click();

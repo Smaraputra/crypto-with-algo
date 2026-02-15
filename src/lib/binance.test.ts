@@ -48,7 +48,8 @@ describe('base URL configuration', () => {
     await fetchTickers();
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://custom-proxy.test/api/v3/ticker/24hr'
+      'https://custom-proxy.test/api/v3/ticker/24hr',
+      expect.objectContaining({ signal: expect.anything() })
     );
   });
 
@@ -60,7 +61,8 @@ describe('base URL configuration', () => {
     await fetchTickers();
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://api.binance.com/api/v3/ticker/24hr'
+      'https://api.binance.com/api/v3/ticker/24hr',
+      expect.objectContaining({ signal: expect.anything() })
     );
   });
 });
@@ -153,7 +155,8 @@ describe('fetchKlines', () => {
     await fetchKlines('BTCUSDT', '1h');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('limit=500')
+      expect.stringContaining('limit=500'),
+      expect.objectContaining({ signal: expect.anything() })
     );
   });
 
@@ -163,7 +166,8 @@ describe('fetchKlines', () => {
     await fetchKlines('BTCUSDT', '1h', 100);
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('limit=100')
+      expect.stringContaining('limit=100'),
+      expect.objectContaining({ signal: expect.anything() })
     );
   });
 

@@ -40,10 +40,7 @@ export async function GET() {
   } catch (error) {
     console.error('Error fetching optimization jobs:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

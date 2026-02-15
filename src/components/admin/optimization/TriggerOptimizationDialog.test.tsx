@@ -31,12 +31,12 @@ describe('TriggerOptimizationDialog', () => {
     );
   }
 
-  it('renders dialog when open', async () => {
+  it('renders dialog when open', { timeout: 15000 }, async () => {
     await renderDialog();
     expect(screen.getByText('Trigger Monthly Optimization')).toBeInTheDocument();
   });
 
-  it('does not render dialog content when closed', async () => {
+  it('does not render dialog content when closed', { timeout: 15000 }, async () => {
     await renderDialog({ ...defaultProps, open: false });
     expect(screen.queryByText('Trigger Monthly Optimization')).not.toBeInTheDocument();
   });

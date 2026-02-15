@@ -94,4 +94,52 @@ describe('rateLimit', () => {
     const result = await rateLimit(makeRequest(), limiter);
     expect(result).toBeNull();
   });
+
+  describe('failClosed option', () => {
+    it('returns null when limiter is null even with failClosed (no Redis configured)', async () => {
+      const result = await rateLimit(makeRequest(), null, { failClosed: true });
+      expect(result).toBeNull();
+    });
+
+    it('returns 503 on Redis error when failClosed is true', async () => {
+      mockLimit.mockRejectedValue(new Error('Redis down'));
+      const limiter = createRateLimiter(10, '10 s')!;
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await rateLimit(makeRequest(), limiter, { failClosed: true });
+
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe(503);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Rate limiter Redis error:',
+        expect.any(Error)
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('allows request on Redis error when failClosed is not set', async () => {
+      mockLimit.mockRejectedValue(new Error('Redis down'));
+      const limiter = createRateLimiter(10, '10 s')!;
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await rateLimit(makeRequest(), limiter);
+      expect(result).toBeNull();
+
+      vi.restoreAllMocks();
+    });
+
+    it('logs error on Redis failure', async () => {
+      mockLimit.mockRejectedValue(new Error('Connection refused'));
+      const limiter = createRateLimiter(10, '10 s')!;
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await rateLimit(makeRequest(), limiter);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Rate limiter Redis error:',
+        expect.objectContaining({ message: 'Connection refused' })
+      );
+      consoleSpy.mockRestore();
+    });
+  });
 });

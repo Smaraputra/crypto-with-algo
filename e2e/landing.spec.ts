@@ -18,10 +18,11 @@ test.describe('Landing page (unauthenticated)', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('Get Started link navigates to /register', async ({ page }) => {
+  test('Get Started link navigates to /register or /login', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('link', { name: 'Get Started' }).first().click();
-    await expect(page).toHaveURL(/\/register/);
+    // When ALLOW_REGISTRATION is disabled, /register redirects to /login
+    await expect(page).toHaveURL(/\/(register|login)/);
   });
 
   test('features section is visible', async ({ page }) => {

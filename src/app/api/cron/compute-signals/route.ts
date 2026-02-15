@@ -22,12 +22,7 @@ import type { SentimentData } from '@/types/signal';
 
 const MAX_PAIRS_PER_RUN = 20;
 
-function verifyCronSecret(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('authorization');
-  return header === `Bearer ${secret}`;
-}
+import { verifyCronSecret } from '@/lib/cron-auth';
 
 function isValidTradingStyle(style: string): style is TradingStyle {
   return (TRADING_STYLES as readonly string[]).includes(style);

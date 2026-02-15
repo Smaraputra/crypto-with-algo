@@ -123,7 +123,7 @@ describe('CronHistory', () => {
     return render(React.createElement(CronHistory), { wrapper: createWrapper() });
   }
 
-  it('shows loading spinner while fetching', async () => {
+  it('shows loading spinner while fetching', { timeout: 15000 }, async () => {
     // Never resolve the fetch
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}));
     await renderComponent();

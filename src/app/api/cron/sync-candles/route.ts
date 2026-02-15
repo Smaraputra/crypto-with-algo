@@ -11,12 +11,7 @@ const MAX_PAIRS_PER_RUN = 20;
 /** Standard intervals synced by default (excludes HF intervals 1m/5m) */
 const STANDARD_INTERVALS: CandleInterval[] = ['15m', '1h', '4h', '1d'];
 
-function verifyCronSecret(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const header = req.headers.get('authorization');
-  return header === `Bearer ${secret}`;
-}
+import { verifyCronSecret } from '@/lib/cron-auth';
 
 /**
  * Parse the ?intervals= query param into validated CandleInterval[].

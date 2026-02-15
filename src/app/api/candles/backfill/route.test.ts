@@ -134,7 +134,7 @@ describe('POST /api/candles/backfill', () => {
     const res = await POST(makePostRequest({ symbol: 'BTCUSDT', interval: '1h' }));
     expect(res.status).toBe(500);
     const data = await res.json();
-    expect(data.error).toBe('Binance API rate limit exceeded');
+    expect(data.error).toBe('Backfill failed');
   });
 
   it('returns 500 when getCandleRange throws', async () => {
@@ -145,7 +145,7 @@ describe('POST /api/candles/backfill', () => {
     const res = await POST(makePostRequest({ symbol: 'BTCUSDT', interval: '1h' }));
     expect(res.status).toBe(500);
     const data = await res.json();
-    expect(data.error).toBe('Database error');
+    expect(data.error).toBe('Backfill failed');
   });
 
   it('returns 500 with generic message for unknown errors', async () => {

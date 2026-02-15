@@ -3,12 +3,13 @@ import { test, expect } from '@playwright/test';
 test.describe('Alerts page (authenticated)', () => {
   test('navigates to alerts page via sidebar', async ({ page }) => {
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
     // Click Alerts in the sidebar navigation
     const sidebar = page.locator('[data-testid="desktop-sidebar"]');
-    await sidebar.getByText('Alerts').click();
+    await sidebar.getByRole('link', { name: 'Alerts' }).click();
 
-    await expect(page).toHaveURL('/alerts');
+    await expect(page).toHaveURL('/alerts', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible();
   });
 
@@ -84,48 +85,70 @@ test.describe('Alerts page (authenticated)', () => {
 
   test('pauses and resumes an alert', async ({ page }) => {
     await page.goto('/alerts');
+    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible({ timeout: 15000 });
 
-    // Wait for the alert we created in the previous test (or any active alert)
+    // Wait for either the alert list or empty state to appear (loading complete)
+    const alertList = page.getByTestId('alert-list');
+    const emptyState = page.getByTestId('alert-list-empty');
+    await expect(alertList.or(emptyState)).toBeVisible({ timeout: 15000 });
+
     // If list is empty, create one first
-    const hasAlerts = (await page.getByText(/BTCUSDT price above/).count()) > 0;
-    if (!hasAlerts) {
+    const alertItems = page.locator('[data-testid^="alert-item-"]');
+    if ((await alertItems.count()) === 0) {
       await page.getByRole('button', { name: /create alert/i }).click();
+      await expect(page.getByRole('heading', { name: 'Create Alert' })).toBeVisible();
       await page.getByLabel('Symbol').fill('ETHUSDT');
       await page.getByLabel('Target Price').fill('888888');
       await page.getByRole('button', { name: 'Create Alert' }).click();
-      await expect(page.getByText(/ETHUSDT price above/)).toBeVisible({
-        timeout: 10000,
-      });
+      // Wait for dialog to close and alert item to appear
+      await expect(alertItems.first()).toBeVisible({ timeout: 15000 });
     }
 
-    // Click pause button
+    // Click pause button on the first active alert
     const pauseButton = page.getByTitle('Pause').first();
     await expect(pauseButton).toBeVisible({ timeout: 5000 });
+
+    // Listen for both the PATCH and the subsequent refetch GET
+    const patchPromise = page.waitForResponse(
+      (resp) => resp.url().includes('/api/alerts/') && resp.request().method() === 'PATCH',
+      { timeout: 15000 }
+    );
+    const refetchPromise = page.waitForResponse(
+      (resp) => resp.url().includes('/api/alerts') && resp.request().method() === 'GET' && resp.ok(),
+      { timeout: 20000 }
+    );
     await pauseButton.click();
+    await patchPromise;
+    await refetchPromise;
 
-    // Wait for the paused badge to appear anywhere in the alert list
-    await expect(
-      page.locator('[data-testid^="alert-item-"]').filter({ hasText: 'paused' })
-    ).toHaveCount(1, { timeout: 10000 });
+    // After refetch, the Resume button should be visible
+    await expect(page.getByTitle('Resume').first()).toBeVisible({ timeout: 10000 });
 
-    // Click resume button
-    const resumeButton = page.getByTitle('Resume').first();
-    await expect(resumeButton).toBeVisible({ timeout: 5000 });
-    await resumeButton.click();
+    // Resume: same pattern
+    const resumePatchPromise = page.waitForResponse(
+      (resp) => resp.url().includes('/api/alerts/') && resp.request().method() === 'PATCH',
+      { timeout: 15000 }
+    );
+    const resumeRefetchPromise = page.waitForResponse(
+      (resp) => resp.url().includes('/api/alerts') && resp.request().method() === 'GET' && resp.ok(),
+      { timeout: 20000 }
+    );
+    await page.getByTitle('Resume').first().click();
+    await resumePatchPromise;
+    await resumeRefetchPromise;
 
-    // Wait for the active badge to reappear (no more paused)
-    await expect(
-      page.locator('[data-testid^="alert-item-"]').filter({ hasText: 'paused' })
-    ).toHaveCount(0, { timeout: 10000 });
+    // After refetch, the Pause button should be visible again
+    await expect(page.getByTitle('Pause').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('deletes an alert', async ({ page }) => {
     await page.goto('/alerts');
+    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible({ timeout: 15000 });
 
-    // Wait for loading to complete
-    await expect(page.getByTestId('alert-list-loading')).toBeHidden({
-      timeout: 10000,
-    });
+    // Wait for either the alert list or empty state to appear (loading complete)
+    const alertList = page.getByTestId('alert-list');
+    const emptyState = page.getByTestId('alert-list-empty');
+    await expect(alertList.or(emptyState)).toBeVisible({ timeout: 15000 });
 
     // Ensure there's at least one alert
     const alertItems = page.locator('[data-testid^="alert-item-"]');
@@ -155,7 +178,7 @@ test.describe('Alerts page (authenticated)', () => {
 
     // Wait for the specific alert item to be removed after React Query refetch
     await expect(page.locator(`[data-testid="${testId}"]`)).toHaveCount(0, {
-      timeout: 10000,
+      timeout: 15000,
     });
   });
 

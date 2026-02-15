@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { OHLCV } from '@/types/market';
 
+vi.mock('@/lib/auth', () => ({
+  auth: vi.fn(),
+}));
+
 vi.mock('@/lib/redis', () => ({
   cachedFetch: vi.fn(),
 }));
@@ -11,7 +15,13 @@ vi.mock('@/lib/binance', () => ({
   fetchKlines: vi.fn(),
 }));
 
+vi.mock('@/lib/rate-limit', () => ({
+  createRateLimiter: vi.fn(() => 'mock-limiter'),
+  rateLimit: vi.fn(() => null),
+}));
+
 import { GET } from './route';
+import { auth } from '@/lib/auth';
 import { cachedFetch } from '@/lib/redis';
 
 const mockKlines: OHLCV[] = [
@@ -27,11 +37,20 @@ function makeRequest(params: Record<string, string>): NextRequest {
   return new NextRequest(url);
 }
 
+const mockSession = { user: { id: 'user-1' } };
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(auth).mockResolvedValue(mockSession as never);
 });
 
 describe('GET /api/prices/history', () => {
+  it('returns 401 when unauthenticated', async () => {
+    vi.mocked(auth).mockResolvedValue(null as never);
+    const res = await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1h' }));
+    expect(res.status).toBe(401);
+  });
+
   it('returns OHLCV data for valid params', async () => {
     vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
 

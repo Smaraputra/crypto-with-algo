@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
 import { GET } from './route';
 
 // Mock dependencies
@@ -49,7 +50,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -77,7 +78,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123');
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123');
 
     const params = Promise.resolve({ cronRunId: 'cronrun123' });
     const response = await GET(request, { params });
@@ -93,7 +94,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
       user: { email: 'user@example.com' },
     });
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123');
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123');
 
     const params = Promise.resolve({ cronRunId: 'cronrun123' });
     const response = await GET(request, { params });
@@ -107,7 +108,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
   it('should reject unauthenticated users', async () => {
     mockAuth.mockResolvedValue(null);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123');
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123');
 
     const params = Promise.resolve({ cronRunId: 'cronrun123' });
     const response = await GET(request, { params });
@@ -121,7 +122,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     process.env.CRON_SECRET = 'valid-secret';
     mockFindById.mockResolvedValue(null);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/invalid123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/invalid123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -155,7 +156,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -189,7 +190,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -224,7 +225,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -258,7 +259,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -285,7 +286,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -318,7 +319,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -348,7 +349,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     };
     mockFindById.mockResolvedValue(cronRun);
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -365,7 +366,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     process.env.CRON_SECRET = 'valid-secret';
     mockFindById.mockRejectedValue(new Error('Database error'));
 
-    const request = new Request('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
+    const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123', {
       headers: {
         Authorization: 'Bearer valid-secret',
       },
@@ -376,6 +377,6 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data.error).toContain('Database error');
+    expect(data.error).toBe('Internal server error');
   });
 });

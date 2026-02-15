@@ -50,7 +50,11 @@ export async function GET(req: NextRequest) {
 
   const page = Math.max(1, parseInt(params.get('page') || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt(params.get('limit') || '50', 10)));
-  const sort = params.get('sort') || '-createdAt';
+
+  const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'symbol', 'action', 'entryPrice', 'exitPrice'];
+  const rawSort = params.get('sort') || '-createdAt';
+  const sortField = rawSort.startsWith('-') ? rawSort.slice(1) : rawSort;
+  const sort = ALLOWED_SORT_FIELDS.includes(sortField) ? rawSort : '-createdAt';
 
   const sortObj: Record<string, 1 | -1> = {};
   if (sort.startsWith('-')) {

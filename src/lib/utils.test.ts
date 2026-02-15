@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cn } from './utils';
+import { cn, escapeRegex } from './utils';
 
 describe('cn', () => {
   it('merges multiple class strings', () => {
@@ -42,5 +42,35 @@ describe('cn', () => {
 
   it('handles array syntax from clsx', () => {
     expect(cn(['foo', 'bar'])).toBe('foo bar');
+  });
+});
+
+describe('escapeRegex', () => {
+  it('escapes all special regex characters', () => {
+    expect(escapeRegex('.*+?^${}()|[]\\')).toBe(
+      '\\.\\*\\+\\?\\^\\$\\{\\}\\(\\)\\|\\[\\]\\\\'
+    );
+  });
+
+  it('returns plain string unchanged', () => {
+    expect(escapeRegex('breakout')).toBe('breakout');
+  });
+
+  it('escapes ReDoS payloads', () => {
+    const malicious = '(a+)+b';
+    const escaped = escapeRegex(malicious);
+    expect(escaped).toBe('\\(a\\+\\)\\+b');
+    // Verify it matches literally, not as a regex pattern
+    const re = new RegExp(escaped);
+    expect(re.test('(a+)+b')).toBe(true);
+    expect(re.test('aaab')).toBe(false);
+  });
+
+  it('handles empty string', () => {
+    expect(escapeRegex('')).toBe('');
+  });
+
+  it('escapes dots in domain-like strings', () => {
+    expect(escapeRegex('api.binance.com')).toBe('api\\.binance\\.com');
   });
 });

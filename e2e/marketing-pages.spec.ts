@@ -32,6 +32,19 @@ test.describe('Marketing Pages', () => {
     await expect(page.getByText('Step 3')).toBeVisible();
   });
 
+  test('Terms of Service page renders heading and content', async ({ page }) => {
+    await page.goto('/terms');
+    await expect(page.getByRole('heading', { name: 'Terms of Service' })).toBeVisible();
+    await expect(page.getByText('Acceptance of Terms')).toBeVisible();
+    await expect(page.getByText('Description of Service')).toBeVisible();
+  });
+
+  test('Privacy Policy page renders heading and content', async ({ page }) => {
+    await page.goto('/privacy');
+    await expect(page.getByRole('heading', { name: 'Privacy Policy', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Information We Collect' })).toBeVisible();
+  });
+
   test('Nav links navigate to correct pages', async ({ page }) => {
     await page.goto('/');
     // Click Features in the desktop nav

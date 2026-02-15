@@ -45,8 +45,7 @@ export async function POST(req: NextRequest) {
       newest: range.newest,
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Backfill failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('Backfill error:', err);
+    return NextResponse.json({ error: 'Backfill failed' }, { status: 500 });
   }
 }

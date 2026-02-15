@@ -23,8 +23,8 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
   await page.getByLabel('Password').fill(TEST_USER.password);
   await page.getByRole('button', { name: 'Sign In' }).click();
 
-  // Wait for redirect to dashboard
-  await expect(page).toHaveURL('/dashboard', { timeout: 10000 });
+  // Wait for redirect to dashboard (longer timeout for cold start)
+  await expect(page).toHaveURL('/dashboard', { timeout: 30000 });
 
   // Verify we landed on the authenticated dashboard
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();

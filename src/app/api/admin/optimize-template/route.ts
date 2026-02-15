@@ -163,7 +163,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Optimization error:', error);
     return NextResponse.json(
-      { error: 'Internal server error', message: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

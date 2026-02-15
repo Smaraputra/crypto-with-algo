@@ -4,8 +4,9 @@ test.describe('Optimization Dashboard', () => {
   test.use({ storageState: 'e2e/.auth/user.json' });
 
   test.beforeEach(async ({ page }) => {
-    // Navigate to optimization page
-    await page.goto('/admin/optimization');
+    // Navigate to optimization page; non-admin users get redirected to /dashboard
+    await page.goto('/admin/optimization', { waitUntil: 'domcontentloaded' });
+    await page.waitForURL(/\/(admin\/optimization|dashboard)/, { timeout: 30000 });
   });
 
   test('should show access denied for non-admin users', async ({ page }) => {
@@ -182,7 +183,9 @@ test.describe('Cron Runs Tab', () => {
   test.use({ storageState: 'e2e/.auth/user.json' });
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('/admin/optimization');
+    await page.goto('/admin/optimization', { timeout: 30000 });
+    // Wait for either the admin page or redirect to dashboard (non-admin)
+    await page.waitForURL(/\/(admin\/optimization|dashboard)/, { timeout: 15000 });
   });
 
   test('should show Cron Runs tab', async ({ page }) => {

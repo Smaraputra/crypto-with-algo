@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const authPages = ['/login', '/register'];
-const publicPrefixes = ['/login', '/register', '/docs', '/api-reference', '/blog', '/features', '/how-it-works'];
+const publicPrefixes = ['/login', '/register', '/docs', '/api-reference', '/blog', '/features', '/how-it-works', '/terms', '/privacy'];
 const publicExact = ['/'];
 
 function getSessionToken(req: NextRequest): string | undefined {

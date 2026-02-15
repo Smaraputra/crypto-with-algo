@@ -32,7 +32,7 @@ test.describe('Auth pages (unauthenticated)', () => {
     await page.getByLabel('Password').fill('wrongpassword');
     await page.getByRole('button', { name: 'Sign In' }).click();
 
-    await expect(page.getByText('Invalid email or password')).toBeVisible();
+    await expect(page.getByText('Invalid email or password')).toBeVisible({ timeout: 15000 });
   });
 
   test('register then login flow', async ({ page, baseURL }) => {

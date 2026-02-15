@@ -6,8 +6,12 @@ function getBaseUrl(): string {
   return process.env.BINANCE_API_URL || DEFAULT_BASE_URL;
 }
 
+const FETCH_TIMEOUT_MS = 10_000;
+
 export async function fetchTickers(): Promise<Ticker24h[]> {
-  const res = await fetch(`${getBaseUrl()}/ticker/24hr`);
+  const res = await fetch(`${getBaseUrl()}/ticker/24hr`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch tickers: HTTP ${res.status}`);
   }
@@ -31,7 +35,9 @@ export async function fetchKlines(
   if (startTime !== undefined) params.set('startTime', String(startTime));
   if (endTime !== undefined) params.set('endTime', String(endTime));
 
-  const res = await fetch(`${getBaseUrl()}/klines?${params}`);
+  const res = await fetch(`${getBaseUrl()}/klines?${params}`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch klines for ${symbol}: HTTP ${res.status}`);
   }
@@ -56,7 +62,9 @@ export async function fetchTickerPrices(
     symbols: JSON.stringify(symbols),
   });
 
-  const res = await fetch(`${getBaseUrl()}/ticker/price?${params}`);
+  const res = await fetch(`${getBaseUrl()}/ticker/price?${params}`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch ticker prices: HTTP ${res.status}`);
   }
@@ -72,6 +80,8 @@ export async function fetchTickerPrices(
 const KLINES_PAGE_SIZE = 1000;
 const RATE_LIMIT_DELAY_MS = 200;
 
+const KLINES_RANGE_TIMEOUT_MS = 120_000;
+
 export async function fetchKlinesRange(
   symbol: string,
   interval: string,
@@ -81,8 +91,12 @@ export async function fetchKlinesRange(
 ): Promise<OHLCV[]> {
   const allCandles: OHLCV[] = [];
   let cursor = startTime;
+  const deadline = Date.now() + KLINES_RANGE_TIMEOUT_MS;
 
   while (cursor < endTime) {
+    if (Date.now() > deadline) {
+      break;
+    }
     const batch = await fetchKlines(
       symbol,
       interval,
@@ -114,7 +128,9 @@ export async function fetchKlinesRange(
 }
 
 export async function fetchSymbols(): Promise<Symbol[]> {
-  const res = await fetch(`${getBaseUrl()}/exchangeInfo`);
+  const res = await fetch(`${getBaseUrl()}/exchangeInfo`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch exchange info: HTTP ${res.status}`);
   }

@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Dashboard features (authenticated)', () => {
   test('market overview section renders price cards or loading state', async ({ page }) => {
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
     // MarketOverview renders either shimmer skeletons (loading) or price card buttons.
     // Binance REST may 403 from US IPs so we accept either state.
@@ -17,6 +18,7 @@ test.describe('Dashboard features (authenticated)', () => {
 
   test('trading chart container renders', async ({ page }) => {
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
     // The chart section should have interval selector tabs
     const chartSection = page.locator('[class*="space-y"]').filter({
@@ -27,6 +29,7 @@ test.describe('Dashboard features (authenticated)', () => {
 
   test('chart interval tabs are visible', async ({ page }) => {
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
     // Check for at least some interval tabs
     await expect(page.getByRole('tab', { name: '1m' })).toBeVisible({ timeout: 10000 });
