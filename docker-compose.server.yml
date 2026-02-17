@@ -1,0 +1,62 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        NEXT_PUBLIC_BINANCE_WS_URL: ${NEXT_PUBLIC_BINANCE_WS_URL:-wss://stream.binance.com:9443}
+    container_name: crypto-app
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - crypto-internal
+      - caddy-net
+
+  mongodb:
+    image: mongo:7
+    container_name: crypto-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD}
+      MONGO_APP_USER: ${MONGO_APP_USER:-appuser}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:-apppassword}
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - crypto-internal
+
+  cron:
+    image: alpine:3.20
+    container_name: crypto-cron
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/cron-entrypoint.sh"]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET}
+    volumes:
+      - ./docker/crontab.template:/etc/crontab.template:ro
+      - ./docker/cron-entrypoint.sh:/etc/cron-entrypoint.sh:ro
+    depends_on:
+      - app
+    networks:
+      - crypto-internal
+
+volumes:
+  mongodb_data:
+
+networks:
+  crypto-internal:
+    driver: bridge
+  caddy-net:
+    external: true
