@@ -31,7 +31,7 @@ vi.mock('@/lib/redis', () => ({
   cachedFetch: vi.fn((_key: string, fetcher: () => Promise<unknown>) => fetcher()),
   redis: {
     get: vi.fn().mockResolvedValue(null),
-    set: vi.fn().mockResolvedValue('OK'),
+    set: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -56,7 +56,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('CRON_SECRET', 'test-secret');
   vi.mocked(redis!.get).mockResolvedValue(null);
-  vi.mocked(redis!.set).mockResolvedValue('OK');
+  vi.mocked(redis!.set).mockResolvedValue(undefined);
 });
 
 describe('GET /api/cron/snapshot-portfolios', () => {

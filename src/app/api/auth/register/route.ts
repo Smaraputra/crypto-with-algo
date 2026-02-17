@@ -18,7 +18,7 @@ const registerSchema = z.object({
     ),
 });
 
-const limiter = createRateLimiter(5, '60 s');
+const limiter = createRateLimiter(5, 60);
 
 export async function POST(req: NextRequest) {
   if (process.env.ALLOW_REGISTRATION !== 'true') {

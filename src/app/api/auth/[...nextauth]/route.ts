@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { handlers } from '@/lib/auth';
 import { createRateLimiter, rateLimit } from '@/lib/rate-limit';
 
-const loginLimiter = createRateLimiter(10, '60 s');
+const loginLimiter = createRateLimiter(10, 60);
 
 export const { GET } = handlers;
 

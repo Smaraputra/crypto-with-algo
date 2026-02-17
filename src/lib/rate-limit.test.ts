@@ -2,24 +2,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mockLimit = vi.fn();
-
-vi.mock('@upstash/ratelimit', () => {
-  const RatelimitMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
-    this.limit = mockLimit;
-  }) as ReturnType<typeof vi.fn> & { slidingWindow: ReturnType<typeof vi.fn> };
-  RatelimitMock.slidingWindow = vi.fn().mockReturnValue('sliding-window-algo');
-  return { Ratelimit: RatelimitMock };
-});
+const { mockEval } = vi.hoisted(() => ({
+  mockEval: vi.fn(),
+}));
 
 vi.mock('./redis', () => ({
-  redis: { fake: true },
+  ioRedisClient: { eval: mockEval },
 }));
 
 import { createRateLimiter, rateLimit } from './rate-limit';
 
 beforeEach(() => {
-  mockLimit.mockReset();
+  mockEval.mockReset();
 });
 
 function makeRequest(headers: Record<string, string> = {}): NextRequest {
@@ -27,19 +21,19 @@ function makeRequest(headers: Record<string, string> = {}): NextRequest {
 }
 
 describe('createRateLimiter', () => {
-  it('returns null when redis is null', async () => {
-    vi.doMock('./redis', () => ({ redis: null }));
+  it('returns null when ioRedisClient is null', async () => {
+    vi.doMock('./redis', () => ({ ioRedisClient: null }));
     vi.resetModules();
     const { createRateLimiter: create } = await import('./rate-limit');
-    const limiter = create(10, '10 s');
+    const limiter = create(10, 10);
     expect(limiter).toBeNull();
     // Restore for subsequent tests
-    vi.doMock('./redis', () => ({ redis: { fake: true } }));
+    vi.doMock('./redis', () => ({ ioRedisClient: { eval: mockEval } }));
     vi.resetModules();
   });
 
-  it('returns a Ratelimit instance when redis exists', () => {
-    const limiter = createRateLimiter(10, '10 s');
+  it('returns a limiter with limit method when ioRedisClient exists', () => {
+    const limiter = createRateLimiter(10, 10);
     expect(limiter).not.toBeNull();
     expect(limiter).toHaveProperty('limit');
   });
@@ -52,16 +46,16 @@ describe('rateLimit', () => {
   });
 
   it('returns null when under rate limit', async () => {
-    mockLimit.mockResolvedValue({ success: true, remaining: 9, reset: Date.now() + 10000 });
-    const limiter = createRateLimiter(10, '10 s')!;
+    mockEval.mockResolvedValue([1, 9, Date.now() + 10000]);
+    const limiter = createRateLimiter(10, 10)!;
     const result = await rateLimit(makeRequest(), limiter);
     expect(result).toBeNull();
   });
 
   it('returns 429 response when over rate limit', async () => {
     const resetTime = Date.now() + 10000;
-    mockLimit.mockResolvedValue({ success: false, remaining: 0, reset: resetTime });
-    const limiter = createRateLimiter(10, '10 s')!;
+    mockEval.mockResolvedValue([0, 0, resetTime]);
+    const limiter = createRateLimiter(10, 10)!;
     const result = await rateLimit(makeRequest(), limiter);
 
     expect(result).not.toBeNull();
@@ -73,24 +67,29 @@ describe('rateLimit', () => {
   });
 
   it('extracts IP from x-forwarded-for header', async () => {
-    mockLimit.mockResolvedValue({ success: true, remaining: 9, reset: Date.now() });
-    const limiter = createRateLimiter(10, '10 s')!;
+    mockEval.mockResolvedValue([1, 9, Date.now()]);
+    const limiter = createRateLimiter(10, 10)!;
     await rateLimit(makeRequest({ 'x-forwarded-for': '1.2.3.4, 5.6.7.8' }), limiter);
 
-    expect(mockLimit).toHaveBeenCalledWith('1.2.3.4');
+    // The key argument should contain the IP
+    const evalArgs = mockEval.mock.calls[0];
+    const key = evalArgs[2]; // KEYS[1]
+    expect(key).toBe('ratelimit:1.2.3.4');
   });
 
   it('uses 127.0.0.1 as fallback IP', async () => {
-    mockLimit.mockResolvedValue({ success: true, remaining: 9, reset: Date.now() });
-    const limiter = createRateLimiter(10, '10 s')!;
+    mockEval.mockResolvedValue([1, 9, Date.now()]);
+    const limiter = createRateLimiter(10, 10)!;
     await rateLimit(makeRequest(), limiter);
 
-    expect(mockLimit).toHaveBeenCalledWith('127.0.0.1');
+    const evalArgs = mockEval.mock.calls[0];
+    const key = evalArgs[2]; // KEYS[1]
+    expect(key).toBe('ratelimit:127.0.0.1');
   });
 
-  it('allows request through on limiter.limit() error', async () => {
-    mockLimit.mockRejectedValue(new Error('Redis down'));
-    const limiter = createRateLimiter(10, '10 s')!;
+  it('allows request through on eval error', async () => {
+    mockEval.mockRejectedValue(new Error('Redis down'));
+    const limiter = createRateLimiter(10, 10)!;
     const result = await rateLimit(makeRequest(), limiter);
     expect(result).toBeNull();
   });
@@ -102,8 +101,8 @@ describe('rateLimit', () => {
     });
 
     it('returns 503 on Redis error when failClosed is true', async () => {
-      mockLimit.mockRejectedValue(new Error('Redis down'));
-      const limiter = createRateLimiter(10, '10 s')!;
+      mockEval.mockRejectedValue(new Error('Redis down'));
+      const limiter = createRateLimiter(10, 10)!;
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const result = await rateLimit(makeRequest(), limiter, { failClosed: true });
@@ -118,8 +117,8 @@ describe('rateLimit', () => {
     });
 
     it('allows request on Redis error when failClosed is not set', async () => {
-      mockLimit.mockRejectedValue(new Error('Redis down'));
-      const limiter = createRateLimiter(10, '10 s')!;
+      mockEval.mockRejectedValue(new Error('Redis down'));
+      const limiter = createRateLimiter(10, 10)!;
       vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const result = await rateLimit(makeRequest(), limiter);
@@ -129,8 +128,8 @@ describe('rateLimit', () => {
     });
 
     it('logs error on Redis failure', async () => {
-      mockLimit.mockRejectedValue(new Error('Connection refused'));
-      const limiter = createRateLimiter(10, '10 s')!;
+      mockEval.mockRejectedValue(new Error('Connection refused'));
+      const limiter = createRateLimiter(10, 10)!;
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       await rateLimit(makeRequest(), limiter);

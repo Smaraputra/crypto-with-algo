@@ -1,17 +1,48 @@
-import { Redis } from '@upstash/redis';
+import Redis from 'ioredis';
 
 function createRedisClient(): Redis | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const url = process.env.REDIS_URL;
+  if (!url) return null;
 
-  if (!url || !token) {
-    return null;
-  }
+  const client = new Redis(url, {
+    maxRetriesPerRequest: 3,
+    lazyConnect: true,
+    retryStrategy(times) {
+      if (times > 3) return null; // stop retrying
+      return Math.min(times * 200, 2000);
+    },
+  });
 
-  return new Redis({ url, token });
+  client.on('error', (err) => {
+    console.error('Redis connection error:', err.message);
+  });
+
+  return client;
 }
 
-export const redis = createRedisClient();
+/** Raw ioredis client -- used by rate-limit.ts for Lua scripts */
+export const ioRedisClient = createRedisClient();
+
+/** Wrapper with Upstash-compatible get/set API for direct consumers */
+export const redis = ioRedisClient
+  ? {
+      async get(key: string): Promise<string | null> {
+        return ioRedisClient.get(key);
+      },
+      async set(
+        key: string,
+        value: string | number,
+        options?: { ex?: number }
+      ): Promise<void> {
+        const str = typeof value === 'string' ? value : String(value);
+        if (options?.ex) {
+          await ioRedisClient.set(key, str, 'EX', options.ex);
+        } else {
+          await ioRedisClient.set(key, str);
+        }
+      },
+    }
+  : null;
 
 export async function cachedFetch<T>(
   key: string,
@@ -23,18 +54,18 @@ export async function cachedFetch<T>(
   }
 
   try {
-    const cached = await redis.get<T>(key);
-    if (cached !== null && cached !== undefined) {
-      return cached;
+    const cached = await redis.get(key);
+    if (cached !== null) {
+      return JSON.parse(cached) as T;
     }
   } catch {
-    // Redis get failed, fall through to fetcher
+    // Redis get or JSON parse failed, fall through to fetcher
   }
 
   const data = await fetcher();
 
   try {
-    await redis.set(key, data, { ex: ttlSeconds });
+    await redis.set(key, JSON.stringify(data), { ex: ttlSeconds });
   } catch {
     // Redis set failed, data still returned
   }

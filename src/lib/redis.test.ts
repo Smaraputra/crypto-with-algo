@@ -4,17 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mockGet = vi.fn();
 const mockSet = vi.fn();
 
-vi.mock('@upstash/redis', () => {
+vi.mock('ioredis', () => {
   const RedisMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
     this.get = mockGet;
     this.set = mockSet;
+    this.on = vi.fn().mockReturnThis();
   });
-  return { Redis: RedisMock };
+  return { default: RedisMock };
 });
 
 beforeEach(() => {
-  vi.stubEnv('UPSTASH_REDIS_REST_URL', 'https://fake.upstash.io');
-  vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'fake-token');
+  vi.stubEnv('REDIS_URL', 'redis://localhost:6379');
   vi.resetModules();
   mockGet.mockReset();
   mockSet.mockReset();
@@ -29,17 +29,29 @@ async function importModule() {
 }
 
 describe('redis client', () => {
-  it('returns null when env vars are missing', async () => {
-    vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
-    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '');
+  it('returns null when REDIS_URL is missing', async () => {
+    vi.stubEnv('REDIS_URL', '');
     const { redis } = await importModule();
     expect(redis).toBeNull();
+  });
+
+  it('returns null for ioRedisClient when REDIS_URL is missing', async () => {
+    vi.stubEnv('REDIS_URL', '');
+    const { ioRedisClient } = await importModule();
+    expect(ioRedisClient).toBeNull();
+  });
+
+  it('creates redis wrapper when REDIS_URL is set', async () => {
+    const { redis } = await importModule();
+    expect(redis).not.toBeNull();
+    expect(redis).toHaveProperty('get');
+    expect(redis).toHaveProperty('set');
   });
 });
 
 describe('cachedFetch', () => {
   it('returns cached data on hit without calling fetcher', async () => {
-    mockGet.mockResolvedValue({ price: 100 });
+    mockGet.mockResolvedValue(JSON.stringify({ price: 100 }));
     const { cachedFetch } = await importModule();
 
     const fetcher = vi.fn();
@@ -60,12 +72,11 @@ describe('cachedFetch', () => {
 
     expect(result).toEqual({ price: 200 });
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(mockSet).toHaveBeenCalledWith('key', { price: 200 }, { ex: 120 });
+    expect(mockSet).toHaveBeenCalledWith('key', JSON.stringify({ price: 200 }), 'EX', 120);
   });
 
   it('calls fetcher directly when redis is null', async () => {
-    vi.stubEnv('UPSTASH_REDIS_REST_URL', '');
-    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', '');
+    vi.stubEnv('REDIS_URL', '');
     const { cachedFetch } = await importModule();
 
     const fetcher = vi.fn().mockResolvedValue({ price: 300 });
@@ -98,7 +109,7 @@ describe('cachedFetch', () => {
     expect(result).toEqual({ price: 500 });
   });
 
-  it('does not double-stringify data when storing', async () => {
+  it('JSON-serializes data when storing', async () => {
     mockGet.mockResolvedValue(null);
     mockSet.mockResolvedValue('OK');
     const { cachedFetch } = await importModule();
@@ -107,9 +118,8 @@ describe('cachedFetch', () => {
     const fetcher = vi.fn().mockResolvedValue(data);
     await cachedFetch('key', fetcher, 60);
 
-    // Should pass the raw object, not JSON.stringify(data)
     const setCallArg = mockSet.mock.calls[0][1];
-    expect(typeof setCallArg).toBe('object');
-    expect(setCallArg).toEqual(data);
+    expect(typeof setCallArg).toBe('string');
+    expect(JSON.parse(setCallArg as string)).toEqual(data);
   });
 });

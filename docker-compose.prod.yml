@@ -36,6 +36,20 @@ services:
     networks:
       - internal
 
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-redis-prod
+    restart: unless-stopped
+    volumes:
+      - redis_prod_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
   caddy:
     image: caddy:2-alpine
     container_name: crypto-caddy
@@ -71,6 +85,7 @@ services:
 
 volumes:
   mongodb_prod_data:
+  redis_prod_data:
   caddy_data:
   caddy_config:
 
