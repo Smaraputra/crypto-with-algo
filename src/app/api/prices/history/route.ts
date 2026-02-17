@@ -35,7 +35,7 @@ const TTL_MAP: Record<string, number> = {
   '1M': 3600,
 };
 
-const limiter = createRateLimiter(20, '60 s');
+const limiter = createRateLimiter(20, 60);
 
 export async function GET(req: NextRequest) {
   const session = await auth();

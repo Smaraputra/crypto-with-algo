@@ -37,6 +37,20 @@ services:
     networks:
       - crypto-internal
 
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - crypto-internal
+
   cron:
     image: alpine:3.20
     container_name: crypto-cron
@@ -54,6 +68,7 @@ services:
 
 volumes:
   mongodb_data:
+  redis_data:
 
 networks:
   crypto-internal:

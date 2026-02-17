@@ -1,3 +1,4 @@
+export const ioRedisClient = null;
 export const redis = null;
 
 export async function cachedFetch<T>(
