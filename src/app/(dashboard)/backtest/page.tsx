@@ -49,6 +49,8 @@ const DATA_RANGE_OPTIONS = [
   { label: '6 months', value: '6m', months: 6 },
   { label: '1 year', value: '1y', months: 12 },
   { label: '2 years', value: '2y', months: 24 },
+  { label: '3 years', value: '3y', months: 36 },
+  { label: '5 years', value: '5y', months: 60 },
 ] as const;
 
 type DataRange = (typeof DATA_RANGE_OPTIONS)[number]['value'];

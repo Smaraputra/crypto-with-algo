@@ -111,8 +111,8 @@ export async function syncCandles(
   const range = await getCandleRange(symbol, interval);
 
   if (range.newest === null) {
-    // No data at all -- do a short backfill (1 month)
-    const result = await backfillCandles(symbol, interval, 1);
+    // No data at all -- backfill enough history for position trading signals (400+ daily candles)
+    const result = await backfillCandles(symbol, interval, 24);
     return { inserted: result.inserted };
   }
 

@@ -84,12 +84,12 @@ describe('POST /api/candles/backfill', () => {
     expect(data.error).toContain('1');
   });
 
-  it('returns 400 for months greater than 24', async () => {
+  it('returns 400 for months greater than 60', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    const res = await POST(makePostRequest({ symbol: 'BTCUSDT', interval: '1h', months: 36 }));
+    const res = await POST(makePostRequest({ symbol: 'BTCUSDT', interval: '1h', months: 72 }));
     expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error).toContain('24');
+    expect(data.error).toContain('60');
   });
 
   it('uses default months of 24 when not specified', async () => {
