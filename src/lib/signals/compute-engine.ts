@@ -143,6 +143,41 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
     weightsMap.set(style, await getWeightsForStyle(style));
   }
 
+  // Fetch latest candleTimestamp per (symbol, interval, style) to skip duplicates
+  const existingTimestamps = new Map<string, number>();
+  const uniqueKeys = new Set(tasks.map((t) => `${t.symbol}:${t.interval}:${t.tradingStyle}`));
+  if (uniqueKeys.size > 0) {
+    const pipeline = [
+      {
+        $match: {
+          $or: tasks.map((t) => ({
+            symbol: t.symbol,
+            interval: t.interval,
+            tradingStyle: t.tradingStyle,
+          })),
+        },
+      },
+      {
+        $sort: { createdAt: -1 as const },
+      },
+      {
+        $group: {
+          _id: { symbol: '$symbol', interval: '$interval', tradingStyle: '$tradingStyle' },
+          candleTimestamp: { $first: '$candleTimestamp' },
+        },
+      },
+    ];
+    try {
+      const existing = await GlobalSignal.aggregate(pipeline);
+      for (const doc of existing) {
+        const key = `${doc._id.symbol}:${doc._id.interval}:${doc._id.tradingStyle}`;
+        existingTimestamps.set(key, doc.candleTimestamp);
+      }
+    } catch {
+      // If aggregate fails, proceed without dedup
+    }
+  }
+
   // Process each task
   const signalDocs: Array<Record<string, unknown>> = [];
 
@@ -168,6 +203,22 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
           tradingStyle,
           status: 'skipped',
           error: `Insufficient candles: ${candles.length} < ${profile.minCandles}`,
+        });
+        continue;
+      }
+
+      // Skip if candle data hasn't changed since last computation
+      const latestCandleTs = candles[candles.length - 1].timestamp;
+      const taskKey = `${symbol}:${interval}:${tradingStyle}`;
+      const prevTs = existingTimestamps.get(taskKey);
+      if (prevTs !== undefined && prevTs === latestCandleTs) {
+        result.skipped++;
+        result.details.push({
+          symbol,
+          interval,
+          tradingStyle,
+          status: 'skipped',
+          error: `Candle timestamp unchanged: ${latestCandleTs}`,
         });
         continue;
       }
@@ -199,7 +250,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         confidence: signal.confidence,
         components: signal.components,
         configVersion: 1,
-        candleTimestamp: candles[candles.length - 1].timestamp,
+        candleTimestamp: latestCandleTs,
         expiresAt,
         createdAt: new Date(),
       });

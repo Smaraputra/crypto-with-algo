@@ -70,6 +70,27 @@ describe('GET /api/signals/latest', () => {
     expect(data.signal).toEqual(mockSignal);
   });
 
+  it('filters by interval when provided', async () => {
+    const mockSignal = { symbol: 'BTCUSDT', tradingStyle: 'day_trading', interval: '1h', score: 42 };
+    mockFindOne.mockReturnValue({
+      sort: () => ({
+        lean: () => Promise.resolve(mockSignal),
+      }),
+    });
+
+    const { GET } = await import('./route');
+    const res = await GET(makeRequest({ symbol: 'BTCUSDT', tradingStyle: 'day_trading', interval: '1h' }));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.signal).toEqual(mockSignal);
+    expect(mockFindOne).toHaveBeenCalledWith({
+      symbol: 'BTCUSDT',
+      tradingStyle: 'day_trading',
+      interval: '1h',
+    });
+  });
+
   it('returns latest signal for all 4 styles when no style specified', async () => {
     const signals: Record<string, unknown> = {
       scalping: { score: 55 },

@@ -344,6 +344,22 @@ describe('useLatestSignalForStyle', () => {
     });
   });
 
+  it('includes interval when provided', async () => {
+    const fetchSpy = mockFetch({ signal: { score: 42, tier: 'buy' } });
+
+    const { wrapper } = createWrapper();
+    renderHook(() => useLatestSignalForStyle('BTCUSDT', 'day_trading', '1h'), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/signals/latest?symbol=BTCUSDT&tradingStyle=day_trading&interval=1h',
+        undefined
+      );
+    });
+  });
+
   it('returns single signal', async () => {
     mockFetch({ signal: { score: 72, tier: 'strong_buy' } });
 

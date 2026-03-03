@@ -116,7 +116,7 @@ describe('candle-ingestion', () => {
       expect(candles[2].timestamp).toBe(3000);
     });
 
-    it('respects limit parameter', async () => {
+    it('respects limit parameter and returns most recent candles', async () => {
       const { getCandles, Candle } = await importModules();
 
       await Candle.insertMany(
@@ -129,6 +129,27 @@ describe('candle-ingestion', () => {
 
       const candles = await getCandles('BTCUSDT', '1h', undefined, undefined, 2);
       expect(candles).toHaveLength(2);
+      // Without startTime, limit returns the most recent N candles in ascending order
+      expect(candles[0].timestamp).toBe(4000);
+      expect(candles[1].timestamp).toBe(5000);
+    });
+
+    it('returns oldest candles first when startTime is specified with limit', async () => {
+      const { getCandles, Candle } = await importModules();
+
+      await Candle.insertMany(
+        [1000, 2000, 3000, 4000, 5000].map((ts) => ({
+          ...makeCandle(ts),
+          symbol: 'BTCUSDT',
+          interval: '1h',
+        }))
+      );
+
+      const candles = await getCandles('BTCUSDT', '1h', 1000, undefined, 2);
+      expect(candles).toHaveLength(2);
+      // With startTime, limit returns from startTime ascending
+      expect(candles[0].timestamp).toBe(1000);
+      expect(candles[1].timestamp).toBe(2000);
     });
 
     it('filters by startTime and endTime', async () => {
