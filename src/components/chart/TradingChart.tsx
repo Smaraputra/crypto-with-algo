@@ -420,6 +420,17 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
       }
     });
 
+    // Set initial symbol/period so getBars fires immediately.
+    // The init effect may run after the symbol effect (when hasValidDimensions
+    // flips true asynchronously), so the symbol effect's call would have been
+    // a no-op on a null chartRef. We must trigger data loading here.
+    const chart = chartRef.current!;
+    chart.setSymbol({ ticker: symbol, pricePrecision: 2, volumePrecision: 2 });
+    const initInterval = INTERVALS.find((i) => i.value === interval);
+    if (initInterval) {
+      chart.setPeriod(initInterval.period);
+    }
+
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
@@ -430,6 +441,9 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
         chartRef.current = null;
       }
     };
+    // symbol and interval are intentionally included so the chart re-initializes
+    // if they change before hasValidDimensions becomes true (unlikely but safe).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasValidDimensions, containerRef]);
 
   // Update symbol and period when props change
