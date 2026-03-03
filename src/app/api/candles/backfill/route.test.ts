@@ -17,11 +17,13 @@ import { backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 
 const mockSession = { user: { id: 'user-1' } };
 
-function makePostRequest(body: unknown): NextRequest {
+function makePostRequest(body: unknown, secret?: string): NextRequest {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (secret) headers.authorization = `Bearer ${secret}`;
   return new NextRequest('http://localhost/api/candles/backfill', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers,
   });
 }
 
@@ -36,6 +38,19 @@ describe('POST /api/candles/backfill', () => {
     expect(res.status).toBe(401);
     const data = await res.json();
     expect(data.error).toBe('Unauthorized');
+  });
+
+  it('accepts cron secret as authentication', async () => {
+    vi.stubEnv('CRON_SECRET', 'test-cron-secret');
+    vi.mocked(backfillCandles).mockResolvedValue({ inserted: 100 } as never);
+    vi.mocked(getCandleRange).mockResolvedValue({
+      count: 500, oldest: 1000000, newest: 2000000,
+    } as never);
+
+    const res = await POST(makePostRequest({ symbol: 'BTCUSDT', interval: '1d', months: 60 }, 'test-cron-secret'));
+    expect(res.status).toBe(200);
+    expect(auth).not.toHaveBeenCalled();
+    expect(backfillCandles).toHaveBeenCalledWith('BTCUSDT', '1d', 60);
   });
 
   it('returns 400 for invalid JSON', async () => {

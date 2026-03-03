@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { auth } from '@/lib/auth';
+import { verifyCronSecret } from '@/lib/cron-auth';
 import { backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 import { VALID_INTERVALS } from '@/lib/models/candle';
 
@@ -12,9 +13,13 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Allow either user session or cron secret for automated backfills
+  const isCron = verifyCronSecret(req);
+  if (!isCron) {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   let body: unknown;
