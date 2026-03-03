@@ -40,12 +40,13 @@ export default function SignalsPage() {
   const { data: latestAllData, isLoading: latestAllLoading } = useLatestSignals(selectedSymbol);
   const { data: latestStyleData, isLoading: styleLoading } = useLatestSignalForStyle(
     selectedSymbol,
-    tradingStyle
+    tradingStyle,
+    interval
   );
   const { data: historyData, isLoading: historyLoading } = useGlobalSignals(
     selectedSymbol,
     tradingStyle,
-    null,
+    interval,
     20
   );
   const computeMutation = useComputeGlobalSignal();

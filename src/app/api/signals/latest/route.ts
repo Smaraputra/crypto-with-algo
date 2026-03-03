@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
   await connectDB();
 
   const tradingStyleParam = req.nextUrl.searchParams.get('tradingStyle');
+  const intervalParam = req.nextUrl.searchParams.get('interval');
 
   // If specific style requested, return latest for that style only
   if (tradingStyleParam) {
@@ -37,10 +38,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const signal = await GlobalSignal.findOne({
+    const query: Record<string, string> = {
       symbol,
       tradingStyle: tradingStyleParam,
-    })
+    };
+    if (intervalParam) query.interval = intervalParam;
+
+    const signal = await GlobalSignal.findOne(query)
       .sort({ createdAt: -1 })
       .lean();
 
@@ -53,10 +57,13 @@ export async function GET(req: NextRequest) {
 
   await Promise.all(
     styles.map(async (style) => {
-      const signal = await GlobalSignal.findOne({
+      const query: Record<string, string> = {
         symbol,
         tradingStyle: style,
-      })
+      };
+      if (intervalParam) query.interval = intervalParam;
+
+      const signal = await GlobalSignal.findOne(query)
         .sort({ createdAt: -1 })
         .lean();
       results[style] = signal ?? null;

@@ -134,14 +134,18 @@ export function useLatestSignals(symbol: string | null) {
 
 export function useLatestSignalForStyle(
   symbol: string | null,
-  tradingStyle: TradingStyle | null
+  tradingStyle: TradingStyle | null,
+  interval?: string | null
 ) {
   return useQuery<LatestSignalResponse>({
-    queryKey: ['globalSignals', 'latest', symbol, tradingStyle],
-    queryFn: () =>
-      fetchJson(
-        `/api/signals/latest?symbol=${symbol}&tradingStyle=${tradingStyle}`
-      ),
+    queryKey: ['globalSignals', 'latest', symbol, tradingStyle, interval],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (symbol) params.set('symbol', symbol);
+      if (tradingStyle) params.set('tradingStyle', tradingStyle);
+      if (interval) params.set('interval', interval);
+      return fetchJson(`/api/signals/latest?${params}`);
+    },
     enabled: !!symbol && !!tradingStyle,
     staleTime: tradingStyle ? GLOBAL_STALE_TIMES[tradingStyle] : SIGNAL_STALE_TIME,
   });

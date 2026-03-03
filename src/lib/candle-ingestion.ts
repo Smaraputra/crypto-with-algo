@@ -154,10 +154,18 @@ export async function getCandles(
     filter.timestamp = timestampFilter;
   }
 
+  // When no startTime is specified, return the most recent N candles.
+  // Sort descending to get the latest, limit, then reverse to ascending order.
+  // With a startTime, ascending sort + limit returns the correct window.
+  const needsLatest = startTime === undefined;
+  const sortOrder = needsLatest ? -1 : 1;
+
   const docs: ICandle[] = await Candle.find(filter)
-    .sort({ timestamp: 1 })
+    .sort({ timestamp: sortOrder })
     .limit(limit)
     .lean();
+
+  if (needsLatest) docs.reverse();
 
   return docs.map((d) => ({
     timestamp: d.timestamp,
