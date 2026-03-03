@@ -1,4 +1,5 @@
 import { HistoricalSnapshot, type IHistoricalSnapshot } from './models/historical-snapshot';
+import { SIGNAL_SYMBOLS } from './signals/signal-symbols';
 
 /**
  * Align timestamp to interval boundary (candle close time)
@@ -34,11 +35,10 @@ export function alignTimestamp(timestamp: number, interval: string): number {
 }
 
 /**
- * Get active symbols from strategies and watchlists
+ * Get active symbols for snapshot ingestion
  */
 export async function getActiveSymbols(): Promise<string[]> {
-  // For now, return top symbols - can be enhanced to query from user strategies
-  return ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT'];
+  return [...SIGNAL_SYMBOLS];
 }
 
 /**

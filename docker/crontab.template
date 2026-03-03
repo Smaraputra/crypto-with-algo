@@ -16,5 +16,10 @@
 # Legacy per-user signals (backward compat, runs less frequently)
 */10 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/compute-signals >> /var/log/cron.log 2>&1
 
+# Historical data snapshots
+*/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-snapshots?interval=1h" >> /var/log/cron.log 2>&1
+0    */4 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-snapshots?interval=4h" >> /var/log/cron.log 2>&1
+0    0   * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-snapshots?interval=1d" >> /var/log/cron.log 2>&1
+
 # Portfolio snapshots
 0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1
