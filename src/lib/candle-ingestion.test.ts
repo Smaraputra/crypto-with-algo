@@ -245,7 +245,7 @@ describe('candle-ingestion', () => {
       );
     });
 
-    it('handles empty DB by doing short backfill', async () => {
+    it('handles empty DB by doing initial backfill', async () => {
       const { syncCandles, fetchKlinesRange } = await importModules();
 
       fetchKlinesRange.mockResolvedValue([makeCandle(1000)]);

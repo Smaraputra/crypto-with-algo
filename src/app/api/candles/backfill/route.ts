@@ -8,7 +8,7 @@ import { VALID_INTERVALS } from '@/lib/models/candle';
 const bodySchema = z.object({
   symbol: z.string().min(1),
   interval: z.enum(VALID_INTERVALS),
-  months: z.number().min(1).max(24).default(24),
+  months: z.number().min(1).max(60).default(24),
 });
 
 export async function POST(req: NextRequest) {

@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       const monthsNeeded = Math.ceil(
         (Date.now() - startTime) / (30 * 24 * 60 * 60 * 1000)
       );
-      await backfillCandles(symbol, interval, Math.min(monthsNeeded, 24));
+      await backfillCandles(symbol, interval, Math.min(monthsNeeded, 60));
       candles = await getCandles(symbol, interval, startTime, endTime, limit);
     }
 

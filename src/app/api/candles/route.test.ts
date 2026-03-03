@@ -132,17 +132,17 @@ describe('GET /api/candles', () => {
     expect(getCandles).toHaveBeenCalledTimes(1);
   });
 
-  it('caps backfill months at 24', async () => {
+  it('caps backfill months at 60', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(getCandles)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);
     vi.mocked(backfillCandles).mockResolvedValue({ inserted: 0 } as never);
 
-    const threeYearsAgo = Date.now() - 36 * 30 * 24 * 60 * 60 * 1000;
-    await GET(makeGetRequest(`symbol=BTCUSDT&interval=1h&startTime=${threeYearsAgo}`));
+    const sixYearsAgo = Date.now() - 72 * 30 * 24 * 60 * 60 * 1000;
+    await GET(makeGetRequest(`symbol=BTCUSDT&interval=1h&startTime=${sixYearsAgo}`));
 
-    expect(backfillCandles).toHaveBeenCalledWith('BTCUSDT', '1h', 24);
+    expect(backfillCandles).toHaveBeenCalledWith('BTCUSDT', '1h', 60);
   });
 
   it('returns 500 when getCandles throws', async () => {
