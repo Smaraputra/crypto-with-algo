@@ -5,8 +5,9 @@ import { Strategy } from '@/lib/models/strategy';
 import { Watchlist } from '@/lib/models/watchlist';
 import { VALID_INTERVALS, type CandleInterval } from '@/lib/models/candle';
 import { connectDB } from '@/lib/mongodb';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
-const MAX_PAIRS_PER_RUN = 20;
+const MAX_PAIRS_PER_RUN = 50;
 
 /** Standard intervals synced by default (excludes HF intervals 1m/5m) */
 const STANDARD_INTERVALS: CandleInterval[] = ['15m', '1h', '4h', '1d'];
@@ -54,6 +55,11 @@ export async function GET(req: NextRequest) {
     for (const sym of w.symbols) {
       symbolSet.add(sym);
     }
+  }
+
+  // Always include signal symbols so compute-signals has candle data
+  for (const sym of SIGNAL_SYMBOLS) {
+    symbolSet.add(sym);
   }
 
   // Build (symbol, interval) pairs

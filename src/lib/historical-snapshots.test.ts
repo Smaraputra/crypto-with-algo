@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { alignTimestamp } from './historical-snapshots';
+import { alignTimestamp, getActiveSymbols } from './historical-snapshots';
+import { SIGNAL_SYMBOLS } from './signals/signal-symbols';
 
 describe('alignTimestamp', () => {
   it('should align to 1m interval', () => {
@@ -40,5 +41,20 @@ describe('alignTimestamp', () => {
   it('should throw on unknown interval', () => {
     const timestamp = Date.now();
     expect(() => alignTimestamp(timestamp, '30m')).toThrow('Unknown interval');
+  });
+});
+
+describe('getActiveSymbols', () => {
+  it('returns all SIGNAL_SYMBOLS', async () => {
+    const symbols = await getActiveSymbols();
+    expect(symbols).toEqual([...SIGNAL_SYMBOLS]);
+    expect(symbols).toHaveLength(10);
+  });
+
+  it('returns a new array (not the original reference)', async () => {
+    const a = await getActiveSymbols();
+    const b = await getActiveSymbols();
+    expect(a).not.toBe(b);
+    expect(a).toEqual(b);
   });
 });
