@@ -23,8 +23,12 @@ vi.mock('./mongodb', () => ({
   connectDB: vi.fn(),
 }));
 
+const mockFindById = vi.fn();
 vi.mock('./models/user', () => ({
-  User: { findOne: vi.fn() },
+  User: {
+    findOne: vi.fn(),
+    findById: (...args: unknown[]) => mockFindById(...args),
+  },
 }));
 
 vi.mock('bcryptjs', () => ({
@@ -154,6 +158,9 @@ describe('NextAuth configuration', () => {
 
   it('passes JWT callbacks that inject user.id into token', async () => {
     expect(nextAuthConfig).toBeDefined();
+    mockFindById.mockReturnValue({
+      select: () => ({ lean: () => Promise.resolve({ tosAcceptedAt: new Date() }) }),
+    });
 
     const jwtCallback = nextAuthConfig!.callbacks!.jwt! as CallbackFn;
     const token = await jwtCallback({
@@ -173,6 +180,46 @@ describe('NextAuth configuration', () => {
     expect(token.id).toBe('existing-id');
   });
 
+  it('sets tosAccepted true when user has tosAcceptedAt on sign-in', async () => {
+    mockFindById.mockReturnValue({
+      select: () => ({ lean: () => Promise.resolve({ tosAcceptedAt: new Date() }) }),
+    });
+
+    const jwtCallback = nextAuthConfig!.callbacks!.jwt! as CallbackFn;
+    const token = await jwtCallback({
+      token: { sub: 'sub-123' },
+      user: { id: 'user-id-456' },
+    });
+    expect(token.tosAccepted).toBe(true);
+  });
+
+  it('sets tosAccepted false when user has no tosAcceptedAt on sign-in', async () => {
+    mockFindById.mockReturnValue({
+      select: () => ({ lean: () => Promise.resolve({}) }),
+    });
+
+    const jwtCallback = nextAuthConfig!.callbacks!.jwt! as CallbackFn;
+    const token = await jwtCallback({
+      token: { sub: 'sub-123' },
+      user: { id: 'user-id-456' },
+    });
+    expect(token.tosAccepted).toBe(false);
+  });
+
+  it('re-checks tosAccepted on session update trigger', async () => {
+    mockFindById.mockReturnValue({
+      select: () => ({ lean: () => Promise.resolve({ tosAcceptedAt: new Date() }) }),
+    });
+
+    const jwtCallback = nextAuthConfig!.callbacks!.jwt! as CallbackFn;
+    const token = await jwtCallback({
+      token: { sub: 'sub-123', id: 'existing-id', tosAccepted: false },
+      user: undefined,
+      trigger: 'update',
+    });
+    expect(token.tosAccepted).toBe(true);
+  });
+
   it('passes session callback that injects token.id into session.user', async () => {
     const sessionCallback = nextAuthConfig!.callbacks!.session! as CallbackFn;
 
@@ -181,6 +228,26 @@ describe('NextAuth configuration', () => {
       token: { id: 'token-id-789' },
     });
     expect(session.user.id).toBe('token-id-789');
+  });
+
+  it('passes tosAccepted from token to session', async () => {
+    const sessionCallback = nextAuthConfig!.callbacks!.session! as CallbackFn;
+
+    const session = await sessionCallback({
+      session: { user: { name: 'Test' } },
+      token: { id: 'token-id-789', tosAccepted: true },
+    });
+    expect(session.user.tosAccepted).toBe(true);
+  });
+
+  it('defaults tosAccepted to false if not in token', async () => {
+    const sessionCallback = nextAuthConfig!.callbacks!.session! as CallbackFn;
+
+    const session = await sessionCallback({
+      session: { user: { name: 'Test' } },
+      token: { id: 'token-id-789' },
+    });
+    expect(session.user.tosAccepted).toBe(false);
   });
 
   it('uses JWT session strategy', () => {

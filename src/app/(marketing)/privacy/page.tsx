@@ -219,7 +219,7 @@ export default function PrivacyPage() {
             In the event of a data breach that compromises your personal information, we will:
           </p>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Notify affected users within 72 hours via in-app notification or, where available, by email</li>
+            <li>Notify affected users within 72 hours via in-app notification</li>
             <li>Report to relevant authorities as required by law</li>
             <li>Take immediate steps to secure systems and prevent further breaches</li>
             <li>Provide guidance on protective measures you can take</li>

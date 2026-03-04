@@ -74,9 +74,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id!;
+        // On sign-in, check if user has accepted ToS
+        await connectDB();
+        const dbUser = await User.findById(user.id).select('tosAcceptedAt').lean();
+        token.tosAccepted = !!(dbUser && 'tosAcceptedAt' in dbUser && dbUser.tosAcceptedAt);
+      }
+      if (trigger === 'update') {
+        // Re-check ToS acceptance (called after consent is recorded)
+        await connectDB();
+        const dbUser = await User.findById(token.id).select('tosAcceptedAt').lean();
+        token.tosAccepted = !!(dbUser && 'tosAcceptedAt' in dbUser && dbUser.tosAcceptedAt);
       }
       return token;
     },
@@ -84,6 +94,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.id) {
         session.user.id = token.id;
       }
+      session.user.tosAccepted = !!token.tosAccepted;
       return session;
     },
   },
