@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       autoActivate: true,
     }).catch(async (error) => {
       // Log error to CronRun
-      console.error('Monthly optimization error:', error);
+      console.error('Monthly optimization error:', error instanceof Error ? error.message : 'Unknown error');
       await CronRun.updateOne(
         { _id: cronRun._id },
         {
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       topSymbols,
     });
   } catch (error) {
-    console.error('Cron endpoint error:', error);
+    console.error('Cron endpoint error:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
           // Rate limit pause (1 second between symbol/interval pairs)
           await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (error) {
-          console.error(`Failed to backfill ${symbol} ${interval}:`, error);
+          console.error(`Failed to backfill ${symbol} ${interval}:`, error instanceof Error ? error.message : 'Unknown error');
           totalErrors++;
         }
       }
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
       errors: totalErrors,
     });
   } catch (error) {
-    console.error('Backfill failed:', error);
+    console.error('Backfill failed:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Backfill failed' },
       { status: 500 }

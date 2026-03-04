@@ -75,7 +75,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       },
     });
   } catch (error) {
-    console.error('Job status error:', error);
+    console.error('Job status error:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

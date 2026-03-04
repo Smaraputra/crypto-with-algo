@@ -52,7 +52,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ snapshots, count: snapshots.length });
   } catch (error) {
-    console.error('Failed to fetch historical snapshots:', error);
+    console.error('Failed to fetch historical snapshots:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Failed to fetch historical snapshots' },
       { status: 500 }

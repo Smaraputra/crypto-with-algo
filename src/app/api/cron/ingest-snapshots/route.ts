@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
       snapshots.push({ symbol, interval, timestamp, data });
       successCount++;
     } catch (error) {
-      console.error(`Failed to fetch data for ${symbol}:`, error);
+      console.error(`Failed to fetch data for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
       errorCount++;
     }
   }

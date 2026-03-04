@@ -51,7 +51,7 @@ export async function GET(
 
     return NextResponse.json({ template });
   } catch (error) {
-    console.error('Failed to fetch signal template:', error);
+    console.error('Failed to fetch signal template:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Failed to fetch signal template' },
       { status: 500 }

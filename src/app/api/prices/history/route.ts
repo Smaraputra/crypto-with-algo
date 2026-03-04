@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Failed to fetch klines:', error);
+    console.error('Failed to fetch klines:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Failed to fetch price history' }, { status: 500 });
   }
 }

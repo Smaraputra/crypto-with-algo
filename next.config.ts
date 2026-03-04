@@ -16,6 +16,7 @@ const cspDirectives = [
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  productionBrowserSourceMaps: false,
   async headers() {
     return [
       {

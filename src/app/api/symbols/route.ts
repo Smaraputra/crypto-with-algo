@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(symbols);
   } catch (error) {
-    console.error('Failed to fetch symbols:', error);
+    console.error('Failed to fetch symbols:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ error: 'Failed to fetch symbols' }, { status: 500 });
   }
 }
