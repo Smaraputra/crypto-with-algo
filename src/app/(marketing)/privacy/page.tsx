@@ -61,7 +61,6 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-6 space-y-1">
             <li>Session management (authentication state)</li>
             <li>User preferences (theme, chart settings)</li>
-            <li>Analytics (anonymous usage statistics)</li>
           </ul>
           <p className="mt-2">
             You can control cookies through your browser settings, but disabling them may affect Service functionality.
@@ -75,7 +74,7 @@ export default function PrivacyPage() {
             <li>Provide and maintain the Service</li>
             <li>Authenticate your identity and manage your account</li>
             <li>Calculate portfolio performance and analytics</li>
-            <li>Send price alerts and notifications you configured</li>
+            <li>Deliver in-app price alerts and notifications you configured</li>
             <li>Generate trading signals and backtest results</li>
             <li>Improve Service features and user experience</li>
             <li>Detect and prevent security threats or abuse</li>
@@ -111,7 +110,7 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-6 space-y-1">
             <li>Account data: Until you request account deletion</li>
             <li>Portfolio data: Until you delete it or close your account</li>
-            <li>Session data: 30 days after last activity</li>
+            <li>Session data: 7 days after issuance</li>
             <li>Analytics data: Aggregated and anonymized indefinitely</li>
             <li>Backups: 30 days for disaster recovery</li>
           </ul>
@@ -128,6 +127,9 @@ export default function PrivacyPage() {
             <li><strong>GitHub OAuth</strong>: Optional authentication (subject to GitHub Privacy Policy)</li>
             <li><strong>MongoDB Atlas</strong>: Database hosting (subject to MongoDB Privacy Policy)</li>
             <li><strong>Upstash</strong>: Redis caching (subject to Upstash Privacy Policy)</li>
+            <li><strong>CryptoCompare</strong>: Cryptocurrency news data (subject to CryptoCompare Privacy Policy)</li>
+            <li><strong>Alternative.me</strong>: Fear &amp; Greed Index data (subject to Alternative.me Privacy Policy)</li>
+            <li><strong>Cloudflare Web Analytics</strong>: Privacy-focused, cookieless web analytics (subject to Cloudflare Privacy Policy)</li>
           </ul>
 
           <h3 className="text-base font-semibold text-foreground mt-4">5.2 Data We Do NOT Sell or Share</h3>
@@ -217,7 +219,7 @@ export default function PrivacyPage() {
             In the event of a data breach that compromises your personal information, we will:
           </p>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Notify affected users within 72 hours</li>
+            <li>Notify affected users within 72 hours via in-app notification or, where available, by email</li>
             <li>Report to relevant authorities as required by law</li>
             <li>Take immediate steps to secure systems and prevent further breaches</li>
             <li>Provide guidance on protective measures you can take</li>
@@ -230,13 +232,8 @@ export default function PrivacyPage() {
             We may update this Privacy Policy from time to time to reflect changes in our practices or legal requirements. Changes will be posted on this page with an updated &quot;Last Updated&quot; date.
           </p>
           <p className="mt-2">
-            We will notify you of material changes via:
+            We will notify you of material changes via prominent notice in the Service, such as a banner notification on login.
           </p>
-          <ul className="list-disc pl-6 space-y-1">
-            <li>Email notification to your registered address</li>
-            <li>Prominent notice in the Service</li>
-            <li>Banner notification on login</li>
-          </ul>
           <p className="mt-2">
             Continued use of the Service after changes constitutes acceptance of the updated Privacy Policy.
           </p>
