@@ -1,7 +1,7 @@
 import { ContentLayout } from '@/components/marketing/ContentLayout';
 
 export default function TermsPage() {
-  const lastUpdated = 'February 14, 2026';
+  const lastUpdated = 'March 4, 2026';
 
   return (
     <ContentLayout
@@ -166,7 +166,7 @@ export default function TermsPage() {
             <li>Extended periods of inactivity</li>
           </ul>
           <p className="mt-2">
-            You may delete your account at any time through the Service. Upon termination, your data will be deleted in accordance with our Privacy Policy.
+            You may request account deletion at any time by contacting us at smara.putra2001@gmail.com. Upon termination, your data will be deleted in accordance with our Privacy Policy.
           </p>
         </section>
 

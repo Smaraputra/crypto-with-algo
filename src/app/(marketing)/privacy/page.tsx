@@ -1,7 +1,7 @@
 import { ContentLayout } from '@/components/marketing/ContentLayout';
 
 export default function PrivacyPage() {
-  const lastUpdated = 'February 14, 2026';
+  const lastUpdated = 'March 4, 2026';
 
   return (
     <ContentLayout
@@ -109,7 +109,7 @@ export default function PrivacyPage() {
           <h3 className="text-base font-semibold text-foreground mt-4">4.3 Data Retention</h3>
           <p>We retain your data:</p>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Account data: Until you delete your account</li>
+            <li>Account data: Until you request account deletion</li>
             <li>Portfolio data: Until you delete it or close your account</li>
             <li>Session data: 30 days after last activity</li>
             <li>Analytics data: Aggregated and anonymized indefinitely</li>
@@ -153,7 +153,7 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-6 space-y-1">
             <li><strong>Access</strong>: View all your personal data through the Service</li>
             <li><strong>Update</strong>: Modify your account information and portfolio data</li>
-            <li><strong>Delete</strong>: Remove portfolio holdings, journal entries, or your entire account</li>
+            <li><strong>Delete</strong>: Remove portfolio holdings and journal entries, or request full account deletion by contacting us</li>
             <li><strong>Export</strong>: Download your data in CSV format</li>
             <li><strong>Opt-out</strong>: Disable alerts and notifications at any time</li>
           </ul>
@@ -182,7 +182,7 @@ export default function PrivacyPage() {
           <p>To exercise your privacy rights, contact us at:</p>
           <p className="mt-2">
             Email: smara.putra2001@gmail.com<br />
-            Or delete your account directly through Settings &gt; Account &gt; Delete Account
+            To request account deletion, send an email from your registered address.
           </p>
         </section>
 
