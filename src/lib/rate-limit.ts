@@ -112,3 +112,42 @@ export async function rateLimit(
 
   return null;
 }
+
+/**
+ * Shared rate limiter for authenticated user-data endpoints.
+ * 60 requests per 60 seconds, keyed by userId.
+ */
+export const authenticatedLimiter = createRateLimiter(60, 60);
+
+/**
+ * Rate-limit by user ID (for authenticated endpoints).
+ * Fails open on Redis errors (allows request through).
+ */
+export async function rateLimitUser(
+  userId: string,
+  limiter: RateLimiter | null
+): Promise<NextResponse | null> {
+  if (!limiter) return null;
+
+  try {
+    const { success, remaining, reset } = await limiter.limit(userId);
+
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Remaining': remaining.toString(),
+            'X-RateLimit-Reset': reset.toString(),
+          },
+        }
+      );
+    }
+  } catch (error) {
+    console.error('Rate limiter Redis error:', error);
+    // Fail open for authenticated endpoints -- Redis outage should not block users
+  }
+
+  return null;
+}

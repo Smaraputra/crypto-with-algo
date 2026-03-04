@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Alert } from '@/lib/models/alert';
 import { ALERT_TYPES, ALERT_STATUSES } from '@/types/alert';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 const MAX_ALERTS_PER_USER = 50;
 
@@ -130,6 +131,9 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = createSchema.safeParse(body);

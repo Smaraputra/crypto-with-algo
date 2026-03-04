@@ -6,6 +6,7 @@ import { Strategy } from '@/lib/models/strategy';
 import { saveBacktestResultSchema } from '@/types/backtest';
 import { compressBacktestResult } from '@/lib/backtest/compress-results';
 import type { BacktestResult } from '@/lib/backtest/types';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -39,6 +40,9 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = saveBacktestResultSchema.safeParse(body);

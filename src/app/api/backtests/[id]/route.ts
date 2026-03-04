@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { BacktestResultV2 } from '@/lib/models/backtest-result-v2';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 export async function GET(
   _req: NextRequest,
@@ -34,6 +35,9 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const { id } = await params;
   await connectDB();

@@ -17,6 +17,7 @@ vi.mock('@/lib/mongodb', () => ({
 
 vi.mock('@/lib/redis', () => ({
   cachedFetch: vi.fn(),
+  ioRedisClient: null,
 }));
 
 vi.mock('@/lib/binance', () => ({

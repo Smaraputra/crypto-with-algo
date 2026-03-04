@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Strategy } from '@/lib/models/strategy';
 import { updateStrategySchema } from '@/types/strategy';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 export async function GET(
   _req: NextRequest,
@@ -35,6 +36,9 @@ export async function PATCH(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = updateStrategySchema.safeParse(body);
@@ -69,6 +73,9 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const { id } = await params;
   await connectDB();

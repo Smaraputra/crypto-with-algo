@@ -6,6 +6,7 @@ import { Portfolio, type IHolding } from '@/lib/models/portfolio';
 import { computeHoldingCostBasis } from '@/lib/cost-basis';
 import { generateTaxCsv } from '@/lib/csv-export';
 import type { CostBasisMethod, CsvFormat } from '@/types/analytics';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 const querySchema = z.object({
   portfolioId: z.string().min(1),
@@ -19,6 +20,9 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const params = Object.fromEntries(req.nextUrl.searchParams);
   const parsed = querySchema.safeParse(params);

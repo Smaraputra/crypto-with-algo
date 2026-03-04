@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     const articles = await fetchCryptoNews(categories);
     return NextResponse.json({ articles });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to fetch news';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('Failed to fetch news:', err);
+    return NextResponse.json({ error: 'Failed to fetch news' }, { status: 500 });
   }
 }

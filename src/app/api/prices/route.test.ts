@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
 import type { Ticker24h } from '@/types/market';
 
 vi.mock('@/lib/redis', () => ({
@@ -10,8 +11,18 @@ vi.mock('@/lib/binance', () => ({
   fetchTickers: vi.fn(),
 }));
 
+vi.mock('@/lib/rate-limit', () => ({
+  createRateLimiter: vi.fn(() => 'mock-limiter'),
+  rateLimit: vi.fn(() => null),
+}));
+
 import { GET } from './route';
 import { cachedFetch } from '@/lib/redis';
+import { rateLimit } from '@/lib/rate-limit';
+
+function makeRequest(): NextRequest {
+  return new NextRequest('http://localhost/api/prices');
+}
 
 const mockTickers: Ticker24h[] = [
   {
@@ -42,13 +53,14 @@ const mockTickers: Ticker24h[] = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(rateLimit).mockResolvedValue(null);
 });
 
 describe('GET /api/prices', () => {
   it('returns filtered tickers on success', async () => {
     vi.mocked(cachedFetch).mockResolvedValue(mockTickers);
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     expect(res.status).toBe(200);
 
     const data = await res.json();
@@ -58,7 +70,7 @@ describe('GET /api/prices', () => {
   it('includes Cache-Control header', async () => {
     vi.mocked(cachedFetch).mockResolvedValue(mockTickers);
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     expect(res.headers.get('Cache-Control')).toBe(
       'public, s-maxage=30, stale-while-revalidate=60'
     );
@@ -67,7 +79,7 @@ describe('GET /api/prices', () => {
   it('calls cachedFetch with correct key and TTL', async () => {
     vi.mocked(cachedFetch).mockResolvedValue([]);
 
-    await GET();
+    await GET(makeRequest());
 
     expect(cachedFetch).toHaveBeenCalledWith(
       'tickers:top',
@@ -79,10 +91,20 @@ describe('GET /api/prices', () => {
   it('returns 500 when upstream fails', async () => {
     vi.mocked(cachedFetch).mockRejectedValue(new Error('Binance down'));
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     expect(res.status).toBe(500);
 
     const data = await res.json();
     expect(data.error).toBe('Failed to fetch prices');
+  });
+
+  it('returns 429 when rate limited', async () => {
+    const { NextResponse } = await import('next/server');
+    vi.mocked(rateLimit).mockResolvedValue(
+      NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    );
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(429);
   });
 });

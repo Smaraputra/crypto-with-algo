@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Portfolio } from '@/lib/models/portfolio';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 const createSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
@@ -54,6 +55,9 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = createSchema.safeParse(body);

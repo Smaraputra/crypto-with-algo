@@ -100,7 +100,7 @@ describe('POST /api/auth/register', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 409 for duplicate email', async () => {
+  it('returns generic 400 for duplicate email (prevents enumeration)', async () => {
     vi.mocked(User.findOne).mockResolvedValue({ email: 'dupe@example.com' });
 
     const req = makeRequest({
@@ -110,9 +110,9 @@ describe('POST /api/auth/register', () => {
       tosAccepted: true,
     });
     const res = await POST(req);
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error).toBe('Email already registered');
+    expect(data.error).toContain('Registration failed');
   });
 
   it('returns 201 on successful registration', async () => {
@@ -160,7 +160,7 @@ describe('POST /api/auth/register', () => {
     expect(bcrypt.hash).toHaveBeenCalledWith('MyPass1!', 12);
   });
 
-  it('returns 409 on concurrent duplicate email (MongoDB 11000)', async () => {
+  it('returns generic 400 on concurrent duplicate email (MongoDB 11000)', async () => {
     vi.mocked(User.findOne).mockResolvedValue(null);
     vi.mocked(bcrypt.hash).mockResolvedValue('$2a$12$hashed' as never);
     const duplicateError = Object.assign(new Error('E11000 duplicate key'), { code: 11000 });
@@ -173,9 +173,9 @@ describe('POST /api/auth/register', () => {
       tosAccepted: true,
     });
     const res = await POST(req);
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error).toBe('Email already registered');
+    expect(data.error).toContain('Registration failed');
   });
 
   it('returns 500 for non-duplicate database errors', async () => {

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Portfolio } from '@/lib/models/portfolio';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 const renameSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
@@ -39,6 +40,9 @@ export async function PATCH(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = renameSchema.safeParse(body);
@@ -85,6 +89,9 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const { id } = await params;
   await connectDB();

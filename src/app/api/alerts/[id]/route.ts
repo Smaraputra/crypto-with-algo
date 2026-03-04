@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Alert } from '@/lib/models/alert';
 import { ALERT_STATUSES } from '@/types/alert';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 const updateSchema = z.object({
   status: z.enum(ALERT_STATUSES).optional(),
@@ -47,6 +48,9 @@ export async function PATCH(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
+
   let body: unknown;
   try {
     body = await req.json();
@@ -85,6 +89,9 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const { id } = await params;
   await connectDB();

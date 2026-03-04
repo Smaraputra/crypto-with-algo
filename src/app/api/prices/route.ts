@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { fetchTickers } from '@/lib/binance';
 import { cachedFetch } from '@/lib/redis';
+import { createRateLimiter, rateLimit } from '@/lib/rate-limit';
 
 const TOP_SYMBOLS = [
   'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
@@ -8,7 +9,11 @@ const TOP_SYMBOLS = [
   'MATICUSDT', 'UNIUSDT', 'LTCUSDT', 'ATOMUSDT', 'NEARUSDT',
 ];
 
-export async function GET() {
+const limiter = createRateLimiter(30, 60);
+
+export async function GET(req: NextRequest) {
+  const limited = await rateLimit(req, limiter);
+  if (limited) return limited;
   try {
     const tickers = await cachedFetch('tickers:top', async () => {
       const all = await fetchTickers();

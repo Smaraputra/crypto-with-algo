@@ -12,7 +12,7 @@ export async function GET() {
     const sentiment = await fetchFearAndGreed();
     return NextResponse.json({ sentiment });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to fetch sentiment';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('Failed to fetch sentiment:', err);
+    return NextResponse.json({ error: 'Failed to fetch sentiment' }, { status: 500 });
   }
 }

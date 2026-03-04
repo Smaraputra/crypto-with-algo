@@ -7,7 +7,7 @@ const TEST_USER = {
 };
 
 setup('register and authenticate test user', async ({ page, baseURL }) => {
-  // Register via API (idempotent -- 409 is fine if user exists from a previous partial run)
+  // Register via API (idempotent -- 400 is fine if user exists from a previous partial run)
   const registerRes = await page.request.post(`${baseURL}/api/auth/register`, {
     data: {
       name: TEST_USER.name,
@@ -16,7 +16,7 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
       tosAccepted: true,
     },
   });
-  expect([201, 409]).toContain(registerRes.status());
+  expect([201, 400]).toContain(registerRes.status());
 
   // Log in via the UI to obtain a session cookie
   await page.goto('/login');

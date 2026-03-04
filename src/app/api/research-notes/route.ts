@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb';
 import { ResearchNote, MAX_RESEARCH_NOTES_PER_USER } from '@/lib/models/research-note';
 import { createResearchNoteSchema } from '@/types/research-note';
 import { escapeRegex } from '@/lib/utils';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -30,8 +31,8 @@ export async function GET(req: NextRequest) {
   const pinned = params.get('pinned');
   if (pinned === 'true') query.isPinned = true;
 
-  const page = Math.max(1, parseInt(params.get('page') || '1', 10));
-  const limit = Math.min(50, Math.max(1, parseInt(params.get('limit') || '20', 10)));
+  const page = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(params.get('limit') || '20', 10) || 1));
 
   const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'title', 'category'];
   const rawSort = params.get('sort') || '-createdAt';
@@ -66,6 +67,9 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = createResearchNoteSchema.safeParse(body);

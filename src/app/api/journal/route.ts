@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { JournalEntry, MAX_JOURNAL_ENTRIES_PER_USER } from '@/lib/models/journal-entry';
 import { createJournalEntrySchema } from '@/types/journal';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -48,8 +49,8 @@ export async function GET(req: NextRequest) {
     query.createdAt = dateFilter;
   }
 
-  const page = Math.max(1, parseInt(params.get('page') || '1', 10));
-  const limit = Math.min(100, Math.max(1, parseInt(params.get('limit') || '50', 10)));
+  const page = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(params.get('limit') || '50', 10) || 1));
 
   const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'symbol', 'action', 'entryPrice', 'exitPrice'];
   const rawSort = params.get('sort') || '-createdAt';
@@ -87,6 +88,9 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = createJournalEntrySchema.safeParse(body);

@@ -1,8 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { fetchSymbols } from '@/lib/binance';
 import { cachedFetch } from '@/lib/redis';
+import { createRateLimiter, rateLimit } from '@/lib/rate-limit';
 
-export async function GET() {
+const limiter = createRateLimiter(30, 60);
+
+export async function GET(req: NextRequest) {
+  const limited = await rateLimit(req, limiter);
+  if (limited) return limited;
   try {
     const symbols = await cachedFetch(
       'symbols:usdt',

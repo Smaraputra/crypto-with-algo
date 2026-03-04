@@ -41,11 +41,15 @@ describe('GET /api/sentiment', () => {
     expect(data.sentiment.label).toBe('Fear');
   });
 
-  it('returns 500 on fetch error', async () => {
+  it('returns 500 with generic message on fetch error (no leakage)', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(fetchFearAndGreed).mockRejectedValue(new Error('API error'));
+    vi.mocked(fetchFearAndGreed).mockRejectedValue(new Error('Secret API key invalid at https://internal.api/v1'));
 
     const res = await GET();
     expect(res.status).toBe(500);
+    const data = await res.json();
+    expect(data.error).toBe('Failed to fetch sentiment');
+    expect(data.error).not.toContain('Secret');
+    expect(data.error).not.toContain('internal.api');
   });
 });
