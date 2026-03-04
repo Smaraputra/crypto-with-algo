@@ -13,6 +13,7 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
       name: TEST_USER.name,
       email: TEST_USER.email,
       password: TEST_USER.password,
+      tosAccepted: true,
     },
   });
   expect([201, 409]).toContain(registerRes.status());

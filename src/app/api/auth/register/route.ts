@@ -16,6 +16,9 @@ const registerSchema = z.object({
       /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
       'Password must contain at least one uppercase letter, one digit, and one special character'
     ),
+  tosAccepted: z.literal(true, {
+    message: 'You must accept the Terms of Service and Privacy Policy',
+  }),
 });
 
 const limiter = createRateLimiter(5, 60);
@@ -65,6 +68,7 @@ export async function POST(req: NextRequest) {
       name: parsed.data.name,
       email: parsed.data.email,
       password: hashedPassword,
+      tosAcceptedAt: new Date(),
     });
 
     return NextResponse.json(

@@ -41,7 +41,7 @@ test.describe('Auth pages (unauthenticated)', () => {
 
     // Register via API
     const res = await page.request.post(`${baseURL}/api/auth/register`, {
-      data: { name: 'Flow Test', email, password },
+      data: { name: 'Flow Test', email, password, tosAccepted: true },
     });
     expect(res.status()).toBe(201);
 

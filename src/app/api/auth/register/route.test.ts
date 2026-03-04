@@ -56,6 +56,7 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'test@example.com',
       password: 'Secret1!',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(403);
@@ -72,7 +73,7 @@ describe('POST /api/auth/register', () => {
   });
 
   it('returns 400 for missing required fields', async () => {
-    const req = makeRequest({ email: 'test@example.com' });
+    const req = makeRequest({ email: 'test@example.com', tosAccepted: true });
     const res = await POST(req);
     expect(res.status).toBe(400);
   });
@@ -82,6 +83,7 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'not-email',
       password: 'Secret1!',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -92,6 +94,7 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'test@example.com',
       password: '12345',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -104,6 +107,7 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'dupe@example.com',
       password: 'Secret1!',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(409);
@@ -124,6 +128,7 @@ describe('POST /api/auth/register', () => {
       name: 'Alice',
       email: 'alice@example.com',
       password: 'Secret1!',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(201);
@@ -148,6 +153,7 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'test@example.com',
       password: 'MyPass1!',
+      tosAccepted: true,
     });
     await POST(req);
 
@@ -164,6 +170,7 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'race@example.com',
       password: 'Secret1!',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(409);
@@ -180,11 +187,61 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'test@example.com',
       password: 'Secret1!',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(500);
     const data = await res.json();
     expect(data.error).toBe('Internal server error');
+  });
+
+  it('returns 400 when tosAccepted is missing', async () => {
+    const req = makeRequest({
+      name: 'Test',
+      email: 'test@example.com',
+      password: 'Secret1!',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('Validation failed');
+  });
+
+  it('returns 400 when tosAccepted is false', async () => {
+    const req = makeRequest({
+      name: 'Test',
+      email: 'test@example.com',
+      password: 'Secret1!',
+      tosAccepted: false,
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('Validation failed');
+  });
+
+  it('stores tosAcceptedAt on successful registration', async () => {
+    vi.mocked(User.findOne).mockResolvedValue(null);
+    vi.mocked(bcrypt.hash).mockResolvedValue('$2a$12$hashed' as never);
+    vi.mocked(User.create).mockResolvedValue({
+      _id: { toString: () => 'id' },
+      name: 'Test',
+      email: 'test@example.com',
+    } as never);
+
+    const req = makeRequest({
+      name: 'Test',
+      email: 'test@example.com',
+      password: 'Secret1!',
+      tosAccepted: true,
+    });
+    await POST(req);
+
+    expect(User.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tosAcceptedAt: expect.any(Date),
+      })
+    );
   });
 
   it('returns 429 when rate limited', async () => {
@@ -197,6 +254,7 @@ describe('POST /api/auth/register', () => {
       name: 'Test',
       email: 'test@example.com',
       password: 'Secret1!',
+      tosAccepted: true,
     });
     const res = await POST(req);
     expect(res.status).toBe(429);
