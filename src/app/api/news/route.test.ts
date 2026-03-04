@@ -49,11 +49,15 @@ describe('GET /api/news', () => {
     expect(fetchCryptoNews).toHaveBeenCalledWith('BTC,ETH');
   });
 
-  it('returns 500 on fetch error', async () => {
+  it('returns 500 with generic message on fetch error (no leakage)', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    vi.mocked(fetchCryptoNews).mockRejectedValue(new Error('API error'));
+    vi.mocked(fetchCryptoNews).mockRejectedValue(new Error('Secret API key invalid at https://internal.api/v1'));
 
     const res = await GET(new NextRequest('http://localhost/api/news'));
     expect(res.status).toBe(500);
+    const data = await res.json();
+    expect(data.error).toBe('Failed to fetch news');
+    expect(data.error).not.toContain('Secret');
+    expect(data.error).not.toContain('internal.api');
   });
 });

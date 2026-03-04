@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Portfolio } from '@/lib/models/portfolio';
 import { calculateHoldingState } from '@/lib/portfolio-utils';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 const addHoldingSchema = z.object({
   symbol: z.string().min(1),
@@ -25,6 +26,9 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   let body: unknown;
   try {

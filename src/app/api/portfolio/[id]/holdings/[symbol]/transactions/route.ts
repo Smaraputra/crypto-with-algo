@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { Portfolio } from '@/lib/models/portfolio';
 import { calculateHoldingState } from '@/lib/portfolio-utils';
+import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
 const transactionSchema = z.object({
   type: z.enum(['buy', 'sell']),
@@ -59,6 +60,9 @@ export async function POST(
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await rateLimitUser(session.user.id, authenticatedLimiter);
+  if (limited) return limited;
 
   const body = await req.json();
   const parsed = transactionSchema.safeParse(body);

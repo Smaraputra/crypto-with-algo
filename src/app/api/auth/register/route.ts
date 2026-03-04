@@ -58,8 +58,8 @@ export async function POST(req: NextRequest) {
     const existingUser = await User.findOne({ email: parsed.data.email });
     if (existingUser) {
       return NextResponse.json(
-        { error: 'Email already registered' },
-        { status: 409 }
+        { error: 'Registration failed. If this email is already registered, please log in instead.' },
+        { status: 400 }
       );
     }
 
@@ -82,8 +82,8 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err && typeof err === 'object' && 'code' in err && err.code === 11000) {
       return NextResponse.json(
-        { error: 'Email already registered' },
-        { status: 409 }
+        { error: 'Registration failed. If this email is already registered, please log in instead.' },
+        { status: 400 }
       );
     }
     return NextResponse.json(
