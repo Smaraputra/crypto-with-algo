@@ -37,6 +37,9 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">3. User Accounts</h2>
           <p>
+            You must be at least 18 years old to use the Service. By creating an account, you represent that you meet this requirement.
+          </p>
+          <p className="mt-2">
             To use certain features, you must create an account using email/password or OAuth providers (Google, GitHub). You are responsible for:
           </p>
           <ul className="list-disc pl-6 space-y-1">
@@ -84,6 +87,9 @@ export default function TermsPage() {
             <li>Correctness of technical indicators or trading signals</li>
             <li>Performance of backtested strategies in live markets</li>
           </ul>
+          <p className="mt-2">
+            Backtested strategies reflect historical performance only. Past performance does not guarantee future results. Trading signals are informational and should not be the sole basis for trading decisions.
+          </p>
           <p className="mt-2">
             You acknowledge that cryptocurrency markets are highly volatile and trading involves significant risk.
           </p>
@@ -199,7 +205,7 @@ export default function TermsPage() {
             These Terms are governed by the laws of Indonesia, without regard to conflict of law principles. Any disputes shall be resolved through binding arbitration in Indonesia, except where prohibited by law.
           </p>
           <p className="mt-2">
-            You agree to waive any right to a jury trial or to participate in a class action lawsuit.
+            To the extent permitted by applicable law, you agree to waive any right to a jury trial or to participate in a class action lawsuit. In jurisdictions where mandatory arbitration or class action waivers are not enforceable, disputes shall be resolved in the courts of the user&#39;s jurisdiction.
           </p>
         </section>
 
