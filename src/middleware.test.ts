@@ -96,4 +96,28 @@ describe('middleware', () => {
       expect(res.headers.get('location')).toBeNull();
     }
   );
+
+  it('redirects unauthenticated users from /consent to /login', () => {
+    const res = middleware(makeRequest('/consent'));
+    expect(res.status).toBe(307);
+    const location = new URL(res.headers.get('location')!);
+    expect(location.pathname).toBe('/login');
+  });
+
+  it('allows authenticated users to access /consent', () => {
+    const res = middleware(
+      makeRequest('/consent', { 'authjs.session-token': 'some-token' })
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('location')).toBeNull();
+  });
+
+  it.each(['/terms', '/privacy'])(
+    'allows %s without authentication (legal pages)',
+    (path) => {
+      const res = middleware(makeRequest(path));
+      expect(res.status).toBe(200);
+      expect(res.headers.get('location')).toBeNull();
+    }
+  );
 });

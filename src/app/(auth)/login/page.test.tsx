@@ -148,5 +148,11 @@ describe('LoginPage', () => {
     ).toBeInTheDocument();
   });
 
-  // Register link removed: registration currently disabled
+  it('renders ToS and Privacy Policy links', () => {
+    render(<LoginPage />);
+    const tosLink = screen.getByRole('link', { name: 'Terms of Service' });
+    const ppLink = screen.getByRole('link', { name: 'Privacy Policy' });
+    expect(tosLink).toHaveAttribute('href', '/terms');
+    expect(ppLink).toHaveAttribute('href', '/privacy');
+  });
 });

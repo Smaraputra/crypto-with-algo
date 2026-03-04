@@ -202,10 +202,10 @@ export default function TermsPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">14. Governing Law and Disputes</h2>
           <p>
-            These Terms are governed by the laws of Indonesia, without regard to conflict of law principles. Any disputes shall be resolved through binding arbitration in Indonesia, except where prohibited by law.
+            These Terms are governed by the laws of your jurisdiction of residence. For users in Indonesia, disputes shall be resolved through binding arbitration in Indonesia, except where prohibited by law. For users outside Indonesia, disputes shall be resolved in the courts of the user&apos;s jurisdiction of residence.
           </p>
           <p className="mt-2">
-            To the extent permitted by applicable law, you agree to waive any right to a jury trial or to participate in a class action lawsuit. In jurisdictions where mandatory arbitration or class action waivers are not enforceable, disputes shall be resolved in the courts of the user&#39;s jurisdiction.
+            To the extent permitted by applicable law, you agree to waive any right to a jury trial or to participate in a class action lawsuit. In jurisdictions where mandatory arbitration or class action waivers are not enforceable, disputes shall be resolved in the courts of the user&apos;s jurisdiction.
           </p>
         </section>
 
