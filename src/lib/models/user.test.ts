@@ -90,6 +90,18 @@ describe('User model', () => {
     expect(user.image).toBe('https://example.com/avatar.jpg');
   });
 
+  it('stores tosAcceptedAt field', async () => {
+    const User = await getUser();
+    const now = new Date();
+    const user = await User.create({
+      name: 'Tos User',
+      email: 'tos@example.com',
+      tosAcceptedAt: now,
+    });
+
+    expect(user.tosAcceptedAt).toEqual(now);
+  });
+
   it('rejects creation without required name', async () => {
     const User = await getUser();
     await expect(
