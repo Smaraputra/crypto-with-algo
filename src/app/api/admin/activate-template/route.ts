@@ -55,7 +55,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    console.error('Template activation error:', error);
+    console.error('Template activation error:', error instanceof Error ? error.message : 'Unknown error');
 
     if (error instanceof Error && error.message === 'Template not found') {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });

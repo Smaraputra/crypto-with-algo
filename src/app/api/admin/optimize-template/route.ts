@@ -161,7 +161,7 @@ export async function POST(req: Request) {
       throw error;
     }
   } catch (error) {
-    console.error('Optimization error:', error);
+    console.error('Optimization error:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

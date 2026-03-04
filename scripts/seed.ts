@@ -49,9 +49,13 @@ function loadEnv() {
 
 // -- Configuration --
 
-const DEMO_EMAIL = process.env.SEED_EMAIL || 'demo@cryptotracker.dev';
-const DEMO_PASSWORD = process.env.SEED_PASSWORD || 'DemoPassword123!';
-const DEMO_NAME = 'Demo User';
+const DEMO_NAME = process.env.SEED_NAME || 'Demo User';
+
+function getRequiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} env var is required`);
+  return value;
+}
 
 interface HoldingConfig {
   symbol: string;
@@ -376,8 +380,11 @@ async function main() {
     process.exit(1);
   }
 
+  const demoEmail = getRequiredEnv('SEED_EMAIL');
+  const demoPassword = getRequiredEnv('SEED_PASSWORD');
+
   console.log('Seeding database...');
-  console.log(`  Email: ${DEMO_EMAIL}`);
+  console.log(`  Email: ${demoEmail}`);
 
   await connectDB();
 
@@ -387,10 +394,10 @@ async function main() {
 
   // 2. Upsert demo user
   console.log('  Creating demo user...');
-  const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const hashedPassword = await bcrypt.hash(demoPassword, 10);
   const user = await User.findOneAndUpdate(
-    { email: DEMO_EMAIL },
-    { name: DEMO_NAME, email: DEMO_EMAIL, password: hashedPassword },
+    { email: demoEmail },
+    { name: DEMO_NAME, email: demoEmail, password: hashedPassword },
     { upsert: true, new: true }
   );
   const userId = user._id.toString();
@@ -440,7 +447,7 @@ async function main() {
 
   // Summary
   console.log('\nSeed complete:');
-  console.log(`  User: ${DEMO_EMAIL} (${userId})`);
+  console.log(`  User: ${demoEmail} (${userId})`);
   console.log(`  Portfolio: ${portfolio.name} (${portfolioId})`);
   console.log(`  Holdings: ${holdings.length}`);
   console.log(`  Watchlist symbols: ${WATCHLIST_SYMBOLS.length}`);
