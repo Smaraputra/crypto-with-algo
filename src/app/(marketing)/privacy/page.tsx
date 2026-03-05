@@ -127,7 +127,7 @@ export default function PrivacyPage() {
             <li><strong>GitHub OAuth</strong>: Optional authentication (subject to GitHub Privacy Policy)</li>
             <li><strong>MongoDB Atlas</strong>: Database hosting (subject to MongoDB Privacy Policy)</li>
             <li><strong>Upstash</strong>: Redis caching (subject to Upstash Privacy Policy)</li>
-            <li><strong>CryptoCompare</strong>: Cryptocurrency news data (subject to CryptoCompare Privacy Policy)</li>
+            <li><strong>CryptoPanic</strong>: Cryptocurrency news data (subject to CryptoPanic Privacy Policy)</li>
             <li><strong>Alternative.me</strong>: Fear &amp; Greed Index data (subject to Alternative.me Privacy Policy)</li>
             <li><strong>Cloudflare Web Analytics</strong>: Privacy-focused, cookieless web analytics (subject to Cloudflare Privacy Policy)</li>
           </ul>

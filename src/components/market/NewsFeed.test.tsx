@@ -95,4 +95,16 @@ describe('NewsFeed', () => {
     const cards = screen.getAllByTestId('news-card');
     expect(cards).toHaveLength(10);
   });
+
+  it('shows CryptoPanic attribution', () => {
+    vi.mocked(useLatestNews).mockReturnValue({
+      data: { articles: [mockArticle] },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useLatestNews>);
+
+    render(<NewsFeed />);
+    const link = screen.getByRole('link', { name: 'CryptoPanic' });
+    expect(link).toHaveAttribute('href', 'https://cryptopanic.com');
+  });
 });

@@ -57,6 +57,17 @@ export function SentimentGauge() {
         <span>Extreme Fear</span>
         <span>Extreme Greed</span>
       </div>
+      <p className="text-[10px] text-muted-foreground text-right">
+        Data from{' '}
+        <a
+          href="https://alternative.me/crypto/fear-and-greed-index/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          Alternative.me
+        </a>
+      </p>
     </div>
   );
 }

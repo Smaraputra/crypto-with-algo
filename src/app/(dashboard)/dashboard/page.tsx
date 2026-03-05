@@ -52,6 +52,17 @@ export default async function DashboardPage() {
           <NewsFeed />
         </ErrorBoundary>
       </div>
+      <p className="text-[10px] text-muted-foreground text-right">
+        Market data from{' '}
+        <a
+          href="https://www.binance.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          Binance
+        </a>
+      </p>
     </div>
   );
 }

@@ -90,4 +90,16 @@ describe('SentimentGauge', () => {
     render(<SentimentGauge />);
     expect(screen.getByText('90 - Extreme Greed')).toBeInTheDocument();
   });
+
+  it('shows Alternative.me attribution', () => {
+    mockUseFearAndGreed.mockReturnValue({
+      data: { sentiment: { fearGreedIndex: 50, label: 'Neutral' } },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useFearAndGreed>);
+
+    render(<SentimentGauge />);
+    const link = screen.getByRole('link', { name: 'Alternative.me' });
+    expect(link).toHaveAttribute('href', 'https://alternative.me/crypto/fear-and-greed-index/');
+  });
 });

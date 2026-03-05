@@ -11,29 +11,26 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', mockFetch);
+  vi.stubEnv('CRYPTOPANIC_API_TOKEN', 'test-token');
 });
 
 const mockApiResponse = {
-  Data: [
+  results: [
     {
-      id: '1',
+      id: 1,
       title: 'Bitcoin hits new high',
       url: 'https://example.com/btc',
-      source: 'CoinDesk',
-      body: 'Bitcoin reached a new all-time high today...',
-      categories: 'BTC|Trading',
-      published_on: 1700000000,
-      imageurl: 'https://example.com/img.jpg',
+      source: { title: 'CoinDesk', domain: 'coindesk.com' },
+      published_at: '2024-11-14T22:13:20Z',
+      currencies: [{ code: 'BTC' }],
     },
     {
-      id: '2',
+      id: 2,
       title: 'Ethereum upgrade',
       url: 'https://example.com/eth',
-      source: 'CryptoSlate',
-      body: 'The Ethereum network completed...',
-      categories: 'ETH',
-      published_on: 1700000100,
-      imageurl: '',
+      source: { title: 'CryptoSlate', domain: 'cryptoslate.com' },
+      published_at: '2024-11-14T22:15:00Z',
+      currencies: [{ code: 'ETH' }],
     },
   ],
 };
@@ -53,21 +50,32 @@ describe('fetchCryptoNews', () => {
       title: 'Bitcoin hits new high',
       url: 'https://example.com/btc',
       source: 'CoinDesk',
-      body: 'Bitcoin reached a new all-time high today...',
-      categories: 'BTC|Trading',
-      publishedOn: 1700000000,
-      imageUrl: 'https://example.com/img.jpg',
+      body: '',
+      categories: 'BTC',
+      publishedOn: Math.floor(Date.parse('2024-11-14T22:13:20Z') / 1000),
+      imageUrl: null,
     });
   });
 
-  it('sets imageUrl to null for empty string', async () => {
+  it('joins multiple currency codes into categories', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      json: async () => mockApiResponse,
+      json: async () => ({
+        results: [
+          {
+            id: 3,
+            title: 'Multi-coin news',
+            url: 'https://example.com/multi',
+            source: { title: 'Source', domain: 'source.com' },
+            published_at: '2024-11-14T22:00:00Z',
+            currencies: [{ code: 'BTC' }, { code: 'ETH' }],
+          },
+        ],
+      }),
     });
 
     const result = await fetchCryptoNews();
-    expect(result[1].imageUrl).toBeNull();
+    expect(result[0].categories).toBe('BTC,ETH');
   });
 
   it('throws on non-ok response', async () => {
@@ -76,57 +84,45 @@ describe('fetchCryptoNews', () => {
       status: 500,
     });
 
-    await expect(fetchCryptoNews()).rejects.toThrow('CryptoCompare News API returned 500');
+    await expect(fetchCryptoNews()).rejects.toThrow('CryptoPanic News API returned 500');
   });
 
-  it('passes categories to URL', async () => {
+  it('passes currencies to URL', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({ Data: [] }),
+      json: async () => ({ results: [] }),
     });
 
     await fetchCryptoNews('BTC,ETH');
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('categories=BTC%2CETH'),
+      expect.stringContaining('currencies=BTC%2CETH'),
       expect.any(Object)
     );
   });
 
   it('limits to 20 items', async () => {
     const manyItems = Array.from({ length: 30 }, (_, i) => ({
-      id: String(i),
+      id: i,
       title: `News ${i}`,
       url: `https://example.com/${i}`,
-      source: 'Source',
-      body: 'Body text',
-      categories: 'BTC',
-      published_on: 1700000000 + i,
-      imageurl: '',
+      source: { title: 'Source', domain: 'source.com' },
+      published_at: '2024-11-14T22:00:00Z',
+      currencies: [],
     }));
 
     mockFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({ Data: manyItems }),
+      json: async () => ({ results: manyItems }),
     });
 
     const result = await fetchCryptoNews();
     expect(result).toHaveLength(20);
   });
 
-  it('truncates body to 200 chars', async () => {
-    const longBody = 'x'.repeat(500);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        Data: [{
-          id: '1', title: 'T', url: 'u', source: 's',
-          body: longBody, categories: '', published_on: 0, imageurl: '',
-        }],
-      }),
-    });
+  it('throws when CRYPTOPANIC_API_TOKEN is not set', async () => {
+    vi.stubEnv('CRYPTOPANIC_API_TOKEN', '');
 
-    const result = await fetchCryptoNews();
-    expect(result[0].body).toHaveLength(200);
+    await expect(fetchCryptoNews()).rejects.toThrow('CRYPTOPANIC_API_TOKEN is not configured');
   });
 });

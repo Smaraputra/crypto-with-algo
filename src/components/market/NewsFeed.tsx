@@ -73,10 +73,23 @@ export function NewsFeed() {
   }
 
   return (
-    <div className="space-y-1.5 max-h-[400px] overflow-y-auto" data-testid="news-feed">
-      {articles.slice(0, 10).map((article) => (
-        <NewsCard key={article.id} article={article} />
-      ))}
+    <div className="space-y-1.5">
+      <div className="max-h-[400px] overflow-y-auto space-y-1.5" data-testid="news-feed">
+        {articles.slice(0, 10).map((article) => (
+          <NewsCard key={article.id} article={article} />
+        ))}
+      </div>
+      <p className="text-[10px] text-muted-foreground text-right">
+        Powered by{' '}
+        <a
+          href="https://cryptopanic.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+        >
+          CryptoPanic
+        </a>
+      </p>
     </div>
   );
 }
