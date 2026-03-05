@@ -17,11 +17,14 @@ function timeAgo(timestamp: number): string {
 }
 
 function NewsCard({ article }: { article: CryptoNewsItem }) {
+  const Tag = article.url ? 'a' : 'div';
+  const linkProps = article.url
+    ? { href: article.url, target: '_blank' as const, rel: 'noopener noreferrer' }
+    : {};
+
   return (
-    <a
-      href={article.url}
-      target="_blank"
-      rel="noopener noreferrer"
+    <Tag
+      {...linkProps}
       className="block rounded-md border border-border p-2 hover:bg-muted/50 transition-colors"
       data-testid="news-card"
     >
@@ -29,15 +32,19 @@ function NewsCard({ article }: { article: CryptoNewsItem }) {
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium line-clamp-2">{article.title}</p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-xs text-muted-foreground">{article.source}</span>
+            {article.source && (
+              <span className="text-xs text-muted-foreground">{article.source}</span>
+            )}
             <span className="text-xs text-muted-foreground">
               {timeAgo(article.publishedOn)}
             </span>
           </div>
         </div>
-        <ExternalLink className="size-3 text-muted-foreground flex-shrink-0 mt-0.5" />
+        {article.url && (
+          <ExternalLink className="size-3 text-muted-foreground flex-shrink-0 mt-0.5" />
+        )}
       </div>
-    </a>
+    </Tag>
   );
 }
 
