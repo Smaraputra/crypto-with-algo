@@ -74,7 +74,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user, trigger, session: updateData }) {
       if (user) {
         token.id = user.id!;
         // On sign-in, check if user has accepted ToS
@@ -82,9 +82,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const dbUser = await User.findById(user.id).select('tosAcceptedAt').lean();
         token.tosAccepted = !!(dbUser && 'tosAcceptedAt' in dbUser && dbUser.tosAcceptedAt);
       }
-      if (trigger === 'update' || token.tosAccepted === undefined) {
-        // Re-check ToS acceptance on session update (after consent)
-        // or when token lacks the field (migration from pre-consent JWTs)
+      if (trigger === 'update') {
+        // Client called update({ tosAccepted: true }) after consent
+        if (updateData?.tosAccepted) {
+          // Verify against DB before trusting client claim
+          await connectDB();
+          const dbUser = await User.findById(token.id).select('tosAcceptedAt').lean();
+          token.tosAccepted = !!(dbUser && 'tosAcceptedAt' in dbUser && dbUser.tosAcceptedAt);
+        }
+      }
+      if (token.tosAccepted === undefined) {
+        // Migration: pre-consent JWT lacks the field entirely
         await connectDB();
         const dbUser = await User.findById(token.id).select('tosAcceptedAt').lean();
         token.tosAccepted = !!(dbUser && 'tosAcceptedAt' in dbUser && dbUser.tosAcceptedAt);
