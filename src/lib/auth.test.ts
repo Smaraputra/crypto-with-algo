@@ -174,10 +174,24 @@ describe('NextAuth configuration', () => {
     const jwtCallback = nextAuthConfig!.callbacks!.jwt! as CallbackFn;
 
     const token = await jwtCallback({
-      token: { sub: 'sub-123', id: 'existing-id' },
+      token: { sub: 'sub-123', id: 'existing-id', tosAccepted: true },
       user: undefined,
     });
     expect(token.id).toBe('existing-id');
+  });
+
+  it('migrates pre-consent JWTs by checking DB when tosAccepted is undefined', async () => {
+    mockFindById.mockReturnValue({
+      select: () => ({ lean: () => Promise.resolve({ tosAcceptedAt: new Date() }) }),
+    });
+
+    const jwtCallback = nextAuthConfig!.callbacks!.jwt! as CallbackFn;
+    const token = await jwtCallback({
+      token: { sub: 'sub-123', id: 'existing-id' },
+      user: undefined,
+    });
+    expect(token.tosAccepted).toBe(true);
+    expect(mockFindById).toHaveBeenCalledWith('existing-id');
   });
 
   it('sets tosAccepted true when user has tosAcceptedAt on sign-in', async () => {
