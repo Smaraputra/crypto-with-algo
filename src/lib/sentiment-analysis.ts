@@ -132,16 +132,23 @@ export function analyzeNewsSentiment(news: NewsItem[]): NewsSentiment {
 }
 
 /**
- * Fetch crypto news from CryptoCompare API (free tier)
- * Note: CryptoCompare free tier has limits - 50 calls/hour
+ * Fetch crypto news from CryptoPanic API (free tier)
  */
 export async function fetchCryptoNews(symbol: string): Promise<NewsItem[]> {
   try {
+    const token = process.env.CRYPTOPANIC_API_TOKEN;
+    if (!token) return [];
+
     // Remove USDT suffix for news queries
     const baseSymbol = symbol.replace(/USDT$/, '');
 
-    const url = `https://min-api.cryptocompare.com/data/v2/news/?categories=${baseSymbol}&lang=EN`;
-    const res = await fetch(url);
+    const params = new URLSearchParams({
+      auth_token: token,
+      currencies: baseSymbol,
+      kind: 'news',
+      public: 'true',
+    });
+    const res = await fetch(`https://cryptopanic.com/api/free/v1/posts/?${params.toString()}`);
 
     if (!res.ok) {
       console.error(`Failed to fetch news for ${symbol}:`, res.status);
@@ -149,21 +156,21 @@ export async function fetchCryptoNews(symbol: string): Promise<NewsItem[]> {
     }
 
     const json = await res.json();
-    if (!json.Data) {
+    if (!json.results) {
       return [];
     }
 
     // Return last 10 articles
-    return json.Data.slice(0, 10).map((item: {
+    return json.results.slice(0, 10).map((item: {
       title: string;
       url: string;
-      published_on: number;
-      source: string;
+      published_at: string;
+      source: { title: string };
     }) => ({
       title: item.title,
       url: item.url,
-      publishedAt: item.published_on * 1000, // Convert to ms
-      source: item.source,
+      publishedAt: Date.parse(item.published_at),
+      source: item.source.title,
     }));
   } catch (error) {
     console.error(`Failed to fetch news for ${symbol}:`, error);

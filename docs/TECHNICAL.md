@@ -33,7 +33,7 @@ Browser
   |                       |-- Upstash Redis (cache, HTTP-based)
   |                       |-- Binance REST API (market data, exchange info)
   |                       |-- Binance Futures API (funding rates, open interest, L/S ratios)
-  |                       |-- CryptoCompare API (news)
+  |                       |-- CryptoPanic API (news)
   |                       |-- Alternative.me API (Fear & Greed Index)
   |
   |-- WSS (WebSocket) --> Binance WebSocket Streams (live tickers, live klines)
@@ -70,7 +70,7 @@ src/
     indicators/       Technical indicator computation and interpretation
     optimization/     Walk-forward optimizer, weight generation, ensemble, auto-activation
     signals/          Composite signal scorer
-    external/         Third-party API clients (CryptoCompare, Fear & Greed)
+    external/         Third-party API clients (CryptoPanic, Fear & Greed)
   stores/             Zustand client-side stores
   types/              TypeScript type definitions and Zod schemas
   test/               Test setup, utilities, mock WebSocket
@@ -268,7 +268,7 @@ The application never fails because Redis is unavailable. It just runs slower (e
 
 | Data | TTL | Rationale |
 |------|-----|-----------|
-| Crypto news | 5 minutes | News doesn't change frequently; avoid rate-limiting CryptoCompare |
+| Crypto news | 5 minutes | News doesn't change frequently; avoid rate-limiting CryptoPanic |
 | Fear & Greed Index | 5 minutes | Updated hourly by Alternative.me; 5-min TTL is conservative |
 | Ticker prices (cron) | 30 seconds | Cron alert checks need reasonably fresh prices without hammering Binance |
 
@@ -317,7 +317,7 @@ CompositeSignal { score: -100..+100, tier, confidence: 0..100, components[] }
 | Volume | 15% | OHLCV candles (always available) |
 | Volatility | 10% | OHLCV candles (always available) |
 | Futures | 15% | Binance Futures API (may be unavailable) |
-| Sentiment | 10% | CryptoCompare + Alternative.me (may be unavailable) |
+| Sentiment | 10% | CryptoPanic + Alternative.me (may be unavailable) |
 
 **Dynamic weight redistribution**: When a data source is unavailable (e.g., futures data returns an error), its weight is redistributed proportionally to the remaining categories. If futures (15%) is missing, the available weight pool is 85%, and each remaining category's weight is divided by 0.85. Trend becomes 25/85 = 29.4%, momentum 29.4%, etc. The signal score is never penalized for missing external data -- it simply relies more heavily on technical analysis.
 
@@ -447,10 +447,10 @@ Test window is a fixed size (100 bars) immediately after training.
 
 ### 3j. News and Sentiment Analysis
 
-**What**: Aggregated crypto news from CryptoCompare with keyword-based sentiment scoring, combined with the Alternative.me Fear & Greed Index, fed into the signal engine as a weighted component.
+**What**: Aggregated crypto news from CryptoPanic with keyword-based sentiment scoring, combined with the Alternative.me Fear & Greed Index, fed into the signal engine as a weighted component.
 
 **News pipeline**:
-1. Fetch top 20 articles from CryptoCompare's `/data/v2/news/` endpoint
+1. Fetch top 20 articles from CryptoPanic's `/api/free/v1/posts/` endpoint
 2. Cache response in Redis with 5-minute TTL
 3. Score each article title using keyword matching: 12 bullish keywords (+0.3 each) and 13 bearish keywords (-0.3 each), clamped to [-1, +1]
 4. Compute batch statistics: article count, average sentiment, extracted topic tags
