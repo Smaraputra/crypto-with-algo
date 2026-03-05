@@ -222,8 +222,7 @@ export default function TermsPage() {
             For questions about these Terms, please contact us at:
           </p>
           <p className="mt-2">
-            Email: smara.putra2001@gmail.com<br />
-            GitHub: <a href="https://github.com/Smaraputra/crypto-with-algo" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">https://github.com/Smaraputra/crypto-with-algo</a>
+            Email: smara.putra2001@gmail.com
           </p>
         </section>
 

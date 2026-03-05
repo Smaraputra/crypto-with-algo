@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import Link from 'next/link';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,7 +24,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       />
 
       <div className="relative z-10 w-full max-w-md px-4">
-        <div className="mb-6 flex items-center justify-center gap-2">
+        <Link href="/" className="mb-6 flex items-center justify-center gap-2">
           <Image
             src="/logo.png"
             alt="CryptoWithAlgo"
@@ -34,7 +35,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <span className="text-lg font-semibold tracking-tight">
             CryptoWithAlgo
           </span>
-        </div>
+        </Link>
         {children}
       </div>
     </div>
