@@ -14,7 +14,7 @@ interface CryptoPanicResponse {
   results: CryptoPanicPost[];
 }
 
-const BASE_URL = 'https://cryptopanic.com/api/free/v1/posts/';
+const BASE_URL = 'https://cryptopanic.com/api/developer/v2/posts/';
 const CACHE_TTL = 300; // 5 minutes
 
 async function fetchRaw(currencies?: string): Promise<CryptoNewsItem[]> {

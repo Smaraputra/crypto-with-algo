@@ -148,7 +148,7 @@ export async function fetchCryptoNews(symbol: string): Promise<NewsItem[]> {
       kind: 'news',
       public: 'true',
     });
-    const res = await fetch(`https://cryptopanic.com/api/free/v1/posts/?${params.toString()}`);
+    const res = await fetch(`https://cryptopanic.com/api/developer/v2/posts/?${params.toString()}`);
 
     if (!res.ok) {
       console.error(`Failed to fetch news for ${symbol}:`, res.status);
