@@ -82,8 +82,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const dbUser = await User.findById(user.id).select('tosAcceptedAt').lean();
         token.tosAccepted = !!(dbUser && 'tosAcceptedAt' in dbUser && dbUser.tosAcceptedAt);
       }
-      if (trigger === 'update') {
-        // Re-check ToS acceptance (called after consent is recorded)
+      if (trigger === 'update' || token.tosAccepted === undefined) {
+        // Re-check ToS acceptance on session update (after consent)
+        // or when token lacks the field (migration from pre-consent JWTs)
         await connectDB();
         const dbUser = await User.findById(token.id).select('tosAcceptedAt').lean();
         token.tosAccepted = !!(dbUser && 'tosAcceptedAt' in dbUser && dbUser.tosAcceptedAt);
