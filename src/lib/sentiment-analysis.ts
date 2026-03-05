@@ -163,14 +163,14 @@ export async function fetchCryptoNews(symbol: string): Promise<NewsItem[]> {
     // Return last 10 articles
     return json.results.slice(0, 10).map((item: {
       title: string;
-      url: string;
+      url?: string;
       published_at: string;
-      source: { title: string };
+      source?: { title: string };
     }) => ({
       title: item.title,
-      url: item.url,
+      url: item.url ?? '',
       publishedAt: Date.parse(item.published_at),
-      source: item.source.title,
+      source: item.source?.title ?? '',
     }));
   } catch (error) {
     console.error(`Failed to fetch news for ${symbol}:`, error);

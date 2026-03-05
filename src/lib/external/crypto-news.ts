@@ -2,11 +2,12 @@ import { cachedFetch } from '@/lib/redis';
 import type { CryptoNewsItem } from '@/types/news';
 
 interface CryptoPanicPost {
-  id: number;
+  id?: number;
   title: string;
+  description?: string;
   published_at: string;
-  url: string;
-  source: { title: string; domain: string };
+  url?: string;
+  source?: { title: string; domain: string };
   currencies?: Array<{ code: string }>;
 }
 
@@ -43,12 +44,12 @@ async function fetchRaw(currencies?: string): Promise<CryptoNewsItem[]> {
   const json = (await res.json()) as CryptoPanicResponse;
   const posts = json.results ?? [];
 
-  return posts.slice(0, 20).map((post) => ({
-    id: String(post.id),
+  return posts.slice(0, 20).map((post, i) => ({
+    id: post.id != null ? String(post.id) : String(i),
     title: post.title,
-    url: post.url,
-    source: post.source.title,
-    body: '',
+    url: post.url ?? '',
+    source: post.source?.title ?? '',
+    body: post.description ?? '',
     categories: post.currencies?.map((c) => c.code).join(',') ?? '',
     publishedOn: Math.floor(Date.parse(post.published_at) / 1000),
     imageUrl: null,
