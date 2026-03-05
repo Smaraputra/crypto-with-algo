@@ -42,11 +42,9 @@ describe('Footer', () => {
     expect(link).toHaveAttribute('href', '/register');
   });
 
-  it('renders GitHub social link with correct href', () => {
+  it('does not render GitHub link', () => {
     render(<Footer />);
-    const githubLink = screen.getByLabelText('GitHub');
-    expect(githubLink).toBeInTheDocument();
-    expect(githubLink).toHaveAttribute('href', 'https://github.com/Smaraputra/crypto-with-algo');
+    expect(screen.queryByLabelText('GitHub')).not.toBeInTheDocument();
   });
 
   it('renders legal links', () => {

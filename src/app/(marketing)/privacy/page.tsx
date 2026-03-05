@@ -253,8 +253,7 @@ export default function PrivacyPage() {
           </p>
           <p className="mt-2">
             <strong>Privacy Officer</strong><br />
-            Email: smara.putra2001@gmail.com<br />
-            GitHub: <a href="https://github.com/Smaraputra/crypto-with-algo" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">https://github.com/Smaraputra/crypto-with-algo</a>
+            Email: smara.putra2001@gmail.com
           </p>
           <p className="mt-2">
             We will respond to all requests within 30 days.

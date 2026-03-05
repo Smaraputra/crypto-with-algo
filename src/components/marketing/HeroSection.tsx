@@ -87,19 +87,48 @@ function CountUp({ value, suffix }: { value: string; suffix: string }) {
   return <span ref={ref}>{displayed}</span>;
 }
 
+const HERO_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'];
+
+function formatPrice(raw: string): string {
+  const num = parseFloat(raw);
+  if (num >= 1000) return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function AnimatedTicker() {
   const [tickers, setTickers] = useState(MOCK_TICKERS);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTickers((prev) =>
-        prev.map((t) => {
-          const delta = (Math.random() - 0.5) * 0.4;
-          return { ...t, change: +(t.change + delta).toFixed(2) };
-        })
-      );
-    }, 3000);
-    return () => clearInterval(interval);
+    let cancelled = false;
+
+    async function fetchPrices() {
+      try {
+        const res = await fetch('/api/prices');
+        if (!res.ok) return;
+        const data: { symbol: string; lastPrice: string; priceChangePercent: string }[] = await res.json();
+        if (cancelled) return;
+
+        const mapped: TickerItem[] = HERO_SYMBOLS
+          .map((sym) => {
+            const t = data.find((d) => d.symbol === sym);
+            if (!t) return null;
+            return {
+              symbol: sym.replace('USDT', ''),
+              price: formatPrice(t.lastPrice),
+              change: parseFloat(t.priceChangePercent),
+            };
+          })
+          .filter((t): t is TickerItem => t !== null);
+
+        if (mapped.length > 0) setTickers(mapped);
+      } catch {
+        // Keep mock data on error
+      }
+    }
+
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   return (
