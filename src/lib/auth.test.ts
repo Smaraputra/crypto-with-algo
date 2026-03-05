@@ -220,7 +220,7 @@ describe('NextAuth configuration', () => {
     expect(token.tosAccepted).toBe(false);
   });
 
-  it('re-checks tosAccepted on session update trigger', async () => {
+  it('re-checks tosAccepted on session update trigger with data', async () => {
     mockFindById.mockReturnValue({
       select: () => ({ lean: () => Promise.resolve({ tosAcceptedAt: new Date() }) }),
     });
@@ -230,8 +230,20 @@ describe('NextAuth configuration', () => {
       token: { sub: 'sub-123', id: 'existing-id', tosAccepted: false },
       user: undefined,
       trigger: 'update',
+      session: { tosAccepted: true },
     });
     expect(token.tosAccepted).toBe(true);
+  });
+
+  it('ignores update trigger without tosAccepted data', async () => {
+    const jwtCallback = nextAuthConfig!.callbacks!.jwt! as CallbackFn;
+    const token = await jwtCallback({
+      token: { sub: 'sub-123', id: 'existing-id', tosAccepted: false },
+      user: undefined,
+      trigger: 'update',
+      session: {},
+    });
+    expect(token.tosAccepted).toBe(false);
   });
 
   it('passes session callback that injects token.id into session.user', async () => {

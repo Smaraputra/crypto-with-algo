@@ -36,8 +36,10 @@ export default function ConsentPage() {
         setLoading(false);
         return;
       }
-      // Trigger JWT refresh so tosAccepted is updated in the session
-      await update();
+      // Trigger JWT refresh -- must pass data to force a POST request,
+      // otherwise useSession().update() sends a GET which doesn't set
+      // trigger='update' in the JWT callback.
+      await update({ tosAccepted: true });
       router.push('/dashboard');
     } catch {
       setError('Network error. Please try again.');
