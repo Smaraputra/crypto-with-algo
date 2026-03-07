@@ -184,8 +184,8 @@ export default function TermsPage() {
           <ul className="list-disc pl-6 space-y-1">
             <li>Binance API for market data</li>
             <li>Google and GitHub for OAuth authentication</li>
-            <li>MongoDB Atlas for data storage</li>
-            <li>Upstash Redis for caching</li>
+            <li>CryptoPanic for cryptocurrency news</li>
+            <li>Alternative.me for Fear &amp; Greed Index data</li>
           </ul>
           <p className="mt-2">
             We are not responsible for the availability, accuracy, or privacy practices of third-party services. Your use of OAuth providers is subject to their respective terms.

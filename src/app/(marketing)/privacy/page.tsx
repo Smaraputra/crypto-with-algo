@@ -60,8 +60,10 @@ export default function PrivacyPage() {
           <p>We use cookies for:</p>
           <ul className="list-disc pl-6 space-y-1">
             <li>Session management (authentication state)</li>
-            <li>User preferences (theme, chart settings)</li>
           </ul>
+          <p className="mt-2">
+            User preferences (theme, chart settings) are stored locally in your browser using localStorage and are never transmitted to our servers.
+          </p>
           <p className="mt-2">
             You can control cookies through your browser settings, but disabling them may affect Service functionality.
           </p>
@@ -89,9 +91,9 @@ export default function PrivacyPage() {
           <h3 className="text-base font-semibold text-foreground mt-4">4.1 Storage Infrastructure</h3>
           <p>Your data is stored using:</p>
           <ul className="list-disc pl-6 space-y-1">
-            <li><strong>MongoDB Atlas</strong>: Portfolio data, user accounts, journal entries, alerts (encrypted at rest)</li>
-            <li><strong>Upstash Redis</strong>: Session data and temporary cache (encrypted in transit)</li>
-            <li><strong>Vercel/Server</strong>: Application hosting (SOC 2 compliant)</li>
+            <li><strong>MongoDB</strong>: Portfolio data, user accounts, journal entries, alerts</li>
+            <li><strong>Redis</strong>: Temporary cache for market data</li>
+            <li><strong>Self-hosted server</strong>: Application and database hosting on a dedicated VPS</li>
           </ul>
 
           <h3 className="text-base font-semibold text-foreground mt-4">4.2 Security Measures</h3>
@@ -112,7 +114,6 @@ export default function PrivacyPage() {
             <li>Portfolio data: Until you delete it or close your account</li>
             <li>Session data: 7 days after issuance</li>
             <li>Analytics data: Aggregated and anonymized indefinitely</li>
-            <li>Backups: 30 days for disaster recovery</li>
           </ul>
         </section>
 
@@ -125,11 +126,8 @@ export default function PrivacyPage() {
             <li><strong>Binance API</strong>: Market data retrieval (no account access, public data only)</li>
             <li><strong>Google OAuth</strong>: Optional authentication (subject to Google Privacy Policy)</li>
             <li><strong>GitHub OAuth</strong>: Optional authentication (subject to GitHub Privacy Policy)</li>
-            <li><strong>MongoDB Atlas</strong>: Database hosting (subject to MongoDB Privacy Policy)</li>
-            <li><strong>Upstash</strong>: Redis caching (subject to Upstash Privacy Policy)</li>
-            <li><strong>CryptoPanic</strong>: Cryptocurrency news data (subject to CryptoPanic Privacy Policy)</li>
-            <li><strong>Alternative.me</strong>: Fear &amp; Greed Index data (subject to Alternative.me Privacy Policy)</li>
-            <li><strong>Cloudflare Web Analytics</strong>: Privacy-focused, cookieless web analytics (subject to Cloudflare Privacy Policy)</li>
+            <li><strong>CryptoPanic</strong>: Cryptocurrency news data (subject to CryptoPanic Terms of Service)</li>
+            <li><strong>Alternative.me</strong>: Fear &amp; Greed Index data (subject to Alternative.me Terms of Service)</li>
           </ul>
 
           <h3 className="text-base font-semibold text-foreground mt-4">5.2 Data We Do NOT Sell or Share</h3>
@@ -201,13 +199,8 @@ export default function PrivacyPage() {
         <section>
           <h2 className="text-lg font-semibold text-foreground">8. International Data Transfers</h2>
           <p>
-            Your data may be transferred to and processed in countries other than your own. We ensure appropriate safeguards are in place, including:
+            Your data may be transferred to and processed in countries other than your own. Our servers are located in Germany. Third-party APIs (Binance, CryptoPanic, Alternative.me) may process requests in other jurisdictions.
           </p>
-          <ul className="list-disc pl-6 space-y-1">
-            <li>Standard contractual clauses approved by the EU Commission</li>
-            <li>Adequacy decisions for data transfers</li>
-            <li>Infrastructure providers with privacy certifications</li>
-          </ul>
           <p className="mt-2">
             By using CryptoWithAlgo, you consent to the transfer of your information to these jurisdictions.
           </p>
@@ -219,7 +212,7 @@ export default function PrivacyPage() {
             In the event of a data breach that compromises your personal information, we will:
           </p>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Notify affected users within 72 hours via in-app notification</li>
+            <li>Notify affected users within 72 hours via email and in-app notification</li>
             <li>Report to relevant authorities as required by law</li>
             <li>Take immediate steps to secure systems and prevent further breaches</li>
             <li>Provide guidance on protective measures you can take</li>
