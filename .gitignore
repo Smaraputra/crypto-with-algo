@@ -52,3 +52,12 @@ e2e/.auth/
 *.tsbuildinfo
 next-env.d.ts
 CLAUDE.md
+
+# internal dev-process docs (not for public)
+sessions/
+plans/
+PLAN.md
+SHIPPING.md
+
+# personal marketing drafts
+linkedin-post.md

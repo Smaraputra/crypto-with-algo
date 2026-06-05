@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Internal dev-process docs from the public repo (`sessions/`, `plans/`, `PLAN.md`, `SHIPPING.md`); now gitignored
+
 ### Fixed
 - DataStatus component now auto-fetches candle counts on mount and when symbol/interval changes (removed manual "Check Status" button)
 - E2E signals tests updated for CardTitle div elements (getByRole('heading') to getByText())
@@ -25,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exported `calculateWindows` from walk-forward.ts for direct unit testing
 
 ### Added
+- `LICENSE` (MIT), backing the license declared in the README
+- `SECURITY.md` with a private vulnerability-reporting policy
+- `CONTRIBUTING.md` documenting local setup, required checks, and Conventional Commits
+- `package.json` metadata: `description`, `author`, `license`, `repository`, `homepage`
+- README disclaimer section (educational project, not financial advice)
 - Unit tests for walk-forward `calculateWindows` (8 tests: boundaries, anchoring, expanding, step size)
 - Unit tests for template-versioning (7 tests: versioning, activation, deactivation, error handling)
 - Unit tests for monthly-orchestrator (5 tests: happy path, insufficient data, backfill, null regression, empty candles)

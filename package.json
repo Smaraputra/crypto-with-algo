@@ -2,6 +2,14 @@
   "name": "cryptowithalgo",
   "version": "0.1.0",
   "private": true,
+  "description": "Real-time crypto portfolio tracker with Binance market data, interactive trading charts, signals, and backtesting (Next.js 16).",
+  "author": "A.A. Gde Agung Smaraputra",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Smaraputra/crypto-with-algo.git"
+  },
+  "homepage": "https://github.com/Smaraputra/crypto-with-algo#readme",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
