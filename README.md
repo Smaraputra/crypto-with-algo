@@ -75,8 +75,8 @@ On VPS deployments with multiple sites, each app runs on a different internal po
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/crypto-tracker.git
-cd crypto-tracker
+git clone https://github.com/Smaraputra/crypto-with-algo.git
+cd crypto-with-algo
 
 # Install dependencies
 npm install
@@ -214,10 +214,11 @@ See `docker-compose.yml` for production stack (Next.js + MongoDB + Redis).
 
 ## Documentation
 
-- **[CLAUDE.md](./CLAUDE.md)**: Project conventions and architecture
+- **[PROJECT.md](./PROJECT.md)**: Feature and architecture overview
+- **[docs/TECHNICAL.md](./docs/TECHNICAL.md)**: Detailed technical architecture
 - **[VPS-DEPLOYMENT.md](./VPS-DEPLOYMENT.md)**: VPS multi-site deployment guide
 - **[CHANGELOG.md](./changelogs/CHANGELOG.md)**: Version history
-- **[Sessions](./sessions/)**: Development session handovers
+- **[CONTRIBUTING.md](./CONTRIBUTING.md)**: Development workflow and conventions
 
 ## Contributing
 
@@ -238,9 +239,18 @@ All changes must pass:
 - `npm run test:e2e` - All E2E tests passing
 - `npm run build` - Clean production build
 
+## Disclaimer
+
+This is an educational and portfolio project. It is not financial advice. The
+market data, signals, backtests, and analytics provided are for informational
+purposes only and may be inaccurate, delayed, or incomplete. Cryptocurrency
+trading carries significant risk. Do your own research and never trade based
+solely on this software. The software is provided "as is", without warranty of
+any kind; the author accepts no liability for any losses incurred.
+
 ## License
 
-MIT
+[MIT](./LICENSE)
 
 ## Acknowledgments
 
