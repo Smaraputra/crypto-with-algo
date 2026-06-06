@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Email verification on registration with a hard login gate (unverified credentials accounts cannot sign in; OAuth accounts are auto-verified)
+- Resend-verification and password-reset flows (forgot-password and reset-password pages and API routes)
+- Restored registration form with Terms-of-Service acceptance
+- Cloudflare Turnstile protection on the registration, resend, and forgot-password endpoints
+- Transactional email via MailerSend SMTP (nodemailer)
+
 ### Removed
 - Internal dev-process docs from the public repo (`sessions/`, `plans/`, `PLAN.md`, `SHIPPING.md`); now gitignored
 

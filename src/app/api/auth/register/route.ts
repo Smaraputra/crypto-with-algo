@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { connectDB } from '@/lib/mongodb';
 import { User } from '@/lib/models/user';
 import { createRateLimiter, rateLimit } from '@/lib/rate-limit';
+import { verifyTurnstile } from '@/lib/turnstile';
+import { createToken } from '@/lib/auth-tokens';
+import { sendEmail } from '@/lib/email/mailer';
+import { verificationEmail } from '@/lib/email/templates';
 
 const registerSchema = z.object({
   name: z.string().min(2).max(100),
@@ -19,6 +23,7 @@ const registerSchema = z.object({
   tosAccepted: z.literal(true, {
     message: 'You must accept the Terms of Service and Privacy Policy',
   }),
+  turnstileToken: z.string().min(1, 'Verification challenge required'),
 });
 
 const limiter = createRateLimiter(5, 60);
@@ -52,6 +57,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  const turnstileOk = await verifyTurnstile(parsed.data.turnstileToken, ip);
+  if (!turnstileOk) {
+    return NextResponse.json({ error: 'Verification challenge failed' }, { status: 400 });
+  }
+
   try {
     await connectDB();
 
@@ -70,6 +81,14 @@ export async function POST(req: NextRequest) {
       password: hashedPassword,
       tosAcceptedAt: new Date(),
     });
+
+    try {
+      const token = await createToken(user._id.toString(), 'verify', 24 * 60 * 60);
+      const url = `${process.env.NEXTAUTH_URL}/verify-email?token=${token}`;
+      await sendEmail({ to: parsed.data.email, ...verificationEmail({ name: parsed.data.name, url }) });
+    } catch (mailErr) {
+      console.error('Verification email failed to send:', mailErr);
+    }
 
     return NextResponse.json(
       {
