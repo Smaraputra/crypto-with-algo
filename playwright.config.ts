@@ -63,7 +63,9 @@ export default defineConfig({
   webServer: {
     // Force Cloudflare's always-pass Turnstile test keys so the widget auto-succeeds
     // headlessly and server-side verification passes deterministically during E2E.
-    command: `PORT=${TEST_PORT} ALLOW_REGISTRATION=true NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA npm run dev`,
+    // REDIS_URL='' disables the rate limiter (matching CI, which has no Redis) so
+    // repeated local runs are not blocked by 429s on the auth endpoints.
+    command: `PORT=${TEST_PORT} ALLOW_REGISTRATION=true REDIS_URL= NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA npm run dev`,
     url: `http://localhost:${TEST_PORT}`,
     reuseExistingServer: !process.env.CI,
   },
