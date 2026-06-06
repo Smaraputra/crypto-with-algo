@@ -1,16 +1,45 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const mockRedirect = vi.fn();
-
-vi.mock('next/navigation', () => ({
-  redirect: (...args: unknown[]) => mockRedirect(...args),
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
+vi.mock('@/components/auth/turnstile', () => ({
+  TurnstileWidget: ({ onToken }: { onToken: (t: string) => void }) => {
+    onToken('test-token');
+    return <div data-testid="turnstile" />;
+  },
 }));
 
 import RegisterPage from './page';
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
+});
+
 describe('RegisterPage', () => {
-  it('redirects to /login', () => {
-    RegisterPage();
-    expect(mockRedirect).toHaveBeenCalledWith('/login');
+  it('renders the form with name, email, password, confirm, ToS, and Turnstile', () => {
+    render(<RegisterPage />);
+    expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
+    expect(screen.getByTestId('turnstile')).toBeInTheDocument();
+  });
+
+  it('shows the check-inbox screen after successful submit', async () => {
+    render(<RegisterPage />);
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Ada Lovelace' } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'ada@test.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'Secret1!' } });
+    fireEvent.change(screen.getByLabelText(/confirm/i), { target: { value: 'Secret1!' } });
+    fireEvent.click(screen.getByLabelText(/terms/i));
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    await waitFor(() => expect(screen.getByText(/check your inbox/i)).toBeInTheDocument());
+
+    // Guard the regression where the form validated ToS client-side but never
+    // sent it, causing the API (which requires tosAccepted) to 400.
+    const body = JSON.parse(
+      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
+    );
+    expect(body.tosAccepted).toBe(true);
+    expect(body.turnstileToken).toBe('test-token');
   });
 });

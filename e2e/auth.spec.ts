@@ -17,12 +17,12 @@ test.describe('Auth pages (unauthenticated)', () => {
     await expect(page.getByRole('button', { name: 'GitHub' })).toBeVisible();
   });
 
-  test('register page redirects to login', async ({ page }) => {
+  test('register page renders the signup form', async ({ page }) => {
     await page.goto('/register');
-    await expect(page).toHaveURL(/\/login/);
-    // Should show login form after redirect
+    await expect(page).toHaveURL(/\/register/);
+    await expect(page.getByLabel('Name')).toBeVisible();
     await expect(page.getByLabel('Email')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /create account/i })).toBeVisible();
   });
 
   test('login form shows error for bad credentials', async ({ page }) => {
@@ -35,24 +35,7 @@ test.describe('Auth pages (unauthenticated)', () => {
     await expect(page.getByText('Invalid email or password')).toBeVisible({ timeout: 15000 });
   });
 
-  test('register then login flow', async ({ page, baseURL }) => {
-    const email = `e2e-flow-${Date.now()}@test.local`;
-    const password = 'FlowTestPass123!';
-
-    // Register via API
-    const res = await page.request.post(`${baseURL}/api/auth/register`, {
-      data: { name: 'Flow Test', email, password, tosAccepted: true },
-    });
-    expect(res.status()).toBe(201);
-
-    // Login via UI
-    await page.goto('/login');
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill(password);
-    await page.getByRole('button', { name: 'Sign In' }).click();
-
-    // Should redirect to dashboard
-    await expect(page).toHaveURL('/dashboard', { timeout: 10000 });
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-  });
+  // Note: the register-then-login happy path (register -> verify -> sign in -> dashboard)
+  // is exercised by e2e/auth.setup.ts. The unverified-login-blocked path lives in
+  // e2e/email-auth.spec.ts.
 });

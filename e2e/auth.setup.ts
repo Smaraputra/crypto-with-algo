@@ -1,4 +1,7 @@
 import { test as setup, expect } from '@playwright/test';
+import mongoose from 'mongoose';
+import { connectDB } from '../src/lib/mongodb';
+import { User } from '../src/lib/models/user';
 
 const TEST_USER = {
   name: 'E2E Test User',
@@ -14,9 +17,20 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
       email: TEST_USER.email,
       password: TEST_USER.password,
       tosAccepted: true,
+      // Non-empty satisfies the Zod check; Turnstile is skipped (no secret) or
+      // uses Cloudflare's always-pass test secret in CI.
+      turnstileToken: 'e2e-test-token',
     },
   });
   expect([201, 400]).toContain(registerRes.status());
+
+  // The hard email-verification gate blocks unverified credentials login, and E2E
+  // cannot click an emailed link, so mark this user verified directly in the DB.
+  await connectDB();
+  await User.updateOne(
+    { email: TEST_USER.email },
+    { $set: { emailVerified: new Date() } }
+  );
 
   // Log in via the UI to obtain a session cookie
   await page.goto('/login');
@@ -32,4 +46,7 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
 
   // Save signed-in state for reuse by other test projects
   await page.context().storageState({ path: 'e2e/.auth/user.json' });
+
+  // Release the direct Mongo connection so the worker process can exit cleanly.
+  await mongoose.disconnect();
 });

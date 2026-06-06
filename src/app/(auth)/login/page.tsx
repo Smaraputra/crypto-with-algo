@@ -37,10 +37,12 @@ function LoginForm() {
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showResend, setShowResend] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
+    setShowResend(false);
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
@@ -63,7 +65,12 @@ function LoginForm() {
     });
 
     if (result?.error) {
-      setError('Invalid email or password');
+      if (result.code === 'email_not_verified') {
+        setError('Please verify your email before signing in.');
+        setShowResend(true);
+      } else {
+        setError('Invalid email or password');
+      }
       setLoading(false);
       return;
     }
@@ -84,6 +91,14 @@ function LoginForm() {
           {error && (
             <div role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
+              {showResend && (
+                <span>
+                  {' '}
+                  <Link href="/verify-email" className="underline hover:no-underline">
+                    Resend verification email
+                  </Link>
+                </span>
+              )}
             </div>
           )}
           <div className="space-y-2">
@@ -131,6 +146,20 @@ function LoginForm() {
           >
             GitHub
           </Button>
+        </div>
+
+        <div className="space-y-1 text-center text-sm text-muted-foreground">
+          <p>
+            <Link href="/forgot-password" className="text-primary hover:underline">
+              Forgot password?
+            </Link>
+          </p>
+          <p>
+            Don&apos;t have an account?{' '}
+            <Link href="/register" className="text-primary hover:underline">
+              Sign up
+            </Link>
+          </p>
         </div>
 
       </CardContent>

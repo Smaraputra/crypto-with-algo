@@ -1,4 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
+import { loadEnvConfig } from '@next/env';
+
+// Load .env.local (and friends) into process.env so the setup project (which talks to
+// MongoDB directly) shares the same MONGODB_URI as the dev server. In CI there is no
+// .env.local, so the job-level env vars are used instead.
+loadEnvConfig(process.cwd());
 
 // E2E tests use dedicated TEST_PORT (defaults to 3300) to avoid conflicts with dev server
 const TEST_PORT = process.env.TEST_PORT || '3300';
@@ -30,7 +36,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         viewport: { width: 1280, height: 720 },
       },
-      testMatch: /auth\.spec\.ts|landing\.spec\.ts|marketing-pages\.spec\.ts/,
+      testMatch: /auth\.spec\.ts|landing\.spec\.ts|marketing-pages\.spec\.ts|email-auth\.spec\.ts/,
     },
 
     // Mobile viewport tests -- unauthenticated, small screen
@@ -51,11 +57,15 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: /auth\.(spec|setup)\.ts|landing\.spec\.ts|landing-mobile\.spec\.ts|marketing-pages\.spec\.ts/,
+      testIgnore: /auth\.(spec|setup)\.ts|landing\.spec\.ts|landing-mobile\.spec\.ts|marketing-pages\.spec\.ts|email-auth\.spec\.ts/,
     },
   ],
   webServer: {
-    command: `PORT=${TEST_PORT} ALLOW_REGISTRATION=true npm run dev`,
+    // Force Cloudflare's always-pass Turnstile test keys so the widget auto-succeeds
+    // headlessly and server-side verification passes deterministically during E2E.
+    // REDIS_URL='' disables the rate limiter (matching CI, which has no Redis) so
+    // repeated local runs are not blocked by 429s on the auth endpoints.
+    command: `PORT=${TEST_PORT} ALLOW_REGISTRATION=true REDIS_URL= NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA npm run dev`,
     url: `http://localhost:${TEST_PORT}`,
     reuseExistingServer: !process.env.CI,
   },
