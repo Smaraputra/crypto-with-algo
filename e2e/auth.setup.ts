@@ -14,6 +14,9 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
       email: TEST_USER.email,
       password: TEST_USER.password,
       tosAccepted: true,
+      // Non-empty satisfies the Zod check; Turnstile is skipped (no secret) or
+      // uses Cloudflare's always-pass test secret in CI.
+      turnstileToken: 'e2e-test-token',
     },
   });
   expect([201, 400]).toContain(registerRes.status());

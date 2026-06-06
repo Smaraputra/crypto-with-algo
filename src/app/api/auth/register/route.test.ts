@@ -22,10 +22,17 @@ vi.mock('@/lib/rate-limit', () => ({
   rateLimit: vi.fn(() => null),
 }));
 
+vi.mock('@/lib/turnstile', () => ({ verifyTurnstile: vi.fn(() => true) }));
+vi.mock('@/lib/auth-tokens', () => ({ createToken: vi.fn() }));
+vi.mock('@/lib/email/mailer', () => ({ sendEmail: vi.fn() }));
+
 import { POST } from './route';
 import { User } from '@/lib/models/user';
 import bcrypt from 'bcryptjs';
 import { rateLimit } from '@/lib/rate-limit';
+import { verifyTurnstile } from '@/lib/turnstile';
+import { createToken } from '@/lib/auth-tokens';
+import { sendEmail } from '@/lib/email/mailer';
 
 function makeRequest(body?: unknown): NextRequest {
   if (body === undefined) {
@@ -47,6 +54,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('ALLOW_REGISTRATION', 'true');
   vi.mocked(rateLimit).mockResolvedValue(null);
+  vi.mocked(verifyTurnstile).mockResolvedValue(true);
+  vi.mocked(createToken).mockResolvedValue('rawtoken');
+  vi.mocked(sendEmail).mockResolvedValue(undefined);
 });
 
 describe('POST /api/auth/register', () => {
@@ -108,6 +118,7 @@ describe('POST /api/auth/register', () => {
       email: 'dupe@example.com',
       password: 'Secret1!',
       tosAccepted: true,
+      turnstileToken: 'good',
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -129,6 +140,7 @@ describe('POST /api/auth/register', () => {
       email: 'alice@example.com',
       password: 'Secret1!',
       tosAccepted: true,
+      turnstileToken: 'good',
     });
     const res = await POST(req);
     expect(res.status).toBe(201);
@@ -154,6 +166,7 @@ describe('POST /api/auth/register', () => {
       email: 'test@example.com',
       password: 'MyPass1!',
       tosAccepted: true,
+      turnstileToken: 'good',
     });
     await POST(req);
 
@@ -171,6 +184,7 @@ describe('POST /api/auth/register', () => {
       email: 'race@example.com',
       password: 'Secret1!',
       tosAccepted: true,
+      turnstileToken: 'good',
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
@@ -188,6 +202,7 @@ describe('POST /api/auth/register', () => {
       email: 'test@example.com',
       password: 'Secret1!',
       tosAccepted: true,
+      turnstileToken: 'good',
     });
     const res = await POST(req);
     expect(res.status).toBe(500);
@@ -234,6 +249,7 @@ describe('POST /api/auth/register', () => {
       email: 'test@example.com',
       password: 'Secret1!',
       tosAccepted: true,
+      turnstileToken: 'good',
     });
     await POST(req);
 
@@ -258,5 +274,34 @@ describe('POST /api/auth/register', () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(429);
+  });
+
+  it('rejects when the Turnstile token is invalid', async () => {
+    vi.mocked(verifyTurnstile).mockResolvedValue(false);
+    const req = makeRequest({
+      name: 'Test', email: 'test@example.com',
+      password: 'Secret1!', tosAccepted: true, turnstileToken: 'bad',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(User.create).not.toHaveBeenCalled();
+  });
+
+  it('issues a verify token and sends the verification email on success', async () => {
+    vi.mocked(verifyTurnstile).mockResolvedValue(true);
+    vi.mocked(User.findOne).mockResolvedValue(null);
+    vi.mocked(User.create).mockResolvedValue({ _id: { toString: () => 'u1' } } as never);
+    vi.mocked(createToken).mockResolvedValue('rawtoken');
+    const req = makeRequest({
+      name: 'Test', email: 'test@example.com',
+      password: 'Secret1!', tosAccepted: true, turnstileToken: 'good',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+    expect(createToken).toHaveBeenCalledWith('u1', 'verify', 24 * 60 * 60);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const sent = vi.mocked(sendEmail).mock.calls[0][0];
+    expect(sent.to).toBe('test@example.com');
+    expect(sent.html).toContain('/verify-email?token=rawtoken');
   });
 });
