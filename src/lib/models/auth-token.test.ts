@@ -16,7 +16,9 @@ describe('AuthToken model', () => {
   });
 
   it('declares a TTL index on expiresAt', () => {
-    const indexes = AuthToken.schema.indexes();
+    const indexes = AuthToken.schema.indexes() as Array<
+      [Record<string, unknown>, { expireAfterSeconds?: number }]
+    >;
     const ttl = indexes.find(([fields]) => 'expiresAt' in fields);
     expect(ttl).toBeDefined();
     expect(ttl?.[1]?.expireAfterSeconds).toBe(0);
