@@ -54,10 +54,11 @@ next-env.d.ts
 CLAUDE.md
 
 # internal dev-process docs (not for public)
-sessions/
-plans/
-PLAN.md
-SHIPPING.md
+/sessions/
+/plans/
+/PLAN.md
+/SHIPPING.md
+/docs/superpowers/
 
 # personal marketing drafts
-linkedin-post.md
+/linkedin-post.md
