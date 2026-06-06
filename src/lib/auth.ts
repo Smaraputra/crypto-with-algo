@@ -88,8 +88,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Non-essential: never block an otherwise-valid OAuth login on a DB hiccup.
         try {
           await connectDB();
+          // `emailVerified: null` matches both null (adapter default) and missing,
+          // and excludes already-verified users (a Date), so this is idempotent.
           await User.updateOne(
-            { _id: user.id, emailVerified: { $exists: false } },
+            { _id: user.id, emailVerified: null },
             { $set: { emailVerified: new Date() } }
           );
         } catch (err) {

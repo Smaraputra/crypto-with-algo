@@ -307,7 +307,7 @@ describe('NextAuth configuration', () => {
     const ok = await signInCallback({ user: { id: 'u1' }, account: { provider: 'google' } });
     expect(ok).toBe(true);
     expect(User.updateOne).toHaveBeenCalledWith(
-      { _id: 'u1', emailVerified: { $exists: false } },
+      { _id: 'u1', emailVerified: null },
       { $set: { emailVerified: expect.any(Date) } }
     );
   });
