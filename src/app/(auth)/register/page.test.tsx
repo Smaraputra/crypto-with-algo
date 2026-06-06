@@ -33,5 +33,13 @@ describe('RegisterPage', () => {
     fireEvent.click(screen.getByLabelText(/terms/i));
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
     await waitFor(() => expect(screen.getByText(/check your inbox/i)).toBeInTheDocument());
+
+    // Guard the regression where the form validated ToS client-side but never
+    // sent it, causing the API (which requires tosAccepted) to 400.
+    const body = JSON.parse(
+      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
+    );
+    expect(body.tosAccepted).toBe(true);
+    expect(body.turnstileToken).toBe('test-token');
   });
 });
