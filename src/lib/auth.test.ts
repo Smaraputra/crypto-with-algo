@@ -9,6 +9,7 @@ vi.mock('next-auth', () => ({
     signIn: vi.fn(),
     signOut: vi.fn(),
   })),
+  CredentialsSignin: class CredentialsSignin extends Error {},
 }));
 vi.mock('next-auth/providers/credentials', () => ({
   default: vi.fn((config) => config),
@@ -28,6 +29,7 @@ vi.mock('./models/user', () => ({
   User: {
     findOne: vi.fn(),
     findById: (...args: unknown[]) => mockFindById(...args),
+    updateOne: vi.fn(),
   },
 }));
 
@@ -35,7 +37,7 @@ vi.mock('bcryptjs', () => ({
   default: { compare: vi.fn() },
 }));
 
-import { loginSchema, authorizeCredentials } from './auth';
+import { loginSchema, authorizeCredentials, EmailNotVerifiedError } from './auth';
 import { User } from './models/user';
 import bcrypt from 'bcryptjs';
 import NextAuth from 'next-auth';
@@ -136,6 +138,7 @@ describe('authorizeCredentials', () => {
       email: 'test@example.com',
       password: '$2a$12$hashedpassword',
       image: 'https://example.com/avatar.jpg',
+      emailVerified: new Date(),
     });
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
 
@@ -149,6 +152,25 @@ describe('authorizeCredentials', () => {
       email: 'test@example.com',
       image: 'https://example.com/avatar.jpg',
     });
+  });
+
+  it('returns the user when password matches and email is verified', async () => {
+    vi.mocked(User.findOne).mockResolvedValue({ _id: { toString: () => 'u1' }, name: 'A', email: 'a@b.com', password: 'h', emailVerified: new Date() });
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    const result = await authorizeCredentials({ email: 'a@b.com', password: 'pw1234' });
+    expect(result).toMatchObject({ id: 'u1', email: 'a@b.com' });
+  });
+
+  it('throws EmailNotVerifiedError when password matches but email is unverified', async () => {
+    vi.mocked(User.findOne).mockResolvedValue({ _id: { toString: () => 'u1' }, name: 'A', email: 'a@b.com', password: 'h', emailVerified: undefined });
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    await expect(authorizeCredentials({ email: 'a@b.com', password: 'pw1234' })).rejects.toBeInstanceOf(EmailNotVerifiedError);
+  });
+
+  it('returns null on wrong password (not the unverified error)', async () => {
+    vi.mocked(User.findOne).mockResolvedValue({ _id: { toString: () => 'u1' }, name: 'A', email: 'a@b.com', password: 'h', emailVerified: undefined });
+    vi.mocked(bcrypt.compare).mockResolvedValue(false as never);
+    expect(await authorizeCredentials({ email: 'a@b.com', password: 'bad' })).toBeNull();
   });
 });
 
@@ -278,5 +300,21 @@ describe('NextAuth configuration', () => {
 
   it('uses JWT session strategy', () => {
     expect(nextAuthConfig!.session!.strategy).toBe('jwt');
+  });
+
+  it('auto-verifies OAuth users via the signIn callback', async () => {
+    const signInCallback = nextAuthConfig!.callbacks!.signIn! as CallbackFn;
+    const ok = await signInCallback({ user: { id: 'u1' }, account: { provider: 'google' } });
+    expect(ok).toBe(true);
+    expect(User.updateOne).toHaveBeenCalledWith(
+      { _id: 'u1', emailVerified: { $exists: false } },
+      { $set: { emailVerified: expect.any(Date) } }
+    );
+  });
+
+  it('does not auto-verify credentials sign-ins', async () => {
+    const signInCallback = nextAuthConfig!.callbacks!.signIn! as CallbackFn;
+    await signInCallback({ user: { id: 'u1' }, account: { provider: 'credentials' } });
+    expect(User.updateOne).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import NextAuth from 'next-auth';
+import NextAuth, { CredentialsSignin } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import GitHub from 'next-auth/providers/github';
@@ -8,6 +8,10 @@ import { z } from 'zod';
 import { connectDB } from './mongodb';
 import { User } from './models/user';
 import { MongoClient } from 'mongodb';
+
+export class EmailNotVerifiedError extends CredentialsSignin {
+  code = 'email_not_verified';
+}
 
 export const loginSchema = z.object({
   email: z.email(),
@@ -39,6 +43,10 @@ export async function authorizeCredentials(
     user.password
   );
   if (!passwordMatch) return null;
+
+  if (!user.emailVerified) {
+    throw new EmailNotVerifiedError();
+  }
 
   return {
     id: user._id.toString(),
@@ -74,6 +82,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      if (account && account.provider !== 'credentials' && user?.id) {
+        // Auto-verify OAuth users (the provider already confirmed the email).
+        // Non-essential: never block an otherwise-valid OAuth login on a DB hiccup.
+        try {
+          await connectDB();
+          await User.updateOne(
+            { _id: user.id, emailVerified: { $exists: false } },
+            { $set: { emailVerified: new Date() } }
+          );
+        } catch (err) {
+          console.error('OAuth emailVerified update failed:', err);
+        }
+      }
+      return true;
+    },
     async jwt({ token, user, trigger, session: updateData }) {
       if (user) {
         token.id = user.id!;
