@@ -155,4 +155,36 @@ describe('LoginPage', () => {
     expect(tosLink).toHaveAttribute('href', '/terms');
     expect(ppLink).toHaveAttribute('href', '/privacy');
   });
+
+  it('renders sign up and forgot password links', () => {
+    render(<LoginPage />);
+    expect(screen.getByRole('link', { name: /sign up/i })).toHaveAttribute(
+      'href',
+      '/register'
+    );
+    expect(
+      screen.getByRole('link', { name: /forgot password/i })
+    ).toHaveAttribute('href', '/forgot-password');
+  });
+
+  it('shows a verify-email message and resend link when login fails with email_not_verified', async () => {
+    mockSignIn.mockResolvedValue({
+      error: 'CredentialsSignin',
+      code: 'email_not_verified',
+    });
+    const user = userEvent.setup();
+    render(<LoginPage />);
+
+    await user.type(screen.getByLabelText('Email'), 'test@example.com');
+    await user.type(screen.getByLabelText('Password'), 'secret123');
+    await user.click(screen.getByRole('button', { name: 'Sign In' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/verify your email/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('link', { name: /resend/i })).toHaveAttribute(
+      'href',
+      '/verify-email'
+    );
+  });
 });
