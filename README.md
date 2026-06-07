@@ -18,12 +18,13 @@ alerts. Self-hostable and open source. No exchange API keys required for market 
 
 </div>
 
-![CryptoWithAlgo](assets/screenshots/hero.png)
+![CryptoWithAlgo dashboard](assets/screenshots/dashboard.png)
 
 ## Table of Contents
 
 - [About](#about)
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Built With](#built-with)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -54,6 +55,14 @@ keys required to view market data.
 - Analytics: daily snapshots, risk metrics, and tax reporting (FIFO, LIFO, HIFO)
 - Price alerts: configurable, recurring alerts evaluated by a scheduled worker
 - Research and sentiment: market research notes, Fear and Greed Index, and a crypto news feed
+
+## Screenshots
+
+| Multi-indicator trading signals | Strategy backtesting |
+|:---:|:---:|
+| ![Trading signals](assets/screenshots/signals.png) | ![Backtesting](assets/screenshots/backtest.png) |
+| **Portfolio analytics** | **Holdings and P&L** |
+| ![Analytics](assets/screenshots/analytics.png) | ![Portfolio](assets/screenshots/portfolio.png) |
 
 ## Built With
 
