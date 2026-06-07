@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-07
+
 ### Added
+- Promotional, public-facing README with hero image, status badges, and a live demo link
+- `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1)
+- IDE and editor ignore entries in `.gitignore`
+- `SEED_EMAIL` and `SEED_PASSWORD` documented in `.env.example` (both are required by `npm run seed`)
 - Email verification on registration with a hard login gate (unverified credentials accounts cannot sign in; OAuth accounts are auto-verified)
 - Resend-verification and password-reset flows (forgot-password and reset-password pages and API routes)
 - Restored registration form with Terms-of-Service acceptance
