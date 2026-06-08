@@ -1,36 +1,42 @@
 <div align="center">
 
+<img src="public/logo.png" alt="CryptoWithAlgo" width="96" height="96" />
+
 # CryptoWithAlgo
 
-### Algorithmic Crypto Intelligence
+**Algorithmic crypto intelligence.** Track cryptocurrency portfolios with live Binance data,
+interactive technical charts, risk analytics, a multi-indicator signal engine, strategy
+backtesting, and intelligent price alerts, all in one self-hostable dashboard. No exchange
+API keys required for market data.
 
-Track cryptocurrency portfolios with live Binance data, interactive technical charts, risk
-analytics, a multi-indicator signal engine, strategy backtesting, and intelligent price
-alerts. Self-hostable and open source. No exchange API keys required for market data.
+[Live Demo](https://cryptowithalgo.com) &nbsp;&middot;&nbsp; [Features](#features) &nbsp;&middot;&nbsp; [Screenshots](#screenshots) &nbsp;&middot;&nbsp; [Tech Stack](#tech-stack) &nbsp;&middot;&nbsp; [Quick Start](#quick-start) &nbsp;&middot;&nbsp; [Documentation](#documentation) &nbsp;&middot;&nbsp; [License](#license)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.0-0ecb81.svg)](changelogs/CHANGELOG.md)
-[![CI](https://github.com/Smaraputra/crypto-with-algo/actions/workflows/ci.yml/badge.svg)](https://github.com/Smaraputra/crypto-with-algo/actions/workflows/ci.yml)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black.svg?logo=next.js)](https://nextjs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+![Version](https://img.shields.io/badge/version-1.0.0-0ecb81?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-f0b90b?style=flat-square)
+![CI](https://img.shields.io/github/actions/workflow/status/Smaraputra/crypto-with-algo/ci.yml?branch=main&style=flat-square&label=CI)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?style=flat-square&logo=mongodb&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-passing-0ecb81?style=flat-square)
+![GitHub stars](https://img.shields.io/github/stars/Smaraputra/crypto-with-algo?style=flat-square)
 
-[Live Demo](https://cryptowithalgo.com) &middot; [Documentation](docs/TECHNICAL.md) &middot; [Report a Bug](https://github.com/Smaraputra/crypto-with-algo/issues) &middot; [Request a Feature](https://github.com/Smaraputra/crypto-with-algo/issues)
+<img src="assets/screenshots/dashboard.png" alt="CryptoWithAlgo dashboard" width="100%" />
 
 </div>
-
-![CryptoWithAlgo dashboard](assets/screenshots/dashboard.png)
 
 ## Table of Contents
 
 - [About](#about)
 - [Features](#features)
 - [Screenshots](#screenshots)
-- [Built With](#built-with)
+- [Tech Stack](#tech-stack)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Development](#development)
 - [Deployment](#deployment)
 - [Documentation](#documentation)
+- [Project Status](#project-status)
+- [Conventions](#conventions)
 - [Contributing](#contributing)
 - [Disclaimer](#disclaimer)
 - [License](#license)
@@ -58,24 +64,31 @@ keys required to view market data.
 
 ## Screenshots
 
-| Multi-indicator trading signals | Strategy backtesting |
-|:---:|:---:|
-| ![Trading signals](assets/screenshots/signals.png) | ![Backtesting](assets/screenshots/backtest.png) |
-| **Portfolio analytics** | **Holdings and P&L** |
-| ![Analytics](assets/screenshots/analytics.png) | ![Portfolio](assets/screenshots/portfolio.png) |
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/signals.png" alt="Multi-indicator trading signals" /><br/><sub>Multi-indicator trading signals</sub></td>
+    <td width="50%"><img src="assets/screenshots/backtest.png" alt="Strategy backtesting" /><br/><sub>Strategy backtesting</sub></td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/analytics.png" alt="Portfolio analytics" /><br/><sub>Portfolio analytics</sub></td>
+    <td><img src="assets/screenshots/portfolio.png" alt="Holdings and P&L" /><br/><sub>Holdings and P&amp;L</sub></td>
+  </tr>
+</table>
 
-## Built With
+## Tech Stack
 
-- Framework: Next.js 16 (App Router), React 19, TypeScript
-- Authentication: NextAuth.js v5 (credentials and OAuth)
-- Database: MongoDB 7 (Mongoose ODM)
-- Cache: Redis via ioredis
-- State: Zustand (client), TanStack React Query (server)
-- Charts: KlineCharts v10
-- UI: shadcn/ui (New York style), Tailwind CSS v4
-- Validation: Zod v4
-- Real-time: Binance WebSocket streams
-- Testing: Vitest, Testing Library, and Playwright (270+ unit test files plus end-to-end coverage)
+| Area | Technology |
+|------|------------|
+| Framework | Next.js 16 (App Router, React 19, TypeScript) |
+| Authentication | NextAuth.js v5 (credentials, Google, GitHub) |
+| Database | MongoDB 7 (Mongoose ODM) |
+| Cache | Redis 7 via ioredis (market-data and rate-limit caching) |
+| State | Zustand (client), TanStack React Query (server) |
+| Charts | KlineCharts v10 |
+| UI | shadcn/ui (New York style), Tailwind CSS v4 |
+| Validation | Zod v4 |
+| Real-time | Binance WebSocket streams |
+| Testing | Vitest, Testing Library, and Playwright |
 
 ## Quick Start
 
@@ -84,46 +97,44 @@ keys required to view market data.
 - Node.js 18 or newer
 - MongoDB 7 or newer (local or Atlas)
 - Redis (local or hosted)
+- Docker and Docker Compose (for local MongoDB and Redis)
 
 ### Installation
 
 ```bash
-# Clone
+# Clone and install
 git clone https://github.com/Smaraputra/crypto-with-algo.git
 cd crypto-with-algo
-
-# Install dependencies
 npm install
 
-# Configure environment
+# Configure environment (fill in MONGODB_URI, REDIS_URL, NEXTAUTH_SECRET, and optionally OAuth)
 cp .env.example .env.local
-# Fill in MONGODB_URI, REDIS_URL, NEXTAUTH_SECRET, and (optionally) OAuth credentials
 
 # Start MongoDB and Redis
 docker-compose up -d
 
-# Seed a demo account and sample data (optional; set SEED_EMAIL and SEED_PASSWORD first)
+# Optionally seed a demo account and sample data (set SEED_EMAIL and SEED_PASSWORD first)
 npm run seed
 
 # Run the dev server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Account sign-up is gated by
-`ALLOW_REGISTRATION=true` (disabled by default); enable it to create your first account, or
-sign in with the seeded demo account.
+The application is then available at [http://localhost:3000](http://localhost:3000). Account
+sign-up is gated by `ALLOW_REGISTRATION=true` (disabled by default); enable it to create your
+first account, or sign in with the seeded demo account.
 
 ## Configuration
 
 The application is configured via environment variables. Copy `.env.example` to `.env.local`
-and fill in the values. Key variables:
+and fill in the values. The most important variables are listed below.
 
 | Variable | Required | Description |
-|---|---|---|
+|----------|----------|-------------|
 | `MONGODB_URI` | Yes | MongoDB connection string |
 | `REDIS_URL` | Yes | Redis connection string (for example `redis://localhost:6379`) |
 | `NEXTAUTH_SECRET` | Yes | NextAuth session and JWT secret |
-| `NEXTAUTH_URL` | Yes | Base URL of the app |
+| `NEXTAUTH_URL` | Yes | Base URL of the app (for example `http://localhost:3000`) |
 | `BINANCE_API_URL` | Yes | Binance REST endpoint (configurable for proxy or geo-restrictions) |
 | `NEXT_PUBLIC_BINANCE_WS_URL` | Yes | Binance WebSocket endpoint (client-side) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | No | Google OAuth |
@@ -131,6 +142,12 @@ and fill in the values. Key variables:
 | `CRYPTOPANIC_API_TOKEN` | No | News feed source |
 | `CRON_SECRET` | Production | Bearer token for the cron alert and optimization endpoints |
 | `ALLOW_REGISTRATION` | No | Set to `true` to enable account sign-up |
+
+Generate a value for `NEXTAUTH_SECRET` with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
 
 <details>
 <summary>Full environment variable reference</summary>
@@ -145,18 +162,18 @@ See [`.env.example`](.env.example) for the complete, commented list, including S
 
 ## Development
 
-```bash
-npm run dev           # Start dev server (port 3000)
-npm run build         # Production build
-npm start             # Start production server
-npm run lint          # ESLint
-npm run typecheck     # TypeScript type check
-npm run test          # Unit tests (Vitest)
-npm run test:watch    # Unit tests (watch mode)
-npm run test:coverage # Unit tests with coverage
-npm run test:e2e      # End-to-end tests (Playwright)
-npm run seed          # Seed demo data
-```
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start the development server (port 3000). |
+| `npm run build` | Create a production build. |
+| `npm start` | Run the production server. |
+| `npm run lint` | Run ESLint. |
+| `npm run typecheck` | Run the TypeScript compiler with no emit. |
+| `npm run test` | Run the Vitest unit tests. |
+| `npm run test:watch` | Run unit tests in watch mode. |
+| `npm run test:coverage` | Run unit tests with coverage. |
+| `npm run test:e2e` | Run the Playwright end-to-end tests. |
+| `npm run seed` | Seed demo data. |
 
 End-to-end tests require MongoDB running (`docker-compose up -d`).
 
@@ -166,7 +183,7 @@ End-to-end tests require MongoDB running (`docker-compose up -d`).
 The app uses separate ports per environment to avoid conflicts:
 
 | Environment | Port | Variable | Usage |
-|---|---|---|---|
+|-------------|------|----------|-------|
 | Development | 3000 | `PORT` | `npm run dev` |
 | Production | Configurable | `PORT` | `PORT=3002 npm start` |
 | E2E tests | 3300 | `TEST_PORT` | `npm run test:e2e` |
@@ -187,9 +204,7 @@ src/
   hooks/        Custom React hooks (WebSocket, market data, queries)
   lib/          Server utilities (models, indicators, backtest, signals, db, auth)
   stores/       Zustand stores
-  types/        TypeScript types
-  __fixtures__/ Test fixtures
-  __mocks__/    Module mocks
+  types/        TypeScript type definitions
 e2e/            Playwright end-to-end tests
 docker/         Production Docker, Caddy, and cron configuration
 ```
@@ -199,10 +214,14 @@ docker/         Production Docker, Caddy, and cron configuration
 ## Deployment
 
 | Option | Notes |
-|---|---|
+|--------|-------|
 | VPS (multi-site) | Caddy reverse proxy with automatic HTTPS, plus PM2. See [VPS-DEPLOYMENT.md](VPS-DEPLOYMENT.md). |
 | Docker | `docker-compose up -d` for the full stack (Next.js, MongoDB, Redis). |
 | Vercel | `vercel deploy`, with MongoDB and Redis provided as managed services. |
+
+Continuous deployment is handled by a GitHub Actions workflow that runs on pushes to `main`:
+it connects to the server over SSH, pulls the latest code, rebuilds and restarts the
+containers, and prunes unused images.
 
 ## Documentation
 
@@ -212,6 +231,20 @@ docker/         Production Docker, Caddy, and cron configuration
 - [changelogs/CHANGELOG.md](changelogs/CHANGELOG.md): version history
 - [CONTRIBUTING.md](CONTRIBUTING.md): development workflow and conventions
 - [SECURITY.md](SECURITY.md): vulnerability reporting policy
+
+## Project Status
+
+Version 1.0.0, feature-complete across the planned build phases, backed by 270+ unit test
+files plus a Playwright end-to-end suite. See [changelogs/CHANGELOG.md](changelogs/CHANGELOG.md)
+for release history.
+
+## Conventions
+
+- Commit messages follow Conventional Commits, for example `feat(signals): add per-style differentiation`.
+- Allowed commit types are `feat`, `fix`, `refactor`, `test`, `chore`, and `docs`.
+- Tests live alongside source files (`src/lib/utils.ts` and `src/lib/utils.test.ts`).
+- Prices are rendered in a monospace, tabular font.
+- Theme colors: bullish green (`#0ecb81`), bearish red (`#f6465d`), accent yellow (`#f0b90b`).
 
 ## Contributing
 
