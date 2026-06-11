@@ -6,6 +6,7 @@ services:
       target: runner
       args:
         NEXT_PUBLIC_BINANCE_WS_URL: ${NEXT_PUBLIC_BINANCE_WS_URL:-wss://stream.binance.com:9443}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     container_name: crypto-app
     restart: unless-stopped
     env_file: .env
