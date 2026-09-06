@@ -1,4 +1,5 @@
 import type { OHLCV } from '@/types/market';
+import type { MarketSession } from '@/lib/sessions';
 import { fixedFractional, kellyCriterion, riskBased } from './position-sizing';
 import type {
   BacktestConfig,
@@ -15,6 +16,7 @@ export interface OpenPosition {
   quantity: number;
   entryScore: number;
   entryTier: BacktestTrade['entryTier'];
+  entrySession?: MarketSession | null;
 }
 
 export function checkStopTakeProfit(
@@ -90,6 +92,7 @@ export function closeTrade(
     exitScore,
     entryTier: position.entryTier,
     holdTimeBars: exitBar - position.entryBar,
+    entrySession: position.entrySession ?? null,
   });
 }
 

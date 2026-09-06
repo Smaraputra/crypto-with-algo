@@ -6,6 +6,8 @@ import { computeSignalScore } from '@/lib/signals/scorer';
 import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { computeMetrics } from './metrics';
 import { computeSnapshotCoverage } from './engine';
+import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
+import { intervalToMs } from '@/lib/intervals';
 import { buildSnapshotSeries, type LeanSnapshot, type SnapshotBar } from './snapshot-series';
 import {
   checkStopTakeProfit,
@@ -91,6 +93,14 @@ export function runOptimizedBacktest(
   const trades: BacktestTrade[] = [];
   const equityCurve: EquityPoint[] = [];
 
+  // Session tagging and entry filter (sessions only meaningful intraday)
+  const sessionMeaningful = isSessionMeaningful(interval);
+  const intervalMs = intervalToMs(interval);
+  const sessionFilter =
+    sessionMeaningful && config.allowedSessions && config.allowedSessions.length > 0
+      ? new Set(config.allowedSessions)
+      : null;
+
   let equity = config.startEquity;
   let peakEquity = equity;
   let position: OpenPosition | null = null;
@@ -153,8 +163,13 @@ export function runOptimizedBacktest(
         position = null;
       }
     } else {
-      // Check entry conditions
-      if (composite.score >= config.entryThreshold) {
+      // Check entry conditions; the session filter gates entries only, never exits
+      const session = sessionMeaningful
+        ? sessionOfCandleClose(candle.timestamp, intervalMs)
+        : null;
+      const sessionAllowed = !sessionFilter || (session !== null && sessionFilter.has(session));
+
+      if (sessionAllowed && composite.score >= config.entryThreshold) {
         const quantity = computePositionSize(equity, candle.close, 'long', config, trades);
         position = {
           entryBar: bar,
@@ -164,8 +179,9 @@ export function runOptimizedBacktest(
           quantity,
           entryScore: composite.score,
           entryTier: composite.tier,
+          entrySession: session,
         };
-      } else if (config.allowShorts && composite.score <= config.shortEntryThreshold) {
+      } else if (sessionAllowed && config.allowShorts && composite.score <= config.shortEntryThreshold) {
         const quantity = computePositionSize(equity, candle.close, 'short', config, trades);
         position = {
           entryBar: bar,
@@ -175,6 +191,7 @@ export function runOptimizedBacktest(
           quantity,
           entryScore: composite.score,
           entryTier: composite.tier,
+          entrySession: session,
         };
       }
     }

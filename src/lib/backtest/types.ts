@@ -1,4 +1,5 @@
 import type { SignalWeights, SignalTier } from '@/types/signal';
+import type { MarketSession } from '@/lib/sessions';
 
 export type PositionSizingMethod = 'fixed_percent' | 'fixed_fractional' | 'kelly' | 'risk_based';
 
@@ -21,6 +22,7 @@ export interface BacktestConfig {
   feePercent: number;           // e.g. 0.001 = 0.1%
   weights: SignalWeights;
   startEquity: number;          // starting capital (default 10000)
+  allowedSessions?: MarketSession[]; // entry filter; undefined/empty = all sessions
 }
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
@@ -64,6 +66,7 @@ export interface BacktestTrade {
   exitScore: number;
   entryTier: SignalTier;
   holdTimeBars: number;
+  entrySession?: MarketSession | null; // null when the interval spans sessions
 }
 
 export interface EquityPoint {
@@ -93,6 +96,16 @@ export interface BacktestMetrics {
   totalFees: number;
   maxConsecutiveWins: number;
   maxConsecutiveLosses: number;
+  sessionBreakdown?: SessionBreakdownEntry[]; // present when trades carry sessions
+}
+
+export interface SessionBreakdownEntry {
+  session: MarketSession;
+  trades: number;
+  wins: number;
+  winRate: number; // 0-1
+  totalPnl: number;
+  avgPnlPercent: number;
 }
 
 export interface SnapshotCoverage {
