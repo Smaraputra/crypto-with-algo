@@ -15,6 +15,7 @@ describe('weight-generator', () => {
     volatility: 0.10,
     futures: 0.10,
     sentiment: 0.05,
+    htf: 0,
   };
 
   describe('validateWeights', () => {
@@ -30,6 +31,7 @@ describe('weight-generator', () => {
         volatility: 0.1,
         futures: 0.1,
         sentiment: 0.1,
+        htf: 0,
       };
       expect(validateWeights(invalid)).toBe(false);
     });
@@ -42,6 +44,7 @@ describe('weight-generator', () => {
         volatility: 0.0,
         futures: 0.0,
         sentiment: -0.1,
+        htf: 0,
       };
       expect(validateWeights(invalid)).toBe(false);
     });
@@ -146,6 +149,7 @@ describe('weight-generator', () => {
         volatility: 0.2,
         futures: 0.1,
         sentiment: 0.1,
+        htf: 0,
       };
 
       const weights2: SignalWeights = {
@@ -155,6 +159,7 @@ describe('weight-generator', () => {
         volatility: 0.1,
         futures: 0.05,
         sentiment: 0.05,
+        htf: 0,
       };
 
       const avg = averageWeights([weights1, weights2]);
@@ -184,6 +189,7 @@ describe('weight-generator', () => {
         volatility: 0.25,
         futures: 0.0,
         sentiment: 0.0,
+        htf: 0,
       };
 
       const weights2: SignalWeights = {
@@ -193,6 +199,7 @@ describe('weight-generator', () => {
         volatility: 0.1,
         futures: 0.3,
         sentiment: 0.3,
+        htf: 0,
       };
 
       const avg = averageWeights([weights1, weights2]);

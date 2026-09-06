@@ -3,6 +3,7 @@ import type { SuperTrendResult } from '@/lib/indicators/supertrend';
 import type { FuturesData } from '@/types/futures';
 import type {
   CompositeSignal,
+  HtfContext,
   SentimentData,
   SignalComponent,
   SignalTier,
@@ -257,6 +258,31 @@ function scoreSentiment(sentimentData: SentimentData | null): SignalComponent {
   };
 }
 
+function scoreHtf(htfContext: HtfContext | null): SignalComponent {
+  if (!htfContext || htfContext.signals.length === 0) {
+    return {
+      category: 'htf',
+      score: 0,
+      weight: 0,
+      weightedScore: 0,
+      signals: [],
+    };
+  }
+
+  return {
+    category: 'htf',
+    score: categoryScore(htfContext.signals),
+    weight: 0,
+    weightedScore: 0,
+    signals: htfContext.signals.map((s) => ({
+      name: s.name,
+      direction: s.direction,
+      strength: s.strength,
+      description: s.description,
+    })),
+  };
+}
+
 function getTier(score: number): SignalTier {
   if (score > 60) return 'strong_buy';
   if (score > 30) return 'buy';
@@ -269,7 +295,8 @@ function computeConfidence(
   futuresData: FuturesData | null,
   sentimentData: SentimentData | null,
   weights: SignalWeights,
-  indicators?: IndicatorSuite
+  indicators?: IndicatorSuite,
+  htfContext?: HtfContext | null
 ): number {
   // Start at 100%, degrade for missing data sources
   let confidence = 100;
@@ -279,6 +306,9 @@ function computeConfidence(
   }
   if (!sentimentData) {
     confidence -= weights.sentiment * 100;
+  }
+  if (!htfContext) {
+    confidence -= (weights.htf ?? 0) * 100;
   }
 
   // Volatility regime: extreme ATR makes any directional read less reliable
@@ -299,9 +329,11 @@ export function computeSignalScore(
   futuresData: FuturesData | null = null,
   sentimentData: SentimentData | null = null,
   weights: SignalWeights = DEFAULT_WEIGHTS,
-  superTrend?: SuperTrendResult | null
+  superTrend?: SuperTrendResult | null,
+  htfContext: HtfContext | null = null
 ): CompositeSignal {
-  // Compute per-category scores
+  // Compute per-category scores.
+  // components and categoryKeys are positionally coupled: append together.
   const components: SignalComponent[] = [
     scoreTrend(indicators, superTrend),
     scoreMomentum(indicators),
@@ -309,11 +341,12 @@ export function computeSignalScore(
     scoreVolatility(indicators),
     scoreFutures(futuresData),
     scoreSentiment(sentimentData),
+    scoreHtf(htfContext),
   ];
 
   // Apply weights
   const categoryKeys: (keyof SignalWeights)[] = [
-    'trend', 'momentum', 'volume', 'volatility', 'futures', 'sentiment',
+    'trend', 'momentum', 'volume', 'volatility', 'futures', 'sentiment', 'htf',
   ];
 
   // When data sources are missing, redistribute weights
@@ -348,7 +381,7 @@ export function computeSignalScore(
     interval: indicators.interval,
     score,
     tier: getTier(score),
-    confidence: computeConfidence(futuresData, sentimentData, weights, indicators),
+    confidence: computeConfidence(futuresData, sentimentData, weights, indicators, htfContext),
     components,
     timestamp: Date.now(),
   };

@@ -40,6 +40,8 @@ const signalTemplateSchema = new Schema<ISignalTemplate>(
         volatility: { type: Number, required: true },
         futures: { type: Number, required: true },
         sentiment: { type: Number, required: true },
+        // Optional with default 0 so pre-htf template docs stay readable
+        htf: { type: Number, required: false, default: 0 },
       },
       required: true,
     },
@@ -68,30 +70,36 @@ signalTemplateSchema.index({ tradingStyle: 1, version: -1 });
 signalTemplateSchema.index({ tradingStyle: 1, active: 1 });
 
 // Default weight profiles per trading style
+// Per style, the previous six weights are scaled by (1 - htf) so an empty htf
+// component reproduces pre-htf scores exactly via weight redistribution.
+// position_trading has no confirmation timeframe, so its htf stays 0.
 export const DEFAULT_TEMPLATE_WEIGHTS: Record<TradingStyle, SignalWeights> = {
   scalping: {
-    trend: 0.10,
-    momentum: 0.40,
-    volume: 0.30,
-    volatility: 0.15,
-    futures: 0.05,
+    trend: 0.085,
+    momentum: 0.34,
+    volume: 0.255,
+    volatility: 0.1275,
+    futures: 0.0425,
     sentiment: 0.00,
+    htf: 0.15,
   },
   day_trading: {
-    trend: 0.25,
-    momentum: 0.30,
-    volume: 0.20,
-    volatility: 0.10,
-    futures: 0.10,
-    sentiment: 0.05,
+    trend: 0.2125,
+    momentum: 0.255,
+    volume: 0.17,
+    volatility: 0.085,
+    futures: 0.085,
+    sentiment: 0.0425,
+    htf: 0.15,
   },
   swing_trading: {
-    trend: 0.30,
-    momentum: 0.20,
-    volume: 0.10,
-    volatility: 0.10,
-    futures: 0.20,
-    sentiment: 0.10,
+    trend: 0.27,
+    momentum: 0.18,
+    volume: 0.09,
+    volatility: 0.09,
+    futures: 0.18,
+    sentiment: 0.09,
+    htf: 0.10,
   },
   position_trading: {
     trend: 0.35,
@@ -100,6 +108,7 @@ export const DEFAULT_TEMPLATE_WEIGHTS: Record<TradingStyle, SignalWeights> = {
     volatility: 0.05,
     futures: 0.25,
     sentiment: 0.20,
+    htf: 0.00,
   },
 };
 

@@ -81,6 +81,7 @@ const optimizationJobSchema = new Schema<IOptimizationJob>(
         volatility: Number,
         futures: Number,
         sentiment: Number,
+        htf: Number,
       },
       default: null,
     },

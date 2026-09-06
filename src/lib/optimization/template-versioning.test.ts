@@ -43,6 +43,7 @@ describe('template-versioning', () => {
       volatility: 0.10,
       futures: 0.10,
       sentiment: 0.10,
+      htf: 0,
     };
     const thresholds = { bullish: 0.6, bearish: -0.6, strong: 0.8 };
     const metrics = { avgSharpe: 1.5, avgWinRate: 0.55, totalBacktests: 10 };

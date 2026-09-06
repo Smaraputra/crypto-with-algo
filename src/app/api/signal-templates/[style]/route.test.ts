@@ -82,6 +82,7 @@ describe('GET /api/signal-templates/:style', () => {
         volatility: 0.10,
         futures: 0.10,
         sentiment: 0.05,
+        htf: 0,
       },
       thresholds: {
         entryThreshold: 40,

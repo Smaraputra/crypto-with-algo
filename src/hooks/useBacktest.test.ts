@@ -41,7 +41,7 @@ const mockConfig = {
   positionSizePercent: 0.10,
   allowShorts: false,
   feePercent: 0.001,
-  weights: { trend: 0.25, momentum: 0.25, volume: 0.15, volatility: 0.10, futures: 0.15, sentiment: 0.10 },
+  weights: { trend: 0.225, momentum: 0.225, volume: 0.135, volatility: 0.09, futures: 0.135, sentiment: 0.09, htf: 0.10 },
   startEquity: 10000,
 };
 

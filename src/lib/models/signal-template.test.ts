@@ -236,7 +236,7 @@ describe('DEFAULT_TEMPLATE_WEIGHTS', () => {
       keyof typeof DEFAULT_TEMPLATE_WEIGHTS
     >) {
       const w = DEFAULT_TEMPLATE_WEIGHTS[style];
-      const sum = w.trend + w.momentum + w.volume + w.volatility + w.futures + w.sentiment;
+      const sum = w.trend + w.momentum + w.volume + w.volatility + w.futures + w.sentiment + w.htf;
       expect(sum).toBeCloseTo(1.0);
     }
   });

@@ -107,7 +107,10 @@ async function getWeightsForStyle(tradingStyle: TradingStyle): Promise<SignalWei
     }).lean();
 
     if (template) {
-      return template.weights as SignalWeights;
+      // Templates created before the htf category lack the key; frozen at 0
+      // until the next optimization run regenerates them
+      const weights = template.weights as SignalWeights;
+      return { ...weights, htf: weights.htf ?? 0 };
     }
   } catch {
     // Fall back to defaults

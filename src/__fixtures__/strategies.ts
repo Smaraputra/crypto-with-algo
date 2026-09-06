@@ -8,6 +8,7 @@ export const mockWeights: SignalWeights = {
   volatility: 0.10,
   futures: 0.15,
   sentiment: 0.10,
+  htf: 0,
 };
 
 export const mockMomentumWeights: SignalWeights = {
@@ -17,6 +18,7 @@ export const mockMomentumWeights: SignalWeights = {
   volatility: 0.10,
   futures: 0.15,
   sentiment: 0.10,
+  htf: 0,
 };
 
 export const mockStrategy: Strategy = {
@@ -75,4 +77,5 @@ export const mockInvalidWeights: SignalWeights = {
   volatility: 0.10,
   futures: 0.15,
   sentiment: 0.10,
+  htf: 0,
 };

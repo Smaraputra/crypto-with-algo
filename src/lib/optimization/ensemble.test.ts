@@ -36,6 +36,7 @@ describe('ensemble', () => {
     volatility: 0.1,
     futures: 0.1,
     sentiment: 0.1,
+    htf: 0,
   };
 
   const weights2: SignalWeights = {
@@ -45,6 +46,7 @@ describe('ensemble', () => {
     volatility: 0.1,
     futures: 0.1,
     sentiment: 0.1,
+    htf: 0,
   };
 
   const weights3: SignalWeights = {
@@ -54,6 +56,7 @@ describe('ensemble', () => {
     volatility: 0.1,
     futures: 0.1,
     sentiment: 0.1,
+    htf: 0,
   };
 
   describe('selectTopPerformers', () => {
@@ -135,6 +138,7 @@ describe('ensemble', () => {
         volatility: 0.2,
         futures: 0.1,
         sentiment: 0.1,
+        htf: 0,
       });
 
       const result2 = createMockResult(1.5, 0.6, {
@@ -144,6 +148,7 @@ describe('ensemble', () => {
         volatility: 0.1,
         futures: 0.05,
         sentiment: 0.05,
+        htf: 0,
       });
 
       const ensemble = createEnsemble([result1, result2], 2);
