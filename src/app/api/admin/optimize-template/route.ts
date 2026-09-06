@@ -3,6 +3,8 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
+import { getHistoricalSnapshots } from '@/lib/historical-snapshots';
+import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { runWalkForward } from '@/lib/optimization/walk-forward';
 import { createTemplateVersion, markResultsAsContributors } from '@/lib/optimization/template-versioning';
 import { DEFAULT_TEMPLATE_THRESHOLDS, type TradingStyle } from '@/lib/models/signal-template';
@@ -83,6 +85,20 @@ export async function POST(req: Request) {
     job.startedAt = new Date();
     await job.save();
 
+    // Point-in-time futures/sentiment for the same range; zero snapshots
+    // degrades to null-scored categories, matching pre-parity behavior
+    let snapshots: LeanSnapshot[] = [];
+    try {
+      snapshots = await getHistoricalSnapshots(
+        symbol,
+        mapToSnapshotInterval(interval),
+        startTime - 8 * 60 * 60 * 1000,
+        endTime
+      );
+    } catch (error) {
+      console.error(`Failed to fetch snapshots for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
+    }
+
     try {
       // 6. Run walk-forward optimization
       const result = await runWalkForward({
@@ -90,6 +106,7 @@ export async function POST(req: Request) {
         symbol,
         interval,
         tradingStyle: tradingStyle as TradingStyle,
+        snapshots,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
         testWindowBars: DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
         stepSizeBars: DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars,

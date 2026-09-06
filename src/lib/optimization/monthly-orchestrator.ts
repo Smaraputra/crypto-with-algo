@@ -4,8 +4,10 @@ import { CronRun, type ICronRun } from '@/lib/models/cron-run';
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { SignalTemplate } from '@/lib/models/signal-template';
 import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
+import { getHistoricalSnapshots } from '@/lib/historical-snapshots';
+import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { runWalkForward } from './walk-forward';
-import { createTemplateVersion } from './template-versioning';
+import { createTemplateVersion, markResultsAsContributors } from './template-versioning';
 import { shouldAutoActivate, executeAutoActivation } from './auto-activation';
 import { getIntervalForStyle } from './top-symbols';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
@@ -119,12 +121,27 @@ export async function runMonthlyOptimization(
         }
       );
 
+      // Point-in-time futures/sentiment for the same range (8h margin covers
+      // the funding cadence); zero snapshots degrades to null-scored categories
+      let snapshots: LeanSnapshot[] = [];
+      try {
+        snapshots = await getHistoricalSnapshots(
+          symbol,
+          mapToSnapshotInterval(interval),
+          startTime - 8 * 60 * 60 * 1000,
+          endTime
+        );
+      } catch (error) {
+        console.error(`Failed to fetch snapshots for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
+      }
+
       // Run walk-forward optimization
       const result = await runWalkForward({
         candles,
         symbol,
         interval,
         tradingStyle,
+        snapshots,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
         testWindowBars: DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
         stepSizeBars: DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars,
@@ -155,6 +172,11 @@ export async function runMonthlyOptimization(
           avgWinRate: result.ensembleResults.reduce((sum, r) => sum + ((r.metrics as { winRate: number }).winRate || 0), 0) / result.ensembleResults.length,
           totalBacktests: result.windows.length,
         }
+      );
+
+      // Mark out-of-sample contributors so provenance is queryable
+      await markResultsAsContributors(
+        result.ensembleResults.map((r) => r._id as mongoose.Types.ObjectId)
       );
 
       // Update OptimizationJob with results

@@ -45,8 +45,15 @@ vi.mock('./walk-forward', () => ({
   runWalkForward: (...args: unknown[]) => mockRunWalkForward(...args),
 }));
 
+vi.mock('@/lib/historical-snapshots', () => ({
+  getHistoricalSnapshots: vi.fn().mockResolvedValue([
+    { timestamp: 1700000000000, data: { fearGreed: { index: 40, label: 'Fear' } } },
+  ]),
+}));
+
 vi.mock('./template-versioning', () => ({
   createTemplateVersion: (...args: unknown[]) => mockCreateTemplateVersion(...args),
+  markResultsAsContributors: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('./auto-activation', () => ({
@@ -156,6 +163,14 @@ describe('monthly-orchestrator', () => {
     expect(mockRunWalkForward).toHaveBeenCalledTimes(4);
     // Template created for each style
     expect(mockCreateTemplateVersion).toHaveBeenCalledTimes(4);
+    // Point-in-time snapshots are threaded through to walk-forward
+    expect(mockRunWalkForward).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshots: [
+          { timestamp: 1700000000000, data: { fearGreed: { index: 40, label: 'Fear' } } },
+        ],
+      })
+    );
   });
 
   it('records error and continues when one style has insufficient data', async () => {
