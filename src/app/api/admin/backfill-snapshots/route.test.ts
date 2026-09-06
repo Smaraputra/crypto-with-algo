@@ -10,7 +10,7 @@ const {
   mockFetchFundingRate,
   mockFetchLongShortRatio,
   mockFetchOpenInterestHistory,
-  mockFetchFearGreedIndex,
+  mockFetchFearGreedHistory,
 } = vi.hoisted(() => ({
   mockConnectDB: vi.fn(),
   mockAuth: vi.fn(),
@@ -19,7 +19,7 @@ const {
   mockFetchFundingRate: vi.fn(),
   mockFetchLongShortRatio: vi.fn(),
   mockFetchOpenInterestHistory: vi.fn(),
-  mockFetchFearGreedIndex: vi.fn(),
+  mockFetchFearGreedHistory: vi.fn(),
 }));
 
 vi.mock('@/lib/mongodb', () => ({
@@ -41,8 +41,8 @@ vi.mock('@/lib/binance-futures', () => ({
   fetchOpenInterestHistory: mockFetchOpenInterestHistory,
 }));
 
-vi.mock('@/lib/sentiment-analysis', () => ({
-  fetchFearGreedIndex: () => mockFetchFearGreedIndex(),
+vi.mock('@/lib/external/fear-greed', () => ({
+  fetchFearAndGreedHistory: (days: number) => mockFetchFearGreedHistory(days),
 }));
 
 import { POST } from './route';
@@ -55,7 +55,11 @@ describe('POST /api/admin/backfill-snapshots', () => {
     mockFetchFundingRate.mockResolvedValue([]);
     mockFetchLongShortRatio.mockResolvedValue([]);
     mockFetchOpenInterestHistory.mockResolvedValue([]);
-    mockFetchFearGreedIndex.mockResolvedValue({ value: 50, valueClassification: 'Neutral' });
+    const todayUtc = Math.floor(Date.now() / 86400000) * 86400000;
+    mockFetchFearGreedHistory.mockResolvedValue([
+      { timestamp: todayUtc, fearGreedIndex: 50, label: 'Neutral' },
+      { timestamp: todayUtc - 86400000, fearGreedIndex: 48, label: 'Fear' },
+    ]);
     mockBulkUpsertSnapshots.mockResolvedValue(undefined);
   });
 
@@ -227,28 +231,93 @@ describe('POST /api/admin/backfill-snapshots', () => {
     expect(data.success).toBe(true);
   });
 
-  it('should include fear and greed data when available', async () => {
+  it('maps point-in-time fear and greed onto each bar day', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const todayUtc = Math.floor(Date.now() / 86400000) * 86400000;
+    const yesterdayNoon = todayUtc - 86400000 + 12 * 3600000;
+    mockFetchLongShortRatio.mockResolvedValue([
+      { timestamp: todayUtc + 3600000, longShortRatio: 1.0, longAccount: 0.5, shortAccount: 0.5 },
+      { timestamp: yesterdayNoon, longShortRatio: 1.1, longAccount: 0.52, shortAccount: 0.48 },
+    ]);
+    mockFetchFearGreedHistory.mockResolvedValue([
+      { timestamp: todayUtc, fearGreedIndex: 75, label: 'Greed' },
+      { timestamp: todayUtc - 86400000, fearGreedIndex: 30, label: 'Fear' },
+    ]);
+
+    const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 1 }));
+    await response.json();
+
+    expect(response.status).toBe(200);
+    const snapshots = mockBulkUpsertSnapshots.mock.calls[0][0];
+    const todayBar = snapshots.find((s: { timestamp: number }) => s.timestamp === todayUtc + 3600000);
+    const yesterdayBar = snapshots.find((s: { timestamp: number }) => s.timestamp === yesterdayNoon);
+    expect(todayBar.data.fearGreed).toEqual({ index: 75, label: 'Greed' });
+    expect(yesterdayBar.data.fearGreed).toEqual({ index: 30, label: 'Fear' });
+  });
+
+  it('carries fear and greed forward over short gaps only', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const todayUtc = Math.floor(Date.now() / 86400000) * 86400000;
+    mockFetchLongShortRatio.mockResolvedValue([
+      { timestamp: todayUtc + 3600000, longShortRatio: 1.0, longAccount: 0.5, shortAccount: 0.5 },
+    ]);
+    // Only a reading from 2 days ago: within the 3-day carry-forward window
+    mockFetchFearGreedHistory.mockResolvedValue([
+      { timestamp: todayUtc - 2 * 86400000, fearGreedIndex: 20, label: 'Extreme Fear' },
+    ]);
+
+    const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 1 }));
+    await response.json();
+
+    expect(response.status).toBe(200);
+    let snapshots = mockBulkUpsertSnapshots.mock.calls[0][0];
+    expect(snapshots[0].data.fearGreed).toEqual({ index: 20, label: 'Extreme Fear' });
+
+    // A reading older than the carry window leaves the bar without fearGreed
+    mockBulkUpsertSnapshots.mockClear();
+    mockFetchFearGreedHistory.mockResolvedValue([
+      { timestamp: todayUtc - 5 * 86400000, fearGreedIndex: 20, label: 'Extreme Fear' },
+    ]);
+    await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 1 }));
+    snapshots = mockBulkUpsertSnapshots.mock.calls[0][0];
+    expect(snapshots[0].data.fearGreed).toBeUndefined();
+  });
+
+  it('carries funding forward within staleness and drops it beyond', async () => {
     process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
 
     const now = Date.now();
     mockFetchLongShortRatio.mockResolvedValue([
       { timestamp: now, longShortRatio: 1.0, longAccount: 0.5, shortAccount: 0.5 },
+      { timestamp: now - 12 * 3600000, longShortRatio: 1.1, longAccount: 0.52, shortAccount: 0.48 },
     ]);
-    mockFetchFearGreedIndex.mockResolvedValue({ value: 75, valueClassification: 'Greed' });
+    // One funding event 6h before the newest bar: within 8h + 1h staleness for
+    // the newest bar, but the bar 12h back predates the event entirely
+    mockFetchFundingRate.mockResolvedValue([
+      { fundingTime: now - 6 * 3600000, fundingRate: 0.0005, markPrice: 50000 },
+    ]);
 
     const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 1 }));
     await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockBulkUpsertSnapshots).toHaveBeenCalled();
+    const snapshots = mockBulkUpsertSnapshots.mock.calls[0][0];
+    const newest = snapshots.find((s: { timestamp: number }) => s.timestamp === now);
+    const older = snapshots.find((s: { timestamp: number }) => s.timestamp === now - 12 * 3600000);
+    expect(newest.data.fundingRate).toEqual({ rate: 0.0005, markPrice: 50000 });
+    expect(older.data.fundingRate).toBeUndefined();
   });
 
-  it('should handle null fear and greed data', async () => {
+  it('should handle a failing fear and greed fetch', async () => {
     process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
 
-    mockFetchFearGreedIndex.mockResolvedValue(null);
+    mockFetchFearGreedHistory.mockRejectedValue(new Error('API down'));
     mockFetchLongShortRatio.mockResolvedValue([]);
 
     const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 1 }));
