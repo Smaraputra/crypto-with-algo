@@ -125,6 +125,24 @@ describe('compute-engine', () => {
       expect(insertedDocs[0].score).toBeLessThanOrEqual(100);
       expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(insertedDocs[0].tier);
       expect(insertedDocs[0].expiresAt).toBeInstanceOf(Date);
+      // 1h is intraday, so the doc carries the session at candle close
+      expect(['asia', 'london', 'ny_overlap', 'new_york', 'off_hours']).toContain(
+        insertedDocs[0].session
+      );
+    });
+
+    it('records null session for multi-session intervals', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockResolvedValue(candles);
+      mockFetchKlines.mockResolvedValue(candles);
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+      ]);
+
+      const insertedDocs = mockInsertMany.mock.calls[0][0];
+      expect(insertedDocs[0].session).toBeNull();
     });
 
     it('computes multiple tasks and deduplicates candle fetches', async () => {

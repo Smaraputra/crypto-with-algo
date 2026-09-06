@@ -10,6 +10,8 @@ import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
+import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
+import { intervalToMs } from '@/lib/intervals';
 import { cachedFetch } from '@/lib/redis';
 import type { FuturesData } from '@/types/futures';
 import type { SentimentData, SignalWeights } from '@/types/signal';
@@ -241,6 +243,11 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       // Build GlobalSignal document
       const expiresAt = new Date(Date.now() + profile.signalTTLSeconds * 1000);
 
+      // Session at decision time (candle close); null on multi-session intervals
+      const session = isSessionMeaningful(interval)
+        ? sessionOfCandleClose(latestCandleTs, intervalToMs(interval))
+        : null;
+
       signalDocs.push({
         symbol: signal.symbol,
         interval: signal.interval,
@@ -251,6 +258,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         components: signal.components,
         configVersion: 1,
         candleTimestamp: latestCandleTs,
+        session,
         expiresAt,
         createdAt: new Date(),
       });

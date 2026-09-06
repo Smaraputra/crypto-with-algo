@@ -25,6 +25,7 @@ export interface GlobalSignalRecord {
   components: SignalComponent[];
   configVersion: number;
   candleTimestamp: number;
+  session?: string | null;
   expiresAt: string;
   createdAt: string;
 }

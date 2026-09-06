@@ -2,6 +2,7 @@ import mongoose, { Schema, type Document } from 'mongoose';
 
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { SIGNAL_TIERS } from '@/types/signal';
+import { MARKET_SESSIONS, type MarketSession } from '@/lib/sessions';
 import type { ISignalComponent } from '@/lib/models/signal';
 
 export interface IGlobalSignal extends Document {
@@ -14,6 +15,7 @@ export interface IGlobalSignal extends Document {
   components: ISignalComponent[];
   configVersion: number;
   candleTimestamp: number;
+  session: MarketSession | null; // null on multi-session intervals (4h, 1d)
   expiresAt: Date;
   createdAt: Date;
 }
@@ -58,6 +60,7 @@ const globalSignalSchema = new Schema<IGlobalSignal>(
     components: [signalComponentSchema],
     configVersion: { type: Number, required: true, default: 1 },
     candleTimestamp: { type: Number, required: true },
+    session: { type: String, enum: [...MARKET_SESSIONS, null], default: null },
     expiresAt: { type: Date, required: true },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
