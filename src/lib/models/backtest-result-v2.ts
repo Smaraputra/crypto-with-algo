@@ -41,6 +41,15 @@ export interface IBacktestResultV2 extends Document {
   isOptimized: boolean;
   contributedToTemplate: boolean;
 
+  // Point-in-time data coverage of the backtest run (null for legacy docs)
+  snapshotCoverage: {
+    barsWithFutures: number;
+    barsWithSentiment: number;
+    scoredBars: number;
+    futuresPercent: number;
+    sentimentPercent: number;
+  } | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,6 +95,7 @@ const backtestResultV2Schema = new Schema<IBacktestResultV2>(
     parentResultId: { type: Schema.Types.ObjectId, default: null },
     isOptimized: { type: Boolean, default: false },
     contributedToTemplate: { type: Boolean, default: false },
+    snapshotCoverage: { type: Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );

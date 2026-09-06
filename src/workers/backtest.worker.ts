@@ -2,7 +2,7 @@ import { runBacktest } from '../lib/backtest/engine';
 import type { WorkerRequest, WorkerResponse } from '../lib/backtest/worker-types';
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
-  const { candles, config, symbol, interval } = event.data;
+  const { candles, config, symbol, interval, snapshots } = event.data;
 
   try {
     const result = runBacktest(
@@ -18,7 +18,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           totalBars,
         };
         self.postMessage(msg);
-      }
+      },
+      snapshots
     );
 
     const msg: WorkerResponse = { type: 'complete', result };

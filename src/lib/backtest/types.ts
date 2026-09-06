@@ -95,6 +95,14 @@ export interface BacktestMetrics {
   maxConsecutiveLosses: number;
 }
 
+export interface SnapshotCoverage {
+  barsWithFutures: number;
+  barsWithSentiment: number;
+  scoredBars: number;
+  futuresPercent: number; // 0-100
+  sentimentPercent: number; // 0-100
+}
+
 export interface BacktestResult {
   symbol: string;
   interval: string;
@@ -106,6 +114,7 @@ export interface BacktestResult {
   endTime: number;
   totalBars: number;
   warmupBars: number;
+  snapshotCoverage?: SnapshotCoverage; // present when a snapshot series was supplied
 }
 
 export type BacktestProgressCallback = (progress: number, barsProcessed: number, totalBars: number) => void;
