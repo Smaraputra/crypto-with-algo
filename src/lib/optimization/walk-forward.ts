@@ -33,6 +33,8 @@ export interface WalkForwardConfig {
 
   snapshots?: LeanSnapshot[]; // point-in-time futures/sentiment for the candle range
   robustness?: RobustnessConfig;
+  htfCandles?: OHLCV[]; // confirmation-timeframe candles (with warmup margin)
+  htfInterval?: string;
 }
 
 export interface WalkForwardResult {
@@ -59,7 +61,17 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     jobId,
     snapshots,
     robustness = DEFAULT_ROBUSTNESS,
+    htfCandles,
+    htfInterval,
   } = config;
+
+  // Per-LTF-bar alignment inside the engines is closed-bar-only and the HTF
+  // series is causal, so passing the full HTF array to every window slice
+  // cannot leak future bars
+  const htfInput =
+    htfCandles && htfCandles.length > 0 && htfInterval
+      ? { candles: htfCandles, interval: htfInterval }
+      : undefined;
 
   // Get base template weights and style-specific indicator config
   const baseWeights = DEFAULT_TEMPLATE_WEIGHTS[tradingStyle];
@@ -103,7 +115,14 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     // 2. Prepare backtest (compute indicators once with style-specific params).
     // The snapshot series is timestamp-aligned, so passing the full snapshot
     // list against the sliced candles keeps windows point-in-time correct.
-    const prepared = prepareBacktest(trainingCandles, symbol, interval, indicatorConfig, snapshots);
+    const prepared = prepareBacktest(
+      trainingCandles,
+      symbol,
+      interval,
+      indicatorConfig,
+      snapshots,
+      htfInput
+    );
 
     // 3. Generate weight candidates
     const candidates = generateWeightCandidates(
@@ -191,7 +210,14 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     const warmupPrefix = prepared.warmupBars;
     const testSliceStart = Math.max(0, window.testStart - warmupPrefix);
     const testCandles = candles.slice(testSliceStart, window.testEnd + 1);
-    const testPrepared = prepareBacktest(testCandles, symbol, interval, indicatorConfig, snapshots);
+    const testPrepared = prepareBacktest(
+      testCandles,
+      symbol,
+      interval,
+      indicatorConfig,
+      snapshots,
+      htfInput
+    );
 
     const testConfig: BacktestConfig = {
       weights: bestWeights,

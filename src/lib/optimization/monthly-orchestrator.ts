@@ -6,6 +6,9 @@ import { SignalTemplate } from '@/lib/models/signal-template';
 import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 import { getHistoricalSnapshots } from '@/lib/historical-snapshots';
 import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
+import { getConfirmationInterval } from '@/lib/signals/htf';
+import { intervalToMs } from '@/lib/intervals';
+import type { OHLCV } from '@/types/market';
 import { runWalkForward } from './walk-forward';
 import { createTemplateVersion, markResultsAsContributors } from './template-versioning';
 import { shouldAutoActivate, executeAutoActivation } from './auto-activation';
@@ -135,6 +138,22 @@ export async function runMonthlyOptimization(
         console.error(`Failed to fetch snapshots for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
       }
 
+      // Confirmation-timeframe candles for MTF confluence (250-bar warmup margin)
+      let htfCandles: OHLCV[] = [];
+      const htfInterval = getConfirmationInterval(interval, tradingStyle);
+      if (htfInterval) {
+        try {
+          const htfStart = startTime - 250 * intervalToMs(htfInterval);
+          const htfRange = await getCandleRange(symbol, htfInterval);
+          if (!htfRange.oldest || htfRange.oldest > htfStart) {
+            await backfillCandles(symbol, htfInterval, months + 2);
+          }
+          htfCandles = await getCandles(symbol, htfInterval, htfStart, endTime, 50000);
+        } catch (error) {
+          console.error(`Failed to fetch HTF candles for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
+        }
+      }
+
       // Run walk-forward optimization
       const result = await runWalkForward({
         candles,
@@ -142,6 +161,8 @@ export async function runMonthlyOptimization(
         interval,
         tradingStyle,
         snapshots,
+        htfCandles,
+        htfInterval: htfInterval ?? undefined,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
         testWindowBars: DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
         stepSizeBars: DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars,

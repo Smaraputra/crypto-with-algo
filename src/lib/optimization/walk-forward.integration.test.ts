@@ -79,6 +79,13 @@ describe('runWalkForward integration', () => {
           data: { fearGreed: { index: 35, label: 'Fear' } },
         }));
 
+      // 4h confirmation candles spanning the range plus warmup margin
+      const FOUR_H = 4 * 3600000;
+      const htfCandles = generateCandles(400, 11).map((c, i) => ({
+        ...c,
+        timestamp: candles[0].timestamp - 290 * FOUR_H + i * FOUR_H,
+      }));
+
       const result = await runWalkForward({
         candles,
         symbol: 'TESTUSDT',
@@ -91,6 +98,8 @@ describe('runWalkForward integration', () => {
         constraintPercent: 0.2,
         jobId: job._id,
         snapshots,
+        htfCandles,
+        htfInterval: '4h',
         // Wiring is under test, not market luck: accept every candidate
         robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
       });
