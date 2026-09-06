@@ -91,6 +91,33 @@ describe('no future-bar lookahead in per-bar scoring', () => {
     }
   );
 
+  it('trades are identical when unclosed-future HTF candles are removed', async () => {
+    const { runBacktest } = await import('./engine');
+    const { DEFAULT_BACKTEST_CONFIG } = await import('./types');
+    const config = { ...DEFAULT_BACKTEST_CONFIG, entryThreshold: 10, exitThreshold: -5 };
+
+    const FOUR_H = 4 * 3600000;
+    const htfCandles = candles
+      .filter((_, i) => i % 4 === 0)
+      .map((c, i) => ({ ...c, timestamp: candles[0].timestamp - 200 * FOUR_H + i * FOUR_H }));
+
+    const lastLtfClose = candles[candles.length - 1].timestamp + 3600000;
+    const closedOnly = htfCandles.filter((c) => c.timestamp + FOUR_H <= lastLtfClose);
+
+    const full = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, {
+      candles: htfCandles,
+      interval: '4h',
+    });
+    const truncated = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, {
+      candles: closedOnly,
+      interval: '4h',
+    });
+
+    // HTF bars that never close within the LTF range must not affect anything
+    expect(truncated.trades).toEqual(full.trades);
+    expect(truncated.metrics).toEqual(full.metrics);
+  });
+
   it('snapshot series at bar N is identical when future snapshots are removed', async () => {
     const { buildSnapshotSeries } = await import('./snapshot-series');
     const probeBar = Math.floor(candles.length / 2);

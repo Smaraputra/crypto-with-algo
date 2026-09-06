@@ -2,7 +2,7 @@ import { runBacktest } from '../lib/backtest/engine';
 import type { WorkerRequest, WorkerResponse } from '../lib/backtest/worker-types';
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
-  const { candles, config, symbol, interval, snapshots } = event.data;
+  const { candles, config, symbol, interval, snapshots, htfCandles, htfInterval } = event.data;
 
   try {
     const result = runBacktest(
@@ -19,7 +19,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         };
         self.postMessage(msg);
       },
-      snapshots
+      snapshots,
+      htfCandles && htfInterval ? { candles: htfCandles, interval: htfInterval } : undefined
     );
 
     const msg: WorkerResponse = { type: 'complete', result };

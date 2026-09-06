@@ -8,6 +8,8 @@ import { computeMetrics } from './metrics';
 import { computeSnapshotCoverage } from './engine';
 import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
+import { alignHtfToLtf, computeHtfSeries, htfContextAtBar } from '@/lib/signals/htf';
+import type { HtfContext } from '@/types/signal';
 import { buildSnapshotSeries, type LeanSnapshot, type SnapshotBar } from './snapshot-series';
 import {
   checkStopTakeProfit,
@@ -28,6 +30,11 @@ import type { SuperTrendPoint } from '@/lib/indicators/supertrend';
 /**
  * Pre-computed indicators for optimization
  */
+export interface HtfInput {
+  candles: OHLCV[];
+  interval: string;
+}
+
 export interface PreparedBacktest {
   candles: OHLCV[];
   indicators: IndicatorSuite[]; // Pre-computed for all bars
@@ -35,6 +42,35 @@ export interface PreparedBacktest {
   warmupBars: number;
   stOffset: number;
   snapshots?: (SnapshotBar | null)[]; // index-aligned point-in-time futures/sentiment
+  htf?: {
+    interval: string;
+    contextAtHtfBar: (HtfContext | null)[]; // per HTF bar
+    ltfToHtf: Int32Array; // LTF bar -> last closed HTF bar (-1 = none)
+  };
+}
+
+/**
+ * Precompute per-HTF-bar contexts and the closed-bar LTF alignment.
+ * Shared by both engines so their MTF behavior cannot diverge.
+ */
+export function prepareHtf(
+  ltfCandles: OHLCV[],
+  ltfInterval: string,
+  htfInput: HtfInput,
+  indicatorConfig?: IndicatorConfig
+): NonNullable<PreparedBacktest['htf']> {
+  const series = computeHtfSeries(htfInput.candles, indicatorConfig);
+  const contextAtHtfBar = htfInput.candles.map((_, bar) =>
+    htfContextAtBar(series, bar, htfInput.interval)
+  );
+  const ltfToHtf = alignHtfToLtf(
+    ltfCandles,
+    intervalToMs(ltfInterval),
+    htfInput.candles,
+    intervalToMs(htfInput.interval)
+  );
+
+  return { interval: htfInput.interval, contextAtHtfBar, ltfToHtf };
 }
 
 /**
@@ -48,7 +84,8 @@ export function prepareBacktest(
   symbol: string,
   interval: string,
   indicatorConfig?: IndicatorConfig,
-  snapshotDocs?: LeanSnapshot[]
+  snapshotDocs?: LeanSnapshot[],
+  htfInput?: HtfInput
 ): PreparedBacktest {
   // Compute raw indicators with optional style-specific config
   const raw = computeAllIndicators(candles, symbol, interval, indicatorConfig);
@@ -73,6 +110,7 @@ export function prepareBacktest(
     ...(snapshotDocs
       ? { snapshots: buildSnapshotSeries(candles, snapshotDocs, interval, { symbol }) }
       : {}),
+    ...(htfInput ? { htf: prepareHtf(candles, interval, htfInput, indicatorConfig) } : {}),
   };
 }
 
@@ -87,7 +125,7 @@ export function runOptimizedBacktest(
   interval: string,
   onProgress?: BacktestProgressCallback
 ): BacktestResult {
-  const { candles, indicators, superTrend, warmupBars, stOffset, snapshots } = prepared;
+  const { candles, indicators, superTrend, warmupBars, stOffset, snapshots, htf } = prepared;
 
   const totalBars = candles.length - warmupBars;
   const trades: BacktestTrade[] = [];
@@ -132,13 +170,18 @@ export function runOptimizedBacktest(
     // Get pre-computed indicators for this bar
     const suite = indicators[bar];
 
+    // Higher-timeframe context from the last CLOSED HTF bar at this LTF bar
+    const htfBar = htf ? htf.ltfToHtf[bar] : -1;
+    const htfCtx = htf && htfBar >= 0 ? htf.contextAtHtfBar[htfBar] : null;
+
     // Compute signal score with config weights
     const composite = computeSignalScore(
       suite,
       snap?.futures ?? null,
       snap?.sentiment ?? null,
       config.weights,
-      superTrendAtBar ? { values: superTrend, current: superTrendAtBar } : null
+      superTrendAtBar ? { values: superTrend, current: superTrendAtBar } : null,
+      htfCtx
     );
 
     // Check entry/exit based on signal score

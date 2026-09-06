@@ -7,6 +7,7 @@ import { computeWarmupBars, interpretIndicatorsAtBar } from '@/lib/indicators/in
 import { computeMetrics } from './metrics';
 import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
+import { prepareHtf, type HtfInput } from './optimized-engine';
 import {
   checkStopTakeProfit,
   closeTrade,
@@ -30,12 +31,14 @@ export function runBacktest(
   symbol: string,
   interval: string,
   onProgress?: BacktestProgressCallback,
-  snapshots?: (SnapshotBar | null)[]
+  snapshots?: (SnapshotBar | null)[],
+  htfInput?: HtfInput
 ): BacktestResult {
   // 1. Compute all indicators once
   const raw = computeAllIndicators(candles, symbol, interval);
   const superTrend = computeSuperTrend(candles);
   const warmup = computeWarmupBars(raw);
+  const htf = htfInput ? prepareHtf(candles, interval, htfInput) : undefined;
 
   const totalBars = candles.length - warmup;
   const trades: BacktestTrade[] = [];
@@ -94,13 +97,18 @@ export function runBacktest(
     }
 
     // 2b. Interpret indicators at this bar
+    // Higher-timeframe context from the last CLOSED HTF bar at this LTF bar
+    const htfBar = htf ? htf.ltfToHtf[bar] : -1;
+    const htfCtx = htf && htfBar >= 0 ? htf.contextAtHtfBar[htfBar] : null;
+
     const suite = interpretIndicatorsAtBar(raw, bar, candles);
     const composite = computeSignalScore(
       suite,
       snap?.futures ?? null,
       snap?.sentiment ?? null,
       config.weights,
-      superTrendAtBar ? { values: superTrend.values, current: superTrendAtBar } : null
+      superTrendAtBar ? { values: superTrend.values, current: superTrendAtBar } : null,
+      htfCtx
     );
 
     // 2c. Check entry/exit based on signal score

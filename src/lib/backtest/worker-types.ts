@@ -9,6 +9,8 @@ export interface WorkerRequest {
   symbol: string;
   interval: string;
   snapshots?: (SnapshotBar | null)[]; // compact per-bar futures/sentiment series
+  htfCandles?: OHLCV[]; // confirmation-timeframe candles (with warmup margin)
+  htfInterval?: string;
 }
 
 export type WorkerResponse =

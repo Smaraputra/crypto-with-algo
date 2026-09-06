@@ -31,6 +31,9 @@ import {
   mapToSnapshotInterval,
   type SnapshotBar,
 } from '@/lib/backtest/snapshot-series';
+import { getConfirmationInterval } from '@/lib/signals/htf';
+import { intervalToMs } from '@/lib/intervals';
+import type { HtfInput } from '@/lib/backtest/optimized-engine';
 import type { Strategy, CreateStrategyInput } from '@/types/strategy';
 import type { BacktestConfig } from '@/lib/backtest/types';
 
@@ -241,7 +244,32 @@ export default function BacktestPage() {
         // Run without snapshot data
       }
 
-      backtest.run(klines, config, symbol, interval, snapshots);
+      // Best-effort higher-timeframe candles for MTF confluence; the extra
+      // 250-bar margin covers HTF indicator warmup before the LTF range starts
+      let htfInput: HtfInput | undefined;
+      const htfInterval = getConfirmationInterval(interval);
+      if (htfInterval) {
+        try {
+          const htfMs = intervalToMs(htfInterval);
+          const htfStart = klines[0].timestamp - 250 * htfMs;
+          const htfRes = await fetch(
+            `/api/candles?symbol=${symbol}&interval=${htfInterval}&startTime=${htfStart}&limit=50000`
+          );
+          if (htfRes.ok) {
+            const htfData = await htfRes.json();
+            if (htfData.candles?.length) {
+              htfInput = { candles: htfData.candles, interval: htfInterval };
+            }
+          }
+        } catch {
+          // Run without higher-timeframe context
+        }
+        if (!htfInput) {
+          toast.info('Higher-timeframe data unavailable; running without MTF confluence');
+        }
+      }
+
+      backtest.run(klines, config, symbol, interval, snapshots, htfInput);
     } catch {
       toast.error('Failed to start backtest');
     } finally {

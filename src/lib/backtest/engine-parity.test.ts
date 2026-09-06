@@ -109,4 +109,52 @@ describe('engine parity', () => {
     expect(optimized.metrics).toEqual(direct.metrics);
     expect(optimized.snapshotCoverage).toEqual(direct.snapshotCoverage);
   });
+
+  it('parity holds with higher-timeframe context', () => {
+    const candles = generateCandles(400);
+    const config = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      allowShorts: true,
+      entryThreshold: 15,
+      exitThreshold: -5,
+      shortEntryThreshold: -15,
+      shortExitThreshold: 5,
+    };
+    // 4h HTF candles spanning the LTF range plus warmup margin
+    const htfCandles = generateCandles(320, 999).map((c, i) => ({
+      ...c,
+      timestamp: candles[0].timestamp - 220 * 4 * 3600000 + i * 4 * 3600000,
+    }));
+    const htfInput = { candles: htfCandles, interval: '4h' };
+
+    const direct = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, htfInput);
+    const prepared = prepareBacktest(candles, 'BTCUSDT', '1h', undefined, undefined, htfInput);
+    const optimized = runOptimizedBacktest(prepared, config, 'BTCUSDT', '1h');
+
+    expect(direct.trades.length).toBeGreaterThan(0);
+    expect(optimized.trades).toEqual(direct.trades);
+    expect(optimized.metrics).toEqual(direct.metrics);
+  });
+
+  it('htf context changes scoring versus an htf-less run', () => {
+    const candles = generateCandles(400);
+    const config = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      entryThreshold: 10,
+      exitThreshold: -5,
+    };
+    const htfCandles = generateCandles(320, 999).map((c, i) => ({
+      ...c,
+      timestamp: candles[0].timestamp - 220 * 4 * 3600000 + i * 4 * 3600000,
+    }));
+
+    const withHtf = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, {
+      candles: htfCandles,
+      interval: '4h',
+    });
+    const withoutHtf = runBacktest(candles, config, 'BTCUSDT', '1h');
+
+    expect(withoutHtf.trades.length).toBeGreaterThan(0);
+    expect(withHtf.trades).not.toEqual(withoutHtf.trades);
+  });
 });
