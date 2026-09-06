@@ -255,17 +255,25 @@ export function computeMFI(
   };
 }
 
-export function computeVolumeAnalysis(volumes: number[]): VolumeAnalysis {
+export function computeVolumeAnalysis(volumes: number[], closes: number[] = []): VolumeAnalysis {
   const current = volumes[volumes.length - 1] ?? 0;
   const sma20Values = volumes.length >= 20
     ? SMA.calculate({ values: volumes, period: 20 })
     : [];
   const sma20 = sma20Values[sma20Values.length - 1] ?? current;
 
+  const lastClose = closes[closes.length - 1];
+  const prevClose = closes[closes.length - 2];
+  const priceChangePercent =
+    lastClose !== undefined && prevClose !== undefined && prevClose !== 0
+      ? ((lastClose - prevClose) / prevClose) * 100
+      : 0;
+
   return {
     currentVolume: current,
     sma20Volume: sma20,
     ratio: sma20 > 0 ? current / sma20 : 1,
+    priceChangePercent,
   };
 }
 
@@ -339,7 +347,7 @@ export function computeAllIndicators(
     ichimoku: computeIchimoku(high, low, close, config.ichimoku),
     obv: computeOBV(close, volume),
     mfi: computeMFI(high, low, close, volume, config.mfi.period),
-    volumeAnalysis: computeVolumeAnalysis(volume),
+    volumeAnalysis: computeVolumeAnalysis(volume, close),
     symbol,
     interval,
     candleCount: candles.length,

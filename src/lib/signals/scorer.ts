@@ -94,9 +94,15 @@ function scoreVolume(indicators: IndicatorSuite): SignalComponent {
 }
 
 function scoreVolatility(indicators: IndicatorSuite): SignalComponent {
+  // ATR is a volatility regime reading, not a directional signal -- it always
+  // reports neutral and would dilute the category score toward 0. It stays in
+  // the displayed signals but is excluded from the directional mean; its
+  // regime feeds computeConfidence instead.
+  const directional = indicators.signals.volatility.filter((s) => s.name !== 'ATR');
+
   return {
     category: 'volatility',
-    score: categoryScore(indicators.signals.volatility),
+    score: categoryScore(directional),
     weight: 0,
     weightedScore: 0,
     signals: indicators.signals.volatility.map((s) => ({
@@ -262,7 +268,8 @@ function getTier(score: number): SignalTier {
 function computeConfidence(
   futuresData: FuturesData | null,
   sentimentData: SentimentData | null,
-  weights: SignalWeights
+  weights: SignalWeights,
+  indicators?: IndicatorSuite
 ): number {
   // Start at 100%, degrade for missing data sources
   let confidence = 100;
@@ -272,6 +279,16 @@ function computeConfidence(
   }
   if (!sentimentData) {
     confidence -= weights.sentiment * 100;
+  }
+
+  // Volatility regime: extreme ATR makes any directional read less reliable
+  const atrSignal = indicators?.signals.volatility.find((s) => s.name === 'ATR');
+  if (atrSignal) {
+    if (atrSignal.strength >= 80) {
+      confidence -= 15;
+    } else if (atrSignal.strength >= 50) {
+      confidence -= 5;
+    }
   }
 
   return Math.max(0, Math.round(confidence));
@@ -331,7 +348,7 @@ export function computeSignalScore(
     interval: indicators.interval,
     score,
     tier: getTier(score),
-    confidence: computeConfidence(futuresData, sentimentData, weights),
+    confidence: computeConfidence(futuresData, sentimentData, weights, indicators),
     components,
     timestamp: Date.now(),
   };

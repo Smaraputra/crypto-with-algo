@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { OHLCV } from '@/types/market';
 
 import { computeAllIndicators } from './compute';
-import { interpretIndicators } from './interpret';
+import { interpretIndicators, interpretVolume } from './interpret';
 
 // Generate realistic OHLCV data
 function generateCandles(count: number, startPrice = 40000, trend: 'up' | 'down' | 'sideways' = 'up'): OHLCV[] {
@@ -189,5 +189,55 @@ describe('interpretIndicators', () => {
       expect(s.strength).toBeGreaterThanOrEqual(0);
       expect(s.strength).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+describe('interpretVolume', () => {
+  const makeVa = (ratio: number, priceChangePercent: number) => ({
+    currentVolume: ratio * 100,
+    sma20Volume: 100,
+    ratio,
+    priceChangePercent,
+  });
+
+  it('high volume with rising price confirms bullish', () => {
+    const result = interpretVolume(makeVa(2.0, 0.5));
+
+    expect(result.direction).toBe('bullish');
+    expect(result.strength).toBeCloseTo(60); // 40 + (2.0 - 1.5) * 40
+  });
+
+  it('high volume with falling price confirms bearish', () => {
+    const result = interpretVolume(makeVa(2.0, -0.5));
+
+    expect(result.direction).toBe('bearish');
+    expect(result.strength).toBeCloseTo(60);
+  });
+
+  it('strength is capped at 90 for extreme volume', () => {
+    const result = interpretVolume(makeVa(5.0, 1.0));
+
+    expect(result.direction).toBe('bullish');
+    expect(result.strength).toBe(90);
+  });
+
+  it('high volume without a clear price move stays neutral', () => {
+    const result = interpretVolume(makeVa(2.0, 0.05));
+
+    expect(result.direction).toBe('neutral');
+  });
+
+  it('low volume is low-conviction neutral', () => {
+    const result = interpretVolume(makeVa(0.3, 1.0));
+
+    expect(result.direction).toBe('neutral');
+    expect(result.strength).toBe(20);
+  });
+
+  it('average volume is neutral', () => {
+    const result = interpretVolume(makeVa(1.0, 0.5));
+
+    expect(result.direction).toBe('neutral');
+    expect(result.strength).toBe(10);
   });
 });

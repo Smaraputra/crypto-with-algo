@@ -94,6 +94,7 @@ export interface VolumeAnalysis {
   currentVolume: number;
   sma20Volume: number;
   ratio: number; // current / sma20
+  priceChangePercent: number; // close-to-close change of the bar, for direction confirmation
 }
 
 // Signal interpretation
