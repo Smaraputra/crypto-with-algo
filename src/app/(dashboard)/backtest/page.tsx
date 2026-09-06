@@ -14,6 +14,7 @@ import { DataStatus } from '@/components/backtest/DataStatus';
 import { WeightSliders } from '@/components/backtest/WeightSliders';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { BacktestMetricsCards } from '@/components/backtest/BacktestMetricsCards';
+import { SessionBreakdown } from '@/components/backtest/SessionBreakdown';
 import { TradeList } from '@/components/backtest/TradeList';
 import {
   useStrategies,
@@ -430,6 +431,9 @@ export default function BacktestPage() {
                 </p>
               )}
               <BacktestMetricsCards metrics={backtest.result.metrics} />
+              {backtest.result.metrics.sessionBreakdown && (
+                <SessionBreakdown breakdown={backtest.result.metrics.sessionBreakdown} />
+              )}
               <EquityCurveChart
                 equityCurve={backtest.result.equityCurve}
                 startEquity={backtest.result.config.startEquity}

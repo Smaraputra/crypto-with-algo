@@ -141,4 +141,48 @@ describe('BacktestConfigPanel', () => {
     expect(screen.getByLabelText('Entry Threshold (short)')).toHaveValue(-30);
     expect(screen.getByLabelText('Exit Threshold (short)')).toHaveValue(10);
   });
+
+  it('renders all five session toggles active by default', () => {
+    render(<BacktestConfigPanel {...defaultProps} />);
+    expect(screen.getByTestId('session-toggles')).toBeInTheDocument();
+    for (const session of ['asia', 'london', 'ny_overlap', 'new_york', 'off_hours']) {
+      expect(screen.getByTestId(`session-toggle-${session}`)).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+    }
+  });
+
+  it('deselecting a session sets allowedSessions to the remaining four', () => {
+    const onChange = vi.fn();
+    render(<BacktestConfigPanel config={{ ...DEFAULT_BACKTEST_CONFIG }} onChange={onChange} />);
+
+    fireEvent.click(screen.getByTestId('session-toggle-off_hours'));
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowedSessions: expect.arrayContaining(['asia', 'london', 'ny_overlap', 'new_york']),
+      })
+    );
+    const passed = onChange.mock.calls[0][0].allowedSessions;
+    expect(passed).toHaveLength(4);
+    expect(passed).not.toContain('off_hours');
+  });
+
+  it('re-selecting the last missing session clears the filter', () => {
+    const onChange = vi.fn();
+    render(
+      <BacktestConfigPanel
+        config={{
+          ...DEFAULT_BACKTEST_CONFIG,
+          allowedSessions: ['asia', 'london', 'ny_overlap', 'new_york'],
+        }}
+        onChange={onChange}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('session-toggle-off_hours'));
+
+    expect(onChange.mock.calls[0][0].allowedSessions).toBeUndefined();
+  });
 });
