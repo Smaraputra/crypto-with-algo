@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Robustness filter compared absolute-currency drawdown against a fractional threshold, rejecting every optimization candidate and crashing the ensemble; it now uses `maxDrawdownPercent / 100`
+- Ensemble read nonexistent `sortino`/`calmar` metric keys, so `avgSortino` was always 0; keys corrected to `sortinoRatio`/`calmarRatio`
+- Walk-forward ensemble and the auto-activation Sharpe gate now judge on out-of-sample test results; previously a weight-based `findOne` returned in-sample training docs
+- Out-of-sample test windows are now warmup-prefixed; previously the 100-bar test slice was smaller than the indicator warmup and would throw (masked by the drawdown bug skipping every window). Training windows are also floored at the style's minimum candle requirement
+- `pnlPercent` unified between the two backtest engines (net of fees, relative to entry notional); the optimized engine previously reported gross price change
+- Monthly orchestrator now marks ensemble contributors via `markResultsAsContributors` (previously only the admin route did)
+- Snapshot backfill stamps point-in-time daily Fear & Greed (real alternative.me history, carry-forward max 3 days) and carries funding rates forward from the last settled event; previously all historical bars received the current Fear & Greed value
+- Monthly optimization schedule added to `docker/crontab.template`; the GitHub Actions trigger had failed every month since May 2026 because the `APP_URL`/`CRON_SECRET` repo secrets are empty
+
+### Added
+- Backtests score with point-in-time futures and sentiment from `HistoricalSnapshot`, matching live signal composition; futures/sentiment weights are now learned from data instead of being redistributed away. Runs disclose `snapshotCoverage` (percent of scored bars with data)
+- `snapshot-series` module: pure point-in-time alignment of snapshots to candles (no-lookahead, staleness-capped, adapter to exact live scorer input shapes)
+- Walk-forward, monthly orchestrator, admin optimization, and the backtest UI all thread the snapshot series through both engines; the UI shows a coverage line and degrades gracefully when the fetch fails
+- `fetchFearAndGreedHistory` (alternative.me daily history, Redis-cached) and `startTime`/`endTime` params on `fetchFundingRate`
+- No-lookahead regression tests (indicator, score, and snapshot paths), cross-engine parity tests, shared `trade-utils` unit tests, and a walk-forward integration test on mongodb-memory-server
+- Backfill response reports per-field coverage counts
+
+### Changed
+- Volume interpreter is directional: high volume confirms the bar's direction instead of always reporting neutral; low volume reads as low conviction
+- ATR now acts as a volatility regime input: excluded from the volatility category's directional mean (it always diluted the score toward 0) and extreme/moderate regimes subtract up to 15 confidence points
+- Consolidated the duplicate sentiment stack into `src/lib/external/` (Redis-cached, timeouts); keyword scoring moved to `external/news-sentiment.ts`; deleted `src/lib/sentiment-analysis.ts`
+- Walk-forward accepts an injectable robustness config (used by the integration test)
+- `mongodb` and `@testing-library/dom` declared as direct dependencies (previously undeclared transitive imports that broke clean installs)
+
 ## [1.0.0] - 2026-06-07
 
 ### Added
