@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (multi-timeframe and sessions)
+- Higher-timeframe confluence as a seventh signal category (`htf`): a compact trend assessment (EMA cross, price vs SMAs, SuperTrend) of the confirmation timeframe (1m to 15m, 5m to 1h, 15m/1h to 4h, 4h to 1d), computed from the last closed HTF bar only. Live signals, both backtest engines, and walk-forward optimization all consume it; the weight is optimizer-searchable per style
+- Default weights rescaled so an empty htf component reproduces pre-htf scores exactly via weight redistribution (invariance covered by test); pre-htf template docs read back with htf 0
+- Market session taxonomy (Asia, London, London/NY overlap, New York, off hours; fixed UTC): recorded on GlobalSignal at candle close for intraday intervals, applied as an entry-only filter in backtests (`allowedSessions`), reported as per-session performance breakdown in backtest metrics and UI, and added to journal analytics (by session, by hour, by weekday, all UTC)
+- GlobalSignal documents carry `session`, compact `htfContext`, and `configVersion: 2`; the signals page shows HTF trend and session chips; the backtest config panel gains session toggles
+- No-lookahead guards extended to HTF: alignment maps each low-timeframe bar to the newest closed HTF bar only, with causality and truncation tests
+
 ### Fixed
 - Robustness filter compared absolute-currency drawdown against a fractional threshold, rejecting every optimization candidate and crashing the ensemble; it now uses `maxDrawdownPercent / 100`
 - Ensemble read nonexistent `sortino`/`calmar` metric keys, so `avgSortino` was always 0; keys corrected to `sortinoRatio`/`calmarRatio`
