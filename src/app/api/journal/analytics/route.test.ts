@@ -97,6 +97,7 @@ describe('GET /api/journal/analytics', () => {
 
     // Make aggregate return different values per call
     const aggMock = vi.mocked(JournalEntry.aggregate);
+    aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
     // Call order: tagAgg, actionAgg, setupAgg, conditionAgg, monthlyAgg, tierAgg
     aggMock.mockResolvedValueOnce([
       { _id: 'breakout', count: 5, wins: 3, losses: 2, totalPnl: 8 },
@@ -126,6 +127,7 @@ describe('GET /api/journal/analytics', () => {
     } as never);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
+    aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
     aggMock.mockResolvedValueOnce([]); // tag
     aggMock.mockResolvedValueOnce([
       { _id: 'buy', count: 6 },
@@ -153,6 +155,7 @@ describe('GET /api/journal/analytics', () => {
     } as never);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
+    aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
     aggMock.mockResolvedValueOnce([]); // tag
     aggMock.mockResolvedValueOnce([]); // action
     aggMock.mockResolvedValueOnce([]); // setup
@@ -180,6 +183,7 @@ describe('GET /api/journal/analytics', () => {
     } as never);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
+    aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
     aggMock.mockResolvedValueOnce([]); // tag
     aggMock.mockResolvedValueOnce([]); // action
     aggMock.mockResolvedValueOnce([]); // setup
@@ -208,6 +212,7 @@ describe('GET /api/journal/analytics', () => {
     } as never);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
+    aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
     aggMock.mockResolvedValueOnce([]); // tag
     aggMock.mockResolvedValueOnce([]); // action
     aggMock.mockResolvedValueOnce([
@@ -229,5 +234,55 @@ describe('GET /api/journal/analytics', () => {
     expect(data.byMarketCondition).toHaveLength(1);
     expect(data.byMarketCondition[0].condition).toBe('trending_up');
     expect(data.byMarketCondition[0].winRate).toBe(75);
+  });
+
+  it('maps session, hour, and weekday aggregations', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.countDocuments).mockResolvedValue(6);
+    vi.mocked(JournalEntry.find).mockReturnValue({
+      lean: vi.fn().mockResolvedValue([]),
+    } as never);
+
+    const aggMock = vi.mocked(JournalEntry.aggregate);
+    aggMock.mockResolvedValue([] as never); // base fallback
+    // Call order: tag, action, setup, condition, monthly, tier, session, hour, weekday
+    aggMock.mockResolvedValueOnce([]); // tag
+    aggMock.mockResolvedValueOnce([]); // action
+    aggMock.mockResolvedValueOnce([]); // setup
+    aggMock.mockResolvedValueOnce([]); // condition
+    aggMock.mockResolvedValueOnce([]); // monthly
+    aggMock.mockResolvedValueOnce([]); // tier
+    aggMock.mockResolvedValueOnce([
+      { _id: 'asia', count: 4, wins: 3, totalPnl: 8 },
+      { _id: 'ny_overlap', count: 2, wins: 0, totalPnl: -3 },
+    ]); // session
+    aggMock.mockResolvedValueOnce([
+      { _id: 9, count: 3, wins: 2, totalPnl: 4.5 },
+    ]); // hour
+    aggMock.mockResolvedValueOnce([
+      { _id: 1, count: 2, wins: 1, totalPnl: 1 }, // Mongo 1 = Sunday
+      { _id: 2, count: 4, wins: 3, totalPnl: 6 }, // Mongo 2 = Monday
+    ]); // weekday
+
+    const res = await GET();
+    const data = await res.json();
+
+    expect(data.bySession).toHaveLength(2);
+    expect(data.bySession[0]).toEqual({
+      session: 'asia',
+      count: 4,
+      wins: 3,
+      winRate: 75,
+      avgPnlPercent: 2,
+    });
+
+    expect(data.byHour).toHaveLength(1);
+    expect(data.byHour[0].hour).toBe(9);
+    expect(data.byHour[0].winRate).toBeCloseTo(66.67, 1);
+
+    // Mongo $dayOfWeek 1-7 maps to 0-6 (Sunday = 0)
+    expect(data.byWeekday[0].weekday).toBe(0);
+    expect(data.byWeekday[1].weekday).toBe(1);
+    expect(data.byWeekday[1].winRate).toBe(75);
   });
 });

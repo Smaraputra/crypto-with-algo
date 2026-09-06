@@ -56,6 +56,30 @@ export interface SignalTierAccuracy {
   winRate: number;
 }
 
+export interface SessionPerformance {
+  session: string; // MarketSession, UTC buckets
+  count: number;
+  wins: number;
+  winRate: number;
+  avgPnlPercent: number;
+}
+
+export interface HourPerformance {
+  hour: number; // 0-23 UTC
+  count: number;
+  wins: number;
+  winRate: number;
+  avgPnlPercent: number;
+}
+
+export interface WeekdayPerformance {
+  weekday: number; // 0 = Sunday .. 6 = Saturday, UTC
+  count: number;
+  wins: number;
+  winRate: number;
+  avgPnlPercent: number;
+}
+
 export interface JournalAnalyticsResponse {
   summary: JournalAnalyticsSummary;
   incompleteTradeCount: number;
@@ -65,4 +89,7 @@ export interface JournalAnalyticsResponse {
   byMarketCondition: MarketConditionPerformance[];
   byMonth: MonthlyPnl[];
   bySignalTier: SignalTierAccuracy[];
+  bySession: SessionPerformance[];
+  byHour: HourPerformance[];
+  byWeekday: WeekdayPerformance[];
 }

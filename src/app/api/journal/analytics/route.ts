@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { JournalEntry } from '@/lib/models/journal-entry';
+import { SESSION_UTC_RANGES } from '@/lib/sessions';
 import type {
   JournalAnalyticsSummary,
   TagPerformance,
@@ -10,7 +11,27 @@ import type {
   MarketConditionPerformance,
   MonthlyPnl,
   SignalTierAccuracy,
+  SessionPerformance,
+  HourPerformance,
+  WeekdayPerformance,
 } from '@/types/journal-analytics';
+
+// Session bucket from the entry's UTC hour, built from the shared taxonomy so
+// the TS constants and the Mongo expression cannot drift
+const SESSION_SWITCH_EXPR = {
+  $switch: {
+    branches: SESSION_UTC_RANGES.map((range) => ({
+      case: {
+        $and: [
+          { $gte: [{ $hour: '$createdAt' }, range.startHour] },
+          { $lt: [{ $hour: '$createdAt' }, range.endHour] },
+        ],
+      },
+      then: range.session,
+    })),
+    default: 'off_hours',
+  },
+};
 
 export async function GET() {
   const session = await auth();
@@ -43,6 +64,9 @@ export async function GET() {
     conditionAgg,
     monthlyAgg,
     tierAgg,
+    sessionAgg,
+    hourAgg,
+    weekdayAgg,
   ] = await Promise.all([
     // Total count
     JournalEntry.countDocuments(baseMatch),
@@ -144,6 +168,47 @@ export async function GET() {
       },
       { $sort: { _id: 1 } },
     ]),
+
+    // By market session (UTC)
+    JournalEntry.aggregate([
+      { $match: pnlMatch },
+      {
+        $group: {
+          _id: SESSION_SWITCH_EXPR,
+          count: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $gt: ['$outcomePnlPercent', 0] }, 1, 0] } },
+          totalPnl: { $sum: '$outcomePnlPercent' },
+        },
+      },
+    ]),
+
+    // By hour of day (UTC)
+    JournalEntry.aggregate([
+      { $match: pnlMatch },
+      {
+        $group: {
+          _id: { $hour: '$createdAt' },
+          count: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $gt: ['$outcomePnlPercent', 0] }, 1, 0] } },
+          totalPnl: { $sum: '$outcomePnlPercent' },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+
+    // By weekday (UTC; $dayOfWeek is 1 = Sunday .. 7 = Saturday)
+    JournalEntry.aggregate([
+      { $match: pnlMatch },
+      {
+        $group: {
+          _id: { $dayOfWeek: '$createdAt' },
+          count: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $gt: ['$outcomePnlPercent', 0] }, 1, 0] } },
+          totalPnl: { $sum: '$outcomePnlPercent' },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
   ]);
 
   // Compute summary
@@ -217,6 +282,30 @@ export async function GET() {
     winRate: t.count > 0 ? ((t.wins as number) / (t.count as number)) * 100 : 0,
   }));
 
+  const bySession: SessionPerformance[] = sessionAgg.map((s) => ({
+    session: s._id as string,
+    count: s.count as number,
+    wins: s.wins as number,
+    winRate: s.count > 0 ? ((s.wins as number) / (s.count as number)) * 100 : 0,
+    avgPnlPercent: s.count > 0 ? (s.totalPnl as number) / (s.count as number) : 0,
+  }));
+
+  const byHour: HourPerformance[] = hourAgg.map((h) => ({
+    hour: h._id as number,
+    count: h.count as number,
+    wins: h.wins as number,
+    winRate: h.count > 0 ? ((h.wins as number) / (h.count as number)) * 100 : 0,
+    avgPnlPercent: h.count > 0 ? (h.totalPnl as number) / (h.count as number) : 0,
+  }));
+
+  const byWeekday: WeekdayPerformance[] = weekdayAgg.map((w) => ({
+    weekday: ((w._id as number) - 1) % 7, // Mongo 1-7 (Sun-Sat) -> 0-6
+    count: w.count as number,
+    wins: w.wins as number,
+    winRate: w.count > 0 ? ((w.wins as number) / (w.count as number)) * 100 : 0,
+    avgPnlPercent: w.count > 0 ? (w.totalPnl as number) / (w.count as number) : 0,
+  }));
+
   return NextResponse.json({
     summary,
     incompleteTradeCount,
@@ -226,5 +315,8 @@ export async function GET() {
     byMarketCondition,
     byMonth,
     bySignalTier,
+    bySession,
+    byHour,
+    byWeekday,
   });
 }
