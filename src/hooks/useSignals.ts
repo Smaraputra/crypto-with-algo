@@ -26,6 +26,11 @@ export interface GlobalSignalRecord {
   configVersion: number;
   candleTimestamp: number;
   session?: string | null;
+  htfContext?: {
+    interval: string;
+    trendDirection: 'bullish' | 'bearish' | 'neutral';
+    candleTimestamp: number;
+  } | null;
   expiresAt: string;
   createdAt: string;
 }
