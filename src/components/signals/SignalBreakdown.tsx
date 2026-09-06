@@ -13,6 +13,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   volatility: 'Volatility',
   futures: 'Futures',
   sentiment: 'Sentiment',
+  htf: 'Higher TF',
 };
 
 function ScoreBar({ score }: { score: number }) {

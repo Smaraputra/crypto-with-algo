@@ -13,6 +13,8 @@ import { MultiStyleOverview } from '@/components/signals/MultiStyleOverview';
 import { EnhancedJournalForm } from '@/components/journal/EnhancedJournalForm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import { SESSION_LABELS, type MarketSession } from '@/lib/sessions';
 import { useFundingRate, useLongShortRatio, useOpenInterest } from '@/hooks/useFutures';
 import {
   useGlobalSignals,
@@ -156,6 +158,39 @@ export default function SignalsPage() {
                     tier={latestSignal.tier}
                     confidence={latestSignal.confidence}
                   />
+                  {(latestSignal.htfContext || latestSignal.session) && (
+                    <div
+                      className="mt-3 flex flex-wrap justify-center gap-2"
+                      data-testid="signal-context-chips"
+                    >
+                      {latestSignal.htfContext && (
+                        <span
+                          className={cn(
+                            'rounded-full border border-border px-2 py-0.5 text-xs',
+                            latestSignal.htfContext.trendDirection === 'bullish'
+                              ? 'text-bullish'
+                              : latestSignal.htfContext.trendDirection === 'bearish'
+                                ? 'text-bearish'
+                                : 'text-muted-foreground'
+                          )}
+                          data-testid="htf-chip"
+                        >
+                          {latestSignal.htfContext.interval} trend:{' '}
+                          {latestSignal.htfContext.trendDirection}
+                        </span>
+                      )}
+                      {latestSignal.session && (
+                        <span
+                          className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+                          data-testid="session-chip"
+                        >
+                          {SESSION_LABELS[latestSignal.session as MarketSession] ??
+                            latestSignal.session}{' '}
+                          session
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </ErrorBoundary>
               ) : (
                 <div className="text-center py-8 text-muted-foreground text-sm">

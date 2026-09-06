@@ -49,6 +49,23 @@ describe('SignalBreakdown', () => {
     expect(screen.getByText('Volume')).toBeInTheDocument();
   });
 
+  it('labels the htf category as Higher TF', () => {
+    const htfComponent: SignalComponent[] = [
+      {
+        category: 'htf',
+        score: 60,
+        weight: 0.1,
+        weightedScore: 6,
+        signals: [
+          { name: 'HTF SuperTrend', direction: 'bullish', strength: 70, description: '4h SuperTrend bullish' },
+        ],
+      },
+    ];
+    render(<SignalBreakdown components={htfComponent} />);
+    expect(screen.getByText('Higher TF')).toBeInTheDocument();
+    expect(screen.getByText('HTF SuperTrend')).toBeInTheDocument();
+  });
+
   it('displays weight percentages', () => {
     render(<SignalBreakdown components={mockComponents} />);
     expect(screen.getAllByText('(33%)')).toHaveLength(2);
