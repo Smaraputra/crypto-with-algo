@@ -68,4 +68,8 @@ export interface CompositeSignal {
 export interface SentimentData {
   fearGreedIndex: number; // 0 (extreme fear) to 100 (extreme greed)
   label: string;
+  news?: {
+    count: number; // articles scored
+    avgSentiment: number; // -1 to +1, keyword-based
+  } | null;
 }

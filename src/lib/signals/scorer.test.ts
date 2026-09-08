@@ -229,6 +229,57 @@ describe('computeSignalScore', () => {
     expect(momentumResult.score).toBeLessThan(0);
   });
 
+  it('news sentiment adds a directional signal to the sentiment category', () => {
+    const suite = makeIndicatorSuite('sideways');
+    const withNews = computeSignalScore(suite, null, {
+      fearGreedIndex: 50,
+      label: 'Neutral',
+      news: { count: 6, avgSentiment: 0.4 },
+    });
+
+    const sentimentComponent = withNews.components.find((c) => c.category === 'sentiment');
+    const newsSignal = sentimentComponent!.signals.find((s) => s.name === 'News');
+    expect(newsSignal).toBeDefined();
+    expect(newsSignal!.direction).toBe('bullish');
+    expect(newsSignal!.strength).toBe(70); // capped: 0.4 * 200 = 80 -> 70
+    // Neutral F&G contributes 0; the news signal lifts the category mean
+    expect(sentimentComponent!.score).toBeGreaterThan(0);
+  });
+
+  it('weak or thin news is ignored', () => {
+    const suite = makeIndicatorSuite('sideways');
+    const thin = computeSignalScore(suite, null, {
+      fearGreedIndex: 50,
+      label: 'Neutral',
+      news: { count: 2, avgSentiment: 0.8 }, // too few articles
+    });
+    const weak = computeSignalScore(suite, null, {
+      fearGreedIndex: 50,
+      label: 'Neutral',
+      news: { count: 10, avgSentiment: 0.1 }, // no clear tilt
+    });
+
+    for (const result of [thin, weak]) {
+      const sentimentComponent = result.components.find((c) => c.category === 'sentiment');
+      expect(sentimentComponent!.signals.map((s) => s.name)).toEqual(['Fear & Greed']);
+    }
+  });
+
+  it('bearish news reads bearish', () => {
+    const suite = makeIndicatorSuite('sideways');
+    const result = computeSignalScore(suite, null, {
+      fearGreedIndex: 50,
+      label: 'Neutral',
+      news: { count: 4, avgSentiment: -0.3 },
+    });
+
+    const sentimentComponent = result.components.find((c) => c.category === 'sentiment');
+    const newsSignal = sentimentComponent!.signals.find((s) => s.name === 'News');
+    expect(newsSignal!.direction).toBe('bearish');
+    expect(newsSignal!.strength).toBe(60);
+    expect(sentimentComponent!.score).toBeLessThan(0);
+  });
+
   it('extreme fear is bullish contrarian', () => {
     const suite = makeIndicatorSuite('sideways');
     const fearData: SentimentData = { fearGreedIndex: 5, label: 'Extreme Fear' };

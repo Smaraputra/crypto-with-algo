@@ -249,9 +249,25 @@ function scoreSentiment(sentimentData: SentimentData | null): SignalComponent {
     },
   ];
 
+  // Keyword news sentiment is directional evidence (positive headlines are
+  // bullish), unlike the contrarian Fear & Greed read. Needs a minimum sample
+  // and a clear tilt to count.
+  const news = sentimentData.news;
+  if (news && news.count >= 3 && Math.abs(news.avgSentiment) >= 0.15) {
+    const newsDirection = news.avgSentiment > 0 ? 'bullish' : 'bearish';
+    signals.push({
+      name: 'News',
+      direction: newsDirection,
+      strength: Math.min(70, Math.round(Math.abs(news.avgSentiment) * 200)),
+      description: `${news.count} articles, avg sentiment ${news.avgSentiment.toFixed(2)}`,
+    });
+  }
+
   return {
     category: 'sentiment',
-    score: directionToMultiplier(direction) * strength,
+    score: categoryScore(
+      signals.map((s) => ({ ...s, value: 0 }))
+    ),
     weight: 0,
     weightedScore: 0,
     signals,
