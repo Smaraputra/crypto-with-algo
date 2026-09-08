@@ -130,8 +130,10 @@ describe('fetchKlines', () => {
   });
 
   it('returns parsed OHLCV with correct float conversion', async () => {
+    // Full 12-field kline as Binance returns it; index 9 is taker buy volume
     const rawKlines = [
-      [1700000000000, '50000.12', '51000.34', '49000.56', '50500.78', '123.456'],
+      [1700000000000, '50000.12', '51000.34', '49000.56', '50500.78', '123.456',
+        1700003599999, '6234000.5', 1500, '67.89', '3429000.1', '0'],
     ];
     mockFetch.mockResolvedValue(okResponse(rawKlines));
 
@@ -145,8 +147,20 @@ describe('fetchKlines', () => {
         low: 49000.56,
         close: 50500.78,
         volume: 123.456,
+        takerBuyVolume: 67.89,
       },
     ]);
+  });
+
+  it('omits takerBuyVolume when the field is missing', async () => {
+    const rawKlines = [
+      [1700000000000, '50000.12', '51000.34', '49000.56', '50500.78', '123.456'],
+    ];
+    mockFetch.mockResolvedValue(okResponse(rawKlines));
+
+    const result = await fetchKlines('BTCUSDT', '1h');
+
+    expect(result[0].takerBuyVolume).toBeUndefined();
   });
 
   it('defaults limit to 500', async () => {

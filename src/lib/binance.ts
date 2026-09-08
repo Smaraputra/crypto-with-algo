@@ -43,14 +43,19 @@ export async function fetchKlines(
   }
 
   const data: unknown[][] = await res.json();
-  return data.map((k) => ({
-    timestamp: k[0] as number,
-    open: parseFloat(k[1] as string),
-    high: parseFloat(k[2] as string),
-    low: parseFloat(k[3] as string),
-    close: parseFloat(k[4] as string),
-    volume: parseFloat(k[5] as string),
-  }));
+  return data.map((k) => {
+    // Index 9 is taker buy base asset volume: the aggressive-buy share of volume
+    const takerBuyVolume = parseFloat(k[9] as string);
+    return {
+      timestamp: k[0] as number,
+      open: parseFloat(k[1] as string),
+      high: parseFloat(k[2] as string),
+      low: parseFloat(k[3] as string),
+      close: parseFloat(k[4] as string),
+      volume: parseFloat(k[5] as string),
+      ...(Number.isNaN(takerBuyVolume) ? {} : { takerBuyVolume }),
+    };
+  });
 }
 
 export async function fetchTickerPrices(

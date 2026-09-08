@@ -9,6 +9,7 @@ export interface ICandle extends Document {
   low: number;
   close: number;
   volume: number;
+  takerBuyVolume?: number;
   expiresAt?: Date;
 }
 
@@ -22,6 +23,7 @@ const candleSchema = new Schema<ICandle>(
     low: { type: Number, required: true },
     close: { type: Number, required: true },
     volume: { type: Number, required: true },
+    takerBuyVolume: { type: Number, required: false },
     expiresAt: { type: Date, default: null },
   },
   { timestamps: false }
