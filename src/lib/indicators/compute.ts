@@ -37,6 +37,7 @@ function extractOHLCV(candles: OHLCV[]) {
     low: candles.map((c) => c.low),
     close: candles.map((c) => c.close),
     volume: candles.map((c) => c.volume),
+    takerBuyVolume: candles.map((c) => c.takerBuyVolume),
   };
 }
 
@@ -255,7 +256,21 @@ export function computeMFI(
   };
 }
 
-export function computeVolumeAnalysis(volumes: number[], closes: number[] = []): VolumeAnalysis {
+export function computeTakerBuyRatio(
+  takerBuyVolume: number | undefined,
+  volume: number
+): number | undefined {
+  if (takerBuyVolume === undefined || Number.isNaN(takerBuyVolume) || volume <= 0) {
+    return undefined;
+  }
+  return takerBuyVolume / volume;
+}
+
+export function computeVolumeAnalysis(
+  volumes: number[],
+  closes: number[] = [],
+  takerBuyVolumes: Array<number | undefined> = []
+): VolumeAnalysis {
   const current = volumes[volumes.length - 1] ?? 0;
   const sma20Values = volumes.length >= 20
     ? SMA.calculate({ values: volumes, period: 20 })
@@ -269,11 +284,17 @@ export function computeVolumeAnalysis(volumes: number[], closes: number[] = []):
       ? ((lastClose - prevClose) / prevClose) * 100
       : 0;
 
+  const takerBuyRatio = computeTakerBuyRatio(
+    takerBuyVolumes[takerBuyVolumes.length - 1],
+    current
+  );
+
   return {
     currentVolume: current,
     sma20Volume: sma20,
     ratio: sma20 > 0 ? current / sma20 : 1,
     priceChangePercent,
+    ...(takerBuyRatio !== undefined ? { takerBuyRatio } : {}),
   };
 }
 
@@ -316,7 +337,7 @@ export function computeAllIndicators(
     );
   }
 
-  const { high, low, close, volume } = extractOHLCV(candles);
+  const { high, low, close, volume, takerBuyVolume } = extractOHLCV(candles);
 
   return {
     ema12: computeEMA(close, config.ema.fast),
@@ -347,7 +368,7 @@ export function computeAllIndicators(
     ichimoku: computeIchimoku(high, low, close, config.ichimoku),
     obv: computeOBV(close, volume),
     mfi: computeMFI(high, low, close, volume, config.mfi.period),
-    volumeAnalysis: computeVolumeAnalysis(volume, close),
+    volumeAnalysis: computeVolumeAnalysis(volume, close, takerBuyVolume),
     symbol,
     interval,
     candleCount: candles.length,

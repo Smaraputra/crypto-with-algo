@@ -289,6 +289,40 @@ export function interpretVolume(va: RawIndicators['volumeAnalysis']): IndicatorS
   return signal('Volume', ratio, 'neutral', 10, `Volume at ${ratio.toFixed(1)}x average`);
 }
 
+/**
+ * Taker flow: the aggressive-buy share of the bar's volume. Above 0.55 the
+ * tape is being lifted (bullish), below 0.45 hit (bearish). Returns null in
+ * the indifferent band and when the data is absent (legacy candles), so it
+ * never dilutes the volume category.
+ */
+export function interpretTakerFlow(va: RawIndicators['volumeAnalysis']): IndicatorSignal | null {
+  const { takerBuyRatio } = va;
+  if (takerBuyRatio === undefined) return null;
+
+  if (takerBuyRatio >= 0.55) {
+    const strength = Math.min(85, Math.round((takerBuyRatio - 0.5) * 800));
+    return signal(
+      'Taker Flow',
+      takerBuyRatio,
+      'bullish',
+      strength,
+      `Aggressive buying: ${(takerBuyRatio * 100).toFixed(0)}% taker buy volume`
+    );
+  }
+  if (takerBuyRatio <= 0.45) {
+    const strength = Math.min(85, Math.round((0.5 - takerBuyRatio) * 800));
+    return signal(
+      'Taker Flow',
+      takerBuyRatio,
+      'bearish',
+      strength,
+      `Aggressive selling: ${(takerBuyRatio * 100).toFixed(0)}% taker buy volume`
+    );
+  }
+
+  return null;
+}
+
 // Main interpretation function
 
 export function interpretIndicators(raw: RawIndicators): IndicatorSuite {
@@ -324,6 +358,8 @@ export function interpretIndicators(raw: RawIndicators): IndicatorSuite {
     interpretMFI(raw.mfi.current),
     interpretVolume(raw.volumeAnalysis),
   ];
+  const takerFlowSignal = interpretTakerFlow(raw.volumeAnalysis);
+  if (takerFlowSignal) volumeSignals.push(takerFlowSignal);
 
   return {
     ...raw,
