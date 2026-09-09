@@ -8,6 +8,7 @@ import { MonthlyPnL } from './MonthlyPnL';
 import { SignalAccuracy } from './SignalAccuracy';
 import { TradingPatterns } from './TradingPatterns';
 import { TimingAnalytics } from './TimingAnalytics';
+import { PsychologyAnalytics } from './PsychologyAnalytics';
 
 export function AnalyticsView() {
   const { data, isLoading, isError } = useJournalAnalytics();
@@ -79,6 +80,15 @@ export function AnalyticsView() {
           bySession={data.bySession ?? []}
           byHour={data.byHour ?? []}
           byWeekday={data.byWeekday ?? []}
+        />
+      </div>
+
+      <div className="rounded-lg border border-border p-4">
+        <h3 className="text-sm font-semibold mb-3">Psychology</h3>
+        <PsychologyAnalytics
+          byEmotion={data.byEmotion ?? []}
+          byMistake={data.byMistake ?? []}
+          streaks={data.streaks ?? { current: null, maxWinStreak: 0, maxLossStreak: 0 }}
         />
       </div>
     </div>

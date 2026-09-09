@@ -14,6 +14,9 @@ import type {
   SessionPerformance,
   HourPerformance,
   WeekdayPerformance,
+  EmotionPerformance,
+  MistakePerformance,
+  TradeStreaks,
 } from '@/types/journal-analytics';
 
 // Session bucket from the entry's UTC hour, built from the shared taxonomy so
@@ -67,15 +70,20 @@ export async function GET() {
     sessionAgg,
     hourAgg,
     weekdayAgg,
+    emotionAgg,
+    mistakeAgg,
   ] = await Promise.all([
     // Total count
     JournalEntry.countDocuments(baseMatch),
 
-    // All entries with P&L for summary computation
+    // All entries with P&L for summary computation (chronological for streaks)
     JournalEntry.find(pnlMatch, {
       outcomePnlPercent: 1,
       action: 1,
-    }).lean(),
+      createdAt: 1,
+    })
+      .sort({ createdAt: 1 })
+      .lean(),
 
     // Incomplete trades (have entry price but no P&L)
     JournalEntry.countDocuments(incompleteMatch),
@@ -209,6 +217,34 @@ export async function GET() {
       },
       { $sort: { _id: 1 } },
     ]),
+
+    // By emotion
+    JournalEntry.aggregate([
+      { $match: { ...pnlMatch, emotion: { $ne: null } } },
+      {
+        $group: {
+          _id: '$emotion',
+          count: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $gt: ['$outcomePnlPercent', 0] }, 1, 0] } },
+          totalPnl: { $sum: '$outcomePnlPercent' },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]),
+
+    // By mistake (a trade can carry several)
+    JournalEntry.aggregate([
+      { $match: { ...pnlMatch, mistakes: { $exists: true, $ne: [] } } },
+      { $unwind: '$mistakes' },
+      {
+        $group: {
+          _id: '$mistakes',
+          count: { $sum: 1 },
+          totalPnl: { $sum: '$outcomePnlPercent' },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]),
   ]);
 
   // Compute summary
@@ -306,6 +342,24 @@ export async function GET() {
     avgPnlPercent: w.count > 0 ? (w.totalPnl as number) / (w.count as number) : 0,
   }));
 
+  const byEmotion: EmotionPerformance[] = emotionAgg.map((e) => ({
+    emotion: e._id as string,
+    count: e.count as number,
+    wins: e.wins as number,
+    winRate: e.count > 0 ? ((e.wins as number) / (e.count as number)) * 100 : 0,
+    avgPnlPercent: e.count > 0 ? (e.totalPnl as number) / (e.count as number) : 0,
+  }));
+
+  const byMistake: MistakePerformance[] = mistakeAgg.map((m) => ({
+    mistake: m._id as string,
+    count: m.count as number,
+    avgPnlPercent: m.count > 0 ? (m.totalPnl as number) / (m.count as number) : 0,
+    totalPnlPercent: m.totalPnl as number,
+  }));
+
+  // Per-trade streaks over the chronological closed-trade sequence
+  const streaks = computeStreaks(pnlValues);
+
   return NextResponse.json({
     summary,
     incompleteTradeCount,
@@ -318,5 +372,38 @@ export async function GET() {
     bySession,
     byHour,
     byWeekday,
+    byEmotion,
+    byMistake,
+    streaks,
   });
+}
+
+function computeStreaks(pnlValues: number[]): TradeStreaks {
+  let maxWinStreak = 0;
+  let maxLossStreak = 0;
+  let runType: 'win' | 'loss' | null = null;
+  let runLength = 0;
+
+  for (const pnl of pnlValues) {
+    if (pnl === 0) {
+      runType = null;
+      runLength = 0;
+      continue;
+    }
+    const type: 'win' | 'loss' = pnl > 0 ? 'win' : 'loss';
+    if (type === runType) {
+      runLength++;
+    } else {
+      runType = type;
+      runLength = 1;
+    }
+    if (type === 'win') maxWinStreak = Math.max(maxWinStreak, runLength);
+    else maxLossStreak = Math.max(maxLossStreak, runLength);
+  }
+
+  return {
+    current: runType ? { type: runType, length: runLength } : null,
+    maxWinStreak,
+    maxLossStreak,
+  };
 }

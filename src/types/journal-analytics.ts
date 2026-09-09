@@ -80,6 +80,27 @@ export interface WeekdayPerformance {
   avgPnlPercent: number;
 }
 
+export interface EmotionPerformance {
+  emotion: string; // TradeEmotion
+  count: number;
+  wins: number;
+  winRate: number;
+  avgPnlPercent: number;
+}
+
+export interface MistakePerformance {
+  mistake: string; // TradeMistake
+  count: number;
+  avgPnlPercent: number; // average outcome of trades carrying this mistake
+  totalPnlPercent: number; // cumulative cost
+}
+
+export interface TradeStreaks {
+  current: { type: 'win' | 'loss'; length: number } | null;
+  maxWinStreak: number;
+  maxLossStreak: number;
+}
+
 export interface JournalAnalyticsResponse {
   summary: JournalAnalyticsSummary;
   incompleteTradeCount: number;
@@ -92,4 +113,7 @@ export interface JournalAnalyticsResponse {
   bySession: SessionPerformance[];
   byHour: HourPerformance[];
   byWeekday: WeekdayPerformance[];
+  byEmotion: EmotionPerformance[];
+  byMistake: MistakePerformance[];
+  streaks: TradeStreaks;
 }
