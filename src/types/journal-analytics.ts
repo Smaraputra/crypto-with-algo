@@ -101,6 +101,16 @@ export interface TradeStreaks {
   maxLossStreak: number;
 }
 
+export interface KellySuggestion {
+  fraction: number; // full Kelly, 0-1 of equity (clamped at 0)
+  halfFraction: number; // half Kelly, the practical suggestion
+  winRate: number; // 0-1
+  avgWinPercent: number;
+  avgLossPercent: number; // positive magnitude
+  sampleSize: number;
+  reliable: boolean; // >= 20 closed trades with both wins and losses
+}
+
 export interface JournalAnalyticsResponse {
   summary: JournalAnalyticsSummary;
   incompleteTradeCount: number;
@@ -116,4 +126,5 @@ export interface JournalAnalyticsResponse {
   byEmotion: EmotionPerformance[];
   byMistake: MistakePerformance[];
   streaks: TradeStreaks;
+  kellySuggestion: KellySuggestion;
 }

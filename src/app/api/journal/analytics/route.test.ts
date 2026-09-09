@@ -356,4 +356,47 @@ describe('GET /api/journal/analytics', () => {
       maxLossStreak: 3,
     });
   });
+
+  it('computes a Kelly suggestion from closed trades', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.countDocuments).mockResolvedValue(30);
+    // 24 trades: 60% winners at +2%, losers at -1% -> b=2, f = (0.6*2 - 0.4)/2 = 0.4
+    const entries = [
+      ...Array.from({ length: 15 }, () => ({ outcomePnlPercent: 2 })),
+      ...Array.from({ length: 10 }, () => ({ outcomePnlPercent: -1 })),
+    ];
+    vi.mocked(JournalEntry.find).mockReturnValue({
+      sort: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(entries) }),
+    } as never);
+    vi.mocked(JournalEntry.aggregate).mockResolvedValue([] as never);
+
+    const res = await GET();
+    const data = await res.json();
+
+    expect(data.kellySuggestion.reliable).toBe(true);
+    expect(data.kellySuggestion.sampleSize).toBe(25);
+    expect(data.kellySuggestion.winRate).toBeCloseTo(0.6);
+    expect(data.kellySuggestion.fraction).toBeCloseTo(0.4);
+    expect(data.kellySuggestion.halfFraction).toBeCloseTo(0.2);
+  });
+
+  it('marks Kelly unreliable under 20 closed trades', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.countDocuments).mockResolvedValue(5);
+    vi.mocked(JournalEntry.find).mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([
+          { outcomePnlPercent: 2 },
+          { outcomePnlPercent: -1 },
+        ]),
+      }),
+    } as never);
+    vi.mocked(JournalEntry.aggregate).mockResolvedValue([] as never);
+
+    const res = await GET();
+    const data = await res.json();
+
+    expect(data.kellySuggestion.reliable).toBe(false);
+    expect(data.kellySuggestion.sampleSize).toBe(2);
+  });
 });

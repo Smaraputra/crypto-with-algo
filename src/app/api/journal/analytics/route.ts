@@ -17,6 +17,7 @@ import type {
   EmotionPerformance,
   MistakePerformance,
   TradeStreaks,
+  KellySuggestion,
 } from '@/types/journal-analytics';
 
 // Session bucket from the entry's UTC hour, built from the shared taxonomy so
@@ -360,6 +361,9 @@ export async function GET() {
   // Per-trade streaks over the chronological closed-trade sequence
   const streaks = computeStreaks(pnlValues);
 
+  // Kelly criterion from the real trade record (advisory position sizing)
+  const kellySuggestion = computeKellySuggestion(pnlValues);
+
   return NextResponse.json({
     summary,
     incompleteTradeCount,
@@ -375,7 +379,36 @@ export async function GET() {
     byEmotion,
     byMistake,
     streaks,
+    kellySuggestion,
   });
+}
+
+const KELLY_MIN_SAMPLE = 20;
+
+function computeKellySuggestion(pnlValues: number[]): KellySuggestion {
+  const winsArr = pnlValues.filter((v) => v > 0);
+  const lossesArr = pnlValues.filter((v) => v < 0);
+  const sampleSize = winsArr.length + lossesArr.length;
+  const winRate = sampleSize > 0 ? winsArr.length / sampleSize : 0;
+  const avgWinPercent = winsArr.length > 0 ? winsArr.reduce((s, v) => s + v, 0) / winsArr.length : 0;
+  const avgLossPercent =
+    lossesArr.length > 0 ? Math.abs(lossesArr.reduce((s, v) => s + v, 0) / lossesArr.length) : 0;
+
+  let fraction = 0;
+  if (avgWinPercent > 0 && avgLossPercent > 0) {
+    const b = avgWinPercent / avgLossPercent;
+    fraction = Math.max(0, (winRate * b - (1 - winRate)) / b);
+  }
+
+  return {
+    fraction,
+    halfFraction: fraction / 2,
+    winRate,
+    avgWinPercent,
+    avgLossPercent,
+    sampleSize,
+    reliable: sampleSize >= KELLY_MIN_SAMPLE && winsArr.length > 0 && lossesArr.length > 0,
+  };
 }
 
 function computeStreaks(pnlValues: number[]): TradeStreaks {
