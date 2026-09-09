@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { SESSION_LABELS, type MarketSession } from '@/lib/sessions';
 import { DisciplineBanner } from '@/components/journal/DisciplineBanner';
 import { useDiscipline } from '@/hooks/useDiscipline';
+import { useJournalAnalytics } from '@/hooks/useJournalAnalytics';
 import { useFundingRate, useLongShortRatio, useOpenInterest } from '@/hooks/useFutures';
 import {
   useGlobalSignals,
@@ -63,6 +64,13 @@ export default function SignalsPage() {
 
   const latestSignal = latestStyleData?.signal ?? null;
   const { data: disciplineNudges } = useDiscipline(selectedSymbol);
+  const { data: journalAnalytics } = useJournalAnalytics();
+
+  // Your own record on this tier: informational calibration, never score-altering
+  const tierRecord =
+    latestSignal && journalAnalytics?.bySignalTier
+      ? (journalAnalytics.bySignalTier.find((t) => t.tier === latestSignal.tier) ?? null)
+      : null;
   const futuresLoading = fundingLoading || oiLoading || lsLoading;
   const sentiment = sentimentData?.sentiment
     ? { fearGreedIndex: sentimentData.sentiment.fearGreedIndex, fearGreedLabel: sentimentData.sentiment.label }
@@ -196,6 +204,18 @@ export default function SignalsPage() {
                         </span>
                       )}
                     </div>
+                  )}
+                  {tierRecord && tierRecord.count >= 5 && (
+                    <p
+                      className="mt-2 text-center text-xs text-muted-foreground"
+                      data-testid="tier-record-hint"
+                    >
+                      Your {latestSignal.tier.replace('_', ' ')} record:{' '}
+                      <span className="font-mono tabular-nums">
+                        {tierRecord.winRate.toFixed(0)}%
+                      </span>{' '}
+                      win rate over {tierRecord.count} journaled trades
+                    </p>
                   )}
                 </ErrorBoundary>
               ) : (

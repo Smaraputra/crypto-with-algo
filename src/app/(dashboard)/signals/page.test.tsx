@@ -88,6 +88,10 @@ vi.mock('@/components/journal/EnhancedJournalForm', () => ({
   EnhancedJournalForm: () => <div data-testid="enhanced-journal-form" />,
 }));
 
+vi.mock('@/hooks/useJournalAnalytics', () => ({
+  useJournalAnalytics: vi.fn(() => ({ data: undefined })),
+}));
+
 vi.mock('@/hooks/useDiscipline', () => ({
   useDiscipline: vi.fn(() => ({ data: [] })),
 }));
