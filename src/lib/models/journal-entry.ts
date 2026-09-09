@@ -10,6 +10,25 @@ export const MARKET_CONDITIONS = [
   'calm',
 ] as const;
 
+export const TRADE_EMOTIONS = [
+  'calm',
+  'confident',
+  'anxious',
+  'fomo',
+  'revenge',
+  'tired',
+] as const;
+
+export const TRADE_MISTAKES = [
+  'chased_entry',
+  'oversized',
+  'no_stop',
+  'moved_stop',
+  'exited_early',
+  'held_too_long',
+  'ignored_plan',
+] as const;
+
 export interface IReviewHistoryEntry {
   lessonsLearned: string;
   reviewedAt: Date;
@@ -35,6 +54,10 @@ export interface IJournalEntry extends Document {
   reviewHistory: IReviewHistoryEntry[];
   setupType: string;
   marketCondition: (typeof MARKET_CONDITIONS)[number] | null;
+  emotion: (typeof TRADE_EMOTIONS)[number] | null;
+  mistakes: (typeof TRADE_MISTAKES)[number][];
+  convictionLevel: number | null; // 1-5
+  plannedRiskReward: number | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
   createdAt: Date;
   updatedAt: Date;
@@ -77,6 +100,17 @@ const journalEntrySchema = new Schema<IJournalEntry>(
       enum: [...MARKET_CONDITIONS, null],
       default: null,
     },
+    emotion: {
+      type: String,
+      enum: [...TRADE_EMOTIONS, null],
+      default: null,
+    },
+    mistakes: {
+      type: [{ type: String, enum: TRADE_MISTAKES }],
+      default: [],
+    },
+    convictionLevel: { type: Number, min: 1, max: 5, default: null },
+    plannedRiskReward: { type: Number, min: 0, default: null },
     sentiment: {
       type: Schema.Types.Mixed,
       default: null,

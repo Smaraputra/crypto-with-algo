@@ -14,6 +14,46 @@ export const MARKET_CONDITIONS = [
 ] as const;
 export type MarketCondition = (typeof MARKET_CONDITIONS)[number];
 
+export const TRADE_EMOTIONS = [
+  'calm',
+  'confident',
+  'anxious',
+  'fomo',
+  'revenge',
+  'tired',
+] as const;
+export type TradeEmotion = (typeof TRADE_EMOTIONS)[number];
+
+export const TRADE_EMOTION_LABELS: Record<TradeEmotion, string> = {
+  calm: 'Calm',
+  confident: 'Confident',
+  anxious: 'Anxious',
+  fomo: 'FOMO',
+  revenge: 'Revenge',
+  tired: 'Tired',
+};
+
+export const TRADE_MISTAKES = [
+  'chased_entry',
+  'oversized',
+  'no_stop',
+  'moved_stop',
+  'exited_early',
+  'held_too_long',
+  'ignored_plan',
+] as const;
+export type TradeMistake = (typeof TRADE_MISTAKES)[number];
+
+export const TRADE_MISTAKE_LABELS: Record<TradeMistake, string> = {
+  chased_entry: 'Chased entry',
+  oversized: 'Oversized position',
+  no_stop: 'No stop loss',
+  moved_stop: 'Moved stop loss',
+  exited_early: 'Exited early',
+  held_too_long: 'Held too long',
+  ignored_plan: 'Ignored plan',
+};
+
 export const createJournalEntrySchema = z.object({
   symbol: z.string().min(1, 'Symbol is required'),
   interval: z.string().min(1, 'Interval is required'),
@@ -28,6 +68,10 @@ export const createJournalEntrySchema = z.object({
   backtestResultId: z.string().optional(),
   setupType: z.string().max(100).optional(),
   marketCondition: z.enum(MARKET_CONDITIONS).optional(),
+  emotion: z.enum(TRADE_EMOTIONS).optional(),
+  mistakes: z.array(z.enum(TRADE_MISTAKES)).max(TRADE_MISTAKES.length).optional(),
+  convictionLevel: z.number().int().min(1).max(5).optional(),
+  plannedRiskReward: z.number().positive().max(100).optional(),
   sentiment: z
     .object({
       fearGreedIndex: z.number().min(0).max(100),
@@ -45,6 +89,10 @@ export const updateJournalEntrySchema = z.object({
   lessonsLearned: z.string().max(10000).optional(),
   setupType: z.string().max(100).optional(),
   marketCondition: z.enum(MARKET_CONDITIONS).optional(),
+  emotion: z.enum(TRADE_EMOTIONS).optional(),
+  mistakes: z.array(z.enum(TRADE_MISTAKES)).max(TRADE_MISTAKES.length).optional(),
+  convictionLevel: z.number().int().min(1).max(5).optional(),
+  plannedRiskReward: z.number().positive().max(100).optional(),
   sentiment: z
     .object({
       fearGreedIndex: z.number().min(0).max(100),
@@ -82,6 +130,10 @@ export interface JournalEntry {
   reviewHistory: ReviewHistoryEntry[];
   setupType: string;
   marketCondition: MarketCondition | null;
+  emotion: TradeEmotion | null;
+  mistakes: TradeMistake[];
+  convictionLevel: number | null;
+  plannedRiskReward: number | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
   createdAt: string;
   updatedAt: string;
