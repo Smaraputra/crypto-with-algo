@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { SESSION_LABELS, type MarketSession } from '@/lib/sessions';
+import { DisciplineBanner } from '@/components/journal/DisciplineBanner';
+import { useDiscipline } from '@/hooks/useDiscipline';
 import { useFundingRate, useLongShortRatio, useOpenInterest } from '@/hooks/useFutures';
 import {
   useGlobalSignals,
@@ -60,6 +62,7 @@ export default function SignalsPage() {
   const { data: sentimentData } = useFearAndGreed();
 
   const latestSignal = latestStyleData?.signal ?? null;
+  const { data: disciplineNudges } = useDiscipline(selectedSymbol);
   const futuresLoading = fundingLoading || oiLoading || lsLoading;
   const sentiment = sentimentData?.sentiment
     ? { fearGreedIndex: sentimentData.sentiment.fearGreedIndex, fearGreedLabel: sentimentData.sentiment.label }
@@ -82,6 +85,9 @@ export default function SignalsPage() {
           lastUpdated={latestSignal?.createdAt ?? null}
         />
       </div>
+
+      {/* Discipline nudges (advisory only) */}
+      <DisciplineBanner nudges={disciplineNudges ?? []} compact />
 
       {/* Style tabs */}
       <StyleTabs value={tradingStyle} onValueChange={handleStyleChange} />

@@ -8,6 +8,10 @@ vi.mock('@/hooks/useJournal', () => ({
   })),
 }));
 
+vi.mock('@/hooks/useDiscipline', () => ({
+  useDiscipline: vi.fn(() => ({ data: [] })),
+}));
+
 vi.mock('@/hooks/useIndicatorSnapshot', () => ({
   useIndicatorSnapshot: vi.fn(() => ({
     data: null,

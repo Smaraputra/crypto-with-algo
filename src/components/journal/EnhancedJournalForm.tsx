@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/select';
 import { useCreateJournalEntry } from '@/hooks/useJournal';
 import { useIndicatorSnapshot } from '@/hooks/useIndicatorSnapshot';
+import { useDiscipline } from '@/hooks/useDiscipline';
+import { DisciplineBanner } from './DisciplineBanner';
 import { TagInput } from './TagInput';
 import { MarkdownPreview } from './MarkdownPreview';
 import {
@@ -75,6 +77,7 @@ export function EnhancedJournalForm({
 
   const createEntry = useCreateJournalEntry();
   const { data: liveSnapshot } = useIndicatorSnapshot(open ? symbol : null, interval);
+  const { data: disciplineNudges } = useDiscipline(symbol, open);
 
   function handleCaptureSnapshot() {
     if (liveSnapshot) {
@@ -150,6 +153,9 @@ export function EnhancedJournalForm({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Discipline warnings for this symbol (advisory only) */}
+          <DisciplineBanner nudges={disciplineNudges ?? []} compact />
+
           {/* Signal Context */}
           <div className="flex items-center gap-2 text-xs bg-muted/50 rounded px-2 py-1.5">
             <span className="font-medium">{symbol}</span>
