@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (trader psychology)
+- Journal entries carry structured psychology fields: emotion (calm, confident, anxious, FOMO, revenge, tired), mistakes (chased entry, oversized, no stop, moved stop, exited early, held too long, ignored plan), conviction level (1-5), and planned risk:reward. Entry forms capture emotion, conviction, and planned R:R; the close-trade dialog captures mistakes
+- Journal analytics gains win rate by emotion, cumulative cost per mistake type, and per-trade streaks (current run, best win run, worst loss run), shown in a Psychology card
+- Advisory discipline engine (`src/lib/discipline.ts`): loss-cooldown warning at 3 consecutive losses, tilt-sizing hint at 2, revenge-trade detection (re-entering a symbol within an hour of closing it at a loss), and overtrading detection (today far above your recent daily average). Surfaced as non-blocking banners on the signals page and inside the journal entry dialog; input is a generic trade list so paper-bot trades can feed it later
+- Suggested position size from your real trade record (half Kelly), greyed out until 20 closed trades with both wins and losses
+- Per-tier accuracy hint beside the signal gauge ("your strong buy record: 62% win rate over 24 journaled trades"); informational only, scores and tiers stay objective
+
 ### Added (order flow and news sentiment)
 - Taker buy volume parsed from Binance klines (index 9) and stored on candles; legacy stored candles lack it until re-synced or backfilled (upserts refresh in place)
 - Taker Flow signal in the volume category: taker buy share of volume above 0.55 reads bullish (aggressive buying), below 0.45 bearish, silent in the indifferent band and on candles without the data. Present in live signals and both backtest engines with no-lookahead and parity coverage
