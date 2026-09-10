@@ -4,6 +4,7 @@ import { CronRun } from '@/lib/models/cron-run';
 import { getTopSymbols } from '@/lib/optimization/top-symbols';
 import { runMonthlyOptimization } from '@/lib/optimization/monthly-orchestrator';
 import { verifyCronSecret } from '@/lib/cron-auth';
+import { isAutoActivateEnabled } from '@/types/optimization';
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,8 +57,8 @@ export async function POST(req: NextRequest) {
     runMonthlyOptimization({
       cronRunId: cronRun._id,
       topSymbols,
-      months: 6,
-      autoActivate: true,
+      // months omitted: each style uses its own window (getMonthsForStyle)
+      autoActivate: isAutoActivateEnabled(),
     }).catch(async (error) => {
       // Log error to CronRun
       console.error('Monthly optimization error:', error instanceof Error ? error.message : 'Unknown error');

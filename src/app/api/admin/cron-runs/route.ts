@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireAdmin, adminAuthError, adminAuthStatus } from '@/lib/admin-auth';
 import { connectDB } from '@/lib/mongodb';
 import { CronRun } from '@/lib/models/cron-run';
 
 export async function GET() {
   try {
     // Auth: Admin-only
-    const session = await auth();
-    if (!session?.user?.email || session.user.email !== process.env.ADMIN_EMAIL) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const admin = await requireAdmin();
+    if (!admin.ok) {
+      return NextResponse.json(adminAuthError(admin), { status: adminAuthStatus(admin) });
     }
 
     await connectDB();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireAdmin, adminAuthError, adminAuthStatus } from '@/lib/admin-auth';
 import { connectDB } from '@/lib/mongodb';
 import {
   alignTimestamp,
@@ -40,7 +40,7 @@ function lastFundingAtOrBefore(sorted: FundingRate[], ts: number): FundingRate |
 const backfillSchema = z.object({
   symbols: z.array(z.string()).min(1).max(20),
   intervals: z.array(z.enum(['15m', '1h', '4h', '1d'])),
-  months: z.number().min(1).max(12),
+  months: z.number().min(1).max(48),
 });
 
 /**
@@ -50,13 +50,9 @@ const backfillSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     // Auth check - must be admin
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (!session.user.email || session.user.email !== process.env.ADMIN_EMAIL) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const admin = await requireAdmin();
+    if (!admin.ok) {
+      return NextResponse.json(adminAuthError(admin), { status: adminAuthStatus(admin) });
     }
 
     const body = await req.json();

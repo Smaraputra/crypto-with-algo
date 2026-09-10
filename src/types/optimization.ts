@@ -36,7 +36,25 @@ export const DEFAULT_ROBUSTNESS: RobustnessConfig = {
 export const DEFAULT_OPTIMIZATION_CONFIG = {
   minTrainingBars: 300,
   testWindowBars: 100,
+  // Fallback step for callers that optimize a single known series. The monthly
+  // orchestrator derives its own step from data length via deriveStepSize,
+  // because a fixed step cannot suit both 5m and 1d series.
   stepSizeBars: 300,
+  // Walk-forward windows the orchestrator aims for, per style. Each window
+  // costs candidatesPerWindow backtests over an expanding training set, so this
+  // is the main lever on total optimization cost.
+  targetWindows: 6,
   candidatesPerWindow: 50,
   constraintPercent: 0.2, // ±20%
 } as const;
+
+/**
+ * Whether the monthly cron may activate the templates it produces without
+ * human review. Defaults to false: with no templates in the database, the
+ * first run would otherwise promote unreviewed output straight to live
+ * signals. Flip OPTIMIZATION_AUTO_ACTIVATE=true only once a month of output
+ * has been inspected through /admin/optimization.
+ */
+export function isAutoActivateEnabled(): boolean {
+  return process.env.OPTIMIZATION_AUTO_ACTIVATE === 'true';
+}

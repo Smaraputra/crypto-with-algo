@@ -9,17 +9,22 @@ import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapsho
 import { getConfirmationInterval } from '@/lib/signals/htf';
 import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
-import { runWalkForward } from './walk-forward';
+import { runWalkForward, deriveStepSize } from './walk-forward';
 import { createTemplateVersion, markResultsAsContributors } from './template-versioning';
 import { shouldAutoActivate, executeAutoActivation } from './auto-activation';
-import { getIntervalForStyle } from './top-symbols';
+import { getIntervalForStyle, getMonthsForStyle } from './top-symbols';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 
 export interface MonthlyOptimizationConfig {
   cronRunId: mongoose.Types.ObjectId;
   topSymbols: string[];
-  months: number; // Historical data months (default 6)
-  autoActivate: boolean; // Default true
+  /**
+   * Override the historical window for every style. Omit to use each style's
+   * own window from getMonthsForStyle, which is the correct default: one shared
+   * value cannot serve both a 5m and a 1d series.
+   */
+  months?: number;
+  autoActivate: boolean;
 }
 
 export interface MonthlyOptimizationResult {
@@ -44,7 +49,7 @@ const TRADING_STYLES: TradingStyle[] = [
 export async function runMonthlyOptimization(
   config: MonthlyOptimizationConfig
 ): Promise<MonthlyOptimizationResult> {
-  const { cronRunId, topSymbols, months, autoActivate } = config;
+  const { cronRunId, topSymbols, months: monthsOverride, autoActivate } = config;
 
   // Update CronRun status to running
   await CronRun.updateOne({ _id: cronRunId }, { status: 'running', startedAt: new Date() });
@@ -59,6 +64,7 @@ export async function runMonthlyOptimization(
     const tradingStyle = TRADING_STYLES[i];
     const symbol = topSymbols[i % topSymbols.length]; // Round-robin symbol selection
     const interval = getIntervalForStyle(tradingStyle);
+    const months = monthsOverride ?? getMonthsForStyle(tradingStyle);
 
     try {
       // Update job status to running
@@ -91,6 +97,15 @@ export async function runMonthlyOptimization(
         throw new Error(`Insufficient data: ${candles.length} bars (need ${DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars + DEFAULT_OPTIMIZATION_CONFIG.testWindowBars})`);
       }
 
+      // Step size scales with series length so the window count stays bounded
+      // whether this style trades 5m or 1d bars.
+      const stepSizeBars = deriveStepSize(
+        candles.length,
+        DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
+        DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
+        DEFAULT_OPTIMIZATION_CONFIG.targetWindows
+      );
+
       // Create OptimizationJob
       const job = await OptimizationJob.create({
         tradingStyle,
@@ -101,7 +116,7 @@ export async function runMonthlyOptimization(
         totalBars: candles.length,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
         testWindowBars: DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
-        stepSizeBars: DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars,
+        stepSizeBars,
         candidatesPerWindow: DEFAULT_OPTIMIZATION_CONFIG.candidatesPerWindow,
         constraintPercent: DEFAULT_OPTIMIZATION_CONFIG.constraintPercent,
         status: 'running',
@@ -165,7 +180,7 @@ export async function runMonthlyOptimization(
         htfInterval: htfInterval ?? undefined,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
         testWindowBars: DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
-        stepSizeBars: DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars,
+        stepSizeBars,
         candidatesPerWindow: DEFAULT_OPTIMIZATION_CONFIG.candidatesPerWindow,
         constraintPercent: DEFAULT_OPTIMIZATION_CONFIG.constraintPercent,
         jobId: job._id,

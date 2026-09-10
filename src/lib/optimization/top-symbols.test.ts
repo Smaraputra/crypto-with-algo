@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getTopSymbols, getIntervalForStyle, FALLBACK_SYMBOLS } from './top-symbols';
+import {
+  getTopSymbols,
+  getIntervalForStyle,
+  getMonthsForStyle,
+  FALLBACK_SYMBOLS,
+} from './top-symbols';
+import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 
 // Mock Redis using vi.hoisted
 const mockRedis = vi.hoisted(() => ({
@@ -264,5 +270,44 @@ describe('top-symbols', () => {
     it('should return 1h for unknown style', () => {
       expect(getIntervalForStyle('unknown')).toBe('1h');
     });
+  });
+});
+
+describe('getMonthsForStyle', () => {
+  // Bars produced per month, derived from the interval each style optimizes on.
+  const BARS_PER_MONTH: Record<string, number> = {
+    scalping: 30 * 24 * 12, // 5m
+    day_trading: 30 * 24, // 1h
+    swing_trading: 30 * 6, // 4h
+    position_trading: 30, // 1d
+  };
+  const MIN_BARS =
+    DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars + DEFAULT_OPTIMIZATION_CONFIG.testWindowBars;
+  const READ_CAP = 50000;
+
+  it.each(Object.keys(BARS_PER_MONTH))(
+    'gives %s enough bars to clear the walk-forward floor',
+    (style) => {
+      const bars = getMonthsForStyle(style) * BARS_PER_MONTH[style];
+
+      expect(bars).toBeGreaterThan(MIN_BARS);
+    }
+  );
+
+  it('keeps position_trading above the floor that six months could never reach', () => {
+    // The pre-fix behaviour: a flat 6-month window yields ~180 daily bars.
+    expect(6 * BARS_PER_MONTH.position_trading).toBeLessThan(MIN_BARS);
+    expect(getMonthsForStyle('position_trading') * BARS_PER_MONTH.position_trading)
+      .toBeGreaterThan(MIN_BARS);
+  });
+
+  it('keeps every series under the 50,000-row candle read cap', () => {
+    for (const style of Object.keys(BARS_PER_MONTH)) {
+      expect(getMonthsForStyle(style) * BARS_PER_MONTH[style]).toBeLessThan(READ_CAP);
+    }
+  });
+
+  it('falls back to the day_trading window for an unknown style', () => {
+    expect(getMonthsForStyle('nonsense')).toBe(getMonthsForStyle('day_trading'));
   });
 });

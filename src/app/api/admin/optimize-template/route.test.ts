@@ -98,6 +98,7 @@ describe('POST /api/admin/optimize-template', () => {
   }
 
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const response = await POST(makeRequest({

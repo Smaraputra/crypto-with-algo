@@ -240,15 +240,54 @@ describe('POST /api/cron/monthly-optimization', () => {
 
     await POST(request);
 
-    // Should call runMonthlyOptimization but not await it
+    // Should call runMonthlyOptimization but not await it. No months value is
+    // passed, so the orchestrator applies each style's own window.
     expect(mockRunMonthlyOptimization).toHaveBeenCalledWith(
       expect.objectContaining({
         cronRunId,
         topSymbols: expect.any(Array),
-        months: 6,
-        autoActivate: true,
+        autoActivate: false,
       })
     );
+    expect(mockRunMonthlyOptimization.mock.calls[0][0]).not.toHaveProperty('months');
+  });
+
+  it('does not auto-activate templates unless OPTIMIZATION_AUTO_ACTIVATE is set', async () => {
+    process.env.CRON_SECRET = 'valid-secret';
+    delete process.env.OPTIMIZATION_AUTO_ACTIVATE;
+    mockFindOne.mockResolvedValue(null);
+    mockCreate.mockResolvedValue({ _id: 'cronrun123' });
+
+    await POST(
+      new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer valid-secret' },
+      })
+    );
+
+    expect(mockRunMonthlyOptimization).toHaveBeenCalledWith(
+      expect.objectContaining({ autoActivate: false })
+    );
+  });
+
+  it('auto-activates when OPTIMIZATION_AUTO_ACTIVATE is exactly "true"', async () => {
+    process.env.CRON_SECRET = 'valid-secret';
+    process.env.OPTIMIZATION_AUTO_ACTIVATE = 'true';
+    mockFindOne.mockResolvedValue(null);
+    mockCreate.mockResolvedValue({ _id: 'cronrun123' });
+
+    await POST(
+      new NextRequest('http://localhost:3000/api/cron/monthly-optimization', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer valid-secret' },
+      })
+    );
+
+    expect(mockRunMonthlyOptimization).toHaveBeenCalledWith(
+      expect.objectContaining({ autoActivate: true })
+    );
+
+    delete process.env.OPTIMIZATION_AUTO_ACTIVATE;
   });
 
   it('should handle database connection errors', async () => {

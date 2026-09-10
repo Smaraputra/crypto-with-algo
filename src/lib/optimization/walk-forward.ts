@@ -330,3 +330,36 @@ export function calculateWindows(
 
   return windows;
 }
+
+/**
+ * Choose a step size that keeps the window count near a target regardless of
+ * series length.
+ *
+ * A fixed step interacts badly with per-style intervals: at 300 bars, three
+ * months of 5m candles produced ~85 windows and a 48-month daily series only
+ * one. Since windows are anchored-expanding, each extra window costs a full
+ * backtest over all training bars so far, and candidatesPerWindow multiplies
+ * that. Deriving the step from the data keeps total work predictable at both
+ * extremes.
+ *
+ * Returns at least 1. Series too short for more than one window fall back to
+ * the remaining span, which calculateWindows resolves to a single window.
+ */
+export function deriveStepSize(
+  totalBars: number,
+  minTrainingBars: number,
+  testWindowBars: number,
+  targetWindows: number
+): number {
+  if (targetWindows < 1) {
+    throw new Error(`targetWindows must be at least 1, received ${targetWindows}`);
+  }
+
+  const steppableBars = totalBars - minTrainingBars - testWindowBars;
+
+  if (steppableBars <= 0) {
+    return Math.max(1, testWindowBars);
+  }
+
+  return Math.max(1, Math.floor(steppableBars / targetWindows));
+}

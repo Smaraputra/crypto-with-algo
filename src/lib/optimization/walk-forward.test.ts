@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { calculateWindows } from './walk-forward';
+import { calculateWindows, deriveStepSize } from './walk-forward';
+import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 
 describe('calculateWindows', () => {
   it('produces correct number of windows for standard input', () => {
@@ -84,5 +85,55 @@ describe('calculateWindows', () => {
     // Window 6: trainEnd=104, 104+5=109 < 110
     // Window 7: trainEnd=105, 105+5=110, NOT < 110, stop
     expect(windows).toHaveLength(6);
+  });
+});
+
+describe('deriveStepSize', () => {
+  const MIN_TRAINING = DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars;
+  const TEST_WINDOW = DEFAULT_OPTIMIZATION_CONFIG.testWindowBars;
+  const TARGET = 6;
+
+  function windowCount(totalBars: number, targetWindows = TARGET): number {
+    const step = deriveStepSize(totalBars, MIN_TRAINING, TEST_WINDOW, targetWindows);
+    return calculateWindows(totalBars, MIN_TRAINING, TEST_WINDOW, step).length;
+  }
+
+  it('bounds the window count for a three-month 5m series', () => {
+    // 3 months at 5m. A fixed 300-bar step yielded ~85 windows here.
+    const bars = 3 * 30 * 24 * 12;
+
+    expect(calculateWindows(bars, MIN_TRAINING, TEST_WINDOW, 300).length).toBeGreaterThan(80);
+    expect(windowCount(bars)).toBeLessThanOrEqual(TARGET + 1);
+  });
+
+  it('produces multiple windows for a 48-month daily series', () => {
+    // 4 years at 1d. A fixed 300-bar step yielded a single window here.
+    const bars = 48 * 30;
+
+    expect(calculateWindows(bars, MIN_TRAINING, TEST_WINDOW, 300).length).toBe(4);
+    expect(windowCount(bars)).toBeGreaterThan(1);
+    expect(windowCount(bars)).toBeLessThanOrEqual(TARGET + 1);
+  });
+
+  it('keeps the count near target across two orders of magnitude of series length', () => {
+    for (const bars of [600, 1440, 4320, 8640, 25920]) {
+      const count = windowCount(bars);
+
+      expect(count).toBeGreaterThanOrEqual(1);
+      expect(count).toBeLessThanOrEqual(TARGET + 1);
+    }
+  });
+
+  it('never returns a step below 1', () => {
+    expect(deriveStepSize(401, MIN_TRAINING, TEST_WINDOW, 100)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('falls back to the test window when the series cannot be stepped', () => {
+    expect(deriveStepSize(400, MIN_TRAINING, TEST_WINDOW, TARGET)).toBe(TEST_WINDOW);
+    expect(deriveStepSize(200, MIN_TRAINING, TEST_WINDOW, TARGET)).toBe(TEST_WINDOW);
+  });
+
+  it('rejects a target below one window', () => {
+    expect(() => deriveStepSize(5000, MIN_TRAINING, TEST_WINDOW, 0)).toThrow('at least 1');
   });
 });
