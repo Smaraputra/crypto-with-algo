@@ -23,9 +23,17 @@ import {
 } from '@/components/ui/select';
 import { useCreateJournalEntry } from '@/hooks/useJournal';
 import { useIndicatorSnapshot } from '@/hooks/useIndicatorSnapshot';
+import { useDiscipline } from '@/hooks/useDiscipline';
+import { DisciplineBanner } from './DisciplineBanner';
 import { TagInput } from './TagInput';
 import { MarkdownPreview } from './MarkdownPreview';
-import { JOURNAL_ACTIONS, MARKET_CONDITIONS } from '@/types/journal';
+import {
+  JOURNAL_ACTIONS,
+  MARKET_CONDITIONS,
+  TRADE_EMOTIONS,
+  TRADE_EMOTION_LABELS,
+  type TradeEmotion,
+} from '@/types/journal';
 import type { SignalTier } from '@/types/signal';
 import type { IndicatorSnapshot } from '@/types/indicator-snapshot';
 
@@ -62,10 +70,14 @@ export function EnhancedJournalForm({
   const [tags, setTags] = useState<string[]>([]);
   const [setupType, setSetupType] = useState('');
   const [marketCondition, setMarketCondition] = useState<string>('');
+  const [emotion, setEmotion] = useState<string>('');
+  const [convictionLevel, setConvictionLevel] = useState<string>('');
+  const [plannedRR, setPlannedRR] = useState('');
   const [capturedSnapshot, setCapturedSnapshot] = useState<IndicatorSnapshot | null>(null);
 
   const createEntry = useCreateJournalEntry();
   const { data: liveSnapshot } = useIndicatorSnapshot(open ? symbol : null, interval);
+  const { data: disciplineNudges } = useDiscipline(symbol, open);
 
   function handleCaptureSnapshot() {
     if (liveSnapshot) {
@@ -88,6 +100,9 @@ export function EnhancedJournalForm({
         marketCondition: marketCondition
           ? (marketCondition as (typeof MARKET_CONDITIONS)[number])
           : undefined,
+        emotion: emotion ? (emotion as TradeEmotion) : undefined,
+        convictionLevel: convictionLevel ? parseInt(convictionLevel, 10) : undefined,
+        plannedRiskReward: plannedRR ? parseFloat(plannedRR) : undefined,
         indicatorSnapshot: capturedSnapshot
           ? (capturedSnapshot as unknown as Record<string, unknown>)
           : undefined,
@@ -110,6 +125,9 @@ export function EnhancedJournalForm({
     setTags([]);
     setSetupType('');
     setMarketCondition('');
+    setEmotion('');
+    setConvictionLevel('');
+    setPlannedRR('');
     setCapturedSnapshot(null);
   }
 
@@ -135,6 +153,9 @@ export function EnhancedJournalForm({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Discipline warnings for this symbol (advisory only) */}
+          <DisciplineBanner nudges={disciplineNudges ?? []} compact />
+
           {/* Signal Context */}
           <div className="flex items-center gap-2 text-xs bg-muted/50 rounded px-2 py-1.5">
             <span className="font-medium">{symbol}</span>
@@ -215,6 +236,54 @@ export function EnhancedJournalForm({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+
+          {/* Psychology: emotion, conviction, planned R:R */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Emotion</Label>
+              <Select value={emotion} onValueChange={setEmotion}>
+                <SelectTrigger className="h-7 text-xs" data-testid="emotion-select">
+                  <SelectValue placeholder="Select..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRADE_EMOTIONS.map((em) => (
+                    <SelectItem key={em} value={em} className="text-xs">
+                      {TRADE_EMOTION_LABELS[em]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Conviction (1-5)</Label>
+              <Select value={convictionLevel} onValueChange={setConvictionLevel}>
+                <SelectTrigger className="h-7 text-xs" data-testid="conviction-select">
+                  <SelectValue placeholder="Select..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {['1', '2', '3', '4', '5'].map((level) => (
+                    <SelectItem key={level} value={level} className="text-xs">
+                      {level}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Planned R:R</Label>
+              <Input
+                type="number"
+                value={plannedRR}
+                onChange={(e) => setPlannedRR(e.target.value)}
+                placeholder="e.g. 2"
+                className="h-7 text-xs font-mono"
+                step="0.1"
+                min="0"
+                data-testid="planned-rr-input"
+              />
             </div>
           </div>
 

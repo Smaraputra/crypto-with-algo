@@ -8,6 +8,8 @@ import { MonthlyPnL } from './MonthlyPnL';
 import { SignalAccuracy } from './SignalAccuracy';
 import { TradingPatterns } from './TradingPatterns';
 import { TimingAnalytics } from './TimingAnalytics';
+import { PsychologyAnalytics } from './PsychologyAnalytics';
+import { KellySizeCard } from './KellySizeCard';
 
 export function AnalyticsView() {
   const { data, isLoading, isError } = useJournalAnalytics();
@@ -80,6 +82,26 @@ export function AnalyticsView() {
           byHour={data.byHour ?? []}
           byWeekday={data.byWeekday ?? []}
         />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-border p-4">
+          <h3 className="text-sm font-semibold mb-3">Psychology</h3>
+          <PsychologyAnalytics
+            byEmotion={data.byEmotion ?? []}
+            byMistake={data.byMistake ?? []}
+            streaks={data.streaks ?? { current: null, maxWinStreak: 0, maxLossStreak: 0 }}
+          />
+        </div>
+
+        <div className="rounded-lg border border-border p-4">
+          <h3 className="text-sm font-semibold mb-3">Suggested Position Size</h3>
+          {data.kellySuggestion ? (
+            <KellySizeCard suggestion={data.kellySuggestion} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No trade data yet.</p>
+          )}
+        </div>
       </div>
     </div>
   );

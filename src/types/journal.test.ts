@@ -178,3 +178,51 @@ describe('updateJournalEntrySchema', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('psychology fields', () => {
+  const base = {
+    symbol: 'BTCUSDT',
+    interval: '1h',
+    signalScore: 45,
+    signalTier: 'buy' as const,
+    action: 'buy' as const,
+  };
+
+  it('accepts valid psychology fields on create', () => {
+    const result = createJournalEntrySchema.safeParse({
+      ...base,
+      emotion: 'fomo',
+      mistakes: ['chased_entry', 'oversized'],
+      convictionLevel: 4,
+      plannedRiskReward: 2.5,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects unknown emotion and mistake values', () => {
+    expect(createJournalEntrySchema.safeParse({ ...base, emotion: 'euphoric' }).success).toBe(false);
+    expect(
+      createJournalEntrySchema.safeParse({ ...base, mistakes: ['bad_luck'] }).success
+    ).toBe(false);
+  });
+
+  it('bounds convictionLevel to 1-5 integers', () => {
+    expect(createJournalEntrySchema.safeParse({ ...base, convictionLevel: 0 }).success).toBe(false);
+    expect(createJournalEntrySchema.safeParse({ ...base, convictionLevel: 6 }).success).toBe(false);
+    expect(createJournalEntrySchema.safeParse({ ...base, convictionLevel: 3.5 }).success).toBe(false);
+    expect(createJournalEntrySchema.safeParse({ ...base, convictionLevel: 3 }).success).toBe(true);
+  });
+
+  it('requires positive plannedRiskReward', () => {
+    expect(createJournalEntrySchema.safeParse({ ...base, plannedRiskReward: -1 }).success).toBe(false);
+    expect(createJournalEntrySchema.safeParse({ ...base, plannedRiskReward: 0 }).success).toBe(false);
+  });
+
+  it('accepts mistakes on update (close/review time)', () => {
+    const result = updateJournalEntrySchema.safeParse({
+      exitPrice: 50000,
+      mistakes: ['moved_stop'],
+    });
+    expect(result.success).toBe(true);
+  });
+});

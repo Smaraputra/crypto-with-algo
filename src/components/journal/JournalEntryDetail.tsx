@@ -13,6 +13,7 @@ import { CloseTradeDialog } from './CloseTradeDialog';
 import { EntryActions } from './EntryActions';
 import { TagInput } from './TagInput';
 import { useUpdateJournalEntry } from '@/hooks/useJournal';
+import { TRADE_EMOTION_LABELS, TRADE_MISTAKE_LABELS } from '@/types/journal';
 import type { JournalEntry, MarketCondition } from '@/types/journal';
 import type { IndicatorSnapshot } from '@/types/indicator-snapshot';
 
@@ -199,7 +200,33 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
               ({entry.sentiment.fearGreedLabel})
             </span>
           )}
+          {!editing && entry.emotion && (
+            <Badge variant="outline" className="text-xs" data-testid="emotion-badge">
+              {TRADE_EMOTION_LABELS[entry.emotion] ?? entry.emotion}
+            </Badge>
+          )}
+          {!editing && entry.convictionLevel != null && (
+            <span data-testid="conviction-display">
+              Conviction: <span className="font-mono tabular-nums">{entry.convictionLevel}/5</span>
+            </span>
+          )}
+          {!editing && entry.plannedRiskReward != null && (
+            <span data-testid="planned-rr-display">
+              R:R <span className="font-mono tabular-nums">{entry.plannedRiskReward}</span>
+            </span>
+          )}
         </div>
+
+        {!editing && entry.mistakes && entry.mistakes.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="mistakes-display">
+            <span className="text-xs text-muted-foreground">Mistakes:</span>
+            {entry.mistakes.map((mistake) => (
+              <Badge key={mistake} variant="destructive" className="text-xs">
+                {TRADE_MISTAKE_LABELS[mistake] ?? mistake}
+              </Badge>
+            ))}
+          </div>
+        )}
 
         {/* Inline Edit Mode */}
         {editing && (

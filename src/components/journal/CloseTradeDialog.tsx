@@ -13,6 +13,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useUpdateJournalEntry } from '@/hooks/useJournal';
+import {
+  TRADE_MISTAKES,
+  TRADE_MISTAKE_LABELS,
+  type TradeMistake,
+} from '@/types/journal';
 import type { JournalEntry } from '@/types/journal';
 
 interface CloseTradeDialogProps {
@@ -23,7 +28,14 @@ interface CloseTradeDialogProps {
 export function CloseTradeDialog({ entry, trigger }: CloseTradeDialogProps) {
   const [open, setOpen] = useState(false);
   const [exitPrice, setExitPrice] = useState('');
+  const [mistakes, setMistakes] = useState<TradeMistake[]>([]);
   const updateMutation = useUpdateJournalEntry();
+
+  function toggleMistake(mistake: TradeMistake) {
+    setMistakes((prev) =>
+      prev.includes(mistake) ? prev.filter((m) => m !== mistake) : [...prev, mistake]
+    );
+  }
 
   const exitNum = parseFloat(exitPrice);
   const hasValidExit = !isNaN(exitNum) && exitNum > 0;
@@ -37,11 +49,16 @@ export function CloseTradeDialog({ entry, trigger }: CloseTradeDialogProps) {
   function handleSubmit() {
     if (!hasValidExit) return;
     updateMutation.mutate(
-      { id: entry._id, exitPrice: exitNum },
+      {
+        id: entry._id,
+        exitPrice: exitNum,
+        ...(mistakes.length > 0 ? { mistakes } : {}),
+      },
       {
         onSuccess: () => {
           setOpen(false);
           setExitPrice('');
+          setMistakes([]);
         },
       }
     );
@@ -86,6 +103,25 @@ export function CloseTradeDialog({ entry, trigger }: CloseTradeDialogProps) {
               className="font-mono tabular-nums"
               data-testid="exit-price-input"
             />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs">Mistakes made (honest review)</Label>
+            <div className="flex flex-wrap gap-1.5" data-testid="mistake-toggles">
+              {TRADE_MISTAKES.map((mistake) => (
+                <Button
+                  key={mistake}
+                  type="button"
+                  size="xs"
+                  variant={mistakes.includes(mistake) ? 'secondary' : 'outline'}
+                  onClick={() => toggleMistake(mistake)}
+                  aria-pressed={mistakes.includes(mistake)}
+                  data-testid={`mistake-toggle-${mistake}`}
+                >
+                  {TRADE_MISTAKE_LABELS[mistake]}
+                </Button>
+              ))}
+            </div>
           </div>
 
           {pnlPreview != null && (

@@ -14,6 +14,10 @@ import type {
   SessionPerformance,
   HourPerformance,
   WeekdayPerformance,
+  EmotionPerformance,
+  MistakePerformance,
+  TradeStreaks,
+  KellySuggestion,
 } from '@/types/journal-analytics';
 
 // Session bucket from the entry's UTC hour, built from the shared taxonomy so
@@ -67,15 +71,20 @@ export async function GET() {
     sessionAgg,
     hourAgg,
     weekdayAgg,
+    emotionAgg,
+    mistakeAgg,
   ] = await Promise.all([
     // Total count
     JournalEntry.countDocuments(baseMatch),
 
-    // All entries with P&L for summary computation
+    // All entries with P&L for summary computation (chronological for streaks)
     JournalEntry.find(pnlMatch, {
       outcomePnlPercent: 1,
       action: 1,
-    }).lean(),
+      createdAt: 1,
+    })
+      .sort({ createdAt: 1 })
+      .lean(),
 
     // Incomplete trades (have entry price but no P&L)
     JournalEntry.countDocuments(incompleteMatch),
@@ -209,6 +218,34 @@ export async function GET() {
       },
       { $sort: { _id: 1 } },
     ]),
+
+    // By emotion
+    JournalEntry.aggregate([
+      { $match: { ...pnlMatch, emotion: { $ne: null } } },
+      {
+        $group: {
+          _id: '$emotion',
+          count: { $sum: 1 },
+          wins: { $sum: { $cond: [{ $gt: ['$outcomePnlPercent', 0] }, 1, 0] } },
+          totalPnl: { $sum: '$outcomePnlPercent' },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]),
+
+    // By mistake (a trade can carry several)
+    JournalEntry.aggregate([
+      { $match: { ...pnlMatch, mistakes: { $exists: true, $ne: [] } } },
+      { $unwind: '$mistakes' },
+      {
+        $group: {
+          _id: '$mistakes',
+          count: { $sum: 1 },
+          totalPnl: { $sum: '$outcomePnlPercent' },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]),
   ]);
 
   // Compute summary
@@ -306,6 +343,27 @@ export async function GET() {
     avgPnlPercent: w.count > 0 ? (w.totalPnl as number) / (w.count as number) : 0,
   }));
 
+  const byEmotion: EmotionPerformance[] = emotionAgg.map((e) => ({
+    emotion: e._id as string,
+    count: e.count as number,
+    wins: e.wins as number,
+    winRate: e.count > 0 ? ((e.wins as number) / (e.count as number)) * 100 : 0,
+    avgPnlPercent: e.count > 0 ? (e.totalPnl as number) / (e.count as number) : 0,
+  }));
+
+  const byMistake: MistakePerformance[] = mistakeAgg.map((m) => ({
+    mistake: m._id as string,
+    count: m.count as number,
+    avgPnlPercent: m.count > 0 ? (m.totalPnl as number) / (m.count as number) : 0,
+    totalPnlPercent: m.totalPnl as number,
+  }));
+
+  // Per-trade streaks over the chronological closed-trade sequence
+  const streaks = computeStreaks(pnlValues);
+
+  // Kelly criterion from the real trade record (advisory position sizing)
+  const kellySuggestion = computeKellySuggestion(pnlValues);
+
   return NextResponse.json({
     summary,
     incompleteTradeCount,
@@ -318,5 +376,67 @@ export async function GET() {
     bySession,
     byHour,
     byWeekday,
+    byEmotion,
+    byMistake,
+    streaks,
+    kellySuggestion,
   });
+}
+
+const KELLY_MIN_SAMPLE = 20;
+
+function computeKellySuggestion(pnlValues: number[]): KellySuggestion {
+  const winsArr = pnlValues.filter((v) => v > 0);
+  const lossesArr = pnlValues.filter((v) => v < 0);
+  const sampleSize = winsArr.length + lossesArr.length;
+  const winRate = sampleSize > 0 ? winsArr.length / sampleSize : 0;
+  const avgWinPercent = winsArr.length > 0 ? winsArr.reduce((s, v) => s + v, 0) / winsArr.length : 0;
+  const avgLossPercent =
+    lossesArr.length > 0 ? Math.abs(lossesArr.reduce((s, v) => s + v, 0) / lossesArr.length) : 0;
+
+  let fraction = 0;
+  if (avgWinPercent > 0 && avgLossPercent > 0) {
+    const b = avgWinPercent / avgLossPercent;
+    fraction = Math.max(0, (winRate * b - (1 - winRate)) / b);
+  }
+
+  return {
+    fraction,
+    halfFraction: fraction / 2,
+    winRate,
+    avgWinPercent,
+    avgLossPercent,
+    sampleSize,
+    reliable: sampleSize >= KELLY_MIN_SAMPLE && winsArr.length > 0 && lossesArr.length > 0,
+  };
+}
+
+function computeStreaks(pnlValues: number[]): TradeStreaks {
+  let maxWinStreak = 0;
+  let maxLossStreak = 0;
+  let runType: 'win' | 'loss' | null = null;
+  let runLength = 0;
+
+  for (const pnl of pnlValues) {
+    if (pnl === 0) {
+      runType = null;
+      runLength = 0;
+      continue;
+    }
+    const type: 'win' | 'loss' = pnl > 0 ? 'win' : 'loss';
+    if (type === runType) {
+      runLength++;
+    } else {
+      runType = type;
+      runLength = 1;
+    }
+    if (type === 'win') maxWinStreak = Math.max(maxWinStreak, runLength);
+    else maxLossStreak = Math.max(maxLossStreak, runLength);
+  }
+
+  return {
+    current: runType ? { type: runType, length: runLength } : null,
+    maxWinStreak,
+    maxLossStreak,
+  };
 }

@@ -24,7 +24,13 @@ import {
 import { useCreateJournalEntry } from '@/hooks/useJournal';
 import { TagInput } from './TagInput';
 import { MarkdownPreview } from './MarkdownPreview';
-import { JOURNAL_ACTIONS, MARKET_CONDITIONS } from '@/types/journal';
+import {
+  JOURNAL_ACTIONS,
+  MARKET_CONDITIONS,
+  TRADE_EMOTIONS,
+  TRADE_EMOTION_LABELS,
+  type TradeEmotion,
+} from '@/types/journal';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
 const COMMON_INTERVALS = ['15m', '1h', '4h', '1d'] as const;
@@ -49,6 +55,9 @@ export function ManualJournalForm() {
   const [tags, setTags] = useState<string[]>([]);
   const [setupType, setSetupType] = useState('');
   const [marketCondition, setMarketCondition] = useState<string>('');
+  const [emotion, setEmotion] = useState<string>('');
+  const [convictionLevel, setConvictionLevel] = useState<string>('');
+  const [plannedRR, setPlannedRR] = useState('');
 
   const createEntry = useCreateJournalEntry();
 
@@ -71,6 +80,9 @@ export function ManualJournalForm() {
         marketCondition: marketCondition
           ? (marketCondition as (typeof MARKET_CONDITIONS)[number])
           : undefined,
+        emotion: emotion ? (emotion as TradeEmotion) : undefined,
+        convictionLevel: convictionLevel ? parseInt(convictionLevel, 10) : undefined,
+        plannedRiskReward: plannedRR ? parseFloat(plannedRR) : undefined,
       },
       {
         onSuccess: () => {
@@ -92,6 +104,9 @@ export function ManualJournalForm() {
     setTags([]);
     setSetupType('');
     setMarketCondition('');
+    setEmotion('');
+    setConvictionLevel('');
+    setPlannedRR('');
   }
 
   return (
@@ -221,6 +236,54 @@ export function ManualJournalForm() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+
+          {/* Psychology: emotion, conviction, planned R:R */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Emotion</Label>
+              <Select value={emotion} onValueChange={setEmotion}>
+                <SelectTrigger className="h-7 text-xs" data-testid="emotion-select">
+                  <SelectValue placeholder="Select..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRADE_EMOTIONS.map((em) => (
+                    <SelectItem key={em} value={em} className="text-xs">
+                      {TRADE_EMOTION_LABELS[em]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Conviction (1-5)</Label>
+              <Select value={convictionLevel} onValueChange={setConvictionLevel}>
+                <SelectTrigger className="h-7 text-xs" data-testid="conviction-select">
+                  <SelectValue placeholder="Select..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {['1', '2', '3', '4', '5'].map((level) => (
+                    <SelectItem key={level} value={level} className="text-xs">
+                      {level}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Planned R:R</Label>
+              <Input
+                type="number"
+                value={plannedRR}
+                onChange={(e) => setPlannedRR(e.target.value)}
+                placeholder="e.g. 2"
+                className="h-7 text-xs font-mono"
+                step="0.1"
+                min="0"
+                data-testid="planned-rr-input"
+              />
             </div>
           </div>
 
