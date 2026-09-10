@@ -5,7 +5,7 @@ import { interpretIndicators } from '@/lib/indicators/interpret';
 import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import type { FuturesData } from '@/types/futures';
 import type { OHLCV } from '@/types/market';
-import type { SentimentData, SignalWeights } from '@/types/signal';
+import type { HtfContext, SentimentData, SignalWeights } from '@/types/signal';
 import { DEFAULT_WEIGHTS } from '@/types/signal';
 
 import { computeSignalScore } from './scorer';
@@ -17,7 +17,14 @@ function generateCandles(
 ): OHLCV[] {
   const candles: OHLCV[] = [];
   let price = startPrice;
-  const baseTime = Date.now() - count * 60 * 60 * 1000;
+  const baseTime = 1700000000000;
+
+  // Seeded LCG keeps the fixture deterministic across runs
+  let rng = 42;
+  function nextRandom(): number {
+    rng = (rng * 16807 + 0) % 2147483647;
+    return rng / 2147483647;
+  }
 
   for (let i = 0; i < count; i++) {
     let change: number;
@@ -27,13 +34,13 @@ function generateCandles(
 
     const open = price;
     const close = price + change;
-    const high = Math.max(open, close) * (1 + Math.random() * 0.003);
-    const low = Math.min(open, close) * (1 - Math.random() * 0.003);
+    const high = Math.max(open, close) * (1 + nextRandom() * 0.003);
+    const low = Math.min(open, close) * (1 - nextRandom() * 0.003);
 
     candles.push({
       timestamp: baseTime + i * 60 * 60 * 1000,
       open, high, low, close,
-      volume: 100 + Math.random() * 200,
+      volume: 100 + nextRandom() * 200,
     });
     price = close;
   }
@@ -45,6 +52,18 @@ function makeIndicatorSuite(trend: 'up' | 'down' | 'sideways' = 'sideways') {
   const candles = generateCandles(300, 40000, trend);
   const raw = computeAllIndicators(candles, 'BTCUSDT', '1h');
   return interpretIndicators(raw);
+}
+
+function makeHtfContext(): HtfContext {
+  return {
+    interval: '4h',
+    candleTimestamp: 1700000000000,
+    trendDirection: 'bullish',
+    signals: [
+      { name: 'HTF EMA Cross', value: 1, direction: 'bullish', strength: 60, description: 'test' },
+      { name: 'HTF SuperTrend', value: 1, direction: 'bullish', strength: 70, description: 'test' },
+    ],
+  };
 }
 
 describe('computeSignalScore', () => {
@@ -59,7 +78,7 @@ describe('computeSignalScore', () => {
     expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(result.tier);
     expect(result.confidence).toBeGreaterThanOrEqual(0);
     expect(result.confidence).toBeLessThanOrEqual(100);
-    expect(result.components).toHaveLength(6);
+    expect(result.components).toHaveLength(7);
   });
 
   it('score is positive for uptrend', () => {
@@ -117,23 +136,60 @@ describe('computeSignalScore', () => {
         openInterest: null,
         longShortRatio: { symbol: 'BTCUSDT', longShortRatio: 1.0, longAccount: 0.5, shortAccount: 0.5, timestamp: 0 },
       },
-      { fearGreedIndex: 50, label: 'Neutral' }
+      { fearGreedIndex: 50, label: 'Neutral' },
+      DEFAULT_WEIGHTS,
+      null,
+      makeHtfContext()
     );
 
     expect(result.confidence).toBe(100);
   });
 
-  it('includes 6 components', () => {
+  it('confidence degrades without higher-timeframe context', () => {
+    const suite = makeIndicatorSuite();
+    const withHtf = computeSignalScore(suite, null, null, DEFAULT_WEIGHTS, null, makeHtfContext());
+    const withoutHtf = computeSignalScore(suite, null, null, DEFAULT_WEIGHTS, null, null);
+
+    expect(withHtf.confidence).toBeGreaterThan(withoutHtf.confidence);
+  });
+
+  it('includes 7 components in stable category order', () => {
     const suite = makeIndicatorSuite();
     const result = computeSignalScore(suite);
 
-    const categories = result.components.map((c) => c.category);
-    expect(categories).toContain('trend');
-    expect(categories).toContain('momentum');
-    expect(categories).toContain('volume');
-    expect(categories).toContain('volatility');
-    expect(categories).toContain('futures');
-    expect(categories).toContain('sentiment');
+    // components and categoryKeys in the scorer are positionally coupled;
+    // this pins the order so they cannot drift apart
+    expect(result.components.map((c) => c.category)).toEqual([
+      'trend', 'momentum', 'volume', 'volatility', 'futures', 'sentiment', 'htf',
+    ]);
+  });
+
+  it('empty htf with rescaled default weights reproduces pre-htf scores', () => {
+    // The six old weights scaled by 0.90 plus htf 0.10 must be score-identical
+    // to the old weights when the htf component is empty, because weight
+    // redistribution normalizes by the available weight sum
+    const suite = makeIndicatorSuite('up');
+    const preHtfWeights: SignalWeights = {
+      trend: 0.25, momentum: 0.25, volume: 0.15, volatility: 0.10, futures: 0.15, sentiment: 0.10,
+      htf: 0,
+    };
+
+    const oldScore = computeSignalScore(suite, null, null, preHtfWeights);
+    const newScore = computeSignalScore(suite, null, null, DEFAULT_WEIGHTS);
+
+    expect(newScore.score).toBeCloseTo(oldScore.score, 10);
+    expect(newScore.tier).toBe(oldScore.tier);
+  });
+
+  it('scores the htf component when context is provided', () => {
+    const suite = makeIndicatorSuite('sideways');
+    const result = computeSignalScore(suite, null, null, DEFAULT_WEIGHTS, null, makeHtfContext());
+
+    const htfComponent = result.components.find((c) => c.category === 'htf');
+    expect(htfComponent).toBeDefined();
+    expect(htfComponent!.score).toBeGreaterThan(0);
+    expect(htfComponent!.weight).toBeGreaterThan(0);
+    expect(htfComponent!.signals.map((s) => s.name)).toContain('HTF EMA Cross');
   });
 
   it('weighted scores sum to approximately total score', () => {
@@ -145,21 +201,32 @@ describe('computeSignalScore', () => {
   });
 
   it('respects custom weights', () => {
-    const suite = makeIndicatorSuite('up');
-    const defaultResult = computeSignalScore(suite, null, null, DEFAULT_WEIGHTS);
+    // Fix category scores by construction so the weight split is what varies
+    const suite = makeIndicatorSuite();
+    suite.signals.trend = [
+      { name: 'EMA Cross', value: 1, direction: 'bullish', strength: 80, description: 'test' },
+    ];
+    suite.signals.momentum = [
+      { name: 'RSI', value: 20, direction: 'bearish', strength: 60, description: 'test' },
+    ];
+    suite.signals.volume = [];
+    suite.signals.volatility = [];
 
-    const momentumHeavy: SignalWeights = {
-      trend: 0.05,
-      momentum: 0.70,
-      volume: 0.05,
-      volatility: 0.05,
-      futures: 0.10,
-      sentiment: 0.05,
+    const trendHeavy: SignalWeights = {
+      trend: 0.70, momentum: 0.10, volume: 0.05, volatility: 0.05, futures: 0.05, sentiment: 0.05,
+      htf: 0,
     };
+    const momentumHeavy: SignalWeights = {
+      trend: 0.10, momentum: 0.70, volume: 0.05, volatility: 0.05, futures: 0.05, sentiment: 0.05,
+      htf: 0,
+    };
+
+    const trendResult = computeSignalScore(suite, null, null, trendHeavy);
     const momentumResult = computeSignalScore(suite, null, null, momentumHeavy);
 
-    // Different weights should produce different scores
-    expect(momentumResult.score).not.toBeCloseTo(defaultResult.score, 0);
+    // Bullish trend dominates one, bearish momentum the other
+    expect(trendResult.score).toBeGreaterThan(0);
+    expect(momentumResult.score).toBeLessThan(0);
   });
 
   it('extreme fear is bullish contrarian', () => {
@@ -280,5 +347,54 @@ describe('computeSignalScore', () => {
     expect(result.score).toBeGreaterThanOrEqual(-100);
     expect(result.score).toBeLessThanOrEqual(100);
     expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(result.tier);
+  });
+
+  it('excludes neutral ATR from the volatility category score', () => {
+    const suite = makeIndicatorSuite();
+    suite.signals.volatility = [
+      { name: 'Bollinger', value: 0.9, direction: 'bullish', strength: 60, description: 'test' },
+      { name: 'ATR', value: 6, direction: 'neutral', strength: 80, description: 'test' },
+    ];
+
+    const result = computeSignalScore(suite);
+    const volatility = result.components.find((c) => c.category === 'volatility');
+
+    // Without the exclusion the neutral ATR would halve this to 30
+    expect(volatility!.score).toBeCloseTo(60);
+    // ATR stays visible in the component signals
+    expect(volatility!.signals.map((s) => s.name)).toContain('ATR');
+  });
+
+  it('extreme volatility regime reduces confidence', () => {
+    const fullData = {
+      futures: {
+        fundingRate: { symbol: 'BTCUSDT', fundingRate: 0.0001, fundingTime: 0, markPrice: 40000 },
+        openInterest: null,
+        longShortRatio: null,
+      } as FuturesData,
+      sentiment: { fearGreedIndex: 50, label: 'Neutral' } as SentimentData,
+    };
+
+    const calm = makeIndicatorSuite();
+    calm.signals.volatility = [
+      { name: 'ATR', value: 1, direction: 'neutral', strength: 30, description: 'low vol' },
+    ];
+    const extreme = makeIndicatorSuite();
+    extreme.signals.volatility = [
+      { name: 'ATR', value: 6, direction: 'neutral', strength: 80, description: 'high vol' },
+    ];
+    const moderate = makeIndicatorSuite();
+    moderate.signals.volatility = [
+      { name: 'ATR', value: 4, direction: 'neutral', strength: 50, description: 'moderate vol' },
+    ];
+
+    const htf = makeHtfContext();
+    const calmResult = computeSignalScore(calm, fullData.futures, fullData.sentiment, DEFAULT_WEIGHTS, null, htf);
+    const moderateResult = computeSignalScore(moderate, fullData.futures, fullData.sentiment, DEFAULT_WEIGHTS, null, htf);
+    const extremeResult = computeSignalScore(extreme, fullData.futures, fullData.sentiment, DEFAULT_WEIGHTS, null, htf);
+
+    expect(calmResult.confidence).toBe(100);
+    expect(moderateResult.confidence).toBe(95);
+    expect(extremeResult.confidence).toBe(85);
   });
 });

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { MARKET_SESSIONS, SESSION_LABELS, type MarketSession } from '@/lib/sessions';
 import type { BacktestConfig } from '@/lib/backtest/types';
 
 interface BacktestConfigPanelProps {
@@ -65,6 +66,24 @@ export function BacktestConfigPanel({ config, onChange }: BacktestConfigPanelPro
 
   function applyPreset(preset: Preset) {
     onChange({ ...config, ...preset.values });
+  }
+
+  // Undefined/empty allowedSessions means every session is allowed
+  const sessionActive = (session: MarketSession) =>
+    !config.allowedSessions ||
+    config.allowedSessions.length === 0 ||
+    config.allowedSessions.includes(session);
+
+  function toggleSession(session: MarketSession) {
+    const current =
+      !config.allowedSessions || config.allowedSessions.length === 0
+        ? [...MARKET_SESSIONS]
+        : config.allowedSessions;
+    const next = current.includes(session)
+      ? current.filter((s) => s !== session)
+      : [...current, session];
+    // All sessions selected collapses back to "no filter"
+    update('allowedSessions', next.length === MARKET_SESSIONS.length ? undefined : next);
   }
 
   return (
@@ -225,6 +244,28 @@ export function BacktestConfigPanel({ config, onChange }: BacktestConfigPanelPro
                 Allow Short Trades
               </Label>
             </div>
+          </div>
+        </div>
+
+        {/* Entry Sessions */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground" data-testid="group-sessions">
+            Entry Sessions (UTC, intraday intervals only)
+          </h4>
+          <div className="flex flex-wrap gap-2" data-testid="session-toggles">
+            {MARKET_SESSIONS.map((session) => (
+              <Button
+                key={session}
+                type="button"
+                size="xs"
+                variant={sessionActive(session) ? 'secondary' : 'outline'}
+                onClick={() => toggleSession(session)}
+                data-testid={`session-toggle-${session}`}
+                aria-pressed={sessionActive(session)}
+              >
+                {SESSION_LABELS[session]}
+              </Button>
+            ))}
           </div>
         </div>
 

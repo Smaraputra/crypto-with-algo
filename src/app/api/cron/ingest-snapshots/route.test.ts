@@ -17,9 +17,15 @@ vi.mock('@/lib/binance-futures', () => ({
   fetchOpenInterest: vi.fn(),
 }));
 
-vi.mock('@/lib/sentiment-analysis', () => ({
-  fetchFearGreedIndex: vi.fn(),
+vi.mock('@/lib/external/fear-greed', () => ({
+  fetchFearAndGreed: vi.fn(),
+}));
+
+vi.mock('@/lib/external/crypto-news', () => ({
   fetchCryptoNews: vi.fn(),
+}));
+
+vi.mock('@/lib/external/news-sentiment', () => ({
   analyzeNewsSentiment: vi.fn(),
 }));
 
@@ -48,13 +54,14 @@ describe('GET /api/cron/ingest-snapshots', () => {
   it('should ingest snapshots for active symbols', async () => {
     const { getActiveSymbols, bulkUpsertSnapshots } = await import('@/lib/historical-snapshots');
     const { fetchFundingRate, fetchLongShortRatio, fetchOpenInterest } = await import('@/lib/binance-futures');
-    const { fetchFearGreedIndex, fetchCryptoNews, analyzeNewsSentiment } = await import('@/lib/sentiment-analysis');
+    const { fetchFearAndGreed } = await import('@/lib/external/fear-greed');
+    const { fetchCryptoNews } = await import('@/lib/external/crypto-news');
+    const { analyzeNewsSentiment } = await import('@/lib/external/news-sentiment');
 
     vi.mocked(getActiveSymbols).mockResolvedValue(['BTCUSDT', 'ETHUSDT']);
-    vi.mocked(fetchFearGreedIndex).mockResolvedValue({
-      value: 50,
-      valueClassification: 'Neutral',
-      timestamp: Date.now(),
+    vi.mocked(fetchFearAndGreed).mockResolvedValue({
+      fearGreedIndex: 50,
+      label: 'Neutral',
     });
 
     vi.mocked(fetchFundingRate).mockResolvedValue([
@@ -90,12 +97,63 @@ describe('GET /api/cron/ingest-snapshots', () => {
     expect(bulkUpsertSnapshots).toHaveBeenCalled();
   });
 
+  it('strips the USDT suffix before fetching news', async () => {
+    const { getActiveSymbols } = await import('@/lib/historical-snapshots');
+    const { fetchFundingRate, fetchLongShortRatio, fetchOpenInterest } = await import('@/lib/binance-futures');
+    const { fetchFearAndGreed } = await import('@/lib/external/fear-greed');
+    const { fetchCryptoNews } = await import('@/lib/external/crypto-news');
+
+    vi.mocked(getActiveSymbols).mockResolvedValue(['BTCUSDT']);
+    vi.mocked(fetchFearAndGreed).mockResolvedValue({ fearGreedIndex: 50, label: 'Neutral' });
+    vi.mocked(fetchFundingRate).mockResolvedValue([]);
+    vi.mocked(fetchLongShortRatio).mockResolvedValue([]);
+    vi.mocked(fetchOpenInterest).mockRejectedValue(new Error('unavailable'));
+    vi.mocked(fetchCryptoNews).mockResolvedValue([]);
+
+    const req = new Request('http://localhost:3000/api/cron/ingest-snapshots?interval=1h', {
+      headers: { authorization: 'Bearer test-secret' },
+    });
+    await GET(req as never);
+
+    expect(fetchCryptoNews).toHaveBeenCalledWith('BTC');
+  });
+
+  it('continues without Fear & Greed when the fetch throws', async () => {
+    const { getActiveSymbols, bulkUpsertSnapshots } = await import('@/lib/historical-snapshots');
+    const { fetchFundingRate, fetchLongShortRatio, fetchOpenInterest } = await import('@/lib/binance-futures');
+    const { fetchFearAndGreed } = await import('@/lib/external/fear-greed');
+    const { fetchCryptoNews } = await import('@/lib/external/crypto-news');
+
+    vi.mocked(getActiveSymbols).mockResolvedValue(['BTCUSDT']);
+    vi.mocked(fetchFearAndGreed).mockRejectedValue(new Error('API down'));
+    vi.mocked(fetchFundingRate).mockResolvedValue([
+      { symbol: 'BTCUSDT', fundingRate: 0.0001, fundingTime: Date.now(), markPrice: 50000 },
+    ]);
+    vi.mocked(fetchLongShortRatio).mockResolvedValue([]);
+    vi.mocked(fetchOpenInterest).mockRejectedValue(new Error('unavailable'));
+    vi.mocked(fetchCryptoNews).mockResolvedValue([]);
+
+    const req = new Request('http://localhost:3000/api/cron/ingest-snapshots?interval=1h', {
+      headers: { authorization: 'Bearer test-secret' },
+    });
+    const res = await GET(req as never);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ingested).toBe(1);
+    expect(bulkUpsertSnapshots).toHaveBeenCalled();
+    const snapshots = vi.mocked(bulkUpsertSnapshots).mock.calls[0][0];
+    expect(snapshots[0].data.fearGreed).toBeUndefined();
+  });
+
   it('should handle API failures gracefully', async () => {
     const { getActiveSymbols } = await import('@/lib/historical-snapshots');
     const { fetchFundingRate, fetchLongShortRatio, fetchOpenInterest } = await import('@/lib/binance-futures');
-    const { fetchCryptoNews } = await import('@/lib/sentiment-analysis');
+    const { fetchFearAndGreed } = await import('@/lib/external/fear-greed');
+    const { fetchCryptoNews } = await import('@/lib/external/crypto-news');
 
     vi.mocked(getActiveSymbols).mockResolvedValue(['BTCUSDT']);
+    vi.mocked(fetchFearAndGreed).mockRejectedValue(new Error('API error'));
 
     // All API calls fail
     vi.mocked(fetchFundingRate).mockRejectedValue(new Error('API error'));

@@ -5,49 +5,87 @@ import { computeWarmupBars, interpretIndicatorsAtBar } from '@/lib/indicators/in
 import { computeSignalScore } from '@/lib/signals/scorer';
 import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { computeMetrics } from './metrics';
-import { fixedFractional, kellyCriterion, riskBased } from './position-sizing';
+import { computeSnapshotCoverage } from './engine';
+import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
+import { intervalToMs } from '@/lib/intervals';
+import { alignHtfToLtf, computeHtfSeries, htfContextAtBar } from '@/lib/signals/htf';
+import type { HtfContext } from '@/types/signal';
+import { buildSnapshotSeries, type LeanSnapshot, type SnapshotBar } from './snapshot-series';
+import {
+  checkStopTakeProfit,
+  closeTrade,
+  computeEquityAfterTrade,
+  computePositionSize,
+  type OpenPosition,
+} from './trade-utils';
 import type {
   BacktestConfig,
   BacktestResult,
   BacktestTrade,
   EquityPoint,
-  TradeSide,
-  ExitReason,
   BacktestProgressCallback,
 } from './types';
 import type { SuperTrendPoint } from '@/lib/indicators/supertrend';
 
-interface OpenPosition {
-  entryBar: number;
-  entryTime: number;
-  entryPrice: number;
-  side: TradeSide;
-  quantity: number;
-  entryScore: number;
-  entryTier: BacktestTrade['entryTier'];
-}
-
 /**
  * Pre-computed indicators for optimization
  */
+export interface HtfInput {
+  candles: OHLCV[];
+  interval: string;
+}
+
 export interface PreparedBacktest {
   candles: OHLCV[];
   indicators: IndicatorSuite[]; // Pre-computed for all bars
   superTrend: SuperTrendPoint[];
   warmupBars: number;
   stOffset: number;
+  snapshots?: (SnapshotBar | null)[]; // index-aligned point-in-time futures/sentiment
+  htf?: {
+    interval: string;
+    contextAtHtfBar: (HtfContext | null)[]; // per HTF bar
+    ltfToHtf: Int32Array; // LTF bar -> last closed HTF bar (-1 = none)
+  };
+}
+
+/**
+ * Precompute per-HTF-bar contexts and the closed-bar LTF alignment.
+ * Shared by both engines so their MTF behavior cannot diverge.
+ */
+export function prepareHtf(
+  ltfCandles: OHLCV[],
+  ltfInterval: string,
+  htfInput: HtfInput,
+  indicatorConfig?: IndicatorConfig
+): NonNullable<PreparedBacktest['htf']> {
+  const series = computeHtfSeries(htfInput.candles, indicatorConfig);
+  const contextAtHtfBar = htfInput.candles.map((_, bar) =>
+    htfContextAtBar(series, bar, htfInput.interval)
+  );
+  const ltfToHtf = alignHtfToLtf(
+    ltfCandles,
+    intervalToMs(ltfInterval),
+    htfInput.candles,
+    intervalToMs(htfInput.interval)
+  );
+
+  return { interval: htfInput.interval, contextAtHtfBar, ltfToHtf };
 }
 
 /**
  * Prepare backtest: compute indicators once
  * Reuse for multiple weight candidates
  * Optional indicatorConfig allows style-specific indicator parameters
+ * Optional snapshotDocs supply point-in-time futures/sentiment per bar
  */
 export function prepareBacktest(
   candles: OHLCV[],
   symbol: string,
   interval: string,
-  indicatorConfig?: IndicatorConfig
+  indicatorConfig?: IndicatorConfig,
+  snapshotDocs?: LeanSnapshot[],
+  htfInput?: HtfInput
 ): PreparedBacktest {
   // Compute raw indicators with optional style-specific config
   const raw = computeAllIndicators(candles, symbol, interval, indicatorConfig);
@@ -69,6 +107,10 @@ export function prepareBacktest(
     superTrend: superTrend.values,
     warmupBars: warmup,
     stOffset,
+    ...(snapshotDocs
+      ? { snapshots: buildSnapshotSeries(candles, snapshotDocs, interval, { symbol }) }
+      : {}),
+    ...(htfInput ? { htf: prepareHtf(candles, interval, htfInput, indicatorConfig) } : {}),
   };
 }
 
@@ -83,19 +125,32 @@ export function runOptimizedBacktest(
   interval: string,
   onProgress?: BacktestProgressCallback
 ): BacktestResult {
-  const { candles, indicators, superTrend, warmupBars, stOffset } = prepared;
+  const { candles, indicators, superTrend, warmupBars, stOffset, snapshots, htf } = prepared;
 
   const totalBars = candles.length - warmupBars;
   const trades: BacktestTrade[] = [];
   const equityCurve: EquityPoint[] = [];
 
+  // Session tagging and entry filter (sessions only meaningful intraday)
+  const sessionMeaningful = isSessionMeaningful(interval);
+  const intervalMs = intervalToMs(interval);
+  const sessionFilter =
+    sessionMeaningful && config.allowedSessions && config.allowedSessions.length > 0
+      ? new Set(config.allowedSessions)
+      : null;
+
   let equity = config.startEquity;
   let peakEquity = equity;
   let position: OpenPosition | null = null;
+  let barsWithFutures = 0;
+  let barsWithSentiment = 0;
 
   // Iterate bar-by-bar from warmup to end
   for (let bar = warmupBars; bar < candles.length; bar++) {
     const candle = candles[bar];
+    const snap = snapshots?.[bar] ?? null;
+    if (snap?.futures) barsWithFutures++;
+    if (snap?.sentiment) barsWithSentiment++;
 
     // Get SuperTrend at this bar
     const stIdx = bar - stOffset;
@@ -115,13 +170,18 @@ export function runOptimizedBacktest(
     // Get pre-computed indicators for this bar
     const suite = indicators[bar];
 
+    // Higher-timeframe context from the last CLOSED HTF bar at this LTF bar
+    const htfBar = htf ? htf.ltfToHtf[bar] : -1;
+    const htfCtx = htf && htfBar >= 0 ? htf.contextAtHtfBar[htfBar] : null;
+
     // Compute signal score with config weights
     const composite = computeSignalScore(
       suite,
-      null, // no futures in backtest
-      null, // no sentiment in backtest
+      snap?.futures ?? null,
+      snap?.sentiment ?? null,
       config.weights,
-      superTrendAtBar ? { values: superTrend, current: superTrendAtBar } : null
+      superTrendAtBar ? { values: superTrend, current: superTrendAtBar } : null,
+      htfCtx
     );
 
     // Check entry/exit based on signal score
@@ -146,8 +206,13 @@ export function runOptimizedBacktest(
         position = null;
       }
     } else {
-      // Check entry conditions
-      if (composite.score >= config.entryThreshold) {
+      // Check entry conditions; the session filter gates entries only, never exits
+      const session = sessionMeaningful
+        ? sessionOfCandleClose(candle.timestamp, intervalMs)
+        : null;
+      const sessionAllowed = !sessionFilter || (session !== null && sessionFilter.has(session));
+
+      if (sessionAllowed && composite.score >= config.entryThreshold) {
         const quantity = computePositionSize(equity, candle.close, 'long', config, trades);
         position = {
           entryBar: bar,
@@ -157,8 +222,9 @@ export function runOptimizedBacktest(
           quantity,
           entryScore: composite.score,
           entryTier: composite.tier,
+          entrySession: session,
         };
-      } else if (config.allowShorts && composite.score <= config.shortEntryThreshold) {
+      } else if (sessionAllowed && config.allowShorts && composite.score <= config.shortEntryThreshold) {
         const quantity = computePositionSize(equity, candle.close, 'short', config, trades);
         position = {
           entryBar: bar,
@@ -168,6 +234,7 @@ export function runOptimizedBacktest(
           quantity,
           entryScore: composite.score,
           entryTier: composite.tier,
+          entrySession: session,
         };
       }
     }
@@ -225,133 +292,8 @@ export function runOptimizedBacktest(
     endTime: candles[candles.length - 1].timestamp,
     totalBars,
     warmupBars,
+    ...(snapshots
+      ? { snapshotCoverage: computeSnapshotCoverage(barsWithFutures, barsWithSentiment, totalBars) }
+      : {}),
   };
-}
-
-function checkStopTakeProfit(
-  position: OpenPosition,
-  candle: OHLCV,
-  config: BacktestConfig
-): { exitReason: ExitReason | null; exitPrice: number } {
-  if (position.side === 'long') {
-    const slPrice = position.entryPrice * (1 - config.stopLossPercent);
-    const tpPrice = position.entryPrice * (1 + config.takeProfitPercent);
-
-    if (candle.low <= slPrice) {
-      return { exitReason: 'stop_loss', exitPrice: slPrice };
-    }
-    if (candle.high >= tpPrice) {
-      return { exitReason: 'take_profit', exitPrice: tpPrice };
-    }
-  } else {
-    const slPrice = position.entryPrice * (1 + config.stopLossPercent);
-    const tpPrice = position.entryPrice * (1 - config.takeProfitPercent);
-
-    if (candle.high >= slPrice) {
-      return { exitReason: 'stop_loss', exitPrice: slPrice };
-    }
-    if (candle.low <= tpPrice) {
-      return { exitReason: 'take_profit', exitPrice: tpPrice };
-    }
-  }
-
-  return { exitReason: null, exitPrice: 0 };
-}
-
-function closeTrade(
-  position: OpenPosition,
-  exitPrice: number,
-  exitBar: number,
-  exitTime: number,
-  exitReason: ExitReason,
-  exitScore: number,
-  trades: BacktestTrade[],
-  config: BacktestConfig
-): void {
-  const entryNotional = position.quantity * position.entryPrice;
-  const exitNotional = position.quantity * exitPrice;
-  const entryFee = entryNotional * config.feePercent;
-  const exitFee = exitNotional * config.feePercent;
-  const fees = entryFee + exitFee;
-
-  let pnl: number;
-  if (position.side === 'long') {
-    pnl = (exitPrice - position.entryPrice) * position.quantity - fees;
-  } else {
-    pnl = (position.entryPrice - exitPrice) * position.quantity - fees;
-  }
-
-  const pnlPercent =
-    position.side === 'long'
-      ? ((exitPrice - position.entryPrice) / position.entryPrice) * 100
-      : ((position.entryPrice - exitPrice) / position.entryPrice) * 100;
-
-  trades.push({
-    entryBar: position.entryBar,
-    exitBar,
-    entryTime: position.entryTime,
-    exitTime,
-    side: position.side,
-    entryPrice: position.entryPrice,
-    exitPrice,
-    quantity: position.quantity,
-    pnl,
-    pnlPercent,
-    fees,
-    exitReason,
-    entryScore: position.entryScore,
-    exitScore,
-    entryTier: position.entryTier,
-    holdTimeBars: exitBar - position.entryBar,
-  });
-}
-
-function computeEquityAfterTrade(currentEquity: number, trade: BacktestTrade): number {
-  return currentEquity + trade.pnl;
-}
-
-function computePositionSize(
-  equity: number,
-  price: number,
-  side: TradeSide,
-  config: BacktestConfig,
-  trades: BacktestTrade[]
-): number {
-  const sizing = config.positionSizing;
-  if (!sizing || sizing.method === 'fixed_percent') {
-    return (equity * config.positionSizePercent) / price;
-  }
-
-  const stopLossPrice = side === 'long'
-    ? price * (1 - config.stopLossPercent)
-    : price * (1 + config.stopLossPercent);
-
-  switch (sizing.method) {
-    case 'fixed_fractional':
-      return fixedFractional(equity, sizing.riskPerTrade, price, stopLossPrice);
-
-    case 'kelly': {
-      const completedTrades = trades.filter((t) => t.pnl !== 0);
-      if (completedTrades.length < 5) {
-        // Not enough history for Kelly, fall back to fixed percent
-        return (equity * config.positionSizePercent) / price;
-      }
-      const wins = completedTrades.filter((t) => t.pnl > 0);
-      const losses = completedTrades.filter((t) => t.pnl < 0);
-      const winRate = wins.length / completedTrades.length;
-      const avgWin = wins.length > 0
-        ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length
-        : 0;
-      const avgLoss = losses.length > 0
-        ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length
-        : -1;
-      return kellyCriterion(equity, winRate, avgWin, avgLoss, price, sizing.fractionKelly ?? 0.5);
-    }
-
-    case 'risk_based':
-      return riskBased(equity, sizing.riskPerTrade, price, stopLossPrice);
-
-    default:
-      return (equity * config.positionSizePercent) / price;
-  }
 }

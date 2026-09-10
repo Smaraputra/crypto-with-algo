@@ -123,5 +123,6 @@ export function compressBacktestResult(
     parentResultId: parentResultId ? (parentResultId as unknown as mongoose.Types.ObjectId) : null,
     isOptimized: optimizationGeneration > 0,
     contributedToTemplate: false,
+    snapshotCoverage: result.snapshotCoverage ?? null,
   } as Omit<IBacktestResultV2, keyof Document | 'createdAt' | 'updatedAt'>;
 }

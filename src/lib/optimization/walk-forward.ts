@@ -7,11 +7,13 @@ import { BacktestResultV2, type IBacktestResultV2 } from '@/lib/models/backtest-
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { DEFAULT_TEMPLATE_WEIGHTS, DEFAULT_TEMPLATE_THRESHOLDS } from '@/lib/models/signal-template';
 import { prepareBacktest, runOptimizedBacktest } from '@/lib/backtest/optimized-engine';
+import { computeMinCandles } from '@/lib/indicators/compute';
+import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { generateWeightCandidates } from './weight-generator';
 import { filterRobustResults } from './robustness-filter';
 import { createEnsemble } from './ensemble';
 import { compressBacktestResult } from '@/lib/backtest/compress-results';
-import { DEFAULT_ROBUSTNESS } from '@/types/optimization';
+import { DEFAULT_ROBUSTNESS, type RobustnessConfig } from '@/types/optimization';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import mongoose from 'mongoose';
 
@@ -28,6 +30,11 @@ export interface WalkForwardConfig {
   constraintPercent: number;
 
   jobId: mongoose.Types.ObjectId; // For progress updates
+
+  snapshots?: LeanSnapshot[]; // point-in-time futures/sentiment for the candle range
+  robustness?: RobustnessConfig;
+  htfCandles?: OHLCV[]; // confirmation-timeframe candles (with warmup margin)
+  htfInterval?: string;
 }
 
 export interface WalkForwardResult {
@@ -52,7 +59,19 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     candidatesPerWindow,
     constraintPercent,
     jobId,
+    snapshots,
+    robustness = DEFAULT_ROBUSTNESS,
+    htfCandles,
+    htfInterval,
   } = config;
+
+  // Per-LTF-bar alignment inside the engines is closed-bar-only and the HTF
+  // series is causal, so passing the full HTF array to every window slice
+  // cannot leak future bars
+  const htfInput =
+    htfCandles && htfCandles.length > 0 && htfInterval
+      ? { candles: htfCandles, interval: htfInterval }
+      : undefined;
 
   // Get base template weights and style-specific indicator config
   const baseWeights = DEFAULT_TEMPLATE_WEIGHTS[tradingStyle];
@@ -60,10 +79,17 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
   const styleProfile = getStyleConfig(tradingStyle);
   const indicatorConfig = styleProfile.config;
 
+  // A training window must satisfy the style's indicator warmup, or
+  // computeAllIndicators throws on the slice
+  const effectiveMinTrainingBars = Math.max(
+    minTrainingBars,
+    computeMinCandles(indicatorConfig) + 10
+  );
+
   // Calculate walk-forward windows
   const windows = calculateWindows(
     candles.length,
-    minTrainingBars,
+    effectiveMinTrainingBars,
     testWindowBars,
     stepSizeBars
   );
@@ -75,6 +101,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
   );
 
   const windowResults: WalkForwardWindow[] = [];
+  const oosDocs: IBacktestResultV2[] = []; // index-aligned with windowResults
   let totalCandidatesTested = 0;
   let totalValidResults = 0;
 
@@ -85,8 +112,17 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     // 1. Extract training data
     const trainingCandles = candles.slice(window.trainStart, window.trainEnd + 1);
 
-    // 2. Prepare backtest (compute indicators once with style-specific params)
-    const prepared = prepareBacktest(trainingCandles, symbol, interval, indicatorConfig);
+    // 2. Prepare backtest (compute indicators once with style-specific params).
+    // The snapshot series is timestamp-aligned, so passing the full snapshot
+    // list against the sliced candles keeps windows point-in-time correct.
+    const prepared = prepareBacktest(
+      trainingCandles,
+      symbol,
+      interval,
+      indicatorConfig,
+      snapshots,
+      htfInput
+    );
 
     // 3. Generate weight candidates
     const candidates = generateWeightCandidates(
@@ -140,7 +176,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     }
 
     // 5. Filter by robustness (in-sample filtering)
-    const robustCandidates = filterRobustResults(candidateResults, DEFAULT_ROBUSTNESS);
+    const robustCandidates = filterRobustResults(candidateResults, robustness);
     totalValidResults += robustCandidates.length;
 
     // 6. Select best candidate by Sharpe ratio
@@ -167,9 +203,21 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
 
     const bestWeights = (bestCandidate.config as { weights: SignalWeights }).weights;
 
-    // 7. Validate on test window (out-of-sample)
-    const testCandles = candles.slice(window.testStart, window.testEnd + 1);
-    const testPrepared = prepareBacktest(testCandles, symbol, interval, indicatorConfig);
+    // 7. Validate on test window (out-of-sample). The slice is prefixed with
+    // exactly the indicator warmup (a data-independent constant for a given
+    // config, known from the training prepare), so the engine's first traded
+    // bar is window.testStart and no in-sample bar is traded.
+    const warmupPrefix = prepared.warmupBars;
+    const testSliceStart = Math.max(0, window.testStart - warmupPrefix);
+    const testCandles = candles.slice(testSliceStart, window.testEnd + 1);
+    const testPrepared = prepareBacktest(
+      testCandles,
+      symbol,
+      interval,
+      indicatorConfig,
+      snapshots,
+      htfInput
+    );
 
     const testConfig: BacktestConfig = {
       weights: bestWeights,
@@ -202,7 +250,8 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       1,
       bestCandidate._id.toString()
     );
-    await BacktestResultV2.create(testCompressed);
+    const testDoc = await BacktestResultV2.create(testCompressed);
+    oosDocs.push(testDoc);
 
     // 8. Store window result
     windowResults.push({
@@ -212,6 +261,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       testEnd: window.testEnd,
       bestWeights,
       testSharpe,
+      testResultId: String(testDoc._id),
     });
 
     // 9. Update job progress
@@ -227,27 +277,13 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     );
   }
 
-  // 10. Create ensemble from top 5 windows by test Sharpe
-  const topWindows = [...windowResults]
+  // 10. Create ensemble from top 5 windows by test Sharpe, using the
+  // out-of-sample test docs captured per window (never in-sample candidates)
+  const ensembleResultDocs = windowResults
+    .map((window, i) => ({ testSharpe: window.testSharpe, doc: oosDocs[i] }))
     .sort((a, b) => b.testSharpe - a.testSharpe)
-    .slice(0, 5);
-
-  // Get the test result docs for ensemble
-  const ensembleResultDocs: IBacktestResultV2[] = [];
-  for (const window of topWindows) {
-    // Find test result with these weights
-    const result = await BacktestResultV2.findOne({
-      tradingStyle,
-      symbol,
-      interval,
-      optimizationGeneration: 1,
-      'config.weights': window.bestWeights,
-    });
-
-    if (result) {
-      ensembleResultDocs.push(result);
-    }
-  }
+    .slice(0, 5)
+    .map((entry) => entry.doc);
 
   const ensemble = createEnsemble(ensembleResultDocs, 5);
 

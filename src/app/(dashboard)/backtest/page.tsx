@@ -14,6 +14,7 @@ import { DataStatus } from '@/components/backtest/DataStatus';
 import { WeightSliders } from '@/components/backtest/WeightSliders';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { BacktestMetricsCards } from '@/components/backtest/BacktestMetricsCards';
+import { SessionBreakdown } from '@/components/backtest/SessionBreakdown';
 import { TradeList } from '@/components/backtest/TradeList';
 import {
   useStrategies,
@@ -25,6 +26,14 @@ import { useBacktest } from '@/hooks/useBacktest';
 import { useSaveBacktestResult, useBacktestResults, useDeleteBacktestResult } from '@/hooks/useBacktestResults';
 import { useUIStore } from '@/stores/uiStore';
 import { DEFAULT_BACKTEST_CONFIG } from '@/lib/backtest/types';
+import {
+  buildSnapshotSeries,
+  mapToSnapshotInterval,
+  type SnapshotBar,
+} from '@/lib/backtest/snapshot-series';
+import { getConfirmationInterval } from '@/lib/signals/htf';
+import { intervalToMs } from '@/lib/intervals';
+import type { HtfInput } from '@/lib/backtest/optimized-engine';
 import type { Strategy, CreateStrategyInput } from '@/types/strategy';
 import type { BacktestConfig } from '@/lib/backtest/types';
 
@@ -212,7 +221,55 @@ export default function BacktestPage() {
         return;
       }
 
-      backtest.run(klines, config, symbol, interval);
+      // Best-effort point-in-time futures/sentiment; bars without data stay
+      // null and the scorer redistributes weights, so failure never blocks
+      let snapshots: (SnapshotBar | null)[] | undefined;
+      try {
+        const snapshotInterval = mapToSnapshotInterval(interval);
+        const maxRangeMs = 364 * 24 * 60 * 60 * 1000; // API caps at 1 year
+        const snapStart = Math.max(
+          klines[0].timestamp - 8 * 60 * 60 * 1000,
+          Date.now() - maxRangeMs
+        );
+        const snapRes = await fetch(
+          `/api/historical-snapshots?symbol=${symbol}&interval=${snapshotInterval}&startTime=${snapStart}&endTime=${Date.now()}`
+        );
+        if (snapRes.ok) {
+          const snapData = await snapRes.json();
+          if (snapData.snapshots?.length) {
+            snapshots = buildSnapshotSeries(klines, snapData.snapshots, interval, { symbol });
+          }
+        }
+      } catch {
+        // Run without snapshot data
+      }
+
+      // Best-effort higher-timeframe candles for MTF confluence; the extra
+      // 250-bar margin covers HTF indicator warmup before the LTF range starts
+      let htfInput: HtfInput | undefined;
+      const htfInterval = getConfirmationInterval(interval);
+      if (htfInterval) {
+        try {
+          const htfMs = intervalToMs(htfInterval);
+          const htfStart = klines[0].timestamp - 250 * htfMs;
+          const htfRes = await fetch(
+            `/api/candles?symbol=${symbol}&interval=${htfInterval}&startTime=${htfStart}&limit=50000`
+          );
+          if (htfRes.ok) {
+            const htfData = await htfRes.json();
+            if (htfData.candles?.length) {
+              htfInput = { candles: htfData.candles, interval: htfInterval };
+            }
+          }
+        } catch {
+          // Run without higher-timeframe context
+        }
+        if (!htfInput) {
+          toast.info('Higher-timeframe data unavailable; running without MTF confluence');
+        }
+      }
+
+      backtest.run(klines, config, symbol, interval, snapshots, htfInput);
     } catch {
       toast.error('Failed to start backtest');
     } finally {
@@ -394,7 +451,17 @@ export default function BacktestPage() {
                   {saveMutation.isPending ? 'Saving...' : 'Save Result'}
                 </Button>
               </div>
+              {backtest.result.snapshotCoverage && (
+                <p className="text-xs text-muted-foreground" data-testid="snapshot-coverage">
+                  Point-in-time data: futures on {backtest.result.snapshotCoverage.futuresPercent}%
+                  and sentiment on {backtest.result.snapshotCoverage.sentimentPercent}% of scored
+                  bars. Bars without data score technicals only.
+                </p>
+              )}
               <BacktestMetricsCards metrics={backtest.result.metrics} />
+              {backtest.result.metrics.sessionBreakdown && (
+                <SessionBreakdown breakdown={backtest.result.metrics.sessionBreakdown} />
+              )}
               <EquityCurveChart
                 equityCurve={backtest.result.equityCurve}
                 startEquity={backtest.result.config.startEquity}

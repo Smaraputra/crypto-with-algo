@@ -151,3 +151,52 @@ describe('runBacktest', () => {
     }
   });
 });
+
+describe('snapshot integration', () => {
+  function makeSnapshots(candles: OHLCV[]) {
+    // Extreme contrarian-bullish readings so scoring visibly shifts
+    return candles.map((c) => ({
+      timestamp: c.timestamp,
+      data: {
+        fundingRate: { rate: -0.005, markPrice: c.close },
+        fearGreed: { index: 5, label: 'Extreme Fear' },
+      },
+    }));
+  }
+
+  it('reports snapshot coverage when a series is provided', async () => {
+    const { buildSnapshotSeries } = await import('./snapshot-series');
+    const candles = generateTrendingCandles(300);
+    const series = buildSnapshotSeries(candles, makeSnapshots(candles), '1h', { symbol: 'BTCUSDT' });
+
+    const result = runBacktest(candles, { ...DEFAULT_BACKTEST_CONFIG }, 'BTCUSDT', '1h', undefined, series);
+
+    expect(result.snapshotCoverage).toBeDefined();
+    expect(result.snapshotCoverage!.scoredBars).toBe(result.totalBars);
+    expect(result.snapshotCoverage!.barsWithFutures).toBe(result.totalBars);
+    expect(result.snapshotCoverage!.barsWithSentiment).toBe(result.totalBars);
+    expect(result.snapshotCoverage!.futuresPercent).toBe(100);
+  });
+
+  it('omits snapshot coverage when no series is provided', () => {
+    const candles = generateTrendingCandles(300);
+    const result = runBacktest(candles, { ...DEFAULT_BACKTEST_CONFIG }, 'BTCUSDT', '1h');
+
+    expect(result.snapshotCoverage).toBeUndefined();
+  });
+
+  it('snapshot data changes scoring and trades', async () => {
+    const { buildSnapshotSeries } = await import('./snapshot-series');
+    const candles = generateTrendingCandles(400, 'up');
+    // Low thresholds guarantee trading activity in the base run
+    const config = { ...DEFAULT_BACKTEST_CONFIG, entryThreshold: 10, exitThreshold: -5 };
+    const series = buildSnapshotSeries(candles, makeSnapshots(candles), '1h', { symbol: 'BTCUSDT' });
+
+    const withSnapshots = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, series);
+    const withoutSnapshots = runBacktest(candles, config, 'BTCUSDT', '1h');
+
+    expect(withoutSnapshots.trades.length).toBeGreaterThan(0);
+    // Strongly bullish contrarian inputs must shift entries/exits somewhere
+    expect(withSnapshots.trades).not.toEqual(withoutSnapshots.trades);
+  });
+});

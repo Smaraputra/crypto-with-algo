@@ -12,7 +12,7 @@ export function isRobust(
   const metrics = result.metrics as {
     sharpeRatio?: number;
     winRate?: number;
-    maxDrawdown?: number;
+    maxDrawdownPercent?: number;
   };
 
   const { totalTrades } = result.tradeSummary;
@@ -34,9 +34,10 @@ export function isRobust(
     return false;
   }
 
-  // Check max drawdown (absolute value, should be < threshold)
-  const maxDD = Math.abs(metrics.maxDrawdown ?? Infinity);
-  if (maxDD > config.maxDrawdown) {
+  // Check max drawdown: metrics.maxDrawdown is an absolute currency amount,
+  // so compare maxDrawdownPercent (0-100) as a fraction against the config
+  const ddFraction = (metrics.maxDrawdownPercent ?? Infinity) / 100;
+  if (ddFraction > config.maxDrawdown) {
     return false;
   }
 
@@ -64,7 +65,7 @@ export function getRobustnessScore(
   const metrics = result.metrics as {
     sharpeRatio?: number;
     winRate?: number;
-    maxDrawdown?: number;
+    maxDrawdownPercent?: number;
   };
 
   const { totalTrades } = result.tradeSummary;
@@ -77,7 +78,7 @@ export function getRobustnessScore(
   // Compute normalized scores
   const sharpeScore = Math.min((metrics.sharpeRatio ?? 0) / 2.0, 1.0); // Normalize to [0, 1], 2.0 = excellent
   const winRateScore = (metrics.winRate ?? 0) / 1.0; // Already [0, 1]
-  const ddScore = 1 - Math.min(Math.abs(metrics.maxDrawdown ?? 1) / config.maxDrawdown, 1.0); // Lower DD = better
+  const ddScore = 1 - Math.min((metrics.maxDrawdownPercent ?? 100) / 100 / config.maxDrawdown, 1.0); // Lower DD = better
   const tradeScore = Math.min(totalTrades / 50, 1.0); // Normalize to 50 trades = full score
 
   // Weighted average

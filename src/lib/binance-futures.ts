@@ -14,9 +14,13 @@ function getBaseUrl(): string {
 
 export async function fetchFundingRate(
   symbol: string,
-  limit = 1
+  limit = 1,
+  startTime?: number,
+  endTime?: number
 ): Promise<FundingRate[]> {
   const params = new URLSearchParams({ symbol, limit: String(limit) });
+  if (startTime !== undefined) params.set('startTime', String(startTime));
+  if (endTime !== undefined) params.set('endTime', String(endTime));
   const res = await fetch(`${getBaseUrl()}/fapi/v1/fundingRate?${params}`);
 
   if (!res.ok) {

@@ -13,8 +13,8 @@ describe('ensemble', () => {
       metrics: {
         sharpeRatio: sharpe,
         winRate,
-        sortino: sharpe * 1.2,
-        calmar: sharpe * 0.8,
+        sortinoRatio: sharpe * 1.2,
+        calmarRatio: sharpe * 0.8,
       },
       config: {
         weights,
@@ -36,6 +36,7 @@ describe('ensemble', () => {
     volatility: 0.1,
     futures: 0.1,
     sentiment: 0.1,
+    htf: 0,
   };
 
   const weights2: SignalWeights = {
@@ -45,6 +46,7 @@ describe('ensemble', () => {
     volatility: 0.1,
     futures: 0.1,
     sentiment: 0.1,
+    htf: 0,
   };
 
   const weights3: SignalWeights = {
@@ -54,6 +56,7 @@ describe('ensemble', () => {
     volatility: 0.1,
     futures: 0.1,
     sentiment: 0.1,
+    htf: 0,
   };
 
   describe('selectTopPerformers', () => {
@@ -78,12 +81,12 @@ describe('ensemble', () => {
         createMockResult(0.5, 0.4, weights3),
       ];
 
-      const top2 = selectTopPerformers(results, 2, 'sortino');
+      const top2 = selectTopPerformers(results, 2, 'sortinoRatio');
 
       expect(top2).toHaveLength(2);
       // Sortino = sharpe * 1.2
-      expect((top2[0].metrics as { sortino: number }).sortino).toBe(2.4);
-      expect((top2[1].metrics as { sortino: number }).sortino).toBe(1.2);
+      expect((top2[0].metrics as { sortinoRatio: number }).sortinoRatio).toBe(2.4);
+      expect((top2[1].metrics as { sortinoRatio: number }).sortinoRatio).toBe(1.2);
     });
 
     it('returns all results when count > length', () => {
@@ -135,6 +138,7 @@ describe('ensemble', () => {
         volatility: 0.2,
         futures: 0.1,
         sentiment: 0.1,
+        htf: 0,
       });
 
       const result2 = createMockResult(1.5, 0.6, {
@@ -144,6 +148,7 @@ describe('ensemble', () => {
         volatility: 0.1,
         futures: 0.05,
         sentiment: 0.05,
+        htf: 0,
       });
 
       const ensemble = createEnsemble([result1, result2], 2);
@@ -193,8 +198,10 @@ describe('ensemble', () => {
 
       const ensemble = createEnsemble(results, 2);
 
-      // Sortino = sharpe * 1.2
+      // Regression: avgSortino must read the stored sortinoRatio key,
+      // not the nonexistent 'sortino' key (which silently averaged to 0)
       expect(ensemble.avgSortino).toBeCloseTo((1.2 + 2.4) / 2);
+      expect(ensemble.avgSortino).toBeGreaterThan(0);
     });
   });
 });

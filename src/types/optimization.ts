@@ -3,7 +3,7 @@ import type { SignalWeights } from './signal';
 export interface RobustnessConfig {
   minSharpe: number; // 0.5
   minWinRate: number; // 0.40 (40%)
-  maxDrawdown: number; // 0.30 (30%)
+  maxDrawdown: number; // 0.30 = 30% of peak equity, compared against metrics.maxDrawdownPercent / 100
   minTrades: number; // 10 (statistical significance)
 }
 
@@ -14,6 +14,7 @@ export interface WalkForwardWindow {
   testEnd: number;
   bestWeights: SignalWeights;
   testSharpe: number;
+  testResultId?: string; // BacktestResultV2 id of the out-of-sample test run
 }
 
 export interface OptimizationProgress {

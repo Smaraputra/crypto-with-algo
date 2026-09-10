@@ -125,6 +125,57 @@ describe('compute-engine', () => {
       expect(insertedDocs[0].score).toBeLessThanOrEqual(100);
       expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(insertedDocs[0].tier);
       expect(insertedDocs[0].expiresAt).toBeInstanceOf(Date);
+      // 1h is intraday, so the doc carries the session at candle close
+      expect(['asia', 'london', 'ny_overlap', 'new_york', 'off_hours']).toContain(
+        insertedDocs[0].session
+      );
+      // v2 schema: htf confluence from the 4h confirmation interval
+      expect(insertedDocs[0].configVersion).toBe(2);
+      expect(insertedDocs[0].htfContext).not.toBeNull();
+      expect(insertedDocs[0].htfContext.interval).toBe('4h');
+      expect(['bullish', 'bearish', 'neutral']).toContain(insertedDocs[0].htfContext.trendDirection);
+      const htfComponent = insertedDocs[0].components.find(
+        (c: { category: string }) => c.category === 'htf'
+      );
+      expect(htfComponent).toBeDefined();
+      expect(htfComponent.signals.length).toBeGreaterThan(0);
+    });
+
+    it('computes without htf context when the confirmation fetch fails', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockImplementation((_symbol: string, interval: string) =>
+        interval === '4h' ? Promise.reject(new Error('no 4h data')) : Promise.resolve(candles)
+      );
+      mockFetchKlines.mockImplementation((_symbol: string, interval: string) =>
+        interval === '4h' ? Promise.reject(new Error('no 4h data')) : Promise.resolve(candles)
+      );
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      const result = await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+      ]);
+
+      expect(result.computed).toBe(1);
+      const insertedDocs = mockInsertMany.mock.calls[0][0];
+      expect(insertedDocs[0].htfContext).toBeNull();
+      const htfComponent = insertedDocs[0].components.find(
+        (c: { category: string }) => c.category === 'htf'
+      );
+      expect(htfComponent.signals).toHaveLength(0);
+    });
+
+    it('records null session for multi-session intervals', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockResolvedValue(candles);
+      mockFetchKlines.mockResolvedValue(candles);
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+      ]);
+
+      const insertedDocs = mockInsertMany.mock.calls[0][0];
+      expect(insertedDocs[0].session).toBeNull();
     });
 
     it('computes multiple tasks and deduplicates candle fetches', async () => {

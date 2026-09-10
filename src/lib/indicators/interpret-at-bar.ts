@@ -141,6 +141,9 @@ export function interpretIndicatorsAtBar(
     }
     volSma20 = sum / 20;
   }
+  const prevClose = barIndex > 0 ? candles[barIndex - 1].close : undefined;
+  const priceChangePercent =
+    prevClose !== undefined && prevClose !== 0 ? ((close - prevClose) / prevClose) * 100 : 0;
 
   // Ichimoku at bar
   const ichimokuAtBar = raw.ichimoku
@@ -185,6 +188,7 @@ export function interpretIndicatorsAtBar(
       currentVolume: currentVol,
       sma20Volume: volSma20,
       ratio: volSma20 > 0 ? currentVol / volSma20 : 1,
+      priceChangePercent,
     }),
   ];
 
@@ -208,6 +212,7 @@ export function interpretIndicatorsAtBar(
       currentVolume: currentVol,
       sma20Volume: volSma20,
       ratio: volSma20 > 0 ? currentVol / volSma20 : 1,
+      priceChangePercent,
     },
     signals: {
       trend: trendSignals,

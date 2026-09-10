@@ -266,6 +266,19 @@ describe('computeVolumeAnalysis', () => {
     const result = computeVolumeAnalysis(volumes);
     expect(result.ratio).toBeGreaterThan(1);
   });
+
+  it('computes priceChangePercent from the last two closes', () => {
+    const volumes = Array(20).fill(100);
+    const closes = [...Array(19).fill(100), 102];
+    const result = computeVolumeAnalysis(volumes, closes);
+    expect(result.priceChangePercent).toBeCloseTo(2);
+  });
+
+  it('priceChangePercent is 0 without close data', () => {
+    const volumes = Array(20).fill(100);
+    expect(computeVolumeAnalysis(volumes).priceChangePercent).toBe(0);
+    expect(computeVolumeAnalysis(volumes, [100]).priceChangePercent).toBe(0);
+  });
 });
 
 describe('computeAllIndicators', () => {

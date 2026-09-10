@@ -1,4 +1,5 @@
 import type { SignalWeights, SignalTier } from '@/types/signal';
+import type { MarketSession } from '@/lib/sessions';
 
 export type PositionSizingMethod = 'fixed_percent' | 'fixed_fractional' | 'kelly' | 'risk_based';
 
@@ -21,6 +22,7 @@ export interface BacktestConfig {
   feePercent: number;           // e.g. 0.001 = 0.1%
   weights: SignalWeights;
   startEquity: number;          // starting capital (default 10000)
+  allowedSessions?: MarketSession[]; // entry filter; undefined/empty = all sessions
 }
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
@@ -34,12 +36,13 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   allowShorts: false,
   feePercent: 0.001,
   weights: {
-    trend: 0.25,
-    momentum: 0.25,
-    volume: 0.15,
-    volatility: 0.10,
-    futures: 0.15,
-    sentiment: 0.10,
+    trend: 0.225,
+    momentum: 0.225,
+    volume: 0.135,
+    volatility: 0.09,
+    futures: 0.135,
+    sentiment: 0.09,
+    htf: 0.10,
   },
   startEquity: 10000,
 };
@@ -64,6 +67,7 @@ export interface BacktestTrade {
   exitScore: number;
   entryTier: SignalTier;
   holdTimeBars: number;
+  entrySession?: MarketSession | null; // null when the interval spans sessions
 }
 
 export interface EquityPoint {
@@ -93,6 +97,24 @@ export interface BacktestMetrics {
   totalFees: number;
   maxConsecutiveWins: number;
   maxConsecutiveLosses: number;
+  sessionBreakdown?: SessionBreakdownEntry[]; // present when trades carry sessions
+}
+
+export interface SessionBreakdownEntry {
+  session: MarketSession;
+  trades: number;
+  wins: number;
+  winRate: number; // 0-1
+  totalPnl: number;
+  avgPnlPercent: number;
+}
+
+export interface SnapshotCoverage {
+  barsWithFutures: number;
+  barsWithSentiment: number;
+  scoredBars: number;
+  futuresPercent: number; // 0-100
+  sentimentPercent: number; // 0-100
 }
 
 export interface BacktestResult {
@@ -106,6 +128,7 @@ export interface BacktestResult {
   endTime: number;
   totalBars: number;
   warmupBars: number;
+  snapshotCoverage?: SnapshotCoverage; // present when a snapshot series was supplied
 }
 
 export type BacktestProgressCallback = (progress: number, barsProcessed: number, totalBars: number) => void;

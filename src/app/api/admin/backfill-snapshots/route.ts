@@ -10,9 +10,32 @@ import {
   fetchLongShortRatio,
   fetchOpenInterestHistory,
 } from '@/lib/binance-futures';
-import { fetchFearGreedIndex } from '@/lib/sentiment-analysis';
+import { fetchFearAndGreedHistory } from '@/lib/external/fear-greed';
+import type { FundingRate } from '@/types/futures';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import { z } from 'zod';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+// A funding event settles every 8h; beyond that plus one bar it is stale
+const FUNDING_INTERVAL_MS = 8 * 60 * 60 * 1000;
+// Carry a daily Fear & Greed reading forward at most this many days over gaps
+const MAX_FEAR_GREED_CARRY_DAYS = 3;
+
+function lastFundingAtOrBefore(sorted: FundingRate[], ts: number): FundingRate | null {
+  let lo = 0;
+  let hi = sorted.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid].fundingTime <= ts) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return ans >= 0 ? sorted[ans] : null;
+}
 
 const backfillSchema = z.object({
   symbols: z.array(z.string()).min(1).max(20),
@@ -55,9 +78,30 @@ export async function POST(req: NextRequest) {
 
     let totalIngested = 0;
     let totalErrors = 0;
+    const coverage = { fundingRate: 0, longShortRatio: 0, openInterest: 0, fearGreed: 0 };
 
-    // Fetch Fear & Greed once for reference
-    const fearGreedData = await fetchFearGreedIndex();
+    // Point-in-time Fear & Greed: the index is daily, so one reading maps onto
+    // every intra-day bar of its UTC day. That daily-onto-intraday mapping is
+    // the honest best available granularity. Missing data is a gap, not a failure.
+    const fearGreedByDay = new Map<number, { index: number; label: string }>();
+    try {
+      const history = await fetchFearAndGreedHistory(months * 31);
+      for (const entry of history) {
+        const day = Math.floor(entry.timestamp / DAY_MS) * DAY_MS;
+        fearGreedByDay.set(day, { index: entry.fearGreedIndex, label: entry.label });
+      }
+    } catch (error) {
+      console.error('Failed to fetch Fear & Greed history:', error instanceof Error ? error.message : 'Unknown error');
+    }
+
+    const fearGreedAt = (ts: number): { index: number; label: string } | null => {
+      const day = Math.floor(ts / DAY_MS) * DAY_MS;
+      for (let back = 0; back <= MAX_FEAR_GREED_CARRY_DAYS; back++) {
+        const hit = fearGreedByDay.get(day - back * DAY_MS);
+        if (hit) return hit;
+      }
+      return null;
+    };
 
     for (const symbol of symbols) {
       for (const interval of intervals) {
@@ -87,13 +131,21 @@ export async function POST(req: NextRequest) {
           // Binance futures endpoints have limits on how far back we can query
           const limit = Math.min(numBars, 500); // Max 500 per request
 
-          // Fetch historical data
+          // Fetch historical data. Funding settles 8-hourly, so a ranged call
+          // covers the window (1000 events ~ 333 days); long/short history is
+          // limited by Binance to ~30 days - older bars stay gap-honest nulls.
           const [fundingRates, longShortRatios, openInterestHist] =
             await Promise.allSettled([
-              fetchFundingRate(symbol, limit),
+              fetchFundingRate(symbol, 1000, startTime),
               fetchLongShortRatio(symbol, interval, limit),
               fetchOpenInterestHistory(symbol, interval, limit),
             ]);
+
+          const fundingEvents: FundingRate[] =
+            fundingRates.status === 'fulfilled'
+              ? [...fundingRates.value].sort((a, b) => a.fundingTime - b.fundingTime)
+              : [];
+          const fundingStalenessMs = FUNDING_INTERVAL_MS + intervalMs;
 
           // Build snapshots for each timestamp
           const snapshots: Array<{
@@ -119,17 +171,14 @@ export async function POST(req: NextRequest) {
           for (const timestamp of timestamps) {
             const data: IHistoricalSnapshot['data'] = {};
 
-            // Find matching funding rate
-            if (fundingRates.status === 'fulfilled') {
-              const fr = fundingRates.value.find(
-                f => Math.abs(f.fundingTime - timestamp) < intervalMs
-              );
-              if (fr) {
-                data.fundingRate = {
-                  rate: fr.fundingRate,
-                  markPrice: fr.markPrice,
-                };
-              }
+            // Carry the last settled funding event forward, mirroring the live
+            // path (which reads the latest settled rate), capped for staleness
+            const fr = lastFundingAtOrBefore(fundingEvents, timestamp);
+            if (fr && timestamp - fr.fundingTime <= fundingStalenessMs) {
+              data.fundingRate = {
+                rate: fr.fundingRate,
+                markPrice: fr.markPrice,
+              };
             }
 
             // Find matching long/short ratio
@@ -159,13 +208,16 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Use current Fear & Greed (historical data not easily available)
-            if (fearGreedData) {
-              data.fearGreed = {
-                index: fearGreedData.value,
-                label: fearGreedData.valueClassification,
-              };
+            // Point-in-time Fear & Greed for this bar's UTC day
+            const fg = fearGreedAt(timestamp);
+            if (fg) {
+              data.fearGreed = { index: fg.index, label: fg.label };
             }
+
+            if (data.fundingRate) coverage.fundingRate++;
+            if (data.longShortRatio) coverage.longShortRatio++;
+            if (data.openInterest) coverage.openInterest++;
+            if (data.fearGreed) coverage.fearGreed++;
 
             snapshots.push({ symbol, interval, timestamp, data });
           }
@@ -189,6 +241,7 @@ export async function POST(req: NextRequest) {
       intervals: intervals.length,
       ingested: totalIngested,
       errors: totalErrors,
+      coverage,
     });
   } catch (error) {
     console.error('Backfill failed:', error instanceof Error ? error.message : 'Unknown error');

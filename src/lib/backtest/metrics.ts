@@ -1,4 +1,5 @@
-import type { BacktestTrade, EquityPoint, BacktestMetrics } from './types';
+import type { BacktestTrade, EquityPoint, BacktestMetrics, SessionBreakdownEntry } from './types';
+import { MARKET_SESSIONS } from '@/lib/sessions';
 
 export function computeMetrics(
   trades: BacktestTrade[],
@@ -64,6 +65,9 @@ export function computeMetrics(
   // Consecutive wins/losses
   const { maxConsecutiveWins, maxConsecutiveLosses } = computeStreaks(trades);
 
+  // Per-session breakdown (only when trades carry session tags)
+  const sessionBreakdown = computeSessionBreakdown(trades);
+
   return {
     totalPnl,
     totalPnlPercent,
@@ -84,7 +88,32 @@ export function computeMetrics(
     totalFees,
     maxConsecutiveWins,
     maxConsecutiveLosses,
+    ...(sessionBreakdown ? { sessionBreakdown } : {}),
   };
+}
+
+function computeSessionBreakdown(trades: BacktestTrade[]): SessionBreakdownEntry[] | null {
+  const tagged = trades.filter((t) => t.entrySession != null);
+  if (tagged.length === 0) return null;
+
+  const breakdown: SessionBreakdownEntry[] = [];
+  for (const session of MARKET_SESSIONS) {
+    const sessionTrades = tagged.filter((t) => t.entrySession === session);
+    if (sessionTrades.length === 0) continue;
+
+    const wins = sessionTrades.filter((t) => t.pnl > 0).length;
+    breakdown.push({
+      session,
+      trades: sessionTrades.length,
+      wins,
+      winRate: wins / sessionTrades.length,
+      totalPnl: sessionTrades.reduce((sum, t) => sum + t.pnl, 0),
+      avgPnlPercent:
+        sessionTrades.reduce((sum, t) => sum + t.pnlPercent, 0) / sessionTrades.length,
+    });
+  }
+
+  return breakdown;
 }
 
 function computeSharpe(equityCurve: EquityPoint[], startEquity: number): number {

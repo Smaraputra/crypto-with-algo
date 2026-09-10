@@ -10,11 +10,10 @@ import {
   fetchLongShortRatio,
   fetchOpenInterest,
 } from '@/lib/binance-futures';
-import {
-  fetchFearGreedIndex,
-  fetchCryptoNews,
-  analyzeNewsSentiment,
-} from '@/lib/sentiment-analysis';
+import { fetchFearAndGreed } from '@/lib/external/fear-greed';
+import { fetchCryptoNews } from '@/lib/external/crypto-news';
+import { analyzeNewsSentiment } from '@/lib/external/news-sentiment';
+import type { SentimentData } from '@/types/signal';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
 
 import { verifyCronSecret } from '@/lib/cron-auth';
@@ -44,8 +43,13 @@ export async function GET(req: NextRequest) {
   const symbols = await getActiveSymbols();
   const timestamp = alignTimestamp(Date.now(), interval);
 
-  // Fetch Fear & Greed once (same for all symbols)
-  const fearGreedData = await fetchFearGreedIndex();
+  // Fetch Fear & Greed once (same for all symbols); missing data is a gap, not a failure
+  let fearGreedData: SentimentData | null = null;
+  try {
+    fearGreedData = await fetchFearAndGreed();
+  } catch (error) {
+    console.error('Failed to fetch Fear & Greed index:', error instanceof Error ? error.message : 'Unknown error');
+  }
 
   const snapshots: Array<{
     symbol: string;
@@ -65,7 +69,7 @@ export async function GET(req: NextRequest) {
           fetchFundingRate(symbol, 1),
           fetchLongShortRatio(symbol, interval, 1),
           fetchOpenInterest(symbol),
-          fetchCryptoNews(symbol),
+          fetchCryptoNews(symbol.replace(/USDT$/, '')),
         ]);
 
       const data: IHistoricalSnapshot['data'] = {};
@@ -107,8 +111,8 @@ export async function GET(req: NextRequest) {
       // Fear & Greed (same for all symbols)
       if (fearGreedData) {
         data.fearGreed = {
-          index: fearGreedData.value,
-          label: fearGreedData.valueClassification,
+          index: fearGreedData.fearGreedIndex,
+          label: fearGreedData.label,
         };
       }
 

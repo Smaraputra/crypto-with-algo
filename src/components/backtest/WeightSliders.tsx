@@ -11,7 +11,7 @@ interface WeightSlidersProps {
 }
 
 const WEIGHT_KEYS: (keyof SignalWeights)[] = [
-  'trend', 'momentum', 'volume', 'volatility', 'futures', 'sentiment',
+  'trend', 'momentum', 'volume', 'volatility', 'futures', 'sentiment', 'htf',
 ];
 
 const WEIGHT_LABELS: Record<keyof SignalWeights, string> = {
@@ -21,6 +21,7 @@ const WEIGHT_LABELS: Record<keyof SignalWeights, string> = {
   volatility: 'Volatility',
   futures: 'Futures',
   sentiment: 'Sentiment',
+  htf: 'Higher TF',
 };
 
 export function WeightSliders({ weights, onChange, disabled }: WeightSlidersProps) {

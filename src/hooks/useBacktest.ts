@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef } from 'react';
 import type { OHLCV } from '@/types/market';
 import type { BacktestConfig, BacktestResult } from '@/lib/backtest/types';
+import type { SnapshotBar } from '@/lib/backtest/snapshot-series';
+import type { HtfInput } from '@/lib/backtest/optimized-engine';
 import type { WorkerRequest, WorkerResponse } from '@/lib/backtest/worker-types';
 
 export type BacktestStatus = 'idle' | 'running' | 'complete' | 'error';
@@ -14,7 +16,14 @@ export interface UseBacktestReturn {
   totalBars: number;
   result: BacktestResult | null;
   error: string | null;
-  run: (candles: OHLCV[], config: BacktestConfig, symbol: string, interval: string) => void;
+  run: (
+    candles: OHLCV[],
+    config: BacktestConfig,
+    symbol: string,
+    interval: string,
+    snapshots?: (SnapshotBar | null)[],
+    htfInput?: HtfInput
+  ) => void;
   cancel: () => void;
 }
 
@@ -39,7 +48,14 @@ export function useBacktest(): UseBacktestReturn {
   }, []);
 
   const run = useCallback(
-    (candles: OHLCV[], config: BacktestConfig, symbol: string, interval: string) => {
+    (
+      candles: OHLCV[],
+      config: BacktestConfig,
+      symbol: string,
+      interval: string,
+      snapshots?: (SnapshotBar | null)[],
+      htfInput?: HtfInput
+    ) => {
       // Terminate any existing worker
       if (workerRef.current) {
         workerRef.current.terminate();
@@ -95,6 +111,9 @@ export function useBacktest(): UseBacktestReturn {
         config,
         symbol,
         interval,
+        snapshots,
+        htfCandles: htfInput?.candles,
+        htfInterval: htfInput?.interval,
       };
       worker.postMessage(request);
     },

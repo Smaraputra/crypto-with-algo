@@ -4,8 +4,13 @@ import { CronRun, type ICronRun } from '@/lib/models/cron-run';
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { SignalTemplate } from '@/lib/models/signal-template';
 import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
+import { getHistoricalSnapshots } from '@/lib/historical-snapshots';
+import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
+import { getConfirmationInterval } from '@/lib/signals/htf';
+import { intervalToMs } from '@/lib/intervals';
+import type { OHLCV } from '@/types/market';
 import { runWalkForward } from './walk-forward';
-import { createTemplateVersion } from './template-versioning';
+import { createTemplateVersion, markResultsAsContributors } from './template-versioning';
 import { shouldAutoActivate, executeAutoActivation } from './auto-activation';
 import { getIntervalForStyle } from './top-symbols';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
@@ -119,12 +124,45 @@ export async function runMonthlyOptimization(
         }
       );
 
+      // Point-in-time futures/sentiment for the same range (8h margin covers
+      // the funding cadence); zero snapshots degrades to null-scored categories
+      let snapshots: LeanSnapshot[] = [];
+      try {
+        snapshots = await getHistoricalSnapshots(
+          symbol,
+          mapToSnapshotInterval(interval),
+          startTime - 8 * 60 * 60 * 1000,
+          endTime
+        );
+      } catch (error) {
+        console.error(`Failed to fetch snapshots for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
+      }
+
+      // Confirmation-timeframe candles for MTF confluence (250-bar warmup margin)
+      let htfCandles: OHLCV[] = [];
+      const htfInterval = getConfirmationInterval(interval, tradingStyle);
+      if (htfInterval) {
+        try {
+          const htfStart = startTime - 250 * intervalToMs(htfInterval);
+          const htfRange = await getCandleRange(symbol, htfInterval);
+          if (!htfRange.oldest || htfRange.oldest > htfStart) {
+            await backfillCandles(symbol, htfInterval, months + 2);
+          }
+          htfCandles = await getCandles(symbol, htfInterval, htfStart, endTime, 50000);
+        } catch (error) {
+          console.error(`Failed to fetch HTF candles for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
+        }
+      }
+
       // Run walk-forward optimization
       const result = await runWalkForward({
         candles,
         symbol,
         interval,
         tradingStyle,
+        snapshots,
+        htfCandles,
+        htfInterval: htfInterval ?? undefined,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
         testWindowBars: DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
         stepSizeBars: DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars,
@@ -155,6 +193,11 @@ export async function runMonthlyOptimization(
           avgWinRate: result.ensembleResults.reduce((sum, r) => sum + ((r.metrics as { winRate: number }).winRate || 0), 0) / result.ensembleResults.length,
           totalBacktests: result.windows.length,
         }
+      );
+
+      // Mark out-of-sample contributors so provenance is queryable
+      await markResultsAsContributors(
+        result.ensembleResults.map((r) => r._id as mongoose.Types.ObjectId)
       );
 
       // Update OptimizationJob with results

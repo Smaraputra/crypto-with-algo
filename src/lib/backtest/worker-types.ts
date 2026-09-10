@@ -1,5 +1,6 @@
 import type { OHLCV } from '@/types/market';
 import type { BacktestConfig, BacktestResult } from './types';
+import type { SnapshotBar } from './snapshot-series';
 
 export interface WorkerRequest {
   type: 'run';
@@ -7,6 +8,9 @@ export interface WorkerRequest {
   config: BacktestConfig;
   symbol: string;
   interval: string;
+  snapshots?: (SnapshotBar | null)[]; // compact per-bar futures/sentiment series
+  htfCandles?: OHLCV[]; // confirmation-timeframe candles (with warmup margin)
+  htfInterval?: string;
 }
 
 export type WorkerResponse =

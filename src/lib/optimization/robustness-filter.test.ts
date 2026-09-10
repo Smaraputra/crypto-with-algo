@@ -7,6 +7,7 @@ describe('robustness-filter', () => {
     sharpeRatio?: number;
     winRate?: number;
     maxDrawdown?: number;
+    maxDrawdownPercent?: number;
     totalTrades?: number;
   }): IBacktestResultV2 => {
     const metrics: Record<string, number | undefined> = {};
@@ -24,10 +25,17 @@ describe('robustness-filter', () => {
       metrics.winRate = 0.5;
     }
 
+    // maxDrawdown is an absolute currency amount, maxDrawdownPercent is 0-100
     if ('maxDrawdown' in overrides) {
       metrics.maxDrawdown = overrides.maxDrawdown;
     } else {
-      metrics.maxDrawdown = -0.2;
+      metrics.maxDrawdown = 2000;
+    }
+
+    if ('maxDrawdownPercent' in overrides) {
+      metrics.maxDrawdownPercent = overrides.maxDrawdownPercent;
+    } else {
+      metrics.maxDrawdownPercent = 20;
     }
 
     return {
@@ -47,7 +55,22 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: 1.0,
         winRate: 0.5,
-        maxDrawdown: -0.2,
+        maxDrawdownPercent: 20,
+        totalTrades: 20,
+      });
+
+      expect(isRobust(result)).toBe(true);
+    });
+
+    it('passes result with large absolute drawdown but small percent drawdown', () => {
+      // Regression: metrics.maxDrawdown is an absolute currency amount (e.g. $850
+      // on $10000 equity). The filter must compare maxDrawdownPercent/100 against
+      // config.maxDrawdown (a fraction), not the absolute amount.
+      const result = createMockResult({
+        sharpeRatio: 1.0,
+        winRate: 0.5,
+        maxDrawdown: 850,
+        maxDrawdownPercent: 8.5,
         totalTrades: 20,
       });
 
@@ -58,7 +81,7 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: 0.3, // Below 0.5 threshold
         winRate: 0.5,
-        maxDrawdown: -0.2,
+        maxDrawdownPercent: 20,
         totalTrades: 20,
       });
 
@@ -69,7 +92,7 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: 1.0,
         winRate: 0.3, // Below 0.4 threshold
-        maxDrawdown: -0.2,
+        maxDrawdownPercent: 20,
         totalTrades: 20,
       });
 
@@ -80,7 +103,18 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: 1.0,
         winRate: 0.5,
-        maxDrawdown: -0.4, // Worse than -0.3 threshold
+        maxDrawdownPercent: 40, // Worse than 30% threshold
+        totalTrades: 20,
+      });
+
+      expect(isRobust(result)).toBe(false);
+    });
+
+    it('rejects missing maxDrawdownPercent', () => {
+      const result = createMockResult({
+        sharpeRatio: 1.0,
+        winRate: 0.5,
+        maxDrawdownPercent: undefined,
         totalTrades: 20,
       });
 
@@ -91,7 +125,7 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: 1.0,
         winRate: 0.5,
-        maxDrawdown: -0.2,
+        maxDrawdownPercent: 20,
         totalTrades: 5, // Below 10 threshold
       });
 
@@ -102,16 +136,10 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: undefined,
         winRate: 0.5,
-        maxDrawdown: -0.2,
+        maxDrawdownPercent: 20,
         totalTrades: 20,
       });
 
-      // undefined sharpe becomes -Infinity, which IS less than minSharpe,
-      // so it's treated as very bad and FAILS robustness
-      // Wait, -Infinity < 0.5 is TRUE, so it should pass this check
-      // But -Infinity is a bad value logically. Let me check...
-      // Actually -Infinity < 0.5 returns true, so the sharpe check passes
-      // But we want undefined to fail. Need to fix the implementation.
       expect(isRobust(result)).toBe(false);
     });
 
@@ -119,7 +147,7 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: 0.3,
         winRate: 0.5,
-        maxDrawdown: -0.2,
+        maxDrawdownPercent: 20,
         totalTrades: 20,
       });
 
@@ -186,7 +214,7 @@ describe('robustness-filter', () => {
       const result = createMockResult({
         sharpeRatio: 1.0,
         winRate: 0.5,
-        maxDrawdown: -0.2,
+        maxDrawdownPercent: 20,
         totalTrades: 20,
       });
 
@@ -199,14 +227,14 @@ describe('robustness-filter', () => {
       const good = createMockResult({
         sharpeRatio: 2.0,
         winRate: 0.7,
-        maxDrawdown: -0.1,
+        maxDrawdownPercent: 10,
         totalTrades: 50,
       });
 
       const okay = createMockResult({
         sharpeRatio: 0.8,
         winRate: 0.45,
-        maxDrawdown: -0.25,
+        maxDrawdownPercent: 25,
         totalTrades: 15,
       });
 
@@ -217,7 +245,7 @@ describe('robustness-filter', () => {
       const excellent = createMockResult({
         sharpeRatio: 10.0, // Very high
         winRate: 1.0, // Perfect
-        maxDrawdown: -0.01, // Minimal
+        maxDrawdownPercent: 1, // Minimal
         totalTrades: 100, // Many trades
       });
 

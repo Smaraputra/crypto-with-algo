@@ -258,19 +258,35 @@ export function interpretMFI(mfi: number): IndicatorSignal {
 }
 
 export function interpretVolume(va: RawIndicators['volumeAnalysis']): IndicatorSignal {
-  const { ratio } = va;
+  const { ratio, priceChangePercent } = va;
 
-  if (ratio > 2.0) {
-    return signal('Volume', ratio, 'neutral', 90, `Volume ${ratio.toFixed(1)}x above average (high activity)`);
+  // High volume confirms the bar's direction; without a clear price move it
+  // stays neutral. Low volume is a low-conviction tape.
+  if (ratio > 1.5 && priceChangePercent > 0.1) {
+    const strength = Math.min(90, 40 + (ratio - 1.5) * 40);
+    return signal(
+      'Volume',
+      ratio,
+      'bullish',
+      strength,
+      `Volume ${ratio.toFixed(1)}x above average confirming up move`
+    );
   }
-  if (ratio > 1.5) {
-    return signal('Volume', ratio, 'neutral', 60, `Volume ${ratio.toFixed(1)}x above average`);
+  if (ratio > 1.5 && priceChangePercent < -0.1) {
+    const strength = Math.min(90, 40 + (ratio - 1.5) * 40);
+    return signal(
+      'Volume',
+      ratio,
+      'bearish',
+      strength,
+      `Volume ${ratio.toFixed(1)}x above average confirming down move`
+    );
   }
   if (ratio < 0.5) {
-    return signal('Volume', ratio, 'neutral', 40, `Volume ${ratio.toFixed(1)}x below average (low activity)`);
+    return signal('Volume', ratio, 'neutral', 20, `Volume ${ratio.toFixed(1)}x below average (low conviction)`);
   }
 
-  return signal('Volume', ratio, 'neutral', 20, `Volume at ${ratio.toFixed(1)}x average`);
+  return signal('Volume', ratio, 'neutral', 10, `Volume at ${ratio.toFixed(1)}x average`);
 }
 
 // Main interpretation function

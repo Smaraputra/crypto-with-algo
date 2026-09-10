@@ -10,6 +10,10 @@ import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
+import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
+import { intervalToMs } from '@/lib/intervals';
+import { computeHtfSeries, getConfirmationInterval, htfContextAtBar } from '@/lib/signals/htf';
+import type { HtfContext } from '@/types/signal';
 import { cachedFetch } from '@/lib/redis';
 import type { FuturesData } from '@/types/futures';
 import type { SentimentData, SignalWeights } from '@/types/signal';
@@ -105,7 +109,10 @@ async function getWeightsForStyle(tradingStyle: TradingStyle): Promise<SignalWei
     }).lean();
 
     if (template) {
-      return template.weights as SignalWeights;
+      // Templates created before the htf category lack the key; frozen at 0
+      // until the next optimization run regenerates them
+      const weights = template.weights as SignalWeights;
+      return { ...weights, htf: weights.htf ?? 0 };
     }
   } catch {
     // Fall back to defaults
@@ -234,12 +241,48 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       const indicators = computeIndicatorsForStyle(candles, symbol, interval, tradingStyle);
       const superTrend = computeSuperTrend(candles);
 
+      // Higher-timeframe confluence from the last CLOSED confirmation bar.
+      // An in-progress HTF candle must not leak its close; missing HTF data
+      // degrades via weight redistribution, same as futures/sentiment.
+      let htfContext: HtfContext | null = null;
+      const htfInterval = getConfirmationInterval(interval, tradingStyle);
+      if (htfInterval) {
+        try {
+          const htfKey = `${symbol}:${htfInterval}`;
+          let htfCandles = candleCache.get(htfKey);
+          if (!htfCandles) {
+            htfCandles = await fetchCandlesForTask(symbol, htfInterval, profile.recommendedCandles);
+            candleCache.set(htfKey, htfCandles);
+          }
+          const htfMs = intervalToMs(htfInterval);
+          const closed = htfCandles.filter((c) => c.timestamp + htfMs <= Date.now());
+          if (closed.length > 0) {
+            const series = computeHtfSeries(closed, profile.config);
+            htfContext = htfContextAtBar(series, closed.length - 1, htfInterval);
+          }
+        } catch {
+          // HTF data is optional
+        }
+      }
+
       // Score the signal using template weights
       const weights = weightsMap.get(tradingStyle)!;
-      const signal = computeSignalScore(indicators, futuresData, sentimentData, weights, superTrend);
+      const signal = computeSignalScore(
+        indicators,
+        futuresData,
+        sentimentData,
+        weights,
+        superTrend,
+        htfContext
+      );
 
       // Build GlobalSignal document
       const expiresAt = new Date(Date.now() + profile.signalTTLSeconds * 1000);
+
+      // Session at decision time (candle close); null on multi-session intervals
+      const session = isSessionMeaningful(interval)
+        ? sessionOfCandleClose(latestCandleTs, intervalToMs(interval))
+        : null;
 
       signalDocs.push({
         symbol: signal.symbol,
@@ -249,8 +292,16 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
-        configVersion: 1,
+        configVersion: 2, // v2: htf category + session + htfContext
         candleTimestamp: latestCandleTs,
+        session,
+        htfContext: htfContext
+          ? {
+              interval: htfContext.interval,
+              trendDirection: htfContext.trendDirection,
+              candleTimestamp: htfContext.candleTimestamp,
+            }
+          : null,
         expiresAt,
         createdAt: new Date(),
       });

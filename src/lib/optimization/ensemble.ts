@@ -2,7 +2,7 @@ import type { IBacktestResultV2 } from '@/lib/models/backtest-result-v2';
 import type { SignalWeights } from '@/types/signal';
 import { averageWeights } from './weight-generator';
 
-export type PerformanceMetric = 'sharpeRatio' | 'sortino' | 'calmar';
+export type PerformanceMetric = 'sharpeRatio' | 'sortinoRatio' | 'calmarRatio';
 
 /**
  * Select top N results by metric
@@ -74,7 +74,7 @@ export function createEnsemble(
 
   const avgSortino =
     topPerformers.reduce(
-      (acc, r) => acc + ((r.metrics as Record<string, number>).sortino ?? 0),
+      (acc, r) => acc + ((r.metrics as Record<string, number>).sortinoRatio ?? 0),
       0
     ) / topPerformers.length;
 

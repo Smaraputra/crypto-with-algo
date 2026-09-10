@@ -30,10 +30,10 @@ describe('WeightSliders', () => {
     expect(screen.getByText('Sentiment')).toBeInTheDocument();
   });
 
-  it('renders 6 sliders', () => {
+  it('renders 7 sliders', () => {
     render(<WeightSliders {...defaultProps} />);
     const sliders = screen.getAllByRole('slider');
-    expect(sliders).toHaveLength(6);
+    expect(sliders).toHaveLength(7);
   });
 
   it('shows total as 100% with default weights', () => {

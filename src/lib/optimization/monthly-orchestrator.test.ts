@@ -45,8 +45,15 @@ vi.mock('./walk-forward', () => ({
   runWalkForward: (...args: unknown[]) => mockRunWalkForward(...args),
 }));
 
+vi.mock('@/lib/historical-snapshots', () => ({
+  getHistoricalSnapshots: vi.fn().mockResolvedValue([
+    { timestamp: 1700000000000, data: { fearGreed: { index: 40, label: 'Fear' } } },
+  ]),
+}));
+
 vi.mock('./template-versioning', () => ({
   createTemplateVersion: (...args: unknown[]) => mockCreateTemplateVersion(...args),
+  markResultsAsContributors: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('./auto-activation', () => ({
@@ -156,6 +163,24 @@ describe('monthly-orchestrator', () => {
     expect(mockRunWalkForward).toHaveBeenCalledTimes(4);
     // Template created for each style
     expect(mockCreateTemplateVersion).toHaveBeenCalledTimes(4);
+    // Point-in-time snapshots are threaded through to walk-forward
+    expect(mockRunWalkForward).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshots: [
+          { timestamp: 1700000000000, data: { fearGreed: { index: 40, label: 'Fear' } } },
+        ],
+      })
+    );
+    // Confirmation-timeframe candles threaded through for intraday styles
+    const scalpingCall = mockRunWalkForward.mock.calls.find(
+      (call) => (call[0] as { tradingStyle: string }).tradingStyle === 'scalping'
+    );
+    expect((scalpingCall![0] as { htfInterval?: string }).htfInterval).toBe('1h');
+    // position_trading (1d) has no confirmation timeframe
+    const positionCall = mockRunWalkForward.mock.calls.find(
+      (call) => (call[0] as { tradingStyle: string }).tradingStyle === 'position_trading'
+    );
+    expect((positionCall![0] as { htfInterval?: string }).htfInterval).toBeUndefined();
   });
 
   it('records error and continues when one style has insufficient data', async () => {
@@ -210,8 +235,9 @@ describe('monthly-orchestrator', () => {
       autoActivate: false,
     });
 
-    // Backfill called for every style since range is stale
-    expect(mockBackfillCandles).toHaveBeenCalledTimes(4);
+    // Backfill for every style's main interval (4) plus the HTF interval of
+    // the three intraday styles (position_trading has no confirmation TF)
+    expect(mockBackfillCandles).toHaveBeenCalledTimes(7);
   });
 
   it('triggers backfill when range.newest is null (BUG-1 regression)', async () => {
@@ -238,7 +264,8 @@ describe('monthly-orchestrator', () => {
     });
 
     expect(result.completedJobs).toBe(4);
-    expect(mockBackfillCandles).toHaveBeenCalledTimes(4);
+    // 4 main-interval backfills plus 3 HTF backfills (no confirmation TF for 1d)
+    expect(mockBackfillCandles).toHaveBeenCalledTimes(7);
   });
 
   it('records error when candle result is empty', async () => {

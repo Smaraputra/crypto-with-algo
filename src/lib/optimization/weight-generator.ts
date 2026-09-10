@@ -33,6 +33,7 @@ export function generateConstrainedWeights(
     'volatility',
     'futures',
     'sentiment',
+    'htf',
   ];
 
   // Generate constrained random values
@@ -53,6 +54,7 @@ export function generateConstrainedWeights(
     volatility: (raw.volatility ?? 0) / sum,
     futures: (raw.futures ?? 0) / sum,
     sentiment: (raw.sentiment ?? 0) / sum,
+    htf: (raw.htf ?? 0) / sum,
   };
 
   return normalized;
@@ -99,11 +101,13 @@ export function averageWeights(weightSets: SignalWeights[]): SignalWeights {
     'volatility',
     'futures',
     'sentiment',
+    'htf',
   ];
 
   const sums: Partial<SignalWeights> = {};
   for (const cat of categories) {
-    sums[cat] = weightSets.reduce((acc, w) => acc + w[cat], 0);
+    // Legacy weight sets may lack htf; treat missing as 0
+    sums[cat] = weightSets.reduce((acc, w) => acc + (w[cat] ?? 0), 0);
   }
 
   const count = weightSets.length;
@@ -114,6 +118,7 @@ export function averageWeights(weightSets: SignalWeights[]): SignalWeights {
     volatility: (sums.volatility ?? 0) / count,
     futures: (sums.futures ?? 0) / count,
     sentiment: (sums.sentiment ?? 0) / count,
+    htf: (sums.htf ?? 0) / count,
   };
 }
 
@@ -127,7 +132,8 @@ export function validateWeights(weights: SignalWeights): boolean {
     weights.volume +
     weights.volatility +
     weights.futures +
-    weights.sentiment;
+    weights.sentiment +
+    (weights.htf ?? 0);
 
   const tolerance = 1e-10;
   return Math.abs(sum - 1.0) < tolerance && Object.values(weights).every((w) => w >= 0);

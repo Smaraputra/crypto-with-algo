@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+
+const mockRun = vi.fn();
 
 vi.mock('@/hooks/useStrategies', () => ({
   useStrategies: vi.fn(() => ({ data: undefined, isLoading: false })),
@@ -16,7 +18,7 @@ vi.mock('@/hooks/useBacktest', () => ({
     totalBars: 0,
     result: null,
     error: null,
-    run: vi.fn(),
+    run: mockRun,
     cancel: vi.fn(),
   })),
 }));
@@ -72,6 +74,10 @@ vi.mock('@/components/backtest/WeightSliders', () => ({
 import BacktestPage from './page';
 
 describe('BacktestPage', () => {
+  beforeEach(() => {
+    mockRun.mockClear();
+  });
+
   it('renders page heading', () => {
     render(<BacktestPage />);
     expect(screen.getByText('Backtest')).toBeInTheDocument();
@@ -87,6 +93,29 @@ describe('BacktestPage', () => {
     expect(screen.getByText('Configure')).toBeInTheDocument();
     expect(screen.getByText('Results')).toBeInTheDocument();
     expect(screen.getByText('History')).toBeInTheDocument();
+  });
+
+  it('runs the backtest without snapshots when the snapshot fetch fails', async () => {
+    const candles = Array.from({ length: 250 }, (_, i) => ({
+      timestamp: 1700000000000 + i * 3600000,
+      open: 100, high: 101, low: 99, close: 100, volume: 1000,
+    }));
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('/api/candles')) {
+        return Promise.resolve({ ok: true, json: async () => ({ candles }) });
+      }
+      // snapshot endpoint fails
+      return Promise.resolve({ ok: false, status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<BacktestPage />);
+    fireEvent.click(screen.getByText('Run Backtest'));
+
+    await waitFor(() => expect(mockRun).toHaveBeenCalled());
+    // snapshots argument stays undefined on fetch failure
+    expect(mockRun.mock.calls[0][4]).toBeUndefined();
+    vi.unstubAllGlobals();
   });
 
   it('renders Run Backtest button', () => {

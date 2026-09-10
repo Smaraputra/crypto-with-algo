@@ -7,6 +7,7 @@ import { PerformanceBySetup } from './PerformanceBySetup';
 import { MonthlyPnL } from './MonthlyPnL';
 import { SignalAccuracy } from './SignalAccuracy';
 import { TradingPatterns } from './TradingPatterns';
+import { TimingAnalytics } from './TimingAnalytics';
 
 export function AnalyticsView() {
   const { data, isLoading, isError } = useJournalAnalytics();
@@ -70,6 +71,15 @@ export function AnalyticsView() {
       <div className="rounded-lg border border-border p-4">
         <h3 className="text-sm font-semibold mb-3">Performance by Setup</h3>
         <PerformanceBySetup data={data.bySetupType} />
+      </div>
+
+      <div className="rounded-lg border border-border p-4">
+        <h3 className="text-sm font-semibold mb-3">Timing</h3>
+        <TimingAnalytics
+          bySession={data.bySession ?? []}
+          byHour={data.byHour ?? []}
+          byWeekday={data.byWeekday ?? []}
+        />
       </div>
     </div>
   );
