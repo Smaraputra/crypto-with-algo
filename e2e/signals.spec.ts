@@ -181,13 +181,16 @@ test.describe('Signals page (authenticated)', () => {
 
     // Binance REST returns 403 from US IPs. Accept any of: gauge renders,
     // computation error, or no-signal state. This is intentional -- not a weak assertion.
-    const gauge = page.locator('svg').first();
-    const computeError = page.getByText(/Failed to compute|error/i);
-    const noSignal = page.getByText(/No signal computed/);
+    //
+    // Each branch must be a selector unique to that state. `locator('svg')` also
+    // matched sidebar nav icons, so under full-suite load two branches resolved
+    // at once and Playwright raised a strict mode violation.
+    const outcome = page
+      .getByTestId('signal-gauge')
+      .or(page.getByText(/Failed to compute/i))
+      .or(page.getByText(/No signal computed/));
 
-    await expect(
-      gauge.or(computeError).or(noSignal)
-    ).toBeVisible({ timeout: 30000 });
+    await expect(outcome.first()).toBeVisible({ timeout: 30000 });
   });
 
   test('clicking multi-style card switches active tab', async ({ page }) => {
