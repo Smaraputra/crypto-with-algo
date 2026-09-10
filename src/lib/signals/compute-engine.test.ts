@@ -9,6 +9,7 @@ const mockFetchLongShortRatio = vi.fn();
 const mockFetchFearAndGreed = vi.fn();
 const mockConnectDB = vi.fn();
 const mockInsertMany = vi.fn();
+const mockSnapshotAggregate = vi.fn();
 const mockCreate = vi.fn();
 const mockFindOne = vi.fn();
 
@@ -80,6 +81,12 @@ function generateCandles(count: number, startPrice = 40000): OHLCV[] {
   return candles;
 }
 
+vi.mock('@/lib/models/historical-snapshot', () => ({
+  HistoricalSnapshot: {
+    aggregate: (...args: unknown[]) => mockSnapshotAggregate(...args),
+  },
+}));
+
 describe('compute-engine', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -88,6 +95,7 @@ describe('compute-engine', () => {
     mockFetchLongShortRatio.mockResolvedValue([]);
     mockFindOne.mockResolvedValue(null);
     mockInsertMany.mockResolvedValue([]);
+    mockSnapshotAggregate.mockResolvedValue([]);
   });
 
   describe('computeSignalBatch', () => {
@@ -162,6 +170,31 @@ describe('compute-engine', () => {
         (c: { category: string }) => c.category === 'htf'
       );
       expect(htfComponent.signals).toHaveLength(0);
+    });
+
+    it('attaches stored news sentiment to the signal', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockResolvedValue(candles);
+      mockFetchKlines.mockResolvedValue(candles);
+      mockFetchFearAndGreed.mockResolvedValue({ fearGreedIndex: 50, label: 'Neutral' });
+      mockSnapshotAggregate.mockResolvedValue([
+        { _id: 'BTCUSDT', newsSentiment: { count: 6, avgSentiment: 0.4, topics: ['defi'] } },
+      ]);
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+      ]);
+
+      const insertedDocs = mockInsertMany.mock.calls[0][0];
+      const sentimentComponent = insertedDocs[0].components.find(
+        (c: { category: string }) => c.category === 'sentiment'
+      );
+      const newsSignal = sentimentComponent.signals.find(
+        (sig: { name: string }) => sig.name === 'News'
+      );
+      expect(newsSignal).toBeDefined();
+      expect(newsSignal.direction).toBe('bullish');
     });
 
     it('records null session for multi-session intervals', async () => {

@@ -13,7 +13,53 @@ import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
 import { computeHtfSeries, getConfirmationInterval, htfContextAtBar } from '@/lib/signals/htf';
+import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import type { HtfContext } from '@/types/signal';
+
+const NEWS_STALENESS_MS = 2 * 60 * 60 * 1000; // snapshots ingest every 15m; 2h covers outages
+
+/**
+ * Latest stored news sentiment per symbol (ingested by the snapshot cron), so
+ * signal computation never calls the news API directly at compute cadence.
+ */
+async function fetchNewsSentimentMap(
+  symbols: string[]
+): Promise<Map<string, { count: number; avgSentiment: number }>> {
+  const map = new Map<string, { count: number; avgSentiment: number }>();
+  if (symbols.length === 0) return map;
+
+  try {
+    const docs = await HistoricalSnapshot.aggregate([
+      {
+        $match: {
+          symbol: { $in: symbols },
+          interval: '1h',
+          timestamp: { $gte: Date.now() - NEWS_STALENESS_MS },
+          'data.newsSentiment': { $ne: null },
+        },
+      },
+      { $sort: { timestamp: -1 } },
+      {
+        $group: {
+          _id: '$symbol',
+          newsSentiment: { $first: '$data.newsSentiment' },
+        },
+      },
+    ]);
+    for (const doc of docs) {
+      if (doc.newsSentiment) {
+        map.set(doc._id, {
+          count: doc.newsSentiment.count,
+          avgSentiment: doc.newsSentiment.avgSentiment,
+        });
+      }
+    }
+  } catch {
+    // News sentiment is optional
+  }
+
+  return map;
+}
 import { cachedFetch } from '@/lib/redis';
 import type { FuturesData } from '@/types/futures';
 import type { SentimentData, SignalWeights } from '@/types/signal';
@@ -136,8 +182,10 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
 
   const result: ComputeResult = { computed: 0, errors: 0, skipped: 0, details: [] };
 
-  // Fetch sentiment once for all tasks
+  // Fetch sentiment once for all tasks; news sentiment per symbol from the
+  // latest stored snapshot
   const sentimentData: SentimentData | null = await fetchFearAndGreed().catch(() => null);
+  const newsMap = await fetchNewsSentimentMap([...new Set(tasks.map((t) => t.symbol))]);
 
   // Deduplicate candle fetches by (symbol, interval)
   const candleCache = new Map<string, OHLCV[]>();
@@ -265,12 +313,16 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         }
       }
 
-      // Score the signal using template weights
+      // Score the signal using template weights; per-symbol news rides on
+      // the shared Fear & Greed read
       const weights = weightsMap.get(tradingStyle)!;
+      const taskSentiment: SentimentData | null = sentimentData
+        ? { ...sentimentData, news: newsMap.get(symbol) ?? null }
+        : null;
       const signal = computeSignalScore(
         indicators,
         futuresData,
-        sentimentData,
+        taskSentiment,
         weights,
         superTrend,
         htfContext

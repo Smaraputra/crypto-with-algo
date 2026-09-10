@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { OHLCV } from '@/types/market';
 
 import { computeAllIndicators } from './compute';
-import { interpretIndicators, interpretVolume } from './interpret';
+import { interpretIndicators, interpretVolume, interpretTakerFlow } from './interpret';
 
 // Generate realistic OHLCV data
 function generateCandles(count: number, startPrice = 40000, trend: 'up' | 'down' | 'sideways' = 'up'): OHLCV[] {
@@ -239,5 +239,43 @@ describe('interpretVolume', () => {
 
     expect(result.direction).toBe('neutral');
     expect(result.strength).toBe(10);
+  });
+});
+
+describe('interpretTakerFlow', () => {
+  const makeVa = (takerBuyRatio?: number) => ({
+    currentVolume: 100,
+    sma20Volume: 100,
+    ratio: 1,
+    priceChangePercent: 0,
+    ...(takerBuyRatio !== undefined ? { takerBuyRatio } : {}),
+  });
+
+  it('is bullish when takers are lifting the offer', () => {
+    const result = interpretTakerFlow(makeVa(0.6));
+    expect(result).not.toBeNull();
+    expect(result!.direction).toBe('bullish');
+    expect(result!.strength).toBe(80); // (0.6 - 0.5) * 800
+  });
+
+  it('is bearish when takers are hitting the bid', () => {
+    const result = interpretTakerFlow(makeVa(0.4));
+    expect(result!.direction).toBe('bearish');
+    expect(result!.strength).toBe(80);
+  });
+
+  it('caps strength at 85', () => {
+    expect(interpretTakerFlow(makeVa(0.95))!.strength).toBe(85);
+    expect(interpretTakerFlow(makeVa(0.05))!.strength).toBe(85);
+  });
+
+  it('returns null in the indifferent band', () => {
+    expect(interpretTakerFlow(makeVa(0.5))).toBeNull();
+    expect(interpretTakerFlow(makeVa(0.54))).toBeNull();
+    expect(interpretTakerFlow(makeVa(0.46))).toBeNull();
+  });
+
+  it('returns null when taker data is absent', () => {
+    expect(interpretTakerFlow(makeVa())).toBeNull();
   });
 });

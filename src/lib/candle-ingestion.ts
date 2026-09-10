@@ -174,6 +174,7 @@ export async function getCandles(
     low: d.low,
     close: d.close,
     volume: d.volume,
+    ...(d.takerBuyVolume !== undefined ? { takerBuyVolume: d.takerBuyVolume } : {}),
   }));
 }
 
@@ -228,6 +229,9 @@ async function bulkUpsertCandles(
       close: c.close,
       volume: c.volume,
     };
+    if (c.takerBuyVolume !== undefined && !Number.isNaN(c.takerBuyVolume)) {
+      setFields.takerBuyVolume = c.takerBuyVolume;
+    }
     if (expiresAt) {
       setFields.expiresAt = expiresAt;
     }

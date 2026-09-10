@@ -99,6 +99,20 @@ describe('candle-ingestion', () => {
   });
 
   describe('getCandles', () => {
+    it('round-trips takerBuyVolume and omits it when absent', async () => {
+      const { getCandles, Candle } = await importModules();
+
+      await Candle.insertMany([
+        { ...makeCandle(1000), symbol: 'BTCUSDT', interval: '1h', takerBuyVolume: 62.5 },
+        { ...makeCandle(2000), symbol: 'BTCUSDT', interval: '1h' }, // legacy candle
+      ]);
+
+      const candles = await getCandles('BTCUSDT', '1h');
+
+      expect(candles[0].takerBuyVolume).toBe(62.5);
+      expect(candles[1].takerBuyVolume).toBeUndefined();
+    });
+
     it('returns candles in ascending order', async () => {
       const { getCandles, Candle } = await importModules();
 

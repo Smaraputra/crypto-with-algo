@@ -57,8 +57,16 @@ export function snapshotToScorerInputs(
       ? { fundingRate, openInterest: null, longShortRatio }
       : null;
 
+  // News rides along only when Fear & Greed is present (F&G anchors the
+  // SentimentData shape and is nearly always available)
   const sentiment: SentimentData | null = data.fearGreed
-    ? { fearGreedIndex: data.fearGreed.index, label: data.fearGreed.label }
+    ? {
+        fearGreedIndex: data.fearGreed.index,
+        label: data.fearGreed.label,
+        news: data.newsSentiment
+          ? { count: data.newsSentiment.count, avgSentiment: data.newsSentiment.avgSentiment }
+          : null,
+      }
     : null;
 
   return { futures, sentiment };

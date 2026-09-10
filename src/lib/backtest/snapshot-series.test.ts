@@ -62,7 +62,24 @@ describe('snapshotToScorerInputs', () => {
         timestamp: BASE,
       },
     });
-    expect(sentiment).toEqual({ fearGreedIndex: 30, label: 'Fear' });
+    expect(sentiment).toEqual({ fearGreedIndex: 30, label: 'Fear', news: null });
+  });
+
+  it('passes stored news sentiment through with Fear & Greed', () => {
+    const { sentiment } = snapshotToScorerInputs(
+      {
+        fearGreed: { index: 55, label: 'Greed' },
+        newsSentiment: { count: 7, avgSentiment: -0.25, topics: ['regulation'] },
+      },
+      'BTCUSDT',
+      BASE
+    );
+
+    expect(sentiment).toEqual({
+      fearGreedIndex: 55,
+      label: 'Greed',
+      news: { count: 7, avgSentiment: -0.25 },
+    });
   });
 
   it('produces partial futures when only funding exists', () => {
@@ -98,7 +115,7 @@ describe('buildSnapshotSeries', () => {
     expect(bars).toHaveLength(3);
     for (const bar of bars) {
       expect(bar).not.toBeNull();
-      expect(bar!.sentiment).toEqual({ fearGreedIndex: 30, label: 'Fear' });
+      expect(bar!.sentiment).toEqual({ fearGreedIndex: 30, label: 'Fear', news: null });
     }
   });
 

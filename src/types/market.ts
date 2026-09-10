@@ -5,6 +5,7 @@ export interface OHLCV {
   low: number;
   close: number;
   volume: number;
+  takerBuyVolume?: number; // aggressive-buy share of volume; absent on legacy stored candles
 }
 
 export interface Symbol {

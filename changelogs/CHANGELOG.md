@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (order flow and news sentiment)
+- Taker buy volume parsed from Binance klines (index 9) and stored on candles; legacy stored candles lack it until re-synced or backfilled (upserts refresh in place)
+- Taker Flow signal in the volume category: taker buy share of volume above 0.55 reads bullish (aggressive buying), below 0.45 bearish, silent in the indifferent band and on candles without the data. Present in live signals and both backtest engines with no-lookahead and parity coverage
+- Keyword news sentiment as a News signal in the sentiment category (directional, minimum 3 articles and a clear tilt), riding alongside the contrarian Fear & Greed read. Live signals read the latest stored snapshot per symbol (no news API calls at compute cadence, 2 hour staleness cap); backtests receive it through the existing point-in-time snapshot series
+- Both inputs fold into existing weight categories, so the walk-forward optimizer covers them without any weight-schema changes
+
 ### Added (multi-timeframe and sessions)
 - Higher-timeframe confluence as a seventh signal category (`htf`): a compact trend assessment (EMA cross, price vs SMAs, SuperTrend) of the confirmation timeframe (1m to 15m, 5m to 1h, 15m/1h to 4h, 4h to 1d), computed from the last closed HTF bar only. Live signals, both backtest engines, and walk-forward optimization all consume it; the weight is optimizer-searchable per style
 - Default weights rescaled so an empty htf component reproduces pre-htf scores exactly via weight redistribution (invariance covered by test); pre-htf template docs read back with htf 0

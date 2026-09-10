@@ -14,6 +14,7 @@ import {
   interpretOBV,
   interpretMFI,
   interpretVolume,
+  interpretTakerFlow,
 } from './interpret';
 
 /**
@@ -144,6 +145,11 @@ export function interpretIndicatorsAtBar(
   const prevClose = barIndex > 0 ? candles[barIndex - 1].close : undefined;
   const priceChangePercent =
     prevClose !== undefined && prevClose !== 0 ? ((close - prevClose) / prevClose) * 100 : 0;
+  const barTakerBuy = candles[barIndex].takerBuyVolume;
+  const takerBuyRatio =
+    barTakerBuy !== undefined && !Number.isNaN(barTakerBuy) && currentVol > 0
+      ? barTakerBuy / currentVol
+      : undefined;
 
   // Ichimoku at bar
   const ichimokuAtBar = raw.ichimoku
@@ -191,6 +197,14 @@ export function interpretIndicatorsAtBar(
       priceChangePercent,
     }),
   ];
+  const takerFlowSignal = interpretTakerFlow({
+    currentVolume: currentVol,
+    sma20Volume: volSma20,
+    ratio: volSma20 > 0 ? currentVol / volSma20 : 1,
+    priceChangePercent,
+    ...(takerBuyRatio !== undefined ? { takerBuyRatio } : {}),
+  });
+  if (takerFlowSignal) volumeSignals.push(takerFlowSignal);
 
   return {
     ema12: { ...raw.ema12, current: ema12Val },
@@ -213,6 +227,7 @@ export function interpretIndicatorsAtBar(
       sma20Volume: volSma20,
       ratio: volSma20 > 0 ? currentVol / volSma20 : 1,
       priceChangePercent,
+      ...(takerBuyRatio !== undefined ? { takerBuyRatio } : {}),
     },
     signals: {
       trend: trendSignals,

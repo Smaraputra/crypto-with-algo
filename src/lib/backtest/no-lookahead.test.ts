@@ -34,6 +34,7 @@ function generateCandles(count: number, seed = 987): OHLCV[] {
       low,
       close: price,
       volume,
+      takerBuyVolume: volume * (0.3 + nextRandom() * 0.4),
     });
   }
 
