@@ -18,17 +18,41 @@ export interface BackfillProgress {
   interval: string;
 }
 
+export interface BackfillOptions {
+  onProgress?: (progress: BackfillProgress) => void;
+  /**
+   * Re-fetch the whole window instead of only the gaps around stored data.
+   *
+   * The default gap strategy can never repair candles already inside the stored
+   * range, so fields added after those rows were written (takerBuyVolume) stay
+   * missing forever. Refill re-requests every bar and lets the upsert patch
+   * them. Costs a full range fetch, so it is opt-in.
+   */
+  refill?: boolean;
+}
+
 /**
  * Fetch historical candles from Binance and bulk-upsert into MongoDB.
- * Checks existing data to avoid re-fetching already-stored ranges.
+ * Checks existing data to avoid re-fetching already-stored ranges, unless
+ * `refill` is set.
+ *
+ * The returned `inserted` count reflects newly created documents only. A refill
+ * that patches existing rows reports 0 while still having updated them, so
+ * judge a refill by the field it was meant to populate, not by this number.
  */
 export async function backfillCandles(
   symbol: string,
   interval: string,
   months = 24,
-  onProgress?: (progress: BackfillProgress) => void
+  onProgressOrOptions?: ((progress: BackfillProgress) => void) | BackfillOptions
 ): Promise<{ inserted: number; total: number }> {
   await connectDB();
+
+  const options: BackfillOptions =
+    typeof onProgressOrOptions === 'function'
+      ? { onProgress: onProgressOrOptions }
+      : onProgressOrOptions ?? {};
+  const { onProgress, refill = false } = options;
 
   const endTime = Date.now();
   const startTime = endTime - months * MS_PER_MONTH;
@@ -43,7 +67,7 @@ export async function backfillCandles(
   // Simple strategy: fetch from startTime to oldest existing, and from newest existing to now
   const candles: OHLCV[] = [];
 
-  if (existing.oldest !== null && existing.newest !== null) {
+  if (!refill && existing.oldest !== null && existing.newest !== null) {
     // Fetch gap before existing data
     if (fetchStart < existing.oldest) {
       const older = await fetchKlinesRange(
@@ -75,7 +99,7 @@ export async function backfillCandles(
       candles.push(...newer);
     }
   } else {
-    // No existing data, fetch entire range
+    // No existing data, or a refill: fetch the entire range
     const all = await fetchKlinesRange(
       symbol,
       interval,
@@ -95,7 +119,11 @@ export async function backfillCandles(
 
   onProgress?.({ fetched: candles.length, inserted, symbol, interval });
 
-  const finalCount = existing.count + inserted;
+  // A refill re-fetches stored bars, so adding `inserted` to the previous count
+  // would double-count them; re-read instead.
+  const finalCount = refill
+    ? (await getCandleRange(symbol, interval)).count
+    : existing.count + inserted;
   return { inserted, total: finalCount };
 }
 

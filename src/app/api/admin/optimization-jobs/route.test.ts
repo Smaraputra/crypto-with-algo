@@ -34,6 +34,7 @@ describe('GET /api/admin/optimization-jobs', () => {
   });
 
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const response = await GET();

@@ -97,3 +97,28 @@ export function getIntervalForStyle(style: string): string {
       return '1h';
   }
 }
+
+/**
+ * Historical window, in months, for a style's optimization run.
+ *
+ * A single shared window cannot serve every style: walk-forward needs at least
+ * minTrainingBars + testWindowBars (400) bars, so six months of daily candles
+ * (~180) starved position_trading outright, while six months of 5m candles
+ * (~52,000) both overshot the 50,000-row read cap and produced ~171 windows.
+ * These values clear the 400-bar floor for every style and keep the largest
+ * series under that cap.
+ */
+export function getMonthsForStyle(style: string): number {
+  switch (style) {
+    case 'scalping':
+      return 3; // ~25,900 bars at 5m
+    case 'day_trading':
+      return 12; // ~8,700 bars at 1h
+    case 'swing_trading':
+      return 24; // ~4,300 bars at 4h
+    case 'position_trading':
+      return 48; // ~1,440 bars at 1d
+    default:
+      return 12;
+  }
+}

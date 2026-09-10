@@ -75,6 +75,7 @@ describe('POST /api/admin/backfill-snapshots', () => {
   }
 
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 1 }));
@@ -86,6 +87,7 @@ describe('POST /api/admin/backfill-snapshots', () => {
   });
 
   it('should reject users without email', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue({ user: {} });
 
     const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 1 }));
@@ -144,7 +146,7 @@ describe('POST /api/admin/backfill-snapshots', () => {
     process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
 
-    const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 15 }));
+    const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 60 }));
     const data = await response.json();
 
     expect(response.status).toBe(400);

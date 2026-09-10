@@ -1,128 +1,110 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mockCachedFetch = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/redis', () => ({
-  cachedFetch: vi.fn((_key: string, fn: () => Promise<unknown>) => fn()),
+  cachedFetch: (key: string, fn: () => Promise<unknown>, ttl: number) =>
+    mockCachedFetch(key, fn, ttl),
 }));
 
 import { fetchCryptoNews } from './crypto-news';
+import { parseFeed, dedupeAndSort } from './rss-news';
+import { cointelegraphRss, decryptRss } from '@/__fixtures__/news';
+import type { CryptoNewsItem } from '@/types/news';
 
-const mockFetch = vi.fn();
+const feedItems = dedupeAndSort([
+  ...parseFeed(cointelegraphRss, 'Cointelegraph'),
+  ...parseFeed(decryptRss, 'Decrypt'),
+]);
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.stubGlobal('fetch', mockFetch);
-  vi.stubEnv('CRYPTOPANIC_API_TOKEN', 'test-token');
-});
-
-const mockApiResponse = {
-  results: [
-    {
-      id: 1,
-      title: 'Bitcoin hits new high',
-      url: 'https://example.com/btc',
-      source: { title: 'CoinDesk', domain: 'coindesk.com' },
-      published_at: '2024-11-14T22:13:20Z',
-      currencies: [{ code: 'BTC' }],
-    },
-    {
-      id: 2,
-      title: 'Ethereum upgrade',
-      url: 'https://example.com/eth',
-      source: { title: 'CryptoSlate', domain: 'cryptoslate.com' },
-      published_at: '2024-11-14T22:15:00Z',
-      currencies: [{ code: 'ETH' }],
-    },
-  ],
-};
+function makeItems(count: number): CryptoNewsItem[] {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `item-${i}`,
+    title: `Bitcoin story ${i}`,
+    url: `https://example.com/${i}`,
+    source: 'CoinDesk',
+    body: '',
+    categories: '',
+    publishedOn: 1_800_000_000 - i,
+    imageUrl: null,
+  }));
+}
 
 describe('fetchCryptoNews', () => {
-  it('returns parsed news items', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockApiResponse,
-    });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: pass through to the real fetcher argument.
+    mockCachedFetch.mockImplementation((_key, fn) => fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns the merged feed when no ticker is given', async () => {
+    mockCachedFetch.mockResolvedValue(feedItems);
 
     const result = await fetchCryptoNews();
 
-    expect(result).toHaveLength(2);
-    expect(result[0]).toEqual({
-      id: '1',
-      title: 'Bitcoin hits new high',
-      url: 'https://example.com/btc',
-      source: 'CoinDesk',
-      body: '',
-      categories: 'BTC',
-      publishedOn: Math.floor(Date.parse('2024-11-14T22:13:20Z') / 1000),
-      imageUrl: null,
-    });
+    expect(result).toEqual(feedItems);
   });
 
-  it('joins multiple currency codes into categories', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        results: [
-          {
-            id: 3,
-            title: 'Multi-coin news',
-            url: 'https://example.com/multi',
-            source: { title: 'Source', domain: 'source.com' },
-            published_at: '2024-11-14T22:00:00Z',
-            currencies: [{ code: 'BTC' }, { code: 'ETH' }],
-          },
-        ],
-      }),
-    });
+  it('narrows the merged feed to the requested ticker', async () => {
+    mockCachedFetch.mockResolvedValue(feedItems);
+
+    const result = await fetchCryptoNews('BTC');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toContain('Bitcoin ETF');
+  });
+
+  it('caches the whole feed under one key, not one key per ticker', async () => {
+    mockCachedFetch.mockResolvedValue(feedItems);
+
+    await fetchCryptoNews('BTC');
+    await fetchCryptoNews('ETH');
+
+    // Snapshot ingestion asks for ten symbols a cycle; a per-symbol key meant
+    // ten upstream fetches per cycle.
+    const keys = new Set(mockCachedFetch.mock.calls.map((call) => call[0]));
+    expect(keys.size).toBe(1);
+    expect([...keys][0]).toBe('news:crypto:all');
+  });
+
+  it('caches for five minutes', async () => {
+    mockCachedFetch.mockResolvedValue(feedItems);
+
+    await fetchCryptoNews();
+
+    expect(mockCachedFetch).toHaveBeenCalledWith('news:crypto:all', expect.any(Function), 300);
+  });
+
+  it('limits the result to 20 items', async () => {
+    mockCachedFetch.mockResolvedValue(makeItems(50));
 
     const result = await fetchCryptoNews();
-    expect(result[0].categories).toBe('BTC,ETH');
-  });
 
-  it('throws on non-ok response', async () => {
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-    });
-
-    await expect(fetchCryptoNews()).rejects.toThrow('CryptoPanic News API returned 500');
-  });
-
-  it('passes currencies to URL', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ results: [] }),
-    });
-
-    await fetchCryptoNews('BTC,ETH');
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('currencies=BTC%2CETH'),
-      expect.any(Object)
-    );
-  });
-
-  it('limits to 20 items', async () => {
-    const manyItems = Array.from({ length: 30 }, (_, i) => ({
-      id: i,
-      title: `News ${i}`,
-      url: `https://example.com/${i}`,
-      source: { title: 'Source', domain: 'source.com' },
-      published_at: '2024-11-14T22:00:00Z',
-      currencies: [],
-    }));
-
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ results: manyItems }),
-    });
-
-    const result = await fetchCryptoNews();
     expect(result).toHaveLength(20);
   });
 
-  it('throws when CRYPTOPANIC_API_TOKEN is not set', async () => {
-    vi.stubEnv('CRYPTOPANIC_API_TOKEN', '');
+  it('limits after filtering, so a ticker can still return 20 stories', async () => {
+    mockCachedFetch.mockResolvedValue(makeItems(50));
 
-    await expect(fetchCryptoNews()).rejects.toThrow('CRYPTOPANIC_API_TOKEN is not configured');
+    const result = await fetchCryptoNews('BTC');
+
+    expect(result).toHaveLength(20);
+  });
+
+  it('returns an empty list when no story matches the ticker', async () => {
+    mockCachedFetch.mockResolvedValue(feedItems);
+
+    await expect(fetchCryptoNews('LTC')).resolves.toEqual([]);
+  });
+
+  it('requires no API credentials', async () => {
+    delete process.env.CRYPTOPANIC_API_TOKEN;
+    mockCachedFetch.mockResolvedValue(feedItems);
+
+    // The previous provider threw without a token; RSS feeds are unauthenticated.
+    await expect(fetchCryptoNews('BTC')).resolves.toHaveLength(1);
   });
 });

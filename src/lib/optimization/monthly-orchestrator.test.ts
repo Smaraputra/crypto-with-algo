@@ -41,7 +41,10 @@ vi.mock('@/lib/candle-ingestion', () => ({
   backfillCandles: (...args: unknown[]) => mockBackfillCandles(...args),
 }));
 
-vi.mock('./walk-forward', () => ({
+vi.mock('./walk-forward', async (importOriginal) => ({
+  // deriveStepSize is a pure function; keep the real one so the orchestrator's
+  // step derivation is exercised rather than stubbed.
+  ...(await importOriginal<typeof import('./walk-forward')>()),
   runWalkForward: (...args: unknown[]) => mockRunWalkForward(...args),
 }));
 
@@ -61,30 +64,27 @@ vi.mock('./auto-activation', () => ({
   executeAutoActivation: (...args: unknown[]) => mockExecuteAutoActivation(...args),
 }));
 
-vi.mock('./top-symbols', () => ({
-  getIntervalForStyle: (style: string) => {
-    const map: Record<string, string> = {
-      scalping: '5m',
-      day_trading: '1h',
-      swing_trading: '4h',
-      position_trading: '1d',
-    };
-    return map[style] || '1h';
-  },
-}));
+const STYLE_INTERVALS: Record<string, string> = {
+  scalping: '5m',
+  day_trading: '1h',
+  swing_trading: '4h',
+  position_trading: '1d',
+};
+const STYLE_MONTHS: Record<string, number> = {
+  scalping: 3,
+  day_trading: 12,
+  swing_trading: 24,
+  position_trading: 48,
+};
 
-vi.mock('@/types/optimization', () => ({
-  DEFAULT_OPTIMIZATION_CONFIG: {
-    minTrainingBars: 300,
-    testWindowBars: 100,
-    stepSizeBars: 300,
-    candidatesPerWindow: 50,
-    constraintPercent: 0.2,
-  },
-  DEFAULT_ROBUSTNESS: {},
+vi.mock('./top-symbols', () => ({
+  getIntervalForStyle: (style: string) => STYLE_INTERVALS[style] || '1h',
+  getMonthsForStyle: (style: string) => STYLE_MONTHS[style] ?? 12,
 }));
 
 import { runMonthlyOptimization } from './monthly-orchestrator';
+import { deriveStepSize } from './walk-forward';
+import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 
 function makeCandles(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -181,6 +181,103 @@ describe('monthly-orchestrator', () => {
       (call) => (call[0] as { tradingStyle: string }).tradingStyle === 'position_trading'
     );
     expect((positionCall![0] as { htfInterval?: string }).htfInterval).toBeUndefined();
+  });
+
+  it('applies each style its own historical window when months is omitted', async () => {
+    const candles = makeCandles(500);
+    // Force a backfill so the requested window is observable in its arguments.
+    mockGetCandleRange.mockResolvedValue({ oldest: null, newest: null });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue(makeWalkForwardResult());
+    mockCreateTemplateVersion.mockResolvedValue({
+      _id: new mongoose.Types.ObjectId(),
+      version: 1,
+      tradingStyle: 'scalping',
+    });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    await runMonthlyOptimization({
+      cronRunId,
+      topSymbols: ['BTCUSDT'],
+      autoActivate: false,
+    });
+
+    // Confirmation-timeframe backfills reuse the same intervals (scalping's HTF
+    // is 1h, day_trading's primary), so assert on exact (interval, months)
+    // pairs rather than keying by interval alone.
+    const calls = mockBackfillCandles.mock.calls.map(
+      (call) => [call[1] as string, call[2] as number] as const
+    );
+    expect(calls).toEqual(expect.arrayContaining([
+      ['5m', 3],
+      ['1h', 12],
+      ['4h', 24],
+      ['1d', 48],
+    ]));
+    // position_trading must get a window long enough to clear the 400-bar floor,
+    // which the previous flat 6-month window never could.
+    expect(48 * 30).toBeGreaterThan(400);
+  });
+
+  it('honours an explicit months override for every style', async () => {
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: null, newest: null });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue(makeWalkForwardResult());
+    mockCreateTemplateVersion.mockResolvedValue({
+      _id: new mongoose.Types.ObjectId(),
+      version: 1,
+      tradingStyle: 'scalping',
+    });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    await runMonthlyOptimization({
+      cronRunId,
+      topSymbols: ['BTCUSDT'],
+      months: 9,
+      autoActivate: false,
+    });
+
+    // Primary backfills use the override; confirmation-timeframe backfills add
+    // the fixed 2-month warmup margin. Nothing should fall back to a per-style
+    // default (3/12/24/48) once an override is supplied.
+    const months = mockBackfillCandles.mock.calls.map((call) => call[2] as number);
+    expect(months.length).toBeGreaterThan(0);
+    for (const value of months) {
+      expect([9, 11]).toContain(value);
+    }
+    expect(months).toContain(9);
+  });
+
+  it('derives a step size that bounds the window count for a 500-bar series', async () => {
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue(makeWalkForwardResult());
+    mockCreateTemplateVersion.mockResolvedValue({
+      _id: new mongoose.Types.ObjectId(),
+      version: 1,
+      tradingStyle: 'scalping',
+    });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    await runMonthlyOptimization({
+      cronRunId,
+      topSymbols: ['BTCUSDT'],
+      autoActivate: false,
+    });
+
+    const expected = deriveStepSize(
+      500,
+      DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,
+      DEFAULT_OPTIMIZATION_CONFIG.testWindowBars,
+      DEFAULT_OPTIMIZATION_CONFIG.targetWindows
+    );
+    // Not the old fixed 300, and small enough that 500 bars yield several windows.
+    expect(expected).toBeLessThan(DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars);
+    for (const call of mockRunWalkForward.mock.calls) {
+      expect((call[0] as { stepSizeBars: number }).stepSizeBars).toBe(expected);
+    }
   });
 
   it('records error and continues when one style has insufficient data', async () => {

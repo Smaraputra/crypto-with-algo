@@ -33,7 +33,23 @@ describe('GET /api/admin/cron-runs', () => {
     delete process.env.ADMIN_EMAIL;
   });
 
+  it('should return 500, not 401, when ADMIN_EMAIL is unconfigured', async () => {
+    delete process.env.ADMIN_EMAIL;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const response = await GET();
+    const data = await response.json();
+
+    // A config gap must be distinguishable from a permissions denial, otherwise
+    // an unset ADMIN_EMAIL looks like a normal 401 in production.
+    expect(response.status).toBe(500);
+    expect(data.error).toBe('Admin access is not configured');
+    expect(mockConnectDB).not.toHaveBeenCalled();
+  });
+
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const response = await GET();

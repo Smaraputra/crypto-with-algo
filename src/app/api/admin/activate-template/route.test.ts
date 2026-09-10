@@ -37,6 +37,7 @@ describe('POST /api/admin/activate-template', () => {
   });
 
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const request = new Request('http://localhost:3000/api/admin/activate-template', {

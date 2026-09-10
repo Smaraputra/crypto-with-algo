@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { requireAdmin, adminAuthError, adminAuthStatus } from '@/lib/admin-auth';
 import { connectDB } from '@/lib/mongodb';
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import mongoose from 'mongoose';
@@ -11,9 +11,9 @@ interface RouteParams {
 export async function GET(_req: Request, { params }: RouteParams) {
   try {
     // 1. Auth: Admin-only
-    const session = await auth();
-    if (!session?.user?.email || session.user.email !== process.env.ADMIN_EMAIL) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const admin = await requireAdmin();
+    if (!admin.ok) {
+      return NextResponse.json(adminAuthError(admin), { status: adminAuthStatus(admin) });
     }
 
     const { jobId } = await params;

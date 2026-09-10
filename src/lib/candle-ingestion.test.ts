@@ -257,6 +257,93 @@ describe('candle-ingestion', () => {
     });
   });
 
+  describe('backfillCandles refill mode', () => {
+    it('patches takerBuyVolume onto candles already inside the stored range', async () => {
+      const { backfillCandles, fetchKlinesRange, getCandles, Candle } =
+        await importModules();
+
+      // Rows written before takerBuyVolume existed, spanning the whole window.
+      const now = Date.now();
+      const stamps = [now - 3000, now - 2000, now - 1000];
+      await Candle.insertMany(
+        stamps.map((ts) => ({ ...makeCandle(ts), symbol: 'BTCUSDT', interval: '1h' }))
+      );
+      expect(
+        await Candle.countDocuments({ takerBuyVolume: { $exists: true } })
+      ).toBe(0);
+
+      fetchKlinesRange.mockResolvedValue(
+        stamps.map((ts) => ({ ...makeCandle(ts), takerBuyVolume: 0.42 }))
+      );
+
+      const result = await backfillCandles('BTCUSDT', '1h', 1, { refill: true });
+
+      // Nothing new was created, so `inserted` stays 0 even though every row
+      // was patched. This is why a refill must be judged by the field itself.
+      expect(result.inserted).toBe(0);
+      expect(await Candle.countDocuments({ takerBuyVolume: { $exists: true } })).toBe(3);
+      const stored = await getCandles('BTCUSDT', '1h');
+      expect(stored.map((c) => c.takerBuyVolume)).toEqual([0.42, 0.42, 0.42]);
+    });
+
+    it('leaves in-range candles untouched without refill, which is the defect it fixes', async () => {
+      const { backfillCandles, fetchKlinesRange, Candle } = await importModules();
+
+      const now = Date.now();
+      const stamps = [now - 3000, now - 2000, now - 1000];
+      await Candle.insertMany(
+        stamps.map((ts) => ({ ...makeCandle(ts), symbol: 'BTCUSDT', interval: '1h' }))
+      );
+
+      fetchKlinesRange.mockResolvedValue([]);
+
+      await backfillCandles('BTCUSDT', '1h', 1);
+
+      expect(await Candle.countDocuments({ takerBuyVolume: { $exists: true } })).toBe(0);
+    });
+
+    it('reports a total that does not double-count re-fetched rows', async () => {
+      const { backfillCandles, fetchKlinesRange, Candle } = await importModules();
+
+      const now = Date.now();
+      const stamps = [now - 2000, now - 1000];
+      await Candle.insertMany(
+        stamps.map((ts) => ({ ...makeCandle(ts), symbol: 'BTCUSDT', interval: '1h' }))
+      );
+
+      fetchKlinesRange.mockResolvedValue(
+        stamps.map((ts) => ({ ...makeCandle(ts), takerBuyVolume: 1 }))
+      );
+
+      const result = await backfillCandles('BTCUSDT', '1h', 1, { refill: true });
+
+      expect(result.total).toBe(2);
+      expect(await Candle.countDocuments({})).toBe(2);
+    });
+
+    it('still accepts a bare onProgress callback for existing callers', async () => {
+      const { backfillCandles, fetchKlinesRange } = await importModules();
+
+      fetchKlinesRange.mockResolvedValue([makeCandle(1000)]);
+      const onProgress = vi.fn();
+
+      await backfillCandles('BTCUSDT', '1h', 1, onProgress);
+
+      expect(onProgress).toHaveBeenCalled();
+    });
+
+    it('reports progress when given options', async () => {
+      const { backfillCandles, fetchKlinesRange } = await importModules();
+
+      fetchKlinesRange.mockResolvedValue([makeCandle(1000)]);
+      const onProgress = vi.fn();
+
+      await backfillCandles('BTCUSDT', '1h', 1, { onProgress, refill: true });
+
+      expect(onProgress).toHaveBeenCalled();
+    });
+  });
+
   describe('syncCandles', () => {
     it('fetches from latest stored to now', async () => {
       const { syncCandles, fetchKlinesRange, Candle } = await importModules();
