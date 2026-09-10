@@ -1,62 +1,28 @@
+/**
+ * Crypto news, cached.
+ *
+ * This is the single seam every caller uses. The provider behind it changed
+ * from CryptoPanic (free plan discontinued) to publisher RSS feeds; the
+ * signature is unchanged so snapshot ingestion, the news API route, and the
+ * NewsFeed component were untouched by that swap.
+ */
 import { cachedFetch } from '@/lib/redis';
+import { fetchAllFeeds, filterByCurrencies } from '@/lib/external/rss-news';
 import type { CryptoNewsItem } from '@/types/news';
 
-interface CryptoPanicPost {
-  id?: number;
-  title: string;
-  description?: string;
-  published_at: string;
-  url?: string;
-  source?: { title: string; domain: string };
-  currencies?: Array<{ code: string }>;
-}
-
-interface CryptoPanicResponse {
-  results: CryptoPanicPost[];
-}
-
-const BASE_URL = 'https://cryptopanic.com/api/developer/v2/posts/';
+const CACHE_KEY = 'news:crypto:all';
 const CACHE_TTL = 300; // 5 minutes
+const MAX_ITEMS = 20;
 
-async function fetchRaw(currencies?: string): Promise<CryptoNewsItem[]> {
-  const token = process.env.CRYPTOPANIC_API_TOKEN;
-  if (!token) {
-    throw new Error('CRYPTOPANIC_API_TOKEN is not configured');
-  }
-
-  const params = new URLSearchParams({
-    auth_token: token,
-    public: 'true',
-    kind: 'news',
-  });
-  if (currencies) {
-    params.set('currencies', currencies);
-  }
-
-  const res = await fetch(`${BASE_URL}?${params.toString()}`, {
-    signal: AbortSignal.timeout(5000),
-  });
-
-  if (!res.ok) {
-    throw new Error(`CryptoPanic News API returned ${res.status}`);
-  }
-
-  const json = (await res.json()) as CryptoPanicResponse;
-  const posts = json.results ?? [];
-
-  return posts.slice(0, 20).map((post, i) => ({
-    id: post.id != null ? String(post.id) : String(i),
-    title: post.title,
-    url: post.url ?? '',
-    source: post.source?.title ?? '',
-    body: post.description ?? '',
-    categories: post.currencies?.map((c) => c.code).join(',') ?? '',
-    publishedOn: Math.floor(Date.parse(post.published_at) / 1000),
-    imageUrl: null,
-  }));
-}
-
+/**
+ * Latest crypto news, optionally narrowed to a comma-separated ticker list.
+ *
+ * The merged feed set is cached once and filtered in memory. Snapshot ingestion
+ * asks for ten symbols per cycle, which previously meant ten upstream calls per
+ * cycle against a per-symbol cache key.
+ */
 export async function fetchCryptoNews(currencies?: string): Promise<CryptoNewsItem[]> {
-  const cacheKey = `news:crypto:${currencies || 'all'}`;
-  return cachedFetch(cacheKey, () => fetchRaw(currencies), CACHE_TTL);
+  const all = await cachedFetch(CACHE_KEY, fetchAllFeeds, CACHE_TTL);
+  const relevant = currencies ? filterByCurrencies(all, currencies) : all;
+  return relevant.slice(0, MAX_ITEMS);
 }
