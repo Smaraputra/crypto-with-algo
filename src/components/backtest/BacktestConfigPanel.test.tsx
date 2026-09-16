@@ -100,7 +100,7 @@ describe('BacktestConfigPanel', () => {
       expect.objectContaining({
         stopLossPercent: 0.03,
         positionSizePercent: 0.05,
-        entryThreshold: 40,
+        entryThreshold: 32,
         allowShorts: false,
       })
     );
@@ -116,8 +116,8 @@ describe('BacktestConfigPanel', () => {
         stopLossPercent: 0.08,
         positionSizePercent: 0.20,
         allowShorts: true,
-        shortEntryThreshold: -20,
-        shortExitThreshold: 15,
+        shortEntryThreshold: -16,
+        shortExitThreshold: 12,
       })
     );
   });

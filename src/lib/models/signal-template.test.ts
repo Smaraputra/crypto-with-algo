@@ -4,6 +4,8 @@ import {
   DEFAULT_TEMPLATE_WEIGHTS,
   DEFAULT_TEMPLATE_THRESHOLDS,
 } from './signal-template';
+import { TIER_BUY_CUTOFF } from '@/lib/signals/calibration';
+import { getTier } from '@/lib/signals/scorer';
 
 function makeValidWeights() {
   return {
@@ -262,18 +264,34 @@ describe('DEFAULT_TEMPLATE_THRESHOLDS', () => {
     expect(DEFAULT_TEMPLATE_THRESHOLDS).toHaveProperty('position_trading');
   });
 
-  it('scalping has highest entry threshold', () => {
-    expect(DEFAULT_TEMPLATE_THRESHOLDS.scalping.entryThreshold).toBe(50);
-    expect(DEFAULT_TEMPLATE_THRESHOLDS.scalping.entryThreshold).toBeGreaterThan(
-      DEFAULT_TEMPLATE_THRESHOLDS.day_trading.entryThreshold
-    );
+  it('enters every style exactly at the live buy tier', () => {
+    // A template must trade on the tier a user sees, for every style.
+    for (const t of Object.values(DEFAULT_TEMPLATE_THRESHOLDS)) {
+      expect(t.entryThreshold).toBe(TIER_BUY_CUTOFF);
+      expect(t.shortEntryThreshold).toBe(-TIER_BUY_CUTOFF);
+      expect(getTier(t.entryThreshold + 0.1)).toBe('buy');
+      expect(getTier(t.shortEntryThreshold - 0.1)).toBe('sell');
+    }
   });
 
-  it('position_trading has lowest entry threshold', () => {
-    expect(DEFAULT_TEMPLATE_THRESHOLDS.position_trading.entryThreshold).toBe(30);
-    expect(DEFAULT_TEMPLATE_THRESHOLDS.position_trading.entryThreshold).toBeLessThan(
-      DEFAULT_TEMPLATE_THRESHOLDS.swing_trading.entryThreshold
-    );
+  it('keeps entry reachable within the measured score range', () => {
+    // Regression: scalping required 50 while its scores never passed about 43,
+    // so every optimization candidate made zero trades.
+    for (const t of Object.values(DEFAULT_TEMPLATE_THRESHOLDS)) {
+      expect(t.entryThreshold).toBeLessThan(43);
+    }
+  });
+
+  it('exits between neutral and the entry level', () => {
+    for (const t of Object.values(DEFAULT_TEMPLATE_THRESHOLDS)) {
+      expect(t.exitThreshold).toBeGreaterThan(0);
+      expect(t.exitThreshold).toBeLessThan(t.entryThreshold);
+      expect(t.shortExitThreshold).toBe(-t.exitThreshold);
+    }
+  });
+
+  it('gives each style its own thresholds object, so one can diverge safely', () => {
+    expect(DEFAULT_TEMPLATE_THRESHOLDS.scalping).not.toBe(DEFAULT_TEMPLATE_THRESHOLDS.day_trading);
   });
 
   it('short entry thresholds are negative of entry thresholds', () => {
