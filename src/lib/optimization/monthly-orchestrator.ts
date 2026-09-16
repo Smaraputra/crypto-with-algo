@@ -66,6 +66,10 @@ export async function runMonthlyOptimization(
     const interval = getIntervalForStyle(tradingStyle);
     const months = monthsOverride ?? getMonthsForStyle(tradingStyle);
 
+    // Declared outside try so a failure can close the job it opened; otherwise
+    // the job document stays 'running' forever after the run has failed.
+    let jobId: mongoose.Types.ObjectId | undefined;
+
     try {
       // Update job status to running
       await CronRun.updateOne(
@@ -128,6 +132,7 @@ export async function runMonthlyOptimization(
         },
         startedAt: new Date(),
       });
+      jobId = job._id;
 
       // Update CronRun with jobId
       await CronRun.updateOne(
@@ -260,6 +265,13 @@ export async function runMonthlyOptimization(
       const errorMessage = error instanceof Error ? error.message : String(error);
       errors.push(`${tradingStyle}: ${errorMessage}`);
       failedJobs++;
+
+      if (jobId) {
+        await OptimizationJob.updateOne(
+          { _id: jobId },
+          { $set: { status: 'failed', error: errorMessage, completedAt: new Date() } }
+        );
+      }
 
       // Update CronRun job status to failed
       await CronRun.updateOne(
