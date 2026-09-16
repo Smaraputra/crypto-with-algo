@@ -70,9 +70,39 @@ export async function upsertSnapshot(
 ): Promise<void> {
   await HistoricalSnapshot.updateOne(
     { symbol, interval, timestamp },
-    { $set: { symbol, interval, timestamp, data } },
+    mergeSnapshotUpdate({ symbol, interval, timestamp, data }),
     { upsert: true }
   );
+}
+
+/**
+ * Update document that merges data fields into an existing snapshot.
+ *
+ * Setting `data` as a whole replaced every field the writer did not supply. The
+ * admin backfill supplies only funding, long/short, open interest, and Fear &
+ * Greed, so running it erased the live-captured newsSentiment on up to 500
+ * recent bars per symbol and interval, which cannot be re-fetched. Each field is
+ * therefore set by its own path, and fields absent from this write are kept.
+ */
+function mergeSnapshotUpdate(snapshot: {
+  symbol: string;
+  interval: string;
+  timestamp: number;
+  data: IHistoricalSnapshot['data'];
+}) {
+  const { symbol, interval, timestamp, data } = snapshot;
+  const $set: Record<string, unknown> = { symbol, interval, timestamp };
+
+  for (const [field, value] of Object.entries(data ?? {})) {
+    if (value !== undefined) {
+      $set[`data.${field}`] = value;
+    }
+  }
+
+  // With nothing to merge, a new document still gets an empty data object.
+  // It cannot go in $set alongside data.* paths, which would conflict.
+  const hasFields = Object.keys($set).length > 3;
+  return hasFields ? { $set } : { $set, $setOnInsert: { data: {} } };
 }
 
 /**
@@ -91,7 +121,7 @@ export async function bulkUpsertSnapshots(
   const operations = snapshots.map((snapshot) => ({
     updateOne: {
       filter: { symbol: snapshot.symbol, interval: snapshot.interval, timestamp: snapshot.timestamp },
-      update: { $set: snapshot },
+      update: mergeSnapshotUpdate(snapshot),
       upsert: true,
     },
   }));
