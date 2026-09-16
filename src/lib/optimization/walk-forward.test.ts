@@ -5,6 +5,7 @@ import {
   deriveVolatilityStops,
   STOP_TRUE_RANGE_MULTIPLE,
   TARGET_TRUE_RANGE_MULTIPLE,
+  WALK_FORWARD_FEE_PERCENT,
 } from './walk-forward';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 
@@ -195,6 +196,21 @@ describe('deriveVolatilityStops', () => {
   it('clamps the stop between 0.25% and 25%', () => {
     expect(deriveVolatilityStops(bars(Array(20).fill(100), 0.0001)).stopLossPercent).toBe(0.0025);
     expect(deriveVolatilityStops(bars(Array(20).fill(100), 0.4)).stopLossPercent).toBe(0.25);
+  });
+
+  it('keeps fee drag at or below a fifth of the risk on quiet intraday series', () => {
+    // Regression: 0.25% stops against 0.2% round-trip fees wiped out the account.
+    const stops = deriveVolatilityStops(bars(Array(200).fill(80_000), 0.001), WALK_FORWARD_FEE_PERCENT);
+    const roundTripFees = 2 * WALK_FORWARD_FEE_PERCENT;
+
+    expect(roundTripFees / stops.stopLossPercent).toBeLessThanOrEqual(0.2 + 1e-9);
+    expect(stops.takeProfitPercent / stops.stopLossPercent).toBeCloseTo(2, 5);
+  });
+
+  it('leaves volatile series on their true-range stop when it already clears the fee floor', () => {
+    const stops = deriveVolatilityStops(bars(Array(200).fill(150), 0.06), WALK_FORWARD_FEE_PERCENT);
+
+    expect(stops.stopLossPercent).toBeCloseTo(0.12, 5);
   });
 
   it('falls back to the minimum stop when there are too few bars', () => {

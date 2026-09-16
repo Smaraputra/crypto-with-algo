@@ -126,7 +126,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
 
     // Stops scale with this window's own volatility, measured on training bars
     // only, so the out-of-sample test inherits them without seeing test data.
-    const stops = deriveVolatilityStops(trainingCandles);
+    const stops = deriveVolatilityStops(trainingCandles, WALK_FORWARD_FEE_PERCENT);
 
     // 3. Generate weight candidates
     const candidates = generateWeightCandidates(
@@ -154,7 +154,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
         positionSizePercent: 0.1,
         stopLossPercent: stops.stopLossPercent,
         takeProfitPercent: stops.takeProfitPercent,
-        feePercent: 0.001,
+        feePercent: WALK_FORWARD_FEE_PERCENT,
         startEquity: 10000,
       };
 
@@ -237,7 +237,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       positionSizePercent: 0.1,
       stopLossPercent: stops.stopLossPercent,
       takeProfitPercent: stops.takeProfitPercent,
-      feePercent: 0.001,
+      feePercent: WALK_FORWARD_FEE_PERCENT,
       startEquity: 10000,
     };
 
@@ -377,6 +377,15 @@ export interface VolatilityStops {
 
 export const STOP_TRUE_RANGE_MULTIPLE = 2;
 export const TARGET_TRUE_RANGE_MULTIPLE = 4;
+/** Binance spot taker fee per side, applied to every walk-forward backtest. */
+export const WALK_FORWARD_FEE_PERCENT = 0.001;
+/**
+ * A stop must be at least this many round-trip fees wide, which caps fee drag
+ * at 20% of the risk taken. Without it, 5m BTC got a 0.25% stop against 0.2%
+ * round-trip fees: fees consumed 80% of every trade's risk and a 90-day
+ * backtest lost the whole account (9,419 in fees on 10,000 of equity).
+ */
+export const MIN_STOP_ROUND_TRIP_FEES = 5;
 const MIN_STOP_FRACTION = 0.0025;
 const MAX_STOP_FRACTION = 0.25;
 
@@ -390,9 +399,11 @@ const MAX_STOP_FRACTION = 0.25;
  * four for the target keep the previous 1:2 risk-reward at each interval's own
  * scale. The median resists the occasional crash bar that would inflate a mean.
  *
- * The stop is clamped to [0.25%, 25%]; the target keeps the same multiple of it.
+ * The stop is floored at five round-trip fees (and never below 0.25%), capped at
+ * 25%, and the target keeps the same multiple of it.
  */
-export function deriveVolatilityStops(candles: OHLCV[]): VolatilityStops {
+export function deriveVolatilityStops(candles: OHLCV[], feePercent = 0): VolatilityStops {
+  const minStop = Math.max(MIN_STOP_FRACTION, 2 * feePercent * MIN_STOP_ROUND_TRIP_FEES);
   const ranges: number[] = [];
   for (let i = 1; i < candles.length; i++) {
     const { high, low } = candles[i];
@@ -403,7 +414,7 @@ export function deriveVolatilityStops(candles: OHLCV[]): VolatilityStops {
   }
 
   if (ranges.length === 0) {
-    const stopLossPercent = MIN_STOP_FRACTION;
+    const stopLossPercent = minStop;
     return {
       stopLossPercent,
       takeProfitPercent: stopLossPercent * (TARGET_TRUE_RANGE_MULTIPLE / STOP_TRUE_RANGE_MULTIPLE),
@@ -417,7 +428,7 @@ export function deriveVolatilityStops(candles: OHLCV[]): VolatilityStops {
 
   const stopLossPercent = Math.min(
     MAX_STOP_FRACTION,
-    Math.max(MIN_STOP_FRACTION, median * STOP_TRUE_RANGE_MULTIPLE)
+    Math.max(minStop, median * STOP_TRUE_RANGE_MULTIPLE)
   );
 
   return {
