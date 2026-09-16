@@ -1,23 +1,24 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { connectDB } from '@/lib/mongodb';
-import { auth } from '@/lib/auth';
+import { requireAdmin, adminAuthError, adminAuthStatus } from '@/lib/admin-auth';
 import { CronRun } from '@/lib/models/cron-run';
 import { getTopSymbols, FALLBACK_SYMBOLS } from '@/lib/optimization/top-symbols';
 import { runMonthlyOptimization } from '@/lib/optimization/monthly-orchestrator';
 
 const requestSchema = z.object({
   symbols: z.array(z.string()).min(1).max(10).optional(),
-  months: z.number().min(1).max(12).optional(),
+  // Up to 48 months: position_trading needs ~400 daily bars to run at all.
+  months: z.number().min(1).max(48).optional(),
   autoActivate: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
   try {
     // Auth: Admin only
-    const session = await auth();
-    if (!session?.user?.email || session.user.email !== process.env.ADMIN_EMAIL) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const admin = await requireAdmin();
+    if (!admin.ok) {
+      return NextResponse.json(adminAuthError(admin), { status: adminAuthStatus(admin) });
     }
 
     await connectDB();
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { symbols, months = 6, autoActivate = true } = validation.data;
+    const { symbols, months, autoActivate = false } = validation.data;
 
     // Check for existing running job
     const existingRun = await CronRun.findOne({

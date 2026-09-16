@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { auth } from '@/lib/auth';
+import { requireAdmin } from '@/lib/admin-auth';
 import { OptimizationDashboard } from '@/components/admin/optimization/OptimizationDashboard';
 
 export const metadata = {
@@ -8,10 +8,10 @@ export const metadata = {
 };
 
 export default async function OptimizationPage() {
-  const session = await auth();
-
-  // Admin-only page
-  if (!session?.user?.email || session.user.email !== process.env.ADMIN_EMAIL) {
+  // Admin-only page. A misconfigured ADMIN_EMAIL is logged by requireAdmin;
+  // either failure mode sends the visitor back to the dashboard.
+  const admin = await requireAdmin();
+  if (!admin.ok) {
     redirect('/dashboard');
   }
 

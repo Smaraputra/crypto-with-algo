@@ -51,6 +51,7 @@ describe('GET /api/admin/template-comparison/[jobId]', () => {
   }
 
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const response = await callGET('507f1f77bcf86cd799439011');

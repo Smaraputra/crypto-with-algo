@@ -71,6 +71,7 @@ describe('POST /api/admin/trigger-monthly-optimization', () => {
   });
 
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const request = new Request('http://localhost:3000/api/admin/trigger-monthly-optimization', {
@@ -125,14 +126,14 @@ describe('POST /api/admin/trigger-monthly-optimization', () => {
     expect(data.issues).toBeDefined();
   });
 
-  it('should validate months range (1-12)', async () => {
+  it('should validate months range (1-48)', async () => {
     process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
 
     const request = new Request('http://localhost:3000/api/admin/trigger-monthly-optimization', {
       method: 'POST',
       body: JSON.stringify({
-        months: 15, // Invalid: > 12
+        months: 60, // Invalid: > 48
       }),
     });
 
@@ -342,9 +343,48 @@ describe('POST /api/admin/trigger-monthly-optimization', () => {
       expect.objectContaining({
         cronRunId,
         topSymbols: expect.any(Array),
-        months: 6,
-        autoActivate: true,
+        // An empty body leaves months undefined so per-style windows apply, and
+        // leaves activation off: unreviewed templates must not go live.
+        months: undefined,
+        autoActivate: false,
       })
+    );
+  });
+
+  it('activates only when the caller explicitly opts in', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+    mockFindOne.mockResolvedValue(null);
+    mockCreate.mockResolvedValue({ _id: 'cronrun123' });
+
+    await POST(
+      new Request('http://localhost:3000/api/admin/trigger-monthly-optimization', {
+        method: 'POST',
+        body: JSON.stringify({ autoActivate: true }),
+      })
+    );
+
+    expect(mockRunMonthlyOptimization).toHaveBeenCalledWith(
+      expect.objectContaining({ autoActivate: true })
+    );
+  });
+
+  it('accepts a 48-month window for daily-bar styles', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+    mockFindOne.mockResolvedValue(null);
+    mockCreate.mockResolvedValue({ _id: 'cronrun123' });
+
+    const response = await POST(
+      new Request('http://localhost:3000/api/admin/trigger-monthly-optimization', {
+        method: 'POST',
+        body: JSON.stringify({ months: 48 }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRunMonthlyOptimization).toHaveBeenCalledWith(
+      expect.objectContaining({ months: 48 })
     );
   });
 

@@ -26,3 +26,8 @@
 
 # Monthly template optimization (1st of month, midnight UTC)
 0    0 1 * * wget -qO- --post-data="" --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/monthly-optimization >> /var/log/cron.log 2>&1
+
+# Log rotation. The log lives in the container's writable layer with no logrotate
+# available, and had grown to 60MB in production. Truncating in place keeps the
+# entrypoint's `tail -f` attached to the same file.
+0    3 * * * [ -f /var/log/cron.log ] && [ "$(wc -c < /var/log/cron.log)" -gt 10485760 ] && : > /var/log/cron.log

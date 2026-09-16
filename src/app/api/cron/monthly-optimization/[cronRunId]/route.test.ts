@@ -106,6 +106,7 @@ describe('GET /api/cron/monthly-optimization/[cronRunId]', () => {
   });
 
   it('should reject unauthenticated users', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue(null);
 
     const request = new NextRequest('http://localhost:3000/api/cron/monthly-optimization/cronrun123');
