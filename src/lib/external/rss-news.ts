@@ -17,11 +17,17 @@ export interface NewsFeed {
   url: string;
 }
 
+/**
+ * Every feed must be reachable from the production VPS, not just locally.
+ * CryptoSlate was dropped because it returns 403 to the Contabo IP range
+ * regardless of user agent. CoinDesk uses its canonical URL; the trailing-slash
+ * form answers with a 308.
+ */
 export const NEWS_FEEDS: NewsFeed[] = [
-  { source: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' },
+  { source: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss' },
   { source: 'Cointelegraph', url: 'https://cointelegraph.com/rss' },
   { source: 'Decrypt', url: 'https://decrypt.co/feed' },
-  { source: 'CryptoSlate', url: 'https://cryptoslate.com/feed/' },
+  { source: 'The Block', url: 'https://www.theblock.co/rss.xml' },
 ];
 
 const FETCH_TIMEOUT_MS = 8000;
