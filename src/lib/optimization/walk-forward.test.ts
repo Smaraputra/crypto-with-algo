@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { calculateWindows, deriveStepSize } from './walk-forward';
+import {
+  calculateWindows,
+  deriveStepSize,
+  deriveVolatilityStops,
+  STOP_TRUE_RANGE_MULTIPLE,
+  TARGET_TRUE_RANGE_MULTIPLE,
+} from './walk-forward';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 
 describe('calculateWindows', () => {
@@ -135,5 +141,66 @@ describe('deriveStepSize', () => {
 
   it('rejects a target below one window', () => {
     expect(() => deriveStepSize(5000, MIN_TRAINING, TEST_WINDOW, 0)).toThrow('at least 1');
+  });
+});
+
+describe('deriveVolatilityStops', () => {
+  function bars(closes: number[], rangeFraction: number) {
+    return closes.map((close, i) => ({
+      timestamp: i * 60_000,
+      open: close,
+      high: close * (1 + rangeFraction / 2),
+      low: close * (1 - rangeFraction / 2),
+      close,
+      volume: 1,
+    }));
+  }
+
+  it('sizes stop and target from the median true range at a 1:2 ratio', () => {
+    const stops = deriveVolatilityStops(bars(Array(50).fill(100), 0.01));
+
+    expect(stops.medianTrueRangePercent).toBeCloseTo(0.01, 5);
+    expect(stops.stopLossPercent).toBeCloseTo(0.01 * STOP_TRUE_RANGE_MULTIPLE, 5);
+    expect(stops.takeProfitPercent).toBeCloseTo(0.01 * TARGET_TRUE_RANGE_MULTIPLE, 5);
+    expect(stops.takeProfitPercent / stops.stopLossPercent).toBeCloseTo(2, 5);
+  });
+
+  it('gives a volatile daily series wider stops than a quiet intraday one', () => {
+    // Regression: a flat 3% stop fit neither 5m BTC nor daily SOL.
+    const intraday = deriveVolatilityStops(bars(Array(200).fill(80_000), 0.0015));
+    const daily = deriveVolatilityStops(bars(Array(200).fill(150), 0.06));
+
+    expect(intraday.stopLossPercent).toBeLessThan(0.03);
+    expect(daily.stopLossPercent).toBeGreaterThan(0.03);
+    expect(daily.stopLossPercent).toBeGreaterThan(intraday.stopLossPercent * 10);
+  });
+
+  it('counts gaps from the previous close, not only the bar range', () => {
+    const series = [
+      { timestamp: 0, open: 100, high: 100, low: 100, close: 100, volume: 1 },
+      // Opens and trades entirely 5% above the prior close with no intra-bar range.
+      { timestamp: 1, open: 105, high: 105, low: 105, close: 105, volume: 1 },
+    ];
+
+    expect(deriveVolatilityStops(series).medianTrueRangePercent).toBeCloseTo(0.05, 5);
+  });
+
+  it('resists a single crash bar that would inflate a mean', () => {
+    const series = bars(Array(99).fill(100), 0.01);
+    series.push({ timestamp: 99 * 60_000, open: 100, high: 100, low: 50, close: 60, volume: 1 });
+
+    expect(deriveVolatilityStops(series).medianTrueRangePercent).toBeCloseTo(0.01, 5);
+  });
+
+  it('clamps the stop between 0.25% and 25%', () => {
+    expect(deriveVolatilityStops(bars(Array(20).fill(100), 0.0001)).stopLossPercent).toBe(0.0025);
+    expect(deriveVolatilityStops(bars(Array(20).fill(100), 0.4)).stopLossPercent).toBe(0.25);
+  });
+
+  it('falls back to the minimum stop when there are too few bars', () => {
+    const stops = deriveVolatilityStops(bars([100], 0.01));
+
+    expect(stops.stopLossPercent).toBe(0.0025);
+    expect(stops.takeProfitPercent).toBe(0.005);
   });
 });

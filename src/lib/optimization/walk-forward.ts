@@ -124,6 +124,10 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       htfInput
     );
 
+    // Stops scale with this window's own volatility, measured on training bars
+    // only, so the out-of-sample test inherits them without seeing test data.
+    const stops = deriveVolatilityStops(trainingCandles);
+
     // 3. Generate weight candidates
     const candidates = generateWeightCandidates(
       baseWeights,
@@ -148,8 +152,8 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
           riskPerTrade: 0.01,
         },
         positionSizePercent: 0.1,
-        stopLossPercent: 0.03,
-        takeProfitPercent: 0.06,
+        stopLossPercent: stops.stopLossPercent,
+        takeProfitPercent: stops.takeProfitPercent,
         feePercent: 0.001,
         startEquity: 10000,
       };
@@ -231,8 +235,8 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
         riskPerTrade: 0.01,
       },
       positionSizePercent: 0.1,
-      stopLossPercent: 0.03,
-      takeProfitPercent: 0.06,
+      stopLossPercent: stops.stopLossPercent,
+      takeProfitPercent: stops.takeProfitPercent,
       feePercent: 0.001,
       startEquity: 10000,
     };
@@ -362,4 +366,63 @@ export function deriveStepSize(
   }
 
   return Math.max(1, Math.floor(steppableBars / targetWindows));
+}
+
+/** Stops sized to a window's volatility, as fractions of entry price. */
+export interface VolatilityStops {
+  stopLossPercent: number;
+  takeProfitPercent: number;
+  medianTrueRangePercent: number;
+}
+
+export const STOP_TRUE_RANGE_MULTIPLE = 2;
+export const TARGET_TRUE_RANGE_MULTIPLE = 4;
+const MIN_STOP_FRACTION = 0.0025;
+const MAX_STOP_FRACTION = 0.25;
+
+/**
+ * Stop-loss and take-profit from the median true range of the given bars.
+ *
+ * A flat 3% stop and 6% target were applied to every style. On 5m candles a 3%
+ * move is rare, and on daily SOL it is an ordinary day, so position-trading
+ * candidates were stopped out constantly (338 trades in 1,440 daily bars) while
+ * intraday stops never came into play. Two median true ranges for the stop and
+ * four for the target keep the previous 1:2 risk-reward at each interval's own
+ * scale. The median resists the occasional crash bar that would inflate a mean.
+ *
+ * The stop is clamped to [0.25%, 25%]; the target keeps the same multiple of it.
+ */
+export function deriveVolatilityStops(candles: OHLCV[]): VolatilityStops {
+  const ranges: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const { high, low } = candles[i];
+    const prevClose = candles[i - 1].close;
+    if (!(prevClose > 0)) continue;
+    const trueRange = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    ranges.push(trueRange / prevClose);
+  }
+
+  if (ranges.length === 0) {
+    const stopLossPercent = MIN_STOP_FRACTION;
+    return {
+      stopLossPercent,
+      takeProfitPercent: stopLossPercent * (TARGET_TRUE_RANGE_MULTIPLE / STOP_TRUE_RANGE_MULTIPLE),
+      medianTrueRangePercent: 0,
+    };
+  }
+
+  ranges.sort((a, b) => a - b);
+  const mid = Math.floor(ranges.length / 2);
+  const median = ranges.length % 2 === 0 ? (ranges[mid - 1] + ranges[mid]) / 2 : ranges[mid];
+
+  const stopLossPercent = Math.min(
+    MAX_STOP_FRACTION,
+    Math.max(MIN_STOP_FRACTION, median * STOP_TRUE_RANGE_MULTIPLE)
+  );
+
+  return {
+    stopLossPercent,
+    takeProfitPercent: stopLossPercent * (TARGET_TRUE_RANGE_MULTIPLE / STOP_TRUE_RANGE_MULTIPLE),
+    medianTrueRangePercent: median,
+  };
 }
