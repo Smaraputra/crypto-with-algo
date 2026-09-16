@@ -18,6 +18,9 @@ interface Preset {
   values: Partial<BacktestConfig>;
 }
 
+// Score levels scaled by 0.8, the ratio of the calibrated buy cutoff (24) to the
+// previous one (30), so each preset keeps its relative selectivity. At the old
+// levels the Conservative preset (40) almost never entered a trade.
 const PRESETS: Preset[] = [
   {
     label: 'Conservative',
@@ -27,8 +30,8 @@ const PRESETS: Preset[] = [
       takeProfitPercent: 0.06,
       positionSizePercent: 0.05,
       allowShorts: false,
-      entryThreshold: 40,
-      exitThreshold: -5,
+      entryThreshold: 32,
+      exitThreshold: -4,
     },
   },
   {
@@ -39,8 +42,8 @@ const PRESETS: Preset[] = [
       takeProfitPercent: 0.10,
       positionSizePercent: 0.10,
       allowShorts: false,
-      entryThreshold: 30,
-      exitThreshold: -10,
+      entryThreshold: 24,
+      exitThreshold: -8,
     },
   },
   {
@@ -51,10 +54,10 @@ const PRESETS: Preset[] = [
       takeProfitPercent: 0.15,
       positionSizePercent: 0.20,
       allowShorts: true,
-      entryThreshold: 20,
-      exitThreshold: -15,
-      shortEntryThreshold: -20,
-      shortExitThreshold: 15,
+      entryThreshold: 16,
+      exitThreshold: -12,
+      shortEntryThreshold: -16,
+      shortExitThreshold: 12,
     },
   },
 ];

@@ -8,7 +8,8 @@ import type { OHLCV } from '@/types/market';
 import type { HtfContext, SentimentData, SignalWeights } from '@/types/signal';
 import { DEFAULT_WEIGHTS } from '@/types/signal';
 
-import { computeSignalScore } from './scorer';
+import { computeSignalScore, getTier } from './scorer';
+import { TIER_BUY_CUTOFF, TIER_STRONG_CUTOFF } from './calibration';
 
 function generateCandles(
   count: number,
@@ -96,15 +97,15 @@ describe('computeSignalScore', () => {
   it('tier matches score range - strong buy', () => {
     const suite = makeIndicatorSuite('up');
     const result = computeSignalScore(suite);
-    if (result.score > 60) expect(result.tier).toBe('strong_buy');
-    else if (result.score > 30) expect(result.tier).toBe('buy');
+    if (result.score > TIER_STRONG_CUTOFF) expect(result.tier).toBe('strong_buy');
+    else if (result.score > TIER_BUY_CUTOFF) expect(result.tier).toBe('buy');
   });
 
   it('tier matches score range - sell', () => {
     const suite = makeIndicatorSuite('down');
     const result = computeSignalScore(suite);
-    if (result.score < -60) expect(result.tier).toBe('strong_sell');
-    else if (result.score < -30) expect(result.tier).toBe('sell');
+    if (result.score < -TIER_STRONG_CUTOFF) expect(result.tier).toBe('strong_sell');
+    else if (result.score < -TIER_BUY_CUTOFF) expect(result.tier).toBe('sell');
   });
 
   it('confidence degrades without futures data', () => {
@@ -447,5 +448,30 @@ describe('computeSignalScore', () => {
     expect(calmResult.confidence).toBe(100);
     expect(moderateResult.confidence).toBe(95);
     expect(extremeResult.confidence).toBe(85);
+  });
+});
+
+describe('getTier', () => {
+  it.each([
+    [0, 'neutral'],
+    [24, 'neutral'],
+    [24.1, 'buy'],
+    [30, 'buy'],
+    [30.1, 'strong_buy'],
+    [-24, 'neutral'],
+    [-24.1, 'sell'],
+    [-30, 'sell'],
+    [-30.1, 'strong_sell'],
+    [100, 'strong_buy'],
+    [-100, 'strong_sell'],
+  ] as const)('maps %s to %s', (score, tier) => {
+    expect(getTier(score)).toBe(tier);
+  });
+
+  it('keeps strong tiers reachable within the measured score range', () => {
+    // The largest |score| observed for any style/interval on production data
+    // was about 43 (scalping 5m). A strong cutoff above that cannot fire.
+    expect(TIER_STRONG_CUTOFF).toBeLessThan(43);
+    expect(TIER_BUY_CUTOFF).toBeLessThan(TIER_STRONG_CUTOFF);
   });
 });

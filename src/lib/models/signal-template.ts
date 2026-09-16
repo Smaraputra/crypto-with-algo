@@ -1,5 +1,6 @@
 import mongoose, { Schema, type Document } from 'mongoose';
 import type { SignalWeights } from '@/types/signal';
+import { STRATEGY_EXIT_LEVEL, TIER_BUY_CUTOFF } from '@/lib/signals/calibration';
 
 export type TradingStyle = 'scalping' | 'day_trading' | 'swing_trading' | 'position_trading';
 
@@ -112,35 +113,31 @@ export const DEFAULT_TEMPLATE_WEIGHTS: Record<TradingStyle, SignalWeights> = {
   },
 };
 
-// Default thresholds per trading style
+/**
+ * Entry and exit levels for strategies built on a style's signal.
+ *
+ * Every style enters exactly where its live signal reads buy or sell, so an
+ * activated template trades on the tier a user sees. The previous per-style
+ * levels (50/40/35/30) inverted against the measured score ranges: scalping,
+ * whose scores never passed about 43, required 50 and could not trade at all,
+ * while position trading entered on ordinary noise. Measurements are in
+ * src/lib/signals/calibration.ts.
+ */
+const CALIBRATED_THRESHOLDS: ISignalTemplate['thresholds'] = {
+  entryThreshold: TIER_BUY_CUTOFF,
+  exitThreshold: STRATEGY_EXIT_LEVEL,
+  shortEntryThreshold: -TIER_BUY_CUTOFF,
+  shortExitThreshold: -STRATEGY_EXIT_LEVEL,
+};
+
 export const DEFAULT_TEMPLATE_THRESHOLDS: Record<
   TradingStyle,
   ISignalTemplate['thresholds']
 > = {
-  scalping: {
-    entryThreshold: 50, // Higher threshold for scalping (more selective)
-    exitThreshold: 10,
-    shortEntryThreshold: -50,
-    shortExitThreshold: -10,
-  },
-  day_trading: {
-    entryThreshold: 40,
-    exitThreshold: 10,
-    shortEntryThreshold: -40,
-    shortExitThreshold: -10,
-  },
-  swing_trading: {
-    entryThreshold: 35,
-    exitThreshold: 5,
-    shortEntryThreshold: -35,
-    shortExitThreshold: -5,
-  },
-  position_trading: {
-    entryThreshold: 30, // Lower threshold (longer-term trends)
-    exitThreshold: 0,
-    shortEntryThreshold: -30,
-    shortExitThreshold: 0,
-  },
+  scalping: { ...CALIBRATED_THRESHOLDS },
+  day_trading: { ...CALIBRATED_THRESHOLDS },
+  swing_trading: { ...CALIBRATED_THRESHOLDS },
+  position_trading: { ...CALIBRATED_THRESHOLDS },
 };
 
 export const SignalTemplate =

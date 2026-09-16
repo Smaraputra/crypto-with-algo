@@ -138,7 +138,7 @@ describe('compute-engine', () => {
         insertedDocs[0].session
       );
       // v2 schema: htf confluence from the 4h confirmation interval
-      expect(insertedDocs[0].configVersion).toBe(2);
+      expect(insertedDocs[0].configVersion).toBe(3);
       expect(insertedDocs[0].htfContext).not.toBeNull();
       expect(insertedDocs[0].htfContext.interval).toBe('4h');
       expect(['bullish', 'bearish', 'neutral']).toContain(insertedDocs[0].htfContext.trendDirection);

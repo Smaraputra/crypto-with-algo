@@ -344,7 +344,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
-        configVersion: 2, // v2: htf category + session + htfContext
+        configVersion: 3, // v3: calibrated tier cutoffs (24/30); v2: htf category + session + htfContext
         candleTimestamp: latestCandleTs,
         session,
         htfContext: htfContext

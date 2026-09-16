@@ -10,6 +10,7 @@ import type {
   SignalWeights,
 } from '@/types/signal';
 import { DEFAULT_WEIGHTS } from '@/types/signal';
+import { TIER_BUY_CUTOFF, TIER_STRONG_CUTOFF } from './calibration';
 
 function directionToMultiplier(direction: SignalDirection): number {
   if (direction === 'bullish') return 1;
@@ -299,11 +300,12 @@ function scoreHtf(htfContext: HtfContext | null): SignalComponent {
   };
 }
 
-function getTier(score: number): SignalTier {
-  if (score > 60) return 'strong_buy';
-  if (score > 30) return 'buy';
-  if (score < -60) return 'strong_sell';
-  if (score < -30) return 'sell';
+/** Cutoffs are measured, not chosen: see calibration.ts. */
+export function getTier(score: number): SignalTier {
+  if (score > TIER_STRONG_CUTOFF) return 'strong_buy';
+  if (score > TIER_BUY_CUTOFF) return 'buy';
+  if (score < -TIER_STRONG_CUTOFF) return 'strong_sell';
+  if (score < -TIER_BUY_CUTOFF) return 'sell';
   return 'neutral';
 }
 
