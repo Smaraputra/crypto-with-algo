@@ -1,4 +1,6 @@
 import { redis } from '@/lib/redis';
+import { fetchTickers } from '@/lib/binance';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
 export interface SymbolVolume {
   symbol: string;
@@ -11,14 +13,20 @@ export interface SymbolVolume {
 export const FALLBACK_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT'];
 
 /**
- * Fetch top N USDT symbols by 24hr volume from Binance
- * Caches results in Redis for 24hrs
+ * Top N symbols by 24hr quote volume, drawn from SIGNAL_SYMBOLS only.
+ * Caches results in Redis for 24hrs.
+ *
+ * Ranking the whole Binance USDT market is wrong for optimization: stablecoin
+ * pairs lead it (USDCUSDT, USD1USDT), and any symbol outside SIGNAL_SYMBOLS has
+ * no stored snapshots, so its backtests would run without futures or sentiment
+ * data. The orchestrator assigns symbols to styles round-robin, so the first
+ * entries matter most.
  */
 export async function getTopSymbols(
   count: number = 5,
   forceRefresh: boolean = false
 ): Promise<string[]> {
-  const cacheKey = 'top-symbols:24h';
+  const cacheKey = 'top-symbols:signal-universe:24h';
 
   try {
     // Check cache first
@@ -32,39 +40,20 @@ export async function getTopSymbols(
       }
     }
 
-    // Fetch from Binance
-    const binanceUrl = process.env.BINANCE_API_URL || 'https://api.binance.com';
-    const response = await fetch(`${binanceUrl}/api/v3/ticker/24hr`);
+    // Uses the shared client so BINANCE_API_URL keeps one meaning everywhere.
+    // It already includes /api/v3; appending it again here produced a 404 in
+    // production and silently fell back on every run.
+    const universe = new Set<string>(SIGNAL_SYMBOLS);
+    const ranked = (await fetchTickers())
+      .filter((t) => universe.has(t.symbol))
+      .map((t) => ({ symbol: t.symbol, quoteVolume: parseFloat(t.quoteVolume) }))
+      .filter((t) => !isNaN(t.quoteVolume))
+      .sort((a, b) => b.quoteVolume - a.quoteVolume);
 
-    if (!response.ok) {
-      console.error('Binance API error:', response.status, response.statusText);
-      return FALLBACK_SYMBOLS.slice(0, count);
-    }
-
-    interface BinanceTicker {
-      symbol: string;
-      quoteVolume: string;
-    }
-
-    const tickers = (await response.json()) as BinanceTicker[];
-
-    // Filter for USDT pairs only
-    const usdtPairs = tickers
-      .filter((t) => t.symbol.endsWith('USDT'))
-      .map((t) => ({
-        symbol: t.symbol,
-        quoteVolume: parseFloat(t.quoteVolume),
-      }))
-      .filter((t) => !isNaN(t.quoteVolume));
-
-    // Sort by volume descending
-    usdtPairs.sort((a, b) => b.quoteVolume - a.quoteVolume);
-
-    // Take top symbols
-    const topSymbols = usdtPairs.slice(0, Math.max(count, 10)).map((p) => p.symbol);
+    const topSymbols = ranked.slice(0, Math.max(count, 10)).map((p) => p.symbol);
 
     if (topSymbols.length === 0) {
-      console.error('No USDT pairs found in Binance response');
+      console.error('No signal symbols found in Binance ticker response');
       return FALLBACK_SYMBOLS.slice(0, count);
     }
 
