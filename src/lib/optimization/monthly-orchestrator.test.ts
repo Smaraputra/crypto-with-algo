@@ -280,6 +280,48 @@ describe('monthly-orchestrator', () => {
     }
   });
 
+  it('marks the optimization job failed when walk-forward throws', async () => {
+    // Regression: the catch block only updated the CronRun, so production job
+    // documents stayed 'running' after every style had failed.
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockRejectedValue(new Error('Cannot create ensemble from empty results'));
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'failed' });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await runMonthlyOptimization({
+      cronRunId,
+      topSymbols: ['BTCUSDT'],
+      autoActivate: false,
+    });
+
+    expect(result.failedJobs).toBe(4);
+    const failedUpdates = mockOptimizationJobUpdateOne.mock.calls.filter(
+      (call) => (call[1] as { $set?: { status?: string } }).$set?.status === 'failed'
+    );
+    expect(failedUpdates).toHaveLength(4);
+    expect(failedUpdates[0][1]).toEqual({
+      $set: {
+        status: 'failed',
+        error: 'Cannot create ensemble from empty results',
+        completedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it('does not touch job documents when a style fails before its job exists', async () => {
+    mockGetCandleRange.mockResolvedValue({ oldest: 1, newest: Date.now() });
+    mockGetCandles.mockResolvedValue(makeCandles(100)); // below the 400-bar floor
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'failed' });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await runMonthlyOptimization({ cronRunId, topSymbols: ['BTCUSDT'], autoActivate: false });
+
+    expect(mockOptimizationJobCreate).not.toHaveBeenCalled();
+    expect(mockOptimizationJobUpdateOne).not.toHaveBeenCalled();
+  });
+
   it('records error and continues when one style has insufficient data', async () => {
     // First style returns insufficient candles, rest succeed
     let callCount = 0;
