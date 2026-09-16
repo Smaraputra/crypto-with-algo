@@ -1,6 +1,6 @@
 /**
  * RSS fixtures shaped after the real publisher feeds (CoinDesk, Cointelegraph,
- * Decrypt, CryptoSlate): CDATA-wrapped links and descriptions, HTML inside the
+ * Decrypt, The Block): CDATA-wrapped links and descriptions, HTML inside the
  * summary, repeated <category> elements, RFC 822 dates.
  */
 export const cointelegraphRss = `<?xml version="1.0" encoding="UTF-8"?>
