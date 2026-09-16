@@ -63,6 +63,17 @@ describe('buildBackfillSnapshots', () => {
     }
   });
 
+  it('omits markPrice from funding events that predate it, keeping the rate', () => {
+    // Regression: Binance returns markPrice "" before mid-2023; NaN failed the
+    // schema cast and every 48-month 1d backfill wrote nothing.
+    const { snapshots, coverage } = build({
+      fundingEvents: [{ symbol: 'BTCUSDT', fundingTime: T0, fundingRate: 0.0001, markPrice: Number.NaN }],
+    });
+
+    expect(snapshots[0].data.fundingRate).toEqual({ rate: 0.0001 });
+    expect(coverage.fundingRate).toBeGreaterThan(0);
+  });
+
   it('never uses a funding event from after the bar', () => {
     const { snapshots } = build({
       fundingEvents: [{ symbol: 'BTCUSDT', fundingTime: T0 + 5 * HOUR, fundingRate: 0.0002, markPrice: 80_000 }],

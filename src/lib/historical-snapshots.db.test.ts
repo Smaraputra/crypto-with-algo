@@ -99,6 +99,14 @@ describe('bulkUpsertSnapshots', () => {
     expect(doc?.data.newsSentiment).toMatchObject({ count: 20 });
   });
 
+  it('stores funding without markPrice, as pre-2023 history requires', async () => {
+    await bulkUpsertSnapshots([{ ...KEY, data: { fundingRate: { rate: 0.0001 } } }]);
+
+    const doc = await stored();
+    expect(doc?.data.fundingRate?.rate).toBe(0.0001);
+    expect(doc?.data.fundingRate?.markPrice).toBeUndefined();
+  });
+
   it('does nothing for an empty batch', async () => {
     await expect(bulkUpsertSnapshots([])).resolves.toBeUndefined();
     expect(await HistoricalSnapshot.countDocuments()).toBe(0);
