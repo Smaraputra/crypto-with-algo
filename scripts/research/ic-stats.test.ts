@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   bootstrapCi,
+  bootstrapCiOfMean,
   forwardReturns,
   hacTStatOfMean,
   icNonOverlapping,
@@ -13,6 +14,7 @@ import {
   rollingByQuarter,
   signHitRate,
   spearman,
+  standardizedRankProducts,
   stationaryBlockBootstrapIndices,
 } from './ic-stats';
 
@@ -269,6 +271,83 @@ describe('bootstrapCi', () => {
 
     expect(low).toBeLessThanOrEqual(trueStat);
     expect(high).toBeGreaterThanOrEqual(trueStat);
+  });
+});
+
+describe('standardizedRankProducts', () => {
+  it('mean equals spearman on the same overlapping pairs within 1e-9', () => {
+    const h = 4;
+    const closes: number[] = [];
+    for (let i = 0; i < 60; i++) {
+      closes.push(100 + i + Math.sin(i / 3) * 3);
+    }
+    const fwd = forwardReturns(closes, h);
+    // Same NaN-injection pattern as the icWithHac test above, to exercise the same pairwise-drop path.
+    const factor = closes.map((_, i) => (i % 7 === 0 ? NaN : Math.sin(i / 5)));
+
+    const d = standardizedRankProducts(factor, fwd);
+    const meanD = d.reduce((s, v) => s + v, 0) / d.length;
+
+    const { ic, n } = icWithHac(factor, fwd, h);
+    expect(d).toHaveLength(n);
+    expect(meanD).toBeCloseTo(ic, 9);
+  });
+
+  it('returns an empty array when fewer than 3 overlapping pairs remain', () => {
+    expect(standardizedRankProducts([1, NaN, NaN], [0.1, null, 0.2])).toEqual([]);
+  });
+});
+
+describe('bootstrapCiOfMean', () => {
+  const next = makeRng(777);
+  const factor: number[] = [];
+  const fwd: number[] = [];
+  for (let i = 0; i < 200; i++) {
+    const f = next() * 10 - 5;
+    const noise = (next() - 0.5) * 2;
+    factor.push(f);
+    fwd.push(f * 0.5 + noise);
+  }
+  const d = standardizedRankProducts(factor, fwd);
+  const trueIc = icWithHac(factor, fwd, 1).ic;
+
+  it('point equals the mean of d, which equals the full-sample ic', () => {
+    const { point } = bootstrapCiOfMean(d, { iterations: 10, meanBlockLen: 5, seed: 1 });
+    expect(point).toBeCloseTo(trueIc, 9);
+  });
+
+  it('is deterministic for a given seed', () => {
+    const opts = { iterations: 300, meanBlockLen: 5, seed: 123 };
+    const a = bootstrapCiOfMean(d, opts);
+    const b = bootstrapCiOfMean(d, opts);
+    expect(a).toEqual(b);
+  });
+
+  it('the interval contains the full-sample ic for a synthetic linear relation', () => {
+    const { low, high } = bootstrapCiOfMean(d, { iterations: 500, meanBlockLen: 5, seed: 123 });
+    expect(low).toBeLessThanOrEqual(trueIc);
+    expect(high).toBeGreaterThanOrEqual(trueIc);
+  });
+
+  it('the estimate stabilizes (varies less across seeds) with more iterations', () => {
+    const seeds = [1, 2, 3, 4, 5, 6, 7, 8];
+    const widthOf = (iterations: number, seed: number) => {
+      const { low, high } = bootstrapCiOfMean(d, { iterations, meanBlockLen: 5, seed });
+      return high - low;
+    };
+    const stddev = (values: number[]) => {
+      const mean = values.reduce((s, v) => s + v, 0) / values.length;
+      return Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length);
+    };
+
+    const fewIterations = seeds.map((seed) => widthOf(20, seed));
+    const manyIterations = seeds.map((seed) => widthOf(2000, seed));
+
+    // More iterations means less Monte Carlo noise in the percentile
+    // estimate, so the width estimate itself varies less across otherwise
+    // unrelated seeds (the interval's true width is fixed; only the
+    // estimate of it narrows in its own variability with more iterations).
+    expect(stddev(manyIterations)).toBeLessThan(stddev(fewIterations));
   });
 });
 

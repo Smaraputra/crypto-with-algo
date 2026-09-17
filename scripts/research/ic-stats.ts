@@ -359,6 +359,62 @@ export function bootstrapCi(
   return { low: percentile(stats, alpha / 2), high: percentile(stats, 1 - alpha / 2) };
 }
 
+/**
+ * The per-pair terms d_i = zf_i * zr_i that icWithHac averages to get `ic`
+ * (zf/zr are z-scores of the ranks of the overlapping finite (factor, fwd)
+ * pairs): mean(d) is exactly the Spearman IC. Returning the series itself,
+ * rather than just its mean, lets a caller bootstrap that mean without
+ * re-ranking inside every resample -- see bootstrapCiOfMean. Empty when
+ * fewer than 3 finite pairs are available (mirrors icWithHac's own
+ * threshold).
+ */
+export function standardizedRankProducts(factor: number[], fwd: (number | null)[]): number[] {
+  const { f, r } = overlappingPairs(factor, fwd);
+  if (f.length < 3) return [];
+
+  const zf = standardize(rank(f));
+  const zr = standardize(rank(r));
+  return zf.map((v, i) => v * zr[i]);
+}
+
+/**
+ * Percentile bootstrap CI for the mean of `series`, block-resampled with the
+ * same stationary block bootstrap and seed/iteration semantics as
+ * bootstrapCi. Unlike bootstrapCi, each iteration only resamples indices and
+ * averages -- O(n), no sorting -- so this is cheap enough to run per
+ * candidate cell even at a large sample size.
+ *
+ * Combined with standardizedRankProducts, this is the fixed-rank block
+ * bootstrap approximation to a Spearman IC's confidence interval: ranks are
+ * computed once, on the full (sub)sample, before resampling, not
+ * recomputed within each individual resample. That is standard practice at
+ * this sample size (re-ranking every resample of ~10^5 pairs, ~200-1000
+ * times, is the O(m log m)-per-iteration cost this function exists to
+ * avoid); it trades a small amount of exactness in each individual
+ * resample's rank correlation for a bootstrap that is actually affordable
+ * to run for every gated cell.
+ */
+export function bootstrapCiOfMean(
+  series: number[],
+  opts: { iterations: number; meanBlockLen: number; seed: number; alpha?: number }
+): { low: number; high: number; point: number } {
+  const alpha = opts.alpha ?? 0.05;
+  const n = series.length;
+  const point = n === 0 ? NaN : series.reduce((s, v) => s + v, 0) / n;
+
+  const stats: number[] = [];
+  for (let iter = 0; iter < opts.iterations; iter++) {
+    const iterSeed = (opts.seed + iter * 0x9e3779b1) >>> 0;
+    const idxs = stationaryBlockBootstrapIndices(n, opts.meanBlockLen, iterSeed);
+    let sum = 0;
+    for (const i of idxs) sum += series[i];
+    stats.push(sum / n);
+  }
+
+  stats.sort((a, b) => a - b);
+  return { low: percentile(stats, alpha / 2), high: percentile(stats, 1 - alpha / 2), point };
+}
+
 /** Quarter label like '2025Q3', evaluated in UTC. */
 export function quarterOf(timestampMs: number): string {
   const date = new Date(timestampMs);

@@ -10,13 +10,25 @@
  *
  * Reads a dataset exported by export-dataset.ts (via load-dataset.ts's
  * lockbox-aware loaders) and never touches Mongo.
+ *
+ * bootstrapCi95 is a fixed-rank block bootstrap of the IC: ranks are
+ * computed once per (sub)sample (ic-stats.ts's standardizedRankProducts),
+ * not recomputed inside every resample, and only the resulting per-pair
+ * products are block-bootstrapped (bootstrapCiOfMean). This is an
+ * approximation -- a resample's "true" rank correlation would re-rank its
+ * own resampled values -- but a standard one at this sample size: re-ranking
+ * on every resample (ic-stats.ts's own bootstrapCi, still available there,
+ * unused by this CLI) was measured at roughly 21 seconds per gated cell at
+ * this file's maxPairs/iterations defaults; see the C3 report's fix-round 2
+ * entry for the fixed-rank measurement and the round 1 entry for the
+ * re-ranking one.
  */
 
 import { execFileSync } from 'child_process';
 import { mkdir, writeFile } from 'fs/promises';
 import { dirname } from 'path';
 import {
-  bootstrapCi,
+  bootstrapCiOfMean,
   forwardReturns,
   icNonOverlapping,
   icWithHac,
@@ -24,7 +36,7 @@ import {
   quantileSpread,
   rollingByQuarter,
   signHitRate,
-  spearman,
+  standardizedRankProducts,
 } from './ic-stats';
 import { computeFactorMatrix, type FactorMatrix } from './factors';
 import { loadCandles, loadHtf, loadManifest, loadSnapshots, verifyManifest } from './load-dataset';
@@ -272,12 +284,13 @@ function pickSubsampleIndices(len: number, maxLen: number, seed: number): number
 
 /**
  * Reduces (factor, fwd) to at most maxPairs positionally-aligned rows before
- * they reach bootstrapCi, when the pooled series is larger than that. A
- * pooled 5m/10-symbol series is on the order of 1M rows, and bootstrapCi's
- * cost is dominated by re-ranking (sorting) the resampled arrays on every
- * iteration, so bounding the input size bounds the cost per iteration
- * regardless of how large the underlying dataset is. Below maxPairs, both
- * arrays are returned unchanged.
+ * they reach standardizedRankProducts/bootstrapCiOfMean, when the pooled
+ * series is larger than that. A pooled 5m/10-symbol series is on the order
+ * of 1M rows; ranking is O(m log m) even done once, and each bootstrap
+ * iteration is still O(m), so bounding the input size bounds both the
+ * one-time ranking cost and the per-iteration cost regardless of how large
+ * the underlying dataset is. Below maxPairs, both arrays are returned
+ * unchanged.
  */
 function subsampleForBootstrap(
   factor: number[],
@@ -338,7 +351,12 @@ function buildHorizonStat(
   let bootstrapCi95: [number, number] | null = null;
   if (bootstrap && (bootstrap.gateAbsT === null || Math.abs(overlap.t) >= bootstrap.gateAbsT)) {
     const sample = subsampleForBootstrap(factorArr, fwd, bootstrap.maxPairs, bootstrap.seed);
-    const ci = bootstrapCi(sample.factor, sample.fwd, (f, r) => spearman(f, r), {
+    // Fixed-rank block bootstrap (see this file's header comment): ranks are
+    // computed once by standardizedRankProducts, not re-ranked per resample,
+    // so bootstrapCiOfMean only resamples and averages -- O(n) per
+    // iteration, no sorting.
+    const d = standardizedRankProducts(sample.factor, sample.fwd);
+    const ci = bootstrapCiOfMean(d, {
       iterations: bootstrap.iterations,
       meanBlockLen: horizon,
       seed: bootstrap.seed,
@@ -443,9 +461,13 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
   // but only actually computed for cells whose pooled HAC |icT| clears
   // BOOTSTRAP_GATE_ABS_T (a ruling from the controller after C3's initial
   // report flagged that "always computed" at the default --bootstrap-n
-  // (formerly 1000) was on the order of 15 minutes per pooled cell at full
-  // production scale -- see the fix-round entry in the C3 report for the
-  // benchmark). Cells below the gate carry bootstrapCi95: null.
+  // (formerly 1000), re-ranking every resample, was on the order of 15
+  // minutes per pooled cell at full production scale; a second ruling then
+  // replaced the re-ranking bootstrap with the fixed-rank one this file's
+  // header describes, at roughly 21 seconds per gated cell before the
+  // fixed-rank change and well under a second after it -- see the C3
+  // report's two fix-round entries for both benchmarks). Cells below the
+  // gate carry bootstrapCi95: null.
   const bootstrapPooledOpt = {
     iterations: args.bootstrapN,
     seed: args.bootstrapSeed,
