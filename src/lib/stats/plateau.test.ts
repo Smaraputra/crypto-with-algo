@@ -92,4 +92,36 @@ describe('parameterPlateauScore', () => {
     const result = parameterPlateauScore(results, best, 1);
     expect(result.neighbors).toBe(1);
   });
+
+  it('disqualifies a row missing a dimension key instead of treating it as close', () => {
+    const best = { fast: 10, slow: 20 };
+    const results = [
+      { params: { fast: 10, slow: 20 }, metric: 2.0 },
+      { params: { fast: 11, slow: 20 }, metric: 1.9 }, // a genuine, close neighbor
+      // Missing "slow" entirely: params[slow] is undefined, so the naive
+      // Math.abs(undefined - best.slow) / range is NaN, and a NaN compared
+      // with > silently fails, which previously let this row through as a
+      // "neighbor" despite being 979 units away on "fast".
+      { params: { fast: 989 } as unknown as Record<string, number>, metric: 100 },
+    ];
+    // Radius wide enough that the malformed row's "fast" distance alone
+    // (|989-10|/979 ~= 1.0) would pass if its missing "slow" were ignored.
+    const result = parameterPlateauScore(results, best, 1.0);
+    expect(result.neighbors).toBe(1);
+    expect(result.score).toBeCloseTo(1.9 / 2.0, 10);
+  });
+
+  it('returns NaN, not a misleading score, when best matches no entry in results', () => {
+    // best is not present in results at all, so bestMetric falls back to 0
+    // even though several rows land within the radius and neighbors > 0.
+    const best = { fast: 15, slow: 20 };
+    const results = [
+      { params: { fast: 10, slow: 20 }, metric: 2.0 },
+      { params: { fast: 20, slow: 20 }, metric: 1.5 },
+    ];
+    const result = parameterPlateauScore(results, best, 0.5);
+    expect(result.bestMetric).toBe(0);
+    expect(result.neighbors).toBeGreaterThan(0);
+    expect(Number.isNaN(result.score)).toBe(true);
+  });
 });

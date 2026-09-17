@@ -4,6 +4,13 @@
  * results in the same optimization run. A score near 1 means neighbors
  * perform about as well as the best (a plateau); a low score means the
  * best is an isolated spike.
+ *
+ * `best` must be one of the entries in `results` (matched by exact equality
+ * on every key of `best`, via paramsEqual) - that entry supplies bestMetric
+ * and is excluded from its own neighbor search. If no entry in `results`
+ * matches `best`, bestMetric falls back to 0, which forces `score` to NaN
+ * (see the `bestMetric > 0` gate below) rather than reporting a misleading
+ * ratio computed against a metric of 0.
  */
 
 interface OptimizationResult {
@@ -28,8 +35,11 @@ export function parameterPlateauScore(
 
   const ranges: Record<string, number> = {};
   for (const dim of dims) {
-    const values = results.map((r) => r.params[dim]);
-    ranges[dim] = Math.max(...values) - Math.min(...values);
+    // Only finite values establish the range, so one row missing this
+    // dimension (params[dim] === undefined, feeding NaN into Math.max/min)
+    // does not poison the distance calculation for every other row on it.
+    const values = results.map((r) => r.params[dim]).filter((v) => Number.isFinite(v));
+    ranges[dim] = values.length > 0 ? Math.max(...values) - Math.min(...values) : NaN;
   }
 
   const bestEntry = results.find((r) => paramsEqual(r.params, dims, best));
@@ -40,13 +50,23 @@ export function parameterPlateauScore(
     if (paramsEqual(result.params, dims, best)) continue;
 
     let maxNormalizedDistance = 0;
+    let disqualified = false;
     for (const dim of dims) {
       const range = ranges[dim];
-      const distance = range === 0 ? 0 : Math.abs(result.params[dim] - best[dim]) / range;
+      const param = result.params[dim];
+      const distance =
+        param === undefined ? NaN : range === 0 ? 0 : Math.abs(param - best[dim]) / range;
+      // A non-finite range, param, or distance (e.g. a row missing this
+      // dimension) disqualifies the row rather than silently sorting as
+      // "close" (0 or NaN would otherwise pass an <= radius check).
+      if (!Number.isFinite(distance)) {
+        disqualified = true;
+        break;
+      }
       if (distance > maxNormalizedDistance) maxNormalizedDistance = distance;
     }
 
-    if (maxNormalizedDistance <= neighborRadius) {
+    if (!disqualified && maxNormalizedDistance <= neighborRadius) {
       neighborMetrics.push(result.metric);
     }
   }

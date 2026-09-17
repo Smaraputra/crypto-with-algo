@@ -81,8 +81,15 @@ export function bootstrapCi(
 /**
  * Max peak-to-trough drawdown of the equity path built by accumulating pnls
  * onto startEquity, expressed as a percent of the peak (e.g. 12.5 for 12.5%).
+ * Throws RangeError for startEquity <= 0: zero or negative starting equity
+ * has no meaningful "percent of the peak", and silently returning 0 would
+ * read as "no drawdown" to a validation gate rather than as invalid input.
  */
 export function maxDrawdownPercentOfPnl(pnls: number[], startEquity: number): number {
+  if (startEquity <= 0) {
+    throw new RangeError('maxDrawdownPercentOfPnl: startEquity must be > 0');
+  }
+
   let equity = startEquity;
   let peak = startEquity;
   let maxDrawdown = 0;
@@ -90,10 +97,8 @@ export function maxDrawdownPercentOfPnl(pnls: number[], startEquity: number): nu
   for (const pnl of pnls) {
     equity += pnl;
     if (equity > peak) peak = equity;
-    if (peak > 0) {
-      const drawdown = (peak - equity) / peak;
-      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-    }
+    const drawdown = (peak - equity) / peak;
+    if (drawdown > maxDrawdown) maxDrawdown = drawdown;
   }
 
   return maxDrawdown * 100;

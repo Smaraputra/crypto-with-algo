@@ -10,6 +10,13 @@ describe('seeded-random', () => {
     expect(seqA).toEqual(seqB);
   });
 
+  it('matches the canonical mulberry32 stream for seed 42', () => {
+    const random = createSeededRandom(42);
+    expect(random()).toBe(0.6011037519201636);
+    expect(random()).toBe(0.44829055899754167);
+    expect(random()).toBe(0.8524657934904099);
+  });
+
   it('produces different sequences for different seeds', () => {
     const a = createSeededRandom(1);
     const b = createSeededRandom(2);

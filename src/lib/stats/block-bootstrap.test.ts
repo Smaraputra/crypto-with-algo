@@ -20,6 +20,12 @@ describe('block-bootstrap', () => {
       }
     });
 
+    it('matches pinned indices for a fixed seed (regression against the algorithm)', () => {
+      const random = createSeededRandom(1);
+      const indices = stationaryBlockBootstrapIndices(10, 3, random);
+      expect(indices.slice(0, 8)).toEqual([6, 7, 8, 9, 0, 1, 4, 4]);
+    });
+
     it('produces run lengths whose mean is close to meanBlockLen over many draws', () => {
       const random = createSeededRandom(99);
       const meanBlockLen = 8;
@@ -64,6 +70,13 @@ describe('block-bootstrap', () => {
       expect(a).toEqual(b);
     });
 
+    it('matches pinned low/high for a fixed seed (regression against the algorithm)', () => {
+      const series = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      const result = bootstrapCi(series, meanOf, { iterations: 200, meanBlockLen: 3, seed: 42 });
+      expect(result.low).toBe(3.5);
+      expect(result.high).toBe(7.2);
+    });
+
     it('reports point as statistic(series) and samples as iterations', () => {
       const series = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
       const result = bootstrapCi(series, meanOf, { iterations: 150, meanBlockLen: 3, seed: 7 });
@@ -105,6 +118,13 @@ describe('block-bootstrap', () => {
       const pnls = [-200, 50];
       const result = maxDrawdownPercentOfPnl(pnls, 1000);
       expect(result).toBeCloseTo((200 / 1000) * 100, 6);
+    });
+
+    it('throws RangeError for startEquity <= 0', () => {
+      // Silently returning 0 would read as "no drawdown" to a validation
+      // gate, rather than as invalid input.
+      expect(() => maxDrawdownPercentOfPnl([100, -50], 0)).toThrow(RangeError);
+      expect(() => maxDrawdownPercentOfPnl([100, -50], -1000)).toThrow(RangeError);
     });
   });
 });

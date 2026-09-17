@@ -13,9 +13,17 @@ const EULER_MASCHERONI = 0.5772156649;
 /**
  * Expected value of the maximum Sharpe ratio observed across numTrials
  * independent trials, given the variance of Sharpe ratios across those
- * trials. Returns 0 for a single trial (there is no selection effect).
+ * trials. varianceOfTrialSharpes is the sample variance of perPeriodSharpe()
+ * computed once per trial across the trials of the optimization grid (i.e.
+ * the spread of per-trial per-period Sharpe ratios) - per period, never
+ * annualized, matching every other Sharpe value in this module. Returns 0
+ * for a single trial (there is no selection effect). Throws RangeError if
+ * varianceOfTrialSharpes is negative, since a variance cannot be negative.
  */
 export function expectedMaxSharpe(numTrials: number, varianceOfTrialSharpes: number): number {
+  if (varianceOfTrialSharpes < 0) {
+    throw new RangeError('expectedMaxSharpe: varianceOfTrialSharpes must be >= 0');
+  }
   if (numTrials <= 1) return 0;
 
   const gamma = EULER_MASCHERONI;
@@ -26,9 +34,27 @@ export function expectedMaxSharpe(numTrials: number, varianceOfTrialSharpes: num
 }
 
 /**
+ * Radicand of the probabilistic Sharpe ratio's standard error term:
+ * 1 - skewness * observedSharpe + (kurtosis - 1) / 4 * observedSharpe^2.
+ * Exposed so a caller (the validation gate) can detect and report the
+ * degenerate case on its own: extreme skewness/kurtosis combined with the
+ * observed Sharpe magnitude can drive this non-positive (e.g.
+ * psrRadicand(0.3, 6, 10) is about -0.597), which puts the sample's moments
+ * outside the formula's domain - Bailey and Lopez de Prado's derivation
+ * assumes this term behaves like a variance. probabilisticSharpe returns
+ * NaN in that case rather than a bare NaN from an unchecked sqrt of a
+ * negative number, and this helper lets a caller explain why.
+ */
+export function psrRadicand(observedSharpe: number, skewness: number, kurtosis: number): number {
+  return 1 - skewness * observedSharpe + ((kurtosis - 1) / 4) * observedSharpe ** 2;
+}
+
+/**
  * Probability that the true Sharpe ratio exceeds benchmarkSharpe, given an
  * observed Sharpe estimated over nObservations periods with the sample's
- * skewness and kurtosis (raw fourth moment, not excess).
+ * skewness and kurtosis (raw fourth moment, not excess). Returns NaN when
+ * psrRadicand is non-positive - the moments are outside the formula's
+ * domain (see psrRadicand's doc comment).
  */
 export function probabilisticSharpe(
   observedSharpe: number,
@@ -37,10 +63,11 @@ export function probabilisticSharpe(
   skewness: number,
   kurtosis: number
 ): number {
+  const radicand = psrRadicand(observedSharpe, skewness, kurtosis);
+  if (radicand <= 0) return NaN;
+
   const numerator = (observedSharpe - benchmarkSharpe) * Math.sqrt(nObservations - 1);
-  const denominator = Math.sqrt(
-    1 - skewness * observedSharpe + ((kurtosis - 1) / 4) * observedSharpe ** 2
-  );
+  const denominator = Math.sqrt(radicand);
 
   return normalCdf(numerator / denominator);
 }

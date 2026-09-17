@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   expectedMaxSharpe,
   probabilisticSharpe,
+  psrRadicand,
   deflatedSharpe,
   perPeriodSharpe,
 } from './deflated-sharpe';
@@ -19,6 +20,17 @@ describe('deflated-sharpe', () => {
       expect(two).toBeGreaterThan(0);
       expect(ten).toBeGreaterThan(two);
       expect(hundred).toBeGreaterThan(ten);
+    });
+
+    it('matches reference values from the Bailey and Lopez de Prado formula', () => {
+      // Independently verified against the formula: sqrt(variance) *
+      // ((1-gamma) * Phi^-1(1 - 1/N) + gamma * Phi^-1(1 - 1/(N*e))).
+      expect(expectedMaxSharpe(10, 0.04)).toBeCloseTo(0.3149196602689943, 12);
+      expect(expectedMaxSharpe(100, 0.04)).toBeCloseTo(0.5061205786402285, 12);
+    });
+
+    it('throws RangeError for a negative variance', () => {
+      expect(() => expectedMaxSharpe(10, -0.01)).toThrow(RangeError);
     });
   });
 
@@ -46,6 +58,34 @@ describe('deflated-sharpe', () => {
         expect(result).toBeGreaterThanOrEqual(0);
         expect(result).toBeLessThanOrEqual(1);
       }
+    });
+
+    it('matches a hand-computed value with nonzero skewness', () => {
+      // observedSharpe=0.15, benchmarkSharpe=0.05, nObservations=100,
+      // skewness=-0.5, kurtosis=4.
+      // radicand = 1 - (-0.5 * 0.15) + (4-1)/4 * 0.15^2 = 1.091875
+      // numerator = (0.15 - 0.05) * sqrt(99) = 0.99498743710662...
+      // denominator = sqrt(1.091875) = 1.04492822720032...
+      // x = numerator / denominator = 0.95220648768624...
+      // result = normalCdf(x)
+      const result = probabilisticSharpe(0.15, 0.05, 100, -0.5, 4);
+      expect(result).toBeCloseTo(0.8295038642956399, 10);
+    });
+
+    it('returns NaN when psrRadicand is non-positive (moments outside the domain)', () => {
+      // psrRadicand(0.3, 6, 10) = 1 - 6*0.3 + (10-1)/4*0.3^2 = -0.5975.
+      expect(Number.isNaN(probabilisticSharpe(0.3, 0.05, 250, 6, 10))).toBe(true);
+    });
+  });
+
+  describe('psrRadicand', () => {
+    it('matches the formula 1 - skewness*SR + (kurtosis-1)/4*SR^2', () => {
+      expect(psrRadicand(0.3, 6, 10)).toBeCloseTo(-0.5975, 10);
+      expect(psrRadicand(0.1, 0, 3)).toBeCloseTo(1 + ((3 - 1) / 4) * 0.01, 10);
+    });
+
+    it('is positive for typical, non-extreme moments', () => {
+      expect(psrRadicand(0.15, -0.5, 4)).toBeGreaterThan(0);
     });
   });
 
