@@ -76,6 +76,10 @@ describe('exitFillKind', () => {
   it('end_of_data is taker', () => {
     expect(exitFillKind('end_of_data')).toBe('taker');
   });
+
+  it('time_stop is taker', () => {
+    expect(exitFillKind('time_stop')).toBe('taker');
+  });
 });
 
 describe('exitSlippageApplies', () => {
@@ -93,6 +97,10 @@ describe('exitSlippageApplies', () => {
 
   it('does not apply to end_of_data', () => {
     expect(exitSlippageApplies('end_of_data')).toBe(false);
+  });
+
+  it('applies to time_stop', () => {
+    expect(exitSlippageApplies('time_stop')).toBe(true);
   });
 });
 

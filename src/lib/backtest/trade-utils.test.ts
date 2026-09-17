@@ -6,12 +6,16 @@ import {
   closeTrade,
   computeEquityAfterTrade,
   computePositionSize,
+  openPosition,
   type OpenPosition,
 } from './trade-utils';
 import { DEFAULT_BACKTEST_CONFIG } from './types';
 import type { BacktestConfig, BacktestTrade } from './types';
+import type { EntryDecision } from './strategy';
 import type { OHLCV } from '@/types/market';
 
+// Defaults mirror the score-threshold strategy's default config: a long 5%
+// below entry for the stop, 10% above for the target.
 const makePosition = (overrides: Partial<OpenPosition> = {}): OpenPosition => ({
   entryBar: 10,
   entryTime: 1700000000000,
@@ -20,6 +24,9 @@ const makePosition = (overrides: Partial<OpenPosition> = {}): OpenPosition => ({
   quantity: 10,
   entryScore: 50,
   entryTier: 'buy',
+  stopPrice: 95,
+  targetPrice: 110,
+  timeStopBars: null,
   ...overrides,
 });
 
@@ -38,18 +45,18 @@ const config: BacktestConfig = { ...DEFAULT_BACKTEST_CONFIG };
 describe('checkStopTakeProfit', () => {
   it('triggers long stop loss when low crosses SL price', () => {
     const position = makePosition();
-    const candle = makeCandle({ low: 94.9 }); // SL at 95 (5%)
+    const candle = makeCandle({ low: 94.9 }); // SL at 95
 
-    const { exitReason, exitPrice } = checkStopTakeProfit(position, candle, config);
+    const { exitReason, exitPrice } = checkStopTakeProfit(position, candle);
     expect(exitReason).toBe('stop_loss');
     expect(exitPrice).toBeCloseTo(95);
   });
 
   it('triggers long take profit when high crosses TP price', () => {
     const position = makePosition();
-    const candle = makeCandle({ high: 110.1 }); // TP at 110 (10%)
+    const candle = makeCandle({ high: 110.1 }); // TP at 110
 
-    const { exitReason, exitPrice } = checkStopTakeProfit(position, candle, config);
+    const { exitReason, exitPrice } = checkStopTakeProfit(position, candle);
     expect(exitReason).toBe('take_profit');
     expect(exitPrice).toBeCloseTo(110);
   });
@@ -58,24 +65,40 @@ describe('checkStopTakeProfit', () => {
     const position = makePosition();
     const candle = makeCandle({ low: 94, high: 111 });
 
-    const { exitReason } = checkStopTakeProfit(position, candle, config);
+    const { exitReason } = checkStopTakeProfit(position, candle);
     expect(exitReason).toBe('stop_loss');
   });
 
   it('handles short positions with inverted levels', () => {
-    const position = makePosition({ side: 'short' });
+    const position = makePosition({ side: 'short', stopPrice: 105, targetPrice: 90 });
     const slCandle = makeCandle({ high: 105.1 }); // short SL at 105
     const tpCandle = makeCandle({ low: 89.9 }); // short TP at 90
 
-    expect(checkStopTakeProfit(position, slCandle, config).exitReason).toBe('stop_loss');
-    expect(checkStopTakeProfit(position, tpCandle, config).exitReason).toBe('take_profit');
+    expect(checkStopTakeProfit(position, slCandle).exitReason).toBe('stop_loss');
+    expect(checkStopTakeProfit(position, tpCandle).exitReason).toBe('take_profit');
   });
 
   it('returns null when neither level is hit', () => {
     const position = makePosition();
     const candle = makeCandle();
 
-    expect(checkStopTakeProfit(position, candle, config).exitReason).toBeNull();
+    expect(checkStopTakeProfit(position, candle).exitReason).toBeNull();
+  });
+
+  it('a null targetPrice never triggers take_profit, however high the bar runs', () => {
+    const position = makePosition({ targetPrice: null });
+    const candle = makeCandle({ high: 1000 });
+
+    expect(checkStopTakeProfit(position, candle).exitReason).toBeNull();
+  });
+
+  it('reads stop and target from the position, independent of config percentages', () => {
+    // config still carries the default 5%/10%, but the position's own absolute
+    // prices are what checkStopTakeProfit must use
+    const position = makePosition({ stopPrice: 80, targetPrice: 130 });
+
+    expect(checkStopTakeProfit(position, makeCandle({ low: 94.9 })).exitReason).toBeNull();
+    expect(checkStopTakeProfit(position, makeCandle({ low: 79.9 })).exitReason).toBe('stop_loss');
   });
 });
 
@@ -315,21 +338,33 @@ describe('computeEquityAfterTrade', () => {
 });
 
 describe('computePositionSize', () => {
-  it('uses fixed percent by default', () => {
-    const quantity = computePositionSize(10000, 100, 'long', config, []);
+  it('uses fixed percent by default, ignoring the supplied stop price', () => {
+    const quantity = computePositionSize(10000, 100, 'long', config, [], 95);
     // 10% of 10000 = 1000 notional at price 100 = 10 units
     expect(quantity).toBeCloseTo(10);
   });
 
-  it('uses risk-based sizing when configured', () => {
+  it('uses risk-based sizing from the caller-supplied stop price', () => {
     const riskConfig: BacktestConfig = {
       ...config,
       positionSizing: { method: 'risk_based', riskPerTrade: 0.01 },
     };
 
-    const quantity = computePositionSize(10000, 100, 'long', riskConfig, []);
-    // Risk 1% of 10000 = 100 over a 5% stop distance (5 per unit) = 20 units
+    const quantity = computePositionSize(10000, 100, 'long', riskConfig, [], 95);
+    // Risk 1% of 10000 = 100 over a 5-point stop distance (5 per unit) = 20 units
     expect(quantity).toBeCloseTo(20);
+  });
+
+  it('risk-based sizing tracks the stop price, not config.stopLossPercent', () => {
+    const riskConfig: BacktestConfig = {
+      ...config,
+      positionSizing: { method: 'risk_based', riskPerTrade: 0.01 },
+      stopLossPercent: 0.05, // would imply a 5-point stop; the caller supplies 10 instead
+    };
+
+    const quantity = computePositionSize(10000, 100, 'long', riskConfig, [], 90);
+    // Risk 1% of 10000 = 100 over a 10-point stop distance = 10 units
+    expect(quantity).toBeCloseTo(10);
   });
 
   it('kelly falls back to fixed percent with fewer than 5 trades', () => {
@@ -338,7 +373,134 @@ describe('computePositionSize', () => {
       positionSizing: { method: 'kelly', riskPerTrade: 0.01 },
     };
 
-    const quantity = computePositionSize(10000, 100, 'long', kellyConfig, []);
+    const quantity = computePositionSize(10000, 100, 'long', kellyConfig, [], 95);
     expect(quantity).toBeCloseTo(10);
+  });
+});
+
+describe('closeTrade risk percent', () => {
+  it('computes riskPercent from the position stop distance, not config.stopLossPercent', () => {
+    const position = makePosition({ stopPrice: 90 }); // 10% away from entryPrice 100
+    const trades: BacktestTrade[] = [];
+
+    closeTrade(position, 110, 20, 1700003600000, 'take_profit', 0, trades, config);
+
+    expect(trades[0].riskPercent).toBeCloseTo(10);
+  });
+
+  it('computes riskPercent for a short from the stop distance above entry', () => {
+    const position = makePosition({ side: 'short', stopPrice: 108, targetPrice: 90 }); // 8% away
+    const trades: BacktestTrade[] = [];
+
+    closeTrade(position, 90, 20, 1700003600000, 'take_profit', 0, trades, config);
+
+    expect(trades[0].riskPercent).toBeCloseTo(8);
+  });
+});
+
+describe('openPosition', () => {
+  const decision: EntryDecision = {
+    side: 'long',
+    orderType: 'market',
+    stopPrice: 95,
+    targetPrice: 110,
+    timeStopBars: null,
+  };
+
+  it('builds an OpenPosition from a market fill', () => {
+    const position = openPosition(
+      decision,
+      { price: 100, bar: 5, time: 1700000000000, kind: 'taker' },
+      10000,
+      config,
+      [],
+      42,
+      'buy',
+      'new_york'
+    );
+
+    expect(position).toEqual({
+      entryBar: 5,
+      entryTime: 1700000000000,
+      entryPrice: 100,
+      side: 'long',
+      quantity: 10, // 10% fixed-percent default: 1000 / 100
+      entryScore: 42,
+      entryTier: 'buy',
+      entrySession: 'new_york',
+      entryFillKind: 'taker',
+      stopPrice: 95,
+      targetPrice: 110,
+      timeStopBars: null,
+    });
+  });
+
+  it('sizes the position from the decision stop price under risk-based sizing', () => {
+    const riskConfig: BacktestConfig = {
+      ...config,
+      positionSizing: { method: 'risk_based', riskPerTrade: 0.01 },
+    };
+
+    const position = openPosition(
+      decision,
+      { price: 100, bar: 5, time: 1700000000000, kind: 'maker' },
+      10000,
+      riskConfig,
+      [],
+      42,
+      'buy',
+      null
+    );
+
+    // Risk 1% of 10000 = 100 over a 5-point stop distance = 20 units
+    expect(position.quantity).toBeCloseTo(20);
+    expect(position.entryFillKind).toBe('maker');
+  });
+
+  it('defaults timeStopBars to null when the decision omits it', () => {
+    const marketDecision: EntryDecision = {
+      side: 'short',
+      orderType: 'market',
+      stopPrice: 105,
+      targetPrice: 90,
+    };
+
+    const position = openPosition(
+      marketDecision,
+      { price: 100, bar: 0, time: 0, kind: 'taker' },
+      10000,
+      config,
+      [],
+      -40,
+      'sell',
+      null
+    );
+
+    expect(position.timeStopBars).toBeNull();
+  });
+
+  it('carries a decision timeStopBars through unchanged', () => {
+    const timedDecision: EntryDecision = {
+      side: 'long',
+      orderType: 'limit',
+      limitPrice: 99,
+      stopPrice: 95,
+      targetPrice: 110,
+      timeStopBars: 10,
+    };
+
+    const position = openPosition(
+      timedDecision,
+      { price: 99, bar: 3, time: 1700000000000, kind: 'maker' },
+      10000,
+      config,
+      [],
+      30,
+      'buy',
+      null
+    );
+
+    expect(position.timeStopBars).toBe(10);
+    expect(position.entryPrice).toBe(99);
   });
 });

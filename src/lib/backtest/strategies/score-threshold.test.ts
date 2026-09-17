@@ -54,6 +54,9 @@ function makePosition(overrides: Partial<OpenPosition> = {}): OpenPosition {
     quantity: 1,
     entryScore: 30,
     entryTier: 'buy',
+    stopPrice: 95,
+    targetPrice: 110,
+    timeStopBars: null,
     ...overrides,
   };
 }

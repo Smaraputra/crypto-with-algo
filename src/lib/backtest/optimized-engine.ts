@@ -2,31 +2,22 @@ import type { OHLCV } from '@/types/market';
 import type { IndicatorConfig, IndicatorSuite } from '@/lib/indicators/types';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { computeWarmupBars, interpretIndicatorsAtBar } from '@/lib/indicators/interpret-at-bar';
-import { computeSignalScore } from '@/lib/signals/scorer';
 import { computeSuperTrend } from '@/lib/indicators/supertrend';
-import { computeMetrics } from './metrics';
-import { computeSnapshotCoverage } from './engine';
-import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
-import { intervalToMs } from '@/lib/intervals';
 import { alignHtfToLtf, computeHtfSeries, htfContextAtBar } from '@/lib/signals/htf';
+import { intervalToMs } from '@/lib/intervals';
 import type { HtfContext } from '@/types/signal';
 import { buildSnapshotSeries, type LeanSnapshot, type SnapshotBar } from './snapshot-series';
-import {
-  accrueFunding,
-  checkStopTakeProfit,
-  closeTrade,
-  computeEquityAfterTrade,
-  computePositionSize,
-  type OpenPosition,
-} from './trade-utils';
+import { runBarLoop, type BarLoopHtf } from './bar-loop';
+import type { Strategy } from './strategy';
+import { createScoreThresholdStrategy } from './strategies/score-threshold';
 import type {
   BacktestConfig,
   BacktestResult,
-  BacktestTrade,
-  EquityPoint,
   BacktestProgressCallback,
 } from './types';
 import type { SuperTrendPoint } from '@/lib/indicators/supertrend';
+
+export { computeSnapshotCoverage } from './bar-loop';
 
 /**
  * Pre-computed indicators for optimization
@@ -43,11 +34,7 @@ export interface PreparedBacktest {
   warmupBars: number;
   stOffset: number;
   snapshots?: (SnapshotBar | null)[]; // index-aligned point-in-time futures/sentiment
-  htf?: {
-    interval: string;
-    contextAtHtfBar: (HtfContext | null)[]; // per HTF bar
-    ltfToHtf: Int32Array; // LTF bar -> last closed HTF bar (-1 = none)
-  };
+  htf?: BarLoopHtf & { interval: string };
 }
 
 /**
@@ -61,7 +48,7 @@ export function prepareHtf(
   indicatorConfig?: IndicatorConfig
 ): NonNullable<PreparedBacktest['htf']> {
   const series = computeHtfSeries(htfInput.candles, indicatorConfig);
-  const contextAtHtfBar = htfInput.candles.map((_, bar) =>
+  const contextAtHtfBar: (HtfContext | null)[] = htfInput.candles.map((_, bar) =>
     htfContextAtBar(series, bar, htfInput.interval)
   );
   const ltfToHtf = alignHtfToLtf(
@@ -124,191 +111,23 @@ export function runOptimizedBacktest(
   config: BacktestConfig,
   symbol: string,
   interval: string,
-  onProgress?: BacktestProgressCallback
+  onProgress?: BacktestProgressCallback,
+  strategy: Strategy = createScoreThresholdStrategy()
 ): BacktestResult {
   const { candles, indicators, superTrend, warmupBars, stOffset, snapshots, htf } = prepared;
 
-  const totalBars = candles.length - warmupBars;
-  const trades: BacktestTrade[] = [];
-  const equityCurve: EquityPoint[] = [];
-
-  // Session tagging and entry filter (sessions only meaningful intraday)
-  const sessionMeaningful = isSessionMeaningful(interval);
-  const intervalMs = intervalToMs(interval);
-  const sessionFilter =
-    sessionMeaningful && config.allowedSessions && config.allowedSessions.length > 0
-      ? new Set(config.allowedSessions)
-      : null;
-
-  let equity = config.startEquity;
-  let peakEquity = equity;
-  let position: OpenPosition | null = null;
-  let barsWithFutures = 0;
-  let barsWithSentiment = 0;
-
-  // Iterate bar-by-bar from warmup to end
-  for (let bar = warmupBars; bar < candles.length; bar++) {
-    const candle = candles[bar];
-    const snap = snapshots?.[bar] ?? null;
-    if (snap?.futures) barsWithFutures++;
-    if (snap?.sentiment) barsWithSentiment++;
-
-    // Get SuperTrend at this bar
-    const stIdx = bar - stOffset;
-    const superTrendAtBar: SuperTrendPoint | undefined =
-      stIdx >= 0 && stIdx < superTrend.length ? superTrend[stIdx] : undefined;
-
-    // Check stop-loss / take-profit
-    if (position) {
-      const { exitReason, exitPrice } = checkStopTakeProfit(position, candle, config);
-      if (exitReason) {
-        closeTrade(position, exitPrice, bar, candle.timestamp, exitReason, 0, trades, config);
-        equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
-        position = null;
-      }
-    }
-
-    // Get pre-computed indicators for this bar
-    const suite = indicators[bar];
-
-    // Higher-timeframe context from the last CLOSED HTF bar at this LTF bar
-    const htfBar = htf ? htf.ltfToHtf[bar] : -1;
-    const htfCtx = htf && htfBar >= 0 ? htf.contextAtHtfBar[htfBar] : null;
-
-    // Compute signal score with config weights
-    const composite = computeSignalScore(
-      suite,
-      snap?.futures ?? null,
-      snap?.sentiment ?? null,
-      config.weights,
-      superTrendAtBar ? { values: superTrend, current: superTrendAtBar } : null,
-      htfCtx
-    );
-
-    // Check entry/exit based on signal score
-    if (position) {
-      // Check exit condition
-      const shouldExit =
-        (position.side === 'long' && composite.score <= config.exitThreshold) ||
-        (position.side === 'short' && composite.score >= config.shortExitThreshold);
-
-      if (shouldExit) {
-        closeTrade(
-          position,
-          candle.close,
-          bar,
-          candle.timestamp,
-          'signal',
-          composite.score,
-          trades,
-          config
-        );
-        equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
-        position = null;
-      }
-    } else {
-      // Check entry conditions; the session filter gates entries only, never exits
-      const session = sessionMeaningful
-        ? sessionOfCandleClose(candle.timestamp, intervalMs)
-        : null;
-      const sessionAllowed = !sessionFilter || (session !== null && sessionFilter.has(session));
-
-      if (sessionAllowed && composite.score >= config.entryThreshold) {
-        const quantity = computePositionSize(equity, candle.close, 'long', config, trades);
-        position = {
-          entryBar: bar,
-          entryTime: candle.timestamp,
-          entryPrice: candle.close,
-          side: 'long',
-          quantity,
-          entryScore: composite.score,
-          entryTier: composite.tier,
-          entrySession: session,
-        };
-      } else if (sessionAllowed && config.allowShorts && composite.score <= config.shortEntryThreshold) {
-        const quantity = computePositionSize(equity, candle.close, 'short', config, trades);
-        position = {
-          entryBar: bar,
-          entryTime: candle.timestamp,
-          entryPrice: candle.close,
-          side: 'short',
-          quantity,
-          entryScore: composite.score,
-          entryTier: composite.tier,
-          entrySession: session,
-        };
-      }
-    }
-
-    // Accrue funding for a position that survives to this bar's close
-    if (config.fundingEnabled && position && bar > position.entryBar) {
-      const rate = snap?.futures?.fundingRate?.fundingRate;
-      if (typeof rate === 'number') {
-        accrueFunding(
-          position,
-          candle,
-          candles[bar - 1].timestamp + intervalMs,
-          candle.timestamp + intervalMs,
-          rate
-        );
-      }
-    }
-
-    // Update equity curve
-    if (equity > peakEquity) peakEquity = equity;
-    const drawdown = peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0;
-    equityCurve.push({
-      bar,
-      time: candle.timestamp,
-      equity,
-      drawdown,
-    });
-
-    // Report progress
-    if (onProgress) {
-      const barsProcessed = bar - warmupBars + 1;
-      const progress = Math.round((barsProcessed / totalBars) * 100);
-      onProgress(progress, barsProcessed, totalBars);
-    }
-  }
-
-  // Close any open position at end of data
-  if (position) {
-    const lastCandle = candles[candles.length - 1];
-    closeTrade(
-      position,
-      lastCandle.close,
-      candles.length - 1,
-      lastCandle.timestamp,
-      'end_of_data',
-      0,
-      trades,
-      config
-    );
-    equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
-
-    // Update final equity curve point
-    if (equityCurve.length > 0) {
-      equityCurve[equityCurve.length - 1].equity = equity;
-    }
-  }
-
-  // Compute metrics
-  const metrics = computeMetrics(trades, equityCurve, config.startEquity, interval);
-
-  return {
+  return runBarLoop({
+    candles,
+    config,
     symbol,
     interval,
-    config,
-    trades,
-    equityCurve,
-    metrics,
-    startTime: candles[warmupBars]?.timestamp ?? candles[0].timestamp,
-    endTime: candles[candles.length - 1].timestamp,
-    totalBars,
     warmupBars,
-    ...(snapshots
-      ? { snapshotCoverage: computeSnapshotCoverage(barsWithFutures, barsWithSentiment, totalBars) }
-      : {}),
-  };
+    suiteAtBar: (bar) => indicators[bar],
+    superTrend,
+    stOffset,
+    htf,
+    snapshots,
+    strategy,
+    onProgress,
+  });
 }

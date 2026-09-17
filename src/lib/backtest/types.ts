@@ -28,6 +28,7 @@ export interface BacktestConfig {
   weights: SignalWeights;
   startEquity: number;          // starting capital (default 10000)
   allowedSessions?: MarketSession[]; // entry filter; undefined/empty = all sessions
+  limitTimeoutBars?: number;    // fallback timeout for a limit EntryDecision that omits timeoutBars (default 3)
 }
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
@@ -53,7 +54,7 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
 };
 
 export type TradeSide = 'long' | 'short';
-export type ExitReason = 'signal' | 'stop_loss' | 'take_profit' | 'end_of_data';
+export type ExitReason = 'signal' | 'stop_loss' | 'take_profit' | 'end_of_data' | 'time_stop';
 
 export interface BacktestTrade {
   entryBar: number;
@@ -68,9 +69,9 @@ export interface BacktestTrade {
   pnlPercent: number;
   fees: number;
   exitReason: ExitReason;
-  entryScore: number;
+  entryScore?: number; // absent for a non-score strategy; the score-threshold strategy always fills it
   exitScore: number;
-  entryTier: SignalTier;
+  entryTier?: SignalTier; // absent for a non-score strategy; the score-threshold strategy always fills it
   holdTimeBars: number;
   entrySession?: MarketSession | null; // null when the interval spans sessions
   riskPercent?: number; // stop distance as a percent of entry price (2 means a 2% stop)
