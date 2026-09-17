@@ -2,7 +2,7 @@ import type mongoose from 'mongoose';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { CronRun, type ICronRun } from '@/lib/models/cron-run';
 import { OptimizationJob } from '@/lib/models/optimization-job';
-import { SignalTemplate } from '@/lib/models/signal-template';
+import { DEFAULT_TEMPLATE_THRESHOLDS } from '@/lib/models/signal-template';
 import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 import { getHistoricalSnapshots } from '@/lib/historical-snapshots';
 import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
@@ -191,17 +191,13 @@ export async function runMonthlyOptimization(
         jobId: job._id,
       });
 
-      // Get current template for thresholds
-      const currentTemplate = await SignalTemplate.findOne({
-        tradingStyle,
-        active: true,
-      });
-
-      const thresholds = currentTemplate?.thresholds || {
-        bullish: 0.6,
-        bearish: -0.6,
-        strong: 0.8,
-      };
+      // The template stores the thresholds its weights were optimized against.
+      // Walk-forward always backtests with the style defaults, so borrowing an
+      // active template's thresholds could pair weights with levels they were
+      // never tested on. The previous fallback used an obsolete shape
+      // ({ bullish, bearish, strong }) that fails schema validation, so the
+      // first styles ever to pass walk-forward failed at this step instead.
+      const thresholds = { ...DEFAULT_TEMPLATE_THRESHOLDS[tradingStyle] };
 
       // Create new template version
       const newTemplate = await createTemplateVersion(

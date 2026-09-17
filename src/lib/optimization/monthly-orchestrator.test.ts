@@ -29,7 +29,9 @@ vi.mock('@/lib/models/optimization-job', () => ({
   },
 }));
 
-vi.mock('@/lib/models/signal-template', () => ({
+vi.mock('@/lib/models/signal-template', async (importOriginal) => ({
+  // Keep the real constants (DEFAULT_TEMPLATE_THRESHOLDS); stub only queries.
+  ...(await importOriginal<typeof import('@/lib/models/signal-template')>()),
   SignalTemplate: {
     findOne: (...args: unknown[]) => mockSignalTemplateFindOne(...args),
   },
@@ -85,6 +87,7 @@ vi.mock('./top-symbols', () => ({
 import { runMonthlyOptimization } from './monthly-orchestrator';
 import { deriveStepSize } from './walk-forward';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
+import { DEFAULT_TEMPLATE_THRESHOLDS } from '@/lib/models/signal-template';
 
 function makeCandles(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -277,6 +280,54 @@ describe('monthly-orchestrator', () => {
     expect(expected).toBeLessThan(DEFAULT_OPTIMIZATION_CONFIG.stepSizeBars);
     for (const call of mockRunWalkForward.mock.calls) {
       expect((call[0] as { stepSizeBars: number }).stepSizeBars).toBe(expected);
+    }
+  });
+
+  it('creates each template with the thresholds its weights were optimized against', async () => {
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue(makeWalkForwardResult());
+    mockCreateTemplateVersion.mockResolvedValue({ _id: new mongoose.Types.ObjectId(), version: 1, tradingStyle: 'scalping' });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    await runMonthlyOptimization({ cronRunId, topSymbols: ['BTCUSDT'], autoActivate: false });
+
+    expect(mockCreateTemplateVersion).toHaveBeenCalledTimes(4);
+    for (const call of mockCreateTemplateVersion.mock.calls) {
+      const style = call[0] as keyof typeof DEFAULT_TEMPLATE_THRESHOLDS;
+      expect(call[2]).toEqual(DEFAULT_TEMPLATE_THRESHOLDS[style]);
+    }
+  });
+
+  it('passes thresholds that satisfy the SignalTemplate schema', async () => {
+    // Regression: with no active template the fallback was { bullish, bearish,
+    // strong }, so the first styles to pass walk-forward in production failed
+    // with "SignalTemplate validation failed". Validate against the real schema.
+    const { SignalTemplate: RealSignalTemplate } = await vi.importActual<
+      typeof import('@/lib/models/signal-template')
+    >('@/lib/models/signal-template');
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue(makeWalkForwardResult());
+    mockCreateTemplateVersion.mockResolvedValue({ _id: new mongoose.Types.ObjectId(), version: 1, tradingStyle: 'scalping' });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+    mockSignalTemplateFindOne.mockResolvedValue(null);
+
+    await runMonthlyOptimization({ cronRunId, topSymbols: ['BTCUSDT'], autoActivate: false });
+
+    for (const call of mockCreateTemplateVersion.mock.calls) {
+      const doc = new RealSignalTemplate({
+        tradingStyle: call[0],
+        version: 1,
+        weights: call[1],
+        thresholds: call[2],
+        performanceMetrics: { avgSharpe: 1, avgWinRate: 0.5, totalBacktests: 1, lastOptimizedAt: new Date() },
+        active: false,
+      });
+      const error = doc.validateSync();
+      expect(error?.errors ? Object.keys(error.errors).filter((k) => k.startsWith('thresholds')) : []).toEqual([]);
     }
   });
 
