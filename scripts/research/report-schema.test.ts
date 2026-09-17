@@ -4,13 +4,17 @@ import {
   SURVIVOR_RULE,
   checkFindings,
   checkReportConsistency,
+  checkStrategyFindings,
   evaluateSurvivors,
   spotCheckCell,
+  spotCheckStrategyWindow,
   validateFactorIcReport,
+  validateStrategyReport,
   validateSubagentReport,
   type FactorIcReport,
   type FactorReport,
   type HorizonStat,
+  type StrategyReport,
   type SubagentReport,
 } from './report-schema';
 
@@ -559,5 +563,445 @@ describe('checkReportConsistency', () => {
     const result = checkReportConsistency(sub, factorReport);
     expect(result.ok).toBe(false);
     expect(result.issues).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Strategy report additions
+// ---------------------------------------------------------------------------
+
+function makeStrategyWindow(overrides: Partial<StrategyReport['perSymbol'][number]['windows'][number]> = {}) {
+  return {
+    index: 0,
+    trainStart: 0,
+    trainEnd: 199,
+    testStart: 210,
+    testEnd: 259,
+    selectedParams: { threshold: 5 },
+    skippedReason: null,
+    isCells: [
+      {
+        params: { threshold: 5 },
+        trades: 20,
+        expectancyPercent: 1.2,
+        expectancyR: 0.6,
+        perTradeSharpe: 0.3,
+        winRate: 0.55,
+        profitFactor: 1.4,
+        maxDrawdownPercent: 3.2,
+      },
+    ],
+    oosCells: [{ params: { threshold: 5 }, trades: 15, expectancyPercent: 0.9 }],
+    oos: {
+      trades: 15,
+      expectancyPercent: 0.9,
+      expectancyR: 0.45,
+      winRate: 0.53,
+      profitFactor: 1.3,
+      maxDrawdownPercent: 2.1,
+      medianHoldBars: 5,
+      fees: 3,
+      slippageCost: 0.5,
+      fundingCost: 0,
+    },
+    stress: { trades: 15, expectancyPercent: 0.4 },
+    benchmark: {
+      iterations: 100,
+      seed: 1,
+      meanRandom: -0.1,
+      sdRandom: 0.8,
+      pValue: 0.02,
+      referenceTrades: 15,
+    },
+    ...overrides,
+  };
+}
+
+function makeStrategyPerSymbol(
+  symbol: string,
+  overrides: Partial<StrategyReport['perSymbol'][number]> = {}
+): StrategyReport['perSymbol'][number] {
+  return {
+    symbol,
+    snapshotRows: 500,
+    htfBars: 300,
+    windowConfig: {
+      trainBars: 800,
+      testWindowBars: 200,
+      purgeGapBars: 30,
+      stepSizeBars: 200,
+      mode: 'anchored',
+      count: 3,
+    },
+    windows: [makeStrategyWindow()],
+    pooledOos: { trades: 15, expectancyPercent: 0.9, winRate: 0.53 },
+    ...overrides,
+  };
+}
+
+function makePooledStats(overrides: Partial<StrategyReport['pooled']> = {}): StrategyReport['pooled'] {
+  return {
+    n: 150,
+    expectancyPercent: 0.8,
+    expectancyR: 0.4,
+    winRate: 0.54,
+    profitFactor: 1.5,
+    medianHoldBars: 5,
+    maxDrawdownPercent: 4,
+    bootstrapCi95: [0.2, 1.4],
+    bootstrap: { iterations: 1000, seed: 42, meanBlockLen: 5 },
+    windowsTotal: 30,
+    windowsPositive: 22,
+    windowPositiveShare: 0.733,
+    symbolsTotal: 10,
+    symbolsPositive: 8,
+    symbolPositiveShare: 0.8,
+    benchmarkWindows: 25,
+    randomEntryP: 0.01,
+    trials: 1,
+    deflatedSharpe: {
+      observedSharpe: 0.4,
+      benchmarkSharpe: 0.05,
+      probability: 0.97,
+      radicand: 0.8,
+      varianceOfTrialSharpes: 0,
+    },
+    plateau: { score: 0.7, neighbors: 2, bestMetric: 1.2, bestParams: { threshold: 5 }, neighborRadius: 0.5 },
+    stressTrades: 100,
+    stressExpectancyPercent: 0.4,
+    perYear: [{ year: 2025, trades: 150, expectancyPercent: 0.8 }],
+    ...overrides,
+  };
+}
+
+function makeStrategyGates(overrides: Partial<StrategyReport['gates'][number]>[] = []): StrategyReport['gates'] {
+  const defaults: StrategyReport['gates'] = [
+    { name: 'sample', pass: true, value: 150, threshold: 100 },
+    { name: 'expectancy', pass: true, value: 0.2, threshold: 0, note: 'point estimate 0.8' },
+    { name: 'windows', pass: true, value: 0.733, threshold: 0.6 },
+    { name: 'symbols', pass: true, value: 0.8, threshold: 0.7 },
+    { name: 'timing', pass: true, value: 0.01, threshold: 0.05 },
+    { name: 'trials', pass: true, value: 0.97, threshold: 0.95 },
+    { name: 'plateau', pass: true, value: 0.7, threshold: 0.6 },
+    { name: 'stress', pass: true, value: 0.4, threshold: 0 },
+  ];
+  return defaults.map((gate, i) => ({ ...gate, ...overrides[i] }));
+}
+
+function makeStrategyReport(overrides: Partial<StrategyReport> = {}): StrategyReport {
+  return {
+    schemaVersion: 1,
+    taskId: 'strategy-control-1h-test',
+    datasetManifestHash: 'abc123',
+    lockboxApplied: true,
+    family: 'control',
+    style: 'day_trading',
+    interval: '1h',
+    symbols: ['BTCUSDT', 'ETHUSDT'],
+    dateRange: { startMs: 0, endMs: 1_000_000 },
+    gridCells: 1,
+    trials: 1,
+    snapshotSource: '1h',
+    costs: { feePercent: 0.0005, makerFeePercent: 0.0002, takerFeePercent: 0.0005, slippageBps: 3, fundingEnabled: true },
+    windowConfig: { mode: 'anchored', trainFraction: 0.4, count: 3, minIsTrades: 10 },
+    stress: { feeMultiplier: 1.5, slippageMultiplier: 2 },
+    benchmark: { enabled: true, iterations: 100, seed: 1 },
+    bootstrap: { iterations: 1000, seed: 42, meanBlockLen: 5 },
+    perSymbol: [makeStrategyPerSymbol('BTCUSDT'), makeStrategyPerSymbol('ETHUSDT')],
+    pooled: makePooledStats(),
+    gates: makeStrategyGates(),
+    pass: true,
+    computedAt: '2026-09-17T00:00:00.000Z',
+    gitCommit: 'deadbeef',
+    durationMs: 5000,
+    ...overrides,
+  };
+}
+
+function makeStrategySubagentReport(overrides: Partial<SubagentReport> = {}): SubagentReport {
+  return {
+    schemaVersion: 1,
+    taskId: 'strategy-control-1h-test',
+    agentModel: 'claude-sonnet-5',
+    datasetManifestHash: 'abc123',
+    lockboxApplied: true,
+    scope: { kind: 'strategy', value: 'control' },
+    subjects: ['control'],
+    reportFiles: ['data/research/reports/strategy-control-1h-test.json'],
+    topFindings: [],
+    caveats: [],
+    reproCommand: 'npx tsx scripts/research/strategy-harness.ts --family control --interval 1h',
+    gitCommit: 'deadbeef',
+    durationMs: 1234,
+    ...overrides,
+  };
+}
+
+describe('validateStrategyReport', () => {
+  it('accepts a well-formed strategy report', () => {
+    const result = validateStrategyReport(makeStrategyReport());
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.gates).toHaveLength(8);
+      expect(result.data.gates.map((g) => g.name)).toEqual([
+        'sample',
+        'expectancy',
+        'windows',
+        'symbols',
+        'timing',
+        'trials',
+        'plateau',
+        'stress',
+      ]);
+    }
+  });
+
+  it('rejects a report missing gates', () => {
+    const report = makeStrategyReport() as unknown as Record<string, unknown>;
+    delete report.gates;
+    const result = validateStrategyReport(report);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues.some((i) => i.includes('gates'))).toBe(true);
+    }
+  });
+
+  it('rejects a report with a NaN-bearing field with a readable issue', () => {
+    const report = {
+      ...makeStrategyReport(),
+      pooled: { ...makeStrategyReport().pooled, expectancyPercent: NaN },
+    };
+    const result = validateStrategyReport(report);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues.length).toBeGreaterThan(0);
+      expect(result.issues.some((i) => i.includes('pooled.expectancyPercent'))).toBe(true);
+    }
+  });
+
+  it('rejects a report with the wrong schemaVersion', () => {
+    const result = validateStrategyReport({ ...makeStrategyReport(), schemaVersion: 2 });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts a null pooled.deflatedSharpe and pooled.plateau', () => {
+    const report = makeStrategyReport({
+      pooled: makePooledStats({ deflatedSharpe: null, plateau: null }),
+    });
+    const result = validateStrategyReport(report);
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('checkStrategyFindings', () => {
+  it('grounds a pooled finding (no symbol) against a pooled.* value', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'positive expectancy', metric: 'expectancyPercent', value: 0.8, n: 150 }],
+    });
+    expect(checkStrategyFindings(sub, report)).toEqual([]);
+  });
+
+  it('grounds a pooled finding against a gate value', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'deflated sharpe probability', metric: 'trials gate', value: 0.97, n: 150 }],
+    });
+    expect(checkStrategyFindings(sub, report)).toEqual([]);
+  });
+
+  it('grounds a pooled finding against perYear[].expectancyPercent specifically', () => {
+    // expectancyPercent set to a value that appears ONLY in perYear, not in
+    // pooled.expectancyPercent itself, to isolate what is being grounded.
+    const report = makeStrategyReport({
+      pooled: makePooledStats({
+        expectancyPercent: 1.5,
+        perYear: [{ year: 2025, trades: 150, expectancyPercent: 0.6234 }],
+      }),
+    });
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: '2025 expectancy', metric: 'expectancyPercent', value: 0.6234, n: 150 }],
+    });
+    expect(checkStrategyFindings(sub, report)).toEqual([]);
+  });
+
+  it('does not ground a pooled finding against an excluded count field (n)', () => {
+    // The sample gate's value is normally pooled.n itself (150), which would
+    // ground the same number through gates[].value regardless of pooled's
+    // own exclusion; override it here so this test isolates pooled.n's
+    // exclusion specifically.
+    const report = makeStrategyReport({ gates: makeStrategyGates([{ value: 999 }]) });
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'bogus, matches only n', metric: 'sample size', value: 150, n: 150 }],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].index).toBe(0);
+  });
+
+  it('does not ground a pooled finding against an excluded perYear[].year/trades field', () => {
+    const report = makeStrategyReport({ gates: makeStrategyGates([{ value: 999 }]) });
+    const sub = makeStrategySubagentReport({
+      topFindings: [
+        { claim: 'bogus, matches only perYear.year', metric: 'year', value: 2025, n: 150 },
+        { claim: 'bogus, matches only perYear.trades', metric: 'trades', value: 150, n: 150 },
+      ],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    // Both should fail (2025 and 150 do not otherwise appear in pooled/gates).
+    expect(ungrounded.map((u) => u.index)).toEqual([0, 1]);
+  });
+
+  it('flags an ungrounded pooled finding', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'made up', metric: 'expectancyPercent', value: 999.999, n: 150 }],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].reason).toMatch(/not found in pooled report/);
+  });
+
+  it('grounds a per-symbol finding against pooledOos.expectancyPercent/winRate', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [
+        { claim: 'BTC oos expectancy', metric: 'expectancyPercent', value: 0.9, n: 15, symbol: 'BTCUSDT' },
+        { claim: 'BTC oos win rate', metric: 'winRate', value: 0.53, n: 15, symbol: 'BTCUSDT' },
+      ],
+    });
+    expect(checkStrategyFindings(sub, report)).toEqual([]);
+  });
+
+  it('flags a per-symbol finding for an unknown symbol', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'bogus symbol', metric: 'expectancyPercent', value: 0.9, n: 15, symbol: 'DOGEUSDT' }],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].reason).toMatch(/symbol "DOGEUSDT" not found/);
+  });
+
+  it('flags a per-symbol finding whose value is not in that symbol table', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'bogus value', metric: 'expectancyPercent', value: 42, n: 15, symbol: 'BTCUSDT' }],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+  });
+
+  it('grounds a per-window finding against oos numbers and benchmark.pValue', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [
+        { claim: 'window 0 expectancy', metric: 'expectancyPercent', value: 0.9, n: 15, symbol: 'BTCUSDT', window: 0 },
+        { claim: 'window 0 benchmark p', metric: 'pValue', value: 0.02, n: 15, symbol: 'BTCUSDT', window: 0 },
+      ],
+    });
+    expect(checkStrategyFindings(sub, report)).toEqual([]);
+  });
+
+  it('flags a per-window finding for an unknown window index', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'bogus window', metric: 'expectancyPercent', value: 0.9, n: 15, symbol: 'BTCUSDT', window: 99 }],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].reason).toMatch(/window 99 not found/);
+  });
+
+  it('flags a per-window finding whose value is not in that window table', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'bogus window value', metric: 'expectancyPercent', value: 12.5, n: 15, symbol: 'BTCUSDT', window: 0 }],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+  });
+
+  it('checks each finding independently by index', () => {
+    const report = makeStrategyReport();
+    const sub = makeStrategySubagentReport({
+      topFindings: [
+        { claim: 'good', metric: 'expectancyPercent', value: 0.8, n: 150 },
+        { claim: 'bad', metric: 'expectancyPercent', value: 123.456, n: 150 },
+      ],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].index).toBe(1);
+  });
+});
+
+describe('spotCheckStrategyWindow', () => {
+  const report = makeStrategyReport();
+
+  it('passes when trades match exactly and expectancy is within tolerance', () => {
+    const result = spotCheckStrategyWindow(
+      report,
+      { symbol: 'BTCUSDT', window: 0 },
+      { trades: 15, expectancyPercent: 0.9 + 1e-10 }
+    );
+    expect(result.ok).toBe(true);
+    expect(result.tradesMatch).toBe(true);
+    expect(result.deltaExpectancy).toBeCloseTo(1e-10, 15);
+  });
+
+  it('fails when trades do not match', () => {
+    const result = spotCheckStrategyWindow(report, { symbol: 'BTCUSDT', window: 0 }, { trades: 14, expectancyPercent: 0.9 });
+    expect(result.ok).toBe(false);
+    expect(result.tradesMatch).toBe(false);
+  });
+
+  it('fails when expectancy drifts beyond tolerance', () => {
+    const result = spotCheckStrategyWindow(report, { symbol: 'BTCUSDT', window: 0 }, { trades: 15, expectancyPercent: 1.5 });
+    expect(result.ok).toBe(false);
+    expect(result.tradesMatch).toBe(true);
+  });
+
+  it('treats two nulls as a matching expectancy', () => {
+    const skippedReport = makeStrategyReport({
+      perSymbol: [
+        makeStrategyPerSymbol('BTCUSDT', {
+          windows: [
+            makeStrategyWindow({
+              selectedParams: { threshold: 5 },
+              oos: { trades: 0, expectancyPercent: null, expectancyR: null, winRate: null, profitFactor: null, maxDrawdownPercent: null, medianHoldBars: null, fees: 0, slippageCost: 0, fundingCost: 0 },
+            }),
+          ],
+        }),
+      ],
+    });
+    const result = spotCheckStrategyWindow(skippedReport, { symbol: 'BTCUSDT', window: 0 }, { trades: 0, expectancyPercent: null });
+    expect(result.ok).toBe(true);
+    expect(result.deltaExpectancy).toBe(0);
+  });
+
+  it('returns ok false with a NaN delta for a missing symbol', () => {
+    const result = spotCheckStrategyWindow(report, { symbol: 'DOGEUSDT', window: 0 }, { trades: 15, expectancyPercent: 0.9 });
+    expect(result.ok).toBe(false);
+    expect(Number.isNaN(result.deltaExpectancy)).toBe(true);
+  });
+
+  it('returns ok false with a NaN delta for a missing window', () => {
+    const result = spotCheckStrategyWindow(report, { symbol: 'BTCUSDT', window: 99 }, { trades: 15, expectancyPercent: 0.9 });
+    expect(result.ok).toBe(false);
+    expect(Number.isNaN(result.deltaExpectancy)).toBe(true);
+  });
+
+  it('returns ok false with a NaN delta for a skipped window (oos null)', () => {
+    const skippedReport = makeStrategyReport({
+      perSymbol: [
+        makeStrategyPerSymbol('BTCUSDT', {
+          windows: [makeStrategyWindow({ selectedParams: null, skippedReason: 'no cell reached minIsTrades', oos: null })],
+        }),
+      ],
+    });
+    const result = spotCheckStrategyWindow(skippedReport, { symbol: 'BTCUSDT', window: 0 }, { trades: 0, expectancyPercent: null });
+    expect(result.ok).toBe(false);
+    expect(Number.isNaN(result.deltaExpectancy)).toBe(true);
   });
 });

@@ -111,6 +111,7 @@ export const SubagentReportSchema = z.object({
       factor: z.string().optional(),
       horizon: z.number().optional(),
       symbol: z.string().optional(),
+      window: z.number().optional(),
     })
   ),
   caveats: z.array(z.string()),
@@ -387,4 +388,408 @@ export function checkReportConsistency(
   }
 
   return { ok: issues.length === 0, issues };
+}
+
+// ---------------------------------------------------------------------------
+// Strategy report: the walk-forward validation protocol's report, written by
+// scripts/research/strategy-harness.ts and read by the orchestrator. The
+// `pooled` and `gates` shapes mirror scripts/research/strategy-gates.ts's
+// PooledStats/Gate interfaces field for field -- that module computes them
+// with no Zod dependency (pure, no I/O), this schema only validates the
+// already-computed values once they reach a report.
+// ---------------------------------------------------------------------------
+
+const WindowModeSchema = z.enum(['rolling', 'anchored']);
+
+const GridParamsSchema = z.record(z.string(), z.number());
+
+const GateNameSchema = z.enum([
+  'sample',
+  'expectancy',
+  'windows',
+  'symbols',
+  'timing',
+  'trials',
+  'plateau',
+  'stress',
+]);
+
+const GateSchema = z.object({
+  name: GateNameSchema,
+  pass: z.boolean(),
+  value: z.number().nullable(),
+  threshold: z.number(),
+  note: z.string().optional(),
+});
+export type StrategyGate = z.infer<typeof GateSchema>;
+
+const PooledStatsSchema = z.object({
+  n: z.number(),
+  expectancyPercent: z.number().nullable(),
+  expectancyR: z.number().nullable(),
+  winRate: z.number().nullable(),
+  profitFactor: z.number().nullable(),
+  medianHoldBars: z.number().nullable(),
+  maxDrawdownPercent: z.number().nullable(),
+  bootstrapCi95: z.tuple([z.number(), z.number()]).nullable(),
+  bootstrap: z.object({
+    iterations: z.number(),
+    seed: z.number(),
+    meanBlockLen: z.number(),
+  }),
+  windowsTotal: z.number(),
+  windowsPositive: z.number(),
+  windowPositiveShare: z.number(),
+  symbolsTotal: z.number(),
+  symbolsPositive: z.number(),
+  symbolPositiveShare: z.number(),
+  benchmarkWindows: z.number(),
+  randomEntryP: z.number().nullable(),
+  trials: z.number(),
+  deflatedSharpe: z
+    .object({
+      observedSharpe: z.number(),
+      benchmarkSharpe: z.number(),
+      probability: z.number().nullable(),
+      radicand: z.number(),
+      varianceOfTrialSharpes: z.number(),
+    })
+    .nullable(),
+  plateau: z
+    .object({
+      score: z.number().nullable(),
+      neighbors: z.number(),
+      bestMetric: z.number(),
+      bestParams: GridParamsSchema,
+      neighborRadius: z.number(),
+    })
+    .nullable(),
+  stressTrades: z.number(),
+  stressExpectancyPercent: z.number().nullable(),
+  perYear: z.array(
+    z.object({
+      year: z.number(),
+      trades: z.number(),
+      expectancyPercent: z.number(),
+    })
+  ),
+});
+export type StrategyPooledStats = z.infer<typeof PooledStatsSchema>;
+
+const StrategyCellSummarySchema = z.object({
+  params: GridParamsSchema,
+  trades: z.number(),
+  expectancyPercent: z.number().nullable(),
+  expectancyR: z.number().nullable(),
+  perTradeSharpe: z.number().nullable(),
+  winRate: z.number().nullable(),
+  profitFactor: z.number().nullable(),
+  maxDrawdownPercent: z.number().nullable(),
+});
+
+const StrategyOosCellSchema = z.object({
+  params: GridParamsSchema,
+  trades: z.number(),
+  expectancyPercent: z.number().nullable(),
+});
+
+const StrategyWindowSchema = z.object({
+  index: z.number(),
+  trainStart: z.number(),
+  trainEnd: z.number(),
+  testStart: z.number(),
+  testEnd: z.number(),
+  selectedParams: GridParamsSchema.nullable(),
+  skippedReason: z.string().nullable(),
+  isCells: z.array(StrategyCellSummarySchema),
+  oosCells: z.array(StrategyOosCellSchema),
+  oos: z
+    .object({
+      trades: z.number(),
+      expectancyPercent: z.number().nullable(),
+      expectancyR: z.number().nullable(),
+      winRate: z.number().nullable(),
+      profitFactor: z.number().nullable(),
+      maxDrawdownPercent: z.number().nullable(),
+      medianHoldBars: z.number().nullable(),
+      fees: z.number(),
+      slippageCost: z.number(),
+      fundingCost: z.number(),
+    })
+    .nullable(),
+  stress: z
+    .object({
+      trades: z.number(),
+      expectancyPercent: z.number().nullable(),
+    })
+    .nullable(),
+  benchmark: z
+    .object({
+      iterations: z.number(),
+      seed: z.number(),
+      meanRandom: z.number(),
+      sdRandom: z.number(),
+      pValue: z.number().nullable(),
+      referenceTrades: z.number(),
+    })
+    .nullable(),
+});
+
+const StrategyResolvedWindowConfigSchema = z.object({
+  trainBars: z.number(),
+  testWindowBars: z.number(),
+  purgeGapBars: z.number(),
+  stepSizeBars: z.number(),
+  mode: WindowModeSchema,
+  count: z.number(),
+});
+
+const StrategyPerSymbolSchema = z.object({
+  symbol: z.string(),
+  snapshotRows: z.number(),
+  htfBars: z.number(),
+  windowConfig: StrategyResolvedWindowConfigSchema,
+  windows: z.array(StrategyWindowSchema),
+  pooledOos: z.object({
+    trades: z.number(),
+    expectancyPercent: z.number().nullable(),
+    winRate: z.number().nullable(),
+  }),
+});
+
+export const StrategyReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  taskId: z.string(),
+  datasetManifestHash: z.string(),
+  lockboxApplied: z.boolean(),
+  family: z.string(),
+  style: z.string(),
+  interval: z.string(),
+  symbols: z.array(z.string()),
+  dateRange: z.object({
+    startMs: z.number().nullable(),
+    endMs: z.number().nullable(),
+  }),
+  gridCells: z.number(),
+  trials: z.number(),
+  snapshotSource: z.string().nullable(),
+  costs: z.object({
+    feePercent: z.number(),
+    makerFeePercent: z.number(),
+    takerFeePercent: z.number(),
+    slippageBps: z.number(),
+    fundingEnabled: z.boolean(),
+  }),
+  windowConfig: z.object({
+    mode: WindowModeSchema,
+    trainFraction: z.number(),
+    count: z.number(),
+    minIsTrades: z.number(),
+  }),
+  stress: z.object({
+    feeMultiplier: z.number(),
+    slippageMultiplier: z.number(),
+  }),
+  benchmark: z.object({
+    enabled: z.boolean(),
+    iterations: z.number(),
+    seed: z.number(),
+  }),
+  bootstrap: z.object({
+    iterations: z.number(),
+    seed: z.number(),
+    meanBlockLen: z.number(),
+  }),
+  perSymbol: z.array(StrategyPerSymbolSchema),
+  pooled: PooledStatsSchema,
+  gates: z.array(GateSchema),
+  pass: z.boolean(),
+  computedAt: z.string(),
+  gitCommit: z.string(),
+  durationMs: z.number(),
+});
+export type StrategyReport = z.infer<typeof StrategyReportSchema>;
+
+export function validateStrategyReport(json: unknown): ValidationResult<StrategyReport> {
+  const result = StrategyReportSchema.safeParse(json);
+  if (result.success) return { ok: true, data: result.data };
+  return { ok: false, issues: formatIssues(result.error) };
+}
+
+// Every finite number reachable inside `pooled`, except the counts and
+// indexes listed here: a sample size, a raw trial/window/year count, or an
+// array index is not a "statistic" a finding should be able to cite by
+// coincidence, matching checkFindings' own horizon/n exclusion above.
+const EXCLUDED_POOLED_PATHS = new Set([
+  'n',
+  'windowsTotal',
+  'windowsPositive',
+  'symbolsTotal',
+  'symbolsPositive',
+  'benchmarkWindows',
+  'trials',
+  'stressTrades',
+  'bootstrap.iterations',
+  'bootstrap.seed',
+  'bootstrap.meanBlockLen',
+  'plateau.neighbors',
+  'perYear[].year',
+  'perYear[].trades',
+]);
+
+/**
+ * Recursively collects every finite number reachable inside `value`
+ * (objects, arrays, and tuples alike), skipping any path present in
+ * `excluded`. Array elements share one path suffix (`[]`) regardless of
+ * index, since a finding never cites "the third entry of perYear" -- only
+ * the value itself.
+ */
+function collectGroundableNumbers(value: unknown, path: string, excluded: Set<string>, out: number[]): void {
+  if (typeof value === 'number') {
+    if (excluded.has(path)) return;
+    if (Number.isFinite(value)) out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectGroundableNumbers(item, `${path}[]`, excluded, out);
+    }
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [key, v] of Object.entries(value)) {
+      collectGroundableNumbers(v, path ? `${path}.${key}` : key, excluded, out);
+    }
+  }
+}
+
+function pooledGroundableNumbers(pooled: StrategyPooledStats): number[] {
+  const out: number[] = [];
+  collectGroundableNumbers(pooled, '', EXCLUDED_POOLED_PATHS, out);
+  return out;
+}
+
+function strategyGateValues(report: StrategyReport): number[] {
+  return report.gates.map((g) => g.value).filter((v): v is number => v !== null);
+}
+
+/**
+ * Grounds every headline finding in a strategy subagent's report against the
+ * strategy report's own numbers. A finding with no `symbol` grounds against
+ * every finite number reachable inside `report.pooled` (see
+ * EXCLUDED_POOLED_PATHS for what does not count) plus every gate's `value`.
+ * A finding naming a `symbol` (no `window`) grounds against that symbol's
+ * `pooledOos.expectancyPercent`/`winRate`. A finding naming both `symbol` and
+ * `window` grounds against that window's `oos` numbers and its
+ * `benchmark.pValue`. An unknown symbol or window is ungrounded with a
+ * reason naming what was not found, matching checkFindings' style above.
+ */
+export function checkStrategyFindings(
+  sub: SubagentReport,
+  report: StrategyReport
+): Array<{ index: number; reason: string }> {
+  const ungrounded: Array<{ index: number; reason: string }> = [];
+
+  sub.topFindings.forEach((finding, index) => {
+    if (finding.symbol === undefined) {
+      const candidates = [...pooledGroundableNumbers(report.pooled), ...strategyGateValues(report)];
+      if (!valueMatchesAny(finding.value, candidates)) {
+        ungrounded.push({ index, reason: `value ${finding.value} not found in pooled report` });
+      }
+      return;
+    }
+
+    const symbolEntry = report.perSymbol.find((p) => p.symbol === finding.symbol);
+    if (!symbolEntry) {
+      ungrounded.push({ index, reason: `symbol "${finding.symbol}" not found in report` });
+      return;
+    }
+
+    if (finding.window === undefined) {
+      const candidates = [symbolEntry.pooledOos.expectancyPercent, symbolEntry.pooledOos.winRate].filter(
+        (v): v is number => v !== null
+      );
+      if (!valueMatchesAny(finding.value, candidates)) {
+        ungrounded.push({
+          index,
+          reason: `value ${finding.value} not found for symbol "${finding.symbol}"`,
+        });
+      }
+      return;
+    }
+
+    const window = symbolEntry.windows[finding.window];
+    if (!window) {
+      ungrounded.push({
+        index,
+        reason: `window ${finding.window} not found for symbol "${finding.symbol}"`,
+      });
+      return;
+    }
+
+    const candidates: number[] = [];
+    if (window.oos) {
+      candidates.push(
+        ...[
+          window.oos.expectancyPercent,
+          window.oos.expectancyR,
+          window.oos.winRate,
+          window.oos.profitFactor,
+          window.oos.maxDrawdownPercent,
+          window.oos.medianHoldBars,
+        ].filter((v): v is number => v !== null)
+      );
+    }
+    if (window.benchmark && window.benchmark.pValue !== null) {
+      candidates.push(window.benchmark.pValue);
+    }
+
+    if (!valueMatchesAny(finding.value, candidates)) {
+      ungrounded.push({
+        index,
+        reason: `value ${finding.value} not found for symbol "${finding.symbol}" window ${finding.window}`,
+      });
+    }
+  });
+
+  return ungrounded;
+}
+
+/**
+ * Compares a freshly recomputed window (trades, expectancyPercent) against
+ * the report's own recorded oos values for that symbol/window, to catch a
+ * fabricated or drifted report. `trades` must match exactly; expectancyPercent
+ * is tolerant of float drift (1e-9) and treats two nulls as a match (both
+ * runs agreeing the window produced no usable expectancy). A missing symbol
+ * or window, or a window the report itself recorded as skipped (no `oos`),
+ * cannot be spot-checked and returns ok: false with a NaN delta.
+ */
+export function spotCheckStrategyWindow(
+  report: StrategyReport,
+  cell: { symbol: string; window: number },
+  recomputed: { trades: number; expectancyPercent: number | null }
+): { ok: boolean; deltaExpectancy: number; tradesMatch: boolean } {
+  const symbolEntry = report.perSymbol.find((p) => p.symbol === cell.symbol);
+  const window = symbolEntry?.windows[cell.window];
+
+  if (!symbolEntry || !window || window.oos === null) {
+    return { ok: false, deltaExpectancy: NaN, tradesMatch: false };
+  }
+
+  const tradesMatch = recomputed.trades === window.oos.trades;
+
+  let deltaExpectancy: number;
+  let expectancyOk: boolean;
+  if (recomputed.expectancyPercent === null && window.oos.expectancyPercent === null) {
+    deltaExpectancy = 0;
+    expectancyOk = true;
+  } else if (recomputed.expectancyPercent === null || window.oos.expectancyPercent === null) {
+    deltaExpectancy = NaN;
+    expectancyOk = false;
+  } else {
+    deltaExpectancy = recomputed.expectancyPercent - window.oos.expectancyPercent;
+    expectancyOk = Math.abs(deltaExpectancy) <= 1e-9;
+  }
+
+  return { ok: tradesMatch && expectancyOk, deltaExpectancy, tradesMatch };
 }
