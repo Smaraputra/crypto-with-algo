@@ -70,8 +70,23 @@ export const FactorIcReportSchema = z.object({
     iterations: z.number(),
     seed: z.number(),
     perSymbol: z.boolean(),
+    // Pooled bootstrapCi95 is only computed for cells whose pooled HAC |icT|
+    // clears this gate (a candidate for the survivor rule); other cells
+    // carry a null bootstrapCi95 rather than paying for a wide interval on
+    // a cell nobody will treat as a finding. maxPairs bounds the pooled
+    // series size fed into the bootstrap itself (see factor-ic.ts's
+    // subsampling for cells above that size).
+    gateAbsT: z.number(),
+    maxPairs: z.number(),
   }),
   factors: z.array(FactorReportSchema),
+  skippedFactors: z.array(
+    z.object({
+      name: z.string(),
+      category: z.string(),
+      reason: z.string(),
+    })
+  ),
 });
 export type FactorIcReport = z.infer<typeof FactorIcReportSchema>;
 
@@ -225,13 +240,14 @@ export function evaluateSurvivors(report: FactorIcReport): SurvivorRow[] {
   return report.factors.map((factor) => evaluateFactorSurvivor(report.interval, factor));
 }
 
+// horizon and n are deliberately excluded: a claim's value must match a
+// statistic, not an index (horizon) or a sample size (n) -- a finding whose
+// value happens to equal the horizon number or the pair count is not
+// grounded by that coincidence.
 function horizonStatNumbers(stat: HorizonStat): number[] {
   const numbers = [
-    stat.horizon,
-    stat.n,
     stat.ic,
     stat.icT,
-    stat.nNonOverlapping,
     stat.icNonOverlapping,
     stat.signHitRate,
     stat.quantileSpread.top,
@@ -243,7 +259,7 @@ function horizonStatNumbers(stat: HorizonStat): number[] {
 }
 
 function rollingEntryNumbers(entry: RollingQuarterlyEntry): number[] {
-  return [entry.horizon, entry.ic, entry.n, entry.t];
+  return [entry.ic, entry.t];
 }
 
 function valueMatchesAny(value: number, candidates: number[]): boolean {
@@ -256,7 +272,9 @@ function valueMatchesAny(value: number, candidates: number[]): boolean {
  * its rolling-quarterly entries) when no symbol is given, or that symbol's
  * own table when one is. `metric` only describes the claim for a human
  * reader; grounding checks the value against every numeric field of the
- * matching HorizonStat/rolling entries, not just the one `metric` names.
+ * matching HorizonStat/rolling entries, not just the one `metric` names --
+ * except `horizon` and `n`, which are excluded (an index and a sample size,
+ * not a statistic a finding should be able to "cite").
  */
 export function checkFindings(
   sub: SubagentReport,

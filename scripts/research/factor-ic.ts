@@ -38,6 +38,16 @@ const NO_SNAPSHOT_INTERVALS = new Set(['5m', '15m']);
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
 // (fewer pairs than this and those functions already return NaN).
 const MIN_PAIRS = 3;
+// Pooled bootstrapCi95 is only attempted for cells whose pooled HAC |icT|
+// clears this gate -- a candidate for the survivor rule (SURVIVOR_RULE.minT
+// is 2.5; this gate is deliberately its own, slightly looser, constant).
+// Cells below it carry bootstrapCi95: null rather than paying for a wide
+// interval on a cell nobody will treat as a finding.
+const BOOTSTRAP_GATE_ABS_T = 2;
+// Upper bound on how many (factor, forward-return) rows feed one bootstrapCi
+// call; see subsampleForBootstrap below for how a larger pooled series is
+// reduced to this size.
+const DEFAULT_BOOTSTRAP_MAX_PAIRS = 100_000;
 
 export interface FactorIcArgs {
   interval: string;
@@ -51,6 +61,7 @@ export interface FactorIcArgs {
   bootstrapN: number;
   bootstrapSeed: number;
   bootstrapPerSymbol: boolean;
+  bootstrapMaxPairs: number;
   allowLockbox: boolean;
   factors?: string[];
   cell?: { factor: string; horizon: number; symbol?: string };
@@ -161,9 +172,12 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
     datasetDir: flags.get('dataset-dir') ?? 'data/research',
     out,
     taskId,
-    bootstrapN: flags.has('bootstrap-n') ? Number(flags.get('bootstrap-n')) : 1000,
+    bootstrapN: flags.has('bootstrap-n') ? Number(flags.get('bootstrap-n')) : 200,
     bootstrapSeed: flags.has('bootstrap-seed') ? Number(flags.get('bootstrap-seed')) : 42,
     bootstrapPerSymbol: booleans.has('bootstrap-per-symbol'),
+    bootstrapMaxPairs: flags.has('bootstrap-max-pairs')
+      ? Number(flags.get('bootstrap-max-pairs'))
+      : DEFAULT_BOOTSTRAP_MAX_PAIRS,
     allowLockbox: booleans.has('allow-lockbox'),
     factors: flags.has('factors') ? parseList(flags.get('factors')!) : undefined,
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
@@ -205,6 +219,82 @@ function loadSymbolData(
   return { symbol, matrix, lockboxApplied: !opts.allowLockbox };
 }
 
+// Number of equal strata the pooled series is split into when it needs
+// subsampling for the bootstrap; see subsampleForBootstrap.
+const SUBSAMPLE_BLOCK_COUNT = 20;
+
+/** mulberry32: same small seeded PRNG as ic-stats.ts's own (unexported) one, reimplemented locally for the subsample below. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return function next(): number {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Deterministically picks at most maxLen indices out of [0, len) as
+ * SUBSAMPLE_BLOCK_COUNT contiguous blocks, one per equal stratum of the
+ * range, each at a seeded-random offset within its stratum. Each block
+ * stays an unbroken run of the original series, so the autocorrelation/
+ * block structure inside it survives untouched -- only which slabs are kept
+ * is randomized, not the order of what is inside them. Stratifying across
+ * the whole range (rather than one single contiguous slice of length
+ * maxLen) keeps every part of a multi-symbol pooled series represented,
+ * instead of a slice that could land entirely inside one symbol's data.
+ * Deterministic for a given (len, maxLen, seed).
+ */
+function pickSubsampleIndices(len: number, maxLen: number, seed: number): number[] {
+  if (len <= maxLen) {
+    const all = new Array<number>(len);
+    for (let i = 0; i < len; i++) all[i] = i;
+    return all;
+  }
+
+  const rng = mulberry32(seed);
+  const blockCount = Math.min(SUBSAMPLE_BLOCK_COUNT, len);
+  const strataSize = Math.floor(len / blockCount);
+  const blockLen = Math.max(1, Math.floor(maxLen / blockCount));
+
+  const indices: number[] = [];
+  for (let b = 0; b < blockCount; b++) {
+    const strataStart = b * strataSize;
+    const strataEnd = b === blockCount - 1 ? len : strataStart + strataSize;
+    const available = Math.max(1, strataEnd - strataStart - blockLen);
+    const offset = strataStart + Math.floor(rng() * available);
+    const end = Math.min(strataEnd, offset + blockLen);
+    for (let i = offset; i < end; i++) indices.push(i);
+  }
+  return indices;
+}
+
+/**
+ * Reduces (factor, fwd) to at most maxPairs positionally-aligned rows before
+ * they reach bootstrapCi, when the pooled series is larger than that. A
+ * pooled 5m/10-symbol series is on the order of 1M rows, and bootstrapCi's
+ * cost is dominated by re-ranking (sorting) the resampled arrays on every
+ * iteration, so bounding the input size bounds the cost per iteration
+ * regardless of how large the underlying dataset is. Below maxPairs, both
+ * arrays are returned unchanged.
+ */
+function subsampleForBootstrap(
+  factor: number[],
+  fwd: (number | null)[],
+  maxPairs: number,
+  seed: number
+): { factor: number[]; fwd: (number | null)[] } {
+  const len = Math.min(factor.length, fwd.length);
+  if (len <= maxPairs) return { factor, fwd };
+
+  const indices = pickSubsampleIndices(len, maxPairs, seed);
+  return {
+    factor: indices.map((i) => factor[i]),
+    fwd: indices.map((i) => fwd[i]),
+  };
+}
+
 /**
  * Builds one HorizonStat, or null when there is not enough usable data at
  * this horizon (fewer than MIN_PAIRS valid pairs, overlapping or
@@ -218,7 +308,7 @@ function buildHorizonStat(
   factorArr: number[],
   fwd: (number | null)[],
   horizon: number,
-  bootstrap: { iterations: number; seed: number } | null
+  bootstrap: { iterations: number; seed: number; maxPairs: number; gateAbsT: number | null } | null
 ): HorizonStat | null {
   const overlap = icWithHac(factorArr, fwd, horizon);
   if (overlap.n < MIN_PAIRS || !Number.isFinite(overlap.ic) || !Number.isFinite(overlap.t)) {
@@ -246,8 +336,9 @@ function buildHorizonStat(
   }
 
   let bootstrapCi95: [number, number] | null = null;
-  if (bootstrap) {
-    const ci = bootstrapCi(factorArr, fwd, (f, r) => spearman(f, r), {
+  if (bootstrap && (bootstrap.gateAbsT === null || Math.abs(overlap.t) >= bootstrap.gateAbsT)) {
+    const sample = subsampleForBootstrap(factorArr, fwd, bootstrap.maxPairs, bootstrap.seed);
+    const ci = bootstrapCi(sample.factor, sample.fwd, (f, r) => spearman(f, r), {
       iterations: bootstrap.iterations,
       meanBlockLen: horizon,
       seed: bootstrap.seed,
@@ -342,16 +433,25 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     requestedFactors = args.factors;
   }
 
+  // Per-symbol bootstrapCi95 (opt-in via --bootstrap-per-symbol) is ungated:
+  // gateAbsT: null means "always attempt", since it is already off by
+  // default and the caller explicitly asked for it.
   const bootstrapPerSymbolOpt = args.bootstrapPerSymbol
-    ? { iterations: args.bootstrapN, seed: args.bootstrapSeed }
+    ? { iterations: args.bootstrapN, seed: args.bootstrapSeed, maxPairs: args.bootstrapMaxPairs, gateAbsT: null }
     : null;
-  // Pooled bootstrapCi95 is always computed per the brief, for every
-  // requested factor x horizon. Its cost is dominated by re-ranking (an
-  // O(m log m) sort, twice) per iteration on the pooled series, which for a
-  // full 5m/10-symbol run (~1M pooled bars) is on the order of ~1s per
-  // iteration -- see the concerns section of the C3 report for measured
-  // numbers and a recommended --bootstrap-n for full production runs.
-  const bootstrapPooledOpt = { iterations: args.bootstrapN, seed: args.bootstrapSeed };
+  // Pooled bootstrapCi95 is attempted for every requested factor x horizon,
+  // but only actually computed for cells whose pooled HAC |icT| clears
+  // BOOTSTRAP_GATE_ABS_T (a ruling from the controller after C3's initial
+  // report flagged that "always computed" at the default --bootstrap-n
+  // (formerly 1000) was on the order of 15 minutes per pooled cell at full
+  // production scale -- see the fix-round entry in the C3 report for the
+  // benchmark). Cells below the gate carry bootstrapCi95: null.
+  const bootstrapPooledOpt = {
+    iterations: args.bootstrapN,
+    seed: args.bootstrapSeed,
+    maxPairs: args.bootstrapMaxPairs,
+    gateAbsT: BOOTSTRAP_GATE_ABS_T,
+  };
 
   // forwardReturns depends only on (symbol, horizon), not on the factor, so
   // it is computed once per pair and reused across every requested factor.
@@ -367,6 +467,7 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
   }
 
   const factorReports: FactorReport[] = [];
+  const skippedFactors: FactorIcReport['skippedFactors'] = [];
 
   for (const factorName of requestedFactors) {
     console.error(`[factor-ic] computing ${factorName}...`);
@@ -432,9 +533,12 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     if (pooledHorizons.length === 0) {
       // No usable signal anywhere for this factor at this interval (e.g. a
       // funding/sentiment-derived factor on 5m/15m, which never has snapshot
-      // data). Omit it rather than encode "no data" as NaN in a report whose
-      // numeric fields are all plain, schema-validated numbers.
-      console.error(`[factor-ic] skipping ${factorName}: no usable data at any horizon`);
+      // data). Recorded in skippedFactors rather than encoded as NaN in a
+      // report whose numeric fields are all plain, schema-validated numbers,
+      // so it is visible to the orchestrator instead of silently vanishing.
+      const reason = 'no finite pairs at any horizon';
+      console.error(`[factor-ic] skipping ${factorName}: ${reason}`);
+      skippedFactors.push({ name: factorName, category: nameCategory.get(factorName) ?? 'unknown', reason });
       continue;
     }
 
@@ -475,8 +579,11 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
       iterations: args.bootstrapN,
       seed: args.bootstrapSeed,
       perSymbol: args.bootstrapPerSymbol,
+      gateAbsT: BOOTSTRAP_GATE_ABS_T,
+      maxPairs: args.bootstrapMaxPairs,
     },
     factors: factorReports,
+    skippedFactors,
   };
 
   const validated = validateFactorIcReport(report);
@@ -487,6 +594,13 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
   return validated.data;
 }
 
+/**
+ * The 15 largest pooled |icT| rows across all horizons (not top 15 per
+ * horizon): every factor's pooled HorizonStat, at every horizon, is flattened
+ * into one list and sorted by |icT|, so a factor can appear more than once
+ * if several of its horizons rank highly, and a horizon with no standout
+ * factor may not appear at all.
+ */
 function formatTopTable(report: FactorIcReport): string {
   const rows: Array<{ factor: string; horizon: number; ic: number; icT: number; n: number }> = [];
   for (const factor of report.factors) {
@@ -497,6 +611,7 @@ function formatTopTable(report: FactorIcReport): string {
   rows.sort((a, b) => Math.abs(b.icT) - Math.abs(a.icT));
   const top = rows.slice(0, 15);
 
+  const title = 'top 15 pooled |icT| rows across all horizons:';
   const header = ['factor', 'horizon', 'ic', 'icT', 'n'].map((h) => h.padEnd(10)).join('');
   const lines = top.map((r) =>
     [
@@ -507,7 +622,7 @@ function formatTopTable(report: FactorIcReport): string {
       String(r.n),
     ].join('')
   );
-  return [header, ...lines].join('\n');
+  return [title, header, ...lines].join('\n');
 }
 
 /** Computes and writes the full report, then prints a top-factors table and survivor count. */
@@ -521,6 +636,7 @@ export async function runFactorIc(args: FactorIcArgs): Promise<FactorIcReport> {
   console.log(formatTopTable(report));
   const survivors = evaluateSurvivors(report).filter((row) => row.survivor).length;
   console.log(`survivors: ${survivors} / ${report.factors.length} factors`);
+  console.log(`skipped: ${report.skippedFactors.length} factor(s) with no usable data`);
 
   return report;
 }

@@ -168,6 +168,93 @@ describe('factor-ic CLI', () => {
     expect(h1!.ic).toBeGreaterThan(0.3);
   }, 30_000);
 
+  it('gates pooled bootstrapCi95 by |icT|: null below the threshold, finite above it', async () => {
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.ret1',
+      '--bootstrap-n', '100',
+      '--allow-lockbox',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    expect(report.bootstrap).toEqual({ iterations: 100, seed: 42, perSymbol: false, gateAbsT: 2, maxPairs: 100_000 });
+
+    const ret1 = report.factors.find((f) => f.name === 'raw.ret1')!;
+    const h1 = ret1.pooled.horizons.find((h) => h.horizon === 1)!;
+    const h32 = ret1.pooled.horizons.find((h) => h.horizon === 32)!;
+
+    // h1's AR(1)-driven signal is strong (|icT| well above the gate).
+    expect(Math.abs(h1.icT)).toBeGreaterThanOrEqual(2);
+    expect(h1.bootstrapCi95).not.toBeNull();
+    expect(Number.isFinite(h1.bootstrapCi95![0])).toBe(true);
+    expect(Number.isFinite(h1.bootstrapCi95![1])).toBe(true);
+
+    // h32's AR(1) persistence has mostly decayed away (|icT| below the gate).
+    expect(Math.abs(h32.icT)).toBeLessThan(2);
+    expect(h32.bootstrapCi95).toBeNull();
+  }, 30_000);
+
+  it('the bootstrap subsample path runs cleanly under a small --bootstrap-max-pairs override', async () => {
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.ret1',
+      '--horizons', '1',
+      '--bootstrap-n', '50',
+      '--bootstrap-max-pairs', '50',
+      '--allow-lockbox',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    expect(report.bootstrap.maxPairs).toBe(50);
+
+    const h1 = report.factors.find((f) => f.name === 'raw.ret1')!.pooled.horizons.find((h) => h.horizon === 1)!;
+    // The fixture pools to several hundred rows, well above maxPairs=50, so
+    // this cell only produces a finite interval if the subsample path ran.
+    expect(h1.bootstrapCi95).not.toBeNull();
+    expect(Number.isFinite(h1.bootstrapCi95![0])).toBe(true);
+    expect(Number.isFinite(h1.bootstrapCi95![1])).toBe(true);
+    expect(h1.bootstrapCi95![0]).toBeLessThanOrEqual(h1.bootstrapCi95![1]);
+  }, 30_000);
+
+  it('the bootstrap subsample is deterministic: two runs, same seed, identical bootstrapCi95', async () => {
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.ret1',
+      '--horizons', '1',
+      '--bootstrap-n', '50',
+      '--bootstrap-max-pairs', '50',
+      '--allow-lockbox',
+    ]);
+
+    const reportA = await buildFactorIcReport(args);
+    const reportB = await buildFactorIcReport(args);
+
+    const ciA = reportA.factors[0].pooled.horizons[0].bootstrapCi95;
+    const ciB = reportB.factors[0].pooled.horizons[0].bootstrapCi95;
+
+    expect(ciA).not.toBeNull();
+    expect(ciA).toEqual(ciB);
+  }, 30_000);
+
+  it('records an all-NaN factor in skippedFactors instead of silently vanishing', async () => {
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.ret1,raw.fundingRate',
+      '--bootstrap-n', '10',
+      '--allow-lockbox',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    expect(report.factors.map((f) => f.name)).toEqual(['raw.ret1']);
+    expect(report.skippedFactors).toEqual([
+      { name: 'raw.fundingRate', category: 'raw', reason: 'no finite pairs at any horizon' },
+    ]);
+  }, 30_000);
+
   it('is deterministic: two runs with the same seed write identical files (ignoring computedAt)', async () => {
     const outA = join(dir, 'reports', 'a.json');
     const outB = join(dir, 'reports', 'b.json');
@@ -283,9 +370,10 @@ describe('parseArgs', () => {
     expect(args.symbols).toBeUndefined();
     expect(args.horizons).toEqual([1, 2, 4, 8, 16, 32]);
     expect(args.datasetDir).toBe('data/research');
-    expect(args.bootstrapN).toBe(1000);
+    expect(args.bootstrapN).toBe(200);
     expect(args.bootstrapSeed).toBe(42);
     expect(args.bootstrapPerSymbol).toBe(false);
+    expect(args.bootstrapMaxPairs).toBe(100_000);
     expect(args.allowLockbox).toBe(false);
     expect(args.factors).toBeUndefined();
     expect(args.cell).toBeUndefined();
@@ -317,6 +405,12 @@ describe('parseArgs', () => {
     expect(args.allowLockbox).toBe(true);
     expect(args.bootstrapPerSymbol).toBe(true);
     expect(args.horizons).toEqual([1, 2]);
+  });
+
+  it('parses an explicit --bootstrap-n and --bootstrap-max-pairs', () => {
+    const args = parseArgs(['--interval', '1h', '--bootstrap-n', '50', '--bootstrap-max-pairs', '1000'], NOW);
+    expect(args.bootstrapN).toBe(50);
+    expect(args.bootstrapMaxPairs).toBe(1000);
   });
 
   it('parses ISO --start and --end into epoch milliseconds', () => {

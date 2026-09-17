@@ -54,8 +54,9 @@ function makeFactorIcReport(factors: FactorReport[]): FactorIcReport {
     dateRange: { startMs: 0, endMs: 1_000_000 },
     computedAt: '2026-09-17T00:00:00.000Z',
     gitCommit: 'deadbeef',
-    bootstrap: { iterations: 1000, seed: 42, perSymbol: false },
+    bootstrap: { iterations: 200, seed: 42, perSymbol: false, gateAbsT: 2, maxPairs: 100_000 },
     factors,
+    skippedFactors: [],
   };
 }
 
@@ -86,6 +87,28 @@ describe('validateFactorIcReport', () => {
     if (result.ok) {
       expect(result.data.factors).toHaveLength(1);
     }
+  });
+
+  it('accepts skippedFactors entries and the bootstrap gateAbsT/maxPairs fields', () => {
+    const report = {
+      ...makeFactorIcReport([makeFactorReport()]),
+      skippedFactors: [{ name: 'raw.fundingRate', category: 'raw', reason: 'no finite pairs at any horizon' }],
+    };
+    const result = validateFactorIcReport(report);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.skippedFactors).toEqual([
+        { name: 'raw.fundingRate', category: 'raw', reason: 'no finite pairs at any horizon' },
+      ]);
+      expect(result.data.bootstrap).toEqual({ iterations: 200, seed: 42, perSymbol: false, gateAbsT: 2, maxPairs: 100_000 });
+    }
+  });
+
+  it('rejects a document missing skippedFactors', () => {
+    const report = makeFactorIcReport([makeFactorReport()]) as unknown as Record<string, unknown>;
+    delete report.skippedFactors;
+    const result = validateFactorIcReport(report);
+    expect(result.ok).toBe(false);
   });
 
   it('rejects a document missing a required field', () => {
@@ -432,6 +455,27 @@ describe('checkFindings', () => {
     const ungrounded = checkFindings(sub, report);
     expect(ungrounded).toHaveLength(1);
     expect(ungrounded[0].index).toBe(1);
+  });
+
+  it('does not ground a value that only coincidentally matches the horizon number', () => {
+    // value 1 matches the HorizonStat's horizon (1), not any statistic --
+    // horizon and n are deliberately excluded from the groundable numbers.
+    const sub = makeSubagentReport({
+      topFindings: [{ claim: 'bogus, matches only the horizon', metric: 'ic', value: 1, n: 500, factor: 'raw.ret1', horizon: 1 }],
+    });
+    const ungrounded = checkFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].index).toBe(0);
+  });
+
+  it('does not ground a value that only coincidentally matches a sample size (n)', () => {
+    // value 500 matches the pooled HorizonStat's n, not any statistic.
+    const sub = makeSubagentReport({
+      topFindings: [{ claim: 'bogus, matches only n', metric: 'ic', value: 500, n: 500, factor: 'raw.ret1', horizon: 1 }],
+    });
+    const ungrounded = checkFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].index).toBe(0);
   });
 });
 
