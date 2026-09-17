@@ -12,6 +12,10 @@ const mockInsertMany = vi.fn();
 const mockSnapshotAggregate = vi.fn();
 const mockCreate = vi.fn();
 const mockFindOne = vi.fn();
+// Default behavior is a pure passthrough (no real caching), matching every
+// existing test's expectations. One test below temporarily overrides this
+// with a real in-memory cache to exercise cross-invocation cache reuse.
+const mockCachedFetch = vi.fn((_key: string, fn: () => Promise<unknown>) => fn());
 
 vi.mock('@/lib/candle-ingestion', async () => {
   // dropOpenBars is pure (no DB/IO), so keep the real implementation while
@@ -38,7 +42,7 @@ vi.mock('@/lib/external/fear-greed', () => ({
 }));
 
 vi.mock('@/lib/redis', () => ({
-  cachedFetch: (_key: string, fn: () => Promise<unknown>) => fn(),
+  cachedFetch: (...args: Parameters<typeof mockCachedFetch>) => mockCachedFetch(...args),
 }));
 
 vi.mock('@/lib/mongodb', () => ({
@@ -145,7 +149,7 @@ describe('compute-engine', () => {
         insertedDocs[0].session
       );
       // v2 schema: htf confluence from the 4h confirmation interval
-      expect(insertedDocs[0].configVersion).toBe(3);
+      expect(insertedDocs[0].configVersion).toBe(4);
       expect(insertedDocs[0].htfContext).not.toBeNull();
       expect(insertedDocs[0].htfContext.interval).toBe('4h');
       expect(['bullish', 'bearish', 'neutral']).toContain(insertedDocs[0].htfContext.trendDirection);
@@ -478,6 +482,72 @@ describe('compute-engine', () => {
       } finally {
         logSpy.mockRestore();
         dateSpy.mockRestore();
+      }
+    });
+
+    it('caches the fetchKlines-fallback result already filtered, so a later cache read past the bar\'s close still excludes it', async () => {
+      // T1: this cron cycle runs the fetchKlines fallback and populates the
+      // 60s Redis cache. T2: a later, separate cron cycle whose own `now` is
+      // well past the bar's close -- simulating wall-clock time moving on
+      // between cycles while the cache entry is still live.
+      const T1 = NOW;
+      const T2 = NOW + 2 * DAY_MS;
+
+      const closed = generateDailyCandles(450, T1);
+      const lastClosed = closed[closed.length - 1];
+      const openAtT1: OHLCV = {
+        ...lastClosed,
+        timestamp: T1 - 60 * 60 * 1000,
+        close: lastClosed.close * 1.5,
+        high: lastClosed.close * 1.6,
+      };
+
+      // Mongo holds fewer than recommendedCandles (500 for position_trading),
+      // so fetchCandlesForTask falls back to fetchKlines, whose response
+      // ends with the still-forming bar.
+      mockGetCandles.mockResolvedValue(closed.slice(0, 5));
+      mockFetchKlines.mockResolvedValue([...closed, openAtT1]);
+
+      // Real (unbounded, good enough for this test) in-memory cache so the
+      // second computeSignalBatch call below -- a separate invocation, same
+      // as a later cron cycle sharing the real 60s Redis cache -- hits the
+      // exact entry the first call wrote, instead of invoking the producer
+      // (and therefore fetchKlines) again.
+      const cache = new Map<string, unknown>();
+      mockCachedFetch.mockImplementation(async (key: string, fn: () => Promise<unknown>) => {
+        if (cache.has(key)) return cache.get(key);
+        const value = await fn();
+        cache.set(key, value);
+        return value;
+      });
+
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const { computeSignalBatch } = await import('./compute-engine');
+
+        dateSpy.mockReturnValue(T1);
+        await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+        ]);
+        const firstDoc = mockInsertMany.mock.calls[0][0][0];
+        expect(firstDoc.candleTimestamp).toBe(lastClosed.timestamp); // excluded at cache-write time
+
+        mockInsertMany.mockClear();
+        dateSpy.mockReturnValue(T2); // a later cycle; wall-clock has moved on
+        await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+        ]);
+        const secondDoc = mockInsertMany.mock.calls[0][0][0];
+
+        // Cache hit: the producer (and fetchKlines) never runs again, so the
+        // open bar can't leak back in just because T2's outer filter would
+        // now call it "closed".
+        expect(mockFetchKlines).toHaveBeenCalledTimes(1);
+        expect(secondDoc.candleTimestamp).toBe(lastClosed.timestamp);
+        expect(secondDoc.candleTimestamp).not.toBe(openAtT1.timestamp);
+      } finally {
+        dateSpy.mockRestore();
+        mockCachedFetch.mockImplementation((_key: string, fn: () => Promise<unknown>) => fn());
       }
     });
   });

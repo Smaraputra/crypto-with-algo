@@ -16,6 +16,19 @@ vi.mock('@/lib/binance', () => ({
   fetchKlines: vi.fn(),
 }));
 
+const mockGetCandles = vi.fn();
+// dropOpenBars is pure (no DB/IO), so keep the real implementation while
+// getCandles stays fully mocked -- lets one test exercise the real
+// cachedFetch producer (getCandles -> fetchKlines fallback -> dropOpenBars).
+vi.mock('@/lib/candle-ingestion', async () => {
+  const actual =
+    await vi.importActual<typeof import('@/lib/candle-ingestion')>('@/lib/candle-ingestion');
+  return {
+    dropOpenBars: actual.dropOpenBars,
+    getCandles: (...args: unknown[]) => mockGetCandles(...args),
+  };
+});
+
 vi.mock('@/lib/binance-futures', () => ({
   fetchFundingRate: vi.fn(),
   fetchLongShortRatio: vi.fn(),
@@ -62,6 +75,7 @@ vi.mock('@/lib/indicators/compute', async () => {
 
 import { GET } from './route';
 import { cachedFetch } from '@/lib/redis';
+import { fetchKlines } from '@/lib/binance';
 import { Signal } from '@/lib/models/signal';
 import { Strategy } from '@/lib/models/strategy';
 import { computeAllIndicators } from '@/lib/indicators/compute';
@@ -70,10 +84,10 @@ import { computeAllIndicators } from '@/lib/indicators/compute';
 // same pattern as candle-ingestion.test.ts.
 const NOW = 1_700_000_000_000;
 
-function generateCandles(count: number): OHLCV[] {
+function generateCandles(count: number, now: number = Date.now()): OHLCV[] {
   const candles: OHLCV[] = [];
   let price = 40000;
-  const baseTime = Date.now() - count * 60 * 60 * 1000;
+  const baseTime = now - count * 60 * 60 * 1000;
 
   for (let i = 0; i < count; i++) {
     const change = (Math.sin(i * 0.1) * 0.01 + 0.001) * price;
@@ -241,6 +255,70 @@ describe('GET /api/cron/compute-signals', () => {
       expect(receivedCandles[receivedCandles.length - 1].timestamp).toBe(
         closed[closed.length - 1].timestamp
       );
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
+
+  it('caches the fetchKlines-fallback result already filtered, so a later cache read past the bar\'s close still excludes it', async () => {
+    vi.mocked(Strategy.find).mockResolvedValue([
+      {
+        userId: 'user-1',
+        symbols: ['BTCUSDT'],
+        intervals: ['1h'],
+        weights: { trend: 0.25, momentum: 0.25, volume: 0.15, volatility: 0.10, futures: 0.15, sentiment: 0.10 },
+        active: true,
+      },
+    ] as never);
+
+    // T1: this cron run executes the fetchKlines fallback and populates the
+    // 60s Redis cache. T2: a later, separate cron run whose own `now` is
+    // well past the bar's close.
+    const T1 = NOW;
+    const T2 = NOW + 2 * 60 * 60 * 1000;
+
+    const closed = generateCandles(500, T1);
+    const openAtT1: OHLCV = { ...closed[closed.length - 1], timestamp: T1 - 30 * 60 * 1000 };
+
+    // Mongo holds fewer than RECOMMENDED_CANDLES, so the cachedFetch
+    // producer falls back to fetchKlines -- whose response ends with the
+    // still-forming bar -- and must filter it before the value is cached.
+    mockGetCandles.mockResolvedValue([]);
+    vi.mocked(fetchKlines).mockResolvedValue([...closed, openAtT1]);
+
+    // Real (unbounded, good enough for this test) in-memory cache so the
+    // second GET below -- a separate cron invocation sharing the real 60s
+    // Redis cache -- hits the exact entry the first run wrote, instead of
+    // invoking the producer (and therefore fetchKlines) again.
+    const cache = new Map<string, unknown>();
+    vi.mocked(cachedFetch).mockImplementation(async (key: string, fn: () => Promise<unknown>) => {
+      if (cache.has(key)) return cache.get(key);
+      const value = await fn();
+      cache.set(key, value);
+      return value;
+    });
+
+    const dateSpy = vi.spyOn(Date, 'now');
+    try {
+      dateSpy.mockReturnValue(T1);
+      const res1 = await GET(makeRequest('test-secret'));
+      expect(res1.status).toBe(200);
+      expect((await res1.json()).computed).toBe(1);
+      const firstCandles = vi.mocked(computeAllIndicators).mock.calls[0][0] as OHLCV[];
+      expect(firstCandles.map((c) => c.timestamp)).not.toContain(openAtT1.timestamp);
+
+      vi.mocked(computeAllIndicators).mockClear();
+      dateSpy.mockReturnValue(T2); // a later cycle; wall-clock has moved on
+      const res2 = await GET(makeRequest('test-secret'));
+      expect(res2.status).toBe(200);
+      expect((await res2.json()).computed).toBe(1);
+
+      // Cache hit: the producer (and fetchKlines) never runs again, so the
+      // open bar can't leak back in just because T2's outer filter would
+      // now call it "closed".
+      expect(fetchKlines).toHaveBeenCalledTimes(1);
+      const secondCandles = vi.mocked(computeAllIndicators).mock.calls[0][0] as OHLCV[];
+      expect(secondCandles.map((c) => c.timestamp)).not.toContain(openAtT1.timestamp);
     } finally {
       dateSpy.mockRestore();
     }

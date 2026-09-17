@@ -86,11 +86,20 @@ export interface ComputeResult {
 
 /**
  * Fetch candles for a symbol/interval, preferring local DB with API fallback.
+ *
+ * The fetchKlines fallback result is cached for 60s (see `cachedFetch`), and
+ * always ends with the still-forming bar. Filtering it here, before the value
+ * is cached, means a bar open at fetch time can never be served from the
+ * cache as "closed" later just because wall-clock time moved on -- the data
+ * itself stays partial for the life of that cache entry regardless. `now` is
+ * the caller's single point-in-time reference (see `computeSignalBatch`), not
+ * a fresh `Date.now()`, so every dropOpenBars call in one batch agrees.
  */
 async function fetchCandlesForTask(
   symbol: string,
   interval: string,
-  recommendedCandles: number
+  recommendedCandles: number,
+  now: number
 ): Promise<OHLCV[]> {
   return cachedFetch(
     `klines:${symbol}:${interval}:${recommendedCandles}`,
@@ -103,7 +112,8 @@ async function fetchCandlesForTask(
         recommendedCandles
       );
       if (dbCandles.length >= recommendedCandles) return dbCandles;
-      return fetchKlines(symbol, interval, recommendedCandles);
+      const apiCandles = await fetchKlines(symbol, interval, recommendedCandles);
+      return dropOpenBars(apiCandles, interval, now);
     },
     60
   );
@@ -180,6 +190,12 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
     return { computed: 0, errors: 0, skipped: 0, details: [] };
   }
 
+  // Single point-in-time reference for the whole batch: every dropOpenBars
+  // call (primary and HTF, including inside fetchCandlesForTask's producer)
+  // uses this same `now`, so a batch spanning several seconds of async work
+  // scores every symbol on the same closed-bar boundary.
+  const now = Date.now();
+
   const result: ComputeResult = { computed: 0, errors: 0, skipped: 0, details: [] };
 
   // Fetch sentiment once for all tasks; news sentiment per symbol from the
@@ -245,15 +261,17 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       const candleKey = `${symbol}:${interval}`;
       let rawCandles = candleCache.get(candleKey);
       if (!rawCandles) {
-        rawCandles = await fetchCandlesForTask(symbol, interval, profile.recommendedCandles);
+        rawCandles = await fetchCandlesForTask(symbol, interval, profile.recommendedCandles, now);
         candleCache.set(candleKey, rawCandles);
       }
 
       // Score closed bars only: a row synced before the candle-finalization
       // fix may still hold a partial newest bar, and the Binance REST
-      // fallback always returns the still-forming candle last. Same helper
+      // fallback always returns the still-forming candle last (already
+      // dropped once inside fetchCandlesForTask's producer; this is a
+      // safety net for candles pulled straight from Mongo). Same helper
       // as the HTF path below.
-      const candles = dropOpenBars(rawCandles, interval, Date.now());
+      const candles = dropOpenBars(rawCandles, interval, now);
 
       if (candles.length === 0) {
         result.skipped++;
@@ -320,10 +338,10 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
           const htfKey = `${symbol}:${htfInterval}`;
           let htfCandles = candleCache.get(htfKey);
           if (!htfCandles) {
-            htfCandles = await fetchCandlesForTask(symbol, htfInterval, profile.recommendedCandles);
+            htfCandles = await fetchCandlesForTask(symbol, htfInterval, profile.recommendedCandles, now);
             candleCache.set(htfKey, htfCandles);
           }
-          const closed = dropOpenBars(htfCandles, htfInterval, Date.now());
+          const closed = dropOpenBars(htfCandles, htfInterval, now);
           if (closed.length > 0) {
             const series = computeHtfSeries(closed, profile.config);
             htfContext = htfContextAtBar(series, closed.length - 1, htfInterval);
@@ -364,7 +382,10 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
-        configVersion: 3, // v3: calibrated tier cutoffs (24/30); v2: htf category + session + htfContext
+        // v4: scores closed bars only (candle-finalization fix); rows written
+        // before it may have been scored on a still-forming bar's partial
+        // values. v3: calibrated tier cutoffs (24/30); v2: htf category + session + htfContext
+        configVersion: 4,
         candleTimestamp: latestCandleTs,
         session,
         htfContext: htfContext

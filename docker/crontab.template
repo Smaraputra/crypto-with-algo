@@ -7,11 +7,17 @@
 */1  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/sync-candles?intervals=1m" >> /var/log/cron.log 2>&1
 */5  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/sync-candles?intervals=5m" >> /var/log/cron.log 2>&1
 
-# Global signal computation - per style at appropriate frequencies
+# Global signal computation - per style at appropriate frequencies. Offset
+# one minute after the matching sync-candles cron above, so compute always
+# reads the bar that just closed in the same cycle instead of racing sync
+# for it (a tie at the same minute means compute can read last cycle's bar
+# and not pick up the new close until the next cycle, up to a full cycle
+# late). Scalping's 1m/5m intervals sync every minute already, so no offset
+# is needed there.
 */1  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=scalping" >> /var/log/cron.log 2>&1
-*/5  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=day_trading" >> /var/log/cron.log 2>&1
-*/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=swing_trading" >> /var/log/cron.log 2>&1
-0    * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=position_trading" >> /var/log/cron.log 2>&1
+1-59/5 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=day_trading" >> /var/log/cron.log 2>&1
+1-59/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=swing_trading" >> /var/log/cron.log 2>&1
+1    * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=position_trading" >> /var/log/cron.log 2>&1
 
 # Legacy per-user signals (backward compat, runs less frequently)
 */10 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/compute-signals >> /var/log/cron.log 2>&1
