@@ -243,10 +243,32 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
     try {
       // Get candles (cached by symbol+interval)
       const candleKey = `${symbol}:${interval}`;
-      let candles = candleCache.get(candleKey);
-      if (!candles) {
-        candles = await fetchCandlesForTask(symbol, interval, profile.recommendedCandles);
-        candleCache.set(candleKey, candles);
+      let rawCandles = candleCache.get(candleKey);
+      if (!rawCandles) {
+        rawCandles = await fetchCandlesForTask(symbol, interval, profile.recommendedCandles);
+        candleCache.set(candleKey, rawCandles);
+      }
+
+      // Score closed bars only: a row synced before the candle-finalization
+      // fix may still hold a partial newest bar, and the Binance REST
+      // fallback always returns the still-forming candle last. Same
+      // predicate as the HTF path below.
+      const intervalMs = intervalToMs(interval);
+      const candles = rawCandles.filter((c) => c.timestamp + intervalMs <= Date.now());
+
+      if (candles.length === 0) {
+        result.skipped++;
+        result.details.push({
+          symbol,
+          interval,
+          tradingStyle,
+          status: 'skipped',
+          error: 'No closed candle available',
+        });
+        console.log(
+          `compute-engine: skipped ${symbol} ${interval} ${tradingStyle} - no closed candle available`
+        );
+        continue;
       }
 
       // Check minimum candle requirement

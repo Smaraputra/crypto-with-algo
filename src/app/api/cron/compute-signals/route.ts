@@ -17,6 +17,7 @@ import { computeSignalScore } from '@/lib/signals/scorer';
 import { computeSignalBatch, buildTasksForStyle } from '@/lib/signals/compute-engine';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
+import { intervalToMs } from '@/lib/intervals';
 import type { FuturesData } from '@/types/futures';
 import type { SentimentData } from '@/types/signal';
 
@@ -117,7 +118,7 @@ async function computeLegacySignals() {
     const [symbol, interval] = pair.split(':');
 
     try {
-      const [candles, futuresData] = await Promise.all([
+      const [rawCandles, futuresData] = await Promise.all([
         cachedFetch(
           `klines:${symbol}:${interval}:${RECOMMENDED_CANDLES}`,
           async () => {
@@ -135,6 +136,15 @@ async function computeLegacySignals() {
         ),
         fetchFuturesDataSafe(symbol),
       ]);
+
+      // Score closed bars only: the Binance REST fallback always returns the
+      // still-forming candle last, same invariant as the global-signal engine.
+      const intervalMs = intervalToMs(interval);
+      const candles = rawCandles.filter((c) => c.timestamp + intervalMs <= Date.now());
+      if (candles.length === 0) {
+        console.log(`compute-signals legacy: skipped ${pair} - no closed candle available`);
+        continue;
+      }
 
       const raw = computeAllIndicators(candles, symbol, interval);
       const indicators = interpretIndicators(raw);

@@ -59,6 +59,7 @@ describe('candle-ingestion', () => {
       syncCandles,
       getCandles,
       getCandleRange,
+      dropOpenBars,
     } = await import('./candle-ingestion');
     const { Candle } = await import('@/lib/models/candle');
     return {
@@ -67,9 +68,34 @@ describe('candle-ingestion', () => {
       syncCandles,
       getCandles,
       getCandleRange,
+      dropOpenBars,
       Candle,
     };
   }
+
+  describe('dropOpenBars', () => {
+    it('keeps a bar closing exactly at now and drops one closing after now', async () => {
+      const { dropOpenBars } = await importModules();
+
+      const now = 1_000_000;
+      const intervalMs = 3_600_000; // '1h'
+      const closesAtNow = makeCandle(now - intervalMs);
+      const closesAfterNow = makeCandle(now - intervalMs + 1);
+
+      const result = dropOpenBars([closesAtNow, closesAfterNow], '1h', now);
+
+      expect(result).toEqual([closesAtNow]);
+    });
+
+    it('returns an empty array when every bar is still open', async () => {
+      const { dropOpenBars } = await importModules();
+
+      const now = 1_000_000;
+      const result = dropOpenBars([makeCandle(now)], '1h', now);
+
+      expect(result).toEqual([]);
+    });
+  });
 
   describe('getCandleRange', () => {
     it('returns nulls for empty collection', async () => {
@@ -263,8 +289,10 @@ describe('candle-ingestion', () => {
         await importModules();
 
       // Rows written before takerBuyVolume existed, spanning the whole window.
-      const now = Date.now();
-      const stamps = [now - 3000, now - 2000, now - 1000];
+      // Already-closed 1h bars, since a refill must not drop them as "open".
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const stamps = [now - 3 * 3_600_000, now - 2 * 3_600_000, now - 3_600_000];
       await Candle.insertMany(
         stamps.map((ts) => ({ ...makeCandle(ts), symbol: 'BTCUSDT', interval: '1h' }))
       );
@@ -305,8 +333,9 @@ describe('candle-ingestion', () => {
     it('reports a total that does not double-count re-fetched rows', async () => {
       const { backfillCandles, fetchKlinesRange, Candle } = await importModules();
 
-      const now = Date.now();
-      const stamps = [now - 2000, now - 1000];
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const stamps = [now - 2 * 3_600_000, now - 3_600_000];
       await Candle.insertMany(
         stamps.map((ts) => ({ ...makeCandle(ts), symbol: 'BTCUSDT', interval: '1h' }))
       );
@@ -375,6 +404,126 @@ describe('candle-ingestion', () => {
       const result = await syncCandles('BTCUSDT', '1h');
 
       expect(result.inserted).toBe(1);
+    });
+
+    it('stores only the closed bar when the fetch returns a closed bar and an open bar', async () => {
+      const { syncCandles, fetchKlinesRange, Candle, getCandles } = await importModules();
+
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+
+      await Candle.create({
+        ...makeCandle(now - 2 * 3_600_000),
+        symbol: 'BTCUSDT',
+        interval: '1h',
+      });
+
+      const closedBar = makeCandle(now - 3_600_000); // closes exactly at now
+      const openBar = makeCandle(now - 3_600_000 + 1); // closes 1ms after now -- still forming
+      fetchKlinesRange.mockResolvedValue([closedBar, openBar]);
+
+      const result = await syncCandles('BTCUSDT', '1h');
+
+      expect(result.inserted).toBe(1);
+      const stored = await getCandles('BTCUSDT', '1h');
+      expect(stored.map((c) => c.timestamp)).toEqual([
+        now - 2 * 3_600_000,
+        now - 3_600_000,
+      ]);
+    });
+  });
+
+  describe('closed-bar filtering on write', () => {
+    it('backfillCandles after-gap fetch stores only the closed bar', async () => {
+      const { backfillCandles, fetchKlinesRange, Candle, getCandles } =
+        await importModules();
+
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+
+      // Old, epoch-relative timestamps so the "gap before existing data"
+      // fetch never triggers -- this test targets the after-gap path only.
+      await Candle.insertMany(
+        [1000, 2000, 3000].map((ts) => ({
+          ...makeCandle(ts),
+          symbol: 'BTCUSDT',
+          interval: '1h',
+        }))
+      );
+
+      const closedBar = makeCandle(now - 3_600_000); // closes exactly at now
+      const openBar = makeCandle(now - 3_600_000 + 1); // still forming
+      fetchKlinesRange.mockResolvedValue([closedBar, openBar]);
+
+      await backfillCandles('BTCUSDT', '1h', 1);
+
+      const stored = await getCandles('BTCUSDT', '1h');
+      const timestamps = stored.map((c) => c.timestamp);
+      expect(timestamps).toContain(closedBar.timestamp);
+      expect(timestamps).not.toContain(openBar.timestamp);
+    });
+
+    it('backfillCandles refill drops an open bar returned at the end of the window', async () => {
+      const { backfillCandles, fetchKlinesRange, Candle } = await importModules();
+
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const stamps = [now - 2 * 3_600_000, now - 3_600_000];
+
+      await Candle.insertMany(
+        stamps.map((ts) => ({ ...makeCandle(ts), symbol: 'BTCUSDT', interval: '1h' }))
+      );
+
+      const openBar = makeCandle(now - 3_600_000 + 1); // still forming
+      fetchKlinesRange.mockResolvedValue([
+        ...stamps.map((ts) => makeCandle(ts)),
+        openBar,
+      ]);
+
+      await backfillCandles('BTCUSDT', '1h', 1, { refill: true });
+
+      expect(await Candle.countDocuments({ timestamp: openBar.timestamp })).toBe(0);
+    });
+
+    it('refill over an existing partial row replaces its close, volume, and takerBuyVolume', async () => {
+      const { backfillCandles, fetchKlinesRange, getCandles, Candle } =
+        await importModules();
+
+      const now = 1_700_000_000_000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const ts = now - 3_600_000; // closes exactly at now
+
+      // Written by the old incremental sync while this bar was still open:
+      // wrong close/volume, no takerBuyVolume at all.
+      await Candle.create({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        timestamp: ts,
+        open: 50000,
+        high: 50100,
+        low: 49950,
+        close: 50050,
+        volume: 12,
+      });
+
+      fetchKlinesRange.mockResolvedValue([
+        {
+          timestamp: ts,
+          open: 50000,
+          high: 50300,
+          low: 49900,
+          close: 50275,
+          volume: 88,
+          takerBuyVolume: 40,
+        },
+      ]);
+
+      await backfillCandles('BTCUSDT', '1h', 1, { refill: true });
+
+      const [stored] = await getCandles('BTCUSDT', '1h');
+      expect(stored.close).toBe(50275);
+      expect(stored.volume).toBe(88);
+      expect(stored.takerBuyVolume).toBe(40);
     });
   });
 });
