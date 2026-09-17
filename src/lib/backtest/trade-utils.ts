@@ -125,6 +125,10 @@ export function closeTrade(
     holdTimeBars: exitBar - position.entryBar,
     entrySession: position.entrySession ?? null,
     riskPercent: (Math.abs(position.entryPrice - position.stopPrice) / position.entryPrice) * 100,
+    rewardPercent:
+      position.targetPrice === null
+        ? null
+        : (Math.abs(position.targetPrice - position.entryPrice) / position.entryPrice) * 100,
     slippageCost,
     entryFillKind: position.entryFillKind ?? 'taker',
     exitFillKind: exitKind,

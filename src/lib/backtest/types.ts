@@ -75,6 +75,7 @@ export interface BacktestTrade {
   holdTimeBars: number;
   entrySession?: MarketSession | null; // null when the interval spans sessions
   riskPercent?: number; // stop distance as a percent of entry price (2 means a 2% stop)
+  rewardPercent: number | null; // target distance as a percent of the filled entry price; null when the position had no target
   slippageCost: number; // currency lost to slippage on the exit fill, 0 when none applied
   entryFillKind: FillKind;
   exitFillKind: FillKind;
