@@ -12,6 +12,12 @@ const mockInsertMany = vi.fn();
 const mockSnapshotAggregate = vi.fn();
 const mockCreate = vi.fn();
 const mockFindOne = vi.fn();
+const mockCreatePendingOutcomes = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/signals/outcome-resolver', () => ({
+  createPendingOutcomes: (...args: unknown[]) => mockCreatePendingOutcomes(...args),
+}));
+
 // Default behavior is a pure passthrough (no real caching), matching every
 // existing test's expectations. One test below temporarily overrides this
 // with a real in-memory cache to exercise cross-invocation cache reuse.
@@ -107,6 +113,7 @@ describe('compute-engine', () => {
     mockFindOne.mockResolvedValue(null);
     mockInsertMany.mockResolvedValue([]);
     mockSnapshotAggregate.mockResolvedValue([]);
+    mockCreatePendingOutcomes.mockResolvedValue(0);
   });
 
   describe('computeSignalBatch', () => {
@@ -358,6 +365,136 @@ describe('compute-engine', () => {
       // computed should be decremented and errors incremented for failed individual inserts
       expect(result.computed).toBe(0);
       expect(result.errors).toBe(1);
+    });
+
+    it('does not re-create docs that already succeeded in a partial bulk failure, and creates one outcome per stored signal', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockResolvedValue(candles);
+      mockFetchKlines.mockResolvedValue(candles);
+
+      // Simulate an unordered insertMany that partially succeeded: BTCUSDT
+      // made it in (mongoose attaches it to the thrown error's
+      // insertedDocs), ETHUSDT did not and needs the individual fallback.
+      mockInsertMany.mockImplementation(async (docs: Array<Record<string, unknown>>) => {
+        const err = new Error('Bulk write error') as Error & {
+          insertedDocs?: Array<Record<string, unknown>>;
+        };
+        err.insertedDocs = docs
+          .filter((d) => d.symbol === 'BTCUSDT')
+          .map((d, i) => ({ ...d, _id: `bulk-${i}` }));
+        throw err;
+      });
+      mockCreate.mockImplementation(async (doc: Record<string, unknown>) => ({
+        ...doc,
+        _id: 'individual-0',
+      }));
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      const result = await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        { symbol: 'ETHUSDT', interval: '1h', tradingStyle: 'day_trading' },
+      ]);
+
+      expect(result.computed).toBe(2);
+      expect(result.errors).toBe(0);
+
+      // Only ETHUSDT (not already inserted in the bulk pass) goes through create()
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockCreate.mock.calls[0][0].symbol).toBe('ETHUSDT');
+
+      // Exactly one outcome entry per stored signal, no duplicates from re-creating BTCUSDT
+      expect(mockCreatePendingOutcomes).toHaveBeenCalledTimes(1);
+      const signalsArg = mockCreatePendingOutcomes.mock.calls[0][0];
+      expect(signalsArg).toHaveLength(2);
+      const symbols = signalsArg.map((s: { symbol: string }) => s.symbol).sort();
+      expect(symbols).toEqual(['BTCUSDT', 'ETHUSDT']);
+    });
+
+    describe('pending outcome creation', () => {
+      function mockInsertManyWithIds() {
+        mockInsertMany.mockImplementation(async (docs: Array<Record<string, unknown>>) =>
+          docs.map((doc, i) => ({ ...doc, _id: `signal-${i}` }))
+        );
+      }
+
+      it('creates a pending outcome for every stored signal', async () => {
+        const candles = generateCandles(500);
+        mockGetCandles.mockResolvedValue(candles);
+        mockFetchKlines.mockResolvedValue(candles);
+        mockInsertManyWithIds();
+
+        const { computeSignalBatch } = await import('./compute-engine');
+        await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        ]);
+
+        expect(mockCreatePendingOutcomes).toHaveBeenCalledTimes(1);
+        const signalsArg = mockCreatePendingOutcomes.mock.calls[0][0];
+        expect(signalsArg).toHaveLength(1);
+        expect(signalsArg[0]).toMatchObject({
+          _id: 'signal-0',
+          symbol: 'BTCUSDT',
+          interval: '1h',
+          tradingStyle: 'day_trading',
+          configVersion: 4,
+        });
+        expect(typeof signalsArg[0].score).toBe('number');
+        expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(
+          signalsArg[0].tier
+        );
+        expect(typeof signalsArg[0].candleTimestamp).toBe('number');
+      });
+
+      it('passes one outcome entry per stored signal for a multi-task batch', async () => {
+        const candles = generateCandles(500);
+        mockGetCandles.mockResolvedValue(candles);
+        mockFetchKlines.mockResolvedValue(candles);
+        mockInsertManyWithIds();
+
+        const { computeSignalBatch } = await import('./compute-engine');
+        await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'swing_trading' },
+        ]);
+
+        expect(mockCreatePendingOutcomes).toHaveBeenCalledTimes(1);
+        const signalsArg = mockCreatePendingOutcomes.mock.calls[0][0];
+        expect(signalsArg).toHaveLength(2);
+      });
+
+      it('does not create pending outcomes when nothing was inserted', async () => {
+        const candles = generateCandles(500);
+        mockGetCandles.mockResolvedValue(candles);
+        mockFetchKlines.mockResolvedValue(candles);
+        // Default mockInsertMany resolves to [] (no stored docs)
+
+        const { computeSignalBatch } = await import('./compute-engine');
+        await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        ]);
+
+        expect(mockCreatePendingOutcomes).not.toHaveBeenCalled();
+      });
+
+      it('logs and does not fail the batch when creating pending outcomes throws', async () => {
+        const candles = generateCandles(500);
+        mockGetCandles.mockResolvedValue(candles);
+        mockFetchKlines.mockResolvedValue(candles);
+        mockInsertManyWithIds();
+        mockCreatePendingOutcomes.mockRejectedValue(new Error('resolver down'));
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const { computeSignalBatch } = await import('./compute-engine');
+        const result = await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        ]);
+
+        expect(result.computed).toBe(1);
+        expect(result.errors).toBe(0);
+        expect(consoleErrorSpy).toHaveBeenCalled();
+
+        consoleErrorSpy.mockRestore();
+      });
     });
   });
 

@@ -19,6 +19,12 @@
 1-59/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=swing_trading" >> /var/log/cron.log 2>&1
 1    * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/compute-signals?style=position_trading" >> /var/log/cron.log 2>&1
 
+# Signal outcome resolution
+# This file is bind-mounted read-only; `docker compose up -d --build` does not
+# recreate the cron container on its own when only this file changes. After
+# deploying, run: docker compose -f docker-compose.server.yml up -d --force-recreate cron
+*/15 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/resolve-outcomes >> /var/log/cron.log 2>&1
+
 # Legacy per-user signals (backward compat, runs less frequently)
 */10 * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/compute-signals >> /var/log/cron.log 2>&1
 
