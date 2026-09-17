@@ -68,6 +68,7 @@ export interface BacktestTrade {
   entryTier: SignalTier;
   holdTimeBars: number;
   entrySession?: MarketSession | null; // null when the interval spans sessions
+  riskPercent?: number; // stop distance as a percent of entry price (2 means a 2% stop)
 }
 
 export interface EquityPoint {
@@ -97,6 +98,8 @@ export interface BacktestMetrics {
   totalFees: number;
   maxConsecutiveWins: number;
   maxConsecutiveLosses: number;
+  expectancyPercent: number;
+  expectancyR: number | null;
   sessionBreakdown?: SessionBreakdownEntry[]; // present when trades carry sessions
 }
 

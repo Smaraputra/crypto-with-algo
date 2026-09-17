@@ -279,7 +279,7 @@ export function runOptimizedBacktest(
   }
 
   // Compute metrics
-  const metrics = computeMetrics(trades, equityCurve, config.startEquity);
+  const metrics = computeMetrics(trades, equityCurve, config.startEquity, interval);
 
   return {
     symbol,

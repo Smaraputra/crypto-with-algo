@@ -206,7 +206,7 @@ export function runBacktest(
   }
 
   // 4. Compute metrics
-  const metrics = computeMetrics(trades, equityCurve, config.startEquity);
+  const metrics = computeMetrics(trades, equityCurve, config.startEquity, interval);
 
   return {
     symbol,

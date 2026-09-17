@@ -1,10 +1,12 @@
 import type { BacktestTrade, EquityPoint, BacktestMetrics, SessionBreakdownEntry } from './types';
 import { MARKET_SESSIONS } from '@/lib/sessions';
+import { barsPerYear } from '@/lib/intervals';
 
 export function computeMetrics(
   trades: BacktestTrade[],
   equityCurve: EquityPoint[],
-  startEquity: number
+  startEquity: number,
+  interval: string
 ): BacktestMetrics {
   const finalEquity = equityCurve.length > 0
     ? equityCurve[equityCurve.length - 1].equity
@@ -51,11 +53,16 @@ export function computeMetrics(
     }
   }
 
-  // Sharpe ratio (annualized, assuming daily returns)
-  const sharpeRatio = computeSharpe(equityCurve, startEquity);
+  const bars = barsPerYear(interval);
+
+  // Sharpe ratio (annualized from the interval's bars per year)
+  const sharpeRatio = computeSharpe(equityCurve, startEquity, bars);
 
   // Sortino ratio
-  const sortinoRatio = computeSortino(equityCurve, startEquity);
+  const sortinoRatio = computeSortino(equityCurve, startEquity, bars);
+
+  // Expectancy per trade, the objective the study is judged on
+  const { expectancyPercent, expectancyR } = computeExpectancy(trades);
 
   // Calmar ratio
   const calmarRatio = maxDrawdownPercent > 0
@@ -88,8 +95,32 @@ export function computeMetrics(
     totalFees,
     maxConsecutiveWins,
     maxConsecutiveLosses,
+    expectancyPercent,
+    expectancyR,
     ...(sessionBreakdown ? { sessionBreakdown } : {}),
   };
+}
+
+export function computeExpectancy(trades: BacktestTrade[]): {
+  expectancyPercent: number;
+  expectancyR: number | null;
+} {
+  if (trades.length === 0) {
+    return { expectancyPercent: 0, expectancyR: null };
+  }
+
+  const expectancyPercent =
+    trades.reduce((sum, t) => sum + t.pnlPercent, 0) / trades.length;
+
+  const rMultiples = trades
+    .filter((t) => typeof t.riskPercent === 'number' && Number.isFinite(t.riskPercent) && t.riskPercent > 0)
+    .map((t) => t.pnlPercent / (t.riskPercent as number));
+
+  const expectancyR = rMultiples.length > 0
+    ? rMultiples.reduce((sum, r) => sum + r, 0) / rMultiples.length
+    : null;
+
+  return { expectancyPercent, expectancyR };
 }
 
 function computeSessionBreakdown(trades: BacktestTrade[]): SessionBreakdownEntry[] | null {
@@ -116,7 +147,7 @@ function computeSessionBreakdown(trades: BacktestTrade[]): SessionBreakdownEntry
   return breakdown;
 }
 
-function computeSharpe(equityCurve: EquityPoint[], startEquity: number): number {
+function computeSharpe(equityCurve: EquityPoint[], startEquity: number, barsPerYear: number): number {
   if (equityCurve.length < 2) return 0;
 
   const returns: number[] = [];
@@ -136,11 +167,10 @@ function computeSharpe(equityCurve: EquityPoint[], startEquity: number): number 
 
   if (stdDev === 0) return 0;
 
-  // Annualize: assume ~252 trading periods per year
-  return (mean / stdDev) * Math.sqrt(252);
+  return (mean / stdDev) * Math.sqrt(barsPerYear);
 }
 
-function computeSortino(equityCurve: EquityPoint[], startEquity: number): number {
+function computeSortino(equityCurve: EquityPoint[], startEquity: number, barsPerYear: number): number {
   if (equityCurve.length < 2) return 0;
 
   const returns: number[] = [];
@@ -165,7 +195,7 @@ function computeSortino(equityCurve: EquityPoint[], startEquity: number): number
 
   if (downsideDev === 0) return 0;
 
-  return (mean / downsideDev) * Math.sqrt(252);
+  return (mean / downsideDev) * Math.sqrt(barsPerYear);
 }
 
 function computeStreaks(trades: BacktestTrade[]): {

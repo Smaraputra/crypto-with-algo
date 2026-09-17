@@ -93,6 +93,7 @@ export function closeTrade(
     entryTier: position.entryTier,
     holdTimeBars: exitBar - position.entryBar,
     entrySession: position.entrySession ?? null,
+    riskPercent: config.stopLossPercent * 100,
   });
 }
 
