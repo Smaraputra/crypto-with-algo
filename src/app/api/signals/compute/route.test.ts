@@ -52,11 +52,23 @@ vi.mock('@/lib/models/global-signal', () => ({
   },
 }));
 
+// computeAllIndicators is real, wrapped only so tests can inspect what
+// candles it was called with (mirrors the cron compute-signals route test).
+vi.mock('@/lib/indicators/compute', async () => {
+  const actual =
+    await vi.importActual<typeof import('@/lib/indicators/compute')>('@/lib/indicators/compute');
+  return { ...actual, computeAllIndicators: vi.fn(actual.computeAllIndicators) };
+});
+
 import { POST } from './route';
 import { auth } from '@/lib/auth';
 import { cachedFetch } from '@/lib/redis';
+import { computeAllIndicators } from '@/lib/indicators/compute';
 
 const mockSession = { user: { id: 'user-1' } };
+
+// Fixed, controlled "now" for tests that care about the closed-bar boundary.
+const NOW = 1_700_000_000_000;
 
 function generateCandles(count: number): OHLCV[] {
   const candles: OHLCV[] = [];
@@ -149,6 +161,61 @@ describe('POST /api/signals/compute', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.signal.interval).toBe('1h');
+  });
+
+  it('excludes an open trailing bar from what the legacy path scores', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    try {
+      const closed = generateCandles(500); // last bar closes exactly at NOW
+      // Still-forming bar: opened 30 minutes ago, not a full hour old yet.
+      const openBar: OHLCV = { ...closed[closed.length - 1], timestamp: NOW - 30 * 60 * 1000 };
+      const withOpenBar = [...closed, openBar];
+
+      vi.mocked(cachedFetch)
+        .mockResolvedValueOnce(withOpenBar)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const res = await POST(makeRequest({ symbol: 'BTCUSDT', interval: '1h' }));
+      expect(res.status).toBe(200);
+
+      const receivedCandles = vi.mocked(computeAllIndicators).mock.calls[0][0] as OHLCV[];
+      expect(receivedCandles).toHaveLength(closed.length);
+      expect(receivedCandles.map((c) => c.timestamp)).not.toContain(openBar.timestamp);
+      expect(receivedCandles[receivedCandles.length - 1].timestamp).toBe(
+        closed[closed.length - 1].timestamp
+      );
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
+
+  it('returns 503 with a log line when only an open candle is available', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const openOnly: OHLCV[] = [
+        { timestamp: NOW - 30 * 60 * 1000, open: 100, high: 101, low: 99, close: 100.5, volume: 10 },
+      ];
+      vi.mocked(cachedFetch)
+        .mockResolvedValueOnce(openOnly)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const res = await POST(makeRequest({ symbol: 'BTCUSDT', interval: '1h' }));
+      expect(res.status).toBe(503);
+      const data = await res.json();
+      expect(data.error).toMatch(/no closed candle/i);
+      expect(computeAllIndicators).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/no closed candle/i));
+    } finally {
+      logSpy.mockRestore();
+      dateSpy.mockRestore();
+    }
   });
 });
 

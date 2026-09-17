@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 import { fetchKlines } from '@/lib/binance';
-import { getCandles } from '@/lib/candle-ingestion';
+import { getCandles, dropOpenBars } from '@/lib/candle-ingestion';
 import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { interpretIndicators } from '@/lib/indicators/interpret';
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
     // Legacy per-user signal path (no tradingStyle)
     // Fetch candle data and futures data in parallel
     // Try MongoDB first (faster, avoids Binance rate limits), fall back to direct API
-    const [candles, futuresData, sentimentData] = await Promise.all([
+    const [rawCandles, futuresData, sentimentData] = await Promise.all([
       cachedFetch(
         `klines:${symbol}:${interval}:${RECOMMENDED_CANDLES}`,
         async () => {
@@ -128,6 +128,16 @@ export async function POST(req: NextRequest) {
       fetchFuturesDataSafe(symbol),
       fetchFearAndGreed().catch((): SentimentData | null => null),
     ]);
+
+    // Score closed bars only, same invariant as the global-signal engine.
+    const candles = dropOpenBars(rawCandles, interval, Date.now());
+    if (candles.length === 0) {
+      console.log(`signals/compute legacy: no closed candle for ${symbol}:${interval}`);
+      return NextResponse.json(
+        { error: 'No closed candle available' },
+        { status: 503 }
+      );
+    }
 
     // Compute indicators
     const raw = computeAllIndicators(candles, symbol, interval);

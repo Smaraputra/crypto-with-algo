@@ -2,7 +2,7 @@ import type { TradingStyle } from '@/lib/models/signal-template';
 import { DEFAULT_TEMPLATE_WEIGHTS } from '@/lib/models/signal-template';
 import { SignalTemplate } from '@/lib/models/signal-template';
 import { GlobalSignal } from '@/lib/models/global-signal';
-import { getCandles } from '@/lib/candle-ingestion';
+import { getCandles, dropOpenBars } from '@/lib/candle-ingestion';
 import { fetchKlines } from '@/lib/binance';
 import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
 import { computeIndicatorsForStyle } from '@/lib/indicators/compute-for-style';
@@ -251,10 +251,9 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
 
       // Score closed bars only: a row synced before the candle-finalization
       // fix may still hold a partial newest bar, and the Binance REST
-      // fallback always returns the still-forming candle last. Same
-      // predicate as the HTF path below.
-      const intervalMs = intervalToMs(interval);
-      const candles = rawCandles.filter((c) => c.timestamp + intervalMs <= Date.now());
+      // fallback always returns the still-forming candle last. Same helper
+      // as the HTF path below.
+      const candles = dropOpenBars(rawCandles, interval, Date.now());
 
       if (candles.length === 0) {
         result.skipped++;
@@ -324,8 +323,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
             htfCandles = await fetchCandlesForTask(symbol, htfInterval, profile.recommendedCandles);
             candleCache.set(htfKey, htfCandles);
           }
-          const htfMs = intervalToMs(htfInterval);
-          const closed = htfCandles.filter((c) => c.timestamp + htfMs <= Date.now());
+          const closed = dropOpenBars(htfCandles, htfInterval, Date.now());
           if (closed.length > 0) {
             const series = computeHtfSeries(closed, profile.config);
             htfContext = htfContextAtBar(series, closed.length - 1, htfInterval);

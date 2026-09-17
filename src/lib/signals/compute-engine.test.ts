@@ -13,9 +13,16 @@ const mockSnapshotAggregate = vi.fn();
 const mockCreate = vi.fn();
 const mockFindOne = vi.fn();
 
-vi.mock('@/lib/candle-ingestion', () => ({
-  getCandles: (...args: unknown[]) => mockGetCandles(...args),
-}));
+vi.mock('@/lib/candle-ingestion', async () => {
+  // dropOpenBars is pure (no DB/IO), so keep the real implementation while
+  // getCandles stays fully mocked.
+  const actual =
+    await vi.importActual<typeof import('@/lib/candle-ingestion')>('@/lib/candle-ingestion');
+  return {
+    dropOpenBars: actual.dropOpenBars,
+    getCandles: (...args: unknown[]) => mockGetCandles(...args),
+  };
+});
 
 vi.mock('@/lib/binance', () => ({
   fetchKlines: (...args: unknown[]) => mockFetchKlines(...args),
@@ -380,80 +387,98 @@ describe('compute-engine', () => {
       return candles;
     }
 
+    // Fixed, controlled "now" for every test in this block (candle-ingestion.test.ts
+    // pattern) so the closed-bar predicate is deterministic rather than racing the
+    // live clock.
+    const NOW = 1_700_000_000_000;
+
     it('behaves the same whether every candle is closed or not (no open trailing bar)', async () => {
-      const now = Date.now();
-      const closed = generateDailyCandles(450, now); // last bar closes exactly at now
-      mockGetCandles.mockResolvedValue(closed);
-      mockFetchKlines.mockResolvedValue(closed);
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+      try {
+        const closed = generateDailyCandles(450, NOW); // last bar closes exactly at now
+        mockGetCandles.mockResolvedValue(closed);
+        mockFetchKlines.mockResolvedValue(closed);
 
-      const { computeSignalBatch } = await import('./compute-engine');
-      const result = await computeSignalBatch([
-        { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
-      ]);
+        const { computeSignalBatch } = await import('./compute-engine');
+        const result = await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+        ]);
 
-      expect(result.computed).toBe(1);
-      const doc = mockInsertMany.mock.calls[0][0][0];
-      expect(doc.candleTimestamp).toBe(closed[closed.length - 1].timestamp);
+        expect(result.computed).toBe(1);
+        const doc = mockInsertMany.mock.calls[0][0][0];
+        expect(doc.candleTimestamp).toBe(closed[closed.length - 1].timestamp);
+      } finally {
+        dateSpy.mockRestore();
+      }
     });
 
     it('scores the previous closed bar when the newest stored candle is still open', async () => {
-      const now = Date.now();
-      const closed = generateDailyCandles(450, now);
-      const lastClosed = closed[closed.length - 1];
-      // Still-forming bar: opened an hour ago, nowhere near a full day old.
-      // Distinct close so leaking into scoring would change the result.
-      const openBar: OHLCV = {
-        ...lastClosed,
-        timestamp: now - 60 * 60 * 1000,
-        close: lastClosed.close * 1.5,
-        high: lastClosed.close * 1.6,
-      };
-      const withOpenBar = [...closed, openBar];
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+      try {
+        const closed = generateDailyCandles(450, NOW);
+        const lastClosed = closed[closed.length - 1];
+        // Still-forming bar: opened an hour ago, nowhere near a full day old.
+        // Distinct close so leaking into scoring would change the result.
+        const openBar: OHLCV = {
+          ...lastClosed,
+          timestamp: NOW - 60 * 60 * 1000,
+          close: lastClosed.close * 1.5,
+          high: lastClosed.close * 1.6,
+        };
+        const withOpenBar = [...closed, openBar];
 
-      const { computeSignalBatch } = await import('./compute-engine');
+        const { computeSignalBatch } = await import('./compute-engine');
 
-      mockGetCandles.mockResolvedValue(closed);
-      mockFetchKlines.mockResolvedValue(closed);
-      await computeSignalBatch([
-        { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
-      ]);
-      const baselineDoc = mockInsertMany.mock.calls[0][0][0];
+        mockGetCandles.mockResolvedValue(closed);
+        mockFetchKlines.mockResolvedValue(closed);
+        await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+        ]);
+        const baselineDoc = mockInsertMany.mock.calls[0][0][0];
 
-      mockInsertMany.mockClear();
-      mockGetCandles.mockResolvedValue(withOpenBar);
-      mockFetchKlines.mockResolvedValue(withOpenBar);
-      const result = await computeSignalBatch([
-        { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
-      ]);
-      const withOpenDoc = mockInsertMany.mock.calls[0][0][0];
+        mockInsertMany.mockClear();
+        mockGetCandles.mockResolvedValue(withOpenBar);
+        mockFetchKlines.mockResolvedValue(withOpenBar);
+        const result = await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+        ]);
+        const withOpenDoc = mockInsertMany.mock.calls[0][0][0];
 
-      expect(result.computed).toBe(1);
-      expect(withOpenDoc.candleTimestamp).toBe(lastClosed.timestamp);
-      expect(withOpenDoc.candleTimestamp).not.toBe(openBar.timestamp);
-      expect(withOpenDoc.score).toBeCloseTo(baselineDoc.score);
-      expect(withOpenDoc.tier).toBe(baselineDoc.tier);
+        expect(result.computed).toBe(1);
+        expect(withOpenDoc.candleTimestamp).toBe(lastClosed.timestamp);
+        expect(withOpenDoc.candleTimestamp).not.toBe(openBar.timestamp);
+        expect(withOpenDoc.score).toBeCloseTo(baselineDoc.score);
+        expect(withOpenDoc.tier).toBe(baselineDoc.tier);
+      } finally {
+        dateSpy.mockRestore();
+      }
     });
 
     it('skips the task when only an open candle is available', async () => {
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW);
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-      const now = Date.now();
-      const openOnly = [{ ...generateDailyCandles(1, now)[0], timestamp: now - 60 * 60 * 1000 }];
-      mockGetCandles.mockResolvedValue(openOnly);
-      mockFetchKlines.mockResolvedValue(openOnly);
+      try {
+        const openOnly = [
+          { ...generateDailyCandles(1, NOW)[0], timestamp: NOW - 60 * 60 * 1000 },
+        ];
+        mockGetCandles.mockResolvedValue(openOnly);
+        mockFetchKlines.mockResolvedValue(openOnly);
 
-      const { computeSignalBatch } = await import('./compute-engine');
-      const result = await computeSignalBatch([
-        { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
-      ]);
+        const { computeSignalBatch } = await import('./compute-engine');
+        const result = await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+        ]);
 
-      expect(result.computed).toBe(0);
-      expect(result.skipped).toBe(1);
-      expect(result.details[0].status).toBe('skipped');
-      expect(result.details[0].error).toMatch(/no closed candle/i);
-      expect(mockInsertMany).not.toHaveBeenCalled();
-      expect(logSpy).toHaveBeenCalled();
-
-      logSpy.mockRestore();
+        expect(result.computed).toBe(0);
+        expect(result.skipped).toBe(1);
+        expect(result.details[0].status).toBe('skipped');
+        expect(result.details[0].error).toMatch(/no closed candle/i);
+        expect(mockInsertMany).not.toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalled();
+      } finally {
+        logSpy.mockRestore();
+        dateSpy.mockRestore();
+      }
     });
   });
 

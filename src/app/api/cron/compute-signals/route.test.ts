@@ -52,10 +52,23 @@ vi.mock('@/lib/signals/signal-symbols', () => ({
   SIGNAL_SYMBOLS: ['BTCUSDT', 'ETHUSDT'],
 }));
 
+// computeAllIndicators is real (candle-ingestion isn't mocked in this file
+// either), wrapped only so tests can inspect what candles it was called with.
+vi.mock('@/lib/indicators/compute', async () => {
+  const actual =
+    await vi.importActual<typeof import('@/lib/indicators/compute')>('@/lib/indicators/compute');
+  return { ...actual, computeAllIndicators: vi.fn(actual.computeAllIndicators) };
+});
+
 import { GET } from './route';
 import { cachedFetch } from '@/lib/redis';
 import { Signal } from '@/lib/models/signal';
 import { Strategy } from '@/lib/models/strategy';
+import { computeAllIndicators } from '@/lib/indicators/compute';
+
+// Fixed, controlled "now" for tests that care about the closed-bar boundary,
+// same pattern as candle-ingestion.test.ts.
+const NOW = 1_700_000_000_000;
 
 function generateCandles(count: number): OHLCV[] {
   const candles: OHLCV[] = [];
@@ -192,6 +205,82 @@ describe('GET /api/cron/compute-signals', () => {
     const data = await res.json();
     expect(data.errors).toBe(1);
     expect(data.computed).toBe(0);
+  });
+
+  it('excludes an open trailing bar from what the legacy path scores', async () => {
+    vi.mocked(Strategy.find).mockResolvedValue([
+      {
+        userId: 'user-1',
+        symbols: ['BTCUSDT'],
+        intervals: ['1h'],
+        weights: { trend: 0.25, momentum: 0.25, volume: 0.15, volatility: 0.10, futures: 0.15, sentiment: 0.10 },
+        active: true,
+      },
+    ] as never);
+
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    try {
+      const closed = generateCandles(500); // last bar closes exactly at NOW
+      // Still-forming bar: opened 30 minutes ago, not a full hour old yet.
+      const openBar: OHLCV = { ...closed[closed.length - 1], timestamp: NOW - 30 * 60 * 1000 };
+      const withOpenBar = [...closed, openBar];
+
+      vi.mocked(cachedFetch)
+        .mockResolvedValueOnce(withOpenBar)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const res = await GET(makeRequest('test-secret'));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.computed).toBe(1);
+
+      const receivedCandles = vi.mocked(computeAllIndicators).mock.calls[0][0] as OHLCV[];
+      expect(receivedCandles).toHaveLength(closed.length);
+      expect(receivedCandles.map((c) => c.timestamp)).not.toContain(openBar.timestamp);
+      expect(receivedCandles[receivedCandles.length - 1].timestamp).toBe(
+        closed[closed.length - 1].timestamp
+      );
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
+
+  it('skips the pair with a log line when only an open candle is available', async () => {
+    vi.mocked(Strategy.find).mockResolvedValue([
+      {
+        userId: 'user-1',
+        symbols: ['BTCUSDT'],
+        intervals: ['1h'],
+        weights: { trend: 0.25, momentum: 0.25, volume: 0.15, volatility: 0.10, futures: 0.15, sentiment: 0.10 },
+        active: true,
+      },
+    ] as never);
+
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const openOnly: OHLCV[] = [
+        { timestamp: NOW - 30 * 60 * 1000, open: 100, high: 101, low: 99, close: 100.5, volume: 10 },
+      ];
+      vi.mocked(cachedFetch)
+        .mockResolvedValueOnce(openOnly)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const res = await GET(makeRequest('test-secret'));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.computed).toBe(0);
+      expect(data.errors).toBe(0);
+      expect(Signal.create).not.toHaveBeenCalled();
+      expect(computeAllIndicators).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(expect.stringMatching(/no closed candle/i));
+    } finally {
+      logSpy.mockRestore();
+      dateSpy.mockRestore();
+    }
   });
 });
 
