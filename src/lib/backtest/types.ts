@@ -24,6 +24,7 @@ export interface BacktestConfig {
   makerFeePercent?: number;     // fraction per side, e.g. 0.0002 = 0.02% (limit fills that rest)
   takerFeePercent?: number;     // fraction per side, e.g. 0.0005 = 0.05% (fills that cross the book)
   slippageBps?: number;         // basis points applied against the trader on taker fills
+  fundingEnabled?: boolean;     // accrue perpetual funding on open positions (absent/false = no accrual, legacy path unchanged)
   weights: SignalWeights;
   startEquity: number;          // starting capital (default 10000)
   allowedSessions?: MarketSession[]; // entry filter; undefined/empty = all sessions
@@ -76,6 +77,7 @@ export interface BacktestTrade {
   slippageCost: number; // currency lost to slippage on the exit fill, 0 when none applied
   entryFillKind: FillKind;
   exitFillKind: FillKind;
+  fundingCost: number; // currency paid to funding while open; positive when the trade paid, 0 when disabled or no data
 }
 
 export interface EquityPoint {

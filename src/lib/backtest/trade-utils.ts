@@ -3,6 +3,7 @@ import type { MarketSession } from '@/lib/sessions';
 import { fixedFractional, kellyCriterion, riskBased } from './position-sizing';
 import { applySlippage, exitFillKind, exitSlippageApplies, feeRateFor } from './cost-model';
 import type { FillKind } from './cost-model';
+import { fundingCrossings, fundingPnl } from './funding';
 import type {
   BacktestConfig,
   BacktestTrade,
@@ -20,6 +21,22 @@ export interface OpenPosition {
   entryTier: BacktestTrade['entryTier'];
   entrySession?: MarketSession | null;
   entryFillKind?: FillKind; // absent means taker (all entries today are market fills)
+  fundingPnl?: number; // accumulated signed funding while open; absent means 0
+}
+
+/** Accrue funding for a bar the position stayed open through. Shared by both
+ * engines so their funding accounting cannot diverge. `candle` is the bar
+ * being closed; notional is marked to its close price. */
+export function accrueFunding(
+  position: OpenPosition,
+  candle: OHLCV,
+  prevCloseTime: number,
+  closeTime: number,
+  rate: number
+): void {
+  const crossings = fundingCrossings(prevCloseTime, closeTime);
+  const notional = position.quantity * candle.close;
+  position.fundingPnl = (position.fundingPnl ?? 0) + fundingPnl(notional, rate, position.side, crossings);
 }
 
 export function checkStopTakeProfit(
@@ -80,8 +97,9 @@ export function closeTrade(
   } else {
     pnl = (position.entryPrice - effectiveExit) * position.quantity - fees;
   }
+  pnl += position.fundingPnl ?? 0;
 
-  // pnlPercent is net of fees, relative to entry notional
+  // pnlPercent is net of fees and funding, relative to entry notional
   const pnlPercent = entryNotional > 0 ? (pnl / entryNotional) * 100 : 0;
 
   trades.push({
@@ -106,6 +124,7 @@ export function closeTrade(
     slippageCost,
     entryFillKind: position.entryFillKind ?? 'taker',
     exitFillKind: exitKind,
+    fundingCost: position.fundingPnl ? -position.fundingPnl : 0,
   });
 }
 

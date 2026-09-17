@@ -12,6 +12,7 @@ import { alignHtfToLtf, computeHtfSeries, htfContextAtBar } from '@/lib/signals/
 import type { HtfContext } from '@/types/signal';
 import { buildSnapshotSeries, type LeanSnapshot, type SnapshotBar } from './snapshot-series';
 import {
+  accrueFunding,
   checkStopTakeProfit,
   closeTrade,
   computeEquityAfterTrade,
@@ -236,6 +237,20 @@ export function runOptimizedBacktest(
           entryTier: composite.tier,
           entrySession: session,
         };
+      }
+    }
+
+    // Accrue funding for a position that survives to this bar's close
+    if (config.fundingEnabled && position && bar > position.entryBar) {
+      const rate = snap?.futures?.fundingRate?.fundingRate;
+      if (typeof rate === 'number') {
+        accrueFunding(
+          position,
+          candle,
+          candles[bar - 1].timestamp + intervalMs,
+          candle.timestamp + intervalMs,
+          rate
+        );
       }
     }
 

@@ -84,6 +84,7 @@ describe('createTradeSummary', () => {
         slippageCost: 0,
         entryFillKind: 'taker',
         exitFillKind: 'taker',
+        fundingCost: 0,
       },
       {
         entryBar: 20,
@@ -105,6 +106,7 @@ describe('createTradeSummary', () => {
         slippageCost: 0,
         entryFillKind: 'taker',
         exitFillKind: 'taker',
+        fundingCost: 0,
       },
       {
         entryBar: 30,
@@ -126,6 +128,7 @@ describe('createTradeSummary', () => {
         slippageCost: 0,
         entryFillKind: 'taker',
         exitFillKind: 'taker',
+        fundingCost: 0,
       },
     ];
 
@@ -186,6 +189,7 @@ describe('compressBacktestResult', () => {
           slippageCost: 0,
           entryFillKind: 'taker',
           exitFillKind: 'taker',
+          fundingCost: 0,
         },
       ],
       equityCurve: [

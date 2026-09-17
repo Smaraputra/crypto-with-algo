@@ -25,6 +25,7 @@ function makeTrade(overrides: Partial<BacktestTrade> = {}): BacktestTrade {
     slippageCost: 0,
     entryFillKind: 'taker',
     exitFillKind: 'taker',
+    fundingCost: 0,
     ...overrides,
   };
 }

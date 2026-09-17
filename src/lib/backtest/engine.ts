@@ -9,6 +9,7 @@ import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
 import { prepareHtf, type HtfInput } from './optimized-engine';
 import {
+  accrueFunding,
   checkStopTakeProfit,
   closeTrade,
   computeEquityAfterTrade,
@@ -166,7 +167,21 @@ export function runBacktest(
       }
     }
 
-    // 2d. Update equity curve
+    // 2d. Accrue funding for a position that survives to this bar's close
+    if (config.fundingEnabled && position && bar > position.entryBar) {
+      const rate = snap?.futures?.fundingRate?.fundingRate;
+      if (typeof rate === 'number') {
+        accrueFunding(
+          position,
+          candle,
+          candles[bar - 1].timestamp + intervalMs,
+          candle.timestamp + intervalMs,
+          rate
+        );
+      }
+    }
+
+    // 2e. Update equity curve
     if (equity > peakEquity) peakEquity = equity;
     const drawdown = peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0;
     equityCurve.push({
@@ -176,7 +191,7 @@ export function runBacktest(
       drawdown,
     });
 
-    // 2e. Report progress
+    // 2f. Report progress
     if (onProgress) {
       const barsProcessed = bar - warmup + 1;
       const progress = Math.round((barsProcessed / totalBars) * 100);

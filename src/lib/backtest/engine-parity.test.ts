@@ -120,6 +120,39 @@ describe('engine parity', () => {
     expect(optimized.snapshotCoverage).toEqual(direct.snapshotCoverage);
   });
 
+  it('parity holds with funding accrual enabled', async () => {
+    const { buildSnapshotSeries } = await import('./snapshot-series');
+    const candles = generateCandles(400);
+    // Low thresholds guarantee trading activity, and a wide stop keeps trades
+    // open long enough to cross a funding boundary
+    const config: BacktestConfig = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      allowShorts: true,
+      fundingEnabled: true,
+      entryThreshold: 15,
+      exitThreshold: -5,
+      shortEntryThreshold: -15,
+      shortExitThreshold: 5,
+      stopLossPercent: 0.2,
+      takeProfitPercent: 0.4,
+    };
+    const snapshotDocs = candles.map((c) => ({
+      timestamp: c.timestamp,
+      data: { fundingRate: { rate: 0.0001, markPrice: c.close } },
+    }));
+
+    const series = buildSnapshotSeries(candles, snapshotDocs, '1h', { symbol: 'BTCUSDT' });
+    const direct = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, series);
+    const prepared = prepareBacktest(candles, 'BTCUSDT', '1h', undefined, snapshotDocs);
+    const optimized = runOptimizedBacktest(prepared, config, 'BTCUSDT', '1h');
+
+    expect(direct.trades.length).toBeGreaterThan(0);
+    expect(direct.trades.some((t) => t.fundingCost !== 0)).toBe(true);
+    expect(optimized.trades).toEqual(direct.trades);
+    expect(optimized.metrics).toEqual(direct.metrics);
+    expect(optimized.equityCurve).toEqual(direct.equityCurve);
+  });
+
   it('parity holds with higher-timeframe context', () => {
     const candles = generateCandles(400);
     const config = {

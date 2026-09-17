@@ -24,6 +24,7 @@ const mockTrades: BacktestTrade[] = [
     slippageCost: 0,
     entryFillKind: 'taker',
     exitFillKind: 'taker',
+    fundingCost: 0,
   },
   {
     entryBar: 20,
@@ -45,6 +46,7 @@ const mockTrades: BacktestTrade[] = [
     slippageCost: 0,
     entryFillKind: 'taker',
     exitFillKind: 'taker',
+    fundingCost: 0,
   },
 ];
 

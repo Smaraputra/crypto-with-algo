@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import {
+  accrueFunding,
   checkStopTakeProfit,
   closeTrade,
   computeEquityAfterTrade,
@@ -223,6 +224,86 @@ describe('closeTrade cost model', () => {
     // entry fee uses maker: 1000*0.0002=0.2; exit fee uses taker (stop_loss): 1100*0.0005=0.55
     expect(trades[0].fees).toBeCloseTo(0.2 + 0.55);
     expect(trades[0].entryFillKind).toBe('maker');
+  });
+});
+
+describe('accrueFunding', () => {
+  it('adds signed funding pnl for the crossings between prevCloseTime and closeTime', () => {
+    const position = makePosition({ quantity: 10 });
+    const candle = makeCandle({ close: 100 });
+
+    accrueFunding(position, candle, 7 * 3600000, 8 * 3600000, 0.0001);
+
+    // 1 crossing, notional 10*100=1000, long pays: -1000*0.0001*1 = -0.1
+    expect(position.fundingPnl).toBeCloseTo(-0.1);
+  });
+
+  it('accumulates across multiple calls', () => {
+    const position = makePosition({ quantity: 10 });
+    const candle = makeCandle({ close: 100 });
+
+    accrueFunding(position, candle, 7 * 3600000, 8 * 3600000, 0.0001);
+    accrueFunding(position, candle, 15 * 3600000, 16 * 3600000, 0.0001);
+
+    expect(position.fundingPnl).toBeCloseTo(-0.2);
+  });
+
+  it('adds nothing when no crossing falls in the window', () => {
+    const position = makePosition({ quantity: 10 });
+    const candle = makeCandle({ close: 100 });
+
+    accrueFunding(position, candle, 1 * 3600000, 2 * 3600000, 0.0001);
+
+    expect(position.fundingPnl ?? 0).toBeCloseTo(0);
+  });
+
+  it('a short receives funding on a positive rate', () => {
+    const position = makePosition({ side: 'short', quantity: 10 });
+    const candle = makeCandle({ close: 100 });
+
+    accrueFunding(position, candle, 7 * 3600000, 8 * 3600000, 0.0001);
+
+    expect(position.fundingPnl).toBeCloseTo(0.1);
+  });
+});
+
+describe('closeTrade funding', () => {
+  it('folds accumulated fundingPnl into pnl and pnlPercent', () => {
+    const position = makePosition({ fundingPnl: -0.5 }); // 10 units at 100
+    const trades: BacktestTrade[] = [];
+
+    closeTrade(position, 110, 20, 1700003600000, 'take_profit', 0, trades, config);
+
+    // Gross net of fees is 97.9 (see the cost-model take_profit case above); funding subtracts 0.5 more
+    expect(trades[0].pnl).toBeCloseTo(97.4);
+    expect(trades[0].pnlPercent).toBeCloseTo(9.74);
+  });
+
+  it('records fundingCost as the negative of the accumulated fundingPnl', () => {
+    const position = makePosition({ fundingPnl: -0.5 });
+    const trades: BacktestTrade[] = [];
+
+    closeTrade(position, 110, 20, 1700003600000, 'take_profit', 0, trades, config);
+
+    expect(trades[0].fundingCost).toBeCloseTo(0.5);
+  });
+
+  it('a short position that received funding gets a negative fundingCost', () => {
+    const position = makePosition({ side: 'short', fundingPnl: 0.5 });
+    const trades: BacktestTrade[] = [];
+
+    closeTrade(position, 90, 20, 1700003600000, 'take_profit', 0, trades, config);
+
+    expect(trades[0].fundingCost).toBeCloseTo(-0.5);
+  });
+
+  it('fundingCost is 0 when fundingPnl was never accrued', () => {
+    const position = makePosition();
+    const trades: BacktestTrade[] = [];
+
+    closeTrade(position, 110, 20, 1700003600000, 'take_profit', 0, trades, config);
+
+    expect(trades[0].fundingCost).toBe(0);
   });
 });
 
