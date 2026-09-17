@@ -7,7 +7,8 @@ export interface IHistoricalSnapshot extends Document {
   data: {
     fundingRate?: {
       rate: number;
-      markPrice: number;
+      /** Absent on Binance funding events before mid-2023, which return an empty string. */
+      markPrice?: number;
     };
     longShortRatio?: {
       ratio: number;

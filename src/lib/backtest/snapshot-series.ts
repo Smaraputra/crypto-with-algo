@@ -36,7 +36,8 @@ export function snapshotToScorerInputs(
         symbol,
         fundingRate: data.fundingRate.rate,
         fundingTime: timestamp,
-        markPrice: data.fundingRate.markPrice,
+        // Unused by the scorer, which reads only the rate; absent on pre-2023 history
+        markPrice: data.fundingRate.markPrice ?? Number.NaN,
       }
     : null;
 

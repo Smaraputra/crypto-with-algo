@@ -119,7 +119,11 @@ export function buildBackfillSnapshots(input: {
     // (which reads the latest settled rate), capped for staleness
     const fr = lastFundingAtOrBefore(fundingEvents, timestamp);
     if (fr && timestamp - fr.fundingTime <= fundingStalenessMs) {
-      data.fundingRate = { rate: fr.fundingRate, markPrice: fr.markPrice };
+      // Older funding events carry an empty markPrice, which parses to NaN and
+      // fails the schema cast for the whole batch; omit it instead.
+      data.fundingRate = Number.isFinite(fr.markPrice)
+        ? { rate: fr.fundingRate, markPrice: fr.markPrice }
+        : { rate: fr.fundingRate };
       coverage.fundingRate++;
     }
 
