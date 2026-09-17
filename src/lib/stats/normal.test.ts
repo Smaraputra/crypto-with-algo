@@ -20,6 +20,49 @@ describe('normal', () => {
       expect(normalCdf(-1)).toBeLessThan(normalCdf(0));
       expect(normalCdf(0)).toBeLessThan(normalCdf(1));
     });
+
+    // Reference values from a high-precision normal CDF table. Large |x| is
+    // where a naive series-based erf suffers catastrophic cancellation, so
+    // this is the regression coverage for that failure mode.
+    const referenceTable: Array<[number, number]> = [
+      [0, 0.5],
+      [0.5, 0.6914624613],
+      [1, 0.8413447461],
+      [1.959964, 0.975],
+      [2.575829, 0.995],
+      [3, 0.9986501020],
+      [4, 0.9999683288],
+      [5, 0.9999997133],
+      [6, 0.999999999],
+      [8, 1],
+      [10, 1],
+    ];
+
+    it.each(referenceTable)('normalCdf(%f) is within 1e-7 of %f', (x, expected) => {
+      expect(Math.abs(normalCdf(x) - expected)).toBeLessThan(1e-7);
+    });
+
+    it.each(referenceTable)('normalCdf(-%f) is within 1e-7 of 1 - %f', (x, expected) => {
+      expect(Math.abs(normalCdf(-x) - (1 - expected))).toBeLessThan(1e-7);
+    });
+
+    it('stays within [0, 1] and is symmetric (Phi(x) + Phi(-x) = 1) over a wide grid', () => {
+      for (let x = -40; x <= 40; x += 0.5) {
+        const value = normalCdf(x);
+        expect(value).toBeGreaterThanOrEqual(0);
+        expect(value).toBeLessThanOrEqual(1);
+        expect(Math.abs(value + normalCdf(-x) - 1)).toBeLessThan(1e-12);
+      }
+    });
+
+    it('is monotone non-decreasing over a wide grid', () => {
+      let previous = -Infinity;
+      for (let x = -40; x <= 40; x += 0.25) {
+        const value = normalCdf(x);
+        expect(value).toBeGreaterThanOrEqual(previous);
+        previous = value;
+      }
+    });
   });
 
   describe('normalQuantile', () => {

@@ -32,6 +32,21 @@ describe('deflated-sharpe', () => {
       const large = probabilisticSharpe(0.2, 0.05, 600, 0, 3);
       expect(large).toBeGreaterThan(small);
     });
+
+    it('is within 1e-9 of 1 for a large nObservations and a clear positive gap', () => {
+      // Regression coverage: this pushed the old series-based normalCdf into
+      // catastrophic cancellation territory and returned -57355.75 instead of ~1.
+      const result = probabilisticSharpe(0.2, 0.05, 5000, 0, 3);
+      expect(Math.abs(result - 1)).toBeLessThan(1e-9);
+    });
+
+    it('never leaves [0, 1] over a grid of large nObservations', () => {
+      for (const n of [100, 500, 1000, 2500, 5000, 10000, 50000]) {
+        const result = probabilisticSharpe(0.2, 0.05, n, 0, 3);
+        expect(result).toBeGreaterThanOrEqual(0);
+        expect(result).toBeLessThanOrEqual(1);
+      }
+    });
   });
 
   describe('deflatedSharpe', () => {
