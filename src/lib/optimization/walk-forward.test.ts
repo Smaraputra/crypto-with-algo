@@ -1,13 +1,65 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import mongoose from 'mongoose';
 import {
   calculateWindows,
   deriveStepSize,
   deriveVolatilityStops,
+  runWalkForward,
   STOP_TRUE_RANGE_MULTIPLE,
   TARGET_TRUE_RANGE_MULTIPLE,
   WALK_FORWARD_FEE_PERCENT,
 } from './walk-forward';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
+import { computeAllIndicators } from '@/lib/indicators/compute';
+import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
+import { getStyleConfig } from '@/lib/indicators/style-configs';
+import type { OHLCV } from '@/types/market';
+
+const mockJobUpdateOne = vi.fn();
+vi.mock('@/lib/models/optimization-job', () => ({
+  OptimizationJob: {
+    updateOne: (...args: unknown[]) => mockJobUpdateOne(...args),
+  },
+}));
+
+vi.mock('@/lib/models/backtest-result-v2', () => ({
+  BacktestResultV2: {
+    create: async (doc: Record<string, unknown>) => ({ ...doc, _id: `mock-${Math.random()}` }),
+  },
+}));
+
+/** Deterministic synthetic OHLCV series, enough variance for real indicators. */
+function generateSyntheticCandles(count: number, seed = 7): OHLCV[] {
+  const candles: OHLCV[] = [];
+  let price = 100;
+  let rng = seed;
+
+  function nextRandom(): number {
+    rng = (rng * 16807) % 2147483647;
+    return rng / 2147483647;
+  }
+
+  for (let i = 0; i < count; i++) {
+    const drift = Math.sin(i / 30) * 0.004;
+    const noise = (nextRandom() - 0.5) * 0.8;
+    price = price * (1 + drift + noise / 100);
+    const high = price * (1 + nextRandom() * 0.006);
+    const low = price * (1 - nextRandom() * 0.006);
+    const open = price * (1 + (nextRandom() - 0.5) * 0.004);
+    const volume = 1000 + nextRandom() * 5000;
+
+    candles.push({
+      timestamp: 1700000000000 + i * 3600000,
+      open,
+      high,
+      low,
+      close: price,
+      volume,
+    });
+  }
+
+  return candles;
+}
 
 describe('calculateWindows', () => {
   it('produces correct number of windows for standard input', () => {
@@ -93,6 +145,126 @@ describe('calculateWindows', () => {
     // Window 7: trainEnd=105, 105+5=110, NOT < 110, stop
     expect(windows).toHaveLength(6);
   });
+});
+
+describe('calculateWindows purge gap', () => {
+  it('purgeGapBars 0 reproduces the current windows', () => {
+    const noOpts = calculateWindows(1000, 500, 100, 100);
+    const explicitZero = calculateWindows(1000, 500, 100, 100, { purgeGapBars: 0 });
+
+    expect(explicitZero).toEqual(noOpts);
+  });
+
+  it('shifts every testStart by the gap and never overlaps train/test', () => {
+    // A gap can shrink the window count (the last unpurged window may no
+    // longer fit a full test slice), so compare only the windows gapped
+    // still produces, index for index against the ungapped run.
+    const gap = 25;
+    const base = calculateWindows(1000, 500, 100, 100);
+    const gapped = calculateWindows(1000, 500, 100, 100, { purgeGapBars: gap });
+
+    expect(gapped.length).toBeGreaterThan(0);
+    expect(gapped.length).toBeLessThanOrEqual(base.length);
+    for (let i = 0; i < gapped.length; i++) {
+      expect(gapped[i].testStart).toBe(base[i].testStart + gap);
+      expect(gapped[i].trainEnd).toBeLessThan(gapped[i].testStart);
+    }
+  });
+
+  it('the last window still fits a full test slice under a purge gap', () => {
+    const testWindowBars = 100;
+    const windows = calculateWindows(1000, 500, testWindowBars, 100, { purgeGapBars: 25 });
+    const last = windows[windows.length - 1];
+
+    expect(last.testEnd - last.testStart + 1).toBe(testWindowBars);
+  });
+
+  it('produces no window once the gap leaves no room for a full test slice', () => {
+    // 600 bars = 500 train + 100 test exactly; any gap leaves no room.
+    const windows = calculateWindows(600, 500, 100, 100, { purgeGapBars: 1 });
+
+    expect(windows).toHaveLength(0);
+  });
+});
+
+describe('calculateWindows rolling mode', () => {
+  it('keeps trainStart at 0 by default (anchored)', () => {
+    const windows = calculateWindows(2000, 500, 100, 100, { mode: 'anchored' });
+
+    expect(windows.length).toBeGreaterThan(1);
+    for (const w of windows) {
+      expect(w.trainStart).toBe(0);
+    }
+  });
+
+  it('rolling mode slides trainStart and keeps a fixed training width', () => {
+    const windows = calculateWindows(2000, 500, 100, 100, { mode: 'rolling' });
+
+    expect(windows.length).toBeGreaterThan(1);
+    for (const w of windows) {
+      expect(w.trainEnd - w.trainStart + 1).toBe(500);
+    }
+    for (let i = 1; i < windows.length; i++) {
+      expect(windows[i].trainStart).toBeGreaterThan(windows[i - 1].trainStart);
+    }
+  });
+
+  it('rollingTrainBars overrides the rolling training width', () => {
+    const width = 250;
+    const windows = calculateWindows(2000, 500, 100, 100, {
+      mode: 'rolling',
+      rollingTrainBars: width,
+    });
+
+    expect(windows.length).toBeGreaterThan(0);
+    for (const w of windows) {
+      expect(w.trainEnd - w.trainStart + 1).toBe(width);
+    }
+  });
+
+  it('never lets rolling trainStart go below 0', () => {
+    const windows = calculateWindows(700, 500, 100, 100, {
+      mode: 'rolling',
+      rollingTrainBars: 500,
+    });
+
+    expect(windows.length).toBeGreaterThan(0);
+    for (const w of windows) {
+      expect(w.trainStart).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe('runWalkForward default purge gap', () => {
+  it('resolves purgeGapBars to the style/interval indicator warmup when not passed', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(450);
+
+    const expectedWarmup = computeWarmupBars(
+      computeAllIndicators(candles, symbol, interval, getStyleConfig(tradingStyle).config)
+    );
+
+    const result = await runWalkForward({
+      candles,
+      symbol,
+      interval,
+      tradingStyle,
+      minTrainingBars: 210,
+      testWindowBars: 30,
+      stepSizeBars: 50,
+      candidatesPerWindow: 2,
+      constraintPercent: 0.2,
+      jobId: new mongoose.Types.ObjectId(),
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+    });
+
+    expect(result.windows.length).toBeGreaterThan(0);
+    for (const window of result.windows) {
+      expect(window.testStart).toBe(window.trainEnd + 1 + expectedWarmup);
+    }
+  }, 30_000);
 });
 
 describe('deriveStepSize', () => {
