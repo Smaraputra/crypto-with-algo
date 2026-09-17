@@ -13,7 +13,14 @@ import { readJsonlGz, type CandleRow, type DatasetManifest, type HtfRow, type Sn
 
 const SYMBOL = 'BTCUSDT';
 const LTF_START = Date.UTC(2026, 0, 1);
-const HTF_START = Date.UTC(2025, 11, 20); // starts before the LTF window on purpose
+const FOUR_HOUR_MS = intervalToMs('4h');
+// SMA-200 (DEFAULT_CONFIG.sma.long, src/lib/indicators/types.ts) needs 200
+// closed 4h candles before it produces a value. Starting 225 candles before
+// the LTF window (margin above the 200 minimum) means warmup is already
+// satisfied by the very first LTF candle's close, so htf contexts are
+// non-null across the window instead of vacuously null.
+const HTF_START = LTF_START - 225 * FOUR_HOUR_MS;
+const HTF_CANDLE_COUNT = 260;
 
 function makeCandleDocs(interval: string, count: number, intervalMs: number, startTs: number) {
   const docs = [];
@@ -55,7 +62,7 @@ describe('export-dataset end-to-end (mongodb-memory-server)', () => {
     await mongoose.connect(mongoServer.getUri());
 
     ltfCandleDocs = makeCandleDocs('1h', 300, intervalToMs('1h'), LTF_START);
-    const htfCandleDocs = makeCandleDocs('4h', 80, intervalToMs('4h'), HTF_START);
+    const htfCandleDocs = makeCandleDocs('4h', HTF_CANDLE_COUNT, FOUR_HOUR_MS, HTF_START);
     await Candle.insertMany([...ltfCandleDocs, ...htfCandleDocs]);
 
     snapshotTimestamps = [
@@ -109,9 +116,13 @@ describe('export-dataset end-to-end (mongodb-memory-server)', () => {
   it('every non-null htf context references an htf candle closing at or before the ltf close', () => {
     const htfRows = readJsonlGz<HtfRow>(join(outDir, 'htf', SYMBOL, '1h.jsonl.gz'));
     const ltfMs = intervalToMs('1h');
-    const htfMs = intervalToMs('4h');
+    const htfMs = FOUR_HOUR_MS;
 
     const nonNull = htfRows.filter((row) => row.context !== null);
+
+    // With 260 4h candles starting well before the LTF window, warmup is
+    // satisfied throughout: this must not be vacuously true.
+    expect(nonNull.length).toBeGreaterThan(0);
 
     for (const row of nonNull) {
       const htfClose = row.context!.candleTimestamp + htfMs;

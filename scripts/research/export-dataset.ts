@@ -198,11 +198,17 @@ async function fetchSnapshots(
 
 /**
  * One HTF row per LTF candle: null context before warmup, before any HTF bar
- * has closed, or when the interval has no confirmation timeframe.
+ * has closed, when the interval has no confirmation timeframe, or when there
+ * are too few HTF candles for the underlying indicators (computeHtfSeries's
+ * SuperTrend throws below its own minimum, currently 11 candles). All of
+ * these degrade to null contexts rather than aborting the export, since a
+ * sparse confirmation interval for one symbol/interval must not lose the
+ * candle and snapshot data already fetched for every other pair.
  */
 function buildHtfRows(
-  ltfCandles: OHLCV[],
+  symbol: string,
   ltfInterval: string,
+  ltfCandles: OHLCV[],
   htfInterval: string | null,
   htfCandles: OHLCV[]
 ): HtfRow[] {
@@ -210,7 +216,18 @@ function buildHtfRows(
     return ltfCandles.map((candle) => ({ t: candle.timestamp, context: null }));
   }
 
-  const series = computeHtfSeries(htfCandles);
+  let series: ReturnType<typeof computeHtfSeries>;
+  try {
+    series = computeHtfSeries(htfCandles);
+  } catch (error) {
+    console.warn(
+      `HTF context unavailable for ${symbol} ${ltfInterval} ` +
+        `(${htfCandles.length} ${htfInterval} candles): ` +
+        `${error instanceof Error ? error.message : 'unknown error'}`
+    );
+    return ltfCandles.map((candle) => ({ t: candle.timestamp, context: null }));
+  }
+
   const map = alignHtfToLtf(
     ltfCandles,
     intervalToMs(ltfInterval),
@@ -311,7 +328,7 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
           htfCandles = await fetchCandles(symbol, htfInterval, htfStart, args.end);
         }
 
-        const htfRows = buildHtfRows(ltfCandles, interval, htfInterval, htfCandles);
+        const htfRows = buildHtfRows(symbol, interval, ltfCandles, htfInterval, htfCandles);
         files.push(
           await writeDatasetFile(
             args.out,
