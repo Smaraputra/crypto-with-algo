@@ -85,7 +85,7 @@ function excludeIchimokuForScalping(suite: IndicatorSuite): IndicatorSuite {
   };
 }
 
-function toOHLCV(row: CandleRow): OHLCV {
+export function toOHLCV(row: CandleRow): OHLCV {
   return {
     timestamp: row.t,
     open: row.o,
@@ -98,7 +98,7 @@ function toOHLCV(row: CandleRow): OHLCV {
 }
 
 /** Inverse of the export side's row shaping in scripts/research/export-dataset.ts. */
-function toLeanSnapshot(row: SnapshotRow): LeanSnapshot {
+export function toLeanSnapshot(row: SnapshotRow): LeanSnapshot {
   return {
     timestamp: row.t,
     data: {
