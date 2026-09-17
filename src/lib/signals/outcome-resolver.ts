@@ -71,15 +71,20 @@ export async function createPendingOutcomes(
     };
   });
 
+  // Validate every document up front so a genuine schema problem (e.g. an
+  // unknown tradingStyle) always throws. insertMany's own validation
+  // handling is not enough: when a MongoDB-level write error (a duplicate
+  // key on signalId) and a schema-invalid document occur in the same call,
+  // the driver's write error is what insertMany throws, and it carries only
+  // the duplicate-key code, mongoose never reaches its validation-error
+  // reporting, and the real problem is silently dropped.
+  for (const doc of docs) {
+    const validationError = new SignalOutcome(doc).validateSync();
+    if (validationError) throw validationError;
+  }
+
   try {
-    // throwOnValidationError surfaces a real schema problem (e.g. an
-    // unknown tradingStyle) instead of mongoose's default of silently
-    // dropping the invalid document; a MongoDB-level duplicate key error
-    // on signalId is still reported the normal way, via writeErrors.
-    const inserted = await SignalOutcome.insertMany(docs, {
-      ordered: false,
-      throwOnValidationError: true,
-    });
+    const inserted = await SignalOutcome.insertMany(docs, { ordered: false });
     return inserted.length;
   } catch (err) {
     if (isDuplicateKeyOnly(err)) {

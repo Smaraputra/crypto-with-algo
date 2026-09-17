@@ -184,6 +184,57 @@ describe('createPendingOutcomes', () => {
       ])
     ).rejects.toThrow();
   });
+
+  it('throws on an invalid document even when another document in the batch duplicates an existing signalId', async () => {
+    const { createPendingOutcomes, SignalOutcome } = await importModules();
+    await SignalOutcome.syncIndexes();
+
+    const existingSignalId = new mongoose.Types.ObjectId();
+    await SignalOutcome.create({
+      signalId: existingSignalId,
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 45,
+      configVersion: 3,
+      candleTimestamp: 1_700_000_000_000,
+      horizonBars: 24,
+      resolveAt: 1_700_000_000_000 + 25 * ONE_HOUR_MS,
+    });
+
+    await expect(
+      createPendingOutcomes([
+        {
+          // Duplicates the pre-existing doc's signalId
+          _id: existingSignalId,
+          symbol: 'BTCUSDT',
+          interval: '1h',
+          tradingStyle: 'day_trading',
+          tier: 'buy',
+          score: 45,
+          configVersion: 3,
+          candleTimestamp: 1_700_000_000_000,
+        },
+        {
+          _id: new mongoose.Types.ObjectId(),
+          symbol: 'ETHUSDT',
+          interval: '1h',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          tradingStyle: 'not_a_real_style' as any, // fails schema validation
+          tier: 'sell',
+          score: -45,
+          configVersion: 3,
+          candleTimestamp: 1_700_000_000_000,
+        },
+      ])
+    ).rejects.toThrow();
+
+    // Validation runs before insertMany, so nothing from this call, not
+    // even the otherwise-valid duplicate, should have reached the database.
+    const count = await SignalOutcome.countDocuments();
+    expect(count).toBe(1);
+  });
 });
 
 describe('resolveDueOutcomes', () => {
@@ -296,6 +347,46 @@ describe('resolveDueOutcomes', () => {
 
     const stillPending = await SignalOutcome.findById(notDueOutcome._id);
     expect(stillPending!.status).toBe('pending');
+  });
+
+  it('marks an outcome unresolvable when a forward candle gap misaligns timestamps, even though the sliced window is still horizonBars long', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+
+    const T = 1_740_000_000_000;
+    const horizonBars = 3;
+
+    // Candle at T+2h is missing from storage, but T+4h exists, so the
+    // position-sliced forward window ([T+1h, T+3h, T+4h]) still has exactly
+    // horizonBars candles - the length check alone would not catch this.
+    await Candle.insertMany([
+      makeCandle('XRPUSDT', '1h', T, { close: 100 }),
+      makeCandle('XRPUSDT', '1h', T + ONE_HOUR_MS, { close: 101 }),
+      makeCandle('XRPUSDT', '1h', T + 3 * ONE_HOUR_MS, { close: 102 }),
+      makeCandle('XRPUSDT', '1h', T + 4 * ONE_HOUR_MS, { close: 103 }),
+    ]);
+
+    const outcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'XRPUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 20,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars,
+      resolveAt: T + (horizonBars + 1) * ONE_HOUR_MS,
+    });
+
+    const now = T + (horizonBars + 1) * ONE_HOUR_MS;
+    const result = await resolveDueOutcomes(now);
+
+    expect(result.resolved).toBe(0);
+    expect(result.unresolvable).toBe(1);
+
+    const updated = await SignalOutcome.findById(outcome._id);
+    expect(updated!.status).toBe('unresolvable');
+    expect(updated!.entryPrice).toBeNull();
   });
 
   it('returns zero counts when nothing is due', async () => {
