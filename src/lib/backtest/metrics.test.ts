@@ -22,6 +22,9 @@ function makeTrade(overrides: Partial<BacktestTrade> = {}): BacktestTrade {
     exitScore: -15,
     entryTier: 'buy',
     holdTimeBars: 1,
+    slippageCost: 0,
+    entryFillKind: 'taker',
+    exitFillKind: 'taker',
     ...overrides,
   };
 }

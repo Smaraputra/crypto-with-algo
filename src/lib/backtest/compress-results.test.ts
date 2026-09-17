@@ -81,6 +81,9 @@ describe('createTradeSummary', () => {
         entryScore: 50,
         exitScore: 10,
         holdTimeBars: 5,
+        slippageCost: 0,
+        entryFillKind: 'taker',
+        exitFillKind: 'taker',
       },
       {
         entryBar: 20,
@@ -99,6 +102,9 @@ describe('createTradeSummary', () => {
         entryScore: 40,
         exitScore: 10,
         holdTimeBars: 5,
+        slippageCost: 0,
+        entryFillKind: 'taker',
+        exitFillKind: 'taker',
       },
       {
         entryBar: 30,
@@ -117,6 +123,9 @@ describe('createTradeSummary', () => {
         entryScore: 60,
         exitScore: 5,
         holdTimeBars: 10,
+        slippageCost: 0,
+        entryFillKind: 'taker',
+        exitFillKind: 'taker',
       },
     ];
 
@@ -174,6 +183,9 @@ describe('compressBacktestResult', () => {
           entryScore: 50,
           exitScore: 10,
           holdTimeBars: 5,
+          slippageCost: 0,
+          entryFillKind: 'taker',
+          exitFillKind: 'taker',
         },
       ],
       equityCurve: [
