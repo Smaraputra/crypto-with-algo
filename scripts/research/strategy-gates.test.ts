@@ -235,6 +235,7 @@ describe('poolStrategyResults: n=0 and n=1 edge cases', () => {
     expect(pooled.winRate).toBeNull();
     expect(pooled.profitFactor).toBeNull();
     expect(pooled.medianHoldBars).toBeNull();
+    expect(pooled.maxDrawdownPercent).toBeNull();
     expect(pooled.bootstrapCi95).toBeNull();
     expect(pooled.deflatedSharpe).toBeNull();
   });

@@ -332,6 +332,82 @@ describe('strategy-harness CLI', () => {
       expect(cell.expectancyPercent).toBeCloseTo(window0.oos!.expectancyPercent!, 9);
     }, 30_000);
 
+    it('reproduces the window without --family/--interval on the CLI, reading both from the report', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const outPath = join(dir, 'reports', 'report.json');
+      const baseArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--out', outPath,
+      ]);
+      const report = await runStrategyHarness(baseArgs);
+      const symbol = report.symbols[0];
+
+      const cellArgs = parseArgs(['--dataset-dir', dir, '--cell', `${symbol}:0`, '--report', outPath]);
+      expect(cellArgs.family).toBeUndefined();
+      expect(cellArgs.interval).toBeUndefined();
+
+      const cell = await runCell(cellArgs);
+      const window0 = report.perSymbol.find((p) => p.symbol === symbol)!.windows[0];
+      expect(cell.trades).toBe(window0.oos!.trades);
+      expect(cell.expectancyPercent).toBeCloseTo(window0.oos!.expectancyPercent!, 9);
+    }, 30_000);
+
+    it('throws naming both values when --interval disagrees with the report', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const outPath = join(dir, 'reports', 'report.json');
+      const baseArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--out', outPath,
+      ]);
+      const report = await runStrategyHarness(baseArgs);
+      const symbol = report.symbols[0];
+
+      const cellArgs = parseArgs([
+        '--interval', '4h',
+        '--dataset-dir', dir,
+        '--cell', `${symbol}:0`,
+        '--report', outPath,
+      ]);
+      await expect(runCell(cellArgs)).rejects.toThrow(/4h/);
+      await expect(runCell(cellArgs)).rejects.toThrow(/1h/);
+    }, 30_000);
+
+    it('throws naming both values when --family disagrees with the report', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const outPath = join(dir, 'reports', 'report.json');
+      const baseArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--out', outPath,
+      ]);
+      const report = await runStrategyHarness(baseArgs);
+      const symbol = report.symbols[0];
+
+      // A second, hypothetical family name is not registered, so use the
+      // report's own family mutated in the written file to simulate a
+      // disagreement without needing a second real STRATEGY_FAMILIES entry.
+      const cellArgs: StrategyHarnessArgs = {
+        ...parseArgs(['--dataset-dir', dir, '--cell', `${symbol}:0`, '--report', outPath]),
+        family: 'not-control',
+      };
+      await expect(runCell(cellArgs)).rejects.toThrow(/not-control/);
+      await expect(runCell(cellArgs)).rejects.toThrow(/control/);
+    }, 30_000);
+
     it('throws when the dataset has changed since the report was written', async () => {
       await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
       const outPath = join(dir, 'reports', 'report.json');
@@ -535,6 +611,30 @@ describe('parseArgs', () => {
 
   it('throws when --interval is missing', () => {
     expect(() => parseArgs(['--family', 'control'], NOW)).toThrow(/--interval is required/);
+  });
+
+  it('does not require --family/--interval when both --cell and --report are present', () => {
+    const args = parseArgs(['--cell', 'BTCUSDT:0', '--report', '/tmp/report.json'], NOW);
+    expect(args.family).toBeUndefined();
+    expect(args.interval).toBeUndefined();
+    expect(args.cell).toEqual({ symbol: 'BTCUSDT', window: 0 });
+    expect(args.reportPath).toBe('/tmp/report.json');
+  });
+
+  it('still requires --family when --cell is given without --report', () => {
+    expect(() => parseArgs(['--cell', 'BTCUSDT:0'], NOW)).toThrow(/--family is required/);
+  });
+
+  it('still requires --interval when --report is given without --cell', () => {
+    expect(() => parseArgs(['--family', 'control', '--report', '/tmp/report.json'], NOW)).toThrow(
+      /--interval is required/
+    );
+  });
+
+  it('still validates an explicitly-passed --family even in cell mode', () => {
+    expect(() =>
+      parseArgs(['--family', 'bogus-family', '--cell', 'BTCUSDT:0', '--report', '/tmp/report.json'], NOW)
+    ).toThrow(/control/);
   });
 
   it('throws on an unknown flag instead of silently swallowing its value', () => {

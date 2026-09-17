@@ -10,15 +10,17 @@
  *   npx tsx scripts/research/strategy-harness.ts --family control --interval 1h
  *   npx tsx scripts/research/strategy-harness.ts --family control --interval 5m \
  *     --symbols BTCUSDT,ETHUSDT --windows 8 --bootstrap-n 500
- *   npx tsx scripts/research/strategy-harness.ts --family control --interval 1h \
+ *   npx tsx scripts/research/strategy-harness.ts \
  *     --cell BTCUSDT:0 --report data/research/reports/strategy-control-1h-....json
- *     (--family/--interval are still required flags, per --cell's note below,
- *     but are ignored in favor of the report's own values, exactly as
- *     factor-ic.ts's --report override ignores conflicting CLI flags)
  *
  * Flags:
- *   --family <name>            required, a key of STRATEGY_FAMILIES
- *   --interval <interval>      required (e.g. 1h, 5m, 4h)
+ *   --family <name>            required (a key of STRATEGY_FAMILIES), except
+ *                               with --cell --report, which reads it from
+ *                               the report; if passed there too, it must
+ *                               agree with the report's own family
+ *   --interval <interval>      required (e.g. 1h, 5m, 4h); same --cell
+ *                               --report exception and agreement rule as
+ *                               --family
  *   --symbols <a,b,c>          default: the dataset manifest's symbols
  *   --start / --end <ISO>      inclusive candle/snapshot range; HTF warmup
  *                               candles before --start are kept regardless
@@ -89,14 +91,18 @@ import {
   type StrategyWalkForwardResult,
   type WindowResult,
 } from './strategy-walk-forward';
-import { evaluateStrategyGates, poolStrategyResults, VALIDATION_PROTOCOL } from './strategy-gates';
+import { evaluateStrategyGates, finiteOr, poolStrategyResults, toFinite, VALIDATION_PROTOCOL } from './strategy-gates';
 import { validateStrategyReport, type StrategyReport } from './report-schema';
 
 const MIN_IS_TRADES = 10;
 
 export interface StrategyHarnessArgs {
-  family: string;
-  interval: string;
+  /** Required unless both --cell and --report are given, in which case
+   * runCell reads family from the report; when passed anyway, runCell
+   * requires it to agree with the report's own family. */
+  family?: string;
+  /** Same optionality/agreement rule as family, for --interval. */
+  interval?: string;
   symbols?: string[];
   start?: number;
   end?: number;
@@ -143,11 +149,17 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function defaultTaskId(family: string, interval: string, now: Date): string {
+/** family/interval are omittable in --cell --report mode, where the run's
+ * own taskId/out are never read (runCell never touches them); falls back to
+ * a family/interval-free stamp in that case. */
+function defaultTaskId(family: string | undefined, interval: string | undefined, now: Date): string {
   const stamp =
     `${now.getUTCFullYear()}${pad2(now.getUTCMonth() + 1)}${pad2(now.getUTCDate())}` +
     `${pad2(now.getUTCHours())}${pad2(now.getUTCMinutes())}`;
-  return `strategy-${family}-${interval}-${stamp}`;
+  if (family !== undefined && interval !== undefined) {
+    return `strategy-${family}-${interval}-${stamp}`;
+  }
+  return `strategy-cell-${stamp}`;
 }
 
 function parseCell(value: string): { symbol: string; window: number } {
@@ -212,19 +224,24 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
     i++;
   }
 
+  // --family/--interval are required except in --cell --report mode, where
+  // runCell reads both from the report instead (and, if either is passed
+  // anyway, requires it to agree with the report -- see runCell below).
+  const cellReportMode = flags.has('cell') && flags.has('report');
+
   const family = flags.get('family');
-  if (!family) {
+  if (family !== undefined) {
+    if (!STRATEGY_FAMILIES[family]) {
+      throw new Error(
+        `Unknown --family "${family}", expected one of: ${Object.keys(STRATEGY_FAMILIES).join(', ')}`
+      );
+    }
+  } else if (!cellReportMode) {
     throw new Error('--family is required');
-  }
-  const familyDef = STRATEGY_FAMILIES[family];
-  if (!familyDef) {
-    throw new Error(
-      `Unknown --family "${family}", expected one of: ${Object.keys(STRATEGY_FAMILIES).join(', ')}`
-    );
   }
 
   const interval = flags.get('interval');
-  if (!interval) {
+  if (interval === undefined && !cellReportMode) {
     throw new Error('--interval is required');
   }
 
@@ -234,9 +251,13 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
   }
 
   const taskId = flags.get('task-id') ?? defaultTaskId(family, interval, now);
-  const out = flags.get('out') ?? `data/research/reports/strategy-${family}-${interval}-${taskId}.json`;
+  const out =
+    flags.get('out') ??
+    (family !== undefined && interval !== undefined
+      ? `data/research/reports/strategy-${family}-${interval}-${taskId}.json`
+      : `data/research/reports/strategy-cell-${taskId}.json`);
 
-  const gridCells = expandGrid(familyDef).length;
+  const gridCells = family !== undefined ? expandGrid(STRATEGY_FAMILIES[family]).length : 0;
   const defaultTrials = gridCells * Object.keys(STRATEGY_FAMILIES).length;
 
   return {
@@ -337,14 +358,6 @@ function loadSymbolInputs(
     htfBars,
     lockboxApplied: candleResult.lockboxApplied,
   };
-}
-
-function toFinite(x: number): number | null {
-  return Number.isFinite(x) ? x : null;
-}
-
-function finiteOr(x: number, fallback: number): number {
-  return Number.isFinite(x) ? x : fallback;
 }
 
 function buildPooledOos(windows: WindowResult[]): StrategyReport['perSymbol'][number]['pooledOos'] {
@@ -476,6 +489,18 @@ function formatReport(report: StrategyReport): string {
 export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<StrategyReport> {
   const startedAt = Date.now();
 
+  // Required for a real run (parseArgs already enforces this outside --cell
+  // --report mode, but runStrategyHarness never runs in that mode, so it
+  // re-asserts here for callers that build args without parseArgs).
+  if (!args.family) {
+    throw new Error('--family is required');
+  }
+  if (!args.interval) {
+    throw new Error('--interval is required');
+  }
+  const familyName = args.family;
+  const interval = args.interval;
+
   const verify = await verifyManifest(args.datasetDir);
   if (!verify.ok) {
     throw new Error(`Dataset manifest verification failed for: ${verify.mismatches.join(', ')}`);
@@ -487,26 +512,26 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     );
   }
 
-  const style = styleForInterval(args.interval);
-  const costs = studyCostConfig(args.interval);
-  const family = STRATEGY_FAMILIES[args.family];
+  const style = styleForInterval(interval);
+  const costs = studyCostConfig(interval);
+  const family = STRATEGY_FAMILIES[familyName];
   if (!family) {
     throw new Error(
-      `Unknown --family "${args.family}", expected one of: ${Object.keys(STRATEGY_FAMILIES).join(', ')}`
+      `Unknown --family "${familyName}", expected one of: ${Object.keys(STRATEGY_FAMILIES).join(', ')}`
     );
   }
   const cells = expandGrid(family);
 
   const symbols = args.symbols && args.symbols.length > 0 ? args.symbols : manifest.symbols;
-  const snapshotInterval = mapToSnapshotInterval(args.interval);
+  const snapshotInterval = mapToSnapshotInterval(interval);
 
-  console.error(`[strategy-harness] family=${args.family} interval=${args.interval} symbols=${symbols.join(',')}`);
+  console.error(`[strategy-harness] family=${familyName} interval=${interval} symbols=${symbols.join(',')}`);
 
   const perSymbolInputs: SymbolInputs[] = [];
   for (const symbol of symbols) {
     console.error(`[strategy-harness] loading ${symbol}...`);
     perSymbolInputs.push(
-      loadSymbolInputs(args.datasetDir, symbol, args.interval, style, snapshotInterval, {
+      loadSymbolInputs(args.datasetDir, symbol, interval, style, snapshotInterval, {
         allowLockbox: args.allowLockbox,
         start: args.start,
         end: args.end,
@@ -535,7 +560,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     const result = runStrategyWalkForward({
       candles: input.candles,
       symbol: input.symbol,
-      interval: args.interval,
+      interval,
       style,
       family,
       cells,
@@ -570,14 +595,14 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   }
 
   const pooled = poolStrategyResults(results, {
-    interval: args.interval,
+    interval,
     cells,
     familyCount: Object.keys(STRATEGY_FAMILIES).length,
     trialsOverride: args.trials,
     bootstrapIterations: args.bootstrapN,
     seed: args.seed,
   });
-  const { gates, pass } = evaluateStrategyGates(pooled, args.interval);
+  const { gates, pass } = evaluateStrategyGates(pooled, interval);
 
   const perSymbolReports: StrategyReport['perSymbol'] = results.map((result, i) => ({
     symbol: result.symbol,
@@ -593,9 +618,9 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     taskId: args.taskId,
     datasetManifestHash: manifest.datasetHash,
     lockboxApplied,
-    family: args.family,
+    family: familyName,
     style,
-    interval: args.interval,
+    interval,
     symbols,
     dateRange: { startMs: args.start ?? null, endMs: args.end ?? null },
     gridCells: cells.length,
@@ -658,6 +683,17 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
   }
   const report = validated.data;
 
+  // --family/--interval are optional in --cell --report mode (both are read
+  // from the report below); if passed anyway, they must agree with what the
+  // report itself recorded, or the spot check would silently answer a
+  // different question than the one the flags asked.
+  if (args.family !== undefined && args.family !== report.family) {
+    throw new Error(`--family "${args.family}" disagrees with the report's family "${report.family}"`);
+  }
+  if (args.interval !== undefined && args.interval !== report.interval) {
+    throw new Error(`--interval "${args.interval}" disagrees with the report's interval "${report.interval}"`);
+  }
+
   const family = STRATEGY_FAMILIES[report.family];
   if (!family) {
     throw new Error(`Report names unknown family "${report.family}"`);
@@ -715,9 +751,21 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     mode: resolved.mode,
     count: resolved.count,
   };
-  if (JSON.stringify(actualWindowConfig) !== JSON.stringify(symbolReport.windowConfig)) {
+  // Field-by-field, not JSON.stringify equality: the two objects are built
+  // by separate object literals (one here, one already sitting in the
+  // parsed report), and stringify-equality would depend on key order rather
+  // than on the six values actually mattering.
+  const expectedWindowConfig = symbolReport.windowConfig;
+  const windowConfigMatches =
+    actualWindowConfig.trainBars === expectedWindowConfig.trainBars &&
+    actualWindowConfig.testWindowBars === expectedWindowConfig.testWindowBars &&
+    actualWindowConfig.purgeGapBars === expectedWindowConfig.purgeGapBars &&
+    actualWindowConfig.stepSizeBars === expectedWindowConfig.stepSizeBars &&
+    actualWindowConfig.mode === expectedWindowConfig.mode &&
+    actualWindowConfig.count === expectedWindowConfig.count;
+  if (!windowConfigMatches) {
     throw new Error(
-      `Window geometry mismatch for symbol "${symbol}": report has ${JSON.stringify(symbolReport.windowConfig)}, ` +
+      `Window geometry mismatch for symbol "${symbol}": report has ${JSON.stringify(expectedWindowConfig)}, ` +
         `recomputed ${JSON.stringify(actualWindowConfig)}`
     );
   }

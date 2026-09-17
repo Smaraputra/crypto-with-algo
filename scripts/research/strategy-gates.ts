@@ -107,13 +107,16 @@ export interface PooledStats {
   perYear: Array<{ year: number; trades: number; expectancyPercent: number }>;
 }
 
-function toFinite(x: number): number | null {
+/** Exported for strategy-harness.ts's report assembly, which needs the same
+ * NaN/Infinity-to-null conversion for every float it writes into a report. */
+export function toFinite(x: number): number | null {
   return Number.isFinite(x) ? x : null;
 }
 
 /** Like toFinite, but for fields the schema declares as plain (non-nullable)
- * numbers: falls back to `fallback` instead of null on a non-finite input. */
-function finiteOr(x: number, fallback: number): number {
+ * numbers: falls back to `fallback` instead of null on a non-finite input.
+ * Exported for the same reason as toFinite. */
+export function finiteOr(x: number, fallback: number): number {
   return Number.isFinite(x) ? x : fallback;
 }
 
@@ -208,7 +211,11 @@ export function poolStrategyResults(
   const profitFactor = toFinite(positiveSum / negativeSumAbs);
 
   const medianHoldBars = toFinite(median(trades.map((t) => t.holdTimeBars)));
-  const maxDrawdownPercent = toFinite(maxDrawdownPercentOfPnl(pnls, 10000));
+  // maxDrawdownPercentOfPnl([], 10000) returns 0 (a real, finite "no drawdown"
+  // over an empty walk), which toFinite would not catch -- null it explicitly
+  // for n === 0 so it fails null-vs-0 the same way every other pooled ratio
+  // does when there is no data to compute it from.
+  const maxDrawdownPercent = n === 0 ? null : toFinite(maxDrawdownPercentOfPnl(pnls, 10000));
 
   const meanBlockLen = Math.max(2, Math.round(Math.cbrt(n)));
   const bootstrap = { iterations: bootstrapIterations, seed, meanBlockLen };
