@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (data history)
+- 5m candles are now durable instead of TTL-backed: `HF_INTERVALS` on `Candle` carries only `1m`, so 5m rows are kept indefinitely rather than expiring after 14 days. Scalping research needs up to 12 months of 5m history. Rows written before this change still carry the `expiresAt` set under the old TTL; `scripts/ops/backfill-history.ts --unset-5m-ttl` clears it
+- Admin candle and snapshot backfill accept up to 120 months (was 48). 5m and 15m are capped at 12 months each on both routes, since a year of bars at that density is already a large document count
+- Per-symbol/interval snapshot backfill (recent long/short and open interest fetch, `buildBackfillSnapshots`, chunked upsert) and the Fear & Greed carry-forward lookup moved from the admin snapshot backfill route into `src/lib/snapshot-backfill.ts` as `backfillSnapshotRange` and `loadFearGreedLookup`, so the new ops script runs the same logic the route does. Route behavior is unchanged
+
+### Added (data history)
+- `scripts/ops/backfill-history.ts`: committed ops script that backfills durable candle and snapshot history in production, run inside the Dockerfile's `seeder` stage so it needs no bind mount. `--dry-run` prints the planned jobs without connecting; `--unset-5m-ttl` clears `expiresAt` from 5m candles written before 5m became durable; a per-job failure is logged and the run continues, exiting 1 if anything failed
+- `scripts/ops/sync-prod-to-local.sh`: streams collections from the production Mongo to a local Mongo for research, one collection at a time with no intermediate file (`mongodump` piped straight into `mongorestore`, remote credentials expanding only inside the production container)
+
 ### Changed (signal calibration)
 - Signal tier cutoffs recalibrated from measured production score distributions: buy and sell above |24| (was 30), strong above |30| (was 60). Measured 2026-09-16 over every bar since 2026-03-04 for BTC, ETH, SOL, XRP, and BNB, with stored futures and sentiment data as live scoring uses it. Across all seven live style and interval pairs, |score| p90 fell between 22.2 and 26.1 and p98 between 29.4 and 31.3. Under the old cutoffs about 95% of live signals were neutral, swing trading was neutral on all 490 signals in a week, and no style reached a strong tier, because scores rarely pass |43|. `GlobalSignal.configVersion` is now 3 so tiers recorded under the old cutoffs remain distinguishable. Measurements are documented in `src/lib/signals/calibration.ts`
 - Strategy thresholds for every style now enter at the buy tier (|24|) and exit at |6|, so an activated template trades on the tier users see. The previous levels inverted against the measured ranges: scalping required 50 while its scores never passed about 43, so all 350 scalping candidates in the first production optimization made zero trades, while position trading's 30 sat inside ordinary noise. Backtest presets are scaled by the same 0.8 ratio (Conservative 32, Balanced 24, Aggressive 16)
