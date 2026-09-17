@@ -155,6 +155,43 @@ describe('getLiveTierExpectancy', () => {
     expect(sell.avgMaePercent).toBeCloseTo(-3.5, 6);
   });
 
+  it('returns tiers in SIGNAL_TIERS order regardless of insertion order', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    // Inserted out of SIGNAL_TIERS order (strong_buy, buy, neutral, sell, strong_sell)
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'strong_sell', forwardReturnPercent: 1 }));
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'sell', forwardReturnPercent: 1 }));
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'strong_buy', forwardReturnPercent: 1 }));
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 1 }));
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'neutral', forwardReturnPercent: 1 }));
+
+    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+
+    expect(results.map((r) => r.tier)).toEqual([
+      'strong_buy',
+      'buy',
+      'neutral',
+      'sell',
+      'strong_sell',
+    ]);
+  });
+
+  it('excludes a resolved document with a null forwardReturnPercent instead of coercing it to 0', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 10 }));
+    // Data problem: resolved but somehow missing its return. Must not drag the average toward 0.
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: null, mfePercent: null, maePercent: null })
+    );
+
+    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].count).toBe(1);
+    expect(results[0].expectancyPercent).toBeCloseTo(10, 6);
+  });
+
   it('filters by symbol', async () => {
     const { getLiveTierExpectancy, SignalOutcome } = await importModules();
 

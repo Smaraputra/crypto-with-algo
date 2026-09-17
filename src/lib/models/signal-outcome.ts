@@ -71,6 +71,9 @@ const signalOutcomeSchema = new Schema<ISignalOutcome>(
 signalOutcomeSchema.index({ status: 1, resolveAt: 1 });
 // Analytics: outcomes for a symbol/style, most recent first
 signalOutcomeSchema.index({ symbol: 1, tradingStyle: 1, createdAt: -1 });
+// Live tier expectancy: resolved outcomes for a style, with or without a
+// symbol filter, ordered by resolvedAt for the optional `since` cutoff
+signalOutcomeSchema.index({ tradingStyle: 1, status: 1, resolvedAt: -1 });
 // TTL: outcomes older than a year are no longer useful for live expectancy
 signalOutcomeSchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 });
 

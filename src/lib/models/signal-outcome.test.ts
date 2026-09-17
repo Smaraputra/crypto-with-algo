@@ -138,6 +138,7 @@ describe('SignalOutcome model', () => {
     expect(indexKeys).toContainEqual(['status', 'resolveAt']);
     expect(indexKeys).toContainEqual(['symbol', 'tradingStyle', 'createdAt']);
     expect(indexKeys).toContainEqual(['createdAt']);
+    expect(indexKeys).toContainEqual(['tradingStyle', 'status', 'resolvedAt']);
 
     const signalIdIndex = indexes.find(
       (idx) => Object.keys(idx.key).join() === 'signalId'

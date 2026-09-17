@@ -1,5 +1,5 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
-import type { SignalTier } from '@/types/signal';
+import { SIGNAL_TIERS, type SignalTier } from '@/types/signal';
 import { SignalOutcome } from '@/lib/models/signal-outcome';
 
 export interface TierExpectancy {
@@ -19,7 +19,16 @@ export interface GetLiveTierExpectancyOptions {
 }
 
 /** Tiers whose prediction wins when price falls, so the raw long-perspective return is inverted. */
-const SELL_TIERS: ReadonlySet<SignalTier> = new Set(['sell', 'strong_sell']);
+const SELL_TIER_VALUES: SignalTier[] = ['sell', 'strong_sell'];
+
+interface TierExpectancyRow {
+  _id: SignalTier;
+  count: number;
+  meanDirectionalReturn: number;
+  winRate: number;
+  avgMfePercent: number;
+  avgMaePercent: number;
+}
 
 /**
  * Live per-tier expectancy from resolved SignalOutcome documents, using the
@@ -27,62 +36,65 @@ const SELL_TIERS: ReadonlySet<SignalTier> = new Set(['sell', 'strong_sell']);
  * and neutral (informational) read the forward return as-is, sell/strong_sell
  * flip it since their prediction is that price falls. MFE/MAE are reported
  * as stored, from the long perspective, regardless of tier.
+ *
+ * Aggregated in the database rather than loaded into memory, since a
+ * symbol-less query can span every resolved outcome for a trading style.
  */
 export async function getLiveTierExpectancy(
   opts: GetLiveTierExpectancyOptions
 ): Promise<TierExpectancy[]> {
   const { tradingStyle, symbol, since, costPercentRoundTrip = 0 } = opts;
 
-  const filter: Record<string, unknown> = { tradingStyle, status: 'resolved' };
-  if (symbol) filter.symbol = symbol;
-  if (since) filter.resolvedAt = { $gte: since };
+  const match: Record<string, unknown> = {
+    tradingStyle,
+    status: 'resolved',
+    // Resolved outcomes always carry a forward return; excluding a null one
+    // outright (rather than coercing it to 0) keeps a data problem from
+    // silently diluting the average.
+    forwardReturnPercent: { $ne: null },
+  };
+  if (symbol) match.symbol = symbol;
+  if (since) match.resolvedAt = { $gte: since };
 
-  const outcomes = await SignalOutcome.find(filter)
-    .select('tier forwardReturnPercent mfePercent maePercent')
-    .lean();
+  const rows: TierExpectancyRow[] = await SignalOutcome.aggregate([
+    { $match: match },
+    {
+      $addFields: {
+        directionalReturn: {
+          $cond: [
+            { $in: ['$tier', SELL_TIER_VALUES] },
+            { $multiply: ['$forwardReturnPercent', -1] },
+            '$forwardReturnPercent',
+          ],
+        },
+      },
+    },
+    {
+      $group: {
+        _id: '$tier',
+        count: { $sum: 1 },
+        meanDirectionalReturn: { $avg: '$directionalReturn' },
+        winRate: { $avg: { $cond: [{ $gt: ['$directionalReturn', 0] }, 1, 0] } },
+        avgMfePercent: { $avg: '$mfePercent' },
+        avgMaePercent: { $avg: '$maePercent' },
+      },
+    },
+  ]);
 
-  const byTier = new Map<
-    SignalTier,
-    Array<{ forwardReturnPercent: number; mfePercent: number; maePercent: number }>
-  >();
-
-  for (const outcome of outcomes) {
-    const tier = outcome.tier;
-    const entry = {
-      forwardReturnPercent: outcome.forwardReturnPercent ?? 0,
-      mfePercent: outcome.mfePercent ?? 0,
-      maePercent: outcome.maePercent ?? 0,
-    };
-    const bucket = byTier.get(tier);
-    if (bucket) {
-      bucket.push(entry);
-    } else {
-      byTier.set(tier, [entry]);
-    }
-  }
+  const byTier = new Map(rows.map((row) => [row._id, row]));
 
   const results: TierExpectancy[] = [];
-
-  for (const [tier, tierOutcomes] of byTier) {
-    const directional = SELL_TIERS.has(tier)
-      ? tierOutcomes.map((o) => -o.forwardReturnPercent)
-      : tierOutcomes.map((o) => o.forwardReturnPercent);
-
-    const count = directional.length;
-    const meanReturn = directional.reduce((sum, r) => sum + r, 0) / count;
-    const winCount = directional.filter((r) => r > 0).length;
-    const avgMfePercent =
-      tierOutcomes.reduce((sum, o) => sum + o.mfePercent, 0) / count;
-    const avgMaePercent =
-      tierOutcomes.reduce((sum, o) => sum + o.maePercent, 0) / count;
+  for (const tier of SIGNAL_TIERS) {
+    const row = byTier.get(tier);
+    if (!row) continue;
 
     results.push({
       tier,
-      count,
-      expectancyPercent: meanReturn - costPercentRoundTrip,
-      winRate: winCount / count,
-      avgMfePercent,
-      avgMaePercent,
+      count: row.count,
+      expectancyPercent: row.meanDirectionalReturn - costPercentRoundTrip,
+      winRate: row.winRate,
+      avgMfePercent: row.avgMfePercent,
+      avgMaePercent: row.avgMaePercent,
     });
   }
 
