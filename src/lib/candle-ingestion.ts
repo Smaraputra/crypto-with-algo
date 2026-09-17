@@ -1,6 +1,7 @@
 import { Candle, type ICandle, computeExpiresAt } from '@/lib/models/candle';
 import { fetchKlinesRange } from '@/lib/binance';
 import { connectDB } from '@/lib/mongodb';
+import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
 
 const MS_PER_MONTH = 30 * 24 * 60 * 60 * 1000;
@@ -32,9 +33,23 @@ export interface BackfillOptions {
 }
 
 /**
+ * Removes every candle whose close time (timestamp + interval duration) is
+ * after `now`, i.e. bars that are still in progress. Mongo holds closed bars
+ * only, so every fetched batch must pass through this before it is stored.
+ */
+export function dropOpenBars(candles: OHLCV[], interval: string, now: number): OHLCV[] {
+  const ms = intervalToMs(interval);
+  return candles.filter((c) => c.timestamp + ms <= now);
+}
+
+/**
  * Fetch historical candles from Binance and bulk-upsert into MongoDB.
  * Checks existing data to avoid re-fetching already-stored ranges, unless
  * `refill` is set.
+ *
+ * Invariant: Mongo holds closed bars only. Every batch fetched here is passed
+ * through `dropOpenBars` before it reaches `bulkUpsertCandles`, so the
+ * still-forming bar at the end of a Binance response is never persisted.
  *
  * The returned `inserted` count reflects newly created documents only. A refill
  * that patches existing rows reports 0 while still having updated them, so
@@ -78,7 +93,7 @@ export async function backfillCandles(
         (fetched) =>
           onProgress?.({ fetched, inserted: 0, symbol, interval })
       );
-      candles.push(...older);
+      candles.push(...dropOpenBars(older, interval, endTime));
     }
 
     // Fetch gap after existing data
@@ -96,7 +111,7 @@ export async function backfillCandles(
             interval,
           })
       );
-      candles.push(...newer);
+      candles.push(...dropOpenBars(newer, interval, endTime));
     }
   } else {
     // No existing data, or a refill: fetch the entire range
@@ -108,7 +123,7 @@ export async function backfillCandles(
       (fetched) =>
         onProgress?.({ fetched, inserted: 0, symbol, interval })
     );
-    candles.push(...all);
+    candles.push(...dropOpenBars(all, interval, endTime));
   }
 
   if (candles.length === 0) {
@@ -129,6 +144,12 @@ export async function backfillCandles(
 
 /**
  * Incremental sync: fetch candles from latest stored to now.
+ *
+ * Invariant: Mongo holds closed bars only. Every fetched batch is passed
+ * through `dropOpenBars` before it reaches `bulkUpsertCandles`, so a bar
+ * still open at fetch time is never stored. Because of this, `range.newest`
+ * is always a closed bar, and fetching from `range.newest + 1` never
+ * re-requests it.
  */
 export async function syncCandles(
   symbol: string,
@@ -157,7 +178,9 @@ export async function syncCandles(
     return { inserted: 0 };
   }
 
-  const inserted = await bulkUpsertCandles(symbol, interval, candles);
+  const closed = dropOpenBars(candles, interval, endTime);
+
+  const inserted = await bulkUpsertCandles(symbol, interval, closed);
   return { inserted };
 }
 

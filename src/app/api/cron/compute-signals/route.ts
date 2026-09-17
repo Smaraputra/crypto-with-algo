@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { fetchKlines } from '@/lib/binance';
-import { getCandles } from '@/lib/candle-ingestion';
+import { getCandles, dropOpenBars } from '@/lib/candle-ingestion';
 import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { interpretIndicators } from '@/lib/indicators/interpret';
@@ -117,7 +117,13 @@ async function computeLegacySignals() {
     const [symbol, interval] = pair.split(':');
 
     try {
-      const [candles, futuresData] = await Promise.all([
+      // Single point-in-time reference for this pair, used both inside the
+      // cachedFetch producer (below) and for the outer safety-net filter, so
+      // a bar open when the fetchKlines fallback ran can never be served
+      // "closed" later from the 60s cache just because wall-clock time moved on.
+      const now = Date.now();
+
+      const [rawCandles, futuresData] = await Promise.all([
         cachedFetch(
           `klines:${symbol}:${interval}:${RECOMMENDED_CANDLES}`,
           async () => {
@@ -129,12 +135,21 @@ async function computeLegacySignals() {
               RECOMMENDED_CANDLES
             );
             if (dbCandles.length >= RECOMMENDED_CANDLES) return dbCandles;
-            return fetchKlines(symbol, interval, RECOMMENDED_CANDLES);
+            const apiCandles = await fetchKlines(symbol, interval, RECOMMENDED_CANDLES);
+            return dropOpenBars(apiCandles, interval, now);
           },
           60
         ),
         fetchFuturesDataSafe(symbol),
       ]);
+
+      // Score closed bars only: safety net for candles read straight from
+      // Mongo (the fetchKlines fallback above already filtered its batch).
+      const candles = dropOpenBars(rawCandles, interval, now);
+      if (candles.length === 0) {
+        console.log(`compute-signals legacy: skipped ${pair} - no closed candle available`);
+        continue;
+      }
 
       const raw = computeAllIndicators(candles, symbol, interval);
       const indicators = interpretIndicators(raw);
