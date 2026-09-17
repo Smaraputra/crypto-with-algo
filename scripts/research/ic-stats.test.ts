@@ -94,6 +94,11 @@ describe('nonOverlappingIndices', () => {
   it('returns an empty array when offset is already >= n', () => {
     expect(nonOverlappingIndices(5, 3, 5)).toEqual([]);
   });
+
+  it('throws on a non-positive h instead of looping forever', () => {
+    expect(() => nonOverlappingIndices(10, 0)).toThrow();
+    expect(() => nonOverlappingIndices(10, -1)).toThrow();
+  });
 });
 
 describe('hacTStatOfMean', () => {

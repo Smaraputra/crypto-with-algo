@@ -94,6 +94,9 @@ export function forwardReturns(closes: number[], h: number): (number | null)[] {
 
 /** offset, offset+h, offset+2h, ... while the index stays below n. */
 export function nonOverlappingIndices(n: number, h: number, offset = 0): number[] {
+  if (h <= 0) {
+    throw new Error(`nonOverlappingIndices: h must be positive, got ${h}`);
+  }
   const result: number[] = [];
   for (let i = offset; i < n; i += h) {
     result.push(i);

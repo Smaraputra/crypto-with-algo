@@ -52,6 +52,24 @@ describe('writeJsonlGz / readJsonlGz', () => {
 
     expect(readJsonlGz(path)).toEqual([]);
   });
+
+  it('two writes of the same rows produce byte-identical gzip files', async () => {
+    const rows: CandleRow[] = [
+      { t: 1, o: 1, h: 2, l: 0.5, c: 1.5, v: 100, tbv: 40 },
+      { t: 2, o: 1.5, h: 2.5, l: 1, c: 2, v: 200, tbv: null },
+      { t: 3, o: 2, h: 3, l: 1.5, c: 2.5, v: 150, tbv: 60 },
+    ];
+    const pathA = join(dir, 'a.jsonl.gz');
+    const pathB = join(dir, 'b.jsonl.gz');
+
+    await writeJsonlGz(pathA, rows);
+    // A real (small) delay between writes: this must hold across wall-clock
+    // time, not just when writes happen to land in the same millisecond.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await writeJsonlGz(pathB, rows);
+
+    expect(await sha256File(pathA)).toBe(await sha256File(pathB));
+  });
 });
 
 describe('sha256File', () => {

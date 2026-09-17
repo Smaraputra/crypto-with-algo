@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SURVIVOR_RULE,
   checkFindings,
+  checkReportConsistency,
   evaluateSurvivors,
   spotCheckCell,
   validateFactorIcReport,
@@ -514,5 +515,49 @@ describe('spotCheckCell', () => {
   it('fails cleanly when the cell does not exist in the report', () => {
     const result = spotCheckCell(report, { factor: 'raw.ret1', horizon: 999, symbol: 'BTCUSDT' }, { ic: 0.07, n: 250 });
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('checkReportConsistency', () => {
+  const factorReport = makeFactorIcReport([makeFactorReport()]);
+
+  it('passes when datasetManifestHash and lockboxApplied agree', () => {
+    const sub = makeSubagentReport({
+      datasetManifestHash: factorReport.datasetManifestHash,
+      lockboxApplied: factorReport.lockboxApplied,
+    });
+    expect(checkReportConsistency(sub, factorReport)).toEqual({ ok: true, issues: [] });
+  });
+
+  it('fails when datasetManifestHash differs', () => {
+    const sub = makeSubagentReport({
+      datasetManifestHash: 'a-different-hash',
+      lockboxApplied: factorReport.lockboxApplied,
+    });
+    const result = checkReportConsistency(sub, factorReport);
+    expect(result.ok).toBe(false);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]).toMatch(/datasetManifestHash/);
+  });
+
+  it('fails when lockboxApplied differs', () => {
+    const sub = makeSubagentReport({
+      datasetManifestHash: factorReport.datasetManifestHash,
+      lockboxApplied: !factorReport.lockboxApplied,
+    });
+    const result = checkReportConsistency(sub, factorReport);
+    expect(result.ok).toBe(false);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]).toMatch(/lockboxApplied/);
+  });
+
+  it('reports both issues when both fields differ', () => {
+    const sub = makeSubagentReport({
+      datasetManifestHash: 'a-different-hash',
+      lockboxApplied: !factorReport.lockboxApplied,
+    });
+    const result = checkReportConsistency(sub, factorReport);
+    expect(result.ok).toBe(false);
+    expect(result.issues).toHaveLength(2);
   });
 });

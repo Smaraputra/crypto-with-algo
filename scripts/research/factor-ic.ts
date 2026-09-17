@@ -22,10 +22,36 @@
  * this file's maxPairs/iterations defaults; see the C3 report's fix-round 2
  * entry for the fixed-rank measurement and the round 1 entry for the
  * re-ranking one.
+ *
+ * Memory and wall time at 5m scale (10 symbols x ~105,000 bars each):
+ * - The forward-return cache (fwdFor) is a Float64Array per (symbol,
+ *   horizon), not a (number | null)[]: at 10 symbols x 6 default horizons x
+ *   105,000 bars, a boxed (number | null)[] cache measured 144.2 MB on the
+ *   V8 heap (each element boxed once `null` appears anywhere in the array,
+ *   which disqualifies V8's packed-double fast path); the Float64Array
+ *   version measured ~48.1 MB, and critically, entirely OFF the V8 heap (in
+ *   ArrayBuffer/external memory, not subject to V8's heap-size limits or
+ *   its GC the same way). Measured directly against these two
+ *   representations at this exact shape, not against the whole CLI.
+ * - Wall time: computeFactorMatrix itself (indicator + composite scoring,
+ *   all factors) measured 0.0112ms/bar on a 10,000-bar 1h fixture, which
+ *   extrapolates linearly to about 12s for 10 symbols x 105,000 bars.
+ *   icWithHac/icNonOverlapping/signHitRate/quantileSpread together measured
+ *   174ms per (factor, horizon) at a single symbol's 105,000 rows and 2.1s
+ *   per (factor, horizon) at the ~1.05M-row pooled scale. Across every
+ *   factor this style/interval combination discovers (measured 38 for a
+ *   day_trading/1h fixture) at the default 6 horizons, that extrapolates to
+ *   roughly 400s (per-symbol) + 470s (pooled) + rolling-quarterly and the
+ *   gated bootstrap (small in comparison, seconds to low tens of seconds
+ *   given the ~0.3s/gated-cell figure above) -- on the order of 15-18
+ *   minutes for a full, unrestricted run. Restricting --factors to a
+ *   curated subset (as every test fixture in this file's test suite does)
+ *   reduces this proportionally; see the C3 report's fix-round entry for
+ *   the benchmark methodology and raw numbers.
  */
 
 import { execFileSync } from 'child_process';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname } from 'path';
 import {
   bootstrapCiOfMean,
@@ -40,7 +66,13 @@ import {
 } from './ic-stats';
 import { computeFactorMatrix, type FactorMatrix } from './factors';
 import { loadCandles, loadHtf, loadManifest, loadSnapshots, verifyManifest } from './load-dataset';
-import { evaluateSurvivors, validateFactorIcReport, type FactorIcReport, type FactorReport, type HorizonStat } from './report-schema';
+import {
+  evaluateSurvivors,
+  validateFactorIcReport,
+  type FactorIcReport,
+  type FactorReport,
+  type HorizonStat,
+} from './report-schema';
 import type { SnapshotRow } from './dataset-format';
 
 const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
@@ -77,6 +109,14 @@ export interface FactorIcArgs {
   allowLockbox: boolean;
   factors?: string[];
   cell?: { factor: string; horizon: number; symbol?: string };
+  /** Abort if the loaded dataset's manifest.datasetHash does not equal this. */
+  expectManifestHash?: string;
+  /**
+   * --cell only: a FactorIcReport file whose symbols/window/lockbox setting
+   * this cell run must reproduce exactly (see runCell). --symbols/--start/
+   * --end/--allow-lockbox are ignored when this is set.
+   */
+  reportPath?: string;
 }
 
 export interface CellResult {
@@ -94,8 +134,11 @@ function parseList(value: string): string[] {
 function parseIntList(value: string): number[] {
   return parseList(value).map((s) => {
     const n = Number(s);
-    if (!Number.isFinite(n)) {
-      throw new Error(`Invalid horizon in --horizons: ${s}`);
+    // Non-positive horizons are rejected here, not left to fail downstream:
+    // nonOverlappingIndices(n, h<=0) would otherwise loop forever (i += h
+    // never advances past 0, or moves backward for a negative h).
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new Error(`Invalid horizon in --horizons: "${s}" (must be a positive integer)`);
     }
     return n;
   });
@@ -146,6 +189,28 @@ function parseCell(value: string): { factor: string; horizon: number; symbol?: s
 // every other flag in this CLI.
 const BOOLEAN_FLAGS = new Set(['allow-lockbox', 'bootstrap-per-symbol']);
 
+// Every flag that takes a following value. An unrecognized --flag is
+// rejected rather than silently absorbed as a no-op (and its value token
+// silently swallowed) so a typo fails loudly instead of quietly doing
+// nothing.
+const VALUE_FLAGS = new Set([
+  'interval',
+  'symbols',
+  'horizons',
+  'start',
+  'end',
+  'dataset-dir',
+  'out',
+  'task-id',
+  'bootstrap-n',
+  'bootstrap-seed',
+  'bootstrap-max-pairs',
+  'factors',
+  'cell',
+  'expect-manifest-hash',
+  'report',
+]);
+
 /** Pure CLI argument parsing. `now` is injectable so default-taskId tests are deterministic. */
 export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs {
   const flags = new Map<string, string>();
@@ -158,6 +223,9 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
     if (BOOLEAN_FLAGS.has(key)) {
       booleans.add(key);
       continue;
+    }
+    if (!VALUE_FLAGS.has(key)) {
+      throw new Error(`Unknown flag --${key}`);
     }
     const value = argv[i + 1];
     if (value === undefined) {
@@ -193,6 +261,8 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
     allowLockbox: booleans.has('allow-lockbox'),
     factors: flags.has('factors') ? parseList(flags.get('factors')!) : undefined,
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
+    expectManifestHash: flags.get('expect-manifest-hash'),
+    reportPath: flags.get('report'),
   };
 }
 
@@ -219,6 +289,22 @@ function loadSymbolData(
 
   const candles = candleResult.rows.filter((r) => inRange(r.t, opts.start, opts.end));
   const htf = htfResult.rows.filter((r) => inRange(r.t, opts.start, opts.end));
+
+  // Same invariant computeFactorMatrix itself checks (belt and suspenders:
+  // a misalignment here is a bug in this loader's own filtering, a
+  // misalignment there is a bug in whatever calls computeFactorMatrix).
+  if (htf.length !== candles.length) {
+    throw new Error(
+      `Candle/HTF row count mismatch for ${symbol} ${interval}: ${candles.length} candles vs ${htf.length} htf rows`
+    );
+  }
+  for (let i = 0; i < candles.length; i++) {
+    if (htf[i].t !== candles[i].t) {
+      throw new Error(
+        `Candle/HTF timestamp misalignment for ${symbol} ${interval} at index ${i}: candle t=${candles[i].t}, htf t=${htf[i].t}`
+      );
+    }
+  }
 
   const snapshots: SnapshotRow[] | null = NO_SNAPSHOT_INTERVALS.has(interval)
     ? null
@@ -309,6 +395,24 @@ function subsampleForBootstrap(
 }
 
 /**
+ * Concatenates Float64Arrays into one. Not `[].concat(...)`: TypedArrays are
+ * not concat-spreadable (per the ES spec), so `[].concat(float64arr)` pushes
+ * the whole array as a single nested element instead of spreading its
+ * numbers -- a real correctness bug, not just a style choice.
+ */
+function concatFloat64(chunks: Float64Array[]): Float64Array {
+  let total = 0;
+  for (const c of chunks) total += c.length;
+  const out = new Float64Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
+}
+
+/**
  * Builds one HorizonStat, or null when there is not enough usable data at
  * this horizon (fewer than MIN_PAIRS valid pairs, overlapping or
  * non-overlapping) to produce a well-defined statistic. This is the gate
@@ -316,13 +420,22 @@ function subsampleForBootstrap(
  * data at all for this interval (e.g. a funding-rate-derived factor on 5m/
  * 15m, which never has snapshot data) simply produces no HorizonStat here,
  * rather than one full of NaN.
+ *
+ * `fwdTyped` is a Float64Array (NaN as the missing sentinel), not the
+ * `(number | null)[]` ic-stats.ts's functions take: it is converted to a
+ * plain array once here and reused for every statistic this cell computes,
+ * so the caller's long-lived forward-return cache (see fwdFor) can stay in
+ * the compact, unboxed Float64Array representation instead of the ~3-4x
+ * larger boxed-element array `(number | null)[]` forces in V8 once `null`
+ * appears in it.
  */
 function buildHorizonStat(
   factorArr: number[],
-  fwd: (number | null)[],
+  fwdTyped: Float64Array,
   horizon: number,
   bootstrap: { iterations: number; seed: number; maxPairs: number; gateAbsT: number | null } | null
 ): HorizonStat | null {
+  const fwd: (number | null)[] = Array.from(fwdTyped);
   const overlap = icWithHac(factorArr, fwd, horizon);
   if (overlap.n < MIN_PAIRS || !Number.isFinite(overlap.ic) || !Number.isFinite(overlap.t)) {
     return null;
@@ -382,9 +495,10 @@ function buildHorizonStat(
 function buildRollingQuarterly(
   timestamps: number[],
   factorArr: number[],
-  fwd: (number | null)[],
+  fwdTyped: Float64Array,
   horizon: number
 ): FactorReport['rollingQuarterly'] {
+  const fwd: (number | null)[] = Array.from(fwdTyped);
   return rollingByQuarter(timestamps, factorArr, fwd, horizon)
     .filter((r) => r.n >= MIN_PAIRS && Number.isFinite(r.ic) && Number.isFinite(r.t))
     .map((r) => ({ quarter: r.quarter, horizon, ic: r.ic, n: r.n, t: r.t }));
@@ -411,6 +525,11 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     throw new Error(`Dataset manifest verification failed for: ${verify.mismatches.join(', ')}`);
   }
   const manifest = loadManifest(args.datasetDir);
+  if (args.expectManifestHash !== undefined && manifest.datasetHash !== args.expectManifestHash) {
+    throw new Error(
+      `Dataset manifest hash mismatch: loaded dataset has ${manifest.datasetHash}, expected ${args.expectManifestHash}`
+    );
+  }
   const symbols = args.symbols && args.symbols.length > 0 ? args.symbols : manifest.symbols;
 
   console.error(`[factor-ic] interval=${args.interval} symbols=${symbols.join(',')} horizons=${args.horizons.join(',')}`);
@@ -477,12 +596,19 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
 
   // forwardReturns depends only on (symbol, horizon), not on the factor, so
   // it is computed once per pair and reused across every requested factor.
-  const fwdCache = new Map<string, (number | null)[]>();
-  function fwdFor(symbolIdx: number, horizon: number): (number | null)[] {
+  // Cached as Float64Array (NaN sentinel), not the (number | null)[]
+  // forwardReturns itself returns: at 10 symbols x 105,000 5m bars x 6
+  // horizons, a (number | null)[] cache costs on the order of 1 GB in V8
+  // (null in the array forces boxed/tagged elements, roughly 24-32 bytes
+  // each, instead of the 8 bytes/element a homogeneous-double Float64Array
+  // uses). See the C3 report's fix-round entry for the measured heap.
+  const fwdCache = new Map<string, Float64Array>();
+  function fwdFor(symbolIdx: number, horizon: number): Float64Array {
     const key = `${symbolIdx}:${horizon}`;
     let cached = fwdCache.get(key);
     if (!cached) {
-      cached = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon);
+      const raw = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon);
+      cached = Float64Array.from(raw, (v) => v ?? NaN);
       fwdCache.set(key, cached);
     }
     return cached;
@@ -539,12 +665,13 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     const rollingQuarterly: FactorReport['rollingQuarterly'] = [];
 
     for (const h of args.horizons) {
-      let pooledFwd: (number | null)[] = [];
+      const pooledFwdChunks: Float64Array[] = [];
       for (let s = 0; s < perSymbolData.length; s++) {
         if (symbolFactorArrays[s]) {
-          pooledFwd = pooledFwd.concat(fwdFor(s, h));
+          pooledFwdChunks.push(fwdFor(s, h));
         }
       }
+      const pooledFwd = concatFloat64(pooledFwdChunks);
 
       const stat = buildHorizonStat(pooledFactor, pooledFwd, h, bootstrapPooledOpt);
       if (stat) pooledHorizons.push(stat);
@@ -668,15 +795,54 @@ export async function runFactorIc(args: FactorIcArgs): Promise<FactorIcReport> {
  * --symbols/the manifest's symbols when no symbol is given -- and prints it
  * as JSON to stdout. Writes no file; used by the orchestrator to spot-check
  * a subagent's report (see report-schema.ts's spotCheckCell).
+ *
+ * When args.reportPath is set (--cell --report <path>), the referenced
+ * FactorIcReport's symbols, dateRange (as start/end), and lockboxApplied
+ * (as !allowLockbox) are used instead of args.symbols/start/end/
+ * allowLockbox, which are ignored in that mode -- so the orchestrator's spot
+ * check reproduces exactly the window the subagent's report was built from,
+ * not whatever the CLI invocation's own flags happened to say. The current
+ * dataset's manifest hash is also checked against the report's
+ * datasetManifestHash (in addition to any --expect-manifest-hash), since a
+ * spot check against a different dataset than the report used would not be
+ * reproducing anything.
  */
 export async function runCell(args: FactorIcArgs): Promise<CellResult> {
   if (!args.cell) {
     throw new Error('runCell requires args.cell');
   }
+
+  let symbolsOverride = args.symbols;
+  let startOverride = args.start;
+  let endOverride = args.end;
+  let allowLockboxOverride = args.allowLockbox;
+  let expectManifestHash = args.expectManifestHash;
+
+  if (args.reportPath) {
+    const raw = JSON.parse(await readFile(args.reportPath, 'utf8'));
+    const validated = validateFactorIcReport(raw);
+    if (!validated.ok) {
+      throw new Error(`--report ${args.reportPath} failed schema validation:\n${validated.issues.join('\n')}`);
+    }
+    const report = validated.data;
+    symbolsOverride = report.symbols;
+    startOverride = report.dateRange.startMs;
+    endOverride = report.dateRange.endMs;
+    allowLockboxOverride = !report.lockboxApplied;
+    expectManifestHash = expectManifestHash ?? report.datasetManifestHash;
+  }
+
   const verify = await verifyManifest(args.datasetDir);
   if (!verify.ok) {
     throw new Error(`Dataset manifest verification failed for: ${verify.mismatches.join(', ')}`);
   }
+  const manifest = loadManifest(args.datasetDir);
+  if (expectManifestHash !== undefined && manifest.datasetHash !== expectManifestHash) {
+    throw new Error(
+      `Dataset manifest hash mismatch: loaded dataset has ${manifest.datasetHash}, expected ${expectManifestHash}`
+    );
+  }
+
   const { factor: factorName, horizon, symbol } = args.cell;
 
   let ic: number;
@@ -684,9 +850,9 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
 
   if (symbol) {
     const data = loadSymbolData(args.datasetDir, symbol, args.interval, {
-      allowLockbox: args.allowLockbox,
-      start: args.start,
-      end: args.end,
+      allowLockbox: allowLockboxOverride,
+      start: startOverride,
+      end: endOverride,
     });
     const idx = data.matrix.names.indexOf(factorName);
     if (idx === -1) {
@@ -697,17 +863,16 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
     ic = result.ic;
     n = result.n;
   } else {
-    const manifest = loadManifest(args.datasetDir);
-    const symbols = args.symbols && args.symbols.length > 0 ? args.symbols : manifest.symbols;
+    const symbols = symbolsOverride && symbolsOverride.length > 0 ? symbolsOverride : manifest.symbols;
 
     let pooledFactor: number[] = [];
     let pooledFwd: (number | null)[] = [];
     let foundAny = false;
     for (const sym of symbols) {
       const data = loadSymbolData(args.datasetDir, sym, args.interval, {
-        allowLockbox: args.allowLockbox,
-        start: args.start,
-        end: args.end,
+        allowLockbox: allowLockboxOverride,
+        start: startOverride,
+        end: endOverride,
       });
       const idx = data.matrix.names.indexOf(factorName);
       if (idx === -1) continue;

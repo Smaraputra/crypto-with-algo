@@ -130,6 +130,12 @@ export async function writeJsonlGz<T>(path: string, rows: readonly T[]): Promise
  * Reads a gzip newline-delimited JSON file back into rows. Synchronous
  * (gunzipSync) is acceptable here: dataset files are read once per load, not
  * streamed incrementally.
+ *
+ * WARNING: this reads every row in the file, including any at or after the
+ * lockbox cutoff (LOCKBOX_START) -- it does not know about the lockbox at
+ * all. Research code must not call this directly; use load-dataset.ts's
+ * loadCandles/loadSnapshots/loadHtf, which call this and then apply the
+ * lockbox (dropped by default, kept only with an explicit allowLockbox).
  */
 export function readJsonlGz<T>(path: string): T[] {
   const compressed = readFileSync(path);

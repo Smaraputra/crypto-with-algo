@@ -10,10 +10,24 @@
  * own input is missing at that bar (no snapshot, no HTF context, too few
  * bars of price history) -- never silently defaulted to zero, so a research
  * agent's IC measurement never mistakes "no data" for "neutral reading".
+ *
+ * Known divergence from live scoring: computeIndicatorsForStyle (the live
+ * path, src/lib/indicators/compute-for-style.ts) nulls the raw Ichimoku
+ * indicator for scalping before interpretation, so no Ichimoku signal ever
+ * reaches the scorer at that style. prepareBacktest/interpretIndicatorsAtBar
+ * (src/lib/backtest/optimized-engine.ts, shared with ordinary backtesting)
+ * has no such style awareness -- every style gets Ichimoku interpreted, a
+ * pre-existing divergence this file cannot fix at the source without
+ * touching src/, and which any backtest/harness branch built on
+ * optimized-engine.ts inherits too. computeFactorMatrix works around it
+ * locally, for factor computation only, by stripping the Ichimoku reading
+ * and signal from the suite it hands to computeSignalScore when style is
+ * scalping (see excludeIchimokuForScalping below).
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { DEFAULT_TEMPLATE_WEIGHTS } from '@/lib/models/signal-template';
+import type { IndicatorSuite } from '@/lib/indicators/types';
 import type { SignalComponent, SignalWeights } from '@/types/signal';
 import type { OHLCV } from '@/types/market';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
@@ -47,12 +61,28 @@ const STYLE_FOR_INTERVAL: Record<string, TradingStyle> = {
   '1d': 'position_trading',
 };
 
-function styleForInterval(interval: string): TradingStyle {
+/** Exported so export-dataset.ts resolves the same style for the same interval when it needs the style's indicator config (e.g. for the HTF context). */
+export function styleForInterval(interval: string): TradingStyle {
   const style = STYLE_FOR_INTERVAL[interval];
   if (!style) {
     throw new Error(`No trading style mapped for interval "${interval}"`);
   }
   return style;
+}
+
+/** See this file's header: strips Ichimoku's raw reading and derived trend signal, matching computeIndicatorsForStyle's scalping behavior that prepareBacktest itself does not have. */
+function excludeIchimokuForScalping(suite: IndicatorSuite): IndicatorSuite {
+  if (!suite.ichimoku && !suite.signals.trend.some((s) => s.name === 'Ichimoku')) {
+    return suite;
+  }
+  return {
+    ...suite,
+    ichimoku: null,
+    signals: {
+      ...suite.signals,
+      trend: suite.signals.trend.filter((s) => s.name !== 'Ichimoku'),
+    },
+  };
 }
 
 function toOHLCV(row: CandleRow): OHLCV {
@@ -147,6 +177,24 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
   const profile = getStyleConfig(style);
   const weights = DEFAULT_TEMPLATE_WEIGHTS[style];
 
+  // htf must be index-aligned with candles (one row per candle, same
+  // timestamp) -- everything below reads htf[bar] positionally assuming
+  // that invariant. A silent misalignment would attribute the wrong HTF
+  // context to a bar without any error, so it is checked here rather than
+  // trusted from the caller.
+  if (htf.length !== candles.length) {
+    throw new Error(
+      `computeFactorMatrix: htf has ${htf.length} rows but candles has ${candles.length}`
+    );
+  }
+  for (let i = 0; i < candles.length; i++) {
+    if (htf[i].t !== candles[i].t) {
+      throw new Error(
+        `computeFactorMatrix: htf[${i}].t (${htf[i].t}) does not match candles[${i}].t (${candles[i].t})`
+      );
+    }
+  }
+
   const ohlcv = candles.map(toOHLCV);
   const leanSnapshots = snapshots ? snapshots.map(toLeanSnapshot) : undefined;
 
@@ -160,9 +208,12 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
   // One composite per bar, exactly as the optimized engine scores a bar --
   // same suite, snapshot inputs, SuperTrend, and HTF context -- but with the
   // style's DEFAULT_TEMPLATE_WEIGHTS rather than a BacktestConfig's weights.
+  // Bars before warmupBars are never read below (every consumer starts its
+  // own loop at warmupBars), so scoring them is discarded work skipped here.
   const composites: ReturnType<typeof computeSignalScore>[] = new Array(n);
-  for (let bar = 0; bar < n; bar++) {
+  for (let bar = warmupBars; bar < n; bar++) {
     const suite = indicators[bar];
+    const scoringSuite = style === 'scalping' ? excludeIchimokuForScalping(suite) : suite;
     const snap = alignedSnapshots?.[bar] ?? null;
     const htfCtx = htf[bar]?.context ?? null;
 
@@ -170,7 +221,7 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     const superTrendAtBar = stIdx >= 0 && stIdx < superTrend.length ? superTrend[stIdx] : undefined;
 
     composites[bar] = computeSignalScore(
-      suite,
+      scoringSuite,
       snap?.futures ?? null,
       snap?.sentiment ?? null,
       weights,

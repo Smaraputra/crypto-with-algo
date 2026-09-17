@@ -208,6 +208,52 @@ describe('computeFactorMatrix', () => {
     expect(matrix.values[idx][bar]).toBeCloseTo(expected, 12);
   });
 
+  it('raw.emaSpreadPct matches a hand computation from an independently prepared suite', () => {
+    const ohlcv = candleRows.map((r) => ({
+      timestamp: r.t,
+      open: r.o,
+      high: r.h,
+      low: r.l,
+      close: r.c,
+      volume: r.v,
+      ...(r.tbv !== null ? { takerBuyVolume: r.tbv } : {}),
+    }));
+    const leanSnapshots = snapshotRows.map((row) => ({
+      timestamp: row.t,
+      data: {
+        fundingRate: row.fundingRate
+          ? { rate: row.fundingRate.rate, markPrice: row.fundingRate.markPrice ?? undefined }
+          : undefined,
+        longShortRatio: row.longShortRatio ?? undefined,
+        openInterest: row.openInterest ?? undefined,
+        newsSentiment: row.newsSentiment ?? undefined,
+        fearGreed: row.fearGreed ?? undefined,
+      },
+    }));
+    const prepared = prepareBacktest(ohlcv, '', INTERVAL, getStyleConfig(STYLE).config, leanSnapshots);
+    const bar = matrix.warmupBars + 42;
+    const suite = prepared.indicators[bar];
+
+    const idx = matrix.names.indexOf('raw.emaSpreadPct');
+    const expected = ((suite.ema12.current - suite.ema26.current) / suite.ema26.current) * 100;
+    expect(matrix.values[idx][bar]).toBeCloseTo(expected, 10);
+  });
+
+  it('raw.realizedVol20 matches a hand computation from raw closes', () => {
+    const idx = matrix.names.indexOf('raw.realizedVol20');
+    const bar = matrix.warmupBars + 42;
+
+    const logReturns: number[] = [];
+    for (let k = bar - 19; k <= bar; k++) {
+      logReturns.push(Math.log(matrix.closes[k] / matrix.closes[k - 1]));
+    }
+    const mean = logReturns.reduce((s, v) => s + v, 0) / logReturns.length;
+    const variance = logReturns.reduce((s, v) => s + (v - mean) ** 2, 0) / (logReturns.length - 1);
+    const expected = Math.sqrt(variance);
+
+    expect(matrix.values[idx][bar]).toBeCloseTo(expected, 12);
+  });
+
   it('has no lookahead: the factor vector at bar i is identical when future bars are removed', () => {
     const probeBars = [matrix.warmupBars + 15, Math.floor(candleRows.length / 2), candleRows.length - 2];
 
@@ -345,5 +391,58 @@ describe('computeFactorMatrix', () => {
     for (let bar = 0; bar < candleRows1d.length; bar++) {
       expect(Number.isNaN(matrix1d.values[idx][bar])).toBe(true);
     }
+  });
+
+  it('sig.Ichimoku fires at 1h/day_trading (control for the scalping-exclusion test below)', () => {
+    expect(matrix.names).toContain('sig.Ichimoku');
+  });
+
+  it('throws when htf has a different row count than candles', () => {
+    expect(() =>
+      computeFactorMatrix({
+        candles: candleRows,
+        snapshots: snapshotRows,
+        htf: htfRows.slice(0, -1),
+        interval: INTERVAL,
+      })
+    ).toThrow(/htf/);
+  });
+
+  it('throws when an htf row timestamp does not match its candle row', () => {
+    const misaligned = htfRows.slice();
+    misaligned[10] = { ...misaligned[10], t: misaligned[10].t + 1 };
+
+    expect(() =>
+      computeFactorMatrix({
+        candles: candleRows,
+        snapshots: snapshotRows,
+        htf: misaligned,
+        interval: INTERVAL,
+      })
+    ).toThrow(/htf/);
+  });
+});
+
+describe('excludeIchimokuForScalping (5m)', () => {
+  it('sig.Ichimoku is absent at 5m/scalping, unlike 1h/day_trading with the same data shape', () => {
+    const FIVE_MIN = 5 * 60000;
+    const ONE_HOUR = 3600000;
+
+    // 900 bars is comfortably past Ichimoku's 78-bar minimum (spanPeriod 52 + displacement 26).
+    const scalpingCandles = generateCandles(900, 5151, FIVE_MIN);
+    const scalpingHtfCandles = generateCandles(320, 6161, ONE_HOUR).map((c, i) => ({
+      ...c,
+      timestamp: scalpingCandles[0].timestamp - 220 * ONE_HOUR + i * ONE_HOUR,
+    }));
+
+    const scalpingMatrix = computeFactorMatrix({
+      candles: scalpingCandles.map(toCandleRow),
+      // 5m has no snapshot file per export-dataset.ts's SNAPSHOT_INTERVALS.
+      snapshots: null,
+      htf: buildHtfRows(scalpingCandles, '5m', scalpingHtfCandles, '1h'),
+      interval: '5m',
+    });
+
+    expect(scalpingMatrix.names).not.toContain('sig.Ichimoku');
   });
 });

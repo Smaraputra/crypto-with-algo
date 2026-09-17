@@ -27,6 +27,8 @@ import {
   htfContextAtBar,
 } from '@/lib/signals/htf';
 import { intervalToMs } from '@/lib/intervals';
+import { getStyleConfig } from '@/lib/indicators/style-configs';
+import type { IndicatorConfig } from '@/lib/indicators/types';
 import type { OHLCV } from '@/types/market';
 import {
   LOCKBOX_START_ISO,
@@ -39,10 +41,22 @@ import {
   type ManifestFile,
   type SnapshotRow,
 } from './dataset-format';
+import { styleForInterval } from './factors';
 
 const DEFAULT_INTERVALS = ['5m', '15m', '1h', '4h', '1d'];
 const SNAPSHOT_INTERVALS = new Set(['1h', '4h', '1d']);
-const HTF_WARMUP_BARS = 250;
+// Margin added on top of the style's own longest indicator lookback when
+// fetching HTF warmup candles by count (see fetchCandlesBefore).
+const HTF_WARMUP_MARGIN = 50;
+
+/**
+ * The longest lookback computeHtfSeries's own indicators need (EMA slow,
+ * SMA long -- see src/lib/signals/htf.ts; SuperTrend's minimum, currently
+ * 11 candles, is far smaller and never the binding constraint).
+ */
+function longestHtfLookback(config: IndicatorConfig): number {
+  return Math.max(config.ema.slow, config.sma.long);
+}
 
 export interface ExportArgs {
   symbols: string[];
@@ -109,6 +123,18 @@ function buildTimestampFilter(startMs?: number, endMs?: number): Record<string, 
   return Object.keys(filter).length > 0 ? filter : undefined;
 }
 
+function candleDocToOHLCV(doc: ICandle): OHLCV {
+  return {
+    timestamp: doc.timestamp,
+    open: doc.open,
+    high: doc.high,
+    low: doc.low,
+    close: doc.close,
+    volume: doc.volume,
+    ...(doc.takerBuyVolume !== undefined ? { takerBuyVolume: doc.takerBuyVolume } : {}),
+  };
+}
+
 /**
  * Reads candles through a Mongoose cursor sorted ascending, deliberately not
  * getCandles (src/lib/candle-ingestion.ts), which caps reads at 50,000 rows.
@@ -126,17 +152,36 @@ async function fetchCandles(
   const rows: OHLCV[] = [];
   const cursor = Candle.find(filter).sort({ timestamp: 1 }).lean().cursor();
   for await (const doc of cursor as AsyncIterable<ICandle>) {
-    rows.push({
-      timestamp: doc.timestamp,
-      open: doc.open,
-      high: doc.high,
-      low: doc.low,
-      close: doc.close,
-      volume: doc.volume,
-      ...(doc.takerBuyVolume !== undefined ? { takerBuyVolume: doc.takerBuyVolume } : {}),
-    });
+    rows.push(candleDocToOHLCV(doc));
   }
   return rows;
+}
+
+/**
+ * Fetches up to `count` candles strictly before `before`, sorted ascending
+ * -- a bar-count warmup fetch rather than a time-range one, so gaps in the
+ * underlying data cannot starve the indicator warmup the way subtracting a
+ * fixed duration from `before` could. Returns fewer than `count` rows when
+ * fewer exist.
+ */
+async function fetchCandlesBefore(
+  symbol: string,
+  interval: string,
+  before: number,
+  count: number
+): Promise<OHLCV[]> {
+  if (count <= 0) return [];
+
+  const rows: OHLCV[] = [];
+  const cursor = Candle.find({ symbol, interval, timestamp: { $lt: before } })
+    .sort({ timestamp: -1 })
+    .limit(count)
+    .lean()
+    .cursor();
+  for await (const doc of cursor as AsyncIterable<ICandle>) {
+    rows.push(candleDocToOHLCV(doc));
+  }
+  return rows.reverse();
 }
 
 function toCandleRow(candle: OHLCV): CandleRow {
@@ -204,13 +249,23 @@ async function fetchSnapshots(
  * these degrade to null contexts rather than aborting the export, since a
  * sparse confirmation interval for one symbol/interval must not lose the
  * candle and snapshot data already fetched for every other pair.
+ *
+ * `config` must be the indicator config for the LTF interval's own trading
+ * style (getStyleConfig(styleForInterval(ltfInterval)).config), matching
+ * live scoring (src/lib/signals/compute-engine.ts calls
+ * computeHtfSeries(closed, profile.config) with that same style's profile).
+ * Passing computeHtfSeries's own DEFAULT_CONFIG default here instead would
+ * silently use day_trading's EMA/SMA periods (12/26, 50/200) for every
+ * other style's HTF context -- wrong for 5m (scalping, 5/13, 20/50) and 4h
+ * (swing, 21/55) in particular.
  */
-function buildHtfRows(
+export function buildHtfRows(
   symbol: string,
   ltfInterval: string,
   ltfCandles: OHLCV[],
   htfInterval: string | null,
-  htfCandles: OHLCV[]
+  htfCandles: OHLCV[],
+  config: IndicatorConfig
 ): HtfRow[] {
   if (!htfInterval || ltfCandles.length === 0) {
     return ltfCandles.map((candle) => ({ t: candle.timestamp, context: null }));
@@ -218,7 +273,7 @@ function buildHtfRows(
 
   let series: ReturnType<typeof computeHtfSeries>;
   try {
-    series = computeHtfSeries(htfCandles);
+    series = computeHtfSeries(htfCandles, config);
   } catch (error) {
     console.warn(
       `HTF context unavailable for ${symbol} ${ltfInterval} ` +
@@ -320,15 +375,25 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
           );
         }
 
-        const htfInterval = getConfirmationInterval(interval);
+        // The LTF interval's own trading style resolves both which config
+        // computeHtfSeries uses (must match live scoring's profile.config
+        // for that style) and how many HTF warmup bars it needs.
+        const style = styleForInterval(interval);
+        const styleConfig = getStyleConfig(style).config;
+
+        const htfInterval = getConfirmationInterval(interval, style);
         let htfCandles: OHLCV[] = [];
         if (htfInterval) {
-          const htfMs = intervalToMs(htfInterval);
-          const htfStart = args.start !== undefined ? args.start - HTF_WARMUP_BARS * htfMs : undefined;
-          htfCandles = await fetchCandles(symbol, htfInterval, htfStart, args.end);
+          const warmupBarsNeeded = longestHtfLookback(styleConfig) + HTF_WARMUP_MARGIN;
+          const warmupCandles =
+            args.start !== undefined
+              ? await fetchCandlesBefore(symbol, htfInterval, args.start, warmupBarsNeeded)
+              : [];
+          const mainRangeCandles = await fetchCandles(symbol, htfInterval, args.start, args.end);
+          htfCandles = [...warmupCandles, ...mainRangeCandles];
         }
 
-        const htfRows = buildHtfRows(symbol, interval, ltfCandles, htfInterval, htfCandles);
+        const htfRows = buildHtfRows(symbol, interval, ltfCandles, htfInterval, htfCandles, styleConfig);
         files.push(
           await writeDatasetFile(
             args.out,

@@ -359,3 +359,32 @@ export function spotCheckCell(
   const ok = Math.abs(deltaIc) <= 0.01 && nMatches;
   return { ok, deltaIc, nMatches };
 }
+
+/**
+ * Nothing else pins which dataset a subagent's report actually studied.
+ * Fails when the subagent report and the factor report it cites disagree on
+ * datasetManifestHash (a different, or since-changed, dataset) or
+ * lockboxApplied (a different held-out window) -- either means the
+ * subagent's headline claims cannot be trusted to describe this factor
+ * report's own numbers, whatever checkFindings/spotCheckCell say about the
+ * numbers themselves.
+ */
+export function checkReportConsistency(
+  sub: SubagentReport,
+  factorReport: FactorIcReport
+): { ok: boolean; issues: string[] } {
+  const issues: string[] = [];
+
+  if (sub.datasetManifestHash !== factorReport.datasetManifestHash) {
+    issues.push(
+      `datasetManifestHash mismatch: subagent report has "${sub.datasetManifestHash}", factor report has "${factorReport.datasetManifestHash}"`
+    );
+  }
+  if (sub.lockboxApplied !== factorReport.lockboxApplied) {
+    issues.push(
+      `lockboxApplied mismatch: subagent report has ${sub.lockboxApplied}, factor report has ${factorReport.lockboxApplied}`
+    );
+  }
+
+  return { ok: issues.length === 0, issues };
+}

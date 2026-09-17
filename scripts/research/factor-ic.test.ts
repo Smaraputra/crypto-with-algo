@@ -358,6 +358,88 @@ describe('factor-ic CLI', () => {
     const cellArgs: FactorIcArgs = { ...args, cell: { factor: 'raw.doesNotExist', horizon: 1, symbol: SYMBOLS[0] } };
     await expect(runCell(cellArgs)).rejects.toThrow(/raw\.doesNotExist/);
   });
+
+  it('throws when --expect-manifest-hash does not match the loaded dataset', async () => {
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--allow-lockbox',
+      '--expect-manifest-hash', 'not-the-real-hash',
+    ]);
+    await expect(buildFactorIcReport(args)).rejects.toThrow(/manifest hash/i);
+  });
+
+  it('succeeds when --expect-manifest-hash matches the loaded dataset', async () => {
+    const manifest: DatasetManifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.ret1',
+      '--allow-lockbox',
+      '--expect-manifest-hash', manifest.datasetHash,
+    ]);
+    await expect(buildFactorIcReport(args)).resolves.toBeDefined();
+  });
+
+  it('throws when a dataset is internally misaligned (htf shorter than candles) even though its manifest verifies', async () => {
+    // A dataset that is internally self-consistent w.r.t. its OWN recorded
+    // hashes (verifyManifest passes) but whose htf file has fewer rows than
+    // its candle file -- the scenario verifyManifest's per-file hash check
+    // cannot catch, since it only detects a file that no longer matches its
+    // own recorded sha256, not a file that is wrong relative to another file.
+    const symbol = SYMBOLS[0];
+    const htfPath = join(dir, 'htf', symbol, `${INTERVAL}.jsonl.gz`);
+    const { readJsonlGz } = await import('./dataset-format');
+    const fullHtfRows = readJsonlGz<HtfRow>(htfPath);
+    const truncatedHtfRows = fullHtfRows.slice(0, -1);
+
+    await writeJsonlGz(htfPath, truncatedHtfRows);
+    const newSha256 = await sha256File(htfPath);
+
+    const manifest: DatasetManifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    const htfFile = manifest.files.find((f) => f.kind === 'htf' && f.symbol === symbol)!;
+    htfFile.sha256 = newSha256;
+    htfFile.rowCount = truncatedHtfRows.length;
+    htfFile.endMs = truncatedHtfRows[truncatedHtfRows.length - 1].t;
+    manifest.datasetHash = datasetHashOf(manifest.files);
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+    const args = parseArgs(['--interval', INTERVAL, '--dataset-dir', dir, '--allow-lockbox']);
+    await expect(buildFactorIcReport(args)).rejects.toThrow(/htf/i);
+  });
+
+  it('--cell --report reproduces the report per-symbol ic and n, ignoring conflicting CLI flags', async () => {
+    const reportPath = join(dir, 'reports', 'report.json');
+    const baseArgs = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.ret1,raw.rsi',
+      '--bootstrap-n', '100',
+      '--allow-lockbox',
+      '--out', reportPath,
+    ]);
+    const report = await runFactorIc(baseArgs);
+
+    const symbol = SYMBOLS[0];
+    const expected = report.factors
+      .find((f) => f.name === 'raw.ret1')!
+      .perSymbol.find((p) => p.symbol === symbol)!
+      .horizons.find((h) => h.horizon === 1)!;
+
+    // Deliberately conflicting flags (a different symbols/lockbox setting):
+    // --report must win, per the brief ("the CLI flags may not override them").
+    const cellArgs = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--symbols', SYMBOLS[1],
+      '--cell', `raw.ret1:1:${symbol}`,
+      '--report', reportPath,
+    ]);
+    const cell = await runCell(cellArgs);
+
+    expect(cell.ic).toBeCloseTo(expected.ic, 9);
+    expect(cell.n).toBe(expected.n);
+  }, 30_000);
 });
 
 describe('parseArgs', () => {
@@ -377,6 +459,8 @@ describe('parseArgs', () => {
     expect(args.allowLockbox).toBe(false);
     expect(args.factors).toBeUndefined();
     expect(args.cell).toBeUndefined();
+    expect(args.expectManifestHash).toBeUndefined();
+    expect(args.reportPath).toBeUndefined();
     expect(args.taskId).toBe('factor-ic-1h-202609171530');
     expect(args.out).toBe('data/research/reports/factor-ic-1h-factor-ic-1h-202609171530.json');
   });
@@ -438,5 +522,27 @@ describe('parseArgs', () => {
 
   it('throws on a malformed --cell value', () => {
     expect(() => parseArgs(['--interval', '1h', '--cell', 'onlyonepart'], NOW)).toThrow();
+  });
+
+  it('throws on a zero or negative --horizons value instead of hanging downstream', () => {
+    expect(() => parseArgs(['--interval', '1h', '--horizons', '1,0,2'], NOW)).toThrow();
+    expect(() => parseArgs(['--interval', '1h', '--horizons', '-4'], NOW)).toThrow();
+  });
+
+  it('throws on a non-integer --horizons value', () => {
+    expect(() => parseArgs(['--interval', '1h', '--horizons', '1.5'], NOW)).toThrow();
+  });
+
+  it('throws on an unknown flag instead of silently swallowing its value', () => {
+    expect(() => parseArgs(['--interval', '1h', '--totally-bogus-flag', 'value'], NOW)).toThrow(/bogus/);
+  });
+
+  it('parses --expect-manifest-hash and --report', () => {
+    const args = parseArgs(
+      ['--interval', '1h', '--expect-manifest-hash', 'abc123', '--report', '/tmp/report.json'],
+      NOW
+    );
+    expect(args.expectManifestHash).toBe('abc123');
+    expect(args.reportPath).toBe('/tmp/report.json');
   });
 });
