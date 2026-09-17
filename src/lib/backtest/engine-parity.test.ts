@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { runBacktest } from './engine';
 import { prepareBacktest, runOptimizedBacktest } from './optimized-engine';
 import { DEFAULT_BACKTEST_CONFIG } from './types';
+import { studyCostConfig } from './cost-model';
 import type { BacktestConfig } from './types';
 import type { OHLCV } from '@/types/market';
 
@@ -58,6 +59,14 @@ describe('engine parity', () => {
         positionSizing: { method: 'risk_based', riskPerTrade: 0.01 },
         stopLossPercent: 0.03,
         takeProfitPercent: 0.06,
+      },
+    },
+    {
+      name: 'maker/taker fees with slippage (studyCostConfig)',
+      config: {
+        ...DEFAULT_BACKTEST_CONFIG,
+        allowShorts: true,
+        ...studyCostConfig('1h'),
       },
     },
   ];

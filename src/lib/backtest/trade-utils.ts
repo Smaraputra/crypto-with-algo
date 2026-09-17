@@ -1,6 +1,8 @@
 import type { OHLCV } from '@/types/market';
 import type { MarketSession } from '@/lib/sessions';
 import { fixedFractional, kellyCriterion, riskBased } from './position-sizing';
+import { applySlippage, exitFillKind, exitSlippageApplies, feeRateFor } from './cost-model';
+import type { FillKind } from './cost-model';
 import type {
   BacktestConfig,
   BacktestTrade,
@@ -17,6 +19,7 @@ export interface OpenPosition {
   entryScore: number;
   entryTier: BacktestTrade['entryTier'];
   entrySession?: MarketSession | null;
+  entryFillKind?: FillKind; // absent means taker (all entries today are market fills)
 }
 
 export function checkStopTakeProfit(
@@ -59,17 +62,23 @@ export function closeTrade(
   trades: BacktestTrade[],
   config: BacktestConfig
 ): void {
+  const exitKind = exitFillKind(exitReason);
+  const effectiveExit = exitSlippageApplies(exitReason)
+    ? applySlippage(exitPrice, position.side === 'long' ? 'sell' : 'buy', config.slippageBps)
+    : exitPrice;
+  const slippageCost = Math.abs(effectiveExit - exitPrice) * position.quantity;
+
   const entryNotional = position.quantity * position.entryPrice;
-  const exitNotional = position.quantity * exitPrice;
-  const entryFee = entryNotional * config.feePercent;
-  const exitFee = exitNotional * config.feePercent;
+  const exitNotional = position.quantity * effectiveExit;
+  const entryFee = entryNotional * feeRateFor(position.entryFillKind ?? 'taker', config);
+  const exitFee = exitNotional * feeRateFor(exitKind, config);
   const fees = entryFee + exitFee;
 
   let pnl: number;
   if (position.side === 'long') {
-    pnl = (exitPrice - position.entryPrice) * position.quantity - fees;
+    pnl = (effectiveExit - position.entryPrice) * position.quantity - fees;
   } else {
-    pnl = (position.entryPrice - exitPrice) * position.quantity - fees;
+    pnl = (position.entryPrice - effectiveExit) * position.quantity - fees;
   }
 
   // pnlPercent is net of fees, relative to entry notional
@@ -82,7 +91,7 @@ export function closeTrade(
     exitTime,
     side: position.side,
     entryPrice: position.entryPrice,
-    exitPrice,
+    exitPrice: effectiveExit,
     quantity: position.quantity,
     pnl,
     pnlPercent,
@@ -94,6 +103,9 @@ export function closeTrade(
     holdTimeBars: exitBar - position.entryBar,
     entrySession: position.entrySession ?? null,
     riskPercent: config.stopLossPercent * 100,
+    slippageCost,
+    entryFillKind: position.entryFillKind ?? 'taker',
+    exitFillKind: exitKind,
   });
 }
 

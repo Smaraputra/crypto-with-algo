@@ -1,5 +1,6 @@
 import type { SignalWeights, SignalTier } from '@/types/signal';
 import type { MarketSession } from '@/lib/sessions';
+import type { FillKind } from './cost-model';
 
 export type PositionSizingMethod = 'fixed_percent' | 'fixed_fractional' | 'kelly' | 'risk_based';
 
@@ -19,7 +20,10 @@ export interface BacktestConfig {
   positionSizePercent: number;  // fraction of equity per trade (default 0.10 = 10%)
   positionSizing?: PositionSizingConfig;
   allowShorts: boolean;
-  feePercent: number;           // e.g. 0.001 = 0.1%
+  feePercent: number;           // e.g. 0.001 = 0.1%; fallback for maker/taker when unset
+  makerFeePercent?: number;     // fraction per side, e.g. 0.0002 = 0.02% (limit fills that rest)
+  takerFeePercent?: number;     // fraction per side, e.g. 0.0005 = 0.05% (fills that cross the book)
+  slippageBps?: number;         // basis points applied against the trader on taker fills
   weights: SignalWeights;
   startEquity: number;          // starting capital (default 10000)
   allowedSessions?: MarketSession[]; // entry filter; undefined/empty = all sessions
@@ -69,6 +73,9 @@ export interface BacktestTrade {
   holdTimeBars: number;
   entrySession?: MarketSession | null; // null when the interval spans sessions
   riskPercent?: number; // stop distance as a percent of entry price (2 means a 2% stop)
+  slippageCost?: number; // currency lost to slippage on the exit fill, 0 when none applied
+  entryFillKind?: FillKind;
+  exitFillKind?: FillKind;
 }
 
 export interface EquityPoint {
