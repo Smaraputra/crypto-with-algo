@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (evaluation harness)
+- Pure statistics module (`src/lib/stats/`) for the strategy validation gate: a seeded mulberry32 generator, a stationary block bootstrap with a percentile confidence interval and max-drawdown-percent helper, normal distribution helpers (CDF, quantile, sample skewness and kurtosis), the deflated Sharpe ratio (Bailey and Lopez de Prado), and a parameter plateau score. No engine or Mongo dependency; all Sharpe values are per period, not annualized
+
 ### Added (signal outcomes)
 - `SignalOutcome` model and resolver record what each stored `GlobalSignal` predicted against what price actually did. A pending outcome is created per signal with a per-style horizon (scalping 12 bars, day trading 24, swing trading 30, position trading 20), and `resolveDueOutcomes` fills in the forward return, MFE, and MAE from stored candles once the horizon bar has closed, marking outcomes `unresolvable` when candle data is missing (a group whose candle fetch fails is logged and left pending rather than blocking the whole batch, reported as `failedGroups`). Runs from `/api/cron/resolve-outcomes` every 15 minutes. `getLiveTierExpectancy` aggregates resolved outcomes into per-tier expectancy, win rate, and MFE/MAE via a database aggregation, with sell tiers flipped to the long-equivalent direction and a configurable round-trip cost, so live accuracy can be measured with the same math backtests use. `docker/crontab.template` is bind-mounted read-only, so `docker compose up -d --build` alone does not pick up the new cron line: after deploying, run `docker compose -f docker-compose.server.yml up -d --force-recreate cron`
 
