@@ -147,7 +147,10 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
   );
 
   const windowResults: WalkForwardWindow[] = [];
-  const oosDocs: IBacktestResultV2[] = []; // index-aligned with windowResults
+  // Out-of-sample docs for windows that actually contributed a candidate,
+  // paired with the Sharpe used to rank them into the ensemble. Not index-
+  // aligned with windowResults, which also carries skipped windows.
+  const contributingResults: Array<{ testSharpe: number; doc: IBacktestResultV2 }> = [];
   let totalCandidatesTested = 0;
   let totalValidResults = 0;
 
@@ -231,7 +234,18 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
 
     // 6. Select best candidate by Sharpe ratio
     if (robustCandidates.length === 0) {
-      // No robust candidates found, skip this window
+      // No robust candidates found, skip this window's out-of-sample test but
+      // still record it, so "how many windows were profitable out of sample"
+      // stays answerable from the persisted window list.
+      windowResults.push({
+        trainStart: window.trainStart,
+        trainEnd: window.trainEnd,
+        testStart: window.testStart,
+        testEnd: window.testEnd,
+        oosMetrics: null,
+        robustCandidates: 0,
+      });
+
       await OptimizationJob.updateOne(
         { _id: jobId },
         {
@@ -301,7 +315,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       bestCandidate._id.toString()
     );
     const testDoc = await BacktestResultV2.create(testCompressed);
-    oosDocs.push(testDoc);
+    contributingResults.push({ testSharpe, doc: testDoc });
 
     // 8. Store window result
     windowResults.push({
@@ -312,6 +326,8 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       bestWeights,
       testSharpe,
       testResultId: String(testDoc._id),
+      oosMetrics: testResult.metrics,
+      robustCandidates: robustCandidates.length,
     });
 
     // 9. Update job progress
@@ -327,10 +343,10 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     );
   }
 
-  // 10. Create ensemble from top 5 windows by test Sharpe, using the
-  // out-of-sample test docs captured per window (never in-sample candidates)
-  const ensembleResultDocs = windowResults
-    .map((window, i) => ({ testSharpe: window.testSharpe, doc: oosDocs[i] }))
+  // 10. Create ensemble from top 5 contributing windows by test Sharpe, using
+  // the out-of-sample test docs captured per window (never in-sample
+  // candidates); skipped windows never entered contributingResults
+  const ensembleResultDocs = [...contributingResults]
     .sort((a, b) => b.testSharpe - a.testSharpe)
     .slice(0, 5)
     .map((entry) => entry.doc);

@@ -11,6 +11,7 @@ import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
 import { runWalkForward, deriveStepSize } from './walk-forward';
 import { createTemplateVersion, markResultsAsContributors } from './template-versioning';
+import { passesSaveGate } from './save-gate';
 import { shouldAutoActivate, executeAutoActivation } from './auto-activation';
 import { getIntervalForStyle, getMonthsForStyle } from './top-symbols';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
@@ -191,48 +192,72 @@ export async function runMonthlyOptimization(
         jobId: job._id,
       });
 
-      // The template stores the thresholds its weights were optimized against.
-      // Walk-forward always backtests with the style defaults, so borrowing an
-      // active template's thresholds could pair weights with levels they were
-      // never tested on. The previous fallback used an obsolete shape
-      // ({ bullish, bearish, strong }) that fails schema validation, so the
-      // first styles ever to pass walk-forward failed at this step instead.
-      const thresholds = { ...DEFAULT_TEMPLATE_THRESHOLDS[tradingStyle] };
+      // Only the top-five ensemble documents survive a walk-forward run, so
+      // whether the optimization was actually profitable out of sample can
+      // only be answered from the windows themselves. Refusing to save a
+      // template when too few windows contributed, or their out-of-sample
+      // expectancy is negative, is the session 04 handover's fix for the
+      // first two templates ever created (each saved from a single
+      // contributing window with negative out-of-sample results).
+      const gate = passesSaveGate(result.windows);
 
-      // Create new template version
-      const newTemplate = await createTemplateVersion(
-        tradingStyle,
-        result.optimizedWeights,
-        thresholds,
-        {
-          avgSharpe: result.ensembleResults.reduce((sum, r) => sum + ((r.metrics as { sharpeRatio: number }).sharpeRatio || 0), 0) / result.ensembleResults.length,
-          avgWinRate: result.ensembleResults.reduce((sum, r) => sum + ((r.metrics as { winRate: number }).winRate || 0), 0) / result.ensembleResults.length,
-          totalBacktests: result.windows.length,
-        }
-      );
+      let newTemplate: Awaited<ReturnType<typeof createTemplateVersion>> | null = null;
 
-      // Mark out-of-sample contributors so provenance is queryable
-      await markResultsAsContributors(
-        result.ensembleResults.map((r) => r._id as mongoose.Types.ObjectId)
-      );
+      if (gate.pass) {
+        // The template stores the thresholds its weights were optimized
+        // against. Walk-forward always backtests with the style defaults, so
+        // borrowing an active template's thresholds could pair weights with
+        // levels they were never tested on. The previous fallback used an
+        // obsolete shape ({ bullish, bearish, strong }) that fails schema
+        // validation, so the first styles ever to pass walk-forward failed at
+        // this step instead.
+        const thresholds = { ...DEFAULT_TEMPLATE_THRESHOLDS[tradingStyle] };
+        const ensembleCount = result.ensembleResults.length;
 
-      // Update OptimizationJob with results
+        newTemplate = await createTemplateVersion(
+          tradingStyle,
+          result.optimizedWeights,
+          thresholds,
+          {
+            avgSharpe:
+              ensembleCount > 0
+                ? result.ensembleResults.reduce((sum, r) => sum + ((r.metrics as { sharpeRatio: number }).sharpeRatio || 0), 0) / ensembleCount
+                : 0,
+            avgWinRate:
+              ensembleCount > 0
+                ? result.ensembleResults.reduce((sum, r) => sum + ((r.metrics as { winRate: number }).winRate || 0), 0) / ensembleCount
+                : 0,
+            totalBacktests: result.windows.length,
+          }
+        );
+
+        // Mark out-of-sample contributors so provenance is queryable
+        await markResultsAsContributors(
+          result.ensembleResults.map((r) => r._id as mongoose.Types.ObjectId)
+        );
+      }
+
+      // Update OptimizationJob with results. A refused save is a valid
+      // outcome, not an error, so the job still completes.
       await OptimizationJob.updateOne(
         { _id: job._id },
         {
           status: 'completed',
           optimizedWeights: result.optimizedWeights,
           ensembleResults: result.ensembleResults.map((r) => r._id),
-          templateVersion: newTemplate.version,
+          windows: result.windows,
+          templateVersion: newTemplate ? newTemplate.version : null,
           completedAt: new Date(),
         }
       );
 
       let activated = false;
-      let activationReason = 'Auto-activation disabled';
+      let activationReason = gate.pass
+        ? 'Auto-activation disabled'
+        : `Template not saved: ${gate.reason}`;
 
-      // Check auto-activation
-      if (autoActivate) {
+      // Check auto-activation (only meaningful when a template was saved)
+      if (gate.pass && newTemplate && autoActivate) {
         const decision = await shouldAutoActivate(tradingStyle, newTemplate);
         activationReason = decision.reason;
 
@@ -252,6 +277,7 @@ export async function runMonthlyOptimization(
             'jobs.$.completedAt': new Date(),
             'jobs.$.activated': activated,
             'jobs.$.activationReason': activationReason,
+            'jobs.$.gateReason': gate.reason,
           },
         }
       );

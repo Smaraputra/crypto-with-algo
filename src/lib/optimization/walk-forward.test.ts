@@ -13,6 +13,7 @@ import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
+import { filterRobustResults } from './robustness-filter';
 import type { OHLCV } from '@/types/market';
 
 const mockJobUpdateOne = vi.fn();
@@ -27,6 +28,17 @@ vi.mock('@/lib/models/backtest-result-v2', () => ({
     create: async (doc: Record<string, unknown>) => ({ ...doc, _id: `mock-${Math.random()}` }),
   },
 }));
+
+// Wraps the real filterRobustResults so one test can force a single window's
+// in-sample candidates to fail robustness (mockImplementationOnce) while
+// every other call still runs the actual filter.
+vi.mock('./robustness-filter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./robustness-filter')>();
+  return {
+    ...actual,
+    filterRobustResults: vi.fn(actual.filterRobustResults),
+  };
+});
 
 /** Deterministic synthetic OHLCV series, enough variance for real indicators. */
 function generateSyntheticCandles(count: number, seed = 7): OHLCV[] {
@@ -343,6 +355,81 @@ describe('runWalkForward default purge gap', () => {
     } finally {
       warnSpy.mockRestore();
     }
+  }, 30_000);
+});
+
+describe('runWalkForward window records', () => {
+  it('gives every returned window robustCandidates and oosMetrics (populated or null)', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(450);
+
+    const result = await runWalkForward({
+      candles,
+      symbol,
+      interval,
+      tradingStyle,
+      minTrainingBars: 210,
+      testWindowBars: 30,
+      stepSizeBars: 50,
+      candidatesPerWindow: 2,
+      constraintPercent: 0.2,
+      jobId: new mongoose.Types.ObjectId(),
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+    });
+
+    expect(result.windows.length).toBeGreaterThan(0);
+    for (const window of result.windows) {
+      expect(typeof window.robustCandidates).toBe('number');
+      expect(window.robustCandidates).toBeGreaterThanOrEqual(0);
+      if (window.oosMetrics === null) {
+        expect(window.robustCandidates).toBe(0);
+      } else {
+        expect(typeof window.oosMetrics.expectancyPercent).toBe('number');
+        expect(window.robustCandidates).toBeGreaterThan(0);
+      }
+    }
+  }, 30_000);
+
+  it('records a skipped window with oosMetrics null and robustCandidates 0 alongside a contributing window', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(700);
+
+    const mockedFilter = vi.mocked(filterRobustResults);
+    mockedFilter.mockClear();
+    // Force the first window's in-sample candidates to fail robustness so it
+    // is skipped, while later windows fall through to the real filter (the
+    // lenient robustness config below would otherwise pass everything).
+    mockedFilter.mockImplementationOnce(() => []);
+
+    const result = await runWalkForward({
+      candles,
+      symbol,
+      interval,
+      tradingStyle,
+      minTrainingBars: 210,
+      testWindowBars: 30,
+      stepSizeBars: 50,
+      candidatesPerWindow: 2,
+      constraintPercent: 0.2,
+      jobId: new mongoose.Types.ObjectId(),
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+    });
+
+    expect(result.windows.length).toBeGreaterThan(1);
+    const [first, ...rest] = result.windows;
+    expect(first.oosMetrics).toBeNull();
+    expect(first.robustCandidates).toBe(0);
+    expect(first.bestWeights).toBeUndefined();
+    expect(first.testSharpe).toBeUndefined();
+    expect(first.trainStart).toBeDefined();
+    expect(first.trainEnd).toBeDefined();
+    expect(first.testStart).toBeDefined();
+    expect(first.testEnd).toBeDefined();
+    expect(rest.some((w) => w.oosMetrics !== null)).toBe(true);
   }, 30_000);
 });
 

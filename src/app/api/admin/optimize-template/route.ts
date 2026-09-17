@@ -10,6 +10,7 @@ import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
 import { runWalkForward } from '@/lib/optimization/walk-forward';
 import { createTemplateVersion, markResultsAsContributors } from '@/lib/optimization/template-versioning';
+import { passesSaveGate } from '@/lib/optimization/save-gate';
 import { DEFAULT_TEMPLATE_THRESHOLDS, type TradingStyle } from '@/lib/models/signal-template';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 import { z } from 'zod';
@@ -136,58 +137,77 @@ export async function POST(req: Request) {
         jobId: job._id,
       });
 
-      // 7. Create new template version (inactive by default)
+      // 7. Only the top-five ensemble documents survive a walk-forward run,
+      // so whether the optimization was actually profitable out of sample
+      // can only be answered from the windows themselves. The save gate
+      // refuses a template when too few windows contributed, or their
+      // out-of-sample expectancy is negative (session 04 handover).
+      const gate = passesSaveGate(result.windows);
+
       const thresholds = DEFAULT_TEMPLATE_THRESHOLDS[tradingStyle as TradingStyle];
+      const ensembleCount = result.ensembleResults.length;
       const avgSharpe =
-        result.ensembleResults.reduce(
-          (sum, r) => sum + ((r.metrics as { sharpeRatio?: number }).sharpeRatio ?? 0),
-          0
-        ) / result.ensembleResults.length;
+        ensembleCount > 0
+          ? result.ensembleResults.reduce(
+              (sum, r) => sum + ((r.metrics as { sharpeRatio?: number }).sharpeRatio ?? 0),
+              0
+            ) / ensembleCount
+          : 0;
 
       const avgWinRate =
-        result.ensembleResults.reduce(
-          (sum, r) => sum + ((r.metrics as { winRate?: number }).winRate ?? 0),
-          0
-        ) / result.ensembleResults.length;
+        ensembleCount > 0
+          ? result.ensembleResults.reduce(
+              (sum, r) => sum + ((r.metrics as { winRate?: number }).winRate ?? 0),
+              0
+            ) / ensembleCount
+          : 0;
 
-      const template = await createTemplateVersion(
-        tradingStyle as TradingStyle,
-        result.optimizedWeights,
-        thresholds,
-        {
-          avgSharpe,
-          avgWinRate,
-          totalBacktests: result.ensembleResults.length,
-        }
-      );
-
-      // 8. Mark results as contributors
+      let template: Awaited<ReturnType<typeof createTemplateVersion>> | null = null;
       const contributorIds = result.ensembleResults.map((r) => r._id);
-      await markResultsAsContributors(contributorIds);
 
-      // 9. Update job with results
+      if (gate.pass) {
+        // 8. Create new template version (inactive by default)
+        template = await createTemplateVersion(
+          tradingStyle as TradingStyle,
+          result.optimizedWeights,
+          thresholds,
+          {
+            avgSharpe,
+            avgWinRate,
+            totalBacktests: ensembleCount,
+          }
+        );
+
+        // 9. Mark results as contributors
+        await markResultsAsContributors(contributorIds);
+        job.templateVersion = template.version;
+      }
+
+      // 10. Update job with results. A refused save is a valid outcome, not
+      // an error, so the job still completes.
       job.status = 'completed';
       job.completedAt = new Date();
       job.optimizedWeights = result.optimizedWeights;
       job.ensembleResults = contributorIds;
-      job.templateVersion = template.version;
+      job.windows = result.windows;
       await job.save();
 
-      // 10. Return results
+      // 11. Return results
       return NextResponse.json({
         jobId: job._id.toString(),
         status: 'completed',
         optimizedWeights: result.optimizedWeights,
-        templateVersion: template.version,
-        templateId: template._id.toString(),
+        templateVersion: template ? template.version : null,
+        templateId: template ? template._id.toString() : null,
         performance: {
           avgSharpe,
           avgWinRate,
-          totalBacktests: result.ensembleResults.length,
+          totalBacktests: ensembleCount,
         },
         windows: result.windows.length,
         candidatesTested: job.progress.candidatesTested,
         validResults: job.progress.validResults,
+        gate,
       });
     } catch (error) {
       // Update job with error

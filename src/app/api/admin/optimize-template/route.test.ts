@@ -240,7 +240,12 @@ describe('POST /api/admin/optimize-template', () => {
         { _id: 'result1', metrics: { sharpeRatio: 1.5, winRate: 0.6 } },
         { _id: 'result2', metrics: { sharpeRatio: 2.0, winRate: 0.7 } },
       ],
-      windows: [{ id: 1 }, { id: 2 }],
+      // Two contributing windows with a positive mean out-of-sample
+      // expectancy, so the save gate passes.
+      windows: [
+        { trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, oosMetrics: { expectancyPercent: 2 }, robustCandidates: 5 },
+        { trainStart: 100, trainEnd: 399, testStart: 400, testEnd: 499, oosMetrics: { expectancyPercent: 3 }, robustCandidates: 4 },
+      ],
     };
     mockRunWalkForward.mockResolvedValue(walkForwardResult);
 
@@ -266,6 +271,12 @@ describe('POST /api/admin/optimize-template', () => {
     expect(data.performance.avgWinRate).toBeCloseTo(0.65);
     expect(data.performance.totalBacktests).toBe(2);
     expect(data.windows).toBe(2);
+    expect(data.gate).toEqual({
+      pass: true,
+      reason: null,
+      contributingWindows: 2,
+      avgOosExpectancyPercent: 2.5,
+    });
 
     // Verify job was created with correct params
     expect(mockJobCreate).toHaveBeenCalledWith(
@@ -280,6 +291,56 @@ describe('POST /api/admin/optimize-template', () => {
     // Verify job save was called (status updates)
     expect(mockJobSave).toHaveBeenCalled();
     expect(mockMarkResultsAsContributors).toHaveBeenCalledWith(['result1', 'result2']);
+  });
+
+  it('should skip template creation and return the gate result when the save gate refuses a save', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const candles = generateCandles(500);
+    mockGetCandles.mockResolvedValue(candles);
+
+    const mockJob = {
+      _id: { toString: () => 'job123' },
+      status: 'pending',
+      startedAt: null,
+      completedAt: null,
+      optimizedWeights: null,
+      ensembleResults: [],
+      templateVersion: null,
+      error: null,
+      progress: { candidatesTested: 100, validResults: 40 },
+      save: mockJobSave,
+    };
+    mockJobCreate.mockResolvedValue(mockJob);
+    mockJobSave.mockResolvedValue(mockJob);
+
+    // Single contributing window: below the save gate's 2-window minimum.
+    const walkForwardResult = {
+      optimizedWeights: { rsi: 0.3, macd: 0.4, volume: 0.3 },
+      ensembleResults: [{ _id: 'result1', metrics: { sharpeRatio: 1.5, winRate: 0.6 } }],
+      windows: [
+        { trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, oosMetrics: { expectancyPercent: -2 }, robustCandidates: 3 },
+      ],
+    };
+    mockRunWalkForward.mockResolvedValue(walkForwardResult);
+
+    const response = await POST(makeRequest({
+      tradingStyle: 'scalping', symbol: 'BTCUSDT', interval: '1m', months: 6,
+    }));
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.status).toBe('completed');
+    expect(data.templateVersion).toBeNull();
+    expect(data.templateId).toBeNull();
+    expect(data.gate.pass).toBe(false);
+    expect(data.gate.contributingWindows).toBe(1);
+    expect(data.gate.reason).toContain('1 of 1');
+
+    expect(mockCreateTemplateVersion).not.toHaveBeenCalled();
+    expect(mockMarkResultsAsContributors).not.toHaveBeenCalled();
+    expect(mockJob.status).toBe('completed');
   });
 
   it('should update job to failed status when walk-forward throws', async () => {

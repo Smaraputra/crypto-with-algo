@@ -100,6 +100,16 @@ function makeCandles(count: number) {
   }));
 }
 
+/** Minimal BacktestMetrics stub; passesSaveGate only reads expectancyPercent. */
+function makeOosMetrics(expectancyPercent: number) {
+  return { expectancyPercent } as unknown as import('@/lib/backtest/types').BacktestMetrics;
+}
+
+/**
+ * Two contributing windows with a positive mean out-of-sample expectancy, so
+ * the save gate passes by default. Tests exercising the gate itself override
+ * `windows` explicitly.
+ */
 function makeWalkForwardResult() {
   return {
     optimizedWeights: {
@@ -116,7 +126,28 @@ function makeWalkForwardResult() {
         metrics: { sharpeRatio: 1.5, winRate: 0.55 },
       },
     ],
-    windows: [{ trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, bestWeights: {}, testSharpe: 1.5 }],
+    windows: [
+      {
+        trainStart: 0,
+        trainEnd: 299,
+        testStart: 300,
+        testEnd: 399,
+        bestWeights: {},
+        testSharpe: 1.5,
+        oosMetrics: makeOosMetrics(2.5),
+        robustCandidates: 5,
+      },
+      {
+        trainStart: 100,
+        trainEnd: 399,
+        testStart: 400,
+        testEnd: 499,
+        bestWeights: {},
+        testSharpe: 1.2,
+        oosMetrics: makeOosMetrics(1.8),
+        robustCandidates: 4,
+      },
+    ],
   };
 }
 
@@ -456,6 +487,104 @@ describe('monthly-orchestrator', () => {
     expect(result.completedJobs).toBe(4);
     // 4 main-interval backfills plus 3 HTF backfills (no confirmation TF for 1d)
     expect(mockBackfillCandles).toHaveBeenCalledTimes(7);
+  });
+
+  it('skips template creation and records gateReason when the save gate refuses a save', async () => {
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue({
+      ...makeWalkForwardResult(),
+      // Single contributing window: below the save gate's 2-window minimum.
+      windows: [
+        {
+          trainStart: 0,
+          trainEnd: 299,
+          testStart: 300,
+          testEnd: 399,
+          bestWeights: {},
+          testSharpe: -1,
+          oosMetrics: makeOosMetrics(-2),
+          robustCandidates: 3,
+        },
+      ],
+    });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    const result = await runMonthlyOptimization({
+      cronRunId,
+      topSymbols: ['BTCUSDT'],
+      autoActivate: false,
+    });
+
+    // A refused save is a valid outcome, not an error: every style still
+    // completes and no job is marked failed.
+    expect(result.completedJobs).toBe(4);
+    expect(result.failedJobs).toBe(0);
+    expect(result.errors).toHaveLength(0);
+    expect(mockCreateTemplateVersion).not.toHaveBeenCalled();
+    expect(mockExecuteAutoActivation).not.toHaveBeenCalled();
+
+    const jobUpdates = mockOptimizationJobUpdateOne.mock.calls.filter(
+      (call) => (call[1] as { status?: string }).status === 'completed'
+    );
+    expect(jobUpdates).toHaveLength(4);
+    for (const call of jobUpdates) {
+      expect((call[1] as { templateVersion: number | null }).templateVersion).toBeNull();
+    }
+
+    const cronCompletions = mockCronRunUpdateOne.mock.calls.filter(
+      (call) => (call[1] as { $set?: { 'jobs.$.status'?: string } }).$set?.['jobs.$.status'] === 'completed'
+    );
+    expect(cronCompletions).toHaveLength(4);
+    for (const call of cronCompletions) {
+      const set = (call[1] as { $set: Record<string, unknown> }).$set;
+      expect(set['jobs.$.gateReason']).toContain('1 of 1');
+    }
+  });
+
+  it('calls createTemplateVersion when the save gate passes', async () => {
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue(makeWalkForwardResult());
+    mockCreateTemplateVersion.mockResolvedValue({ _id: new mongoose.Types.ObjectId(), version: 1, tradingStyle: 'scalping' });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    await runMonthlyOptimization({ cronRunId, topSymbols: ['BTCUSDT'], autoActivate: false });
+
+    expect(mockCreateTemplateVersion).toHaveBeenCalledTimes(4);
+    const cronCompletions = mockCronRunUpdateOne.mock.calls.filter(
+      (call) => (call[1] as { $set?: { 'jobs.$.status'?: string } }).$set?.['jobs.$.status'] === 'completed'
+    );
+    for (const call of cronCompletions) {
+      const set = (call[1] as { $set: Record<string, unknown> }).$set;
+      expect(set['jobs.$.gateReason']).toBeNull();
+    }
+  });
+
+  it('does not divide by zero when ensembleResults is empty', async () => {
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue({
+      ...makeWalkForwardResult(),
+      ensembleResults: [],
+    });
+    mockCreateTemplateVersion.mockResolvedValue({ _id: new mongoose.Types.ObjectId(), version: 1, tradingStyle: 'scalping' });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    const result = await runMonthlyOptimization({ cronRunId, topSymbols: ['BTCUSDT'], autoActivate: false });
+
+    expect(result.failedJobs).toBe(0);
+    expect(mockCreateTemplateVersion).toHaveBeenCalledTimes(4);
+    for (const call of mockCreateTemplateVersion.mock.calls) {
+      const performance = call[3] as { avgSharpe: number; avgWinRate: number };
+      expect(performance.avgSharpe).toBe(0);
+      expect(performance.avgWinRate).toBe(0);
+      expect(Number.isNaN(performance.avgSharpe)).toBe(false);
+      expect(Number.isNaN(performance.avgWinRate)).toBe(false);
+    }
   });
 
   it('records error when candle result is empty', async () => {

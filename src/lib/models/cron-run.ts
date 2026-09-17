@@ -12,6 +12,7 @@ export interface ICronJobDetail {
   error: string | null;
   activated: boolean; // Auto-activation occurred
   activationReason: string | null; // Why activated/not activated
+  gateReason: string | null; // Why the save gate refused a template, null when it passed
 }
 
 export interface ICronRun extends Document {
@@ -56,6 +57,7 @@ const cronJobDetailSchema = new Schema<ICronJobDetail>(
     error: { type: String, default: null },
     activated: { type: Boolean, default: false },
     activationReason: { type: String, default: null },
+    gateReason: { type: String, default: null },
   },
   { _id: false }
 );

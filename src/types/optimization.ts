@@ -1,4 +1,5 @@
 import type { SignalWeights } from './signal';
+import type { BacktestMetrics } from '@/lib/backtest/types';
 
 export interface RobustnessConfig {
   minSharpe: number; // 0.5
@@ -12,9 +13,15 @@ export interface WalkForwardWindow {
   trainEnd: number;
   testStart: number;
   testEnd: number;
-  bestWeights: SignalWeights;
-  testSharpe: number;
+  // Absent when the window was skipped for lacking a robust in-sample candidate.
+  bestWeights?: SignalWeights;
+  testSharpe?: number;
   testResultId?: string; // BacktestResultV2 id of the out-of-sample test run
+  // Out-of-sample metrics for this window's chosen candidate, null when the
+  // window produced no robust candidate and was skipped.
+  oosMetrics: BacktestMetrics | null;
+  // Count of in-sample candidates that passed the robustness filter.
+  robustCandidates: number;
 }
 
 export interface OptimizationProgress {
