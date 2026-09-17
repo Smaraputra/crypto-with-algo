@@ -51,6 +51,11 @@ vi.mock('@/lib/models/historical-snapshot', () => ({
 import { parseArgs, buildJobs, main, type Job } from './backfill-history';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+/** Matches backfill-history.ts's own PAIR_DELAY_MS, which it does not export. */
+const PAIR_DELAY_MS = 1000;
+
 describe('parseArgs', () => {
   it('defaults symbols, candles, snapshots, and every flag', () => {
     const args = parseArgs([]);
@@ -70,6 +75,7 @@ describe('parseArgs', () => {
     ]);
     expect(args.skipCandles).toBe(false);
     expect(args.skipSnapshots).toBe(false);
+    expect(args.refill).toBe(false);
     expect(args.unsetFiveMinuteTtl).toBe(false);
     expect(args.dropSnapshotTtl).toBe(false);
     expect(args.dryRun).toBe(false);
@@ -95,6 +101,7 @@ describe('parseArgs', () => {
     const args = parseArgs([
       '--skip-candles',
       '--skip-snapshots',
+      '--refill',
       '--unset-5m-ttl',
       '--drop-snapshot-ttl',
       '--dry-run',
@@ -102,6 +109,7 @@ describe('parseArgs', () => {
 
     expect(args.skipCandles).toBe(true);
     expect(args.skipSnapshots).toBe(true);
+    expect(args.refill).toBe(true);
     expect(args.unsetFiveMinuteTtl).toBe(true);
     expect(args.dropSnapshotTtl).toBe(true);
     expect(args.dryRun).toBe(true);
@@ -121,6 +129,15 @@ describe('parseArgs', () => {
 
   it('rejects an unrecognized flag', () => {
     expect(() => parseArgs(['--bogus'])).toThrow(/unknown flag/i);
+  });
+
+  it('rejects a value-taking flag with no value at all', () => {
+    expect(() => parseArgs(['--candles'])).toThrow(/--candles requires a value/);
+  });
+
+  it('rejects a value-taking flag whose value looks like another flag', () => {
+    expect(() => parseArgs(['--candles', '--dry-run'])).toThrow(/--candles requires a value/);
+    expect(() => parseArgs(['--symbols', '--skip-candles'])).toThrow(/--symbols requires a value/);
   });
 });
 
@@ -298,6 +315,82 @@ describe('main', () => {
     expect(mockSnapshotDropIndex).not.toHaveBeenCalled();
   });
 
+  it('warns that --unset-5m-ttl must run only after the app is redeployed', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--skip-candles', '--skip-snapshots',
+      '--unset-5m-ttl',
+    ]);
+
+    await run();
+
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/redeployed from this branch/i));
+  });
+
+  it('warns that --drop-snapshot-ttl must run only after the app is redeployed', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--skip-candles', '--skip-snapshots',
+      '--drop-snapshot-ttl',
+    ]);
+
+    await run();
+
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/redeployed from this branch/i));
+  });
+
+  it('does not warn when neither TTL migration flag is used', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--skip-candles', '--skip-snapshots',
+    ]);
+
+    await run();
+
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('catches a failing --unset-5m-ttl, logs a migration error, fails the run, and still runs jobs', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+      '--unset-5m-ttl',
+    ]);
+    mockUpdateMany.mockRejectedValue(new Error('Mongo down'));
+
+    const code = await run();
+
+    expect(code).toBe(1);
+    expect(mockBackfillCandles).toHaveBeenCalledWith('BTCUSDT', '1h', 6);
+    expect(parsedLogs()).toContainEqual({
+      kind: 'migration', action: 'unset-5m-ttl', error: 'Mongo down',
+    });
+  });
+
+  it('catches a failing --drop-snapshot-ttl, logs a migration error, fails the run, and still runs jobs', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+      '--drop-snapshot-ttl',
+    ]);
+    mockSnapshotIndexes.mockRejectedValue(new Error('Mongo down'));
+
+    const code = await run();
+
+    expect(code).toBe(1);
+    expect(mockBackfillCandles).toHaveBeenCalledWith('BTCUSDT', '1h', 6);
+    expect(parsedLogs()).toContainEqual({
+      kind: 'migration', action: 'drop-snapshot-ttl', error: 'Mongo down',
+    });
+  });
+
   it('runs candle jobs before snapshot jobs and logs one JSON line per job', async () => {
     vi.spyOn(process, 'argv', 'get').mockReturnValue([
       'node', 'backfill-history.ts',
@@ -326,6 +419,79 @@ describe('main', () => {
     expect(typeof snapshotLog.ms).toBe('number');
   });
 
+  it('reports requestedFrom, from, and complete: true when the stored range reaches the request', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+    ]);
+    const now = Date.now();
+    mockGetCandleRange.mockResolvedValue({ oldest: now - 7 * 30 * DAY_MS, newest: now, count: 100 });
+
+    await run();
+
+    const [candleLog] = parsedLogs();
+    expect(candleLog.requestedFrom).toBe(now - 6 * 30 * DAY_MS);
+    expect(candleLog.from).toBe(now - 7 * 30 * DAY_MS);
+    expect(candleLog.complete).toBe(true);
+    expect(candleLog.refill).toBe(false);
+  });
+
+  it('reports complete: false when the stored range does not reach the requested start', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+    ]);
+    const now = Date.now();
+    // fetchKlinesRange's 120s deadline truncated the fetch to 5 of the 6
+    // requested months.
+    mockGetCandleRange.mockResolvedValue({ oldest: now - 5 * 30 * DAY_MS, newest: now, count: 100 });
+
+    await run();
+
+    const [candleLog] = parsedLogs();
+    expect(candleLog.complete).toBe(false);
+  });
+
+  it('reports complete: false when nothing is stored at all', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+    ]);
+    mockGetCandleRange.mockResolvedValue({ oldest: null, newest: null, count: 0 });
+
+    await run();
+
+    const [candleLog] = parsedLogs();
+    expect(candleLog.complete).toBe(false);
+  });
+
+  it('passes refill through to backfillCandles and the log line when --refill is set', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+      '--refill',
+    ]);
+    // A refill reports inserted: 0 on success; getCandleRange's count is what
+    // the log line should carry instead.
+    mockBackfillCandles.mockResolvedValue({ inserted: 0, total: 100 });
+
+    await run();
+
+    expect(mockBackfillCandles).toHaveBeenCalledWith('BTCUSDT', '1h', 6, { refill: true });
+    const [candleLog] = parsedLogs();
+    expect(candleLog.refill).toBe(true);
+    expect(candleLog.inserted).toBe(0);
+    expect(candleLog.count).toBe(100);
+  });
+
   it('pages funding once per symbol from that symbol largest snapshot window', async () => {
     vi.spyOn(process, 'argv', 'get').mockReturnValue([
       'node', 'backfill-history.ts',
@@ -333,11 +499,20 @@ describe('main', () => {
       '--skip-candles',
       '--snapshots', '1h:6,1d:12',
     ]);
+    // Fake timers freeze Date.now() and only advance it when a scheduled
+    // timer fires; the funding fetch happens before the first pause, so it
+    // sees the same "now" captured here.
+    const now = Date.now();
 
     await run();
 
     expect(mockFetchFundingHistory).toHaveBeenCalledTimes(1);
-    expect(mockFetchFundingHistory.mock.calls[0][0]).toBe('BTCUSDT');
+    const [symbolArg, startArg, endArg] = mockFetchFundingHistory.mock.calls[0];
+    expect(symbolArg).toBe('BTCUSDT');
+    // Largest snapshot months for BTCUSDT is 12 (1h:6, 1d:12); funding is
+    // paged from 8h before that window to the run's "now".
+    expect(startArg).toBe(now - 12 * 30 * DAY_MS - 8 * HOUR_MS);
+    expect(endArg).toBe(now);
     expect(mockLoadFearGreedLookup).toHaveBeenCalledTimes(1);
     expect(mockLoadFearGreedLookup).toHaveBeenCalledWith(12 * 31 + 3);
   });
@@ -385,6 +560,25 @@ describe('main', () => {
       kind: 'candles', symbol: 'BTCUSDT', interval: '1h', months: 6, error: 'Binance 418',
     });
     expect(parsed[1]).toMatchObject({ kind: 'candles', symbol: 'ETHUSDT', interval: '1h', months: 6 });
+  });
+
+  it('still pauses after a failing job, so a rejection does not skip backoff', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT,ETHUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+    ]);
+    mockBackfillCandles
+      .mockRejectedValueOnce(new Error('Binance 418'))
+      .mockResolvedValue({ inserted: 5, total: 50 });
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    await run();
+
+    const pauseCalls = setTimeoutSpy.mock.calls.filter(([, ms]) => ms === PAIR_DELAY_MS);
+    // One pause per job, including the failed first one.
+    expect(pauseCalls).toHaveLength(2);
   });
 
   it('returns 0 when every job succeeds', async () => {

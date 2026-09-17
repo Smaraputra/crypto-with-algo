@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       months,
       inserted: totalInserted,
       errors: totalErrors,
-      // Stated so a caller is not left wondering why 1m/5m were ignored.
+      // Stated so a caller is not left wondering why 1m was ignored.
       excludedIntervals: HF_INTERVALS,
       results,
     });

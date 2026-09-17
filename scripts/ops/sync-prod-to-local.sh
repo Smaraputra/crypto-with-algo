@@ -4,6 +4,14 @@
 # cryptowithalgo, run via docker-compose.server.yml on the VPS) into a local
 # Mongo for research, one collection at a time, with no intermediate file.
 #
+# Each collection is restored with mongorestore --drop, which wipes the
+# same-named collection at the target (LOCAL_DB, or the database in
+# LOCAL_MONGO_URI/LOCAL_MONGO_CONTAINER) before writing the restored data.
+# For that reason a real (non---dry-run) sync refuses to run unless
+# LOCAL_MONGO_URI points at localhost/127.0.0.1, or FORCE_REMOTE_LOCAL=1 is
+# set, so a misconfigured URI cannot silently drop collections on some other
+# host.
+#
 # Usage:
 #   scripts/ops/sync-prod-to-local.sh [--dry-run]
 #
@@ -20,6 +28,8 @@
 #   LOCAL_MONGO_CONTAINER=            (unset: use a local mongorestore binary;
 #                                       set: restore via `docker exec -i` into
 #                                       that container instead)
+#   FORCE_REMOTE_LOCAL=               (set to 1 to allow a real sync when
+#                                       LOCAL_MONGO_URI is not localhost/127.0.0.1)
 #   COLLECTIONS="candles historicalsnapshots globalsignals signaltemplates optimizationjobs backtestresultv2 cronruns"
 set -euo pipefail
 
@@ -111,6 +121,22 @@ fi
 
 if [[ -z "$LOCAL_MONGO_CONTAINER" ]] && ! command -v mongorestore >/dev/null 2>&1; then
   echo "install with: brew install mongodb-database-tools"
+  exit 2
+fi
+
+# Every restore below runs --drop, which wipes the same-named collection at
+# the target first. Refuse a real run against a non-local LOCAL_MONGO_URI so
+# a misconfigured URI cannot silently drop collections on some other host.
+is_local_uri() {
+  local rest="${1#mongodb://}"
+  rest="${rest#mongodb+srv://}"
+  rest="${rest#*@}"
+  local host="${rest%%[:/?]*}"
+  [[ "$host" == "localhost" || "$host" == "127.0.0.1" ]]
+}
+
+if ! is_local_uri "$LOCAL_MONGO_URI" && [[ "${FORCE_REMOTE_LOCAL:-}" != "1" ]]; then
+  echo "Refusing to run: LOCAL_MONGO_URI ($LOCAL_MONGO_URI) is not localhost or 127.0.0.1, and every collection is restored with --drop. Set FORCE_REMOTE_LOCAL=1 to override." >&2
   exit 2
 fi
 

@@ -6,12 +6,33 @@
  * whole repo, so no bind mount is needed. From the project root:
  *
  *   docker build --target seeder -t crypto-ops:history .
- *   docker run --rm --network crypto-internal --env-file .env \
+ *   docker run --rm --network crypto_crypto-internal --env-file .env \
  *     crypto-ops:history npx tsx scripts/ops/backfill-history.ts [flags]
  *
- * "crypto-internal" is the Docker network defined in docker-compose.server.yml,
- * the one crypto-mongodb is attached to; run against another compose file's
- * network if that project's names differ.
+ * "crypto_crypto-internal" is the network docker compose actually creates for
+ * docker-compose.server.yml's "crypto-internal" network: compose prefixes
+ * network names with the project name, and .github/workflows/deploy.yml runs
+ * `docker compose -f docker-compose.server.yml up -d` from /opt/sites/crypto
+ * on the VPS, so the project name defaults to "crypto". Check with
+ * `docker network ls` if that directory name ever changes.
+ *
+ * Recommended runbook, in order:
+ *   1. Deploy the app from this branch. Both --unset-5m-ttl and
+ *      --drop-snapshot-ttl depend on the schema this branch ships; see the
+ *      WARNING below on why they must not run against an old container.
+ *   2. Run the two migration flags alone, nothing else:
+ *      --unset-5m-ttl --drop-snapshot-ttl --skip-candles --skip-snapshots
+ *      Verify their JSON lines before continuing.
+ *   3. Run the candle pass with --refill (see below).
+ *   4. Run the snapshot pass.
+ *
+ * WARNING: run --unset-5m-ttl and --drop-snapshot-ttl only after the app has
+ * been redeployed from this branch, never before or during. mongoose.connect
+ * (src/lib/mongodb.ts) leaves autoIndex on, so an app container still running
+ * the previous schema silently recreates the createdAt_1 TTL index this drops
+ * the next time it writes a HistoricalSnapshot, and old code keeps setting
+ * expiresAt on the 5m candles it writes. This script also prints a one-line
+ * warning at runtime when either flag is passed, as a last-resort reminder.
  *
  * Flags:
  *   --symbols BTCUSDT,ETHUSDT   default: SIGNAL_SYMBOLS
@@ -19,9 +40,29 @@
  *   --snapshots 1h:60,4h:96,1d:96               interval:months list (default shown)
  *   --skip-candles      skip every candle job
  *   --skip-snapshots    skip every snapshot job
+ *   --refill            re-fetch every stored bar instead of only the gaps
+ *                       around them, for every candle job. Run this for the
+ *                       first production candle pass after deploying the
+ *                       candle finalization fix (a separate branch): bars
+ *                       synced before that fix can hold partial values, and a
+ *                       refill is the only way the gap strategy repairs
+ *                       already-stored rows. Costs a full re-fetch every time:
+ *                       a refill of 5m over 12 months is about 105 requests
+ *                       per symbol.
  *   --unset-5m-ttl      clear expiresAt from 5m candles written before 5m was durable
  *   --drop-snapshot-ttl drop the legacy one-year TTL index on HistoricalSnapshot.createdAt
  *   --dry-run           print the job list as JSON lines and exit, no DB connection
+ *
+ * Each candle job's log line reports requestedFrom (the window start it asked
+ * Binance for) next to the stored from/to, and a complete flag that is true
+ * only when from <= requestedFrom. fetchKlinesRange (src/lib/binance.ts)
+ * silently stops at a 120-second deadline and returns whatever it fetched so
+ * far, and backfillCandles reports that as success; the default 5m:12 spec is
+ * about 104 pages per symbol, close enough to that budget that one pass can
+ * come back incomplete. A false complete means that job needs a second pass;
+ * re-running is safe, since backfillCandles without --refill only fetches the
+ * gaps around what is already stored, so it resumes from the newest (and
+ * oldest) bar already on disk rather than starting over.
  */
 import { connectDB } from '@/lib/mongodb';
 import { backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
@@ -52,6 +93,7 @@ export interface ParsedArgs {
   snapshots: IntervalMonths[];
   skipCandles: boolean;
   skipSnapshots: boolean;
+  refill: boolean;
   unsetFiveMinuteTtl: boolean;
   dropSnapshotTtl: boolean;
   dryRun: boolean;
@@ -91,6 +133,15 @@ function parseIntervalMonthsSpec(spec: string, flag: string): IntervalMonths[] {
   });
 }
 
+/** The value for a flag that takes one: missing, or looking like another flag, is an error. */
+function nextValue(argv: string[], index: number, flag: string): string {
+  const value = argv[index];
+  if (value === undefined || value.startsWith('--')) {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
 /** Pure argv parser: no I/O, so it is unit tested directly. */
 export function parseArgs(argv: string[]): ParsedArgs {
   let symbolsSpec: string | null = null;
@@ -98,6 +149,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let snapshotsSpec = DEFAULT_SNAPSHOTS;
   let skipCandles = false;
   let skipSnapshots = false;
+  let refill = false;
   let unsetFiveMinuteTtl = false;
   let dropSnapshotTtl = false;
   let dryRun = false;
@@ -106,19 +158,22 @@ export function parseArgs(argv: string[]): ParsedArgs {
     const flag = argv[i];
     switch (flag) {
       case '--symbols':
-        symbolsSpec = argv[++i];
+        symbolsSpec = nextValue(argv, ++i, '--symbols');
         break;
       case '--candles':
-        candlesSpec = argv[++i];
+        candlesSpec = nextValue(argv, ++i, '--candles');
         break;
       case '--snapshots':
-        snapshotsSpec = argv[++i];
+        snapshotsSpec = nextValue(argv, ++i, '--snapshots');
         break;
       case '--skip-candles':
         skipCandles = true;
         break;
       case '--skip-snapshots':
         skipSnapshots = true;
+        break;
+      case '--refill':
+        refill = true;
         break;
       case '--unset-5m-ttl':
         unsetFiveMinuteTtl = true;
@@ -144,6 +199,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     snapshots: parseIntervalMonthsSpec(snapshotsSpec, '--snapshots'),
     skipCandles,
     skipSnapshots,
+    refill,
     unsetFiveMinuteTtl,
     dropSnapshotTtl,
     dryRun,
@@ -194,32 +250,53 @@ export async function main(): Promise<number> {
 
   await connectDB();
 
-  if (args.unsetFiveMinuteTtl) {
-    const result = await Candle.updateMany(
-      { interval: '5m', expiresAt: { $exists: true } },
-      { $unset: { expiresAt: 1 } }
+  let hasError = false;
+
+  if (args.unsetFiveMinuteTtl || args.dropSnapshotTtl) {
+    console.error(
+      'WARNING: --unset-5m-ttl and --drop-snapshot-ttl must run only after the ' +
+      'app has been redeployed from this branch. An old app container still on ' +
+      'the previous schema can recreate the dropped TTL index (autoIndex is on) ' +
+      'and keeps writing expiresAt onto live 5m candles.'
     );
-    console.log(JSON.stringify({ kind: 'unset-5m-ttl', modifiedCount: result.modifiedCount }));
+  }
+
+  if (args.unsetFiveMinuteTtl) {
+    try {
+      const result = await Candle.updateMany(
+        { interval: '5m', expiresAt: { $exists: true } },
+        { $unset: { expiresAt: 1 } }
+      );
+      console.log(JSON.stringify({ kind: 'unset-5m-ttl', modifiedCount: result.modifiedCount }));
+    } catch (error) {
+      hasError = true;
+      console.log(JSON.stringify({ kind: 'migration', action: 'unset-5m-ttl', error: errorMessage(error) }));
+    }
   }
 
   if (args.dropSnapshotTtl) {
-    const indexes = await HistoricalSnapshot.collection.indexes();
-    const ttlIndex = indexes.find(
-      (idx) =>
-        idx.expireAfterSeconds !== undefined &&
-        idx.key.createdAt === 1 &&
-        Object.keys(idx.key).length === 1
-    );
+    try {
+      const indexes = await HistoricalSnapshot.collection.indexes();
+      const ttlIndex = indexes.find(
+        (idx) =>
+          idx.expireAfterSeconds !== undefined &&
+          idx.key.createdAt === 1 &&
+          Object.keys(idx.key).length === 1
+      );
 
-    if (ttlIndex?.name) {
-      await HistoricalSnapshot.collection.dropIndex(ttlIndex.name);
+      if (ttlIndex?.name) {
+        await HistoricalSnapshot.collection.dropIndex(ttlIndex.name);
+      }
+
+      console.log(JSON.stringify({
+        kind: 'migration',
+        action: 'drop-snapshot-ttl',
+        dropped: ttlIndex?.name ?? null,
+      }));
+    } catch (error) {
+      hasError = true;
+      console.log(JSON.stringify({ kind: 'migration', action: 'drop-snapshot-ttl', error: errorMessage(error) }));
     }
-
-    console.log(JSON.stringify({
-      kind: 'migration',
-      action: 'drop-snapshot-ttl',
-      dropped: ttlIndex?.name ?? null,
-    }));
   }
 
   const snapshotJobs = jobs.filter((j) => j.kind === 'snapshots');
@@ -228,8 +305,6 @@ export async function main(): Promise<number> {
     snapshotJobs.length > 0
       ? await loadFearGreedLookup(globalMaxMonths * 31 + MAX_FEAR_GREED_CARRY_DAYS)
       : null;
-
-  let hasError = false;
 
   const fundingBySymbol = new Map<string, FundingEvent[]>();
 
@@ -262,20 +337,34 @@ export async function main(): Promise<number> {
     const started = Date.now();
     try {
       if (job.kind === 'candles') {
-        const { inserted } = await backfillCandles(job.symbol, job.interval, job.months);
+        const requestedFrom = started - job.months * 30 * DAY_MS;
+        const { inserted } = args.refill
+          ? await backfillCandles(job.symbol, job.interval, job.months, { refill: true })
+          : await backfillCandles(job.symbol, job.interval, job.months);
         const range = await getCandleRange(job.symbol, job.interval);
+        const complete = range.oldest !== null && range.oldest <= requestedFrom;
         console.log(JSON.stringify({
           kind: 'candles',
           symbol: job.symbol,
           interval: job.interval,
           months: job.months,
+          refill: args.refill,
           inserted,
           count: range.count,
+          requestedFrom,
           from: range.oldest,
           to: range.newest,
+          complete,
           ms: Date.now() - started,
         }));
       } else {
+        // fearGreedAt is set whenever a snapshot job exists (see above); this
+        // narrows it instead of asserting it, so a future refactor that
+        // breaks that invariant fails loudly rather than passing null through.
+        if (!fearGreedAt) {
+          throw new Error('Internal error: fearGreedAt lookup was not initialized for a snapshot job');
+        }
+
         const fundingEvents = await fundingEventsFor(job.symbol);
         const endTime = Date.now();
         const startTime = endTime - job.months * 30 * DAY_MS;
@@ -286,7 +375,7 @@ export async function main(): Promise<number> {
           startTime,
           endTime,
           fundingEvents,
-          fearGreedAt: fearGreedAt!,
+          fearGreedAt,
         });
 
         console.log(JSON.stringify({
@@ -299,8 +388,6 @@ export async function main(): Promise<number> {
           ms: Date.now() - started,
         }));
       }
-
-      await sleep(PAIR_DELAY_MS);
     } catch (error) {
       hasError = true;
       console.log(JSON.stringify({
@@ -310,6 +397,10 @@ export async function main(): Promise<number> {
         months: job.months,
         error: errorMessage(error),
       }));
+    } finally {
+      // Pause between pairs even after a failure, so a run of rejections
+      // (e.g. a Binance 418) does not hammer the remaining jobs with no backoff.
+      await sleep(PAIR_DELAY_MS);
     }
   }
 
