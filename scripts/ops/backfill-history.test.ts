@@ -265,6 +265,29 @@ describe('main', () => {
     expect(mockLoadFearGreedLookup).toHaveBeenCalledWith(12 * 31 + 3);
   });
 
+  it('still runs a symbol\'s snapshot jobs when its funding fetch fails, logs the failure, and exits 1', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--skip-candles',
+      '--snapshots', '1h:6,1d:12',
+    ]);
+    mockFetchFundingHistory.mockRejectedValue(new Error('Binance 418'));
+
+    const code = await run();
+
+    expect(code).toBe(1);
+    // Snapshot jobs still ran, without funding, for a later re-run to fill in.
+    expect(mockBackfillSnapshotRange).toHaveBeenCalledTimes(2);
+    expect(mockBackfillSnapshotRange.mock.calls[0][0]).toMatchObject({ fundingEvents: [] });
+    expect(mockBackfillSnapshotRange.mock.calls[1][0]).toMatchObject({ fundingEvents: [] });
+
+    const parsed = parsedLogs();
+    expect(parsed).toContainEqual({ kind: 'funding', symbol: 'BTCUSDT', error: 'Binance 418' });
+    const snapshotLogs = parsed.filter((line) => line.kind === 'snapshots');
+    expect(snapshotLogs).toHaveLength(2);
+  });
+
   it('continues after a failing job, logs its error, and exits 1', async () => {
     vi.spyOn(process, 'argv', 'get').mockReturnValue([
       'node', 'backfill-history.ts',

@@ -48,11 +48,6 @@ for arg in "$@"; do
   esac
 done
 
-if [[ -z "$LOCAL_MONGO_CONTAINER" ]] && ! command -v mongorestore >/dev/null 2>&1; then
-  echo "install with: brew install mongodb-database-tools"
-  exit 2
-fi
-
 # The payload for the container's `sh -c`. $MONGO_INITDB_ROOT_USERNAME and
 # $MONGO_INITDB_ROOT_PASSWORD are left as literal variable references (single
 # quotes below protect them from expansion on the laptop and on the SSH
@@ -104,6 +99,7 @@ run_restore() {
   fi
 }
 
+# --dry-run only ever previews the pipelines: no tool check, no host contact.
 if [[ "$DRY_RUN" == "true" ]]; then
   for coll in $COLLECTIONS; do
     echo "-- $coll --"
@@ -111,6 +107,11 @@ if [[ "$DRY_RUN" == "true" ]]; then
     echo "  | $(describe_restore_cmd "$coll")"
   done
   exit 0
+fi
+
+if [[ -z "$LOCAL_MONGO_CONTAINER" ]] && ! command -v mongorestore >/dev/null 2>&1; then
+  echo "install with: brew install mongodb-database-tools"
+  exit 2
 fi
 
 synced=0

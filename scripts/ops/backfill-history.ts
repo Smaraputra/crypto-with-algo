@@ -201,8 +201,13 @@ export async function main(): Promise<number> {
       ? await loadFearGreedLookup(globalMaxMonths * 31 + MAX_FEAR_GREED_CARRY_DAYS)
       : null;
 
+  let hasError = false;
+
   const fundingBySymbol = new Map<string, FundingEvent[]>();
 
+  // A funding failure does not stop that symbol's snapshot jobs: they still
+  // run without funding coverage, and a later re-run's merge upsert can add
+  // it. It does mark the run as failed, so the operator notices and re-runs.
   async function fundingEventsFor(symbol: string): Promise<FundingEvent[]> {
     const cached = fundingBySymbol.get(symbol);
     if (cached) return cached;
@@ -217,14 +222,13 @@ export async function main(): Promise<number> {
     try {
       events = await fetchFundingHistory(symbol, start - FUNDING_LOOKBACK_MS, end);
     } catch (error) {
-      console.error(`Failed to fetch funding history for ${symbol}:`, errorMessage(error));
+      hasError = true;
+      console.log(JSON.stringify({ kind: 'funding', symbol, error: errorMessage(error) }));
     }
 
     fundingBySymbol.set(symbol, events);
     return events;
   }
-
-  let hasError = false;
 
   for (const job of jobs) {
     const started = Date.now();
