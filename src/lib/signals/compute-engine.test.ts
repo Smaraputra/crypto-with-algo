@@ -367,6 +367,49 @@ describe('compute-engine', () => {
       expect(result.errors).toBe(1);
     });
 
+    it('does not re-create docs that already succeeded in a partial bulk failure, and creates one outcome per stored signal', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockResolvedValue(candles);
+      mockFetchKlines.mockResolvedValue(candles);
+
+      // Simulate an unordered insertMany that partially succeeded: BTCUSDT
+      // made it in (mongoose attaches it to the thrown error's
+      // insertedDocs), ETHUSDT did not and needs the individual fallback.
+      mockInsertMany.mockImplementation(async (docs: Array<Record<string, unknown>>) => {
+        const err = new Error('Bulk write error') as Error & {
+          insertedDocs?: Array<Record<string, unknown>>;
+        };
+        err.insertedDocs = docs
+          .filter((d) => d.symbol === 'BTCUSDT')
+          .map((d, i) => ({ ...d, _id: `bulk-${i}` }));
+        throw err;
+      });
+      mockCreate.mockImplementation(async (doc: Record<string, unknown>) => ({
+        ...doc,
+        _id: 'individual-0',
+      }));
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      const result = await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        { symbol: 'ETHUSDT', interval: '1h', tradingStyle: 'day_trading' },
+      ]);
+
+      expect(result.computed).toBe(2);
+      expect(result.errors).toBe(0);
+
+      // Only ETHUSDT (not already inserted in the bulk pass) goes through create()
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockCreate.mock.calls[0][0].symbol).toBe('ETHUSDT');
+
+      // Exactly one outcome entry per stored signal, no duplicates from re-creating BTCUSDT
+      expect(mockCreatePendingOutcomes).toHaveBeenCalledTimes(1);
+      const signalsArg = mockCreatePendingOutcomes.mock.calls[0][0];
+      expect(signalsArg).toHaveLength(2);
+      const symbols = signalsArg.map((s: { symbol: string }) => s.symbol).sort();
+      expect(symbols).toEqual(['BTCUSDT', 'ETHUSDT']);
+    });
+
     describe('pending outcome creation', () => {
       function mockInsertManyWithIds() {
         mockInsertMany.mockImplementation(async (docs: Array<Record<string, unknown>>) =>

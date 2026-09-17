@@ -98,6 +98,7 @@ export interface ResolveDueOutcomesResult {
   resolved: number;
   unresolvable: number;
   pending: number;
+  failedGroups: number;
 }
 
 type PendingOutcome = ISignalOutcome & { _id: Types.ObjectId };
@@ -122,7 +123,7 @@ export async function resolveDueOutcomes(
 
   if (due.length === 0) {
     const pending = await SignalOutcome.countDocuments({ status: 'pending' });
-    return { resolved: 0, unresolvable: 0, pending };
+    return { resolved: 0, unresolvable: 0, pending, failedGroups: 0 };
   }
 
   const groups = new Map<string, PendingOutcome[]>();
@@ -136,87 +137,99 @@ export async function resolveDueOutcomes(
     }
   }
 
-  const resolvedOps: Array<{
+  const ops: Array<{
     updateOne: {
       filter: { _id: Types.ObjectId };
       update: { $set: Record<string, unknown> };
     };
   }> = [];
+  let failedGroups = 0;
 
   for (const [key, outcomes] of groups) {
     const [symbol, interval] = key.split(':');
-    const intervalMs = intervalToMs(interval);
 
-    const minTimestamp = Math.min(...outcomes.map((o) => o.candleTimestamp));
-    const maxResolveAt = Math.max(...outcomes.map((o) => o.resolveAt));
-    const candleLimit = Math.ceil((maxResolveAt - minTimestamp) / intervalMs) + 2;
+    // A group that throws (a bad candle fetch, an unrecognized interval)
+    // must not abort the whole batch: the batch is sorted by resolveAt, so
+    // an unhandled failure here would re-select the same group first on
+    // every future run and starve every group behind it. Its outcomes are
+    // simply left pending for the next run.
+    try {
+      const intervalMs = intervalToMs(interval);
 
-    const candles = await getCandles(symbol, interval, minTimestamp, maxResolveAt, candleLimit);
-    const indexByTimestamp = new Map<number, number>();
-    candles.forEach((c, i) => indexByTimestamp.set(c.timestamp, i));
+      const minTimestamp = Math.min(...outcomes.map((o) => o.candleTimestamp));
+      const maxResolveAt = Math.max(...outcomes.map((o) => o.resolveAt));
+      const candleLimit = Math.ceil((maxResolveAt - minTimestamp) / intervalMs) + 2;
 
-    for (const outcome of outcomes) {
-      const entryIndex = indexByTimestamp.get(outcome.candleTimestamp);
+      const candles = await getCandles(symbol, interval, minTimestamp, maxResolveAt, candleLimit);
+      const indexByTimestamp = new Map<number, number>();
+      candles.forEach((c, i) => indexByTimestamp.set(c.timestamp, i));
 
-      if (entryIndex === undefined) {
-        resolvedOps.push(unresolvableOp(outcome._id, now));
-        continue;
-      }
+      for (const outcome of outcomes) {
+        const entryIndex = indexByTimestamp.get(outcome.candleTimestamp);
 
-      const entry = candles[entryIndex];
-      const forwardCandles = candles.slice(
-        entryIndex + 1,
-        entryIndex + 1 + outcome.horizonBars
-      );
+        if (entryIndex === undefined) {
+          ops.push(unresolvableOp(outcome._id, now));
+          continue;
+        }
 
-      if (forwardCandles.length < outcome.horizonBars) {
-        resolvedOps.push(unresolvableOp(outcome._id, now));
-        continue;
-      }
+        const entry = candles[entryIndex];
+        const forwardCandles = candles.slice(
+          entryIndex + 1,
+          entryIndex + 1 + outcome.horizonBars
+        );
 
-      const consecutive = forwardCandles.every(
-        (candle, i) => candle.timestamp === outcome.candleTimestamp + (i + 1) * intervalMs
-      );
-      if (!consecutive) {
-        resolvedOps.push(unresolvableOp(outcome._id, now));
-        continue;
-      }
+        if (forwardCandles.length < outcome.horizonBars) {
+          ops.push(unresolvableOp(outcome._id, now));
+          continue;
+        }
 
-      const entryPrice = entry.close;
-      const exitCandle = forwardCandles[forwardCandles.length - 1];
-      const forwardReturnPercent = ((exitCandle.close - entryPrice) / entryPrice) * 100;
-      const maxHigh = Math.max(...forwardCandles.map((c) => c.high));
-      const minLow = Math.min(...forwardCandles.map((c) => c.low));
-      const mfePercent = ((maxHigh - entryPrice) / entryPrice) * 100;
-      const maePercent = ((minLow - entryPrice) / entryPrice) * 100;
+        const consecutive = forwardCandles.every(
+          (candle, i) => candle.timestamp === outcome.candleTimestamp + (i + 1) * intervalMs
+        );
+        if (!consecutive) {
+          ops.push(unresolvableOp(outcome._id, now));
+          continue;
+        }
 
-      resolvedOps.push({
-        updateOne: {
-          filter: { _id: outcome._id },
-          update: {
-            $set: {
-              status: 'resolved',
-              entryPrice,
-              forwardReturnPercent,
-              mfePercent,
-              maePercent,
-              resolvedAt: new Date(now),
+        const entryPrice = entry.close;
+        const exitCandle = forwardCandles[forwardCandles.length - 1];
+        const forwardReturnPercent = ((exitCandle.close - entryPrice) / entryPrice) * 100;
+        const maxHigh = Math.max(...forwardCandles.map((c) => c.high));
+        const minLow = Math.min(...forwardCandles.map((c) => c.low));
+        const mfePercent = ((maxHigh - entryPrice) / entryPrice) * 100;
+        const maePercent = ((minLow - entryPrice) / entryPrice) * 100;
+
+        ops.push({
+          updateOne: {
+            filter: { _id: outcome._id },
+            update: {
+              $set: {
+                status: 'resolved',
+                entryPrice,
+                forwardReturnPercent,
+                mfePercent,
+                maePercent,
+                resolvedAt: new Date(now),
+              },
             },
           },
-        },
-      });
+        });
+      }
+    } catch (err) {
+      failedGroups++;
+      console.error(`Failed to resolve outcomes for ${key}:`, err);
     }
   }
 
-  if (resolvedOps.length > 0) {
-    await SignalOutcome.bulkWrite(resolvedOps);
+  if (ops.length > 0) {
+    await SignalOutcome.bulkWrite(ops, { ordered: false });
   }
 
-  const resolved = resolvedOps.filter((op) => op.updateOne.update.$set.status === 'resolved').length;
-  const unresolvable = resolvedOps.length - resolved;
+  const resolved = ops.filter((op) => op.updateOne.update.$set.status === 'resolved').length;
+  const unresolvable = ops.length - resolved;
   const pending = await SignalOutcome.countDocuments({ status: 'pending' });
 
-  return { resolved, unresolvable, pending };
+  return { resolved, unresolvable, pending, failedGroups };
 }
 
 function unresolvableOp(id: Types.ObjectId, now: number) {

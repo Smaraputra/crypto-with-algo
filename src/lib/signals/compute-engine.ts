@@ -422,8 +422,24 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       insertedDocs = await GlobalSignal.insertMany(signalDocs, { ordered: false });
     } catch (err) {
       console.error('Bulk signal insert failed, falling back to individual inserts:', err);
+
+      // Mongoose attaches the docs that succeeded before the failure to the
+      // thrown error on an unordered insertMany. GlobalSignal has no unique
+      // index, so blindly re-creating every doc here would duplicate the
+      // ones that already made it in, and each duplicate would then get its
+      // own pending outcome.
+      const alreadyInserted =
+        (err as { insertedDocs?: Array<Record<string, unknown>> })?.insertedDocs ?? [];
+      const alreadyInsertedKeys = new Set(
+        alreadyInserted.map((doc) => `${doc.symbol}:${doc.interval}:${doc.tradingStyle}`)
+      );
+      insertedDocs = [...alreadyInserted];
+
       let insertFailures = 0;
       for (const doc of signalDocs) {
+        const key = `${doc.symbol}:${doc.interval}:${doc.tradingStyle}`;
+        if (alreadyInsertedKeys.has(key)) continue;
+
         try {
           insertedDocs.push(await GlobalSignal.create(doc));
         } catch (individualErr) {

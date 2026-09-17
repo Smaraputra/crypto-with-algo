@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import * as candleIngestionModule from '@/lib/candle-ingestion';
 
 // getCandles calls connectDB(); the memory server connection from beforeAll
 // is already established, so this only needs to be a no-op.
@@ -325,6 +326,7 @@ describe('resolveDueOutcomes', () => {
     expect(result.resolved).toBe(2);
     expect(result.unresolvable).toBe(1);
     expect(result.pending).toBe(1);
+    expect(result.failedGroups).toBe(0);
 
     const resolvedBtc = await SignalOutcome.findById(btcOutcome._id);
     expect(resolvedBtc!.status).toBe('resolved');
@@ -392,6 +394,176 @@ describe('resolveDueOutcomes', () => {
   it('returns zero counts when nothing is due', async () => {
     const { resolveDueOutcomes } = await importModules();
     const result = await resolveDueOutcomes(Date.now());
-    expect(result).toEqual({ resolved: 0, unresolvable: 0, pending: 0 });
+    expect(result).toEqual({ resolved: 0, unresolvable: 0, pending: 0, failedGroups: 0 });
+  });
+
+  it('fetches candles once per group even when it holds two outcomes at different candleTimestamps and horizons', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+    const getCandlesSpy = vi.spyOn(candleIngestionModule, 'getCandles');
+
+    const T = 1_750_000_000_000;
+
+    // outcome A: candleTimestamp T, horizonBars 2 -> needs T .. T+2h
+    // outcome B: candleTimestamp T+1h, horizonBars 3 -> needs T+1h .. T+4h
+    // Both share the ADAUSDT:1h group, so getCandles must be called once,
+    // covering the full span up to the furthest resolveAt.
+    await Candle.insertMany([
+      makeCandle('ADAUSDT', '1h', T, { close: 10 }),
+      makeCandle('ADAUSDT', '1h', T + ONE_HOUR_MS, { close: 11 }),
+      makeCandle('ADAUSDT', '1h', T + 2 * ONE_HOUR_MS, { close: 12 }),
+      makeCandle('ADAUSDT', '1h', T + 3 * ONE_HOUR_MS, { close: 13 }),
+      makeCandle('ADAUSDT', '1h', T + 4 * ONE_HOUR_MS, { close: 14 }),
+    ]);
+
+    const outcomeA = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'ADAUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars: 2,
+      resolveAt: T + 3 * ONE_HOUR_MS,
+    });
+    const outcomeB = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'ADAUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T + ONE_HOUR_MS,
+      horizonBars: 3,
+      resolveAt: T + 5 * ONE_HOUR_MS,
+    });
+
+    const now = T + 5 * ONE_HOUR_MS;
+    const result = await resolveDueOutcomes(now);
+
+    expect(result.resolved).toBe(2);
+    expect(getCandlesSpy).toHaveBeenCalledTimes(1);
+
+    const [symbolArg, intervalArg, startArg, endArg, limitArg] = getCandlesSpy.mock.calls[0];
+    expect(symbolArg).toBe('ADAUSDT');
+    expect(intervalArg).toBe('1h');
+    expect(startArg).toBe(T); // min candleTimestamp across the group
+    expect(endArg).toBe(T + 5 * ONE_HOUR_MS); // max resolveAt across the group
+    // Enough bars between the earliest candleTimestamp and the furthest resolveAt
+    expect(limitArg).toBeGreaterThanOrEqual(5);
+
+    const updatedA = await SignalOutcome.findById(outcomeA._id);
+    const updatedB = await SignalOutcome.findById(outcomeB._id);
+    expect(updatedA!.status).toBe('resolved');
+    expect(updatedB!.status).toBe('resolved');
+
+    getCandlesSpy.mockRestore();
+  });
+
+  it('marks an outcome unresolvable when the entry candle itself is missing even though later candles exist', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+
+    const T = 1_760_000_000_000;
+
+    // Entry candle at T was never stored; forward candles exist. This must
+    // hit the entryIndex === undefined path, not the length/gap checks.
+    await Candle.insertMany([
+      makeCandle('DOTUSDT', '1h', T + ONE_HOUR_MS, { close: 20 }),
+      makeCandle('DOTUSDT', '1h', T + 2 * ONE_HOUR_MS, { close: 21 }),
+    ]);
+
+    const outcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'DOTUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars: 2,
+      resolveAt: T + 3 * ONE_HOUR_MS,
+    });
+
+    const now = T + 3 * ONE_HOUR_MS;
+    const result = await resolveDueOutcomes(now);
+
+    expect(result.resolved).toBe(0);
+    expect(result.unresolvable).toBe(1);
+
+    const updated = await SignalOutcome.findById(outcome._id);
+    expect(updated!.status).toBe('unresolvable');
+    expect(updated!.entryPrice).toBeNull();
+  });
+
+  it('resolves other groups and reports failedGroups when one group fails', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+    const actualGetCandles = candleIngestionModule.getCandles;
+    const getCandlesSpy = vi
+      .spyOn(candleIngestionModule, 'getCandles')
+      .mockImplementation(async (symbol: string, interval: string, ...rest: unknown[]) => {
+        if (symbol === 'FAILUSDT') {
+          throw new Error('candle fetch failed');
+        }
+        return actualGetCandles(
+          symbol,
+          interval,
+          ...(rest as [number | undefined, number | undefined, number | undefined])
+        );
+      });
+
+    const T = 1_770_000_000_000;
+
+    // Succeeding group
+    await Candle.insertMany([
+      makeCandle('BTCUSDT', '1h', T, { close: 100 }),
+      makeCandle('BTCUSDT', '1h', T + ONE_HOUR_MS, { close: 105 }),
+    ]);
+    const okOutcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars: 1,
+      resolveAt: T + 2 * ONE_HOUR_MS,
+    });
+
+    // Failing group: getCandles rejects for this symbol
+    const failOutcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'FAILUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars: 1,
+      resolveAt: T + 2 * ONE_HOUR_MS,
+    });
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const now = T + 2 * ONE_HOUR_MS;
+    const result = await resolveDueOutcomes(now);
+
+    expect(result.resolved).toBe(1);
+    expect(result.failedGroups).toBe(1);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    const updatedOk = await SignalOutcome.findById(okOutcome._id);
+    expect(updatedOk!.status).toBe('resolved');
+
+    const updatedFail = await SignalOutcome.findById(failOutcome._id);
+    expect(updatedFail!.status).toBe('pending'); // left untouched, retried next run
+
+    getCandlesSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
   });
 });
