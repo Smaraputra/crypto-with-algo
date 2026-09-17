@@ -205,8 +205,8 @@ describe('VALID_INTERVALS', () => {
 });
 
 describe('HF_INTERVALS', () => {
-  it('contains 1m and 5m', () => {
-    expect(HF_INTERVALS).toEqual(['1m', '5m']);
+  it('contains only 1m, since 5m is now durable', () => {
+    expect(HF_INTERVALS).toEqual(['1m']);
   });
 });
 
@@ -215,18 +215,18 @@ describe('HF_TTL_MS', () => {
     expect(HF_TTL_MS['1m']).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
-  it('5m TTL is 14 days', () => {
-    expect(HF_TTL_MS['5m']).toBe(14 * 24 * 60 * 60 * 1000);
+  it('has no entry for 5m', () => {
+    expect(HF_TTL_MS as Record<string, number>).not.toHaveProperty('5m');
   });
 });
 
 describe('isHighFrequencyInterval', () => {
-  it('returns true for 1m and 5m', () => {
+  it('returns true for 1m', () => {
     expect(isHighFrequencyInterval('1m')).toBe(true);
-    expect(isHighFrequencyInterval('5m')).toBe(true);
   });
 
-  it('returns false for standard intervals', () => {
+  it('returns false for 5m and the standard intervals, since 5m is durable', () => {
+    expect(isHighFrequencyInterval('5m')).toBe(false);
     expect(isHighFrequencyInterval('15m')).toBe(false);
     expect(isHighFrequencyInterval('1h')).toBe(false);
     expect(isHighFrequencyInterval('4h')).toBe(false);
@@ -235,7 +235,7 @@ describe('isHighFrequencyInterval', () => {
 });
 
 describe('computeExpiresAt', () => {
-  it('returns a Date for HF intervals', () => {
+  it('returns a Date for 1m', () => {
     const before = Date.now();
     const result = computeExpiresAt('1m');
     const after = Date.now();
@@ -245,7 +245,8 @@ describe('computeExpiresAt', () => {
     expect(result!.getTime()).toBeLessThanOrEqual(after + HF_TTL_MS['1m']);
   });
 
-  it('returns null for non-HF intervals', () => {
+  it('returns null for 5m and the standard intervals, since 5m is durable', () => {
+    expect(computeExpiresAt('5m')).toBeNull();
     expect(computeExpiresAt('1h')).toBeNull();
     expect(computeExpiresAt('4h')).toBeNull();
     expect(computeExpiresAt('1d')).toBeNull();

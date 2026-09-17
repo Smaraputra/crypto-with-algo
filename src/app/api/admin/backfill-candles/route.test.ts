@@ -21,7 +21,7 @@ vi.mock('@/lib/candle-ingestion', () => ({
 const mockCountDocuments = vi.fn();
 vi.mock('@/lib/models/candle', () => ({
   Candle: { countDocuments: (...args: unknown[]) => mockCountDocuments(...args) },
-  HF_INTERVALS: ['1m', '5m'],
+  HF_INTERVALS: ['1m'],
 }));
 
 function makeRequest(body: unknown) {
@@ -128,15 +128,22 @@ describe('POST /api/admin/backfill-candles', () => {
     expect(data.results[0].total).toBe(500);
   });
 
-  it('rejects the TTL-backed intervals that a backfill cannot retain', async () => {
+  it('rejects the TTL-backed interval that a backfill cannot retain', async () => {
     asAdmin();
 
-    for (const interval of ['1m', '5m']) {
-      const response = await run({ symbols: ['BTCUSDT'], intervals: [interval], months: 6 });
+    const response = await run({ symbols: ['BTCUSDT'], intervals: ['1m'], months: 6 });
 
-      expect(response.status).toBe(400);
-    }
+    expect(response.status).toBe(400);
     expect(mockBackfillCandles).not.toHaveBeenCalled();
+  });
+
+  it('accepts 5m, since it is now durable', async () => {
+    asAdmin();
+
+    const response = await run({ symbols: ['BTCUSDT'], intervals: ['5m'], months: 6 });
+
+    expect(response.status).toBe(200);
+    expect(mockBackfillCandles).toHaveBeenCalledWith('BTCUSDT', '5m', 6, { refill: false });
   });
 
   it('names the excluded intervals in the response', async () => {
@@ -145,14 +152,31 @@ describe('POST /api/admin/backfill-candles', () => {
     const response = await run({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 6 });
     const data = await response.json();
 
-    expect(data.excludedIntervals).toEqual(['1m', '5m']);
+    expect(data.excludedIntervals).toEqual(['1m']);
   });
 
-  it('accepts a 48-month window and rejects a longer one', async () => {
+  it('accepts a 120-month window and rejects a longer one', async () => {
     asAdmin();
 
-    expect((await run({ symbols: ['BTCUSDT'], intervals: ['1d'], months: 48 })).status).toBe(200);
-    expect((await run({ symbols: ['BTCUSDT'], intervals: ['1d'], months: 60 })).status).toBe(400);
+    expect((await run({ symbols: ['BTCUSDT'], intervals: ['1d'], months: 120 })).status).toBe(200);
+    expect((await run({ symbols: ['BTCUSDT'], intervals: ['1d'], months: 130 })).status).toBe(400);
+  });
+
+  it('accepts a 5m backfill up to 12 months and rejects a longer one', async () => {
+    asAdmin();
+
+    expect((await run({ symbols: ['BTCUSDT'], intervals: ['5m'], months: 12 })).status).toBe(200);
+    expect((await run({ symbols: ['BTCUSDT'], intervals: ['5m'], months: 13 })).status).toBe(400);
+  });
+
+  it('caps a mixed request at 12 months when 15m is included', async () => {
+    asAdmin();
+
+    const response = await run({
+      symbols: ['BTCUSDT'], intervals: ['15m', '1h'], months: 13,
+    });
+
+    expect(response.status).toBe(400);
   });
 
   it('rejects an empty interval list', async () => {

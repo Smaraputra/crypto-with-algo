@@ -146,11 +146,31 @@ describe('POST /api/admin/backfill-snapshots', () => {
     process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
 
-    const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 60 }));
+    const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 130 }));
     const data = await response.json();
 
     expect(response.status).toBe(400);
     expect(data.error).toBe('Invalid request body');
+  });
+
+  it('should accept a 120-month window for intervals without the 15m cap', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const response = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['1h'], months: 120 }));
+
+    expect(response.status).toBe(200);
+  });
+
+  it('should accept a 15m backfill up to 12 months and reject a longer one', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const accepted = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['15m'], months: 12 }));
+    const rejected = await POST(makeRequest({ symbols: ['BTCUSDT'], intervals: ['15m'], months: 13 }));
+
+    expect(accepted.status).toBe(200);
+    expect(rejected.status).toBe(400);
   });
 
   it('should reject symbols array exceeding max length', async () => {
