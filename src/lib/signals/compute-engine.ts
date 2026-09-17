@@ -14,7 +14,8 @@ import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
 import { computeHtfSeries, getConfirmationInterval, htfContextAtBar } from '@/lib/signals/htf';
 import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
-import type { HtfContext } from '@/types/signal';
+import type { HtfContext, SignalTier } from '@/types/signal';
+import { createPendingOutcomes } from '@/lib/signals/outcome-resolver';
 
 const NEWS_STALENESS_MS = 2 * 60 * 60 * 1000; // snapshots ingest every 15m; 2h covers outages
 
@@ -415,14 +416,16 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
 
   // Bulk insert all computed signals
   if (signalDocs.length > 0) {
+    let insertedDocs: Array<Record<string, unknown>> = [];
+
     try {
-      await GlobalSignal.insertMany(signalDocs, { ordered: false });
+      insertedDocs = await GlobalSignal.insertMany(signalDocs, { ordered: false });
     } catch (err) {
       console.error('Bulk signal insert failed, falling back to individual inserts:', err);
       let insertFailures = 0;
       for (const doc of signalDocs) {
         try {
-          await GlobalSignal.create(doc);
+          insertedDocs.push(await GlobalSignal.create(doc));
         } catch (individualErr) {
           insertFailures++;
           console.error(`Individual signal insert failed for ${doc.symbol}:`, individualErr);
@@ -431,6 +434,27 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       if (insertFailures > 0) {
         result.computed -= insertFailures;
         result.errors += insertFailures;
+      }
+    }
+
+    // Record a pending outcome for every stored signal so live accuracy can
+    // be measured later. Best-effort: never fails the signal batch.
+    if (insertedDocs.length > 0) {
+      try {
+        await createPendingOutcomes(
+          insertedDocs.map((doc) => ({
+            _id: doc._id as string,
+            symbol: doc.symbol as string,
+            interval: doc.interval as string,
+            tradingStyle: doc.tradingStyle as TradingStyle,
+            tier: doc.tier as SignalTier,
+            score: doc.score as number,
+            configVersion: doc.configVersion as number,
+            candleTimestamp: doc.candleTimestamp as number,
+          }))
+        );
+      } catch (err) {
+        console.error('Failed to create pending signal outcomes:', err);
       }
     }
   }

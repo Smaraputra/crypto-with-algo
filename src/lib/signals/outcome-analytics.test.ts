@@ -1,0 +1,230 @@
+// @vitest-environment node
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+} from 'vitest';
+import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+
+let mongoServer: MongoMemoryServer;
+
+beforeAll(async () => {
+  mongoServer = await MongoMemoryServer.create();
+  await mongoose.connect(mongoServer.getUri());
+}, 30_000);
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongoServer.stop();
+});
+
+afterEach(async () => {
+  await mongoose.connection.db?.dropDatabase();
+});
+
+async function importModules() {
+  const { getLiveTierExpectancy } = await import('./outcome-analytics');
+  const { SignalOutcome } = await import('@/lib/models/signal-outcome');
+  return { getLiveTierExpectancy, SignalOutcome };
+}
+
+function makeResolvedOutcome(overrides: Record<string, unknown> = {}) {
+  return {
+    signalId: new mongoose.Types.ObjectId(),
+    symbol: 'BTCUSDT',
+    interval: '1h',
+    tradingStyle: 'day_trading',
+    tier: 'buy',
+    score: 40,
+    configVersion: 3,
+    candleTimestamp: 1_700_000_000_000,
+    horizonBars: 24,
+    resolveAt: 1_700_000_000_000 + 25 * 60 * 60 * 1000,
+    status: 'resolved',
+    entryPrice: 100,
+    resolvedAt: new Date('2026-09-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+describe('getLiveTierExpectancy', () => {
+  it('computes expectancy, win rate, and MFE/MAE per tier, flipping sell directionally', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    // Buy tier: directional return is +forwardReturnPercent
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        symbol: 'BTCUSDT',
+        tier: 'buy',
+        forwardReturnPercent: 4,
+        mfePercent: 6,
+        maePercent: -2,
+      })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        symbol: 'BTCUSDT',
+        tier: 'buy',
+        forwardReturnPercent: -2,
+        mfePercent: 3,
+        maePercent: -5,
+      })
+    );
+
+    // Sell tier: directional return is -forwardReturnPercent (price falling is a win)
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        symbol: 'ETHUSDT',
+        tier: 'sell',
+        forwardReturnPercent: -3,
+        mfePercent: 1,
+        maePercent: -6,
+      })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        symbol: 'ETHUSDT',
+        tier: 'sell',
+        forwardReturnPercent: 2,
+        mfePercent: 5,
+        maePercent: -1,
+      })
+    );
+
+    // Pending and unresolvable outcomes must be excluded
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        symbol: 'BTCUSDT',
+        tier: 'buy',
+        status: 'pending',
+        forwardReturnPercent: null,
+        mfePercent: null,
+        maePercent: null,
+        entryPrice: null,
+      })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        symbol: 'BTCUSDT',
+        tier: 'buy',
+        status: 'unresolvable',
+        forwardReturnPercent: null,
+        mfePercent: null,
+        maePercent: null,
+        entryPrice: null,
+      })
+    );
+
+    // A different trading style must be excluded
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        symbol: 'BTCUSDT',
+        tier: 'buy',
+        tradingStyle: 'scalping',
+        forwardReturnPercent: 100,
+        mfePercent: 100,
+        maePercent: 100,
+      })
+    );
+
+    const results = await getLiveTierExpectancy({
+      tradingStyle: 'day_trading',
+      costPercentRoundTrip: 0.1,
+    });
+
+    expect(results).toHaveLength(2);
+
+    const buy = results.find((r) => r.tier === 'buy')!;
+    expect(buy.count).toBe(2);
+    expect(buy.expectancyPercent).toBeCloseTo(1 - 0.1, 6); // mean(4, -2) = 1
+    expect(buy.winRate).toBeCloseTo(0.5, 6);
+    expect(buy.avgMfePercent).toBeCloseTo(4.5, 6);
+    expect(buy.avgMaePercent).toBeCloseTo(-3.5, 6);
+
+    const sell = results.find((r) => r.tier === 'sell')!;
+    expect(sell.count).toBe(2);
+    // Directional: -(-3)=3, -(2)=-2 -> mean 0.5
+    expect(sell.expectancyPercent).toBeCloseTo(0.5 - 0.1, 6);
+    expect(sell.winRate).toBeCloseTo(0.5, 6);
+    // MFE/MAE stay in the long perspective, never flipped
+    expect(sell.avgMfePercent).toBeCloseTo(3, 6);
+    expect(sell.avgMaePercent).toBeCloseTo(-3.5, 6);
+  });
+
+  it('filters by symbol', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(
+      makeResolvedOutcome({ symbol: 'BTCUSDT', tier: 'buy', forwardReturnPercent: 5 })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({ symbol: 'ETHUSDT', tier: 'buy', forwardReturnPercent: -5 })
+    );
+
+    const results = await getLiveTierExpectancy({
+      tradingStyle: 'day_trading',
+      symbol: 'BTCUSDT',
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].count).toBe(1);
+    expect(results[0].expectancyPercent).toBeCloseTo(5, 6);
+  });
+
+  it('filters by since, based on resolvedAt', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        tier: 'buy',
+        forwardReturnPercent: 1,
+        resolvedAt: new Date('2026-01-01T00:00:00.000Z'),
+      })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({
+        tier: 'buy',
+        forwardReturnPercent: 9,
+        resolvedAt: new Date('2026-09-01T00:00:00.000Z'),
+      })
+    );
+
+    const results = await getLiveTierExpectancy({
+      tradingStyle: 'day_trading',
+      since: new Date('2026-06-01T00:00:00.000Z'),
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].count).toBe(1);
+    expect(results[0].expectancyPercent).toBeCloseTo(9, 6);
+  });
+
+  it('defaults cost to 0 and returns an empty array when nothing matches', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 3 }));
+
+    const withoutMatch = await getLiveTierExpectancy({ tradingStyle: 'scalping' });
+    expect(withoutMatch).toEqual([]);
+
+    const withMatch = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    expect(withMatch[0].expectancyPercent).toBeCloseTo(3, 6);
+  });
+
+  it('treats neutral as informational using the raw forward return', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tier: 'neutral', forwardReturnPercent: -1.5 })
+    );
+
+    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    expect(results).toHaveLength(1);
+    expect(results[0].tier).toBe('neutral');
+    expect(results[0].expectancyPercent).toBeCloseTo(-1.5, 6);
+  });
+});
