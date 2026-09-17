@@ -603,6 +603,7 @@ function makeStrategyWindow(overrides: Partial<StrategyReport['perSymbol'][numbe
       fees: 3,
       slippageCost: 0.5,
       fundingCost: 0,
+      snapshotCoveragePercent: 95,
     },
     stress: { trades: 15, expectancyPercent: 0.4 },
     benchmark: {
@@ -633,6 +634,7 @@ function makeStrategyPerSymbol(
       mode: 'anchored',
       count: 3,
     },
+    benchmarkSeed: 1,
     windows: [makeStrategyWindow()],
     pooledOos: { trades: 15, expectancyPercent: 0.9, winRate: 0.53 },
     ...overrides,
@@ -852,6 +854,24 @@ describe('checkStrategyFindings', () => {
     expect(ungrounded.map((u) => u.index)).toEqual([0, 1]);
   });
 
+  it('does not ground a pooled finding against a plateau.bestParams value', () => {
+    // 777 appears only as a grid cell's own parameter value, not as any
+    // statistic; the dynamic key name (here "threshold") must not defeat
+    // the exclusion.
+    const report = makeStrategyReport({
+      gates: makeStrategyGates([{ value: 999 }]),
+      pooled: makePooledStats({
+        plateau: { score: 0.7, neighbors: 2, bestMetric: 1.2, bestParams: { threshold: 777 }, neighborRadius: 1 },
+      }),
+    });
+    const sub = makeStrategySubagentReport({
+      topFindings: [{ claim: 'bogus, matches only bestParams.threshold', metric: 'threshold', value: 777, n: 150 }],
+    });
+    const ungrounded = checkStrategyFindings(sub, report);
+    expect(ungrounded).toHaveLength(1);
+    expect(ungrounded[0].index).toBe(0);
+  });
+
   it('flags an ungrounded pooled finding', () => {
     const report = makeStrategyReport();
     const sub = makeStrategySubagentReport({
@@ -969,7 +989,7 @@ describe('spotCheckStrategyWindow', () => {
           windows: [
             makeStrategyWindow({
               selectedParams: { threshold: 5 },
-              oos: { trades: 0, expectancyPercent: null, expectancyR: null, winRate: null, profitFactor: null, maxDrawdownPercent: null, medianHoldBars: null, fees: 0, slippageCost: 0, fundingCost: 0 },
+              oos: { trades: 0, expectancyPercent: null, expectancyR: null, winRate: null, profitFactor: null, maxDrawdownPercent: null, medianHoldBars: null, fees: 0, slippageCost: 0, fundingCost: 0, snapshotCoveragePercent: null },
             }),
           ],
         }),

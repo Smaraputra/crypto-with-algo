@@ -22,8 +22,10 @@
  *                               --report exception and agreement rule as
  *                               --family
  *   --symbols <a,b,c>          default: the dataset manifest's symbols
- *   --start / --end <ISO>      inclusive candle/snapshot range; HTF warmup
- *                               candles before --start are kept regardless
+ *   --start / --end <ISO>      inclusive candle range (--end also bounds
+ *                               snapshots and HTF candles; snapshot rows
+ *                               and HTF candles before --start are kept
+ *                               regardless, as warmup/context)
  *   --dataset-dir <dir>        default: data/research
  *   --out <file>               default: data/research/reports/strategy-<family>-<interval>-<taskId>.json
  *   --task-id <id>             default: strategy-<family>-<interval>-<UTC yyyymmddHHMM>
@@ -61,13 +63,41 @@
  * is enabled only when every loaded symbol has snapshot rows -- a mix of
  * covered and uncovered symbols aborts rather than silently running with
  * funding off for some symbols and on for others; the objective throughout
- * is net expectancy per trade after all costs.
+ * is net expectancy per trade after all costs. Snapshot rows (like HTF
+ * candles) are filtered only to t <= --end, not t >= --start, so a symbol's
+ * first scored bars after --start still have a real, pre-start futures
+ * reading to align against instead of starting cold.
+ *
+ * What the numbers do not mean:
+ * - `pooled.maxDrawdownPercent` (printed as `syntheticMaxDD`) concatenates
+ *   currency PnL from up to ten independent 10,000-equity single-symbol
+ *   runs onto one synthetic path, in pooled exit-time order; it is neither
+ *   a portfolio drawdown (no cross-symbol correlation, sizing, or margin
+ *   modeled) nor any one symbol's own.
+ * - The `trials` gate's deflated Sharpe treats pooled trades from
+ *   correlated symbols as IID observations, biasing its probability
+ *   upward (toward passing); its trial variance is measured only across
+ *   this family's own grid cells, so a one-cell family always has
+ *   variance 0, benchmark 0, and `--trials` is inert for it.
+ * - The plateau score (strategy-gates.ts) is computed in index space --
+ *   a neighbor is the literally-adjacent grid value in every dimension,
+ *   not a value within some normalized distance -- so `neighborRadius` is
+ *   always 1 and does not shrink on a wide grid.
+ * - The `symbols` gate's share is close to meaningless below a handful of
+ *   symbols (one symbol is either 0% or 100% positive).
+ * - At 5m this harness runs `prepareBacktest` directly and so scores with
+ *   an Ichimoku signal included in the composite score; live scoring
+ *   nulls that signal out for scalping, and factor-ic.ts strips it for
+ *   the same reason (see factors.ts's own header for why).
  *
  * Runtime note: strategy-walk-forward.ts's bar loop measured about 2.6
- * microseconds per bar, and one random-entry benchmark run (200 iterations)
- * measured about 10 ms, on 17,000 1h bars (see strategy-walk-forward.ts's
- * own test fixtures for the benchmark methodology).
- * Acceptance run wall time: recorded by the controller after merge review.
+ * microseconds per bar. One random-entry benchmark iteration reruns a full
+ * backtest over the test window and measured about 10 ms per iteration (at
+ * roughly 3,800 test-window bars), so a 200-iteration benchmark costs
+ * roughly 2 seconds per window, not 10 ms for the whole benchmark (see
+ * strategy-walk-forward.ts's own test fixtures for the methodology).
+ * Acceptance run wall time: 2.5 s for BTCUSDT, 1h, 17,280 bars, 6 windows,
+ * 100 benchmark iterations.
  */
 
 import { execFileSync } from 'child_process';
@@ -78,6 +108,7 @@ import type { OHLCV } from '@/types/market';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import type { HtfInput } from '@/lib/backtest/optimized-engine';
+import { intervalToMs } from '@/lib/intervals';
 import { studyCostConfig } from '@/lib/backtest/cost-model';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
@@ -160,6 +191,17 @@ function defaultTaskId(family: string | undefined, interval: string | undefined,
     return `strategy-${family}-${interval}-${stamp}`;
   }
   return `strategy-cell-${stamp}`;
+}
+
+/** Parses a required-numeric flag's value, throwing `Invalid --<flag>: <value>`
+ * on a non-finite result, or a non-integer one when `integer` is set. */
+function parseNumberFlag(flags: Map<string, string>, key: string, opts: { integer?: boolean } = {}): number {
+  const raw = flags.get(key)!;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || (opts.integer && !Number.isInteger(value))) {
+    throw new Error(`Invalid --${key}: ${raw}`);
+  }
+  return value;
 }
 
 function parseCell(value: string): { symbol: string; window: number } {
@@ -269,19 +311,21 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
     datasetDir: flags.get('dataset-dir') ?? 'data/research',
     out,
     taskId,
-    windows: flags.has('windows') ? Number(flags.get('windows')) : 6,
-    trainFraction: flags.has('train-fraction') ? Number(flags.get('train-fraction')) : 0.4,
+    windows: flags.has('windows') ? parseNumberFlag(flags, 'windows', { integer: true }) : 6,
+    trainFraction: flags.has('train-fraction') ? parseNumberFlag(flags, 'train-fraction') : 0.4,
     windowMode,
-    seed: flags.has('seed') ? Number(flags.get('seed')) : 42,
-    bootstrapN: flags.has('bootstrap-n') ? Number(flags.get('bootstrap-n')) : VALIDATION_PROTOCOL.bootstrap.iterations,
-    benchmarkN: flags.has('benchmark-n') ? Number(flags.get('benchmark-n')) : 200,
+    seed: flags.has('seed') ? parseNumberFlag(flags, 'seed', { integer: true }) : 42,
+    bootstrapN: flags.has('bootstrap-n')
+      ? parseNumberFlag(flags, 'bootstrap-n', { integer: true })
+      : VALIDATION_PROTOCOL.bootstrap.iterations,
+    benchmarkN: flags.has('benchmark-n') ? parseNumberFlag(flags, 'benchmark-n', { integer: true }) : 200,
     noBenchmark: booleans.has('no-benchmark'),
-    trials: flags.has('trials') ? Number(flags.get('trials')) : defaultTrials,
+    trials: flags.has('trials') ? parseNumberFlag(flags, 'trials', { integer: true }) : defaultTrials,
     stressFeeMult: flags.has('stress-fee-mult')
-      ? Number(flags.get('stress-fee-mult'))
+      ? parseNumberFlag(flags, 'stress-fee-mult')
       : VALIDATION_PROTOCOL.stress.feeMultiplier,
     stressSlippageMult: flags.has('stress-slippage-mult')
-      ? Number(flags.get('stress-slippage-mult'))
+      ? parseNumberFlag(flags, 'stress-slippage-mult')
       : VALIDATION_PROTOCOL.stress.slippageMultiplier,
     allowLockbox: booleans.has('allow-lockbox'),
     expectManifestHash: flags.get('expect-manifest-hash'),
@@ -328,9 +372,30 @@ function loadSymbolInputs(
   let snapshots: LeanSnapshot[] = [];
   if (existsSync(snapshotPath)) {
     const snapshotResult = loadSnapshots(datasetDir, symbol, snapshotInterval, { allowLockbox: opts.allowLockbox });
-    snapshots = snapshotResult.rows.filter((r) => inRange(r.t, opts.start, opts.end)).map(toLeanSnapshot);
+    // Filtered only to t <= end, like the HTF candles below: a snapshot row
+    // from before --start is still the most recent real futures reading as
+    // of the first scored bar after --start, not a leak (buildSnapshotSeries
+    // aligns each candle to the latest snapshot at or before it; without
+    // pre-start rows, the first bars after --start would score with no
+    // futures input at all until the first post-start snapshot arrives).
+    snapshots = snapshotResult.rows.filter((r) => opts.end === undefined || r.t <= opts.end).map(toLeanSnapshot);
     if (snapshotInterval !== interval) {
       console.error(`[strategy-harness] ${symbol}: using ${snapshotInterval} snapshots for ${interval} candles`);
+    }
+  }
+
+  // A handful of stray rows is enough to mark a symbol "covered" and turn
+  // funding on for the whole run (see the harness's mixed-coverage check);
+  // this warns when that coverage would be too thin to mean much, without
+  // blocking the run over it.
+  if (snapshots.length > 0) {
+    const candleSpanMs = candles.length * intervalToMs(interval);
+    const snapshotSpanMs = snapshots.length * intervalToMs(snapshotInterval);
+    if (snapshotSpanMs < candleSpanMs / 2) {
+      console.error(
+        `[strategy-harness] ${symbol}: thin ${snapshotInterval} snapshot coverage (${snapshots.length} rows ` +
+          `over ${candles.length} ${interval} candles)`
+      );
     }
   }
 
@@ -411,6 +476,7 @@ function buildWindowReport(w: WindowResult): StrategyReport['perSymbol'][number]
           fees: finiteOr(w.oos.fees, 0),
           slippageCost: finiteOr(w.oos.slippageCost, 0),
           fundingCost: finiteOr(w.oos.fundingCost, 0),
+          snapshotCoveragePercent: w.oos.snapshotCoveragePercent === null ? null : toFinite(w.oos.snapshotCoveragePercent),
         }
       : null,
     stress: w.stress ? { trades: w.stress.trades, expectancyPercent: toFinite(w.stress.expectancyPercent) } : null,
@@ -467,7 +533,8 @@ function formatReport(report: StrategyReport): string {
     : '-';
   lines.push(
     `pooled: trades=${report.pooled.n} expectancy=${fmtValue(report.pooled.expectancyPercent)}% ` +
-      `CI95=${ci} winRate=${fmtValue(report.pooled.winRate)} medianHold=${fmtValue(report.pooled.medianHoldBars, 1)}`
+      `CI95=${ci} winRate=${fmtValue(report.pooled.winRate)} medianHold=${fmtValue(report.pooled.medianHoldBars, 1)} ` +
+      `syntheticMaxDD=${fmtValue(report.pooled.maxDrawdownPercent)}%`
   );
 
   for (const s of report.perSymbol) {
@@ -526,6 +593,12 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   const snapshotInterval = mapToSnapshotInterval(interval);
 
   console.error(`[strategy-harness] family=${familyName} interval=${interval} symbols=${symbols.join(',')}`);
+  if (symbols.length < 3) {
+    console.error(
+      `[strategy-harness] warning: running with only ${symbols.length} symbol(s); the symbols gate is close to ` +
+        `meaningless below a handful of symbols`
+    );
+  }
 
   const perSymbolInputs: SymbolInputs[] = [];
   for (const symbol of symbols) {
@@ -555,8 +628,18 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   const lockboxApplied = perSymbolInputs.every((s) => s.lockboxApplied);
 
   const results: StrategyWalkForwardResult[] = [];
-  for (const input of perSymbolInputs) {
+  const benchmarkSeeds: Array<number | null> = [];
+  for (let symbolIndex = 0; symbolIndex < perSymbolInputs.length; symbolIndex++) {
+    const input = perSymbolInputs[symbolIndex];
     const windowMs: number[] = [];
+    // Per-symbol benchmark seed: without this, every symbol's window i draws
+    // the same mulberry32 stream on the same relative timestamps, so
+    // correlated symbols correlate the pooled random-entry null and inflate
+    // randomEntryP -- a conservative bias, but a miscalibrated gate for the
+    // multi-symbol run it exists to check.
+    const symbolBenchmarkSeed = args.noBenchmark ? null : args.seed + symbolIndex * 1_000_000;
+    benchmarkSeeds.push(symbolBenchmarkSeed);
+
     const result = runStrategyWalkForward({
       candles: input.candles,
       symbol: input.symbol,
@@ -576,9 +659,10 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
       windows: { count: args.windows, trainFraction: args.trainFraction, mode: args.windowMode },
       minIsTrades: MIN_IS_TRADES,
       stress: { feeMultiplier: args.stressFeeMult, slippageMultiplier: args.stressSlippageMult },
-      benchmark: args.noBenchmark ? null : { iterations: args.benchmarkN, seed: args.seed },
-      onWindow: ({ index, ms }) => {
+      benchmark: symbolBenchmarkSeed === null ? null : { iterations: args.benchmarkN, seed: symbolBenchmarkSeed },
+      onWindow: ({ index, total, ms }) => {
         windowMs[index] = ms;
+        console.error(`[strategy-harness] ${input.symbol} window ${index + 1}/${total} done in ${ms} ms`);
       },
     });
 
@@ -608,7 +692,11 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     symbol: result.symbol,
     snapshotRows: perSymbolInputs[i].snapshotRows,
     htfBars: perSymbolInputs[i].htfBars,
-    windowConfig: result.windowConfig,
+    // count: the actual number of windows produced, not the requested
+    // windows.count -- resolveWindowConfig's own `count` field is the
+    // request, which calculateWindows is not guaranteed to fully satisfy.
+    windowConfig: { ...result.windowConfig, count: result.windows.length },
+    benchmarkSeed: benchmarkSeeds[i],
     windows: result.windows.map(buildWindowReport),
     pooledOos: buildPooledOos(result.windows),
   }));
@@ -694,6 +782,14 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     throw new Error(`--interval "${args.interval}" disagrees with the report's interval "${report.interval}"`);
   }
 
+  const currentCommit = resolveCommit();
+  if (currentCommit !== 'unknown' && report.gitCommit !== 'unknown' && currentCommit !== report.gitCommit) {
+    console.error(
+      `[strategy-harness] warning: current HEAD (${currentCommit}) differs from the report's gitCommit ` +
+        `(${report.gitCommit}); code may have changed since the report was written`
+    );
+  }
+
   const family = STRATEGY_FAMILIES[report.family];
   if (!family) {
     throw new Error(`Report names unknown family "${report.family}"`);
@@ -749,7 +845,10 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     purgeGapBars: resolved.purgeGapBars,
     stepSizeBars: resolved.stepSizeBars,
     mode: resolved.mode,
-    count: resolved.count,
+    // The actual number of windows produced, matching the same correction
+    // runStrategyHarness applies when it writes the report (resolved.count
+    // is the requested count, not necessarily what calculateWindows produced).
+    count: resolved.bounds.length,
   };
   // Field-by-field, not JSON.stringify equality: the two objects are built
   // by separate object literals (one here, one already sitting in the

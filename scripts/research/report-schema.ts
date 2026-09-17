@@ -515,6 +515,7 @@ const StrategyWindowSchema = z.object({
       fees: z.number(),
       slippageCost: z.number(),
       fundingCost: z.number(),
+      snapshotCoveragePercent: z.number().nullable(),
     })
     .nullable(),
   stress: z
@@ -549,6 +550,11 @@ const StrategyPerSymbolSchema = z.object({
   snapshotRows: z.number(),
   htfBars: z.number(),
   windowConfig: StrategyResolvedWindowConfigSchema,
+  /** The seed this symbol's random-entry benchmark used (base seed + this
+   * symbol's index * 1,000,000, so correlated symbols never draw the same
+   * mulberry32 stream on the same timestamps); null when the benchmark was
+   * disabled (--no-benchmark). */
+  benchmarkSeed: z.number().nullable(),
   windows: z.array(StrategyWindowSchema),
   pooledOos: z.object({
     trades: z.number(),
@@ -633,20 +639,35 @@ const EXCLUDED_POOLED_PATHS = new Set([
   'bootstrap.seed',
   'bootstrap.meanBlockLen',
   'plateau.neighbors',
+  // A grid cell's own parameter value (e.g. a threshold) is not a
+  // statistic a finding should be able to cite by coincidence; excluded as
+  // a path prefix since the key under bestParams is the family's own
+  // parameter name (e.g. "threshold"), not fixed.
+  'plateau.bestParams',
   'perYear[].year',
   'perYear[].trades',
 ]);
 
+function isExcludedPath(path: string, excluded: Set<string>): boolean {
+  if (excluded.has(path)) return true;
+  for (const ex of excluded) {
+    if (path.startsWith(`${ex}.`)) return true;
+  }
+  return false;
+}
+
 /**
  * Recursively collects every finite number reachable inside `value`
- * (objects, arrays, and tuples alike), skipping any path present in
- * `excluded`. Array elements share one path suffix (`[]`) regardless of
- * index, since a finding never cites "the third entry of perYear" -- only
- * the value itself.
+ * (objects, arrays, and tuples alike), skipping any path present in, or
+ * nested under, `excluded` (see isExcludedPath -- needed for
+ * plateau.bestParams, whose own keys are a grid cell's dynamic parameter
+ * names). Array elements share one path suffix (`[]`) regardless of index,
+ * since a finding never cites "the third entry of perYear" -- only the
+ * value itself.
  */
 function collectGroundableNumbers(value: unknown, path: string, excluded: Set<string>, out: number[]): void {
   if (typeof value === 'number') {
-    if (excluded.has(path)) return;
+    if (isExcludedPath(path, excluded)) return;
     if (Number.isFinite(value)) out.push(value);
     return;
   }

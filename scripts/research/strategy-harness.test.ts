@@ -72,6 +72,9 @@ interface FixtureOptions {
   htfInterval?: string;
   snapshotRowsPerSymbol?: Record<string, number>;
   snapshotInterval?: string;
+  /** Overrides the default oscillating funding rate (0.0001 * ((k % 3) - 1),
+   * zero for a third of rows) with a fixed non-zero rate for every row. */
+  fundingRate?: number;
 }
 
 /**
@@ -105,7 +108,7 @@ async function buildFixtureDataset(dir: string, opts: FixtureOptions): Promise<D
     const snapshotStepMs = intervalToMs(snapshotInterval);
     const snapshotRows: SnapshotRow[] = Array.from({ length: rowCount }, (_, k) => ({
       t: START + k * snapshotStepMs,
-      fundingRate: { rate: 0.0001 * ((k % 3) - 1), markPrice: 100 + k },
+      fundingRate: { rate: opts.fundingRate ?? 0.0001 * ((k % 3) - 1), markPrice: 100 + k },
       longShortRatio: null,
       openInterest: null,
       fearGreed: null,
@@ -237,6 +240,33 @@ describe('strategy-harness CLI', () => {
       expect(report.family).toBe('control');
       expect(report.style).toBe('day_trading');
       expect(report.gridCells).toBe(1);
+    }, 30_000);
+
+    it('gives each symbol a distinct benchmark seed (base seed + symbolIndex * 1,000,000)', async () => {
+      const { args } = await runBase();
+      const report = await runStrategyHarness(args);
+
+      expect(report.perSymbol).toHaveLength(2);
+      expect(report.perSymbol[0].benchmarkSeed).toBe(args.seed);
+      expect(report.perSymbol[1].benchmarkSeed).toBe(args.seed + 1_000_000);
+      expect(report.perSymbol[0].benchmarkSeed).not.toBe(report.perSymbol[1].benchmarkSeed);
+    }, 30_000);
+
+    it('records a null benchmarkSeed for every symbol under --no-benchmark', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const args = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--no-benchmark',
+        '--out', join(dir, 'reports', 'report.json'),
+      ]);
+      const report = await runStrategyHarness(args);
+
+      for (const p of report.perSymbol) {
+        expect(p.benchmarkSeed).toBeNull();
+      }
     }, 30_000);
 
     it('lockboxApplied is false under --allow-lockbox, true otherwise', async () => {
@@ -494,6 +524,42 @@ describe('strategy-harness CLI', () => {
       expect(report.costs.fundingEnabled).toBe(true);
       expect(report.style).toBe('scalping');
     }, 30_000);
+
+    it('accrues real funding cost and reports high snapshotCoveragePercent with hourly rows across the full span', async () => {
+      // 1,200 5m bars = 6,000 minutes = 100 hours: one hourly snapshot row
+      // per hour covers the whole candle span, unlike the 5-row "thin
+      // coverage" fixture above, which never actually exercises 5m scoring
+      // with real 1h funding data throughout the run.
+      await buildFixtureDataset(dir, {
+        interval: '5m',
+        stepMs: 300_000,
+        count: 1200,
+        snapshotRowsPerSymbol: { BTCUSDT: 100, ETHUSDT: 100 },
+        snapshotInterval: '1h',
+        fundingRate: 0.0005,
+      });
+      const args = parseArgs([
+        '--family', 'control',
+        '--interval', '5m',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--out', join(dir, 'reports', 'report.json'),
+      ]);
+      const report = await runStrategyHarness(args);
+
+      expect(report.costs.fundingEnabled).toBe(true);
+
+      const allWindows = report.perSymbol.flatMap((p) => p.windows);
+      const hasFundingCost = allWindows.some((w) => w.oos !== null && w.oos.fundingCost !== 0);
+      expect(hasFundingCost).toBe(true);
+
+      const highCoverageWindows = allWindows.filter(
+        (w) => w.oos !== null && w.oos.snapshotCoveragePercent !== null && w.oos.snapshotCoveragePercent > 90
+      );
+      expect(highCoverageWindows.length).toBeGreaterThan(0);
+    }, 30_000);
   });
 
   describe('runStrategyHarness: mixed snapshot coverage', () => {
@@ -599,6 +665,18 @@ describe('parseArgs', () => {
   it('honors an explicit --trials override', () => {
     const args = parseArgs(['--family', 'control', '--interval', '1h', '--trials', '42'], NOW);
     expect(args.trials).toBe(42);
+  });
+
+  it('throws on a non-finite numeric flag instead of producing NaN', () => {
+    expect(() => parseArgs(['--family', 'control', '--interval', '1h', '--windows', 'oops'], NOW)).toThrow(
+      /Invalid --windows: oops/
+    );
+  });
+
+  it('throws on a non-integer value for an integer-only numeric flag', () => {
+    expect(() => parseArgs(['--family', 'control', '--interval', '1h', '--seed', '1.5'], NOW)).toThrow(
+      /Invalid --seed: 1.5/
+    );
   });
 
   it('throws when --family is missing', () => {

@@ -64,6 +64,7 @@ function oosFromTrades(trades: OosTrade[]): WindowResult['oos'] {
     fees: trades.reduce((s, t) => s + t.fees, 0),
     slippageCost: trades.reduce((s, t) => s + t.slippageCost, 0),
     fundingCost: trades.reduce((s, t) => s + t.fundingCost, 0),
+    snapshotCoveragePercent: null,
   };
 }
 
@@ -449,9 +450,9 @@ describe('poolStrategyResults: plateau', () => {
   });
 
   it('scores a 3-cell one-parameter grid where the neighbor sits at 60% of the best', () => {
-    // threshold in {1, 2, 3}; best (threshold=2) has mean pnl 10, its
-    // neighbor at distance 1/(3-1)=0.5 (threshold=1 or 3) has mean pnl 6
-    // (60% of 10); the far cell is irrelevant to the score but still present.
+    // threshold in {1, 2, 3}; best (threshold=2, index 1) has mean pnl 10,
+    // both index-adjacent cells (threshold=1 and 3, indices 0 and 2) have
+    // mean pnl 6 (60% of 10) and are neighbors (index distance 1).
     const cells = [{ threshold: 1 }, { threshold: 2 }, { threshold: 3 }];
 
     function makeThreeCellWindow(): WindowResult {
@@ -479,8 +480,8 @@ describe('poolStrategyResults: plateau', () => {
     expect(pooled.plateau).not.toBeNull();
     expect(pooled.plateau!.bestParams).toEqual({ threshold: 2 });
     expect(pooled.plateau!.bestMetric).toBeCloseTo(10, 12);
-    expect(pooled.plateau!.neighborRadius).toBeCloseTo(0.5, 12);
-    // Both threshold=1 and threshold=3 are within radius 0.5 of threshold=2's distance-1 (1/2=0.5 normalized).
+    expect(pooled.plateau!.neighborRadius).toBe(1);
+    // Both threshold=1 and threshold=3 sit at index distance 1 from threshold=2.
     expect(pooled.plateau!.neighbors).toBe(2);
     expect(pooled.plateau!.score).toBeCloseTo(0.6, 12);
   });
@@ -510,6 +511,56 @@ describe('poolStrategyResults: plateau', () => {
     // Best is threshold=2 (metric -1, the least negative); bestMetric <= 0 forces score to NaN -> null.
     expect(pooled.plateau!.bestMetric).toBeLessThanOrEqual(0);
     expect(pooled.plateau!.score).toBeNull();
+  });
+
+  it('counts a neighbor adjacent only on the low-cardinality dimension of a mixed 5x2 grid', () => {
+    // a has 5 distinct values (indices 0-4), b has 2 (indices 0-1). Best is
+    // a=3 (index 2), b=10 (index 0). Every b value is always index-adjacent
+    // to every other b value in a 2-value dimension, so (a=3, b=20) -- which
+    // differs from the best ONLY on b -- must count as a neighbor: this is
+    // exactly the case a value-normalized radius would have excluded
+    // (b-adjacent cells sit at normalized distance 1.0 on a 5-value a-axis).
+    const cells = [
+      { a: 1, b: 10 }, { a: 1, b: 20 },
+      { a: 2, b: 10 }, { a: 2, b: 20 },
+      { a: 3, b: 10 }, { a: 3, b: 20 },
+      { a: 4, b: 10 }, { a: 4, b: 20 },
+      { a: 5, b: 10 }, { a: 5, b: 20 },
+    ];
+    // Metric per cell, in the same order as `cells`: best is (a=3,b=10)=10;
+    // its five index-neighbors (a in {2,3,4}, b in {10,20}, minus itself)
+    // are 6; the four a-distant cells (a in {1,5}) are 1 and irrelevant.
+    const metricByCell = [1, 1, 6, 6, 10, 6, 6, 6, 1, 1];
+
+    function makeMixedGridWindow(): WindowResult {
+      const selectedTrades = [makeTrade({ exitTime: 1_000, pnl: 100, pnlPercent: 10 })];
+      const w = makeWindow(0, selectedTrades);
+      return {
+        ...w,
+        selectedParams: cells[4], // { a: 3, b: 10 }
+        oosCells: cells.map((params, i) => ({
+          params,
+          trades: 1,
+          expectancyPercent: metricByCell[i],
+          pnlPercents: [metricByCell[i]],
+        })),
+      };
+    }
+
+    const perSymbol = [makeResult('AAAUSDT', [makeMixedGridWindow()])];
+    const pooled = poolStrategyResults(perSymbol, {
+      interval: '1h',
+      cells,
+      familyCount: 1,
+      ...BOOTSTRAP_OPTS,
+    });
+
+    expect(pooled.plateau).not.toBeNull();
+    expect(pooled.plateau!.bestParams).toEqual({ a: 3, b: 10 });
+    expect(pooled.plateau!.bestMetric).toBeCloseTo(10, 12);
+    expect(pooled.plateau!.neighborRadius).toBe(1);
+    expect(pooled.plateau!.neighbors).toBe(5);
+    expect(pooled.plateau!.score).toBeCloseTo(0.6, 12);
   });
 });
 

@@ -18,6 +18,40 @@
  * usable statistic here" explicit and machine-checkable (see
  * report-schema.ts's StrategyReportSchema, whose nullable fields mirror
  * this module's PooledStats/Gate shapes field for field).
+ *
+ * What the numbers do not mean:
+ * - `maxDrawdownPercent` concatenates currency PnL from up to ten
+ *   independent 10,000-equity single-symbol runs onto one synthetic
+ *   path, in pooled exit-time order. It is neither a portfolio drawdown
+ *   (no cross-symbol correlation, sizing, or margin is modeled) nor any
+ *   one symbol's own drawdown; it is a rough, order-dependent proxy only.
+ * - The `trials` gate's deflated Sharpe treats pooled trades as
+ *   `nObservations = n` independent observations, which is an IID
+ *   assumption a pool of correlated symbols does not satisfy; it
+ *   understates the PSR standard error and biases `probability` upward
+ *   (toward passing). Its `numTrials = cells x familyCount` pairs with
+ *   `varianceOfTrialSharpes` measured only across this family's own grid
+ *   cells, so a one-cell family (no grid at all) always has variance 0,
+ *   `benchmarkSharpe` 0, and `--trials` is inert for it.
+ * - `oosCells` (and so `varianceOfTrialSharpes` and the plateau metric)
+ *   pool every window's per-cell out-of-sample run, including windows
+ *   whose in-sample selection was skipped; `observedSharpe` and every
+ *   other pooled trade statistic cover selected trades only. The two are
+ *   not measuring the same population of trades.
+ * - `plateau.neighborRadius` is always 1: a neighbor is any other grid
+ *   cell whose index (not value) differs by at most 1 in every dimension
+ *   from the best cell's index, in that dimension's own sorted distinct
+ *   values. This is an index-step radius, not a normalized-distance one
+ *   -- a range-normalized radius (1 / (maxValuesPerDim - 1)) would exclude
+ *   the literally-adjacent value on a dimension with few values whenever
+ *   another dimension has many (e.g. {a: 5 values, b: 2 values}: the
+ *   b-adjacent cell sits at normalized distance 1.0, past any radius
+ *   under 1).
+ * - The `symbols` gate's share is close to meaningless below a handful of
+ *   symbols (a single-symbol run is either 0% or 100% positive).
+ * - At 5m the harness scores with Ichimoku included in the composite
+ *   score, a signal live scoring nulls out for scalping (and factor-ic.ts
+ *   strips for the same reason) -- see strategy-harness.ts's header.
  */
 
 import {
@@ -31,7 +65,6 @@ import {
   psrRadicand,
 } from '@/lib/stats/deflated-sharpe';
 import { sampleKurtosis, sampleSkewness } from '@/lib/stats/normal';
-import { parameterPlateauScore } from '@/lib/stats/plateau';
 import type { OosTrade, StrategyWalkForwardResult } from './strategy-walk-forward';
 
 export const VALIDATION_PROTOCOL = {
@@ -140,6 +173,57 @@ function share(positive: number, total: number): number {
 }
 
 /**
+ * Parameter plateau score in index space: for each dimension, cells are
+ * ranked by that dimension's own sorted distinct values (not by the raw
+ * value itself), and a neighbor of the best cell is any other cell whose
+ * per-dimension rank differs by at most 1 in every dimension (Chebyshev
+ * distance 1 in index space) -- unlike a value-normalized radius, this
+ * always includes the literally-adjacent value on every dimension
+ * regardless of how many values another dimension has. Mirrors
+ * src/lib/stats/plateau.ts's parameterPlateauScore semantics (score = mean
+ * neighbor metric / best metric, null when the best metric is at or below
+ * 0 or there are no neighbors), computed independently here since that
+ * module works in normalized-distance space, not index space.
+ */
+function plateauInIndexSpace(
+  cells: Record<string, number>[],
+  metrics: number[]
+): { score: number | null; neighbors: number; bestMetric: number; bestParams: Record<string, number> } {
+  const dims = Object.keys(cells[0]);
+
+  const dimRanks: Map<string, Map<number, number>> = new Map();
+  for (const dim of dims) {
+    const distinctSorted = [...new Set(cells.map((c) => c[dim]))].sort((a, b) => a - b);
+    dimRanks.set(dim, new Map(distinctSorted.map((v, i) => [v, i])));
+  }
+
+  let bestIndex = 0;
+  for (let i = 1; i < metrics.length; i++) {
+    if (metrics[i] > metrics[bestIndex]) bestIndex = i;
+  }
+  const bestParams = cells[bestIndex];
+  const bestMetric = metrics[bestIndex];
+
+  const neighborMetrics: number[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    if (i === bestIndex) continue;
+    const isNeighbor = dims.every((dim) => {
+      const ranks = dimRanks.get(dim)!;
+      return Math.abs(ranks.get(cells[i][dim])! - ranks.get(bestParams[dim])!) <= 1;
+    });
+    if (isNeighbor) neighborMetrics.push(metrics[i]);
+  }
+
+  const neighbors = neighborMetrics.length;
+  const score =
+    bestMetric > 0 && neighbors > 0
+      ? neighborMetrics.reduce((s, m) => s + m, 0) / neighbors / bestMetric
+      : NaN;
+
+  return { score, neighbors, bestMetric, bestParams };
+}
+
+/**
  * Every selected out-of-sample trade across every symbol and window, sorted
  * by exit time ascending; ties keep symbol order (the order of `perSymbol`)
  * then window order (each symbol's own `windows` order), which the stable
@@ -221,7 +305,12 @@ export function poolStrategyResults(
   const bootstrap = { iterations: bootstrapIterations, seed, meanBlockLen };
   let bootstrapCi95: [number, number] | null = null;
   if (n >= 2) {
-    const ci = bootstrapCi(pnlPercents, meanOf, { iterations: bootstrapIterations, meanBlockLen, seed });
+    const ci = bootstrapCi(pnlPercents, meanOf, {
+      iterations: bootstrapIterations,
+      meanBlockLen,
+      seed,
+      alpha: VALIDATION_PROTOCOL.bootstrap.alpha,
+    });
     bootstrapCi95 = [ci.low, ci.high];
   }
 
@@ -300,30 +389,15 @@ export function poolStrategyResults(
 
   let plateauResult: PooledStats['plateau'] = null;
   if (cells.length > 1) {
-    const dims = Object.keys(cells[0]);
-    let maxValuesPerDim = 1;
-    for (const dim of dims) {
-      const distinct = new Set(cells.map((c) => c[dim])).size;
-      if (distinct > maxValuesPerDim) maxValuesPerDim = distinct;
-    }
-    const neighborRadius = 1 / (maxValuesPerDim - 1);
-
     const metrics = perCellPnl.map((arr) => (arr.length === 0 ? 0 : meanOf(arr)));
-    let bestIndex = 0;
-    for (let i = 1; i < metrics.length; i++) {
-      if (metrics[i] > metrics[bestIndex]) bestIndex = i;
-    }
-    const bestParams = cells[bestIndex];
-
-    const results = cells.map((params, i) => ({ params, metric: metrics[i] }));
-    const { score, neighbors, bestMetric } = parameterPlateauScore(results, bestParams, neighborRadius);
+    const { score, neighbors, bestMetric, bestParams } = plateauInIndexSpace(cells, metrics);
 
     plateauResult = {
       score: Number.isFinite(score) ? score : null,
       neighbors,
       bestMetric,
       bestParams,
-      neighborRadius,
+      neighborRadius: 1,
     };
   }
 
@@ -414,6 +488,7 @@ export function evaluateStrategyGates(pooled: PooledStats, interval: string): { 
     pass: pooled.symbolPositiveShare >= VALIDATION_PROTOCOL.minSymbolPositiveShare,
     value: pooled.symbolPositiveShare,
     threshold: VALIDATION_PROTOCOL.minSymbolPositiveShare,
+    note: `${pooled.symbolsPositive}/${pooled.symbolsTotal} symbols positive`,
   });
 
   gates.push({

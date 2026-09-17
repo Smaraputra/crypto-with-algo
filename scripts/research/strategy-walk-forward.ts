@@ -41,6 +41,12 @@
  * `benchmark.seed + 100000 * (index + 1)` (index is 0-based), so no two
  * windows in a single run share a seed and reruns of the same input are
  * fully deterministic.
+ *
+ * Purge invariant: the bar loop only starts trading testSlice at
+ * preparedTest.warmupBars, so testSliceStart + preparedTest.warmupBars must
+ * equal testStart or the run would silently score the wrong bar as the
+ * window's first out-of-sample trade; this is asserted, not just assumed,
+ * before every window's out-of-sample runs.
  */
 
 import type { OHLCV } from '@/types/market';
@@ -118,6 +124,9 @@ export interface OosSummary {
   fees: number;
   slippageCost: number;
   fundingCost: number;
+  /** Share of scored bars with a usable futures snapshot (result.snapshotCoverage's
+   * futuresPercent), null when no snapshot series was supplied at all. */
+  snapshotCoveragePercent: number | null;
 }
 
 export interface WindowResult {
@@ -249,6 +258,7 @@ function buildOosSummary(result: BacktestResult): OosSummary {
     fees: trades.reduce((sum, t) => sum + t.fees, 0),
     slippageCost: trades.reduce((sum, t) => sum + t.slippageCost, 0),
     fundingCost: trades.reduce((sum, t) => sum + t.fundingCost, 0),
+    snapshotCoveragePercent: result.snapshotCoverage?.futuresPercent ?? null,
   };
 }
 
@@ -353,6 +363,20 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
     const testSliceStart = Math.max(0, testStart - preparedTrain.warmupBars);
     const testSlice = candles.slice(testSliceStart, testEnd + 1);
     const preparedTest = prepareBacktest(testSlice, symbol, interval, indicatorConfig, snapshots, htfInput);
+
+    // The bar loop skips preparedTest.warmupBars bars of testSlice before it
+    // starts trading, so the first traded bar of testSlice must land exactly
+    // on testStart -- today that holds only because prepareBacktest's
+    // warmupBars is a pure function of (indicatorConfig, candle count), so
+    // preparedTrain.warmupBars and preparedTest.warmupBars happen to agree.
+    // Guarded explicitly rather than trusted, since a future indicator
+    // change that makes warmupBars depend on candle content (not just count)
+    // would silently start trading on the wrong bar otherwise.
+    if (testSliceStart + preparedTest.warmupBars !== testStart) {
+      throw new Error(
+        `purge invariant violated: testSliceStart=${testSliceStart} + preparedTest.warmupBars=${preparedTest.warmupBars} !== testStart=${testStart}`
+      );
+    }
 
     const oosRuns: BacktestResult[] = cells.map((cell) => {
       const strategy = family.create(cell, strategyCtx);
