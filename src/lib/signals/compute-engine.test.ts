@@ -436,7 +436,7 @@ describe('compute-engine', () => {
           symbol: 'BTCUSDT',
           interval: '1h',
           tradingStyle: 'day_trading',
-          configVersion: 3,
+          configVersion: 4,
         });
         expect(typeof signalsArg[0].score).toBe('number');
         expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(
