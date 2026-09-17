@@ -233,6 +233,48 @@ describe('calculateWindows rolling mode', () => {
       expect(w.trainStart).toBeGreaterThanOrEqual(0);
     }
   });
+
+  it('floors rolling trainStart at 0 when rollingTrainBars exceeds minTrainingBars', () => {
+    // rollingTrainBars (500) > minTrainingBars (300), so the earliest windows
+    // cannot roll back a full 500 bars and the Math.max(0, ...) floor actually
+    // clamps a value that would otherwise go negative.
+    const rollingTrainBars = 500;
+    const windows = calculateWindows(700, 300, 100, 100, { mode: 'rolling', rollingTrainBars });
+
+    expect(windows.length).toBeGreaterThan(1);
+
+    // First window: trainEnd - rollingTrainBars + 1 = 299 - 500 + 1 = -200,
+    // floored to 0, so its training width (300) is narrower than requested.
+    expect(windows[0]).toEqual({ trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399 });
+    expect(windows[0].trainEnd - windows[0].trainStart + 1).toBeLessThan(rollingTrainBars);
+
+    // Once trainEnd + 1 >= rollingTrainBars, the floor no longer binds and
+    // the full requested width is achieved.
+    const last = windows[windows.length - 1];
+    expect(last.trainStart).toBe(last.trainEnd - rollingTrainBars + 1);
+    expect(last.trainEnd - last.trainStart + 1).toBe(rollingTrainBars);
+  });
+
+  it('combines rolling mode with a purge gap (hand-checked boundaries)', () => {
+    const purgeGapBars = 20;
+    const rollingTrainBars = 300;
+    const windows = calculateWindows(1000, 300, 100, 100, {
+      mode: 'rolling',
+      rollingTrainBars,
+      purgeGapBars,
+    });
+
+    expect(windows.length).toBeGreaterThan(1);
+    // Window 0: trainEnd=299 (minTrainingBars-1), testStart=299+1+20=320.
+    expect(windows[0]).toEqual({ trainStart: 0, trainEnd: 299, testStart: 320, testEnd: 419 });
+    // Window 1: trainEnd=399 (stepSizeBars=100), trainStart=399-300+1=100.
+    expect(windows[1]).toEqual({ trainStart: 100, trainEnd: 399, testStart: 420, testEnd: 519 });
+
+    for (const w of windows) {
+      expect(w.testStart).toBe(w.trainEnd + 1 + purgeGapBars);
+      expect(w.trainEnd - w.trainStart + 1).toBeLessThanOrEqual(rollingTrainBars);
+    }
+  });
 });
 
 describe('runWalkForward default purge gap', () => {
@@ -263,6 +305,43 @@ describe('runWalkForward default purge gap', () => {
     expect(result.windows.length).toBeGreaterThan(0);
     for (const window of result.windows) {
       expect(window.testStart).toBe(window.trainEnd + 1 + expectedWarmup);
+    }
+  }, 30_000);
+
+  it('clamps a rolling training width narrower than the style warmup and completes', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(700);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = await runWalkForward({
+        candles,
+        symbol,
+        interval,
+        tradingStyle,
+        minTrainingBars: 210,
+        testWindowBars: 30,
+        stepSizeBars: 50,
+        candidatesPerWindow: 2,
+        constraintPercent: 0.2,
+        jobId: new mongoose.Types.ObjectId(),
+        windowMode: 'rolling',
+        // Far narrower than day_trading/1h's ~210-bar minimum training width
+        // (driven by its indicator warmup). Without a floor, every window's
+        // prepareBacktest would throw on a too-short training slice.
+        rollingTrainBars: 50,
+        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+      });
+
+      expect(result.windows.length).toBeGreaterThan(1);
+      for (const window of result.windows) {
+        expect(window.trainEnd - window.trainStart + 1).toBeGreaterThanOrEqual(210);
+      }
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rollingTrainBars'));
+    } finally {
+      warnSpy.mockRestore();
     }
   }, 30_000);
 });

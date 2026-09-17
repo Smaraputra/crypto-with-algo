@@ -55,8 +55,12 @@ export interface WalkForwardResult {
 }
 
 /**
- * Run walk-forward optimization
- * Uses anchored expanding window approach
+ * Run walk-forward optimization.
+ *
+ * Windows default to an anchored expanding training set, purged from the
+ * test window by the style's own indicator warmup. Pass windowMode: 'rolling'
+ * (with an optional rollingTrainBars) for a fixed-width sliding training
+ * window instead. See calculateWindows for the exact window math.
  */
 export async function runWalkForward(config: WalkForwardConfig): Promise<WalkForwardResult> {
   const {
@@ -115,11 +119,25 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       )
     );
 
+  // Rolling mode's training width must also satisfy the style's indicator
+  // warmup, or prepareBacktest throws on every window's too-short training
+  // slice. Floor it the same way minTrainingBars is floored above, and warn
+  // only when that floor actually overrides what the caller asked for.
+  const resolvedRollingTrainBars = Math.max(
+    rollingTrainBars ?? effectiveMinTrainingBars,
+    effectiveMinTrainingBars
+  );
+  if (rollingTrainBars !== undefined && resolvedRollingTrainBars !== rollingTrainBars) {
+    console.warn(
+      `walk-forward: rollingTrainBars ${rollingTrainBars} is below the ${tradingStyle}/${interval} minimum training width (${effectiveMinTrainingBars}); clamped to ${resolvedRollingTrainBars}`
+    );
+  }
+
   // Calculate walk-forward windows
   const windows = calculateWindows(candles.length, effectiveMinTrainingBars, testWindowBars, stepSizeBars, {
     purgeGapBars: resolvedPurgeGapBars,
     mode: windowMode,
-    rollingTrainBars,
+    rollingTrainBars: resolvedRollingTrainBars,
   });
 
   // Update job with total windows
