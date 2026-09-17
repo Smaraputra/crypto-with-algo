@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed (data history)
+- `HistoricalSnapshot` no longer carries a TTL index on `createdAt`. It expired snapshots one year after insert, which would have silently deleted the 60-96 months of funding and Fear and Greed history `backfill-history.ts` writes, and any row captured live for over a year. `scripts/ops/backfill-history.ts --drop-snapshot-ttl` drops the TTL index a production collection created before this change still carries, since Mongoose never drops an existing index on its own
 - 5m candles are now durable instead of TTL-backed: `HF_INTERVALS` on `Candle` carries only `1m`, so 5m rows are kept indefinitely rather than expiring after 14 days. Scalping research needs up to 12 months of 5m history. Rows written before this change still carry the `expiresAt` set under the old TTL; `scripts/ops/backfill-history.ts --unset-5m-ttl` clears it
 - Admin candle and snapshot backfill accept up to 120 months (was 48). 5m and 15m are capped at 12 months each on both routes, since a year of bars at that density is already a large document count
 - Per-symbol/interval snapshot backfill (recent long/short and open interest fetch, `buildBackfillSnapshots`, chunked upsert) and the Fear & Greed carry-forward lookup moved from the admin snapshot backfill route into `src/lib/snapshot-backfill.ts` as `backfillSnapshotRange` and `loadFearGreedLookup`, so the new ops script runs the same logic the route does. Route behavior is unchanged

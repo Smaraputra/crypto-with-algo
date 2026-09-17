@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+// @vitest-environment node
+import { afterAll, afterEach, beforeAll, describe, it, expect } from 'vitest';
+import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 import { HistoricalSnapshot } from './historical-snapshot';
 
 function makeValidData(overrides = {}) {
@@ -145,5 +148,41 @@ describe('HistoricalSnapshot model', () => {
   it('generates an _id automatically', () => {
     const doc = new HistoricalSnapshot(makeValidData());
     expect(doc._id).toBeDefined();
+  });
+});
+
+describe('HistoricalSnapshot indexes', () => {
+  let mongoServer: MongoMemoryServer;
+
+  beforeAll(async () => {
+    mongoServer = await MongoMemoryServer.create();
+    await mongoose.connect(mongoServer.getUri());
+  }, 30_000);
+
+  afterAll(async () => {
+    await mongoose.disconnect();
+    await mongoServer.stop();
+  });
+
+  afterEach(async () => {
+    await mongoose.connection.db?.dropDatabase();
+  });
+
+  it('keeps the primary symbol/interval/timestamp lookup index', async () => {
+    await HistoricalSnapshot.syncIndexes();
+    const indexes = await HistoricalSnapshot.collection.indexes();
+
+    const lookupIndex = indexes.find(
+      (idx) => idx.key.symbol === 1 && idx.key.interval === 1 && idx.key.timestamp === -1
+    );
+    expect(lookupIndex).toBeDefined();
+  });
+
+  it('carries no TTL index on createdAt, so history is durable', async () => {
+    await HistoricalSnapshot.syncIndexes();
+    const indexes = await HistoricalSnapshot.collection.indexes();
+
+    const ttlIndex = indexes.find((idx) => idx.expireAfterSeconds !== undefined);
+    expect(ttlIndex).toBeUndefined();
   });
 });

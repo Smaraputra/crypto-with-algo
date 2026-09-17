@@ -20,6 +20,7 @@
  *   --skip-candles      skip every candle job
  *   --skip-snapshots    skip every snapshot job
  *   --unset-5m-ttl      clear expiresAt from 5m candles written before 5m was durable
+ *   --drop-snapshot-ttl drop the legacy one-year TTL index on HistoricalSnapshot.createdAt
  *   --dry-run           print the job list as JSON lines and exit, no DB connection
  */
 import { connectDB } from '@/lib/mongodb';
@@ -32,6 +33,7 @@ import {
   type FundingEvent,
 } from '@/lib/snapshot-backfill';
 import { Candle, VALID_INTERVALS } from '@/lib/models/candle';
+import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -51,6 +53,7 @@ export interface ParsedArgs {
   skipCandles: boolean;
   skipSnapshots: boolean;
   unsetFiveMinuteTtl: boolean;
+  dropSnapshotTtl: boolean;
   dryRun: boolean;
 }
 
@@ -96,6 +99,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let skipCandles = false;
   let skipSnapshots = false;
   let unsetFiveMinuteTtl = false;
+  let dropSnapshotTtl = false;
   let dryRun = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -119,6 +123,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
       case '--unset-5m-ttl':
         unsetFiveMinuteTtl = true;
         break;
+      case '--drop-snapshot-ttl':
+        dropSnapshotTtl = true;
+        break;
       case '--dry-run':
         dryRun = true;
         break;
@@ -138,6 +145,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     skipCandles,
     skipSnapshots,
     unsetFiveMinuteTtl,
+    dropSnapshotTtl,
     dryRun,
   };
 }
@@ -192,6 +200,26 @@ export async function main(): Promise<number> {
       { $unset: { expiresAt: 1 } }
     );
     console.log(JSON.stringify({ kind: 'unset-5m-ttl', modifiedCount: result.modifiedCount }));
+  }
+
+  if (args.dropSnapshotTtl) {
+    const indexes = await HistoricalSnapshot.collection.indexes();
+    const ttlIndex = indexes.find(
+      (idx) =>
+        idx.expireAfterSeconds !== undefined &&
+        idx.key.createdAt === 1 &&
+        Object.keys(idx.key).length === 1
+    );
+
+    if (ttlIndex?.name) {
+      await HistoricalSnapshot.collection.dropIndex(ttlIndex.name);
+    }
+
+    console.log(JSON.stringify({
+      kind: 'migration',
+      action: 'drop-snapshot-ttl',
+      dropped: ttlIndex?.name ?? null,
+    }));
   }
 
   const snapshotJobs = jobs.filter((j) => j.kind === 'snapshots');

@@ -8,6 +8,8 @@ const {
   mockLoadFearGreedLookup,
   mockBackfillSnapshotRange,
   mockUpdateMany,
+  mockSnapshotIndexes,
+  mockSnapshotDropIndex,
 } = vi.hoisted(() => ({
   mockConnectDB: vi.fn(),
   mockBackfillCandles: vi.fn(),
@@ -16,6 +18,8 @@ const {
   mockLoadFearGreedLookup: vi.fn(),
   mockBackfillSnapshotRange: vi.fn(),
   mockUpdateMany: vi.fn(),
+  mockSnapshotIndexes: vi.fn(),
+  mockSnapshotDropIndex: vi.fn(),
 }));
 
 vi.mock('@/lib/mongodb', () => ({
@@ -34,6 +38,14 @@ vi.mock('@/lib/snapshot-backfill', () => ({
 vi.mock('@/lib/models/candle', () => ({
   Candle: { updateMany: (...args: unknown[]) => mockUpdateMany(...args) },
   VALID_INTERVALS: ['1m', '5m', '15m', '1h', '4h', '1d'],
+}));
+vi.mock('@/lib/models/historical-snapshot', () => ({
+  HistoricalSnapshot: {
+    collection: {
+      indexes: (...args: unknown[]) => mockSnapshotIndexes(...args),
+      dropIndex: (...args: unknown[]) => mockSnapshotDropIndex(...args),
+    },
+  },
 }));
 
 import { parseArgs, buildJobs, main, type Job } from './backfill-history';
@@ -59,6 +71,7 @@ describe('parseArgs', () => {
     expect(args.skipCandles).toBe(false);
     expect(args.skipSnapshots).toBe(false);
     expect(args.unsetFiveMinuteTtl).toBe(false);
+    expect(args.dropSnapshotTtl).toBe(false);
     expect(args.dryRun).toBe(false);
   });
 
@@ -83,12 +96,14 @@ describe('parseArgs', () => {
       '--skip-candles',
       '--skip-snapshots',
       '--unset-5m-ttl',
+      '--drop-snapshot-ttl',
       '--dry-run',
     ]);
 
     expect(args.skipCandles).toBe(true);
     expect(args.skipSnapshots).toBe(true);
     expect(args.unsetFiveMinuteTtl).toBe(true);
+    expect(args.dropSnapshotTtl).toBe(true);
     expect(args.dryRun).toBe(true);
   });
 
@@ -164,6 +179,8 @@ describe('main', () => {
       coverage: { fundingRate: 0, longShortRatio: 0, openInterest: 0, fearGreed: 0 },
     });
     mockUpdateMany.mockReset().mockResolvedValue({ modifiedCount: 0 });
+    mockSnapshotIndexes.mockReset().mockResolvedValue([]);
+    mockSnapshotDropIndex.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -219,6 +236,66 @@ describe('main', () => {
       { $unset: { expiresAt: 1 } }
     );
     expect(parsedLogs()).toContainEqual({ kind: 'unset-5m-ttl', modifiedCount: 42 });
+  });
+
+  it('drops the snapshot TTL index by name when one exists', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--skip-candles',
+      '--skip-snapshots',
+      '--drop-snapshot-ttl',
+    ]);
+    mockSnapshotIndexes.mockResolvedValue([
+      { v: 2, key: { symbol: 1, interval: 1, timestamp: -1 }, name: 'symbol_1_interval_1_timestamp_-1' },
+      { v: 2, key: { createdAt: 1 }, name: 'createdAt_1', expireAfterSeconds: 31536000 },
+    ]);
+
+    await run();
+
+    expect(mockSnapshotIndexes).toHaveBeenCalledTimes(1);
+    expect(mockSnapshotDropIndex).toHaveBeenCalledWith('createdAt_1');
+    expect(parsedLogs()).toContainEqual({
+      kind: 'migration',
+      action: 'drop-snapshot-ttl',
+      dropped: 'createdAt_1',
+    });
+  });
+
+  it('is idempotent: logs dropped null and skips dropIndex when no TTL index exists', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--skip-candles',
+      '--skip-snapshots',
+      '--drop-snapshot-ttl',
+    ]);
+    mockSnapshotIndexes.mockResolvedValue([
+      { v: 2, key: { symbol: 1, interval: 1, timestamp: -1 }, name: 'symbol_1_interval_1_timestamp_-1' },
+    ]);
+
+    await run();
+
+    expect(mockSnapshotDropIndex).not.toHaveBeenCalled();
+    expect(parsedLogs()).toContainEqual({
+      kind: 'migration',
+      action: 'drop-snapshot-ttl',
+      dropped: null,
+    });
+  });
+
+  it('does not inspect snapshot indexes without --drop-snapshot-ttl', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--skip-candles',
+      '--skip-snapshots',
+    ]);
+
+    await run();
+
+    expect(mockSnapshotIndexes).not.toHaveBeenCalled();
+    expect(mockSnapshotDropIndex).not.toHaveBeenCalled();
   });
 
   it('runs candle jobs before snapshot jobs and logs one JSON line per job', async () => {
