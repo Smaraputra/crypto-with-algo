@@ -293,6 +293,67 @@ describe('POST /api/admin/optimize-template', () => {
     expect(mockMarkResultsAsContributors).toHaveBeenCalledWith(['result1', 'result2']);
   });
 
+  it('reports contributingWindows, not ensembleResults.length, as totalBacktests', async () => {
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const candles = generateCandles(500);
+    mockGetCandles.mockResolvedValue(candles);
+
+    const mockJob = {
+      _id: { toString: () => 'job123' },
+      status: 'pending',
+      startedAt: null,
+      completedAt: null,
+      optimizedWeights: null,
+      ensembleResults: [],
+      templateVersion: null,
+      error: null,
+      progress: { candidatesTested: 150, validResults: 60 },
+      save: mockJobSave,
+    };
+    mockJobCreate.mockResolvedValue(mockJob);
+    mockJobSave.mockResolvedValue(mockJob);
+
+    // 3 windows contributed an out-of-sample result, but only the top 2 by
+    // Sharpe made the ensemble (simulated directly here since walk-forward
+    // is mocked): contributingWindows (3) and ensembleResults.length (2)
+    // deliberately diverge, so a regression back to ensembleCount would
+    // report 2 instead of 3.
+    const walkForwardResult = {
+      optimizedWeights: { rsi: 0.3, macd: 0.4, volume: 0.3 },
+      ensembleResults: [
+        { _id: 'result1', metrics: { sharpeRatio: 1.5, winRate: 0.6 } },
+        { _id: 'result2', metrics: { sharpeRatio: 2.0, winRate: 0.7 } },
+      ],
+      windows: [
+        { trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, oosMetrics: { expectancyPercent: 2 }, robustCandidates: 5 },
+        { trainStart: 100, trainEnd: 399, testStart: 400, testEnd: 499, oosMetrics: { expectancyPercent: 3 }, robustCandidates: 4 },
+        { trainStart: 200, trainEnd: 499, testStart: 500, testEnd: 599, oosMetrics: { expectancyPercent: 1 }, robustCandidates: 3 },
+      ],
+    };
+    mockRunWalkForward.mockResolvedValue(walkForwardResult);
+
+    const mockTemplate = { _id: { toString: () => 'template123' }, version: 3 };
+    mockCreateTemplateVersion.mockResolvedValue(mockTemplate);
+    mockMarkResultsAsContributors.mockResolvedValue(undefined);
+
+    const response = await POST(makeRequest({
+      tradingStyle: 'scalping', symbol: 'BTCUSDT', interval: '1m', months: 6,
+    }));
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockCreateTemplateVersion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ totalBacktests: 3 })
+    );
+    expect(data.performance.totalBacktests).toBe(3);
+    expect(data.gate.contributingWindows).toBe(3);
+  });
+
   it('should skip template creation and return the gate result when the save gate refuses a save', async () => {
     process.env.ADMIN_EMAIL = 'admin@example.com';
     mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });

@@ -91,6 +91,11 @@ interface PendingLimit {
  * - A pending limit order that fills or is cancelled this bar does not get
  *   a same-bar fresh decideEntry call either; the next bar is the earliest
  *   a new entry can be considered.
+ * - A limit fill happens mid-bar, so the same candle's stop and target are
+ *   checked immediately against the freshly opened position (fill first,
+ *   then stop/target, the conservative order): a bar that gaps through the
+ *   limit and then also runs through the stop closes as a stop_loss on that
+ *   same bar instead of leaking the loss into the next one.
  */
 export function runBarLoop(input: BarLoopInput): BacktestResult {
   const {
@@ -126,6 +131,29 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
   let barsWithFutures = 0;
   let barsWithSentiment = 0;
 
+  /** Accrues funding for `pos` through `atCandle`'s own crossings, whether
+   * `atCandle` is the bar the position survives to, or the bar it exits on.
+   * No-ops on the entry bar itself (bar === entryBar), when funding is
+   * disabled, or when no funding rate is available for this bar. Shared by
+   * every close site so an exit bar's crossing is never silently dropped. */
+  function accrueFundingThisBar(
+    pos: OpenPosition,
+    atBar: number,
+    atCandle: OHLCV,
+    atSnap: SnapshotBar | null
+  ): void {
+    if (!config.fundingEnabled || atBar <= pos.entryBar) return;
+    const rate = atSnap?.futures?.fundingRate?.fundingRate;
+    if (typeof rate !== 'number') return;
+    accrueFunding(
+      pos,
+      atCandle,
+      candles[atBar - 1].timestamp + intervalMs,
+      atCandle.timestamp + intervalMs,
+      rate
+    );
+  }
+
   for (let bar = warmupBars; bar < candles.length; bar++) {
     const candle = candles[bar];
     const snap = snapshots?.[bar] ?? null;
@@ -146,6 +174,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
     if (position) {
       const { exitReason, exitPrice } = checkStopTakeProfit(position, candle);
       if (exitReason) {
+        accrueFundingThisBar(position, bar, candle, snap);
         closeTrade(position, exitPrice, bar, candle.timestamp, exitReason, 0, trades, config);
         equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
         position = null;
@@ -153,6 +182,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
         position.timeStopBars !== null &&
         bar - position.entryBar >= position.timeStopBars
       ) {
+        accrueFundingThisBar(position, bar, candle, snap);
         closeTrade(position, candle.close, bar, candle.timestamp, 'time_stop', 0, trades, config);
         equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
         position = null;
@@ -189,6 +219,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
         pendingOrder: null,
       };
       if (strategy.decideExit(ctx, config)) {
+        accrueFundingThisBar(position, bar, candle, snap);
         closeTrade(
           position,
           candle.close,
@@ -207,7 +238,13 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
       if (outcome.status === 'filled') {
         position = openPosition(
           pending.decision,
-          { price: outcome.fillPrice, bar: outcome.fillBar, time: candle.timestamp, kind: 'maker' },
+          {
+            price: outcome.fillPrice,
+            rawPrice: outcome.fillPrice, // a limit fill never slips
+            bar: outcome.fillBar,
+            time: candle.timestamp,
+            kind: 'maker',
+          },
           equity,
           config,
           trades,
@@ -216,6 +253,27 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
           pending.session
         );
         pending = null;
+
+        // The fill happens mid-bar: check this same candle's stop and target
+        // against the position that was just opened (fill first, then
+        // stop/target), so a bar that gaps through the limit and then runs
+        // through the stop books the loss on this bar, not the next one.
+        const fillBarExit = checkStopTakeProfit(position, candle);
+        if (fillBarExit.exitReason) {
+          accrueFundingThisBar(position, bar, candle, snap);
+          closeTrade(
+            position,
+            fillBarExit.exitPrice,
+            bar,
+            candle.timestamp,
+            fillBarExit.exitReason,
+            0,
+            trades,
+            config
+          );
+          equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
+          position = null;
+        }
       } else if (outcome.status === 'cancelled') {
         pending = null;
       }
@@ -248,7 +306,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
             );
             position = openPosition(
               decision,
-              { price: entryPrice, bar, time: candle.timestamp, kind: 'taker' },
+              { price: entryPrice, rawPrice: candle.close, bar, time: candle.timestamp, kind: 'taker' },
               equity,
               config,
               trades,
@@ -274,18 +332,11 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
       }
     }
 
-    // 4. Funding accrual for a position that survives to this bar's close
-    if (config.fundingEnabled && position && bar > position.entryBar) {
-      const rate = snap?.futures?.fundingRate?.fundingRate;
-      if (typeof rate === 'number') {
-        accrueFunding(
-          position,
-          candle,
-          candles[bar - 1].timestamp + intervalMs,
-          candle.timestamp + intervalMs,
-          rate
-        );
-      }
+    // 4. Funding accrual for a position that survives to this bar's close.
+    // A position that exited earlier this bar was already accrued at its
+    // own close site above and is null here, so this never double-charges.
+    if (position) {
+      accrueFundingThisBar(position, bar, candle, snap);
     }
 
     // 5. Equity curve point

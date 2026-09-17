@@ -135,7 +135,7 @@ describe('auto-activation', () => {
       const optimizedTemplate = {
         performanceMetrics: {
           avgSharpe: 1.5,
-          totalBacktests: 3, // Less than 5
+          totalBacktests: 2, // Less than the 3-contributing-window floor
         },
       } as unknown as ISignalTemplate;
 
@@ -143,7 +143,22 @@ describe('auto-activation', () => {
 
       expect(result.shouldActivate).toBe(false);
       expect(result.reason).toContain('Insufficient backtest results');
-      expect(result.reason).toContain('3 < 5');
+      expect(result.reason).toContain('2 < 3');
+    });
+
+    it('should activate with exactly 3 contributing windows (the floor)', async () => {
+      mockFindOne.mockResolvedValue(null);
+
+      const optimizedTemplate = {
+        performanceMetrics: {
+          avgSharpe: 1.5,
+          totalBacktests: 3,
+        },
+      } as unknown as ISignalTemplate;
+
+      const result = await shouldAutoActivate('day_trading', optimizedTemplate);
+
+      expect(result.shouldActivate).toBe(true);
     });
 
     it('should not activate when new template missing performance metrics', async () => {

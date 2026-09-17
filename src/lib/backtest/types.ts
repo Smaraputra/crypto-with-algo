@@ -74,9 +74,9 @@ export interface BacktestTrade {
   entryTier?: SignalTier; // absent for a non-score strategy; the score-threshold strategy always fills it
   holdTimeBars: number;
   entrySession?: MarketSession | null; // null when the interval spans sessions
-  riskPercent?: number; // stop distance as a percent of entry price (2 means a 2% stop)
+  riskPercent: number; // stop distance as a percent of entry price (2 means a 2% stop); closeTrade always sets it
   rewardPercent: number | null; // target distance as a percent of the filled entry price; null when the position had no target
-  slippageCost: number; // currency lost to slippage on the exit fill, 0 when none applied
+  slippageCost: number; // currency lost to slippage on both the entry and exit fills combined, 0 when neither applied
   entryFillKind: FillKind;
   exitFillKind: FillKind;
   fundingCost: number; // currency paid to funding while open; positive when the trade paid, 0 when disabled or no data

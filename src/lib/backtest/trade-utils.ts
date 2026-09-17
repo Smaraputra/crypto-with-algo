@@ -27,6 +27,7 @@ export interface OpenPosition {
   stopPrice: number; // absolute stop price
   targetPrice: number | null; // absolute target price; null means no target
   timeStopBars: number | null; // bars held before a forced exit; null means no time stop
+  entrySlippageCost: number; // currency lost to slippage on the entry fill, 0 for a limit fill or when slippageBps is unset
 }
 
 /** Accrue funding for a bar the position stayed open through. Shared by both
@@ -87,7 +88,8 @@ export function closeTrade(
   const effectiveExit = exitSlippageApplies(exitReason)
     ? applySlippage(exitPrice, position.side === 'long' ? 'sell' : 'buy', config.slippageBps)
     : exitPrice;
-  const slippageCost = Math.abs(effectiveExit - exitPrice) * position.quantity;
+  const exitSlippageCost = Math.abs(effectiveExit - exitPrice) * position.quantity;
+  const slippageCost = position.entrySlippageCost + exitSlippageCost;
 
   const entryNotional = position.quantity * position.entryPrice;
   const exitNotional = position.quantity * effectiveExit;
@@ -189,10 +191,15 @@ export function computePositionSize(
 
 /** Builds the OpenPosition for a fill (market or limit) from a strategy's
  * EntryDecision. Shared by both engines so a fill's sizing, stop, target,
- * and time-stop bookkeeping cannot diverge between them. */
+ * and time-stop bookkeeping cannot diverge between them.
+ *
+ * `fill.rawPrice` is the pre-slippage price: the bar's close for a market
+ * fill, or the same as `fill.price` for a limit fill (no entry slippage).
+ * The difference, scaled by the sized quantity, becomes `entrySlippageCost`
+ * so a round-trip trade's `slippageCost` accounts for both legs. */
 export function openPosition(
   decision: EntryDecision,
-  fill: { price: number; bar: number; time: number; kind: FillKind },
+  fill: { price: number; rawPrice: number; bar: number; time: number; kind: FillKind },
   equity: number,
   config: BacktestConfig,
   trades: BacktestTrade[],
@@ -222,5 +229,6 @@ export function openPosition(
     stopPrice: decision.stopPrice,
     targetPrice: decision.targetPrice,
     timeStopBars: decision.timeStopBars ?? null,
+    entrySlippageCost: Math.abs(fill.price - fill.rawPrice) * quantity,
   };
 }

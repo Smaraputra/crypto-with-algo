@@ -22,6 +22,7 @@ function makeTrade(overrides: Partial<BacktestTrade> = {}): BacktestTrade {
     exitScore: -15,
     entryTier: 'buy',
     holdTimeBars: 1,
+    riskPercent: 0, // no override qualifies for expectancyR (not above 0); override per test as needed
     rewardPercent: null,
     slippageCost: 0,
     entryFillKind: 'taker',
@@ -238,7 +239,7 @@ describe('computeExpectancy', () => {
     const trades = [
       makeTrade({ pnlPercent: 10, riskPercent: 5 }), // R = 2
       makeTrade({ pnlPercent: -4, riskPercent: 2 }), // R = -2
-      makeTrade({ pnlPercent: 6 }), // no riskPercent, excluded
+      makeTrade({ pnlPercent: 6 }), // riskPercent defaults to 0 (not above 0), excluded
       makeTrade({ pnlPercent: 3, riskPercent: 0 }), // riskPercent not above 0, excluded
     ];
 

@@ -110,9 +110,11 @@ describe('evaluateLimitOrder', () => {
       expect(evaluateLimitOrder(order, 15, candle)).toEqual({ status: 'pending' });
     });
 
-    it('cancels at placedBar + timeoutBars + 1', () => {
+    it('cancels at placedBar + timeoutBars + 1, even on a bar that would otherwise breach the limit', () => {
+      // low is well below limitPrice: this bar would fill if timeout did not
+      // take priority, so this proves cancellation wins over a would-be fill.
       const order = longOrder({ placedBar: 10, timeoutBars: 5, limitPrice: 100 });
-      const candle = makeCandle({ open: 105, low: 104, high: 106 }, 16);
+      const candle = makeCandle({ open: 105, low: 95, high: 106 }, 16);
       expect(evaluateLimitOrder(order, 16, candle)).toEqual({ status: 'cancelled' });
     });
 

@@ -23,6 +23,7 @@ import { runBacktest } from './engine';
 import { buildSnapshotSeries } from './snapshot-series';
 import { DEFAULT_BACKTEST_CONFIG } from './types';
 import type { BacktestConfig } from './types';
+import type { Strategy } from './strategy';
 
 const FUNDING_RATE = 0.0001;
 
@@ -206,5 +207,168 @@ describe('funding accrual', () => {
 
     expect(result.trades).toHaveLength(1);
     expect(result.trades[0].fundingCost).toBe(0);
+  });
+});
+
+// A position closed mid-loop (stop_loss, take_profit, time_stop, or signal)
+// is null by the time the per-bar loop reaches its "survives to this bar's
+// close" funding step, so its own exit bar's crossing was silently dropped.
+// These use a custom bar-indexed Strategy (not the score-mocked approach
+// above) for exact control over which bar triggers the exit.
+describe('funding accrual on the exit bar itself', () => {
+  beforeEach(() => {
+    vi.mocked(computeSignalScore).mockReset();
+  });
+
+  /** Places one decision at `entryBar`, never again, and never exits by signal. */
+  function oneShotStrategy(
+    entryBar: number,
+    buildDecision: (close: number) => NonNullable<ReturnType<Strategy['decideEntry']>>
+  ): Strategy {
+    let placed = false;
+    return {
+      name: 'test-one-shot',
+      decideEntry(ctx) {
+        if (placed || ctx.bar !== entryBar) return null;
+        placed = true;
+        return buildDecision(ctx.candles[ctx.bar].close);
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  }
+
+  it('a stop_loss exit charges the crossing that lands on its own bar', () => {
+    const candles = generateFlatCandles(280);
+    const warmup = computeWarmupBars(computeAllIndicators(candles, 'BTCUSDT', '1h'));
+    mockScoresByBar(warmup, new Map());
+
+    const entryBar = warmup + 1;
+    // The first funding boundary strictly after entryBar: no bar between
+    // entryBar+1 and exitBar-1 has a crossing, so exitBar's crossing is the
+    // whole trade's funding, isolating whether the fix charges it at all.
+    const exitBar = nextFundingBoundaryAfter(entryBar);
+    candles[exitBar] = { ...candles[exitBar], low: 89 }; // forces a clean stop breach
+
+    const strategy = oneShotStrategy(entryBar, (close) => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice: close * 0.95, // above the forced low (89), below the flat 100
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+
+    const config: BacktestConfig = { ...DEFAULT_BACKTEST_CONFIG, fundingEnabled: true };
+    const snapshots = buildSnapshotSeries(candles, makeSnapshots(candles), '1h', { symbol: 'BTCUSDT' });
+
+    const result = runBacktest(
+      candles,
+      config,
+      'BTCUSDT',
+      '1h',
+      undefined,
+      snapshots,
+      undefined,
+      strategy
+    );
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.entryBar).toBe(entryBar);
+    expect(trade.exitBar).toBe(exitBar);
+    expect(trade.exitReason).toBe('stop_loss');
+
+    const notional = trade.quantity * 100; // price is flat at 100
+    expect(trade.fundingCost).toBeCloseTo(1 * FUNDING_RATE * notional, 9);
+  });
+
+  it('a 1d trade closed by a time stop charges three crossings on its last (only held) bar', () => {
+    // 1d bars align exactly with 8h funding boundaries, so every daily bar's
+    // own window spans exactly 3 crossings (24h / 8h).
+    const DAY_MS = 24 * 3600000;
+    const candles: OHLCV[] = Array.from({ length: 260 }, (_, i) => ({
+      timestamp: i * DAY_MS,
+      open: 100,
+      high: 100.05,
+      low: 99.95,
+      close: 100,
+      volume: 1000,
+    }));
+    const warmup = computeWarmupBars(computeAllIndicators(candles, 'BTCUSDT', '1d'));
+    mockScoresByBar(warmup, new Map());
+
+    const entryBar = warmup + 1;
+    const timeStopBars = 1; // closes exactly one bar later, isolating that bar's crossings
+    const exitBar = entryBar + timeStopBars;
+
+    const strategy = oneShotStrategy(entryBar, (close) => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice: close * 0.5, // far away: must not trigger before the time stop
+      targetPrice: null,
+      timeStopBars,
+    }));
+
+    const config: BacktestConfig = { ...DEFAULT_BACKTEST_CONFIG, fundingEnabled: true };
+    const snapshots = buildSnapshotSeries(candles, makeSnapshots(candles), '1d', { symbol: 'BTCUSDT' });
+
+    const result = runBacktest(
+      candles,
+      config,
+      'BTCUSDT',
+      '1d',
+      undefined,
+      snapshots,
+      undefined,
+      strategy
+    );
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.exitBar).toBe(exitBar);
+    expect(trade.exitReason).toBe('time_stop');
+
+    // timeStopBars=1 means the exit bar is the only bar the position held,
+    // so its 3 crossings are the whole trade's funding cost.
+    const notional = trade.quantity * 100;
+    expect(trade.fundingCost).toBeCloseTo(3 * FUNDING_RATE * notional, 9);
+  });
+
+  it('end_of_data funding is unchanged: the final held bar still accrues via the survives-to-close path', () => {
+    const candles = generateFlatCandles(280);
+    const warmup = computeWarmupBars(computeAllIndicators(candles, 'BTCUSDT', '1h'));
+    mockScoresByBar(warmup, new Map());
+
+    const entryBar = candles.length - 3; // near the end, so it never hits a stop/target/time-stop
+    const strategy = oneShotStrategy(entryBar, (close) => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice: close * 0.5,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+
+    const config: BacktestConfig = { ...DEFAULT_BACKTEST_CONFIG, fundingEnabled: true };
+    const snapshots = buildSnapshotSeries(candles, makeSnapshots(candles), '1h', { symbol: 'BTCUSDT' });
+
+    const result = runBacktest(
+      candles,
+      config,
+      'BTCUSDT',
+      '1h',
+      undefined,
+      snapshots,
+      undefined,
+      strategy
+    );
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.exitReason).toBe('end_of_data');
+
+    const crossings = nextFundingBoundaryAfter(entryBar) <= trade.exitBar ? 1 : 0;
+    const notional = trade.quantity * 100;
+    expect(trade.fundingCost).toBeCloseTo(crossings * FUNDING_RATE * notional, 9);
   });
 });

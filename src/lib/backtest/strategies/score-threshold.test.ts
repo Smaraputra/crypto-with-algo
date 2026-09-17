@@ -57,6 +57,7 @@ function makePosition(overrides: Partial<OpenPosition> = {}): OpenPosition {
     stopPrice: 95,
     targetPrice: 110,
     timeStopBars: null,
+    entrySlippageCost: 0,
     ...overrides,
   };
 }

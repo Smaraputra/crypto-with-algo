@@ -27,6 +27,7 @@ const makePosition = (overrides: Partial<OpenPosition> = {}): OpenPosition => ({
   stopPrice: 95,
   targetPrice: 110,
   timeStopBars: null,
+  entrySlippageCost: 0,
   ...overrides,
 });
 
@@ -407,10 +408,10 @@ describe('openPosition', () => {
     timeStopBars: null,
   };
 
-  it('builds an OpenPosition from a market fill', () => {
+  it('builds an OpenPosition from a market fill, including entry slippage cost', () => {
     const position = openPosition(
       decision,
-      { price: 100, bar: 5, time: 1700000000000, kind: 'taker' },
+      { price: 100, rawPrice: 99.5, bar: 5, time: 1700000000000, kind: 'taker' },
       10000,
       config,
       [],
@@ -432,6 +433,7 @@ describe('openPosition', () => {
       stopPrice: 95,
       targetPrice: 110,
       timeStopBars: null,
+      entrySlippageCost: 5, // |100 - 99.5| * 10 units
     });
   });
 
@@ -443,7 +445,7 @@ describe('openPosition', () => {
 
     const position = openPosition(
       decision,
-      { price: 100, bar: 5, time: 1700000000000, kind: 'maker' },
+      { price: 100, rawPrice: 100, bar: 5, time: 1700000000000, kind: 'maker' },
       10000,
       riskConfig,
       [],
@@ -455,6 +457,7 @@ describe('openPosition', () => {
     // Risk 1% of 10000 = 100 over a 5-point stop distance = 20 units
     expect(position.quantity).toBeCloseTo(20);
     expect(position.entryFillKind).toBe('maker');
+    expect(position.entrySlippageCost).toBe(0);
   });
 
   it('defaults timeStopBars to null when the decision omits it', () => {
@@ -467,7 +470,7 @@ describe('openPosition', () => {
 
     const position = openPosition(
       marketDecision,
-      { price: 100, bar: 0, time: 0, kind: 'taker' },
+      { price: 100, rawPrice: 100, bar: 0, time: 0, kind: 'taker' },
       10000,
       config,
       [],
@@ -491,7 +494,7 @@ describe('openPosition', () => {
 
     const position = openPosition(
       timedDecision,
-      { price: 99, bar: 3, time: 1700000000000, kind: 'maker' },
+      { price: 99, rawPrice: 99, bar: 3, time: 1700000000000, kind: 'maker' },
       10000,
       config,
       [],
@@ -502,5 +505,6 @@ describe('openPosition', () => {
 
     expect(position.timeStopBars).toBe(10);
     expect(position.entryPrice).toBe(99);
+    expect(position.entrySlippageCost).toBe(0);
   });
 });

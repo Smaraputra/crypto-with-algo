@@ -106,7 +106,7 @@ describe('runWalkForward integration', () => {
         htfCandles,
         htfInterval: '4h',
         // Wiring is under test, not market luck: accept every candidate
-        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
       });
 
       // Two anchored windows fit 600 bars with 260/60/60 and the default

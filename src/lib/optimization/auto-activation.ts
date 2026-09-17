@@ -54,12 +54,21 @@ export async function shouldAutoActivate(
     };
   }
 
-  // Check minimum backtest results
+  // Check minimum backtest results. Both save paths (the monthly
+  // orchestrator and the admin optimize-template route) now write the
+  // contributing-window count here, not every window or the ensemble size,
+  // so this floor counts real out-of-sample tests. Provisional: 3, down
+  // from 5, since position_trading's purge gap (a full style/interval
+  // indicator warmup skipped between train and test) leaves few enough
+  // windows that 5 was unreachable for it; re-measure pending Phase 3.
+  // Auto-activation stays disabled in production regardless
+  // (OPTIMIZATION_AUTO_ACTIVATE defaults false).
   const totalBacktests = optimizedTemplate.performanceMetrics.totalBacktests || 0;
-  if (totalBacktests < 5) {
+  const MIN_CONTRIBUTING_WINDOWS = 3;
+  if (totalBacktests < MIN_CONTRIBUTING_WINDOWS) {
     return {
       shouldActivate: false,
-      reason: `Insufficient backtest results (${totalBacktests} < 5)`,
+      reason: `Insufficient backtest results (${totalBacktests} < ${MIN_CONTRIBUTING_WINDOWS})`,
       metrics: {
         currentSharpe: currentTemplate?.performanceMetrics?.avgSharpe || 0,
         newSharpe,

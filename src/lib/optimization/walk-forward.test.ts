@@ -311,7 +311,7 @@ describe('runWalkForward default purge gap', () => {
       candidatesPerWindow: 2,
       constraintPercent: 0.2,
       jobId: new mongoose.Types.ObjectId(),
-      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
     });
 
     expect(result.windows.length).toBeGreaterThan(0);
@@ -340,16 +340,18 @@ describe('runWalkForward default purge gap', () => {
         constraintPercent: 0.2,
         jobId: new mongoose.Types.ObjectId(),
         windowMode: 'rolling',
-        // Far narrower than day_trading/1h's ~210-bar minimum training width
-        // (driven by its indicator warmup). Without a floor, every window's
+        // Far narrower than day_trading/1h's actual minimum training width,
+        // which is 220 here (computeMinCandles(indicatorConfig) + 10), not
+        // the 210 minTrainingBars passed above -- the indicator warmup floor
+        // wins via effectiveMinTrainingBars. Without a floor, every window's
         // prepareBacktest would throw on a too-short training slice.
         rollingTrainBars: 50,
-        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
       });
 
       expect(result.windows.length).toBeGreaterThan(1);
       for (const window of result.windows) {
-        expect(window.trainEnd - window.trainStart + 1).toBeGreaterThanOrEqual(210);
+        expect(window.trainEnd - window.trainStart + 1).toBeGreaterThanOrEqual(220);
       }
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rollingTrainBars'));
     } finally {
@@ -376,7 +378,7 @@ describe('runWalkForward window records', () => {
       candidatesPerWindow: 2,
       constraintPercent: 0.2,
       jobId: new mongoose.Types.ObjectId(),
-      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
     });
 
     expect(result.windows.length).toBeGreaterThan(0);
@@ -416,7 +418,7 @@ describe('runWalkForward window records', () => {
       candidatesPerWindow: 2,
       constraintPercent: 0.2,
       jobId: new mongoose.Types.ObjectId(),
-      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
     });
 
     expect(result.windows.length).toBeGreaterThan(1);

@@ -21,13 +21,18 @@ export interface ReferenceProfile {
 /**
  * Builds a ReferenceProfile from a reference BacktestResult.
  *
- * entryProbability is trades divided by the number of bars the reference
- * strategy was eligible to enter on (`totalBars`, already the post-warmup
- * bar count that both engines derive as `candles.length - warmupBars` in
- * bar-loop.ts), clamped to (0, 1]. A random strategy run through the same
- * `prepared` data sees exactly that many flat-bar opportunities, so this is
- * the probability that reproduces the reference's trade count in
- * expectation.
+ * entryProbability is trades divided by the reference's flat-bar count:
+ * `totalBars` (the post-warmup bar count both engines derive as
+ * `candles.length - warmupBars` in bar-loop.ts) minus the bars actually
+ * spent holding a position (the sum of every trade's `holdTimeBars`),
+ * floored at 1 bar, then clamped to (0, 1]. decideEntry is only ever called
+ * on a bar the engine is flat -- never while a position or a pending order
+ * is open -- so dividing by totalBars understated the true per-flat-bar
+ * rate whenever trades held for more than a few bars: a random strategy run
+ * through the same `prepared` data then entered less often than the
+ * reference, since it also only gets a decideEntry call on its own flat
+ * bars. Dividing by the flat-bar count instead reproduces the reference's
+ * trade count in expectation.
  */
 export function referenceProfile(result: BacktestResult): ReferenceProfile {
   const { trades, totalBars } = result;
@@ -37,9 +42,11 @@ export function referenceProfile(result: BacktestResult): ReferenceProfile {
   }
 
   const longTrades = trades.filter((t) => t.side === 'long').length;
+  const heldBars = trades.reduce((sum, t) => sum + t.holdTimeBars, 0);
+  const flatBars = Math.max(1, totalBars - heldBars);
 
   return {
-    entryProbability: Math.min(1, trades.length / totalBars),
+    entryProbability: Math.min(1, trades.length / flatBars),
     longShare: longTrades / trades.length,
     holdBars: trades.map((t) => t.holdTimeBars),
     stopPercents: trades.map((t) => t.riskPercent ?? 0),
@@ -113,6 +120,12 @@ export function createRandomEntryStrategy(profile: ReferenceProfile, seed: numbe
  * exits, which the random strategies share) beats chance: it is the share of
  * random draws that matched or beat the observed expectancy, with a
  * pseudo-count of 1 in numerator and denominator so it is never exactly 0.
+ *
+ * This tests entry timing given the realized exit timing distribution (the
+ * reference's own hold/stop/target sample), not the exit rule itself: a
+ * strategy with a genuinely better exit rule, not a better entry, can still
+ * score a low p-value here, since every random draw exits the same way the
+ * reference did.
  */
 export function randomEntryBenchmark(
   prepared: PreparedBacktest,

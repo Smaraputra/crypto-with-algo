@@ -9,6 +9,7 @@ describe('robustness-filter', () => {
     maxDrawdown?: number;
     maxDrawdownPercent?: number;
     totalTrades?: number;
+    expectancyPercent?: number;
   }): IBacktestResultV2 => {
     const metrics: Record<string, number | undefined> = {};
 
@@ -36,6 +37,12 @@ describe('robustness-filter', () => {
       metrics.maxDrawdownPercent = overrides.maxDrawdownPercent;
     } else {
       metrics.maxDrawdownPercent = 20;
+    }
+
+    if ('expectancyPercent' in overrides) {
+      metrics.expectancyPercent = overrides.expectancyPercent;
+    } else {
+      metrics.expectancyPercent = 2.0;
     }
 
     return {
@@ -156,9 +163,78 @@ describe('robustness-filter', () => {
         minWinRate: 0.4,
         maxDrawdown: 0.3,
         minTrades: 10,
+        minExpectancyPercent: 0,
       };
 
       expect(isRobust(result, customConfig)).toBe(true);
+    });
+
+    it('rejects zero expectancy at the default floor', () => {
+      const result = createMockResult({
+        sharpeRatio: 1.0,
+        winRate: 0.5,
+        maxDrawdownPercent: 20,
+        totalTrades: 20,
+        expectancyPercent: 0,
+      });
+
+      expect(isRobust(result)).toBe(false);
+    });
+
+    it('rejects negative expectancy', () => {
+      const result = createMockResult({
+        sharpeRatio: 1.0,
+        winRate: 0.5,
+        maxDrawdownPercent: 20,
+        totalTrades: 20,
+        expectancyPercent: -0.5,
+      });
+
+      expect(isRobust(result)).toBe(false);
+    });
+
+    it('treats missing expectancy as failing robustness', () => {
+      const result = createMockResult({
+        sharpeRatio: 1.0,
+        winRate: 0.5,
+        maxDrawdownPercent: 20,
+        totalTrades: 20,
+        expectancyPercent: undefined,
+      });
+
+      expect(isRobust(result)).toBe(false);
+    });
+
+    it('passes strictly positive expectancy at the default floor', () => {
+      const result = createMockResult({
+        sharpeRatio: 1.0,
+        winRate: 0.5,
+        maxDrawdownPercent: 20,
+        totalTrades: 20,
+        expectancyPercent: 0.01,
+      });
+
+      expect(isRobust(result)).toBe(true);
+    });
+
+    it('a custom minExpectancyPercent raises the floor', () => {
+      const result = createMockResult({
+        sharpeRatio: 1.0,
+        winRate: 0.5,
+        maxDrawdownPercent: 20,
+        totalTrades: 20,
+        expectancyPercent: 0.5,
+      });
+
+      const customConfig = {
+        minSharpe: 0.5,
+        minWinRate: 0.4,
+        maxDrawdown: 0.3,
+        minTrades: 10,
+        minExpectancyPercent: 1.0,
+      };
+
+      expect(isRobust(result, customConfig)).toBe(false);
     });
   });
 

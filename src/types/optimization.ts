@@ -2,10 +2,18 @@ import type { SignalWeights } from './signal';
 import type { BacktestMetrics } from '@/lib/backtest/types';
 
 export interface RobustnessConfig {
+  // Provisional: set before the annualization fix (db1f336) made Sharpe
+  // comparable across intervals, and not yet re-measured against it.
   minSharpe: number; // 0.5
   minWinRate: number; // 0.40 (40%)
   maxDrawdown: number; // 0.30 = 30% of peak equity, compared against metrics.maxDrawdownPercent / 100
   minTrades: number; // 10 (statistical significance)
+  // A candidate's expectancyPercent must exceed this floor; at the default
+  // 0 it must be strictly positive. minSharpe alone no longer isolates a
+  // breakeven-or-worse candidate now that annualization makes Sharpe
+  // interval-comparable, so this is a direct check on the number the study
+  // is actually judged on.
+  minExpectancyPercent: number; // 0
 }
 
 export interface WalkForwardWindow {
@@ -38,6 +46,7 @@ export const DEFAULT_ROBUSTNESS: RobustnessConfig = {
   minWinRate: 0.4,
   maxDrawdown: 0.3,
   minTrades: 10,
+  minExpectancyPercent: 0,
 };
 
 export const DEFAULT_OPTIMIZATION_CONFIG = {

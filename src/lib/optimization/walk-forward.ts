@@ -127,7 +127,14 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     rollingTrainBars ?? effectiveMinTrainingBars,
     effectiveMinTrainingBars
   );
-  if (rollingTrainBars !== undefined && resolvedRollingTrainBars !== rollingTrainBars) {
+  // Only meaningful in 'rolling' mode: calculateWindows ignores
+  // rollingTrainBars entirely in the default 'anchored' mode, so warning
+  // about a clamp there would flag a value that has no effect on anything.
+  if (
+    windowMode === 'rolling' &&
+    rollingTrainBars !== undefined &&
+    resolvedRollingTrainBars !== rollingTrainBars
+  ) {
     console.warn(
       `walk-forward: rollingTrainBars ${rollingTrainBars} is below the ${tradingStyle}/${interval} minimum training width (${effectiveMinTrainingBars}); clamped to ${resolvedRollingTrainBars}`
     );

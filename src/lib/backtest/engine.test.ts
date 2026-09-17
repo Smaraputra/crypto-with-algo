@@ -246,6 +246,47 @@ describe('custom Strategy: limit orders, market slippage, and time stops', () =>
     expect(trade.entryBar).toBe(fillBar);
   });
 
+  it('a limit fill that also breaches the stop on the same bar closes as a stop_loss on that bar', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = candles.length - 5;
+    const fillBar = entryBar + 1;
+    const close = candles[entryBar].close;
+    const limitPrice = close * 0.999;
+    const stopPrice = close * 0.99;
+
+    // No gap (open stays above the limit), but the same candle's low
+    // breaches both the limit and, further down, the stop: the limit fills
+    // at limitPrice, then the same candle's low is also below the stop.
+    candles[fillBar] = {
+      ...candles[fillBar],
+      open: limitPrice * 1.001,
+      high: limitPrice * 1.002,
+      low: stopPrice * 0.999,
+      close: stopPrice * 1.0002,
+    };
+
+    const strategy = createOneShotStrategy(entryBar, () => ({
+      side: 'long',
+      orderType: 'limit',
+      limitPrice,
+      timeoutBars: 5,
+      stopPrice,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+    const config = { ...DEFAULT_BACKTEST_CONFIG };
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.entryBar).toBe(fillBar);
+    expect(trade.exitBar).toBe(fillBar);
+    expect(trade.entryPrice).toBeCloseTo(limitPrice);
+    expect(trade.exitPrice).toBeCloseTo(stopPrice);
+    expect(trade.exitReason).toBe('stop_loss');
+  });
+
   it('a limit that gaps through fills at the open, not the limit price', () => {
     const candles = generateTrendingCandles(300);
     const entryBar = candles.length - 5;
@@ -299,6 +340,48 @@ describe('custom Strategy: limit orders, market slippage, and time stops', () =>
     const trade = result.trades[0];
     expect(trade.entryPrice).toBeCloseTo(close * 1.001, 6); // a buy fills higher, against the trader
     expect(trade.entryFillKind).toBe('taker');
+  });
+
+  it('a market-in market-out trade reports both legs in slippageCost', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = candles.length - 5;
+    const exitBar = entryBar + 1;
+    const config = { ...DEFAULT_BACKTEST_CONFIG, slippageBps: 10 };
+    const rawClose = candles[entryBar].close;
+    const entryPrice = rawClose * 1.001; // a buy fills higher, against the trader
+    const stopPrice = entryPrice * 0.98;
+
+    // Force a clean stop_loss breach the very next bar, no gap, so the exit
+    // leg also slips (stop_loss is a taker, slippage-applying exit).
+    candles[exitBar] = {
+      ...candles[exitBar],
+      open: stopPrice * 1.01,
+      high: stopPrice * 1.02,
+      low: stopPrice * 0.99,
+      close: stopPrice * 1.005,
+    };
+
+    const strategy = createOneShotStrategy(entryBar, () => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.exitReason).toBe('stop_loss');
+    expect(trade.entryPrice).toBeCloseTo(entryPrice);
+
+    const entryLeg = Math.abs(trade.entryPrice - rawClose) * trade.quantity;
+    const exitLeg = Math.abs(trade.exitPrice - stopPrice) * trade.quantity;
+
+    expect(entryLeg).toBeGreaterThan(0);
+    expect(exitLeg).toBeGreaterThan(0);
+    expect(trade.slippageCost).toBeCloseTo(entryLeg + exitLeg, 6);
   });
 
   it('a time stop closes at the right bar with reason time_stop', () => {

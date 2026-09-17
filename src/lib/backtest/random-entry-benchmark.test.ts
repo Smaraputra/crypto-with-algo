@@ -126,7 +126,8 @@ describe('referenceProfile', () => {
 
     const profile = referenceProfile(result);
 
-    expect(profile.entryProbability).toBeCloseTo(4 / 40);
+    // Flat bars = totalBars (40) minus held bars (5+10+3+8=26) = 14, not 40.
+    expect(profile.entryProbability).toBeCloseTo(4 / 14);
     expect(profile.longShare).toBeCloseTo(0.75);
     expect(profile.holdBars).toEqual([5, 10, 3, 8]);
     expect(profile.stopPercents).toEqual([2, 3, 1.5, 2.5]);
@@ -229,7 +230,12 @@ describe('random-entry benchmark against a real engine run', () => {
     shortExitThreshold: 5,
   };
 
-  it('trade count stays within 30% of the reference on average across 20 seeds', () => {
+  it('trade count stays within 10% of the reference on average across 20 seeds', () => {
+    // Dividing entryProbability by the reference's flat-bar count (not
+    // totalBars) brings this well under the old 30% tolerance: measured at
+    // ~1.7% on this series (6 reference trades, avg 5.9 across the 20
+    // seeds). 10% keeps meaningful headroom above that without reopening
+    // the door to the old under-counting bug.
     const candles = generateCandles(600);
     const prepared = prepareBacktest(candles, 'BTCUSDT', '1h');
     const reference = runOptimizedBacktest(prepared, config, 'BTCUSDT', '1h');
@@ -245,7 +251,7 @@ describe('random-entry benchmark against a real engine run', () => {
     const avgCount = counts.reduce((sum, c) => sum + c, 0) / counts.length;
     const relativeDiff = Math.abs(avgCount - reference.trades.length) / reference.trades.length;
 
-    expect(relativeDiff).toBeLessThan(0.3);
+    expect(relativeDiff).toBeLessThan(0.1);
   });
 
   it('a planted edge (test-only lookahead oracle) beats the benchmark', () => {

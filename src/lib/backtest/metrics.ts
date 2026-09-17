@@ -147,7 +147,7 @@ function computeSessionBreakdown(trades: BacktestTrade[]): SessionBreakdownEntry
   return breakdown;
 }
 
-function computeSharpe(equityCurve: EquityPoint[], startEquity: number, barsPerYear: number): number {
+function computeSharpe(equityCurve: EquityPoint[], startEquity: number, annualizationFactor: number): number {
   if (equityCurve.length < 2) return 0;
 
   const returns: number[] = [];
@@ -167,10 +167,10 @@ function computeSharpe(equityCurve: EquityPoint[], startEquity: number, barsPerY
 
   if (stdDev === 0) return 0;
 
-  return (mean / stdDev) * Math.sqrt(barsPerYear);
+  return (mean / stdDev) * Math.sqrt(annualizationFactor);
 }
 
-function computeSortino(equityCurve: EquityPoint[], startEquity: number, barsPerYear: number): number {
+function computeSortino(equityCurve: EquityPoint[], startEquity: number, annualizationFactor: number): number {
   if (equityCurve.length < 2) return 0;
 
   const returns: number[] = [];
@@ -195,7 +195,7 @@ function computeSortino(equityCurve: EquityPoint[], startEquity: number, barsPer
 
   if (downsideDev === 0) return 0;
 
-  return (mean / downsideDev) * Math.sqrt(barsPerYear);
+  return (mean / downsideDev) * Math.sqrt(annualizationFactor);
 }
 
 function computeStreaks(trades: BacktestTrade[]): {

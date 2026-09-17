@@ -166,7 +166,13 @@ export async function POST(req: Request) {
       const contributorIds = result.ensembleResults.map((r) => r._id);
 
       if (gate.pass) {
-        // 8. Create new template version (inactive by default)
+        // 8. Create new template version (inactive by default). Not
+        // ensembleCount: only the top-five ensemble documents survive a
+        // walk-forward run, so a style with more than five contributing
+        // windows would under-report how many out-of-sample tests actually
+        // ran. gate.contributingWindows counts every window that produced
+        // an out-of-sample result, matching what the monthly orchestrator
+        // writes for the same field.
         template = await createTemplateVersion(
           tradingStyle as TradingStyle,
           result.optimizedWeights,
@@ -174,7 +180,7 @@ export async function POST(req: Request) {
           {
             avgSharpe,
             avgWinRate,
-            totalBacktests: ensembleCount,
+            totalBacktests: gate.contributingWindows,
           }
         );
 
@@ -202,7 +208,7 @@ export async function POST(req: Request) {
         performance: {
           avgSharpe,
           avgWinRate,
-          totalBacktests: ensembleCount,
+          totalBacktests: gate.contributingWindows,
         },
         windows: result.windows.length,
         candidatesTested: job.progress.candidatesTested,
