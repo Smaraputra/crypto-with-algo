@@ -86,8 +86,12 @@ const historicalSnapshotSchema = new Schema<IHistoricalSnapshot>(
 // Primary lookup index
 historicalSnapshotSchema.index({ symbol: 1, interval: 1, timestamp: -1 });
 
-// TTL index: 1 year = 31536000 seconds
-historicalSnapshotSchema.index({ createdAt: 1 }, { expireAfterSeconds: 31536000 });
+// History is durable: no TTL index on createdAt. The research program relies
+// on multi-year funding, long/short, open interest, and Fear & Greed history,
+// which a TTL would silently delete a year after each row was inserted.
+// A production collection created before this change still carries the old
+// TTL index; Mongoose never drops an existing index on its own, so
+// scripts/ops/backfill-history.ts --drop-snapshot-ttl removes it explicitly.
 
 export const HistoricalSnapshot =
   mongoose.models.HistoricalSnapshot ||

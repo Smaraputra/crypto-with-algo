@@ -1,12 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockFetchFundingRate = vi.hoisted(() => vi.fn());
+const mockFetchLongShortRatio = vi.hoisted(() => vi.fn());
+const mockFetchOpenInterestHistory = vi.hoisted(() => vi.fn());
+const mockBulkWrite = vi.hoisted(() => vi.fn());
+const mockFetchFearAndGreedHistory = vi.hoisted(() => vi.fn());
+
 vi.mock('@/lib/binance-futures', () => ({
   fetchFundingRate: (...args: unknown[]) => mockFetchFundingRate(...args),
+  fetchLongShortRatio: (...args: unknown[]) => mockFetchLongShortRatio(...args),
+  fetchOpenInterestHistory: (...args: unknown[]) => mockFetchOpenInterestHistory(...args),
 }));
-vi.mock('@/lib/models/historical-snapshot', () => ({ HistoricalSnapshot: {} }));
+vi.mock('@/lib/models/historical-snapshot', () => ({
+  HistoricalSnapshot: { bulkWrite: (...args: unknown[]) => mockBulkWrite(...args) },
+}));
+vi.mock('@/lib/external/fear-greed', () => ({
+  fetchFearAndGreedHistory: (...args: unknown[]) => mockFetchFearAndGreedHistory(...args),
+}));
 
-import { buildBackfillSnapshots, fetchFundingHistory, FUNDING_INTERVAL_MS } from './snapshot-backfill';
+import {
+  buildBackfillSnapshots,
+  fetchFundingHistory,
+  backfillSnapshotRange,
+  loadFearGreedLookup,
+  MAX_FEAR_GREED_CARRY_DAYS,
+  FUNDING_INTERVAL_MS,
+} from './snapshot-backfill';
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -160,5 +179,126 @@ describe('fetchFundingHistory', () => {
     mockFetchFundingRate.mockRejectedValue(new Error('HTTP 418'));
 
     await expect(fetchFundingHistory('BTCUSDT', T0, T0 + DAY)).rejects.toThrow('HTTP 418');
+  });
+});
+
+describe('backfillSnapshotRange', () => {
+  beforeEach(() => {
+    mockFetchLongShortRatio.mockReset().mockResolvedValue([]);
+    mockFetchOpenInterestHistory.mockReset().mockResolvedValue([]);
+    mockBulkWrite.mockReset().mockResolvedValue(undefined);
+  });
+
+  function run(overrides: Partial<Parameters<typeof backfillSnapshotRange>[0]> = {}) {
+    return backfillSnapshotRange({
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      startTime: T0,
+      endTime: T0 + 10 * HOUR,
+      fundingEvents: [],
+      fearGreedAt: () => null,
+      ...overrides,
+    });
+  }
+
+  it('requests recent long/short and open interest history for the pair', async () => {
+    await run({ symbol: 'ETHUSDT', interval: '4h' });
+
+    expect(mockFetchLongShortRatio).toHaveBeenCalledWith('ETHUSDT', '4h', 500);
+    expect(mockFetchOpenInterestHistory).toHaveBeenCalledWith('ETHUSDT', '4h', 500);
+  });
+
+  it('builds and upserts a snapshot for every bar, returning the count and coverage', async () => {
+    const result = await run();
+
+    expect(result.snapshots).toBe(11);
+    expect(mockBulkWrite).toHaveBeenCalledTimes(1);
+    expect((mockBulkWrite.mock.calls[0][0] as unknown[])).toHaveLength(11);
+    expect(result.coverage).toEqual({ fundingRate: 0, longShortRatio: 0, openInterest: 0, fearGreed: 0 });
+  });
+
+  it('still builds snapshots when long/short and open interest both fail', async () => {
+    mockFetchLongShortRatio.mockRejectedValue(new Error('HTTP 418'));
+    mockFetchOpenInterestHistory.mockRejectedValue(new Error('HTTP 418'));
+
+    const result = await run();
+
+    expect(result.snapshots).toBe(11);
+    expect(result.coverage.longShortRatio).toBe(0);
+    expect(result.coverage.openInterest).toBe(0);
+  });
+
+  it('splits large windows into upsert chunks of 5000', async () => {
+    // 6,000 hourly bars needs two chunks.
+    const result = await run({ startTime: T0, endTime: T0 + 5_999 * HOUR });
+
+    expect(result.snapshots).toBe(6000);
+    expect(mockBulkWrite).toHaveBeenCalledTimes(2);
+    for (const call of mockBulkWrite.mock.calls) {
+      expect((call[0] as unknown[]).length).toBeLessThanOrEqual(5000);
+    }
+  });
+
+  it('attaches funding, long/short, open interest, and Fear & Greed onto the built bars', async () => {
+    mockFetchLongShortRatio.mockResolvedValue([
+      { symbol: 'BTCUSDT', timestamp: T0, longShortRatio: 1.2, longAccount: 0.55, shortAccount: 0.45 },
+    ]);
+    mockFetchOpenInterestHistory.mockResolvedValue([
+      { symbol: 'BTCUSDT', timestamp: T0, sumOpenInterest: 10, sumOpenInterestValue: 900_000 },
+    ]);
+
+    const result = await run({
+      fundingEvents: [{ symbol: 'BTCUSDT', fundingTime: T0, fundingRate: 0.0001, markPrice: 80_000 }],
+      fearGreedAt: () => ({ index: 40, label: 'Fear' }),
+    });
+
+    // Funding staleness is FUNDING_INTERVAL_MS (8h) + the 1h bar interval, so
+    // the bar at T0 + 10h falls just outside it and gets no funding.
+    expect(result.coverage).toEqual({ fundingRate: 10, longShortRatio: 1, openInterest: 1, fearGreed: 11 });
+  });
+});
+
+describe('loadFearGreedLookup', () => {
+  beforeEach(() => {
+    mockFetchFearAndGreedHistory.mockReset();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('requests the given number of days', async () => {
+    mockFetchFearAndGreedHistory.mockResolvedValue([]);
+
+    await loadFearGreedLookup(63);
+
+    expect(mockFetchFearAndGreedHistory).toHaveBeenCalledWith(63);
+  });
+
+  it('resolves a timestamp to the reading recorded for its UTC day', async () => {
+    mockFetchFearAndGreedHistory.mockResolvedValue([
+      { timestamp: T0, fearGreedIndex: 55, label: 'Greed' },
+    ]);
+
+    const lookup = await loadFearGreedLookup(3);
+
+    expect(lookup(T0 + 5 * HOUR)).toEqual({ index: 55, label: 'Greed' });
+  });
+
+  it(`carries a reading forward up to ${MAX_FEAR_GREED_CARRY_DAYS} days over a gap`, async () => {
+    mockFetchFearAndGreedHistory.mockResolvedValue([
+      { timestamp: T0, fearGreedIndex: 55, label: 'Greed' },
+    ]);
+
+    const lookup = await loadFearGreedLookup(6);
+
+    expect(lookup(T0 + MAX_FEAR_GREED_CARRY_DAYS * DAY)).toEqual({ index: 55, label: 'Greed' });
+    expect(lookup(T0 + (MAX_FEAR_GREED_CARRY_DAYS + 1) * DAY)).toBeNull();
+  });
+
+  it('returns a lookup that always answers null when the fetch fails, without throwing', async () => {
+    mockFetchFearAndGreedHistory.mockRejectedValue(new Error('API down'));
+
+    const lookup = await loadFearGreedLookup(6);
+
+    expect(lookup(T0)).toBeNull();
+    expect(console.error).toHaveBeenCalledTimes(1);
   });
 });

@@ -12,8 +12,9 @@
  * Open interest and long/short ratio remain limited to what Binance still
  * serves. Bars older than that get neither, which the scorer treats as missing.
  */
-import { alignTimestamp } from '@/lib/historical-snapshots';
-import { fetchFundingRate } from '@/lib/binance-futures';
+import { alignTimestamp, bulkUpsertSnapshots } from '@/lib/historical-snapshots';
+import { fetchFundingRate, fetchLongShortRatio, fetchOpenInterestHistory } from '@/lib/binance-futures';
+import { fetchFearAndGreedHistory } from '@/lib/external/fear-greed';
 import { intervalToMs } from '@/lib/intervals';
 import type { FundingRate, LongShortRatio, OpenInterestHist } from '@/types/futures';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
@@ -24,6 +25,17 @@ export const FUNDING_INTERVAL_MS = 8 * 60 * 60 * 1000;
 const FUNDING_PAGE_SIZE = 1000;
 /** 60 pages is about 55 years of 8-hourly events: a runaway guard, not a budget. */
 const MAX_FUNDING_PAGES = 60;
+
+/** The type fetchFundingHistory resolves with, named for callers outside this module. */
+export type FundingEvent = FundingRate;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Binance serves long/short and open interest history only this far back
+const RECENT_FUTURES_LIMIT = 500;
+// Bars per bulk write; 48 months of 15m bars is about 140,000
+const UPSERT_CHUNK = 5000;
+// Carry a daily Fear & Greed reading forward at most this many days over gaps
+export const MAX_FEAR_GREED_CARRY_DAYS = 3;
 
 export interface BackfillSnapshot {
   symbol: string;
@@ -153,4 +165,88 @@ export function buildBackfillSnapshots(input: {
   }
 
   return { snapshots, coverage };
+}
+
+export interface SnapshotBackfillPairResult {
+  snapshots: number;
+  coverage: BackfillCoverage;
+}
+
+/**
+ * Backfill one symbol/interval pair: fetches the recent long/short and open
+ * interest history Binance still serves, builds a snapshot for every bar of
+ * the window with {@link buildBackfillSnapshots}, and upserts them in chunks.
+ *
+ * Funding events and the Fear & Greed lookup are supplied by the caller,
+ * since both are shared across every interval of a symbol (funding) or across
+ * the whole run (Fear & Greed) rather than fetched per pair.
+ */
+export async function backfillSnapshotRange(input: {
+  symbol: string;
+  interval: string;
+  startTime: number;
+  endTime: number;
+  fundingEvents: FundingEvent[];
+  fearGreedAt: (ts: number) => { index: number; label: string } | null;
+}): Promise<SnapshotBackfillPairResult> {
+  const { symbol, interval, startTime, endTime, fundingEvents, fearGreedAt } = input;
+
+  const [longShort, openInterest] = await Promise.allSettled([
+    fetchLongShortRatio(symbol, interval, RECENT_FUTURES_LIMIT),
+    fetchOpenInterestHistory(symbol, interval, RECENT_FUTURES_LIMIT),
+  ]);
+
+  const built = buildBackfillSnapshots({
+    symbol,
+    interval,
+    startTime,
+    endTime,
+    fundingEvents,
+    longShortRatios: longShort.status === 'fulfilled' ? longShort.value : [],
+    openInterest: openInterest.status === 'fulfilled' ? openInterest.value : [],
+    fearGreedAt,
+  });
+
+  for (let i = 0; i < built.snapshots.length; i += UPSERT_CHUNK) {
+    await bulkUpsertSnapshots(built.snapshots.slice(i, i + UPSERT_CHUNK));
+  }
+
+  return { snapshots: built.snapshots.length, coverage: built.coverage };
+}
+
+/**
+ * Loads a point-in-time Fear & Greed lookup covering `days` back from today.
+ * The index is daily, so one reading maps onto every intra-day bar of its UTC
+ * day; a gap in the feed carries the last known reading forward for up to
+ * {@link MAX_FEAR_GREED_CARRY_DAYS} days before giving up. Missing data is a
+ * gap, not a failure: if the fetch itself fails, the returned lookup always
+ * answers null (logged once here) rather than throwing for every bar.
+ */
+export async function loadFearGreedLookup(
+  days: number
+): Promise<(ts: number) => { index: number; label: string } | null> {
+  const fearGreedByDay = new Map<number, { index: number; label: string }>();
+
+  try {
+    const history = await fetchFearAndGreedHistory(days);
+    for (const entry of history) {
+      const day = Math.floor(entry.timestamp / DAY_MS) * DAY_MS;
+      fearGreedByDay.set(day, { index: entry.fearGreedIndex, label: entry.label });
+    }
+  } catch (error) {
+    console.error(
+      'Failed to fetch Fear & Greed history:',
+      error instanceof Error ? error.message : 'Unknown error'
+    );
+    return () => null;
+  }
+
+  return (ts: number): { index: number; label: string } | null => {
+    const day = Math.floor(ts / DAY_MS) * DAY_MS;
+    for (let back = 0; back <= MAX_FEAR_GREED_CARRY_DAYS; back++) {
+      const hit = fearGreedByDay.get(day - back * DAY_MS);
+      if (hit) return hit;
+    }
+    return null;
+  };
 }

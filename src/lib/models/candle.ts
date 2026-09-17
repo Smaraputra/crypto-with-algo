@@ -35,14 +35,19 @@ candleSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0, sparse: true });
 
 export const VALID_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'] as const;
 
-/** High-frequency intervals that get automatic TTL cleanup */
-export const HF_INTERVALS = ['1m', '5m'] as const;
+/**
+ * High-frequency intervals that get automatic TTL cleanup. 5m is durable, not
+ * high-frequency: scalping research needs 12 months of 5m history, so it is
+ * kept indefinitely like the other durable intervals. Rows written before
+ * this change still carry an `expiresAt` from when 5m was TTL-backed; clear
+ * those with `scripts/ops/backfill-history.ts --unset-5m-ttl`.
+ */
+export const HF_INTERVALS = ['1m'] as const;
 export type HFInterval = (typeof HF_INTERVALS)[number];
 
 /** TTL durations in milliseconds for high-frequency candle cleanup */
 export const HF_TTL_MS: Record<HFInterval, number> = {
   '1m': 7 * 24 * 60 * 60 * 1000,   // 7 days
-  '5m': 14 * 24 * 60 * 60 * 1000,  // 14 days
 };
 
 export function isHighFrequencyInterval(interval: string): interval is HFInterval {

@@ -6,23 +6,38 @@ import { backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 import { Candle, HF_INTERVALS } from '@/lib/models/candle';
 
 /**
- * Intervals worth backfilling. 1m and 5m are excluded: they carry a TTL
- * (HF_TTL_MS), so history fetched beyond that horizon is deleted again by the
- * TTL index and the request would burn Binance quota for nothing.
+ * Intervals worth backfilling. 1m is excluded: it carries a TTL (HF_TTL_MS),
+ * so history fetched beyond that horizon is deleted again by the TTL index
+ * and the request would burn Binance quota for nothing. 5m is durable here:
+ * scalping research needs up to 12 months of 5m history.
  */
-const DURABLE_INTERVALS = ['15m', '1h', '4h', '1d'] as const;
+const DURABLE_INTERVALS = ['5m', '15m', '1h', '4h', '1d'] as const;
 
-const backfillSchema = z.object({
-  symbols: z.array(z.string()).min(1).max(20),
-  intervals: z.array(z.enum(DURABLE_INTERVALS)).min(1),
-  months: z.number().min(1).max(48),
-  /**
-   * Re-fetch bars already stored rather than only the gaps around them. Needed
-   * to add fields introduced after those rows were written, such as
-   * takerBuyVolume.
-   */
-  refill: z.boolean().optional(),
-});
+/** Intervals dense enough that a long window would be an enormous document count. */
+const CAPPED_INTERVALS = new Set(['5m', '15m']);
+const CAPPED_MONTHS_MAX = 12;
+
+const backfillSchema = z
+  .object({
+    symbols: z.array(z.string()).min(1).max(20),
+    intervals: z.array(z.enum(DURABLE_INTERVALS)).min(1),
+    months: z.number().min(1).max(120),
+    /**
+     * Re-fetch bars already stored rather than only the gaps around them. Needed
+     * to add fields introduced after those rows were written, such as
+     * takerBuyVolume.
+     */
+    refill: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.months > CAPPED_MONTHS_MAX && data.intervals.some((i) => CAPPED_INTERVALS.has(i))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '5m and 15m are limited to 12 months',
+        path: ['months'],
+      });
+    }
+  });
 
 /** One second between pairs, matching the snapshot backfill's pacing. */
 const PAIR_DELAY_MS = 1000;
@@ -30,8 +45,9 @@ const PAIR_DELAY_MS = 1000;
 /**
  * Admin endpoint to backfill or repair stored candles.
  *
- * WARNING: a refill re-requests every bar in the window for each pair, so this
- * can make a great many Binance calls. Scope it to the symbols you need.
+ * WARNING: months can reach 120, but 5m and 15m are capped at 12, since a
+ * refill re-requests every bar in the window for each pair and this can make
+ * a great many Binance calls. Scope it to the symbols you need.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -102,7 +118,7 @@ export async function POST(req: NextRequest) {
       months,
       inserted: totalInserted,
       errors: totalErrors,
-      // Stated so a caller is not left wondering why 1m/5m were ignored.
+      // Stated so a caller is not left wondering why 1m was ignored.
       excludedIntervals: HF_INTERVALS,
       results,
     });
