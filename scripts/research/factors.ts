@@ -14,7 +14,7 @@
 
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { DEFAULT_TEMPLATE_WEIGHTS } from '@/lib/models/signal-template';
-import type { SignalWeights } from '@/types/signal';
+import type { SignalComponent, SignalWeights } from '@/types/signal';
 import type { OHLCV } from '@/types/market';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { prepareBacktest } from '@/lib/backtest/optimized-engine';
@@ -126,6 +126,21 @@ function realizedVol20(candles: CandleRow[], bar: number): number {
   return Math.sqrt(variance);
 }
 
+/**
+ * Whether a category has no real input to score, matching what actually
+ * determines `component.score` rather than the displayed `signals` list.
+ * scoreVolatility (src/lib/signals/scorer.ts) excludes ATR -- a volatility
+ * regime reading, not a directional signal -- from the score it computes,
+ * but still lists ATR in `signals`, so volatility needs the same exclusion
+ * here or a bar with only ATR would read as "has data" when it has none.
+ */
+function isCategoryDataMissing(component: SignalComponent): boolean {
+  if (component.category === 'volatility') {
+    return component.signals.filter((s) => s.name !== 'ATR').length === 0;
+  }
+  return component.signals.length === 0;
+}
+
 export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
   const { candles, snapshots, htf, interval } = input;
   const style = styleForInterval(interval);
@@ -211,7 +226,7 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
       if (idx !== undefined) {
         // Missing input (no futures/sentiment/htf data at this bar) -> NaN,
         // not the scorer's internal 0-for-redistribution default.
-        values[idx][bar] = component.signals.length > 0 ? component.score : NaN;
+        values[idx][bar] = isCategoryDataMissing(component) ? NaN : component.score;
       }
 
       for (const sig of component.signals) {
@@ -238,8 +253,11 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     values[rawIdx.get('raw.takerBuyRatio')!][bar] =
       candle.tbv !== null && candle.v !== 0 ? candle.tbv / candle.v : NaN;
     values[rawIdx.get('raw.fearGreed')!][bar] = snap?.sentiment?.fearGreedIndex ?? NaN;
+    // A null context is a missing input (no confirmation interval, e.g. 1d,
+    // or the HTF's own warmup not yet satisfied) -> NaN, distinct from a
+    // real 'neutral' trend reading, which is 0.
     values[rawIdx.get('raw.htfTrend')!][bar] = !htfCtx
-      ? 0
+      ? NaN
       : htfCtx.trendDirection === 'bullish'
         ? 1
         : htfCtx.trendDirection === 'bearish'

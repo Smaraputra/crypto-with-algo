@@ -15,7 +15,7 @@ import type { CandleRow, HtfRow, SnapshotRow } from './dataset-format';
 import { computeFactorMatrix } from './factors';
 
 // Deterministic random walk, same LCG pattern as src/lib/backtest/engine-parity.test.ts
-function generateCandles(count: number, seed = 4242): OHLCV[] {
+function generateCandles(count: number, seed = 4242, intervalMs = 3600000): OHLCV[] {
   const candles: OHLCV[] = [];
   let price = 100;
   let rng = seed;
@@ -35,7 +35,7 @@ function generateCandles(count: number, seed = 4242): OHLCV[] {
     const volume = 1000 + nextRandom() * 5000;
 
     candles.push({
-      timestamp: 1700000000000 + i * 3600000,
+      timestamp: 1700000000000 + i * intervalMs,
       open,
       high,
       low,
@@ -295,5 +295,55 @@ describe('computeFactorMatrix', () => {
 
     const compositeIdx = matrix.names.indexOf('composite');
     expect(matrix.values[compositeIdx][bar]).toBeCloseTo(expected.score, 10);
+  });
+
+  it('raw.htfTrend is NaN for a missing (null) htf context, distinct from a real neutral reading', () => {
+    const bar = matrix.warmupBars + 50;
+    expect(htfRows[bar].context).not.toBeNull(); // sanity: this bar normally has a context
+
+    const nulledHtf = htfRows.slice();
+    nulledHtf[bar] = { t: nulledHtf[bar].t, context: null };
+
+    const withNullContext = computeFactorMatrix({
+      candles: candleRows,
+      snapshots: snapshotRows,
+      htf: nulledHtf,
+      interval: INTERVAL,
+    });
+
+    const htfTrendIdx = withNullContext.names.indexOf('raw.htfTrend');
+    const catHtfIdx = withNullContext.names.indexOf('cat.htf');
+
+    expect(Number.isNaN(withNullContext.values[htfTrendIdx][bar])).toBe(true);
+    // cat.htf and sig.HTF* already treated a missing context as "no data" -> NaN
+    expect(Number.isNaN(withNullContext.values[catHtfIdx][bar])).toBe(true);
+    for (const name of ['sig.HTF EMA Cross', 'sig.HTF SMA Trend', 'sig.HTF SuperTrend']) {
+      const idx = withNullContext.names.indexOf(name);
+      if (idx !== -1) {
+        expect(Number.isNaN(withNullContext.values[idx][bar])).toBe(true);
+      }
+    }
+  });
+
+  it('raw.htfTrend is NaN throughout a 1d series, which has no confirmation timeframe', () => {
+    const ONE_DAY = 24 * 3600000;
+    const candles = generateCandles(450, 777, ONE_DAY);
+    const candleRows1d = candles.map(toCandleRow);
+    // getConfirmationInterval('1d') is null -- every context is null, exactly
+    // as export-dataset.ts's buildHtfRows produces for the 1d interval.
+    const htf1d: HtfRow[] = candles.map((c) => ({ t: c.timestamp, context: null }));
+
+    const matrix1d = computeFactorMatrix({
+      candles: candleRows1d,
+      snapshots: null,
+      htf: htf1d,
+      interval: '1d',
+    });
+
+    const idx = matrix1d.names.indexOf('raw.htfTrend');
+    expect(idx).not.toBe(-1);
+    for (let bar = 0; bar < candleRows1d.length; bar++) {
+      expect(Number.isNaN(matrix1d.values[idx][bar])).toBe(true);
+    }
   });
 });
