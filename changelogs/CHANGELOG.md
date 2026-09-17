@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research toolkit)
+- `scripts/research/export-dataset.ts`: exports Candle, HistoricalSnapshot, and derived HTF-confluence data to gzip newline-delimited JSON under `data/research/` (gitignored), one file per symbol, interval, and kind, plus a `manifest.json` listing every file's row count, timestamp range, and sha256, and a dataset-wide hash (sha256 over the sorted per-file hashes) so two exports of the same data always hash identically. Candles are read through a Mongoose cursor sorted ascending rather than `getCandles`, which caps at 50,000 rows. HTF context is computed once per symbol and interval with a 250-bar warmup before the requested start and aligned with `alignHtfToLtf` so each row's context comes from the newest higher-timeframe bar closed at or before that bar, keeping the HTF file's row count equal to the candle file's even when every context is null (no confirmation interval for 1d, or indicator warmup not yet satisfied)
+- `scripts/research/load-dataset.ts`: loads exported candles, snapshots, and HTF rows and enforces a lockbox on data from 2026-07-01 onward, dropped by default and reported via `droppedRows`, kept only when a caller explicitly passes `allowLockbox`. `verifyManifest` recomputes every file's sha256 and the dataset hash so a single tampered byte is reported by path. Research subagents read this dataset instead of Mongo, so every agent works from one identical, hashed, held-out dataset
+- `scripts/research/dataset-format.ts`: the shared, Mongo-free row and manifest shapes (`CandleRow`, `SnapshotRow`, `HtfRow`, `DatasetManifest`) plus the gzip newline-delimited JSON read/write and sha256 helpers both scripts above build on
+- `scripts/{ops,research}/**/*.{test,spec}.ts` added to Vitest's test include, alongside the existing `src/**` pattern, so script-level unit and mongodb-memory-server integration tests run under `npm run test`
+
 ### Added (evaluation harness)
 - Pure statistics module (`src/lib/stats/`) for the strategy validation gate: a seeded mulberry32 generator, a stationary block bootstrap with a percentile confidence interval and max-drawdown-percent helper, normal distribution helpers (CDF, quantile, sample skewness and kurtosis), the deflated Sharpe ratio (Bailey and Lopez de Prado), and a parameter plateau score. No engine or Mongo dependency; all Sharpe values are per period, not annualized
 
