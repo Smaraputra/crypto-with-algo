@@ -227,7 +227,11 @@ export async function runMonthlyOptimization(
               ensembleCount > 0
                 ? result.ensembleResults.reduce((sum, r) => sum + ((r.metrics as { winRate: number }).winRate || 0), 0) / ensembleCount
                 : 0,
-            totalBacktests: result.windows.length,
+            // Not result.windows.length: that now includes windows skipped
+            // for lacking a robust in-sample candidate, which never ran an
+            // out-of-sample test. gate.contributingWindows counts only
+            // windows that actually did.
+            totalBacktests: gate.contributingWindows,
           }
         );
 

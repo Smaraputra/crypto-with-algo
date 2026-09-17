@@ -31,25 +31,28 @@ export function passesSaveGate(windows: WalkForwardWindow[]): SaveGateResult {
       window.oosMetrics !== null
   );
   const contributingWindows = contributing.length;
-  const avgOosExpectancyPercent =
-    contributingWindows > 0
-      ? contributing.reduce((sum, window) => sum + window.oosMetrics.expectancyPercent, 0) /
-        contributingWindows
-      : null;
 
   if (contributingWindows < SAVE_GATE.minContributingWindows) {
     return {
       pass: false,
       reason: `Only ${contributingWindows} of ${windows.length} window(s) produced an out-of-sample result, need at least ${SAVE_GATE.minContributingWindows}`,
       contributingWindows,
-      avgOosExpectancyPercent,
+      avgOosExpectancyPercent: contributingWindows > 0
+        ? contributing.reduce((sum, window) => sum + window.oosMetrics.expectancyPercent, 0) / contributingWindows
+        : null,
     };
   }
 
-  if (avgOosExpectancyPercent === null || avgOosExpectancyPercent <= 0) {
+  // contributingWindows >= SAVE_GATE.minContributingWindows (at least 2)
+  // here, so at least one window contributed and this average is never null.
+  const avgOosExpectancyPercent =
+    contributing.reduce((sum, window) => sum + window.oosMetrics.expectancyPercent, 0) /
+    contributingWindows;
+
+  if (avgOosExpectancyPercent <= 0) {
     return {
       pass: false,
-      reason: `Average out-of-sample expectancy across ${contributingWindows} windows is ${avgOosExpectancyPercent?.toFixed(4) ?? '0'}%, not positive`,
+      reason: `Average out-of-sample expectancy across ${contributingWindows} windows is ${avgOosExpectancyPercent.toFixed(4)}%, not positive`,
       contributingWindows,
       avgOosExpectancyPercent,
     };

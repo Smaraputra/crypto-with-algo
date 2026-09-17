@@ -563,6 +563,38 @@ describe('monthly-orchestrator', () => {
     }
   });
 
+  it('sends the contributing window count as totalBacktests, not every window', async () => {
+    // Regression: totalBacktests fed SignalTemplate.performanceMetrics, which
+    // auto-activation treats as a hard floor. windows.length now includes
+    // windows skipped for lacking a robust in-sample candidate, so a style
+    // with 2 real out-of-sample tests and 3 skipped windows must still report
+    // 2, not 5 -- otherwise it could clear the floor on far fewer real tests
+    // than it claims.
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue({
+      ...makeWalkForwardResult(),
+      windows: [
+        { trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, bestWeights: {}, testSharpe: 1.5, oosMetrics: makeOosMetrics(2.5), robustCandidates: 5 },
+        { trainStart: 100, trainEnd: 399, testStart: 400, testEnd: 499, bestWeights: {}, testSharpe: 1.2, oosMetrics: makeOosMetrics(1.8), robustCandidates: 4 },
+        { trainStart: 200, trainEnd: 499, testStart: 500, testEnd: 599, oosMetrics: null, robustCandidates: 0 },
+        { trainStart: 300, trainEnd: 599, testStart: 600, testEnd: 699, oosMetrics: null, robustCandidates: 0 },
+        { trainStart: 400, trainEnd: 699, testStart: 700, testEnd: 799, oosMetrics: null, robustCandidates: 0 },
+      ],
+    });
+    mockCreateTemplateVersion.mockResolvedValue({ _id: new mongoose.Types.ObjectId(), version: 1, tradingStyle: 'scalping' });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    await runMonthlyOptimization({ cronRunId, topSymbols: ['BTCUSDT'], autoActivate: false });
+
+    expect(mockCreateTemplateVersion).toHaveBeenCalledTimes(4);
+    for (const call of mockCreateTemplateVersion.mock.calls) {
+      const performance = call[3] as { totalBacktests: number };
+      expect(performance.totalBacktests).toBe(2);
+    }
+  });
+
   it('does not divide by zero when ensembleResults is empty', async () => {
     const candles = makeCandles(500);
     mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
