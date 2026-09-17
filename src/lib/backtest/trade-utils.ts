@@ -1,6 +1,11 @@
 import type { OHLCV } from '@/types/market';
 import type { MarketSession } from '@/lib/sessions';
+import type { SignalTier } from '@/types/signal';
 import { fixedFractional, kellyCriterion, riskBased } from './position-sizing';
+import { applySlippage, exitFillKind, exitSlippageApplies, feeRateFor } from './cost-model';
+import type { FillKind } from './cost-model';
+import { fundingCrossings, fundingPnl } from './funding';
+import type { EntryDecision } from './strategy';
 import type {
   BacktestConfig,
   BacktestTrade,
@@ -15,34 +20,54 @@ export interface OpenPosition {
   side: TradeSide;
   quantity: number;
   entryScore: number;
-  entryTier: BacktestTrade['entryTier'];
+  entryTier: SignalTier;
   entrySession?: MarketSession | null;
+  entryFillKind?: FillKind; // absent means taker (all entries today are market fills)
+  fundingPnl?: number; // accumulated signed funding while open; absent means 0
+  stopPrice: number; // absolute stop price
+  targetPrice: number | null; // absolute target price; null means no target
+  timeStopBars: number | null; // bars held before a forced exit; null means no time stop
+  entrySlippageCost: number; // currency lost to slippage on the entry fill, 0 for a limit fill or when slippageBps is unset
 }
 
-export function checkStopTakeProfit(
+/** Accrue funding for a bar the position stayed open through. Shared by both
+ * engines so their funding accounting cannot diverge. `candle` is the bar
+ * being closed; notional is marked to its close price. */
+export function accrueFunding(
   position: OpenPosition,
   candle: OHLCV,
-  config: BacktestConfig
-): { exitReason: ExitReason | null; exitPrice: number } {
-  if (position.side === 'long') {
-    const slPrice = position.entryPrice * (1 - config.stopLossPercent);
-    const tpPrice = position.entryPrice * (1 + config.takeProfitPercent);
+  prevCloseTime: number,
+  closeTime: number,
+  rate: number
+): void {
+  const crossings = fundingCrossings(prevCloseTime, closeTime);
+  const notional = position.quantity * candle.close;
+  position.fundingPnl = (position.fundingPnl ?? 0) + fundingPnl(notional, rate, position.side, crossings);
+}
 
-    if (candle.low <= slPrice) {
-      return { exitReason: 'stop_loss', exitPrice: slPrice };
+/** Checks the bar's high/low against the position's own absolute stop and
+ * target prices (set at open time by the strategy's EntryDecision, or by the
+ * limit order's decision on a fill). A null targetPrice never triggers.
+ * Stop is checked before target, as before. */
+export function checkStopTakeProfit(
+  position: OpenPosition,
+  candle: OHLCV
+): { exitReason: ExitReason | null; exitPrice: number } {
+  const { stopPrice, targetPrice } = position;
+
+  if (position.side === 'long') {
+    if (candle.low <= stopPrice) {
+      return { exitReason: 'stop_loss', exitPrice: stopPrice };
     }
-    if (candle.high >= tpPrice) {
-      return { exitReason: 'take_profit', exitPrice: tpPrice };
+    if (targetPrice !== null && candle.high >= targetPrice) {
+      return { exitReason: 'take_profit', exitPrice: targetPrice };
     }
   } else {
-    const slPrice = position.entryPrice * (1 + config.stopLossPercent);
-    const tpPrice = position.entryPrice * (1 - config.takeProfitPercent);
-
-    if (candle.high >= slPrice) {
-      return { exitReason: 'stop_loss', exitPrice: slPrice };
+    if (candle.high >= stopPrice) {
+      return { exitReason: 'stop_loss', exitPrice: stopPrice };
     }
-    if (candle.low <= tpPrice) {
-      return { exitReason: 'take_profit', exitPrice: tpPrice };
+    if (targetPrice !== null && candle.low <= targetPrice) {
+      return { exitReason: 'take_profit', exitPrice: targetPrice };
     }
   }
 
@@ -59,20 +84,28 @@ export function closeTrade(
   trades: BacktestTrade[],
   config: BacktestConfig
 ): void {
+  const exitKind = exitFillKind(exitReason);
+  const effectiveExit = exitSlippageApplies(exitReason)
+    ? applySlippage(exitPrice, position.side === 'long' ? 'sell' : 'buy', config.slippageBps)
+    : exitPrice;
+  const exitSlippageCost = Math.abs(effectiveExit - exitPrice) * position.quantity;
+  const slippageCost = position.entrySlippageCost + exitSlippageCost;
+
   const entryNotional = position.quantity * position.entryPrice;
-  const exitNotional = position.quantity * exitPrice;
-  const entryFee = entryNotional * config.feePercent;
-  const exitFee = exitNotional * config.feePercent;
+  const exitNotional = position.quantity * effectiveExit;
+  const entryFee = entryNotional * feeRateFor(position.entryFillKind ?? 'taker', config);
+  const exitFee = exitNotional * feeRateFor(exitKind, config);
   const fees = entryFee + exitFee;
 
   let pnl: number;
   if (position.side === 'long') {
-    pnl = (exitPrice - position.entryPrice) * position.quantity - fees;
+    pnl = (effectiveExit - position.entryPrice) * position.quantity - fees;
   } else {
-    pnl = (position.entryPrice - exitPrice) * position.quantity - fees;
+    pnl = (position.entryPrice - effectiveExit) * position.quantity - fees;
   }
+  pnl += position.fundingPnl ?? 0;
 
-  // pnlPercent is net of fees, relative to entry notional
+  // pnlPercent is net of fees and funding, relative to entry notional
   const pnlPercent = entryNotional > 0 ? (pnl / entryNotional) * 100 : 0;
 
   trades.push({
@@ -82,7 +115,7 @@ export function closeTrade(
     exitTime,
     side: position.side,
     entryPrice: position.entryPrice,
-    exitPrice,
+    exitPrice: effectiveExit,
     quantity: position.quantity,
     pnl,
     pnlPercent,
@@ -93,6 +126,15 @@ export function closeTrade(
     entryTier: position.entryTier,
     holdTimeBars: exitBar - position.entryBar,
     entrySession: position.entrySession ?? null,
+    riskPercent: (Math.abs(position.entryPrice - position.stopPrice) / position.entryPrice) * 100,
+    rewardPercent:
+      position.targetPrice === null
+        ? null
+        : (Math.abs(position.targetPrice - position.entryPrice) / position.entryPrice) * 100,
+    slippageCost,
+    entryFillKind: position.entryFillKind ?? 'taker',
+    exitFillKind: exitKind,
+    fundingCost: position.fundingPnl ? -position.fundingPnl : 0,
   });
 }
 
@@ -100,25 +142,26 @@ export function computeEquityAfterTrade(equity: number, trade: BacktestTrade): n
   return equity + trade.pnl;
 }
 
+/** Position size for an entry at `entryPrice` with an absolute `stopPrice`.
+ * The stop is supplied by the caller (the strategy's EntryDecision) rather
+ * than derived from config.stopLossPercent, so a strategy's own stop
+ * distance drives risk-based and fixed-fractional sizing. */
 export function computePositionSize(
   equity: number,
   entryPrice: number,
   side: TradeSide,
   config: BacktestConfig,
-  trades: BacktestTrade[]
+  trades: BacktestTrade[],
+  stopPrice: number
 ): number {
   const sizing = config.positionSizing;
   if (!sizing || sizing.method === 'fixed_percent') {
     return (equity * config.positionSizePercent) / entryPrice;
   }
 
-  const stopLossPrice = side === 'long'
-    ? entryPrice * (1 - config.stopLossPercent)
-    : entryPrice * (1 + config.stopLossPercent);
-
   switch (sizing.method) {
     case 'fixed_fractional':
-      return fixedFractional(equity, sizing.riskPerTrade, entryPrice, stopLossPrice);
+      return fixedFractional(equity, sizing.riskPerTrade, entryPrice, stopPrice);
 
     case 'kelly': {
       const completedTrades = trades.filter((t) => t.pnl !== 0);
@@ -139,9 +182,53 @@ export function computePositionSize(
     }
 
     case 'risk_based':
-      return riskBased(equity, sizing.riskPerTrade, entryPrice, stopLossPrice);
+      return riskBased(equity, sizing.riskPerTrade, entryPrice, stopPrice);
 
     default:
       return (equity * config.positionSizePercent) / entryPrice;
   }
+}
+
+/** Builds the OpenPosition for a fill (market or limit) from a strategy's
+ * EntryDecision. Shared by both engines so a fill's sizing, stop, target,
+ * and time-stop bookkeeping cannot diverge between them.
+ *
+ * `fill.rawPrice` is the pre-slippage price: the bar's close for a market
+ * fill, or the same as `fill.price` for a limit fill (no entry slippage).
+ * The difference, scaled by the sized quantity, becomes `entrySlippageCost`
+ * so a round-trip trade's `slippageCost` accounts for both legs. */
+export function openPosition(
+  decision: EntryDecision,
+  fill: { price: number; rawPrice: number; bar: number; time: number; kind: FillKind },
+  equity: number,
+  config: BacktestConfig,
+  trades: BacktestTrade[],
+  score: number,
+  tier: SignalTier,
+  session: MarketSession | null
+): OpenPosition {
+  const quantity = computePositionSize(
+    equity,
+    fill.price,
+    decision.side,
+    config,
+    trades,
+    decision.stopPrice
+  );
+
+  return {
+    entryBar: fill.bar,
+    entryTime: fill.time,
+    entryPrice: fill.price,
+    side: decision.side,
+    quantity,
+    entryScore: score,
+    entryTier: tier,
+    entrySession: session,
+    entryFillKind: fill.kind,
+    stopPrice: decision.stopPrice,
+    targetPrice: decision.targetPrice,
+    timeStopBars: decision.timeStopBars ?? null,
+    entrySlippageCost: Math.abs(fill.price - fill.rawPrice) * quantity,
+  };
 }

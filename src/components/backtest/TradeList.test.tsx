@@ -21,6 +21,12 @@ const mockTrades: BacktestTrade[] = [
     exitScore: -15,
     entryTier: 'buy',
     holdTimeBars: 5,
+    riskPercent: 3,
+    rewardPercent: null,
+    slippageCost: 0,
+    entryFillKind: 'taker',
+    exitFillKind: 'taker',
+    fundingCost: 0,
   },
   {
     entryBar: 20,
@@ -39,6 +45,12 @@ const mockTrades: BacktestTrade[] = [
     exitScore: -5,
     entryTier: 'buy',
     holdTimeBars: 5,
+    riskPercent: 3,
+    rewardPercent: null,
+    slippageCost: 0,
+    entryFillKind: 'taker',
+    exitFillKind: 'taker',
+    fundingCost: 0,
   },
 ];
 

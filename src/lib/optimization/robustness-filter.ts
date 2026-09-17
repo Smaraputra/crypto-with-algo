@@ -13,6 +13,7 @@ export function isRobust(
     sharpeRatio?: number;
     winRate?: number;
     maxDrawdownPercent?: number;
+    expectancyPercent?: number;
   };
 
   const { totalTrades } = result.tradeSummary;
@@ -22,7 +23,7 @@ export function isRobust(
     return false;
   }
 
-  // Check Sharpe ratio
+  // Check Sharpe ratio (provisional threshold; see RobustnessConfig)
   const sharpe = metrics.sharpeRatio ?? -Infinity;
   if (sharpe < config.minSharpe) {
     return false;
@@ -38,6 +39,14 @@ export function isRobust(
   // so compare maxDrawdownPercent (0-100) as a fraction against the config
   const ddFraction = (metrics.maxDrawdownPercent ?? Infinity) / 100;
   if (ddFraction > config.maxDrawdown) {
+    return false;
+  }
+
+  // Check net expectancy: at the default floor of 0 this requires strictly
+  // positive expectancy, since minSharpe alone no longer isolates a
+  // breakeven-or-worse candidate after the annualization fix
+  const expectancyPercent = metrics.expectancyPercent ?? -Infinity;
+  if (expectancyPercent <= config.minExpectancyPercent) {
     return false;
   }
 

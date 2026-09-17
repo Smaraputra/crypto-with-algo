@@ -7,7 +7,8 @@ import { BacktestResultV2, type IBacktestResultV2 } from '@/lib/models/backtest-
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { DEFAULT_TEMPLATE_WEIGHTS, DEFAULT_TEMPLATE_THRESHOLDS } from '@/lib/models/signal-template';
 import { prepareBacktest, runOptimizedBacktest } from '@/lib/backtest/optimized-engine';
-import { computeMinCandles } from '@/lib/indicators/compute';
+import { computeMinCandles, computeAllIndicators } from '@/lib/indicators/compute';
+import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { generateWeightCandidates } from './weight-generator';
 import { filterRobustResults } from './robustness-filter';
@@ -29,6 +30,16 @@ export interface WalkForwardConfig {
   candidatesPerWindow: number;
   constraintPercent: number;
 
+  // Bars skipped between training end and test start, so indicator state and
+  // autocorrelated volatility from training cannot leak into the test window.
+  // Defaults to the style/interval indicator warmup when omitted.
+  purgeGapBars?: number;
+  // 'anchored' (default) keeps trainStart at 0; 'rolling' keeps a fixed
+  // training width, sliding trainStart forward with trainEnd.
+  windowMode?: 'anchored' | 'rolling';
+  // Training width for 'rolling' mode; defaults to minTrainingBars.
+  rollingTrainBars?: number;
+
   jobId: mongoose.Types.ObjectId; // For progress updates
 
   snapshots?: LeanSnapshot[]; // point-in-time futures/sentiment for the candle range
@@ -44,8 +55,12 @@ export interface WalkForwardResult {
 }
 
 /**
- * Run walk-forward optimization
- * Uses anchored expanding window approach
+ * Run walk-forward optimization.
+ *
+ * Windows default to an anchored expanding training set, purged from the
+ * test window by the style's own indicator warmup. Pass windowMode: 'rolling'
+ * (with an optional rollingTrainBars) for a fixed-width sliding training
+ * window instead. See calculateWindows for the exact window math.
  */
 export async function runWalkForward(config: WalkForwardConfig): Promise<WalkForwardResult> {
   const {
@@ -63,6 +78,9 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     robustness = DEFAULT_ROBUSTNESS,
     htfCandles,
     htfInterval,
+    purgeGapBars,
+    windowMode,
+    rollingTrainBars,
   } = config;
 
   // Per-LTF-bar alignment inside the engines is closed-bar-only and the HTF
@@ -86,13 +104,48 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     computeMinCandles(indicatorConfig) + 10
   );
 
-  // Calculate walk-forward windows
-  const windows = calculateWindows(
-    candles.length,
-    effectiveMinTrainingBars,
-    testWindowBars,
-    stepSizeBars
+  // The purge gap defaults to the style's own indicator warmup -- the same
+  // computeAllIndicators + computeWarmupBars pair prepareBacktest uses --
+  // measured on a training-sized slice so it matches what each window's own
+  // prepareBacktest call will see.
+  const resolvedPurgeGapBars =
+    purgeGapBars ??
+    computeWarmupBars(
+      computeAllIndicators(
+        candles.slice(0, effectiveMinTrainingBars),
+        symbol,
+        interval,
+        indicatorConfig
+      )
+    );
+
+  // Rolling mode's training width must also satisfy the style's indicator
+  // warmup, or prepareBacktest throws on every window's too-short training
+  // slice. Floor it the same way minTrainingBars is floored above, and warn
+  // only when that floor actually overrides what the caller asked for.
+  const resolvedRollingTrainBars = Math.max(
+    rollingTrainBars ?? effectiveMinTrainingBars,
+    effectiveMinTrainingBars
   );
+  // Only meaningful in 'rolling' mode: calculateWindows ignores
+  // rollingTrainBars entirely in the default 'anchored' mode, so warning
+  // about a clamp there would flag a value that has no effect on anything.
+  if (
+    windowMode === 'rolling' &&
+    rollingTrainBars !== undefined &&
+    resolvedRollingTrainBars !== rollingTrainBars
+  ) {
+    console.warn(
+      `walk-forward: rollingTrainBars ${rollingTrainBars} is below the ${tradingStyle}/${interval} minimum training width (${effectiveMinTrainingBars}); clamped to ${resolvedRollingTrainBars}`
+    );
+  }
+
+  // Calculate walk-forward windows
+  const windows = calculateWindows(candles.length, effectiveMinTrainingBars, testWindowBars, stepSizeBars, {
+    purgeGapBars: resolvedPurgeGapBars,
+    mode: windowMode,
+    rollingTrainBars: resolvedRollingTrainBars,
+  });
 
   // Update job with total windows
   await OptimizationJob.updateOne(
@@ -101,7 +154,10 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
   );
 
   const windowResults: WalkForwardWindow[] = [];
-  const oosDocs: IBacktestResultV2[] = []; // index-aligned with windowResults
+  // Out-of-sample docs for windows that actually contributed a candidate,
+  // paired with the Sharpe used to rank them into the ensemble. Not index-
+  // aligned with windowResults, which also carries skipped windows.
+  const contributingResults: Array<{ testSharpe: number; doc: IBacktestResultV2 }> = [];
   let totalCandidatesTested = 0;
   let totalValidResults = 0;
 
@@ -185,7 +241,18 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
 
     // 6. Select best candidate by Sharpe ratio
     if (robustCandidates.length === 0) {
-      // No robust candidates found, skip this window
+      // No robust candidates found, skip this window's out-of-sample test but
+      // still record it, so "how many windows were profitable out of sample"
+      // stays answerable from the persisted window list.
+      windowResults.push({
+        trainStart: window.trainStart,
+        trainEnd: window.trainEnd,
+        testStart: window.testStart,
+        testEnd: window.testEnd,
+        oosMetrics: null,
+        robustCandidates: 0,
+      });
+
       await OptimizationJob.updateOne(
         { _id: jobId },
         {
@@ -255,7 +322,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       bestCandidate._id.toString()
     );
     const testDoc = await BacktestResultV2.create(testCompressed);
-    oosDocs.push(testDoc);
+    contributingResults.push({ testSharpe, doc: testDoc });
 
     // 8. Store window result
     windowResults.push({
@@ -266,6 +333,8 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       bestWeights,
       testSharpe,
       testResultId: String(testDoc._id),
+      oosMetrics: testResult.metrics,
+      robustCandidates: robustCandidates.length,
     });
 
     // 9. Update job progress
@@ -281,10 +350,10 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     );
   }
 
-  // 10. Create ensemble from top 5 windows by test Sharpe, using the
-  // out-of-sample test docs captured per window (never in-sample candidates)
-  const ensembleResultDocs = windowResults
-    .map((window, i) => ({ testSharpe: window.testSharpe, doc: oosDocs[i] }))
+  // 10. Create ensemble from top 5 contributing windows by test Sharpe, using
+  // the out-of-sample test docs captured per window (never in-sample
+  // candidates); skipped windows never entered contributingResults
+  const ensembleResultDocs = [...contributingResults]
     .sort((a, b) => b.testSharpe - a.testSharpe)
     .slice(0, 5)
     .map((entry) => entry.doc);
@@ -299,14 +368,27 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
 }
 
 /**
- * Calculate walk-forward windows (anchored expanding)
+ * Calculate walk-forward windows.
+ *
+ * mode 'anchored' (default) keeps trainStart at 0, so each window's training
+ * set expands. mode 'rolling' keeps a fixed training width (rollingTrainBars,
+ * default minTrainingBars), sliding trainStart forward with trainEnd instead.
+ *
+ * purgeGapBars (default 0) inserts a gap of untraded bars between trainEnd
+ * and testStart, so indicator warmup state and autocorrelated volatility from
+ * training cannot leak into the test window.
  */
 export function calculateWindows(
   totalBars: number,
   minTrainingBars: number,
   testWindowBars: number,
-  stepSizeBars: number
+  stepSizeBars: number,
+  opts?: { purgeGapBars?: number; mode?: 'anchored' | 'rolling'; rollingTrainBars?: number }
 ): Array<{ trainStart: number; trainEnd: number; testStart: number; testEnd: number }> {
+  const purgeGapBars = opts?.purgeGapBars ?? 0;
+  const mode = opts?.mode ?? 'anchored';
+  const rollingTrainBars = opts?.rollingTrainBars ?? minTrainingBars;
+
   const windows: Array<{
     trainStart: number;
     trainEnd: number;
@@ -316,10 +398,10 @@ export function calculateWindows(
 
   let trainEnd = minTrainingBars - 1;
 
-  while (trainEnd + testWindowBars < totalBars) {
-    const trainStart = 0; // Anchored at start
-    const testStart = trainEnd + 1;
+  while (trainEnd + 1 + purgeGapBars + testWindowBars - 1 < totalBars) {
+    const testStart = trainEnd + 1 + purgeGapBars;
     const testEnd = Math.min(testStart + testWindowBars - 1, totalBars - 1);
+    const trainStart = mode === 'rolling' ? Math.max(0, trainEnd - rollingTrainBars + 1) : 0;
 
     windows.push({
       trainStart,
@@ -328,7 +410,7 @@ export function calculateWindows(
       testEnd,
     });
 
-    // Expand training window by step size
+    // Expand (anchored) or slide (rolling) the training window by step size
     trainEnd += stepSizeBars;
   }
 

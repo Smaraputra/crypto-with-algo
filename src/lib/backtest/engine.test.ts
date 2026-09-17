@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { runBacktest } from './engine';
 import { DEFAULT_BACKTEST_CONFIG } from './types';
 import type { OHLCV } from '@/types/market';
+import type { Strategy } from './strategy';
 
 // Generate synthetic candle data with a clear trend
 function generateTrendingCandles(count: number, direction: 'up' | 'down' = 'up'): OHLCV[] {
@@ -149,6 +150,300 @@ describe('runBacktest', () => {
         expect(trade.fees).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('custom Strategy: limit orders, market slippage, and time stops', () => {
+  // Places a limit order every bar it is flat, always destined to miss
+  // (limitPrice far below any realistic low), so it is cancelled every
+  // timeoutBars and no position ever opens.
+  function createUnfillableLimitStrategy(timeoutBars: number): Strategy {
+    return {
+      name: 'test-unfillable-limit',
+      decideEntry(ctx) {
+        const close = ctx.candles[ctx.bar].close;
+        return {
+          side: 'long',
+          orderType: 'limit',
+          limitPrice: close * 0.01,
+          timeoutBars,
+          stopPrice: close * 0.5,
+          targetPrice: null,
+          timeStopBars: null,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  }
+
+  // Places exactly one decision at `bar` and never again; never exits by
+  // signal. Used to pin a single, deterministic trade for assertions.
+  function createOneShotStrategy(
+    bar: number,
+    buildDecision: (close: number) => ReturnType<Strategy['decideEntry']>
+  ): Strategy {
+    let placed = false;
+    return {
+      name: 'test-one-shot',
+      decideEntry(ctx) {
+        if (placed || ctx.bar !== bar) return null;
+        placed = true;
+        return buildDecision(ctx.candles[ctx.bar].close);
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  }
+
+  it('a limit order that never fills is cancelled after timeoutBars and opens no position', () => {
+    const candles = generateTrendingCandles(300);
+    const config = { ...DEFAULT_BACKTEST_CONFIG };
+    const strategy = createUnfillableLimitStrategy(3);
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(0);
+  });
+
+  it('a limit that fills opens at the limit price with entryFillKind maker and no entry slippage', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = candles.length - 5;
+    const fillBar = entryBar + 1;
+    const close = candles[entryBar].close;
+    const limitPrice = close * 0.999;
+
+    // Strictly breach the limit without a gap: open stays above limitPrice,
+    // low dips below it, so the fill price is exactly limitPrice.
+    candles[fillBar] = {
+      ...candles[fillBar],
+      open: limitPrice * 1.002,
+      high: limitPrice * 1.003,
+      low: limitPrice * 0.998,
+      close: limitPrice * 1.0005,
+    };
+
+    const strategy = createOneShotStrategy(entryBar, () => ({
+      side: 'long',
+      orderType: 'limit',
+      limitPrice,
+      timeoutBars: 5,
+      stopPrice: close * 0.5,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+    // Slippage is configured but must not apply to a maker (limit) fill.
+    const config = { ...DEFAULT_BACKTEST_CONFIG, slippageBps: 10 };
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.entryPrice).toBeCloseTo(limitPrice);
+    expect(trade.entryFillKind).toBe('maker');
+    expect(trade.entryBar).toBe(fillBar);
+  });
+
+  it('a limit fill that also breaches the stop on the same bar closes as a stop_loss on that bar', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = candles.length - 5;
+    const fillBar = entryBar + 1;
+    const close = candles[entryBar].close;
+    const limitPrice = close * 0.999;
+    const stopPrice = close * 0.99;
+
+    // No gap (open stays above the limit), but the same candle's low
+    // breaches both the limit and, further down, the stop: the limit fills
+    // at limitPrice, then the same candle's low is also below the stop.
+    candles[fillBar] = {
+      ...candles[fillBar],
+      open: limitPrice * 1.001,
+      high: limitPrice * 1.002,
+      low: stopPrice * 0.999,
+      close: stopPrice * 1.0002,
+    };
+
+    const strategy = createOneShotStrategy(entryBar, () => ({
+      side: 'long',
+      orderType: 'limit',
+      limitPrice,
+      timeoutBars: 5,
+      stopPrice,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+    const config = { ...DEFAULT_BACKTEST_CONFIG };
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.entryBar).toBe(fillBar);
+    expect(trade.exitBar).toBe(fillBar);
+    expect(trade.entryPrice).toBeCloseTo(limitPrice);
+    expect(trade.exitPrice).toBeCloseTo(stopPrice);
+    expect(trade.exitReason).toBe('stop_loss');
+  });
+
+  it('a limit that gaps through fills at the open, not the limit price', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = candles.length - 5;
+    const fillBar = entryBar + 1;
+    const close = candles[entryBar].close;
+    const limitPrice = close * 0.999;
+    const gapOpen = limitPrice * 0.99; // open already clears the limit
+
+    candles[fillBar] = {
+      ...candles[fillBar],
+      open: gapOpen,
+      high: gapOpen * 1.001,
+      low: gapOpen * 0.998,
+      close: gapOpen * 1.0002,
+    };
+
+    const strategy = createOneShotStrategy(entryBar, () => ({
+      side: 'long',
+      orderType: 'limit',
+      limitPrice,
+      timeoutBars: 5,
+      stopPrice: close * 0.5,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+    const config = { ...DEFAULT_BACKTEST_CONFIG };
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    expect(result.trades[0].entryPrice).toBeCloseTo(gapOpen);
+    expect(result.trades[0].entryFillKind).toBe('maker');
+  });
+
+  it('a market entry with slippageBps 10 opens 0.1% away from the close against the trader', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = candles.length - 3;
+    const close = candles[entryBar].close;
+    const strategy = createOneShotStrategy(entryBar, (c) => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice: c * 0.5,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+    const config = { ...DEFAULT_BACKTEST_CONFIG, slippageBps: 10 };
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.entryPrice).toBeCloseTo(close * 1.001, 6); // a buy fills higher, against the trader
+    expect(trade.entryFillKind).toBe('taker');
+  });
+
+  it('a market-in market-out trade reports both legs in slippageCost', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = candles.length - 5;
+    const exitBar = entryBar + 1;
+    const config = { ...DEFAULT_BACKTEST_CONFIG, slippageBps: 10 };
+    const rawClose = candles[entryBar].close;
+    const entryPrice = rawClose * 1.001; // a buy fills higher, against the trader
+    const stopPrice = entryPrice * 0.98;
+
+    // Force a clean stop_loss breach the very next bar, no gap, so the exit
+    // leg also slips (stop_loss is a taker, slippage-applying exit).
+    candles[exitBar] = {
+      ...candles[exitBar],
+      open: stopPrice * 1.01,
+      high: stopPrice * 1.02,
+      low: stopPrice * 0.99,
+      close: stopPrice * 1.005,
+    };
+
+    const strategy = createOneShotStrategy(entryBar, () => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice,
+      targetPrice: null,
+      timeStopBars: null,
+    }));
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.exitReason).toBe('stop_loss');
+    expect(trade.entryPrice).toBeCloseTo(entryPrice);
+
+    const entryLeg = Math.abs(trade.entryPrice - rawClose) * trade.quantity;
+    const exitLeg = Math.abs(trade.exitPrice - stopPrice) * trade.quantity;
+
+    expect(entryLeg).toBeGreaterThan(0);
+    expect(exitLeg).toBeGreaterThan(0);
+    expect(trade.slippageCost).toBeCloseTo(entryLeg + exitLeg, 6);
+  });
+
+  it('a time stop closes at the right bar with reason time_stop', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = 220;
+    const timeStopBars = 4;
+    const strategy = createOneShotStrategy(entryBar, (close) => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice: close * 0.5, // far away: must not trigger before the time stop
+      targetPrice: close * 3, // far away: must not trigger before the time stop
+      timeStopBars,
+    }));
+    const config = { ...DEFAULT_BACKTEST_CONFIG };
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.exitReason).toBe('time_stop');
+    expect(trade.entryBar).toBe(entryBar);
+    expect(trade.exitBar).toBe(entryBar + timeStopBars);
+  });
+
+  it('stops and targets come from the position absolute prices, not config percentages', () => {
+    const candles = generateTrendingCandles(300);
+    const entryBar = 220;
+    const strategy = createOneShotStrategy(entryBar, (close) => ({
+      side: 'long',
+      orderType: 'market',
+      stopPrice: close * 0.8, // 20% away; config.stopLossPercent stays the 5% default
+      targetPrice: close * 1.5, // 50% away; config.takeProfitPercent stays the 10% default
+      timeStopBars: null,
+    }));
+    const config = { ...DEFAULT_BACKTEST_CONFIG }; // default 5%/10%, unused by this strategy
+
+    const result = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, undefined, undefined, strategy);
+
+    expect(result.trades).toHaveLength(1);
+    const trade = result.trades[0];
+    expect(trade.riskPercent).toBeCloseTo(20);
+    expect(trade.riskPercent).not.toBeCloseTo(config.stopLossPercent * 100);
+  });
+
+  it('the default strategy parameter reproduces runBacktest called with no strategy', () => {
+    const candles = generateTrendingCandles(300);
+    const config = { ...DEFAULT_BACKTEST_CONFIG, entryThreshold: 10 };
+
+    const withoutStrategy = runBacktest(candles, config, 'BTCUSDT', '1h');
+    const withDefaultStrategy = runBacktest(
+      candles,
+      config,
+      'BTCUSDT',
+      '1h',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
+
+    expect(withDefaultStrategy.trades).toEqual(withoutStrategy.trades);
+    expect(withDefaultStrategy.metrics).toEqual(withoutStrategy.metrics);
   });
 });
 

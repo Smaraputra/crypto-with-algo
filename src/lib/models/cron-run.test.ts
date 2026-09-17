@@ -120,6 +120,25 @@ describe('CronRun Model', () => {
     expect(cronRun.jobs[0].status).toBe('running');
     expect(cronRun.jobs[0].activated).toBe(false);
     expect(cronRun.jobs[0].activationReason).toBe('Below threshold');
+    expect(cronRun.jobs[0].gateReason).toBeNull();
+  });
+
+  it('should store a gateReason when the save gate refuses a template', async () => {
+    const cronRun = await CronRun.create({
+      type: 'monthly_optimization',
+      scheduledAt: new Date(),
+      jobs: [
+        {
+          tradingStyle: 'scalping',
+          status: 'completed',
+          gateReason: 'Only 1 of 6 window(s) produced an out-of-sample result, need at least 2',
+        },
+      ],
+    });
+
+    expect(cronRun.jobs[0].gateReason).toBe(
+      'Only 1 of 6 window(s) produced an out-of-sample result, need at least 2'
+    );
   });
 
   it('should update job status correctly', async () => {

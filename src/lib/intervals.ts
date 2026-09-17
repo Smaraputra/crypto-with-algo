@@ -14,3 +14,9 @@ export function intervalToMs(interval: string): number {
   }
   return ms;
 }
+
+// Crypto markets trade every day of the year, so the year is 365 days, not
+// the 252 trading-day convention used for equities.
+export function barsPerYear(interval: string): number {
+  return (365 * 24 * 60 * 60 * 1000) / intervalToMs(interval);
+}

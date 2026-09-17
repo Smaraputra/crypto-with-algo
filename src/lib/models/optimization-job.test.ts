@@ -35,6 +35,7 @@ describe('OptimizationJob model', () => {
     expect(doc.progress.validResults).toBe(0);
     expect(doc.optimizedWeights).toBeNull();
     expect(doc.ensembleResults).toEqual([]);
+    expect(doc.windows).toEqual([]);
     expect(doc.templateVersion).toBeNull();
     expect(doc.error).toBeNull();
     expect(doc.startedAt).toBeNull();
@@ -101,6 +102,36 @@ describe('OptimizationJob model', () => {
     const doc = new OptimizationJob(makeValidData({ ensembleResults: ids }));
     expect(doc.ensembleResults).toHaveLength(2);
     expect(doc.ensembleResults[0].toString()).toBe(ids[0].toString());
+  });
+
+  it('accepts windows with oosMetrics populated or null', () => {
+    const windows = [
+      {
+        trainStart: 0,
+        trainEnd: 299,
+        testStart: 300,
+        testEnd: 399,
+        bestWeights: { trend: 0.3, momentum: 0.3, volume: 0.2, volatility: 0.1, futures: 0.05, sentiment: 0.05 },
+        testSharpe: 1.2,
+        testResultId: 'result-1',
+        oosMetrics: { expectancyPercent: 1.5 },
+        robustCandidates: 5,
+      },
+      {
+        trainStart: 300,
+        trainEnd: 599,
+        testStart: 600,
+        testEnd: 699,
+        oosMetrics: null,
+        robustCandidates: 0,
+      },
+    ];
+    const doc = new OptimizationJob(makeValidData({ windows }));
+    const err = doc.validateSync();
+    expect(err).toBeUndefined();
+    expect(doc.windows).toHaveLength(2);
+    expect(doc.windows[0].oosMetrics.expectancyPercent).toBe(1.5);
+    expect(doc.windows[1].oosMetrics).toBeNull();
   });
 
   it('accepts progress values', () => {

@@ -7,6 +7,7 @@ import { computeSignalScore } from '@/lib/signals/scorer';
 import { DEFAULT_BACKTEST_CONFIG } from './types';
 import type { OHLCV } from '@/types/market';
 import type { SuperTrendPoint } from '@/lib/indicators/supertrend';
+import type { Strategy } from './strategy';
 
 function generateCandles(count: number, seed = 987): OHLCV[] {
   const candles: OHLCV[] = [];
@@ -39,6 +40,33 @@ function generateCandles(count: number, seed = 987): OHLCV[] {
   }
 
   return candles;
+}
+
+// One-shot limit-entry strategy: places a decision only at `entryBar`, never
+// again, and never exits by signal. A fresh closure per call, so two runs
+// against different candle slices don't share the placed-once flag.
+function makeOneShotLimitStrategy(entryBar: number): Strategy {
+  let placed = false;
+  return {
+    name: 'test-lookahead-limit',
+    decideEntry(ctx) {
+      if (placed || ctx.bar !== entryBar) return null;
+      placed = true;
+      const close = ctx.candles[ctx.bar].close;
+      return {
+        side: 'long',
+        orderType: 'limit',
+        limitPrice: close * 0.999,
+        timeoutBars: 5,
+        stopPrice: close * 0.5,
+        targetPrice: null,
+        timeStopBars: null,
+      };
+    },
+    decideExit() {
+      return false;
+    },
+  };
 }
 
 function scoreAtBar(candles: OHLCV[], bar: number) {
@@ -117,6 +145,45 @@ describe('no future-bar lookahead in per-bar scoring', () => {
     // HTF bars that never close within the LTF range must not affect anything
     expect(truncated.trades).toEqual(full.trades);
     expect(truncated.metrics).toEqual(full.metrics);
+  });
+
+  it('a limit fill is decided only on bars after placement', async () => {
+    const { runBacktest } = await import('./engine');
+    const { DEFAULT_BACKTEST_CONFIG } = await import('./types');
+    const config = { ...DEFAULT_BACKTEST_CONFIG };
+    const entryBar = warmup + 30;
+
+    const full = runBacktest(
+      candles,
+      config,
+      'BTCUSDT',
+      '1h',
+      undefined,
+      undefined,
+      undefined,
+      makeOneShotLimitStrategy(entryBar)
+    );
+
+    // Truncated right at the placement bar: the order is placed on the last
+    // bar of the series, so there is no future bar left for it to fill
+    // against. If a fill could see past the truncation, it would fill here
+    // exactly as it does in the full run.
+    const truncated = runBacktest(
+      candles.slice(0, entryBar + 1),
+      config,
+      'BTCUSDT',
+      '1h',
+      undefined,
+      undefined,
+      undefined,
+      makeOneShotLimitStrategy(entryBar)
+    );
+
+    expect(truncated.trades).toHaveLength(0);
+    // The full run must actually place and fill an order, or the truncation
+    // above proves nothing.
+    expect(full.trades.length).toBe(1);
+    expect(full.trades[0].entryBar).toBeGreaterThan(entryBar);
   });
 
   it('snapshot series at bar N is identical when future snapshots are removed', async () => {

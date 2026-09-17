@@ -55,7 +55,12 @@ describe('runWalkForward integration', () => {
   it(
     'produces an out-of-sample ensemble end to end',
     async () => {
-      const candles = generateCandles(420);
+      // day_trading/1h's indicator warmup is 199 bars (SMA200 dominates), and
+      // runWalkForward resolves that as the default purge gap. 420 bars no
+      // longer fits even one window once that gap opens between training and
+      // test, so the series is widened to 600 bars -- enough for exactly two
+      // anchored windows: [0..259]->[459..518] and [0..319]->[519..578].
+      const candles = generateCandles(600);
       const job = await OptimizationJob.create({
         tradingStyle: 'day_trading',
         symbol: 'TESTUSDT',
@@ -81,7 +86,7 @@ describe('runWalkForward integration', () => {
 
       // 4h confirmation candles spanning the range plus warmup margin
       const FOUR_H = 4 * 3600000;
-      const htfCandles = generateCandles(400, 11).map((c, i) => ({
+      const htfCandles = generateCandles(460, 11).map((c, i) => ({
         ...c,
         timestamp: candles[0].timestamp - 290 * FOUR_H + i * FOUR_H,
       }));
@@ -101,11 +106,24 @@ describe('runWalkForward integration', () => {
         htfCandles,
         htfInterval: '4h',
         // Wiring is under test, not market luck: accept every candidate
-        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0 },
+        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
       });
 
-      // Two anchored windows fit 420 bars with 260/60/60
+      // Two anchored windows fit 600 bars with 260/60/60 and the default
+      // 199-bar purge gap: testStart = trainEnd + 1 + 199.
       expect(result.windows).toHaveLength(2);
+      expect(result.windows[0]).toMatchObject({
+        trainStart: 0,
+        trainEnd: 259,
+        testStart: 459,
+        testEnd: 518,
+      });
+      expect(result.windows[1]).toMatchObject({
+        trainStart: 0,
+        trainEnd: 319,
+        testStart: 519,
+        testEnd: 578,
+      });
       expect(result.ensembleResults.length).toBeGreaterThan(0);
       expect(result.ensembleResults.length).toBeLessThanOrEqual(2);
 

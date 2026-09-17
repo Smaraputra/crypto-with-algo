@@ -23,6 +23,8 @@ const mockMetrics: BacktestMetrics = {
   totalFees: 25.5,
   maxConsecutiveWins: 5,
   maxConsecutiveLosses: 3,
+  expectancyPercent: 1.2,
+  expectancyR: 0.6,
 };
 
 describe('BacktestMetricsCards', () => {

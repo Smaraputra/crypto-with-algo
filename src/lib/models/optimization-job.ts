@@ -1,7 +1,11 @@
 import mongoose, { Schema, type Document } from 'mongoose';
 import type { TradingStyle } from './signal-template';
 import type { SignalWeights } from '@/types/signal';
-import type { OptimizationProgress, OptimizationStatus } from '@/types/optimization';
+import type {
+  OptimizationProgress,
+  OptimizationStatus,
+  WalkForwardWindow,
+} from '@/types/optimization';
 
 export interface IOptimizationJob extends Document {
   tradingStyle: TradingStyle;
@@ -29,6 +33,7 @@ export interface IOptimizationJob extends Document {
   // Results
   optimizedWeights: SignalWeights | null;
   ensembleResults: mongoose.Types.ObjectId[]; // Top 5 backtest result IDs
+  windows: WalkForwardWindow[]; // Every walk-forward window's out-of-sample metrics
   templateVersion: number | null;
 
   // Metadata
@@ -89,6 +94,9 @@ const optimizationJobSchema = new Schema<IOptimizationJob>(
       type: [Schema.Types.ObjectId],
       default: [],
     },
+    // Mixed, not [Mixed]: the array-wrapped form causes a generic type
+    // mismatch against WalkForwardWindow[] (see CLAUDE.md gotchas).
+    windows: { type: Schema.Types.Mixed, default: [] },
     templateVersion: { type: Number, default: null },
 
     error: { type: String, default: null },

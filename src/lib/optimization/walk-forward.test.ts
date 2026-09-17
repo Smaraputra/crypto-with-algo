@@ -1,13 +1,77 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import mongoose from 'mongoose';
 import {
   calculateWindows,
   deriveStepSize,
   deriveVolatilityStops,
+  runWalkForward,
   STOP_TRUE_RANGE_MULTIPLE,
   TARGET_TRUE_RANGE_MULTIPLE,
   WALK_FORWARD_FEE_PERCENT,
 } from './walk-forward';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
+import { computeAllIndicators } from '@/lib/indicators/compute';
+import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
+import { getStyleConfig } from '@/lib/indicators/style-configs';
+import { filterRobustResults } from './robustness-filter';
+import type { OHLCV } from '@/types/market';
+
+const mockJobUpdateOne = vi.fn();
+vi.mock('@/lib/models/optimization-job', () => ({
+  OptimizationJob: {
+    updateOne: (...args: unknown[]) => mockJobUpdateOne(...args),
+  },
+}));
+
+vi.mock('@/lib/models/backtest-result-v2', () => ({
+  BacktestResultV2: {
+    create: async (doc: Record<string, unknown>) => ({ ...doc, _id: `mock-${Math.random()}` }),
+  },
+}));
+
+// Wraps the real filterRobustResults so one test can force a single window's
+// in-sample candidates to fail robustness (mockImplementationOnce) while
+// every other call still runs the actual filter.
+vi.mock('./robustness-filter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./robustness-filter')>();
+  return {
+    ...actual,
+    filterRobustResults: vi.fn(actual.filterRobustResults),
+  };
+});
+
+/** Deterministic synthetic OHLCV series, enough variance for real indicators. */
+function generateSyntheticCandles(count: number, seed = 7): OHLCV[] {
+  const candles: OHLCV[] = [];
+  let price = 100;
+  let rng = seed;
+
+  function nextRandom(): number {
+    rng = (rng * 16807) % 2147483647;
+    return rng / 2147483647;
+  }
+
+  for (let i = 0; i < count; i++) {
+    const drift = Math.sin(i / 30) * 0.004;
+    const noise = (nextRandom() - 0.5) * 0.8;
+    price = price * (1 + drift + noise / 100);
+    const high = price * (1 + nextRandom() * 0.006);
+    const low = price * (1 - nextRandom() * 0.006);
+    const open = price * (1 + (nextRandom() - 0.5) * 0.004);
+    const volume = 1000 + nextRandom() * 5000;
+
+    candles.push({
+      timestamp: 1700000000000 + i * 3600000,
+      open,
+      high,
+      low,
+      close: price,
+      volume,
+    });
+  }
+
+  return candles;
+}
 
 describe('calculateWindows', () => {
   it('produces correct number of windows for standard input', () => {
@@ -93,6 +157,282 @@ describe('calculateWindows', () => {
     // Window 7: trainEnd=105, 105+5=110, NOT < 110, stop
     expect(windows).toHaveLength(6);
   });
+});
+
+describe('calculateWindows purge gap', () => {
+  it('purgeGapBars 0 reproduces the current windows', () => {
+    const noOpts = calculateWindows(1000, 500, 100, 100);
+    const explicitZero = calculateWindows(1000, 500, 100, 100, { purgeGapBars: 0 });
+
+    expect(explicitZero).toEqual(noOpts);
+  });
+
+  it('shifts every testStart by the gap and never overlaps train/test', () => {
+    // A gap can shrink the window count (the last unpurged window may no
+    // longer fit a full test slice), so compare only the windows gapped
+    // still produces, index for index against the ungapped run.
+    const gap = 25;
+    const base = calculateWindows(1000, 500, 100, 100);
+    const gapped = calculateWindows(1000, 500, 100, 100, { purgeGapBars: gap });
+
+    expect(gapped.length).toBeGreaterThan(0);
+    expect(gapped.length).toBeLessThanOrEqual(base.length);
+    for (let i = 0; i < gapped.length; i++) {
+      expect(gapped[i].testStart).toBe(base[i].testStart + gap);
+      expect(gapped[i].trainEnd).toBeLessThan(gapped[i].testStart);
+    }
+  });
+
+  it('the last window still fits a full test slice under a purge gap', () => {
+    const testWindowBars = 100;
+    const windows = calculateWindows(1000, 500, testWindowBars, 100, { purgeGapBars: 25 });
+    const last = windows[windows.length - 1];
+
+    expect(last.testEnd - last.testStart + 1).toBe(testWindowBars);
+  });
+
+  it('produces no window once the gap leaves no room for a full test slice', () => {
+    // 600 bars = 500 train + 100 test exactly; any gap leaves no room.
+    const windows = calculateWindows(600, 500, 100, 100, { purgeGapBars: 1 });
+
+    expect(windows).toHaveLength(0);
+  });
+});
+
+describe('calculateWindows rolling mode', () => {
+  it('keeps trainStart at 0 by default (anchored)', () => {
+    const windows = calculateWindows(2000, 500, 100, 100, { mode: 'anchored' });
+
+    expect(windows.length).toBeGreaterThan(1);
+    for (const w of windows) {
+      expect(w.trainStart).toBe(0);
+    }
+  });
+
+  it('rolling mode slides trainStart and keeps a fixed training width', () => {
+    const windows = calculateWindows(2000, 500, 100, 100, { mode: 'rolling' });
+
+    expect(windows.length).toBeGreaterThan(1);
+    for (const w of windows) {
+      expect(w.trainEnd - w.trainStart + 1).toBe(500);
+    }
+    for (let i = 1; i < windows.length; i++) {
+      expect(windows[i].trainStart).toBeGreaterThan(windows[i - 1].trainStart);
+    }
+  });
+
+  it('rollingTrainBars overrides the rolling training width', () => {
+    const width = 250;
+    const windows = calculateWindows(2000, 500, 100, 100, {
+      mode: 'rolling',
+      rollingTrainBars: width,
+    });
+
+    expect(windows.length).toBeGreaterThan(0);
+    for (const w of windows) {
+      expect(w.trainEnd - w.trainStart + 1).toBe(width);
+    }
+  });
+
+  it('never lets rolling trainStart go below 0', () => {
+    const windows = calculateWindows(700, 500, 100, 100, {
+      mode: 'rolling',
+      rollingTrainBars: 500,
+    });
+
+    expect(windows.length).toBeGreaterThan(0);
+    for (const w of windows) {
+      expect(w.trainStart).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('floors rolling trainStart at 0 when rollingTrainBars exceeds minTrainingBars', () => {
+    // rollingTrainBars (500) > minTrainingBars (300), so the earliest windows
+    // cannot roll back a full 500 bars and the Math.max(0, ...) floor actually
+    // clamps a value that would otherwise go negative.
+    const rollingTrainBars = 500;
+    const windows = calculateWindows(700, 300, 100, 100, { mode: 'rolling', rollingTrainBars });
+
+    expect(windows.length).toBeGreaterThan(1);
+
+    // First window: trainEnd - rollingTrainBars + 1 = 299 - 500 + 1 = -200,
+    // floored to 0, so its training width (300) is narrower than requested.
+    expect(windows[0]).toEqual({ trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399 });
+    expect(windows[0].trainEnd - windows[0].trainStart + 1).toBeLessThan(rollingTrainBars);
+
+    // Once trainEnd + 1 >= rollingTrainBars, the floor no longer binds and
+    // the full requested width is achieved.
+    const last = windows[windows.length - 1];
+    expect(last.trainStart).toBe(last.trainEnd - rollingTrainBars + 1);
+    expect(last.trainEnd - last.trainStart + 1).toBe(rollingTrainBars);
+  });
+
+  it('combines rolling mode with a purge gap (hand-checked boundaries)', () => {
+    const purgeGapBars = 20;
+    const rollingTrainBars = 300;
+    const windows = calculateWindows(1000, 300, 100, 100, {
+      mode: 'rolling',
+      rollingTrainBars,
+      purgeGapBars,
+    });
+
+    expect(windows.length).toBeGreaterThan(1);
+    // Window 0: trainEnd=299 (minTrainingBars-1), testStart=299+1+20=320.
+    expect(windows[0]).toEqual({ trainStart: 0, trainEnd: 299, testStart: 320, testEnd: 419 });
+    // Window 1: trainEnd=399 (stepSizeBars=100), trainStart=399-300+1=100.
+    expect(windows[1]).toEqual({ trainStart: 100, trainEnd: 399, testStart: 420, testEnd: 519 });
+
+    for (const w of windows) {
+      expect(w.testStart).toBe(w.trainEnd + 1 + purgeGapBars);
+      expect(w.trainEnd - w.trainStart + 1).toBeLessThanOrEqual(rollingTrainBars);
+    }
+  });
+});
+
+describe('runWalkForward default purge gap', () => {
+  it('resolves purgeGapBars to the style/interval indicator warmup when not passed', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(450);
+
+    const expectedWarmup = computeWarmupBars(
+      computeAllIndicators(candles, symbol, interval, getStyleConfig(tradingStyle).config)
+    );
+
+    const result = await runWalkForward({
+      candles,
+      symbol,
+      interval,
+      tradingStyle,
+      minTrainingBars: 210,
+      testWindowBars: 30,
+      stepSizeBars: 50,
+      candidatesPerWindow: 2,
+      constraintPercent: 0.2,
+      jobId: new mongoose.Types.ObjectId(),
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+    });
+
+    expect(result.windows.length).toBeGreaterThan(0);
+    for (const window of result.windows) {
+      expect(window.testStart).toBe(window.trainEnd + 1 + expectedWarmup);
+    }
+  }, 30_000);
+
+  it('clamps a rolling training width narrower than the style warmup and completes', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(700);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = await runWalkForward({
+        candles,
+        symbol,
+        interval,
+        tradingStyle,
+        minTrainingBars: 210,
+        testWindowBars: 30,
+        stepSizeBars: 50,
+        candidatesPerWindow: 2,
+        constraintPercent: 0.2,
+        jobId: new mongoose.Types.ObjectId(),
+        windowMode: 'rolling',
+        // Far narrower than day_trading/1h's actual minimum training width,
+        // which is 220 here (computeMinCandles(indicatorConfig) + 10), not
+        // the 210 minTrainingBars passed above -- the indicator warmup floor
+        // wins via effectiveMinTrainingBars. Without a floor, every window's
+        // prepareBacktest would throw on a too-short training slice.
+        rollingTrainBars: 50,
+        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+      });
+
+      expect(result.windows.length).toBeGreaterThan(1);
+      for (const window of result.windows) {
+        expect(window.trainEnd - window.trainStart + 1).toBeGreaterThanOrEqual(220);
+      }
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rollingTrainBars'));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  }, 30_000);
+});
+
+describe('runWalkForward window records', () => {
+  it('gives every returned window robustCandidates and oosMetrics (populated or null)', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(450);
+
+    const result = await runWalkForward({
+      candles,
+      symbol,
+      interval,
+      tradingStyle,
+      minTrainingBars: 210,
+      testWindowBars: 30,
+      stepSizeBars: 50,
+      candidatesPerWindow: 2,
+      constraintPercent: 0.2,
+      jobId: new mongoose.Types.ObjectId(),
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+    });
+
+    expect(result.windows.length).toBeGreaterThan(0);
+    for (const window of result.windows) {
+      expect(typeof window.robustCandidates).toBe('number');
+      expect(window.robustCandidates).toBeGreaterThanOrEqual(0);
+      if (window.oosMetrics === null) {
+        expect(window.robustCandidates).toBe(0);
+      } else {
+        expect(typeof window.oosMetrics.expectancyPercent).toBe('number');
+        expect(window.robustCandidates).toBeGreaterThan(0);
+      }
+    }
+  }, 30_000);
+
+  it('records a skipped window with oosMetrics null and robustCandidates 0 alongside a contributing window', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(700);
+
+    const mockedFilter = vi.mocked(filterRobustResults);
+    mockedFilter.mockClear();
+    // Force the first window's in-sample candidates to fail robustness so it
+    // is skipped, while later windows fall through to the real filter (the
+    // lenient robustness config below would otherwise pass everything).
+    mockedFilter.mockImplementationOnce(() => []);
+
+    const result = await runWalkForward({
+      candles,
+      symbol,
+      interval,
+      tradingStyle,
+      minTrainingBars: 210,
+      testWindowBars: 30,
+      stepSizeBars: 50,
+      candidatesPerWindow: 2,
+      constraintPercent: 0.2,
+      jobId: new mongoose.Types.ObjectId(),
+      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+    });
+
+    expect(result.windows.length).toBeGreaterThan(1);
+    const [first, ...rest] = result.windows;
+    expect(first.oosMetrics).toBeNull();
+    expect(first.robustCandidates).toBe(0);
+    expect(first.bestWeights).toBeUndefined();
+    expect(first.testSharpe).toBeUndefined();
+    expect(first.trainStart).toBeDefined();
+    expect(first.trainEnd).toBeDefined();
+    expect(first.testStart).toBeDefined();
+    expect(first.testEnd).toBeDefined();
+    expect(rest.some((w) => w.oosMetrics !== null)).toBe(true);
+  }, 30_000);
 });
 
 describe('deriveStepSize', () => {
