@@ -9,6 +9,17 @@ import { OUTCOME_HORIZON_BARS, resolveAtFor } from '@/lib/signals/outcome-horizo
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
+// The sync-candles and resolve-outcomes crons run on the same 15-minute
+// tick (see docker/crontab.template), so an outcome due exactly at
+// resolveAt can have its resolver read race the sync's write for the bar
+// that closes at resolveAt: the read sees one candle short, seconds before
+// the write lands. Measured in production on 2026-09-18: every unresolvable
+// outcome (1,083 of 14,750, 7.3%) had resolvedAt within one minute of
+// resolveAt, and resolved outcomes tolerate lag up to 757 minutes, so only
+// this immediate give-up was premature. Waiting one full interval past
+// resolveAt before giving up lets the next tick's candle write land first.
+const UNRESOLVABLE_GRACE_INTERVALS = 1;
+
 export interface StoredSignalForOutcome {
   _id: Types.ObjectId | string;
   symbol: string;
@@ -165,10 +176,16 @@ export async function resolveDueOutcomes(
       candles.forEach((c, i) => indexByTimestamp.set(c.timestamp, i));
 
       for (const outcome of outcomes) {
+        // Only give up once a full interval of grace has passed beyond this
+        // outcome's own resolveAt; before that, an incomplete read is left
+        // pending (no op pushed) so the next tick retries it.
+        const graceExpired =
+          now >= outcome.resolveAt + UNRESOLVABLE_GRACE_INTERVALS * intervalMs;
+
         const entryIndex = indexByTimestamp.get(outcome.candleTimestamp);
 
         if (entryIndex === undefined) {
-          ops.push(unresolvableOp(outcome._id, now));
+          if (graceExpired) ops.push(unresolvableOp(outcome._id, now));
           continue;
         }
 
@@ -179,7 +196,7 @@ export async function resolveDueOutcomes(
         );
 
         if (forwardCandles.length < outcome.horizonBars) {
-          ops.push(unresolvableOp(outcome._id, now));
+          if (graceExpired) ops.push(unresolvableOp(outcome._id, now));
           continue;
         }
 
@@ -187,7 +204,7 @@ export async function resolveDueOutcomes(
           (candle, i) => candle.timestamp === outcome.candleTimestamp + (i + 1) * intervalMs
         );
         if (!consecutive) {
-          ops.push(unresolvableOp(outcome._id, now));
+          if (graceExpired) ops.push(unresolvableOp(outcome._id, now));
           continue;
         }
 

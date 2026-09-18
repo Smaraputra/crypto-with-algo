@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (signal outcomes)
+- `resolveDueOutcomes` marked an outcome unresolvable the instant its candles were incomplete at `resolveAt`, racing the sync-candles cron that runs on the same 15-minute tick (`docker/crontab.template`). Measured in production on 2026-09-18: of 14,750 outcomes, 1,083 (7.3%) were unresolvable, spread across all ten symbols and concentrated on 15m (468), 5m (479), 1m (96), 1h (40); every one had `resolvedAt` within one minute of `resolveAt`, meaning the resolver's read beat the sync's write for the bar that closes at `resolveAt` by seconds, while resolved outcomes tolerated lag up to 757 minutes. The entry-missing, forward-candles-short, and non-consecutive-candles branches now only give up once a full interval of grace has passed beyond the outcome's own `resolveAt`; before that they are left pending for the next tick to retry
+
 ### Changed (research findings)
 - `control-limit` rerun on the widened offset grid at 1h and 5m (trials 129): the selection moved to 20 and 30 bps and out-of-sample expectancy did not improve (1h -0.033% per trade with the interval spanning zero, 5m -0.114%), both still failing with timing p 0.005. Conclusion of the backtest track: no rule built from the current inputs, with market or resting-limit entries, pays for its costs at any interval
 
