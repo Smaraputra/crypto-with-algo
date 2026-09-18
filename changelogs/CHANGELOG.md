@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (research findings)
+- Phase 3 factor study run on the full production history (dataset `3fdeac9e…`, lockbox applied, ten symbols, four intervals, one Sonnet agent per interval, every report schema-validated with a random cell re-run and reproduced exactly). Survivor table and reading transcribed into the header of `scripts/research/factor-ic.ts`. Headline: intraday (5m, 1h) every trend-following input, the composite score included, predicts forward returns with the wrong sign, and mean reversion dominates (past returns, RSI, and buying pressure precede lower returns; oversold Williams %R and Bollinger readings precede higher ones); at 4h only short-horizon momentum and 1 to 8 bar return reversal survive; at 1d only 1 bar reversal and the long/short ratio. The contrarian Fear & Greed mapping is on the wrong side at 4h and 1d. Effect sizes are small (pooled |ic| 0.02 to 0.05) and measured before costs. The live-history baseline could not be computed: `GlobalSignal` TTLs leave one day to thirteen weeks of history per style, so the outcome resolver from 2026-09-17 onward is the live record
+
 ### Fixed (e2e)
 - `e2e/alerts.spec.ts` raced against itself under Playwright's three local workers: every authenticated test shares one user, and the create, pause/resume, and delete tests each acted on whichever alert item was first in the list, so the delete test could remove the alert the pause test had just paused and the pause test then waited on an untouched alert (the "flaky under load" note in earlier handovers was this race, not load). Each of the three tests now creates its own alert through the API and scopes every locator to that alert's `data-testid`
 
