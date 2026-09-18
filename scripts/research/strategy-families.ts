@@ -75,6 +75,26 @@
  * limit entries (0.02% per side, no slippage) for the three families
  * whose timing beats random intraday, since their shortfall is of the
  * order of the taker cost they pay.
+ *
+ * Limit-entry results (2026-09-19, same dataset, commit d9004f9, trials
+ * 123, reports strategy-<family>-<interval>-p4.json for the three
+ * *-limit families, each spot-checked with --cell --report). The maker
+ * entry recovers 0.04 to 0.07% per trade and no more; every run still
+ * fails, timing p 0.005 in all four.
+ *
+ *   interval family                        trades   exp%    CI low   p      stress  market version
+ *   5m       control-limit                 13896   -0.110  -0.121   0.005  -0.192  -0.178
+ *   5m       return-reversal-limit          4422   -0.138  -0.186   0.005  -0.223  -0.182
+ *   5m       oscillator-reversion-limit    18986   -0.123  -0.140   0.005  -0.208  -0.176
+ *   1h       control-limit                  7051   -0.022  -0.123   0.005  -0.075  -0.063
+ *
+ * control-limit at 1h is the closest any rule has come: interval
+ * spanning zero, four of ten symbols positive, 2023 and 2024 positive
+ * (+0.10%, +0.07%) and 2025 and 2026 negative. Every control-limit
+ * window selected offsetBps 10, the deepest pullback in the grid, so the
+ * grid edge is binding; a wider offset grid (20, 30 bps) is the one
+ * cheap follow-up left before concluding that the composite's intraday
+ * timing cannot pay for itself.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed (research findings)
+- Limit-entry variants run through the harness (`control-limit` at 5m and 1h, `return-reversal-limit` and `oscillator-reversion-limit` at 5m, trials 123, every report validated and spot-checked): the maker entry recovers 0.04 to 0.07% per trade against the market versions and every run still fails, with entry timing beating random entries (p 0.005) in all four. `control-limit` at 1h is the closest result so far (-0.022% per trade, interval spanning zero, positive in 2023 and 2024). Every `control-limit` window selected the deepest offset in the grid, so a wider offset grid is the one cheap follow-up left; table in the header of `scripts/research/strategy-families.ts`
+
+### Changed (research findings)
 - Phase 4 strategy validation run through `scripts/research/strategy-harness.ts` on the full production history (dataset `3fdeac9e…`, lockbox applied, ten symbols, study costs, trials 82): fourteen family and interval runs, every report schema-validated with one random window per report re-run and reproduced exactly. No family passes the gate set at any interval; the table and reading are in the header of `scripts/research/strategy-families.ts`. At 5m every family loses about the round-trip taker cost with tight intervals, at 1h control's entry timing beats random entries (p 0.005) but not by the cost, fading the composite is worse than random, at 4h control sits at breakeven, and at 1d both rules lose more than 1% per trade. The next experiment is maker-only limit entries for the three intraday families whose timing beats random
 
 ### Changed (research findings)
