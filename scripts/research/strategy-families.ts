@@ -92,9 +92,8 @@
  * spanning zero, four of ten symbols positive, 2023 and 2024 positive
  * (+0.10%, +0.07%) and 2025 and 2026 negative. Every control-limit
  * window selected offsetBps 10, the deepest pullback in the grid, so the
- * grid edge is binding; a wider offset grid (20, 30 bps) is the one
- * cheap follow-up left before concluding that the composite's intraday
- * timing cannot pay for itself.
+ * grid edge was binding; the grid was widened to 30 bps on 2026-09-19
+ * and the results of the rerun are recorded below by the controller.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
@@ -574,8 +573,8 @@ export function withLimitEntry(
  * maker rate instead.
  *
  * Params: timeout in [1, 2, 3] (limit order timeout, bars), offsetBps in
- * [0, 5, 10] (limit price offset from the decision close, basis points).
- * 9 cells.
+ * [0, 5, 10, 20, 30] (limit price offset from the decision close, basis
+ * points). 15 cells.
  */
 export const controlLimitFamily: StrategyFamily = {
   name: 'control-limit',
@@ -583,7 +582,7 @@ export const controlLimitFamily: StrategyFamily = {
     'the composite threshold rule with a resting limit entry at the decision close minus (long) or plus (short) the offset',
   params: [
     { name: 'timeout', values: [1, 2, 3] },
-    { name: 'offsetBps', values: [0, 5, 10] },
+    { name: 'offsetBps', values: [0, 5, 10, 20, 30] },
   ],
   create(params: Record<string, number>): Strategy {
     const { timeout, offsetBps } = params;

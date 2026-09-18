@@ -285,12 +285,12 @@ describe('registry', () => {
     );
   });
 
-  it('control-limit: timeout [1,2,3] x offsetBps [0,5,10], 9 cells in declared order', () => {
+  it('control-limit: timeout [1,2,3] x offsetBps [0,5,10,20,30], 15 cells in declared order', () => {
     const expected = cartesian([
       ['timeout', [1, 2, 3]],
-      ['offsetBps', [0, 5, 10]],
+      ['offsetBps', [0, 5, 10, 20, 30]],
     ]);
-    expect(expected).toHaveLength(9);
+    expect(expected).toHaveLength(15);
     expect(expandGrid(controlLimitFamily)).toEqual(expected);
   });
 
