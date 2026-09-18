@@ -75,11 +75,40 @@
  * limit entries (0.02% per side, no slippage) for the three families
  * whose timing beats random intraday, since their shortfall is of the
  * order of the taker cost they pay.
+ *
+ * Limit-entry results (2026-09-19, same dataset, commit d9004f9, trials
+ * 123, reports strategy-<family>-<interval>-p4.json for the three
+ * *-limit families, each spot-checked with --cell --report). The maker
+ * entry recovers 0.04 to 0.07% per trade and no more; every run still
+ * fails, timing p 0.005 in all four.
+ *
+ *   interval family                        trades   exp%    CI low   p      stress  market version
+ *   5m       control-limit                 13896   -0.110  -0.121   0.005  -0.192  -0.178
+ *   5m       return-reversal-limit          4422   -0.138  -0.186   0.005  -0.223  -0.182
+ *   5m       oscillator-reversion-limit    18986   -0.123  -0.140   0.005  -0.208  -0.176
+ *   1h       control-limit                  7051   -0.022  -0.123   0.005  -0.075  -0.063
+ *
+ * control-limit at 1h is the closest any rule has come: interval
+ * spanning zero, four of ten symbols positive, 2023 and 2024 positive
+ * (+0.10%, +0.07%) and 2025 and 2026 negative. Every control-limit
+ * window selected offsetBps 10, the deepest pullback in the grid, so the
+ * grid edge was binding; the grid was widened to 30 bps on 2026-09-19
+ * and control-limit was rerun at 1h and 5m (trials 129, reports
+ * strategy-control-limit-<interval>-p4w.json, spot-checked): the
+ * selection moved to 20 and 30 bps and out-of-sample expectancy did not
+ * improve (1h 6,624 trades, -0.033%, CI -0.130 to 0.077, 3 of 10 symbols
+ * positive; 5m 9,079 trades, -0.114%, CI -0.127 to -0.101), both still
+ * failing with timing p 0.005. The edge was not hiding a better cell.
+ * Conclusion of the backtest track: no rule built from the current
+ * inputs, with market or resting-limit entries, pays for its costs at
+ * any interval; the composite's intraday entry timing is real but worth
+ * less than the cheapest way to act on it.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { EntryDecision, Strategy, StrategyContext } from '@/lib/backtest/strategy';
 import type { IndicatorSuite } from '@/lib/indicators/types';
+import type { BacktestConfig } from '@/lib/backtest/types';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import { STRATEGY_EXIT_LEVEL } from '@/lib/signals/calibration';
 
@@ -474,6 +503,167 @@ export const stochrsiMomentumFamily: StrategyFamily = {
   },
 };
 
+/**
+ * withLimitEntry: wraps a base strategy's market entry into a resting limit
+ * order, unchanged otherwise. `decideExit` delegates to `base.decideExit`
+ * untouched; `decideEntry` calls `base.decideEntry(ctx, config)` and, only
+ * when it returns a decision, converts it: places the order at the decision
+ * bar's own close (`close = ctx.candles[ctx.bar].close`), offset by
+ * `opts.offsetBps` below the close for a long or above it for a short, and
+ * gives it `opts.timeoutBars`. The base decision's `side`, `stopPrice`,
+ * `targetPrice`, and `timeStopBars` pass through unchanged -- only
+ * `orderType`, `limitPrice`, and `timeoutBars` are added or overwritten.
+ *
+ * Relies on the fill semantics in limit-orders.ts and bar-loop.ts: the order
+ * can never fill on its own placement bar; it fills the first later bar
+ * whose low strictly breaches the limit (long) or whose high strictly
+ * breaches it (short), at the limit price or at that bar's open when the
+ * bar gaps through; the fill pays the maker fee with no slippage; and the
+ * order is cancelled once `bar > placedBar + timeoutBars`. The fill lands on
+ * a later bar at a possibly different price than the decision bar's close,
+ * but the base decision's stop, target, and time stop were already computed
+ * from that decision bar's own reading -- this wrapper does not recompute
+ * them from the fill, only the entry order itself changes.
+ *
+ * Returns null when the base returns null or when the current close is not
+ * finite. Reads nothing past `ctx.bar`: the only context this function
+ * itself reads is `ctx.candles[ctx.bar].close`, the same bar the base
+ * decision was already computed from.
+ */
+export interface LimitEntryOptions {
+  timeoutBars: number;
+  offsetBps: number;
+}
+
+export function withLimitEntry(
+  base: Strategy,
+  name: string,
+  params: Record<string, number>,
+  opts: LimitEntryOptions
+): Strategy {
+  return {
+    name,
+    params,
+    decideEntry(ctx: StrategyContext, config: BacktestConfig): EntryDecision | null {
+      const decision = base.decideEntry(ctx, config);
+      if (!decision) return null;
+
+      const close = ctx.candles[ctx.bar].close;
+      if (!Number.isFinite(close)) return null;
+
+      const limitPrice =
+        decision.side === 'long' ? close * (1 - opts.offsetBps / 10000) : close * (1 + opts.offsetBps / 10000);
+
+      return {
+        ...decision,
+        orderType: 'limit',
+        limitPrice,
+        timeoutBars: opts.timeoutBars,
+      };
+    },
+    decideExit(ctx: StrategyContext, config: BacktestConfig): boolean {
+      return base.decideExit(ctx, config);
+    },
+  };
+}
+
+/**
+ * control-limit: control's composite threshold rule (createScoreThresholdStrategy,
+ * see STRATEGY_FAMILIES.control below), entering on a resting limit order
+ * instead of at market. Thresholds, weights, stop, and target still come
+ * from the caller's own config exactly as control's do; withLimitEntry only
+ * changes how the entry fills.
+ *
+ * Phase 4 (header table above): at 5m control traded 19,414 times at
+ * -0.178% with entry timing beating random entries (p 0.005); at 1h, 7,519
+ * trades at -0.063% with the same timing edge (p 0.005). Both shortfalls
+ * are of the order of the round-trip taker cost control pays on every
+ * entry; this variant tests whether the timing edge survives paying the
+ * maker rate instead.
+ *
+ * Params: timeout in [1, 2, 3] (limit order timeout, bars), offsetBps in
+ * [0, 5, 10, 20, 30] (limit price offset from the decision close, basis
+ * points). 15 cells.
+ */
+export const controlLimitFamily: StrategyFamily = {
+  name: 'control-limit',
+  description:
+    'the composite threshold rule with a resting limit entry at the decision close minus (long) or plus (short) the offset',
+  params: [
+    { name: 'timeout', values: [1, 2, 3] },
+    { name: 'offsetBps', values: [0, 5, 10, 20, 30] },
+  ],
+  create(params: Record<string, number>): Strategy {
+    const { timeout, offsetBps } = params;
+    return withLimitEntry(createScoreThresholdStrategy(), 'control-limit', params, {
+      timeoutBars: timeout,
+      offsetBps,
+    });
+  },
+};
+
+/**
+ * return-reversal-limit: return-reversal's fade-the-extreme-return rule (see
+ * returnReversalFamily above), entering on a resting limit order at the
+ * decision close (offset fixed at 0) instead of at market. Exit, stop, and
+ * time stop are return-reversal's own, unchanged.
+ *
+ * Phase 4: at 5m return-reversal traded 9,305 times at -0.182% with entry
+ * timing beating random entries (p 0.005) -- a shortfall of the order of
+ * the round-trip taker cost it pays on every entry.
+ *
+ * Params: L in [5, 20], Z in [2, 2.5], H in [8, 16] (return-reversal's own
+ * 27-cell grid, reduced to keep the Phase 4 cells selected most often --
+ * L20 Z2.5 H16 and L20 Z2 H16 -- inside it), timeout in [1, 2] (limit order
+ * timeout, bars). 16 cells. offsetBps fixed at 0.
+ */
+export const returnReversalLimitFamily: StrategyFamily = {
+  name: 'return-reversal-limit',
+  description: 'return-reversal with a resting limit entry at the decision close (offset 0)',
+  params: [
+    { name: 'L', values: [5, 20] },
+    { name: 'Z', values: [2, 2.5] },
+    { name: 'H', values: [8, 16] },
+    { name: 'timeout', values: [1, 2] },
+  ],
+  create(params: Record<string, number>, ctx: { style: TradingStyle; interval: string }): Strategy {
+    const { L, Z, H, timeout } = params;
+    const base = returnReversalFamily.create({ L, Z, H }, ctx);
+    return withLimitEntry(base, 'return-reversal-limit', params, { timeoutBars: timeout, offsetBps: 0 });
+  },
+};
+
+/**
+ * oscillator-reversion-limit: oscillator-reversion's oversold/overbought
+ * rule (see oscillatorReversionFamily above), entering on a resting limit
+ * order at the decision close (offset fixed at 0) instead of at market.
+ * Exit, stop, and time stop are oscillator-reversion's own, unchanged.
+ *
+ * Phase 4: at 5m oscillator-reversion traded 23,584 times at -0.176% with
+ * entry timing beating random entries (p 0.005) -- a shortfall of the order
+ * of the round-trip taker cost it pays on every entry.
+ *
+ * Params: R in [25, 30], H in [16, 32], band in [0, 1] (oscillator-reversion's
+ * own 18-cell grid, reduced to keep the Phase 4 cells selected most often --
+ * R25 H32 band1 and R25 H16 band1 -- inside it), timeout in [1, 2] (limit
+ * order timeout, bars). 16 cells. offsetBps fixed at 0.
+ */
+export const oscillatorReversionLimitFamily: StrategyFamily = {
+  name: 'oscillator-reversion-limit',
+  description: 'oscillator-reversion with a resting limit entry at the decision close (offset 0)',
+  params: [
+    { name: 'R', values: [25, 30] },
+    { name: 'H', values: [16, 32] },
+    { name: 'band', values: [0, 1] },
+    { name: 'timeout', values: [1, 2] },
+  ],
+  create(params: Record<string, number>, ctx: { style: TradingStyle; interval: string }): Strategy {
+    const { R, H, band, timeout } = params;
+    const base = oscillatorReversionFamily.create({ R, H, band }, ctx);
+    return withLimitEntry(base, 'oscillator-reversion-limit', params, { timeoutBars: timeout, offsetBps: 0 });
+  },
+};
+
 export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   control: {
     name: 'control',
@@ -487,4 +677,7 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'return-reversal': returnReversalFamily,
   'oscillator-reversion': oscillatorReversionFamily,
   'stochrsi-momentum': stochrsiMomentumFamily,
+  'control-limit': controlLimitFamily,
+  'return-reversal-limit': returnReversalLimitFamily,
+  'oscillator-reversion-limit': oscillatorReversionLimitFamily,
 };
