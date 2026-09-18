@@ -78,8 +78,14 @@ test.describe('Alerts page (authenticated)', () => {
     await expect(page.getByText(/BTCUSDT price above/)).toBeVisible({
       timeout: 10000,
     });
-    // Verify the alert item has an active badge
-    const alertItem = page.locator('[data-testid^="alert-item-"]').first();
+    // Verify this alert's item has an active badge. Scoped by its own text:
+    // the authenticated project runs three workers against one user, so
+    // sibling tests create, pause, and delete other alerts concurrently and
+    // "the first item" is not stable.
+    const alertItem = page
+      .locator('[data-testid^="alert-item-"]')
+      .filter({ hasText: 'BTCUSDT price above $999,999' })
+      .first();
     await expect(alertItem.getByText('active')).toBeVisible();
   });
 
@@ -93,54 +99,51 @@ test.describe('Alerts page (authenticated)', () => {
       },
     });
     expect(createRes.ok()).toBe(true);
+    const { alert } = await createRes.json();
 
     await page.goto('/alerts');
     await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible({ timeout: 15000 });
 
-    // Wait for alert item to appear
-    const alertItems = page.locator('[data-testid^="alert-item-"]');
-    await expect(alertItems.first()).toBeVisible({ timeout: 15000 });
+    // Scope every interaction to this test's own alert: sibling tests in
+    // other workers create and delete alerts on the same user concurrently,
+    // so "the first item" can change between the click and the assertion.
+    const alertItem = page.getByTestId(`alert-item-${alert._id}`);
+    await expect(alertItem).toBeVisible({ timeout: 15000 });
 
-    // Click pause button on the first active alert
-    const pauseButton = page.getByTitle('Pause').first();
-    await expect(pauseButton).toBeVisible({ timeout: 5000 });
-    await pauseButton.click();
+    // Pause this alert
+    await alertItem.getByTitle('Pause').click();
 
     // Wait for UI to reflect paused state (PATCH + refetch + re-render)
-    await expect(page.getByTitle('Resume').first()).toBeVisible({ timeout: 15000 });
+    await expect(alertItem.getByTitle('Resume')).toBeVisible({ timeout: 15000 });
 
     // Resume the alert
-    await page.getByTitle('Resume').first().click();
+    await alertItem.getByTitle('Resume').click();
 
     // Wait for UI to reflect active state again
-    await expect(page.getByTitle('Pause').first()).toBeVisible({ timeout: 15000 });
+    await expect(alertItem.getByTitle('Pause')).toBeVisible({ timeout: 15000 });
   });
 
-  test('deletes an alert', async ({ page }) => {
+  test('deletes an alert', async ({ page, baseURL }) => {
+    // Create the alert this test deletes via API, so it never removes an
+    // alert a sibling test in another worker is acting on
+    const createRes = await page.request.post(`${baseURL}/api/alerts`, {
+      data: {
+        type: 'price_above',
+        symbol: 'SOLUSDT',
+        targetPrice: 777777,
+      },
+    });
+    expect(createRes.ok()).toBe(true);
+    const { alert } = await createRes.json();
+
     await page.goto('/alerts');
     await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible({ timeout: 15000 });
 
-    // Wait for either the alert list or empty state to appear (loading complete)
-    const alertList = page.getByTestId('alert-list');
-    const emptyState = page.getByTestId('alert-list-empty');
-    await expect(alertList.or(emptyState)).toBeVisible({ timeout: 15000 });
+    const alertItem = page.getByTestId(`alert-item-${alert._id}`);
+    await expect(alertItem).toBeVisible({ timeout: 15000 });
 
-    // Ensure there's at least one alert
-    const alertItems = page.locator('[data-testid^="alert-item-"]');
-    if ((await alertItems.count()) === 0) {
-      await page.getByRole('button', { name: /create alert/i }).click();
-      await page.getByLabel('Symbol').fill('SOLUSDT');
-      await page.getByLabel('Target Price').fill('777777');
-      await page.getByRole('button', { name: 'Create Alert' }).click();
-      await expect(alertItems.first()).toBeVisible({ timeout: 10000 });
-    }
-
-    // Capture the first alert's testid so we can wait for it to disappear
-    const firstItem = alertItems.first();
-    const testId = await firstItem.getAttribute('data-testid');
-
-    // Click delete button on the first alert
-    await firstItem.getByTitle('Delete').click();
+    // Click delete button on this alert
+    await alertItem.getByTitle('Delete').click();
 
     // Confirm deletion in the visible dialog
     await expect(page.getByText('Are you sure you want to delete')).toBeVisible();
@@ -151,10 +154,8 @@ test.describe('Alerts page (authenticated)', () => {
       .getByRole('button', { name: 'Delete' })
       .click();
 
-    // Wait for the specific alert item to be removed after React Query refetch
-    await expect(page.locator(`[data-testid="${testId}"]`)).toHaveCount(0, {
-      timeout: 15000,
-    });
+    // Wait for this alert item to be removed after React Query refetch
+    await expect(alertItem).toHaveCount(0, { timeout: 15000 });
   });
 
   test('notification bell is visible in header', async ({ page }) => {

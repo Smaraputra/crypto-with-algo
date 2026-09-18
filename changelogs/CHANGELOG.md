@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (e2e)
+- `e2e/alerts.spec.ts` raced against itself under Playwright's three local workers: every authenticated test shares one user, and the create, pause/resume, and delete tests each acted on whichever alert item was first in the list, so the delete test could remove the alert the pause test had just paused and the pause test then waited on an untouched alert (the "flaky under load" note in earlier handovers was this race, not load). Each of the three tests now creates its own alert through the API and scopes every locator to that alert's `data-testid`
+
 ### Fixed (evaluation harness)
 - Sharpe and Sortino annualized every interval with `Math.sqrt(252)`, the equities daily-bar convention. A 5m equity curve has 105,120 bars a year and a 1h curve 8,760, so the same return series scored a wildly different ratio depending on backtest interval, and the optimizer's `minSharpe` gate compared incompatible numbers across styles. `computeMetrics` now takes the backtest's `interval` and annualizes with `Math.sqrt(annualizationFactor)` (`barsPerYear(interval)`, derived from `intervalToMs` over a 365-day crypto year, since crypto trades every day unlike the 252-day equities convention). Sharpe and Sortino values stored before this change are not comparable across intervals or against values computed after it
 - A limit order that filled and then, on that same candle, also breached its stop or target booked no loss until the following bar: the per-bar loop's stop/target check ran before the fill was possible to see. `runBarLoop` in `src/lib/backtest/bar-loop.ts` now checks the freshly opened position's stop and target against the same candle immediately after a limit fill (fill first, then stop/target, the conservative order), closing on that bar when either hits
