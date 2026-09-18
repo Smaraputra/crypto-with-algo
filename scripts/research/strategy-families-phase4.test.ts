@@ -24,7 +24,7 @@ function makeCandle(close: number, bar = 0): OHLCV {
 
 /** A full IndicatorSuite with neutral defaults everywhere except the fields
  * the phase 4 families actually read (atr, rsi, bollingerBands,
- * stochasticRSI, williamsR); tests override only what they need. */
+ * stochasticRSI); tests override only what they need. */
 function makeSuite(overrides: Partial<IndicatorSuite> = {}): IndicatorSuite {
   return {
     ema12: { period: 12, values: [], current: 100 },
@@ -163,7 +163,11 @@ function assertCausal(strategy: Strategy, bar: number, buildCtx: (candles: OHLCV
   const fullCtx = buildCtx(fullCandles);
   const truncatedCtx = buildCtx(truncatedCandles);
 
-  expect(strategy.decideEntry(truncatedCtx, CONFIG)).toEqual(strategy.decideEntry(fullCtx, CONFIG));
+  // Both null would trivially satisfy toEqual below without proving anything
+  // about causality, so the full-candles decision must actually fire.
+  const fullDecision = strategy.decideEntry(fullCtx, CONFIG);
+  expect(fullDecision).not.toBeNull();
+  expect(strategy.decideEntry(truncatedCtx, CONFIG)).toEqual(fullDecision);
 
   const fullExitCtx = { ...fullCtx, position: makePosition({ side: 'long' }) };
   const truncatedExitCtx = { ...truncatedCtx, position: makePosition({ side: 'long' }) };
@@ -235,6 +239,11 @@ describe('fade-composite', () => {
       const ctx = makeContext({ score: NaN, suite: makeSuite({ atr: atrOf(5) }) });
       expect(strategy.decideEntry(ctx, CONFIG)).toBeNull();
     });
+
+    it('returns null when the current close is not finite', () => {
+      const ctx = makeContext({ score: 50, candles: [makeCandle(NaN)], suite: makeSuite({ atr: atrOf(5) }) });
+      expect(strategy.decideEntry(ctx, CONFIG)).toBeNull();
+    });
   });
 
   describe('decideExit', () => {
@@ -262,6 +271,13 @@ describe('fade-composite', () => {
       const ctx = makeContext({ score: 0, position: null });
       expect(strategy.decideExit(ctx, CONFIG)).toBe(false);
     });
+
+    it('returns false when score is not finite, for either side', () => {
+      const longCtx = makeContext({ score: NaN, position: makePosition({ side: 'long' }) });
+      expect(strategy.decideExit(longCtx, CONFIG)).toBe(false);
+      const shortCtx = makeContext({ score: NaN, position: makePosition({ side: 'short' }) });
+      expect(strategy.decideExit(shortCtx, CONFIG)).toBe(false);
+    });
   });
 
   it('is causal: same decision when candles is truncated to bar + 1', () => {
@@ -277,7 +293,7 @@ describe('return-reversal', () => {
   /** L=1 sample: 25 flat closes except the final step, which moves by an
    * arbitrary log return R. The 20-return vol20 window (bars 5..24) then
    * holds 19 zero returns and this one R return, so mean = R/20 and
-   * variance = R^2 * (19*(19/20)^2 + (1/20)^2) / 19 = R^2 * 0.05 exactly --
+   * variance = R^2 * (19*(1/20)^2 + (19/20)^2) / 19 = 0.05 * R^2 exactly --
    * independent of R's magnitude or sign. vol20 = |R| * sqrt(0.05), and
    * z = R / (vol20 * sqrt(1)) = sign(R) / sqrt(0.05) = sign(R) * sqrt(20),
    * so z is a known constant (+-4.47213595499958) regardless of R. Verified
@@ -355,6 +371,14 @@ describe('return-reversal', () => {
       const ctx = makeContext({ bar: 24, candles: flatCandles, suite: makeSuite({ atr: atrOf(5) }) });
       expect(strategy.decideEntry(ctx, CONFIG)).toBeNull();
     });
+
+    it('returns null when the current close is not finite', () => {
+      const closes = new Array(25).fill(100);
+      closes[24] = NaN;
+      const candles = closes.map((close, bar) => makeCandle(close, bar));
+      const ctx = makeContext({ bar: 24, candles, suite: makeSuite({ atr: atrOf(5) }) });
+      expect(strategy.decideEntry(ctx, CONFIG)).toBeNull();
+    });
   });
 
   it('decideExit always returns false', () => {
@@ -427,6 +451,32 @@ describe('oscillator-reversion', () => {
       // close (100) is below bb.lower (100.5) is irrelevant with band 0.
       expect(bandOffStrategy.decideEntry(ctx, CONFIG)?.side).toBe('long');
     });
+
+    it('computes the stop to 1e-9 from close and atr, long side', () => {
+      const close = 137.42;
+      const atr = 3.17;
+      const ctx = makeContext({
+        candles: [makeCandle(close)],
+        suite: makeSuite({ rsi: rsiOf(30), atr: atrOf(atr) }),
+      });
+      const decision = bandOffStrategy.decideEntry(ctx, CONFIG);
+      expect(decision).not.toBeNull();
+      expect(decision!.stopPrice).toBeCloseTo(close - 2 * atr, 9);
+      expect(decision!.targetPrice).toBeNull();
+    });
+
+    it('computes the stop to 1e-9 from close and atr, short side', () => {
+      const close = 137.42;
+      const atr = 3.17;
+      const ctx = makeContext({
+        candles: [makeCandle(close)],
+        suite: makeSuite({ rsi: rsiOf(70), atr: atrOf(atr) }),
+      });
+      const decision = bandOffStrategy.decideEntry(ctx, CONFIG);
+      expect(decision).not.toBeNull();
+      expect(decision!.stopPrice).toBeCloseTo(close + 2 * atr, 9);
+      expect(decision!.targetPrice).toBeNull();
+    });
   });
 
   describe('decideEntry: band 1 (RSI gated by the Bollinger band)', () => {
@@ -492,6 +542,14 @@ describe('oscillator-reversion', () => {
 
     it('returns null when rsi is not finite', () => {
       const ctx = makeContext({ suite: makeSuite({ rsi: rsiOf(NaN), atr: atrOf(5) }) });
+      expect(bandOffStrategy.decideEntry(ctx, CONFIG)).toBeNull();
+    });
+
+    it('returns null when the current close is not finite', () => {
+      const ctx = makeContext({
+        candles: [makeCandle(NaN)],
+        suite: makeSuite({ rsi: rsiOf(30), atr: atrOf(5) }),
+      });
       expect(bandOffStrategy.decideEntry(ctx, CONFIG)).toBeNull();
     });
   });
@@ -587,6 +645,32 @@ describe('stochrsi-momentum', () => {
       const ctx = makeContext({ suite: makeSuite({ stochasticRSI: stochOf(75, 75), atr: atrOf(5) }) });
       expect(strategy.decideEntry(ctx, CONFIG)).toBeNull();
     });
+
+    it('computes the stop to 1e-9 from close, atr, and k, long side', () => {
+      const close = 137.42;
+      const atr = 3.17;
+      const ctx = makeContext({
+        candles: [makeCandle(close)],
+        suite: makeSuite({ stochasticRSI: stochOf(26, 25), atr: atrOf(atr) }),
+      });
+      const decision = strategy.decideEntry(ctx, CONFIG);
+      expect(decision).not.toBeNull();
+      expect(decision!.stopPrice).toBeCloseTo(close - 2 * atr, 9); // k = 2
+      expect(decision!.targetPrice).toBeNull();
+    });
+
+    it('computes the stop to 1e-9 from close, atr, and k, short side', () => {
+      const close = 137.42;
+      const atr = 3.17;
+      const ctx = makeContext({
+        candles: [makeCandle(close)],
+        suite: makeSuite({ stochasticRSI: stochOf(74, 75), atr: atrOf(atr) }),
+      });
+      const decision = strategy.decideEntry(ctx, CONFIG);
+      expect(decision).not.toBeNull();
+      expect(decision!.stopPrice).toBeCloseTo(close + 2 * atr, 9); // k = 2
+      expect(decision!.targetPrice).toBeNull();
+    });
   });
 
   describe('decideEntry: guards', () => {
@@ -602,6 +686,14 @@ describe('stochrsi-momentum', () => {
 
     it('returns null when k or d is not finite', () => {
       const ctx = makeContext({ suite: makeSuite({ stochasticRSI: stochOf(NaN, 25), atr: atrOf(5) }) });
+      expect(strategy.decideEntry(ctx, CONFIG)).toBeNull();
+    });
+
+    it('returns null when the current close is not finite', () => {
+      const ctx = makeContext({
+        candles: [makeCandle(NaN)],
+        suite: makeSuite({ stochasticRSI: stochOf(26, 25), atr: atrOf(5) }),
+      });
       expect(strategy.decideEntry(ctx, CONFIG)).toBeNull();
     });
   });

@@ -130,12 +130,13 @@ function currentAtr(suite: IndicatorSuite): number | null {
  * a short (stop close + k*atr, target close - 2*k*atr); score <= -T fades
  * a bearish extreme with a long (stop close - k*atr, target
  * close + 2*k*atr). timeStopBars = timeStop either way. Null when
- * ctx.suite is null, atr is not finite or not above 0, or score is not
- * finite.
+ * ctx.suite is null, atr is not finite or not above 0, score is not
+ * finite, or the current close is not finite.
  *
  * decideExit: a short exits once the bullish reading it faded is gone
  * (ctx.score <= STRATEGY_EXIT_LEVEL); a long exits once the bearish
- * reading it faded is gone (ctx.score >= -STRATEGY_EXIT_LEVEL).
+ * reading it faded is gone (ctx.score >= -STRATEGY_EXIT_LEVEL). False when
+ * there is no position or the score is not finite.
  * STRATEGY_EXIT_LEVEL is 6 (src/lib/signals/calibration.ts).
  */
 export const fadeCompositeFamily: StrategyFamily = {
@@ -159,6 +160,7 @@ export const fadeCompositeFamily: StrategyFamily = {
         if (!Number.isFinite(score)) return null;
 
         const close = ctx.candles[ctx.bar].close;
+        if (!Number.isFinite(close)) return null;
 
         if (score >= T) {
           return {
@@ -182,6 +184,7 @@ export const fadeCompositeFamily: StrategyFamily = {
       },
       decideExit(ctx: StrategyContext): boolean {
         if (!ctx.position) return false;
+        if (!Number.isFinite(ctx.score)) return false;
         if (ctx.position.side === 'short') return ctx.score <= STRATEGY_EXIT_LEVEL;
         return ctx.score >= -STRATEGY_EXIT_LEVEL;
       },
@@ -209,7 +212,9 @@ export const fadeCompositeFamily: StrategyFamily = {
  * large drop (z <= -Z) goes long; a large rise (z >= Z) goes short -- both
  * fades of the extreme return, matching the negative raw.ret* sign above.
  * Null when ctx.suite is null, atr is not finite or not above 0, bar is
- * below the lookback, vol20 is not above 0, or z is not finite.
+ * below the lookback, the current close is not finite (z would already be
+ * non-finite too in that case; checked explicitly for symmetry with the
+ * other three families), vol20 is not above 0, or z is not finite.
  *
  * decideExit: always false (the time stop and stop drive every exit).
  */
@@ -235,6 +240,9 @@ export const returnReversalFamily: StrategyFamily = {
         if (ctx.bar < lookback) return null;
 
         const { candles, bar } = ctx;
+        const close = candles[bar].close;
+        if (!Number.isFinite(close)) return null;
+
         const logReturns: number[] = [];
         for (let i = bar - 19; i <= bar; i++) {
           logReturns.push(Math.log(candles[i].close / candles[i - 1].close));
@@ -245,10 +253,8 @@ export const returnReversalFamily: StrategyFamily = {
         const vol20 = Math.sqrt(variance);
         if (!(vol20 > 0)) return null;
 
-        const z = Math.log(candles[bar].close / candles[bar - L].close) / (vol20 * Math.sqrt(L));
+        const z = Math.log(close / candles[bar - L].close) / (vol20 * Math.sqrt(L));
         if (!Number.isFinite(z)) return null;
-
-        const close = candles[bar].close;
 
         if (z <= -Z) {
           return {
@@ -294,7 +300,7 @@ export const returnReversalFamily: StrategyFamily = {
  * ctx.suite.bollingerBands.current. Long when rsi <= R and (band === 0 or
  * close <= bb.lower); short when rsi >= 100 - R and (band === 0 or close
  * >= bb.upper). Null when ctx.suite is null, atr is not finite or not
- * above 0, or rsi is not finite.
+ * above 0, rsi is not finite, or the current close is not finite.
  *
  * decideExit: a long exits once rsi >= 50 (momentum back to neutral); a
  * short exits once rsi <= 50.
@@ -321,6 +327,7 @@ export const oscillatorReversionFamily: StrategyFamily = {
         if (!Number.isFinite(rsi)) return null;
         const bb = ctx.suite.bollingerBands.current;
         const close = ctx.candles[ctx.bar].close;
+        if (!Number.isFinite(close)) return null;
 
         if (rsi <= R && (band === 0 || close <= bb.lower)) {
           return {
@@ -367,7 +374,7 @@ export const oscillatorReversionFamily: StrategyFamily = {
  * d < zone and sk > d (k has crossed above d while d is still in the
  * oversold zone); short when d > 100 - zone and sk < d (the mirror,
  * overbought zone). Null when ctx.suite is null, atr is not finite or not
- * above 0, or sk/d is not finite.
+ * above 0, sk/d is not finite, or the current close is not finite.
  *
  * decideExit: always false (the time stop drives every exit).
  */
@@ -392,6 +399,7 @@ export const stochrsiMomentumFamily: StrategyFamily = {
         const { k: sk, d } = ctx.suite.stochasticRSI.current;
         if (!Number.isFinite(sk) || !Number.isFinite(d)) return null;
         const close = ctx.candles[ctx.bar].close;
+        if (!Number.isFinite(close)) return null;
 
         if (d < zone && sk > d) {
           return {
