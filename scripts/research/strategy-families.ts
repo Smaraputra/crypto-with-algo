@@ -29,6 +29,52 @@
  * or a value it needs is not finite, and enters at market, one position at
  * a time. See each family's own header comment below for its rule, its
  * params, and the exact Phase 3 cells it rests on.
+ *
+ * Phase 4 results (2026-09-18, dataset 3fdeac9e495e3051ad2e2c7553be6b07b1da0d7b9e84f468d635d2708c624782,
+ * commit 30a56ef, lockbox applied so every window ends 2026-06-30, ten
+ * symbols, six rolling windows with train fraction 0.4 and purge equal to
+ * the indicator warmup, study costs (maker 0.02%, taker 0.05%, interval
+ * slippage, funding accrued from snapshots), 1000 bootstrap draws, 200
+ * random-entry iterations, trials 82 (every cell across the five families),
+ * seed 42; reports under data/research/reports/strategy-<family>-<interval>-p4.json,
+ * every report schema-validated and one random window per report re-run
+ * with --cell --report and reproduced exactly). No family passes the gate
+ * set at any interval. exp is pooled out-of-sample expectancy per trade
+ * after costs, CI the bootstrap 95% low bound, p the random-entry p-value,
+ * stress the expectancy at 1.5x fees and 2x slippage.
+ *
+ *   interval family                 trades   exp%    CI low   p      stress  failed gates
+ *   5m       control                19414   -0.178  -0.188   0.005  -0.324  expectancy windows symbols trials stress
+ *   5m       fade-composite         27900   -0.208  -0.217   1.000  -0.356  all but sample
+ *   5m       return-reversal         9305   -0.182  -0.208   0.005  -0.332  all but sample, timing
+ *   5m       oscillator-reversion   23584   -0.176  -0.189   0.005  -0.326  all but sample, timing
+ *   1h       control                 7519   -0.063  -0.166   0.005  -0.160  expectancy windows symbols trials stress
+ *   1h       fade-composite          7084   -0.190  -0.295   0.756  -0.299  all but sample
+ *   1h       return-reversal         3025   -0.232  -0.369   0.940  -0.342  all but sample
+ *   1h       oscillator-reversion    4450   -0.187  -0.365   0.582  -0.296  all but sample
+ *   4h       control                 1619   +0.016  -0.424   0.388  -0.064  expectancy windows symbols timing trials stress
+ *   4h       fade-composite          2349   -0.170  -0.402   0.368  -0.259  all but sample
+ *   4h       return-reversal         1549   -0.192  -0.511   0.517  -0.282  all but sample
+ *   4h       stochrsi-momentum      12679   -0.133  -0.227   0.174  -0.223  all but sample
+ *   1d       control                  157   -1.230  -3.566   0.995  -1.312  expectancy windows symbols timing trials stress
+ *   1d       return-reversal          459   -1.376  -2.593   0.955  -1.466  all but sample
+ *
+ * Reading: at 5m every family loses about the round-trip taker cost with
+ * slippage (0.20%), with tight intervals, so the rules are roughly flat
+ * before costs; the entry timing of control, return-reversal, and
+ * oscillator-reversion beats random entries with the same exits (p 0.005)
+ * but by less than the cost. At 1h the same holds for control (timing
+ * p 0.005, expectancy -0.063% with the interval touching zero), while
+ * fading the composite is worse than random (p 0.756): the negative IC
+ * Phase 3 measured on the composite comes from the bulk of readings, not
+ * from the extremes a fade rule trades. At 4h control sits at breakeven
+ * and nothing else is positive; at 1d both rules are beaten by random
+ * entries and lose more than 1% per trade. The mean-reversion survivors
+ * of Phase 3 do not turn into positive expectancy with market entries,
+ * 2 ATR stops, and 4 to 32 bar time stops. Next experiment: maker-only
+ * limit entries (0.02% per side, no slippage) for the three families
+ * whose timing beats random intraday, since their shortfall is of the
+ * order of the taker cost they pay.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
