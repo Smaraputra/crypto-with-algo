@@ -93,7 +93,16 @@
  * (+0.10%, +0.07%) and 2025 and 2026 negative. Every control-limit
  * window selected offsetBps 10, the deepest pullback in the grid, so the
  * grid edge was binding; the grid was widened to 30 bps on 2026-09-19
- * and the results of the rerun are recorded below by the controller.
+ * and control-limit was rerun at 1h and 5m (trials 129, reports
+ * strategy-control-limit-<interval>-p4w.json, spot-checked): the
+ * selection moved to 20 and 30 bps and out-of-sample expectancy did not
+ * improve (1h 6,624 trades, -0.033%, CI -0.130 to 0.077, 3 of 10 symbols
+ * positive; 5m 9,079 trades, -0.114%, CI -0.127 to -0.101), both still
+ * failing with timing p 0.005. The edge was not hiding a better cell.
+ * Conclusion of the backtest track: no rule built from the current
+ * inputs, with market or resting-limit entries, pays for its costs at
+ * any interval; the composite's intraday entry timing is real but worth
+ * less than the cheapest way to act on it.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';

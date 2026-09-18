@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed (research findings)
+- `control-limit` rerun on the widened offset grid at 1h and 5m (trials 129): the selection moved to 20 and 30 bps and out-of-sample expectancy did not improve (1h -0.033% per trade with the interval spanning zero, 5m -0.114%), both still failing with timing p 0.005. Conclusion of the backtest track: no rule built from the current inputs, with market or resting-limit entries, pays for its costs at any interval
+
+### Changed (research findings)
 - Limit-entry variants run through the harness (`control-limit` at 5m and 1h, `return-reversal-limit` and `oscillator-reversion-limit` at 5m, trials 123, every report validated and spot-checked): the maker entry recovers 0.04 to 0.07% per trade against the market versions and every run still fails, with entry timing beating random entries (p 0.005) in all four. `control-limit` at 1h is the closest result so far (-0.022% per trade, interval spanning zero, positive in 2023 and 2024). Every `control-limit` window selected the deepest offset in the grid, so a wider offset grid is the one cheap follow-up left; table in the header of `scripts/research/strategy-families.ts`
 
 ### Changed (research findings)
