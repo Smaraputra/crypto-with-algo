@@ -11,6 +11,69 @@
  * Reads a dataset exported by export-dataset.ts (via load-dataset.ts's
  * lockbox-aware loaders) and never touches Mongo.
  *
+ * Phase 3 results (2026-09-18, dataset 3fdeac9e495e3051ad2e2c7553be6b07b1da0d7b9e84f468d635d2708c624782,
+ * commit f7946f4, lockbox applied so every window ends 2026-06-30, ten
+ * symbols, horizons 1,2,4,8,16,32, bootstrap 200 draws seed 42; reports
+ * under data/research/reports/factor-ic-<interval>-p3.json, one random cell
+ * per report re-run with --cell --report and reproduced digit for digit).
+ * Survivor rule: pooled |ic| >= 0.02 and |t| >= 2.5 at two or more horizons,
+ * same sign in 60% of quarters and in seven of ten symbols. Sign is the
+ * sign of the pooled IC; "+" means a higher reading precedes a higher
+ * forward return. Survivors per interval: 5m 21 of 30, 1h 18 of 40,
+ * 4h 4 of 40, 1d 2 of 35.
+ *
+ *   factor              5m                1h              4h            1d
+ *   composite           .                 - h8,16         .             .
+ *   cat.trend           - h1-32           - h1-16         .             .
+ *   sig.EMA Cross       - h1-32           - h1-16         .             .
+ *   sig.SMA Trend       - h1-32           .               .             .
+ *   sig.SuperTrend      - h1-16           - h2-16         .             .
+ *   sig.Ichimoku        .                 - h1,2,4        .             .
+ *   sig.MACD            - h1-32           .               .             .
+ *   cat.htf, HTF sigs   - h8-32           .               .             .
+ *   raw.emaSpreadPct    - h1-32           - h2-16         .             .
+ *   cat.momentum        + h1,2,4          .               + h2,4        .
+ *   sig.Williams %R     + h1-32           + h1,2,4        .             .
+ *   sig.StochRSI        .                 .               + h2,4        .
+ *   raw.rsi             - h1-32           - h1-8          .             .
+ *   cat.volatility      + h1-32           + h1-8          .             .
+ *   sig.Bollinger       + h1-32           + h1-8          .             .
+ *   cat.volume          .                 - h1,2          .             .
+ *   sig.OBV             - h1-16           - h1,2,4        .             .
+ *   sig.Volume          - h1,2,4          .               .             .
+ *   sig.Taker Flow      .                 - h1,2          .             .
+ *   raw.takerBuyRatio   .                 - h1,2          .             .
+ *   raw.longShortRatio  (no data)         - h4,8,32       .             - h4,8,32
+ *   raw.ret1            - h1-8            - h1,2,4        - h1,2        - h1,2,4,32
+ *   raw.ret5            - h1-32           - h1-8          - h1-8        .
+ *   raw.ret20           - h1-32           - h1-32         .             .
+ *
+ * Reading: intraday (5m, 1h) every trend-following input, the composite
+ * included, predicts with the wrong sign, and mean reversion dominates:
+ * past returns, RSI, and buying pressure (OBV, Volume, Taker Flow, taker
+ * buy ratio) precede lower returns, while oversold readings (Williams %R,
+ * Bollinger lower band, which is the whole volatility category once ATR
+ * is excluded) precede higher ones. Strongest cells: raw.rsi 5m h1
+ * ic -0.046 t -39.6, cat.volatility 5m h2 ic 0.047 t 36.6, raw.ret5 5m h1
+ * ic -0.043 t -35.3, cat.trend 5m h1 ic -0.032 t -27.1, raw.ret1 1h h1
+ * ic -0.048 t -27.7. At 4h only short-horizon momentum (cat.momentum,
+ * StochRSI) and 1 to 8 bar return reversal survive; at 1d only 1 bar
+ * reversal and the long/short ratio (500-bar sample). The composite is
+ * negative at 1h (h8 ic -0.022 t -6.5), positive but below the effect
+ * floor at 5m h1,2 and at 4h, and uninformative at 1d. The contrarian
+ * sentiment category is on the wrong side at 4h and 1d (t -3.7 to -5.0,
+ * fails only on quarter agreement): the raw Fear & Greed index has a
+ * positive IC at 1d (h8 ic 0.063 t 4.1). Effect sizes are small (pooled
+ * |ic| 0.02 to 0.05) and measured before costs; whether any survives the
+ * cost model is the Phase 4 harness question.
+ *
+ * Caveats: 5m ran with snapshots forced null (cat.futures, cat.sentiment,
+ * raw.fundingRate, raw.longShortRatio, raw.fearGreed skipped), which is
+ * this CLI's documented divergence from live scoring; long/short ratio
+ * and open interest cover only the last 500 bars of their interval; the
+ * factor matrix keeps Ichimoku at 5m where live scoring nulls it;
+ * sig.ATR has no directional reading and is skipped everywhere.
+ *
  * bootstrapCi95 is a fixed-rank block bootstrap of the IC: ranks are
  * computed once per (sub)sample (ic-stats.ts's standardizedRankProducts),
  * not recomputed inside every resample, and only the resulting per-pair
