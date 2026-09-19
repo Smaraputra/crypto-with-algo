@@ -86,6 +86,14 @@ describe('fetchCryptoNews', () => {
     expect(result).toHaveLength(20);
   });
 
+  it('uses a caller-provided limit instead of the default 20', async () => {
+    mockCachedFetch.mockResolvedValue(makeItems(50));
+
+    const result = await fetchCryptoNews(undefined, 5);
+
+    expect(result).toHaveLength(5);
+  });
+
   it('limits after filtering, so a ticker can still return 20 stories', async () => {
     mockCachedFetch.mockResolvedValue(makeItems(50));
 

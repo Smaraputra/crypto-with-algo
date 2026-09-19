@@ -21,8 +21,8 @@ const MAX_ITEMS = 20;
  * asks for ten symbols per cycle, which previously meant ten upstream calls per
  * cycle against a per-symbol cache key.
  */
-export async function fetchCryptoNews(currencies?: string): Promise<CryptoNewsItem[]> {
+export async function fetchCryptoNews(currencies?: string, limit: number = MAX_ITEMS): Promise<CryptoNewsItem[]> {
   const all = await cachedFetch(CACHE_KEY, fetchAllFeeds, CACHE_TTL);
   const relevant = currencies ? filterByCurrencies(all, currencies) : all;
-  return relevant.slice(0, MAX_ITEMS);
+  return relevant.slice(0, limit);
 }
