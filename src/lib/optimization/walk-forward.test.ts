@@ -10,6 +10,7 @@ import {
   WALK_FORWARD_FEE_PERCENT,
 } from './walk-forward';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
+import { BINANCE_FUTURES_TAKER_FEE } from '@/lib/backtest/cost-model';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
@@ -545,6 +546,20 @@ describe('deriveVolatilityStops', () => {
 
     expect(roundTripFees / stops.stopLossPercent).toBeLessThanOrEqual(0.2 + 1e-9);
     expect(stops.takeProfitPercent / stops.stopLossPercent).toBeCloseTo(2, 5);
+  });
+
+  it('charges the Binance USDT-M futures taker fee, the venue the research program fixed', () => {
+    // The 0.1% spot taker fee doubled the stop floor to 1% while the research
+    // harness measured every strategy family against 0.05% per side.
+    expect(WALK_FORWARD_FEE_PERCENT).toBe(BINANCE_FUTURES_TAKER_FEE);
+    expect(WALK_FORWARD_FEE_PERCENT).toBe(0.0005);
+  });
+
+  it('floors a quiet intraday stop at five futures round trips, 0.5%', () => {
+    const stops = deriveVolatilityStops(bars(Array(200).fill(80_000), 0.001), WALK_FORWARD_FEE_PERCENT);
+
+    expect(stops.stopLossPercent).toBeCloseTo(0.005, 9);
+    expect(stops.takeProfitPercent).toBeCloseTo(0.01, 9);
   });
 
   it('leaves volatile series on their true-range stop when it already clears the fee floor', () => {

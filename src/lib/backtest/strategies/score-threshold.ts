@@ -8,7 +8,9 @@ import type { BacktestConfig } from '../types';
  * shortExitThreshold). Stop and target are fixed percent offsets from the
  * entry bar's close, matching checkStopTakeProfit in trade-utils.ts.
  *
- * Not yet wired into either engine; this only defines the rule.
+ * This is the default Strategy of optimized-engine.ts (runOptimizedBacktest)
+ * and the `control` family in scripts/research/strategy-families.ts, so every
+ * Phase 4 control number came through this rule.
  */
 export function createScoreThresholdStrategy(): Strategy {
   return {
