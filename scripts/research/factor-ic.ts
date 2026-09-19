@@ -67,12 +67,16 @@
  * |ic| 0.02 to 0.05) and measured before costs; whether any survives the
  * cost model is the Phase 4 harness question.
  *
- * Caveats: 5m ran with snapshots forced null (cat.futures, cat.sentiment,
- * raw.fundingRate, raw.longShortRatio, raw.fearGreed skipped), which is
- * this CLI's documented divergence from live scoring; long/short ratio
+ * Caveats: 5m and 15m now read the 1h snapshot file when one exists for the
+ * symbol (mapToSnapshotInterval, the same mapping live scoring and
+ * strategy-harness.ts use), rather than forcing snapshots null; that
+ * divergence from live scoring was removed on 2026-09-19. The Phase 3 table
+ * above predates the fix: its 5m column was measured with snapshots forced
+ * null (cat.futures, cat.sentiment, raw.fundingRate, raw.longShortRatio,
+ * raw.fearGreed skipped) and has not been re-run since. Long/short ratio
  * and open interest cover only the last 500 bars of their interval; the
- * factor matrix keeps Ichimoku at 5m where live scoring nulls it;
- * sig.ATR has no directional reading and is skipped everywhere.
+ * factor matrix keeps Ichimoku at 5m where live scoring nulls it; sig.ATR
+ * has no directional reading and is skipped everywhere.
  *
  * bootstrapCi95 is a fixed-rank block bootstrap of the IC: ranks are
  * computed once per (sub)sample (ic-stats.ts's standardizedRankProducts),
@@ -114,8 +118,10 @@
  */
 
 import { execFileSync } from 'child_process';
+import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
+import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import {
   bootstrapCiOfMean,
   forwardReturns,
@@ -139,9 +145,6 @@ import {
 import type { SnapshotRow } from './dataset-format';
 
 const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
-// Snapshots are only ingested at 1h/4h/1d (see export-dataset.ts's
-// SNAPSHOT_INTERVALS); no snapshot file exists for these two intervals.
-const NO_SNAPSHOT_INTERVALS = new Set(['5m', '15m']);
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
 // (fewer pairs than this and those functions already return NaN).
 const MIN_PAIRS = 3;
@@ -369,11 +372,19 @@ function loadSymbolData(
     }
   }
 
-  const snapshots: SnapshotRow[] | null = NO_SNAPSHOT_INTERVALS.has(interval)
-    ? null
-    : loadSnapshots(datasetDir, symbol, interval, { allowLockbox: opts.allowLockbox }).rows.filter((r) =>
-        inRange(r.t, opts.start, opts.end)
-      );
+  // Snapshots are only ingested at 1h/4h/1d (export-dataset.ts's
+  // SNAPSHOT_INTERVALS); finer intervals read the mapped interval's file,
+  // exactly as live scoring (buildSnapshotSeries) and strategy-harness.ts do.
+  const snapshotInterval = mapToSnapshotInterval(interval);
+  const snapshotPath = join(datasetDir, 'snapshots', symbol, `${snapshotInterval}.jsonl.gz`);
+  let snapshots: SnapshotRow[] | null = null;
+  if (existsSync(snapshotPath)) {
+    snapshots = loadSnapshots(datasetDir, symbol, snapshotInterval, { allowLockbox: opts.allowLockbox }).rows.filter(
+      (r) => inRange(r.t, opts.start, opts.end)
+    );
+  } else {
+    console.error(`[factor-ic] ${symbol}: no ${snapshotInterval} snapshot file, snapshots=null`);
+  }
 
   const matrix = computeFactorMatrix({ candles, snapshots, htf, interval });
 

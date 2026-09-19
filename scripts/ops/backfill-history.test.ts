@@ -456,6 +456,54 @@ describe('main', () => {
     expect(candleLog.complete).toBe(false);
   });
 
+  it('reports complete: true when the first stored bar sits exactly on the aligned request boundary', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+    ]);
+    // An instant 1.5 minutes past an hour boundary, so the raw requestedFrom
+    // (this minus 6*30 days, same time-of-day) does not itself land on an
+    // hour boundary, but alignedRequestedFrom (the next hour-open at or
+    // after it) does. Binance never returns a bar open at the raw instant
+    // itself, only at or after it, so the old raw comparison made complete
+    // false on every real run.
+    const now = Date.UTC(2026, 5, 15, 12, 1, 30);
+    vi.setSystemTime(now);
+    const requestedFrom = now - 6 * 30 * DAY_MS;
+    const alignedRequestedFrom = Math.ceil(requestedFrom / HOUR_MS) * HOUR_MS;
+    mockGetCandleRange.mockResolvedValue({ oldest: alignedRequestedFrom, newest: now, count: 100 });
+
+    await run();
+
+    const [candleLog] = parsedLogs();
+    expect(candleLog.requestedFrom).toBe(requestedFrom);
+    expect(candleLog.alignedRequestedFrom).toBe(alignedRequestedFrom);
+    expect(candleLog.from).toBe(alignedRequestedFrom);
+    expect(candleLog.complete).toBe(true);
+  });
+
+  it('reports complete: false when the first stored bar is one interval later than the aligned boundary', async () => {
+    vi.spyOn(process, 'argv', 'get').mockReturnValue([
+      'node', 'backfill-history.ts',
+      '--symbols', 'BTCUSDT',
+      '--candles', '1h:6',
+      '--skip-snapshots',
+    ]);
+    const now = Date.UTC(2026, 5, 15, 12, 1, 30);
+    vi.setSystemTime(now);
+    const requestedFrom = now - 6 * 30 * DAY_MS;
+    const alignedRequestedFrom = Math.ceil(requestedFrom / HOUR_MS) * HOUR_MS;
+    mockGetCandleRange.mockResolvedValue({ oldest: alignedRequestedFrom + HOUR_MS, newest: now, count: 100 });
+
+    await run();
+
+    const [candleLog] = parsedLogs();
+    expect(candleLog.alignedRequestedFrom).toBe(alignedRequestedFrom);
+    expect(candleLog.complete).toBe(false);
+  });
+
   it('reports complete: false when nothing is stored at all', async () => {
     vi.spyOn(process, 'argv', 'get').mockReturnValue([
       'node', 'backfill-history.ts',
