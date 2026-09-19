@@ -5,7 +5,7 @@ import { connectDB } from '@/lib/mongodb';
 import { getCandles } from '@/lib/candle-ingestion';
 import { GlobalSignal } from '@/lib/models/global-signal';
 import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
-import { LLM_CALL_INTERVALS } from '@/lib/models/llm-call';
+import { LLM_CALL_INTERVALS, llmStyleForInterval } from '@/lib/models/llm-call';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { fetchCryptoNews } from '@/lib/external/crypto-news';
 import { authorizeLlmPanel } from '../auth';
@@ -19,7 +19,12 @@ const querySchema = z.object({
 const deps: PacketDeps = {
   getCandles: (symbol, interval, limit) => getCandles(symbol, interval, undefined, undefined, limit),
   findLatestSignal: async (symbol, interval, atOrBefore) => {
-    const doc = (await GlobalSignal.findOne({ symbol, interval, candleTimestamp: { $lte: atOrBefore } })
+    const doc = (await GlobalSignal.findOne({
+      symbol,
+      interval,
+      tradingStyle: llmStyleForInterval(interval),
+      candleTimestamp: { $lte: atOrBefore },
+    })
       .sort({ candleTimestamp: -1 })
       .lean()) as unknown as PacketSignal | null;
     if (!doc) return null;

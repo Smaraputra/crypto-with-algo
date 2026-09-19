@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
+import type { PacketDeps } from './packet';
+
 vi.mock('@/lib/mongodb', () => ({ connectDB: vi.fn() }));
 const mockAuthorize = vi.fn();
 vi.mock('../auth', () => ({ authorizeLlmPanel: (...args: unknown[]) => mockAuthorize(...args) }));
@@ -13,6 +15,7 @@ vi.mock('@/lib/models/historical-snapshot', () => ({ HistoricalSnapshot: { findO
 vi.mock('@/lib/external/crypto-news', () => ({ fetchCryptoNews: vi.fn() }));
 
 import { GET } from './route';
+import { GlobalSignal } from '@/lib/models/global-signal';
 
 function req(query: string): NextRequest {
   return new NextRequest(new URL(`http://localhost/api/admin/llm-calls/inputs${query}`));
@@ -46,5 +49,22 @@ describe('GET /api/admin/llm-calls/inputs', () => {
     const res = await GET(req('?symbol=BTCUSDT&interval=1h'));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ symbol: 'BTCUSDT', interval: '1h', inputsHash: 'x' });
+  });
+
+  it('scopes the global signal query to the trading style, not just the interval', async () => {
+    vi.mocked(GlobalSignal.findOne).mockReturnValue({
+      sort: () => ({ lean: () => Promise.resolve(null) }),
+    } as unknown as ReturnType<typeof GlobalSignal.findOne>);
+
+    await GET(req('?symbol=BTCUSDT&interval=1d'));
+    const deps = mockBuild.mock.calls[0][0] as PacketDeps;
+    await deps.findLatestSignal('BTCUSDT', '1d', 1735689600000);
+
+    // 1d and 4h can share a candleTimestamp (swing_trading writes both 4h and
+    // 1d, position_trading writes 1d), so the query must pin the style too or
+    // the sort cannot break the tie and the wrong style's signal can win.
+    expect(GlobalSignal.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ tradingStyle: 'position_trading' })
+    );
   });
 });
