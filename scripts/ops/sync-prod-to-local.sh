@@ -30,7 +30,7 @@
 #                                       that container instead)
 #   FORCE_REMOTE_LOCAL=               (set to 1 to allow a real sync when
 #                                       LOCAL_MONGO_URI is not localhost/127.0.0.1)
-#   COLLECTIONS="candles historicalsnapshots globalsignals signaltemplates optimizationjobs backtestresultv2 cronruns"
+#   COLLECTIONS="candles historicalsnapshots globalsignals signaltemplates optimizationjobs backtestresultv2 cronruns signaloutcomes"
 set -euo pipefail
 
 PROD_SSH_HOST="${PROD_SSH_HOST:-contabo}"
@@ -42,8 +42,11 @@ LOCAL_MONGO_CONTAINER="${LOCAL_MONGO_CONTAINER:-}"
 # Mongoose's default pluralization of each model name (verified against
 # src/lib/models/*.ts): BacktestResultV2 -> "backtestresultv2", with no
 # trailing "s", because mongoose's pluralizer does not add a suffix to a
-# word ending in a digit. Every other model here pluralizes as expected.
-COLLECTIONS="${COLLECTIONS:-candles historicalsnapshots globalsignals signaltemplates optimizationjobs backtestresultv2 cronruns}"
+# word ending in a digit; SignalOutcome -> "signaloutcomes", a regular
+# pluralization. Every other model here pluralizes as expected. Without
+# signaloutcomes in this list, a synced local database has no outcome rows
+# and scripts/ops/live-outcomes.ts --mongo-uri ... prints zeros locally.
+COLLECTIONS="${COLLECTIONS:-candles historicalsnapshots globalsignals signaltemplates optimizationjobs backtestresultv2 cronruns signaloutcomes}"
 
 DRY_RUN=false
 for arg in "$@"; do
