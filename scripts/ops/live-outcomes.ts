@@ -8,8 +8,18 @@
  *
  * What the numbers mean: expectancy is the forward return from a signal's
  * candle close to the close of the horizon bar (OUTCOME_HORIZON_BARS) later,
- * at the style's primary interval (getIntervalForStyle). buy/strong_buy and
- * neutral (informational) tiers read that return as-is; sell/strong_sell
+ * at the block's own interval. A style scores every interval in its
+ * STYLE_CONFIGS preferredIntervals (scalping 1m and 5m, day_trading 15m and
+ * 1h, swing_trading 4h and 1d, position_trading 1d) and writes outcomes for
+ * each with the style's horizonBars, so a scalping 1m row is a 12-minute
+ * forward return and a 5m row a 60-minute one. Every section (status counts,
+ * resolved range, tiers) is therefore reported per style, source, and
+ * interval, one block each, in preferredIntervals order. Until 2026-09-19
+ * the tiers pooled every interval of a style under the primary interval's
+ * label and cost: the first production read showed 15,392 scalping rows in
+ * one day, which 5m alone (288 bars, ten symbols) cannot produce, so about
+ * five sixths of that "5m" line were 12-minute 1m outcomes. buy/strong_buy
+ * and neutral (informational) tiers read the return as-is; sell/strong_sell
  * invert it, since a sell tier's prediction wins when price falls (the
  * same directional-return definition the backtest engine uses).
  * netExpectancyPercent subtracts a fixed round-trip cost estimate (--cost
@@ -72,14 +82,17 @@
  *                       resolved date range always cover all time, so they
  *                       still show the resolver's full coverage regardless
  *                       of the window --since narrows the tiers to
+ *   --interval <1m|5m|15m|1h|4h|1d>  optional; keeps only that interval's
+ *                       block of each selected style (a style that does not
+ *                       score it prints nothing)
  *   --cost <percent>    optional round-trip cost in percent, subtracted from
- *                       every tier's gross expectancy. Default per style:
+ *                       every tier's gross expectancy. Default per interval:
  *                       the study's taker-in, taker-out round trip with
- *                       slippage on both legs for the style's primary
- *                       interval (0.20% scalping/5m, 0.16% day_trading/1h,
- *                       0.14% swing_trading/4h and position_trading/1d,
- *                       see defaultCostPercent). --cost 0 gives gross figures
- *   --json              one JSON line per style instead of the table
+ *                       slippage on both legs at the block's interval
+ *                       (0.20% at 1m and 5m, 0.16% at 15m and 1h, 0.14% at
+ *                       4h and 1d, see defaultCostPercent). --cost 0 gives
+ *                       gross figures
+ *   --json              one JSON line per block instead of the table
  *   --mongo-uri <uri>   override MONGODB_URI before connecting
  */
 import type { TradingStyle } from '@/lib/models/signal-template';
@@ -92,7 +105,7 @@ import {
 } from '@/lib/models/signal-outcome';
 import { getLiveTierExpectancy } from '@/lib/signals/outcome-analytics';
 import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
-import { getIntervalForStyle } from '@/lib/optimization/top-symbols';
+import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
 import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
 import { connectDB } from '@/lib/mongodb';
 
@@ -106,6 +119,7 @@ export interface ParsedArgs {
   symbol: string | null;
   since: Date | null;
   cost: number | null;
+  interval: string | null;
   json: boolean;
   mongoUri: string | null;
 }
@@ -116,6 +130,8 @@ export interface RunLiveOutcomesArgs {
   symbol: string | null;
   since: Date | null;
   cost: number | null;
+  /** Keep only this interval's block per style; every scored interval when unset. */
+  interval?: string | null;
 }
 
 export interface StatusCounts {
@@ -166,14 +182,18 @@ const TRADING_STYLE_ORDER: TradingStyle[] = [
 
 const STYLE_VALUES: StyleFilter[] = [...TRADING_STYLE_ORDER, 'all'];
 
+/** Every interval some style scores, in the order the styles score them. */
+const INTERVAL_VALUES: string[] = Array.from(
+  new Set(TRADING_STYLE_ORDER.flatMap((style) => STYLE_CONFIGS[style].preferredIntervals))
+);
+
 /**
- * Default round-trip cost estimate for a style, in percent: two taker legs
- * (entry and exit) plus slippage on both legs, at the style's primary
- * interval. Mirrors studyCostConfig's taker fee and STUDY_SLIPPAGE_BPS,
- * the same cost model the backtest track measured strategies against.
+ * Default round-trip cost estimate for an interval, in percent: two taker
+ * legs (entry and exit) plus slippage on both legs at that interval. Mirrors
+ * studyCostConfig's taker fee and STUDY_SLIPPAGE_BPS, the same cost model
+ * the backtest track measured strategies against.
  */
-export function defaultCostPercent(style: TradingStyle): number {
-  const interval = getIntervalForStyle(style);
+export function defaultCostPercent(interval: string): number {
   const slippageBps = STUDY_SLIPPAGE_BPS[interval];
   if (slippageBps === undefined) {
     throw new Error(`No slippage budget configured for interval: ${interval}`);
@@ -197,6 +217,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let symbol: string | null = null;
   let since: Date | null = null;
   let cost: number | null = null;
+  let interval: string | null = null;
   let json = false;
   let mongoUri: string | null = null;
 
@@ -244,6 +265,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
         cost = parsed;
         break;
       }
+      case '--interval': {
+        const value = nextValue(argv, ++i, '--interval');
+        if (!INTERVAL_VALUES.includes(value)) {
+          throw new Error(
+            `--interval: unknown value "${value}" (expected one of ${INTERVAL_VALUES.join(', ')})`
+          );
+        }
+        interval = value;
+        break;
+      }
       case '--json':
         json = true;
         break;
@@ -255,7 +286,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
   }
 
-  return { style, source, symbol, since, cost, json, mongoUri };
+  return { style, source, symbol, since, cost, interval, json, mongoUri };
 }
 
 interface StatusCountRow {
@@ -272,13 +303,17 @@ interface ResolvedRangeRow {
 async function computeStyleOutcomes(
   style: TradingStyle,
   source: SignalOutcomeSource,
+  interval: string,
   args: RunLiveOutcomesArgs
 ): Promise<StyleOutcomes> {
-  const interval = getIntervalForStyle(style);
   const horizonBars = OUTCOME_HORIZON_BARS[style];
-  const costPercent = args.cost ?? defaultCostPercent(style);
+  const costPercent = args.cost ?? defaultCostPercent(interval);
 
-  const baseMatch: Record<string, unknown> = { tradingStyle: style, ...sourceMatch(source) };
+  const baseMatch: Record<string, unknown> = {
+    tradingStyle: style,
+    interval,
+    ...sourceMatch(source),
+  };
   if (args.symbol) baseMatch.symbol = args.symbol;
 
   const statusRows: StatusCountRow[] = await SignalOutcome.aggregate([
@@ -308,6 +343,7 @@ async function computeStyleOutcomes(
   // subtracted exactly once below to produce the net figure.
   const rawTiers = await getLiveTierExpectancy({
     tradingStyle: style,
+    interval,
     symbol: args.symbol ?? undefined,
     since: args.since ?? undefined,
     source,
@@ -327,15 +363,22 @@ async function computeStyleOutcomes(
 }
 
 /** Does the read: no printing, no process I/O, so it is unit tested directly
- * against mongodb-memory-server without touching stdout or argv. */
+ * against mongodb-memory-server without touching stdout or argv. One block
+ * per style, then per interval the style scores (preferredIntervals order),
+ * then per source (composite before llm). */
 export async function runLiveOutcomes(args: RunLiveOutcomesArgs): Promise<LiveOutcomesReport> {
   const styles = args.style === 'all' ? TRADING_STYLE_ORDER : [args.style];
   const sources: SignalOutcomeSource[] = args.source === 'all' ? ['composite', 'llm'] : [args.source];
 
   const styleOutcomes: StyleOutcomes[] = [];
   for (const style of styles) {
-    for (const source of sources) {
-      styleOutcomes.push(await computeStyleOutcomes(style, source, args));
+    const intervals = STYLE_CONFIGS[style].preferredIntervals.filter(
+      (interval) => !args.interval || interval === args.interval
+    );
+    for (const interval of intervals) {
+      for (const source of sources) {
+        styleOutcomes.push(await computeStyleOutcomes(style, source, interval, args));
+      }
     }
   }
 
@@ -408,6 +451,7 @@ async function main(): Promise<void> {
       symbol: args.symbol,
       since: args.since,
       cost: args.cost,
+      interval: args.interval,
     });
 
     console.log(formatReport(report, args.json));
