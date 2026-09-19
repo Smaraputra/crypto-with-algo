@@ -320,7 +320,9 @@ describe('resolveDueOutcomes', () => {
       resolveAt: T3 + 100 * ONE_HOUR_MS,
     });
 
-    const now = T2 + 3 * ONE_HOUR_MS;
+    // SOL's forward candles are missing, so it only becomes unresolvable
+    // once the grace period past its own resolveAt (T2 + 3h) has elapsed.
+    const now = T2 + 4 * ONE_HOUR_MS;
     const result = await resolveDueOutcomes(now);
 
     expect(result.resolved).toBe(2);
@@ -380,7 +382,9 @@ describe('resolveDueOutcomes', () => {
       resolveAt: T + (horizonBars + 1) * ONE_HOUR_MS,
     });
 
-    const now = T + (horizonBars + 1) * ONE_HOUR_MS;
+    // The non-consecutive branch only gives up once the grace period past
+    // resolveAt has elapsed.
+    const now = T + (horizonBars + 1) * ONE_HOUR_MS + ONE_HOUR_MS;
     const result = await resolveDueOutcomes(now);
 
     expect(result.resolved).toBe(0);
@@ -487,7 +491,9 @@ describe('resolveDueOutcomes', () => {
       resolveAt: T + 3 * ONE_HOUR_MS,
     });
 
-    const now = T + 3 * ONE_HOUR_MS;
+    // The entry-candle-missing branch only gives up once the grace period
+    // past resolveAt has elapsed.
+    const now = T + 3 * ONE_HOUR_MS + ONE_HOUR_MS;
     const result = await resolveDueOutcomes(now);
 
     expect(result.resolved).toBe(0);
@@ -565,5 +571,183 @@ describe('resolveDueOutcomes', () => {
 
     getCandlesSpy.mockRestore();
     consoleErrorSpy.mockRestore();
+  });
+
+  it('leaves a short-forward-candles outcome pending through the grace period, then resolves it once the missing candle arrives', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+
+    const T = 1_780_000_000_000;
+    const horizonBars = 2;
+    const resolveAt = T + (horizonBars + 1) * ONE_HOUR_MS;
+
+    // Entry and first forward candle present; the last horizon candle
+    // (T + 2h) has not been synced yet, mirroring the resolver's read
+    // racing the sync-candles cron's write for the bar that closes at
+    // resolveAt.
+    await Candle.insertMany([
+      makeCandle('GRACEUSDT', '1h', T, { close: 100 }),
+      makeCandle('GRACEUSDT', '1h', T + ONE_HOUR_MS, { close: 102 }),
+    ]);
+
+    const outcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'GRACEUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars,
+      resolveAt,
+    });
+
+    const atResolveAt = await resolveDueOutcomes(resolveAt);
+    expect(atResolveAt.resolved).toBe(0);
+    expect(atResolveAt.unresolvable).toBe(0);
+    expect(atResolveAt.pending).toBe(1);
+    expect((await SignalOutcome.findById(outcome._id))!.status).toBe('pending');
+
+    const justBeforeGraceEnds = await resolveDueOutcomes(resolveAt + ONE_HOUR_MS - 1);
+    expect(justBeforeGraceEnds.resolved).toBe(0);
+    expect(justBeforeGraceEnds.unresolvable).toBe(0);
+    expect(justBeforeGraceEnds.pending).toBe(1);
+    expect((await SignalOutcome.findById(outcome._id))!.status).toBe('pending');
+
+    // The missing candle arrives, as the next sync-candles tick would deliver it.
+    await Candle.create(makeCandle('GRACEUSDT', '1h', T + 2 * ONE_HOUR_MS, { close: 108 }));
+
+    const afterGrace = await resolveDueOutcomes(resolveAt + ONE_HOUR_MS);
+    expect(afterGrace.resolved).toBe(1);
+    expect(afterGrace.unresolvable).toBe(0);
+    expect(afterGrace.pending).toBe(0);
+
+    const resolved = await SignalOutcome.findById(outcome._id);
+    expect(resolved!.status).toBe('resolved');
+    expect(resolved!.entryPrice).toBe(100);
+    expect(resolved!.forwardReturnPercent).toBeCloseTo(8, 6);
+  });
+
+  it('marks a short-forward-candles outcome unresolvable once the grace period elapses with the candle still missing', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+
+    const T = 1_781_000_000_000;
+    const horizonBars = 2;
+    const resolveAt = T + (horizonBars + 1) * ONE_HOUR_MS;
+
+    await Candle.insertMany([
+      makeCandle('GRACEBUSDT', '1h', T, { close: 100 }),
+      makeCandle('GRACEBUSDT', '1h', T + ONE_HOUR_MS, { close: 102 }),
+      // T + 2h never arrives.
+    ]);
+
+    const outcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'GRACEBUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars,
+      resolveAt,
+    });
+
+    const result = await resolveDueOutcomes(resolveAt + ONE_HOUR_MS);
+    expect(result.resolved).toBe(0);
+    expect(result.unresolvable).toBe(1);
+    expect(result.pending).toBe(0);
+
+    const updated = await SignalOutcome.findById(outcome._id);
+    expect(updated!.status).toBe('unresolvable');
+    expect(updated!.entryPrice).toBeNull();
+  });
+
+  it('gives the entry-candle-missing branch the same grace before marking unresolvable', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+
+    const T = 1_782_000_000_000;
+    const horizonBars = 2;
+    const resolveAt = T + (horizonBars + 1) * ONE_HOUR_MS;
+
+    // Entry candle at T never stored; forward candles exist.
+    await Candle.insertMany([
+      makeCandle('GRACECUSDT', '1h', T + ONE_HOUR_MS, { close: 20 }),
+      makeCandle('GRACECUSDT', '1h', T + 2 * ONE_HOUR_MS, { close: 21 }),
+    ]);
+
+    const outcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'GRACECUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars,
+      resolveAt,
+    });
+
+    const withinGrace = await resolveDueOutcomes(resolveAt);
+    expect(withinGrace.resolved).toBe(0);
+    expect(withinGrace.unresolvable).toBe(0);
+    expect(withinGrace.pending).toBe(1);
+    expect((await SignalOutcome.findById(outcome._id))!.status).toBe('pending');
+
+    const afterGrace = await resolveDueOutcomes(resolveAt + ONE_HOUR_MS);
+    expect(afterGrace.resolved).toBe(0);
+    expect(afterGrace.unresolvable).toBe(1);
+    expect(afterGrace.pending).toBe(0);
+
+    const updated = await SignalOutcome.findById(outcome._id);
+    expect(updated!.status).toBe('unresolvable');
+    expect(updated!.entryPrice).toBeNull();
+  });
+
+  it('gives the non-consecutive-forward-candles branch the same grace before marking unresolvable', async () => {
+    const { resolveDueOutcomes, SignalOutcome, Candle } = await importModules();
+
+    const T = 1_783_000_000_000;
+    const horizonBars = 3;
+    const resolveAt = T + (horizonBars + 1) * ONE_HOUR_MS;
+
+    // T + 2h is missing, so the forward window is gap-misaligned, not
+    // merely short (the sliced window [T+1h, T+3h, T+4h] is still
+    // horizonBars long).
+    await Candle.insertMany([
+      makeCandle('GRACEDUSDT', '1h', T, { close: 100 }),
+      makeCandle('GRACEDUSDT', '1h', T + ONE_HOUR_MS, { close: 101 }),
+      makeCandle('GRACEDUSDT', '1h', T + 3 * ONE_HOUR_MS, { close: 102 }),
+      makeCandle('GRACEDUSDT', '1h', T + 4 * ONE_HOUR_MS, { close: 103 }),
+    ]);
+
+    const outcome = await SignalOutcome.create({
+      signalId: new mongoose.Types.ObjectId(),
+      symbol: 'GRACEDUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading',
+      tier: 'buy',
+      score: 10,
+      configVersion: 3,
+      candleTimestamp: T,
+      horizonBars,
+      resolveAt,
+    });
+
+    const withinGrace = await resolveDueOutcomes(resolveAt);
+    expect(withinGrace.resolved).toBe(0);
+    expect(withinGrace.unresolvable).toBe(0);
+    expect(withinGrace.pending).toBe(1);
+    expect((await SignalOutcome.findById(outcome._id))!.status).toBe('pending');
+
+    const afterGrace = await resolveDueOutcomes(resolveAt + ONE_HOUR_MS);
+    expect(afterGrace.resolved).toBe(0);
+    expect(afterGrace.unresolvable).toBe(1);
+    expect(afterGrace.pending).toBe(0);
+
+    const updated = await SignalOutcome.findById(outcome._id);
+    expect(updated!.status).toBe('unresolvable');
   });
 });
