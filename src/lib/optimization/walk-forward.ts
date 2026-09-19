@@ -17,6 +17,7 @@ import { compressBacktestResult } from '@/lib/backtest/compress-results';
 import { DEFAULT_ROBUSTNESS, type RobustnessConfig } from '@/types/optimization';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import mongoose from 'mongoose';
+import { BINANCE_FUTURES_TAKER_FEE } from '@/lib/backtest/cost-model';
 
 export interface WalkForwardConfig {
   candles: OHLCV[];
@@ -459,13 +460,20 @@ export interface VolatilityStops {
 
 export const STOP_TRUE_RANGE_MULTIPLE = 2;
 export const TARGET_TRUE_RANGE_MULTIPLE = 4;
-/** Binance spot taker fee per side, applied to every walk-forward backtest. */
-export const WALK_FORWARD_FEE_PERCENT = 0.001;
+/**
+ * Binance USDT-M futures taker fee per side (0.05%), applied to every
+ * walk-forward backtest: the venue the research program fixed, and the fee
+ * scripts/research/strategy-harness.ts measured every strategy family
+ * against. Until 2026-09-19 this was the 0.1% spot taker fee, which doubled
+ * the stop floor below to 1% while the research harness used 0.5%.
+ */
+export const WALK_FORWARD_FEE_PERCENT = BINANCE_FUTURES_TAKER_FEE;
 /**
  * A stop must be at least this many round-trip fees wide, which caps fee drag
  * at 20% of the risk taken. Without it, 5m BTC got a 0.25% stop against 0.2%
- * round-trip fees: fees consumed 80% of every trade's risk and a 90-day
- * backtest lost the whole account (9,419 in fees on 10,000 of equity).
+ * round-trip fees (the spot fee of the time): fees consumed 80% of every
+ * trade's risk and a 90-day backtest lost the whole account (9,419 in fees on
+ * 10,000 of equity). At the futures fee the floor is 0.5%.
  */
 export const MIN_STOP_ROUND_TRIP_FEES = 5;
 const MIN_STOP_FRACTION = 0.0025;
