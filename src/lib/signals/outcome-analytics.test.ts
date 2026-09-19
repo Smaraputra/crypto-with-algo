@@ -265,3 +265,30 @@ describe('getLiveTierExpectancy', () => {
     expect(results[0].expectancyPercent).toBeCloseTo(-1.5, 6);
   });
 });
+
+describe('getLiveTierExpectancy source filter', () => {
+  it('reads composite by default, including legacy rows without the field, and never llm rows', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 1.0 })
+    ); // legacy: no source field
+    await SignalOutcome.updateMany({}, { $unset: { source: 1 } });
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 3.0, source: 'composite' })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: -9.0, source: 'llm' })
+    );
+
+    const composite = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    expect(composite).toEqual([
+      expect.objectContaining({ tier: 'buy', count: 2, expectancyPercent: 2.0 }),
+    ]);
+
+    const llm = await getLiveTierExpectancy({ tradingStyle: 'day_trading', source: 'llm' });
+    expect(llm).toEqual([
+      expect.objectContaining({ tier: 'buy', count: 1, expectancyPercent: -9.0 }),
+    ]);
+  });
+});

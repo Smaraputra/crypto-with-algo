@@ -236,6 +236,40 @@ describe('createPendingOutcomes', () => {
     const count = await SignalOutcome.countDocuments();
     expect(count).toBe(1);
   });
+
+  it('writes source composite by default and source llm when asked', async () => {
+    const { createPendingOutcomes, SignalOutcome } = await importModules();
+
+    const composite = {
+      _id: new mongoose.Types.ObjectId(),
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading' as const,
+      tier: 'buy' as const,
+      score: 45,
+      configVersion: 3,
+      candleTimestamp: 1_700_000_000_000,
+    };
+    const llm = {
+      _id: new mongoose.Types.ObjectId(),
+      symbol: 'ETHUSDT',
+      interval: '1h',
+      tradingStyle: 'day_trading' as const,
+      tier: 'sell' as const,
+      score: -45,
+      configVersion: 3,
+      candleTimestamp: 1_700_000_000_000,
+    };
+
+    await createPendingOutcomes([composite]);
+    await createPendingOutcomes([llm], 'llm');
+
+    const rows = await SignalOutcome.find({}).sort({ symbol: 1 }).lean();
+    expect(rows.map((r) => [r.symbol, r.source])).toEqual([
+      ['BTCUSDT', 'composite'],
+      ['ETHUSDT', 'llm'],
+    ]);
+  });
 });
 
 describe('resolveDueOutcomes', () => {

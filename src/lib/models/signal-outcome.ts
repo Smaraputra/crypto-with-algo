@@ -11,10 +11,23 @@ export const SIGNAL_OUTCOME_STATUSES: SignalOutcomeStatus[] = [
   'unresolvable',
 ];
 
+export type SignalOutcomeSource = 'composite' | 'llm';
+export const SIGNAL_OUTCOME_SOURCES: SignalOutcomeSource[] = ['composite', 'llm'];
+
+/**
+ * Match clause for one source. Rows written before the field existed have
+ * no `source` and are composite outcomes, so composite matches everything
+ * that is not llm rather than the literal value.
+ */
+export function sourceMatch(source: SignalOutcomeSource): Record<string, unknown> {
+  return source === 'llm' ? { source: 'llm' } : { source: { $ne: 'llm' } };
+}
+
 const TRADING_STYLES = ['scalping', 'day_trading', 'swing_trading', 'position_trading'] as const;
 
 export interface ISignalOutcome extends Document {
   signalId: Types.ObjectId;
+  source: SignalOutcomeSource;
   symbol: string;
   interval: string;
   tradingStyle: TradingStyle;
@@ -36,6 +49,7 @@ export interface ISignalOutcome extends Document {
 const signalOutcomeSchema = new Schema<ISignalOutcome>(
   {
     signalId: { type: Schema.Types.ObjectId, required: true, unique: true },
+    source: { type: String, enum: SIGNAL_OUTCOME_SOURCES, default: 'composite' },
     symbol: { type: String, required: true },
     interval: { type: String, required: true },
     tradingStyle: {
@@ -74,6 +88,8 @@ signalOutcomeSchema.index({ symbol: 1, tradingStyle: 1, createdAt: -1 });
 // Live tier expectancy: resolved outcomes for a style, with or without a
 // symbol filter, ordered by resolvedAt for the optional `since` cutoff
 signalOutcomeSchema.index({ tradingStyle: 1, status: 1, resolvedAt: -1 });
+// Live tier expectancy by source (llm calls next to the composite)
+signalOutcomeSchema.index({ source: 1, tradingStyle: 1, status: 1, resolvedAt: -1 });
 // TTL: outcomes older than a year are no longer useful for live expectancy
 signalOutcomeSchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 });
 
