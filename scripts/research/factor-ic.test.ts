@@ -37,15 +37,16 @@ function makeRng(seed: number): () => number {
  * AR(1) returns with coefficient 0.8: ret[t] = 0.8*ret[t-1] + noise. Since
  * raw.ret1 at bar t is exactly ret[t] (see factors.ts's simpleReturn) and the
  * horizon-1 forward return at bar t is ret[t+1], raw.ret1 should predict the
- * next bar's return strongly.
+ * next bar's return strongly. barMs/count default to this file's original 1h/
+ * 600-bar fixture shape; the 5m snapshot-passthrough tests below override both.
  */
-function generateAr1Candles(seed: number): CandleRow[] {
+function generateAr1Candles(seed: number, barMs: number = HOUR, count: number = COUNT): CandleRow[] {
   const next = makeRng(seed);
   const rows: CandleRow[] = [];
   let price = 100;
   let prevRet = 0;
 
-  for (let i = 0; i < COUNT; i++) {
+  for (let i = 0; i < count; i++) {
     const noise = (next() - 0.5) * 0.02;
     const ret = 0.8 * prevRet + noise;
     prevRet = ret;
@@ -56,7 +57,7 @@ function generateAr1Candles(seed: number): CandleRow[] {
     const low = Math.min(open, close) * 0.999;
     const volume = 1000 + next() * 500;
 
-    rows.push({ t: START + i * HOUR, o: open, h: high, l: low, c: close, v: volume, tbv: volume * 0.5 });
+    rows.push({ t: START + i * barMs, o: open, h: high, l: low, c: close, v: volume, tbv: volume * 0.5 });
     price = close;
   }
 
@@ -439,6 +440,138 @@ describe('factor-ic CLI', () => {
 
     expect(cell.ic).toBeCloseTo(expected.ic, 9);
     expect(cell.n).toBe(expected.n);
+  }, 30_000);
+});
+
+describe('factor-ic CLI at 5m (1h snapshot passthrough)', () => {
+  const FIVE_MIN = 300_000;
+  // 900 bars is comfortably past every indicator's warmup at 5m (matches
+  // factors.test.ts's own 5m fixture size), leaving hundreds of usable bars.
+  const FIVE_MIN_COUNT = 900;
+  const SNAPSHOT_SYMBOL = 'BTCUSDT';
+
+  let dir: string;
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Hourly funding-rate snapshots spanning the whole 5m candle range plus margin. */
+  function generateHourlySnapshots(count: number): SnapshotRow[] {
+    const rows: SnapshotRow[] = [];
+    for (let i = 0; i < count; i++) {
+      rows.push({
+        t: START + i * HOUR,
+        fundingRate: { rate: -0.001 + (i % 5) * 0.0004, markPrice: 100 },
+        longShortRatio: null,
+        openInterest: null,
+        fearGreed: null,
+        newsSentiment: null,
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * A 5m candle/htf dataset for one symbol, optionally with a 1h snapshot
+   * file, exercising factor-ic's mapToSnapshotInterval passthrough (5m reads
+   * the 1h file when one exists, per src/lib/backtest/snapshot-series.ts).
+   */
+  async function build5mFixtureDataset(withSnapshotFile: boolean): Promise<void> {
+    dir = mkdtempSync(join(tmpdir(), 'factor-ic-5m-'));
+
+    const candleRows = generateAr1Candles(7777, FIVE_MIN, FIVE_MIN_COUNT);
+    const htfRows: HtfRow[] = candleRows.map((c) => ({ t: c.t, context: null }));
+
+    const candlePath = join(dir, 'candles', SNAPSHOT_SYMBOL, '5m.jsonl.gz');
+    const htfPath = join(dir, 'htf', SNAPSHOT_SYMBOL, '5m.jsonl.gz');
+    await writeJsonlGz(candlePath, candleRows);
+    await writeJsonlGz(htfPath, htfRows);
+
+    const files: ManifestFile[] = [
+      {
+        path: `candles/${SNAPSHOT_SYMBOL}/5m.jsonl.gz`,
+        kind: 'candles',
+        symbol: SNAPSHOT_SYMBOL,
+        interval: '5m',
+        rowCount: candleRows.length,
+        startMs: candleRows[0].t,
+        endMs: candleRows[candleRows.length - 1].t,
+        sha256: await sha256File(candlePath),
+      },
+      {
+        path: `htf/${SNAPSHOT_SYMBOL}/5m.jsonl.gz`,
+        kind: 'htf',
+        symbol: SNAPSHOT_SYMBOL,
+        interval: '5m',
+        rowCount: htfRows.length,
+        startMs: htfRows[0].t,
+        endMs: htfRows[htfRows.length - 1].t,
+        sha256: await sha256File(htfPath),
+      },
+    ];
+
+    if (withSnapshotFile) {
+      // 900 5m bars spans 75 hours; 80 hourly snapshots covers it with margin.
+      const snapshotRows = generateHourlySnapshots(80);
+      const snapshotPath = join(dir, 'snapshots', SNAPSHOT_SYMBOL, '1h.jsonl.gz');
+      await writeJsonlGz(snapshotPath, snapshotRows);
+      files.push({
+        path: `snapshots/${SNAPSHOT_SYMBOL}/1h.jsonl.gz`,
+        kind: 'snapshots',
+        symbol: SNAPSHOT_SYMBOL,
+        interval: '1h',
+        rowCount: snapshotRows.length,
+        startMs: snapshotRows[0].t,
+        endMs: snapshotRows[snapshotRows.length - 1].t,
+        sha256: await sha256File(snapshotPath),
+      });
+    }
+
+    const manifest: DatasetManifest = {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      commit: 'test-fixture-5m',
+      lockboxStart: LOCKBOX_START_ISO,
+      symbols: [SNAPSHOT_SYMBOL],
+      intervals: withSnapshotFile ? ['5m', '1h'] : ['5m'],
+      files,
+      datasetHash: datasetHashOf(files),
+    };
+
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  }
+
+  it('a 5m dataset with a 1h snapshot file yields a non-skipped raw.fundingRate factor', async () => {
+    await build5mFixtureDataset(true);
+
+    const args = parseArgs([
+      '--interval', '5m',
+      '--dataset-dir', dir,
+      '--factors', 'raw.fundingRate',
+      '--allow-lockbox',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    expect(report.factors.map((f) => f.name)).toContain('raw.fundingRate');
+    expect(report.skippedFactors).toEqual([]);
+  }, 30_000);
+
+  it('a 5m dataset without a 1h snapshot file skips raw.fundingRate with the reason and does not throw', async () => {
+    await build5mFixtureDataset(false);
+
+    const args = parseArgs([
+      '--interval', '5m',
+      '--dataset-dir', dir,
+      '--factors', 'raw.fundingRate',
+      '--allow-lockbox',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    expect(report.factors).toEqual([]);
+    expect(report.skippedFactors).toEqual([
+      { name: 'raw.fundingRate', category: 'raw', reason: 'no finite pairs at any horizon' },
+    ]);
   }, 30_000);
 });
 
