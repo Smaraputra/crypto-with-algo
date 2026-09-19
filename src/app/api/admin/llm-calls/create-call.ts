@@ -34,7 +34,7 @@ export const llmCallBodySchema = z.object({
     .min(1)
     .max(5),
   model: z.string().min(1).max(80),
-  promptVersion: z.string().min(1).max(40),
+  promptVersion: z.string().regex(/^v\d{1,6}$/),
   inputsHash: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
@@ -95,7 +95,9 @@ export async function createLlmCall(
         tradingStyle,
         tier: call.tier,
         score: signedStrength(call.tier, call.strength),
-        configVersion: 0,
+        // The prompt version's number, so outcomes from before and after a
+        // prompt bump stay separable during the overlap window.
+        configVersion: Number(call.promptVersion.slice(1)),
         candleTimestamp: call.candleTimestamp,
       },
     ],

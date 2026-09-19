@@ -57,7 +57,7 @@ describe('createLlmCall', () => {
     expect(created).toBe(true);
     expect(call.tradingStyle).toBe('day_trading');
     const outcome = await SignalOutcome.findOne({ signalId: call._id }).lean();
-    expect(outcome).toMatchObject({ source: 'llm', tier: 'sell', score: -70, configVersion: 0, horizonBars: 24, status: 'pending' });
+    expect(outcome).toMatchObject({ source: 'llm', tier: 'sell', score: -70, configVersion: 1, horizonBars: 24, status: 'pending' });
   });
 
   it('returns the existing call without a second outcome on a repeated post', async () => {
@@ -72,5 +72,25 @@ describe('createLlmCall', () => {
   it('rejects a stale bar before writing anything', async () => {
     await expect(createLlmCall(body(), T0 + 4 * HOUR)).rejects.toThrow(/stale/);
     expect(await LlmCall.countDocuments({})).toBe(0);
+  });
+
+  it('writes configVersion as the prompt version number, separating calls across a prompt bump', async () => {
+    const { call: v1Call } = await createLlmCall(body({ promptVersion: 'v1' }), T0 + HOUR + 60000);
+    const v1Outcome = await SignalOutcome.findOne({ signalId: v1Call._id }).lean();
+    expect(v1Outcome).toMatchObject({ configVersion: 1 });
+
+    const { call: v2Call } = await createLlmCall(body({ promptVersion: 'v2' }), T0 + HOUR + 60000);
+    const v2Outcome = await SignalOutcome.findOne({ signalId: v2Call._id }).lean();
+    expect(v2Outcome).toMatchObject({ configVersion: 2 });
+  });
+});
+
+describe('llmCallBodySchema', () => {
+  it('accepts promptVersion in vN form and rejects any other shape', () => {
+    expect(() => body({ promptVersion: 'v1' })).not.toThrow();
+    expect(() => body({ promptVersion: 'v23' })).not.toThrow();
+    expect(() => body({ promptVersion: 'prompt-a' })).toThrow();
+    expect(() => body({ promptVersion: 'v' })).toThrow();
+    expect(() => body({ promptVersion: 'V1' })).toThrow();
   });
 });

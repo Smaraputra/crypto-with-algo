@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mockAuth = vi.fn();
@@ -20,6 +20,10 @@ beforeEach(() => {
   mockAuth.mockResolvedValue(null);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('authorizeLlmPanel', () => {
   it('passes on the bearer secret without consulting the session', async () => {
     expect(await authorizeLlmPanel(req('panel-secret'))).toEqual({ ok: true, via: 'secret' });
@@ -34,6 +38,6 @@ describe('authorizeLlmPanel', () => {
   it('returns 401 with neither, and 500 when the admin email is not configured and no secret matched', async () => {
     expect(await authorizeLlmPanel(req('wrong'))).toEqual({ ok: false, status: 401, body: { error: 'Unauthorized' } });
     vi.stubEnv('ADMIN_EMAIL', '');
-    expect((await authorizeLlmPanel(req())).ok).toBe(false);
+    expect(await authorizeLlmPanel(req())).toMatchObject({ ok: false, status: 500 });
   });
 });

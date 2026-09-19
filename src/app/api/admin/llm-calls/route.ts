@@ -29,15 +29,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  await connectDB();
   try {
+    await connectDB();
     const { call, created } = await createLlmCall(parsed.data, Date.now());
     return NextResponse.json({ call, created }, { status: created ? 201 : 200 });
   } catch (err) {
     if (err instanceof FreshnessError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
-    throw err;
+    console.error('Error creating llm call:', err instanceof Error ? err.message : 'Unknown error');
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -55,7 +56,12 @@ export async function GET(req: NextRequest) {
   if (symbol) filter.symbol = symbol;
   if (interval) filter.interval = interval;
 
-  await connectDB();
-  const calls = await LlmCall.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
-  return NextResponse.json({ calls });
+  try {
+    await connectDB();
+    const calls = await LlmCall.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+    return NextResponse.json({ calls });
+  } catch (error) {
+    console.error('Error listing llm calls:', error instanceof Error ? error.message : 'Unknown error');
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
 }

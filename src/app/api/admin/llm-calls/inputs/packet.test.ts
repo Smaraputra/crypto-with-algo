@@ -58,4 +58,58 @@ describe('buildInputsPacket', () => {
     expect(packet!.snapshot).toBeNull();
     expect(packet!.news).toEqual([]);
   });
+
+  it('keeps a snapshot exactly two intervals old and nulls one older', async () => {
+    const now = T0 + HOUR + 30 * 60000; // last closed bar is T0, closeTime T0 + HOUR
+    const atBound = await buildInputsPacket(
+      deps({ findLatestSnapshot: async () => ({ timestamp: T0 - HOUR, data: { fearGreed: { index: 40, label: 'Fear' } } }) }),
+      'BTCUSDT', '1h', now
+    );
+    expect(atBound!.snapshot).not.toBeNull();
+    expect(atBound!.snapshot?.fearGreed?.index).toBe(40);
+
+    const pastBound = await buildInputsPacket(
+      deps({ findLatestSnapshot: async () => ({ timestamp: T0 - HOUR - 60000, data: { fearGreed: { index: 40, label: 'Fear' } } }) }),
+      'BTCUSDT', '1h', now
+    );
+    expect(pastBound!.snapshot).toBeNull();
+  });
+
+  it('drops dateless news items and caps the survivors at the packet limit', async () => {
+    const now = T0 + HOUR + 30 * 60000; // last closed bar T0, closeTime T0 + HOUR
+    const closeTime = T0 + HOUR;
+    const items = [
+      { title: 'dateless', source: 'x', url: 'https://x/dateless', publishedOn: 0 },
+      { title: 'future', source: 'x', url: 'https://x/future', publishedOn: (closeTime + 60000) / 1000 },
+      ...Array.from({ length: 28 }, (_, i) => ({
+        title: `item-${i}`,
+        source: 'x',
+        url: `https://x/${i}`,
+        publishedOn: (closeTime - (i + 1) * 60000) / 1000,
+      })),
+    ];
+
+    const packet = await buildInputsPacket(deps({ fetchNews: async () => items }), 'BTCUSDT', '1h', now);
+
+    expect(packet!.news).toHaveLength(10);
+    expect(packet!.news.some((n) => n.title === 'dateless')).toBe(false);
+    expect(packet!.news.some((n) => n.title === 'future')).toBe(false);
+    expect(packet!.news.map((n) => n.title)).toEqual(['item-0', 'item-1', 'item-2', 'item-3', 'item-4', 'item-5', 'item-6', 'item-7', 'item-8', 'item-9']);
+  });
+
+  it('keeps a signal exactly two intervals old and nulls one older', async () => {
+    const now = T0 + HOUR + 30 * 60000; // last closed bar is T0
+
+    const atBound = await buildInputsPacket(
+      deps({ findLatestSignal: async () => ({ score: 1, tier: 'neutral', confidence: 90, candleTimestamp: T0 - 2 * HOUR, components: [] }) }),
+      'BTCUSDT', '1h', now
+    );
+    expect(atBound!.signal).not.toBeNull();
+
+    const pastBound = await buildInputsPacket(
+      deps({ findLatestSignal: async () => ({ score: 1, tier: 'neutral', confidence: 90, candleTimestamp: T0 - 2 * HOUR - 60000, components: [] }) }),
+      'BTCUSDT', '1h', now
+    );
+    expect(pastBound!.signal).toBeNull();
+  });
 });

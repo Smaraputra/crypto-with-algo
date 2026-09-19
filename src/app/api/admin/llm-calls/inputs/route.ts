@@ -51,7 +51,7 @@ const deps: PacketDeps = {
       .lean()) as unknown as PacketSnapshot | null;
     return doc ? { timestamp: doc.timestamp, data: doc.data } : null;
   },
-  fetchNews: (symbol) => fetchCryptoNews(symbol.replace(/USDT$/, '')),
+  fetchNews: (symbol) => fetchCryptoNews(symbol.replace(/USDT$/, ''), 200),
 };
 
 export async function GET(req: NextRequest) {
@@ -63,10 +63,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  await connectDB();
-  const packet = await buildInputsPacket(deps, parsed.data.symbol, parsed.data.interval, Date.now());
-  if (!packet) {
-    return NextResponse.json({ error: 'No closed bar stored for this symbol and interval' }, { status: 404 });
+  try {
+    await connectDB();
+    const packet = await buildInputsPacket(deps, parsed.data.symbol, parsed.data.interval, Date.now());
+    if (!packet) {
+      return NextResponse.json({ error: 'No closed bar stored for this symbol and interval' }, { status: 404 });
+    }
+    return NextResponse.json(packet);
+  } catch (error) {
+    console.error('Error building llm inputs packet:', error instanceof Error ? error.message : 'Unknown error');
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-  return NextResponse.json(packet);
 }

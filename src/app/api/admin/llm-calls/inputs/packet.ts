@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 
 import { dropOpenBars } from '@/lib/candle-ingestion';
 import { intervalToMs } from '@/lib/intervals';
+import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { llmStyleForInterval } from '@/lib/models/llm-call';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import type { TradingStyle } from '@/lib/models/signal-template';
@@ -53,9 +54,11 @@ const NEWS_ITEMS = 10;
  * Point-in-time inputs for one LLM call: nothing in the packet postdates the
  * close of the last closed bar. Candles come from the store with the open
  * bar dropped; the signal and snapshot are the latest at or before that
- * close; news is filtered to items published at or before it. The hash
+ * close, each dropped to null if older than two intervals; news is filtered
+ * to items published at or before it, dateless items dropped. The hash
  * covers everything but generatedAt, so a repeated request for the same bar
- * hashes the same and the call can prove what it read.
+ * hashes the same; `inputsHash` identifies the packet the voter saw, but the
+ * packet itself is not persisted.
  */
 export async function buildInputsPacket(
   deps: PacketDeps,
@@ -71,13 +74,17 @@ export async function buildInputsPacket(
   const closeTime = last.timestamp + ms;
   const tradingStyle = llmStyleForInterval(interval);
 
-  const signal = await deps.findLatestSignal(symbol, interval, last.timestamp);
-  const snapshotDoc = await deps.findLatestSnapshot(symbol, interval, closeTime);
+  const signalRaw = await deps.findLatestSignal(symbol, interval, last.timestamp);
+  const signal = signalRaw && last.timestamp - signalRaw.candleTimestamp > 2 * ms ? null : signalRaw;
+
+  const snapshotRaw = await deps.findLatestSnapshot(symbol, interval, closeTime);
+  const snapshotIntervalMs = intervalToMs(mapToSnapshotInterval(interval));
+  const snapshotDoc = snapshotRaw && closeTime - snapshotRaw.timestamp > 2 * snapshotIntervalMs ? null : snapshotRaw;
 
   let news: InputsPacket['news'] = [];
   try {
     news = (await deps.fetchNews(symbol))
-      .filter((item) => item.publishedOn * 1000 <= closeTime)
+      .filter((item) => item.publishedOn > 0 && item.publishedOn * 1000 <= closeTime)
       .slice(0, NEWS_ITEMS)
       .map((item) => ({
         title: item.title,

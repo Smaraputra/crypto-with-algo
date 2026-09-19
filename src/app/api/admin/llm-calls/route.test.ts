@@ -58,6 +58,17 @@ describe('POST /api/admin/llm-calls', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/stale/);
   });
+
+  it('returns 500 without leaking the error message when create throws unexpectedly', async () => {
+    mockCreate.mockRejectedValue(new Error('boom, do not leak this'));
+
+    const res = await POST(post(validBody));
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json).toEqual({ error: 'Internal server error' });
+    expect(JSON.stringify(json)).not.toContain('boom');
+  });
 });
 
 describe('GET /api/admin/llm-calls', () => {
@@ -68,5 +79,17 @@ describe('GET /api/admin/llm-calls', () => {
     const chain = mockFind.mock.results[0].value;
     expect(chain.sort).toHaveBeenCalledWith({ createdAt: -1 });
     expect(chain.limit).toHaveBeenCalledWith(200);
+  });
+
+  it('returns 500 without leaking the error message when listing throws', async () => {
+    const chain = { sort: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), lean: vi.fn().mockRejectedValue(new Error('boom, do not leak this')) };
+    mockFind.mockReturnValue(chain);
+
+    const res = await GET(get());
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json).toEqual({ error: 'Internal server error' });
+    expect(JSON.stringify(json)).not.toContain('boom');
   });
 });

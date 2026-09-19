@@ -29,5 +29,10 @@ export function verifyCronSecret(req: NextRequest): boolean {
 
 /** The local LLM panel skill's bearer token (LLM_PANEL_SECRET), separate from the cron secret. */
 export function verifyLlmPanelSecret(req: NextRequest): boolean {
-  return verifyBearerSecret(req, process.env.LLM_PANEL_SECRET);
+  const secret = process.env.LLM_PANEL_SECRET;
+  if (!secret) {
+    console.error('LLM_PANEL_SECRET is not configured -- llm panel routes are unreachable');
+    return false;
+  }
+  return verifyBearerSecret(req, secret);
 }

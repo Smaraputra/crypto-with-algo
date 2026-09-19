@@ -69,4 +69,19 @@ describe('verifyLlmPanelSecret', () => {
     vi.stubEnv('LLM_PANEL_SECRET', 'panel-secret');
     expect(verifyLlmPanelSecret(makeRequest({ Authorization: 'Bearer cron-secret' }))).toBe(false);
   });
+
+  it('logs once when LLM_PANEL_SECRET is unset, and not when it is set but the header is wrong', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    vi.stubEnv('LLM_PANEL_SECRET', '');
+    expect(verifyLlmPanelSecret(makeRequest({ Authorization: 'Bearer panel-secret' }))).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockClear();
+    vi.stubEnv('LLM_PANEL_SECRET', 'panel-secret');
+    expect(verifyLlmPanelSecret(makeRequest({ Authorization: 'Bearer wrong' }))).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
+  });
 });
