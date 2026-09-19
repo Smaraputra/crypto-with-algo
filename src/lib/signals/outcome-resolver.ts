@@ -2,7 +2,11 @@ import type { Types } from 'mongoose';
 
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { SignalTier } from '@/types/signal';
-import { SignalOutcome, type ISignalOutcome } from '@/lib/models/signal-outcome';
+import {
+  SignalOutcome,
+  type ISignalOutcome,
+  type SignalOutcomeSource,
+} from '@/lib/models/signal-outcome';
 import { getCandles } from '@/lib/candle-ingestion';
 import { intervalToMs } from '@/lib/intervals';
 import { OUTCOME_HORIZON_BARS, resolveAtFor } from '@/lib/signals/outcome-horizons';
@@ -62,7 +66,8 @@ function isDuplicateKeyOnly(err: unknown): err is MongoInsertManyError {
  * signalId inserts are ignored and excluded from the returned count.
  */
 export async function createPendingOutcomes(
-  signals: StoredSignalForOutcome[]
+  signals: StoredSignalForOutcome[],
+  source: SignalOutcomeSource = 'composite'
 ): Promise<number> {
   if (signals.length === 0) return 0;
 
@@ -70,6 +75,7 @@ export async function createPendingOutcomes(
     const horizonBars = OUTCOME_HORIZON_BARS[signal.tradingStyle];
     return {
       signalId: signal._id,
+      source,
       symbol: signal.symbol,
       interval: signal.interval,
       tradingStyle: signal.tradingStyle,

@@ -56,6 +56,12 @@ function makeOutcome(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Seeds one resolved SignalOutcome (makeOutcome's own default status), source included. */
+async function seedResolved(overrides: Record<string, unknown> = {}) {
+  const { SignalOutcome } = await importModules();
+  return SignalOutcome.create(makeOutcome(overrides));
+}
+
 describe('defaultCostPercent', () => {
   it('computes two taker legs plus two slippage legs at the style primary interval', async () => {
     const { defaultCostPercent } = await importModules();
@@ -75,6 +81,7 @@ describe('parseArgs', () => {
 
     expect(args).toEqual({
       style: 'all',
+      source: 'composite',
       symbol: null,
       since: null,
       cost: null,
@@ -135,6 +142,15 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--cost', 'abc'])).toThrow(/--cost/i);
   });
 
+  it('parses --source and defaults it to composite', async () => {
+    const { parseArgs } = await importModules();
+
+    expect(parseArgs([]).source).toBe('composite');
+    expect(parseArgs(['--source', 'llm']).source).toBe('llm');
+    expect(parseArgs(['--source', 'all']).source).toBe('all');
+    expect(() => parseArgs(['--source', 'panel'])).toThrow(/--source/);
+  });
+
   it('rejects a value-taking flag with no value', async () => {
     const { parseArgs } = await importModules();
 
@@ -183,7 +199,7 @@ describe('runLiveOutcomes', () => {
     }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
     });
 
     expect(report.styles).toHaveLength(1);
@@ -230,7 +246,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ tier: 'buy', forwardReturnPercent: 5 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: null, since: null, cost: 0,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 0,
     });
 
     const [style] = report.styles;
@@ -246,7 +262,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ tier: 'buy', forwardReturnPercent: 5 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: null, since: null, cost: 1,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 1,
     });
 
     const [style] = report.styles;
@@ -259,7 +275,7 @@ describe('runLiveOutcomes', () => {
     const { runLiveOutcomes } = await importModules();
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
     });
 
     const [style] = report.styles;
@@ -275,7 +291,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ symbol: 'ETHUSDT', tier: 'buy', forwardReturnPercent: -5 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: 'BTCUSDT', since: null, cost: 0,
+      style: 'day_trading', source: 'composite', symbol: 'BTCUSDT', since: null, cost: 0,
     });
 
     const [style] = report.styles;
@@ -296,7 +312,7 @@ describe('runLiveOutcomes', () => {
     }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: null, since: new Date('2026-06-01T00:00:00.000Z'), cost: 0,
+      style: 'day_trading', source: 'composite', symbol: null, since: new Date('2026-06-01T00:00:00.000Z'), cost: 0,
     });
 
     const [style] = report.styles;
@@ -322,7 +338,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ tier: 'neutral', forwardReturnPercent: 1 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
     });
 
     expect(report.styles[0].tiers.map((t) => t.tier)).toEqual([
@@ -341,7 +357,7 @@ describe('runLiveOutcomes', () => {
     }));
 
     const report = await runLiveOutcomes({
-      style: 'all', symbol: null, since: null, cost: null,
+      style: 'all', source: 'composite', symbol: null, since: null, cost: null,
     });
 
     expect(report.styles.map((s) => s.style)).toEqual([
@@ -376,7 +392,7 @@ describe('runLiveOutcomes', () => {
     }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
     });
 
     expect(report.styles).toHaveLength(1);
@@ -388,13 +404,36 @@ describe('runLiveOutcomes', () => {
 
     const since = new Date('2026-06-01T00:00:00.000Z');
     const report = await runLiveOutcomes({
-      style: 'day_trading', symbol: 'BTCUSDT', since, cost: null,
+      style: 'day_trading', source: 'composite', symbol: 'BTCUSDT', since, cost: null,
     });
 
     expect(report.symbol).toBe('BTCUSDT');
     expect(report.since).toBe('2026-06-01T00:00:00.000Z');
     expect(() => new Date(report.generatedAt).toISOString()).not.toThrow();
     expect(new Date(report.generatedAt).toISOString()).toBe(report.generatedAt);
+  });
+});
+
+describe('runLiveOutcomes source', () => {
+  it('excludes llm rows by default, shows only them with llm, and both blocks with all', async () => {
+    await seedResolved({ tradingStyle: 'day_trading', tier: 'buy', forwardReturnPercent: 2.0 });
+    await seedResolved({ tradingStyle: 'day_trading', tier: 'buy', forwardReturnPercent: -4.0, source: 'llm' });
+
+    const { runLiveOutcomes } = await importModules();
+
+    const composite = await runLiveOutcomes({ style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 0 });
+    expect(composite.styles).toHaveLength(1);
+    expect(composite.styles[0].source).toBe('composite');
+    expect(composite.styles[0].statusCounts.resolved).toBe(1);
+    expect(composite.styles[0].tiers[0].grossExpectancyPercent).toBeCloseTo(2.0, 9);
+
+    const llm = await runLiveOutcomes({ style: 'day_trading', source: 'llm', symbol: null, since: null, cost: 0 });
+    expect(llm.styles[0].source).toBe('llm');
+    expect(llm.styles[0].statusCounts.resolved).toBe(1);
+    expect(llm.styles[0].tiers[0].grossExpectancyPercent).toBeCloseTo(-4.0, 9);
+
+    const all = await runLiveOutcomes({ style: 'day_trading', source: 'all', symbol: null, since: null, cost: 0 });
+    expect(all.styles.map((s) => s.source)).toEqual(['composite', 'llm']);
   });
 });
 
@@ -406,6 +445,7 @@ describe('formatReport', () => {
     styles: [
       {
         style: 'day_trading' as const,
+        source: 'composite' as const,
         interval: '1h',
         horizonBars: 24,
         costPercent: 0.16,
@@ -425,6 +465,7 @@ describe('formatReport', () => {
       },
       {
         style: 'swing_trading' as const,
+        source: 'composite' as const,
         interval: '4h',
         horizonBars: 30,
         costPercent: 0.14,
@@ -451,11 +492,11 @@ describe('formatReport', () => {
 
     const output = formatReport(sampleReport, false);
 
-    expect(output).toContain('style=day_trading interval=1h horizon=24 bars');
+    expect(output).toContain('style=day_trading source=composite interval=1h horizon=24 bars');
     expect(output).toContain('cost=0.1600%');
     expect(output).toContain('pending=1 resolved=2 unresolvable=0');
     expect(output).toContain('resolved 2026-01-10T00:00:00.000Z..2026-02-10T00:00:00.000Z');
-    expect(output).toContain('style=swing_trading interval=4h horizon=30 bars');
+    expect(output).toContain('style=swing_trading source=composite interval=4h horizon=30 bars');
     expect(output).toContain('resolved n/a..n/a');
     expect(output).toMatch(/\n\n/); // blank line between styles
     expect(output.trimEnd().endsWith(

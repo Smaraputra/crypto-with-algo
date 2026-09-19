@@ -1,6 +1,6 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { SIGNAL_TIERS, type SignalTier } from '@/types/signal';
-import { SignalOutcome } from '@/lib/models/signal-outcome';
+import { SignalOutcome, sourceMatch, type SignalOutcomeSource } from '@/lib/models/signal-outcome';
 
 export interface TierExpectancy {
   tier: SignalTier;
@@ -16,6 +16,7 @@ export interface GetLiveTierExpectancyOptions {
   symbol?: string;
   since?: Date;
   costPercentRoundTrip?: number;
+  source?: SignalOutcomeSource;
 }
 
 /** Tiers whose prediction wins when price falls, so the raw long-perspective return is inverted. */
@@ -43,7 +44,7 @@ interface TierExpectancyRow {
 export async function getLiveTierExpectancy(
   opts: GetLiveTierExpectancyOptions
 ): Promise<TierExpectancy[]> {
-  const { tradingStyle, symbol, since, costPercentRoundTrip = 0 } = opts;
+  const { tradingStyle, symbol, since, costPercentRoundTrip = 0, source = 'composite' } = opts;
 
   const match: Record<string, unknown> = {
     tradingStyle,
@@ -52,6 +53,7 @@ export async function getLiveTierExpectancy(
     // outright (rather than coercing it to 0) keeps a data problem from
     // silently diluting the average.
     forwardReturnPercent: { $ne: null },
+    ...sourceMatch(source),
   };
   if (symbol) match.symbol = symbol;
   if (since) match.resolvedAt = { $gte: since };

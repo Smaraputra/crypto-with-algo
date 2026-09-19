@@ -57,6 +57,13 @@
  *
  * Flags:
  *   --style <scalping|day_trading|swing_trading|position_trading|all>  default: all
+ *   --source <composite|llm|all>  default: composite. llm rows are the panel
+ *                       factor's own forward-only calls (LlmCall), recorded
+ *                       as separate SignalOutcome documents from the
+ *                       composite score's; composite excludes them (and
+ *                       legacy rows with no source, which predate the
+ *                       field), llm shows only them, all reports both blocks
+ *                       per style, composite then llm
  *   --symbol <SYMBOL>   optional, filters every section (status counts,
  *                       resolved range, tiers) to that symbol
  *   --since <ISO date>  optional; filters only the tier expectancy section
@@ -77,7 +84,12 @@
  */
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { SignalTier } from '@/types/signal';
-import { SignalOutcome, type SignalOutcomeStatus } from '@/lib/models/signal-outcome';
+import {
+  SignalOutcome,
+  sourceMatch,
+  type SignalOutcomeSource,
+  type SignalOutcomeStatus,
+} from '@/lib/models/signal-outcome';
 import { getLiveTierExpectancy } from '@/lib/signals/outcome-analytics';
 import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
 import { getIntervalForStyle } from '@/lib/optimization/top-symbols';
@@ -85,9 +97,12 @@ import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/co
 import { connectDB } from '@/lib/mongodb';
 
 export type StyleFilter = TradingStyle | 'all';
+export type SourceFilter = SignalOutcomeSource | 'all';
+const SOURCE_VALUES: SourceFilter[] = ['composite', 'llm', 'all'];
 
 export interface ParsedArgs {
   style: StyleFilter;
+  source: SourceFilter;
   symbol: string | null;
   since: Date | null;
   cost: number | null;
@@ -97,6 +112,7 @@ export interface ParsedArgs {
 
 export interface RunLiveOutcomesArgs {
   style: StyleFilter;
+  source: SourceFilter;
   symbol: string | null;
   since: Date | null;
   cost: number | null;
@@ -125,6 +141,7 @@ export interface LiveTierRow {
 
 export interface StyleOutcomes {
   style: TradingStyle;
+  source: SignalOutcomeSource;
   interval: string;
   horizonBars: number;
   costPercent: number;
@@ -176,6 +193,7 @@ function nextValue(argv: string[], index: number, flag: string): string {
 /** Pure argv parser: no I/O, so it is unit tested directly. */
 export function parseArgs(argv: string[]): ParsedArgs {
   let style: StyleFilter = 'all';
+  let source: SourceFilter = 'composite';
   let symbol: string | null = null;
   let since: Date | null = null;
   let cost: number | null = null;
@@ -193,6 +211,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
           );
         }
         style = value as StyleFilter;
+        break;
+      }
+      case '--source': {
+        const value = nextValue(argv, ++i, '--source');
+        if (!SOURCE_VALUES.includes(value as SourceFilter)) {
+          throw new Error(
+            `--source: unknown value "${value}" (expected one of ${SOURCE_VALUES.join(', ')})`
+          );
+        }
+        source = value as SourceFilter;
         break;
       }
       case '--symbol':
@@ -227,7 +255,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
   }
 
-  return { style, symbol, since, cost, json, mongoUri };
+  return { style, source, symbol, since, cost, json, mongoUri };
 }
 
 interface StatusCountRow {
@@ -243,13 +271,14 @@ interface ResolvedRangeRow {
 
 async function computeStyleOutcomes(
   style: TradingStyle,
+  source: SignalOutcomeSource,
   args: RunLiveOutcomesArgs
 ): Promise<StyleOutcomes> {
   const interval = getIntervalForStyle(style);
   const horizonBars = OUTCOME_HORIZON_BARS[style];
   const costPercent = args.cost ?? defaultCostPercent(style);
 
-  const baseMatch: Record<string, unknown> = { tradingStyle: style };
+  const baseMatch: Record<string, unknown> = { tradingStyle: style, ...sourceMatch(source) };
   if (args.symbol) baseMatch.symbol = args.symbol;
 
   const statusRows: StatusCountRow[] = await SignalOutcome.aggregate([
@@ -281,6 +310,7 @@ async function computeStyleOutcomes(
     tradingStyle: style,
     symbol: args.symbol ?? undefined,
     since: args.since ?? undefined,
+    source,
   });
 
   const tiers: LiveTierRow[] = rawTiers.map((tier) => ({
@@ -293,17 +323,20 @@ async function computeStyleOutcomes(
     avgMaePercent: tier.avgMaePercent,
   }));
 
-  return { style, interval, horizonBars, costPercent, statusCounts, resolvedRange, tiers };
+  return { style, source, interval, horizonBars, costPercent, statusCounts, resolvedRange, tiers };
 }
 
 /** Does the read: no printing, no process I/O, so it is unit tested directly
  * against mongodb-memory-server without touching stdout or argv. */
 export async function runLiveOutcomes(args: RunLiveOutcomesArgs): Promise<LiveOutcomesReport> {
   const styles = args.style === 'all' ? TRADING_STYLE_ORDER : [args.style];
+  const sources: SignalOutcomeSource[] = args.source === 'all' ? ['composite', 'llm'] : [args.source];
 
   const styleOutcomes: StyleOutcomes[] = [];
   for (const style of styles) {
-    styleOutcomes.push(await computeStyleOutcomes(style, args));
+    for (const source of sources) {
+      styleOutcomes.push(await computeStyleOutcomes(style, source, args));
+    }
   }
 
   return {
@@ -321,7 +354,7 @@ function formatHeader(style: StyleOutcomes): string {
   const from = style.resolvedRange.from ?? 'n/a';
   const to = style.resolvedRange.to ?? 'n/a';
   return (
-    `style=${style.style} interval=${style.interval} horizon=${style.horizonBars} bars ` +
+    `style=${style.style} source=${style.source} interval=${style.interval} horizon=${style.horizonBars} bars ` +
     `cost=${style.costPercent.toFixed(4)}% pending=${style.statusCounts.pending} ` +
     `resolved=${style.statusCounts.resolved} unresolvable=${style.statusCounts.unresolvable} ` +
     `resolved ${from}..${to}`
@@ -371,6 +404,7 @@ async function main(): Promise<void> {
 
     const report = await runLiveOutcomes({
       style: args.style,
+      source: args.source,
       symbol: args.symbol,
       since: args.since,
       cost: args.cost,
