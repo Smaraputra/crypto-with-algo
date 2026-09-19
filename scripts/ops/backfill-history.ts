@@ -53,9 +53,16 @@
  *   --drop-snapshot-ttl drop the legacy one-year TTL index on HistoricalSnapshot.createdAt
  *   --dry-run           print the job list as JSON lines and exit, no DB connection
  *
- * Each candle job's log line reports requestedFrom (the window start it asked
- * Binance for) next to the stored from/to, and a complete flag that is true
- * only when from <= requestedFrom. fetchKlinesRange (src/lib/binance.ts)
+ * Each candle job's log line reports requestedFrom (the raw window-start
+ * instant it asked Binance for) next to alignedRequestedFrom (the first bar
+ * open time at or after requestedFrom: Math.ceil(requestedFrom / intervalMs)
+ * * intervalMs, intervalToMs from src/lib/intervals.ts) and the stored
+ * from/to, with a complete flag that is true only when
+ * from <= alignedRequestedFrom. Binance returns bars aligned to the interval
+ * boundary, so the first stored bar is always at or after requestedFrom
+ * itself, essentially never exactly on it; comparing against the raw instant
+ * made every production candle job report complete: false regardless of how
+ * much history was actually fetched. fetchKlinesRange (src/lib/binance.ts)
  * silently stops at a 120-second deadline and returns whatever it fetched so
  * far, and backfillCandles reports that as success; the default 5m:12 spec is
  * about 104 pages per symbol, close enough to that budget that one pass can
@@ -65,6 +72,7 @@
  * oldest) bar already on disk rather than starting over.
  */
 import { connectDB } from '@/lib/mongodb';
+import { intervalToMs } from '@/lib/intervals';
 import { backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
 import {
   fetchFundingHistory,
@@ -338,11 +346,13 @@ export async function main(): Promise<number> {
     try {
       if (job.kind === 'candles') {
         const requestedFrom = started - job.months * 30 * DAY_MS;
+        const intervalMs = intervalToMs(job.interval);
+        const alignedRequestedFrom = Math.ceil(requestedFrom / intervalMs) * intervalMs;
         const { inserted } = args.refill
           ? await backfillCandles(job.symbol, job.interval, job.months, { refill: true })
           : await backfillCandles(job.symbol, job.interval, job.months);
         const range = await getCandleRange(job.symbol, job.interval);
-        const complete = range.oldest !== null && range.oldest <= requestedFrom;
+        const complete = range.oldest !== null && range.oldest <= alignedRequestedFrom;
         console.log(JSON.stringify({
           kind: 'candles',
           symbol: job.symbol,
@@ -352,6 +362,7 @@ export async function main(): Promise<number> {
           inserted,
           count: range.count,
           requestedFrom,
+          alignedRequestedFrom,
           from: range.oldest,
           to: range.newest,
           complete,
