@@ -73,10 +73,23 @@
  * divergence from live scoring was removed on 2026-09-19. The Phase 3 table
  * above predates the fix: its 5m column was measured with snapshots forced
  * null (cat.futures, cat.sentiment, raw.fundingRate, raw.longShortRatio,
- * raw.fearGreed skipped) and has not been re-run since. Long/short ratio
- * and open interest cover only the last 500 bars of their interval; the
- * factor matrix keeps Ichimoku at 5m where live scoring nulls it; sig.ATR
- * has no directional reading and is skipped everywhere.
+ * raw.fearGreed skipped) and has not been re-run since. In the Phase 3
+ * dataset long/short ratio and open interest covered only the last 500 bars
+ * Binance REST would serve (11.0% of 1h bars, 6.9% at 4h and 1d, none before
+ * 2026-03-03), so raw.longShortRatio in the table above was measured on about
+ * four months under the lockbox and open interest never reached the scorer at
+ * all. The factor matrix keeps Ichimoku at 5m where live scoring nulls it;
+ * sig.ATR has no directional reading and is skipped everywhere.
+ *
+ * Archive inputs (Phase 3b). When the dataset carries the `metrics` and `perp`
+ * kinds that scripts/ops/ingest-archive.ts and export-dataset.ts produce, this
+ * CLI also measures raw.oiChange1, raw.oiChange8, raw.oiPriceDiv,
+ * raw.takerLongShortRatio, raw.topTraderPositionRatio, raw.globalAccountRatio,
+ * raw.fundingZ, raw.basisPct, raw.perpSpotSpreadPct, raw.depthImbalance1 and
+ * raw.depthImbalance5. raw.longShortRatio is not new but its coverage is, so
+ * it is effectively unmeasured too and belongs in the same re-run. A dataset
+ * exported before those kinds existed still loads: the archive columns are
+ * NaN throughout and land in skippedFactors rather than failing the run.
  *
  * bootstrapCi95 is a fixed-rank block bootstrap of the IC: ranks are
  * computed once per (sub)sample (ic-stats.ts's standardizedRankProducts),
@@ -134,7 +147,15 @@ import {
   standardizedRankProducts,
 } from './ic-stats';
 import { computeFactorMatrix, type FactorMatrix } from './factors';
-import { loadCandles, loadHtf, loadManifest, loadSnapshots, verifyManifest } from './load-dataset';
+import {
+  loadCandles,
+  loadHtf,
+  loadManifest,
+  loadMetrics,
+  loadPerp,
+  loadSnapshots,
+  verifyManifest,
+} from './load-dataset';
 import {
   evaluateSurvivors,
   validateFactorIcReport,
@@ -142,7 +163,7 @@ import {
   type FactorReport,
   type HorizonStat,
 } from './report-schema';
-import type { SnapshotRow } from './dataset-format';
+import type { MetricsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
 
 const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
@@ -386,9 +407,49 @@ function loadSymbolData(
     console.error(`[factor-ic] ${symbol}: no ${snapshotInterval} snapshot file, snapshots=null`);
   }
 
-  const matrix = computeFactorMatrix({ candles, snapshots, htf, interval });
+  // Archive inputs (scripts/ops/ingest-archive.ts). Each is optional and
+  // absent on a dataset exported before those kinds existed, in which case
+  // every factor derived from it is NaN for the whole series rather than an
+  // error: an older dataset still measures exactly what it always measured.
+  const metricsPath = join(datasetDir, 'metrics', symbol, '5m.jsonl.gz');
+  let metrics: MetricsRow[] | null = null;
+  if (existsSync(metricsPath)) {
+    metrics = loadMetrics(datasetDir, symbol, { allowLockbox: opts.allowLockbox }).rows.filter((r) =>
+      inRange(r.t, opts.start, opts.end)
+    );
+  } else {
+    console.error(`[factor-ic] ${symbol}: no futures metrics file, archive factors are NaN`);
+  }
+
+  const perp = loadPerpSeries(datasetDir, symbol, interval, 'klines', opts);
+  const premiumIndex = loadPerpSeries(datasetDir, symbol, interval, 'premiumIndex', opts);
+
+  const matrix = computeFactorMatrix({
+    candles,
+    snapshots,
+    htf,
+    interval,
+    metrics,
+    perp,
+    premiumIndex,
+  });
 
   return { symbol, matrix, lockboxApplied: !opts.allowLockbox };
+}
+
+/** One perpetual series, or null when the dataset has no file for it. */
+function loadPerpSeries(
+  datasetDir: string,
+  symbol: string,
+  interval: string,
+  series: 'klines' | 'premiumIndex' | 'markPrice',
+  opts: { allowLockbox: boolean; start?: number; end?: number }
+): PerpCandleRow[] | null {
+  const fileName = series === 'klines' ? `${interval}.jsonl.gz` : `${interval}.${series}.jsonl.gz`;
+  if (!existsSync(join(datasetDir, 'perp', symbol, fileName))) return null;
+  return loadPerp(datasetDir, symbol, interval, series, {
+    allowLockbox: opts.allowLockbox,
+  }).rows.filter((r) => inRange(r.t, opts.start, opts.end));
 }
 
 // Number of equal strata the pooled series is split into when it needs

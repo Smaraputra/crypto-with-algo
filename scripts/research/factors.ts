@@ -34,7 +34,9 @@ import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { prepareBacktest } from '@/lib/backtest/optimized-engine';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
-import type { CandleRow, HtfRow, SnapshotRow } from './dataset-format';
+import type { CandleRow, HtfRow, MetricsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
+import { alignToBars, METRICS_SLOT_MS } from '@/lib/archive-ingestion';
+import { intervalToMs } from '@/lib/intervals';
 
 export interface FactorMatrix {
   names: string[];
@@ -50,6 +52,17 @@ export interface FactorMatrixInput {
   snapshots: SnapshotRow[] | null;
   htf: HtfRow[];
   interval: string;
+  /**
+   * The archive's 5m futures-metrics grid for this symbol, from
+   * scripts/research/load-dataset.ts's loadMetrics. Optional: omit it and
+   * every metrics-derived factor is NaN for the whole series, which is what
+   * every study before this input existed measured.
+   */
+  metrics?: MetricsRow[] | null;
+  /** Perpetual bars for this symbol and interval, the traded series. */
+  perp?: PerpCandleRow[] | null;
+  /** The premium index series for the same symbol and interval. */
+  premiumIndex?: PerpCandleRow[] | null;
 }
 
 // Fixes each interval's indicator periods and DEFAULT_TEMPLATE_WEIGHTS, per the brief.
@@ -136,7 +149,117 @@ const RAW_NAMES = [
   'raw.ret5',
   'raw.ret20',
   'raw.realizedVol20',
+  // Archive-only inputs. Before scripts/ops/ingest-archive.ts existed, Binance
+  // REST served these for about 30 days, so stored open interest and
+  // positioning covered 11.0% of 1h bars and nothing before 2026-03-03.
+  'raw.oiChange1',
+  'raw.oiChange8',
+  'raw.oiPriceDiv',
+  'raw.takerLongShortRatio',
+  'raw.topTraderPositionRatio',
+  'raw.globalAccountRatio',
+  'raw.fundingZ',
+  'raw.basisPct',
+  'raw.perpSpotSpreadPct',
+  'raw.depthImbalance1',
+  'raw.depthImbalance5',
 ] as const;
+
+/**
+ * Trailing window for the funding z-score, in days rather than bars.
+ *
+ * Funding settles every 8h, so a bar-count window degenerates at fine
+ * intervals: 96 bars at 5m is a single funding period, over which the
+ * standard deviation is zero or near it. Thirty days spans about ninety
+ * settlements at every interval.
+ */
+const FUNDING_Z_DAYS = 30;
+/** Finite readings needed before a z-score is emitted rather than NaN. */
+const FUNDING_Z_MIN_SAMPLES = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Trailing z-score of a series, over a window of `windowBars` bars.
+ *
+ * Running sums, so the cost is one pass regardless of window size: at 5m a
+ * thirty-day window is 8,640 bars and a naive recompute per bar would be
+ * quadratic over the 800,000-bar dataset.
+ *
+ * NaN entries take part in neither the mean nor the count, so a gap in the
+ * input thins the window instead of poisoning it, and a bar whose own value
+ * is NaN stays NaN. A window with no spread returns NaN rather than 0: a
+ * constant funding rate has no z-score, and reporting 0 would read as
+ * "exactly average" on what is really "no information".
+ */
+function trailingZScore(series: Float64Array, windowBars: number, minSamples: number): Float64Array {
+  const n = series.length;
+  const out = new Float64Array(n).fill(NaN);
+  let count = 0;
+  let sum = 0;
+  let sumSq = 0;
+
+  for (let i = 0; i < n; i++) {
+    const entering = series[i];
+    if (Number.isFinite(entering)) {
+      count++;
+      sum += entering;
+      sumSq += entering * entering;
+    }
+
+    const leavingIndex = i - windowBars;
+    if (leavingIndex >= 0) {
+      const leaving = series[leavingIndex];
+      if (Number.isFinite(leaving)) {
+        count--;
+        sum -= leaving;
+        sumSq -= leaving * leaving;
+      }
+    }
+
+    const value = series[i];
+    if (!Number.isFinite(value) || count < minSamples) continue;
+
+    const mean = sum / count;
+    const meanSq = mean * mean;
+    // Sample variance, matching realizedVol20's ddof of 1.
+    const variance = (sumSq - count * meanSq) / (count - 1);
+
+    // sumSq and count*meanSq are nearly equal for a near-constant series, so
+    // their difference is pure cancellation noise there: a constant funding
+    // rate would otherwise get a standard deviation around 1e-12 and a z-score
+    // of arbitrary size. Anything at or below the scale of that noise counts as
+    // no spread, which is NaN rather than 0: a series that never moves has no
+    // z-score, and 0 would read as "exactly average".
+    const epsilon = 1e-12 * Math.max(sumSq / count, meanSq, Number.MIN_VALUE);
+    if (variance <= epsilon) continue;
+
+    out[i] = (value - mean) / Math.sqrt(variance);
+  }
+
+  return out;
+}
+
+/** Index rows by timestamp for an exact-bar join, never carrying a stale bar forward. */
+function byTimestamp<T extends { t: number }>(rows: T[] | null | undefined): Map<number, T> {
+  const map = new Map<number, T>();
+  for (const row of rows ?? []) map.set(row.t, row);
+  return map;
+}
+
+/** Log change of a per-bar series over `lookback` bars, NaN unless both ends are positive. */
+function logChange(series: Float64Array, bar: number, lookback: number): number {
+  if (bar < lookback) return NaN;
+  const now = series[bar];
+  const then = series[bar - lookback];
+  if (!Number.isFinite(now) || !Number.isFinite(then) || now <= 0 || then <= 0) return NaN;
+  return Math.log(now / then);
+}
+
+/** -1, 0 or 1; NaN propagates so a missing input never reads as "no divergence". */
+function signOf(value: number): number {
+  if (!Number.isFinite(value)) return NaN;
+  return Math.sign(value);
+}
 
 function simpleReturn(candles: CandleRow[], bar: number, lookback: number): number {
   if (bar < lookback) return NaN;
@@ -172,7 +295,7 @@ function isCategoryDataMissing(component: SignalComponent): boolean {
 }
 
 export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
-  const { candles, snapshots, htf, interval } = input;
+  const { candles, snapshots, htf, interval, metrics, perp, premiumIndex } = input;
   const style = styleForInterval(interval);
   const profile = getStyleConfig(style);
   const weights = DEFAULT_TEMPLATE_WEIGHTS[style];
@@ -268,6 +391,46 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
   const sigIdx = new Map(sigOrder.map((s) => [s, nameIndex.get(`sig.${s}`)!]));
   const rawIdx = new Map(RAW_NAMES.map((r) => [r, nameIndex.get(r)!]));
 
+  // Archive inputs, aligned to these bars.
+  //
+  // The metrics grid is 5m native, so it is joined with the last reading at or
+  // before each bar's CLOSE, not its open. A factor is read at the bar's close
+  // (forwardReturns measures from closes[bar] onward), so a reading from
+  // inside the bar is already published by the time the factor is used, and
+  // taking the open instead would throw away most of an hour of information at
+  // 1h. This is deliberately not the rule src/lib/backtest/snapshot-series.ts
+  // applies to HistoricalSnapshot rows, which is pinned to the bar's open
+  // because live snapshot ingestion runs on its own cron.
+  const intervalMs = intervalToMs(interval);
+  const barCloses = candles.map((candle) => candle.t + intervalMs - 1);
+  const metricsStaleness = Math.max(intervalMs, 2 * METRICS_SLOT_MS);
+  const alignedMetrics = metrics && metrics.length > 0
+    ? alignToBars(barCloses, metrics.map((row) => ({ ...row, timestamp: row.t })), metricsStaleness)
+    : null;
+
+  // Perpetual bars share the candle grid, so they join on an exact timestamp
+  // match: a missing perp bar is NaN, never the previous bar's price.
+  const perpByTime = byTimestamp(perp);
+  const premiumByTime = byTimestamp(premiumIndex);
+
+  // Open interest per bar, needed as a series before its changes can be taken.
+  const openInterestSeries = new Float64Array(n).fill(NaN);
+  if (alignedMetrics) {
+    for (let bar = 0; bar < n; bar++) {
+      openInterestSeries[bar] = alignedMetrics[bar]?.openInterest ?? NaN;
+    }
+  }
+
+  const fundingSeries = new Float64Array(n).fill(NaN);
+  for (let bar = warmupBars; bar < n; bar++) {
+    fundingSeries[bar] = alignedSnapshots?.[bar]?.futures?.fundingRate?.fundingRate ?? NaN;
+  }
+  const fundingZ = trailingZScore(
+    fundingSeries,
+    Math.max(1, Math.ceil((FUNDING_Z_DAYS * DAY_MS) / intervalMs)),
+    FUNDING_Z_MIN_SAMPLES
+  );
+
   for (let bar = warmupBars; bar < n; bar++) {
     const composite = composites[bar];
     values[compositeIdx][bar] = composite.score;
@@ -318,6 +481,33 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     values[rawIdx.get('raw.ret5')!][bar] = simpleReturn(candles, bar, 5);
     values[rawIdx.get('raw.ret20')!][bar] = simpleReturn(candles, bar, 20);
     values[rawIdx.get('raw.realizedVol20')!][bar] = realizedVol20(candles, bar);
+
+    const metric = alignedMetrics?.[bar] ?? null;
+    const oiChange1 = logChange(openInterestSeries, bar, 1);
+    values[rawIdx.get('raw.oiChange1')!][bar] = oiChange1;
+    values[rawIdx.get('raw.oiChange8')!][bar] = logChange(openInterestSeries, bar, 8);
+    // Positions building into a move against positions covering out of one.
+    // NaN in either leg propagates, so "no divergence" is never inferred from
+    // a missing reading.
+    values[rawIdx.get('raw.oiPriceDiv')!][bar] =
+      signOf(oiChange1) * signOf(simpleReturn(candles, bar, 1));
+    values[rawIdx.get('raw.takerLongShortRatio')!][bar] = metric?.takerLongShortRatio ?? NaN;
+    values[rawIdx.get('raw.topTraderPositionRatio')!][bar] = metric?.topTraderPositionRatio ?? NaN;
+    values[rawIdx.get('raw.globalAccountRatio')!][bar] = metric?.globalAccountRatio ?? NaN;
+    values[rawIdx.get('raw.depthImbalance1')!][bar] = metric?.depthImbalance1 ?? NaN;
+    values[rawIdx.get('raw.depthImbalance5')!][bar] = metric?.depthImbalance5 ?? NaN;
+
+    values[rawIdx.get('raw.fundingZ')!][bar] = fundingZ[bar];
+
+    // The premium index close is the perp-to-index premium as a fraction.
+    const premiumBar = premiumByTime.get(candle.t);
+    values[rawIdx.get('raw.basisPct')!][bar] = premiumBar ? premiumBar.c * 100 : NaN;
+
+    // What the venue mismatch is worth at this bar: candles/ holds SPOT closes
+    // while every backtest charges perpetual costs.
+    const perpBar = perpByTime.get(candle.t);
+    values[rawIdx.get('raw.perpSpotSpreadPct')!][bar] =
+      perpBar && candle.c !== 0 ? ((perpBar.c - candle.c) / candle.c) * 100 : NaN;
   }
 
   return {
