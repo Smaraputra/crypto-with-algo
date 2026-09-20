@@ -91,6 +91,67 @@
  * exported before those kinds existed still loads: the archive columns are
  * NaN throughout and land in skippedFactors rather than failing the run.
  *
+ * PHASE 3B RESULTS, 2026-09-20. Dataset hash e84cd66dbe01..., lockbox
+ * applied, 10 symbols, horizons 1,2,4,8,16,32, reports under
+ * data/research/reports/factor-ic-<interval>-p3b.json. Same survivor rule as
+ * Phase 3. Coverage after the archive backfill: longShortRatio 77.8% at 1h and
+ * 48.7% at 4h/1d (the top-trader series starts in 2023; it is ~0% across 2022),
+ * openInterest 95.6% and 59.8%, against 11.1% and 7.0% before. Survivors per
+ * interval: 5m 24 of 50, 15m 27 of 51, 1h 19 of 51, 4h 10 of 51, 1d 7 of 46,
+ * against Phase 3's 4 of 40 at 4h and 2 of 35 at 1d.
+ *
+ *   factor                      5m           15m          1h           4h           1d
+ *   raw.longShortRatio          .            .            .            - h8-32      - h1-32
+ *   raw.topTraderPositionRatio  .            .            .            - h8-32      - h1-32
+ *   raw.globalAccountRatio      .            .            .            - h8-32      - h1-32
+ *   sig.Long/Short Ratio        .            .            .            + h8-32      + h1-32
+ *   cat.futures                 .            .            .            .            + h8,32
+ *   raw.depthImbalance1         .            .            .            - h4-32      - h1-32
+ *   raw.depthImbalance5         .            .            + h1,2       .            .
+ *   raw.fundingZ                - h16,32     - h8-32      - h8,16      - h2,4       .
+ *   raw.perpSpotSpreadPct       + h1-8       + h1-4       .            .            .
+ *
+ * Reading: positioning is the finding. At 4h and 1d a higher top-trader
+ * long/short ratio precedes LOWER forward returns across every horizon
+ * measured, and the effect is the largest the program has seen: 1d h32
+ * ic -0.218 t -5.9 n 12,906, 4h h32 ic -0.078 t -4.9 n 79,049. Phase 3 did
+ * flag long/short at 1d, but on the ~500 bars Binance REST would serve; this
+ * is 3.5 years across ten symbols. Order-book depth imbalance at +/-1% runs
+ * the same way (1d h32 ic -0.101 t -5.2), and the composite's futures
+ * category comes alive at 1d (h8 ic 0.035 t 2.5) where it had almost no data
+ * before. Funding, z-scored over 30 days, is a consistent contrarian signal
+ * from 5m to 4h (1h h8 ic -0.024 t -7.1 n 410,159) and dies at 1d. Note
+ * raw.longShortRatio and raw.topTraderPositionRatio are the SAME series by
+ * construction (src/lib/archive-ingestion.ts fills the snapshot field from the
+ * archive's top-trader position ratio, matching the live path), so they are
+ * one finding, not two; sig.Long/Short Ratio is the scorer's own signal on
+ * that input and its "+" is the same information under the opposite sign
+ * convention. The intraday mean-reversion picture from Phase 3 is unchanged.
+ *
+ * TREAT raw.perpSpotSpreadPct AS AN ARTIFACT until it is re-measured.
+ * It is (perp close - spot close) / spot close, and the forward return is
+ * (spot close[t+h] - spot close[t]) / spot close[t], so the two share
+ * spot close[t]: noise in that one print pushes both up together, which is
+ * the classic bid-ask bounce correlation. The evidence that this is what is
+ * happening: raw.basisPct measures essentially the same economic quantity
+ * from the premium index, an independent series sharing no term with the
+ * forward return, and it tracks the same shape at about 40% of the magnitude
+ * at every interval (5m h1 ic 0.027 t 23.2 against 0.069 t 61.0; 1h 0.003
+ * against 0.016), while both decay to nothing by 4h. The fix is to measure
+ * perp factors against forward returns computed on PERP closes, which is also
+ * the venue the cost model charges; until then no family should be built on
+ * this column. raw.basisPct itself does not survive anywhere (5m fails symbol
+ * agreement at 0.50).
+ *
+ * What this does NOT establish: that any of it pays costs. Phase 3 found 18
+ * survivors at 1h and Phase 4 still found no family that beat the round trip.
+ * What is different here is the horizon. These are 4h-to-daily signals, where
+ * the cost drag per signal is a fraction of what it is on the 5m mean-reversion
+ * cells that dominated Phase 3, so the Phase 4b question is genuinely open
+ * rather than already answered. raw.topTraderPositionRatio at 1h flipped from
+ * surviving to not surviving on a trivial re-export, so it is borderline there
+ * and should not be leaned on.
+ *
  * bootstrapCi95 is a fixed-rank block bootstrap of the IC: ranks are
  * computed once per (sub)sample (ic-stats.ts's standardizedRankProducts),
  * not recomputed inside every resample, and only the resulting per-pair
