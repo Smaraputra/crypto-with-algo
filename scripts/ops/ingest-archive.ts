@@ -528,7 +528,13 @@ async function runSnapshotJob(job: Job): Promise<{ metrics: number; bars: number
 
   const metrics = await FuturesMetric.find(
     { symbol: job.symbol, timestamp: { $gte: job.fromMs, $lte: job.toMs + DAY_MS } },
-    { timestamp: 1, openInterest: 1, openInterestValue: 1, globalAccountRatio: 1, _id: 0 }
+    {
+      timestamp: 1,
+      openInterest: 1,
+      openInterestValue: 1,
+      topTraderPositionRatio: 1,
+      _id: 0,
+    }
   )
     .sort({ timestamp: 1 })
     .lean();

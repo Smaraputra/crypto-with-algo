@@ -327,8 +327,13 @@ describe('main', () => {
     mockMetricFind.mockReturnValue({
       sort: () => ({
         lean: async () => [
-          { timestamp: base, openInterest: 100, openInterestValue: 1_000_000, globalAccountRatio: 3 },
-          { timestamp: base + 60 * 60 * 1000, openInterest: 110, openInterestValue: 1_100_000, globalAccountRatio: 1 },
+          { timestamp: base, openInterest: 100, openInterestValue: 1_000_000, topTraderPositionRatio: 3 },
+          {
+            timestamp: base + 60 * 60 * 1000,
+            openInterest: 110,
+            openInterestValue: 1_100_000,
+            topTraderPositionRatio: 1,
+          },
         ],
       }),
     });
@@ -343,6 +348,7 @@ describe('main', () => {
 
     const patches = mockBulkUpsertSnapshots.mock.calls[0][0];
     expect(patches[0]).toMatchObject({ symbol: 'BTCUSDT', interval: '1h', timestamp: base });
+    // The top trader POSITION ratio, which is what the live path stores here.
     expect(patches[0].data.longShortRatio.ratio).toBe(3);
     expect(patches[0].data.longShortRatio.longAccount).toBeCloseTo(0.75, 10);
     expect(patches[0].data.openInterest).toEqual({ value: 100, sumValue: 1_000_000 });

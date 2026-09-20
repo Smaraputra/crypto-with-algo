@@ -312,6 +312,7 @@ export interface MetricsLike {
   openInterest?: number | null;
   openInterestValue?: number | null;
   globalAccountRatio?: number | null;
+  topTraderPositionRatio?: number | null;
 }
 
 export interface SnapshotPatch {
@@ -335,11 +336,20 @@ export interface SnapshotPatch {
  * one. That is one notch stricter than live ingestion, where the cron runs at
  * :15 and stamps the reading back to the hour it floors into.
  *
- * `longShortRatio.ratio` takes the global account ratio, the same series the
- * REST `globalLongShortAccountRatio` endpoint serves, so backfilled bars and
- * live-captured bars measure the same thing. `longAccount` and `shortAccount`
- * are derived from that ratio as shares summing to 1, which is what the live
- * shape carries.
+ * `longShortRatio.ratio` takes the TOP TRADER POSITION ratio
+ * (`sum_toptrader_long_short_ratio`), not the global account ratio, because
+ * that is the series live ingestion stores in this field: every live caller
+ * (`ingest-snapshots`, `compute-signals`, `compute-engine`, `signals/compute`)
+ * goes through `fetchLongShortRatio`, which hits
+ * `/futures/data/topLongShortPositionRatio`. Filling it from the archive's
+ * `count_long_short_ratio` instead would put a different series in the same
+ * field on older bars, so historical scoring would diverge from live scoring
+ * in exactly the way `src/lib/backtest/snapshot-series.ts` refuses to. The
+ * archive's global account ratio is still ingested into `FuturesMetric` and
+ * reaches research as `raw.globalAccountRatio`, where it is its own column.
+ *
+ * `longAccount` and `shortAccount` are derived from that ratio as shares
+ * summing to 1, which is the shape the live path carries.
  */
 export function buildMetricsSnapshotPatches(input: {
   symbol: string;
@@ -359,9 +369,13 @@ export function buildMetricsSnapshotPatches(input: {
 
     const data: IHistoricalSnapshot['data'] = {};
 
-    const globalAccountRatio = row.globalAccountRatio ?? null;
-    if (globalAccountRatio !== null && Number.isFinite(globalAccountRatio) && globalAccountRatio > 0) {
-      const ratio = globalAccountRatio;
+    const topTraderPositionRatio = row.topTraderPositionRatio ?? null;
+    if (
+      topTraderPositionRatio !== null &&
+      Number.isFinite(topTraderPositionRatio) &&
+      topTraderPositionRatio > 0
+    ) {
+      const ratio = topTraderPositionRatio;
       const longAccount = ratio / (1 + ratio);
       data.longShortRatio = { ratio, longAccount, shortAccount: 1 - longAccount };
     }

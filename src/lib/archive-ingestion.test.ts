@@ -338,12 +338,15 @@ describe('barGrid', () => {
 describe('buildMetricsSnapshotPatches', () => {
   const bars = [Date.UTC(2025, 0, 1, 1), Date.UTC(2025, 0, 1, 2), Date.UTC(2025, 0, 1, 3)];
 
-  it('derives long and short account shares from the global ratio', () => {
+  it('fills longShortRatio from the top trader POSITION ratio, matching the live path', () => {
+    // Every live caller goes through fetchLongShortRatio, which hits
+    // /futures/data/topLongShortPositionRatio. Using the archive's global
+    // account ratio here would put a different series in the same field.
     const patches = buildMetricsSnapshotPatches({
       symbol: 'BTCUSDT',
       interval: '1h',
       bars: [bars[0]],
-      metrics: [metricsRow(bars[0], { globalAccountRatio: 3 })],
+      metrics: [metricsRow(bars[0], { topTraderPositionRatio: 3, globalAccountRatio: 99 })],
     });
     expect(patches).toHaveLength(1);
     const ls = patches[0].data.longShortRatio!;
@@ -383,7 +386,7 @@ describe('buildMetricsSnapshotPatches', () => {
       symbol: 'BTCUSDT',
       interval: '1h',
       bars: [bars[0]],
-      metrics: [metricsRow(bars[0] + 5 * 60 * 1000, { globalAccountRatio: 9 })],
+      metrics: [metricsRow(bars[0] + 5 * 60 * 1000, { topTraderPositionRatio: 9 })],
     });
     expect(patches).toEqual([]);
   });
@@ -411,22 +414,32 @@ describe('buildMetricsSnapshotPatches', () => {
     expect(patches[0].data.longShortRatio).toBeDefined();
   });
 
+  it('ignores the global account ratio entirely, which is its own research column', () => {
+    const patches = buildMetricsSnapshotPatches({
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      bars: [bars[0]],
+      metrics: [metricsRow(bars[0], { topTraderPositionRatio: null, globalAccountRatio: 5, openInterest: null })],
+    });
+    expect(patches).toEqual([]);
+  });
+
   it('drops a bar whose row carries neither measure', () => {
     const patches = buildMetricsSnapshotPatches({
       symbol: 'BTCUSDT',
       interval: '1h',
       bars: [bars[0]],
-      metrics: [metricsRow(bars[0], { openInterest: null, globalAccountRatio: null })],
+      metrics: [metricsRow(bars[0], { openInterest: null, topTraderPositionRatio: null })],
     });
     expect(patches).toEqual([]);
   });
 
-  it('rejects a non-positive global ratio instead of dividing by it', () => {
+  it('rejects a non-positive ratio instead of dividing by it', () => {
     const patches = buildMetricsSnapshotPatches({
       symbol: 'BTCUSDT',
       interval: '1h',
       bars: [bars[0]],
-      metrics: [metricsRow(bars[0], { globalAccountRatio: 0, openInterest: null })],
+      metrics: [metricsRow(bars[0], { topTraderPositionRatio: 0, openInterest: null })],
     });
     expect(patches).toEqual([]);
   });
@@ -434,7 +447,7 @@ describe('buildMetricsSnapshotPatches', () => {
   it('walks a long series in one pass, matching a naive search', () => {
     const start = Date.UTC(2025, 0, 1);
     const metrics = Array.from({ length: 2000 }, (_, i) =>
-      metricsRow(start + i * METRICS_SLOT_MS, { globalAccountRatio: 1 + i / 1000 })
+      metricsRow(start + i * METRICS_SLOT_MS, { topTraderPositionRatio: 1 + i / 1000 })
     );
     const hourly = barGrid(start, start + 160 * HOUR, '1h');
     const patches = buildMetricsSnapshotPatches({
@@ -445,7 +458,7 @@ describe('buildMetricsSnapshotPatches', () => {
     });
     for (const patch of patches) {
       const expected = metrics.filter((m) => m.timestamp <= patch.timestamp).pop()!;
-      expect(patch.data.longShortRatio!.ratio).toBe(expected.globalAccountRatio);
+      expect(patch.data.longShortRatio!.ratio).toBe(expected.topTraderPositionRatio);
     }
     expect(patches.length).toBeGreaterThan(100);
   });

@@ -11,6 +11,7 @@
  */
 
 import { execFileSync } from 'child_process';
+import { readFileSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import mongoose from 'mongoose';
@@ -431,6 +432,31 @@ async function writeDatasetFile<T>(
   return file;
 }
 
+/**
+ * The existing manifest's files with this run's entries replacing theirs by
+ * path, or just this run's when there is no manifest to merge into. An
+ * unreadable manifest is treated as absent rather than fatal: a fresh export
+ * into a directory holding a corrupt one should still succeed.
+ */
+export function mergeManifestFiles(outDir: string, written: ManifestFile[]): ManifestFile[] {
+  let existing: ManifestFile[] = [];
+  try {
+    const raw = readFileSync(join(outDir, 'manifest.json'), 'utf8');
+    const parsed = JSON.parse(raw) as DatasetManifest;
+    existing = Array.isArray(parsed.files) ? parsed.files : [];
+  } catch {
+    return [...written];
+  }
+
+  const rewritten = new Set(written.map((f) => f.path));
+  const kept = existing.filter((f) => !rewritten.has(f.path));
+  return [...kept, ...written].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function unionSorted(values: string[]): string[] {
+  return Array.from(new Set(values)).sort();
+}
+
 function resolveCommit(): string {
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] })
@@ -558,15 +584,22 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
       }
     }
 
+    // A partial run (--datasets, --symbols, --intervals) must not drop the
+    // files it did not rewrite: the manifest is the dataset's index, and
+    // rebuilding it from this run alone would orphan everything else on disk
+    // and change the dataset hash to describe a fraction of it. Entries this
+    // run rewrote are replaced by path; the rest are carried over.
+    const merged = mergeManifestFiles(args.out, files);
+
     const manifest: DatasetManifest = {
       version: 1,
       generatedAt: new Date().toISOString(),
       commit: resolveCommit(),
       lockboxStart: LOCKBOX_START_ISO,
-      symbols: args.symbols,
-      intervals: args.intervals,
-      files,
-      datasetHash: datasetHashOf(files),
+      symbols: unionSorted(merged.map((f) => f.symbol)),
+      intervals: unionSorted(merged.map((f) => f.interval)),
+      files: merged,
+      datasetHash: datasetHashOf(merged),
     };
 
     await writeFile(join(args.out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');

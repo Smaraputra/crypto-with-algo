@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import mongoose from 'mongoose';
@@ -8,9 +8,9 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 
 import { PerpCandle } from '@/lib/models/perp-candle';
 import { FuturesMetric } from '@/lib/models/futures-metric';
-import { runExport } from './export-dataset';
+import { mergeManifestFiles, runExport } from './export-dataset';
 import { loadManifest, loadMetrics, loadPerp, verifyManifest } from './load-dataset';
-import { LOCKBOX_START, type DatasetManifest } from './dataset-format';
+import { LOCKBOX_START, type DatasetManifest, type ManifestFile } from './dataset-format';
 
 const SYMBOL = 'BTCUSDT';
 const INTERVAL = '1h';
@@ -160,5 +160,60 @@ describe('export-dataset: perp and metrics kinds', () => {
     expect(perp.rows.every((r) => r.t < LOCKBOX_START)).toBe(true);
     expect(metrics.rows.every((r) => r.t < LOCKBOX_START)).toBe(true);
     expect(metrics.droppedRows).toBeGreaterThan(0);
+  });
+});
+
+describe('mergeManifestFiles', () => {
+  function file(path: string, kind: ManifestFile['kind'], sha: string): ManifestFile {
+    return {
+      path, kind, symbol: 'BTCUSDT', interval: '1h',
+      rowCount: 1, startMs: 1, endMs: 2, sha256: sha,
+    };
+  }
+
+  it('returns just the written files when there is no manifest to merge into', () => {
+    const written = [file('perp/BTCUSDT/1h.jsonl.gz', 'perp', 'a')];
+    expect(mergeManifestFiles('/definitely/not/a/directory', written)).toEqual(written);
+  });
+
+  it('keeps files a partial run did not rewrite', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'merge-manifest-'));
+    try {
+      const existing: DatasetManifest = {
+        version: 1, generatedAt: 'x', commit: 'y', lockboxStart: 'z',
+        symbols: ['BTCUSDT'], intervals: ['1h'],
+        files: [
+          file('candles/BTCUSDT/1h.jsonl.gz', 'candles', 'keep-me'),
+          file('snapshots/BTCUSDT/1h.jsonl.gz', 'snapshots', 'old-sha'),
+        ],
+        datasetHash: 'whatever',
+      };
+      writeFileSync(join(dir, 'manifest.json'), JSON.stringify(existing));
+
+      const merged = mergeManifestFiles(dir, [
+        file('snapshots/BTCUSDT/1h.jsonl.gz', 'snapshots', 'new-sha'),
+      ]);
+
+      expect(merged.map((f) => f.path)).toEqual([
+        'candles/BTCUSDT/1h.jsonl.gz',
+        'snapshots/BTCUSDT/1h.jsonl.gz',
+      ]);
+      // The rewritten entry carries the new hash, the untouched one is intact.
+      expect(merged.find((f) => f.kind === 'snapshots')!.sha256).toBe('new-sha');
+      expect(merged.find((f) => f.kind === 'candles')!.sha256).toBe('keep-me');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('treats an unreadable manifest as absent rather than failing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'merge-manifest-'));
+    try {
+      writeFileSync(join(dir, 'manifest.json'), 'not json at all');
+      const written = [file('metrics/BTCUSDT/5m.jsonl.gz', 'metrics', 'a')];
+      expect(mergeManifestFiles(dir, written)).toEqual(written);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
