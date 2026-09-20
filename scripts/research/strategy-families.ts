@@ -146,11 +146,18 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { EntryDecision, Strategy, StrategyContext } from '@/lib/backtest/strategy';
 import type { IndicatorSuite } from '@/lib/indicators/types';
-import type { SnapshotBar } from '@/lib/backtest/snapshot-series';
 import type { BacktestConfig } from '@/lib/backtest/types';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import { STRATEGY_EXIT_LEVEL } from '@/lib/signals/calibration';
-import { intervalToMs } from '@/lib/intervals';
+import { researchValue } from '@/lib/backtest/research-series';
+import {
+  DEPTH_Z_WINDOW_DAYS,
+  FUNDING_Z_WINDOW_DAYS,
+  POSITIONING_Z_WINDOW_BARS,
+  depthColumn,
+  fundingColumn,
+  positioningColumn,
+} from './research-columns';
 
 /** One numeric parameter a family exposes to the grid search. Numeric only;
  * a boolean-valued parameter is encoded as 0/1 and interpreted by `create`. */
@@ -164,6 +171,15 @@ export interface StrategyFamily {
   description: string;
   /** At most MAX_PARAMS entries. */
   params: ParamSpec[];
+  /**
+   * Research columns (research-columns.ts) this family cannot trade without.
+   *
+   * The harness aborts naming the symbols whose dataset cannot produce them,
+   * rather than running to completion: a missing column is NaN on every bar,
+   * which produces zero entries and the misleading failure "no cell reached
+   * N in-sample trades" instead of "this dataset has no depth data".
+   */
+  requiresResearchColumns?: readonly string[];
   create(params: Record<string, number>, ctx: { style: TradingStyle; interval: string }): Strategy;
 }
 
@@ -704,142 +720,17 @@ export const oscillatorReversionLimitFamily: StrategyFamily = {
   },
 };
 
-/** Readings needed in the trailing window before a positioning z is emitted. */
-const MIN_POSITIONING_SAMPLES = 30;
-/** Same floor for funding, matching FUNDING_Z_MIN_SAMPLES in factors.ts. */
-const MIN_FUNDING_SAMPLES = 30;
-
 /**
- * Trailing z-score of one snapshot series, per bar.
+ * The z columns these families read.
  *
- * Shared by every family that reads a within-symbol relative level rather than
- * an absolute one. The Phase 3b study measured these factors with Spearman
- * ranks computed inside each symbol, so an absolute threshold would not test
- * what was measured: at 4h the 95th percentile of the long/short ratio runs
- * from 1.76 on BNBUSDT to 4.54 on DOGEUSDT, so one number would fire
- * constantly on one symbol and never on another. A trailing z is the cheap
- * within-symbol relative reading.
- *
- * `read` returns NaN for a reading that cannot be used, and NaN entries take
- * part in neither the mean nor the count, so a gap thins the window instead of
- * poisoning it. This matches trailingZScore in factors.ts, which is what these
- * families have to reproduce to be testing the factor that was measured.
- *
- * Memoized on the snapshots array itself, keyed by series and window: every
- * cell of the grid and every walk-forward window share one array instance per
- * symbol, and recomputing an O(window) pass per bar per cell would dominate
- * the run.
+ * They are NOT computed here. Every one is a trailing window, and the
+ * walk-forward prepares each window from a slice of the candle array, so a
+ * window derived in-strategy is full in-sample and truncated out-of-sample --
+ * the same grid cell then labels two different factors, and selection
+ * optimises one while the gates score the other. research-columns.ts builds
+ * them once over the full series instead; see its header for the measured
+ * impact on Phase 4b.
  */
-const snapshotZCache = new WeakMap<object, Map<string, Float64Array>>();
-
-function snapshotTrailingZ(
-  snapshots: readonly (SnapshotBar | null)[],
-  windowBars: number,
-  minSamples: number,
-  seriesKey: string,
-  read: (bar: SnapshotBar | null) => number
-): Float64Array {
-  let perSeries = snapshotZCache.get(snapshots as object);
-  if (!perSeries) {
-    perSeries = new Map();
-    snapshotZCache.set(snapshots as object, perSeries);
-  }
-  const cacheKey = `${seriesKey}:${windowBars}`;
-  const hit = perSeries.get(cacheKey);
-  if (hit) return hit;
-
-  const n = snapshots.length;
-  const raw = new Float64Array(n).fill(NaN);
-  for (let i = 0; i < n; i++) {
-    raw[i] = read(snapshots[i] ?? null);
-  }
-
-  const out = new Float64Array(n).fill(NaN);
-  let count = 0;
-  let sum = 0;
-  let sumSq = 0;
-  for (let i = 0; i < n; i++) {
-    const entering = raw[i];
-    if (Number.isFinite(entering)) {
-      count++;
-      sum += entering;
-      sumSq += entering * entering;
-    }
-    const leavingIndex = i - windowBars;
-    if (leavingIndex >= 0 && Number.isFinite(raw[leavingIndex])) {
-      count--;
-      sum -= raw[leavingIndex];
-      sumSq -= raw[leavingIndex] * raw[leavingIndex];
-    }
-
-    const value = raw[i];
-    if (!Number.isFinite(value) || count < minSamples) continue;
-    const mean = sum / count;
-    const meanSq = mean * mean;
-    const variance = (sumSq - count * meanSq) / (count - 1);
-    // Same relative-epsilon guard as factors.ts: for a near-constant series
-    // the two terms cancel and the remainder is float noise, not spread.
-    const epsilon = 1e-12 * Math.max(sumSq / count, meanSq, Number.MIN_VALUE);
-    if (variance <= epsilon) continue;
-    out[i] = (value - mean) / Math.sqrt(variance);
-  }
-
-  perSeries.set(cacheKey, out);
-  return out;
-}
-
-/** The top-trader long/short ratio. A ratio is strictly positive, so a
- * non-positive reading is a broken row, not a real one. */
-function readPositioningRatio(bar: SnapshotBar | null): number {
-  const r = bar?.futures?.longShortRatio?.longShortRatio;
-  return typeof r === 'number' && Number.isFinite(r) && r > 0 ? r : Number.NaN;
-}
-
-/** The funding rate. Signed: a negative rate means shorts pay longs and is a
- * real reading, so unlike the ratio above it must not be filtered on sign. */
-function readFundingRate(bar: SnapshotBar | null): number {
-  const r = bar?.futures?.fundingRate?.fundingRate;
-  return typeof r === 'number' && Number.isFinite(r) ? r : Number.NaN;
-}
-
-/** Trailing z-score of the top-trader long/short ratio, per bar. */
-export function positioningZScore(
-  snapshots: readonly (SnapshotBar | null)[],
-  windowBars: number
-): Float64Array {
-  return snapshotTrailingZ(
-    snapshots,
-    windowBars,
-    MIN_POSITIONING_SAMPLES,
-    'positioning',
-    readPositioningRatio
-  );
-}
-
-/** Trailing z-score of the funding rate, per bar. Reproduces `raw.fundingZ`
- * from factors.ts, which reads the same aligned snapshot array: factor-ic
- * measures it off `prepared.snapshots`, and `prepareBacktest` builds that with
- * the same `buildSnapshotSeries` call that fills `ctx.snapshots`. */
-export function fundingZScore(
-  snapshots: readonly (SnapshotBar | null)[],
-  windowBars: number
-): Float64Array {
-  return snapshotTrailingZ(snapshots, windowBars, MIN_FUNDING_SAMPLES, 'fundingZ', readFundingRate);
-}
-
-/**
- * The funding z window, in bars, for an interval.
- *
- * Expressed in days rather than bars for the reason factors.ts gives: funding
- * settles every 8h, so a bar-count window degenerates at fine intervals (96
- * bars at 5m is a single funding period, over which the standard deviation is
- * zero). A day-count window spans the same number of settlements at every
- * interval, which is what makes a grid cell mean the same thing at 15m and 1h.
- */
-export function fundingWindowBars(days: number, interval: string): number {
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  return Math.max(1, Math.ceil((days * DAY_MS) / intervalToMs(interval)));
-}
 
 /**
  * Fade crowded top-trader positioning.
@@ -853,6 +744,7 @@ export function fundingWindowBars(days: number, interval: string): number {
 const positioningFadeFamily: StrategyFamily = {
   name: 'positioning-fade',
   description: 'fade the top-trader long/short ratio when it is z sd from its own trailing mean',
+  requiresResearchColumns: POSITIONING_Z_WINDOW_BARS.map(positioningColumn),
   params: [
     { name: 'window', values: [180, 360, 720] },
     { name: 'z', values: [1, 1.5, 2] },
@@ -860,7 +752,7 @@ const positioningFadeFamily: StrategyFamily = {
     { name: 'k', values: [2, 3] },
   ],
   create(params): Strategy {
-    const windowBars = params.window;
+    const column = positioningColumn(params.window);
     const threshold = params.z;
     const holdBars = params.hold;
     const atrMultiple = params.k;
@@ -873,7 +765,7 @@ const positioningFadeFamily: StrategyFamily = {
         const atr = currentAtr(context.suite);
         if (atr === null) return null;
 
-        const z = positioningZScore(context.snapshots, windowBars)[context.bar];
+        const z = researchValue(context.research, context.bar, column);
         if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
 
         const close = context.candles[context.bar].close;
@@ -918,13 +810,14 @@ const POSITIONING_WIDE_STOP_ATR = 10;
 const positioningHorizonFamily: StrategyFamily = {
   name: 'positioning-horizon',
   description: 'hold the positioning fade to a fixed horizon, stops out of the way',
+  requiresResearchColumns: POSITIONING_Z_WINDOW_BARS.map(positioningColumn),
   params: [
     { name: 'window', values: [180, 360, 720] },
     { name: 'z', values: [1, 1.5, 2] },
     { name: 'hold', values: [8, 16, 32] },
   ],
   create(params): Strategy {
-    const windowBars = params.window;
+    const column = positioningColumn(params.window);
     const threshold = params.z;
     const holdBars = params.hold;
 
@@ -936,7 +829,7 @@ const positioningHorizonFamily: StrategyFamily = {
         const atr = currentAtr(context.suite);
         if (atr === null) return null;
 
-        const z = positioningZScore(context.snapshots, windowBars)[context.bar];
+        const z = researchValue(context.research, context.bar, column);
         if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
 
         const close = context.candles[context.bar].close;
@@ -973,29 +866,32 @@ const positioningHorizonFamily: StrategyFamily = {
  * shape positioning-fade used, so that a difference in outcome is a difference
  * in the input rather than in the rule.
  *
- * No plumbing was needed. factors.ts computes `raw.fundingZ` from
- * `alignedSnapshots[bar].futures.fundingRate.fundingRate`, and that array is
- * `prepared.snapshots`, which `prepareBacktest` fills with the same
- * `buildSnapshotSeries` call that fills `ctx.snapshots`. The family therefore
- * reads the identical series the IC was measured on.
+ * It reads a precomputed column rather than deriving the z from
+ * `ctx.snapshots`. An earlier version did the latter, on the reasoning that
+ * `raw.fundingZ` is computed from the very same aligned snapshot array. That
+ * reasoning was right about the source and wrong about the window: the
+ * walk-forward prepares each window from a slice, so a 30-day window (720 bars
+ * at 1h) is fully realised on the train slice and truncated across the first
+ * 13% of every test window. research-columns.ts builds the column once over
+ * the full series, and a test pins it equal to `raw.fundingZ` bar for bar.
  *
- * Snapshots align to the bar's OPEN (buildSnapshotSeries), so reading the z at
- * `ctx.bar` and entering at that bar's close is already an honest one-sided
- * delay; no `bar - 1` offset is needed here. Contrast depth-imbalance-fade,
- * whose metrics align to the bar's close and which therefore must read
- * `ctx.bar - 1`.
+ * The column needs no execution-lag shift: snapshots align to the bar's OPEN,
+ * so reading at `ctx.bar` and filling at that bar's close is already a
+ * one-sided delay. Contrast depth-imbalance-fade, whose source aligns to the
+ * bar's close and is therefore shifted forward a bar by the producer.
  */
 const fundingZFadeFamily: StrategyFamily = {
   name: 'funding-z-fade',
   description: 'fade the funding rate when it is z sd from its own trailing mean',
+  requiresResearchColumns: FUNDING_Z_WINDOW_DAYS.map(fundingColumn),
   params: [
     { name: 'days', values: [15, 30, 60] },
     { name: 'z', values: [1, 1.5, 2] },
     { name: 'hold', values: [8, 16, 32] },
     { name: 'k', values: [2, 3] },
   ],
-  create(params, ctx): Strategy {
-    const windowBars = fundingWindowBars(params.days, ctx.interval);
+  create(params): Strategy {
+    const column = fundingColumn(params.days);
     const threshold = params.z;
     const holdBars = params.hold;
     const atrMultiple = params.k;
@@ -1008,7 +904,7 @@ const fundingZFadeFamily: StrategyFamily = {
         const atr = currentAtr(context.suite);
         if (atr === null) return null;
 
-        const z = fundingZScore(context.snapshots, windowBars)[context.bar];
+        const z = researchValue(context.research, context.bar, column);
         if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
 
         const close = context.candles[context.bar].close;
@@ -1016,6 +912,78 @@ const fundingZFadeFamily: StrategyFamily = {
 
         // Negative IC: expensive funding (high z) precedes lower returns, so a
         // high z is faded short and the reverse.
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          stopPrice: close - sign * atrMultiple * atr,
+          targetPrice: close + sign * 2 * atrMultiple * atr,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
+/**
+ * Fade a crowded order book.
+ *
+ * Phase 3b at execution lag 1: `raw.depthImbalance1`, the cumulative bid/ask
+ * depth imbalance within +/-1% of mid, runs contrarian at 4h (h8 ic -0.0269
+ * t -4.9, h16 -0.0408 t -5.8, h32 -0.0515 t -5.7) and at 1h (h16 -0.0219
+ * t -5.6, h32 -0.0252 t -5.0). It does not clear the survivor rule at 1d under
+ * lag 1, and not at all at 5m or 15m, so this family runs at 4h and 1h.
+ *
+ * A new input, never turned into a family before. The rule is deliberately the
+ * same shape positioning-fade and funding-z-fade use, so a difference in
+ * outcome is a difference in the input rather than in the rule.
+ *
+ * Why a trailing z rather than a threshold on the raw imbalance, which is
+ * already bounded in [-1, 1]: the IC was measured by Spearman rank inside each
+ * symbol, and a symbol whose book is structurally thicker on one side carries
+ * a non-zero mean imbalance. The same argument positioning-fade makes for the
+ * long/short ratio.
+ *
+ * The window is in DAYS, not bars, so one cell means the same span at 4h and
+ * at 1h. (positioning-fade's window is in bars, kept that way only so the
+ * Phase 4b re-run stays comparable to the recorded table.)
+ */
+const depthImbalanceFadeFamily: StrategyFamily = {
+  name: 'depth-imbalance-fade',
+  description: 'fade order-book depth imbalance at +/-1% when it is z sd from its own trailing mean',
+  requiresResearchColumns: DEPTH_Z_WINDOW_DAYS.map(depthColumn),
+  params: [
+    { name: 'days', values: [30, 90] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+    { name: 'k', values: [2, 3] },
+  ],
+  create(params): Strategy {
+    const column = depthColumn(params.days);
+    const threshold = params.z;
+    const holdBars = params.hold;
+    const atrMultiple = params.k;
+
+    return {
+      name: 'depth-imbalance-fade',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = researchValue(context.research, context.bar, column);
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        // Negative IC: a heavy bid book precedes lower returns, so an
+        // unusually positive imbalance is faded short and the reverse.
         const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
         const sign = side === 'long' ? 1 : -1;
         return {
@@ -1052,4 +1020,5 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'positioning-fade': positioningFadeFamily,
   'positioning-horizon': positioningHorizonFamily,
   'funding-z-fade': fundingZFadeFamily,
+  'depth-imbalance-fade': depthImbalanceFadeFamily,
 };

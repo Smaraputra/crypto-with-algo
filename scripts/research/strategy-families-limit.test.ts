@@ -277,6 +277,7 @@ describe('registry', () => {
       [
         'control',
         'control-limit',
+        'depth-imbalance-fade',
         'fade-composite',
         'funding-z-fade',
         'oscillator-reversion',
