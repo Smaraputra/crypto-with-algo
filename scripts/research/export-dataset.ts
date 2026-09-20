@@ -603,7 +603,14 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
     };
 
     await writeFile(join(args.out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8');
-    console.log(JSON.stringify({ path: 'manifest.json', datasetHash: manifest.datasetHash, fileCount: files.length }));
+    // fileCount is the manifest's total, not this run's: a partial re-export
+    // writes a handful of files into a manifest that still indexes the rest.
+    console.log(JSON.stringify({
+      path: 'manifest.json',
+      datasetHash: manifest.datasetHash,
+      fileCount: merged.length,
+      rewritten: files.length,
+    }));
 
     return manifest;
   } finally {
