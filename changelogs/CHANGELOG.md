@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (archive cron)
+- `GET /api/cron/ingest-archive` keeps `FuturesMetric` current from the archive, with a bounded window (`days`, 1 to 7, default 3), an optional `symbols` list and `depth=false` to skip the bookDepth pass. The window overlaps previous runs on purpose: every write is an idempotent upsert, so a day the archive published late is picked up by the next run rather than lost, and it never asks for today, whose file does not exist yet. Bulk history stays with `scripts/ops/ingest-archive.ts` from the seeder image
+- A daily line in `docker/crontab.template`. Note the archive publishes a day late, so this is a history keeper, not a live feed: anything that graduates to live trading reads the REST endpoints in `src/lib/binance-futures.ts`, which serve the last 30 days and suffice once history is seeded
+
 ### Added (research factors)
 - Eleven archive-derived columns in `scripts/research/factors.ts`, all in the existing `raw` category so `factor-ic.ts` discovers them, `report-schema.ts` validates them and `SURVIVOR_RULE` applies to them with no change: `raw.oiChange1`, `raw.oiChange8`, `raw.oiPriceDiv` (the buildup versus liquidation sign product), `raw.takerLongShortRatio`, `raw.topTraderPositionRatio`, `raw.globalAccountRatio`, `raw.fundingZ`, `raw.basisPct`, `raw.perpSpotSpreadPct`, `raw.depthImbalance1` and `raw.depthImbalance5`. `FactorMatrixInput` gains optional `metrics`, `perp` and `premiumIndex`; a dataset without them still loads and every archive column is NaN throughout, so an older export measures exactly what it always measured
 - The 5m metrics grid joins each bar at its CLOSE, not its open, because a factor is read at the close and pinning to the open would discard most of an hour of information at 1h. This deliberately differs from `src/lib/backtest/snapshot-series.ts`, which is pinned to the open because live snapshot ingestion runs on its own cron. Perp bars join on an exact timestamp, so a missing perp bar is NaN rather than the previous bar's price

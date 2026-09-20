@@ -33,6 +33,13 @@
 0    */4 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-snapshots?interval=4h" >> /var/log/cron.log 2>&1
 0    0   * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-snapshots?interval=1d" >> /var/log/cron.log 2>&1
 
+# Binance archive metrics and book depth. The archive publishes a day's file
+# after that day ends, so this is a history keeper running a day behind, not a
+# live feed; the three-day window overlaps on purpose, because every write is an
+# idempotent upsert and a late-published day is picked up by the next run.
+# Bulk history is scripts/ops/ingest-archive.ts from the seeder image, not this.
+30   5 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-archive?days=3" >> /var/log/cron.log 2>&1
+
 # Portfolio snapshots
 0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1
 
