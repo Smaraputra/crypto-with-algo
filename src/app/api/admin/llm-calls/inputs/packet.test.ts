@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { buildInputsPacket, type PacketDeps } from './packet';
 
 const HOUR = 3600000;
-const T0 = 1789689600000; // a 1h bar open
+const DAY = 24 * HOUR;
+const T0 = 1789689600000; // a 1h bar open, and a day boundary
 
 function candle(timestamp: number, close: number) {
   return { timestamp, open: close - 1, high: close + 2, low: close - 2, close, volume: 10 };
@@ -95,6 +96,66 @@ describe('buildInputsPacket', () => {
     expect(packet!.news.some((n) => n.title === 'dateless')).toBe(false);
     expect(packet!.news.some((n) => n.title === 'future')).toBe(false);
     expect(packet!.news.map((n) => n.title)).toEqual(['item-0', 'item-1', 'item-2', 'item-3', 'item-4', 'item-5', 'item-6', 'item-7', 'item-8', 'item-9']);
+  });
+
+  it('drops news published before the lookback floor and keeps one exactly on it', async () => {
+    const now = T0 + HOUR + 30 * 60000; // last closed bar T0, closeTime T0 + HOUR
+    const closeTime = T0 + HOUR;
+    const floor = closeTime - 3 * DAY; // 1h horizon is 24 bars, so the three-day floor applies
+
+    const onFloor = await buildInputsPacket(
+      deps({ fetchNews: async () => [{ title: 'on floor', source: 'x', url: 'https://x/on', publishedOn: floor / 1000 }] }),
+      'BTCUSDT', '1h', now
+    );
+    expect(onFloor!.news.map((n) => n.title)).toEqual(['on floor']);
+
+    const belowFloor = await buildInputsPacket(
+      deps({ fetchNews: async () => [{ title: 'below floor', source: 'x', url: 'https://x/below', publishedOn: (floor - 60000) / 1000 }] }),
+      'BTCUSDT', '1h', now
+    );
+    expect(belowFloor!.news).toEqual([]);
+  });
+
+  it('widens the news window with the interval horizon, so 1d keeps what 1h drops', async () => {
+    const tenDaysBefore = (closeTime: number) => (closeTime - 10 * DAY) / 1000;
+    const stale = (closeTime: number) => [
+      { title: 'ten days old', source: 'x', url: 'https://x/ten', publishedOn: tenDaysBefore(closeTime) },
+    ];
+
+    const hourly = await buildInputsPacket(
+      deps({ fetchNews: async () => stale(T0 + HOUR) }),
+      'BTCUSDT', '1h', T0 + HOUR + 30 * 60000
+    );
+    expect(hourly!.news).toEqual([]);
+
+    // 1d is position_trading, a 20 bar horizon, so ten days is well inside it.
+    const daily = await buildInputsPacket(
+      deps({
+        getCandles: async () => [candle(T0 - DAY, 100), candle(T0, 102), candle(T0 + DAY, 103)],
+        findLatestSignal: async () => null,
+        findLatestSnapshot: async () => null,
+        fetchNews: async () => stale(T0 + DAY),
+      }),
+      'BTCUSDT', '1d', T0 + DAY + 6 * HOUR
+    );
+    expect(daily!.lastClosedBar.closeTime).toBe(T0 + DAY);
+    expect(daily!.news.map((n) => n.title)).toEqual(['ten days old']);
+  });
+
+  it('keeps the newest survivors when the feed arrives out of order', async () => {
+    const now = T0 + HOUR + 30 * 60000;
+    const closeTime = T0 + HOUR;
+    const ages = [40, 5, 90, 1, 60];
+    const items = ages.map((minutes) => ({
+      title: `age-${minutes}`,
+      source: 'x',
+      url: `https://x/${minutes}`,
+      publishedOn: (closeTime - minutes * 60000) / 1000,
+    }));
+
+    const packet = await buildInputsPacket(deps({ fetchNews: async () => items }), 'BTCUSDT', '1h', now);
+
+    expect(packet!.news.map((n) => n.title)).toEqual(['age-1', 'age-5', 'age-40', 'age-60', 'age-90']);
   });
 
   it('keeps a signal exactly two intervals old and nulls one older', async () => {
