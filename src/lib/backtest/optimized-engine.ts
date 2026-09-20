@@ -7,6 +7,7 @@ import { alignHtfToLtf, computeHtfSeries, htfContextAtBar } from '@/lib/signals/
 import { intervalToMs } from '@/lib/intervals';
 import type { HtfContext } from '@/types/signal';
 import { buildSnapshotSeries, type LeanSnapshot, type SnapshotBar } from './snapshot-series';
+import { buildResearchSeries, type ResearchBar, type ResearchRow } from './research-series';
 import { runBarLoop, type BarLoopHtf } from './bar-loop';
 import type { Strategy } from './strategy';
 import { createScoreThresholdStrategy } from './strategies/score-threshold';
@@ -34,6 +35,7 @@ export interface PreparedBacktest {
   warmupBars: number;
   stOffset: number;
   snapshots?: (SnapshotBar | null)[]; // index-aligned point-in-time futures/sentiment
+  research?: (ResearchBar | null)[]; // index-aligned research-only columns
   htf?: BarLoopHtf & { interval: string };
 }
 
@@ -66,6 +68,10 @@ export function prepareHtf(
  * Reuse for multiple weight candidates
  * Optional indicatorConfig allows style-specific indicator parameters
  * Optional snapshotDocs supply point-in-time futures/sentiment per bar
+ * Optional researchRows supply research-only per-bar columns. They are keyed
+ * by candle open time and are precomputed over the FULL series by the caller,
+ * so preparing a slice selects a sub-range rather than recomputing a shorter
+ * window; see research-series.ts for why that distinction matters.
  */
 export function prepareBacktest(
   candles: OHLCV[],
@@ -73,7 +79,8 @@ export function prepareBacktest(
   interval: string,
   indicatorConfig?: IndicatorConfig,
   snapshotDocs?: LeanSnapshot[],
-  htfInput?: HtfInput
+  htfInput?: HtfInput,
+  researchRows?: readonly ResearchRow[]
 ): PreparedBacktest {
   // Compute raw indicators with optional style-specific config
   const raw = computeAllIndicators(candles, symbol, interval, indicatorConfig);
@@ -98,6 +105,7 @@ export function prepareBacktest(
     ...(snapshotDocs
       ? { snapshots: buildSnapshotSeries(candles, snapshotDocs, interval, { symbol }) }
       : {}),
+    ...(researchRows ? { research: buildResearchSeries(candles, researchRows) } : {}),
     ...(htfInput ? { htf: prepareHtf(candles, interval, htfInput, indicatorConfig) } : {}),
   };
 }
@@ -114,7 +122,7 @@ export function runOptimizedBacktest(
   onProgress?: BacktestProgressCallback,
   strategy: Strategy = createScoreThresholdStrategy()
 ): BacktestResult {
-  const { candles, indicators, superTrend, warmupBars, stOffset, snapshots, htf } = prepared;
+  const { candles, indicators, superTrend, warmupBars, stOffset, snapshots, research, htf } = prepared;
 
   return runBarLoop({
     candles,
@@ -127,6 +135,7 @@ export function runOptimizedBacktest(
     stOffset,
     htf,
     snapshots,
+    research,
     strategy,
     onProgress,
   });

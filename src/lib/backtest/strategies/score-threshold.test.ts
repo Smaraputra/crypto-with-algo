@@ -38,6 +38,7 @@ function makeContext(overrides: Partial<StrategyContext> = {}): StrategyContext 
     superTrend: null,
     snapshot: null,
     snapshots: [],
+    research: [],
     htfContext: null,
     session: null,
     position: null,

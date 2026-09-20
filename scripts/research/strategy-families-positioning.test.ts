@@ -49,6 +49,7 @@ function ctx(bar: number, snapshots: (SnapshotBar | null)[]): StrategyContext {
     superTrend: null,
     snapshot: snapshots[bar],
     snapshots,
+    research: [],
     htfContext: null,
     session: null,
     position: null,

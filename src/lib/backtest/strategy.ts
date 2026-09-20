@@ -6,6 +6,7 @@ import type { MarketSession } from '@/lib/sessions';
 import type { OpenPosition } from './trade-utils';
 import type { PendingOrder } from './limit-orders';
 import type { SnapshotBar } from './snapshot-series';
+import type { ResearchBar } from './research-series';
 import type { BacktestConfig, TradeSide } from './types';
 
 /**
@@ -35,6 +36,24 @@ export interface StrategyContext {
    * series, not just the current reading.
    */
   snapshots: (SnapshotBar | null)[];
+  /**
+   * Research-only per-bar numeric columns, index-matched to `candles`.
+   *
+   * Same causality contract as `candles` and `snapshots`: read indices up to
+   * and including `bar`, never past it.
+   *
+   * Prefer this over deriving a trailing window from `ctx.snapshots`. The
+   * walk-forward prepares each window from a SLICE of the candle array, so a
+   * window derived in-strategy is full in-sample and truncated out-of-sample,
+   * and the same grid cell then means two different things on the two sides of
+   * the split. Columns here are computed once over the full series by the
+   * harness and merely sliced, so they do not have that problem. See the
+   * header of research-series.ts for the measured impact on Phase 4b.
+   *
+   * Empty for every live and UI backtest; only the research harness fills it.
+   * Nothing here ever reaches `computeSignalScore`.
+   */
+  research: (ResearchBar | null)[];
   htfContext: HtfContext | null;
   session: MarketSession | null;
   position: OpenPosition | null;
