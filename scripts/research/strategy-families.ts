@@ -794,6 +794,69 @@ const positioningFadeFamily: StrategyFamily = {
   },
 };
 
+/**
+ * The same positioning signal held to its horizon, with stops kept out of the way.
+ *
+ * positioning-fade failed at 4h with a random-entry p of 0.602, meaning its
+ * entry timing was no better than chance. That is not what the IC says, and
+ * the likely reason is that the two measure different things: the IC relates
+ * the factor to the return over h bars, while positioning-fade cuts that
+ * return short with a 2 or 3 ATR stop and a 2:1 target, so most trades resolve
+ * on the path rather than at the horizon. This family removes that difference
+ * so the question "does the measured relationship survive costs" gets a clean
+ * answer: the stop sits far enough away to bind only in extremis, there is no
+ * target, and the time stop is the exit.
+ *
+ * If this fails too, the finding does not pay its costs and no further rule
+ * shape should be tried on it, per the program's standing ruling.
+ */
+const POSITIONING_WIDE_STOP_ATR = 10;
+
+const positioningHorizonFamily: StrategyFamily = {
+  name: 'positioning-horizon',
+  description: 'hold the positioning fade to a fixed horizon, stops out of the way',
+  params: [
+    { name: 'window', values: [180, 360, 720] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+  ],
+  create(params): Strategy {
+    const windowBars = params.window;
+    const threshold = params.z;
+    const holdBars = params.hold;
+
+    return {
+      name: 'positioning-horizon',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = positioningZScore(context.snapshots, windowBars)[context.bar];
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          // Far enough to be a disaster brake, not an exit rule.
+          stopPrice: close - sign * POSITIONING_WIDE_STOP_ATR * atr,
+          targetPrice: null,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
 export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   control: {
     name: 'control',
@@ -811,4 +874,5 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'return-reversal-limit': returnReversalLimitFamily,
   'oscillator-reversion-limit': oscillatorReversionLimitFamily,
   'positioning-fade': positioningFadeFamily,
+  'positioning-horizon': positioningHorizonFamily,
 };

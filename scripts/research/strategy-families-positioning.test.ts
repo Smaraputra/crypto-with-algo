@@ -196,3 +196,42 @@ describe('positioning-fade family', () => {
     expect(strategy.decideExit(ctx(199, rising), config)).toBe(false);
   });
 });
+
+describe('positioning-horizon family', () => {
+  const horizon = STRATEGY_FAMILIES['positioning-horizon'];
+
+  it('expands to a grid inside the cell cap', () => {
+    expect(expandGrid(horizon)).toHaveLength(3 * 3 * 3);
+  });
+
+  it('takes the same side as positioning-fade on the same reading', () => {
+    const rising = Array.from({ length: 200 }, (_, i) => snap(1 + i / 100));
+    const p = { window: 120, z: 1, hold: 16 };
+    const h = horizon.create(p, { style: 'swing_trading', interval: '4h' });
+    const f = family.create({ ...p, k: 2 }, { style: 'swing_trading', interval: '4h' });
+    expect(h.decideEntry(ctx(199, rising), config)?.side).toBe(
+      f.decideEntry(ctx(199, rising), config)?.side
+    );
+  });
+
+  it('keeps the stop far away and sets no target, so the time stop is the exit', () => {
+    const rising = Array.from({ length: 200 }, (_, i) => snap(1 + i / 100));
+    const h = horizon.create({ window: 120, z: 1, hold: 32 }, {
+      style: 'swing_trading', interval: '4h',
+    });
+    const d = h.decideEntry(ctx(199, rising), config)!;
+    // close 100, atr 2, 10 ATR: the stop sits 20 away, not 4.
+    expect(d.side).toBe('short');
+    expect(d.stopPrice).toBeCloseTo(120, 10);
+    expect(d.targetPrice).toBeNull();
+    expect(d.timeStopBars).toBe(32);
+  });
+
+  it('never exits on signal', () => {
+    const rising = Array.from({ length: 200 }, (_, i) => snap(1 + i / 100));
+    const h = horizon.create({ window: 120, z: 1, hold: 16 }, {
+      style: 'swing_trading', interval: '4h',
+    });
+    expect(h.decideExit(ctx(199, rising), config)).toBe(false);
+  });
+});

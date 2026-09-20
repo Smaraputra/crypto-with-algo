@@ -271,7 +271,7 @@ describe('withLimitEntry', () => {
 });
 
 describe('registry', () => {
-  it('STRATEGY_FAMILIES has nine names', () => {
+  it('STRATEGY_FAMILIES has ten names', () => {
     expect(Object.keys(STRATEGY_FAMILIES).sort()).toEqual(
       [
         'control',
@@ -280,6 +280,7 @@ describe('registry', () => {
         'oscillator-reversion',
         'oscillator-reversion-limit',
         'positioning-fade',
+        'positioning-horizon',
         'return-reversal',
         'return-reversal-limit',
         'stochrsi-momentum',
