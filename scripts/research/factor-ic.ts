@@ -254,6 +254,12 @@ export interface FactorIcArgs {
   bootstrapSeed: number;
   bootstrapPerSymbol: boolean;
   bootstrapMaxPairs: number;
+  /**
+   * Bars between the bar a factor is read on and the entry its forward return
+   * is measured from. 0 reproduces Phase 3; 1 is the tradeable reading and
+   * removes any shared price term between a factor and its own return.
+   */
+  executionLagBars: number;
   allowLockbox: boolean;
   factors?: string[];
   cell?: { factor: string; horizon: number; symbol?: string };
@@ -353,6 +359,7 @@ const VALUE_FLAGS = new Set([
   'bootstrap-n',
   'bootstrap-seed',
   'bootstrap-max-pairs',
+  'execution-lag',
   'factors',
   'cell',
   'expect-manifest-hash',
@@ -360,6 +367,15 @@ const VALUE_FLAGS = new Set([
 ]);
 
 /** Pure CLI argument parsing. `now` is injectable so default-taskId tests are deterministic. */
+/** --execution-lag: a non-negative integer number of bars. */
+function parseExecutionLag(raw: string | undefined): number {
+  if (raw === undefined) return 0;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`--execution-lag must be a non-negative integer, got "${raw}"`);
+  }
+  return Number(raw);
+}
+
 export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs {
   const flags = new Map<string, string>();
   const booleans = new Set<string>();
@@ -406,6 +422,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
     bootstrapMaxPairs: flags.has('bootstrap-max-pairs')
       ? Number(flags.get('bootstrap-max-pairs'))
       : DEFAULT_BOOTSTRAP_MAX_PAIRS,
+    executionLagBars: parseExecutionLag(flags.get('execution-lag')),
     allowLockbox: booleans.has('allow-lockbox'),
     factors: flags.has('factors') ? parseList(flags.get('factors')!) : undefined,
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
@@ -803,7 +820,7 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     const key = `${symbolIdx}:${horizon}`;
     let cached = fwdCache.get(key);
     if (!cached) {
-      const raw = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon);
+      const raw = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon, args.executionLagBars);
       cached = Float64Array.from(raw, (v) => v ?? NaN);
       fwdCache.set(key, cached);
     }
@@ -917,6 +934,7 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     interval: args.interval,
     symbols,
     horizons: args.horizons,
+    executionLagBars: args.executionLagBars,
     dateRange,
     computedAt: new Date().toISOString(),
     gitCommit: resolveCommit(),
@@ -1013,6 +1031,7 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
   let endOverride = args.end;
   let allowLockboxOverride = args.allowLockbox;
   let expectManifestHash = args.expectManifestHash;
+  let executionLagOverride = args.executionLagBars;
 
   if (args.reportPath) {
     const raw = JSON.parse(await readFile(args.reportPath, 'utf8'));
@@ -1025,6 +1044,8 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
     startOverride = report.dateRange.startMs;
     endOverride = report.dateRange.endMs;
     allowLockboxOverride = !report.lockboxApplied;
+    // Absent on reports written before the option existed, which all used 0.
+    executionLagOverride = report.executionLagBars ?? 0;
     expectManifestHash = expectManifestHash ?? report.datasetManifestHash;
   }
 
@@ -1055,7 +1076,11 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
       throw new Error(`Factor "${factorName}" not present for symbol ${symbol}`);
     }
     const factorArr = Array.from(data.matrix.values[idx]);
-    const result = icWithHac(factorArr, forwardReturns(data.matrix.closes, horizon), horizon);
+    const result = icWithHac(
+      factorArr,
+      forwardReturns(data.matrix.closes, horizon, executionLagOverride),
+      horizon
+    );
     ic = result.ic;
     n = result.n;
   } else {
@@ -1074,7 +1099,9 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
       if (idx === -1) continue;
       foundAny = true;
       pooledFactor = pooledFactor.concat(Array.from(data.matrix.values[idx]));
-      pooledFwd = pooledFwd.concat(forwardReturns(data.matrix.closes, horizon));
+      pooledFwd = pooledFwd.concat(
+        forwardReturns(data.matrix.closes, horizon, executionLagOverride)
+      );
     }
     if (!foundAny) {
       throw new Error(`Factor "${factorName}" not present for any of: ${symbols.join(', ')}`);

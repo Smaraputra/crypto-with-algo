@@ -60,6 +60,12 @@ export const FactorIcReportSchema = z.object({
   interval: z.string(),
   symbols: z.array(z.string()),
   horizons: z.array(z.number()),
+  /**
+   * Bars between the bar a factor is read on and the entry its forward return
+   * is measured from. Optional so reports written before the option existed
+   * still validate; absent means 0, the Phase 3 convention.
+   */
+  executionLagBars: z.number().int().min(0).optional(),
   dateRange: z.object({
     startMs: z.number(),
     endMs: z.number(),

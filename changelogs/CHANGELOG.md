@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research)
+- `--execution-lag` on `scripts/research/factor-ic.ts`, threaded into `forwardReturns` in `scripts/research/ic-stats.ts` and recorded on the report as `executionLagBars` (optional, so older reports still validate; absent means 0). A lag of 0 reproduces Phase 3 and stays the default; a lag of 1 measures the forward return from the NEXT close, which is both what a rule acting on the signal could actually get and the fix for any factor that shares a price term with its own return. `--cell --report` inherits the lag from the report the way it already inherits symbols, window and lockbox
+- The mechanism is pinned by a test: a pure random walk observed with independent noise on every print, with the noise itself used as the factor, produces a spurious |IC| above 0.3 at lag 0 and below 0.05 at lag 1. That is exactly the shape `raw.perpSpotSpreadPct` showed against `raw.basisPct`
+
+
 ### Research (Phase 3b factor study, 2026-09-20)
 - Archive history ingested into production Mongo: `futuresmetrics` 4,958,239 documents and `perpcandles` 14,127,326 (klines and premium index across five intervals), ten symbols from 2022-01-01, about 2 GB with indexes. Snapshot coverage for the two fields Binance REST could not reach went from 11.1% to 77.8% at 1h and 7.0% to 48.7% at 4h and 1d for `longShortRatio`, and to 95.6% and 59.8% for `openInterest`. The long/short figure is capped by the archive's top-trader column being ~0% across 2022 and ~100% from 2023
 - Factor study re-run on all five intervals, lockbox applied, dataset hash `e84cd66dbe01`, same survivor rule as Phase 3. Survivors per interval 5m 24 of 50, 15m 27 of 51, 1h 19 of 51, 4h 10 of 51, 1d 7 of 46, against Phase 3's 4 of 40 at 4h and 2 of 35 at 1d. Full table in the header of `scripts/research/factor-ic.ts`

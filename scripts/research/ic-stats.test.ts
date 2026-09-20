@@ -85,6 +85,67 @@ describe('forwardReturns', () => {
   });
 });
 
+describe('forwardReturns execution lag', () => {
+  const closes = [100, 110, 121, 133.1, 146.41];
+
+  it('measures from the factor bar itself when the lag is 0', () => {
+    // (110 - 100) / 100 = 0.1
+    expect(forwardReturns(closes, 1)[0]).toBeCloseTo(0.1, 12);
+    expect(forwardReturns(closes, 1, 0)).toEqual(forwardReturns(closes, 1));
+  });
+
+  it('measures from the next bar when the lag is 1', () => {
+    // (121 - 110) / 110 = 0.1, entered one bar after the factor is read.
+    expect(forwardReturns(closes, 1, 1)[0]).toBeCloseTo(0.1, 12);
+    expect(forwardReturns(closes, 2, 1)[0]).toBeCloseTo((133.1 - 110) / 110, 12);
+  });
+
+  it('nulls the tail the lag pushes past the end', () => {
+    const lag0 = forwardReturns(closes, 1, 0);
+    const lag1 = forwardReturns(closes, 1, 1);
+    expect(lag0[closes.length - 1]).toBeNull();
+    expect(lag1[closes.length - 2]).toBeNull();
+    expect(lag1[closes.length - 1]).toBeNull();
+  });
+
+  it('removes the shared price term that manufactures a bid-ask bounce IC', () => {
+    // A pure random walk in "true" price, observed with independent noise on
+    // every print. A factor built from the observed price at t shares that
+    // print with a lag-0 return's denominator, so noise alone produces a
+    // negative IC; at lag 1 the shared term is gone and it vanishes.
+    let rng = 7;
+    const next = () => {
+      rng = (rng * 16807) % 2147483647;
+      return rng / 2147483647;
+    };
+
+    const observed: number[] = [];
+    let truePrice = 100;
+    const noise: number[] = [];
+    for (let i = 0; i < 4000; i++) {
+      truePrice *= 1 + (next() - 0.5) * 0.002;
+      const e = (next() - 0.5) * 0.004;
+      noise.push(e);
+      observed.push(truePrice * (1 + e));
+    }
+
+    // The factor is the noise itself: the part of the observed print that is
+    // not the true price. It has no predictive content by construction.
+    const lag0 = spearman(
+      noise.slice(0, 3900),
+      forwardReturns(observed, 1, 0).slice(0, 3900).map((v) => v ?? 0)
+    );
+    const lag1 = spearman(
+      noise.slice(0, 3900),
+      forwardReturns(observed, 1, 1).slice(0, 3900).map((v) => v ?? 0)
+    );
+
+    // Lag 0 shows a large spurious correlation; lag 1 is near zero.
+    expect(Math.abs(lag0)).toBeGreaterThan(0.3);
+    expect(Math.abs(lag1)).toBeLessThan(0.05);
+  });
+});
+
 describe('nonOverlappingIndices', () => {
   it('returns offset, offset+h, ... below n', () => {
     expect(nonOverlappingIndices(10, 3, 0)).toEqual([0, 3, 6, 9]);
