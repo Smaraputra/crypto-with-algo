@@ -103,6 +103,44 @@
  * inputs, with market or resting-limit entries, pays for its costs at
  * any interval; the composite's intraday entry timing is real but worth
  * less than the cheapest way to act on it.
+ *
+ * PHASE 4B, 2026-09-20, positioning. Dataset e84cd66dbe01, lockbox applied,
+ * 10 symbols, 6 windows, trials 486 and 360 respectively, reports
+ * strategy-positioning-{fade,horizon}-{1d,4h}-p4b-*.json.
+ *
+ *   family                interval  trades  exp%     CI low   timing p  gates failed
+ *   positioning-fade      1d        290     +0.481   -2.435   0.070     6 of 8
+ *   positioning-fade      4h        3087    -0.215   -0.570   0.602     7 of 8
+ *   positioning-horizon   1d        249     -1.645   -4.829   0.697     7 of 8
+ *   positioning-horizon   4h        2754    -0.193   -0.564   0.194     7 of 8
+ *
+ * All four fail. The 1d fade is the only run whose point estimate is positive
+ * after costs, the first time anything in this program has managed that, but
+ * its interval spans -2.4% to +3.2%, only 4 of 10 symbols are positive, and
+ * the result is carried by DOGEUSDT (+4.4%), LINKUSDT (+2.9%) and SOLUSDT
+ * (+1.7%) while BTCUSDT and ETHUSDT lose. That is concentration, not edge.
+ *
+ * The decisive number is the timing gate. Random-entry p runs 0.07 to 0.70
+ * across the four runs, so the entry signal is not distinguishable from
+ * entering at random with the same exit profile. positioning-horizon exists
+ * because the first explanation for that was a mismatch between what was
+ * measured (the return over h bars) and what was traded (a 2 or 3 ATR stop
+ * with a 2:1 target, which resolves on the path instead). Removing the stops
+ * and holding to the horizon made it worse, not better, so that explanation
+ * is wrong and the disconnect is real.
+ *
+ * How a factor with ic -0.218 and t -5.9 produces this: the IC counts every
+ * bar as an observation and the Newey-West correction fixes the t-statistic
+ * for overlap, but it cannot turn a highly autocorrelated factor into
+ * independent bets. A long stretch of crowded positioning is one regime, and
+ * a rule that trades it repeatedly is making one bet many times. In-sample
+ * selection then took the shortest hold on offer (median hold 8 bars in every
+ * run) where the IC is strongest at h32, which is the overfitting the
+ * out-of-sample gates exist to catch.
+ *
+ * Per the program's standing ruling, no third rule shape was tried on this
+ * input. The measured relationship is robust (it survives an execution lag of
+ * one bar unchanged) and still does not pay its costs.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';

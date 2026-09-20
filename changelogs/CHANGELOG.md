@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research (Phase 4b, 2026-09-20): the positioning finding does not pay its costs
+- Two rule shapes were built on the Phase 3b positioning result and run through the unchanged gates at 1d and 4h. All four runs fail. `positioning-fade` (trailing z of the top-trader long/short ratio, ATR stop, 2:1 target) and `positioning-horizon` (the same entry held to a fixed horizon with the stop kept out of the way). Table in the header of `scripts/research/strategy-families.ts`
+- The 1d fade is the only run in the program's history with a positive post-cost point estimate (+0.481% per trade), but its interval spans -2.4% to +3.2%, 4 of 10 symbols are positive, and the result is carried by DOGEUSDT, LINKUSDT and SOLUSDT while BTCUSDT and ETHUSDT lose. Concentration, not edge
+- The decisive gate is timing: random-entry p runs 0.07 to 0.70, so the entry signal is not distinguishable from entering at random with the same exit profile. `positioning-horizon` was built to test the obvious explanation, that the IC measures an h-bar return while the rule resolves on the path, and it came out worse, so that explanation is wrong. Per the program's standing ruling no third shape was tried
+- Why a factor with ic -0.218 and t -5.9 behaves this way: the IC counts every bar and Newey-West fixes the t-statistic for overlap, but it cannot turn a highly autocorrelated factor into independent bets, and in-sample selection took the shortest hold on offer in every run where the IC is strongest at 32 bars
+- `StrategyContext` gains `snapshots`, the whole aligned series under the same causality contract as `candles`. The study measured the long/short ratio by Spearman rank inside each symbol and the level's distribution differs far too much between symbols for a fixed threshold to test it (4h p95 runs 1.76 on BNBUSDT to 4.54 on DOGEUSDT), so a rule needs a trailing window rather than just the current reading
+
+### Research (execution lag, 2026-09-20): half the intraday reversal is bid-ask bounce
+- Every interval re-run with `--execution-lag 1`. Positioning is untouched to four significant figures at every interval (4h -0.0783 t -4.9 either way; 1d -0.2177 to -0.2194). Short-horizon return reversal loses 40% of its effect at 1h, 65% at 4h and 82% at 1d, and `raw.ret1` stops surviving at 1d altogether. `cat.volume`, `sig.OBV`, `sig.Taker Flow` and `raw.takerBuyRatio` stop surviving at 1h
+- This qualifies the Phase 3 headline rather than overturning it: intraday mean reversion is real but roughly half of the measured effect is the bid-ask bounce. Any future measurement on this dataset should run at lag 1; the lag-0 tables are kept for continuity with Phase 3
+
+
 ### Added (research)
 - `--execution-lag` on `scripts/research/factor-ic.ts`, threaded into `forwardReturns` in `scripts/research/ic-stats.ts` and recorded on the report as `executionLagBars` (optional, so older reports still validate; absent means 0). A lag of 0 reproduces Phase 3 and stays the default; a lag of 1 measures the forward return from the NEXT close, which is both what a rule acting on the signal could actually get and the fix for any factor that shares a price term with its own return. `--cell --report` inherits the lag from the report the way it already inherits symbols, window and lockbox
 - The mechanism is pinned by a test: a pure random walk observed with independent noise on every print, with the noise itself used as the factor, produces a spurious |IC| above 0.3 at lag 0 and below 0.05 at lag 1. That is exactly the shape `raw.perpSpotSpreadPct` showed against `raw.basisPct`

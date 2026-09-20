@@ -143,6 +143,32 @@
  * this column. raw.basisPct itself does not survive anywhere (5m fails symbol
  * agreement at 0.50).
  *
+ * EXECUTION LAG, 2026-09-20. Every interval was re-run with
+ * --execution-lag 1, which measures the forward return from the next close
+ * instead of the one the factor is read at. That is what a rule acting on the
+ * signal could actually get, and it removes any price term shared between a
+ * factor and its own return. Reports are the same names with a -lag1 suffix.
+ *
+ *   interval  survivors      positioning lag0 -> lag1        raw.ret1 h1 lag0 -> lag1
+ *   1h        19 -> 15       -0.0327 t-4.1 -> -0.0328 t-4.1  -0.0476 t-27.7 -> -0.0291 t-17.1
+ *   4h        10 ->  7       -0.0783 t-4.9 -> -0.0783 t-4.9  -0.0451 t-16.0 -> -0.0157 t -5.6
+ *   1d         7 ->  4       -0.2177 t-5.9 -> -0.2194 t-5.9  -0.0474 t -6.5 -> -0.0085 t -1.2
+ *
+ * This splits the study in two. Positioning is untouched, to four significant
+ * figures at every interval: it is a slow variable that has nothing to do with
+ * the print the return is measured from. Short-horizon return reversal loses
+ * 40% of its effect at 1h, 65% at 4h and 82% at 1d, which is the signature of
+ * a factor built from the very price whose noise drives the correlation.
+ * cat.volume, sig.OBV, sig.Taker Flow and raw.takerBuyRatio all stop surviving
+ * at 1h, and raw.ret1 stops surviving at 1d.
+ *
+ * The Phase 3 headline that intraday mean reversion dominates therefore needs
+ * a qualifier that was not in it: roughly half of that effect is the bid-ask
+ * bounce, not a tradeable reversal. It does not overturn the conclusion, since
+ * Phase 4 already found nothing there that paid its costs, but any future
+ * measurement on this dataset should run at lag 1, and the lag-0 numbers in
+ * the tables above are kept only for continuity with Phase 3.
+ *
  * What this does NOT establish: that any of it pays costs. Phase 3 found 18
  * survivors at 1h and Phase 4 still found no family that beat the round trip.
  * What is different here is the horizon. These are 4h-to-daily signals, where
@@ -151,6 +177,12 @@
  * rather than already answered. raw.topTraderPositionRatio at 1h flipped from
  * surviving to not surviving on a trivial re-export, so it is borderline there
  * and should not be leaned on.
+ *
+ * Phase 4b answered that question and the answer is no: see the header of
+ * scripts/research/strategy-families.ts. Two rule shapes on the positioning
+ * finding, at 1d and 4h, all four runs failing, with a random-entry timing p
+ * between 0.07 and 0.70. The relationship is real and robust and still does
+ * not convert into an edge.
  *
  * bootstrapCi95 is a fixed-rank block bootstrap of the IC: ranks are
  * computed once per (sub)sample (ic-stats.ts's standardizedRankProducts),
