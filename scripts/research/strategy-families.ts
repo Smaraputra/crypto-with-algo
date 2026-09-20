@@ -108,6 +108,7 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { EntryDecision, Strategy, StrategyContext } from '@/lib/backtest/strategy';
 import type { IndicatorSuite } from '@/lib/indicators/types';
+import type { SnapshotBar } from '@/lib/backtest/snapshot-series';
 import type { BacktestConfig } from '@/lib/backtest/types';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import { STRATEGY_EXIT_LEVEL } from '@/lib/signals/calibration';
@@ -664,6 +665,135 @@ export const oscillatorReversionLimitFamily: StrategyFamily = {
   },
 };
 
+/** Readings needed in the trailing window before a positioning z is emitted. */
+const MIN_POSITIONING_SAMPLES = 30;
+
+/**
+ * Trailing z-score of the top-trader long/short ratio, per bar.
+ *
+ * The Phase 3b study measured this factor with Spearman ranks computed inside
+ * each symbol, and symbol agreement was 1.00 at both 4h and 1d, so the effect
+ * is a within-symbol one. An absolute threshold would not test it: at 4h the
+ * 95th percentile of the ratio runs from 1.76 on BNBUSDT to 4.54 on DOGEUSDT,
+ * so one number would fire constantly on one symbol and never on another. A
+ * trailing z is the cheap within-symbol relative reading, and it parallels
+ * raw.fundingZ, which survived on the same logic.
+ *
+ * Memoized on the snapshots array itself: every cell of the grid and every
+ * window share one array instance per symbol, and recomputing an O(window)
+ * pass per bar per cell would dominate the run.
+ */
+const positioningZCache = new WeakMap<object, Map<number, Float64Array>>();
+
+export function positioningZScore(
+  snapshots: readonly (SnapshotBar | null)[],
+  windowBars: number
+): Float64Array {
+  let perWindow = positioningZCache.get(snapshots as object);
+  if (!perWindow) {
+    perWindow = new Map();
+    positioningZCache.set(snapshots as object, perWindow);
+  }
+  const hit = perWindow.get(windowBars);
+  if (hit) return hit;
+
+  const n = snapshots.length;
+  const raw = new Float64Array(n).fill(NaN);
+  for (let i = 0; i < n; i++) {
+    const r = snapshots[i]?.futures?.longShortRatio?.longShortRatio;
+    if (typeof r === 'number' && Number.isFinite(r) && r > 0) raw[i] = r;
+  }
+
+  const out = new Float64Array(n).fill(NaN);
+  let count = 0;
+  let sum = 0;
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) {
+    const entering = raw[i];
+    if (Number.isFinite(entering)) {
+      count++;
+      sum += entering;
+      sumSq += entering * entering;
+    }
+    const leavingIndex = i - windowBars;
+    if (leavingIndex >= 0 && Number.isFinite(raw[leavingIndex])) {
+      count--;
+      sum -= raw[leavingIndex];
+      sumSq -= raw[leavingIndex] * raw[leavingIndex];
+    }
+
+    const value = raw[i];
+    if (!Number.isFinite(value) || count < MIN_POSITIONING_SAMPLES) continue;
+    const mean = sum / count;
+    const meanSq = mean * mean;
+    const variance = (sumSq - count * meanSq) / (count - 1);
+    // Same relative-epsilon guard as factors.ts: for a near-constant series
+    // the two terms cancel and the remainder is float noise, not spread.
+    const epsilon = 1e-12 * Math.max(sumSq / count, meanSq, Number.MIN_VALUE);
+    if (variance <= epsilon) continue;
+    out[i] = (value - mean) / Math.sqrt(variance);
+  }
+
+  perWindow.set(windowBars, out);
+  return out;
+}
+
+/**
+ * Fade crowded top-trader positioning.
+ *
+ * Phase 3b, 4h and 1d: a higher top-trader long/short ratio precedes lower
+ * forward returns at every horizon measured (1d h32 ic -0.218 t -5.9), and the
+ * sign survives an execution lag of one bar unchanged (-0.219 t -5.9). This
+ * family is the cheapest rule that acts on exactly that: short when the ratio
+ * is unusually high for this symbol, long when it is unusually low.
+ */
+const positioningFadeFamily: StrategyFamily = {
+  name: 'positioning-fade',
+  description: 'fade the top-trader long/short ratio when it is z sd from its own trailing mean',
+  params: [
+    { name: 'window', values: [180, 360, 720] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+    { name: 'k', values: [2, 3] },
+  ],
+  create(params): Strategy {
+    const windowBars = params.window;
+    const threshold = params.z;
+    const holdBars = params.hold;
+    const atrMultiple = params.k;
+
+    return {
+      name: 'positioning-fade',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = positioningZScore(context.snapshots, windowBars)[context.bar];
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        // Crowd long (high z) is faded short, and the reverse.
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          stopPrice: close - sign * atrMultiple * atr,
+          targetPrice: close + sign * 2 * atrMultiple * atr,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
 export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   control: {
     name: 'control',
@@ -680,4 +810,5 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'control-limit': controlLimitFamily,
   'return-reversal-limit': returnReversalLimitFamily,
   'oscillator-reversion-limit': oscillatorReversionLimitFamily,
+  'positioning-fade': positioningFadeFamily,
 };

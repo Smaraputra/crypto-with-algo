@@ -602,7 +602,7 @@ describe('parseArgs', () => {
     expect(args.bootstrapN).toBe(1000);
     expect(args.benchmarkN).toBe(200);
     expect(args.noBenchmark).toBe(false);
-    expect(args.trials).toBe(8); // 1 grid cell (control has no params) * 8 registered families
+    expect(args.trials).toBe(9); // 1 grid cell (control has no params) x 9 registered families
     expect(args.stressFeeMult).toBe(1.5);
     expect(args.stressSlippageMult).toBe(2);
     expect(args.allowLockbox).toBe(false);

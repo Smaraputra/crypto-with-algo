@@ -22,6 +22,19 @@ export interface StrategyContext {
   tier: SignalTier;
   superTrend: SuperTrendResult | null; // the type the engines already pass to computeSignalScore
   snapshot: SnapshotBar | null; // per-bar futures and sentiment inputs
+  /**
+   * The whole aligned snapshot series, index-matched to `candles`.
+   *
+   * Same causality contract as `candles`: a strategy may read indices up to
+   * and including `bar` and must never look past it. It exists because the
+   * Phase 3b factor study measured the long/short ratio by Spearman rank
+   * within each symbol, not by absolute level, and the level's distribution
+   * differs far too much between symbols for a fixed threshold to mean the
+   * same thing (4h p95 runs from 1.76 on BNBUSDT to 4.54 on DOGEUSDT). A rule
+   * that tests what was measured therefore needs a trailing window of the
+   * series, not just the current reading.
+   */
+  snapshots: (SnapshotBar | null)[];
   htfContext: HtfContext | null;
   session: MarketSession | null;
   position: OpenPosition | null;

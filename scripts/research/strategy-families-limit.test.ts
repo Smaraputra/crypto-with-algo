@@ -72,6 +72,7 @@ function makeContext(overrides: Partial<StrategyContext> = {}): StrategyContext 
     tier: 'neutral',
     superTrend: null,
     snapshot: null,
+    snapshots: [],
     htfContext: null,
     session: null,
     position: null,
@@ -270,7 +271,7 @@ describe('withLimitEntry', () => {
 });
 
 describe('registry', () => {
-  it('STRATEGY_FAMILIES has eight names', () => {
+  it('STRATEGY_FAMILIES has nine names', () => {
     expect(Object.keys(STRATEGY_FAMILIES).sort()).toEqual(
       [
         'control',
@@ -278,6 +279,7 @@ describe('registry', () => {
         'fade-composite',
         'oscillator-reversion',
         'oscillator-reversion-limit',
+        'positioning-fade',
         'return-reversal',
         'return-reversal-limit',
         'stochrsi-momentum',
