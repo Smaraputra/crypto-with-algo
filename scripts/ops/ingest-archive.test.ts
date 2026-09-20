@@ -361,6 +361,54 @@ describe('main', () => {
     expect(mockBulkUpsertSnapshots).not.toHaveBeenCalled();
   });
 
+  it('ingests each file as it arrives rather than collecting them all first', async () => {
+    // The bookDepth OOM: an earlier version awaited every download into an
+    // array before ingesting, so a job held all its files at once. Here the
+    // first write must land before the last fetch resolves, which is only true
+    // if download and ingest are interleaved per file.
+    let fetches = 0;
+    let firstWriteAfterFetches = -1;
+    const totalDays = 6;
+
+    mockFetchArchiveFile.mockImplementation(async () => {
+      fetches++;
+      return 'create_time,symbol,sum_open_interest\n2024-01-01 00:00:00,BTCUSDT,100\n';
+    });
+    mockMetricBulkWrite.mockImplementation(async () => {
+      if (firstWriteAfterFetches === -1) firstWriteAfterFetches = fetches;
+      return { upsertedCount: 1, modifiedCount: 0 };
+    });
+
+    await run([
+      '--datasets', 'metrics', '--symbols', 'BTCUSDT',
+      '--from', '2024-01-01', '--to', '2024-01-06', '--concurrency', '2',
+    ]);
+
+    expect(fetches).toBe(totalDays);
+    expect(firstWriteAfterFetches).toBeGreaterThan(0);
+    expect(firstWriteAfterFetches).toBeLessThan(totalDays);
+  });
+
+  it('holds at most `concurrency` files in flight at once', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    mockFetchArchiveFile.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      return 'create_time,symbol,sum_open_interest\n2024-01-01 00:00:00,BTCUSDT,100\n';
+    });
+
+    await run([
+      '--datasets', 'metrics', '--symbols', 'BTCUSDT',
+      '--from', '2024-01-01', '--to', '2024-01-10', '--concurrency', '3',
+    ]);
+
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+  });
+
   it('logs a failing job, keeps going, and exits non-zero', async () => {
     mockFetchArchiveFile
       .mockRejectedValueOnce(new Error('archive unreachable'))

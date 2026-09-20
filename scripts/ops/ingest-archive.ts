@@ -311,25 +311,34 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
-/** Run `worker` over `items` with at most `limit` in flight, results in order. */
-async function mapWithConcurrency<T, R>(
+/**
+ * Run `worker` over `items` with at most `limit` in flight, keeping no results.
+ *
+ * Nothing is accumulated on purpose. An earlier version collected every
+ * downloaded CSV into an array and ingested afterwards, which held a whole
+ * job's files in memory at once: fine for metrics (about 35 KB decompressed
+ * per day) but fatal for bookDepth, where 1,723 days of roughly 2 MB each is
+ * about 3.4 GB and Node's default heap is 2 GB. That is a real production
+ * failure, not a theoretical one, and the fix is for each worker to download
+ * and ingest one file before taking the next, so a job holds at most `limit`
+ * files however many days it covers.
+ */
+async function forEachWithConcurrency<T>(
   items: T[],
   limit: number,
-  worker: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+  worker: (item: T, index: number) => Promise<void>
+): Promise<void> {
   let cursor = 0;
 
   async function run(): Promise<void> {
     for (;;) {
       const index = cursor++;
       if (index >= items.length) return;
-      results[index] = await worker(items[index], index);
+      await worker(items[index], index);
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
-  return results;
 }
 
 async function writeFuturesMetrics<T extends object>(ops: UpsertOp<T>[]): Promise<number> {
@@ -386,25 +395,24 @@ export async function main(): Promise<number> {
       let rows = 0;
       let written = 0;
 
-      const csvs = await mapWithConcurrency(keys, args.concurrency, async (date) => {
+      // Each worker downloads one file, ingests it, then takes the next, so a
+      // job's memory is bounded by the concurrency rather than by how many
+      // days it covers. Counters are incremented from several workers, which
+      // is safe: every await point hands control back to the event loop, and
+      // these are plain additions on a single thread.
+      await forEachWithConcurrency(keys, args.concurrency, async (date) => {
         const csv = await fetchArchiveFile(
           { dataset: job.kind as ArchiveDataset, symbol: job.symbol, interval: job.interval, date },
           fetchOptions
         );
-        return { date, csv };
-      });
-
-      // Writes are serialized after the downloads so one job holds at most one
-      // file's worth of parsed rows plus the batch it is writing.
-      for (const { csv } of csvs) {
         if (csv === null) {
           missing++;
-          continue;
+          return;
         }
         const result = await ingestCsv(job, csv);
         rows += result.rows;
         written += result.written;
-      }
+      });
 
       console.log(JSON.stringify({
         kind: job.kind,

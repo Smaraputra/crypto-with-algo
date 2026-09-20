@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (archive ingestion)
+- `scripts/ops/ingest-archive.ts` ran out of memory on the bookDepth dataset. Each job downloaded every file into an array and ingested afterwards, so it held a whole job's files at once: harmless for metrics (about 35 KB decompressed per day) but fatal for bookDepth, where 1,723 days of roughly 2 MB each is about 3.4 GB against Node's 2 GB default heap. Found on the production run, which died with `FATAL ERROR: Reached heap limit Allocation failed` after 347 seconds. Each worker now downloads and ingests one file before taking the next, so a job holds at most `--concurrency` files however many days it covers, and two regression tests pin the behaviour: the first write must land before the last fetch resolves, and the peak in-flight count must not exceed the concurrency
+
 ### Added (archive cron)
 - `GET /api/cron/ingest-archive` keeps `FuturesMetric` current from the archive, with a bounded window (`days`, 1 to 7, default 3), an optional `symbols` list and `depth=false` to skip the bookDepth pass. The window overlaps previous runs on purpose: every write is an idempotent upsert, so a day the archive published late is picked up by the next run rather than lost, and it never asks for today, whose file does not exist yet. Bulk history stays with `scripts/ops/ingest-archive.ts` from the seeder image
 - A daily line in `docker/crontab.template`. Note the archive publishes a day late, so this is a history keeper, not a live feed: anything that graduates to live trading reads the REST endpoints in `src/lib/binance-futures.ts`, which serve the last 30 days and suffice once history is seeded
