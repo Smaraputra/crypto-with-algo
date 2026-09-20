@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research dataset)
+- Two new dataset kinds in `scripts/research/dataset-format.ts`: `perp` (`PerpCandleRow`, carrying quote volume and trade count alongside OHLCV) and `metrics` (`MetricsRow`, every measure nullable). `ManifestFile['kind']` becomes `DatasetKind`; the dataset hash mechanism needed no change and picks the new files up on its own
+- `scripts/research/export-dataset.ts` writes `perp/<SYMBOL>/<interval>.jsonl.gz` (the traded series keeps the bare interval name, others are suffixed, e.g. `1h.premiumIndex.jsonl.gz`) and `metrics/<SYMBOL>/5m.jsonl.gz`, one metrics file per symbol rather than per interval because the archive publishes a single 5m grid that every interval's factors align onto. New `--datasets` flag selects which kinds to write, so a partial re-export stays cheap, and `--perp-series` selects which perpetual series to export (default: the traded one only)
+- `loadPerp` and `loadMetrics` in `scripts/research/load-dataset.ts`, applying the same lockbox cut as the other three loaders
+
 ### Added (archive ingestion)
 - `PerpCandle` (`src/lib/models/perp-candle.ts`): USDT-M perpetual bars from the archive, series `klines`, `premiumIndex` or `markPrice`, unique on symbol, interval, series and bar. A separate collection rather than a `venue` field on `Candle`, whose unique index covers millions of documents on the live path and would need an index rebuild in production for no live benefit. Nothing in the live signal path reads it; it exists so research can price the venue it actually trades, because `Candle` holds SPOT bars while every backtest charges perpetual fees, slippage and funding
 - `FuturesMetric` (`src/lib/models/futures-metric.ts`): open interest, top-trader account and position ratios, the global account ratio, the taker long/short volume ratio, and aggregated book-depth imbalance, on the archive's native 5m grid, unique on symbol and timestamp. Every measure is optional so a gap stays distinguishable from a real zero, and the metrics and bookDepth passes merge into the same document per slot with a field-level `$set`

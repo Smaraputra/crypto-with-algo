@@ -19,6 +19,8 @@ import {
   HistoricalSnapshot,
   type IHistoricalSnapshot,
 } from '@/lib/models/historical-snapshot';
+import { PerpCandle, PERP_SERIES, type IPerpCandle, type PerpSeries } from '@/lib/models/perp-candle';
+import { FuturesMetric, type IFuturesMetric } from '@/lib/models/futures-metric';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import {
   alignHtfToLtf,
@@ -37,14 +39,20 @@ import {
   writeJsonlGz,
   type CandleRow,
   type DatasetManifest,
+  type DatasetKind,
   type HtfRow,
   type ManifestFile,
+  type MetricsRow,
+  type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
 import { styleForInterval } from './factors';
 
 const DEFAULT_INTERVALS = ['5m', '15m', '1h', '4h', '1d'];
 const SNAPSHOT_INTERVALS = new Set(['1h', '4h', '1d']);
+const ALL_KINDS: readonly DatasetKind[] = ['candles', 'snapshots', 'htf', 'perp', 'metrics'] as const;
+/** The archive publishes one 5m grid per symbol, so metrics has a single file. */
+const METRICS_INTERVAL = '5m';
 // Margin added on top of the style's own longest indicator lookback when
 // fetching HTF warmup candles by count (see fetchCandlesBefore).
 const HTF_WARMUP_MARGIN = 50;
@@ -61,6 +69,10 @@ function longestHtfLookback(config: IndicatorConfig): number {
 export interface ExportArgs {
   symbols: string[];
   intervals: string[];
+  /** Which dataset kinds to write. A partial list leaves the other files alone. */
+  kinds: DatasetKind[];
+  /** Which PerpCandle series to export, when `perp` is among the kinds. */
+  perpSeries: PerpSeries[];
   start?: number;
   end?: number;
   out: string;
@@ -106,9 +118,29 @@ export function parseArgs(
     }
   }
 
+  const kinds = flags.has('datasets')
+    ? parseList(flags.get('datasets')!).map((kind) => {
+        if (!(ALL_KINDS as readonly string[]).includes(kind)) {
+          throw new Error(`Unknown dataset kind "${kind}", expected one of ${ALL_KINDS.join(', ')}`);
+        }
+        return kind as DatasetKind;
+      })
+    : [...ALL_KINDS];
+
+  const perpSeries = flags.has('perp-series')
+    ? parseList(flags.get('perp-series')!).map((series) => {
+        if (!(PERP_SERIES as readonly string[]).includes(series)) {
+          throw new Error(`Unknown perp series "${series}", expected one of ${PERP_SERIES.join(', ')}`);
+        }
+        return series as PerpSeries;
+      })
+    : ['klines' as PerpSeries];
+
   return {
     symbols: flags.has('symbols') ? parseList(flags.get('symbols')!) : [...SIGNAL_SYMBOLS],
     intervals: flags.has('intervals') ? parseList(flags.get('intervals')!) : [...DEFAULT_INTERVALS],
+    kinds,
+    perpSeries,
     start: parseIsoFlag(flags.get('start'), 'start'),
     end: parseIsoFlag(flags.get('end'), 'end'),
     out: flags.get('out') ?? 'data/research',
@@ -297,6 +329,80 @@ export function buildHtfRows(
   });
 }
 
+/** Null unless the stored value is a real number, so a gap never reads as zero. */
+function orNull(value: number | undefined): number | null {
+  return value !== undefined && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Perpetual bars for one symbol, interval and series, through a cursor for the
+ * same reason fetchCandles uses one: a year of 5m bars is past any find() cap.
+ */
+async function fetchPerpCandles(
+  symbol: string,
+  interval: string,
+  series: PerpSeries,
+  startMs?: number,
+  endMs?: number
+): Promise<PerpCandleRow[]> {
+  const timestamp = buildTimestampFilter(startMs, endMs);
+  const query: Record<string, unknown> = { symbol, interval, series };
+  if (timestamp) query.timestamp = timestamp;
+
+  const rows: PerpCandleRow[] = [];
+  const cursor = PerpCandle.find(query).sort({ timestamp: 1 }).lean().cursor();
+  for await (const doc of cursor as AsyncIterable<IPerpCandle>) {
+    rows.push({
+      t: doc.timestamp,
+      o: doc.open,
+      h: doc.high,
+      l: doc.low,
+      c: doc.close,
+      v: doc.volume,
+      qv: doc.quoteVolume,
+      n: doc.trades,
+      tbv: orNull(doc.takerBuyVolume),
+    });
+  }
+  return rows;
+}
+
+/** The 5m futures-metrics grid for one symbol. One file, every interval reads it. */
+async function fetchFuturesMetrics(
+  symbol: string,
+  startMs?: number,
+  endMs?: number
+): Promise<MetricsRow[]> {
+  const timestamp = buildTimestampFilter(startMs, endMs);
+  const query: Record<string, unknown> = { symbol };
+  if (timestamp) query.timestamp = timestamp;
+
+  const rows: MetricsRow[] = [];
+  const cursor = FuturesMetric.find(query).sort({ timestamp: 1 }).lean().cursor();
+  for await (const doc of cursor as AsyncIterable<IFuturesMetric>) {
+    rows.push({
+      t: doc.timestamp,
+      openInterest: orNull(doc.openInterest),
+      openInterestValue: orNull(doc.openInterestValue),
+      topTraderAccountRatio: orNull(doc.topTraderAccountRatio),
+      topTraderPositionRatio: orNull(doc.topTraderPositionRatio),
+      globalAccountRatio: orNull(doc.globalAccountRatio),
+      takerLongShortRatio: orNull(doc.takerLongShortRatio),
+      depthImbalance1: orNull(doc.depthImbalance1),
+      depthImbalance2: orNull(doc.depthImbalance2),
+      depthImbalance5: orNull(doc.depthImbalance5),
+      depthNotional1: orNull(doc.depthNotional1),
+      depthNotional5: orNull(doc.depthNotional5),
+    });
+  }
+  return rows;
+}
+
+/** Matches loadPerp: the traded series keeps the bare interval name. */
+function perpFileName(interval: string, series: PerpSeries): string {
+  return series === 'klines' ? `${interval}.jsonl.gz` : `${interval}.${series}.jsonl.gz`;
+}
+
 async function writeDatasetFile<T>(
   outDir: string,
   relPath: string,
@@ -345,22 +451,64 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
   try {
     const files: ManifestFile[] = [];
 
+    const kinds = new Set(args.kinds);
+
     for (const symbol of args.symbols) {
-      for (const interval of args.intervals) {
-        const ltfCandles = await fetchCandles(symbol, interval, args.start, args.end);
+      // One 5m grid per symbol, outside the interval loop: every interval's
+      // factors align onto the same file rather than getting a copy each.
+      if (kinds.has('metrics')) {
+        const metricsRows = await fetchFuturesMetrics(symbol, args.start, args.end);
         files.push(
           await writeDatasetFile(
             args.out,
-            `candles/${symbol}/${interval}.jsonl.gz`,
-            'candles',
+            `metrics/${symbol}/${METRICS_INTERVAL}.jsonl.gz`,
+            'metrics',
             symbol,
-            interval,
-            ltfCandles.map(toCandleRow),
+            METRICS_INTERVAL,
+            metricsRows,
             (row) => row.t
           )
         );
+      }
 
-        if (SNAPSHOT_INTERVALS.has(interval)) {
+      for (const interval of args.intervals) {
+        // HTF rows are index-aligned to the LTF candles, so the candle read
+        // happens whenever either kind is being written.
+        const needsCandles = kinds.has('candles') || kinds.has('htf');
+        const ltfCandles = needsCandles ? await fetchCandles(symbol, interval, args.start, args.end) : [];
+
+        if (kinds.has('candles')) {
+          files.push(
+            await writeDatasetFile(
+              args.out,
+              `candles/${symbol}/${interval}.jsonl.gz`,
+              'candles',
+              symbol,
+              interval,
+              ltfCandles.map(toCandleRow),
+              (row) => row.t
+            )
+          );
+        }
+
+        if (kinds.has('perp')) {
+          for (const series of args.perpSeries) {
+            const perpRows = await fetchPerpCandles(symbol, interval, series, args.start, args.end);
+            files.push(
+              await writeDatasetFile(
+                args.out,
+                `perp/${symbol}/${perpFileName(interval, series)}`,
+                'perp',
+                symbol,
+                interval,
+                perpRows,
+                (row) => row.t
+              )
+            );
+          }
+        }
+
+        if (kinds.has('snapshots') && SNAPSHOT_INTERVALS.has(interval)) {
           const snapshotRows = await fetchSnapshots(symbol, interval, args.start, args.end);
           files.push(
             await writeDatasetFile(
@@ -374,6 +522,8 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
             )
           );
         }
+
+        if (!kinds.has('htf')) continue;
 
         // The LTF interval's own trading style resolves both which config
         // computeHtfSeries uses (must match live scoring's profile.config
