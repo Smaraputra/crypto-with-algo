@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StrategyContext` gains `snapshots`, the whole aligned series under the same causality contract as `candles`. The study measured the long/short ratio by Spearman rank inside each symbol and the level's distribution differs far too much between symbols for a fixed threshold to test it (4h p95 runs 1.76 on BNBUSDT to 4.54 on DOGEUSDT), so a rule needs a trailing window rather than just the current reading
 
 ### Research (execution lag, 2026-09-20): half the intraday reversal is bid-ask bounce
-- Every interval re-run with `--execution-lag 1`. Positioning is untouched to four significant figures at every interval (4h -0.0783 t -4.9 either way; 1d -0.2177 to -0.2194). Short-horizon return reversal loses 40% of its effect at 1h, 65% at 4h and 82% at 1d, and `raw.ret1` stops surviving at 1d altogether. `cat.volume`, `sig.OBV`, `sig.Taker Flow` and `raw.takerBuyRatio` stop surviving at 1h
+- Every interval re-run with `--execution-lag 1`. Positioning is untouched to four significant figures at every interval (4h -0.0783 t -4.9 either way; 1d -0.2177 to -0.2194). Short-horizon return reversal loses a large part of its effect everywhere, between 23% at 5m and 82% at 1d, and `raw.ret1` stops surviving at 1d altogether. `cat.volume`, `sig.OBV`, `sig.Taker Flow` and `raw.takerBuyRatio` stop surviving at 1h
+- The artifact call is settled, not suspected: `raw.perpSpotSpreadPct` at 5m h1 goes from ic 0.0689 t 61.0, the largest single cell anywhere in this program, to ic -0.0015 t -1.3 once the return starts one bar later. It was the shared spot close, entirely
 - This qualifies the Phase 3 headline rather than overturning it: intraday mean reversion is real but roughly half of the measured effect is the bid-ask bounce. Any future measurement on this dataset should run at lag 1; the lag-0 tables are kept for continuity with Phase 3
 
 

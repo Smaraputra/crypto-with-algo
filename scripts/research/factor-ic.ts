@@ -128,7 +128,7 @@
  * that input and its "+" is the same information under the opposite sign
  * convention. The intraday mean-reversion picture from Phase 3 is unchanged.
  *
- * TREAT raw.perpSpotSpreadPct AS AN ARTIFACT until it is re-measured.
+ * raw.perpSpotSpreadPct IS AN ARTIFACT, confirmed by the lag-1 re-run below.
  * It is (perp close - spot close) / spot close, and the forward return is
  * (spot close[t+h] - spot close[t]) / spot close[t], so the two share
  * spot close[t]: noise in that one print pushes both up together, which is
@@ -150,6 +150,7 @@
  * factor and its own return. Reports are the same names with a -lag1 suffix.
  *
  *   interval  survivors      positioning lag0 -> lag1        raw.ret1 h1 lag0 -> lag1
+ *   5m        24 -> 22       -0.0059 t-2.4 -> -0.0059 t-2.4  -0.0299 t-24.5 -> -0.0231 t-19.0
  *   15m       27 -> 20       -0.0238 t-3.0 -> -0.0235 t-3.0  -0.0565 t-29.2 -> -0.0121 t -6.3
  *   1h        19 -> 15       -0.0327 t-4.1 -> -0.0328 t-4.1  -0.0476 t-27.7 -> -0.0291 t-17.1
  *   4h        10 ->  7       -0.0783 t-4.9 -> -0.0783 t-4.9  -0.0451 t-16.0 -> -0.0157 t -5.6
@@ -158,10 +159,16 @@
  * This splits the study in two. Positioning is untouched, to four significant
  * figures at every interval: it is a slow variable that has nothing to do with
  * the print the return is measured from. Short-horizon return reversal loses
- * 79% of its effect at 15m, 40% at 1h, 65% at 4h and 82% at 1d, the signature of
- * a factor built from the very price whose noise drives the correlation.
- * cat.volume, sig.OBV, sig.Taker Flow and raw.takerBuyRatio all stop surviving
- * at 1h, and raw.ret1 stops surviving at 1d.
+ * a large part of its effect everywhere, between 23% at 5m and 82% at 1d
+ * (79% at 15m, 40% at 1h, 65% at 4h; the size does not fall neatly with the
+ * interval, so read it as "materially smaller everywhere" rather than as a
+ * gradient). cat.volume, sig.OBV, sig.Taker Flow and raw.takerBuyRatio all
+ * stop surviving at 1h, and raw.ret1 stops surviving at 1d.
+ *
+ * The artifact call above is now settled rather than suspected.
+ * raw.perpSpotSpreadPct at 5m h1 goes from ic 0.0689 t 61.0, the largest
+ * single cell anywhere in this program, to ic -0.0015 t -1.3 once the return
+ * starts one bar later. It was the shared spot close, entirely.
  *
  * The Phase 3 headline that intraday mean reversion dominates therefore needs
  * a qualifier that was not in it: roughly half of that effect is the bid-ask
