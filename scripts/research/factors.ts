@@ -173,9 +173,9 @@ const RAW_NAMES = [
  * standard deviation is zero or near it. Thirty days spans about ninety
  * settlements at every interval.
  */
-const FUNDING_Z_DAYS = 30;
+export const FUNDING_Z_DAYS = 30;
 /** Finite readings needed before a z-score is emitted rather than NaN. */
-const FUNDING_Z_MIN_SAMPLES = 30;
+export const FUNDING_Z_MIN_SAMPLES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -191,7 +191,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * constant funding rate has no z-score, and reporting 0 would read as
  * "exactly average" on what is really "no information".
  */
-function trailingZScore(series: Float64Array, windowBars: number, minSamples: number): Float64Array {
+export function trailingZScore(series: Float64Array, windowBars: number, minSamples: number): Float64Array {
   const n = series.length;
   const out = new Float64Array(n).fill(NaN);
   let count = 0;
