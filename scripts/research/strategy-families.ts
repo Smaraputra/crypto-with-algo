@@ -150,6 +150,7 @@ import type { SnapshotBar } from '@/lib/backtest/snapshot-series';
 import type { BacktestConfig } from '@/lib/backtest/types';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import { STRATEGY_EXIT_LEVEL } from '@/lib/signals/calibration';
+import { intervalToMs } from '@/lib/intervals';
 
 /** One numeric parameter a family exposes to the grid search. Numeric only;
  * a boolean-valued parameter is encoded as 0/1 and interpreted by `create`. */
@@ -705,41 +706,52 @@ export const oscillatorReversionLimitFamily: StrategyFamily = {
 
 /** Readings needed in the trailing window before a positioning z is emitted. */
 const MIN_POSITIONING_SAMPLES = 30;
+/** Same floor for funding, matching FUNDING_Z_MIN_SAMPLES in factors.ts. */
+const MIN_FUNDING_SAMPLES = 30;
 
 /**
- * Trailing z-score of the top-trader long/short ratio, per bar.
+ * Trailing z-score of one snapshot series, per bar.
  *
- * The Phase 3b study measured this factor with Spearman ranks computed inside
- * each symbol, and symbol agreement was 1.00 at both 4h and 1d, so the effect
- * is a within-symbol one. An absolute threshold would not test it: at 4h the
- * 95th percentile of the ratio runs from 1.76 on BNBUSDT to 4.54 on DOGEUSDT,
- * so one number would fire constantly on one symbol and never on another. A
- * trailing z is the cheap within-symbol relative reading, and it parallels
- * raw.fundingZ, which survived on the same logic.
+ * Shared by every family that reads a within-symbol relative level rather than
+ * an absolute one. The Phase 3b study measured these factors with Spearman
+ * ranks computed inside each symbol, so an absolute threshold would not test
+ * what was measured: at 4h the 95th percentile of the long/short ratio runs
+ * from 1.76 on BNBUSDT to 4.54 on DOGEUSDT, so one number would fire
+ * constantly on one symbol and never on another. A trailing z is the cheap
+ * within-symbol relative reading.
  *
- * Memoized on the snapshots array itself: every cell of the grid and every
- * window share one array instance per symbol, and recomputing an O(window)
- * pass per bar per cell would dominate the run.
+ * `read` returns NaN for a reading that cannot be used, and NaN entries take
+ * part in neither the mean nor the count, so a gap thins the window instead of
+ * poisoning it. This matches trailingZScore in factors.ts, which is what these
+ * families have to reproduce to be testing the factor that was measured.
+ *
+ * Memoized on the snapshots array itself, keyed by series and window: every
+ * cell of the grid and every walk-forward window share one array instance per
+ * symbol, and recomputing an O(window) pass per bar per cell would dominate
+ * the run.
  */
-const positioningZCache = new WeakMap<object, Map<number, Float64Array>>();
+const snapshotZCache = new WeakMap<object, Map<string, Float64Array>>();
 
-export function positioningZScore(
+function snapshotTrailingZ(
   snapshots: readonly (SnapshotBar | null)[],
-  windowBars: number
+  windowBars: number,
+  minSamples: number,
+  seriesKey: string,
+  read: (bar: SnapshotBar | null) => number
 ): Float64Array {
-  let perWindow = positioningZCache.get(snapshots as object);
-  if (!perWindow) {
-    perWindow = new Map();
-    positioningZCache.set(snapshots as object, perWindow);
+  let perSeries = snapshotZCache.get(snapshots as object);
+  if (!perSeries) {
+    perSeries = new Map();
+    snapshotZCache.set(snapshots as object, perSeries);
   }
-  const hit = perWindow.get(windowBars);
+  const cacheKey = `${seriesKey}:${windowBars}`;
+  const hit = perSeries.get(cacheKey);
   if (hit) return hit;
 
   const n = snapshots.length;
   const raw = new Float64Array(n).fill(NaN);
   for (let i = 0; i < n; i++) {
-    const r = snapshots[i]?.futures?.longShortRatio?.longShortRatio;
-    if (typeof r === 'number' && Number.isFinite(r) && r > 0) raw[i] = r;
+    raw[i] = read(snapshots[i] ?? null);
   }
 
   const out = new Float64Array(n).fill(NaN);
@@ -761,7 +773,7 @@ export function positioningZScore(
     }
 
     const value = raw[i];
-    if (!Number.isFinite(value) || count < MIN_POSITIONING_SAMPLES) continue;
+    if (!Number.isFinite(value) || count < minSamples) continue;
     const mean = sum / count;
     const meanSq = mean * mean;
     const variance = (sumSq - count * meanSq) / (count - 1);
@@ -772,8 +784,61 @@ export function positioningZScore(
     out[i] = (value - mean) / Math.sqrt(variance);
   }
 
-  perWindow.set(windowBars, out);
+  perSeries.set(cacheKey, out);
   return out;
+}
+
+/** The top-trader long/short ratio. A ratio is strictly positive, so a
+ * non-positive reading is a broken row, not a real one. */
+function readPositioningRatio(bar: SnapshotBar | null): number {
+  const r = bar?.futures?.longShortRatio?.longShortRatio;
+  return typeof r === 'number' && Number.isFinite(r) && r > 0 ? r : Number.NaN;
+}
+
+/** The funding rate. Signed: a negative rate means shorts pay longs and is a
+ * real reading, so unlike the ratio above it must not be filtered on sign. */
+function readFundingRate(bar: SnapshotBar | null): number {
+  const r = bar?.futures?.fundingRate?.fundingRate;
+  return typeof r === 'number' && Number.isFinite(r) ? r : Number.NaN;
+}
+
+/** Trailing z-score of the top-trader long/short ratio, per bar. */
+export function positioningZScore(
+  snapshots: readonly (SnapshotBar | null)[],
+  windowBars: number
+): Float64Array {
+  return snapshotTrailingZ(
+    snapshots,
+    windowBars,
+    MIN_POSITIONING_SAMPLES,
+    'positioning',
+    readPositioningRatio
+  );
+}
+
+/** Trailing z-score of the funding rate, per bar. Reproduces `raw.fundingZ`
+ * from factors.ts, which reads the same aligned snapshot array: factor-ic
+ * measures it off `prepared.snapshots`, and `prepareBacktest` builds that with
+ * the same `buildSnapshotSeries` call that fills `ctx.snapshots`. */
+export function fundingZScore(
+  snapshots: readonly (SnapshotBar | null)[],
+  windowBars: number
+): Float64Array {
+  return snapshotTrailingZ(snapshots, windowBars, MIN_FUNDING_SAMPLES, 'fundingZ', readFundingRate);
+}
+
+/**
+ * The funding z window, in bars, for an interval.
+ *
+ * Expressed in days rather than bars for the reason factors.ts gives: funding
+ * settles every 8h, so a bar-count window degenerates at fine intervals (96
+ * bars at 5m is a single funding period, over which the standard deviation is
+ * zero). A day-count window spans the same number of settlements at every
+ * interval, which is what makes a grid cell mean the same thing at 15m and 1h.
+ */
+export function fundingWindowBars(days: number, interval: string): number {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  return Math.max(1, Math.ceil((days * DAY_MS) / intervalToMs(interval)));
 }
 
 /**
@@ -895,6 +960,79 @@ const positioningHorizonFamily: StrategyFamily = {
   },
 };
 
+/**
+ * Fade an unusually high funding rate.
+ *
+ * Phase 3b at execution lag 1: `raw.fundingZ` survives at 15m (h8 ic -0.0251
+ * t -6.5, h16 -0.0320 t -5.9, h32 -0.0420 t -5.7) and 1h (h8 -0.0234 t -7.0,
+ * h16 -0.0259 t -5.8), and at no other interval. It does NOT survive at 4h
+ * under lag 1, though it did at lag 0, so this family runs at 15m and 1h only.
+ *
+ * This is a new input, not a new rule shape over an old one: funding z has
+ * never been turned into a family. The rule is deliberately the same cheap
+ * shape positioning-fade used, so that a difference in outcome is a difference
+ * in the input rather than in the rule.
+ *
+ * No plumbing was needed. factors.ts computes `raw.fundingZ` from
+ * `alignedSnapshots[bar].futures.fundingRate.fundingRate`, and that array is
+ * `prepared.snapshots`, which `prepareBacktest` fills with the same
+ * `buildSnapshotSeries` call that fills `ctx.snapshots`. The family therefore
+ * reads the identical series the IC was measured on.
+ *
+ * Snapshots align to the bar's OPEN (buildSnapshotSeries), so reading the z at
+ * `ctx.bar` and entering at that bar's close is already an honest one-sided
+ * delay; no `bar - 1` offset is needed here. Contrast depth-imbalance-fade,
+ * whose metrics align to the bar's close and which therefore must read
+ * `ctx.bar - 1`.
+ */
+const fundingZFadeFamily: StrategyFamily = {
+  name: 'funding-z-fade',
+  description: 'fade the funding rate when it is z sd from its own trailing mean',
+  params: [
+    { name: 'days', values: [15, 30, 60] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+    { name: 'k', values: [2, 3] },
+  ],
+  create(params, ctx): Strategy {
+    const windowBars = fundingWindowBars(params.days, ctx.interval);
+    const threshold = params.z;
+    const holdBars = params.hold;
+    const atrMultiple = params.k;
+
+    return {
+      name: 'funding-z-fade',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = fundingZScore(context.snapshots, windowBars)[context.bar];
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        // Negative IC: expensive funding (high z) precedes lower returns, so a
+        // high z is faded short and the reverse.
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          stopPrice: close - sign * atrMultiple * atr,
+          targetPrice: close + sign * 2 * atrMultiple * atr,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
 export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   control: {
     name: 'control',
@@ -913,4 +1051,5 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'oscillator-reversion-limit': oscillatorReversionLimitFamily,
   'positioning-fade': positioningFadeFamily,
   'positioning-horizon': positioningHorizonFamily,
+  'funding-z-fade': fundingZFadeFamily,
 };
