@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (research): a trailing window meant two different things in-sample and out-of-sample
+- `runStrategyWalkForward` prepares each window from a slice of the candle array, and `prepareBacktest` builds `ctx.snapshots` from that slice. Any family deriving its own trailing window therefore got the full window in-sample (the train slice is thousands of bars) and a truncated one out-of-sample (only `purgeGapBars` of pre-test history). The same grid cell labelled two different factors on the two sides of the split, so cell selection optimised one quantity while the gates scored another. Not lookahead: truncation is backward-only, which is why `no-lookahead.test.ts` never caught it
+- Measured from the Phase 4b reports. At 1d the test slice is 612 bars, so a 720-bar window could never be realised at all, and the 1d positioning fade selected that cell in 5 of its 38 selecting symbol-windows (BTCUSDT in 2 of its 3). At 4h the slice is 1,845 bars, so a 720-bar window was truncated across the first 32% of each test window and a 360-bar window across the first 10%; the 4h fade selected 720 in 14 of 53 and 360 in 17
+- **The Phase 4b table is superseded and awaits a re-run.** The verdict is unlikely to move (6 of 8 gates failed, CI -2.4% to +3.2%), but the run was not testing what its cell labels claim, so it is not evidence until re-run. Recorded in the header of `scripts/research/strategy-families.ts`
+
+### Added (research): a research-only per-bar column channel
+- `src/lib/backtest/research-series.ts`: `ResearchRow`, `ResearchBar`, `buildResearchSeries` (exact open-time join, no staleness carry) and `researchValue` (NaN, never 0, for a missing reading). `StrategyContext` gains `research`, under the same causality contract as `candles`. Threaded through `bar-loop.ts`, `optimized-engine.ts`, `strategy-walk-forward.ts` and `strategy-harness.ts`, including `runCell` so a spot check verifies the run it is checking
+- Deliberately NOT part of `SnapshotBar`, whose shape is the live scorer's contract. Nothing in the channel reaches `computeSignalScore`
+- `scripts/research/research-columns.ts` builds every column once over the FULL candle series, so preparing a window slice selects a sub-range instead of recomputing a shorter window. Snapshot-derived columns (funding, positioning) are open-aligned and unshifted; the depth column is close-aligned per `factors.ts` and then shifted forward one bar, which is both observable before the next bar's open and exactly the lag-1 relationship the surviving cells were measured at
+- Columns are masked below the indicator warmup because `factors.ts` masks its raw series there. A test pins `fundingZ30d` equal to `raw.fundingZ` bar for bar, and another pins the depth column equal to `trailingZScore(raw.depthImbalance1)` shifted one bar. Without the warmup mask the two disagreed by more than 0.6 sd
+
+### Added (research): two families on the untested lag-1 survivors
+- `funding-z-fade` (15m, 1h) and `depth-imbalance-fade` (4h, 1h), both contrarian, both the same cheap rule shape the positioning families use so a difference in outcome is a difference in the input. New inputs, not new rule shapes over old ones, per the standing ruling
+- `positioning-fade` and `positioning-horizon` now read the same columns rather than deriving their own z
+- `StrategyFamily` gains `requiresResearchColumns`, and the harness aborts naming any symbol whose dataset produced none of them, instead of completing with the misleading "no cell reached N in-sample trades"
+
+### Added (research): the lag-1 survivor table, and the execution-lag caveat
+- `scripts/research/factor-ic.ts` carried a per-factor table for lag 0 only and bare counts for lag 1, leaving the superseded table as the only one to read. The lag-1 table is now in the header, generated from the reports with the repository's own `SURVIVOR_RULE`; its per-interval counts reproduce the recorded ones exactly
+- Three lag-0 claims do not survive and must not be built on: `cat.futures` at 1d, `raw.fundingZ` at 4h, and `raw.depthImbalance1` at 1d. `raw.basisPct` and `raw.perpSpotSpreadPct` survive nowhere at either lag
+- Recorded that the bar loop fills a market entry at the decision bar's own close, which is execution lag 0. Honest for a snapshot-derived factor (snapshots pin to the bar's open) and optimistic for a candle-derived one, so every recorded Phase 4 number for `control`, `return-reversal` and `oscillator-reversion` rests on an assumption the factor study has since abandoned
+
+### Added (research): payoff ratio alongside win rate
+- `PooledStats` and the report schema gain `avgWinPercent`, `avgLossPercent` and `payoffRatio`. Reported only: no gate reads them and nothing selects on them. Expectancy is `winRate * avgWin - (1 - winRate) * avgLoss`, so a win rate is uninterpretable without the payoff beside it and either can be bought at the other's expense. The objective stays net expectancy per trade after costs
+
 ### Research (Phase 4b, 2026-09-20): the positioning finding does not pay its costs
 - Two rule shapes were built on the Phase 3b positioning result and run through the unchanged gates at 1d and 4h. All four runs fail. `positioning-fade` (trailing z of the top-trader long/short ratio, ATR stop, 2:1 target) and `positioning-horizon` (the same entry held to a fixed horizon with the stop kept out of the way). Table in the header of `scripts/research/strategy-families.ts`
 - The 1d fade is the only run in the program's history with a positive post-cost point estimate (+0.481% per trade), but its interval spans -2.4% to +3.2%, 4 of 10 symbols are positive, and the result is carried by DOGEUSDT, LINKUSDT and SOLUSDT while BTCUSDT and ETHUSDT lose. Concentration, not edge
