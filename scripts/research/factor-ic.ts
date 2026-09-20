@@ -150,6 +150,7 @@
  * factor and its own return. Reports are the same names with a -lag1 suffix.
  *
  *   interval  survivors      positioning lag0 -> lag1        raw.ret1 h1 lag0 -> lag1
+ *   15m       27 -> 20       -0.0238 t-3.0 -> -0.0235 t-3.0  -0.0565 t-29.2 -> -0.0121 t -6.3
  *   1h        19 -> 15       -0.0327 t-4.1 -> -0.0328 t-4.1  -0.0476 t-27.7 -> -0.0291 t-17.1
  *   4h        10 ->  7       -0.0783 t-4.9 -> -0.0783 t-4.9  -0.0451 t-16.0 -> -0.0157 t -5.6
  *   1d         7 ->  4       -0.2177 t-5.9 -> -0.2194 t-5.9  -0.0474 t -6.5 -> -0.0085 t -1.2
@@ -157,7 +158,7 @@
  * This splits the study in two. Positioning is untouched, to four significant
  * figures at every interval: it is a slow variable that has nothing to do with
  * the print the return is measured from. Short-horizon return reversal loses
- * 40% of its effect at 1h, 65% at 4h and 82% at 1d, which is the signature of
+ * 79% of its effect at 15m, 40% at 1h, 65% at 4h and 82% at 1d, the signature of
  * a factor built from the very price whose noise drives the correlation.
  * cat.volume, sig.OBV, sig.Taker Flow and raw.takerBuyRatio all stop surviving
  * at 1h, and raw.ret1 stops surviving at 1d.
