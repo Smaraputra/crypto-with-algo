@@ -141,6 +141,34 @@
  * Per the program's standing ruling, no third rule shape was tried on this
  * input. The measured relationship is robust (it survives an execution lag of
  * one bar unchanged) and still does not pay its costs.
+ *
+ * THE PHASE 4B TABLE ABOVE IS SUPERSEDED AND AWAITS A RE-RUN (2026-09-21).
+ *
+ * Both positioning families derived their trailing z from `ctx.snapshots`,
+ * which runStrategyWalkForward builds from a SLICE of the candle array. The
+ * train slice is thousands of bars, so the window was fully realised
+ * in-sample; the test slice is only `purgeGapBars` of history plus the test
+ * window, so out-of-sample it was truncated. The same grid cell therefore
+ * labelled two different factors on the two sides of the split: selection
+ * optimised one, the gates scored the other. It is not lookahead -- truncation
+ * is backward-only, which is why no-lookahead.test.ts is silent on it.
+ *
+ * Measured from the reports:
+ *
+ *   interval  test slice     window=720              window=360     window=180
+ *   1d        399+213=612    NEVER realised          fully realised fully realised
+ *   4h        199+1646=1845  first 32% truncated     first 10%      fully realised
+ *
+ * And the cells actually selected, of 60 symbol-windows each: the 1d fade took
+ * window=720 in 5 of its 38 selecting windows (BTCUSDT chose it in 2 of its 3),
+ * and the 4h fade took it in 14 of 53. So the +0.481% 1d headline rests in part
+ * on a cell whose window could not exist in a 612-bar slice.
+ *
+ * The verdict is unlikely to move -- the run failed 6 of 8 gates with a CI
+ * spanning -2.4% to +3.2% -- but it was not testing what its labels claim, so
+ * the table is not evidence until it is re-run. Both families now read
+ * precomputed full-series columns (research-columns.ts) and the re-run is
+ * pending.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';

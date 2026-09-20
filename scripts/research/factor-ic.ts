@@ -177,6 +177,65 @@
  * measurement on this dataset should run at lag 1, and the lag-0 numbers in
  * the tables above are kept only for continuity with Phase 3.
  *
+ * THE LAG-1 SURVIVOR TABLE. Every table above this point is lag 0, which the
+ * program has since ruled superseded, so this is the one to read. Generated
+ * from data/research/reports/factor-ic-<interval>-p3b-lag1.json with the
+ * repository's own SURVIVOR_RULE (report-schema.ts), and its per-interval
+ * counts reproduce the ones recorded above: 5m 22 of 50, 15m 20 of 51,
+ * 1h 15 of 51, 4h 7 of 51, 1d 4 of 46.
+ *
+ *   factor                      5m          15m         1h          4h          1d
+ *   cat.htf                     - h8-32     - h16,32    .           .           .
+ *   cat.trend                   - h1-32     - h4-32     - h2-16     .           .
+ *   cat.volatility              + h1-16     + h2,4      + h1-4      .           .
+ *   composite                   .           - h8-32     - h8,16     .           .
+ *   raw.depthImbalance1         .           .           - h16,32    - h8-32     .
+ *   raw.emaSpreadPct            - h1-32     - h4-32     - h2-16     .           .
+ *   raw.fundingRate             - h16,32    - h16,32    .           .           .
+ *   raw.fundingZ                - h16,32    - h8-32     - h8,16     .           .
+ *   raw.globalAccountRatio      .           .           .           - h8-32     - h1-32
+ *   raw.htfTrend                - h16,32    - h8-32     .           .           .
+ *   raw.longShortRatio          .           .           .           - h8-32     - h1-32
+ *   raw.ret1                    - h1-4      .           - h1-4      .           .
+ *   raw.ret20                   - h1-32     - h16,32    - h4-32     .           .
+ *   raw.ret5                    - h1-16     - h2-8      - h1-4      - h1-8      .
+ *   raw.rsi                     - h1-32     - h2-32     - h1-8      .           .
+ *   raw.topTraderPositionRatio  .           .           .           - h8-32     - h1-32
+ *   sig.Bollinger               + h1-16     + h2,4      + h1-4      .           .
+ *   sig.EMA Cross               - h1-32     - h4-32     - h2-16     .           .
+ *   sig.HTF EMA Cross           - h16,32    - h16,32    .           .           .
+ *   sig.HTF SMA Trend           - h8-32     - h16,32    .           .           .
+ *   sig.HTF SuperTrend          - h16,32    - h16,32    .           .           .
+ *   sig.Ichimoku                .           - h2-32     - h2,4      .           .
+ *   sig.Long/Short Ratio        .           .           .           + h8-32     + h1-32
+ *   sig.MACD                    - h4-16     .           .           .           .
+ *   sig.OBV                     - h2-16     .           .           .           .
+ *   sig.SMA Trend               - h1-32     - h4-32     .           .           .
+ *   sig.StochRSI                .           .           .           + h2,4      .
+ *   sig.SuperTrend              - h2-16     - h16,32    - h4-16     .           .
+ *   sig.Volume                  - h2,4      .           .           .           .
+ *   sig.Williams %R             + h1-16     + h2,4      + h1,2      .           .
+ *
+ * Three things in the lag-0 Phase 3b write-up do NOT survive here and must not
+ * be built on: cat.futures at 1d, raw.fundingZ at 4h, and raw.depthImbalance1
+ * at 1d (it clears the ic and t legs there but fails sign agreement).
+ * raw.basisPct and raw.perpSpotSpreadPct survive nowhere at either lag.
+ *
+ * EXECUTION LAG IS MEASURED HERE BUT NOT IN THE BACKTEST. The bar loop fills a
+ * market entry at the DECISION bar's own close (src/lib/backtest/bar-loop.ts),
+ * which is lag 0. For a snapshot-derived factor that is still honest, because
+ * buildSnapshotSeries pins each bar to a snapshot at or before the bar's OPEN,
+ * so the reading precedes the fill. For a factor derived from the bar's own
+ * close -- raw.ret1, raw.ret5, rsi, the composite -- it is not: the rule acts
+ * on a close it transacts at. Every recorded Phase 4 number for a
+ * candle-derived family (control, return-reversal, oscillator-reversion) rests
+ * on that assumption, and the lag-1 re-run above is what shows the size of it:
+ * raw.ret1 h1 loses between 23% and 82% of its effect once the return starts
+ * one bar later. Those families' timing p-values are correspondingly
+ * optimistic. Positioning's numbers are not affected, which is why they stand.
+ * Research columns derived from a close-aligned source are shifted forward one
+ * bar by their producer for exactly this reason; see research-columns.ts.
+ *
  * What this does NOT establish: that any of it pays costs. Phase 3 found 18
  * survivors at 1h and Phase 4 still found no family that beat the round trip.
  * What is different here is the horizon. These are 4h-to-daily signals, where

@@ -173,6 +173,31 @@ describe('poolStrategyResults: basic pooling', () => {
     expect(pooled.medianHoldBars).toBe(4);
   });
 
+  it('computes avgWin, avgLoss and payoffRatio in percent terms', () => {
+    expect(pooled.avgWinPercent).toBeCloseTo((2 + 1.5) / 2, 12);
+    expect(pooled.avgLossPercent).toBeCloseTo(1, 12);
+    expect(pooled.payoffRatio).toBeCloseTo(1.75, 12);
+  });
+
+  it('nulls the payoff ratio rather than dividing by an absent leg', () => {
+    const allWinners = [makeResult('AAAUSDT', [makeWindow(0, [tradeA1, tradeB1])])];
+    const noLosses = poolStrategyResults(allWinners, {
+      interval: '1h', cells: ONE_CELL, familyCount: 1, bootstrapIterations: 50, seed: 7,
+    });
+    expect(noLosses.avgLossPercent).toBeNull();
+    expect(noLosses.payoffRatio).toBeNull();
+  });
+
+  it('keeps the payoff ratio out of every gate', () => {
+    // Reported only. Nothing selects on it and no gate reads it; expectancy
+    // stays the objective. A payoff ratio can be bought by widening the
+    // target, which is exactly why it must not be a criterion.
+    const names = evaluateStrategyGates(pooled, '1h').gates.map((g) => g.name);
+    expect(names).not.toContain('payoff');
+    expect(names).not.toContain('winRate');
+    expect(names).toHaveLength(8);
+  });
+
   it('computes maxDrawdownPercent via maxDrawdownPercentOfPnl on pnl in exit order', () => {
     expect(pooled.maxDrawdownPercent).toBeCloseTo(maxDrawdownPercentOfPnl([100, 80, -50], 10000), 12);
   });
@@ -662,6 +687,9 @@ function makeBasePooled(overrides: Partial<PooledStats> = {}): PooledStats {
     expectancyR: 0.5,
     winRate: 0.55,
     profitFactor: 1.8,
+    avgWinPercent: 2.2,
+    avgLossPercent: 1.2,
+    payoffRatio: 2.2 / 1.2,
     medianHoldBars: 5,
     maxDrawdownPercent: 3,
     bootstrapCi95: [0.2, 1.8],

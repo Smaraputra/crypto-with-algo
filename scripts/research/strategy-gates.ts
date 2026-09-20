@@ -108,6 +108,10 @@ export interface PooledStats {
   expectancyR: number | null;
   winRate: number | null;
   profitFactor: number | null;
+  /** Reported only, never a gate: see the note at its computation. */
+  avgWinPercent: number | null;
+  avgLossPercent: number | null;
+  payoffRatio: number | null;
   medianHoldBars: number | null;
   maxDrawdownPercent: number | null;
   bootstrapCi95: [number, number] | null;
@@ -294,6 +298,21 @@ export function poolStrategyResults(
   const negativeSumAbs = Math.abs(trades.filter((t) => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
   const profitFactor = toFinite(positiveSum / negativeSumAbs);
 
+  // Average win over average loss, in percent-of-notional terms.
+  //
+  // REPORTED ONLY. No gate reads it, and nothing selects on it. It exists so
+  // a reader can see the shape behind an expectancy rather than only its
+  // level: expectancy is winRate * avgWin - (1 - winRate) * avgLoss, so a win
+  // rate is uninterpretable without the payoff beside it, and either can be
+  // traded against the other at no cost to skill. The program's objective is
+  // and stays net expectancy per trade after costs.
+  const winPercents = trades.filter((t) => t.pnl > 0).map((t) => t.pnlPercent);
+  const lossPercents = trades.filter((t) => t.pnl < 0).map((t) => Math.abs(t.pnlPercent));
+  const avgWinPercent = winPercents.length === 0 ? null : toFinite(meanOf(winPercents));
+  const avgLossPercent = lossPercents.length === 0 ? null : toFinite(meanOf(lossPercents));
+  const payoffRatio =
+    avgWinPercent === null || avgLossPercent === null ? null : toFinite(avgWinPercent / avgLossPercent);
+
   const medianHoldBars = toFinite(median(trades.map((t) => t.holdTimeBars)));
   // maxDrawdownPercentOfPnl([], 10000) returns 0 (a real, finite "no drawdown"
   // over an empty walk), which toFinite would not catch -- null it explicitly
@@ -435,6 +454,9 @@ export function poolStrategyResults(
     expectancyR,
     winRate,
     profitFactor,
+    avgWinPercent,
+    avgLossPercent,
+    payoffRatio,
     medianHoldBars,
     maxDrawdownPercent,
     bootstrapCi95,

@@ -435,6 +435,11 @@ const PooledStatsSchema = z.object({
   expectancyR: z.number().nullable(),
   winRate: z.number().nullable(),
   profitFactor: z.number().nullable(),
+  // Reported only, no gate reads them. Zod strips unknown keys, so a field
+  // added to PooledStats without a matching entry here vanishes on parse.
+  avgWinPercent: z.number().nullable(),
+  avgLossPercent: z.number().nullable(),
+  payoffRatio: z.number().nullable(),
   medianHoldBars: z.number().nullable(),
   maxDrawdownPercent: z.number().nullable(),
   bootstrapCi95: z.tuple([z.number(), z.number()]).nullable(),
