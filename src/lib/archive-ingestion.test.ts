@@ -11,6 +11,8 @@ import {
   enumerateMonths,
   metricsUpserts,
   perpCandleUpserts,
+  perpPairsForSeries,
+  PERP_DATASET_SERIES,
 } from './archive-ingestion';
 import type { BookDepthSnapshot, KlineCsvRow, MetricsCsvRow } from './external/binance-archive';
 
@@ -461,5 +463,32 @@ describe('buildMetricsSnapshotPatches', () => {
       expect(patch.data.longShortRatio!.ratio).toBe(expected.topTraderPositionRatio);
     }
     expect(patches.length).toBeGreaterThan(100);
+  });
+});
+
+describe('PERP_DATASET_SERIES', () => {
+  it('pairs each kline-shaped dataset with the series it writes', () => {
+    // One literal per pair, because this is the pairing whose drift is
+    // expensive: premiumIndex and klines rows carry the same timestamps, so
+    // writing premium rows under series 'klines' would overwrite the traded
+    // bars with premium values, and nothing in the live app reads this
+    // collection, so nothing would notice.
+    expect(PERP_DATASET_SERIES).toEqual([
+      { dataset: 'klines', series: 'klines' },
+      { dataset: 'premiumIndex', series: 'premiumIndex' },
+      { dataset: 'markPrice', series: 'markPrice' },
+    ]);
+  });
+
+  it('selects pairs for the requested series, in the requested order', () => {
+    expect(perpPairsForSeries(['klines'])).toEqual([{ dataset: 'klines', series: 'klines' }]);
+    expect(perpPairsForSeries(['premiumIndex'])).toEqual([
+      { dataset: 'premiumIndex', series: 'premiumIndex' },
+    ]);
+    expect(perpPairsForSeries(['klines', 'premiumIndex']).map((p) => p.series)).toEqual([
+      'klines',
+      'premiumIndex',
+    ]);
+    expect(perpPairsForSeries([])).toEqual([]);
   });
 });

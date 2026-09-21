@@ -190,6 +190,86 @@ describe('archiveUrl and friends', () => {
   });
 });
 
+describe('the cadence override on kline datasets', () => {
+  it('builds the DAILY kline url when the spec asks for it', () => {
+    // The monthly file for a current month does not exist, so a keeper has to
+    // ask for the daily form explicitly. The path segment flips; nothing else
+    // about the file name or the cache key moves.
+    expect(
+      archiveUrl({
+        dataset: 'klines',
+        symbol: 'BTCUSDT',
+        interval: '5m',
+        date: '2026-09-19',
+        cadence: 'daily',
+      })
+    ).toBe(
+      'https://data.binance.vision/data/futures/um/daily/klines/BTCUSDT/5m/BTCUSDT-5m-2026-09-19.zip'
+    );
+
+    expect(
+      archiveUrl({
+        dataset: 'premiumIndex',
+        symbol: 'BTCUSDT',
+        interval: '5m',
+        date: '2026-09-19',
+        cadence: 'daily',
+      })
+    ).toBe(
+      'https://data.binance.vision/data/futures/um/daily/premiumIndexKlines/BTCUSDT/5m/BTCUSDT-5m-2026-09-19.zip'
+    );
+  });
+
+  it('still builds the monthly url when the spec says nothing', () => {
+    expect(
+      archiveUrl({ dataset: 'klines', symbol: 'BTCUSDT', interval: '5m', date: '2026-09' })
+    ).toBe(
+      'https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/5m/BTCUSDT-5m-2026-09.zip'
+    );
+  });
+
+  it('does not let the override disable the date-shape check', () => {
+    // A daily spec with a month-shaped date is a caller error, and silently
+    // accepting it would build a url for a file that cannot exist.
+    expect(() =>
+      archiveUrl({ dataset: 'klines', symbol: 'BTCUSDT', interval: '5m', date: '2026-09', cadence: 'daily' })
+    ).toThrow(/daily dataset and needs a YYYY-MM-DD date/);
+
+    expect(() =>
+      archiveUrl({ dataset: 'klines', symbol: 'BTCUSDT', interval: '5m', date: '2026-09-19' })
+    ).toThrow(/monthly dataset and needs a YYYY-MM date/);
+  });
+
+  it('keeps ARCHIVE_CADENCE monthly, which is what the bulk CLI enumerates on', () => {
+    // The guard against "fixing" the map to daily: `jobFileKeys` in the CLI
+    // branches on it, so flipping it would silently turn a monthly crawl into
+    // one file per day, about 170,000 downloads, with the misses counted as
+    // `missing` rather than as errors.
+    expect(ARCHIVE_CADENCE.klines).toBe('monthly');
+    expect(ARCHIVE_CADENCE.premiumIndex).toBe('monthly');
+    expect(ARCHIVE_CADENCE.markPrice).toBe('monthly');
+  });
+
+  it('cannot collide a daily and a monthly request in the cache', () => {
+    const daily = archiveCachePath('/cache', {
+      dataset: 'klines',
+      symbol: 'BTCUSDT',
+      interval: '5m',
+      date: '2026-09-19',
+      cadence: 'daily',
+    });
+    const monthly = archiveCachePath('/cache', {
+      dataset: 'klines',
+      symbol: 'BTCUSDT',
+      interval: '5m',
+      date: '2026-09',
+    });
+    expect(daily).not.toBe(monthly);
+    expect(daily.endsWith('BTCUSDT-5m-2026-09-19.zip')).toBe(true);
+    expect(monthly.endsWith('BTCUSDT-5m-2026-09.zip')).toBe(true);
+  });
+});
+
 describe('parseArchiveTimestamp', () => {
   it('reads epoch milliseconds', () => {
     expect(parseArchiveTimestamp('1748736000000')).toBe(1748736000000);

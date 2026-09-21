@@ -232,6 +232,32 @@ export interface PerpCandleFields {
   takerBuyVolume?: number;
 }
 
+/** The three archive datasets that carry kline-shaped rows. */
+export type PerpDataset = 'klines' | 'premiumIndex' | 'markPrice';
+
+/**
+ * Each kline-shaped archive dataset and the `PerpCandle` series it writes.
+ *
+ * ONE literal per pair rather than two parallel maps, so a dataset and its
+ * series cannot drift. That drift is the expensive mistake here: `klines` and
+ * `premiumIndex` rows carry the same timestamps, so writing premium rows under
+ * series `klines` would overwrite the traded bars with premium values (about
+ * 0.0003, and zero volume) and nothing in the live app reads this collection,
+ * so nothing would notice.
+ */
+export const PERP_DATASET_SERIES: readonly { dataset: PerpDataset; series: PerpSeries }[] = [
+  { dataset: 'klines', series: 'klines' },
+  { dataset: 'premiumIndex', series: 'premiumIndex' },
+  { dataset: 'markPrice', series: 'markPrice' },
+];
+
+/** The pairs for a requested series list, in the order requested. */
+export function perpPairsForSeries(
+  series: readonly PerpSeries[]
+): { dataset: PerpDataset; series: PerpSeries }[] {
+  return PERP_DATASET_SERIES.filter((pair) => series.includes(pair.series));
+}
+
 /** One upsert per archive kline row, keyed by symbol, interval, series and bar. */
 export function perpCandleUpserts(
   symbol: string,

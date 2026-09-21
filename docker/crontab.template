@@ -40,6 +40,15 @@
 # Bulk history is scripts/ops/ingest-archive.ts from the seeder image, not this.
 30   5 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-archive?days=3" >> /var/log/cron.log 2>&1
 
+# Perpetual bar history from the same archive. The kline datasets are published
+# daily as well as monthly, and this route asks for the DAILY cadence, because
+# the monthly file for a month does not exist until that month ends. Its own
+# line and its own route on purpose: FuturesMetric above is on the live signal
+# path and this collection is research-only, so a failure here must not be able
+# to touch that run. Half an hour later keeps the two archive-heavy jobs from
+# overlapping inside the one app container and gives a clean log boundary.
+0    6 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-perp?days=3" >> /var/log/cron.log 2>&1
+
 # Portfolio snapshots
 0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1
 
