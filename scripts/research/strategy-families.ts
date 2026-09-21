@@ -104,71 +104,84 @@
  * any interval; the composite's intraday entry timing is real but worth
  * less than the cheapest way to act on it.
  *
- * PHASE 4B, 2026-09-20, positioning. Dataset e84cd66dbe01, lockbox applied,
- * 10 symbols, 6 windows, trials 486 and 360 respectively, reports
- * strategy-positioning-{fade,horizon}-{1d,4h}-p4b-*.json.
+ * PHASE 4C, 2026-09-21. Dataset e84cd66dbe01, lockbox applied, 10 symbols,
+ * 6 windows, trials 342 on every run (the phase's total cell count:
+ * 54x2 + 36x2 + 54x2 + 27x2 -- Phase 4b used 486 and 360, which made its
+ * runs incomparable, so the phase now fixes one number). Reports
+ * strategy-<family>-<interval>-p4c.json, every one schema-validated and one
+ * random symbol-window per report re-run with --cell --report and reproduced
+ * digit for digit. depth-imbalance-fade ran with --start 2023-01-01: the
+ * archive's depth column is populated on 78.1% of metrics rows and begins
+ * 2023-01-01, while candles begin 2018-10-31, so without the bound the early
+ * windows have no depth at all and the run would fail for a data reason.
  *
  *   family                interval  trades  exp%     CI low   timing p  gates failed
- *   positioning-fade      1d        290     +0.481   -2.435   0.070     6 of 8
- *   positioning-fade      4h        3087    -0.215   -0.570   0.602     7 of 8
- *   positioning-horizon   1d        249     -1.645   -4.829   0.697     7 of 8
- *   positioning-horizon   4h        2754    -0.193   -0.564   0.194     7 of 8
+ *   positioning-fade      1d        285     +0.752   -2.144   0.055     6 of 8
+ *   positioning-fade      4h        3076    -0.217   -0.551   0.597     7 of 8
+ *   positioning-horizon   1d        247     -1.488   -4.914   0.677     7 of 8
+ *   positioning-horizon   4h        2758    -0.164   -0.567   0.144     7 of 8
+ *   funding-z-fade        1h        2244    -0.143   -0.349   0.095     7 of 8
+ *   funding-z-fade        15m       1602    -0.075   -0.194   0.005     6 of 8
+ *   depth-imbalance-fade  4h        1251    +0.090   -0.360   0.144     5 of 8
+ *   depth-imbalance-fade  1h        5032    -0.078   -0.194   0.045     6 of 8
  *
- * All four fail. The 1d fade is the only run whose point estimate is positive
- * after costs, the first time anything in this program has managed that, but
- * its interval spans -2.4% to +3.2%, only 4 of 10 symbols are positive, and
- * the result is carried by DOGEUSDT (+4.4%), LINKUSDT (+2.9%) and SOLUSDT
- * (+1.7%) while BTCUSDT and ETHUSDT lose. That is concentration, not edge.
+ * All eight fail. Nothing here pays its costs.
  *
- * The decisive number is the timing gate. Random-entry p runs 0.07 to 0.70
- * across the four runs, so the entry signal is not distinguishable from
- * entering at random with the same exit profile. positioning-horizon exists
- * because the first explanation for that was a mismatch between what was
- * measured (the return over h bars) and what was traded (a 2 or 3 ATR stop
- * with a 2:1 target, which resolves on the path instead). Removing the stops
- * and holding to the horizon made it worse, not better, so that explanation
- * is wrong and the disconnect is real.
+ * THE POSITIONING RE-RUN. The four positioning rows above REPLACE the Phase
+ * 4b table, which was withdrawn on 2026-09-21: both families derived their
+ * trailing z from `ctx.snapshots`, which runStrategyWalkForward builds from a
+ * SLICE of the candle array, so the window was fully realised in-sample and
+ * truncated out-of-sample and the same grid cell labelled two different
+ * factors on the two sides of the split. At 1d the test slice is 612 bars, so
+ * window=720 could never be realised at all, and the 1d fade selected it in 5
+ * of its 38 selecting windows. Both families now read precomputed full-series
+ * columns (research-columns.ts). The numbers moved, which is the evidence the
+ * columns are actually reaching the families: the 1d fade went from +0.481%
+ * to +0.752% and its timing p from 0.070 to 0.055. The verdict did not move.
+ * The withdrawn numbers are not repeated here; they were not testing what
+ * their labels claimed.
  *
- * How a factor with ic -0.218 and t -5.9 produces this: the IC counts every
- * bar as an observation and the Newey-West correction fixes the t-statistic
- * for overlap, but it cannot turn a highly autocorrelated factor into
+ * WHAT THE TIMING GATE NOW SAYS. Three of the eight runs clear it
+ * (funding-z-fade 15m p 0.005, depth-imbalance-fade 1h p 0.045, and
+ * positioning-fade 1d at 0.055 misses it), so for the first time in this
+ * program a positioning-adjacent entry is distinguishable from entering at
+ * random with the same exit profile. Every one of them still loses money.
+ * That combination -- real timing, negative expectancy -- is the same verdict
+ * Phase 4 reached on the composite at 5m and 1h: the signal is worth less
+ * than the cheapest way to act on it.
+ *
+ * THE ONE RESULT WORTH KEEPING. depth-imbalance-fade at 4h fails 5 of 8, the
+ * fewest any family has failed, and it is the first run to clear the SYMBOLS
+ * gate (7 of 10 positive, threshold 0.7) and the first with a positive point
+ * estimate that also survives the stress gate (+0.090% falling to +0.005% at
+ * 1.5x fees and 2x slippage). Compare the 1d positioning fade, whose larger
+ * +0.752% comes from 4 of 10 symbols with a CI spanning -2.1% to +3.5%: the
+ * depth result is smaller and far better distributed. It fails on the
+ * confidence interval (-0.360), on window consistency (0.467 against 0.6),
+ * and on timing (p 0.144). It is not an edge. It is the only thing in the
+ * program's history that fails for reasons that look like insufficient
+ * evidence rather than absent effect, and it is the natural first input for
+ * any later phase.
+ *
+ * WHY A STRONG IC STILL PRODUCES THIS. The IC counts every bar as an
+ * observation and the Newey-West correction fixes the t-statistic for
+ * overlap, but it cannot turn a highly autocorrelated factor into
  * independent bets. A long stretch of crowded positioning is one regime, and
  * a rule that trades it repeatedly is making one bet many times. In-sample
- * selection then took the shortest hold on offer (median hold 8 bars in every
- * run) where the IC is strongest at h32, which is the overfitting the
- * out-of-sample gates exist to catch.
+ * selection then took the shortest hold on offer (median hold 8 bars at 1d
+ * and 4h) where the IC is strongest at h32, which is the overfitting the
+ * out-of-sample gates exist to catch. positioning-horizon exists because the
+ * first explanation was a mismatch between what was measured (the return over
+ * h bars) and what was traded (a 2 or 3 ATR stop with a 2:1 target, which
+ * resolves on the path instead). Removing the stops and holding to the
+ * horizon made it worse, not better, so that explanation is wrong and the
+ * disconnect is real.
  *
- * Per the program's standing ruling, no third rule shape was tried on this
- * input. The measured relationship is robust (it survives an execution lag of
- * one bar unchanged) and still does not pay its costs.
- *
- * THE PHASE 4B TABLE ABOVE IS SUPERSEDED AND AWAITS A RE-RUN (2026-09-21).
- *
- * Both positioning families derived their trailing z from `ctx.snapshots`,
- * which runStrategyWalkForward builds from a SLICE of the candle array. The
- * train slice is thousands of bars, so the window was fully realised
- * in-sample; the test slice is only `purgeGapBars` of history plus the test
- * window, so out-of-sample it was truncated. The same grid cell therefore
- * labelled two different factors on the two sides of the split: selection
- * optimised one, the gates scored the other. It is not lookahead -- truncation
- * is backward-only, which is why no-lookahead.test.ts is silent on it.
- *
- * Measured from the reports:
- *
- *   interval  test slice     window=720              window=360     window=180
- *   1d        399+213=612    NEVER realised          fully realised fully realised
- *   4h        199+1646=1845  first 32% truncated     first 10%      fully realised
- *
- * And the cells actually selected, of 60 symbol-windows each: the 1d fade took
- * window=720 in 5 of its 38 selecting windows (BTCUSDT chose it in 2 of its 3),
- * and the 4h fade took it in 14 of 53. So the +0.481% 1d headline rests in part
- * on a cell whose window could not exist in a 612-bar slice.
- *
- * The verdict is unlikely to move -- the run failed 6 of 8 gates with a CI
- * spanning -2.4% to +3.2% -- but it was not testing what its labels claim, so
- * the table is not evidence until it is re-run. Both families now read
- * precomputed full-series columns (research-columns.ts) and the re-run is
- * pending.
+ * Per the program's standing ruling, no third rule shape was tried on any of
+ * these inputs. The measured relationships are robust (positioning survives
+ * an execution lag of one bar unchanged) and still do not pay their costs.
+ * The next thing to vary is the container, not the rule: see the banded
+ * target-exposure phase.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
