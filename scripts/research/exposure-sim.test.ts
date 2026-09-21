@@ -28,14 +28,41 @@ function daily(z: number[], closes: number[], rates: number[], symbol = 'AAAUSDT
 /** Taker fee plus the 1d study slippage, the per-unit-turnover cost. */
 const COST_PER_UNIT = BINANCE_FUTURES_TAKER_FEE + STUDY_SLIPPAGE_BPS['1d'] / 10000;
 
+/** The weight a reading produces, so a test's hand-computed cost is derived
+ * rather than a magic number copied out of a run. */
+const W = (z: number, zScale = 1): number => targetExposure(z, zScale);
+
 describe('targetExposure', () => {
-  it('is contrarian and clamped to a unit position', () => {
-    expect(targetExposure(1, 1)).toBe(-1);
-    expect(targetExposure(-1, 1)).toBe(1);
-    expect(targetExposure(2, 1)).toBe(-1);
-    expect(targetExposure(-2, 1)).toBe(1);
-    expect(targetExposure(1, 2)).toBeCloseTo(-0.5, 12);
-    expect(targetExposure(0, 2)).toBeCloseTo(0, 12);
+  it('is contrarian and saturating, never reaching full size', () => {
+    expect(targetExposure(0, 1)).toBeCloseTo(0, 12);
+    expect(targetExposure(1, 1)).toBeLessThan(0);
+    expect(targetExposure(-1, 1)).toBeGreaterThan(0);
+    // Contrarian at every magnitude.
+    for (const z of [0.5, 1, 2, 5, 50]) {
+      expect(Math.sign(targetExposure(z, 1))).toBe(-Math.sign(z));
+    }
+    // Strictly increasing magnitude in |z|, and never at full size across the
+    // range the factor actually reaches. A clamped target would be flat at 1
+    // from |z| = zScale upward, which is the degeneracy this replaced.
+    const magnitudes = [0.5, 1, 2, 5, 8].map((z) => Math.abs(targetExposure(z, 1)));
+    for (let i = 1; i < magnitudes.length; i++) {
+      expect(magnitudes[i]).toBeGreaterThan(magnitudes[i - 1]);
+    }
+    for (const m of magnitudes) expect(m).toBeLessThan(1);
+    expect(magnitudes[magnitudes.length - 1]).toBeGreaterThan(0.99);
+    // Beyond |z| ~ 9 the gap to 1 is below double precision and tanh rounds to
+    // exactly 1, so saturation is real there but indistinguishable from the
+    // clamp this replaced. Recorded so the bound above is not mistaken for a
+    // claim about every magnitude.
+    expect(Math.abs(targetExposure(30, 1))).toBe(1);
+    // A larger zScale compresses toward linear.
+    expect(Math.abs(targetExposure(2, 3))).toBeLessThan(Math.abs(targetExposure(2, 1)));
+  });
+
+  it('is a hard clamp now only at the extremes of zScale', () => {
+    // tanh saturates, so a tiny zScale is where the old clamp behaviour
+    // effectively appears. Pinning it here keeps the difference visible.
+    expect(targetExposure(100, 0.01)).toBeCloseTo(-1, 6);
   });
 
   it('is NaN, never 0, when the reading is missing', () => {
@@ -79,12 +106,10 @@ describe('simulateExposure turnover costing', () => {
     // bar's net is exactly the negative of that bar's trading cost. That
     // isolates the cost arithmetic from the return arithmetic.
     //
-    // z = [-1, -1, 1, 1, 1] at zScale 1 -> target [+1, +1, -1, -1, -1].
-    // Bar 0: held 0 -> 1, so |dw| = 1, charged on bar 0's return.
-    // Bar 1: target still +1, no move, nothing.
-    // Bar 2: held +1 -> -1, so |dw| = 2, charged on bar 2's return.
-    // Bar 3: target still -1, nothing.
+    // z = [-1, -1, 1, 1, 1] at zScale 1 -> target [+w, +w, -w, -w, -w] with
+    // w = tanh(1). Bar 0: 0 -> +w, |dw| = w. Bar 2: +w -> -w, |dw| = 2w.
     const z = [-1, -1, 1, 1, 1];
+    const w = Math.abs(W(-1));
     const result = simulateExposure([daily(z, closes, rates)], {
       band: 0,
       zScale: 1,
@@ -94,10 +119,13 @@ describe('simulateExposure turnover costing', () => {
     });
 
     expect(result.netReturns).toHaveLength(4);
-    expect(result.turnover).toEqual([1, 0, 2, 0]);
-    expect(result.netReturns[0]).toBeCloseTo(-1 * COST_PER_UNIT, 12);
+    expect(result.turnover[0]).toBeCloseTo(w, 12);
+    expect(result.turnover[1]).toBeCloseTo(0, 12);
+    expect(result.turnover[2]).toBeCloseTo(2 * w, 12);
+    expect(result.turnover[3]).toBeCloseTo(0, 12);
+    expect(result.netReturns[0]).toBeCloseTo(-w * COST_PER_UNIT, 12);
     expect(result.netReturns[1]).toBeCloseTo(0, 12);
-    expect(result.netReturns[2]).toBeCloseTo(-2 * COST_PER_UNIT, 12);
+    expect(result.netReturns[2]).toBeCloseTo(-2 * w * COST_PER_UNIT, 12);
     expect(result.netReturns[3]).toBeCloseTo(0, 12);
     expect(result.costReturns).toEqual(result.turnover.map((t) => -t * COST_PER_UNIT));
   });
@@ -109,8 +137,9 @@ describe('simulateExposure turnover costing', () => {
       { band: 0, zScale: 1, smoothing: 0, gross: 1, interval: '1d' },
       { feeMultiplier: 1.5, slippageMultiplier: 2 }
     );
+    const w = Math.abs(W(-1));
     const expected = BINANCE_FUTURES_TAKER_FEE * 1.5 + (STUDY_SLIPPAGE_BPS['1d'] / 10000) * 2;
-    expect(result.netReturns[0]).toBeCloseTo(-expected, 12);
+    expect(result.netReturns[0]).toBeCloseTo(-w * expected, 12);
   });
 
   it('a wider band produces strictly less turnover on the same signal', () => {
@@ -138,7 +167,7 @@ describe('simulateExposure turnover costing', () => {
 
     // The wide band still takes its first entry, so it is not zero, but it
     // never follows a flip afterwards.
-    expect(totalWide).toBeCloseTo(0.8, 12);
+    expect(totalWide).toBeCloseTo(Math.abs(W(-8, 10)), 12);
     expect(totalTight).toBeGreaterThan(totalWide);
   });
 
@@ -153,9 +182,9 @@ describe('simulateExposure turnover costing', () => {
       interval: '1d',
     });
 
-    // One rebalance onto +1 at bar 0, then the held weight already equals the
-    // target forever after, so turnover is 1 once and 0 for every later bar.
-    expect(result.turnover[0]).toBeCloseTo(1, 12);
+    // One rebalance onto the target at bar 0, then the held weight already
+    // equals it forever after, so turnover is paid once and never again.
+    expect(result.turnover[0]).toBeCloseTo(Math.abs(W(-1)), 12);
     expect(result.turnover.slice(1).every((t) => t === 0)).toBe(true);
     expect(result.meanBarsBetweenRebalances).toBeCloseTo(result.turnover.length, 12);
   });
@@ -180,7 +209,8 @@ describe('simulateExposure funding', () => {
     // One settlement's rate applied to one settlement, not three: the rate
     // column is per bar, so multiplying by the bar's crossing count would
     // charge the same rate to every boundary the bar spans.
-    const expected = fundingPnl(1, 0.0001, 'long', 1);
+    const w = Math.abs(W(-1));
+    const expected = fundingPnl(w, 0.0001, 'long', 1);
     expect(expected).toBeLessThan(0);
     expect(fundingCrossings(0, DAY)).toBe(3);
     expect(result.fundingReturns[1]).toBeCloseTo(expected, 12);
@@ -196,7 +226,7 @@ describe('simulateExposure funding', () => {
       gross: 1,
       interval: '1d',
     });
-    const expected = fundingPnl(1, 0.0001, 'short', 1);
+    const expected = fundingPnl(Math.abs(W(1)), 0.0001, 'short', 1);
     expect(expected).toBeGreaterThan(0);
     expect(result.fundingReturns[1]).toBeCloseTo(expected, 12);
   });
@@ -225,8 +255,7 @@ describe('simulateExposure funding', () => {
       gross: 1,
       interval: '1d',
     });
-    const expected = fundingPnl(0.5, 0.0001, 'long', 1);
-    expect(expected).toBeCloseTo(-0.00005, 12);
+    const expected = fundingPnl(Math.abs(W(-1, 2)), 0.0001, 'long', 1);
     expect(result.fundingReturns[1]).toBeCloseTo(expected, 12);
   });
 });
@@ -243,7 +272,8 @@ describe('simulateExposure return mechanics', () => {
       gross: 1,
       interval: '1d',
     });
-    expect(result.netReturns[0]).toBeCloseTo(0.1 - COST_PER_UNIT, 12);
+    const w = Math.abs(W(-1));
+    expect(result.netReturns[0]).toBeCloseTo(w * 0.1 - w * COST_PER_UNIT, 12);
     // Every later bar is flat and the weight does not move, so bar 1 is a
     // clean zero: no return, no cost, no funding.
     expect(result.netReturns[1]).toBeCloseTo(0, 12);
@@ -257,7 +287,8 @@ describe('simulateExposure return mechanics', () => {
       gross: 1,
       interval: '1d',
     });
-    expect(result.netReturns[0]).toBeCloseTo(-0.1 - COST_PER_UNIT, 12);
+    const w = Math.abs(W(1));
+    expect(result.netReturns[0]).toBeCloseTo(-w * 0.1 - w * COST_PER_UNIT, 12);
   });
 
   it('a NaN reading holds the previous weight instead of flattening', () => {
@@ -272,8 +303,9 @@ describe('simulateExposure return mechanics', () => {
       gross: 1,
       interval: '1d',
     });
-    expect(result.netReturns[0]).toBeCloseTo(-COST_PER_UNIT, 12);
-    expect(result.netReturns[1]).toBeCloseTo(0.1, 12);
+    const w = Math.abs(W(-1));
+    expect(result.netReturns[0]).toBeCloseTo(-w * COST_PER_UNIT, 12);
+    expect(result.netReturns[1]).toBeCloseTo(w * 0.1, 12);
     expect(result.turnover[1]).toBe(0);
   });
 
@@ -286,7 +318,8 @@ describe('simulateExposure return mechanics', () => {
       interval: '1d',
     });
     // Half the weight, so half the move and half the entry cost.
-    expect(result.netReturns[0]).toBeCloseTo(0.05 - 0.5 * COST_PER_UNIT, 12);
+    const w = Math.abs(W(-1));
+    expect(result.netReturns[0]).toBeCloseTo((w / 2) * 0.1 - (w / 2) * COST_PER_UNIT, 12);
   });
 
   it('rejects symbols that are not on one shared grid', () => {

@@ -101,7 +101,7 @@ export interface ExposureSymbolInput {
 export interface ExposureGrid {
   /** Rebalance only when |target - held| exceeds this. 0 rebalances every bar. */
   band: number;
-  /** target = clamp(-z / zScale, -1, +1). The sign is contrarian. */
+  /** target = -tanh(z / zScale), in (-1, +1). The sign is contrarian. */
   zScale: number;
   /** Trailing bars averaged into the signal. 0 is no smoothing. */
   smoothing: number;
@@ -159,13 +159,30 @@ const EPSILON = 1e-12;
 
 /**
  * Contrarian target for one reading: positive z means crowded long, so the
- * exposure is short. Clamped to a unit position. NaN in gives NaN out, which
- * every caller treats as "do not trade".
+ * exposure is short. NaN in gives NaN out, which every caller treats as "do
+ * not trade".
+ *
+ * SATURATING, NOT CLAMPING, and that distinction is the whole reason this path
+ * was rebuilt once. A hard `clamp(-z / zScale)` on a trailing z is effectively
+ * BINARY: |z| exceeds 1 on most bars, so almost every reading saturates to
+ * +1 or -1 regardless of how crowded the book actually is. With a binary
+ * target the band is not a hedge, it is a lag: the target only ever moves by
+ * 2.0, so a band can only ever suppress a reposition the signal genuinely
+ * asked for, never reduce churn. The first grid run selected `band = 0` in 11
+ * of 12 windows, which is precisely what a degenerate band knob looks like.
+ *
+ * `tanh` keeps monotonicity and the contrarian sign while staying continuous,
+ * so a larger band suppresses small target moves and leaves large ones alone.
+ * That is the behaviour the phase's hypothesis is actually about: the band
+ * should cut turnover while tracking the signal, not freeze it.
+ *
+ * The scale is still the knob that sets where saturation bites, so the grid's
+ * existing zScale values keep their meaning: 1 saturates quickly, 3 is close
+ * to linear over the columns' working range.
  */
 export function targetExposure(z: number, zScale: number): number {
   if (!Number.isFinite(z) || !Number.isFinite(zScale) || zScale <= 0) return Number.NaN;
-  const raw = -z / zScale;
-  return raw > 1 ? 1 : raw < -1 ? -1 : raw;
+  return -Math.tanh(z / zScale);
 }
 
 /**
