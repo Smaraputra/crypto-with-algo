@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Daily crontab line at `0 6 * * *` with `days=3`, half an hour after the metrics line, so the two archive-heavy jobs do not overlap and the log boundary between them is clean
 - 22 new tests: the cadence override building the daily URL for both kline datasets while leaving the monthly path and the cache key untouched, the pairing, the chunked writer, and the route's window arithmetic, per-series correctness, missing-versus-error handling, and the `to` bounds
 
+### Fixed (archive): the 22-day perpetual bar gap is closed
+- The new route was deployed and the gap backfilled by hand in four calls, `to` ending 09-01, 09-08, 09-15 and 09-20 with `days` 1, 7, 7 and 5. Every call returned `missing: 0` and `errors: 0`: 2,000 archive files fetched, 166,000 documents written
+- `perpcandles` max timestamp moved from 2026-08-31 to **2026-09-20** for all ten series-interval pairs, and each pair's minimum is still 2022-01-01, so nothing was overwritten. Total 14,127,326 to 14,293,326 documents, matching the ~166k predicted before the run
+- The route's own date guard refused `to=2026-09-21` with a 400 during the backfill, because the archive cannot publish a day that has not ended. That is the cap working as designed rather than an incident
+- Crontab line confirmed installed after the force-recreate: `0 6 * * * ... /api/cron/ingest-perp?days=3`
+
 ### Research (Phase 5, 2026-09-21): banded exposure, six runs, and the track closes
 - Six runs on dataset `e84cd66dbe01` with the lockbox applied, ten symbols, 6 windows, `--trials 36`, perp prices for returns, funding and the factor. Table in the header of `scripts/research/exposure-gates.ts`; reports `exposure-<factor>-<interval>-p5c.json`
 - **All six fail the gates and the pre-registered falsification criterion fires.** Every confidence interval spans zero, so expectancy fails everywhere; the drop-one-symbol jackknife is 1.0 at 1d and 0.0 at 4h. The 1d runs are flat rather than negative (`positioningZ360` +0.0042%/bar, `positioningZ720` +0.0026%, `positioningZ180` -0.0148%) and never clear the interval; the 4h runs are mildly negative across all three horizons. Per the phase's own criterion, the backtest track closes on this dataset
