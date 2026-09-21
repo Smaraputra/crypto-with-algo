@@ -16,12 +16,19 @@
  *
  *   metrics       daily   open interest, top-trader and global long/short,
  *                         taker long/short volume ratio, one row per 5m
- *   klines        monthly the twelve-column futures kline row
- *   premiumIndex  monthly kline-shaped, close is the perp-to-index premium
- *   markPrice     monthly kline-shaped, close is the mark price
+ *   klines        both    the twelve-column futures kline row
+ *   premiumIndex  both    kline-shaped, close is the perp-to-index premium
+ *   markPrice     both    kline-shaped, close is the mark price
  *   fundingRate   monthly calc_time, funding_interval_hours, last_funding_rate
  *   bookDepth     daily   cumulative depth and notional at +/-1..5% of mid,
  *                         about one snapshot every 30 seconds
+ *
+ * The three kline-shaped datasets are published BOTH ways and `ARCHIVE_CADENCE`
+ * records the monthly default, because that is the form bulk history wants: one
+ * file per month instead of one per day. The daily form is what a keeper needs,
+ * and it is the only one that can be current, because the monthly file for a
+ * month does not exist until that month ends. `ArchiveFileSpec.cadence` selects
+ * between them; see its doc comment.
  *
  * `bookTicker` is listed as a prefix by the bucket but serves no files for UM
  * futures (404 across 2022 to 2025, daily and monthly, checked 2026-09-20), so
@@ -72,21 +79,45 @@ const PATH_SEGMENT: Record<ArchiveDataset, string> = {
   bookDepth: 'bookDepth',
 };
 
+export type ArchiveCadence = 'daily' | 'monthly';
+
 export interface ArchiveFileSpec {
   dataset: ArchiveDataset;
   symbol: string;
   /** Required for klines, premiumIndex and markPrice; rejected for the rest. */
   interval?: string;
-  /** 'YYYY-MM-DD' for daily datasets, 'YYYY-MM' for monthly ones. */
+  /** 'YYYY-MM-DD' when the cadence is daily, 'YYYY-MM' when it is monthly. */
   date: string;
+  /**
+   * Override the dataset's default cadence, for the datasets Binance publishes
+   * BOTH ways.
+   *
+   * The kline-shaped datasets are monthly in `ARCHIVE_CADENCE` because that is
+   * the form bulk history wants: one file per month instead of one per day.
+   * But the monthly form of the CURRENT month does not exist until the month
+   * ends, so anything reading through the monthly path is up to a month
+   * behind. The daily form is published a day after each day ends, so a keeper
+   * that wants to stay a day behind asks for it explicitly.
+   *
+   * Only the file's DATE SHAPE and its `/daily/` vs `/monthly/` path segment
+   * depend on this; the file name and the cache key carry the date, so a daily
+   * and a monthly request for the same dataset can never collide.
+   */
+  cadence?: ArchiveCadence;
+}
+
+/** The cadence a spec resolves to: its own override, else the dataset's. */
+function cadenceOf(spec: ArchiveFileSpec): ArchiveCadence {
+  const cadence = spec.cadence ?? ARCHIVE_CADENCE[spec.dataset];
+  if (!cadence) throw new Error(`Unknown archive dataset: ${spec.dataset}`);
+  return cadence;
 }
 
 const DAILY_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTHLY_DATE = /^\d{4}-\d{2}$/;
 
 function assertSpec(spec: ArchiveFileSpec): void {
-  const cadence = ARCHIVE_CADENCE[spec.dataset];
-  if (!cadence) throw new Error(`Unknown archive dataset: ${spec.dataset}`);
+  const cadence = cadenceOf(spec);
 
   const pattern = cadence === 'daily' ? DAILY_DATE : MONTHLY_DATE;
   if (!pattern.test(spec.date)) {
@@ -114,12 +145,11 @@ export function archiveFileName(spec: ArchiveFileSpec): string {
 
 export function archiveUrl(spec: ArchiveFileSpec): string {
   assertSpec(spec);
-  const cadence = ARCHIVE_CADENCE[spec.dataset];
   const segments = [
     'data',
     'futures',
     'um',
-    cadence,
+    cadenceOf(spec),
     PATH_SEGMENT[spec.dataset],
     spec.symbol,
     ...(spec.interval ? [spec.interval] : []),
@@ -128,7 +158,14 @@ export function archiveUrl(spec: ArchiveFileSpec): string {
   return `${getBaseUrl()}/${segments.join('/')}`;
 }
 
-/** Cache path: <cacheDir>/<dataset>/<symbol>/[<interval>/]<file>.zip */
+/**
+ * Cache path: <cacheDir>/<dataset>/<symbol>/[<interval>/]<file>.zip
+ *
+ * The date is part of the file name, so a daily `2026-09-19` and a monthly
+ * `2026-09` request for the same dataset and symbol are already different
+ * cache files. The cadence itself is not in the path because the date shape
+ * distinguishes them, and adding it would invalidate every cached file.
+ */
 export function archiveCachePath(cacheDir: string, spec: ArchiveFileSpec): string {
   assertSpec(spec);
   return join(

@@ -70,12 +70,13 @@ import {
   enumerateDays,
   enumerateMonths,
   metricsUpserts,
+  PERP_DATASET_SERIES,
   perpCandleUpserts,
   type UpsertOp,
 } from '@/lib/archive-ingestion';
 import { bulkUpsertSnapshots } from '@/lib/historical-snapshots';
 import { FuturesMetric } from '@/lib/models/futures-metric';
-import { PerpCandle, type PerpSeries } from '@/lib/models/perp-candle';
+import { bulkUpsertPerpCandles } from '@/lib/perp-candles';
 import { VALID_INTERVALS } from '@/lib/models/candle';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { alignTimestamp } from '@/lib/historical-snapshots';
@@ -102,12 +103,6 @@ export const DATASET_KINDS: readonly JobKind[] = [
 
 /** Datasets whose archive path carries an interval segment. */
 const INTERVAL_KINDS = new Set<JobKind>(['klines', 'premiumIndex', 'markPrice']);
-/** Which PerpCandle series each kline-shaped dataset writes. */
-const SERIES_FOR_KIND: Partial<Record<JobKind, PerpSeries>> = {
-  klines: 'klines',
-  premiumIndex: 'premiumIndex',
-  markPrice: 'markPrice',
-};
 
 export interface ParsedArgs {
   datasets: JobKind[];
@@ -353,18 +348,6 @@ async function writeFuturesMetrics<T extends object>(ops: UpsertOp<T>[]): Promis
   return written;
 }
 
-async function writePerpCandles<T extends object>(ops: UpsertOp<T>[]): Promise<number> {
-  let written = 0;
-  for (let i = 0; i < ops.length; i += WRITE_CHUNK) {
-    const chunk = ops.slice(i, i + WRITE_CHUNK).map((op) => ({
-      updateOne: { filter: op.filter, update: { $set: op.set }, upsert: true },
-    }));
-    const result = await PerpCandle.bulkWrite(chunk, { ordered: false });
-    written += (result.upsertedCount ?? 0) + (result.modifiedCount ?? 0);
-  }
-  return written;
-}
-
 export async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2));
   const jobs = buildJobs(args);
@@ -455,13 +438,15 @@ async function ingestCsv(job: Job, csv: string): Promise<{ rows: number; written
     case 'klines':
     case 'premiumIndex':
     case 'markPrice': {
-      const series = SERIES_FOR_KIND[job.kind];
-      if (!series || !job.interval) {
+      // The pairing comes from the shared list so the CLI and the cron route
+      // cannot disagree about which series a dataset writes.
+      const pair = PERP_DATASET_SERIES.find((candidate) => candidate.dataset === job.kind);
+      if (!pair || !job.interval) {
         throw new Error(`Internal error: ${job.kind} job has no series or interval`);
       }
       const parsed = parseKlineCsv(csv);
-      const ops = perpCandleUpserts(job.symbol, job.interval, series, parsed);
-      return { rows: parsed.length, written: await writePerpCandles(ops) };
+      const ops = perpCandleUpserts(job.symbol, job.interval, pair.series, parsed);
+      return { rows: parsed.length, written: await bulkUpsertPerpCandles(ops) };
     }
     case 'fundingRate': {
       const parsed = parseFundingCsv(csv);
