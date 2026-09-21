@@ -633,6 +633,158 @@ export function validateStrategyReport(json: unknown): ValidationResult<Strategy
   return { ok: false, issues: formatIssues(result.error) };
 }
 
+/**
+ * The banded-exposure path's report, deliberately a SEPARATE schema rather
+ * than an extension of StrategyReportSchema.
+ *
+ * Two reasons. The two report types share almost no fields -- a discrete run
+ * reports trades, a win rate and a payoff ratio, and an exposure run reports
+ * bars held, a Sharpe and a turnover -- so extending would be two disjoint
+ * halves in one object and every reader would have to know which half applied.
+ * And Zod's plain `z.object` STRIPS unknown keys silently rather than
+ * erroring, which has already cost this program once: `payoffRatio` was
+ * computed into `PooledStats` with no matching schema entry and would have
+ * vanished on parse with no error at all. Keeping the schemas apart means a
+ * field added to one path's stats cannot be silently swallowed by the other's
+ * schema.
+ */
+const ExposureGateSchema = z.object({
+  name: z.enum([
+    'sample',
+    'expectancy',
+    'windows',
+    'symbols',
+    'timing',
+    'trials',
+    'stress',
+    'plateau',
+  ]),
+  pass: z.boolean(),
+  value: z.number().nullable(),
+  threshold: z.number(),
+  note: z.string().optional(),
+});
+
+const ExposurePooledStatsSchema = z.object({
+  barsHeld: z.number(),
+  barsTotal: z.number(),
+  exposureShare: z.number(),
+  meanReturnPercent: z.number().nullable(),
+  sharpe: z.number().nullable(),
+  sharpeCi95: z.tuple([z.number(), z.number()]).nullable(),
+  maxDrawdownPercent: z.number().nullable(),
+  bootstrap: z.object({
+    iterations: z.number(),
+    seed: z.number(),
+    meanBlockLen: z.number(),
+  }),
+  windowsTotal: z.number(),
+  windowsPositive: z.number(),
+  windowPositiveShare: z.number(),
+  symbolsTotal: z.number(),
+  symbolsPositive: z.number(),
+  symbolPositiveShare: z.number(),
+  jackknifeTotal: z.number(),
+  jackknifePositive: z.number(),
+  jackknifeWorstMeanReturnPercent: z.number().nullable(),
+  timingDraws: z.number(),
+  timingP: z.number().nullable(),
+  trials: z.number(),
+  deflatedSharpe: z
+    .object({
+      observedSharpe: z.number(),
+      benchmarkSharpe: z.number(),
+      probability: z.number().nullable(),
+      radicand: z.number(),
+      varianceOfTrialSharpes: z.number(),
+    })
+    .nullable(),
+  plateau: z
+    .object({
+      score: z.number().nullable(),
+      neighbors: z.number(),
+      bestMetric: z.number(),
+      bestParams: GridParamsSchema,
+      neighborRadius: z.number(),
+    })
+    .nullable(),
+  stressMeanReturnPercent: z.number().nullable(),
+  totalTurnover: z.number(),
+  meanBarsBetweenRebalances: z.number().nullable(),
+});
+
+const ExposurePerSymbolSchema = z.object({
+  symbol: z.string(),
+  bars: z.number(),
+  meanContributionPercent: z.number().nullable(),
+  positive: z.boolean(),
+});
+
+const ExposureWindowSchema = z.object({
+  window: z.number(),
+  params: GridParamsSchema,
+  bars: z.number(),
+  positive: z.boolean(),
+  sharpe: z.number().nullable(),
+  meanReturnPercent: z.number().nullable(),
+});
+
+export const ExposureReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  taskId: z.string(),
+  datasetManifestHash: z.string(),
+  lockboxApplied: z.boolean(),
+  /** The factor column this run held, e.g. positioningZ360. */
+  factor: z.string(),
+  interval: z.string(),
+  symbols: z.array(z.string()),
+  dateRange: z.object({
+    startMs: z.number().nullable(),
+    endMs: z.number().nullable(),
+  }),
+  gridCells: z.number(),
+  trials: z.number(),
+  costs: z.object({
+    feePercent: z.number(),
+    slippageBps: z.number(),
+  }),
+  windowConfig: z.object({
+    mode: WindowModeSchema,
+    trainFraction: z.number(),
+    count: z.number(),
+    minIsSharpeBars: z.number(),
+  }),
+  stress: z.object({
+    feeMultiplier: z.number(),
+    slippageMultiplier: z.number(),
+  }),
+  bootstrap: z.object({
+    iterations: z.number(),
+    seed: z.number(),
+    meanBlockLen: z.number(),
+  }),
+  timing: z.object({
+    draws: z.number(),
+    /** The realised block length the shuffle used. */
+    blockLength: z.number(),
+  }),
+  perSymbol: z.array(ExposurePerSymbolSchema),
+  windows: z.array(ExposureWindowSchema),
+  pooled: ExposurePooledStatsSchema,
+  gates: z.array(ExposureGateSchema),
+  pass: z.boolean(),
+  computedAt: z.string(),
+  gitCommit: z.string(),
+  durationMs: z.number(),
+});
+export type ExposureReport = z.infer<typeof ExposureReportSchema>;
+
+export function validateExposureReport(json: unknown): ValidationResult<ExposureReport> {
+  const result = ExposureReportSchema.safeParse(json);
+  if (result.success) return { ok: true, data: result.data };
+  return { ok: false, issues: formatIssues(result.error) };
+}
+
 // Every finite number reachable inside `pooled`, except the counts and
 // indexes listed here: a sample size, a raw trial/window/year count, or an
 // array index is not a "statistic" a finding should be able to cite by
