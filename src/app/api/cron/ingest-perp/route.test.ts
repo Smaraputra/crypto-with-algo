@@ -230,6 +230,26 @@ describe('GET /api/cron/ingest-perp', () => {
     expect(specs().map((spec) => spec.dataset)).toEqual(['markPrice']);
   });
 
+  it('refuses a symbol that is not a symbol, before building any path', async () => {
+    // `symbols` is the one parameter not drawn from a fixed set, and it reaches
+    // the archive URL and, if a cache dir is ever wired in, the cache path. A
+    // traversal attempt must be refused on shape.
+    for (const bad of ['../../etc/passwd', 'BTC/USDT', '..%2FBTCUSDT', 'BTC', 'BTC USDT']) {
+      const res = await GET(request(`?symbols=${encodeURIComponent(bad)}`));
+      expect(res.status, bad).toBe(400);
+    }
+    expect(mockFetchArchiveFile).not.toHaveBeenCalled();
+    expect(mockBulkWrite).not.toHaveBeenCalled();
+  });
+
+  it('accepts every symbol the signal set actually uses', async () => {
+    const res = await GET(request('?days=1&symbols=BTCUSDT,ETHUSDT,DOGEUSDT&intervals=1d&series=klines'));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.symbols).toBe(3);
+    expect(body.fetched).toBe(3);
+  });
+
   it('a narrowed run fetches proportionally less', async () => {
     const res = await GET(request('?days=1&symbols=BTCUSDT&intervals=1d&series=klines'));
     const body = await res.json();

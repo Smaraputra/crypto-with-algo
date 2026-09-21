@@ -36,7 +36,9 @@ import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
  *   to         last day to cover, 'YYYY-MM-DD', default yesterday. Present so a
  *              window OLDER than the day cap can be reached, which the day cap
  *              alone could never do; that is how a gap gets closed by hand.
- *   symbols    comma list, default SIGNAL_SYMBOLS
+ *   symbols    comma list, default SIGNAL_SYMBOLS. Checked by SHAPE, because it
+ *              is the only parameter not drawn from a fixed set and it reaches
+ *              both the archive URL and any cache path built from the spec
  *   series     comma list from PERP_SERIES, default 'klines,premiumIndex'
  *   intervals  comma list, default '5m,15m,1h,4h,1d'
  */
@@ -67,14 +69,32 @@ function parseDays(req: NextRequest): number {
   return Math.min(days, MAX_DAYS);
 }
 
-function parseSymbols(req: NextRequest): string[] {
+/**
+ * A symbol as Binance names it: upper-case letters and digits, ending in a
+ * quote asset. Strict on purpose.
+ *
+ * The symbol reaches the archive URL and, if a cache directory is ever wired
+ * into this route, the cache path. It is the one request parameter that is not
+ * drawn from a fixed set, so it is the one that has to be checked by shape
+ * rather than by membership. A value like `../../etc/passwd` is not a symbol
+ * under this pattern and is refused before any path is built.
+ */
+const SYMBOL_SHAPE = /^[A-Z0-9]{2,20}(USDT|USDC|BUSD|BTC|ETH)$/;
+
+function parseSymbols(req: NextRequest): string[] | { error: string } {
   const raw = req.nextUrl.searchParams.get('symbols');
   if (!raw) return [...SIGNAL_SYMBOLS];
   const symbols = raw
     .split(',')
     .map((s) => s.trim().toUpperCase())
     .filter(Boolean);
-  return symbols.length > 0 ? symbols : [...SIGNAL_SYMBOLS];
+  if (symbols.length === 0) return [...SIGNAL_SYMBOLS];
+  for (const symbol of symbols) {
+    if (!SYMBOL_SHAPE.test(symbol)) {
+      return { error: `Invalid symbol "${symbol}"; expected a Binance symbol such as BTCUSDT` };
+    }
+  }
+  return symbols;
 }
 
 function parseList(req: NextRequest, param: string, fallback: readonly string[]): string[] {
@@ -125,7 +145,12 @@ export async function GET(req: NextRequest) {
 
   const now = Date.now();
   const days = parseDays(req);
-  const symbols = parseSymbols(req);
+
+  const parsedSymbols = parseSymbols(req);
+  if ('error' in parsedSymbols) {
+    return NextResponse.json({ error: parsedSymbols.error }, { status: 400 });
+  }
+  const symbols = parsedSymbols;
 
   const intervals = parseList(req, 'intervals', DEFAULT_INTERVALS);
   for (const interval of intervals) {
