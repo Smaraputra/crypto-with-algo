@@ -1,6 +1,44 @@
 /**
  * The eight validation gates for the banded-exposure path.
  *
+ * PHASE 5 RESULT, 2026-09-21. Six runs, all on dataset `e84cd66dbe01` with the
+ * lockbox applied, ten symbols, 6 windows, `--trials 36`, perp prices for the
+ * returns, the funding and the factor column. Reports
+ * `exposure-<factor>-<interval>-p5c.json`.
+ *
+ * | factor           | interval | bars held  | mean %/bar | CI low  | timing p | gates failed |
+ * | ---              | ---      | ---        | ---        | ---     | ---      | ---          |
+ * | `positioningZ180`| 1d       | 577/732    | -0.0148    | -0.0853 | 1.000    | 6 of 8       |
+ * | `positioningZ360`| 1d       | 564/750    | +0.0042    | -0.0394 | 1.000    | 5 of 8       |
+ * | `positioningZ720`| 1d       | 595/750    | +0.0026    | -0.0554 | 1.000    | 5 of 8       |
+ * | `positioningZ180`| 4h       | 5237/5340  | -0.0008    | -0.0266 | 0.865    | 7 of 8       |
+ * | `positioningZ360`| 4h       | 5237/5340  | -0.0027    | -0.0278 | 0.725    | 7 of 8       |
+ * | `positioningZ720`| 4h       | 5206/5340  | -0.0029    | -0.0288 | 0.565    | 7 of 8       |
+ *
+ * The pre-registered falsification criterion therefore fires: banded exposure
+ * fails expectancy (every confidence interval spans zero) AND the
+ * drop-one-symbol jackknife (1.0 at 1d, 0.0 at 4h), which is the pair the phase
+ * fixed in advance as the signal to close the backtest track on this dataset.
+ * The 1d runs are flat rather than negative, and `positioningZ360` and
+ * `positioningZ720` are mildly positive there, but the interval is what decides
+ * and neither clears it.
+ *
+ * TWO HONEST CAVEATS, both recorded because they bound what this can be said to
+ * show. First, the BAND WAS NEVER SELECTED: `band = 0` won all 6 windows at 4h
+ * and 5 of 6 at 1d in the final grid (and 11 of 12 in the first, discarded one).
+ * So the optimizer chose the no-band control almost everywhere, and this is
+ * therefore better read as "the factor has no edge carried by any cell of this
+ * grid" than as a clean comparison of a banded container against a bandless
+ * one. Second, `timing p = 1.000` at 1d is uninformative rather than damning:
+ * the two-sided magnitude comparison charges every shuffled draw against an
+ * observed mean of nearly zero, so the null is always "at least as extreme".
+ * The 4h values (0.565 to 0.865) say the same thing more legibly.
+ *
+ * Both survive as findings in their own right: a per-period Sharpe prefers tidy
+ * iid returns, which a continuously rebalanced book has and a wide band does
+ * not, so the selection metric is biased against exactly the container this
+ * phase was built to test.
+ *
  * WHAT IS THE SAME AS THE DISCRETE PATH, AND WHAT IS NOT
  *
  * The thresholds in `VALIDATION_PROTOCOL` are fixed by the research program's
