@@ -63,13 +63,21 @@ async function seedResolved(overrides: Record<string, unknown> = {}) {
 }
 
 describe('defaultCostPercent', () => {
-  it('computes two taker legs plus two slippage legs at the style primary interval', async () => {
+  it('computes two taker legs plus two slippage legs at the given interval', async () => {
     const { defaultCostPercent } = await importModules();
 
-    expect(defaultCostPercent('scalping')).toBeCloseTo(0.2, 6); // 5m
-    expect(defaultCostPercent('day_trading')).toBeCloseTo(0.16, 6); // 1h
-    expect(defaultCostPercent('swing_trading')).toBeCloseTo(0.14, 6); // 4h
-    expect(defaultCostPercent('position_trading')).toBeCloseTo(0.14, 6); // 1d
+    expect(defaultCostPercent('1m')).toBeCloseTo(0.2, 6);
+    expect(defaultCostPercent('5m')).toBeCloseTo(0.2, 6);
+    expect(defaultCostPercent('15m')).toBeCloseTo(0.16, 6);
+    expect(defaultCostPercent('1h')).toBeCloseTo(0.16, 6);
+    expect(defaultCostPercent('4h')).toBeCloseTo(0.14, 6);
+    expect(defaultCostPercent('1d')).toBeCloseTo(0.14, 6);
+  });
+
+  it('rejects an interval with no slippage budget', async () => {
+    const { defaultCostPercent } = await importModules();
+
+    expect(() => defaultCostPercent('2h')).toThrow(/2h/);
   });
 });
 
@@ -85,6 +93,7 @@ describe('parseArgs', () => {
       symbol: null,
       since: null,
       cost: null,
+      interval: null,
       json: false,
       mongoUri: null,
     });
@@ -98,6 +107,7 @@ describe('parseArgs', () => {
       '--symbol', 'BTCUSDT',
       '--since', '2026-06-01T00:00:00.000Z',
       '--cost', '0.25',
+      '--interval', '5m',
       '--json',
       '--mongo-uri', 'mongodb://localhost:27017/cryptowithalgo',
     ]);
@@ -106,6 +116,7 @@ describe('parseArgs', () => {
     expect(args.symbol).toBe('BTCUSDT');
     expect(args.since).toEqual(new Date('2026-06-01T00:00:00.000Z'));
     expect(args.cost).toBe(0.25);
+    expect(args.interval).toBe('5m');
     expect(args.json).toBe(true);
     expect(args.mongoUri).toBe('mongodb://localhost:27017/cryptowithalgo');
   });
@@ -149,6 +160,12 @@ describe('parseArgs', () => {
     expect(parseArgs(['--source', 'llm']).source).toBe('llm');
     expect(parseArgs(['--source', 'all']).source).toBe('all');
     expect(() => parseArgs(['--source', 'panel'])).toThrow(/--source/);
+  });
+
+  it('rejects an --interval no style scores', async () => {
+    const { parseArgs } = await importModules();
+
+    expect(() => parseArgs(['--interval', '2h'])).toThrow(/--interval: unknown value "2h"/);
   });
 
   it('rejects a value-taking flag with no value', async () => {
@@ -199,7 +216,7 @@ describe('runLiveOutcomes', () => {
     }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null, interval: '1h',
     });
 
     expect(report.styles).toHaveLength(1);
@@ -246,7 +263,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ tier: 'buy', forwardReturnPercent: 5 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 0,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 0, interval: '1h',
     });
 
     const [style] = report.styles;
@@ -262,7 +279,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ tier: 'buy', forwardReturnPercent: 5 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 1,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 1, interval: '1h',
     });
 
     const [style] = report.styles;
@@ -275,7 +292,7 @@ describe('runLiveOutcomes', () => {
     const { runLiveOutcomes } = await importModules();
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null, interval: '1h',
     });
 
     const [style] = report.styles;
@@ -291,7 +308,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ symbol: 'ETHUSDT', tier: 'buy', forwardReturnPercent: -5 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: 'BTCUSDT', since: null, cost: 0,
+      style: 'day_trading', source: 'composite', symbol: 'BTCUSDT', since: null, cost: 0, interval: '1h',
     });
 
     const [style] = report.styles;
@@ -312,7 +329,7 @@ describe('runLiveOutcomes', () => {
     }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: null, since: new Date('2026-06-01T00:00:00.000Z'), cost: 0,
+      style: 'day_trading', source: 'composite', symbol: null, since: new Date('2026-06-01T00:00:00.000Z'), cost: 0, interval: '1h',
     });
 
     const [style] = report.styles;
@@ -338,7 +355,7 @@ describe('runLiveOutcomes', () => {
     await SignalOutcome.create(makeOutcome({ tier: 'neutral', forwardReturnPercent: 1 }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null, interval: '1h',
     });
 
     expect(report.styles[0].tiers.map((t) => t.tier)).toEqual([
@@ -346,7 +363,7 @@ describe('runLiveOutcomes', () => {
     ]);
   });
 
-  it('selects all four styles in order when style is all, defaulting cost per style', async () => {
+  it('selects every style and each interval it scores, in order, defaulting cost per interval', async () => {
     const { runLiveOutcomes, SignalOutcome } = await importModules();
 
     await SignalOutcome.create(makeOutcome({
@@ -360,25 +377,97 @@ describe('runLiveOutcomes', () => {
       style: 'all', source: 'composite', symbol: null, since: null, cost: null,
     });
 
-    expect(report.styles.map((s) => s.style)).toEqual([
-      'scalping', 'day_trading', 'swing_trading', 'position_trading',
+    expect(report.styles.map((s) => `${s.style}:${s.interval}`)).toEqual([
+      'scalping:1m', 'scalping:5m',
+      'day_trading:15m', 'day_trading:1h',
+      'swing_trading:4h', 'swing_trading:1d',
+      'position_trading:1d',
     ]);
 
-    const scalping = report.styles.find((s) => s.style === 'scalping')!;
-    expect(scalping.tiers).toEqual([]);
-    expect(scalping.costPercent).toBeCloseTo(0.2, 6);
+    const block = (style: string, interval: string) =>
+      report.styles.find((s) => s.style === style && s.interval === interval)!;
 
-    const dayTrading = report.styles.find((s) => s.style === 'day_trading')!;
-    expect(dayTrading.costPercent).toBeCloseTo(0.16, 6);
-    expect(dayTrading.tiers[0].grossExpectancyPercent).toBeCloseTo(2, 6);
+    expect(block('scalping', '1m').tiers).toEqual([]);
+    expect(block('scalping', '1m').costPercent).toBeCloseTo(0.2, 6);
+    expect(block('scalping', '5m').costPercent).toBeCloseTo(0.2, 6);
 
-    const swingTrading = report.styles.find((s) => s.style === 'swing_trading')!;
-    expect(swingTrading.costPercent).toBeCloseTo(0.14, 6);
-    expect(swingTrading.tiers[0].grossExpectancyPercent).toBeCloseTo(3, 6);
+    expect(block('day_trading', '15m').tiers).toEqual([]);
+    expect(block('day_trading', '15m').costPercent).toBeCloseTo(0.16, 6);
+    expect(block('day_trading', '1h').costPercent).toBeCloseTo(0.16, 6);
+    expect(block('day_trading', '1h').tiers[0].grossExpectancyPercent).toBeCloseTo(2, 6);
 
-    const positionTrading = report.styles.find((s) => s.style === 'position_trading')!;
-    expect(positionTrading.tiers).toEqual([]);
-    expect(positionTrading.costPercent).toBeCloseTo(0.14, 6);
+    expect(block('swing_trading', '4h').costPercent).toBeCloseTo(0.14, 6);
+    expect(block('swing_trading', '4h').tiers[0].grossExpectancyPercent).toBeCloseTo(3, 6);
+    expect(block('swing_trading', '1d').tiers).toEqual([]);
+    expect(block('swing_trading', '1d').costPercent).toBeCloseTo(0.14, 6);
+
+    expect(block('position_trading', '1d').tiers).toEqual([]);
+    expect(block('position_trading', '1d').costPercent).toBeCloseTo(0.14, 6);
+  });
+
+  it('emits one block per interval a style scores, never pooling them', async () => {
+    const { runLiveOutcomes, SignalOutcome } = await importModules();
+
+    // Scalping writes 1m and 5m outcomes with the same horizonBars; in
+    // production the 1m rows outnumber the 5m rows five to one.
+    for (const forwardReturnPercent of [10, 6, 2]) {
+      await SignalOutcome.create(makeOutcome({
+        tradingStyle: 'scalping', interval: '1m', horizonBars: 12, tier: 'buy', forwardReturnPercent,
+        resolvedAt: new Date('2026-01-05T00:00:00.000Z'),
+      }));
+    }
+    for (const forwardReturnPercent of [-2, -4]) {
+      await SignalOutcome.create(makeOutcome({
+        tradingStyle: 'scalping', interval: '5m', horizonBars: 12, tier: 'buy', forwardReturnPercent,
+        resolvedAt: new Date('2026-01-20T00:00:00.000Z'),
+      }));
+    }
+
+    const report = await runLiveOutcomes({
+      style: 'scalping', source: 'composite', symbol: null, since: null, cost: null,
+    });
+
+    expect(report.styles.map((s) => s.interval)).toEqual(['1m', '5m']);
+
+    const [oneMinute, fiveMinute] = report.styles;
+    expect(oneMinute.horizonBars).toBe(12);
+    expect(oneMinute.statusCounts).toEqual({ pending: 0, resolved: 3, unresolvable: 0 });
+    expect(oneMinute.resolvedRange).toEqual({
+      from: '2026-01-05T00:00:00.000Z',
+      to: '2026-01-05T00:00:00.000Z',
+    });
+    expect(oneMinute.tiers).toHaveLength(1);
+    expect(oneMinute.tiers[0].count).toBe(3);
+    expect(oneMinute.tiers[0].grossExpectancyPercent).toBeCloseTo(6, 6);
+
+    expect(fiveMinute.horizonBars).toBe(12);
+    expect(fiveMinute.statusCounts).toEqual({ pending: 0, resolved: 2, unresolvable: 0 });
+    expect(fiveMinute.resolvedRange).toEqual({
+      from: '2026-01-20T00:00:00.000Z',
+      to: '2026-01-20T00:00:00.000Z',
+    });
+    expect(fiveMinute.tiers[0].count).toBe(2);
+    expect(fiveMinute.tiers[0].grossExpectancyPercent).toBeCloseTo(-3, 6);
+  });
+
+  it('narrows to one interval block when interval is given', async () => {
+    const { runLiveOutcomes, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(makeOutcome({
+      tradingStyle: 'day_trading', interval: '15m', tier: 'buy', forwardReturnPercent: 7,
+    }));
+    await SignalOutcome.create(makeOutcome({
+      tradingStyle: 'day_trading', interval: '1h', tier: 'buy', forwardReturnPercent: 2,
+    }));
+
+    const report = await runLiveOutcomes({
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null, interval: '15m',
+    });
+
+    expect(report.styles).toHaveLength(1);
+    expect(report.styles[0].interval).toBe('15m');
+    expect(report.styles[0].statusCounts.resolved).toBe(1);
+    expect(report.styles[0].tiers[0].grossExpectancyPercent).toBeCloseTo(7, 6);
   });
 
   it('selects a single style only, excluding data from every other style', async () => {
@@ -392,7 +481,7 @@ describe('runLiveOutcomes', () => {
     }));
 
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null,
+      style: 'day_trading', source: 'composite', symbol: null, since: null, cost: null, interval: '1h',
     });
 
     expect(report.styles).toHaveLength(1);
@@ -404,7 +493,7 @@ describe('runLiveOutcomes', () => {
 
     const since = new Date('2026-06-01T00:00:00.000Z');
     const report = await runLiveOutcomes({
-      style: 'day_trading', source: 'composite', symbol: 'BTCUSDT', since, cost: null,
+      style: 'day_trading', source: 'composite', symbol: 'BTCUSDT', since, cost: null, interval: '1h',
     });
 
     expect(report.symbol).toBe('BTCUSDT');
@@ -421,18 +510,18 @@ describe('runLiveOutcomes source', () => {
 
     const { runLiveOutcomes } = await importModules();
 
-    const composite = await runLiveOutcomes({ style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 0 });
+    const composite = await runLiveOutcomes({ style: 'day_trading', source: 'composite', symbol: null, since: null, cost: 0, interval: '1h' });
     expect(composite.styles).toHaveLength(1);
     expect(composite.styles[0].source).toBe('composite');
     expect(composite.styles[0].statusCounts.resolved).toBe(1);
     expect(composite.styles[0].tiers[0].grossExpectancyPercent).toBeCloseTo(2.0, 9);
 
-    const llm = await runLiveOutcomes({ style: 'day_trading', source: 'llm', symbol: null, since: null, cost: 0 });
+    const llm = await runLiveOutcomes({ style: 'day_trading', source: 'llm', symbol: null, since: null, cost: 0, interval: '1h' });
     expect(llm.styles[0].source).toBe('llm');
     expect(llm.styles[0].statusCounts.resolved).toBe(1);
     expect(llm.styles[0].tiers[0].grossExpectancyPercent).toBeCloseTo(-4.0, 9);
 
-    const all = await runLiveOutcomes({ style: 'day_trading', source: 'all', symbol: null, since: null, cost: 0 });
+    const all = await runLiveOutcomes({ style: 'day_trading', source: 'all', symbol: null, since: null, cost: 0, interval: '1h' });
     expect(all.styles.map((s) => s.source)).toEqual(['composite', 'llm']);
   });
 });
