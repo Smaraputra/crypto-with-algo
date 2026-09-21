@@ -46,6 +46,27 @@
  * two at p98, now on years of refilled bars instead of six months of partial
  * ones, so 24 and 30 stand. A cutoff change would break the continuity of the
  * live outcome record for no measured gain.
+ *
+ * Re-measured again 2026-09-21 on the archive dataset (hash e84cd66dbe01...,
+ * ten symbols, lockbox applied so every series ends 2026-06-30). This is the
+ * dataset the Phase 3b study and the Phase 4b/4c strategy runs were scored on,
+ * and it is not the same export as the 2026-09-19 table above: it carries
+ * eleven archive-derived factors, and its snapshot history is the one the
+ * archive backfill rebuilt. The point of the re-measurement is that a cutoff
+ * validated on one export is not automatically valid on another.
+ *
+ *   interval / style         bars      |score| p90   |score| p98   share > 24   share > 30
+ *   5m  scalping           808,517         22.7          30.4        8.1%        2.2%
+ *   15m day_trading        320,847         23.3          29.2        8.7%        1.5%
+ *   1h  day_trading        411,013         25.4          30.6       13.6%        2.5%
+ *   4h  swing_trading      152,048         25.3          31.8       12.8%        3.4%
+ *   1d  position_trading    21,687         25.3          33.2       12.3%        4.1%
+ *
+ * Every interval reproduces to within half a point at p90, except 1d which
+ * moves furthest (p98 31.1 to 33.2, share above 30 from 2.9% to 4.1%) and is
+ * the interval the archive backfill changed most. Every share above 24 still
+ * lands in the 8% to 14% band the cutoffs were chosen for, and 30 still reads
+ * as roughly the top 2% at 5m, 15m and 1h. 24 and 30 stand again.
  */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
