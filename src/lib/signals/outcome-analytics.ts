@@ -13,6 +13,15 @@ export interface TierExpectancy {
 
 export interface GetLiveTierExpectancyOptions {
   tradingStyle: TradingStyle;
+  /**
+   * Required, never pooled: a style scores more than one interval (scalping
+   * 1m and 5m, day trading 15m and 1h, swing 4h and 1d), each writing its own
+   * outcomes with the style's horizonBars, so a 1m row is a 12-minute forward
+   * return and a 5m row a 60-minute one. Averaging them under one cost
+   * estimate is a category error, and in production the 1m rows outnumber
+   * the 5m rows five to one.
+   */
+  interval: string;
   symbol?: string;
   since?: Date;
   costPercentRoundTrip?: number;
@@ -32,7 +41,8 @@ interface TierExpectancyRow {
 }
 
 /**
- * Live per-tier expectancy from resolved SignalOutcome documents, using the
+ * Live per-tier expectancy from resolved SignalOutcome documents of one
+ * trading style at one interval, using the
  * same directional-return definition the backtest engine uses: buy/strong_buy
  * and neutral (informational) read the forward return as-is, sell/strong_sell
  * flip it since their prediction is that price falls. MFE/MAE are reported
@@ -44,10 +54,18 @@ interface TierExpectancyRow {
 export async function getLiveTierExpectancy(
   opts: GetLiveTierExpectancyOptions
 ): Promise<TierExpectancy[]> {
-  const { tradingStyle, symbol, since, costPercentRoundTrip = 0, source = 'composite' } = opts;
+  const {
+    tradingStyle,
+    interval,
+    symbol,
+    since,
+    costPercentRoundTrip = 0,
+    source = 'composite',
+  } = opts;
 
   const match: Record<string, unknown> = {
     tradingStyle,
+    interval,
     status: 'resolved',
     // Resolved outcomes always carry a forward return; excluding a null one
     // outright (rather than coercing it to 0) keeps a data problem from

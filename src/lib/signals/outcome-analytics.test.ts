@@ -133,6 +133,7 @@ describe('getLiveTierExpectancy', () => {
 
     const results = await getLiveTierExpectancy({
       tradingStyle: 'day_trading',
+      interval: '1h',
       costPercentRoundTrip: 0.1,
     });
 
@@ -165,7 +166,7 @@ describe('getLiveTierExpectancy', () => {
     await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 1 }));
     await SignalOutcome.create(makeResolvedOutcome({ tier: 'neutral', forwardReturnPercent: 1 }));
 
-    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h' });
 
     expect(results.map((r) => r.tier)).toEqual([
       'strong_buy',
@@ -185,7 +186,7 @@ describe('getLiveTierExpectancy', () => {
       makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: null, mfePercent: null, maePercent: null })
     );
 
-    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h' });
 
     expect(results).toHaveLength(1);
     expect(results[0].count).toBe(1);
@@ -204,12 +205,39 @@ describe('getLiveTierExpectancy', () => {
 
     const results = await getLiveTierExpectancy({
       tradingStyle: 'day_trading',
+      interval: '1h',
       symbol: 'BTCUSDT',
     });
 
     expect(results).toHaveLength(1);
     expect(results[0].count).toBe(1);
     expect(results[0].expectancyPercent).toBeCloseTo(5, 6);
+  });
+
+  it('filters by interval, so a style scored at two intervals is never pooled', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    // Scalping writes outcomes at 1m and 5m with the same horizonBars (12),
+    // which are 12 and 60 minutes of forward return: not the same measurement.
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tradingStyle: 'scalping', interval: '1m', horizonBars: 12, tier: 'buy', forwardReturnPercent: 10 })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tradingStyle: 'scalping', interval: '1m', horizonBars: 12, tier: 'buy', forwardReturnPercent: 6 })
+    );
+    await SignalOutcome.create(
+      makeResolvedOutcome({ tradingStyle: 'scalping', interval: '5m', horizonBars: 12, tier: 'buy', forwardReturnPercent: -2 })
+    );
+
+    const fiveMinute = await getLiveTierExpectancy({ tradingStyle: 'scalping', interval: '5m' });
+    expect(fiveMinute).toHaveLength(1);
+    expect(fiveMinute[0].count).toBe(1);
+    expect(fiveMinute[0].expectancyPercent).toBeCloseTo(-2, 6);
+
+    const oneMinute = await getLiveTierExpectancy({ tradingStyle: 'scalping', interval: '1m' });
+    expect(oneMinute).toHaveLength(1);
+    expect(oneMinute[0].count).toBe(2);
+    expect(oneMinute[0].expectancyPercent).toBeCloseTo(8, 6);
   });
 
   it('filters by since, based on resolvedAt', async () => {
@@ -232,6 +260,7 @@ describe('getLiveTierExpectancy', () => {
 
     const results = await getLiveTierExpectancy({
       tradingStyle: 'day_trading',
+      interval: '1h',
       since: new Date('2026-06-01T00:00:00.000Z'),
     });
 
@@ -245,10 +274,10 @@ describe('getLiveTierExpectancy', () => {
 
     await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 3 }));
 
-    const withoutMatch = await getLiveTierExpectancy({ tradingStyle: 'scalping' });
+    const withoutMatch = await getLiveTierExpectancy({ tradingStyle: 'scalping', interval: '5m' });
     expect(withoutMatch).toEqual([]);
 
-    const withMatch = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    const withMatch = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h' });
     expect(withMatch[0].expectancyPercent).toBeCloseTo(3, 6);
   });
 
@@ -259,7 +288,7 @@ describe('getLiveTierExpectancy', () => {
       makeResolvedOutcome({ tier: 'neutral', forwardReturnPercent: -1.5 })
     );
 
-    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    const results = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h' });
     expect(results).toHaveLength(1);
     expect(results[0].tier).toBe('neutral');
     expect(results[0].expectancyPercent).toBeCloseTo(-1.5, 6);
@@ -281,12 +310,12 @@ describe('getLiveTierExpectancy source filter', () => {
       makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: -9.0, source: 'llm' })
     );
 
-    const composite = await getLiveTierExpectancy({ tradingStyle: 'day_trading' });
+    const composite = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h' });
     expect(composite).toEqual([
       expect.objectContaining({ tier: 'buy', count: 2, expectancyPercent: 2.0 }),
     ]);
 
-    const llm = await getLiveTierExpectancy({ tradingStyle: 'day_trading', source: 'llm' });
+    const llm = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h', source: 'llm' });
     expect(llm).toEqual([
       expect.objectContaining({ tier: 'buy', count: 1, expectancyPercent: -9.0 }),
     ]);
