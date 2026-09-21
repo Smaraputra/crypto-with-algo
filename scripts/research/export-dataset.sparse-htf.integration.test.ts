@@ -60,6 +60,10 @@ describe('export-dataset with sparse HTF data (mongodb-memory-server)', () => {
     await runExport({
       symbols: [SYMBOL],
       intervals: ['1h'],
+      // This suite predates the perp and metrics kinds and asserts on the
+      // exact file list, so it exports only the three it was written for.
+      kinds: ['candles', 'snapshots', 'htf'],
+      perpSeries: ['klines'],
       out: outDir,
       mongoUri: mongoServer.getUri(),
     });

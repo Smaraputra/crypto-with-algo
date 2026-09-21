@@ -169,6 +169,8 @@ describe('createRandomEntryStrategy', () => {
       tier: 'neutral',
       superTrend: null,
       snapshot: null,
+      snapshots: [],
+      research: [],
       htfContext: null,
       session: null,
       position: null,

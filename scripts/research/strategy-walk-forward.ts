@@ -60,6 +60,7 @@ import { calculateWindows, deriveVolatilityStops } from '@/lib/optimization/walk
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { randomEntryBenchmark } from '@/lib/backtest/random-entry-benchmark';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
+import type { ResearchRow } from '@/lib/backtest/research-series';
 import type { BacktestConfig, BacktestResult, BacktestTrade, ExitReason, TradeSide } from '@/lib/backtest/types';
 import type { StrategyFamily } from './strategy-families';
 
@@ -78,6 +79,17 @@ export interface StrategyWalkForwardInput {
   family: StrategyFamily;
   cells: Record<string, number>[];
   snapshots?: LeanSnapshot[];
+  /**
+   * Research-only per-bar columns for this symbol, precomputed over the FULL
+   * candle series by the caller and keyed by candle open time.
+   *
+   * Both prepareBacktest calls below receive the same rows, so a column means
+   * the same thing in-sample and out-of-sample. That is the point: a family
+   * deriving its own trailing window from ctx.snapshots would get the full
+   * window on the train slice and a truncated one on the test slice, and cell
+   * selection would then optimise a different factor from the one scored.
+   */
+  researchRows?: readonly ResearchRow[];
   htfInput?: HtfInput;
   costs: StrategyCosts;
   fundingEnabled: boolean;
@@ -297,6 +309,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
     family,
     cells,
     snapshots,
+    researchRows,
     htfInput,
     costs,
     fundingEnabled,
@@ -321,7 +334,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
 
     // 1. Train slice, prepared indicators, and this window's own stops.
     const train = candles.slice(trainStart, trainEnd + 1);
-    const preparedTrain = prepareBacktest(train, symbol, interval, indicatorConfig, snapshots, htfInput);
+    const preparedTrain = prepareBacktest(train, symbol, interval, indicatorConfig, snapshots, htfInput, researchRows);
     const stops = deriveVolatilityStops(train, costs.takerFeePercent);
 
     // 2. Base config, reused for every cell in this window.
@@ -362,7 +375,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
     // whether or not anything was selected.
     const testSliceStart = Math.max(0, testStart - preparedTrain.warmupBars);
     const testSlice = candles.slice(testSliceStart, testEnd + 1);
-    const preparedTest = prepareBacktest(testSlice, symbol, interval, indicatorConfig, snapshots, htfInput);
+    const preparedTest = prepareBacktest(testSlice, symbol, interval, indicatorConfig, snapshots, htfInput, researchRows);
 
     // The bar loop skips preparedTest.warmupBars bars of testSlice before it
     // starts trading, so the first traded bar of testSlice must land exactly

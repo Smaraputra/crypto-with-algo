@@ -19,6 +19,7 @@ import {
 } from './trade-utils';
 import type { EntryDecision, Strategy, StrategyContext } from './strategy';
 import type { SnapshotBar } from './snapshot-series';
+import type { ResearchBar } from './research-series';
 import type {
   BacktestConfig,
   BacktestResult,
@@ -55,6 +56,9 @@ export interface BarLoopInput {
   stOffset: number;
   htf?: BarLoopHtf;
   snapshots?: (SnapshotBar | null)[];
+  /** Research-only per-bar columns; see research-series.ts. Absent for
+   * every live and UI backtest, which is why it defaults to []. */
+  research?: (ResearchBar | null)[];
   strategy: Strategy;
   onProgress?: BacktestProgressCallback;
 }
@@ -109,6 +113,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
     stOffset,
     htf,
     snapshots,
+    research,
     strategy,
     onProgress,
   } = input;
@@ -213,6 +218,8 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
         tier: composite.tier,
         superTrend: superTrendResult,
         snapshot: snap,
+        snapshots: snapshots ?? [],
+        research: research ?? [],
         htfContext: htfCtx,
         session,
         position,
@@ -291,6 +298,8 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
           tier: composite.tier,
           superTrend: superTrendResult,
           snapshot: snap,
+          snapshots: snapshots ?? [],
+          research: research ?? [],
           htfContext: htfCtx,
           session,
           position: null,

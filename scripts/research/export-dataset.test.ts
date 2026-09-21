@@ -86,6 +86,30 @@ describe('parseArgs', () => {
     expect(args.out).toBe('/tmp/custom-out');
   });
 
+  it('defaults to every dataset kind and only the traded perp series', () => {
+    const args = parseArgs([], {});
+    expect(args.kinds).toEqual(['candles', 'snapshots', 'htf', 'perp', 'metrics']);
+    expect(args.perpSeries).toEqual(['klines']);
+  });
+
+  it('parses a partial --datasets list, so a re-export can be cheap', () => {
+    expect(parseArgs(['--datasets', 'metrics,perp'], {}).kinds).toEqual(['metrics', 'perp']);
+  });
+
+  it('throws on an unknown dataset kind, naming the valid ones', () => {
+    expect(() => parseArgs(['--datasets', 'orderbook'], {})).toThrow(
+      /Unknown dataset kind "orderbook"/
+    );
+  });
+
+  it('parses --perp-series and rejects an unknown one', () => {
+    expect(parseArgs(['--perp-series', 'klines,markPrice'], {}).perpSeries).toEqual([
+      'klines',
+      'markPrice',
+    ]);
+    expect(() => parseArgs(['--perp-series', 'spot'], {})).toThrow(/Unknown perp series "spot"/);
+  });
+
   it('throws on an unparseable --start date', () => {
     expect(() => parseArgs(['--start', 'not-a-date'], {})).toThrow();
   });

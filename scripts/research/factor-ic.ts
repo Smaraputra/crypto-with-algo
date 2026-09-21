@@ -73,10 +73,183 @@
  * divergence from live scoring was removed on 2026-09-19. The Phase 3 table
  * above predates the fix: its 5m column was measured with snapshots forced
  * null (cat.futures, cat.sentiment, raw.fundingRate, raw.longShortRatio,
- * raw.fearGreed skipped) and has not been re-run since. Long/short ratio
- * and open interest cover only the last 500 bars of their interval; the
- * factor matrix keeps Ichimoku at 5m where live scoring nulls it; sig.ATR
- * has no directional reading and is skipped everywhere.
+ * raw.fearGreed skipped) and has not been re-run since. In the Phase 3
+ * dataset long/short ratio and open interest covered only the last 500 bars
+ * Binance REST would serve (11.0% of 1h bars, 6.9% at 4h and 1d, none before
+ * 2026-03-03), so raw.longShortRatio in the table above was measured on about
+ * four months under the lockbox and open interest never reached the scorer at
+ * all. The factor matrix keeps Ichimoku at 5m where live scoring nulls it;
+ * sig.ATR has no directional reading and is skipped everywhere.
+ *
+ * Archive inputs (Phase 3b). When the dataset carries the `metrics` and `perp`
+ * kinds that scripts/ops/ingest-archive.ts and export-dataset.ts produce, this
+ * CLI also measures raw.oiChange1, raw.oiChange8, raw.oiPriceDiv,
+ * raw.takerLongShortRatio, raw.topTraderPositionRatio, raw.globalAccountRatio,
+ * raw.fundingZ, raw.basisPct, raw.perpSpotSpreadPct, raw.depthImbalance1 and
+ * raw.depthImbalance5. raw.longShortRatio is not new but its coverage is, so
+ * it is effectively unmeasured too and belongs in the same re-run. A dataset
+ * exported before those kinds existed still loads: the archive columns are
+ * NaN throughout and land in skippedFactors rather than failing the run.
+ *
+ * PHASE 3B RESULTS, 2026-09-20. Dataset hash e84cd66dbe01..., lockbox
+ * applied, 10 symbols, horizons 1,2,4,8,16,32, reports under
+ * data/research/reports/factor-ic-<interval>-p3b.json. Same survivor rule as
+ * Phase 3. Coverage after the archive backfill: longShortRatio 77.8% at 1h and
+ * 48.7% at 4h/1d (the top-trader series starts in 2023; it is ~0% across 2022),
+ * openInterest 95.6% and 59.8%, against 11.1% and 7.0% before. Survivors per
+ * interval: 5m 24 of 50, 15m 27 of 51, 1h 19 of 51, 4h 10 of 51, 1d 7 of 46,
+ * against Phase 3's 4 of 40 at 4h and 2 of 35 at 1d.
+ *
+ *   factor                      5m           15m          1h           4h           1d
+ *   raw.longShortRatio          .            .            .            - h8-32      - h1-32
+ *   raw.topTraderPositionRatio  .            .            .            - h8-32      - h1-32
+ *   raw.globalAccountRatio      .            .            .            - h8-32      - h1-32
+ *   sig.Long/Short Ratio        .            .            .            + h8-32      + h1-32
+ *   cat.futures                 .            .            .            .            + h8,32
+ *   raw.depthImbalance1         .            .            .            - h4-32      - h1-32
+ *   raw.depthImbalance5         .            .            + h1,2       .            .
+ *   raw.fundingZ                - h16,32     - h8-32      - h8,16      - h2,4       .
+ *   raw.perpSpotSpreadPct       + h1-8       + h1-4       .            .            .
+ *
+ * Reading: positioning is the finding. At 4h and 1d a higher top-trader
+ * long/short ratio precedes LOWER forward returns across every horizon
+ * measured, and the effect is the largest the program has seen: 1d h32
+ * ic -0.218 t -5.9 n 12,906, 4h h32 ic -0.078 t -4.9 n 79,049. Phase 3 did
+ * flag long/short at 1d, but on the ~500 bars Binance REST would serve; this
+ * is 3.5 years across ten symbols. Order-book depth imbalance at +/-1% runs
+ * the same way (1d h32 ic -0.101 t -5.2), and the composite's futures
+ * category comes alive at 1d (h8 ic 0.035 t 2.5) where it had almost no data
+ * before. Funding, z-scored over 30 days, is a consistent contrarian signal
+ * from 5m to 4h (1h h8 ic -0.024 t -7.1 n 410,159) and dies at 1d. Note
+ * raw.longShortRatio and raw.topTraderPositionRatio are the SAME series by
+ * construction (src/lib/archive-ingestion.ts fills the snapshot field from the
+ * archive's top-trader position ratio, matching the live path), so they are
+ * one finding, not two; sig.Long/Short Ratio is the scorer's own signal on
+ * that input and its "+" is the same information under the opposite sign
+ * convention. The intraday mean-reversion picture from Phase 3 is unchanged.
+ *
+ * raw.perpSpotSpreadPct IS AN ARTIFACT, confirmed by the lag-1 re-run below.
+ * It is (perp close - spot close) / spot close, and the forward return is
+ * (spot close[t+h] - spot close[t]) / spot close[t], so the two share
+ * spot close[t]: noise in that one print pushes both up together, which is
+ * the classic bid-ask bounce correlation. The evidence that this is what is
+ * happening: raw.basisPct measures essentially the same economic quantity
+ * from the premium index, an independent series sharing no term with the
+ * forward return, and it tracks the same shape at about 40% of the magnitude
+ * at every interval (5m h1 ic 0.027 t 23.2 against 0.069 t 61.0; 1h 0.003
+ * against 0.016), while both decay to nothing by 4h. The fix is to measure
+ * perp factors against forward returns computed on PERP closes, which is also
+ * the venue the cost model charges; until then no family should be built on
+ * this column. raw.basisPct itself does not survive anywhere (5m fails symbol
+ * agreement at 0.50).
+ *
+ * EXECUTION LAG, 2026-09-20. Every interval was re-run with
+ * --execution-lag 1, which measures the forward return from the next close
+ * instead of the one the factor is read at. That is what a rule acting on the
+ * signal could actually get, and it removes any price term shared between a
+ * factor and its own return. Reports are the same names with a -lag1 suffix.
+ *
+ *   interval  survivors      positioning lag0 -> lag1        raw.ret1 h1 lag0 -> lag1
+ *   5m        24 -> 22       -0.0059 t-2.4 -> -0.0059 t-2.4  -0.0299 t-24.5 -> -0.0231 t-19.0
+ *   15m       27 -> 20       -0.0238 t-3.0 -> -0.0235 t-3.0  -0.0565 t-29.2 -> -0.0121 t -6.3
+ *   1h        19 -> 15       -0.0327 t-4.1 -> -0.0328 t-4.1  -0.0476 t-27.7 -> -0.0291 t-17.1
+ *   4h        10 ->  7       -0.0783 t-4.9 -> -0.0783 t-4.9  -0.0451 t-16.0 -> -0.0157 t -5.6
+ *   1d         7 ->  4       -0.2177 t-5.9 -> -0.2194 t-5.9  -0.0474 t -6.5 -> -0.0085 t -1.2
+ *
+ * This splits the study in two. Positioning is untouched, to four significant
+ * figures at every interval: it is a slow variable that has nothing to do with
+ * the print the return is measured from. Short-horizon return reversal loses
+ * a large part of its effect everywhere, between 23% at 5m and 82% at 1d
+ * (79% at 15m, 40% at 1h, 65% at 4h; the size does not fall neatly with the
+ * interval, so read it as "materially smaller everywhere" rather than as a
+ * gradient). cat.volume, sig.OBV, sig.Taker Flow and raw.takerBuyRatio all
+ * stop surviving at 1h, and raw.ret1 stops surviving at 1d.
+ *
+ * The artifact call above is now settled rather than suspected.
+ * raw.perpSpotSpreadPct at 5m h1 goes from ic 0.0689 t 61.0, the largest
+ * single cell anywhere in this program, to ic -0.0015 t -1.3 once the return
+ * starts one bar later. It was the shared spot close, entirely.
+ *
+ * The Phase 3 headline that intraday mean reversion dominates therefore needs
+ * a qualifier that was not in it: roughly half of that effect is the bid-ask
+ * bounce, not a tradeable reversal. It does not overturn the conclusion, since
+ * Phase 4 already found nothing there that paid its costs, but any future
+ * measurement on this dataset should run at lag 1, and the lag-0 numbers in
+ * the tables above are kept only for continuity with Phase 3.
+ *
+ * THE LAG-1 SURVIVOR TABLE. Every table above this point is lag 0, which the
+ * program has since ruled superseded, so this is the one to read. Generated
+ * from data/research/reports/factor-ic-<interval>-p3b-lag1.json with the
+ * repository's own SURVIVOR_RULE (report-schema.ts), and its per-interval
+ * counts reproduce the ones recorded above: 5m 22 of 50, 15m 20 of 51,
+ * 1h 15 of 51, 4h 7 of 51, 1d 4 of 46.
+ *
+ *   factor                      5m          15m         1h          4h          1d
+ *   cat.htf                     - h8-32     - h16,32    .           .           .
+ *   cat.trend                   - h1-32     - h4-32     - h2-16     .           .
+ *   cat.volatility              + h1-16     + h2,4      + h1-4      .           .
+ *   composite                   .           - h8-32     - h8,16     .           .
+ *   raw.depthImbalance1         .           .           - h16,32    - h8-32     .
+ *   raw.emaSpreadPct            - h1-32     - h4-32     - h2-16     .           .
+ *   raw.fundingRate             - h16,32    - h16,32    .           .           .
+ *   raw.fundingZ                - h16,32    - h8-32     - h8,16     .           .
+ *   raw.globalAccountRatio      .           .           .           - h8-32     - h1-32
+ *   raw.htfTrend                - h16,32    - h8-32     .           .           .
+ *   raw.longShortRatio          .           .           .           - h8-32     - h1-32
+ *   raw.ret1                    - h1-4      .           - h1-4      .           .
+ *   raw.ret20                   - h1-32     - h16,32    - h4-32     .           .
+ *   raw.ret5                    - h1-16     - h2-8      - h1-4      - h1-8      .
+ *   raw.rsi                     - h1-32     - h2-32     - h1-8      .           .
+ *   raw.topTraderPositionRatio  .           .           .           - h8-32     - h1-32
+ *   sig.Bollinger               + h1-16     + h2,4      + h1-4      .           .
+ *   sig.EMA Cross               - h1-32     - h4-32     - h2-16     .           .
+ *   sig.HTF EMA Cross           - h16,32    - h16,32    .           .           .
+ *   sig.HTF SMA Trend           - h8-32     - h16,32    .           .           .
+ *   sig.HTF SuperTrend          - h16,32    - h16,32    .           .           .
+ *   sig.Ichimoku                .           - h2-32     - h2,4      .           .
+ *   sig.Long/Short Ratio        .           .           .           + h8-32     + h1-32
+ *   sig.MACD                    - h4-16     .           .           .           .
+ *   sig.OBV                     - h2-16     .           .           .           .
+ *   sig.SMA Trend               - h1-32     - h4-32     .           .           .
+ *   sig.StochRSI                .           .           .           + h2,4      .
+ *   sig.SuperTrend              - h2-16     - h16,32    - h4-16     .           .
+ *   sig.Volume                  - h2,4      .           .           .           .
+ *   sig.Williams %R             + h1-16     + h2,4      + h1,2      .           .
+ *
+ * Three things in the lag-0 Phase 3b write-up do NOT survive here and must not
+ * be built on: cat.futures at 1d, raw.fundingZ at 4h, and raw.depthImbalance1
+ * at 1d (it clears the ic and t legs there but fails sign agreement).
+ * raw.basisPct and raw.perpSpotSpreadPct survive nowhere at either lag.
+ *
+ * EXECUTION LAG IS MEASURED HERE BUT NOT IN THE BACKTEST. The bar loop fills a
+ * market entry at the DECISION bar's own close (src/lib/backtest/bar-loop.ts),
+ * which is lag 0. For a snapshot-derived factor that is still honest, because
+ * buildSnapshotSeries pins each bar to a snapshot at or before the bar's OPEN,
+ * so the reading precedes the fill. For a factor derived from the bar's own
+ * close -- raw.ret1, raw.ret5, rsi, the composite -- it is not: the rule acts
+ * on a close it transacts at. Every recorded Phase 4 number for a
+ * candle-derived family (control, return-reversal, oscillator-reversion) rests
+ * on that assumption, and the lag-1 re-run above is what shows the size of it:
+ * raw.ret1 h1 loses between 23% and 82% of its effect once the return starts
+ * one bar later. Those families' timing p-values are correspondingly
+ * optimistic. Positioning's numbers are not affected, which is why they stand.
+ * Research columns derived from a close-aligned source are shifted forward one
+ * bar by their producer for exactly this reason; see research-columns.ts.
+ *
+ * What this does NOT establish: that any of it pays costs. Phase 3 found 18
+ * survivors at 1h and Phase 4 still found no family that beat the round trip.
+ * What is different here is the horizon. These are 4h-to-daily signals, where
+ * the cost drag per signal is a fraction of what it is on the 5m mean-reversion
+ * cells that dominated Phase 3, so the Phase 4b question is genuinely open
+ * rather than already answered. raw.topTraderPositionRatio at 1h flipped from
+ * surviving to not surviving on a trivial re-export, so it is borderline there
+ * and should not be leaned on.
+ *
+ * Phase 4b answered that question and the answer is no: see the header of
+ * scripts/research/strategy-families.ts. Two rule shapes on the positioning
+ * finding, at 1d and 4h, all four runs failing, with a random-entry timing p
+ * between 0.07 and 0.70. The relationship is real and robust and still does
+ * not convert into an edge.
  *
  * bootstrapCi95 is a fixed-rank block bootstrap of the IC: ranks are
  * computed once per (sub)sample (ic-stats.ts's standardizedRankProducts),
@@ -134,7 +307,15 @@ import {
   standardizedRankProducts,
 } from './ic-stats';
 import { computeFactorMatrix, type FactorMatrix } from './factors';
-import { loadCandles, loadHtf, loadManifest, loadSnapshots, verifyManifest } from './load-dataset';
+import {
+  loadCandles,
+  loadHtf,
+  loadManifest,
+  loadMetrics,
+  loadPerp,
+  loadSnapshots,
+  verifyManifest,
+} from './load-dataset';
 import {
   evaluateSurvivors,
   validateFactorIcReport,
@@ -142,7 +323,7 @@ import {
   type FactorReport,
   type HorizonStat,
 } from './report-schema';
-import type { SnapshotRow } from './dataset-format';
+import type { MetricsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
 
 const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
@@ -172,6 +353,12 @@ export interface FactorIcArgs {
   bootstrapSeed: number;
   bootstrapPerSymbol: boolean;
   bootstrapMaxPairs: number;
+  /**
+   * Bars between the bar a factor is read on and the entry its forward return
+   * is measured from. 0 reproduces Phase 3; 1 is the tradeable reading and
+   * removes any shared price term between a factor and its own return.
+   */
+  executionLagBars: number;
   allowLockbox: boolean;
   factors?: string[];
   cell?: { factor: string; horizon: number; symbol?: string };
@@ -271,6 +458,7 @@ const VALUE_FLAGS = new Set([
   'bootstrap-n',
   'bootstrap-seed',
   'bootstrap-max-pairs',
+  'execution-lag',
   'factors',
   'cell',
   'expect-manifest-hash',
@@ -278,6 +466,15 @@ const VALUE_FLAGS = new Set([
 ]);
 
 /** Pure CLI argument parsing. `now` is injectable so default-taskId tests are deterministic. */
+/** --execution-lag: a non-negative integer number of bars. */
+function parseExecutionLag(raw: string | undefined): number {
+  if (raw === undefined) return 0;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`--execution-lag must be a non-negative integer, got "${raw}"`);
+  }
+  return Number(raw);
+}
+
 export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs {
   const flags = new Map<string, string>();
   const booleans = new Set<string>();
@@ -324,6 +521,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
     bootstrapMaxPairs: flags.has('bootstrap-max-pairs')
       ? Number(flags.get('bootstrap-max-pairs'))
       : DEFAULT_BOOTSTRAP_MAX_PAIRS,
+    executionLagBars: parseExecutionLag(flags.get('execution-lag')),
     allowLockbox: booleans.has('allow-lockbox'),
     factors: flags.has('factors') ? parseList(flags.get('factors')!) : undefined,
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
@@ -387,9 +585,49 @@ export function loadSymbolData(
     console.error(`[factor-ic] ${symbol}: no ${snapshotInterval} snapshot file, snapshots=null`);
   }
 
-  const matrix = computeFactorMatrix({ candles, snapshots, htf, interval });
+  // Archive inputs (scripts/ops/ingest-archive.ts). Each is optional and
+  // absent on a dataset exported before those kinds existed, in which case
+  // every factor derived from it is NaN for the whole series rather than an
+  // error: an older dataset still measures exactly what it always measured.
+  const metricsPath = join(datasetDir, 'metrics', symbol, '5m.jsonl.gz');
+  let metrics: MetricsRow[] | null = null;
+  if (existsSync(metricsPath)) {
+    metrics = loadMetrics(datasetDir, symbol, { allowLockbox: opts.allowLockbox }).rows.filter((r) =>
+      inRange(r.t, opts.start, opts.end)
+    );
+  } else {
+    console.error(`[factor-ic] ${symbol}: no futures metrics file, archive factors are NaN`);
+  }
+
+  const perp = loadPerpSeries(datasetDir, symbol, interval, 'klines', opts);
+  const premiumIndex = loadPerpSeries(datasetDir, symbol, interval, 'premiumIndex', opts);
+
+  const matrix = computeFactorMatrix({
+    candles,
+    snapshots,
+    htf,
+    interval,
+    metrics,
+    perp,
+    premiumIndex,
+  });
 
   return { symbol, matrix, lockboxApplied: !opts.allowLockbox };
+}
+
+/** One perpetual series, or null when the dataset has no file for it. */
+function loadPerpSeries(
+  datasetDir: string,
+  symbol: string,
+  interval: string,
+  series: 'klines' | 'premiumIndex' | 'markPrice',
+  opts: { allowLockbox: boolean; start?: number; end?: number }
+): PerpCandleRow[] | null {
+  const fileName = series === 'klines' ? `${interval}.jsonl.gz` : `${interval}.${series}.jsonl.gz`;
+  if (!existsSync(join(datasetDir, 'perp', symbol, fileName))) return null;
+  return loadPerp(datasetDir, symbol, interval, series, {
+    allowLockbox: opts.allowLockbox,
+  }).rows.filter((r) => inRange(r.t, opts.start, opts.end));
 }
 
 // Number of equal strata the pooled series is split into when it needs
@@ -682,7 +920,7 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     const key = `${symbolIdx}:${horizon}`;
     let cached = fwdCache.get(key);
     if (!cached) {
-      const raw = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon);
+      const raw = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon, args.executionLagBars);
       cached = Float64Array.from(raw, (v) => v ?? NaN);
       fwdCache.set(key, cached);
     }
@@ -796,6 +1034,7 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     interval: args.interval,
     symbols,
     horizons: args.horizons,
+    executionLagBars: args.executionLagBars,
     dateRange,
     computedAt: new Date().toISOString(),
     gitCommit: resolveCommit(),
@@ -892,6 +1131,7 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
   let endOverride = args.end;
   let allowLockboxOverride = args.allowLockbox;
   let expectManifestHash = args.expectManifestHash;
+  let executionLagOverride = args.executionLagBars;
 
   if (args.reportPath) {
     const raw = JSON.parse(await readFile(args.reportPath, 'utf8'));
@@ -904,6 +1144,8 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
     startOverride = report.dateRange.startMs;
     endOverride = report.dateRange.endMs;
     allowLockboxOverride = !report.lockboxApplied;
+    // Absent on reports written before the option existed, which all used 0.
+    executionLagOverride = report.executionLagBars ?? 0;
     expectManifestHash = expectManifestHash ?? report.datasetManifestHash;
   }
 
@@ -934,7 +1176,11 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
       throw new Error(`Factor "${factorName}" not present for symbol ${symbol}`);
     }
     const factorArr = Array.from(data.matrix.values[idx]);
-    const result = icWithHac(factorArr, forwardReturns(data.matrix.closes, horizon), horizon);
+    const result = icWithHac(
+      factorArr,
+      forwardReturns(data.matrix.closes, horizon, executionLagOverride),
+      horizon
+    );
     ic = result.ic;
     n = result.n;
   } else {
@@ -953,7 +1199,9 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
       if (idx === -1) continue;
       foundAny = true;
       pooledFactor = pooledFactor.concat(Array.from(data.matrix.values[idx]));
-      pooledFwd = pooledFwd.concat(forwardReturns(data.matrix.closes, horizon));
+      pooledFwd = pooledFwd.concat(
+        forwardReturns(data.matrix.closes, horizon, executionLagOverride)
+      );
     }
     if (!foundAny) {
       throw new Error(`Factor "${factorName}" not present for any of: ${symbols.join(', ')}`);

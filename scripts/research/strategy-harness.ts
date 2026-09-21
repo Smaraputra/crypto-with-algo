@@ -112,7 +112,13 @@ import { intervalToMs } from '@/lib/intervals';
 import { studyCostConfig } from '@/lib/backtest/cost-model';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
-import { loadCandles, loadManifest, loadSnapshots, verifyManifest } from './load-dataset';
+import { loadCandles, loadManifest, loadMetrics, loadSnapshots, verifyManifest } from './load-dataset';
+import type { MetricsRow } from './dataset-format';
+import type { ResearchRow } from '@/lib/backtest/research-series';
+import { buildResearchColumns } from './research-columns';
+import { computeAllIndicators } from '@/lib/indicators/compute';
+import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
+import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { toLeanSnapshot, toOHLCV, styleForInterval } from './factors';
 import { STRATEGY_FAMILIES, expandGrid } from './strategy-families';
 import {
@@ -348,6 +354,10 @@ interface SymbolInputs {
   htfInput: HtfInput | undefined;
   htfBars: number;
   lockboxApplied: boolean;
+  /** Research-only columns, precomputed over this symbol's FULL candle
+   * series so a window's slice merely selects a sub-range. */
+  researchRows: ResearchRow[];
+  metricsRows: number;
 }
 
 /**
@@ -414,6 +424,34 @@ function loadSymbolInputs(
     }
   }
 
+  // The archive's 5m futures-metrics grid, the only source of order-book
+  // depth. Absent for a dataset exported before the archive ingest, in which
+  // case every depth column is simply missing and a family that needs one
+  // declines to trade rather than trading a zero.
+  const metricsPath = join(datasetDir, 'metrics', symbol, '5m.jsonl.gz');
+  let metrics: MetricsRow[] = [];
+  if (existsSync(metricsPath)) {
+    const metricsResult = loadMetrics(datasetDir, symbol, { allowLockbox: opts.allowLockbox });
+    // t <= end only, like snapshots and HTF candles above: a metrics row from
+    // before --start is a real reading as of the first scored bar.
+    metrics = metricsResult.rows.filter((r) => opts.end === undefined || r.t <= opts.end);
+  }
+
+  // Columns are built once, here, over the full series. Computing the
+  // indicator warmup costs one pass but is what makes fundingZ30d reproduce
+  // raw.fundingZ exactly: factors.ts masks every raw series below it.
+  const warmupBars = computeWarmupBars(
+    computeAllIndicators(candles, symbol, interval, getStyleConfig(style).config)
+  );
+  const researchRows = buildResearchColumns({
+    candles,
+    snapshots,
+    metrics,
+    interval,
+    symbol,
+    warmupBars,
+  });
+
   return {
     symbol,
     candles,
@@ -422,6 +460,8 @@ function loadSymbolInputs(
     htfInput,
     htfBars,
     lockboxApplied: candleResult.lockboxApplied,
+    researchRows,
+    metricsRows: metrics.length,
   };
 }
 
@@ -627,6 +667,30 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   const snapshotSource = fundingEnabled ? snapshotInterval : null;
   const lockboxApplied = perSymbolInputs.every((s) => s.lockboxApplied);
 
+  // A family that needs a research column cannot trade a symbol whose dataset
+  // never produced it. Without this the run completes and reports "no cell
+  // reached N in-sample trades", which reads as "the rule never fired" rather
+  // than "this dataset has no depth data" -- the same class of silent-failure
+  // the mixed-snapshot check above exists to prevent.
+  const required = family.requiresResearchColumns ?? [];
+  if (required.length > 0) {
+    const uncovered = perSymbolInputs
+      .filter((input) => {
+        const present = new Set<string>();
+        for (const row of input.researchRows) {
+          for (const key of Object.keys(row.values)) present.add(key);
+        }
+        return !required.some((name) => present.has(name));
+      })
+      .map((input) => input.symbol);
+    if (uncovered.length > 0) {
+      throw new Error(
+        `Family "${familyName}" needs one of [${required.join(', ')}] but ` +
+          `${uncovered.join(', ')} produced none of them; pass --symbols to exclude them`
+      );
+    }
+  }
+
   const results: StrategyWalkForwardResult[] = [];
   const benchmarkSeeds: Array<number | null> = [];
   for (let symbolIndex = 0; symbolIndex < perSymbolInputs.length; symbolIndex++) {
@@ -648,6 +712,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
       family,
       cells,
       snapshots: input.snapshots.length > 0 ? input.snapshots : undefined,
+      researchRows: input.researchRows,
       htfInput: input.htfInput,
       costs: {
         feePercent: costs.feePercent,
@@ -877,6 +942,9 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     family,
     cells: [windowReport.selectedParams],
     snapshots: input.snapshots.length > 0 ? input.snapshots : undefined,
+    // runCell must build the SAME columns as the full run, or a spot check
+    // silently checks a different factor from the one it is verifying.
+    researchRows: input.researchRows,
     htfInput: input.htfInput,
     costs: {
       feePercent: report.costs.feePercent,

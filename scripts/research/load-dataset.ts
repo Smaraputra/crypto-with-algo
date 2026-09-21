@@ -16,6 +16,8 @@ import {
   type DatasetManifest,
   type HtfRow,
   type ManifestFile,
+  type MetricsRow,
+  type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
 
@@ -111,4 +113,37 @@ export function loadHtf(
 ): LoadResult<HtfRow> {
   const path = join(dir, 'htf', symbol, `${interval}.jsonl.gz`);
   return applyLockbox(readJsonlGz<HtfRow>(path), opts);
+}
+
+/**
+ * Perpetual bars for one symbol, interval and series.
+ *
+ * `series` defaults to the traded bar. The premium index and mark price series
+ * live in the same tree under their own file names, so a caller that wants the
+ * basis asks for it explicitly rather than getting it by accident.
+ */
+export function loadPerp(
+  dir: string,
+  symbol: string,
+  interval: string,
+  series: 'klines' | 'premiumIndex' | 'markPrice' = 'klines',
+  opts: LoadOptions = {}
+): LoadResult<PerpCandleRow> {
+  const suffix = series === 'klines' ? interval : `${interval}.${series}`;
+  const path = join(dir, 'perp', symbol, `${suffix}.jsonl.gz`);
+  return applyLockbox(readJsonlGz<PerpCandleRow>(path), opts);
+}
+
+/**
+ * The 5m futures-metrics series for one symbol. There is one file per symbol,
+ * not per interval: the archive publishes a single 5m grid and the research
+ * layer aligns it onto whatever bars it needs.
+ */
+export function loadMetrics(
+  dir: string,
+  symbol: string,
+  opts: LoadOptions = {}
+): LoadResult<MetricsRow> {
+  const path = join(dir, 'metrics', symbol, '5m.jsonl.gz');
+  return applyLockbox(readJsonlGz<MetricsRow>(path), opts);
 }

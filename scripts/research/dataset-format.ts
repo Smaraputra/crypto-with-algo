@@ -72,9 +72,59 @@ export interface HtfRow {
   context: HtfContext | null;
 }
 
+/**
+ * One row per perpetual bar from the Binance public data archive, written by
+ * scripts/ops/ingest-archive.ts into PerpCandle.
+ *
+ * Kept separate from CandleRow because the two are different venues: candles/
+ * holds SPOT bars while every backtest charges USDT-M perpetual fees, slippage
+ * and funding. `series` distinguishes the traded bar from the premium index and
+ * mark price series, on which only OHLC carries meaning (Binance writes zero
+ * volume and zero taker volume on both).
+ */
+export interface PerpCandleRow {
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+  /** Quote-asset volume, absent from the spot CandleRow shape. */
+  qv: number;
+  /** Trade count in the bar. */
+  n: number;
+  tbv: number | null;
+}
+
+/**
+ * One row per 5m slot of FuturesMetric, the archive's positioning and
+ * order-book series. Null where the archive had no value, never zero: an open
+ * interest of 0 and an unknown open interest are different readings.
+ *
+ * These are the inputs the REST path could only reach for the last 30 days, so
+ * before this dataset kind existed `SnapshotRow.longShortRatio` and
+ * `.openInterest` were present on 11.0% of 1h bars and none before 2026-03-03.
+ */
+export interface MetricsRow {
+  t: number;
+  openInterest: number | null;
+  openInterestValue: number | null;
+  topTraderAccountRatio: number | null;
+  topTraderPositionRatio: number | null;
+  globalAccountRatio: number | null;
+  takerLongShortRatio: number | null;
+  depthImbalance1: number | null;
+  depthImbalance2: number | null;
+  depthImbalance5: number | null;
+  depthNotional1: number | null;
+  depthNotional5: number | null;
+}
+
+export type DatasetKind = 'candles' | 'snapshots' | 'htf' | 'perp' | 'metrics';
+
 export interface ManifestFile {
   path: string;
-  kind: 'candles' | 'snapshots' | 'htf';
+  kind: DatasetKind;
   symbol: string;
   interval: string;
   rowCount: number;

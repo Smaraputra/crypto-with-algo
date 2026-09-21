@@ -46,7 +46,11 @@ LOCAL_MONGO_CONTAINER="${LOCAL_MONGO_CONTAINER:-}"
 # pluralization. Every other model here pluralizes as expected. Without
 # signaloutcomes in this list, a synced local database has no outcome rows
 # and scripts/ops/live-outcomes.ts --mongo-uri ... prints zeros locally.
-COLLECTIONS="${COLLECTIONS:-candles historicalsnapshots globalsignals signaltemplates optimizationjobs backtestresultv2 cronruns signaloutcomes}"
+# perpcandles and futuresmetrics carry the Binance archive history that
+# scripts/ops/ingest-archive.ts writes; research reads both from the local
+# copy, so leaving them out would make an exported dataset silently thinner
+# than production.
+COLLECTIONS="${COLLECTIONS:-candles historicalsnapshots globalsignals signaltemplates optimizationjobs backtestresultv2 cronruns signaloutcomes perpcandles futuresmetrics}"
 
 DRY_RUN=false
 for arg in "$@"; do

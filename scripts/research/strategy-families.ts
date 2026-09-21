@@ -103,6 +103,85 @@
  * inputs, with market or resting-limit entries, pays for its costs at
  * any interval; the composite's intraday entry timing is real but worth
  * less than the cheapest way to act on it.
+ *
+ * PHASE 4C, 2026-09-21. Dataset e84cd66dbe01, lockbox applied, 10 symbols,
+ * 6 windows, trials 342 on every run (the phase's total cell count:
+ * 54x2 + 36x2 + 54x2 + 27x2 -- Phase 4b used 486 and 360, which made its
+ * runs incomparable, so the phase now fixes one number). Reports
+ * strategy-<family>-<interval>-p4c.json, every one schema-validated and one
+ * random symbol-window per report re-run with --cell --report and reproduced
+ * digit for digit. depth-imbalance-fade ran with --start 2023-01-01: the
+ * archive's depth column is populated on 78.1% of metrics rows and begins
+ * 2023-01-01, while candles begin 2018-10-31, so without the bound the early
+ * windows have no depth at all and the run would fail for a data reason.
+ *
+ *   family                interval  trades  exp%     CI low   timing p  gates failed
+ *   positioning-fade      1d        285     +0.752   -2.144   0.055     6 of 8
+ *   positioning-fade      4h        3076    -0.217   -0.551   0.597     7 of 8
+ *   positioning-horizon   1d        247     -1.488   -4.914   0.677     7 of 8
+ *   positioning-horizon   4h        2758    -0.164   -0.567   0.144     7 of 8
+ *   funding-z-fade        1h        2244    -0.143   -0.349   0.095     7 of 8
+ *   funding-z-fade        15m       1602    -0.075   -0.194   0.005     6 of 8
+ *   depth-imbalance-fade  4h        1251    +0.090   -0.360   0.144     5 of 8
+ *   depth-imbalance-fade  1h        5032    -0.078   -0.194   0.045     6 of 8
+ *
+ * All eight fail. Nothing here pays its costs.
+ *
+ * THE POSITIONING RE-RUN. The four positioning rows above REPLACE the Phase
+ * 4b table, which was withdrawn on 2026-09-21: both families derived their
+ * trailing z from `ctx.snapshots`, which runStrategyWalkForward builds from a
+ * SLICE of the candle array, so the window was fully realised in-sample and
+ * truncated out-of-sample and the same grid cell labelled two different
+ * factors on the two sides of the split. At 1d the test slice is 612 bars, so
+ * window=720 could never be realised at all, and the 1d fade selected it in 5
+ * of its 38 selecting windows. Both families now read precomputed full-series
+ * columns (research-columns.ts). The numbers moved, which is the evidence the
+ * columns are actually reaching the families: the 1d fade went from +0.481%
+ * to +0.752% and its timing p from 0.070 to 0.055. The verdict did not move.
+ * The withdrawn numbers are not repeated here; they were not testing what
+ * their labels claimed.
+ *
+ * WHAT THE TIMING GATE NOW SAYS. Three of the eight runs clear it
+ * (funding-z-fade 15m p 0.005, depth-imbalance-fade 1h p 0.045, and
+ * positioning-fade 1d at 0.055 misses it), so for the first time in this
+ * program a positioning-adjacent entry is distinguishable from entering at
+ * random with the same exit profile. Every one of them still loses money.
+ * That combination -- real timing, negative expectancy -- is the same verdict
+ * Phase 4 reached on the composite at 5m and 1h: the signal is worth less
+ * than the cheapest way to act on it.
+ *
+ * THE ONE RESULT WORTH KEEPING. depth-imbalance-fade at 4h fails 5 of 8, the
+ * fewest any family has failed, and it is the first run to clear the SYMBOLS
+ * gate (7 of 10 positive, threshold 0.7) and the first with a positive point
+ * estimate that also survives the stress gate (+0.090% falling to +0.005% at
+ * 1.5x fees and 2x slippage). Compare the 1d positioning fade, whose larger
+ * +0.752% comes from 4 of 10 symbols with a CI spanning -2.1% to +3.5%: the
+ * depth result is smaller and far better distributed. It fails on the
+ * confidence interval (-0.360), on window consistency (0.467 against 0.6),
+ * and on timing (p 0.144). It is not an edge. It is the only thing in the
+ * program's history that fails for reasons that look like insufficient
+ * evidence rather than absent effect, and it is the natural first input for
+ * any later phase.
+ *
+ * WHY A STRONG IC STILL PRODUCES THIS. The IC counts every bar as an
+ * observation and the Newey-West correction fixes the t-statistic for
+ * overlap, but it cannot turn a highly autocorrelated factor into
+ * independent bets. A long stretch of crowded positioning is one regime, and
+ * a rule that trades it repeatedly is making one bet many times. In-sample
+ * selection then took the shortest hold on offer (median hold 8 bars at 1d
+ * and 4h) where the IC is strongest at h32, which is the overfitting the
+ * out-of-sample gates exist to catch. positioning-horizon exists because the
+ * first explanation was a mismatch between what was measured (the return over
+ * h bars) and what was traded (a 2 or 3 ATR stop with a 2:1 target, which
+ * resolves on the path instead). Removing the stops and holding to the
+ * horizon made it worse, not better, so that explanation is wrong and the
+ * disconnect is real.
+ *
+ * Per the program's standing ruling, no third rule shape was tried on any of
+ * these inputs. The measured relationships are robust (positioning survives
+ * an execution lag of one bar unchanged) and still do not pay their costs.
+ * The next thing to vary is the container, not the rule: see the banded
+ * target-exposure phase.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
@@ -111,6 +190,15 @@ import type { IndicatorSuite } from '@/lib/indicators/types';
 import type { BacktestConfig } from '@/lib/backtest/types';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import { STRATEGY_EXIT_LEVEL } from '@/lib/signals/calibration';
+import { researchValue } from '@/lib/backtest/research-series';
+import {
+  DEPTH_Z_WINDOW_DAYS,
+  FUNDING_Z_WINDOW_DAYS,
+  POSITIONING_Z_WINDOW_BARS,
+  depthColumn,
+  fundingColumn,
+  positioningColumn,
+} from './research-columns';
 
 /** One numeric parameter a family exposes to the grid search. Numeric only;
  * a boolean-valued parameter is encoded as 0/1 and interpreted by `create`. */
@@ -124,6 +212,15 @@ export interface StrategyFamily {
   description: string;
   /** At most MAX_PARAMS entries. */
   params: ParamSpec[];
+  /**
+   * Research columns (research-columns.ts) this family cannot trade without.
+   *
+   * The harness aborts naming the symbols whose dataset cannot produce them,
+   * rather than running to completion: a missing column is NaN on every bar,
+   * which produces zero entries and the misleading failure "no cell reached
+   * N in-sample trades" instead of "this dataset has no depth data".
+   */
+  requiresResearchColumns?: readonly string[];
   create(params: Record<string, number>, ctx: { style: TradingStyle; interval: string }): Strategy;
 }
 
@@ -664,6 +761,287 @@ export const oscillatorReversionLimitFamily: StrategyFamily = {
   },
 };
 
+/**
+ * The z columns these families read.
+ *
+ * They are NOT computed here. Every one is a trailing window, and the
+ * walk-forward prepares each window from a slice of the candle array, so a
+ * window derived in-strategy is full in-sample and truncated out-of-sample --
+ * the same grid cell then labels two different factors, and selection
+ * optimises one while the gates score the other. research-columns.ts builds
+ * them once over the full series instead; see its header for the measured
+ * impact on Phase 4b.
+ */
+
+/**
+ * Fade crowded top-trader positioning.
+ *
+ * Phase 3b, 4h and 1d: a higher top-trader long/short ratio precedes lower
+ * forward returns at every horizon measured (1d h32 ic -0.218 t -5.9), and the
+ * sign survives an execution lag of one bar unchanged (-0.219 t -5.9). This
+ * family is the cheapest rule that acts on exactly that: short when the ratio
+ * is unusually high for this symbol, long when it is unusually low.
+ */
+const positioningFadeFamily: StrategyFamily = {
+  name: 'positioning-fade',
+  description: 'fade the top-trader long/short ratio when it is z sd from its own trailing mean',
+  requiresResearchColumns: POSITIONING_Z_WINDOW_BARS.map(positioningColumn),
+  params: [
+    { name: 'window', values: [180, 360, 720] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+    { name: 'k', values: [2, 3] },
+  ],
+  create(params): Strategy {
+    const column = positioningColumn(params.window);
+    const threshold = params.z;
+    const holdBars = params.hold;
+    const atrMultiple = params.k;
+
+    return {
+      name: 'positioning-fade',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = researchValue(context.research, context.bar, column);
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        // Crowd long (high z) is faded short, and the reverse.
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          stopPrice: close - sign * atrMultiple * atr,
+          targetPrice: close + sign * 2 * atrMultiple * atr,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
+/**
+ * The same positioning signal held to its horizon, with stops kept out of the way.
+ *
+ * positioning-fade failed at 4h with a random-entry p of 0.602, meaning its
+ * entry timing was no better than chance. That is not what the IC says, and
+ * the likely reason is that the two measure different things: the IC relates
+ * the factor to the return over h bars, while positioning-fade cuts that
+ * return short with a 2 or 3 ATR stop and a 2:1 target, so most trades resolve
+ * on the path rather than at the horizon. This family removes that difference
+ * so the question "does the measured relationship survive costs" gets a clean
+ * answer: the stop sits far enough away to bind only in extremis, there is no
+ * target, and the time stop is the exit.
+ *
+ * If this fails too, the finding does not pay its costs and no further rule
+ * shape should be tried on it, per the program's standing ruling.
+ */
+const POSITIONING_WIDE_STOP_ATR = 10;
+
+const positioningHorizonFamily: StrategyFamily = {
+  name: 'positioning-horizon',
+  description: 'hold the positioning fade to a fixed horizon, stops out of the way',
+  requiresResearchColumns: POSITIONING_Z_WINDOW_BARS.map(positioningColumn),
+  params: [
+    { name: 'window', values: [180, 360, 720] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+  ],
+  create(params): Strategy {
+    const column = positioningColumn(params.window);
+    const threshold = params.z;
+    const holdBars = params.hold;
+
+    return {
+      name: 'positioning-horizon',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = researchValue(context.research, context.bar, column);
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          // Far enough to be a disaster brake, not an exit rule.
+          stopPrice: close - sign * POSITIONING_WIDE_STOP_ATR * atr,
+          targetPrice: null,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
+/**
+ * Fade an unusually high funding rate.
+ *
+ * Phase 3b at execution lag 1: `raw.fundingZ` survives at 15m (h8 ic -0.0251
+ * t -6.5, h16 -0.0320 t -5.9, h32 -0.0420 t -5.7) and 1h (h8 -0.0234 t -7.0,
+ * h16 -0.0259 t -5.8), and at no other interval. It does NOT survive at 4h
+ * under lag 1, though it did at lag 0, so this family runs at 15m and 1h only.
+ *
+ * This is a new input, not a new rule shape over an old one: funding z has
+ * never been turned into a family. The rule is deliberately the same cheap
+ * shape positioning-fade used, so that a difference in outcome is a difference
+ * in the input rather than in the rule.
+ *
+ * It reads a precomputed column rather than deriving the z from
+ * `ctx.snapshots`. An earlier version did the latter, on the reasoning that
+ * `raw.fundingZ` is computed from the very same aligned snapshot array. That
+ * reasoning was right about the source and wrong about the window: the
+ * walk-forward prepares each window from a slice, so a 30-day window (720 bars
+ * at 1h) is fully realised on the train slice and truncated across the first
+ * 13% of every test window. research-columns.ts builds the column once over
+ * the full series, and a test pins it equal to `raw.fundingZ` bar for bar.
+ *
+ * The column needs no execution-lag shift: snapshots align to the bar's OPEN,
+ * so reading at `ctx.bar` and filling at that bar's close is already a
+ * one-sided delay. Contrast depth-imbalance-fade, whose source aligns to the
+ * bar's close and is therefore shifted forward a bar by the producer.
+ */
+const fundingZFadeFamily: StrategyFamily = {
+  name: 'funding-z-fade',
+  description: 'fade the funding rate when it is z sd from its own trailing mean',
+  requiresResearchColumns: FUNDING_Z_WINDOW_DAYS.map(fundingColumn),
+  params: [
+    { name: 'days', values: [15, 30, 60] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+    { name: 'k', values: [2, 3] },
+  ],
+  create(params): Strategy {
+    const column = fundingColumn(params.days);
+    const threshold = params.z;
+    const holdBars = params.hold;
+    const atrMultiple = params.k;
+
+    return {
+      name: 'funding-z-fade',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = researchValue(context.research, context.bar, column);
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        // Negative IC: expensive funding (high z) precedes lower returns, so a
+        // high z is faded short and the reverse.
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          stopPrice: close - sign * atrMultiple * atr,
+          targetPrice: close + sign * 2 * atrMultiple * atr,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
+/**
+ * Fade a crowded order book.
+ *
+ * Phase 3b at execution lag 1: `raw.depthImbalance1`, the cumulative bid/ask
+ * depth imbalance within +/-1% of mid, runs contrarian at 4h (h8 ic -0.0269
+ * t -4.9, h16 -0.0408 t -5.8, h32 -0.0515 t -5.7) and at 1h (h16 -0.0219
+ * t -5.6, h32 -0.0252 t -5.0). It does not clear the survivor rule at 1d under
+ * lag 1, and not at all at 5m or 15m, so this family runs at 4h and 1h.
+ *
+ * A new input, never turned into a family before. The rule is deliberately the
+ * same shape positioning-fade and funding-z-fade use, so a difference in
+ * outcome is a difference in the input rather than in the rule.
+ *
+ * Why a trailing z rather than a threshold on the raw imbalance, which is
+ * already bounded in [-1, 1]: the IC was measured by Spearman rank inside each
+ * symbol, and a symbol whose book is structurally thicker on one side carries
+ * a non-zero mean imbalance. The same argument positioning-fade makes for the
+ * long/short ratio.
+ *
+ * The window is in DAYS, not bars, so one cell means the same span at 4h and
+ * at 1h. (positioning-fade's window is in bars, kept that way only so the
+ * Phase 4b re-run stays comparable to the recorded table.)
+ */
+const depthImbalanceFadeFamily: StrategyFamily = {
+  name: 'depth-imbalance-fade',
+  description: 'fade order-book depth imbalance at +/-1% when it is z sd from its own trailing mean',
+  requiresResearchColumns: DEPTH_Z_WINDOW_DAYS.map(depthColumn),
+  params: [
+    { name: 'days', values: [30, 90] },
+    { name: 'z', values: [1, 1.5, 2] },
+    { name: 'hold', values: [8, 16, 32] },
+    { name: 'k', values: [2, 3] },
+  ],
+  create(params): Strategy {
+    const column = depthColumn(params.days);
+    const threshold = params.z;
+    const holdBars = params.hold;
+    const atrMultiple = params.k;
+
+    return {
+      name: 'depth-imbalance-fade',
+      params,
+      decideEntry(context) {
+        if (!context.suite) return null;
+        const atr = currentAtr(context.suite);
+        if (atr === null) return null;
+
+        const z = researchValue(context.research, context.bar, column);
+        if (!Number.isFinite(z) || Math.abs(z) < threshold) return null;
+
+        const close = context.candles[context.bar].close;
+        if (!Number.isFinite(close)) return null;
+
+        // Negative IC: a heavy bid book precedes lower returns, so an
+        // unusually positive imbalance is faded short and the reverse.
+        const side: 'long' | 'short' = z > 0 ? 'short' : 'long';
+        const sign = side === 'long' ? 1 : -1;
+        return {
+          side,
+          orderType: 'market',
+          stopPrice: close - sign * atrMultiple * atr,
+          targetPrice: close + sign * 2 * atrMultiple * atr,
+          timeStopBars: holdBars,
+        };
+      },
+      decideExit() {
+        return false;
+      },
+    };
+  },
+};
+
 export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   control: {
     name: 'control',
@@ -680,4 +1058,8 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'control-limit': controlLimitFamily,
   'return-reversal-limit': returnReversalLimitFamily,
   'oscillator-reversion-limit': oscillatorReversionLimitFamily,
+  'positioning-fade': positioningFadeFamily,
+  'positioning-horizon': positioningHorizonFamily,
+  'funding-z-fade': fundingZFadeFamily,
+  'depth-imbalance-fade': depthImbalanceFadeFamily,
 };

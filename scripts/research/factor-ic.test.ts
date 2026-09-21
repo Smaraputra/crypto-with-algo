@@ -666,6 +666,20 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--interval', '1h', '--horizons', '1.5'], NOW)).toThrow();
   });
 
+  it('defaults the execution lag to 0, the Phase 3 convention', () => {
+    expect(parseArgs(['--interval', '1h']).executionLagBars).toBe(0);
+  });
+
+  it('parses --execution-lag and rejects a non-integer', () => {
+    expect(parseArgs(['--interval', '1h', '--execution-lag', '1']).executionLagBars).toBe(1);
+    expect(() => parseArgs(['--interval', '1h', '--execution-lag', '-1'])).toThrow(
+      /non-negative integer/
+    );
+    expect(() => parseArgs(['--interval', '1h', '--execution-lag', 'one'])).toThrow(
+      /non-negative integer/
+    );
+  });
+
   it('throws on an unknown flag instead of silently swallowing its value', () => {
     expect(() => parseArgs(['--interval', '1h', '--totally-bogus-flag', 'value'], NOW)).toThrow(/bogus/);
   });

@@ -83,11 +83,30 @@ export function spearman(x: number[], y: number[]): number {
 }
 
 /** (c[i+h] - c[i]) / c[i]; null for the last h positions, which have no future bar. */
-export function forwardReturns(closes: number[], h: number): (number | null)[] {
+/**
+ * Forward returns over `h` bars, optionally entered `lag` bars after the bar
+ * the factor is read on.
+ *
+ * `lag` defaults to 0, which measures from the same close the factor is read
+ * at. That is the convention Phase 3 used and it is kept as the default so
+ * those numbers stay reproducible, but it has two problems. It assumes a fill
+ * at a close that has only just been observed, and it puts `closes[i]` in both
+ * the factor (for any factor built from that price) and the return's
+ * denominator, so noise in one print moves both together. That is the standard
+ * bid-ask bounce correlation, and it is how raw.perpSpotSpreadPct came to have
+ * the largest IC in the study while the same quantity measured from an
+ * independent series showed 40% of it.
+ *
+ * `lag: 1` measures from the next close instead, which shares no term with the
+ * factor and is what a rule acting on the signal could actually get.
+ */
+export function forwardReturns(closes: number[], h: number, lag = 0): (number | null)[] {
   const n = closes.length;
   const result: (number | null)[] = new Array(n);
   for (let i = 0; i < n; i++) {
-    result[i] = i + h < n ? (closes[i + h] - closes[i]) / closes[i] : null;
+    const entry = i + lag;
+    const exit = entry + h;
+    result[i] = exit < n ? (closes[exit] - closes[entry]) / closes[entry] : null;
   }
   return result;
 }
