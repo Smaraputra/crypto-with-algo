@@ -83,6 +83,7 @@ import { studyCostConfig } from '@/lib/backtest/cost-model';
 
 import {
   EXPOSURE_GRID_CELL_COUNT,
+  alignToSharedGrid,
   jointFactorStart,
   maxSmoothingWarmupBars,
   preSmooth,
@@ -539,7 +540,25 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
   // The factor column must start somewhere in the universe, and the run is
   // trimmed to the LAST of those starts: a bar where one symbol has no reading
   // is a bar the joint book cannot fully act on.
-  const columns = new Map<string, readonly number[]>(loaded.map((l) => [l.symbol, l.bars.z]));
+  // The perp series is not perfectly rectangular (SOLUSDT and XRPUSDT are each
+  // missing two 2022 days), and the portfolio's held weights carry across a
+  // bar, so the book runs on the timestamps every symbol shares.
+  const aligned = alignToSharedGrid(loaded.map((l) => l.bars));
+  if (aligned.droppedBars > 0) {
+    console.error(
+      `[exposure-harness] aligned to the shared grid: dropped ${aligned.droppedBars} bars ` +
+        'that not every symbol carried'
+    );
+  }
+  const alignedBySymbol = new Map(aligned.symbols.map((b) => [b.symbol, b]));
+  const alignedLoaded = loaded.map((l) => ({
+    ...l,
+    bars: alignedBySymbol.get(l.symbol) as ExposureSymbolInput,
+  }));
+
+  const columns = new Map<string, readonly number[]>(
+    alignedLoaded.map((l) => [l.symbol, l.bars.z])
+  );
   const factorStart = jointFactorStart(columns);
   if (factorStart < 0) {
     throw new Error(`Factor "${args.factor}" never produced a finite reading for every symbol`);
@@ -551,7 +570,7 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
   // `max(smoothing) - 1` bars and every window head would sit out. See
   // exposure-walk-forward.ts's header.
   const trimStart = maxSmoothingWarmupBars(factorStart);
-  const trimmed = loaded.map((l) => ({
+  const trimmed = alignedLoaded.map((l) => ({
     ...l,
     bars: sliceSymbolInput(l.bars, trimStart, l.bars.timestamps.length - 1),
   }));
@@ -819,13 +838,21 @@ export async function runCell(args: ExposureHarnessArgs): Promise<ExposureCellCh
     });
     if (entry) loaded.push(entry);
   }
-  const columns = new Map<string, readonly number[]>(loaded.map((l) => [l.symbol, l.bars.z]));
+  // The SAME two steps the full run applies: align to the shared grid, then
+  // trim past the smoothing warmup. Skipping either would put the spot check on
+  // a different series than the report it is checking.
+  const aligned = alignToSharedGrid(loaded.map((l) => l.bars));
+  const alignedBySymbol = new Map(aligned.symbols.map((b) => [b.symbol, b]));
+  const alignedLoaded = loaded.map((l) => ({
+    ...l,
+    bars: alignedBySymbol.get(l.symbol) as ExposureSymbolInput,
+  }));
+  const columns = new Map<string, readonly number[]>(
+    alignedLoaded.map((l) => [l.symbol, l.bars.z])
+  );
   const factorStart = jointFactorStart(columns);
-  // The SAME trim the full run applies, including the smoothing warmup. Using
-  // only `factorStart` here would shift every window by `max(smoothing) - 1`
-  // bars and the spot check would disagree with the report it is checking.
   const trimStart = maxSmoothingWarmupBars(factorStart);
-  const trimmed = loaded.map((l) => ({
+  const trimmed = alignedLoaded.map((l) => ({
     ...l,
     bars: sliceSymbolInput(l.bars, trimStart, l.bars.timestamps.length - 1),
   }));

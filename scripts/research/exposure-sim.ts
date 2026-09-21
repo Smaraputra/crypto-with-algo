@@ -292,11 +292,12 @@ export function simulateExposure(
   let incompleteBars = 0;
   let skippedBars = 0;
 
-  // Hoisted out of the bar loop: both are indexed by BAR (t), so declaring
-  // them per iteration would leave index t beyond the end of the array on
-  // every bar after the first.
-  const returns: number[] = [];
-  const targets: number[] = [];
+  // Both are [symbol][bar], not [bar] alone: every symbol has its own return
+  // and its own target on each bar. A flat per-bar array would hand every
+  // symbol symbol 0's return, which is silent and reports plausible numbers.
+  // Declared outside the bar loop so index t keeps meaning bar t.
+  const returns: number[][] = symbols.map(() => []);
+  const targets: number[][] = symbols.map(() => []);
 
   // Bar t earns the return t -> t+1, so the last bar has no return to earn and
   // is never traded into.
@@ -310,17 +311,19 @@ export function simulateExposure(
         complete = false;
         break;
       }
-      returns.push(r);
-      targets.push(Number.isFinite(raw) ? raw / gross : Number.NaN);
+      returns[s].push(r);
+      targets[s].push(Number.isFinite(raw) ? raw / gross : Number.NaN);
     }
 
     if (!complete) {
       incompleteBars++;
       skippedBars++;
-      // Drop the partial row so the arrays stay exactly one entry per bar and
-      // index t keeps meaning bar t.
-      returns.length = t;
-      targets.length = t;
+      // Drop the partial row so each column stays exactly one entry per bar
+      // and index t keeps meaning bar t.
+      for (let s = 0; s < symbols.length; s++) {
+        returns[s].length = t;
+        targets[s].length = t;
+      }
       for (let s = 0; s < symbols.length; s++) {
         // Carry the held weight forward across an unusable bar so a gap does
         // not silently look like a flat position.
@@ -345,7 +348,7 @@ export function simulateExposure(
 
     for (let s = 0; s < symbols.length; s++) {
       const previous = held[s][t];
-      const target = targets[t];
+      const target = targets[s][t];
 
       // A NaN target means "no reading this bar": hold, and do not trade.
       const trade = Number.isFinite(target) && Math.abs(target - previous) > grid.band + EPSILON;
@@ -362,7 +365,7 @@ export function simulateExposure(
       const exposure = trade ? target : previous;
       held[s][t + 1] = exposure;
 
-      const contribution = exposure * returns[t];
+      const contribution = exposure * returns[s][t];
       returnThisBar += contribution;
       grossThisBar += Math.abs(exposure);
       perSymbolReturns[s].push(contribution);

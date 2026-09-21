@@ -4,6 +4,7 @@ import { simulateExposure, type ExposureSymbolInput } from './exposure-sim';
 import {
   EXPOSURE_GRID_CELL_COUNT,
   MIN_TEST_BARS,
+  alignToSharedGrid,
   MIN_TRAIN_BARS,
   expandExposureGrid,
   gridFor,
@@ -122,6 +123,67 @@ describe('preSmooth', () => {
     const fixedResult = simulateExposure([fixedSlice], halfGrid, {});
     expect(Math.abs(fixedResult.grossExposure[0])).toBeGreaterThan(0);
     expect(fixedResult.grossExposure.slice(0, 31).every((g) => g !== 0)).toBe(true);
+  });
+});
+
+describe('alignToSharedGrid', () => {
+  const at = (i: number) => i * DAY;
+
+  function series(name: string, indices: number[]): ExposureSymbolInput {
+    return {
+      symbol: name,
+      timestamps: indices.map(at),
+      closes: indices.map(() => 100),
+      fundingRates: indices.map(() => 0),
+      z: indices.map(() => -1),
+    };
+  }
+
+  it('drops the timestamps a symbol is missing, the way the real data is gapped', () => {
+    // SOLUSDT and XRPUSDT are each missing 2022-03-01 and 2022-04-03 in the
+    // production dataset, so a fixed index window puts them on their own grid.
+    const full = series('BTCUSDT', [0, 1, 2, 3, 4]);
+    const gapped = series('SOLUSDT', [0, 1, 3, 4]);
+
+    const aligned = alignToSharedGrid([full, gapped]);
+    expect(aligned.droppedBars).toBe(1);
+    expect(aligned.symbols[0].timestamps).toEqual([at(0), at(1), at(3), at(4)]);
+    expect(aligned.symbols[1].timestamps).toEqual([at(0), at(1), at(3), at(4)]);
+    // Every symbol is the same length afterwards, which is what the simulator
+    // requires.
+    expect(aligned.symbols[0].closes).toHaveLength(aligned.symbols[1].closes.length);
+  });
+
+  it('keeps each symbol\'s own values, not the first symbol\'s', () => {
+    const a: ExposureSymbolInput = {
+      symbol: 'AAAUSDT',
+      timestamps: [0, DAY, 2 * DAY],
+      closes: [1, 2, 3],
+      fundingRates: [0, 0, 0],
+      z: [-1, -2, -3],
+    };
+    const b: ExposureSymbolInput = {
+      symbol: 'BBBUSDT',
+      timestamps: [0, 2 * DAY],
+      closes: [10, 30],
+      fundingRates: [0, 0],
+      z: [-9, -8],
+    };
+    const aligned = alignToSharedGrid([a, b]);
+    expect(aligned.symbols[0].closes).toEqual([1, 3]);
+    expect(aligned.symbols[1].closes).toEqual([10, 30]);
+    expect(aligned.symbols[0].z).toEqual([-1, -3]);
+    expect(aligned.symbols[1].z).toEqual([-9, -8]);
+  });
+
+  it('reports no drop when the universe already shares one grid', () => {
+    const a = series('AAAUSDT', [0, 1, 2]);
+    const b = series('BBBUSDT', [0, 1, 2]);
+    expect(alignToSharedGrid([a, b]).droppedBars).toBe(0);
+  });
+
+  it('handles an empty universe', () => {
+    expect(alignToSharedGrid([])).toEqual({ symbols: [], droppedBars: 0 });
   });
 });
 

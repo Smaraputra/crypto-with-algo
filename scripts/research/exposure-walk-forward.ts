@@ -170,6 +170,52 @@ export function jointFactorStart(columns: ReadonlyMap<string, readonly number[]>
   return latest;
 }
 
+/**
+ * Restrict the universe to the timestamps every symbol carries, keeping the
+ * order of the first symbol's grid.
+ *
+ * The perp series is not perfectly rectangular: SOLUSDT and XRPUSDT are each
+ * missing 2022-03-01 and 2022-04-03, so a fixed index window puts them on a
+ * different bar grid from the rest. `simulateExposure` refuses mismatched
+ * lengths, and it should: the portfolio's held weights carry across a bar, so
+ * a symbol with no bar there is not a zero return, it is an unknown one.
+ *
+ * Intersecting is the honest fix rather than forward-filling the hole. A
+ * carried-forward return would invent a price move for the missing day, and
+ * the exposure path has no fill model to justify one.
+ */
+export function alignToSharedGrid(
+  symbols: readonly ExposureSymbolInput[]
+): { symbols: ExposureSymbolInput[]; droppedBars: number } {
+  if (symbols.length === 0) return { symbols: [], droppedBars: 0 };
+
+  const key = symbols[0].timestamps;
+  const perSymbol = symbols.map((s) => {
+    const map = new Map<number, number>();
+    for (let i = 0; i < s.timestamps.length; i++) map.set(s.timestamps[i], i);
+    return map;
+  });
+
+  const keep: number[] = [];
+  for (const t of key) {
+    if (perSymbol.every((map) => map.has(t))) keep.push(t);
+  }
+
+  const out = symbols.map((s, si) => {
+    const map = perSymbol[si];
+    const idx = keep.map((t) => map.get(t) as number);
+    return {
+      symbol: s.symbol,
+      timestamps: idx.map((i) => s.timestamps[i]),
+      closes: idx.map((i) => s.closes[i]),
+      fundingRates: idx.map((i) => s.fundingRates[i]),
+      z: idx.map((i) => s.z[i]),
+    };
+  });
+
+  return { symbols: out, droppedBars: key.length - keep.length };
+}
+
 /** Inclusive slice of one symbol's parallel arrays. */
 export function sliceSymbolInput(
   input: ExposureSymbolInput,
