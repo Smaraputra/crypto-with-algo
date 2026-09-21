@@ -332,7 +332,8 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
   };
 }
 
-interface SymbolData {
+/** One symbol's factor matrix; also read by scripts/research/score-percentiles.ts. */
+export interface SymbolData {
   symbol: string;
   matrix: FactorMatrix;
   lockboxApplied: boolean;
@@ -344,7 +345,7 @@ function inRange(t: number, start: number | undefined, end: number | undefined):
   return true;
 }
 
-function loadSymbolData(
+export function loadSymbolData(
   datasetDir: string,
   symbol: string,
   interval: string,

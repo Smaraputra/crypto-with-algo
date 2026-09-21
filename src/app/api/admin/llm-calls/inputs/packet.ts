@@ -4,6 +4,7 @@ import { dropOpenBars } from '@/lib/candle-ingestion';
 import { intervalToMs } from '@/lib/intervals';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { llmStyleForInterval } from '@/lib/models/llm-call';
+import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { OHLCV } from '@/types/market';
@@ -51,14 +52,34 @@ const CLOSES = 60;
 const NEWS_ITEMS = 10;
 
 /**
+ * Floor on the news window, so a 1h packet is not cut back to a single hour of
+ * coverage by the horizon alone.
+ */
+const NEWS_MIN_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * How far before the bar close a headline may be published and still enter the
+ * packet: the decision horizon the voter is asked about, floored at three days.
+ * The publisher feeds carry evergreen items (explainer and video posts months
+ * old) that sort to the tail of the merged feed. Without a floor those items
+ * filled the remaining news slots once the recent, symbol-relevant stories ran
+ * out, so a symbol with two fresh headlines was shown ten, eight of them from
+ * another market entirely.
+ */
+function newsLookbackMs(interval: string, tradingStyle: TradingStyle): number {
+  return Math.max(OUTCOME_HORIZON_BARS[tradingStyle] * intervalToMs(interval), NEWS_MIN_LOOKBACK_MS);
+}
+
+/**
  * Point-in-time inputs for one LLM call: nothing in the packet postdates the
  * close of the last closed bar. Candles come from the store with the open
  * bar dropped; the signal and snapshot are the latest at or before that
- * close, each dropped to null if older than two intervals; news is filtered
- * to items published at or before it, dateless items dropped. The hash
- * covers everything but generatedAt, so a repeated request for the same bar
- * hashes the same; `inputsHash` identifies the packet the voter saw, but the
- * packet itself is not persisted.
+ * close, each dropped to null if older than two intervals; news is filtered to
+ * items published at or before it and no earlier than the news lookback, then
+ * sorted newest first, with dateless items dropped. The hash covers everything
+ * but generatedAt, so a repeated request for the same bar hashes the same;
+ * `inputsHash` identifies the packet the voter saw, but the packet itself is
+ * not persisted.
  */
 export async function buildInputsPacket(
   deps: PacketDeps,
@@ -81,10 +102,17 @@ export async function buildInputsPacket(
   const snapshotIntervalMs = intervalToMs(mapToSnapshotInterval(interval));
   const snapshotDoc = snapshotRaw && closeTime - snapshotRaw.timestamp > 2 * snapshotIntervalMs ? null : snapshotRaw;
 
+  const newsFrom = closeTime - newsLookbackMs(interval, tradingStyle);
   let news: InputsPacket['news'] = [];
   try {
     news = (await deps.fetchNews(symbol))
-      .filter((item) => item.publishedOn > 0 && item.publishedOn * 1000 <= closeTime)
+      .filter((item) => {
+        if (item.publishedOn <= 0) return false;
+        const publishedAt = item.publishedOn * 1000;
+        return publishedAt <= closeTime && publishedAt >= newsFrom;
+      })
+      // The cap keeps the newest survivors, whatever order the feed arrives in.
+      .sort((a, b) => b.publishedOn - a.publishedOn)
       .slice(0, NEWS_ITEMS)
       .map((item) => ({
         title: item.title,
