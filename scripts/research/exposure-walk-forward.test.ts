@@ -57,8 +57,8 @@ describe('expandExposureGrid', () => {
 
     // The order is part of the contract: it sets the grid index, and therefore
     // both the earliest-index tie-break and the plateau's adjacency.
-    expect(cells[0]).toEqual({ band: 0, zScale: 1, smoothing: 0 });
-    expect(cells[cells.length - 1]).toEqual({ band: 0.5, zScale: 3, smoothing: 32 });
+    expect(cells[0]).toEqual({ band: 0, zScale: 3, smoothing: 0 });
+    expect(cells[cells.length - 1]).toEqual({ band: 0.5, zScale: 12, smoothing: 32 });
     // band=0 must be present: it is the internal control.
     expect(cells.some((c) => c.band === 0)).toBe(true);
   });

@@ -50,11 +50,32 @@ import {
 } from './exposure-sim';
 import { minBarsHeldFor, type ExposureCellRun } from './exposure-gates';
 
-/** The grid the phase specified: band x zScale x smoothing, with `band = 0` as
- * the internal control (the same factor with no band, so the band's
- * contribution is measurable rather than assumed). */
+/**
+ * The grid: band x zScale x smoothing, with `band = 0` as the internal control
+ * (the same factor with no band, so the band's contribution is measurable
+ * rather than assumed).
+ *
+ * THE GRID VALUES ARE MEASURED, NOT GUESSED, and the first version of this was
+ * wrong in a way worth recording. It shipped `zScale {1, 2, 3}`, and at those
+ * scales the target moves by a median of 0.0624 per bar at 1d and 0.0356 at 4h
+ * (measured on the real positioning column, three symbols, pre-lockbox), which
+ * is ABOVE the 0.1 band on about a third of bars. So every cell traded
+ * constantly: 1.0 to 2.4 bars between rebalances across all twelve grid runs,
+ * which is a continuously rebalanced book wearing a band's name.
+ *
+ * Worse, `band = 0` then won selection in 11 of 12 windows. That is not the
+ * band being useless, it is a per-period Sharpe preferring tidy iid returns:
+ * a constantly rebalanced book has them, while a wide band holds one position
+ * across many bars (fine for a real book, which still earns the drift and pays
+ * nothing to keep the position) and scores badly on a series that mostly
+ * repeats itself.
+ *
+ * `zScale` now spans the range where `tanh` is nearly linear for this column
+ * (its trailing z runs to about +/-3), which puts the median per-bar move at
+ * 0.02 or below and makes the band a filter rather than a lag.
+ */
 export const EXPOSURE_BAND_VALUES = [0, 0.1, 0.25, 0.5] as const;
-export const EXPOSURE_ZSCALE_VALUES = [1, 2, 3] as const;
+export const EXPOSURE_ZSCALE_VALUES = [3, 6, 12] as const;
 export const EXPOSURE_SMOOTHING_VALUES = [0, 8, 32] as const;
 export const EXPOSURE_GRID_CELL_COUNT =
   EXPOSURE_BAND_VALUES.length * EXPOSURE_ZSCALE_VALUES.length * EXPOSURE_SMOOTHING_VALUES.length;
