@@ -23,37 +23,30 @@ vi.mock('next/link', () => ({
 import BlogPage from './page';
 
 describe('BlogPage', () => {
+  // These tests used to assert four hardcoded fake articles -- invented titles,
+  // invented 2025 dates, invented read times -- which is what kept the
+  // fabricated content in place. The page is now honest about having no posts,
+  // and these assert that instead.
   it('renders the Blog heading', () => {
     render(<BlogPage />);
     expect(screen.getByRole('heading', { name: 'Blog', level: 1 })).toBeInTheDocument();
   });
 
-  it('renders article cards', () => {
+  it('says there are no posts yet', () => {
     render(<BlogPage />);
-    expect(
-      screen.getByText('Understanding Technical Indicators for Crypto Trading')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Building a Diversified Crypto Portfolio')
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'No posts yet' })).toBeInTheDocument();
   });
 
-  it('renders article categories', () => {
+  it('points at the documentation instead', () => {
     render(<BlogPage />);
-    expect(screen.getByText('Education')).toBeInTheDocument();
-    expect(screen.getByText('Strategy')).toBeInTheDocument();
-    expect(screen.getByText('Tutorial')).toBeInTheDocument();
-    // "Product" appears both as category badge and footer column heading
-    expect(screen.getAllByText('Product').length).toBeGreaterThanOrEqual(2);
+    const link = screen.getByRole('link', { name: 'documentation' });
+    expect(link).toHaveAttribute('href', '/docs');
   });
 
-  it('renders read time', () => {
+  it('presents no article metadata, fabricated or otherwise', () => {
     render(<BlogPage />);
-    expect(screen.getByText('8 min read')).toBeInTheDocument();
-  });
-
-  it('renders formatted dates', () => {
-    render(<BlogPage />);
-    expect(screen.getByText('January 15, 2025')).toBeInTheDocument();
+    // No read times, no article dates: the tells of the placeholder content.
+    expect(screen.queryByText(/min read/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d{4}$/)).not.toBeInTheDocument();
   });
 });

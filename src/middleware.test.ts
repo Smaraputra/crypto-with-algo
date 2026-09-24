@@ -88,7 +88,9 @@ describe('middleware', () => {
     expect(res.headers.get('location')).toBeNull();
   });
 
-  it.each(['/docs', '/api-reference', '/blog', '/features', '/how-it-works'])(
+  // '/api-reference' was whitelisted here and in middleware.ts but the route
+  // never existed, so the entry made a nonexistent page publicly reachable.
+  it.each(['/docs', '/blog', '/features', '/how-it-works'])(
     'allows %s without authentication',
     (path) => {
       const res = middleware(makeRequest(path));

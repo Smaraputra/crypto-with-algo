@@ -30,9 +30,11 @@ function SidebarContent() {
   const pathname = usePathname();
   const { data: session } = useSession();
 
-  // Show admin section if user's email matches admin
-  // (Admin email should be set in environment, we check substring for flexibility)
-  const isAdmin = session?.user?.email && pathname?.startsWith('/admin');
+  // Previously `session?.user?.email && pathname?.startsWith('/admin')`, which
+  // only rendered the admin nav once you were ALREADY inside /admin -- so the
+  // link that takes you there could never appear, and ADMIN_NAV_ITEMS was dead
+  // code. isAdmin is now derived server-side in the session callback.
+  const isAdmin = session?.user?.isAdmin === true;
 
   return (
     <div className="flex h-full flex-col bg-sidebar">

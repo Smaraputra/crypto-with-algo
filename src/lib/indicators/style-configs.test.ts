@@ -4,7 +4,6 @@ import {
   STYLE_CONFIGS,
   TRADING_STYLES,
   getStyleConfig,
-  shouldSkipIndicator,
 } from './style-configs';
 import type { TradingStyle } from '@/lib/models/signal-template';
 
@@ -219,20 +218,24 @@ describe('style-configs', () => {
     });
   });
 
-  describe('shouldSkipIndicator', () => {
-    it('returns true for ichimoku in scalping', () => {
-      expect(shouldSkipIndicator('scalping', 'ichimoku')).toBe(true);
+  describe('skipIndicators', () => {
+    // These asserted the same thing through `shouldSkipIndicator`, a helper with
+    // zero callers: `compute-for-style.ts` reads `profile.skipIndicators`
+    // directly. The helper is gone, the behaviour it described is not, so the
+    // assertions now read the config the live path actually consults.
+    it('skips ichimoku for scalping', () => {
+      expect(getStyleConfig('scalping').skipIndicators).toContain('ichimoku');
     });
 
-    it('returns false for ichimoku in other styles', () => {
-      expect(shouldSkipIndicator('day_trading', 'ichimoku')).toBe(false);
-      expect(shouldSkipIndicator('swing_trading', 'ichimoku')).toBe(false);
-      expect(shouldSkipIndicator('position_trading', 'ichimoku')).toBe(false);
+    it('skips nothing for the other styles', () => {
+      expect(getStyleConfig('day_trading').skipIndicators).not.toContain('ichimoku');
+      expect(getStyleConfig('swing_trading').skipIndicators).not.toContain('ichimoku');
+      expect(getStyleConfig('position_trading').skipIndicators).not.toContain('ichimoku');
     });
 
-    it('returns false for non-skipped indicators', () => {
-      expect(shouldSkipIndicator('scalping', 'rsi')).toBe(false);
-      expect(shouldSkipIndicator('scalping', 'macd')).toBe(false);
+    it('does not skip the indicators every style scores', () => {
+      expect(getStyleConfig('scalping').skipIndicators).not.toContain('rsi');
+      expect(getStyleConfig('scalping').skipIndicators).not.toContain('macd');
     });
   });
 

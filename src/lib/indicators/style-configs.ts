@@ -155,6 +155,3 @@ export function getStyleConfig(style: TradingStyle): StyleIndicatorProfile {
   return STYLE_CONFIGS[style];
 }
 
-export function shouldSkipIndicator(style: TradingStyle, indicator: string): boolean {
-  return STYLE_CONFIGS[style].skipIndicators.includes(indicator);
-}

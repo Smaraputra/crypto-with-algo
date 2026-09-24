@@ -1,6 +1,8 @@
 'use client';
 
 import { ExternalLink } from 'lucide-react';
+
+import { NEWS_FEEDS } from '@/lib/external/news-feeds';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLatestNews } from '@/hooks/useNews';
 import type { CryptoNewsItem } from '@/types/news';
@@ -86,16 +88,27 @@ export function NewsFeed() {
           <NewsCard key={article.id} article={article} />
         ))}
       </div>
+      {/*
+        Read from NEWS_FEEDS rather than written out, because this footer
+        credited CryptoPanic for months after the provider moved to these
+        publisher feeds. Sourcing it from the same list the fetcher uses means
+        the next provider change cannot leave the attribution behind.
+      */}
       <p className="text-[10px] text-muted-foreground text-right">
-        Powered by{' '}
-        <a
-          href="https://cryptopanic.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          CryptoPanic
-        </a>
+        Headlines from{' '}
+        {NEWS_FEEDS.map((feed, i) => (
+          <span key={feed.source}>
+            {i > 0 && (i === NEWS_FEEDS.length - 1 ? ' and ' : ', ')}
+            <a
+              href={feed.siteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+            >
+              {feed.source}
+            </a>
+          </span>
+        ))}
       </p>
     </div>
   );

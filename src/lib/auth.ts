@@ -130,6 +130,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = token.id;
       }
       session.user.tosAccepted = !!token.tosAccepted;
+      // Derived here, not in the JWT, so revoking admin takes effect on the
+      // next session read rather than waiting for the token to be reissued.
+      // Compared server-side so ADMIN_EMAIL never reaches the client: the UI
+      // needs to know whether to render the admin nav, not who the admin is.
+      // This is a NAVIGATION hint only -- every admin route and page still
+      // gates on requireAdmin (src/lib/admin-auth.ts), which is the real check.
+      const adminEmail = process.env.ADMIN_EMAIL;
+      session.user.isAdmin = !!adminEmail && session.user.email === adminEmail;
       return session;
     },
   },

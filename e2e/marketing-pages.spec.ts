@@ -9,11 +9,12 @@ test.describe('Marketing Pages', () => {
     await expect(page.getByText('Feature Reference')).toBeVisible();
   });
 
-  test('Blog page renders heading and article cards', async ({ page }) => {
+  test('Blog page renders heading and an honest empty state', async ({ page }) => {
+    // This previously asserted the categories of four hardcoded fake articles
+    // ("Education", "Strategy"), which locked the fabricated content in place.
     await page.goto('/blog');
     await expect(page.getByRole('heading', { name: 'Blog' })).toBeVisible();
-    await expect(page.getByText('Education')).toBeVisible();
-    await expect(page.getByText('Strategy')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No posts yet' })).toBeVisible();
   });
 
   test('Features page renders heading and feature cards', async ({ page }) => {
