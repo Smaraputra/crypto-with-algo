@@ -110,7 +110,15 @@
  * THIS IS A DISCONTINUITY IN THE LIVE OUTCOME RECORD. Signals scored before
  * this deploy used both the old scorer and the old cutoffs; the two changed
  * together, so tier-conditioned statistics must not be pooled across it.
- * `configVersion` on SignalOutcome is what separates the two series.
+ * `GlobalSignal.configVersion` was bumped 4 to 5 for exactly this purpose (the
+ * same mechanism v3 used when these cutoffs were first calibrated), and
+ * `SignalOutcome` carries it through, so filter on it rather than on a date.
+ *
+ * ONE CAVEAT ON THAT BOUNDARY: the cutoff change deployed at 2026-09-24T14:08Z
+ * and the version bump followed it by a few minutes, so a small number of rows
+ * carry `configVersion: 4` while having been scored by the v5 scorer. Bars in
+ * that window are identifiable by `candleTimestamp` and are worth excluding
+ * from any comparison that leans on the version alone.
  */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */

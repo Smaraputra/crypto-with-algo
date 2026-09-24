@@ -155,8 +155,10 @@ describe('compute-engine', () => {
       expect(['asia', 'london', 'ny_overlap', 'new_york', 'off_hours']).toContain(
         insertedDocs[0].session
       );
-      // v2 schema: htf confluence from the 4h confirmation interval
-      expect(insertedDocs[0].configVersion).toBe(4);
+      // Bumped to 5 with the scorer-correctness fixes and the 30/38 cutoffs:
+      // v4 and v5 scores are not comparable, so the version is what keeps
+      // tier-conditioned statistics from being pooled across the change.
+      expect(insertedDocs[0].configVersion).toBe(5);
       expect(insertedDocs[0].htfContext).not.toBeNull();
       expect(insertedDocs[0].htfContext.interval).toBe('4h');
       expect(['bullish', 'bearish', 'neutral']).toContain(insertedDocs[0].htfContext.trendDirection);
@@ -436,7 +438,7 @@ describe('compute-engine', () => {
           symbol: 'BTCUSDT',
           interval: '1h',
           tradingStyle: 'day_trading',
-          configVersion: 4,
+          configVersion: 5,
         });
         expect(typeof signalsArg[0].score).toBe('number');
         expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(
