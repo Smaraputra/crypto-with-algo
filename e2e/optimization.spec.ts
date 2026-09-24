@@ -1,5 +1,29 @@
 import { test, expect } from '@playwright/test';
 
+/**
+ * The admin optimization page.
+ *
+ * ADMIN_EMAIL is not set in the E2E environment, so the Playwright user is
+ * never an admin and every admin-only test here skips. That was already true
+ * and already reported as a skip -- these are the "admin-env-conditional
+ * skips" in the suite's baseline -- but two things were wrong with how:
+ *
+ *   - the skips were bare `test.skip()` calls, so the report said a test was
+ *     skipped without saying why, and the condition was re-derived by hand in
+ *     each test from `page.url()`;
+ *   - the only assertion that could ever run on the admin branch looked for a
+ *     heading "Optimization Dashboard" while the page renders "Template
+ *     Optimization", so the suite would have failed the first time anyone
+ *     pointed ADMIN_EMAIL at the test user -- the one configuration that makes
+ *     these tests worth having.
+ *
+ * Now the skips carry a reason, the heading matches the page, and the
+ * non-admin path is asserted properly (redirected AND the admin heading
+ * absent) rather than by a bare URL check. To run the admin tests, point
+ * ADMIN_EMAIL at the Playwright test user.
+ */
+const ADMIN_ONLY = 'requires ADMIN_EMAIL to match the E2E test user';
+
 test.describe('Optimization Dashboard', () => {
   test.use({ storageState: 'e2e/.auth/user.json' });
 
@@ -9,27 +33,21 @@ test.describe('Optimization Dashboard', () => {
     await page.waitForURL(/\/(admin\/optimization|dashboard)/, { timeout: 30000 });
   });
 
-  test('should show access denied for non-admin users', async ({ page }) => {
-    // This test assumes the test user is not an admin
-    // If redirected, we should be on dashboard
+  test('redirects a non-admin away, or renders the page for an admin', async ({ page }) => {
+    // Runs unconditionally: whichever branch is taken is a real assertion, so
+    // this test cannot pass without having checked something.
     await page.waitForURL(/\/(dashboard|admin\/optimization)/);
 
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      // Non-admin was redirected - expected behavior
-      expect(url).toContain('/dashboard');
+    if (page.url().includes('/admin/optimization')) {
+      await expect(page.getByRole('heading', { name: /Template Optimization/i })).toBeVisible();
     } else {
-      // If ADMIN_EMAIL matches test user, page should load
-      await expect(page.getByRole('heading', { name: /Optimization Dashboard/i })).toBeVisible();
+      expect(page.url()).toContain('/dashboard');
+      await expect(page.getByRole('heading', { name: /Template Optimization/i })).toHaveCount(0);
     }
   });
 
   test('should display optimization form with all fields', async ({ page }) => {
-    // Skip if redirected (non-admin)
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Check form fields
     await expect(page.getByLabel(/Trading Style/i)).toBeVisible();
@@ -42,10 +60,7 @@ test.describe('Optimization Dashboard', () => {
   });
 
   test('should validate form inputs', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Try to submit empty form
     await page.getByRole('button', { name: /Start Optimization/i }).click();
@@ -55,10 +70,7 @@ test.describe('Optimization Dashboard', () => {
   });
 
   test('should display estimated runtime when changing parameters', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Fill in symbol and interval
     await page.getByLabel(/Symbol/i).fill('BTCUSDT');
@@ -74,10 +86,7 @@ test.describe('Optimization Dashboard', () => {
   });
 
   test('should show history tab with table headers', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Click History tab
     await page.getByRole('tab', { name: /History/i }).click();
@@ -90,10 +99,7 @@ test.describe('Optimization Dashboard', () => {
   });
 
   test('should navigate between tabs', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Default tab should be Optimize
     const optimizeTab = page.getByRole('tab', { name: /Optimize/i });
@@ -116,10 +122,7 @@ test.describe('Optimization Dashboard', () => {
   });
 
   test('should show compare tab message when no template selected', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Click Compare tab
     await page.getByRole('tab', { name: /Compare/i }).click();
@@ -129,10 +132,7 @@ test.describe('Optimization Dashboard', () => {
   });
 
   test('should display form in correct initial state', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Trading style should default to day_trading
     const tradingStyleTrigger = page.getByRole('combobox', { name: /Trading Style/i });
@@ -152,10 +152,7 @@ test.describe('Optimization Dashboard', () => {
   });
 
   test('should allow filling out the optimization form', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Select trading style
     await page.getByRole('combobox', { name: /Trading Style/i }).click();
@@ -189,20 +186,14 @@ test.describe('Cron Runs Tab', () => {
   });
 
   test('should show Cron Runs tab', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     const cronTab = page.getByRole('tab', { name: /Cron Runs/i });
     await expect(cronTab).toBeVisible();
   });
 
   test('should show table headers or empty state in Cron Runs tab', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     await page.getByRole('tab', { name: /Cron Runs/i }).click();
 
@@ -214,10 +205,7 @@ test.describe('Cron Runs Tab', () => {
   });
 
   test('should show Trigger Optimization button in Cron tab', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     await page.getByRole('tab', { name: /Cron Runs/i }).click();
 
@@ -225,10 +213,7 @@ test.describe('Cron Runs Tab', () => {
   });
 
   test('should open trigger dialog when button is clicked', async ({ page }) => {
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     await page.getByRole('tab', { name: /Cron Runs/i }).click();
     await page.getByRole('button', { name: /Trigger Optimization/i }).click();
@@ -246,11 +231,7 @@ test.describe('Optimization Sidebar Navigation', () => {
   test('should show Optimization link in admin section when on admin page', async ({ page }) => {
     await page.goto('/admin/optimization');
 
-    const url = page.url();
-    if (url.includes('/dashboard')) {
-      // Non-admin, no admin section
-      test.skip();
-    }
+    test.skip(!page.url().includes('/admin/optimization'), ADMIN_ONLY);
 
     // Should show Admin section header
     await expect(page.getByText('Admin')).toBeVisible();

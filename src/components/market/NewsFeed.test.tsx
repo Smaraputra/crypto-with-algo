@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 vi.mock('@/hooks/useNews', () => ({
   useLatestNews: vi.fn(),
 }));
 
+import { NEWS_FEEDS } from '@/lib/external/news-feeds';
 import { NewsFeed } from './NewsFeed';
 import { useLatestNews } from '@/hooks/useNews';
 import type { CryptoNewsItem } from '@/types/news';
@@ -64,7 +65,11 @@ describe('NewsFeed', () => {
     render(<NewsFeed />);
     expect(screen.getByTestId('news-feed')).toBeInTheDocument();
     expect(screen.getByText('Bitcoin hits new high')).toBeInTheDocument();
-    expect(screen.getByText('CoinDesk')).toBeInTheDocument();
+    // Scoped to the card: the attribution footer also names CoinDesk, so an
+    // unscoped getByText now matches twice.
+    expect(
+      within(screen.getByTestId('news-card')).getByText('CoinDesk')
+    ).toBeInTheDocument();
   });
 
   it('shows relative time', () => {
@@ -96,7 +101,11 @@ describe('NewsFeed', () => {
     expect(cards).toHaveLength(10);
   });
 
-  it('shows CryptoPanic attribution', () => {
+  it('credits the publishers the headlines actually come from', () => {
+    // This asserted "CryptoPanic" for months after the provider moved to
+    // publisher RSS, crediting a service the app no longer calls. The
+    // attribution now renders from NEWS_FEEDS, so it cannot drift again, and
+    // this test reads the same list rather than restating the names.
     vi.mocked(useLatestNews).mockReturnValue({
       data: { articles: [mockArticle] },
       isLoading: false,
@@ -104,7 +113,11 @@ describe('NewsFeed', () => {
     } as unknown as ReturnType<typeof useLatestNews>);
 
     render(<NewsFeed />);
-    const link = screen.getByRole('link', { name: 'CryptoPanic' });
-    expect(link).toHaveAttribute('href', 'https://cryptopanic.com');
+
+    for (const feed of NEWS_FEEDS) {
+      const link = screen.getByRole('link', { name: feed.source });
+      expect(link).toHaveAttribute('href', feed.siteUrl);
+    }
+    expect(screen.queryByText(/CryptoPanic/i)).not.toBeInTheDocument();
   });
 });

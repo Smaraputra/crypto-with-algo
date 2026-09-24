@@ -9,6 +9,11 @@ declare module 'next-auth' {
       email?: string | null;
       image?: string | null;
       tosAccepted: boolean;
+      /**
+       * Navigation hint only. Derived in the session callback by comparing
+       * against ADMIN_EMAIL server-side; authorization is always requireAdmin.
+       */
+      isAdmin: boolean;
     };
   }
 

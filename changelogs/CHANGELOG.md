@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (marketing): the blog showed four fabricated articles
+- `src/app/(marketing)/blog/page.tsx` rendered a hardcoded `ARTICLES` array -- invented titles, invented 2024-2025 dates, invented excerpts and read times -- on a public path. The cards were not clickable, there were no bodies, and no `/blog/[slug]` route existed, so nothing could have been read even if a visitor tried. Replaced with an honest empty state pointing at the documentation
+- Its unit test and the `marketing-pages` E2E spec both **asserted the fabricated content** (`'Education'`, `'Strategy'`, `'8 min read'`, `'January 15, 2025'`), which is what kept it in place. Both now assert the empty state, and one test asserts the absence of article metadata so a placeholder cannot quietly return
+
+### Fixed (market): the news feed credited a provider the app stopped using
+- `NewsFeed.tsx` rendered "Powered by CryptoPanic" linking to cryptopanic.com. The provider moved to publisher RSS when CryptoPanic's free plan was discontinued; the swap deliberately preserved the function signature "so the NewsFeed component was untouched", and the attribution footer was missed
+- The feed list moves to `src/lib/external/news-feeds.ts`, a module with no dependencies so the UI can name its sources without pulling `fast-xml-parser` into the client bundle. `rss-news.ts` re-exports it, so no caller changes. **Both the fetcher and the footer now read the same list**, which is the part that stops it drifting again, and the test iterates that list rather than restating the names
+
+### Fixed (admin): the admin area was unreachable from the UI
+- `Sidebar.tsx` computed `isAdmin` as `session?.user?.email && pathname?.startsWith('/admin')`, so the admin nav only rendered once you were **already** inside `/admin` -- the link that takes you there could never appear, and `ADMIN_NAV_ITEMS` was dead code
+- Compounding it, `/admin` sat outside the `(dashboard)` route group and had no `layout.tsx`, so `<Sidebar/>` was never mounted there at all: the page rendered with no nav and no header. Moved to `src/app/(dashboard)/admin/`, which leaves the URL unchanged (route groups do not affect paths) and inherits the layout with no duplication
+- `session.user.isAdmin` is now derived in the NextAuth session callback by comparing against `ADMIN_EMAIL` **server-side**, so the admin address never reaches the client. It is a navigation hint only: every admin route and page still gates on `requireAdmin`, which remains the authorization boundary. Derived in the session rather than the JWT so revoking admin takes effect on the next session read instead of waiting for a token reissue
+
+### Fixed (e2e): admin-only skips said nothing, and the admin assertion was wrong
+- The optimization spec's skips were bare `test.skip()` calls, so the report said a test was skipped without saying why, and the condition was re-derived by hand from `page.url()` in each of 13 tests. **They were correctly reported as skips, not as passes** -- these are the suite's documented admin-env-conditional skips
+- The real defect: the only assertion that could run on the admin branch looked for a heading "Optimization Dashboard" while the page renders "Template Optimization". The suite would have failed the first time anyone pointed `ADMIN_EMAIL` at the test user, which is the one configuration that makes these tests worth having
+- Skips now carry a reason, the heading matches, and the non-admin path asserts both the redirect and the absence of the admin heading rather than a bare URL check. That spec reads 13 skipped / 3 passed
+
+### Removed (cleanup): modules with no callers
+- Deleted with their tests: `src/lib/candle-cache.ts` (superseded by `candle-ingestion` plus `redis.cachedFetch`), `src/lib/seed-templates.ts`, `src/components/journal/ReviewQueue.tsx`, `src/components/backtest/JournalForm.tsx` and `JournalList.tsx` (superseded by `src/components/journal/*`), and `src/components/portfolio/TransactionHistory.tsx`. Each was verified to have no reference outside its own file and test
+- `shouldSkipIndicator` removed: zero callers, because `compute-for-style.ts` reads `profile.skipIndicators` directly. Its tests asserted real behaviour that still exists, so they were **retargeted to the config the live path consults** rather than deleted
+- `STYLE_OVERRIDES` in `htf.ts` was an always-empty map, so the lookup branch in `getConfirmationInterval` could never return and its `style` parameter had no effect. The map is gone; the parameter stays because callers pass it and a per-style override is a plausible future change
+- `/api-reference` removed from the middleware public prefixes: the route does not exist, so the entry made a nonexistent page publicly reachable. Its middleware test asserted the same thing
+
 ### Added (llm factor): a readout that cannot be misread
 - `scripts/ops/llm-factor-readout.ts` and its pure core `llm-factor-stats.ts`, the companion to `live-outcomes.ts --source llm`. That script answers "what would trading these tiers have returned", which is right for a desk; this one answers "did the panel rank the cross-section", which is the only question a ten-symbol forward-only factor of this size supports
 - **It removes market beta.** Over the first resolved window every tier had a positive mean forward return, `sell` included, because the market rose 3.05% over the horizon. A per-tier mean therefore mostly measures what the market did. Removing each bar's cross-sectional mean leaves only the part of a call that was about this symbol versus the others, which is all a simultaneous ten-symbol panel can be credited with

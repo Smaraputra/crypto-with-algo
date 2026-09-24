@@ -26,16 +26,18 @@ const CONFIRMATION_MAP: Record<string, string | null> = {
   '1d': null, // no 1w candles in the system; capped deliberately
 };
 
-const STYLE_OVERRIDES: Partial<Record<TradingStyle, Record<string, string | null>>> = {};
-
+/**
+ * `style` is accepted but unused: the confirmation interval is the same for
+ * every style. It previously consulted an always-empty STYLE_OVERRIDES map, so
+ * the lookup branch could never return and the parameter had no effect. The
+ * parameter is kept because callers pass it and a per-style override is a
+ * plausible future change; the empty map that pretended to implement one is not.
+ */
 export function getConfirmationInterval(
   interval: string,
-  style?: TradingStyle
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _style?: TradingStyle
 ): string | null {
-  if (style) {
-    const override = STYLE_OVERRIDES[style]?.[interval];
-    if (override !== undefined) return override;
-  }
   return CONFIRMATION_MAP[interval] ?? null;
 }
 
