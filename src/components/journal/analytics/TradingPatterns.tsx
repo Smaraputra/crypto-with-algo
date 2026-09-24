@@ -17,8 +17,11 @@ interface Pattern {
 function detectPatterns(summary: JournalAnalyticsSummary, byMonth: MonthlyPnl[]): Pattern[] {
   const patterns: Pattern[] = [];
 
-  // Win streak / loss streak detection from summary
-  if (summary.wins >= 5 && summary.winRate >= 70) {
+  // Win streak / loss streak detection from summary.
+  // `winRate !== null` first: a null rate means too few closed trades to state
+  // one, so neither pattern can be claimed. The >= 5 guards already implied a
+  // real sample; this makes it explicit rather than relying on it.
+  if (summary.winRate !== null && summary.wins >= 5 && summary.winRate >= 70) {
     patterns.push({
       type: 'positive',
       label: 'Strong Win Rate',
@@ -26,7 +29,7 @@ function detectPatterns(summary: JournalAnalyticsSummary, byMonth: MonthlyPnl[])
     });
   }
 
-  if (summary.losses >= 5 && summary.winRate < 40) {
+  if (summary.winRate !== null && summary.losses >= 5 && summary.winRate < 40) {
     patterns.push({
       type: 'warning',
       label: 'Low Win Rate',

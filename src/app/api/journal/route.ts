@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
-import { JournalEntry, MAX_JOURNAL_ENTRIES_PER_USER } from '@/lib/models/journal-entry';
+import { JournalEntry, MAX_JOURNAL_ENTRIES_PER_USER, POSITION_ACTIONS } from '@/lib/models/journal-entry';
 import { createJournalEntrySchema } from '@/types/journal';
 import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 
@@ -33,10 +33,15 @@ export async function GET(req: NextRequest) {
 
   // Trade status filter: open = has entryPrice but no exitPrice, closed = has exitPrice
   const status = params.get('status');
+  // Both branches key on POSITION_ACTIONS for the same reason the analytics
+  // route does: a hold or skip is not a trade, so it belongs in neither the open
+  // nor the closed list however its prices are filled in.
   if (status === 'open') {
+    query.action = { $in: POSITION_ACTIONS };
     query.entryPrice = { $ne: null };
     query.exitPrice = null;
   } else if (status === 'closed') {
+    query.action = { $in: POSITION_ACTIONS };
     query.exitPrice = { $ne: null };
   }
 

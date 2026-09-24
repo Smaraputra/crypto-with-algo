@@ -1,6 +1,7 @@
 'use client';
 
 import type { SetupPerformance } from '@/types/journal-analytics';
+import { formatWinRate, winRateColorClass } from './format';
 
 interface PerformanceBySetupProps {
   data: SetupPerformance[];
@@ -34,9 +35,9 @@ export function PerformanceBySetup({ data }: PerformanceBySetupProps) {
                 {row.count}
               </td>
               <td
-                className={`py-1.5 pr-4 text-xs text-right font-mono tabular-nums ${row.winRate >= 50 ? 'text-bullish' : 'text-bearish'}`}
+                className={`py-1.5 pr-4 text-xs text-right font-mono tabular-nums ${winRateColorClass(row.winRate) ?? ''}`}
               >
-                {row.winRate.toFixed(1)}%
+                {formatWinRate(row.winRate)}
               </td>
               <td
                 className={`py-1.5 text-xs text-right font-mono tabular-nums ${

@@ -5,6 +5,34 @@ import type { IndicatorSnapshot } from '@/types/indicator-snapshot';
 export const JOURNAL_ACTIONS = ['buy', 'sell', 'hold', 'skip'] as const;
 export type JournalAction = (typeof JOURNAL_ACTIONS)[number];
 
+/**
+ * The actions that represent an actual position, and therefore the only ones
+ * that can be closed or carry a P&L.
+ *
+ * `hold` and `skip` record a decision NOT to take a position: an entry price on
+ * one of them is a reference level, not a fill, so there is nothing to close and
+ * no return to compute.
+ *
+ * This lives here rather than beside the Mongoose schema because client
+ * components need it: importing it from the model pulls mongoose, and with it
+ * `async_hooks` and `child_process`, into the browser bundle. The model imports
+ * it from here.
+ *
+ * It exists at all because "is this a trade" was re-derived in four places and
+ * they disagreed. `JournalEntryDetail` offered a Close Trade button on any entry
+ * with an entry price and no exit price, `CloseTradeDialog` previewed a P&L for
+ * it, the PATCH route then computed `outcomePnlPercent` only for buy/sell and
+ * silently discarded that number, and the analytics route counted the result as
+ * an incomplete trade forever -- so the banner telling the user to "close open
+ * trades with an exit price" could never be cleared by someone who had just done
+ * exactly that.
+ */
+export const POSITION_ACTIONS = ['buy', 'sell'] as const;
+
+export function isPositionAction(action: string | null | undefined): boolean {
+  return action === 'buy' || action === 'sell';
+}
+
 export const MARKET_CONDITIONS = [
   'trending_up',
   'trending_down',

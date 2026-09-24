@@ -17,6 +17,9 @@ vi.mock('@/lib/models/journal-entry', () => ({
     create: vi.fn(),
   },
   MAX_JOURNAL_ENTRIES_PER_USER: 1000,
+  // The route filters on this; it is the real value, not a stub, so a change
+  // to the action vocabulary surfaces here rather than passing silently.
+  POSITION_ACTIONS: ['buy', 'sell'],
 }));
 
 import { GET, POST } from './route';

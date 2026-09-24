@@ -2,6 +2,11 @@ import mongoose, { Schema, type Document } from 'mongoose';
 
 export const JOURNAL_ACTIONS = ['buy', 'sell', 'hold', 'skip'] as const;
 
+// Re-exported from @/types/journal, which has no mongoose dependency, so client
+// components can read the vocabulary without pulling Node builtins into the
+// browser bundle. Server code keeps importing it from the model as before.
+export { POSITION_ACTIONS, isPositionAction, type JournalAction } from '@/types/journal';
+
 export const MARKET_CONDITIONS = [
   'trending_up',
   'trending_down',

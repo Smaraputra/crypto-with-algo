@@ -119,6 +119,39 @@ describe('JournalEntryDetail', () => {
     expect(screen.getByText('Close Trade')).toBeInTheDocument();
   });
 
+  it('does not offer to close a hold, even with an entry price', () => {
+    // The data-loss chain this closes: `hold` is the DEFAULT action on the
+    // /signals form, `isOpenTrade` keyed only on the prices, CloseTradeDialog
+    // previewed a P&L for any non-sell action, and the PATCH route then computed
+    // outcomePnlPercent only for buy/sell -- so the number the user was shown was
+    // silently discarded and the entry counted as an incomplete trade forever.
+    // A hold records a decision NOT to take a position, so there is nothing to close.
+    const holdWithEntryPrice = {
+      ...mockJournalEntry,
+      action: 'hold' as const,
+      exitPrice: null,
+      outcomePnlPercent: null,
+    };
+
+    render(<JournalEntryDetail entry={holdWithEntryPrice} />);
+
+    expect(holdWithEntryPrice.entryPrice).not.toBeNull();
+    expect(screen.queryByText('Close Trade')).not.toBeInTheDocument();
+  });
+
+  it('still offers to close a sell, which is a real position', () => {
+    const openShort = {
+      ...mockJournalEntry,
+      action: 'sell' as const,
+      exitPrice: null,
+      outcomePnlPercent: null,
+    };
+
+    render(<JournalEntryDetail entry={openShort} />);
+
+    expect(screen.getByText('Close Trade')).toBeInTheDocument();
+  });
+
   it('renders skipped entry without prices', () => {
     render(<JournalEntryDetail entry={mockSkippedEntry} />);
     expect(screen.getByText('SKIP')).toBeInTheDocument();

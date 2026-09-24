@@ -1,6 +1,7 @@
 'use client';
 
 import type { JournalAnalyticsSummary } from '@/types/journal-analytics';
+import { formatWinRate, winRateColorClass } from './format';
 
 interface AnalyticsSummaryCardsProps {
   summary: JournalAnalyticsSummary;
@@ -54,8 +55,8 @@ export function AnalyticsSummaryCards({ summary }: AnalyticsSummaryCardsProps) {
       <StatCard label="Total Trades" value={String(totalTrades)} />
       <StatCard
         label="Win Rate"
-        value={`${winRate.toFixed(1)}%`}
-        colorClass={winRate >= 50 ? 'text-bullish' : winRate > 0 ? 'text-bearish' : undefined}
+        value={formatWinRate(winRate)}
+        colorClass={winRateColorClass(winRate)}
       />
       <StatCard label="Wins / Losses" value={`${wins} / ${losses}`} />
       <StatCard

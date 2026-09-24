@@ -31,6 +31,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import type { TradingStyle } from '@/lib/models/signal-template';
+import { formatWinRate } from '@/components/journal/analytics/format';
 
 export default function SignalsPage() {
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
@@ -212,7 +213,7 @@ export default function SignalsPage() {
                     >
                       Your {latestSignal.tier.replace('_', ' ')} record:{' '}
                       <span className="font-mono tabular-nums">
-                        {tierRecord.winRate.toFixed(0)}%
+                        {formatWinRate(tierRecord.winRate, 0)}
                       </span>{' '}
                       win rate over {tierRecord.count} journaled trades
                     </p>
