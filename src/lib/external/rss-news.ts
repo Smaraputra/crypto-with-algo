@@ -168,6 +168,39 @@ export async function fetchAllFeeds(): Promise<CryptoNewsItem[]> {
   return dedupeAndSort(items);
 }
 
+/**
+ * How far back a headline may be published and still count as current news.
+ *
+ * Shared so the snapshot's `newsSentiment` aggregate and the LLM packet's
+ * headline list agree on what "recent" means: the two sit side by side in one
+ * packet, and they disagreed while only the list was bounded.
+ */
+export const NEWS_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * Keep only stories published inside [fromMs, untilMs], newest first.
+ *
+ * The feeds carry evergreen items (explainer and video posts months old), and
+ * `parseFeed` stores an unparseable date as `publishedOn` 0. Both sort to the
+ * tail of the merged feed, so any caller that takes the newest N without a
+ * lower bound silently pads its sample with them once the recent,
+ * symbol-relevant stories run out. Dateless items are dropped rather than
+ * treated as very old, because their true age is unknown.
+ */
+export function filterByWindow<T extends { publishedOn: number }>(
+  items: T[],
+  fromMs: number,
+  untilMs: number
+): T[] {
+  return items
+    .filter((item) => {
+      if (item.publishedOn <= 0) return false;
+      const publishedAt = item.publishedOn * 1000;
+      return publishedAt >= fromMs && publishedAt <= untilMs;
+    })
+    .sort((a, b) => b.publishedOn - a.publishedOn);
+}
+
 export function dedupeAndSort(items: CryptoNewsItem[]): CryptoNewsItem[] {
   const seen = new Map<string, CryptoNewsItem>();
   for (const item of items) {
