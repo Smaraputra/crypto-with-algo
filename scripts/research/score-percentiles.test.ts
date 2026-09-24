@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { TIER_BUY_CUTOFF, TIER_STRONG_CUTOFF } from '@/lib/signals/calibration';
 import {
   LOCKBOX_START_ISO,
   datasetHashOf,
@@ -253,7 +254,9 @@ describe('runScorePercentiles', () => {
 
     expect(report.lockboxApplied).toBe(true);
     expect(report.requireSnapshot).toBe(true);
-    expect(report.cutoffs).toEqual({ buy: 24, strong: 30 });
+    // Reads the live calibration, so it must not restate the numbers: they
+    // moved from 24/30 to 30/38 when the scorer fixes shifted the distribution.
+    expect(report.cutoffs).toEqual({ buy: TIER_BUY_CUTOFF, strong: TIER_STRONG_CUTOFF });
     expect(report.intervals).toHaveLength(1);
 
     const [block] = report.intervals;

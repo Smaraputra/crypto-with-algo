@@ -253,21 +253,24 @@ export function interpretATR(
 const OBV_FULL_STRENGTH_BARS = 10;
 
 /**
- * CONTRACT: `obv.values` must END at the bar being interpreted. The live path
- * satisfies this because the array is the whole fetched window; the per-bar path
- * must truncate it (see interpret-at-bar.ts), because the scale below is read
- * from the tail and reading past the bar would be lookahead. The repository's
- * `no-lookahead.test.ts` enforces this.
+ * `endIndex` is the position in `obv.values` being interpreted, defaulting to
+ * the last. The per-bar path MUST pass it: the scale below is read from the 20
+ * values ending there, and reading past the evaluated bar would be lookahead
+ * (`no-lookahead.test.ts` enforces this).
+ *
+ * It is an index rather than a pre-sliced array on purpose. Slicing here costs
+ * an allocation proportional to the bar index on every call, which is O(n^2)
+ * across a research run and exhausted a 4 GB heap on the 808k-bar 5m series.
  */
-export function interpretOBV(obv: RawIndicators['obv']): IndicatorSignal {
+export function interpretOBV(obv: RawIndicators['obv'], endIndex?: number): IndicatorSignal {
   const { current, sma20, values } = obv;
+  const end = endIndex ?? values.length - 1;
 
   // Mean absolute bar-to-bar change over the same 20 bars the average spans,
-  // i.e. average volume. Taken from the tail, which the contract above pins to
-  // the evaluated bar.
+  // i.e. average volume.
   let deltaSum = 0;
   let deltaCount = 0;
-  for (let i = Math.max(1, values.length - 20); i < values.length; i++) {
+  for (let i = Math.max(1, end - 19); i <= end && i < values.length; i++) {
     deltaSum += Math.abs(values[i] - values[i - 1]);
     deltaCount++;
   }

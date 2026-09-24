@@ -452,26 +452,41 @@ describe('computeSignalScore', () => {
 });
 
 describe('getTier', () => {
+  // Expressed relative to the cutoffs rather than as literals, so a
+  // recalibration does not need this table rewritten. The cutoffs moved from
+  // 24/30 to 30/38 on 2026-09-24 when the scorer fixes shifted the score
+  // distribution, and the literal form of this table failed for no reason
+  // other than the numbers being spelled out twice.
+  const B = TIER_BUY_CUTOFF;
+  const S = TIER_STRONG_CUTOFF;
+
   it.each([
     [0, 'neutral'],
-    [24, 'neutral'],
-    [24.1, 'buy'],
-    [30, 'buy'],
-    [30.1, 'strong_buy'],
-    [-24, 'neutral'],
-    [-24.1, 'sell'],
-    [-30, 'sell'],
-    [-30.1, 'strong_sell'],
+    [B, 'neutral'],
+    [B + 0.1, 'buy'],
+    [S, 'buy'],
+    [S + 0.1, 'strong_buy'],
+    [-B, 'neutral'],
+    [-(B + 0.1), 'sell'],
+    [-S, 'sell'],
+    [-(S + 0.1), 'strong_sell'],
     [100, 'strong_buy'],
     [-100, 'strong_sell'],
   ] as const)('maps %s to %s', (score, tier) => {
     expect(getTier(score)).toBe(tier);
   });
 
+  it('treats the cutoffs themselves as belonging to the lower tier', () => {
+    // The comparisons are strict, so the boundary value does not promote.
+    expect(getTier(B)).toBe('neutral');
+    expect(getTier(S)).toBe('buy');
+  });
+
   it('keeps strong tiers reachable within the measured score range', () => {
-    // The largest |score| observed for any style/interval on production data
-    // was about 43 (scalping 5m). A strong cutoff above that cannot fire.
-    expect(TIER_STRONG_CUTOFF).toBeLessThan(43);
+    // The largest |score| p98 measured on the archive dataset after the scorer
+    // fixes was 42.0 (1d position_trading); a strong cutoff at or above the top
+    // of that range could never fire. Was 43 against the pre-fix distribution.
+    expect(TIER_STRONG_CUTOFF).toBeLessThan(42);
     expect(TIER_BUY_CUTOFF).toBeLessThan(TIER_STRONG_CUTOFF);
   });
 });

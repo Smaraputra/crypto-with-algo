@@ -67,17 +67,61 @@
  * the interval the archive backfill changed most. Every share above 24 still
  * lands in the 8% to 14% band the cutoffs were chosen for, and 30 still reads
  * as roughly the top 2% at 5m, 15m and 1h. 24 and 30 stand again.
+ *
+ * ---
+ *
+ * CUTOFFS RAISED to 30 and 38 on 2026-09-24, the first change since they were
+ * set. Not a re-fit: the scorer they were measured against had four defects,
+ * and correcting them moved the distribution out from under them.
+ *
+ * What changed in the scorer (same commit): `interpretIndicators` derived
+ * `close` from `ema12.values[last]`, which is `ema12.current` under another
+ * name, so the moving-average comparisons read a value against itself;
+ * funding-rate strength FELL as |rate| rose past its own escalation threshold;
+ * neutral readings counted in each category's denominator, so the score's
+ * magnitude was largely a count of how many indicators sat in their
+ * indifference bands; and OBV's magnitude was normalised by the level of a
+ * cumulative sum whose origin moved with the fetch window.
+ *
+ * Re-measured on the SAME dataset as the 2026-09-21 table above (e84cd66dbe01,
+ * ten symbols, lockbox applied) so the shift is attributable to the scorer and
+ * not to a different export. The pre-fix control reproduced that table exactly,
+ * which is what makes the comparison trustworthy.
+ *
+ *   interval / style         bars      |score| p90      |score| p98      share > cutoff
+ *                                    before -> after  before -> after   old 24 -> new 30
+ *   5m  scalping           808,517    22.7 -> 28.7     30.4 -> 38.8      8.1% -> 8.5%
+ *   15m day_trading        320,847    23.3 -> 30.3     29.2 -> 38.3      8.7% -> 10.5%
+ *   1h  day_trading        411,013    25.4 -> 32.4     30.6 -> 39.5     13.6% -> 14.8%
+ *   4h  swing_trading      152,048    25.3 -> 31.6     31.8 -> 40.2     12.8% -> 12.7%
+ *   1d  position_trading    21,687    25.3 -> 31.3     33.2 -> 42.0     12.2% -> 11.8%
+ *
+ * p90 rose 6 to 7 points and p98 8 to 9 across every interval. Left at 24 and
+ * 30, a buy would have fired on 17% to 30% of bars instead of 8% to 14%, and a
+ * STRONG buy on 8% to 15% instead of 1.5% to 4% -- "strong" would have meant
+ * roughly the top tenth rather than the top fiftieth.
+ *
+ * 30 and 38 restore the original selectivity rather than rounding to neat
+ * numbers: 30 sits inside the new p90 band (28.7 to 32.4) and 38 inside the new
+ * p98 band (38.3 to 42.0). Measured shares at the new cutoffs are 8.5% to 14.8%
+ * above 30 against the old 8.1% to 13.6%, and 2.2% to 3.8% above 38 against the
+ * old 1.5% to 4.0%. Every interval lands within about a point of where it was.
+ *
+ * THIS IS A DISCONTINUITY IN THE LIVE OUTCOME RECORD. Signals scored before
+ * this deploy used both the old scorer and the old cutoffs; the two changed
+ * together, so tier-conditioned statistics must not be pooled across it.
+ * `configVersion` on SignalOutcome is what separates the two series.
  */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
-export const TIER_BUY_CUTOFF = 24;
+export const TIER_BUY_CUTOFF = 30;
 
 /** |score| above this is a strong buy or strong sell: roughly the top 2%. */
-export const TIER_STRONG_CUTOFF = 30;
+export const TIER_STRONG_CUTOFF = 38;
 
 /**
  * A position opened on a buy signal closes once the score falls back to a
  * quarter of the entry level, the same exit-to-entry ratio the previous
- * defaults used.
+ * defaults used. Moved with TIER_BUY_CUTOFF (24 -> 30) to hold that ratio.
  */
-export const STRATEGY_EXIT_LEVEL = 6;
+export const STRATEGY_EXIT_LEVEL = 7.5;

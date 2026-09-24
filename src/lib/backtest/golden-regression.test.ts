@@ -13,6 +13,12 @@
 // following from that trade entering at bar 303 rather than 309. Note the
 // smaller loss is one trade on a synthetic series, not evidence of improvement.
 //
+// It was regenerated a second time in the same commit when the tier cutoffs were
+// raised (24/30 to 30/38) to match the corrected score distribution. That pass
+// changed exactly one field and no metric at all: the trade's entryTier went
+// strong_buy to buy, because its entryScore of 32.9 cleared the old strong
+// cutoff of 30 but not the new 38.
+//
 // If this test fails, the question is whether the change was meant to move the
 // score. If not, it is a regression; the fixture is not to be regenerated to
 // make it pass.
