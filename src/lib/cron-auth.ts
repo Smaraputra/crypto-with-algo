@@ -22,9 +22,22 @@ export function verifyBearerSecret(req: NextRequest, secret: string | undefined)
   }
 }
 
-/** The cron containers' bearer token (CRON_SECRET). */
+/**
+ * The cron containers' bearer token (CRON_SECRET).
+ *
+ * The unset case is logged, matching `verifyLlmPanelSecret` below. It used to
+ * be silent, which made the one misconfiguration that stops EVERYTHING the one
+ * that says nothing: `docker/cron-entrypoint.sh` substitutes the variable into
+ * every crontab line, so an unset secret sends `Bearer ` on all of them and
+ * every job 401s forever, indistinguishable from cron simply not running.
+ */
 export function verifyCronSecret(req: NextRequest): boolean {
-  return verifyBearerSecret(req, process.env.CRON_SECRET);
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    console.error('CRON_SECRET is not configured -- every cron route is unreachable');
+    return false;
+  }
+  return verifyBearerSecret(req, secret);
 }
 
 /** The local LLM panel skill's bearer token (LLM_PANEL_SECRET), separate from the cron secret. */

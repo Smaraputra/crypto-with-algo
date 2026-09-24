@@ -23,6 +23,7 @@ import type { SentimentData } from '@/types/signal';
 const MAX_PAIRS_PER_RUN = 20;
 
 import { verifyCronSecret } from '@/lib/cron-auth';
+import { withJobRun } from '@/lib/job-run';
 
 function isValidTradingStyle(style: string): style is TradingStyle {
   return (TRADING_STYLES as readonly string[]).includes(style);
@@ -185,7 +186,7 @@ async function computeLegacySignals() {
   return NextResponse.json({ mode: 'legacy', computed, errors, pairs: pairs.length });
 }
 
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -208,3 +209,7 @@ export async function GET(req: NextRequest) {
   // No style param: run legacy per-user computation
   return computeLegacySignals();
 }
+
+// The handler body is unchanged; the wrapper only records that the run
+// happened and what it returned. A 401 writes nothing.
+export const GET = withJobRun((req) => `compute-signals:${new URL(req.url).searchParams.get('style') ?? 'legacy'}`, handler);

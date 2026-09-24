@@ -5,6 +5,13 @@ vi.mock('@/lib/mongodb', () => ({
   connectDB: vi.fn(),
 }));
 
+// withJobRun upserts a heartbeat after the handler returns. Mock the MODEL and
+// not the wrapper, so the wrapper's real logic still runs here. Without this,
+// mongoose buffers the write against an unconnected client and the test hangs.
+vi.mock('@/lib/models/job-heartbeat', () => ({
+  JobHeartbeat: { updateOne: vi.fn() },
+}));
+
 vi.mock('@/lib/historical-snapshots', () => ({
   alignTimestamp: vi.fn((ts: number) => ts),
   bulkUpsertSnapshots: vi.fn(),
@@ -119,7 +126,12 @@ describe('GET /api/cron/ingest-snapshots', () => {
 
       vi.mocked(getActiveSymbols).mockResolvedValue(['BTCUSDT']);
       vi.mocked(fetchFearAndGreed).mockResolvedValue({ fearGreedIndex: 50, label: 'Neutral' });
-      vi.mocked(fetchFundingRate).mockResolvedValue([]);
+      // Funding succeeds so the row is always written, keeping these cases
+      // about the NEWS WINDOW rather than about the hollow-row guard (which
+      // has its own test below).
+      vi.mocked(fetchFundingRate).mockResolvedValue([
+        { symbol: 'BTCUSDT', fundingRate: 0.0001, fundingTime: Date.now(), markPrice: 50000 },
+      ]);
       vi.mocked(fetchLongShortRatio).mockResolvedValue([]);
       vi.mocked(fetchOpenInterest).mockRejectedValue(new Error('unavailable'));
       vi.mocked(fetchCryptoNews).mockResolvedValue(items);
@@ -128,9 +140,32 @@ describe('GET /api/cron/ingest-snapshots', () => {
       const req = new Request('http://localhost:3000/api/cron/ingest-snapshots?interval=1h', {
         headers: { authorization: 'Bearer test-secret' },
       });
-      await GET(req as never);
+      const res = await GET(req as never);
+      const body = await res.json();
 
-      return { analyzeNewsSentiment, bulkUpsertSnapshots };
+      return { analyzeNewsSentiment, bulkUpsertSnapshots, body };
+    }
+
+    /** Every per-symbol source rejected, but Fear & Greed still succeeding. */
+    async function runWithAllSymbolSourcesFailing() {
+      const { getActiveSymbols, bulkUpsertSnapshots } = await import('@/lib/historical-snapshots');
+      const { fetchFundingRate, fetchLongShortRatio, fetchOpenInterest } = await import('@/lib/binance-futures');
+      const { fetchFearAndGreed } = await import('@/lib/external/fear-greed');
+      const { fetchCryptoNews } = await import('@/lib/external/crypto-news');
+
+      vi.mocked(getActiveSymbols).mockResolvedValue(['BTCUSDT']);
+      vi.mocked(fetchFearAndGreed).mockResolvedValue({ fearGreedIndex: 50, label: 'Neutral' });
+      vi.mocked(fetchFundingRate).mockRejectedValue(new Error('binance down'));
+      vi.mocked(fetchLongShortRatio).mockRejectedValue(new Error('binance down'));
+      vi.mocked(fetchOpenInterest).mockRejectedValue(new Error('binance down'));
+      vi.mocked(fetchCryptoNews).mockRejectedValue(new Error('feeds down'));
+
+      const req = new Request('http://localhost:3000/api/cron/ingest-snapshots?interval=1h', {
+        headers: { authorization: 'Bearer test-secret' },
+      });
+      const body = await (await GET(req as never)).json();
+
+      return { bulkUpsertSnapshots, body };
     }
 
     it('analyses only headlines inside the window', async () => {
@@ -155,6 +190,29 @@ describe('GET /api/cron/ingest-snapshots', () => {
       expect(analyzeNewsSentiment).not.toHaveBeenCalled();
       const [snapshots] = vi.mocked(bulkUpsertSnapshots).mock.calls[0];
       expect(snapshots[0].data.newsSentiment).toBeUndefined();
+    });
+
+    it('counts a rejected sub-fetch instead of reporting a clean run', async () => {
+      // Promise.allSettled never rejects, so `errors` could not increment from
+      // an upstream failure: a total Binance futures outage reported
+      // `ingested: 10, errors: 0`. openInterest is rejected in runWith.
+      const { bulkUpsertSnapshots, body } = await runWith([newsItem(days(1), 'BTC rallies')]);
+
+      expect(bulkUpsertSnapshots).toHaveBeenCalled();
+      // One rejected source (openInterest) across one symbol.
+      expect(body.fetchErrors).toBe(1);
+      expect(body.errors).toBe(0);
+    });
+
+    it('stores nothing and counts a skip when every per-symbol source fails', async () => {
+      // The hollow-row case. Fear & Greed still succeeds and is written into
+      // data, so a naive Object.keys(data).length check would wrongly call
+      // this a real snapshot.
+      const { bulkUpsertSnapshots, body } = await runWithAllSymbolSourcesFailing();
+
+      expect(body.skipped).toBe(1);
+      expect(body.ingested).toBe(0);
+      expect(bulkUpsertSnapshots).not.toHaveBeenCalled();
     });
 
     it('drops dateless headlines, which carry publishedOn 0', async () => {

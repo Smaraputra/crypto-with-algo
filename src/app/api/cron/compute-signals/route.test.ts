@@ -8,6 +8,13 @@ vi.mock('@/lib/mongodb', () => ({
   connectDB: vi.fn(),
 }));
 
+// withJobRun upserts a heartbeat after the handler returns. Mock the MODEL and
+// not the wrapper, so the wrapper's real logic still runs here. Without this,
+// mongoose buffers the write against an unconnected client and the test hangs.
+vi.mock('@/lib/models/job-heartbeat', () => ({
+  JobHeartbeat: { updateOne: vi.fn() },
+}));
+
 vi.mock('@/lib/redis', () => ({
   cachedFetch: vi.fn(),
 }));

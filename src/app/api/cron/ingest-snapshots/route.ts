@@ -18,6 +18,7 @@ import type { SentimentData } from '@/types/signal';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
 
 import { verifyCronSecret } from '@/lib/cron-auth';
+import { withJobRun } from '@/lib/job-run';
 
 /**
  * How many merged-feed items to consider before the window filter. Generous on
@@ -32,7 +33,7 @@ const NEWS_FETCH_LIMIT = 100;
  * Query params:
  *   interval: "15m" | "1h" | "4h" | "1d" (required)
  */
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -71,6 +72,11 @@ export async function GET(req: NextRequest) {
 
   let successCount = 0;
   let errorCount = 0;
+  // Counted separately from errorCount, which only ever catches a throw in this
+  // loop's own body. They mean different things: fetchErrors is an upstream
+  // outage, errorCount is a bug here.
+  let fetchErrors = 0;
+  let skippedCount = 0;
 
   // Fetch data for each symbol
   for (const symbol of symbols) {
@@ -82,6 +88,20 @@ export async function GET(req: NextRequest) {
           fetchOpenInterest(symbol),
           fetchCryptoNews(symbol.replace(/USDT$/, ''), NEWS_FETCH_LIMIT),
         ]);
+
+      // `Promise.allSettled` never rejects, so nothing above can reach the
+      // catch below and `errors` was structurally stuck at 0: a total Binance
+      // futures outage reported a clean `ingested: 10, errors: 0`. Count the
+      // rejections that are already in hand.
+      for (const settled of [fundingResult, longShortResult, openInterestResult, newsItems]) {
+        if (settled.status === 'rejected') {
+          fetchErrors++;
+          console.error(
+            `ingest-snapshots ${symbol}:`,
+            settled.reason instanceof Error ? settled.reason.message : String(settled.reason)
+          );
+        }
+      }
 
       const data: IHistoricalSnapshot['data'] = {};
 
@@ -139,6 +159,25 @@ export async function GET(req: NextRequest) {
         };
       }
 
+      // A symbol whose every per-symbol source failed still reached the push,
+      // and `mergeSnapshotUpdate` then `$setOnInsert`s `data: {}` -- a row that
+      // counts as a snapshot to any coverage query while carrying nothing.
+      //
+      // The emptiness test must be over the PER-SYMBOL fields, not
+      // `Object.keys(data)`: Fear & Greed is market-wide and is written into
+      // every symbol's data below, so whenever it succeeds `data` is non-empty
+      // for a symbol about which nothing was learned.
+      const hasSymbolData =
+        data.fundingRate !== undefined ||
+        data.longShortRatio !== undefined ||
+        data.openInterest !== undefined ||
+        data.newsSentiment !== undefined;
+
+      if (!hasSymbolData) {
+        skippedCount++;
+        continue;
+      }
+
       snapshots.push({ symbol, interval, timestamp, data });
       successCount++;
     } catch (error) {
@@ -157,6 +196,14 @@ export async function GET(req: NextRequest) {
     timestamp,
     symbols: symbols.length,
     ingested: successCount,
+    // Symbols whose per-symbol sources all failed, so nothing was stored for
+    // them. Distinguishes "ran and learned nothing" from "ran and stored data".
+    skipped: skippedCount,
+    fetchErrors,
     errors: errorCount,
   });
 }
+
+// The handler body is unchanged; the wrapper only records that the run
+// happened and what it returned. A 401 writes nothing.
+export const GET = withJobRun((req) => `ingest-snapshots:${new URL(req.url).searchParams.get('interval') ?? 'unknown'}`, handler);

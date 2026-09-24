@@ -101,6 +101,11 @@ llmCallSchema.index(
 );
 // Listing and analytics: newest calls per style.
 llmCallSchema.index({ tradingStyle: 1, createdAt: -1 });
+// The liveness reads: newest call overall (/api/health/cron derives the panel's
+// state from it) and `since` windows on /api/admin/llm-calls/count. The
+// compound index above cannot serve either, because neither filters on
+// tradingStyle and an index is only usable from its prefix.
+llmCallSchema.index({ createdAt: -1 });
 
 export const LlmCall =
   mongoose.models.LlmCall || mongoose.model<ILlmCall>('LlmCall', llmCallSchema);
