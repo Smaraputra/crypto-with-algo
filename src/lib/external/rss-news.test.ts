@@ -4,8 +4,10 @@ import {
   stripHtml,
   dedupeAndSort,
   filterByCurrencies,
+  filterByWindow,
   fetchAllFeeds,
   NEWS_FEEDS,
+  NEWS_WINDOW_MS,
 } from './rss-news';
 import {
   cointelegraphRss,
@@ -123,6 +125,59 @@ describe('dedupeAndSort', () => {
 
     const times = result.map((item) => item.publishedOn);
     expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+});
+
+describe('filterByWindow', () => {
+  const NOW = 1_700_000_000_000;
+  const at = (msAgo: number) => ({ publishedOn: Math.floor((NOW - msAgo) / 1000) });
+  const hours = (n: number) => n * 60 * 60 * 1000;
+  const days = (n: number) => n * 24 * hours(1);
+
+  it('keeps items inside the window', () => {
+    const items = [at(hours(1)), at(days(2))];
+    expect(filterByWindow(items, NOW - NEWS_WINDOW_MS, NOW)).toHaveLength(2);
+  });
+
+  it('drops items older than the lower bound', () => {
+    // The defect this exists to prevent: evergreen posts months old filling the
+    // sample once recent stories run out.
+    const fresh = at(hours(2));
+    const evergreen = at(days(200));
+
+    expect(filterByWindow([fresh, evergreen], NOW - NEWS_WINDOW_MS, NOW)).toEqual([fresh]);
+  });
+
+  it('drops items published after the upper bound', () => {
+    const future = { publishedOn: Math.floor((NOW + hours(1)) / 1000) };
+    expect(filterByWindow([future], NOW - NEWS_WINDOW_MS, NOW)).toEqual([]);
+  });
+
+  it('drops dateless items rather than treating them as very old', () => {
+    // parseFeed stores an unparseable pubDate as 0, which would otherwise pass
+    // an upper-bound-only check and sort to the tail.
+    expect(filterByWindow([{ publishedOn: 0 }], 0, NOW)).toEqual([]);
+  });
+
+  it('returns survivors newest first regardless of input order', () => {
+    const older = at(days(2));
+    const newer = at(hours(3));
+
+    const result = filterByWindow([older, newer], NOW - NEWS_WINDOW_MS, NOW);
+
+    expect(result).toEqual([newer, older]);
+  });
+
+  it('includes items exactly on either bound', () => {
+    const from = NOW - NEWS_WINDOW_MS;
+    const onFrom = { publishedOn: Math.floor(from / 1000) };
+    const onUntil = { publishedOn: Math.floor(NOW / 1000) };
+
+    expect(filterByWindow([onFrom, onUntil], from, NOW)).toHaveLength(2);
+  });
+
+  it('returns an empty array when nothing is recent', () => {
+    expect(filterByWindow([at(days(30)), at(days(60))], NOW - NEWS_WINDOW_MS, NOW)).toEqual([]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 
 import { dropOpenBars } from '@/lib/candle-ingestion';
+import { NEWS_WINDOW_MS, filterByWindow } from '@/lib/external/rss-news';
 import { intervalToMs } from '@/lib/intervals';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { llmStyleForInterval } from '@/lib/models/llm-call';
@@ -52,12 +53,6 @@ const CLOSES = 60;
 const NEWS_ITEMS = 10;
 
 /**
- * Floor on the news window, so a 1h packet is not cut back to a single hour of
- * coverage by the horizon alone.
- */
-const NEWS_MIN_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
-
-/**
  * How far before the bar close a headline may be published and still enter the
  * packet: the decision horizon the voter is asked about, floored at three days.
  * The publisher feeds carry evergreen items (explainer and video posts months
@@ -67,7 +62,7 @@ const NEWS_MIN_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
  * another market entirely.
  */
 function newsLookbackMs(interval: string, tradingStyle: TradingStyle): number {
-  return Math.max(OUTCOME_HORIZON_BARS[tradingStyle] * intervalToMs(interval), NEWS_MIN_LOOKBACK_MS);
+  return Math.max(OUTCOME_HORIZON_BARS[tradingStyle] * intervalToMs(interval), NEWS_WINDOW_MS);
 }
 
 /**
@@ -105,14 +100,9 @@ export async function buildInputsPacket(
   const newsFrom = closeTime - newsLookbackMs(interval, tradingStyle);
   let news: InputsPacket['news'] = [];
   try {
-    news = (await deps.fetchNews(symbol))
-      .filter((item) => {
-        if (item.publishedOn <= 0) return false;
-        const publishedAt = item.publishedOn * 1000;
-        return publishedAt <= closeTime && publishedAt >= newsFrom;
-      })
-      // The cap keeps the newest survivors, whatever order the feed arrives in.
-      .sort((a, b) => b.publishedOn - a.publishedOn)
+    // filterByWindow drops dateless items and returns newest first, so the cap
+    // keeps the newest survivors whatever order the feed arrives in.
+    news = filterByWindow(await deps.fetchNews(symbol), newsFrom, closeTime)
       .slice(0, NEWS_ITEMS)
       .map((item) => ({
         title: item.title,

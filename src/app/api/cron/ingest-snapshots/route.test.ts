@@ -97,6 +97,76 @@ describe('GET /api/cron/ingest-snapshots', () => {
     expect(bulkUpsertSnapshots).toHaveBeenCalled();
   });
 
+  describe('news sentiment window', () => {
+    const newsItem = (msAgo: number, title: string) => ({
+      id: title,
+      title,
+      url: `https://example.com/${encodeURIComponent(title)}`,
+      source: 'Decrypt',
+      body: '',
+      categories: '',
+      publishedOn: Math.floor((Date.now() - msAgo) / 1000),
+      imageUrl: null,
+    });
+    const days = (n: number) => n * 24 * 60 * 60 * 1000;
+
+    async function runWith(items: ReturnType<typeof newsItem>[]) {
+      const { getActiveSymbols, bulkUpsertSnapshots } = await import('@/lib/historical-snapshots');
+      const { fetchFundingRate, fetchLongShortRatio, fetchOpenInterest } = await import('@/lib/binance-futures');
+      const { fetchFearAndGreed } = await import('@/lib/external/fear-greed');
+      const { fetchCryptoNews } = await import('@/lib/external/crypto-news');
+      const { analyzeNewsSentiment } = await import('@/lib/external/news-sentiment');
+
+      vi.mocked(getActiveSymbols).mockResolvedValue(['BTCUSDT']);
+      vi.mocked(fetchFearAndGreed).mockResolvedValue({ fearGreedIndex: 50, label: 'Neutral' });
+      vi.mocked(fetchFundingRate).mockResolvedValue([]);
+      vi.mocked(fetchLongShortRatio).mockResolvedValue([]);
+      vi.mocked(fetchOpenInterest).mockRejectedValue(new Error('unavailable'));
+      vi.mocked(fetchCryptoNews).mockResolvedValue(items);
+      vi.mocked(analyzeNewsSentiment).mockReturnValue({ count: 1, avgSentiment: 0.3, topics: [] });
+
+      const req = new Request('http://localhost:3000/api/cron/ingest-snapshots?interval=1h', {
+        headers: { authorization: 'Bearer test-secret' },
+      });
+      await GET(req as never);
+
+      return { analyzeNewsSentiment, bulkUpsertSnapshots };
+    }
+
+    it('analyses only headlines inside the window', async () => {
+      // The defect: the feed is newest-first and was sliced to a flat 20 with no
+      // lower bound, so a symbol with one fresh story had its sentiment averaged
+      // mostly over months-old evergreen posts.
+      const fresh = newsItem(days(1), 'Bitcoin ETF inflows surge');
+      const stale = newsItem(days(200), 'What is a blockchain? Explainer video');
+
+      const { analyzeNewsSentiment } = await runWith([fresh, stale]);
+
+      expect(analyzeNewsSentiment).toHaveBeenCalledWith([fresh]);
+    });
+
+    it('stores no newsSentiment at all when nothing is recent', async () => {
+      // A false neutral would read as real evidence of balanced news. The scorer
+      // handles an absent field by redistributing weight, so absence is correct.
+      const { analyzeNewsSentiment, bulkUpsertSnapshots } = await runWith([
+        newsItem(days(120), 'Old explainer'),
+      ]);
+
+      expect(analyzeNewsSentiment).not.toHaveBeenCalled();
+      const [snapshots] = vi.mocked(bulkUpsertSnapshots).mock.calls[0];
+      expect(snapshots[0].data.newsSentiment).toBeUndefined();
+    });
+
+    it('drops dateless headlines, which carry publishedOn 0', async () => {
+      const dateless = { ...newsItem(0, 'Undated story'), publishedOn: 0 };
+      const fresh = newsItem(days(1), 'Solana breaks out');
+
+      const { analyzeNewsSentiment } = await runWith([dateless, fresh]);
+
+      expect(analyzeNewsSentiment).toHaveBeenCalledWith([fresh]);
+    });
+  });
+
   it('strips the USDT suffix before fetching news', async () => {
     const { getActiveSymbols } = await import('@/lib/historical-snapshots');
     const { fetchFundingRate, fetchLongShortRatio, fetchOpenInterest } = await import('@/lib/binance-futures');
@@ -115,7 +185,9 @@ describe('GET /api/cron/ingest-snapshots', () => {
     });
     await GET(req as never);
 
-    expect(fetchCryptoNews).toHaveBeenCalledWith('BTC');
+    // The limit is deliberately wide: the news window decides the sample, not
+    // the cap, so the cap must not bind first.
+    expect(fetchCryptoNews).toHaveBeenCalledWith('BTC', 100);
   });
 
   it('continues without Fear & Greed when the fetch throws', async () => {

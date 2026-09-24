@@ -12,11 +12,20 @@ import {
 } from '@/lib/binance-futures';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import { fetchCryptoNews } from '@/lib/external/crypto-news';
+import { NEWS_WINDOW_MS, filterByWindow } from '@/lib/external/rss-news';
 import { analyzeNewsSentiment } from '@/lib/external/news-sentiment';
 import type { SentimentData } from '@/types/signal';
 import type { IHistoricalSnapshot } from '@/lib/models/historical-snapshot';
 
 import { verifyCronSecret } from '@/lib/cron-auth';
+
+/**
+ * How many merged-feed items to consider before the window filter. Generous on
+ * purpose: the news window should decide the sample, not the cap. The default
+ * of 20 was small enough that the cap bound first, which is what let stale
+ * items in once recent stories ran out.
+ */
+const NEWS_FETCH_LIMIT = 100;
 
 /**
  * Ingest historical snapshots for active symbols
@@ -41,7 +50,9 @@ export async function GET(req: NextRequest) {
   await connectDB();
 
   const symbols = await getActiveSymbols();
-  const timestamp = alignTimestamp(Date.now(), interval);
+  const now = Date.now();
+  const timestamp = alignTimestamp(now, interval);
+  const newsFrom = now - NEWS_WINDOW_MS;
 
   // Fetch Fear & Greed once (same for all symbols); missing data is a gap, not a failure
   let fearGreedData: SentimentData | null = null;
@@ -69,7 +80,7 @@ export async function GET(req: NextRequest) {
           fetchFundingRate(symbol, 1),
           fetchLongShortRatio(symbol, interval, 1),
           fetchOpenInterest(symbol),
-          fetchCryptoNews(symbol.replace(/USDT$/, '')),
+          fetchCryptoNews(symbol.replace(/USDT$/, ''), NEWS_FETCH_LIMIT),
         ]);
 
       const data: IHistoricalSnapshot['data'] = {};
@@ -102,10 +113,22 @@ export async function GET(req: NextRequest) {
         };
       }
 
-      // News sentiment
-      if (newsItems.status === 'fulfilled' && newsItems.value.length > 0) {
-        const sentiment = analyzeNewsSentiment(newsItems.value);
-        data.newsSentiment = sentiment;
+      // News sentiment, over the recent window only.
+      //
+      // The merged feed is newest-first and was previously sliced to a flat 20
+      // with no lower bound, so a symbol with two fresh stories still reported
+      // count 20 and averaged its sentiment mostly over months-old evergreen
+      // items. That inflated count past the `count >= 3` gate in scoreSentiment
+      // and pulled avgSentiment toward whatever the feed's tail happened to
+      // hold. Bounding the window first makes count a truthful measure of
+      // recent news volume. A symbol with nothing recent stores no
+      // newsSentiment at all rather than a false neutral, which the scorer
+      // already handles by redistributing weight.
+      if (newsItems.status === 'fulfilled') {
+        const recent = filterByWindow(newsItems.value, newsFrom, now);
+        if (recent.length > 0) {
+          data.newsSentiment = analyzeNewsSentiment(recent);
+        }
       }
 
       // Fear & Greed (same for all symbols)
