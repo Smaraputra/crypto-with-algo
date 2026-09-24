@@ -383,10 +383,17 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
+        // v5: the scorer-correctness fixes and the cutoffs they forced (30/38).
+        // Four defects changed every score at once -- interpretIndicators read
+        // ema12 as the close, funding strength fell as |rate| rose, neutral
+        // readings diluted their category instead of abstaining, and OBV's
+        // magnitude scaled with an arbitrary cumulative origin -- so v4 and v5
+        // scores are not comparable and tier-conditioned statistics must not be
+        // pooled across them. See src/lib/signals/calibration.ts.
         // v4: scores closed bars only (candle-finalization fix); rows written
         // before it may have been scored on a still-forming bar's partial
         // values. v3: calibrated tier cutoffs (24/30); v2: htf category + session + htfContext
-        configVersion: 4,
+        configVersion: 5,
         candleTimestamp: latestCandleTs,
         session,
         htfContext: htfContext
