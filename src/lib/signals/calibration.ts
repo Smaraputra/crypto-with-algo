@@ -114,11 +114,19 @@
  * same mechanism v3 used when these cutoffs were first calibrated), and
  * `SignalOutcome` carries it through, so filter on it rather than on a date.
  *
- * ONE CAVEAT ON THAT BOUNDARY: the cutoff change deployed at 2026-09-24T14:08Z
- * and the version bump followed it by a few minutes, so a small number of rows
- * carry `configVersion: 4` while having been scored by the v5 scorer. Bars in
- * that window are identifiable by `candleTimestamp` and are worth excluding
- * from any comparison that leans on the version alone.
+ * ONE CAVEAT ON THAT BOUNDARY, measured rather than estimated. The scorer and
+ * cutoff deploy completed at 2026-09-24T14:10:50Z and the version bump at
+ * 14:26:15Z, so bars in between were scored by v5 while still being written as
+ * `configVersion: 4`. That is exactly **103 GlobalSignal rows** with
+ * `candleTimestamp` in [14:10:50Z, 14:26:15Z). They carry the new scorer's
+ * signature -- the strong-tier share over that window is 1.0% against 3.3% for
+ * the three hours of genuine v4 before it, which is the raised strong cutoff
+ * taking effect -- so exclude them from any comparison that leans on the
+ * version alone:
+ *
+ *   { configVersion: 4, candleTimestamp: { $lt: 1790259050000 } }   // genuine v4
+ *
+ * There is no equivalent gap for SignalOutcome beyond the ones these rows seed.
  */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
