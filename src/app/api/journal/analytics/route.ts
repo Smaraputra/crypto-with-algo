@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
-import { JournalEntry } from '@/lib/models/journal-entry';
+import { JournalEntry, POSITION_ACTIONS } from '@/lib/models/journal-entry';
 import { SESSION_UTC_RANGES } from '@/lib/sessions';
 import type {
   JournalAnalyticsSummary,
@@ -51,9 +51,15 @@ export async function GET() {
   // Entries with a P&L outcome (both entry and exit price set)
   const pnlMatch = { userId, outcomePnlPercent: { $ne: null } };
 
-  // Entries with entryPrice but no outcomePnlPercent (incomplete trades)
+  // Entries with entryPrice but no outcomePnlPercent (incomplete trades).
+  //
+  // Restricted to POSITION_ACTIONS: a hold or skip can carry a reference entry
+  // price and will never have a P&L, so without this it counts as incomplete
+  // forever and the "close open trades with an exit price" banner can never be
+  // cleared -- including for a user who already closed everything closeable.
   const incompleteMatch = {
     userId,
+    action: { $in: POSITION_ACTIONS },
     entryPrice: { $ne: null },
     outcomePnlPercent: null,
   };
@@ -265,7 +271,9 @@ export async function GET() {
     totalTrades: allEntries,
     wins,
     losses,
-    winRate: pnlValues.length > 0 ? (wins / pnlValues.length) * 100 : 0,
+    // minSample 1: the headline rate is shown as soon as one trade is closed,
+    // but null rather than 0 when none is -- 0% read as a loss, not as no data.
+    winRate: rateOrNull(wins, pnlValues.length, 1),
     avgPnlPercent: avgPnl,
     bestTrade,
     worstTrade,
@@ -278,7 +286,7 @@ export async function GET() {
     count: t.count as number,
     wins: t.wins as number,
     losses: t.losses as number,
-    winRate: t.count > 0 ? ((t.wins as number) / (t.count as number)) * 100 : 0,
+    winRate: rateOrNull(t.wins as number, t.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     avgPnlPercent: t.count > 0 ? (t.totalPnl as number) / (t.count as number) : 0,
   }));
 
@@ -293,7 +301,7 @@ export async function GET() {
     count: s.count as number,
     wins: s.wins as number,
     losses: s.losses as number,
-    winRate: s.count > 0 ? ((s.wins as number) / (s.count as number)) * 100 : 0,
+    winRate: rateOrNull(s.wins as number, s.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     avgPnlPercent: s.count > 0 ? (s.totalPnl as number) / (s.count as number) : 0,
   }));
 
@@ -302,7 +310,7 @@ export async function GET() {
     count: c.count as number,
     wins: c.wins as number,
     losses: c.losses as number,
-    winRate: c.count > 0 ? ((c.wins as number) / (c.count as number)) * 100 : 0,
+    winRate: rateOrNull(c.wins as number, c.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     avgPnlPercent: c.count > 0 ? (c.totalPnl as number) / (c.count as number) : 0,
   }));
 
@@ -316,14 +324,14 @@ export async function GET() {
     tier: t._id as string,
     count: t.count as number,
     avgPnlPercent: t.count > 0 ? (t.totalPnl as number) / (t.count as number) : 0,
-    winRate: t.count > 0 ? ((t.wins as number) / (t.count as number)) * 100 : 0,
+    winRate: rateOrNull(t.wins as number, t.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const bySession: SessionPerformance[] = sessionAgg.map((s) => ({
     session: s._id as string,
     count: s.count as number,
     wins: s.wins as number,
-    winRate: s.count > 0 ? ((s.wins as number) / (s.count as number)) * 100 : 0,
+    winRate: rateOrNull(s.wins as number, s.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     avgPnlPercent: s.count > 0 ? (s.totalPnl as number) / (s.count as number) : 0,
   }));
 
@@ -331,7 +339,7 @@ export async function GET() {
     hour: h._id as number,
     count: h.count as number,
     wins: h.wins as number,
-    winRate: h.count > 0 ? ((h.wins as number) / (h.count as number)) * 100 : 0,
+    winRate: rateOrNull(h.wins as number, h.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     avgPnlPercent: h.count > 0 ? (h.totalPnl as number) / (h.count as number) : 0,
   }));
 
@@ -339,7 +347,7 @@ export async function GET() {
     weekday: ((w._id as number) - 1) % 7, // Mongo 1-7 (Sun-Sat) -> 0-6
     count: w.count as number,
     wins: w.wins as number,
-    winRate: w.count > 0 ? ((w.wins as number) / (w.count as number)) * 100 : 0,
+    winRate: rateOrNull(w.wins as number, w.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     avgPnlPercent: w.count > 0 ? (w.totalPnl as number) / (w.count as number) : 0,
   }));
 
@@ -347,7 +355,7 @@ export async function GET() {
     emotion: e._id as string,
     count: e.count as number,
     wins: e.wins as number,
-    winRate: e.count > 0 ? ((e.wins as number) / (e.count as number)) * 100 : 0,
+    winRate: rateOrNull(e.wins as number, e.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     avgPnlPercent: e.count > 0 ? (e.totalPnl as number) / (e.count as number) : 0,
   }));
 
@@ -384,6 +392,28 @@ export async function GET() {
 }
 
 const KELLY_MIN_SAMPLE = 20;
+
+/**
+ * Closed trades a breakdown needs before its win rate is stated as a number.
+ *
+ * Below this the rate is reported as null and the UI shows a dash. A win rate
+ * from n trades carries a standard error of roughly sqrt(p(1-p)/n), which is
+ * about 22 points at n=5 and 50 at n=1 -- so `1 trades / 100%` under a heading
+ * like "By Hour (UTC)" is not a weak finding, it is no finding. Kelly already
+ * had this idea (KELLY_MIN_SAMPLE, with a `reliable` flag); the breakdowns did
+ * not, and published percentages off samples of one.
+ *
+ * Deliberately lower than Kelly's 20: a position-sizing suggestion needs more
+ * evidence than a descriptive breakdown, and setting both to 20 would blank the
+ * whole analytics surface for any realistic early journal.
+ */
+const ANALYTICS_MIN_SAMPLE_FOR_RATE = 5;
+
+/** Win rate as a percentage, or null when the sample is too small to state one. */
+function rateOrNull(wins: number, count: number, minSample: number): number | null {
+  if (count < minSample || count <= 0) return null;
+  return (wins / count) * 100;
+}
 
 function computeKellySuggestion(pnlValues: number[]): KellySuggestion {
   const winsArr = pnlValues.filter((v) => v > 0);

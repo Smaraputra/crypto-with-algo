@@ -1,6 +1,7 @@
 'use client';
 
 import type { TagPerformance } from '@/types/journal-analytics';
+import { formatWinRate, winRateBarClass } from './format';
 
 interface WinRateByTagProps {
   data: TagPerformance[];
@@ -24,12 +25,12 @@ export function WinRateByTag({ data }: WinRateByTagProps) {
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium">{tag.tag}</span>
             <span className="text-muted-foreground">
-              {tag.winRate.toFixed(0)}% ({tag.count} trades)
+              {formatWinRate(tag.winRate, 0)} ({tag.count} {tag.count === 1 ? 'trade' : 'trades'})
             </span>
           </div>
           <div className="relative h-2 w-full rounded-full bg-muted overflow-hidden">
             <div
-              className={`absolute left-0 top-0 h-full rounded-full transition-all ${tag.winRate >= 50 ? 'bg-bullish' : 'bg-bearish'}`}
+              className={`absolute left-0 top-0 h-full rounded-full transition-all ${winRateBarClass(tag.winRate)}`}
               style={{ width: `${(tag.count / maxCount) * 100}%` }}
               data-testid={`tag-bar-${tag.tag}`}
             />

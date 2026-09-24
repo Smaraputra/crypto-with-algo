@@ -59,7 +59,9 @@ describe('PnlSummaryStrip', () => {
           totalTrades: 3,
           wins: 0,
           losses: 0,
-          winRate: 0,
+          // null, not 0: the route now distinguishes "no closed trades" from
+          // "closed trades, none won". 0 used to mean both.
+          winRate: null,
           avgPnlPercent: 0,
           bestTrade: null,
           worstTrade: null,

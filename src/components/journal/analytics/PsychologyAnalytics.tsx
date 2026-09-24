@@ -13,6 +13,8 @@ import type {
   TradeStreaks,
 } from '@/types/journal-analytics';
 
+import { formatWinRate } from './format';
+
 interface PsychologyAnalyticsProps {
   byEmotion: EmotionPerformance[];
   byMistake: MistakePerformance[];
@@ -76,7 +78,7 @@ export function PsychologyAnalytics({ byEmotion, byMistake, streaks }: Psycholog
                   <span>{TRADE_EMOTION_LABELS[entry.emotion as TradeEmotion] ?? entry.emotion}</span>
                   <span className="flex items-center gap-3">
                     <span className="text-muted-foreground">{entry.count} trades</span>
-                    <span className="font-mono tabular-nums">{entry.winRate.toFixed(0)}%</span>
+                    <span className="font-mono tabular-nums">{formatWinRate(entry.winRate, 0)}</span>
                     <PnlValue value={entry.avgPnlPercent} />
                   </span>
                 </li>

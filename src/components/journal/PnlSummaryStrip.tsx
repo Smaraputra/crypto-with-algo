@@ -1,6 +1,7 @@
 'use client';
 
 import { useJournalAnalytics } from '@/hooks/useJournalAnalytics';
+import { formatWinRate } from './analytics/format';
 
 export function PnlSummaryStrip() {
   const { data, isLoading } = useJournalAnalytics();
@@ -17,7 +18,10 @@ export function PnlSummaryStrip() {
   }
 
   const { summary } = data;
-  const closedTrades = summary.wins + summary.losses;
+  // closedTrades used to gate the win-rate dash here. The route now returns
+  // null for "no closed trades", so formatWinRate carries that meaning and the
+  // local recomputation is gone -- it was the second definition of the same idea
+  // and the analytics cards, lacking it, printed 0.0% for the same data.
 
   return (
     <div
@@ -45,7 +49,7 @@ export function PnlSummaryStrip() {
         label="Win Rate"
         value={
           <span className="font-mono tabular-nums">
-            {closedTrades > 0 ? `${summary.winRate.toFixed(1)}%` : '-'}
+            {formatWinRate(summary.winRate)}
           </span>
         }
       />

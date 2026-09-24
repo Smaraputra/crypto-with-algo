@@ -8,6 +8,8 @@ import type {
   WeekdayPerformance,
 } from '@/types/journal-analytics';
 
+import { formatWinRate } from './format';
+
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 interface TimingAnalyticsProps {
@@ -54,7 +56,7 @@ export function TimingAnalytics({ bySession, byHour, byWeekday }: TimingAnalytic
               <span>{SESSION_LABELS[entry.session as MarketSession] ?? entry.session}</span>
               <span className="flex items-center gap-3">
                 <span className="text-muted-foreground">{entry.count} trades</span>
-                <span className="font-mono tabular-nums">{entry.winRate.toFixed(0)}%</span>
+                <span className="font-mono tabular-nums">{formatWinRate(entry.winRate, 0)}</span>
                 <PnlValue value={entry.avgPnlPercent} />
               </span>
             </li>
@@ -72,7 +74,7 @@ export function TimingAnalytics({ bySession, byHour, byWeekday }: TimingAnalytic
               </span>
               <span className="flex items-center gap-3">
                 <span className="text-muted-foreground">{entry.count} trades</span>
-                <span className="font-mono tabular-nums">{entry.winRate.toFixed(0)}%</span>
+                <span className="font-mono tabular-nums">{formatWinRate(entry.winRate, 0)}</span>
                 <PnlValue value={entry.avgPnlPercent} />
               </span>
             </li>
@@ -88,7 +90,7 @@ export function TimingAnalytics({ bySession, byHour, byWeekday }: TimingAnalytic
               <span>{WEEKDAY_LABELS[entry.weekday] ?? entry.weekday}</span>
               <span className="flex items-center gap-3">
                 <span className="text-muted-foreground">{entry.count} trades</span>
-                <span className="font-mono tabular-nums">{entry.winRate.toFixed(0)}%</span>
+                <span className="font-mono tabular-nums">{formatWinRate(entry.winRate, 0)}</span>
                 <PnlValue value={entry.avgPnlPercent} />
               </span>
             </li>

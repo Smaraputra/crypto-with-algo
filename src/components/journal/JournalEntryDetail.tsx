@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MarkdownPreview } from './MarkdownPreview';
 import { ReviewDialog } from './ReviewDialog';
+import { isPositionAction } from '@/types/journal';
 import { CloseTradeDialog } from './CloseTradeDialog';
 import { EntryActions } from './EntryActions';
 import { TagInput } from './TagInput';
@@ -95,7 +96,11 @@ export function JournalEntryDetail({ entry }: JournalEntryDetailProps) {
   const snapshot = entry.indicatorSnapshot;
   const isReviewed = entry.reviewedAt != null;
   const needsReview = entry.exitPrice != null && !isReviewed;
-  const isOpenTrade = entry.entryPrice != null && entry.exitPrice == null;
+  // isPositionAction, not just the prices: a hold or skip records a decision NOT
+  // to take a position, so it has nothing to close. Offering the button anyway is
+  // what let the user be shown a P&L the PATCH route then discarded.
+  const isOpenTrade =
+    isPositionAction(entry.action) && entry.entryPrice != null && entry.exitPrice == null;
 
   function handleSaveEdit() {
     updateMutation.mutate(
