@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { OHLCV } from '@/types/market';
 
 import { computeAllIndicators } from './compute';
-import { interpretIndicators, interpretVolume, interpretTakerFlow } from './interpret';
+import { interpretIndicators, interpretVolume, interpretTakerFlow, interpretOBV } from './interpret';
 
 // Generate realistic OHLCV data
 function generateCandles(count: number, startPrice = 40000, trend: 'up' | 'down' | 'sideways' = 'up'): OHLCV[] {
@@ -277,5 +277,65 @@ describe('interpretTakerFlow', () => {
 
   it('returns null when taker data is absent', () => {
     expect(interpretTakerFlow(makeVa())).toBeNull();
+  });
+});
+
+describe('interpretOBV magnitude is origin-independent', () => {
+  /**
+   * OBV is a cumulative sum whose zero point is bar 0 of whatever window was
+   * fetched, so its LEVEL is arbitrary. The strength used to be normalised by
+   * |sma20|, making it a function of that arbitrary level: where OBV happened
+   * to be large the strength was ~0.1, and where the running sum happened to
+   * straddle zero it pinned at 100.
+   */
+  function obvFrom(values: number[]) {
+    const window = values.slice(-20);
+    const sma20 = window.reduce((a, b) => a + b, 0) / window.length;
+    return { values, current: values[values.length - 1], sma20 };
+  }
+
+  /** A fixed volume pattern, offset so only the cumulative origin differs. */
+  function series(offset: number) {
+    const deltas = [100, -80, 120, -60, 140, -40, 160, -20, 180, 100,
+                    -70, 130, -50, 150, -30, 170, -10, 190, 110, 200];
+    const out: number[] = [offset];
+    for (const d of deltas) out.push(out[out.length - 1] + d);
+    return out;
+  }
+
+  it('gives the same strength whatever the cumulative origin', () => {
+    const near = interpretOBV(obvFrom(series(0)));
+    const far = interpretOBV(obvFrom(series(10_000_000)));
+
+    expect(near.direction).toBe(far.direction);
+    expect(near.strength).toBeCloseTo(far.strength, 6);
+  });
+
+  it('does not pin at full strength when the running sum straddles zero', () => {
+    // The old normalisation divided by |sma20|, so an sma20 near zero blew the
+    // ratio up and clamped to 100 regardless of the actual divergence.
+    const straddling = series(0).map((v, i) => v - 900 - i);
+    const result = interpretOBV(obvFrom(straddling));
+
+    expect(result.strength).toBeLessThan(100);
+  });
+
+  it('scales with the size of the divergence in bars of volume', () => {
+    const base = series(0);
+    // Push the last value further from its average; strength must increase.
+    const stretched = [...base];
+    stretched[stretched.length - 1] = base[base.length - 1] + 400;
+
+    expect(interpretOBV(obvFrom(stretched)).strength).toBeGreaterThan(
+      interpretOBV(obvFrom(base)).strength
+    );
+  });
+
+  it('still reports direction from the average, not the magnitude', () => {
+    const rising = series(0);
+    const falling = [...rising].reverse();
+
+    expect(interpretOBV(obvFrom(rising)).direction).toBe('bullish');
+    expect(interpretOBV(obvFrom(falling)).direction).toBe('bearish');
   });
 });

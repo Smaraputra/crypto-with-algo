@@ -373,5 +373,17 @@ export function computeAllIndicators(
     interval,
     candleCount: candles.length,
     lastCandleTime: candles[candles.length - 1].timestamp,
+    /**
+     * The last bar's actual close.
+     *
+     * `interpretIndicators` needs a price to compare the moving averages
+     * against and previously derived one as `raw.ema12.values[length - 1]` --
+     * which `computeEMA` defines as `ema12.current`, the very value it was then
+     * compared to. `close > ema12` was therefore always false, and
+     * interpretSMATrend, interpretIchimoku and interpretATR were all handed
+     * EMA(fast) where they expect the close. Carried here alongside
+     * lastCandleTime so no caller has to thread it through.
+     */
+    lastClose: close[close.length - 1],
   };
 }

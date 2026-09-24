@@ -1,9 +1,27 @@
 // @vitest-environment node
-// Regression guard for the annualization/expectancy change (task B1). The
-// fixture was captured from the engine at the commit before this change, on
-// the same deterministic series used here. Trades, equityCurve, and every
-// metric except sharpeRatio and sortinoRatio (which change by design; see
-// metrics.test.ts for their formula coverage) must stay byte-for-byte equal.
+// Regression guard: the engine's output on a fixed deterministic series must
+// not move unless a change intends it to. Trades, equityCurve, and every metric
+// except sharpeRatio and sortinoRatio (see metrics.test.ts for their formula
+// coverage) must stay byte-for-byte equal to the fixture.
+//
+// The fixture was first captured for the annualization/expectancy change (task
+// B1) and was REGENERATED for the scorer-correctness fixes, which change every
+// score by design: the live close fix, monotonic funding strength, neutral
+// readings abstaining from their category mean, and the origin-independent OBV
+// magnitude. The regeneration was checked to be values-only -- same single
+// trade, same 401 equity points, same key sets -- with every metric difference
+// following from that trade entering at bar 303 rather than 309. Note the
+// smaller loss is one trade on a synthetic series, not evidence of improvement.
+//
+// It was regenerated a second time in the same commit when the tier cutoffs were
+// raised (24/30 to 30/38) to match the corrected score distribution. That pass
+// changed exactly one field and no metric at all: the trade's entryTier went
+// strong_buy to buy, because its entryScore of 32.9 cleared the old strong
+// cutoff of 30 but not the new 38.
+//
+// If this test fails, the question is whether the change was meant to move the
+// score. If not, it is a regression; the fixture is not to be regenerated to
+// make it pass.
 import { describe, it, expect } from 'vitest';
 import { runBacktest } from './engine';
 import { DEFAULT_BACKTEST_CONFIG } from './types';

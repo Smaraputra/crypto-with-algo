@@ -452,26 +452,153 @@ describe('computeSignalScore', () => {
 });
 
 describe('getTier', () => {
+  // Expressed relative to the cutoffs rather than as literals, so a
+  // recalibration does not need this table rewritten. The cutoffs moved from
+  // 24/30 to 30/38 on 2026-09-24 when the scorer fixes shifted the score
+  // distribution, and the literal form of this table failed for no reason
+  // other than the numbers being spelled out twice.
+  const B = TIER_BUY_CUTOFF;
+  const S = TIER_STRONG_CUTOFF;
+
   it.each([
     [0, 'neutral'],
-    [24, 'neutral'],
-    [24.1, 'buy'],
-    [30, 'buy'],
-    [30.1, 'strong_buy'],
-    [-24, 'neutral'],
-    [-24.1, 'sell'],
-    [-30, 'sell'],
-    [-30.1, 'strong_sell'],
+    [B, 'neutral'],
+    [B + 0.1, 'buy'],
+    [S, 'buy'],
+    [S + 0.1, 'strong_buy'],
+    [-B, 'neutral'],
+    [-(B + 0.1), 'sell'],
+    [-S, 'sell'],
+    [-(S + 0.1), 'strong_sell'],
     [100, 'strong_buy'],
     [-100, 'strong_sell'],
   ] as const)('maps %s to %s', (score, tier) => {
     expect(getTier(score)).toBe(tier);
   });
 
+  it('treats the cutoffs themselves as belonging to the lower tier', () => {
+    // The comparisons are strict, so the boundary value does not promote.
+    expect(getTier(B)).toBe('neutral');
+    expect(getTier(S)).toBe('buy');
+  });
+
   it('keeps strong tiers reachable within the measured score range', () => {
-    // The largest |score| observed for any style/interval on production data
-    // was about 43 (scalping 5m). A strong cutoff above that cannot fire.
-    expect(TIER_STRONG_CUTOFF).toBeLessThan(43);
+    // The largest |score| p98 measured on the archive dataset after the scorer
+    // fixes was 42.0 (1d position_trading); a strong cutoff at or above the top
+    // of that range could never fire. Was 43 against the pre-fix distribution.
+    expect(TIER_STRONG_CUTOFF).toBeLessThan(42);
     expect(TIER_BUY_CUTOFF).toBeLessThan(TIER_STRONG_CUTOFF);
+  });
+});
+
+describe('funding rate strength is monotonic in |rate|', () => {
+  // The escalation branch computed |rate| * 10000, so at -0.0011 it returned 11
+  // while the milder branch just below it returned a flat 40: strength DROPPED
+  // by 29 points as the signal got stronger, and only passed 40 again beyond
+  // |rate| > 0.004, which is off the observed distribution for these symbols.
+  function fundingSignal(rate: number) {
+    const candles = generateCandles(250);
+    const raw = computeAllIndicators(candles, 'BTCUSDT', '1h');
+    const indicators = interpretIndicators(raw);
+    const futures: FuturesData = {
+      fundingRate: { symbol: 'BTCUSDT', fundingRate: rate, fundingTime: Date.now(), markPrice: 40000 },
+      openInterest: null,
+      longShortRatio: null,
+    };
+
+    const result = computeSignalScore(indicators, futures, null, DEFAULT_WEIGHTS);
+    const futuresComponent = result.components.find((c) => c.category === 'futures')!;
+    return futuresComponent.signals.find((s) => s.name === 'Funding Rate')!;
+  }
+
+  it('does not weaken as negative funding becomes more extreme', () => {
+    const mild = fundingSignal(-0.0009);
+    const extreme = fundingSignal(-0.0011);
+    const veryExtreme = fundingSignal(-0.002);
+
+    expect(mild.direction).toBe('bullish');
+    expect(extreme.direction).toBe('bullish');
+    expect(extreme.strength).toBeGreaterThanOrEqual(mild.strength);
+    expect(veryExtreme.strength).toBeGreaterThan(extreme.strength);
+  });
+
+  it('does not weaken as positive funding becomes more extreme', () => {
+    const mild = fundingSignal(0.0009);
+    const extreme = fundingSignal(0.0011);
+
+    expect(mild.direction).toBe('bearish');
+    expect(extreme.direction).toBe('bearish');
+    expect(extreme.strength).toBeGreaterThanOrEqual(mild.strength);
+  });
+
+  it('is continuous at the escalation threshold and capped at 90', () => {
+    expect(fundingSignal(-0.001).strength).toBe(40);
+    expect(fundingSignal(-0.05).strength).toBe(90);
+  });
+
+  it('reads the base funding rate as neutral', () => {
+    // Binance's base rate is exactly 0.0001 for most perpetuals most of the
+    // time, and base funding carries no contrarian information.
+    const base = fundingSignal(0.0001);
+
+    expect(base.direction).toBe('neutral');
+    expect(base.strength).toBe(0);
+  });
+});
+
+describe('neutral readings abstain rather than dilute', () => {
+  function scoreWith(signals: Array<{ direction: 'bullish' | 'bearish' | 'neutral'; strength: number }>) {
+    const candles = generateCandles(250);
+    const raw = computeAllIndicators(candles, 'BTCUSDT', '1h');
+    const indicators = interpretIndicators(raw);
+    // Replace the momentum category wholesale so the arithmetic is exact.
+    const patched = {
+      ...indicators,
+      signals: {
+        ...indicators.signals,
+        momentum: signals.map((s, i) => ({
+          name: `M${i}`,
+          value: 0,
+          direction: s.direction,
+          strength: s.strength,
+          description: '',
+        })),
+      },
+    };
+
+    const result = computeSignalScore(patched, null, null, DEFAULT_WEIGHTS);
+    return result.components.find((c) => c.category === 'momentum')!.score;
+  }
+
+  it('does not let a neutral reading drag a category toward zero', () => {
+    const twoBullish = scoreWith([
+      { direction: 'bullish', strength: 60 },
+      { direction: 'bullish', strength: 60 },
+    ]);
+    const samePlusNeutral = scoreWith([
+      { direction: 'bullish', strength: 60 },
+      { direction: 'bullish', strength: 60 },
+      { direction: 'neutral', strength: 10 },
+    ]);
+
+    expect(twoBullish).toBeCloseTo(60, 6);
+    // Previously this averaged over three readings and returned 40.
+    expect(samePlusNeutral).toBeCloseTo(60, 6);
+  });
+
+  it('scores a wholly neutral category at zero', () => {
+    expect(scoreWith([
+      { direction: 'neutral', strength: 10 },
+      { direction: 'neutral', strength: 20 },
+    ])).toBe(0);
+  });
+
+  it('still averages opposing directional readings', () => {
+    // Abstention must not be confused with cancellation: these two genuinely
+    // disagree and their mean is the right answer.
+    expect(scoreWith([
+      { direction: 'bullish', strength: 50 },
+      { direction: 'bearish', strength: 50 },
+    ])).toBeCloseTo(0, 6);
   });
 });

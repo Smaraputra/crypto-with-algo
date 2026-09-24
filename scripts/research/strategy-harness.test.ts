@@ -481,13 +481,26 @@ describe('strategy-harness CLI', () => {
       ]);
       const report = await runStrategyHarness(baseArgs);
 
-      // ETHUSDT's window 1 does not reach minIsTrades in sample with this
-      // fixture's fixed seed (verified directly against this exact fixture);
-      // deterministic given the fixed seeds this file uses throughout.
-      const skippedEntry = report.perSymbol
-        .flatMap((p) => p.windows.map((w) => ({ symbol: p.symbol, window: w })))
-        .find((w) => w.window.selectedParams === null);
-      expect(skippedEntry).toBeDefined();
+      // Mark a window skipped in the report on disk rather than relying on the
+      // fixture to produce one. This previously searched for a naturally
+      // skipped window, with a comment pinning it to "ETHUSDT's window 1 ...
+      // with this fixture's fixed seed" -- which made the test depend on
+      // incidental score values, and it broke the moment the scorer changed
+      // (correctly) and every window started reaching minIsTrades. The
+      // behaviour under test is runCell's refusal, not the fixture's arithmetic.
+      // Same technique as the stale-manifest test above.
+      const target = { symbol: report.perSymbol[0].symbol, index: report.perSymbol[0].windows[0].index };
+      const patched = {
+        ...report,
+        perSymbol: report.perSymbol.map((p, i) =>
+          i === 0
+            ? { ...p, windows: p.windows.map((w, j) => (j === 0 ? { ...w, selectedParams: null } : w)) }
+            : p
+        ),
+      };
+      writeFileSync(outPath, JSON.stringify(patched, null, 2));
+
+      const skippedEntry = { symbol: target.symbol, window: { index: target.index } };
 
       const cellArgs = parseArgs([
         '--family', 'control',

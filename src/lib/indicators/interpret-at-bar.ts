@@ -188,7 +188,7 @@ export function interpretIndicatorsAtBar(
 
   // Volume signals
   const volumeSignals: IndicatorSignal[] = [
-    interpretOBV({ values: raw.obv.values, current: obvVal, sma20: obvSma20 }),
+    interpretOBV({ values: raw.obv.values, current: obvVal, sma20: obvSma20 }, obvIdx),
     interpretMFI(mfiVal),
     interpretVolume({
       currentVolume: currentVol,
