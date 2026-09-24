@@ -226,18 +226,69 @@ export function interpretATR(
 
 // Volume signals
 
+/**
+ * OBV relative to its own 20-period average.
+ *
+ * The DIRECTION (above or below the average) is meaningful. The magnitude used
+ * to be normalised by `|sma20|`, which is not a scale: OBV is a cumulative sum
+ * whose zero point is bar 0 of whatever array was passed, and
+ * `computeAllIndicators` is called on the last `recommendedCandles` bars, so the
+ * origin moved on every run. Where OBV's level happened to be large the
+ * strength was ~0.1; where the cumulative sum happened to straddle zero it
+ * pinned at 100. The number carried a rolling-window artifact, not information,
+ * and OBV is a quarter of the volume category (0.255 weight for scalping).
+ *
+ * The natural scale for an OBV deviation is OBV's own typical per-bar movement,
+ * which is the average bar volume: OBV moves by +/- one bar's volume each bar.
+ * Measuring the gap in "bars' worth of volume" is origin-independent, so it
+ * means the same thing whatever window was fetched.
+ *
+ * Full strength at ten bars' worth, because that is close to the arithmetic
+ * ceiling: a 20-period SMA lags a linear trend by about 9.5 bars, so an OBV
+ * that moved the same direction on every bar gaps from its own average by
+ * roughly 9.5 bars of volume. Anything mixed reads proportionally less, which
+ * is the point -- a five-bar threshold clamped realistic trends at 100 and
+ * threw away the resolution.
+ */
+const OBV_FULL_STRENGTH_BARS = 10;
+
+/**
+ * CONTRACT: `obv.values` must END at the bar being interpreted. The live path
+ * satisfies this because the array is the whole fetched window; the per-bar path
+ * must truncate it (see interpret-at-bar.ts), because the scale below is read
+ * from the tail and reading past the bar would be lookahead. The repository's
+ * `no-lookahead.test.ts` enforces this.
+ */
 export function interpretOBV(obv: RawIndicators['obv']): IndicatorSignal {
-  const { current, sma20 } = obv;
+  const { current, sma20, values } = obv;
 
-  if (current > sma20) {
-    const pctAbove = sma20 !== 0 ? ((current - sma20) / Math.abs(sma20)) * 100 : 0;
-    const strength = Math.min(100, Math.abs(pctAbove));
-    return signal('OBV', current, 'bullish', strength, 'OBV above 20-period average');
+  // Mean absolute bar-to-bar change over the same 20 bars the average spans,
+  // i.e. average volume. Taken from the tail, which the contract above pins to
+  // the evaluated bar.
+  let deltaSum = 0;
+  let deltaCount = 0;
+  for (let i = Math.max(1, values.length - 20); i < values.length; i++) {
+    deltaSum += Math.abs(values[i] - values[i - 1]);
+    deltaCount++;
   }
+  const avgAbsDelta = deltaCount > 0 ? deltaSum / deltaCount : 0;
 
-  const pctBelow = sma20 !== 0 ? ((sma20 - current) / Math.abs(sma20)) * 100 : 0;
-  const strength = Math.min(100, Math.abs(pctBelow));
-  return signal('OBV', current, 'bearish', strength, 'OBV below 20-period average');
+  const gap = Math.abs(current - sma20);
+  const strength =
+    avgAbsDelta > 0
+      ? Math.min(100, (gap / (avgAbsDelta * OBV_FULL_STRENGTH_BARS)) * 100)
+      : 0;
+
+  const direction = current > sma20 ? 'bullish' : 'bearish';
+  const bars = avgAbsDelta > 0 ? gap / avgAbsDelta : 0;
+
+  return signal(
+    'OBV',
+    current,
+    direction,
+    strength,
+    `OBV ${direction === 'bullish' ? 'above' : 'below'} 20-period average by ${bars.toFixed(1)} bars of volume`
+  );
 }
 
 export function interpretMFI(mfi: number): IndicatorSignal {
@@ -326,9 +377,14 @@ export function interpretTakerFlow(va: RawIndicators['volumeAnalysis']): Indicat
 // Main interpretation function
 
 export function interpretIndicators(raw: RawIndicators): IndicatorSuite {
-  const close = raw.ema12.values.length > 0
-    ? raw.ema12.values[raw.ema12.values.length - 1]
-    : 0;
+  // The bar's real close, carried on the raw set. This was previously
+  // `raw.ema12.values[length - 1]`, i.e. `raw.ema12.current` under another
+  // name, so `interpretEMACross`'s `close > ema12` compared a number to itself
+  // and was permanently false -- every bullish EMA reading was scored at 60%
+  // of an identical bearish one. `interpretIndicatorsAtBar` always used the
+  // real close, so the live scorer and the research path (and therefore the
+  // percentile tables in calibration.ts) disagreed about the same bar.
+  const close = raw.lastClose ?? 0;
 
   // Trend signals
   const trendSignals: IndicatorSignal[] = [

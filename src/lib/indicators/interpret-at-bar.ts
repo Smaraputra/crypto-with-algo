@@ -130,6 +130,13 @@ export function interpretIndicatorsAtBar(
     }
     obvSma20 = sum / 20;
   }
+  /**
+   * Truncated at the evaluated bar, because `interpretOBV` derives its scale
+   * (average per-bar OBV movement) from the tail of this array. Passing the full
+   * series would read bars after `barIndex` -- lookahead, and caught by
+   * no-lookahead.test.ts when this was first written without the slice.
+   */
+  const obvValues = obvIdx >= 0 ? raw.obv.values.slice(0, obvIdx + 1) : [];
 
   // Volume analysis at bar
   const currentVol = candles[barIndex].volume;
@@ -188,7 +195,7 @@ export function interpretIndicatorsAtBar(
 
   // Volume signals
   const volumeSignals: IndicatorSignal[] = [
-    interpretOBV({ values: raw.obv.values, current: obvVal, sma20: obvSma20 }),
+    interpretOBV({ values: obvValues, current: obvVal, sma20: obvSma20 }),
     interpretMFI(mfiVal),
     interpretVolume({
       currentVolume: currentVol,
@@ -220,7 +227,7 @@ export function interpretIndicatorsAtBar(
     ichimoku: ichimokuAtBar
       ? { values: raw.ichimoku!.values, current: ichimokuAtBar }
       : null,
-    obv: { values: raw.obv.values, current: obvVal, sma20: obvSma20 },
+    obv: { values: obvValues, current: obvVal, sma20: obvSma20 },
     mfi: { ...raw.mfi, current: mfiVal },
     volumeAnalysis: {
       currentVolume: currentVol,

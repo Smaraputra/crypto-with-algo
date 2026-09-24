@@ -18,20 +18,37 @@ function directionToMultiplier(direction: SignalDirection): number {
   return 0;
 }
 
+/**
+ * Mean of the directional readings, with neutral ones ABSTAINING.
+ *
+ * A neutral signal previously contributed 0 to the numerator while still
+ * counting 1 in the denominator, so it did not abstain -- it voted for zero.
+ * Most indicators sit in their indifference band most of the time (RSI between
+ * 40 and 60, Williams %R between -80 and -20, %B between 0.2 and 0.8, MFI
+ * between 40 and 60, Fear & Greed between 40 and 60, funding at its base rate),
+ * so the score's magnitude was largely a count of how many indicators happened
+ * to be undecided rather than a measure of conviction. That is the main reason
+ * |score| p90 sat around 24 on a nominal +/-100 scale.
+ *
+ * The codebase already had this right in two places and generalising it was the
+ * fix: `scoreVolatility` excludes ATR from the mean for exactly this reason,
+ * and `interpretTakerFlow` returns null in its indifferent band "so it never
+ * dilutes the volume category".
+ *
+ * A category of nothing but neutral readings now scores 0 because it has no
+ * opinion, not because its opinions cancelled -- and `signals.length > 0` still
+ * keeps its weight, which is correct: the data arrived, it just said nothing.
+ */
 function categoryScore(signals: IndicatorSignal[]): number {
-  if (signals.length === 0) return 0;
+  const directional = signals.filter((s) => directionToMultiplier(s.direction) !== 0);
+  if (directional.length === 0) return 0;
 
-  let totalWeight = 0;
   let weightedSum = 0;
-
-  for (const s of signals) {
-    const multiplier = directionToMultiplier(s.direction);
-    const contribution = multiplier * s.strength;
-    weightedSum += contribution;
-    totalWeight += 1;
+  for (const s of directional) {
+    weightedSum += directionToMultiplier(s.direction) * s.strength;
   }
 
-  return totalWeight > 0 ? weightedSum / totalWeight : 0;
+  return weightedSum / directional.length;
 }
 
 function scoreTrend(
@@ -135,21 +152,41 @@ function scoreFutures(futuresData: FuturesData | null): SignalComponent {
     let direction: 'bullish' | 'bearish' | 'neutral' = 'neutral';
     let strength = 0;
 
-    if (rate < -0.001) {
+    // Strength must rise with |rate|, which it previously did not: the
+    // "extreme" branch computed |rate| * 10000, so at -0.0011 it returned 11
+    // while the milder branch below it returned a flat 40. Strength therefore
+    // DROPPED by 29 points as the signal got stronger, and only passed 40 again
+    // beyond |rate| > 0.004 -- off the observed distribution for these symbols.
+    //
+    // Scaled so the escalation threshold is continuous: 40 at |rate| = 0.001,
+    // rising to the 90 cap at 0.00225. The mild branch keeps its flat 40, so the
+    // function is monotonic across the whole range.
+    const EXTREME = 0.001;
+    const NEUTRAL_BAND = 0.0001;
+    const extremeStrength = (absRate: number) =>
+      Math.min(90, 40 + (absRate - EXTREME) * 40000);
+
+    if (rate < -EXTREME) {
       // Very negative funding = extremely bullish contrarian
       direction = 'bullish';
-      strength = Math.min(90, Math.abs(rate) * 10000);
-    } else if (rate < -0.0001) {
+      strength = extremeStrength(Math.abs(rate));
+    } else if (rate < -NEUTRAL_BAND) {
       direction = 'bullish';
       strength = 40;
-    } else if (rate > 0.001) {
+    } else if (rate > EXTREME) {
       // Very positive funding = bearish contrarian
       direction = 'bearish';
-      strength = Math.min(90, rate * 10000);
-    } else if (rate > 0.0001) {
+      strength = extremeStrength(rate);
+    } else if (rate > NEUTRAL_BAND) {
       direction = 'bearish';
       strength = 40;
     }
+    // Note on the neutral band: it is [-0.0001, +0.0001] INCLUSIVE, and
+    // Binance's base funding rate is exactly 0.0001 for most perpetuals most of
+    // the time, so the single most common funding value reads neutral. That is
+    // deliberate -- base funding carries no contrarian information -- and it is
+    // only harmless because a neutral reading now abstains from its category
+    // mean rather than dragging it to zero.
 
     signals.push({
       name: 'Funding Rate',
