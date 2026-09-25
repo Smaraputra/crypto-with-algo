@@ -762,6 +762,64 @@ export const oscillatorReversionLimitFamily: StrategyFamily = {
 };
 
 /**
+ * depth-imbalance-fade-limit: depth-imbalance-fade's fade-the-crowded-book
+ * rule (see depthImbalanceFadeFamily above), entering on a resting limit
+ * order at the decision close (offset fixed at 0) instead of at market.
+ * Exit, stop, target and time stop are depth-imbalance-fade's own, unchanged.
+ *
+ * WHY THIS FAMILY EXISTS, and what it is predicted to do.
+ *
+ * Phase 4c at 4h is the program's best result: +0.090%/trade over 1,251
+ * trades, the first to clear the symbols gate (7/10), and the first positive
+ * point estimate to survive stress (+0.005% at 1.5x fees and 2x slippage). It
+ * was measured against a TAKER cost model, and the limit-entry experiment of
+ * Phase 4 never covered this family, nor 4h: `withLimitEntry` reached only
+ * control, return-reversal and oscillator-reversion, at 5m and 1h. A maker
+ * round trip is 0.04% against a taker round trip of about 0.14% at 4h, so this
+ * run asks whether the only positive result the program has is positive after
+ * costs once it stops paying the spread twice.
+ *
+ * PRE-REGISTERED PREDICTION, 2026-09-25: this will NOT pass. Recovering the
+ * per-trade standard deviation from the Phase 4c bootstrap CI half-width
+ * (sd = half * sqrt(n) / 1.96) gives about 8.12% per trade at 4h, so the edge
+ * needed for the CI low bound to clear zero at n = 1,251 is about 0.450%.
+ * Maker execution is worth roughly the 0.10% cost difference, lifting +0.090%
+ * to about +0.190%. That is a better point estimate and still less than half
+ * the bar. Proving +0.090% at this dispersion would need about 31,275 trades.
+ * The prediction is recorded here before the run because a pass would mean the
+ * dispersion estimate is wrong, and that is worth knowing more than the run is.
+ *
+ * Params: days in [30, 90], z in [1.5, 2], hold in [16, 32], timeout in [1, 2]
+ * (limit order timeout, bars). 16 cells, matching the other limit families.
+ * `k` is FIXED at 3 rather than swept: MAX_PARAMS is 4 and the base family
+ * already uses four, so one had to go, and k=3 carried all five of the cells
+ * Phase 4c selected most often at 4h (days 90/z 2/hold 32 and days 30/z 2/hold
+ * 32 at nine windows each, then days 30/z 2/hold 16, days 30/z 1.5/hold 32 and
+ * days 90/z 1.5/hold 32). Every one of those stays inside this grid.
+ * offsetBps fixed at 0.
+ */
+export const depthImbalanceFadeLimitFamily: StrategyFamily = {
+  name: 'depth-imbalance-fade-limit',
+  description:
+    'depth-imbalance-fade with a resting limit entry at the decision close (offset 0)',
+  requiresResearchColumns: DEPTH_Z_WINDOW_DAYS.map(depthColumn),
+  params: [
+    { name: 'days', values: [30, 90] },
+    { name: 'z', values: [1.5, 2] },
+    { name: 'hold', values: [16, 32] },
+    { name: 'timeout', values: [1, 2] },
+  ],
+  create(params: Record<string, number>, ctx: { style: TradingStyle; interval: string }): Strategy {
+    const { days, z, hold, timeout } = params;
+    const base = depthImbalanceFadeFamily.create({ days, z, hold, k: 3 }, ctx);
+    return withLimitEntry(base, 'depth-imbalance-fade-limit', params, {
+      timeoutBars: timeout,
+      offsetBps: 0,
+    });
+  },
+};
+
+/**
  * The z columns these families read.
  *
  * They are NOT computed here. Every one is a trailing window, and the
@@ -1062,4 +1120,5 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'positioning-horizon': positioningHorizonFamily,
   'funding-z-fade': fundingZFadeFamily,
   'depth-imbalance-fade': depthImbalanceFadeFamily,
+  'depth-imbalance-fade-limit': depthImbalanceFadeLimitFamily,
 };

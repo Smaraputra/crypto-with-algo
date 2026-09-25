@@ -76,7 +76,7 @@ describe('expandGrid', () => {
 });
 
 describe('STRATEGY_FAMILIES', () => {
-  it('has the twelve registered families', () => {
+  it('has the thirteen registered families', () => {
     expect(Object.keys(STRATEGY_FAMILIES)).toEqual([
       'control',
       'fade-composite',
@@ -90,6 +90,7 @@ describe('STRATEGY_FAMILIES', () => {
       'positioning-horizon',
       'funding-z-fade',
       'depth-imbalance-fade',
+      'depth-imbalance-fade-limit',
     ]);
   });
 
