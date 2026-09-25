@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (research): the random-entry null did not reproduce the reference's trade count
+- **The null behind the `timing` gate was matched on the wrong thing.** `randomEntryBenchmark` exists to vary ENTRY TIMING while holding the exit profile fixed, so the reference and the null should differ in when they enter and in nothing else. They also differed in how often: measured, the null traded **1.17x to 1.32x** as often as the reference it was compared against
+- **`referenceProfile`'s arithmetic was right and its assumption was not.** With entry probability `p` on each flat bar, expected trades solve `T' = p * totalBars / (1 + p * h)`, and at `p = T / (totalBars - T * h)` that is exactly `T` -- but only when `h`, the hold the null realizes, equals the reference's. It never does. The reference's `holdTimeBars` are **realized** holds that already embed its own stop and target hits, and `createRandomEntryStrategy` then re-applies the stop AND the target AND caps the trade at that realized hold via `timeStopBars`, so a random trade gets three chances to be cut short where the reference's outcome was already settled
+- Measured, the null's mean hold is a consistent fraction of the reference's, and the trade count follows arithmetically:
+
+| series | reference trades | ref mean hold | null mean hold | hold ratio | count ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 600 bars, threshold 15 | 5 | 46.60 | 35.81 | 0.768 | 1.165 |
+| 1200 bars, threshold 15 | 14 | 41.36 | 31.85 | 0.770 | 1.166 |
+| 600 bars, threshold 10 | 8 | 42.38 | 32.13 | 0.758 | 1.291 |
+
+- The exit reasons show the mechanism directly: on the 600-bar series the reference exited 3 by `take_profit`, 1 by `signal` and 1 by `end_of_data`, while 40 null draws exited 89 by `stop_loss` and 90 by `time_stop`
+- **`randomEntryBenchmark` now calibrates the entry rate against the hold the null actually realizes**, via a seeded fixed-point pass: 8 pilot draws per round, at most 3 rounds, stopping early once the rate moves less than 1%. The arithmetic is the new pure `entryProbabilityForTargetTrades(targetTrades, totalBars, meanRealizedHold)`, which is `referenceProfile`'s own expression evaluated at the realized hold rather than the reference's. Pilot seeds sit on a separate stream (`CALIBRATION_SEED_OFFSET`, the same separation `exposure-harness.ts` uses for its timing draws), so a report still reproduces exactly
+- **The null now matches on count**, and the p-value impact is small and in the conservative direction:
+
+| case | null trades before | null trades after | p before | p after |
+| --- | ---: | ---: | ---: | ---: |
+| 600 bars, 5 reference trades | 1.218x | **1.031x** | 0.0348 | 0.0448 |
+| 1200 bars, 14 reference trades | 1.195x | **1.025x** | 0.0050 | 0.0050 |
+| 1200 bars, 17 reference trades | 1.271x | **1.031x** | 0.0050 | 0.0050 |
+| 2000 bars, 27 reference trades | 1.261x | **1.005x** | 0.0050 | 0.0050 |
+
+- **This does not overturn a recorded `timing` verdict, with one row worth re-running.** The compared statistic is per-TRADE expectancy, so the null's mean barely moves with its count (1.9759 to 1.9831 in the one case not pinned at the p floor), and the shift is about +0.01 on p, i.e. slightly LESS significant. Every recorded run that failed `timing` fails it at least as clearly. The exposure is a run sitting just inside the 0.05 threshold, and Phase 4c has one: **`depth-imbalance-fade` at 1h, recorded `timing p 0.045`**, which is within the measured shift and could move to failing. That run already failed 6 of 8 gates, so its verdict is unchanged, but the gate row should be re-run before anyone cites it
+- `randomEntryBenchmark` additionally returns `meanRandomTrades` and the calibrated `entryProbability`, so a caller can see whether the null matched on count. Deliberately NOT added to `StrategyReportSchema`: that schema strips unknown keys silently, and widening the persisted shape is a separate change. Worth doing, since a silent calibration is exactly what should be visible in a report
+- 7 new tests: the null reproducing the reference count at three configurations through the real code path, a regression guard pinning that the RAW profile over-trades so the calibration cannot be silently removed, and four on the pure arithmetic including the degenerate case where the target leaves no flat bars
+
+
 ### Fixed (signals): three indicator strength scales that measured the asset, not the market
 - **MACD strength was a function of nominal price.** `interpretMACD` used `min(100, |histogram| * 1000)`, and the MACD histogram is a difference of two EMAs of price, so it is denominated in the symbol's own price units (`computeMACD` passes `SimpleMAOscillator: false`, so it is `EMA - EMA` of raw closes, not a ratio). Measured at 1h over 41,102 bars per symbol, median strength was **100.0 for BTCUSDT (saturated on 99.9% of bars) and 0.2 for DOGEUSDT (below 5 on 99.9% of bars)**. Momentum is the highest-weighted category for scalping (0.34) and day trading (0.255), so for expensive assets it contributed maximum conviction on essentially every bar and for cheap ones nothing at all
 
