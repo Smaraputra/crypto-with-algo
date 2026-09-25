@@ -30,9 +30,10 @@ test.describe('Signals page (authenticated)', () => {
       'active'
     );
 
-    // Controls
-    await expect(page.getByTestId('compute-button')).toBeVisible();
+    // Controls. There is deliberately no compute button: scoring is the
+    // scheduler's job, not something a browser click can trigger.
     await expect(page.getByTestId('interval-select')).toBeVisible();
+    await expect(page.getByTestId('compute-button')).toHaveCount(0);
   });
 
   test('shows 10 symbol selector buttons', async ({ page }) => {
@@ -168,29 +169,6 @@ test.describe('Signals page (authenticated)', () => {
     await expect(
       ethText.or(loadingState).or(gaugeArea)
     ).toBeVisible({ timeout: 10000 });
-  });
-
-  test('compute button triggers signal computation', async ({ page }) => {
-    await page.goto('/signals');
-
-    const computeButton = page.getByTestId('compute-button');
-    await expect(computeButton).toBeVisible();
-    await expect(computeButton).toHaveText('Compute Now');
-
-    await computeButton.click();
-
-    // Binance REST returns 403 from US IPs. Accept any of: gauge renders,
-    // computation error, or no-signal state. This is intentional -- not a weak assertion.
-    //
-    // Each branch must be a selector unique to that state. `locator('svg')` also
-    // matched sidebar nav icons, so under full-suite load two branches resolved
-    // at once and Playwright raised a strict mode violation.
-    const outcome = page
-      .getByTestId('signal-gauge')
-      .or(page.getByText(/Failed to compute/i))
-      .or(page.getByText(/No signal computed/));
-
-    await expect(outcome.first()).toBeVisible({ timeout: 30000 });
   });
 
   test('clicking multi-style card switches active tab', async ({ page }) => {

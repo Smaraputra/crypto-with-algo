@@ -3,7 +3,7 @@
  *
  * WHY PER LINE: four routes are scheduled more than once with different
  * parameters. `sync-candles` runs three times (standard, 1m, 5m) and
- * `compute-signals` five times (one per style, plus the legacy per-user pass).
+ * `compute-signals` four times, one per trading style.
  * A heartbeat keyed on the route alone would let `ingest-snapshots:1d` die
  * invisibly behind a healthy `ingest-snapshots:1h`, and
  * `compute-signals:position_trading` (hourly) die behind
@@ -60,7 +60,6 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'compute-signals:day_trading', path: '/api/cron/compute-signals', params: { style: 'day_trading' }, schedule: '1-59/5 * * * *', expectedEverySeconds: 5 * MINUTE, method: 'GET' },
   { job: 'compute-signals:swing_trading', path: '/api/cron/compute-signals', params: { style: 'swing_trading' }, schedule: '1-59/15 * * * *', expectedEverySeconds: 15 * MINUTE, method: 'GET' },
   { job: 'compute-signals:position_trading', path: '/api/cron/compute-signals', params: { style: 'position_trading' }, schedule: '1 * * * *', expectedEverySeconds: HOUR, method: 'GET' },
-  { job: 'compute-signals:legacy', path: '/api/cron/compute-signals', params: {}, schedule: '*/10 * * * *', expectedEverySeconds: 10 * MINUTE, method: 'GET' },
 
   { job: 'resolve-outcomes', path: '/api/cron/resolve-outcomes', params: {}, schedule: '*/15 * * * *', expectedEverySeconds: 15 * MINUTE, method: 'GET' },
 

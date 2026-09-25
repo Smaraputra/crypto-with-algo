@@ -136,9 +136,12 @@ describe('CRON_JOBS table', () => {
     expect(syncCandles).toHaveLength(3);
     expect(new Set(syncCandles.map((j) => j.job)).size).toBe(3);
 
+    // Four, one per trading style. The fifth was the legacy per-user pass,
+    // retired once nothing read the `Signal` collection it wrote.
     const computeSignals = CRON_JOBS.filter((j) => j.path === '/api/cron/compute-signals');
-    expect(computeSignals).toHaveLength(5);
-    expect(new Set(computeSignals.map((j) => j.job)).size).toBe(5);
+    expect(computeSignals).toHaveLength(4);
+    expect(new Set(computeSignals.map((j) => j.job)).size).toBe(4);
+    expect(computeSignals.every((j) => typeof j.params.style === 'string')).toBe(true);
   });
 
   it('excludes the fire-and-forget optimization route from the heartbeat set', () => {

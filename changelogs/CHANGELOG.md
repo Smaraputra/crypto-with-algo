@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed (signals): every user-reachable path that could score on demand
+- **A browser click could write into the live signal record.** The signals page carried a "Compute Now" button calling `POST /api/signals/compute`, which ran `computeSignalBatch` and persisted a `GlobalSignal` at a moment no cron fired. That is the same collection the `configVersion` live record is read from and the outcome resolver builds pending outcomes from, so a user-triggered row is indistinguishable from a scheduled one after the fact. Scoring now happens only on the schedule
+- **The legacy per-user scorer is retired.** `*/10 * * * * /api/cron/compute-signals` with no `style` ran `computeLegacySignals()`: a third scorer on `DEFAULT_CONFIG` periods, `DEFAULT_WEIGHTS`, no higher-timeframe context, no news and no `configVersion`, writing one `Signal` document per user strategy. Its only reader was the journal's indicator snapshot, which now computes its own, so it was producing numbers nobody read. The cron line, the `CRON_JOBS` entry, the no-style branch and the route's `Strategy`/`Signal` machinery are gone, and omitting `style` is now a 400
+- **Gone with them:** `POST /api/signals/compute`, `GET /api/signals` (the per-user list), the `Signal` model and its 90-day TTL index, and the `useSignals`, `useLatestSignal`, `useComputeSignal` and `useComputeGlobalSignal` hooks, none of which had a call site left. `ISignalComponent` moves to `models/global-signal.ts`, which is the only thing that still persists that shape
+- **Existing `signals` documents are untouched.** Dropping a Mongoose model does not drop its collection; the rows simply expire on the TTL they already carry
+- **Deploy note:** the cron container must be recreated for the removed line to take effect -- `docker compose -f docker-compose.server.yml up -d --force-recreate cron` -- because the deploy workflow never recreates it
+
+
 ### Fixed (journal): the pattern detector praised a small sample it would not criticise
 - **"Profit factor of 2.50 indicates strong risk-reward management" had no sample guard while its warning twin required five closed trades.** One +5% win against one -0.5% loss produced it. Both branches now sit behind the same `MIN_CLOSED_TRADES_FOR_PATTERN`, on the reasoning that an encouraging claim off a thin sample is not the safer of the two: it is the one more likely to be acted on
 

@@ -23,7 +23,6 @@ import {
   useGlobalSignals,
   useLatestSignals,
   useLatestSignalForStyle,
-  useComputeGlobalSignal,
 } from '@/hooks/useSignals';
 import { useFearAndGreed } from '@/hooks/useSentiment';
 import { SentimentGauge } from '@/components/market/SentimentGauge';
@@ -55,8 +54,6 @@ export default function SignalsPage() {
     interval,
     20
   );
-  const computeMutation = useComputeGlobalSignal();
-
   // Futures data
   const { data: fundingData, isLoading: fundingLoading } = useFundingRate(selectedSymbol);
   const { data: oiData, isLoading: oiLoading } = useOpenInterest(selectedSymbol);
@@ -128,18 +125,6 @@ export default function SignalsPage() {
             </option>
           ))}
         </select>
-
-        <Button
-          size="sm"
-          variant="default"
-          onClick={() =>
-            computeMutation.mutate({ symbol: selectedSymbol, interval, tradingStyle })
-          }
-          disabled={computeMutation.isPending}
-          data-testid="compute-button"
-        >
-          {computeMutation.isPending ? 'Computing...' : 'Compute Now'}
-        </Button>
 
         {latestSignal && (
           <EnhancedJournalForm
@@ -223,7 +208,7 @@ export default function SignalsPage() {
                 <div className="text-center py-8 text-muted-foreground text-sm">
                   No signal computed yet for {selectedSymbol}.
                   <br />
-                  Click &quot;Compute Now&quot; to analyze.
+                  Signals are computed on a schedule; the next run will fill this in.
                 </div>
               )}
             </CardContent>
@@ -333,12 +318,6 @@ export default function SignalsPage() {
         </CardContent>
       </Card>
 
-      {/* Compute error */}
-      {computeMutation.isError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          {computeMutation.error?.message || 'Failed to compute signal'}
-        </div>
-      )}
     </div>
   );
 }
