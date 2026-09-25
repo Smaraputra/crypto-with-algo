@@ -383,6 +383,20 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
+        // v6: indicator strength scales made scale-free, AND the tier cutoffs
+        // re-derived from the distribution that produced (29/37, exit 7.25).
+        // MACD's magnitude was
+        // `|histogram| * 1000` with the histogram in ABSOLUTE PRICE UNITS, so at
+        // 1h it saturated at 100 on 99.9% of BTCUSDT bars and read below 5 on
+        // 99.9% of DOGEUSDT bars -- momentum, the top-weighted category for
+        // scalping and day trading, measured nominal price rather than
+        // momentum, and the share of bars above the buy cutoff ran 18.3% for
+        // BTC against 10.2% for XRP. EMA Cross had the same defect across
+        // INTERVALS (`|spread| * 20`: median strength 1.7 at 5m, saturated at
+        // 1d), and taker flow's fixed 0.55/0.45 band was both miscentred (the
+        // ratio's true centre is 0.492 to 0.495) and interval-blind (77.9% of
+        // 5m bars against 6.3% of 1d). All three are now measured against their
+        // own trailing magnitude, so v5 and v6 scores are not comparable.
         // v5: the scorer-correctness fixes and the cutoffs they forced (30/38).
         // Four defects changed every score at once -- interpretIndicators read
         // ema12 as the close, funding strength fell as |rate| rose, neutral
@@ -393,7 +407,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         // v4: scores closed bars only (candle-finalization fix); rows written
         // before it may have been scored on a still-forming bar's partial
         // values. v3: calibrated tier cutoffs (24/30); v2: htf category + session + htfContext
-        configVersion: 5,
+        configVersion: 6,
         candleTimestamp: latestCandleTs,
         session,
         htfContext: htfContext

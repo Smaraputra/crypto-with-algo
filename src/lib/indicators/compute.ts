@@ -266,6 +266,77 @@ export function computeTakerBuyRatio(
   return takerBuyVolume / volume;
 }
 
+/** Bars of trailing history the taker ratio's own centre and spread are measured over. */
+export const TAKER_RATIO_SCALE_BARS = 20;
+
+/**
+ * How far the current taker-buy ratio sits from its own recent mean, in that
+ * window's standard deviations.
+ *
+ * A fixed 0.55/0.45 band was both miscentred and interval-blind: measured over
+ * ten symbols the ratio's centre is 0.492 to 0.495 rather than 0.5, so the band
+ * fired bearish more often than bullish at every interval, and its dispersion
+ * shrinks with bar duration, so the band caught 77.9% of 5m bars against 6.3%
+ * of 1d bars. A z against the ratio's own history fixes both at once, the same
+ * shape the research code already uses for funding.
+ *
+ * The window includes the evaluated bar, which bounds |z| at sqrt(n-1) and
+ * never reads past it. Undefined when the bar has no taker volume or the
+ * window has no spread to speak of.
+ */
+export function computeTakerBuyRatioZ(
+  bars: ReadonlyArray<{ volume: number; takerBuyVolume?: number }>,
+  endIndex: number
+): number | undefined {
+  const endBar = bars[endIndex];
+  if (endBar === undefined) return undefined;
+  const current = computeTakerBuyRatio(endBar.takerBuyVolume, endBar.volume);
+  if (current === undefined) return undefined;
+
+  // Indexed directly rather than over mapped arrays: this runs once per bar in
+  // a research pass, and building two arrays per call is the O(n^2) allocation
+  // that exhausted a 4 GB heap on the 808k-bar 5m series once before.
+  const ratios: number[] = [];
+  for (let i = Math.max(0, endIndex - (TAKER_RATIO_SCALE_BARS - 1)); i <= endIndex; i++) {
+    const bar = bars[i];
+    if (bar === undefined) continue;
+    const ratio = computeTakerBuyRatio(bar.takerBuyVolume, bar.volume);
+    if (ratio !== undefined) ratios.push(ratio);
+  }
+  if (ratios.length < 3) return undefined;
+
+  const mean = ratios.reduce((sum, r) => sum + r, 0) / ratios.length;
+  const variance = ratios.reduce((sum, r) => sum + (r - mean) ** 2, 0) / ratios.length;
+  const sd = Math.sqrt(variance);
+  if (!(sd > 0)) return undefined;
+
+  return (current - mean) / sd;
+}
+
+/**
+ * EMA fast-minus-slow spread, as a percentage of the slow EMA, per bar.
+ *
+ * Carried on the raw set so `interpretEMACross` can measure the spread's own
+ * recent magnitude without re-deriving it, and without either interpret path
+ * having to align two EMA arrays of different warmup lengths itself. Both
+ * `values` arrays end on the current bar, so they are aligned from the end and
+ * the result has the length of the shorter (slower) one.
+ */
+export function computeEmaSpreadPct(
+  fast: EMAResult,
+  slow: EMAResult
+): { values: number[]; current: number } {
+  const n = Math.min(fast.values.length, slow.values.length);
+  const fastOffset = fast.values.length - n;
+  const slowOffset = slow.values.length - n;
+  const values: number[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const slowValue = slow.values[i + slowOffset];
+    values[i] = slowValue !== 0 ? ((fast.values[i + fastOffset] - slowValue) / slowValue) * 100 : 0;
+  }
+  return { values, current: values[n - 1] ?? 0 };
+}
+
 export function computeVolumeAnalysis(
   volumes: number[],
   closes: number[] = [],
@@ -288,6 +359,7 @@ export function computeVolumeAnalysis(
     takerBuyVolumes[takerBuyVolumes.length - 1],
     current
   );
+
 
   return {
     currentVolume: current,
@@ -339,9 +411,14 @@ export function computeAllIndicators(
 
   const { high, low, close, volume, takerBuyVolume } = extractOHLCV(candles);
 
+  const takerRatioZ = computeTakerBuyRatioZ(candles, candles.length - 1);
+  const ema12 = computeEMA(close, config.ema.fast);
+  const ema26 = computeEMA(close, config.ema.slow);
+
   return {
-    ema12: computeEMA(close, config.ema.fast),
-    ema26: computeEMA(close, config.ema.slow),
+    ema12,
+    ema26,
+    emaSpreadPct: computeEmaSpreadPct(ema12, ema26),
     sma50: computeSMA(close, config.sma.medium),
     sma200: computeSMA(close, config.sma.long),
     rsi: computeRSI(close, config.rsi.period),
@@ -368,7 +445,10 @@ export function computeAllIndicators(
     ichimoku: computeIchimoku(high, low, close, config.ichimoku),
     obv: computeOBV(close, volume),
     mfi: computeMFI(high, low, close, volume, config.mfi.period),
-    volumeAnalysis: computeVolumeAnalysis(volume, close, takerBuyVolume),
+    volumeAnalysis: {
+      ...computeVolumeAnalysis(volume, close, takerBuyVolume),
+      ...(takerRatioZ !== undefined ? { takerBuyRatioZ: takerRatioZ } : {}),
+    },
     symbol,
     interval,
     candleCount: candles.length,

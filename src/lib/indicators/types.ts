@@ -96,6 +96,7 @@ export interface VolumeAnalysis {
   ratio: number; // current / sma20
   priceChangePercent: number; // close-to-close change of the bar, for direction confirmation
   takerBuyRatio?: number; // taker buy volume / total volume; absent on legacy candles
+  takerBuyRatioZ?: number; // that ratio against its own trailing mean and sd
 }
 
 // Signal interpretation

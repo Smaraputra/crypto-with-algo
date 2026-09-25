@@ -1,7 +1,7 @@
 /**
  * Measures the distribution of the live composite score on the research
  * dataset, so the tier cutoffs in src/lib/signals/calibration.ts
- * (TIER_BUY_CUTOFF 24, TIER_STRONG_CUTOFF 30) can be checked against
+ * (TIER_BUY_CUTOFF 30, TIER_STRONG_CUTOFF 38) can be checked against
  * refilled bars and every symbol the live engine scores.
  *
  * Why: the calibration header's percentiles were measured on 2026-09-16 from

@@ -5,6 +5,7 @@ import {
   createRandomEntryStrategy,
   randomEntryBenchmark,
   type ReferenceProfile,
+  entryProbabilityForTargetTrades,
 } from './random-entry-benchmark';
 import { prepareBacktest, runOptimizedBacktest } from './optimized-engine';
 import { DEFAULT_BACKTEST_CONFIG } from './types';
@@ -232,28 +233,47 @@ describe('random-entry benchmark against a real engine run', () => {
     shortExitThreshold: 5,
   };
 
-  it('trade count stays within 10% of the reference on average across 20 seeds', () => {
-    // Dividing entryProbability by the reference's flat-bar count (not
-    // totalBars) brings this well under the old 30% tolerance: measured at
-    // ~1.7% on this series (6 reference trades, avg 5.9 across the 20
-    // seeds). 10% keeps meaningful headroom above that without reopening
-    // the door to the old under-counting bug.
+  it('the raw profile over-trades, which is why the benchmark calibrates', () => {
+    // Pins the defect so the calibration cannot be silently removed.
+    // `referenceProfile`'s rate assumes the random strategy will realize the
+    // reference's holds. It never does: the reference's holdTimeBars already
+    // embed its own stop and target hits, and createRandomEntryStrategy then
+    // re-applies the stop AND the target AND caps the trade at that realized
+    // hold, so the random trades come in a consistent 0.76 of the reference's
+    // length, leaving more flat bars and taking more entries.
+    //
+    // The UNDER-counting guard this test used to carry now lives in
+    // referenceProfile's own unit tests (the flat-bar divisor), and the
+    // end-to-end count match is asserted against the calibrated path below.
     const candles = generateCandles(600);
     const prepared = prepareBacktest(candles, 'BTCUSDT', '1h');
     const reference = runOptimizedBacktest(prepared, config, 'BTCUSDT', '1h');
     expect(reference.trades.length).toBeGreaterThan(0);
 
-    const profile = referenceProfile(reference);
+    const rawProfile = referenceProfile(reference);
     const seeds = Array.from({ length: 20 }, (_, i) => i * 97 + 11);
-    const counts = seeds.map((seed) => {
-      const strategy = createRandomEntryStrategy(profile, seed);
-      const result = runOptimizedBacktest(prepared, config, 'BTCUSDT', '1h', undefined, strategy);
-      return result.trades.length;
-    });
-    const avgCount = counts.reduce((sum, c) => sum + c, 0) / counts.length;
-    const relativeDiff = Math.abs(avgCount - reference.trades.length) / reference.trades.length;
+    const rawCounts = seeds.map(
+      (seed) =>
+        runOptimizedBacktest(
+          prepared,
+          config,
+          'BTCUSDT',
+          '1h',
+          undefined,
+          createRandomEntryStrategy(rawProfile, seed)
+        ).trades.length
+    );
+    const rawAvg = rawCounts.reduce((sum, c) => sum + c, 0) / rawCounts.length;
+    expect(rawAvg / reference.trades.length).toBeGreaterThan(1.1);
 
-    expect(relativeDiff).toBeLessThan(0.1);
+    // And the calibration pulls the rate down to compensate.
+    const calibrated = randomEntryBenchmark(prepared, config, 'BTCUSDT', '1h', reference, {
+      iterations: 20,
+      seed: 4242,
+    });
+    expect(calibrated.entryProbability).toBeLessThan(rawProfile.entryProbability);
+    expect(calibrated.meanRandomTrades / reference.trades.length).toBeGreaterThan(0.9);
+    expect(calibrated.meanRandomTrades / reference.trades.length).toBeLessThan(1.1);
   });
 
   it('a planted edge (test-only lookahead oracle) beats the benchmark', () => {
@@ -295,7 +315,13 @@ describe('random-entry benchmark against a real engine run', () => {
   });
 
   it('no edge: a random reference scores a mid-range pValue for at least 4 of 5 seeds', () => {
-    const candles = generateCandles(600);
+    // 1200 bars, not 600. At 600 the reference carries 5 trades and the
+    // benchmark's p-value cannot resolve anything: measured 0.020, 0.055,
+    // 0.582, 0.970 and 0.572 across these seeds, so a random reference scored
+    // a false positive at the 0.05 level. That is the sample size talking, not
+    // the null -- the research gates apply this benchmark to runs with
+    // thousands of trades. Asserting calibration needs enough trades to have any.
+    const candles = generateCandles(1200);
     const prepared = prepareBacktest(candles, 'BTCUSDT', '1h');
     const baseline = runOptimizedBacktest(prepared, config, 'BTCUSDT', '1h');
     const baseProfile = referenceProfile(baseline);
@@ -357,5 +383,75 @@ describe('random-entry benchmark against a real engine run', () => {
 
     expect(withoutCosts.trades.length).toBeGreaterThan(0);
     expect(withCosts.metrics.expectancyPercent).toBeLessThan(withoutCosts.metrics.expectancyPercent);
+  });
+});
+
+describe('the random-entry null reproduces the reference trade count', () => {
+  // The null is supposed to differ from the reference in ENTRY TIMING only,
+  // sharing its exit profile. A null that systematically trades more often is
+  // not matched on the thing being held constant, and this benchmark is what
+  // the research `timing` gate tests against.
+  function referenceAndBenchmark(bars: number, threshold: number) {
+    const cfg: BacktestConfig = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      allowShorts: true,
+      entryThreshold: threshold,
+      exitThreshold: -5,
+      shortEntryThreshold: -threshold,
+      shortExitThreshold: 5,
+    };
+    const prepared = prepareBacktest(generateCandles(bars), 'BTCUSDT', '1h');
+    const reference = runOptimizedBacktest(prepared, cfg, 'BTCUSDT', '1h');
+    expect(reference.trades.length).toBeGreaterThan(0);
+    const bm = randomEntryBenchmark(prepared, cfg, 'BTCUSDT', '1h', reference, {
+      iterations: 40,
+      seed: 7000,
+    });
+    return { reference, bm };
+  }
+
+  it('matches the reference trade count within 10% at 600 bars', () => {
+    const { reference, bm } = referenceAndBenchmark(600, 15);
+    const ratio = bm.meanRandomTrades / reference.trades.length;
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+  });
+
+  it('matches the reference trade count within 10% at 1200 bars', () => {
+    const { reference, bm } = referenceAndBenchmark(1200, 15);
+    const ratio = bm.meanRandomTrades / reference.trades.length;
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+  });
+
+  it('matches the reference trade count when the reference trades more often', () => {
+    const { reference, bm } = referenceAndBenchmark(600, 10);
+    const ratio = bm.meanRandomTrades / reference.trades.length;
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+  });
+});
+
+describe('entryProbabilityForTargetTrades', () => {
+  it('solves for the rate whose expected trade count is the target', () => {
+    // 401 post-warmup bars, 5 target trades, a realized mean hold of 35.81
+    // bars: 401 - 5 * 35.81 = 221.95 flat bars, so 5 / 221.95.
+    expect(entryProbabilityForTargetTrades(5, 401, 35.81)).toBeCloseTo(5 / 221.95, 10);
+  });
+
+  it('reproduces referenceProfile’s own rate when handed the reference hold', () => {
+    // referenceProfile divides by totalBars minus the REFERENCE's held bars,
+    // which is this same expression at the reference's mean hold. That identity
+    // is the point: the old rate was this formula with the wrong hold.
+    expect(entryProbabilityForTargetTrades(5, 401, 46.6)).toBeCloseTo(5 / (401 - 233), 10);
+  });
+
+  it('clamps to 1 when the target leaves no flat bars to enter on', () => {
+    expect(entryProbabilityForTargetTrades(5, 401, 100)).toBe(1);
+    expect(entryProbabilityForTargetTrades(5, 401, 401 / 5)).toBe(1);
+  });
+
+  it('never exceeds 1 for a reference that is almost always in a position', () => {
+    expect(entryProbabilityForTargetTrades(10, 100, 9.9)).toBeLessThanOrEqual(1);
   });
 });

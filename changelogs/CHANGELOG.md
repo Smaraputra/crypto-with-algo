@@ -7,6 +7,165 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research (Stage 2, 2026-09-25): both direct predictions held, the conditioning hypothesis is falsified, and Stage 4 stays shut
+- **Measured at 5m, 1h and 4h in one pass**, so no interval was chosen after seeing another's result. Controls reproduce the recorded lag-1 table exactly at all three: `raw.ret1` h1 is -0.0231 at 5m, -0.0291 at 1h, -0.0157 at 4h
+- **`raw.varianceRatio` is not a survivor anywhere**, as pre-registered: a regime reading is not a direction
+- **`raw.fundingProximity` is not a survivor either, and is strictly WEAKER than the `raw.fundingZ` it was built from** at every interval (1h h8: -0.0170 against -0.0234; 4h about zero against -0.0152). Weighting funding by distance to its settlement destroys signal rather than adding it, so the event-time axis contributes nothing and the funding level alone remains the better column
+- **The falsification fired, and how it fired is the useful part.** The criterion fixed in advance was that if the TREND subset's reversal IC is as negative as the MEAN-REVERSION subset's, the ratio is mis-signed or measuring nothing
+
+| interval | h | uncond | revert | trend | gap vs uncond | direction |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 5m | 2 | -0.0261 | -0.0229 | -0.0327 | 38% | **trend deeper** |
+| 5m | 4 | -0.0245 | -0.0223 | -0.0289 | 27% | **trend deeper** |
+| 1h | 1 | -0.0291 | -0.0302 | -0.0270 | 11% | revert deeper |
+| 1h | 2 | -0.0268 | -0.0271 | -0.0260 | 4% | revert deeper |
+| 4h | 4 | +0.0030 | +0.0123 | -0.0125 | 828% | **trend deeper** |
+
+- **The direction is inconsistent across intervals** -- trend-deeper at 5m and 4h, revert-deeper at 1h, and at 1h every gap is at or below the one-third threshold fixed in advance. A conditioner that points one way at 5m, the other at 1h and back again at 4h is not measuring a stable regime
+- **The likeliest reading is consistent with what the program already knows.** A high variance ratio means the recent past TRENDED, and Phase 3 established that trend-following inputs are wrong-signed intraday. So the ratio is picking up recent momentum, which is already contrarian and already carried by `raw.ret1` and the momentum columns. It adds nothing orthogonal
+- **`raw.ret1InMeanReversion` and `raw.ret1InTrend` do clear the survivor rule at 5m and 1h, and that is not a finding**: they are subsets of `raw.ret1`, which clears it too. They are diagnostics, not new inputs
+- **One residue, deliberately not chased.** At 4h the split produces a genuine SIGN FLIP rather than a magnitude difference (h4 revert +0.0123, trend -0.0125). That is a different claim from the one tested, at the sample-limited interval, so acting on it would mean flipping a hypothesis after seeing the data. It belongs in a new pre-registration or nowhere
+- **Stage 4 stays shut.** Its gate was that Stages 0 to 2 produce at least one factor surviving at a fine interval. No new input did, so the trade-level ingest -- roughly 232 GB, a streaming parser with no precedent in the codebase, about 17 files -- is not started. The cheap stages did their job, which was to be cheap enough to say no with
+
+
+### Added (research): Stage 2 regime and funding-cycle columns, with predictions recorded first
+- **`raw.varianceRatio`** is Lo and MacKinlay's VR(q) = Var(r_q) / (q * Var(r_1)) over a 120-bar trailing window at q=4. A random walk has independent increments, so a q-bar return has q times the variance of a one-bar return and the ratio is 1; above 1 the series trends, below 1 it reverts. Written with running sums so the cost is one pass regardless of window size, the same reason `trailingZScore` is. The simple ratio, not the bias-corrected estimator: the correction matters for testing the null VR = 1 and not for a monotone regime indicator, which is all it is used as
+- **`raw.ret1InMeanReversion` and `raw.ret1InTrend`** are the same one-bar return split by the regime its bar sits in, and they are the actual hypothesis. A raw IC of the ratio itself would ask whether the regime predicts direction, which is not what a conditioner claims. Comparing the two ICs asks the question the ratio exists to answer: does knowing the regime tell you when reversal works
+- **`raw.fundingProximity`** weights the funding rate by how close the bar closes to the next 8h settlement. Everything in this program is measured in clock time or bar count; nothing has ever used an **event-time** coordinate, and the settlement clock is known in advance. `FUNDING_INTERVAL_MS` is imported from `funding.ts` rather than restated
+- **Predictions, recorded before measuring.** `varianceRatio` direct: no survivor, it is a regime reading and a survivor would more likely mean it proxies volatility. The two regime splits: both negative, since Phase 3 found reversal dominates intraday, but **materially more negative in the mean-reversion subset** -- the conditioner earns its place only through that gap. `fundingProximity`: weak negative, probably no survivor, the same contrarian direction `fundingZ` already shows
+- **A falsification fixed in advance:** if the trend subset's IC is as negative as, or more negative than, the mean-reversion subset's, the variance ratio is either mis-signed or measuring nothing here and no further work should be done on it. A gap smaller than about a third of the unconditional \|ic\| counts as no gap
+- **Measured at 5m, 1h and 4h in one pass**, not one interval at a time. Stage 1 had to add intervals after seeing its first result, which makes the later ones post-hoc; doing all three together avoids repeating that
+- 5 new tests including the analytic case: a perfectly alternating series has every 4-bar log return exactly zero while 1-bar returns are not, so VR must read 0, and the two regime columns must partition the one-bar return with neither overlap nor gap
+
+
+### Research (Stage 1, 2026-09-25): three free depth columns measured, none survives
+- **Built from data that was already exported and never read.** `depthNotional1` and `depthNotional5` have always been written into `MetricsRow` by `export-dataset.ts` and appeared nowhere in `factors.ts`. No ingestion, no re-export, two edit points each
+- **`raw.depthFlow1` needs no reconstruction of each side of the book.** With `N` the notional on both sides and `I` the imbalance, `bid - ask = N * I` identically, so the order-flow imbalance `(B_t - B_{t-1}) - (A_t - A_{t-1})` collapses to `N_t*I_t - N_{t-1}*I_{t-1}`, scaled by `N_t`. One documented approximation: both inputs are means over the 5m slot, so their product is not the mean of the product unless sum and ratio are uncorrelated within the slot
+- **Controls reproduce the recorded lag-1 table exactly**, which is what makes the new rows readable: `raw.ret1` h1 is -0.0231 at 5m and -0.0121 at 15m, and `raw.depthImbalance1` at 4h is h8 -0.0269 t-4.9, h16 -0.0408 t-5.8, h32 -0.0515 t-5.7
+
+| factor | 5m best | 1h best | 4h best | verdict |
+| --- | --- | --- | --- | --- |
+| `raw.depthFlow1` | +0.0092 t+8.0 | +0.0073 t+4.3 | -0.0074 t-2.7 | \|ic\| below the 0.02 floor |
+| `raw.depthNotional1` | +0.0127 t+2.6 | -0.0027 t-1.3 | +0.0026 t+0.4 | quarter agreement 0.45 at 15m |
+| `raw.depthSlope` | -0.0118 t-2.4 | +0.0076 t+2.0 | +0.0049 t+1.2 | nothing anywhere |
+
+- **Nothing survives at any interval and the pre-registered kill criterion fires**, so the phase ends with no harness run. The FDR correction was not needed: nothing cleared even the unadjusted rule, and FDR only tightens
+- **The sign prediction for flow was right and the size was not.** `depthFlow1` is positive at the fast horizons, opposite to `depthImbalance1`'s contrarian reading, exactly as pre-registered: a crowded book LEVEL is faded while the FLOW that builds it is followed. It decays monotonically with horizon and flips negative by 4h, which is coherent rather than noisy. At t+8.0 on the 5m pool it is a real effect, and at 0.0092 against a 0.02 floor it is about half the size the rule demands
+- **`depthNotional1`'s failure mode is instructive.** Its 15m reading (h16 +0.0248, h32 +0.0337, symbol agreement 0.80) fails on QUARTER agreement at 0.45: it works across symbols and not across time, which is the signature of a non-stationary level rather than a forecast. The program already met this on positioning and answered it with a trailing z within symbol. A z-scored depth notional is the obvious next column and is deliberately NOT added here, because choosing it after seeing this result is what inflates a search
+
+### Fixed (analysis): the interval to hunt at is 1h, not 5m
+- **A correction to Stage 0's own reasoning, made mid-phase and recorded because it changed which intervals were measured.** Stage 0 compared barriers in percent per trade and concluded 5m was the place to look, because its statistical bar is 0.010% against 0.450% at 4h. That is the wrong comparison: **cost is fixed** at about 0.040% a round trip while the return a trade can earn scales with holding period. Restating both as a required information coefficient, `ic = bar / (2 * sd per trade)`:
+
+| interval | sd %/trade | ic to pay cost | ic detectable | binding |
+| --- | ---: | ---: | ---: | --- |
+| 5m | 0.71 | 0.0282 | 0.0070 | cost |
+| 1h | 4.56 | **0.0044** | **0.0113** | sample |
+| 4h | 8.12 | 0.0025 | 0.0277 | sample |
+
+- **1h needs the smallest ic, 0.0113, and is the only interval where anything detectable is also tradable.** 5m carries a band of effects that can be seen but not traded (0.0070 to 0.0282); 4h carries a band that could be traded but not proven (0.0025 to 0.0277). At 1h `depthFlow1` needs 0.0113 and delivers 0.0073, short by about 1.6x, the closest this program has come at a fine interval
+- **A consequence for the survivor rule itself:** its fixed `minAbsIc` of 0.02 implies a gross edge of only about 0.028%/trade at 5m, which is below the 0.040% maker cost bar. At 5m the rule can admit an effect too small to trade, and at 4h it rejects effects that would pay eight times their cost. The floor is interval-blind and the cost bar is not. Not changed here, since altering a survivor rule mid-phase is exactly what pre-registration exists to prevent
+
+
+### Research (Stage 0, 2026-09-25): maker entry makes the best result WORSE, and that closes a direction
+- **Ran on dataset `e84cd66dbe01`, lockbox applied, 10 symbols, 6 windows, `--start 2023-01-01`, `--trials 358`** (Phase 4c's 342 plus these 16 cells, so every cell tried on the way to the claim is counted). One random symbol-window re-run with `--cell --report` and reproduced digit for digit
+
+| family | interval | trades | exp% | CI low | timing p | gates failed |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| depth-imbalance-fade-limit | 4h | 1,035 | **-0.1919** | -0.6830 | 0.736 | **7 of 8** |
+
+- **It failed as predicted, but not for the predicted reason, and the reason matters more than the verdict.** The pre-registered prediction was that maker execution would lift +0.090% to about +0.190% and still miss a 0.450% bar. Instead expectancy went to **-0.1919%**. Decomposing at approximate costs (taker ~0.14% round trip at 4h, maker 0.04%; the exact blend varies because `exitFillKind` prices a take-profit as maker): gross moved from about **+0.230% to about -0.152%**, so a fee saving of ~0.10% was swamped by a gross deterioration of **~0.38%**. Trades fell 1,251 to 1,035 as unfilled orders dropped out
+- **The mechanism is adverse selection, and it is structural.** `withLimitEntry` rests the order at the decision close, so a short fills only if price RISES to it and a long only if price FALLS to it: a fill requires the market to move against the trade first. For a family whose thesis is fading a crowded book, that means being filled precisely on the entries where the fade was early and skipping the ones that worked immediately. **A passive entry on a mean-reversion signal is not a cheaper version of the same trade, it is a different and worse trade**
+- **This retro-explains Phase 4 rather than contradicting it.** `control-limit` at 1h recovered only 0.041% (-0.063% to -0.022%) of a ~0.10% fee saving, and widening the offset grid to 20 and 30 bps did not help. Same mechanism, milder, on families that are also reversal-shaped: a larger offset buys a better price at the cost of a still more adversely selected fill, and the two roughly cancel
+- **Consequence for the search.** The 0.04% maker cost bar is not available to a reversal entry, so "find an edge above 0.04% and execute passively" is the wrong target for this family shape. Either the signal must be continuation-shaped, where resting an order is favourably selected because the fill comes on a pullback that then resumes, or the edge must clear the full taker cost. Per the standing ruling, no third rule shape on this input
+
+### Added (research): depth-imbalance-fade-limit, with its outcome predicted before the run
+- **The program's only positive result has never been priced for maker execution.** `depth-imbalance-fade` at 4h is +0.090%/trade over 1,251 trades, the first family to clear the symbols gate (7/10) and the first positive point estimate to survive stress (+0.005% at 1.5x fees and 2x slippage). It was measured against a **taker** cost model. `withLimitEntry` has existed since Phase 4 but reached only `control`, `return-reversal` and `oscillator-reversion`, at 5m and 1h -- never the depth, positioning or funding families, and never 4h. A maker round trip is 0.04% against roughly 0.14% taker at 4h
+- **The prediction is recorded before the result, and it is that this FAILS.** Recovering per-trade dispersion from the Phase 4c bootstrap CI half-width (`sd = half * sqrt(n) / 1.96`) gives about 8.12%/trade at 4h, so the edge needed for the CI low bound to clear zero at n=1,251 is about **0.450%**. Maker execution is worth roughly the 0.10% cost difference, lifting +0.090% to about **+0.190%**: a better point estimate, still less than half the bar. Proving +0.090% at that dispersion would take about **31,275 trades**. Writing the prediction down first makes the run a test of the dispersion estimate as well as of the strategy
+- **Why this matters beyond one family.** The same arithmetic across intervals shows the two barriers sit at opposite ends: at 5m the statistical bar is 0.010% against a 0.040% maker cost bar (cost-limited, 4x margin), while at 4h it is 0.450% against 0.040% (sample-limited, 11x). The program's best signals live where they cannot be proven, and its abundant sample lives where costs eat it. Widening the symbol universe does not help: effective independent symbols are `m/(1+(m-1)rho)`, which at a crypto rho of 0.7 moves from 1.37 at ten symbols to 1.43 at two hundred
+- `k` is fixed at 3 rather than swept, because `MAX_PARAMS` is 4 and the base family already uses four. The choice is empirical, not arbitrary: reading `selectedParams` out of `strategy-depth-imbalance-fade-4h-p4c.json`, **all five of the most-selected cells carried k=3** (days 90/z 2/hold 32 and days 30/z 2/hold 32 at nine windows each, then days 30/z 2/hold 16, days 30/z 1.5/hold 32 and days 90/z 1.5/hold 32). The reduced grid keeps every one of them: days [30,90] x z [1.5,2] x hold [16,32] x timeout [1,2], 16 cells, the same size the other limit families use
+- 7 new tests: the registry, the grid with all five dominant Phase 4c cells asserted inside it, the required research columns, limit entry at the close on a heavy bid book, the long side and the days-column selection, the z threshold, and causality under truncation
+- **A coupling worth recording:** `parseArgs`'s `defaultTrials` is `gridCells x familyCount`, so adding any family silently moves the default for every other one. That is why each phase overrides it with an explicit `--trials` fixed for the whole phase, and the harness test now says so
+
+
+### Fixed (research): the random-entry null did not reproduce the reference's trade count
+- **The null behind the `timing` gate was matched on the wrong thing.** `randomEntryBenchmark` exists to vary ENTRY TIMING while holding the exit profile fixed, so the reference and the null should differ in when they enter and in nothing else. They also differed in how often: measured, the null traded **1.17x to 1.32x** as often as the reference it was compared against
+- **`referenceProfile`'s arithmetic was right and its assumption was not.** With entry probability `p` on each flat bar, expected trades solve `T' = p * totalBars / (1 + p * h)`, and at `p = T / (totalBars - T * h)` that is exactly `T` -- but only when `h`, the hold the null realizes, equals the reference's. It never does. The reference's `holdTimeBars` are **realized** holds that already embed its own stop and target hits, and `createRandomEntryStrategy` then re-applies the stop AND the target AND caps the trade at that realized hold via `timeStopBars`, so a random trade gets three chances to be cut short where the reference's outcome was already settled
+- Measured, the null's mean hold is a consistent fraction of the reference's, and the trade count follows arithmetically:
+
+| series | reference trades | ref mean hold | null mean hold | hold ratio | count ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 600 bars, threshold 15 | 5 | 46.60 | 35.81 | 0.768 | 1.165 |
+| 1200 bars, threshold 15 | 14 | 41.36 | 31.85 | 0.770 | 1.166 |
+| 600 bars, threshold 10 | 8 | 42.38 | 32.13 | 0.758 | 1.291 |
+
+- The exit reasons show the mechanism directly: on the 600-bar series the reference exited 3 by `take_profit`, 1 by `signal` and 1 by `end_of_data`, while 40 null draws exited 89 by `stop_loss` and 90 by `time_stop`
+- **`randomEntryBenchmark` now calibrates the entry rate against the hold the null actually realizes**, via a seeded fixed-point pass: 8 pilot draws per round, at most 3 rounds, stopping early once the rate moves less than 1%. The arithmetic is the new pure `entryProbabilityForTargetTrades(targetTrades, totalBars, meanRealizedHold)`, which is `referenceProfile`'s own expression evaluated at the realized hold rather than the reference's. Pilot seeds sit on a separate stream (`CALIBRATION_SEED_OFFSET`, the same separation `exposure-harness.ts` uses for its timing draws), so a report still reproduces exactly
+- **The null now matches on count**, and the p-value impact is small and in the conservative direction:
+
+| case | null trades before | null trades after | p before | p after |
+| --- | ---: | ---: | ---: | ---: |
+| 600 bars, 5 reference trades | 1.218x | **1.031x** | 0.0348 | 0.0448 |
+| 1200 bars, 14 reference trades | 1.195x | **1.025x** | 0.0050 | 0.0050 |
+| 1200 bars, 17 reference trades | 1.271x | **1.031x** | 0.0050 | 0.0050 |
+| 2000 bars, 27 reference trades | 1.261x | **1.005x** | 0.0050 | 0.0050 |
+
+- **This does not overturn a recorded `timing` verdict, with one row worth re-running.** The compared statistic is per-TRADE expectancy, so the null's mean barely moves with its count (1.9759 to 1.9831 in the one case not pinned at the p floor), and the shift is about +0.01 on p, i.e. slightly LESS significant. Every recorded run that failed `timing` fails it at least as clearly. The exposure is a run sitting just inside the 0.05 threshold, and Phase 4c has one: **`depth-imbalance-fade` at 1h, recorded `timing p 0.045`**, which is within the measured shift and could move to failing. That run already failed 6 of 8 gates, so its verdict is unchanged, but the gate row should be re-run before anyone cites it
+- `randomEntryBenchmark` additionally returns `meanRandomTrades` and the calibrated `entryProbability`, so a caller can see whether the null matched on count. Deliberately NOT added to `StrategyReportSchema`: that schema strips unknown keys silently, and widening the persisted shape is a separate change. Worth doing, since a silent calibration is exactly what should be visible in a report
+- 7 new tests: the null reproducing the reference count at three configurations through the real code path, a regression guard pinning that the RAW profile over-trades so the calibration cannot be silently removed, and four on the pure arithmetic including the degenerate case where the target leaves no flat bars
+
+
+### Fixed (signals): three indicator strength scales that measured the asset, not the market
+- **MACD strength was a function of nominal price.** `interpretMACD` used `min(100, |histogram| * 1000)`, and the MACD histogram is a difference of two EMAs of price, so it is denominated in the symbol's own price units (`computeMACD` passes `SimpleMAOscillator: false`, so it is `EMA - EMA` of raw closes, not a ratio). Measured at 1h over 41,102 bars per symbol, median strength was **100.0 for BTCUSDT (saturated on 99.9% of bars) and 0.2 for DOGEUSDT (below 5 on 99.9% of bars)**. Momentum is the highest-weighted category for scalping (0.34) and day trading (0.255), so for expensive assets it contributed maximum conviction on essentially every bar and for cheap ones nothing at all
+
+| symbol | median price | median MACD strength | share saturated at 100 | share below 5 |
+| --- | ---: | ---: | ---: | ---: |
+| BTCUSDT | 58,622 | 100.0 | 99.9% | 0.0% |
+| ETHUSDT | 2,379 | 100.0 | 97.6% | 0.1% |
+| SOLUSDT | 103 | 100.0 | 58.6% | 3.1% |
+| LINKUSDT | 12.75 | 18.9 | 5.4% | 16.3% |
+| XRPUSDT | 0.62 | 0.9 | 0.0% | 88.3% |
+| DOGEUSDT | 0.11 | 0.2 | 0.0% | 99.9% |
+
+- **That reached the tiers users see.** With global cutoffs, the share of bars above the buy cutoff at 1h ran **18.30% for BTC against 10.22% for XRP**, and above the strong cutoff **2.92% against 1.18%**, monotone in nominal price. A user watching BTC got roughly 80% more buy signals and 2.5x more strong signals than one watching XRP, for no market reason
+- **`interpretEMACross` had the same defect across INTERVALS.** The spread is already a percentage, so it is scale-free across symbols, but its dispersion is not scale-free across intervals: measured over six symbols the pooled median `|spread|` runs **0.080% at 5m to 13.388% at 1d, a range of 167x**, so the fixed `* 20` gave a median strength of **1.7 at 5m and a saturated 100.0 at 1d**. The same input carried almost no opinion at one interval and maximum conviction at another
+- **`interpretTakerFlow`'s fixed 0.55/0.45 band was wrong in two independent ways.** It was miscentred: across ten symbols the ratio's median is **0.492 to 0.495, never 0.5**, so a symmetric band fired bearish more often than bullish at every interval. And it was interval-blind: it caught **77.9% of 5m bars (55% of them pinned at the strength cap) against 6.3% of 1d bars**
+- **All three now divide by the quantity's own trailing magnitude**, which is the same fix `interpretOBV` already used against the same class of defect. The divisor was chosen by measurement, not assertion. Normalised by a trailing mean, the pooled median holds within **1.10x** across all four intervals; percent-of-price leaves a 52x interval range and ATR multiples 1.9x (MACD) to 5.8x (EMA), so neither would have worked with one constant
+
+| normalisation | pooled median at 5m / 1h / 4h / 1d | cross-interval range |
+| --- | --- | ---: |
+| `\|hist\| / close * 100` | 0.023 / 0.138 / 0.321 / 1.190 | 52x |
+| `\|hist\| / ATR14` | 0.101 / 0.139 / 0.137 / 0.194 | 1.9x |
+| `\|hist\| / trailing mean \|hist\|` | 0.858 / 0.897 / 0.883 / 0.941 | **1.10x** |
+
+- **The measured result is cross-symbol comparability.** On the same export at 1h, the share above the buy cutoff moved from BTC 18.30% / XRP 10.22% / DOGE 10.89% to **BTC 14.36% / XRP 13.18% / DOGE 13.42%**, and the strong-tier ratio between BTC and XRP fell from **2.47x to 1.04x**. p98 now agrees across those symbols to within **0.07 of a point**, where it spanned 2.4 points before
+- `computeEmaSpreadPct` carries the aligned per-bar spread on the raw set so neither interpret path has to align two EMA arrays of different warmup length itself, and `computeTakerBuyRatioZ` is shared by both paths so they cannot drift. Both take an explicit end index rather than a pre-sliced array, for the two reasons `interpretOBV` already documents: reading past the evaluated bar is lookahead (`no-lookahead.test.ts` enforces it), and slicing per bar is the O(n^2) allocation that exhausted a 4 GB heap on the 808k-bar 5m series
+- **This is a known semantic change, not only a rescaling.** A self-normalised reading responds to a move away from recent behaviour rather than to a sustained level, so a long one-directional trend now reads near its own average instead of saturating. It is why the `strategy-families-limit` fixture had to change: a single-drift walk produced **zero** threshold crossings in its second out-of-sample window at any drift, noise level or seed, and had been crossing only because the old multipliers saturated on it. On real data this is not a scarcity problem, since 13% to 14% of bars still clear the buy cutoff
+
+### Changed (signals): `GlobalSignal.configVersion` is 6, and the tier cutoffs are 29 and 37
+- v5 and v6 scores are not comparable and tier-conditioned statistics must not be pooled across them. `SignalOutcome` carries the version through, so filter on it rather than on a date
+- **The cutoffs were re-measured on a production export, not estimated.** v6 moves the distribution, so 30/38 had to be re-derived. Measured on `e705b347`, a fresh export of production taken 2026-09-25, lockbox applied
+- **Why that export is comparable with the 30/38 table**, which was measured on `e84cd66dbe01`: running the UNCHANGED v5 scorer over it reproduces that table **exactly**, at every interval, in bar count as well as percentile. The post-2026-07-01 rows the newer export also carries are dropped by the lockbox, so for measurement purposes the two are the same data. That control is what makes the shift attributable to the scorer rather than to the export
+
+| interval / style | bars | \|score\| p90 | \|score\| p98 |
+| --- | ---: | --- | --- |
+| 5m scalping | 808,517 | 28.7 -> 27.3 | 38.8 -> 36.6 |
+| 15m day_trading | 320,847 | 30.3 -> 30.3 | 38.3 -> 37.3 |
+| 1h day_trading | 411,013 | 32.4 -> 32.2 | 39.5 -> 38.4 |
+| 4h swing_trading | 152,048 | 31.6 -> 28.9 | 40.2 -> 36.4 |
+| 1d position_trading | 21,687 | 31.3 -> 26.3 | 42.0 -> 36.7 |
+
+- The v6 bands are p90 **26.3 to 32.2** and p98 **36.4 to 38.4**, means 29.0 and 37.1. **29 and 37** are those means rounded, both inside their band, set by the same rule 30 and 38 were. They restore the selectivity these constants document (the most decisive tenth, the top fiftieth), which 30 and 38 no longer marked: at 30 the share ran 6.3% to 14.6%, and at 38 it ran 1.3% to 2.3%, so the strong tier had drifted to roughly the top sixty-fifth. `STRATEGY_EXIT_LEVEL` moves to 7.25 to hold the documented quarter-of-entry ratio
+- **The bands also TIGHTENED, which is the point of v6 rather than a side effect.** p98 narrowed from 3.7 points wide (38.3 to 42.0) to 2.0 (36.4 to 38.4), and the same holds across symbols: at 1h the share above the buy cutoff ran BTC 18.30% / XRP 10.22% / DOGE 10.89% before and BTC 14.36% / XRP 13.18% / DOGE 13.42% after. One cutoff pair can only mean one thing if the distribution beneath it is the same shape everywhere
+- The golden backtest fixture needed no regeneration for this pass: its single trade's `entryScore` of 32.9 is a `buy` under 29/37 as it was under 30/38
+
+### Fixed (tests): two guards that were passing on luck rather than on the property they name
+- **`random-entry-benchmark`'s trade-count guard is now one-sided.** It exists to catch the old UNDER-counting bug, but asserted a two-sided 10% bound against a reference of 6 trades, where a single trade of difference is 17%. It held only because the average happened to be 5.9. Separately, and independently of any scorer change, the benchmark **over-generates** once the reference has more than a handful of trades: measured 1.12x at 5 reference trades, 1.29x at 8, 1.32x at 10, and **1.15x on a 1200-bar series with the scorer reverted to main**. That over-count is a pre-existing property of the benchmark, which is the null behind the research `timing` gate, and is worth measuring on its own
+- **The benchmark's p-value calibration guard needed a sample.** At 600 bars the reference carries 5 trades and the p-value cannot resolve anything: measured 0.020, 0.055, 0.582, 0.970 and 0.572 across its five seeds, so a **random** reference scored a false positive at the 0.05 level. That is the sample size, not the null, since the research gates apply this benchmark to runs with thousands of trades. Raised to 1200 bars, where the assertion means something
+- The golden backtest fixture was regenerated for the third time, values-only and small: the same single trade, the same entry at bar 303, the same `buy` tier and the same 401 equity points, with the signal exit two bars earlier (324 to 322)
+- 14 new tests: MACD scale invariance across a four-order-of-magnitude price range, EMA Cross volatility invariance and non-saturation, and taker flow abstaining at a steady level however far from 0.5 while firing on a break that the old fixed band called indifferent
+- Stale comments corrected: `score-percentiles.ts` cited cutoffs of 24 and 30, `strategy-families.ts` cited a `STRATEGY_EXIT_LEVEL` of 6. The live values are 30, 38 and 7.5
+
+
 ### Fixed (journal): a P&L the user was shown, then silently discarded
 - **`hold` is the default action on the `/signals` form** (`EnhancedJournalForm.tsx:66`), and the chain from there lost data on the most-travelled path. `JournalEntryDetail.tsx:98` computed `isOpenTrade` from the prices alone with no action check, so a `hold` carrying a reference entry price got a "Close Trade" button. `CloseTradeDialog.tsx:42-47` then computed and displayed a P&L preview for any action that is not `sell`. The PATCH route (`[id]/route.ts:75-83`) computes `outcomePnlPercent` **only** for `buy`/`sell`, so the number the user had just been shown was thrown away on submit
 - It then became permanent: `analytics/route.ts` matched incomplete trades on `entryPrice != null, outcomePnlPercent: null` with **no `exitPrice` condition**, so the entry counted as incomplete forever and the banner *"N trades without P&L data. Close open trades with an exit price."* could never be cleared by a user who had just done exactly that

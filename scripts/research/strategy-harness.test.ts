@@ -615,7 +615,10 @@ describe('parseArgs', () => {
     expect(args.bootstrapN).toBe(1000);
     expect(args.benchmarkN).toBe(200);
     expect(args.noBenchmark).toBe(false);
-    expect(args.trials).toBe(12); // 1 grid cell (control has no params) x 12 registered families
+    // 1 grid cell (control has no params) x 13 registered families. This
+    // default moves whenever ANY family is added, which is why every phase
+    // overrides it with an explicit --trials fixed for the whole phase.
+    expect(args.trials).toBe(13);
     expect(args.stressFeeMult).toBe(1.5);
     expect(args.stressSlippageMult).toBe(2);
     expect(args.allowLockbox).toBe(false);

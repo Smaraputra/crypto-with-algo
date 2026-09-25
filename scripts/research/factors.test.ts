@@ -446,3 +446,111 @@ describe('excludeIchimokuForScalping (5m)', () => {
     expect(scalpingMatrix.names).not.toContain('sig.Ichimoku');
   });
 });
+
+describe('regime and funding-cycle factors', () => {
+  const { candleRows, snapshotRows, htfRows } = buildFixture(600);
+  const matrix = computeFactorMatrix({
+    candles: candleRows,
+    snapshots: snapshotRows,
+    htf: htfRows,
+    interval: INTERVAL,
+  });
+  const col = (name: string) => {
+    const i = matrix.names.indexOf(name);
+    expect(i, `factor ${name} is missing`).toBeGreaterThanOrEqual(0);
+    return matrix.values[i];
+  };
+
+  it('adds the four columns under the raw category', () => {
+    for (const name of [
+      'raw.varianceRatio',
+      'raw.ret1InMeanReversion',
+      'raw.ret1InTrend',
+      'raw.fundingProximity',
+    ]) {
+      const i = matrix.names.indexOf(name);
+      expect(i, `factor ${name} is missing`).toBeGreaterThanOrEqual(0);
+      expect(matrix.categories[i]).toBe('raw');
+    }
+  });
+
+  it('reads zero on a perfectly alternating series, the extreme of mean reversion', () => {
+    // Closes alternate between two levels, so every 4-bar log return is exactly
+    // zero while 1-bar returns are not: Var(r_4) = 0, hence VR = 0. The HTF
+    // rows must still be index-aligned, so they are built the same way the
+    // fixture builds its own.
+    const { candles: fixtureCandles, htfCandles } = buildFixture(600);
+    const alternating: OHLCV[] = fixtureCandles.map((c, i) => {
+      const close = i % 2 === 0 ? 100 : 110;
+      return { ...c, open: close, high: close, low: close, close, volume: 1000 };
+    });
+    const alt = computeFactorMatrix({
+      candles: alternating.map(toCandleRow),
+      snapshots: [],
+      htf: buildHtfRows(alternating, INTERVAL, htfCandles, '4h'),
+      interval: INTERVAL,
+    });
+    const vr = alt.values[alt.names.indexOf('raw.varianceRatio')];
+    expect(vr[599]).toBeCloseTo(0, 10);
+  });
+
+  it('is NaN before warmup and finite once the window is satisfied', () => {
+    const vr = col('raw.varianceRatio');
+    // The matrix fills nothing before warmup, and this style's warmup (driven
+    // by SMA200) is already longer than the 120-bar window plus q, so the
+    // ratio is available from the first scored bar.
+    expect(vr[matrix.warmupBars - 1]).toBeNaN();
+    expect(Number.isFinite(vr[matrix.warmupBars])).toBe(true);
+    expect(Number.isFinite(vr[599])).toBe(true);
+  });
+
+  it('splits the one-bar return into two complementary regimes that never overlap', () => {
+    const vr = col('raw.varianceRatio');
+    const ret1 = col('raw.ret1');
+    const revert = col('raw.ret1InMeanReversion');
+    const trend = col('raw.ret1InTrend');
+    let sawRevert = false;
+    let sawTrend = false;
+    for (let bar = 0; bar < candleRows.length; bar++) {
+      if (!Number.isFinite(vr[bar]) || !Number.isFinite(ret1[bar])) {
+        expect(revert[bar]).toBeNaN();
+        expect(trend[bar]).toBeNaN();
+        continue;
+      }
+      // Exactly one side carries the reading, and it is the reading itself.
+      const inRevert = Number.isFinite(revert[bar]);
+      const inTrend = Number.isFinite(trend[bar]);
+      expect(inRevert !== inTrend).toBe(true);
+      if (inRevert) {
+        sawRevert = true;
+        expect(revert[bar]).toBe(ret1[bar]);
+        expect(vr[bar]).toBeLessThan(1);
+      } else {
+        sawTrend = true;
+        expect(trend[bar]).toBe(ret1[bar]);
+        expect(vr[bar]).toBeGreaterThanOrEqual(1);
+      }
+    }
+    expect(sawRevert && sawTrend, 'fixture must exercise both regimes').toBe(true);
+  });
+
+  it('weights the funding rate by how close the bar closes to settlement', () => {
+    const EIGHT_HOURS = 8 * 60 * 60 * 1000;
+    const funding = col('raw.fundingRate');
+    const proximity = col('raw.fundingProximity');
+    const intervalMs = 60 * 60 * 1000;
+    let checked = 0;
+    for (let bar = matrix.warmupBars; bar < candleRows.length; bar++) {
+      if (!Number.isFinite(funding[bar])) {
+        expect(proximity[bar]).toBeNaN();
+        continue;
+      }
+      const close = candleRows[bar].t + intervalMs - 1;
+      const next = Math.ceil(close / EIGHT_HOURS) * EIGHT_HOURS;
+      const expected = funding[bar] * (1 - (next - close) / EIGHT_HOURS);
+      expect(proximity[bar]).toBeCloseTo(expected, 12);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(100);
+  });
+});

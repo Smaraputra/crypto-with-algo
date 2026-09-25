@@ -2,12 +2,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   controlLimitFamily,
+  depthImbalanceFadeLimitFamily,
   expandGrid,
   oscillatorReversionLimitFamily,
   returnReversalLimitFamily,
   STRATEGY_FAMILIES,
   withLimitEntry,
 } from './strategy-families';
+import { depthColumn } from './research-columns';
 import { runStrategyWalkForward, type StrategyWalkForwardInput } from './strategy-walk-forward';
 import { prepareBacktest, runOptimizedBacktest } from '@/lib/backtest/optimized-engine';
 import { deriveVolatilityStops } from '@/lib/optimization/walk-forward';
@@ -105,6 +107,57 @@ const STYLE_CTX = { style: 'day_trading' as const, interval: '1h' };
 // Deterministic random walk with trend, seeded LCG (copied from
 // strategy-walk-forward.test.ts / strategy-families-phase4.test.ts's
 // generateCandles).
+/**
+ * A walk whose drift CYCLES rather than flipping once at the midpoint.
+ *
+ * The single-flip walk this file used here could no longer reach the entry
+ * threshold once the trend and momentum strengths were scaled by each
+ * indicator's own recent magnitude (`interpretEMACross`, `interpretMACD`): a
+ * sustained one-directional drift is by construction unexceptional against its
+ * own trailing window, so the second out-of-sample window -- a pure downtrend
+ * -- produced zero crossings at any drift, noise level or seed. It had been
+ * crossing only because the old fixed multipliers saturated on it.
+ *
+ * Cycling the regime is both closer to a real series and robust to future
+ * calibration: it yields ~30 crossings per out-of-sample window instead of the
+ * handful the hand-picked seed used to scrape by with. This test is about
+ * limit-order fills, not about where the tier cutoffs sit, so it should not be
+ * sensitive to them.
+ */
+function generateRegimeCycles(count: number, seed: number): OHLCV[] {
+  const candles: OHLCV[] = [];
+  let price = 100;
+  let rng = seed;
+
+  function nextRandom(): number {
+    rng = (rng * 16807 + 0) % 2147483647;
+    return rng / 2147483647;
+  }
+
+  const periodBars = 120;
+  for (let i = 0; i < count; i++) {
+    const drift = Math.sin((i / periodBars) * 2 * Math.PI) * 0.003;
+    const noise = (nextRandom() - 0.5) * 0.5;
+    price = price * (1 + drift + noise / 100);
+    const high = price * (1 + nextRandom() * 0.005);
+    const low = price * (1 - nextRandom() * 0.005);
+    const open = price * (1 + (nextRandom() - 0.5) * 0.003);
+    const volume = 1000 + nextRandom() * 5000;
+
+    candles.push({
+      timestamp: 1700000000000 + i * 3600000,
+      open,
+      high,
+      low,
+      close: price,
+      volume,
+      takerBuyVolume: volume * (0.3 + nextRandom() * 0.4),
+    });
+  }
+
+  return candles;
+}
+
 function generateCandles(count: number, seed = 123): OHLCV[] {
   const candles: OHLCV[] = [];
   let price = 100;
@@ -272,12 +325,13 @@ describe('withLimitEntry', () => {
 });
 
 describe('registry', () => {
-  it('STRATEGY_FAMILIES has ten names', () => {
+  it('STRATEGY_FAMILIES has thirteen names', () => {
     expect(Object.keys(STRATEGY_FAMILIES).sort()).toEqual(
       [
         'control',
         'control-limit',
         'depth-imbalance-fade',
+        'depth-imbalance-fade-limit',
         'fade-composite',
         'funding-z-fade',
         'oscillator-reversion',
@@ -312,6 +366,24 @@ describe('registry', () => {
     // Most-selected Phase 4 cells stay inside the reduced grid (any timeout).
     expect(expected).toContainEqual({ L: 20, Z: 2.5, H: 16, timeout: 1 });
     expect(expected).toContainEqual({ L: 20, Z: 2, H: 16, timeout: 1 });
+  });
+
+  it('depth-imbalance-fade-limit: days [30,90] x z [1.5,2] x hold [16,32] x timeout [1,2], 16 cells', () => {
+    const expected = cartesian([
+      ['days', [30, 90]],
+      ['z', [1.5, 2]],
+      ['hold', [16, 32]],
+      ['timeout', [1, 2]],
+    ]);
+    expect(expected).toHaveLength(16);
+    expect(expandGrid(depthImbalanceFadeLimitFamily)).toEqual(expected);
+    // The five cells Phase 4c selected most often at 4h all carried k=3, which
+    // this family fixes, and their other params stay inside the reduced grid.
+    expect(expected).toContainEqual({ days: 90, z: 2, hold: 32, timeout: 1 });
+    expect(expected).toContainEqual({ days: 30, z: 2, hold: 32, timeout: 1 });
+    expect(expected).toContainEqual({ days: 30, z: 2, hold: 16, timeout: 1 });
+    expect(expected).toContainEqual({ days: 30, z: 1.5, hold: 32, timeout: 1 });
+    expect(expected).toContainEqual({ days: 90, z: 1.5, hold: 32, timeout: 1 });
   });
 
   it('oscillator-reversion-limit: R [25,30] x H [16,32] x band [0,1] x timeout [1,2], 16 cells in declared order', () => {
@@ -437,6 +509,87 @@ describe('oscillator-reversion-limit', () => {
   });
 });
 
+describe('depth-imbalance-fade-limit', () => {
+  const BARS = 41;
+  function researchAt(bar: number, values: Record<string, number>) {
+    const bars: (Readonly<Record<string, number>> | null)[] = new Array(BARS).fill(null);
+    bars[bar] = values;
+    return bars;
+  }
+
+  it('declares the columns it cannot trade without', () => {
+    expect(depthImbalanceFadeLimitFamily.requiresResearchColumns).toEqual([
+      depthColumn(30),
+      depthColumn(90),
+    ]);
+  });
+
+  it('enters a resting limit short at the close (offsetBps 0) on a heavy bid book', () => {
+    const strategy = depthImbalanceFadeLimitFamily.create(
+      { days: 30, z: 1.5, hold: 32, timeout: 2 },
+      STYLE_CTX
+    );
+    const decision = strategy.decideEntry(
+      makeContext({
+        bar: 40,
+        candles: generateCandles(BARS),
+        suite: makeSuite({ atr: atrOf(4) }),
+        research: researchAt(40, { [depthColumn(30)]: 2.5 }),
+      }),
+      CONFIG
+    );
+    expect(decision).not.toBeNull();
+    expect(decision!.side).toBe('short');
+    expect(decision!.orderType).toBe('limit');
+    expect(decision!.limitPrice).toBeCloseTo(generateCandles(BARS)[40].close, 10);
+    expect(decision!.timeoutBars).toBe(2);
+    expect(decision!.timeStopBars).toBe(32);
+  });
+
+  it('longs a heavy ask book and reads the column its days param names', () => {
+    const strategy = depthImbalanceFadeLimitFamily.create(
+      { days: 90, z: 1.5, hold: 16, timeout: 1 },
+      STYLE_CTX
+    );
+    const base = {
+      bar: 40,
+      candles: generateCandles(BARS),
+      suite: makeSuite({ atr: atrOf(4) }),
+    };
+    expect(
+      strategy.decideEntry(
+        makeContext({ ...base, research: researchAt(40, { [depthColumn(90)]: -2.5 }) }),
+        CONFIG
+      )?.side
+    ).toBe('long');
+    // days 90 must not read the 30-day column.
+    expect(
+      strategy.decideEntry(
+        makeContext({ ...base, research: researchAt(40, { [depthColumn(30)]: 9 }) }),
+        CONFIG
+      )
+    ).toBeNull();
+  });
+
+  it('does not trade below the z threshold', () => {
+    const strategy = depthImbalanceFadeLimitFamily.create(
+      { days: 30, z: 2, hold: 16, timeout: 1 },
+      STYLE_CTX
+    );
+    expect(
+      strategy.decideEntry(
+        makeContext({
+          bar: 40,
+          candles: generateCandles(BARS),
+          suite: makeSuite({ atr: atrOf(4) }),
+          research: researchAt(40, { [depthColumn(30)]: 1.5 }),
+        }),
+        CONFIG
+      )
+    ).toBeNull();
+  });
+});
+
 describe('causality', () => {
   it('control-limit: same decision when candles is truncated to bar + 1', () => {
     const strategy = controlLimitFamily.create({ timeout: 2, offsetBps: 5 }, STYLE_CTX);
@@ -446,6 +599,18 @@ describe('causality', () => {
   it('return-reversal-limit: same decision when candles is truncated to bar + 1', () => {
     const strategy = returnReversalLimitFamily.create({ L: 5, Z: 0.0001, H: 8, timeout: 1 }, STYLE_CTX);
     assertCausal(strategy, 40, (candles) => makeContext({ bar: 40, candles, suite: makeSuite({ atr: atrOf(4) }) }));
+  });
+
+  it('depth-imbalance-fade-limit: same decision when candles is truncated to bar + 1', () => {
+    const strategy = depthImbalanceFadeLimitFamily.create(
+      { days: 30, z: 1.5, hold: 32, timeout: 1 },
+      STYLE_CTX
+    );
+    const bars: (Readonly<Record<string, number>> | null)[] = new Array(41).fill(null);
+    bars[40] = { [depthColumn(30)]: 2.5 };
+    assertCausal(strategy, 40, (candles) =>
+      makeContext({ bar: 40, candles, suite: makeSuite({ atr: atrOf(4) }), research: bars })
+    );
   });
 
   it('oscillator-reversion-limit: same decision when candles is truncated to bar + 1', () => {
@@ -464,11 +629,10 @@ describe('engine integration: control-limit', () => {
   const STRESS = { feeMultiplier: 1.5, slippageMultiplier: 1.5 };
   const WINDOWS = { count: 2, trainFraction: 0.4, mode: 'anchored' as const };
   // control-limit only enters where the composite score crosses control's own
-  // calibrated thresholds (TIER_BUY_CUTOFF magnitude 24), which the default
-  // generateCandles(1200) seed rarely reaches inside either out-of-sample
-  // test window; seed 12 does (verified empirically), without changing the
-  // walk shape or drift used elsewhere in this file.
-  const randomWalk = generateCandles(1200, 12);
+  // calibrated thresholds (TIER_BUY_CUTOFF magnitude, 30), which a
+  // single-flip walk cannot reach now that trend and momentum strengths are
+  // relative to their own recent magnitude. See generateRegimeCycles.
+  const randomWalk = generateRegimeCycles(1200, 12);
 
   it('runs the full grid through runStrategyWalkForward and produces an out-of-sample trade', () => {
     const cells = expandGrid(controlLimitFamily);
