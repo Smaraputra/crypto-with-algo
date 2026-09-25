@@ -196,7 +196,49 @@ function scoreFutures(futuresData: FuturesData | null): SignalComponent {
     });
   }
 
-  // Long/Short ratio: deviation from 1.0
+  // Long/Short ratio: deviation from 1.0.
+  //
+  // MEASURED DEFECT, 2026-09-25, NOT YET FIXED. These bands assume the ratio is
+  // centred on 1.0. It is not, and worse, its centre MOVES.
+  //
+  // The field holds the TOP TRADER POSITION ratio, whose pooled median over
+  // 436,552 stored snapshots is 1.513 and mean 1.718. Per-symbol medians run
+  // 1.18 (BNB) to 2.22 (DOGE). Against the 1.3 trigger below that makes
+  // 65.1% of all bars read bearish and 0.4% bullish -- a 163:1 asymmetry. The
+  // 0.77 bullish trigger sits BELOW the 5th percentile of every symbol (the
+  // lowest value ever observed for any of them is 0.68), so the bullish branch
+  // is close to dead code, and 26.3% of bars land above 2.0, a branch written
+  // to mark an extreme.
+  //
+  // The centre also drifts by more than the band is wide, so no fixed threshold
+  // can be correct. Share of bars called bearish, by quarter:
+  //
+  //           BTC    ETH   DOGE    BNB
+  //   2023Q1    3%    22%    87%     0%
+  //   2024Q1   76%   100%   100%    64%
+  //   2025Q3  100%   100%   100%    16%
+  //   2026Q2   10%    47%   100%    47%
+  //   2026Q3   94%    86%   100%   100%
+  //
+  // ETH read bearish on 100% of bars for the eight consecutive quarters from
+  // 2024Q1 to 2025Q4. A signal that never changes direction carries no
+  // information; over those stretches this contributes a constant offset to
+  // every composite and nothing else. Weighted through, the standing bearish
+  // contribution is -2.1 points of composite for scalping, -4.2 day_trading,
+  // -8.8 swing_trading and -12.3 position_trading, where futures carries 0.25
+  // of the weight.
+  //
+  // The fix shape is already validated by the research side: a WITHIN-SYMBOL
+  // trailing z, which is what Phase 3b used when the raw level failed quarter
+  // agreement. Measured on the same snapshots with a 30-day trailing window,
+  // |z| > 1 gives 27.0% bearish and 22.1% bullish pooled, and stays inside
+  // 24.6-29.0% / 19.4-23.8% for every symbol.
+  //
+  // Not fixed here because it changes live scoring, which means configVersion 8
+  // and another break in the live record. Note that the research record also
+  // says positioning is "a robust factor, not an edge" -- both rule shapes
+  // failed the gates -- so this fix buys honesty and cross-symbol
+  // comparability, not profit.
   if (futuresData.longShortRatio) {
     const ratio = futuresData.longShortRatio.longShortRatio;
     let direction: 'bullish' | 'bearish' | 'neutral' = 'neutral';

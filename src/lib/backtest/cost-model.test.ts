@@ -5,6 +5,7 @@ import {
   BINANCE_FUTURES_TAKER_FEE,
   STUDY_SLIPPAGE_BPS,
   studyCostConfig,
+  defaultCostPercent,
   feeRateFor,
   applySlippage,
   exitFillKind,
@@ -117,5 +118,19 @@ describe('studyCostConfig', () => {
 
   it('throws on an unknown interval', () => {
     expect(() => studyCostConfig('3m')).toThrow();
+  });
+});
+
+describe('defaultCostPercent', () => {
+  it('is two taker legs plus slippage on both, in percent', () => {
+    // 1h: 2 x 0.05% fee + 2 x 3bps slippage = 0.10% + 0.06% = 0.16%.
+    expect(defaultCostPercent('1h')).toBeCloseTo(0.16, 10);
+    expect(defaultCostPercent('5m')).toBeCloseTo(0.2, 10);
+    expect(defaultCostPercent('4h')).toBeCloseTo(0.14, 10);
+  });
+
+  it('throws on an interval with no slippage budget rather than costing zero', () => {
+    // A silent 0 here would make a losing rule look break-even.
+    expect(() => defaultCostPercent('3d')).toThrow(/No slippage budget/);
   });
 });

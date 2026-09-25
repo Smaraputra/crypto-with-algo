@@ -41,6 +41,27 @@ export function studyCostConfig(
   };
 }
 
+/**
+ * Round-trip cost estimate in PERCENT for a taker-in, taker-out trade at the
+ * given interval: both fee legs plus the interval's slippage budget on both.
+ *
+ * Lives here rather than beside its callers because its inputs
+ * (BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS) do, and because it now has
+ * two readers -- scripts/ops/live-outcomes.ts and the calibration analytics
+ * the admin dashboard reads. A second copy is how the CLI report and the
+ * dashboard would silently come to disagree about what "net" means.
+ *
+ * Note the unit: fees are fractions (0.0005) and this returns percent, so the
+ * fee term is multiplied by 100 and the bps term divided by 100.
+ */
+export function defaultCostPercent(interval: string): number {
+  const slippageBps = STUDY_SLIPPAGE_BPS[interval];
+  if (slippageBps === undefined) {
+    throw new Error(`No slippage budget configured for interval: ${interval}`);
+  }
+  return 2 * BINANCE_FUTURES_TAKER_FEE * 100 + (2 * slippageBps) / 100;
+}
+
 /** Fee rate for a fill of the given kind. Falls back to config.feePercent
  * when the specific maker/taker rate is not configured, so legacy configs
  * behave exactly as before. */
