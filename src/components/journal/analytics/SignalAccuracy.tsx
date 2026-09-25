@@ -1,7 +1,7 @@
 'use client';
 
 import type { SignalTierAccuracy } from '@/types/journal-analytics';
-import { formatWinRate, winRateColorClass } from './format';
+import { formatWinRate, winRateColorClass, formatAvgPnl, avgPnlColorClass } from './format';
 
 interface SignalAccuracyProps {
   data: SignalTierAccuracy[];
@@ -62,11 +62,10 @@ export function SignalAccuracy({ data }: SignalAccuracyProps) {
               </td>
               <td
                 className={`py-1.5 text-xs text-right font-mono tabular-nums ${
-                  row.avgPnlPercent > 0 ? 'text-bullish' : row.avgPnlPercent < 0 ? 'text-bearish' : ''
+                  avgPnlColorClass(row.avgPnlPercent) ?? ''
                 }`}
               >
-                {row.avgPnlPercent > 0 ? '+' : ''}
-                {row.avgPnlPercent.toFixed(2)}%
+                {formatAvgPnl(row.avgPnlPercent)}
               </td>
             </tr>
           ))}

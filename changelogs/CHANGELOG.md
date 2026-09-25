@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (journal): an average P&L stated from samples the same panel refused to state a rate for
+- **`avgPnlPercent` was never gated while `winRate` beside it was.** The previous pass added `ANALYTICS_MIN_SAMPLE_FOR_RATE` and returned `winRate: null` under five trades, and left the average untouched. The result was a row rendering a dash in the Win Rate column and a coloured, signed percentage two inches to its right, computed from the same one or two trades. That is arguably worse than the original bug: the dash advertises that the statistics were checked, which makes the number next to it read as the part that survived the check
+- **A mean has worse small-sample behaviour than a rate, not better.** One outlier moves an average without bound while a rate is capped at 100, so if either field deserved suppression first it was this one. All nine breakdowns (tag, setup, market condition, signal tier, session, hour, weekday, emotion, mistake) now go through `avgOrNull` on the same threshold as the rate
+- **The summary card is deliberately left alone.** It averages every closed trade, which is the same population Kelly already guards with its own `reliable` flag; gating it would blank the headline of an early journal for no gain in honesty
+- **The types carry the change, so a future panel cannot reintroduce it.** Widening the nine `avgPnlPercent` fields to `number | null` made the compiler name all four render sites, including `WinRateByTag`, which formatted the value inline. `formatAvgPnl` and `avgPnlColorClass` join the existing `formatWinRate` helpers so the null handling stays in one place, and the shared `PnlValue` component in the psychology and timing panels takes the nullable value directly
+- 4 new helper tests plus a route test pinning both sides of the threshold: three trades reports `null` with the total still shown, five trades reports the average
+
+### Fixed (tooling): `npm run lint` could not reach zero errors
+- **A git worktree lives inside the repo at `.claude/worktrees/<branch>`, and ESLint was linting it**: 891 files, 2852 errors, all of them a second copy of this tree plus its own `.next` output. Git already excludes the path through `.git/info/exclude`; ESLint did not, so the per-step rule of zero lint errors was unsatisfiable for as long as any worktree existed. Added to `globalIgnores` beside `_reference/**`, which is there for the same reason. Real output is now 0 errors and 8 pre-existing warnings
+
+
 ### Fixed (ops): the archive ingest ran inside the publication window, and a not-yet-due job read as broken
 - **The two ingest crons move from 05:30 and 06:00 UTC to 10:00 and 10:30, and the time is measured rather than guessed.** On 2026-09-25 the previous day's metrics file was still a **404 at 01:34Z and a 200 by 07:48Z**, so publication lands inside that window and an 05:30 run sat in the middle of it: sometimes it caught the day, sometimes not. The observed consequence was that `futuresmetrics` and `perpcandles` habitually sat **two** days behind rather than the intended one, catching up only on the following run (they were at 2026-09-22T23:55Z and moved to 2026-09-23T23:55Z when triggered by hand). 10:00 clears the latest observed publication by over two hours, and the rationale plus the re-measurement recipe are recorded in `docker/crontab.template`
 - Both `docker/crontab.template` and the `CRON_JOBS` table move together, which `cron-jobs.test.ts` enforces as a bijection

@@ -31,7 +31,7 @@ export interface TagPerformance {
   wins: number;
   losses: number;
   winRate: number | null;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
 }
 
 export interface ActionDistribution {
@@ -46,7 +46,7 @@ export interface SetupPerformance {
   wins: number;
   losses: number;
   winRate: number | null;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
 }
 
 export interface MarketConditionPerformance {
@@ -55,7 +55,7 @@ export interface MarketConditionPerformance {
   wins: number;
   losses: number;
   winRate: number | null;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
 }
 
 export interface MonthlyPnl {
@@ -67,7 +67,7 @@ export interface MonthlyPnl {
 export interface SignalTierAccuracy {
   tier: string;
   count: number;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
   winRate: number | null;
 }
 
@@ -76,7 +76,7 @@ export interface SessionPerformance {
   count: number;
   wins: number;
   winRate: number | null;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
 }
 
 export interface HourPerformance {
@@ -84,7 +84,7 @@ export interface HourPerformance {
   count: number;
   wins: number;
   winRate: number | null;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
 }
 
 export interface WeekdayPerformance {
@@ -92,7 +92,7 @@ export interface WeekdayPerformance {
   count: number;
   wins: number;
   winRate: number | null;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
 }
 
 export interface EmotionPerformance {
@@ -100,13 +100,13 @@ export interface EmotionPerformance {
   count: number;
   wins: number;
   winRate: number | null;
-  avgPnlPercent: number;
+  avgPnlPercent: number | null;
 }
 
 export interface MistakePerformance {
   mistake: string; // TradeMistake
   count: number;
-  avgPnlPercent: number; // average outcome of trades carrying this mistake
+  avgPnlPercent: number | null; // average outcome of trades carrying this mistake
   totalPnlPercent: number; // cumulative cost
 }
 
