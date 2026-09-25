@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Measured (signals): the futures category is structurally bearish, and the cause is a miscentred band on a drifting input
+- **Investigated because `cat.futures` averages -49.1 across both styles and every symbol**, pinned near half-scale bearish while `trend` averages +46.2 and `htf` +36.7. Behaviour is unchanged by this entry; the measurement is pinned in `scorer.ts` at the defect site so it cannot be lost
+- **Funding is not the problem.** 9.5% of bars read bearish, 8.9% bullish, 81.6% neutral. Symmetric, and the neutral band deliberately swallowing Binance's 0.0001 base rate (33.1% of observations sit exactly on it) works as documented
+- **The Long/Short Ratio signal is.** The bands assume the ratio is centred on 1.0; the field holds the TOP TRADER POSITION ratio, whose pooled median over 436,552 stored snapshots is **1.513** and mean 1.718, with per-symbol medians from 1.18 (BNB) to 2.22 (DOGE). Against the 1.3 trigger that makes **65.1% of bars bearish and 0.4% bullish**, a 163:1 asymmetry. The 0.77 bullish trigger sits below the 5th percentile of every symbol -- the lowest ratio ever observed for any of them is 0.68 -- so the bullish branch is close to dead code, and 26.3% of bars land above 2.0, a branch written to mark an extreme
+- **The centre drifts by more than the band is wide, so no fixed threshold can be correct.** Share of bars called bearish, by quarter:
+
+| quarter | BTC | ETH | DOGE | BNB |
+| --- | ---: | ---: | ---: | ---: |
+| 2023Q1 | 3% | 22% | 87% | 0% |
+| 2024Q1 | 76% | 100% | 100% | 64% |
+| 2025Q3 | 100% | 100% | 100% | 16% |
+| 2026Q2 | 10% | 47% | 100% | 47% |
+| 2026Q3 | 94% | 86% | 100% | 100% |
+
+- **ETH read bearish on 100% of bars for eight consecutive quarters**, 2024Q1 through 2025Q4. A signal that never changes direction carries no information: over those stretches it contributed a constant offset to every composite and nothing else
+- **What it costs**: a standing bearish contribution of -2.1 points of composite for scalping, -4.2 for day_trading, -8.8 for swing_trading and **-12.3 for position_trading**, where futures carries 0.25 of the weight. It also makes the composite's shape symbol-dependent, which is the same objection the v6 scale work raised: one cutoff pair can only mean one thing if the distribution beneath it is the same shape everywhere
+- **The fix shape is already validated on the research side**: a within-symbol trailing z, which is what Phase 3b used when the raw level failed quarter agreement. Measured on the same snapshots with a 30-day window, `|z| > 1` gives 27.0% bearish and 22.1% bullish pooled, staying inside 24.6-29.0% and 19.4-23.8% for every symbol
+- **Deliberately not fixed in this change.** It alters live scoring, so it means configVersion 8 and another break in the live record one day after v7. The research record also says positioning is "a robust factor, not an edge" -- both rule shapes failed the gates -- so the fix buys honesty and cross-symbol comparability, not profit
+
+
 ### Added (research): `daily-p90.ts`, because a pooled multi-year percentile is not a baseline for one day
 - **Written after making exactly that mistake.** A live `|score|` p90 of 23.9 at 1h read as an 8-point shortfall against the calibrated 32.2, which looked like a systematic difference between live scoring and the exported research path. It was an ordinary soft day
 - **The missing denominator is the spread of days.** Measured across the full export: at 1h, daily p90 spans **11.3 to 42.8 over 1800 days** with an interquartile range of 27.5 to 33.7 and a median of 30.7; at 15m, 11.8 to 41.8 over 920 days, median 29.0. A single day sits six points either side of the pooled figure for no reason beyond the market. Live 23.9 sits at the **8.4th percentile of days** at 1h and 26.2 at the **31.8th** at 15m

@@ -106,7 +106,7 @@ import {
 import { getLiveTierExpectancy } from '@/lib/signals/outcome-analytics';
 import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
 import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
-import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
+import { defaultCostPercent } from '@/lib/backtest/cost-model';
 import { connectDB } from '@/lib/mongodb';
 
 export type StyleFilter = TradingStyle | 'all';
@@ -193,13 +193,7 @@ const INTERVAL_VALUES: string[] = Array.from(
  * studyCostConfig's taker fee and STUDY_SLIPPAGE_BPS, the same cost model
  * the backtest track measured strategies against.
  */
-export function defaultCostPercent(interval: string): number {
-  const slippageBps = STUDY_SLIPPAGE_BPS[interval];
-  if (slippageBps === undefined) {
-    throw new Error(`No slippage budget configured for interval: ${interval}`);
-  }
-  return 2 * BINANCE_FUTURES_TAKER_FEE * 100 + (2 * slippageBps) / 100;
-}
+export { defaultCostPercent };
 
 /** The value for a flag that takes one: missing, or looking like another flag, is an error. */
 function nextValue(argv: string[], index: number, flag: string): string {
