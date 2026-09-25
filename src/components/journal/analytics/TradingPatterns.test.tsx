@@ -57,6 +57,32 @@ describe('TradingPatterns', () => {
     expect(screen.getByText('High Profit Factor')).toBeInTheDocument();
   });
 
+  it('withholds the profit factor praise until the sample matches its warning twin', () => {
+    // One good win and one small loss produce a profit factor of 2.5 that says
+    // nothing about risk-reward management.
+    const summary: JournalAnalyticsSummary = {
+      ...baseSummary,
+      wins: 1,
+      losses: 1,
+      winRate: 50,
+      profitFactor: 2.5,
+    };
+    render(<TradingPatterns summary={summary} byMonth={[]} />);
+    expect(screen.queryByText('High Profit Factor')).not.toBeInTheDocument();
+  });
+
+  it('withholds the negative expectancy warning on the same sample', () => {
+    const summary: JournalAnalyticsSummary = {
+      ...baseSummary,
+      wins: 1,
+      losses: 1,
+      winRate: 50,
+      profitFactor: 0.7,
+    };
+    render(<TradingPatterns summary={summary} byMonth={[]} />);
+    expect(screen.queryByText('Negative Expectancy')).not.toBeInTheDocument();
+  });
+
   it('detects negative expectancy', () => {
     const summary: JournalAnalyticsSummary = {
       ...baseSummary,

@@ -14,6 +14,9 @@ interface Pattern {
   description: string;
 }
 
+/** Closed trades needed before any pattern claim is made about the sample. */
+const MIN_CLOSED_TRADES_FOR_PATTERN = 5;
+
 function detectPatterns(summary: JournalAnalyticsSummary, byMonth: MonthlyPnl[]): Pattern[] {
   const patterns: Pattern[] = [];
 
@@ -37,15 +40,21 @@ function detectPatterns(summary: JournalAnalyticsSummary, byMonth: MonthlyPnl[])
     });
   }
 
-  // Profit factor analysis
-  if (summary.profitFactor !== null) {
+  // Profit factor analysis.
+  // Both branches carry the same sample guard. The praise branch used to have
+  // none, so one +5% win against one -0.5% loss reported "strong risk-reward
+  // management" from two trades, while its warning twin stayed silent until
+  // five. An encouraging claim off a small sample is not safer than a
+  // discouraging one; it is the one more likely to be acted on.
+  const closedTrades = summary.wins + summary.losses;
+  if (summary.profitFactor !== null && closedTrades >= MIN_CLOSED_TRADES_FOR_PATTERN) {
     if (summary.profitFactor >= 2) {
       patterns.push({
         type: 'positive',
         label: 'High Profit Factor',
         description: `Profit factor of ${summary.profitFactor.toFixed(2)} indicates strong risk-reward management.`,
       });
-    } else if (summary.profitFactor < 1 && summary.wins + summary.losses >= 5) {
+    } else if (summary.profitFactor < 1) {
       patterns.push({
         type: 'warning',
         label: 'Negative Expectancy',
