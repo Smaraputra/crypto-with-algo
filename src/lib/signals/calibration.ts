@@ -174,28 +174,58 @@
  *
  * ---
  *
- * NOT YET RE-MEASURED FOR configVersion 7, 2026-09-25. THE v6 CUTOFFS STAND.
+ * RE-MEASURED AFTER configVersion 7, 2026-09-25. 29 AND 37 STAND, AND ONE HALF
+ * OF THE CHANGE IS STRUCTURALLY UNMEASURABLE HERE.
  *
- * v7 repairs the news input: substring keyword matching, an unstemmed keyword
- * list, scoring on the title when selection read the body, and a URL-only
- * dedupe that counted one press release rewritten by four outlets as four
- * observations. That moves the sentiment category, so it moves the composite,
- * so on the rule above these constants are owed a re-measurement.
+ * Two code changes landed together: the news lexicon repair (v7) and a causal
+ * snapshot join (`buildSnapshotSeries` now holds a snapshot back until its
+ * whole capture window has closed). Measured on a fresh export `f470933e`
+ * taken from production after the deploy, with the lockbox applied, as three
+ * runs over the SAME export so each delta is attributable:
  *
- * They are carried forward unchanged and DELIBERATELY, for two reasons. The
- * effect is bounded: `sentiment` carries 0.09 of the default weights and News
- * is one of that category's two signals, so the composite moves at most a few
- * points and only on bars where the `count >= 3, |avg| >= 0.15` gate fires,
- * against a v6 re-measurement that moved p90 by up to 5 points. And a
- * re-measurement needs a fresh export of production, which does not exist yet:
- * guessing a number here would be exactly the untested tuning the paragraph
- * above forbids.
+ *   A  v6 scorer, loose join      the control
+ *   B  v6 scorer, causal join     isolates the join
+ *   C  v7 scorer, causal join     adds the news repair
  *
- * So: re-measure on the next export, with the v7 scorer AND the unchanged v6
- * scorer as the control, before pooling any v7 tier-conditioned statistic with
- * a v6 one. Until then v7 rows are scored on cutoffs derived from a v6
- * distribution, which is a known and recorded approximation rather than a
- * silent one. */
+ *   interval / style       bars      p90 A/B/C        p98 A/B/C
+ *   5m  scalping        808,517   27.3 27.3 27.3   36.6 36.7 36.7
+ *   15m day_trading     320,847   30.3 30.4 30.4   37.3 37.4 37.4
+ *   1h  day_trading     411,013   32.2 32.2 32.2   38.4 38.4 38.4
+ *   4h  swing_trading   152,048   28.9 28.9 28.9   36.4 36.3 36.3
+ *   1d  position_trading 21,687   26.3 26.5 26.5   36.7 36.7 36.7
+ *
+ * THE CONTROL REPRODUCES THE RECORDED v6 TABLE EXACTLY, percentile for
+ * percentile and bar count for bar count, so `f470933e` is measurement-
+ * equivalent to `e705b347` and every difference below is code.
+ *
+ * THE JOIN MOVES NOTHING THAT MATTERS: at most 0.2 points at any percentile,
+ * p90 mean 29.0 -> 29.1 and p98 mean 37.1 -> 37.1. The composite barely notices
+ * a correction that was 45 minutes of lookahead on one category's inputs, which
+ * is itself the useful reading: funding and sentiment are a small share of the
+ * score, and the lookahead mattered to the RESEARCH columns rather than to the
+ * live tiering.
+ *
+ * C IS BIT-IDENTICAL TO B ON EVERY METRIC, and that is not evidence the news
+ * repair does nothing. `score-percentiles` scores history from the STORED
+ * `data.newsSentiment` aggregate on each HistoricalSnapshot, which was written
+ * at ingest time by the old code. Only `{count, avgSentiment}` is persisted,
+ * never the article text, so no historical re-run can re-derive it. The
+ * historical measurement is BLIND to v7 by construction, and any future
+ * re-measurement will be too until enough post-2026-09-25 snapshots exist to
+ * measure on their own.
+ *
+ * What was measured instead, since it was the only thing measurable: both
+ * builds were run against the same live feed inside one 5-minute Redis cache
+ * window, so they saw an identical article set. Across the ten signal symbols,
+ * BTC moved 0.0500 -> 0.0475, SOL 0.2000 -> 0.2400, the other eight were
+ * unchanged or had no articles, no symbol's News signal changed gate state, and
+ * no near-duplicate cluster existed in that window to collapse. A single
+ * snapshot of a feed, so it bounds the typical effect rather than the worst
+ * case: the audit's measured cases (the `ban`/bank false positive, the
+ * four-outlet press release) simply were not in that window.
+ *
+ * So 29 and 37 are carried forward MEASURED, not assumed, for everything a
+ * historical export can see. */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
 export const TIER_BUY_CUTOFF = 29;
