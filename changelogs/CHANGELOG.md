@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research (Stage 1, 2026-09-25): three free depth columns measured, none survives
+- **Built from data that was already exported and never read.** `depthNotional1` and `depthNotional5` have always been written into `MetricsRow` by `export-dataset.ts` and appeared nowhere in `factors.ts`. No ingestion, no re-export, two edit points each
+- **`raw.depthFlow1` needs no reconstruction of each side of the book.** With `N` the notional on both sides and `I` the imbalance, `bid - ask = N * I` identically, so the order-flow imbalance `(B_t - B_{t-1}) - (A_t - A_{t-1})` collapses to `N_t*I_t - N_{t-1}*I_{t-1}`, scaled by `N_t`. One documented approximation: both inputs are means over the 5m slot, so their product is not the mean of the product unless sum and ratio are uncorrelated within the slot
+- **Controls reproduce the recorded lag-1 table exactly**, which is what makes the new rows readable: `raw.ret1` h1 is -0.0231 at 5m and -0.0121 at 15m, and `raw.depthImbalance1` at 4h is h8 -0.0269 t-4.9, h16 -0.0408 t-5.8, h32 -0.0515 t-5.7
+
+| factor | 5m best | 1h best | 4h best | verdict |
+| --- | --- | --- | --- | --- |
+| `raw.depthFlow1` | +0.0092 t+8.0 | +0.0073 t+4.3 | -0.0074 t-2.7 | \|ic\| below the 0.02 floor |
+| `raw.depthNotional1` | +0.0127 t+2.6 | -0.0027 t-1.3 | +0.0026 t+0.4 | quarter agreement 0.45 at 15m |
+| `raw.depthSlope` | -0.0118 t-2.4 | +0.0076 t+2.0 | +0.0049 t+1.2 | nothing anywhere |
+
+- **Nothing survives at any interval and the pre-registered kill criterion fires**, so the phase ends with no harness run. The FDR correction was not needed: nothing cleared even the unadjusted rule, and FDR only tightens
+- **The sign prediction for flow was right and the size was not.** `depthFlow1` is positive at the fast horizons, opposite to `depthImbalance1`'s contrarian reading, exactly as pre-registered: a crowded book LEVEL is faded while the FLOW that builds it is followed. It decays monotonically with horizon and flips negative by 4h, which is coherent rather than noisy. At t+8.0 on the 5m pool it is a real effect, and at 0.0092 against a 0.02 floor it is about half the size the rule demands
+- **`depthNotional1`'s failure mode is instructive.** Its 15m reading (h16 +0.0248, h32 +0.0337, symbol agreement 0.80) fails on QUARTER agreement at 0.45: it works across symbols and not across time, which is the signature of a non-stationary level rather than a forecast. The program already met this on positioning and answered it with a trailing z within symbol. A z-scored depth notional is the obvious next column and is deliberately NOT added here, because choosing it after seeing this result is what inflates a search
+
+### Fixed (analysis): the interval to hunt at is 1h, not 5m
+- **A correction to Stage 0's own reasoning, made mid-phase and recorded because it changed which intervals were measured.** Stage 0 compared barriers in percent per trade and concluded 5m was the place to look, because its statistical bar is 0.010% against 0.450% at 4h. That is the wrong comparison: **cost is fixed** at about 0.040% a round trip while the return a trade can earn scales with holding period. Restating both as a required information coefficient, `ic = bar / (2 * sd per trade)`:
+
+| interval | sd %/trade | ic to pay cost | ic detectable | binding |
+| --- | ---: | ---: | ---: | --- |
+| 5m | 0.71 | 0.0282 | 0.0070 | cost |
+| 1h | 4.56 | **0.0044** | **0.0113** | sample |
+| 4h | 8.12 | 0.0025 | 0.0277 | sample |
+
+- **1h needs the smallest ic, 0.0113, and is the only interval where anything detectable is also tradable.** 5m carries a band of effects that can be seen but not traded (0.0070 to 0.0282); 4h carries a band that could be traded but not proven (0.0025 to 0.0277). At 1h `depthFlow1` needs 0.0113 and delivers 0.0073, short by about 1.6x, the closest this program has come at a fine interval
+- **A consequence for the survivor rule itself:** its fixed `minAbsIc` of 0.02 implies a gross edge of only about 0.028%/trade at 5m, which is below the 0.040% maker cost bar. At 5m the rule can admit an effect too small to trade, and at 4h it rejects effects that would pay eight times their cost. The floor is interval-blind and the cost bar is not. Not changed here, since altering a survivor rule mid-phase is exactly what pre-registration exists to prevent
+
+
 ### Research (Stage 0, 2026-09-25): maker entry makes the best result WORSE, and that closes a direction
 - **Ran on dataset `e84cd66dbe01`, lockbox applied, 10 symbols, 6 windows, `--start 2023-01-01`, `--trials 358`** (Phase 4c's 342 plus these 16 cells, so every cell tried on the way to the claim is counted). One random symbol-window re-run with `--cell --report` and reproduced digit for digit
 

@@ -288,6 +288,62 @@
  *   curated subset (as every test fixture in this file's test suite does)
  *   reduces this proportionally; see the C3 report's fix-round entry for
  *   the benchmark methodology and raw numbers.
+ *
+ * STAGE 1 OF THE NEW-FACTOR PHASE, 2026-09-25. Dataset e84cd66dbe01, lockbox
+ * applied, ten symbols, execution lag 1. Three columns built from
+ * `depthNotional1` and `depthNotional5`, which export-dataset.ts has always
+ * written into MetricsRow and which no factor had ever read. Controls
+ * reproduce the recorded lag-1 table exactly: raw.ret1 h1 is -0.0231 at 5m and
+ * -0.0121 at 15m, and raw.depthImbalance1 at 4h is h8 -0.0269 t-4.9, h16
+ * -0.0408 t-5.8, h32 -0.0515 t-5.7, which is what makes the new rows readable.
+ *
+ * NOTHING SURVIVES, at any interval, and the pre-registered kill criterion
+ * fires: the phase ends with no harness run.
+ *
+ *   factor              5m best        1h best        4h best        verdict
+ *   raw.depthFlow1      +0.0092 t+8.0  +0.0073 t+4.3  -0.0074 t-2.7  |ic| below the 0.02 floor
+ *   raw.depthNotional1  +0.0127 t+2.6  -0.0027 t-1.3  +0.0026 t+0.4  quarter agreement 0.45 at 15m
+ *   raw.depthSlope      -0.0118 t-2.4  +0.0076 t+2.0  +0.0049 t+1.2  nothing anywhere
+ *
+ * THE SIGN PREDICTION FOR FLOW WAS RIGHT, AND THE SIZE WAS NOT. depthFlow1 is
+ * positive at the fast horizons, opposite to depthImbalance1's contrarian
+ * reading, exactly as pre-registered: a crowded book LEVEL is faded, while the
+ * FLOW that builds it is followed. It decays monotonically with horizon and
+ * flips negative by 4h, which is coherent rather than noisy -- flow predicts
+ * continuation over minutes and the crowding it creates reverts over hours.
+ * With t+8.0 on the 5m pool this is a real effect, and at |ic| 0.0092 against a
+ * 0.02 floor it is roughly half the size the rule demands.
+ *
+ * depthNotional1 and depthSlope were both pre-registered as expected
+ * non-survivors and both are. The 15m notional reading (h16 +0.0248, h32
+ * +0.0337, symbol agreement 0.80) fails on QUARTER agreement at 0.45, which is
+ * the signature of a non-stationary level rather than a forecast: it works
+ * across symbols and not across time. The program already learned this on
+ * positioning and answered it with a trailing z within symbol. A z-scored depth
+ * notional is therefore the obvious next column, and it is deliberately NOT
+ * added here, because choosing it after seeing this result is what inflates a
+ * search. It belongs in the next pre-registration.
+ *
+ * A METHODOLOGICAL CORRECTION MADE MID-PHASE, recorded because it changed the
+ * intervals measured. The phase was pre-registered to measure 5m and 15m first,
+ * on the grounds that the per-trade statistical bar is smallest there (0.010%
+ * at 5m against 0.450% at 4h). That reasoning was wrong: it compares bars in
+ * percent per trade while COST IS FIXED at about 0.040% a round trip and the
+ * return a trade can earn scales with holding period. Restating both barriers
+ * as a required information coefficient, ic = bar / (2 * sd per trade):
+ *
+ *   interval  sd%/trade  ic to pay cost  ic detectable  binding
+ *   5m        0.71       0.0282          0.0070         cost
+ *   1h        4.56       0.0044          0.0113         sample
+ *   4h        8.12       0.0025          0.0277         sample
+ *
+ * 1h needs the SMALLEST ic, 0.0113, and is the only interval where anything
+ * detectable is also tradable; 5m and 4h each carry a band of effects that can
+ * be seen but not traded, or traded but not proven. So 1h and 4h were measured
+ * after 5m and 15m, which means those two intervals were chosen with the result
+ * of the first two already visible and must be counted as such. At 1h
+ * depthFlow1 needs 0.0113 and delivers 0.0073: short by about 1.6x, and the
+ * closest this program has come at a fine interval.
  */
 
 import { execFileSync } from 'child_process';
