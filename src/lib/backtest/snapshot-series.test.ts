@@ -102,7 +102,11 @@ describe('snapshotToScorerInputs', () => {
 });
 
 describe('buildSnapshotSeries', () => {
-  it('aligns exact-match snapshots to candles', () => {
+  it('reads a snapshot only from the bar AFTER the one it was captured in', () => {
+    // A snapshot stamped T holds a reading captured anywhere in [T, T+interval):
+    // the 1h ingest cron runs */15 and every run floors to the same hour, with
+    // the last one winning, so the row stamped 12:00 routinely holds 12:45 data.
+    // It is therefore knowable at 13:00 and not before.
     const candles = makeCandles(3);
     const snapshots = [
       makeSnapshot(BASE, fullData),
@@ -113,45 +117,67 @@ describe('buildSnapshotSeries', () => {
     const bars = buildSnapshotSeries(candles, snapshots, '1h', { symbol: 'BTCUSDT' });
 
     expect(bars).toHaveLength(3);
-    for (const bar of bars) {
-      expect(bar).not.toBeNull();
-      expect(bar!.sentiment).toEqual({ fearGreedIndex: 30, label: 'Fear', news: null });
-    }
+    expect(bars[0]).toBeNull();
+    expect(bars[1]).not.toBeNull();
+    expect(bars[2]).not.toBeNull();
+    expect(bars[2]!.sentiment).toEqual({ fearGreedIndex: 30, label: 'Fear', news: null });
+  });
+
+  it('holds a fine candle back until the whole snapshot interval has passed', () => {
+    // The case a strict `<` would miss. 5m candles read 1h snapshots, so a bar
+    // opening at 12:05 sits INSIDE the window the 12:00 row was captured in and
+    // must not see it; 13:00 is the first bar that may.
+    const FIVE_MIN = 5 * 60 * 1000;
+    const candles = makeCandles(14, FIVE_MIN);
+    const snapshots = [makeSnapshot(BASE, fullData)];
+
+    const bars = buildSnapshotSeries(candles, snapshots, '5m');
+
+    for (let i = 0; i < 12; i++) expect(bars[i], `bar ${i}`).toBeNull();
+    expect(bars[12]).not.toBeNull(); // BASE + 60m
+    expect(bars[13]).not.toBeNull();
   });
 
   it('carries a snapshot forward within the staleness cap', () => {
-    const candles = makeCandles(4);
-    // Snapshot only at the first candle; default cap is 2x interval
+    const candles = makeCandles(5);
+    // Snapshot only at the first candle. The default cap is 3x the interval:
+    // one of those is the causality shift every usable snapshot now carries,
+    // leaving the same two ingest ticks of tolerance as before.
     const snapshots = [makeSnapshot(BASE, fullData)];
 
     const bars = buildSnapshotSeries(candles, snapshots, '1h');
 
-    expect(bars[0]).not.toBeNull();
-    expect(bars[1]).not.toBeNull(); // 1h stale
-    expect(bars[2]).not.toBeNull(); // 2h stale, at the cap
-    expect(bars[3]).toBeNull(); // 3h stale, beyond the cap
+    expect(bars[0]).toBeNull(); // captured during this bar
+    expect(bars[1]).not.toBeNull(); // first bar that may read it
+    expect(bars[2]).not.toBeNull();
+    expect(bars[3]).not.toBeNull(); // 3h stale, at the cap
+    expect(bars[4]).toBeNull(); // beyond the cap
   });
 
   it('never uses a snapshot from after the candle open (no lookahead)', () => {
-    const candles = makeCandles(2);
-    // Snapshot 1ms after the first candle opens
+    const candles = makeCandles(3);
+    // Snapshot 1ms after the first candle opens: stamped inside bar 0, so the
+    // window it covers ends inside bar 1 and bar 2 is the first that may read it.
     const snapshots = [makeSnapshot(BASE + 1, fullData)];
 
     const bars = buildSnapshotSeries(candles, snapshots, '1h');
 
     expect(bars[0]).toBeNull();
-    expect(bars[1]).not.toBeNull();
+    expect(bars[1]).toBeNull();
+    expect(bars[2]).not.toBeNull();
   });
 
   it('maps 5m candles onto hourly snapshots', () => {
     const FIVE_MIN = 5 * 60 * 1000;
-    const candles = makeCandles(6, FIVE_MIN);
+    const candles = makeCandles(30, FIVE_MIN);
     const snapshots = [makeSnapshot(BASE, fullData)];
 
     const bars = buildSnapshotSeries(candles, snapshots, '5m');
 
-    // 1h snapshot interval -> 2 hour staleness cap covers all 6 bars
-    expect(bars.every((b) => b !== null)).toBe(true);
+    // 1h snapshot interval: bars 12 onward may read it, and the 3h cap keeps
+    // every one of the remaining bars inside the window.
+    expect(bars.slice(0, 12).every((b) => b === null)).toBe(true);
+    expect(bars.slice(12).every((b) => b !== null)).toBe(true);
   });
 
   it('returns all nulls for empty snapshot input', () => {
@@ -170,7 +196,8 @@ describe('buildSnapshotSeries', () => {
 
     const bars = buildSnapshotSeries(candles, snapshots, '1h');
 
-    expect(bars[0]!.sentiment!.fearGreedIndex).toBe(10);
-    expect(bars[2]!.sentiment!.fearGreedIndex).toBe(90);
+    expect(bars[0]).toBeNull();
+    expect(bars[1]!.sentiment!.fearGreedIndex).toBe(10);
+    expect(bars[2]!.sentiment!.fearGreedIndex).toBe(10);
   });
 });

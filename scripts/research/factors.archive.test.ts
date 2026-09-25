@@ -309,8 +309,11 @@ describe('funding z-score', () => {
     const windowBars = Math.ceil((30 * 24 * 60 * 60 * 1000) / INTERVAL_MS);
     const start = Math.max(matrix.warmupBars, bar - windowBars + 1);
 
+    // Snapshot i is stamped at candle i's open and holds a reading captured
+    // anywhere inside that bar, so bar i reads snapshot i-1. The window the
+    // factor sees is therefore the fixture shifted one bar back.
     const window: number[] = [];
-    for (let i = start; i <= bar; i++) window.push(0.0001 * Math.sin(i / 7));
+    for (let i = start; i <= bar; i++) window.push(0.0001 * Math.sin((i - 1) / 7));
     const mean = window.reduce((s, v) => s + v, 0) / window.length;
     const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / (window.length - 1);
     const expected = (window[window.length - 1] - mean) / Math.sqrt(variance);
