@@ -789,6 +789,51 @@ export const oscillatorReversionLimitFamily: StrategyFamily = {
  * The prediction is recorded here before the run because a pass would mean the
  * dispersion estimate is wrong, and that is worth knowing more than the run is.
  *
+ * RAN 2026-09-25 on dataset e84cd66dbe01, lockbox applied, 10 symbols, 6
+ * windows, --start 2023-01-01, --trials 358 (Phase 4c's 342 plus these 16
+ * cells, so every cell tried on the way to this claim is counted). One random
+ * symbol-window re-run with --cell --report and reproduced digit for digit.
+ *
+ *   family                       interval trades exp%     CI low  timing p  gates failed
+ *   depth-imbalance-fade-limit   4h       1035   -0.1919  -0.6830 0.736     7 of 8
+ *
+ * IT FAILED, AS PREDICTED, BUT NOT FOR THE PREDICTED REASON, AND THE REASON
+ * MATTERS MORE THAN THE VERDICT. The prediction was that maker execution would
+ * lift expectancy from +0.090% to about +0.190% and still miss a 0.450% bar.
+ * Instead expectancy went to -0.1919%. Decomposing at approximate costs (taker
+ * about 0.14% round trip at 4h, maker 0.04%; the exact blend varies because
+ * `exitFillKind` prices a take-profit as maker):
+ *
+ *   taker: +0.090% net  ->  about +0.230% gross
+ *   maker: -0.1919% net ->  about -0.152% gross
+ *
+ * so the fee saving of about 0.10% was swamped by a gross deterioration of
+ * about 0.38%, and trades fell 1,251 to 1,035 as unfilled orders dropped out.
+ *
+ * THE MECHANISM IS ADVERSE SELECTION, and it is structural rather than bad
+ * luck. `withLimitEntry` rests the order at the decision close, so a short
+ * fills only if price RISES to it and a long only if price FALLS to it: a fill
+ * requires the market to move against the trade first. For a family whose whole
+ * thesis is fading a crowded book, that means being filled precisely on the
+ * entries where the fade was early, and skipping the ones that worked
+ * immediately. A passive entry on a mean-reversion signal is not a cheaper
+ * version of the same trade, it is a different and worse trade.
+ *
+ * This retro-explains Phase 4's limit results rather than contradicting them:
+ * control-limit at 1h recovered only 0.041% (-0.063% to -0.022%) of a roughly
+ * 0.10% fee saving, and widening the offset grid to 20 and 30 bps did not help.
+ * Same mechanism, milder, on families that are also reversal-shaped. A larger
+ * offset buys a better price at the cost of a still more adversely selected
+ * fill, and the two roughly cancel.
+ *
+ * CONSEQUENCE FOR THE SEARCH: the 0.04% maker cost bar is NOT available to a
+ * reversal entry, so "find an edge above 0.04% and execute passively" is the
+ * wrong target for this family shape. Either the signal must be
+ * continuation-shaped, where resting an order is favourably selected because
+ * the fill happens on a pullback that then resumes, or the edge must clear the
+ * full taker cost. No third rule shape should be tried on this input, per the
+ * standing ruling.
+ *
  * Params: days in [30, 90], z in [1.5, 2], hold in [16, 32], timeout in [1, 2]
  * (limit order timeout, bars). 16 cells, matching the other limit families.
  * `k` is FIXED at 3 rather than swept: MAX_PARAMS is 4 and the base family
