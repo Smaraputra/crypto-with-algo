@@ -8,7 +8,7 @@ import type {
   WeekdayPerformance,
 } from '@/types/journal-analytics';
 
-import { formatWinRate } from './format';
+import { formatWinRate, formatAvgPnl, avgPnlColorClass } from './format';
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -18,16 +18,10 @@ interface TimingAnalyticsProps {
   byWeekday: WeekdayPerformance[];
 }
 
-function PnlValue({ value }: { value: number }) {
+function PnlValue({ value }: { value: number | null }) {
   return (
-    <span
-      className={cn(
-        'font-mono tabular-nums',
-        value >= 0 ? 'text-bullish' : 'text-bearish'
-      )}
-    >
-      {value >= 0 ? '+' : ''}
-      {value.toFixed(2)}%
+    <span className={cn('font-mono tabular-nums', avgPnlColorClass(value))}>
+      {formatAvgPnl(value)}
     </span>
   );
 }

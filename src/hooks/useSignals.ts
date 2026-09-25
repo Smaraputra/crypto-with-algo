@@ -1,18 +1,10 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 
 import { fetchJson } from '@/lib/fetch-json';
-import type { CompositeSignal, SignalComponent, SignalTier } from '@/types/signal';
+import type { SignalComponent, SignalTier } from '@/types/signal';
 import type { TradingStyle } from '@/lib/models/signal-template';
-
-interface SignalsResponse {
-  signals: Array<CompositeSignal & { _id: string; createdAt: string }>;
-}
-
-interface ComputeResponse {
-  signal: CompositeSignal & { _id: string };
-}
 
 export interface GlobalSignalRecord {
   _id: string;
@@ -47,56 +39,22 @@ interface LatestAllSignalsResponse {
   signals: Record<TradingStyle, GlobalSignalRecord | null>;
 }
 
-const SIGNAL_STALE_TIME = 60 * 1000; // 1 minute
-
-export function useSignals(
-  symbol?: string | null,
-  tier?: string | null,
-  limit = 50
-) {
-  const params = new URLSearchParams();
-  if (symbol) params.set('symbol', symbol);
-  if (tier) params.set('tier', tier);
-  params.set('limit', String(limit));
-
-  return useQuery<SignalsResponse>({
-    queryKey: ['signals', symbol, tier, limit],
-    queryFn: () => fetchJson(`/api/signals?${params}`),
-    staleTime: SIGNAL_STALE_TIME,
-  });
-}
-
-export function useLatestSignal(symbol: string | null) {
-  return useQuery<SignalsResponse>({
-    queryKey: ['signals', 'latest', symbol],
-    queryFn: () => fetchJson(`/api/signals?symbol=${symbol}&limit=1`),
-    enabled: !!symbol,
-    staleTime: SIGNAL_STALE_TIME,
-  });
-}
-
-export function useComputeSignal() {
-  const queryClient = useQueryClient();
-
-  return useMutation<ComputeResponse, Error, { symbol: string; interval?: string }>({
-    mutationFn: (input) =>
-      fetchJson('/api/signals/compute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      }),
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: ['signals', variables.symbol],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ['signals', 'latest', variables.symbol],
-      });
-    },
-  });
-}
+/**
+ * Signals are produced by the scheduler only.
+ *
+ * `useSignals`, `useLatestSignal` and `useComputeSignal` used to read and
+ * write the legacy per-user `Signal` collection through `/api/signals` and
+ * `/api/signals/compute`. `useComputeGlobalSignal` backed a "Compute Now"
+ * button that wrote a `GlobalSignal` on demand, which meant a logged-in user
+ * could insert a row into the same live record the configVersion evidence is
+ * read from, at a time no cron fired. Scoring now happens only on the
+ * schedule; these hooks read what it produced.
+ */
 
 // --- Global signal hooks ---
+
+/** Fallback freshness when no style-specific cadence applies. */
+const SIGNAL_STALE_TIME = 60 * 1000; // 1 minute
 
 const GLOBAL_STALE_TIMES: Record<TradingStyle, number> = {
   scalping: 30_000,      // 30s - updates every minute
@@ -154,30 +112,5 @@ export function useLatestSignalForStyle(
     },
     enabled: !!symbol && !!tradingStyle,
     staleTime: tradingStyle ? GLOBAL_STALE_TIMES[tradingStyle] : SIGNAL_STALE_TIME,
-  });
-}
-
-export function useComputeGlobalSignal() {
-  const queryClient = useQueryClient();
-
-  return useMutation<
-    ComputeResponse,
-    Error,
-    { symbol: string; interval?: string; tradingStyle: TradingStyle }
-  >({
-    mutationFn: (input) =>
-      fetchJson('/api/signals/compute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      }),
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: ['globalSignals', variables.symbol],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ['globalSignals', 'latest', variables.symbol],
-      });
-    },
   });
 }

@@ -8,7 +8,7 @@ import type { CronJobSpec } from '@/lib/cron-jobs';
  * nothing but read documents and hand them over.
  */
 
-export type JobHealthState = 'healthy' | 'overdue' | 'failing' | 'never_ran';
+export type JobHealthState = 'healthy' | 'overdue' | 'failing' | 'never_ran' | 'pending';
 
 /**
  * The subset of a heartbeat the classifier needs. Loosened from
@@ -55,10 +55,23 @@ export function graceSecondsFor(spec: Pick<CronJobSpec, 'expectedEverySeconds'>)
   return Math.min(spec.expectedEverySeconds, 3600) + 120;
 }
 
+/**
+ * `observedSinceMs` is when this process started being able to SEE runs at all,
+ * which the route reads as the oldest heartbeat's `createdAt`.
+ *
+ * Without it a job that has never run is indistinguishable from one that has
+ * had no opportunity to: recreating the cron container leaves a daily job with
+ * no heartbeat for up to a day, and the endpoint went red for exactly that,
+ * reporting a fault where there was only a gap in observation. `classifyJob`
+ * already separated `never_ran` from `overdue` for the same reason -- an
+ * absence is not a lateness -- and this carries the distinction one step
+ * further. Omitted, the old behaviour stands.
+ */
 export function classifyJob(
   spec: Pick<CronJobSpec, 'job' | 'schedule' | 'expectedEverySeconds'>,
   state: JobState | null,
-  nowMs: number
+  nowMs: number,
+  observedSinceMs?: number | null
 ): JobHealth {
   const graceSeconds = graceSecondsFor(spec);
   const lastSuccessAt = state?.lastSuccessAt ?? null;
@@ -84,6 +97,14 @@ export function classifyJob(
   // epoch", and a job whose most recent attempt failed is failing even if an
   // older success is still inside the window.
   if (state == null || (state.lastRunAt == null && lastSuccessAt == null)) {
+    // Never having run is only evidence of a fault once there has been time for
+    // a run to happen. Measured against the same window a run would have to
+    // miss to count as overdue, so the two thresholds cannot drift apart.
+    const observedSeconds =
+      observedSinceMs != null ? Math.floor((nowMs - observedSinceMs) / 1000) : null;
+    if (observedSeconds != null && observedSeconds <= spec.expectedEverySeconds + graceSeconds) {
+      return { ...base, state: 'pending' };
+    }
     return { ...base, state: 'never_ran' };
   }
 
@@ -106,15 +127,30 @@ export interface CronHealthSummary {
   overdue: number;
   failing: number;
   never_ran: number;
+  /** Has not run, and has not yet had the chance to. Reported, not faulted. */
+  pending: number;
 }
 
 export function summarize(jobs: JobHealth[]): CronHealthSummary {
-  const summary: CronHealthSummary = { healthy: 0, overdue: 0, failing: 0, never_ran: 0 };
+  const summary: CronHealthSummary = {
+    healthy: 0,
+    overdue: 0,
+    failing: 0,
+    never_ran: 0,
+    pending: 0,
+  };
   for (const job of jobs) summary[job.state] += 1;
   return summary;
 }
 
-/** Every job healthy, or nothing to report. */
+/**
+ * Every job healthy, or nothing to report.
+ *
+ * `pending` is deliberately not a fault: it means the window in which the job
+ * would have run has not closed yet, so its silence carries no information.
+ * Counting it would make the endpoint red for a full day after any cron
+ * container recreate, which is how a health check trains people to ignore it.
+ */
 export function isAllHealthy(summary: CronHealthSummary): boolean {
   return summary.overdue === 0 && summary.failing === 0 && summary.never_ran === 0;
 }

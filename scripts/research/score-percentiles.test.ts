@@ -265,10 +265,13 @@ describe('runScorePercentiles', () => {
     expect(block.symbols.map((s) => s.symbol)).toEqual(SYMBOLS);
 
     for (const row of block.symbols) {
-      // One snapshot per bar from SNAPSHOT_FROM onward, all after the style's warmup.
-      expect(row.summary.count).toBe(COUNT - SNAPSHOT_FROM);
+      // One snapshot per bar from SNAPSHOT_FROM onward, all after the style's
+      // warmup. One fewer bar than snapshots: a snapshot stamped at a bar's own
+      // open is only knowable once that bar has closed, so the first one is read
+      // by the bar after it (buildSnapshotSeries).
+      expect(row.summary.count).toBe(COUNT - SNAPSHOT_FROM - 1);
       expect(row.barsWithoutSnapshot).toBeGreaterThan(0);
-      expect(row.from).toBe(new Date(START + SNAPSHOT_FROM * HOUR).toISOString());
+      expect(row.from).toBe(new Date(START + (SNAPSHOT_FROM + 1) * HOUR).toISOString());
       expect(row.to).toBe(new Date(START + (COUNT - 1) * HOUR).toISOString());
       expect(row.summary.p50).toBeLessThanOrEqual(row.summary.p90);
       expect(row.summary.p90).toBeLessThanOrEqual(row.summary.p98);
@@ -276,7 +279,7 @@ describe('runScorePercentiles', () => {
       expect(row.summary.shareAboveStrong).toBeLessThanOrEqual(row.summary.shareAboveBuy);
     }
 
-    expect(block.pooled.count).toBe(SYMBOLS.length * (COUNT - SNAPSHOT_FROM));
+    expect(block.pooled.count).toBe(SYMBOLS.length * (COUNT - SNAPSHOT_FROM - 1));
     expect(block.barsWithoutSnapshot).toBe(
       block.symbols.reduce((sum, row) => sum + row.barsWithoutSnapshot, 0)
     );

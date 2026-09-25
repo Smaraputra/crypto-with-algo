@@ -189,6 +189,59 @@ export function filterByWindow<T extends { publishedOn: number }>(
     .sort((a, b) => b.publishedOn - a.publishedOn);
 }
 
+/**
+ * Words too common to carry any of a headline's identity.
+ *
+ * Deliberately tiny: this is only here so that two rewrites of one press
+ * release are not judged different because one of them says "the".
+ */
+const TITLE_STOPWORDS = new Set([
+  'a', 'an', 'and', 'as', 'at', 'by', 'for', 'from', 'in', 'is', 'its', 'of',
+  'on', 'or', 'the', 'to', 'with',
+]);
+
+/**
+ * Jaccard similarity above which two headlines are treated as one story.
+ *
+ * 0.8 collapses a rewrite that changes an article or reorders a clause while
+ * leaving two headlines about the same subject alone: "Bitcoin climbs above
+ * 70,000 dollars" and "Bitcoin miners report record hashrate" share only
+ * "bitcoin" out of nine content words.
+ */
+const NEAR_DUPLICATE_SIMILARITY = 0.8;
+
+/** Content words of a headline, lowercased, punctuation stripped. */
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word.length > 0 && !TITLE_STOPWORDS.has(word))
+  );
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const token of a) if (b.has(token)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+
+/**
+ * One entry per story, newest first.
+ *
+ * Two passes, because the two kinds of duplicate are different. The `id` pass
+ * catches genuine syndication, where outlets republish the same item under the
+ * same link. The similarity pass catches the case the audit measured: one
+ * Solana press release rewritten by four outlets supplied 4 of that symbol's 7
+ * articles and was the entire reason its sentiment sat at 0.129, just under
+ * the gate. Each rewrite has its own URL, so a URL-keyed dedupe counted four
+ * independent observations of what was one.
+ *
+ * Quadratic in the surviving count, which is bounded by the fetch limit
+ * (100 items per cycle), so the comparison is cheap in absolute terms.
+ */
 export function dedupeAndSort(items: CryptoNewsItem[]): CryptoNewsItem[] {
   const seen = new Map<string, CryptoNewsItem>();
   for (const item of items) {
@@ -197,7 +250,17 @@ export function dedupeAndSort(items: CryptoNewsItem[]): CryptoNewsItem[] {
       seen.set(item.id, item);
     }
   }
-  return Array.from(seen.values()).sort((a, b) => b.publishedOn - a.publishedOn);
+
+  const kept: Array<{ item: CryptoNewsItem; tokens: Set<string> }> = [];
+  for (const item of seen.values()) {
+    const tokens = titleTokens(item.title);
+    const isRewrite = kept.some(
+      (other) => jaccard(tokens, other.tokens) >= NEAR_DUPLICATE_SIMILARITY
+    );
+    if (!isRewrite) kept.push({ item, tokens });
+  }
+
+  return kept.map((entry) => entry.item).sort((a, b) => b.publishedOn - a.publishedOn);
 }
 
 /**

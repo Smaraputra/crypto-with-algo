@@ -1,7 +1,7 @@
 'use client';
 
 import type { TagPerformance } from '@/types/journal-analytics';
-import { formatWinRate, winRateBarClass } from './format';
+import { formatWinRate, winRateBarClass, formatAvgPnl } from './format';
 
 interface WinRateByTagProps {
   data: TagPerformance[];
@@ -40,8 +40,7 @@ export function WinRateByTag({ data }: WinRateByTagProps) {
               {tag.wins}W / {tag.losses}L
             </span>
             <span className="font-mono tabular-nums">
-              Avg: {tag.avgPnlPercent > 0 ? '+' : ''}
-              {tag.avgPnlPercent.toFixed(2)}%
+              Avg: {formatAvgPnl(tag.avgPnlPercent)}
             </span>
           </div>
         </div>

@@ -224,8 +224,12 @@
  * EXECUTION LAG IS MEASURED HERE BUT NOT IN THE BACKTEST. The bar loop fills a
  * market entry at the DECISION bar's own close (src/lib/backtest/bar-loop.ts),
  * which is lag 0. For a snapshot-derived factor that is still honest, because
- * buildSnapshotSeries pins each bar to a snapshot at or before the bar's OPEN,
- * so the reading precedes the fill. For a factor derived from the bar's own
+ * buildSnapshotSeries pins each bar to a snapshot whose capture window closed
+ * before the bar opened, so the reading precedes the fill. (That rule was
+ * "stamped at or before the bar's open" until 2026-09-25, which was not the
+ * same thing: the ingest cron stamps a reading back to the interval it floors
+ * into, so a row stamped 12:00 held 12:45 data. Every snapshot-derived IC
+ * recorded before that date was measured on the looser join.) For a factor derived from the bar's own
  * close -- raw.ret1, raw.ret5, rsi, the composite -- it is not: the rule acts
  * on a close it transacts at. Every recorded Phase 4 number for a
  * candle-derived family (control, return-reversal, oscillator-reversion) rests

@@ -31,3 +31,27 @@ export function winRateBarClass(winRate: number | null): string {
   if (winRate === null) return 'bg-muted';
   return winRate >= 50 ? 'bg-bullish' : 'bg-bearish';
 }
+
+/**
+ * The same suppression, for an average rather than a rate.
+ *
+ * `winRate` was gated and `avgPnlPercent` was not, so a breakdown row rendered
+ * a dash where the rate would be and a coloured number two inches to the right
+ * of it, from the same one trade. That is arguably worse than the old `100%`:
+ * the dash signals "we checked the statistics here", which makes the
+ * unsuppressed number beside it more credible rather than less. A mean also has
+ * worse small-sample behaviour than a rate, since one outlier is unbounded
+ * while a rate is capped at 100.
+ */
+export function formatAvgPnl(avgPnlPercent: number | null, digits = 2): string {
+  if (avgPnlPercent === null) return NO_RATE;
+  const sign = avgPnlPercent < 0 ? '' : '+';
+  return `${sign}${avgPnlPercent.toFixed(digits)}%`;
+}
+
+/** Tailwind colour for an average, or undefined when there is none to colour. */
+export function avgPnlColorClass(avgPnlPercent: number | null): string | undefined {
+  if (avgPnlPercent === null) return undefined;
+  return avgPnlPercent >= 0 ? 'text-bullish' : 'text-bearish';
+}
+

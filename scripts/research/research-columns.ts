@@ -20,8 +20,11 @@
  * before that candle's OPEN. The two sources reach that promise differently:
  *
  * - Snapshot-derived columns (funding, positioning) come from
- *   `buildSnapshotSeries`, which already pins each candle to the latest
- *   snapshot at or before the candle's open. No shift.
+ *   `buildSnapshotSeries`, which pins each candle to the latest snapshot whose
+ *   whole capture window closed at or before the candle's open. No shift here,
+ *   because the shift lives in that function. It used to read a snapshot
+ *   stamped at the candle's own open, which the ingest cron fills with data
+ *   captured up to one interval LATER; that was 45 minutes of lookahead at 1h.
  *
  * - Metric-derived columns (order-book depth) come from a 5m grid that
  *   `factors.ts` joins to each bar's CLOSE, because a factor there is read at
@@ -117,7 +120,8 @@ export function buildResearchColumns(input: ResearchColumnInput): ResearchRow[] 
   const n = candles.length;
   const intervalMs = intervalToMs(interval);
 
-  // --- Snapshot-derived columns: open-aligned already, so no shift. ---
+  // --- Snapshot-derived columns: buildSnapshotSeries holds each snapshot back
+  // until its capture window has closed, so no further shift here. ---
   const snapBars = buildSnapshotSeries(candles, snapshots, interval, { symbol });
 
   const fundingRaw = new Float64Array(n).fill(Number.NaN);

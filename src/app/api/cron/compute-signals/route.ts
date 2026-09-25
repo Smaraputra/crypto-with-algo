@@ -1,64 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { fetchKlines } from '@/lib/binance';
-import { getCandles, dropOpenBars } from '@/lib/candle-ingestion';
-import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
-import { computeAllIndicators } from '@/lib/indicators/compute';
-import { interpretIndicators } from '@/lib/indicators/interpret';
-import { computeSuperTrend } from '@/lib/indicators/supertrend';
-import { RECOMMENDED_CANDLES } from '@/lib/indicators/types';
 import { TRADING_STYLES } from '@/lib/indicators/style-configs';
-import { Signal } from '@/lib/models/signal';
-import { Strategy } from '@/lib/models/strategy';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { connectDB } from '@/lib/mongodb';
-import { cachedFetch } from '@/lib/redis';
-import { computeSignalScore } from '@/lib/signals/scorer';
 import { computeSignalBatch, buildTasksForStyle } from '@/lib/signals/compute-engine';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
-import { fetchFearAndGreed } from '@/lib/external/fear-greed';
-import type { FuturesData } from '@/types/futures';
-import type { SentimentData } from '@/types/signal';
-
-const MAX_PAIRS_PER_RUN = 20;
 
 import { verifyCronSecret } from '@/lib/cron-auth';
 import { withJobRun } from '@/lib/job-run';
 
 function isValidTradingStyle(style: string): style is TradingStyle {
   return (TRADING_STYLES as readonly string[]).includes(style);
-}
-
-async function fetchFuturesDataSafe(symbol: string): Promise<FuturesData> {
-  const result: FuturesData = {
-    fundingRate: null,
-    openInterest: null,
-    longShortRatio: null,
-  };
-
-  try {
-    const rates = await cachedFetch(
-      `futures:funding:${symbol}:1`,
-      () => fetchFundingRate(symbol, 1),
-      300
-    );
-    if (rates.length > 0) result.fundingRate = rates[0];
-  } catch {
-    // Futures data is optional
-  }
-
-  try {
-    const ratios = await cachedFetch(
-      `futures:ls:top:${symbol}:1h:1`,
-      () => fetchLongShortRatio(symbol, '1h', 1),
-      300
-    );
-    if (ratios.length > 0) result.longShortRatio = ratios[0];
-  } catch {
-    // Futures data is optional
-  }
-
-  return result;
 }
 
 /**
@@ -79,113 +31,6 @@ async function computeGlobalSignals(style: TradingStyle) {
   });
 }
 
-/**
- * Legacy per-user signal computation from user strategies.
- */
-async function computeLegacySignals() {
-  const strategies = await Strategy.find({ active: true });
-  if (strategies.length === 0) {
-    return NextResponse.json({ mode: 'legacy', computed: 0, errors: 0 });
-  }
-
-  const pairsSet = new Set<string>();
-  const userPairsMap = new Map<string, Array<{ userId: string; weights: typeof strategies[0]['weights'] }>>();
-
-  for (const strategy of strategies) {
-    for (const symbol of strategy.symbols) {
-      for (const interval of strategy.intervals) {
-        const key = `${symbol}:${interval}`;
-        pairsSet.add(key);
-
-        if (!userPairsMap.has(key)) {
-          userPairsMap.set(key, []);
-        }
-        userPairsMap.get(key)!.push({
-          userId: strategy.userId,
-          weights: strategy.weights,
-        });
-      }
-    }
-  }
-
-  const pairs = [...pairsSet].slice(0, MAX_PAIRS_PER_RUN);
-  const sentimentData: SentimentData | null = await fetchFearAndGreed().catch(() => null);
-
-  let computed = 0;
-  let errors = 0;
-
-  for (const pair of pairs) {
-    const [symbol, interval] = pair.split(':');
-
-    try {
-      // Single point-in-time reference for this pair, used both inside the
-      // cachedFetch producer (below) and for the outer safety-net filter, so
-      // a bar open when the fetchKlines fallback ran can never be served
-      // "closed" later from the 60s cache just because wall-clock time moved on.
-      const now = Date.now();
-
-      const [rawCandles, futuresData] = await Promise.all([
-        cachedFetch(
-          `klines:${symbol}:${interval}:${RECOMMENDED_CANDLES}`,
-          async () => {
-            const dbCandles = await getCandles(
-              symbol,
-              interval,
-              undefined,
-              undefined,
-              RECOMMENDED_CANDLES
-            );
-            if (dbCandles.length >= RECOMMENDED_CANDLES) return dbCandles;
-            const apiCandles = await fetchKlines(symbol, interval, RECOMMENDED_CANDLES);
-            return dropOpenBars(apiCandles, interval, now);
-          },
-          60
-        ),
-        fetchFuturesDataSafe(symbol),
-      ]);
-
-      // Score closed bars only: safety net for candles read straight from
-      // Mongo (the fetchKlines fallback above already filtered its batch).
-      const candles = dropOpenBars(rawCandles, interval, now);
-      if (candles.length === 0) {
-        console.log(`compute-signals legacy: skipped ${pair} - no closed candle available`);
-        continue;
-      }
-
-      const raw = computeAllIndicators(candles, symbol, interval);
-      const indicators = interpretIndicators(raw);
-      const superTrend = computeSuperTrend(candles);
-
-      const users = userPairsMap.get(pair) || [];
-      for (const { userId, weights } of users) {
-        const signal = computeSignalScore(
-          indicators,
-          futuresData,
-          sentimentData,
-          weights,
-          superTrend
-        );
-
-        await Signal.create({
-          userId,
-          symbol: signal.symbol,
-          interval: signal.interval,
-          score: signal.score,
-          tier: signal.tier,
-          confidence: signal.confidence,
-          components: signal.components,
-        });
-
-        computed++;
-      }
-    } catch {
-      errors++;
-    }
-  }
-
-  return NextResponse.json({ mode: 'legacy', computed, errors, pairs: pairs.length });
-}
-
 async function handler(req: NextRequest) {
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -193,23 +38,26 @@ async function handler(req: NextRequest) {
 
   await connectDB();
 
-  // Check for ?style= query param for style-based global signal computation
+  // `style` is required. It used to be optional, and omitting it ran a third
+  // scorer: `computeLegacySignals()` scored each user's own Strategy rows with
+  // DEFAULT_CONFIG periods, DEFAULT_WEIGHTS, no HTF, no news and no
+  // configVersion, on its own `*/10` cron. Its only reader was the journal's
+  // indicator snapshot, which now computes its own; nothing reads the `Signal`
+  // collection any more.
   const styleParam = req.nextUrl.searchParams.get('style');
-
-  if (styleParam) {
-    if (!isValidTradingStyle(styleParam)) {
-      return NextResponse.json(
-        { error: `Invalid trading style: ${styleParam}` },
-        { status: 400 }
-      );
-    }
-    return computeGlobalSignals(styleParam);
+  if (!styleParam) {
+    return NextResponse.json({ error: 'Missing trading style' }, { status: 400 });
+  }
+  if (!isValidTradingStyle(styleParam)) {
+    return NextResponse.json(
+      { error: `Invalid trading style: ${styleParam}` },
+      { status: 400 }
+    );
   }
 
-  // No style param: run legacy per-user computation
-  return computeLegacySignals();
+  return computeGlobalSignals(styleParam);
 }
 
 // The handler body is unchanged; the wrapper only records that the run
 // happened and what it returned. A 401 writes nothing.
-export const GET = withJobRun((req) => `compute-signals:${new URL(req.url).searchParams.get('style') ?? 'legacy'}`, handler);
+export const GET = withJobRun((req) => `compute-signals:${new URL(req.url).searchParams.get('style') ?? 'missing-style'}`, handler);

@@ -374,6 +374,7 @@ describe('GET /api/journal/analytics', () => {
     ]); // emotion
     aggMock.mockResolvedValueOnce([
       { _id: 'chased_entry', count: 3, totalPnl: -4.5 },
+      { _id: 'moved_stop', count: 5, totalPnl: -10 },
     ]); // mistake
 
     const res = await GET();
@@ -388,11 +389,22 @@ describe('GET /api/journal/analytics', () => {
       avgPnlPercent: -1.5,
     });
 
+    // Three trades is below ANALYTICS_MIN_SAMPLE_FOR_RATE, so the average is
+    // suppressed the same way a win rate is. The total is still reported: it is
+    // a fact about the journal, not an estimate of an edge.
     expect(data.byMistake[0]).toEqual({
       mistake: 'chased_entry',
       count: 3,
-      avgPnlPercent: -1.5,
+      avgPnlPercent: null,
       totalPnlPercent: -4.5,
+    });
+
+    // At the threshold the average is stated.
+    expect(data.byMistake[1]).toEqual({
+      mistake: 'moved_stop',
+      count: 5,
+      avgPnlPercent: -2,
+      totalPnlPercent: -10,
     });
 
     expect(data.streaks).toEqual({

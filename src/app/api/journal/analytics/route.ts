@@ -287,7 +287,7 @@ export async function GET() {
     wins: t.wins as number,
     losses: t.losses as number,
     winRate: rateOrNull(t.wins as number, t.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
-    avgPnlPercent: t.count > 0 ? (t.totalPnl as number) / (t.count as number) : 0,
+    avgPnlPercent: avgOrNull(t.totalPnl as number, t.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const byAction: ActionDistribution[] = actionAgg.map((a) => ({
@@ -302,7 +302,7 @@ export async function GET() {
     wins: s.wins as number,
     losses: s.losses as number,
     winRate: rateOrNull(s.wins as number, s.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
-    avgPnlPercent: s.count > 0 ? (s.totalPnl as number) / (s.count as number) : 0,
+    avgPnlPercent: avgOrNull(s.totalPnl as number, s.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const byMarketCondition: MarketConditionPerformance[] = conditionAgg.map((c) => ({
@@ -311,7 +311,7 @@ export async function GET() {
     wins: c.wins as number,
     losses: c.losses as number,
     winRate: rateOrNull(c.wins as number, c.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
-    avgPnlPercent: c.count > 0 ? (c.totalPnl as number) / (c.count as number) : 0,
+    avgPnlPercent: avgOrNull(c.totalPnl as number, c.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const byMonth: MonthlyPnl[] = monthlyAgg.map((m) => ({
@@ -323,7 +323,7 @@ export async function GET() {
   const bySignalTier: SignalTierAccuracy[] = tierAgg.map((t) => ({
     tier: t._id as string,
     count: t.count as number,
-    avgPnlPercent: t.count > 0 ? (t.totalPnl as number) / (t.count as number) : 0,
+    avgPnlPercent: avgOrNull(t.totalPnl as number, t.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     winRate: rateOrNull(t.wins as number, t.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
@@ -332,7 +332,7 @@ export async function GET() {
     count: s.count as number,
     wins: s.wins as number,
     winRate: rateOrNull(s.wins as number, s.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
-    avgPnlPercent: s.count > 0 ? (s.totalPnl as number) / (s.count as number) : 0,
+    avgPnlPercent: avgOrNull(s.totalPnl as number, s.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const byHour: HourPerformance[] = hourAgg.map((h) => ({
@@ -340,7 +340,7 @@ export async function GET() {
     count: h.count as number,
     wins: h.wins as number,
     winRate: rateOrNull(h.wins as number, h.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
-    avgPnlPercent: h.count > 0 ? (h.totalPnl as number) / (h.count as number) : 0,
+    avgPnlPercent: avgOrNull(h.totalPnl as number, h.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const byWeekday: WeekdayPerformance[] = weekdayAgg.map((w) => ({
@@ -348,7 +348,7 @@ export async function GET() {
     count: w.count as number,
     wins: w.wins as number,
     winRate: rateOrNull(w.wins as number, w.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
-    avgPnlPercent: w.count > 0 ? (w.totalPnl as number) / (w.count as number) : 0,
+    avgPnlPercent: avgOrNull(w.totalPnl as number, w.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const byEmotion: EmotionPerformance[] = emotionAgg.map((e) => ({
@@ -356,13 +356,13 @@ export async function GET() {
     count: e.count as number,
     wins: e.wins as number,
     winRate: rateOrNull(e.wins as number, e.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
-    avgPnlPercent: e.count > 0 ? (e.totalPnl as number) / (e.count as number) : 0,
+    avgPnlPercent: avgOrNull(e.totalPnl as number, e.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
   }));
 
   const byMistake: MistakePerformance[] = mistakeAgg.map((m) => ({
     mistake: m._id as string,
     count: m.count as number,
-    avgPnlPercent: m.count > 0 ? (m.totalPnl as number) / (m.count as number) : 0,
+    avgPnlPercent: avgOrNull(m.totalPnl as number, m.count as number, ANALYTICS_MIN_SAMPLE_FOR_RATE),
     totalPnlPercent: m.totalPnl as number,
   }));
 
@@ -413,6 +413,21 @@ const ANALYTICS_MIN_SAMPLE_FOR_RATE = 5;
 function rateOrNull(wins: number, count: number, minSample: number): number | null {
   if (count < minSample || count <= 0) return null;
   return (wins / count) * 100;
+}
+
+/**
+ * The same suppression for an average, and for a stronger reason.
+ *
+ * Every breakdown gated its win rate and left `avgPnlPercent` ungated, so a row
+ * rendered a dash where the rate would be and a coloured number beside it from
+ * the same one trade. A mean is also worse behaved at small n than a rate: one
+ * outlier is unbounded, while a rate cannot leave [0, 100]. `byHour` has 24
+ * buckets and `byWeekday` 7, so on a realistic journal most of them hold one or
+ * two entries.
+ */
+function avgOrNull(total: number, count: number, minSample: number): number | null {
+  if (count < minSample || count <= 0) return null;
+  return total / count;
 }
 
 function computeKellySuggestion(pnlValues: number[]): KellySuggestion {

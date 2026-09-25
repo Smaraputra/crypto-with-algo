@@ -13,6 +13,12 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "_reference/**",
+    // A git worktree lives inside the repo at .claude/worktrees/<branch>. It is
+    // a second checkout of this same tree, so linting it doubles every file and
+    // reports its own .next build output as thousands of errors -- which buries
+    // the real ones and makes the "zero lint errors" step rule unsatisfiable.
+    // Git already excludes it (.git/info/exclude); ESLint did not.
+    ".claude/worktrees/**",
   ]),
 ]);
 

@@ -57,6 +57,9 @@ function allHealthyHeartbeats() {
     lastDurationMs: 10,
     lastResult: { ok: true },
     consecutiveFailures: 0,
+    // The observation anchor: how far back this deployment could have seen a
+    // run at all. Old enough here that nothing is excused as pending.
+    createdAt: new Date(now - 30 * 24 * 3600 * 1000),
   }));
 }
 
@@ -89,6 +92,7 @@ describe('GET /api/health/cron', () => {
       overdue: 0,
       failing: 0,
       never_ran: 0,
+      pending: 0,
     });
   });
 
@@ -100,6 +104,24 @@ describe('GET /api/health/cron', () => {
       expect(body.jobs.some((j: { job: string }) => j.job === spec.job)).toBe(true);
     }
     expect(body.jobs.some((j: { job: string }) => j.job === 'llm-panel')).toBe(true);
+  });
+
+  it('stays 200 when a daily job has no heartbeat but recording only just began', async () => {
+    // The real outage shape: the cron container was recreated an hour ago, so a
+    // daily job has had no opportunity to run. Its absence is not a fault.
+    const beats = allHealthyHeartbeats()
+      .filter((b) => b.job !== 'ingest-archive')
+      .map((b) => ({ ...b, createdAt: new Date(now - 3600 * 1000) }));
+    mocks.heartbeatFind.mockReturnValue(findReturning(beats));
+
+    const res = await GET(request());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(body.summary.pending).toBeGreaterThanOrEqual(1);
+    expect(body.summary.never_ran).toBe(0);
+    expect(body.jobs.find((j: { job: string }) => j.job === 'ingest-archive').state).toBe('pending');
   });
 
   it('returns 503 and degraded when a job has never run', async () => {

@@ -35,12 +35,23 @@ export async function GET(req: NextRequest) {
     const heartbeats = (await JobHeartbeat.find({}).lean()) as unknown as IJobHeartbeat[];
     const byJob = new Map(heartbeats.map((h) => [h.job, h]));
 
+    // The earliest moment this deployment could have recorded a run. A job with
+    // no heartbeat is only a fault once a full interval has passed since then;
+    // before that its silence means the container was recreated, not that the
+    // job is broken. Heartbeats live in Mongo and survive a recreate, so the
+    // oldest one is the honest anchor rather than process start.
+    const observedSinceMs = heartbeats.reduce<number | null>((oldest, heartbeat) => {
+      const created = heartbeat.createdAt?.getTime();
+      if (created == null || !Number.isFinite(created)) return oldest;
+      return oldest == null || created < oldest ? created : oldest;
+    }, null);
+
     const jobs: JobHealth[] = HEARTBEAT_JOBS.map((spec) =>
-      classifyJob(spec, (byJob.get(spec.job) as JobState | undefined) ?? null, now)
+      classifyJob(spec, (byJob.get(spec.job) as JobState | undefined) ?? null, now, observedSinceMs)
     );
 
     for (const spec of DERIVED_JOBS) {
-      jobs.push(classifyJob(spec, await derivedState(spec.job), now));
+      jobs.push(classifyJob(spec, await derivedState(spec.job), now, observedSinceMs));
     }
 
     const summary = summarize(jobs);

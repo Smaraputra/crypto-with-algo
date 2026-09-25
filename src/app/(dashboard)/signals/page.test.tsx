@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 const mockMutate = vi.fn();
@@ -25,12 +25,6 @@ vi.mock('@/hooks/useSignals', () => ({
     isLoading: false,
   }),
   useLatestSignalForStyle: () => ({ data: null, isLoading: false }),
-  useComputeGlobalSignal: () => ({
-    mutate: mockMutate,
-    isPending: false,
-    isError: false,
-    error: null,
-  }),
 }));
 
 vi.mock('@/hooks/useFutures', () => ({
@@ -133,19 +127,12 @@ describe('SignalsPage', () => {
     expect(screen.getByTestId('interval-select')).toBeInTheDocument();
   });
 
-  it('renders compute button', () => {
+  it('offers no way to score on demand', () => {
+    // "Compute Now" wrote a GlobalSignal from a browser click, which put a row
+    // into the same live record the configVersion evidence is read from, at a
+    // time no cron fired. Scoring belongs to the scheduler alone.
     render(<SignalsPage />);
-    expect(screen.getByTestId('compute-button')).toHaveTextContent('Compute Now');
-  });
-
-  it('calls computeMutation.mutate with tradingStyle on compute click', () => {
-    render(<SignalsPage />);
-    fireEvent.click(screen.getByTestId('compute-button'));
-    expect(mockMutate).toHaveBeenCalledWith({
-      symbol: 'BTCUSDT',
-      interval: '15m',
-      tradingStyle: 'day_trading',
-    });
+    expect(screen.queryByTestId('compute-button')).not.toBeInTheDocument();
   });
 
   it('renders auto-update status', () => {

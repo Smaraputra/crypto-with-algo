@@ -3,7 +3,26 @@ import mongoose, { Schema, type Document } from 'mongoose';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { SIGNAL_TIERS } from '@/types/signal';
 import { MARKET_SESSIONS, type MarketSession } from '@/lib/sessions';
-import type { ISignalComponent } from '@/lib/models/signal';
+
+/**
+ * One scored category on a stored signal.
+ *
+ * This lived in `models/signal.ts` beside the legacy per-user `Signal` model.
+ * That model was retired with the per-user scorer; the shape stayed, because
+ * it is what `signalComponentSchema` below persists.
+ */
+export interface ISignalComponent {
+  category: string;
+  score: number;
+  weight: number;
+  weightedScore: number;
+  signals: Array<{
+    name: string;
+    direction: string;
+    strength: number;
+    description: string;
+  }>;
+}
 
 export interface IGlobalSignal extends Document {
   symbol: string;

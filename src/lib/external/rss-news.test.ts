@@ -117,6 +117,49 @@ describe('dedupeAndSort', () => {
     expect(etfStories[0].source).toBe('Cointelegraph');
   });
 
+  it('collapses one press release rewritten by several outlets', () => {
+    // The measured case: one Solana press release supplied 4 of SOL's 7
+    // articles and was the whole reason its score sat at 0.129, just under the
+    // 0.15 gate. Each outlet gives it its own URL, so a URL-keyed dedupe sees
+    // four independent stories and `count` reads four.
+    const base = {
+      url: '',
+      body: '',
+      categories: '',
+      publishedOn: 1_700_000_000,
+      imageUrl: null,
+    };
+    const items = [
+      { ...base, id: 'a', source: 'CoinDesk', title: 'Solana Foundation announces Firedancer mainnet rollout' },
+      { ...base, id: 'b', source: 'Decrypt', title: 'Solana Foundation Announces Firedancer Mainnet Rollout' },
+      { ...base, id: 'c', source: 'Cointelegraph', title: 'Solana foundation announces the Firedancer mainnet rollout' },
+      { ...base, id: 'd', source: 'TheBlock', title: 'Bitcoin ETF inflows hit a record' },
+    ];
+
+    const result = dedupeAndSort(items);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((item) => item.source)).toContain('CoinDesk');
+    expect(result.map((item) => item.source)).toContain('TheBlock');
+  });
+
+  it('keeps stories that merely share a subject', () => {
+    const base = {
+      url: '',
+      body: '',
+      categories: '',
+      publishedOn: 1_700_000_000,
+      imageUrl: null,
+    };
+
+    const result = dedupeAndSort([
+      { ...base, id: 'a', source: 'CoinDesk', title: 'Bitcoin climbs above 70,000 dollars' },
+      { ...base, id: 'b', source: 'Decrypt', title: 'Bitcoin miners report record hashrate' },
+    ]);
+
+    expect(result).toHaveLength(2);
+  });
+
   it('orders newest first', () => {
     const result = dedupeAndSort([
       ...parseFeed(cointelegraphRss, 'Cointelegraph'),

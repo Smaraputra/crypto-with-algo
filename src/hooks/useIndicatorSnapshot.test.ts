@@ -6,9 +6,10 @@ vi.mock('@/lib/fetch-json', () => ({
 }));
 
 import { fetchJson } from '@/lib/fetch-json';
-import { useIndicatorSnapshot, buildSnapshot } from './useIndicatorSnapshot';
+import { useIndicatorSnapshot } from './useIndicatorSnapshot';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
+import type { IndicatorSnapshot } from '@/types/indicator-snapshot';
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -23,119 +24,82 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-const mockSignalComponents = [
-  {
-    category: 'momentum',
-    score: 60,
-    weight: 0.25,
-    weightedScore: 15,
-    signals: [
-      { name: 'RSI', direction: 'bullish', strength: 62, description: 'RSI at 62' },
-      { name: 'Stochastic RSI', direction: 'bullish', strength: 75, description: 'StochRSI K at 75' },
-      { name: 'Williams %R', direction: 'bearish', strength: 25, description: 'Williams %R at -25' },
-      { name: 'MFI', direction: 'bullish', strength: 60, description: 'MFI at 60' },
-    ],
-  },
-  {
-    category: 'trend',
-    score: 45,
-    weight: 0.25,
-    weightedScore: 11.25,
-    signals: [
-      { name: 'EMA Cross', direction: 'bullish', strength: 70, description: 'EMA12 above EMA26' },
-      { name: 'SuperTrend', direction: 'bullish', strength: 80, description: 'SuperTrend bullish' },
-    ],
-  },
-  {
-    category: 'volatility',
-    score: 30,
-    weight: 0.1,
-    weightedScore: 3,
-    signals: [
-      { name: 'ATR', direction: 'neutral', strength: 50, description: 'ATR at 500' },
-    ],
-  },
-];
-
-describe('buildSnapshot', () => {
-  it('extracts RSI from momentum signals', () => {
-    const snapshot = buildSnapshot(mockSignalComponents);
-    expect(snapshot.rsi).toBe(62);
-  });
-
-  it('extracts StochRSI from momentum signals', () => {
-    const snapshot = buildSnapshot(mockSignalComponents);
-    expect(snapshot.stochRsiK).toBe(75);
-  });
-
-  it('extracts Williams %R', () => {
-    const snapshot = buildSnapshot(mockSignalComponents);
-    expect(snapshot.williamsR).toBe(-25);
-  });
-
-  it('extracts MFI', () => {
-    const snapshot = buildSnapshot(mockSignalComponents);
-    expect(snapshot.mfi).toBe(60);
-  });
-
-  it('extracts ATR', () => {
-    const snapshot = buildSnapshot(mockSignalComponents);
-    expect(snapshot.atr).toBe(500);
-  });
-
-  it('extracts SuperTrend direction', () => {
-    const snapshot = buildSnapshot(mockSignalComponents);
-    expect(snapshot.superTrendDirection).toBe('up');
-  });
-
-  it('returns null for missing indicators', () => {
-    const snapshot = buildSnapshot(mockSignalComponents);
-    expect(snapshot.obv).toBeNull();
-    expect(snapshot.bollingerUpper).toBeNull();
-    expect(snapshot.ema12).toBeNull();
-  });
-
-  it('handles empty components', () => {
-    const snapshot = buildSnapshot([]);
-    expect(snapshot.rsi).toBeNull();
-    expect(snapshot.macdLine).toBeNull();
-  });
-});
+const snapshot = {
+  rsi: 62.4,
+  macdLine: 12.5,
+  macdSignal: 10.2,
+  macdHistogram: 2.3,
+  bollingerUpper: 105,
+  bollingerMiddle: 100,
+  bollingerLower: 95,
+  ema12: 101,
+  ema26: 99,
+  sma50: 98,
+  sma200: 90,
+  atr: 1.75,
+  stochRsiK: 75,
+  stochRsiD: 70,
+  williamsR: -25,
+  obv: 123456,
+  mfi: 60,
+  superTrendDirection: 'up',
+  fearGreedIndex: 61,
+  fearGreedLabel: 'Greed',
+} satisfies IndicatorSnapshot;
 
 describe('useIndicatorSnapshot', () => {
-  it('fetches snapshot for a symbol', async () => {
+  it('asks for the interval it was given', async () => {
+    // The old implementation took this argument and dropped it, reading
+    // whichever interval the legacy per-user scorer had last written.
     vi.mocked(fetchJson).mockResolvedValue({
-      signals: [
-        {
-          _id: 's1',
-          symbol: 'BTCUSDT',
-          interval: '1h',
-          score: 45,
-          tier: 'buy',
-          confidence: 85,
-          components: mockSignalComponents,
-        },
-      ],
+      snapshot,
+      symbol: 'BTCUSDT',
+      interval: '15m',
+      candleTimestamp: 1700000000000,
     });
 
-    const { result } = renderHook(() => useIndicatorSnapshot('BTCUSDT'), {
+    const { result } = renderHook(() => useIndicatorSnapshot('BTCUSDT', '15m'), {
       wrapper: createWrapper(),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(fetchJson).toHaveBeenCalledWith('/api/signals?symbol=BTCUSDT&limit=1');
-    expect(result.current.data?.rsi).toBe(62);
+    expect(fetchJson).toHaveBeenCalledWith(
+      '/api/indicators/snapshot?symbol=BTCUSDT&interval=15m'
+    );
   });
 
-  it('returns null when no signals found', async () => {
-    vi.mocked(fetchJson).mockResolvedValue({ signals: [] });
+  it('defaults to 1h, matching the journal form', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({
+      snapshot,
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      candleTimestamp: 1700000000000,
+    });
 
     const { result } = renderHook(() => useIndicatorSnapshot('BTCUSDT'), {
       wrapper: createWrapper(),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toBeNull();
+    expect(fetchJson).toHaveBeenCalledWith(
+      '/api/indicators/snapshot?symbol=BTCUSDT&interval=1h'
+    );
+  });
+
+  it('returns the reading as the server computed it, with no client-side parsing', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({
+      snapshot,
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      candleTimestamp: 1700000000000,
+    });
+
+    const { result } = renderHook(() => useIndicatorSnapshot('BTCUSDT'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(snapshot);
   });
 
   it('does not fetch when symbol is null', () => {

@@ -357,10 +357,15 @@ export interface SnapshotPatch {
  * 1h and nothing before 2026-03-03. The archive's 5m metrics reach back to 2021.
  *
  * A snapshot stamped T is read by `buildSnapshotSeries` for bars whose open is
- * at or after T, so the value stored at T must be knowable at T: the rule here
- * is the last metrics row at or before the bar's own open time, never a later
- * one. That is one notch stricter than live ingestion, where the cron runs at
- * :15 and stamps the reading back to the hour it floors into.
+ * at or after T + interval, so the value stored at T must be knowable by then.
+ * The rule here is stricter still: the last metrics row at or before the bar's
+ * own open time, never a later one, which keeps the backfilled value causal
+ * under either join. Live ingestion is the loose case the reader now corrects
+ * for -- the cron runs through the interval and stamps its reading back to the
+ * boundary it floors into, so a row stamped T can hold data captured at
+ * T + 45min. The consequence of the reader's rule is that these backfilled
+ * fields are now read one bar later than they strictly need to be: stale by
+ * one bar rather than wrong by three quarters of one.
  *
  * `longShortRatio.ratio` takes the TOP TRADER POSITION ratio
  * (`sum_toptrader_long_short_ratio`), not the global account ratio, because
