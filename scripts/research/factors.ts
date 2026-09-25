@@ -136,6 +136,52 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
   'htf',
 ];
 
+/**
+ * PRE-REGISTRATION, 2026-09-25, for the three book-depth columns added below.
+ * Written before any measurement; the results go in factor-ic.ts's header.
+ *
+ * All three come from `depthNotional1` and `depthNotional5`, which
+ * `export-dataset.ts` has always written into `MetricsRow` and which no factor
+ * has ever read. They need no ingestion and no re-export.
+ *
+ * MEASURED AT 5m AND 15m FIRST, not at 4h. Recovering per-trade dispersion from
+ * the recorded bootstrap CIs puts the statistical bar at about 0.010% at 5m
+ * against 0.450% at 4h, so a 4h reading cannot be proven at the sample on hand
+ * even if the effect is real. At lag 1, per the standing ruling.
+ *
+ * SURVIVOR RULE, FIXED NOW: the existing rule (|ic| >= 0.02, two or more
+ * horizons, 60% quarter agreement, 70% symbol agreement) with |t| raised from
+ * 2.5 to 3.15, and Benjamini-Hochberg FDR at 0.10 across the phase's cells.
+ * 3.15 is the empirically calibrated value: |t| > 2.5 fires on 4.0% to 4.5% of
+ * zero-edge trials for a persistent factor against a nominal 1.24%, and at 3.15
+ * no existing survivor is lost.
+ *
+ * PREDICTED SIGNS:
+ *
+ * - `raw.depthFlow1`: POSITIVE, and this is the only one with a real prior.
+ *   Order-flow imbalance is continuation-shaped in the literature: price
+ *   follows flow. That is the OPPOSITE sign to `raw.depthImbalance1`, which
+ *   this program measured as contrarian at 4h and 1d (lag 1: 4h h16 -0.0408
+ *   t -5.8, 1d h8-32). Level crowded means fade; flow means follow. The sign
+ *   contrast is the test, and a negative flow IC would mean the two columns are
+ *   measuring the same thing and this adds nothing.
+ *   It also matters for execution: Stage 0 established that a passive entry on
+ *   a mean-reversion signal is adversely selected, so only a
+ *   continuation-shaped signal can use the 0.04% maker cost bar at all.
+ *
+ * - `raw.depthNotional1`: NO SURVIVOR EXPECTED. A liquidity level is a state
+ *   variable, not a direction. If it survives as a direct factor it is more
+ *   likely proxying market regime or a symbol's size than predicting returns,
+ *   and it should be treated as a conditioner rather than a signal.
+ *
+ * - `raw.depthSlope`: NO SURVIVOR EXPECTED, same reasoning. A book that thickens
+ *   away from the touch implies higher impact per unit size, which is an
+ *   execution cost input rather than a forecast.
+ *
+ * Recording two predicted non-survivors matters as much as the one predicted
+ * survivor: if all three clear the rule, the likeliest explanation is that the
+ * rule is too loose for this input, not that three independent edges appeared.
+ */
 const RAW_NAMES = [
   'raw.rsi',
   'raw.emaSpreadPct',
@@ -163,6 +209,9 @@ const RAW_NAMES = [
   'raw.perpSpotSpreadPct',
   'raw.depthImbalance1',
   'raw.depthImbalance5',
+  'raw.depthNotional1',
+  'raw.depthSlope',
+  'raw.depthFlow1',
 ] as const;
 
 /**
@@ -253,6 +302,34 @@ function logChange(series: Float64Array, bar: number, lookback: number): number 
   const then = series[bar - lookback];
   if (!Number.isFinite(now) || !Number.isFinite(then) || now <= 0 || then <= 0) return NaN;
   return Math.log(now / then);
+}
+
+/**
+ * Change in signed book depth over one bar, scaled by current depth.
+ *
+ * The banded analogue of order-flow imbalance (Cont, Kukanov and Stoikov 2014),
+ * whose result is that price changes are approximately linear in flow scaled by
+ * depth. True OFI needs best-quote updates, which do not exist for UM futures
+ * (`bookTicker` serves no files), so this is explicitly a banded proxy.
+ *
+ * No reconstruction of each side is needed. With `N` the notional on both sides
+ * and `I` the imbalance, `bid - ask = N * I` identically, so
+ * `(B_t - B_{t-1}) - (A_t - A_{t-1})` collapses to `N_t*I_t - N_{t-1}*I_{t-1}`.
+ *
+ * One documented approximation: `depthNotional1` and `depthImbalance1` are each
+ * a mean over the 5m slot's snapshots, so their product is not the mean of the
+ * product unless the sum and the ratio are uncorrelated within the slot.
+ * `depthSamples` records the snapshot count if that ever needs auditing.
+ */
+function depthFlow(signed: Float64Array, notional: Float64Array, bar: number): number {
+  if (bar < 1) return NaN;
+  const now = signed[bar];
+  const then = signed[bar - 1];
+  const scale = notional[bar];
+  if (!Number.isFinite(now) || !Number.isFinite(then) || !Number.isFinite(scale) || scale <= 0) {
+    return NaN;
+  }
+  return (now - then) / scale;
 }
 
 /** -1, 0 or 1; NaN propagates so a missing input never reads as "no divergence". */
@@ -421,6 +498,23 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     }
   }
 
+  // Book depth per bar, needed as series before a change can be taken. `signed`
+  // is bid minus ask, which is the notional times the imbalance.
+  const depthNotionalSeries = new Float64Array(n).fill(NaN);
+  const signedDepthSeries = new Float64Array(n).fill(NaN);
+  if (alignedMetrics) {
+    for (let bar = 0; bar < n; bar++) {
+      const notional = alignedMetrics[bar]?.depthNotional1;
+      const imbalance = alignedMetrics[bar]?.depthImbalance1;
+      if (typeof notional === 'number' && Number.isFinite(notional)) {
+        depthNotionalSeries[bar] = notional;
+        if (typeof imbalance === 'number' && Number.isFinite(imbalance)) {
+          signedDepthSeries[bar] = notional * imbalance;
+        }
+      }
+    }
+  }
+
   const fundingSeries = new Float64Array(n).fill(NaN);
   for (let bar = warmupBars; bar < n; bar++) {
     fundingSeries[bar] = alignedSnapshots?.[bar]?.futures?.fundingRate?.fundingRate ?? NaN;
@@ -496,6 +590,24 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     values[rawIdx.get('raw.globalAccountRatio')!][bar] = metric?.globalAccountRatio ?? NaN;
     values[rawIdx.get('raw.depthImbalance1')!][bar] = metric?.depthImbalance1 ?? NaN;
     values[rawIdx.get('raw.depthImbalance5')!][bar] = metric?.depthImbalance5 ?? NaN;
+    values[rawIdx.get('raw.depthNotional1')!][bar] = metric?.depthNotional1 ?? NaN;
+    // How much thicker the book is out at 5% than at 1%: where liquidity sits
+    // is a direct expected-slippage reading, and nothing else here measures it.
+    const notional1 = metric?.depthNotional1;
+    const notional5 = metric?.depthNotional5;
+    values[rawIdx.get('raw.depthSlope')!][bar] =
+      typeof notional1 === 'number' &&
+      typeof notional5 === 'number' &&
+      Number.isFinite(notional1) &&
+      Number.isFinite(notional5) &&
+      notional1 > 0
+        ? (notional5 - notional1) / notional1
+        : NaN;
+    values[rawIdx.get('raw.depthFlow1')!][bar] = depthFlow(
+      signedDepthSeries,
+      depthNotionalSeries,
+      bar
+    );
 
     values[rawIdx.get('raw.fundingZ')!][bar] = fundingZ[bar];
 

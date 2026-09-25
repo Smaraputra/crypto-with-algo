@@ -375,3 +375,80 @@ describe('no lookahead across every archive factor', () => {
     }
   });
 });
+
+describe('book depth level, shape and flow', () => {
+  // A 5m grid carrying notional on BOTH bands, which the existing fixture
+  // leaves null. Bar b picks up slot 12b+11, the last reading at or before its
+  // close, the same alignment the open-interest test relies on.
+  const slotOf = (bar: number) => 12 * bar + 11;
+  const notional1 = (i: number) => 1_000_000 + i * 1_000;
+  const notional5 = (i: number) => 4_000_000 + i * 2_000;
+  const imbalance1 = (i: number) => -0.2 + (i % 4) / 10;
+
+  const depthMetrics: MetricsRow[] = Array.from({ length: BAR_COUNT * 12 }, (_, i) =>
+    metricsRow(START + i * SLOT_MS, {
+      depthImbalance1: imbalance1(i),
+      depthNotional1: notional1(i),
+      depthNotional5: notional5(i),
+    })
+  );
+
+  const matrix = build({ metrics: depthMetrics });
+
+  it('adds the three columns under the raw category', () => {
+    for (const name of ['raw.depthNotional1', 'raw.depthSlope', 'raw.depthFlow1']) {
+      const index = matrix.names.indexOf(name);
+      expect(index, `factor ${name} is missing`).toBeGreaterThanOrEqual(0);
+      expect(matrix.categories[index]).toBe('raw');
+    }
+  });
+
+  it('reads the notional level from the aligned slot', () => {
+    const bar = matrix.warmupBars + 20;
+    expect(column(matrix, 'raw.depthNotional1')[bar]).toBeCloseTo(notional1(slotOf(bar)), 6);
+  });
+
+  it('measures book shape as the 5 percent band relative to the 1 percent band', () => {
+    const bar = matrix.warmupBars + 20;
+    const i = slotOf(bar);
+    expect(column(matrix, 'raw.depthSlope')[bar]).toBeCloseTo(
+      (notional5(i) - notional1(i)) / notional1(i),
+      12
+    );
+  });
+
+  it('measures flow as the change in signed depth, scaled by current depth', () => {
+    // B - A = N * I identically, so the order-flow imbalance
+    // (B_t - B_{t-1}) - (A_t - A_{t-1}) collapses to N_t*I_t - N_{t-1}*I_{t-1}
+    // and needs no separate reconstruction of each side.
+    const bar = matrix.warmupBars + 20;
+    const i = slotOf(bar);
+    const prev = slotOf(bar - 1);
+    const expected =
+      (notional1(i) * imbalance1(i) - notional1(prev) * imbalance1(prev)) / notional1(i);
+    expect(column(matrix, 'raw.depthFlow1')[bar]).toBeCloseTo(expected, 12);
+  });
+
+  it('is NaN, never zero, when a band is missing', () => {
+    const noNotional = build({
+      metrics: Array.from({ length: BAR_COUNT * 12 }, (_, i) =>
+        metricsRow(START + i * SLOT_MS, { depthImbalance1: imbalance1(i) })
+      ),
+    });
+    const bar = noNotional.warmupBars + 20;
+    expect(column(noNotional, 'raw.depthNotional1')[bar]).toBeNaN();
+    expect(column(noNotional, 'raw.depthSlope')[bar]).toBeNaN();
+    expect(column(noNotional, 'raw.depthFlow1')[bar]).toBeNaN();
+  });
+
+  it('leaves flow NaN when the previous bar has no reading, rather than treating it as zero', () => {
+    const gapped = depthMetrics.filter(
+      (row) => row.t < START + slotOf(BAR_COUNT - 6) * SLOT_MS - 11 * SLOT_MS ||
+               row.t > START + slotOf(BAR_COUNT - 6) * SLOT_MS
+    );
+    const matrixGapped = build({ metrics: gapped });
+    const flow = column(matrixGapped, 'raw.depthFlow1');
+    // The bar after the removed slot span has no previous reading to difference.
+    expect(flow[BAR_COUNT - 6]).toBeNaN();
+  });
+});
