@@ -383,7 +383,9 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
-        // v6: indicator strength scales made scale-free. MACD's magnitude was
+        // v6: indicator strength scales made scale-free, AND the tier cutoffs
+        // re-derived from the distribution that produced (29/37, exit 7.25).
+        // MACD's magnitude was
         // `|histogram| * 1000` with the histogram in ABSOLUTE PRICE UNITS, so at
         // 1h it saturated at 100 on 99.9% of BTCUSDT bars and read below 5 on
         // 99.9% of DOGEUSDT bars -- momentum, the top-weighted category for

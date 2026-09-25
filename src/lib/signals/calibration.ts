@@ -130,45 +130,57 @@
  *
  * ---
  *
- * THE CUTOFFS BELOW ARE NOT YET RE-MEASURED FOR configVersion 6, AND THAT IS
- * THE BLOCKER ON DEPLOYING IT.
+ * RE-MEASURED FOR configVersion 6, 2026-09-25. CUTOFFS ARE NOW 29 AND 37.
  *
  * v6 made three indicator strength scales scale-free (`interpretMACD`,
- * `interpretEMACross`, `interpretTakerFlow`), which moves the score
- * distribution again. The point of v6 is cross-SYMBOL comparability, and that
- * part is measured: on the local export at 1h, the share of bars above the buy
- * cutoff was BTC 18.30% / XRP 10.22% / DOGE 10.89% before and BTC 14.36% /
- * XRP 13.18% / DOGE 13.42% after, and the strong-tier ratio between BTC and XRP
- * fell from 2.47x to 1.04x. p98 now agrees across those symbols to within 0.07
- * of a point, where it spanned 2.4 points before. The tier finally means the
- * same thing for a cheap coin as for an expensive one.
+ * `interpretEMACross`, `interpretTakerFlow`), which moves the distribution, so
+ * these had to be re-derived. Measured on export `e705b347`, a fresh export of
+ * production taken 2026-09-25, with the lockbox applied.
  *
- * What is NOT yet settled is the level. On that same export the post-change
- * pooled p90 sits near 31.4 to 31.9 and p98 near 36.9, against cutoffs of 30
- * and 38, so the shares land around 13% to 14% above buy and 1.2% to 1.3% above
- * strong -- a little rich at the buy tier and a little thin at the strong tier
- * versus the 10% / 2% these constants are meant to mark. The indicated
- * direction is buy UP slightly and strong DOWN slightly, but that reading comes
- * from the OLD `3fdeac9e` export, not from `e84cd66dbe01`, which is the one the
- * 30/38 table above was measured on and the only one a like-for-like comparison
- * can use. Re-run `scripts/research/score-percentiles.ts` on the archive export
- * before deploying v6, and set the constants from that.
+ * WHY THAT EXPORT IS COMPARABLE WITH THE 30/38 TABLE ABOVE, which was measured
+ * on `e84cd66dbe01`: running the UNCHANGED v5 scorer over it reproduces that
+ * table exactly, at every interval, in bar count as well as percentile. The
+ * post-2026-07-01 rows the newer export also carries are dropped by the
+ * lockbox, so for measurement purposes the two exports are the same data. That
+ * control is what makes the comparison below attributable to the scorer rather
+ * than to the export.
  *
- * Until then v6 is correct about shape and unverified about level, which is why
- * it is not deployable as it stands: changing the distribution without
- * re-deriving these two numbers leaves every live tier miscalibrated.
- */
+ *   interval / style         bars      |score| p90   |score| p98
+ *   5m  scalping           808,517     28.7 -> 27.3   38.8 -> 36.6
+ *   15m day_trading        320,847     30.3 -> 30.3   38.3 -> 37.3
+ *   1h  day_trading        411,013     32.4 -> 32.2   39.5 -> 38.4
+ *   4h  swing_trading      152,048     31.6 -> 28.9   40.2 -> 36.4
+ *   1d  position_trading    21,687     31.3 -> 26.3   42.0 -> 36.7
+ *
+ * The v6 bands are p90 26.3 to 32.2 and p98 36.4 to 38.4, means 29.0 and 37.1.
+ * 29 and 37 are those means rounded, both inside their band, which is the same
+ * rule 30 and 38 were set by. They restore the selectivity these constants
+ * document -- the most decisive tenth and the top fiftieth -- which 30 and 38
+ * no longer marked once the distribution moved: at 30 the share ran 6.3% to
+ * 14.6% and at 38 it ran 1.3% to 2.3%, so the strong tier had drifted to
+ * roughly the top sixty-fifth.
+ *
+ * NOTE THE TIGHTENING, which is the point of v6 rather than a side effect. The
+ * p98 band narrowed from 3.7 points wide (38.3 to 42.0) to 2.0 (36.4 to 38.4),
+ * and the same holds across SYMBOLS, which is what the fix was for: at 1h the
+ * share above the buy cutoff ran BTC 18.30% / XRP 10.22% / DOGE 10.89% before
+ * and BTC 14.36% / XRP 13.18% / DOGE 13.42% after, with the BTC-to-XRP
+ * strong-tier ratio falling from 2.47x to 1.04x. One cutoff pair can only mean
+ * one thing if the distribution beneath it is the same shape everywhere.
+ *
+ * Re-measure with `scripts/research/score-percentiles.ts` on a fresh export
+ * whenever the scorer changes, and always run the unchanged scorer over the new
+ * export first as a control. Never tune these on PnL. */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
-export const TIER_BUY_CUTOFF = 30;
+export const TIER_BUY_CUTOFF = 29;
 
 /** |score| above this is a strong buy or strong sell: roughly the top 2%. */
-export const TIER_STRONG_CUTOFF = 38;
+export const TIER_STRONG_CUTOFF = 37;
 
 /**
  * A position opened on a buy signal closes once the score falls back to a
  * quarter of the entry level, the same exit-to-entry ratio the previous
- * defaults used. Moved with TIER_BUY_CUTOFF (24 -> 30) to hold that ratio, and
- * must move with it again when v6's cutoffs are set.
+ * defaults used. Moves with TIER_BUY_CUTOFF to hold that ratio: 24 -> 30 -> 29.
  */
-export const STRATEGY_EXIT_LEVEL = 7.5;
+export const STRATEGY_EXIT_LEVEL = 7.25;
