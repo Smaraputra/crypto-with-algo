@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (signals): three indicator strength scales that measured the asset, not the market
+- **MACD strength was a function of nominal price.** `interpretMACD` used `min(100, |histogram| * 1000)`, and the MACD histogram is a difference of two EMAs of price, so it is denominated in the symbol's own price units (`computeMACD` passes `SimpleMAOscillator: false`, so it is `EMA - EMA` of raw closes, not a ratio). Measured at 1h over 41,102 bars per symbol, median strength was **100.0 for BTCUSDT (saturated on 99.9% of bars) and 0.2 for DOGEUSDT (below 5 on 99.9% of bars)**. Momentum is the highest-weighted category for scalping (0.34) and day trading (0.255), so for expensive assets it contributed maximum conviction on essentially every bar and for cheap ones nothing at all
+
+| symbol | median price | median MACD strength | share saturated at 100 | share below 5 |
+| --- | ---: | ---: | ---: | ---: |
+| BTCUSDT | 58,622 | 100.0 | 99.9% | 0.0% |
+| ETHUSDT | 2,379 | 100.0 | 97.6% | 0.1% |
+| SOLUSDT | 103 | 100.0 | 58.6% | 3.1% |
+| LINKUSDT | 12.75 | 18.9 | 5.4% | 16.3% |
+| XRPUSDT | 0.62 | 0.9 | 0.0% | 88.3% |
+| DOGEUSDT | 0.11 | 0.2 | 0.0% | 99.9% |
+
+- **That reached the tiers users see.** With global cutoffs, the share of bars above the buy cutoff at 1h ran **18.30% for BTC against 10.22% for XRP**, and above the strong cutoff **2.92% against 1.18%**, monotone in nominal price. A user watching BTC got roughly 80% more buy signals and 2.5x more strong signals than one watching XRP, for no market reason
+- **`interpretEMACross` had the same defect across INTERVALS.** The spread is already a percentage, so it is scale-free across symbols, but its dispersion is not scale-free across intervals: measured over six symbols the pooled median `|spread|` runs **0.080% at 5m to 13.388% at 1d, a range of 167x**, so the fixed `* 20` gave a median strength of **1.7 at 5m and a saturated 100.0 at 1d**. The same input carried almost no opinion at one interval and maximum conviction at another
+- **`interpretTakerFlow`'s fixed 0.55/0.45 band was wrong in two independent ways.** It was miscentred: across ten symbols the ratio's median is **0.492 to 0.495, never 0.5**, so a symmetric band fired bearish more often than bullish at every interval. And it was interval-blind: it caught **77.9% of 5m bars (55% of them pinned at the strength cap) against 6.3% of 1d bars**
+- **All three now divide by the quantity's own trailing magnitude**, which is the same fix `interpretOBV` already used against the same class of defect. The divisor was chosen by measurement, not assertion. Normalised by a trailing mean, the pooled median holds within **1.10x** across all four intervals; percent-of-price leaves a 52x interval range and ATR multiples 1.9x (MACD) to 5.8x (EMA), so neither would have worked with one constant
+
+| normalisation | pooled median at 5m / 1h / 4h / 1d | cross-interval range |
+| --- | --- | ---: |
+| `\|hist\| / close * 100` | 0.023 / 0.138 / 0.321 / 1.190 | 52x |
+| `\|hist\| / ATR14` | 0.101 / 0.139 / 0.137 / 0.194 | 1.9x |
+| `\|hist\| / trailing mean \|hist\|` | 0.858 / 0.897 / 0.883 / 0.941 | **1.10x** |
+
+- **The measured result is cross-symbol comparability.** On the same export at 1h, the share above the buy cutoff moved from BTC 18.30% / XRP 10.22% / DOGE 10.89% to **BTC 14.36% / XRP 13.18% / DOGE 13.42%**, and the strong-tier ratio between BTC and XRP fell from **2.47x to 1.04x**. p98 now agrees across those symbols to within **0.07 of a point**, where it spanned 2.4 points before
+- `computeEmaSpreadPct` carries the aligned per-bar spread on the raw set so neither interpret path has to align two EMA arrays of different warmup length itself, and `computeTakerBuyRatioZ` is shared by both paths so they cannot drift. Both take an explicit end index rather than a pre-sliced array, for the two reasons `interpretOBV` already documents: reading past the evaluated bar is lookahead (`no-lookahead.test.ts` enforces it), and slicing per bar is the O(n^2) allocation that exhausted a 4 GB heap on the 808k-bar 5m series
+- **This is a known semantic change, not only a rescaling.** A self-normalised reading responds to a move away from recent behaviour rather than to a sustained level, so a long one-directional trend now reads near its own average instead of saturating. It is why the `strategy-families-limit` fixture had to change: a single-drift walk produced **zero** threshold crossings in its second out-of-sample window at any drift, noise level or seed, and had been crossing only because the old multipliers saturated on it. On real data this is not a scarcity problem, since 13% to 14% of bars still clear the buy cutoff
+
+### Changed (signals): `GlobalSignal.configVersion` is 6
+- v5 and v6 scores are not comparable and tier-conditioned statistics must not be pooled across them. `SignalOutcome` carries the version through, so filter on it rather than on a date
+- **The tier cutoffs are deliberately NOT changed in this commit, and that is the blocker on deploying it.** v6 is measured correct about shape and unverified about level: on the old `3fdeac9e` export the post-change pooled p90 sits near 31.4 to 31.9 and p98 near 36.9 against cutoffs of 30 and 38, indicating buy slightly up and strong slightly down, but the 30/38 table was measured on `e84cd66dbe01` and only that export supports a like-for-like comparison. `scripts/research/score-percentiles.ts` must be re-run on the archive export and the constants set from it before v6 deploys. Recorded in `src/lib/signals/calibration.ts`
+
+### Fixed (tests): two guards that were passing on luck rather than on the property they name
+- **`random-entry-benchmark`'s trade-count guard is now one-sided.** It exists to catch the old UNDER-counting bug, but asserted a two-sided 10% bound against a reference of 6 trades, where a single trade of difference is 17%. It held only because the average happened to be 5.9. Separately, and independently of any scorer change, the benchmark **over-generates** once the reference has more than a handful of trades: measured 1.12x at 5 reference trades, 1.29x at 8, 1.32x at 10, and **1.15x on a 1200-bar series with the scorer reverted to main**. That over-count is a pre-existing property of the benchmark, which is the null behind the research `timing` gate, and is worth measuring on its own
+- **The benchmark's p-value calibration guard needed a sample.** At 600 bars the reference carries 5 trades and the p-value cannot resolve anything: measured 0.020, 0.055, 0.582, 0.970 and 0.572 across its five seeds, so a **random** reference scored a false positive at the 0.05 level. That is the sample size, not the null, since the research gates apply this benchmark to runs with thousands of trades. Raised to 1200 bars, where the assertion means something
+- The golden backtest fixture was regenerated for the third time, values-only and small: the same single trade, the same entry at bar 303, the same `buy` tier and the same 401 equity points, with the signal exit two bars earlier (324 to 322)
+- 14 new tests: MACD scale invariance across a four-order-of-magnitude price range, EMA Cross volatility invariance and non-saturation, and taker flow abstaining at a steady level however far from 0.5 while firing on a break that the old fixed band called indifferent
+- Stale comments corrected: `score-percentiles.ts` cited cutoffs of 24 and 30, `strategy-families.ts` cited a `STRATEGY_EXIT_LEVEL` of 6. The live values are 30, 38 and 7.5
+
+
 ### Fixed (journal): a P&L the user was shown, then silently discarded
 - **`hold` is the default action on the `/signals` form** (`EnhancedJournalForm.tsx:66`), and the chain from there lost data on the most-travelled path. `JournalEntryDetail.tsx:98` computed `isOpenTrade` from the prices alone with no action check, so a `hold` carrying a reference entry price got a "Close Trade" button. `CloseTradeDialog.tsx:42-47` then computed and displayed a P&L preview for any action that is not `sell`. The PATCH route (`[id]/route.ts:75-83`) computes `outcomePnlPercent` **only** for `buy`/`sell`, so the number the user had just been shown was thrown away on submit
 - It then became permanent: `analytics/route.ts` matched incomplete trades on `entryPrice != null, outcomePnlPercent: null` with **no `exitPrice` condition**, so the entry counted as incomplete forever and the banner *"N trades without P&L data. Close open trades with an exit price."* could never be cleared by a user who had just done exactly that

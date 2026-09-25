@@ -127,6 +127,36 @@
  *   { configVersion: 4, candleTimestamp: { $lt: 1790259050000 } }   // genuine v4
  *
  * There is no equivalent gap for SignalOutcome beyond the ones these rows seed.
+ *
+ * ---
+ *
+ * THE CUTOFFS BELOW ARE NOT YET RE-MEASURED FOR configVersion 6, AND THAT IS
+ * THE BLOCKER ON DEPLOYING IT.
+ *
+ * v6 made three indicator strength scales scale-free (`interpretMACD`,
+ * `interpretEMACross`, `interpretTakerFlow`), which moves the score
+ * distribution again. The point of v6 is cross-SYMBOL comparability, and that
+ * part is measured: on the local export at 1h, the share of bars above the buy
+ * cutoff was BTC 18.30% / XRP 10.22% / DOGE 10.89% before and BTC 14.36% /
+ * XRP 13.18% / DOGE 13.42% after, and the strong-tier ratio between BTC and XRP
+ * fell from 2.47x to 1.04x. p98 now agrees across those symbols to within 0.07
+ * of a point, where it spanned 2.4 points before. The tier finally means the
+ * same thing for a cheap coin as for an expensive one.
+ *
+ * What is NOT yet settled is the level. On that same export the post-change
+ * pooled p90 sits near 31.4 to 31.9 and p98 near 36.9, against cutoffs of 30
+ * and 38, so the shares land around 13% to 14% above buy and 1.2% to 1.3% above
+ * strong -- a little rich at the buy tier and a little thin at the strong tier
+ * versus the 10% / 2% these constants are meant to mark. The indicated
+ * direction is buy UP slightly and strong DOWN slightly, but that reading comes
+ * from the OLD `3fdeac9e` export, not from `e84cd66dbe01`, which is the one the
+ * 30/38 table above was measured on and the only one a like-for-like comparison
+ * can use. Re-run `scripts/research/score-percentiles.ts` on the archive export
+ * before deploying v6, and set the constants from that.
+ *
+ * Until then v6 is correct about shape and unverified about level, which is why
+ * it is not deployable as it stands: changing the distribution without
+ * re-deriving these two numbers leaves every live tier miscalibrated.
  */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
@@ -138,6 +168,7 @@ export const TIER_STRONG_CUTOFF = 38;
 /**
  * A position opened on a buy signal closes once the score falls back to a
  * quarter of the entry level, the same exit-to-entry ratio the previous
- * defaults used. Moved with TIER_BUY_CUTOFF (24 -> 30) to hold that ratio.
+ * defaults used. Moved with TIER_BUY_CUTOFF (24 -> 30) to hold that ratio, and
+ * must move with it again when v6's cutoffs are set.
  */
 export const STRATEGY_EXIT_LEVEL = 7.5;

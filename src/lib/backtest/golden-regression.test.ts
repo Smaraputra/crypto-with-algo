@@ -19,6 +19,14 @@
 // strong_buy to buy, because its entryScore of 32.9 cleared the old strong
 // cutoff of 30 but not the new 38.
 //
+// It was regenerated a THIRD time when the trend and momentum strength scales
+// were made relative to each indicator's own recent magnitude (interpretMACD,
+// interpretEMACross) and taker flow moved to a z against its own trailing
+// window, all of which move every score by design. That pass was values-only
+// and small: the same single trade, the same entry at bar 303, the same `buy`
+// tier and the same 401 equity points, with the signal exit two bars earlier
+// (324 to 322) and pnlPercent -2.664 to -2.236 following from it.
+//
 // If this test fails, the question is whether the change was meant to move the
 // score. If not, it is a regression; the fixture is not to be regenerated to
 // make it pass.

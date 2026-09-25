@@ -105,6 +105,57 @@ const STYLE_CTX = { style: 'day_trading' as const, interval: '1h' };
 // Deterministic random walk with trend, seeded LCG (copied from
 // strategy-walk-forward.test.ts / strategy-families-phase4.test.ts's
 // generateCandles).
+/**
+ * A walk whose drift CYCLES rather than flipping once at the midpoint.
+ *
+ * The single-flip walk this file used here could no longer reach the entry
+ * threshold once the trend and momentum strengths were scaled by each
+ * indicator's own recent magnitude (`interpretEMACross`, `interpretMACD`): a
+ * sustained one-directional drift is by construction unexceptional against its
+ * own trailing window, so the second out-of-sample window -- a pure downtrend
+ * -- produced zero crossings at any drift, noise level or seed. It had been
+ * crossing only because the old fixed multipliers saturated on it.
+ *
+ * Cycling the regime is both closer to a real series and robust to future
+ * calibration: it yields ~30 crossings per out-of-sample window instead of the
+ * handful the hand-picked seed used to scrape by with. This test is about
+ * limit-order fills, not about where the tier cutoffs sit, so it should not be
+ * sensitive to them.
+ */
+function generateRegimeCycles(count: number, seed: number): OHLCV[] {
+  const candles: OHLCV[] = [];
+  let price = 100;
+  let rng = seed;
+
+  function nextRandom(): number {
+    rng = (rng * 16807 + 0) % 2147483647;
+    return rng / 2147483647;
+  }
+
+  const periodBars = 120;
+  for (let i = 0; i < count; i++) {
+    const drift = Math.sin((i / periodBars) * 2 * Math.PI) * 0.003;
+    const noise = (nextRandom() - 0.5) * 0.5;
+    price = price * (1 + drift + noise / 100);
+    const high = price * (1 + nextRandom() * 0.005);
+    const low = price * (1 - nextRandom() * 0.005);
+    const open = price * (1 + (nextRandom() - 0.5) * 0.003);
+    const volume = 1000 + nextRandom() * 5000;
+
+    candles.push({
+      timestamp: 1700000000000 + i * 3600000,
+      open,
+      high,
+      low,
+      close: price,
+      volume,
+      takerBuyVolume: volume * (0.3 + nextRandom() * 0.4),
+    });
+  }
+
+  return candles;
+}
+
 function generateCandles(count: number, seed = 123): OHLCV[] {
   const candles: OHLCV[] = [];
   let price = 100;
@@ -464,11 +515,10 @@ describe('engine integration: control-limit', () => {
   const STRESS = { feeMultiplier: 1.5, slippageMultiplier: 1.5 };
   const WINDOWS = { count: 2, trainFraction: 0.4, mode: 'anchored' as const };
   // control-limit only enters where the composite score crosses control's own
-  // calibrated thresholds (TIER_BUY_CUTOFF magnitude 24), which the default
-  // generateCandles(1200) seed rarely reaches inside either out-of-sample
-  // test window; seed 12 does (verified empirically), without changing the
-  // walk shape or drift used elsewhere in this file.
-  const randomWalk = generateCandles(1200, 12);
+  // calibrated thresholds (TIER_BUY_CUTOFF magnitude, 30), which a
+  // single-flip walk cannot reach now that trend and momentum strengths are
+  // relative to their own recent magnitude. See generateRegimeCycles.
+  const randomWalk = generateRegimeCycles(1200, 12);
 
   it('runs the full grid through runStrategyWalkForward and produces an out-of-sample trade', () => {
     const cells = expandGrid(controlLimitFamily);

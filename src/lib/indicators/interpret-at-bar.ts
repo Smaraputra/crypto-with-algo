@@ -1,4 +1,5 @@
 import type { IndicatorSignal, IndicatorSuite } from './types';
+import { computeTakerBuyRatioZ } from './compute';
 import type { RawIndicators } from './interpret';
 import type { OHLCV } from '@/types/market';
 import {
@@ -98,6 +99,9 @@ export function interpretIndicatorsAtBar(
   const sma50Val = readAtBar(raw.sma50.values, barIndex, n) ?? close;
   const sma200Val = readAtBar(raw.sma200.values, barIndex, n) ?? close;
   const rsiVal = readAtBar(raw.rsi.values, barIndex, n) ?? 50;
+  // Index into raw.macd.values for this bar, so interpretMACD measures the
+  // histogram's scale over bars at or before it and never past it.
+  const macdIdx = barIndex - (n - raw.macd.values.length);
   const macdVal = readArrayAtBar(raw.macd.values, barIndex, n) ?? {
     MACD: 0,
     signal: 0,
@@ -150,6 +154,9 @@ export function interpretIndicatorsAtBar(
     barTakerBuy !== undefined && !Number.isNaN(barTakerBuy) && currentVol > 0
       ? barTakerBuy / currentVol
       : undefined;
+  // Same helper the live path uses, so the two cannot drift; the window ends
+  // at this bar and never reads past it.
+  const takerBuyRatioZ = computeTakerBuyRatioZ(candles, barIndex);
 
   // Ichimoku at bar
   const ichimokuAtBar = raw.ichimoku
@@ -158,7 +165,13 @@ export function interpretIndicatorsAtBar(
 
   // Trend signals
   const trendSignals: IndicatorSignal[] = [
-    interpretEMACross(ema12Val, ema26Val, close),
+    interpretEMACross(
+      ema12Val,
+      ema26Val,
+      close,
+      raw.emaSpreadPct.values,
+      barIndex - (n - raw.emaSpreadPct.values.length)
+    ),
     interpretSMATrend(close, sma50Val, sma200Val),
   ];
   if (ichimokuAtBar) {
@@ -175,7 +188,7 @@ export function interpretIndicatorsAtBar(
   // Momentum signals
   const momentumSignals: IndicatorSignal[] = [
     interpretRSI(rsiVal),
-    interpretMACD(macdVal),
+    interpretMACD({ values: raw.macd.values, current: macdVal }, macdIdx),
     interpretStochasticRSI(stochVal),
     interpretWilliamsR(wrVal),
   ];
@@ -203,6 +216,7 @@ export function interpretIndicatorsAtBar(
     ratio: volSma20 > 0 ? currentVol / volSma20 : 1,
     priceChangePercent,
     ...(takerBuyRatio !== undefined ? { takerBuyRatio } : {}),
+    ...(takerBuyRatioZ !== undefined ? { takerBuyRatioZ } : {}),
   });
   if (takerFlowSignal) volumeSignals.push(takerFlowSignal);
 
@@ -228,6 +242,7 @@ export function interpretIndicatorsAtBar(
       ratio: volSma20 > 0 ? currentVol / volSma20 : 1,
       priceChangePercent,
       ...(takerBuyRatio !== undefined ? { takerBuyRatio } : {}),
+    ...(takerBuyRatioZ !== undefined ? { takerBuyRatioZ } : {}),
     },
     signals: {
       trend: trendSignals,

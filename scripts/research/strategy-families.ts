@@ -309,7 +309,7 @@ function currentAtr(suite: IndicatorSuite): number | null {
  * (ctx.score <= STRATEGY_EXIT_LEVEL); a long exits once the bearish
  * reading it faded is gone (ctx.score >= -STRATEGY_EXIT_LEVEL). False when
  * there is no position or the score is not finite.
- * STRATEGY_EXIT_LEVEL is 6 (src/lib/signals/calibration.ts).
+ * STRATEGY_EXIT_LEVEL is 7.5 (src/lib/signals/calibration.ts).
  */
 export const fadeCompositeFamily: StrategyFamily = {
   name: 'fade-composite',
