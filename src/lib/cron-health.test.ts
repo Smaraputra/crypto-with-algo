@@ -130,7 +130,7 @@ describe('summarize', () => {
   it('counts each state', () => {
     const summary = summarize([at('healthy'), at('healthy'), at('overdue'), at('failing'), at('never_ran')]);
 
-    expect(summary).toEqual({ healthy: 2, overdue: 1, failing: 1, never_ran: 1 });
+    expect(summary).toEqual({ healthy: 2, overdue: 1, failing: 1, never_ran: 1, pending: 0 });
   });
 
   it('treats an all-healthy summary as healthy and anything else as not', () => {
@@ -142,5 +142,47 @@ describe('summarize', () => {
 
   it('counts an empty list as healthy', () => {
     expect(isAllHealthy(summarize([]))).toBe(true);
+  });
+});
+
+describe('a job whose first run is not yet due', () => {
+  // Daily: expected 86400s, grace min(86400,3600)+120 = 3720, so a first run is
+  // only late past 90120s (about 25 hours).
+  const daily = { job: 'ingest-archive', schedule: '30 5 * * *', expectedEverySeconds: 86400 };
+
+  it('is pending, not never_ran, when recording began too recently for it to have fired', () => {
+    // The real case: the cron container was recreated 12 hours ago, so a daily
+    // job has had no opportunity to run and its absence says nothing.
+    const observedSince = NOW - 12 * 3600 * 1000;
+    expect(classifyJob(daily, null, NOW, observedSince).state).toBe('pending');
+  });
+
+  it('is never_ran once a full interval has passed with no run', () => {
+    const observedSince = NOW - 3 * 86400 * 1000;
+    expect(classifyJob(daily, null, NOW, observedSince).state).toBe('never_ran');
+  });
+
+  it('is pending exactly on the boundary and never_ran one second past it', () => {
+    expect(classifyJob(daily, null, NOW, NOW - 90120 * 1000).state).toBe('pending');
+    expect(classifyJob(daily, null, NOW, NOW - 90121 * 1000).state).toBe('never_ran');
+  });
+
+  it('stays never_ran when no observation start is known, so the old behaviour is the default', () => {
+    expect(classifyJob(daily, null, NOW).state).toBe('never_ran');
+  });
+
+  it('does not rescue a job that HAS run and then went stale', () => {
+    const observedSince = NOW - 60 * 1000;
+    expect(
+      classifyJob(daily, healthy({ lastSuccessAt: agoSeconds(999999) }), NOW, observedSince).state
+    ).toBe('overdue');
+  });
+
+  it('counts as healthy, because an absence that says nothing is not a fault', () => {
+    const pending = classifyJob(daily, null, NOW, NOW - 3600 * 1000);
+    const summary = summarize([pending]);
+    expect(summary.pending).toBe(1);
+    expect(summary.never_ran).toBe(0);
+    expect(isAllHealthy(summary)).toBe(true);
   });
 });

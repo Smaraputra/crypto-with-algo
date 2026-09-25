@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (ops): the archive ingest ran inside the publication window, and a not-yet-due job read as broken
+- **The two ingest crons move from 05:30 and 06:00 UTC to 10:00 and 10:30, and the time is measured rather than guessed.** On 2026-09-25 the previous day's metrics file was still a **404 at 01:34Z and a 200 by 07:48Z**, so publication lands inside that window and an 05:30 run sat in the middle of it: sometimes it caught the day, sometimes not. The observed consequence was that `futuresmetrics` and `perpcandles` habitually sat **two** days behind rather than the intended one, catching up only on the following run (they were at 2026-09-22T23:55Z and moved to 2026-09-23T23:55Z when triggered by hand). 10:00 clears the latest observed publication by over two hours, and the rationale plus the re-measurement recipe are recorded in `docker/crontab.template`
+- Both `docker/crontab.template` and the `CRON_JOBS` table move together, which `cron-jobs.test.ts` enforces as a bijection
+
+### Fixed (ops): a health check that went red for a day after every cron container recreate
+- **`/api/health/cron` returned 503 for a job that had never run, without asking whether it had yet had the chance to.** `classifyJob` already separated `never_ran` from `overdue` on the principle that an absence is not a lateness, and then `isAllHealthy` discarded the distinction. Recreating the cron container leaves a daily job with no heartbeat for up to a day, so the endpoint reported a fault where there was only a gap in observation. That is how a health check trains people to ignore it
+- **New `pending` state**, meaning has not run and has not yet had the chance to. `classifyJob` takes an optional `observedSinceMs`, and the route reads it as the **oldest heartbeat's `createdAt`**: heartbeats live in Mongo and survive a recreate, so that is the honest anchor rather than process start. The threshold is the same `expectedEverySeconds + grace` a run would have to miss to count as overdue, so the two cannot drift apart
+- Omitting `observedSinceMs` keeps the old behaviour, and a job that HAS run and then went stale is still `overdue`, never rescued. With no heartbeats at all there is no anchor, so everything reads `never_ran` as before
+- 7 new tests including the boundary (pending at exactly 90120s for a daily job, never_ran one second past it) and the real outage shape at route level: a daily job with no heartbeat while recording began an hour ago returns **200 with `pending`**, not 503
+
+
 ### Research (Stage 2, 2026-09-25): both direct predictions held, the conditioning hypothesis is falsified, and Stage 4 stays shut
 - **Measured at 5m, 1h and 4h in one pass**, so no interval was chosen after seeing another's result. Controls reproduce the recorded lag-1 table exactly at all three: `raw.ret1` h1 is -0.0231 at 5m, -0.0291 at 1h, -0.0157 at 4h
 - **`raw.varianceRatio` is not a survivor anywhere**, as pre-registered: a regime reading is not a direction

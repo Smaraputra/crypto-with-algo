@@ -68,8 +68,8 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'ingest-snapshots:4h', path: '/api/cron/ingest-snapshots', params: { interval: '4h' }, schedule: '0 */4 * * *', expectedEverySeconds: 4 * HOUR, method: 'GET' },
   { job: 'ingest-snapshots:1d', path: '/api/cron/ingest-snapshots', params: { interval: '1d' }, schedule: '0 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
 
-  { job: 'ingest-archive', path: '/api/cron/ingest-archive', params: { days: '3' }, schedule: '30 5 * * *', expectedEverySeconds: DAY, method: 'GET' },
-  { job: 'ingest-perp', path: '/api/cron/ingest-perp', params: { days: '3' }, schedule: '0 6 * * *', expectedEverySeconds: DAY, method: 'GET' },
+  { job: 'ingest-archive', path: '/api/cron/ingest-archive', params: { days: '3' }, schedule: '0 10 * * *', expectedEverySeconds: DAY, method: 'GET' },
+  { job: 'ingest-perp', path: '/api/cron/ingest-perp', params: { days: '3' }, schedule: '30 10 * * *', expectedEverySeconds: DAY, method: 'GET' },
   { job: 'snapshot-portfolios', path: '/api/cron/snapshot-portfolios', params: {}, schedule: '0 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
 
   {

@@ -38,7 +38,16 @@
 # live feed; the three-day window overlaps on purpose, because every write is an
 # idempotent upsert and a late-published day is picked up by the next run.
 # Bulk history is scripts/ops/ingest-archive.ts from the seeder image, not this.
-30   5 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-archive?days=3" >> /var/log/cron.log 2>&1
+#
+# 10:00 UTC, not 05:30, and the time is measured rather than guessed. On
+# 2026-09-25 the previous day's metrics file was still a 404 at 01:34Z and a 200
+# by 07:48Z, so publication lands somewhere inside that window and an 05:30 run
+# sat in the middle of it: sometimes it caught the day, sometimes it did not,
+# and the series habitually sat TWO days behind instead of one, catching up only
+# on the following run. 10:00 clears the latest observed publication by over two
+# hours. If the series starts lagging again, re-measure the 404-to-200 boundary
+# before moving this, since the lag is Binance's to change.
+0    10 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-archive?days=3" >> /var/log/cron.log 2>&1
 
 # Perpetual bar history from the same archive. The kline datasets are published
 # daily as well as monthly, and this route asks for the DAILY cadence, because
@@ -47,7 +56,7 @@
 # path and this collection is research-only, so a failure here must not be able
 # to touch that run. Half an hour later keeps the two archive-heavy jobs from
 # overlapping inside the one app container and gives a clean log boundary.
-0    6 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-perp?days=3" >> /var/log/cron.log 2>&1
+30   10 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-perp?days=3" >> /var/log/cron.log 2>&1
 
 # Portfolio snapshots
 0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1
