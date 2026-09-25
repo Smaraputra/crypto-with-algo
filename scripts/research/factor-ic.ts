@@ -344,6 +344,59 @@
  * of the first two already visible and must be counted as such. At 1h
  * depthFlow1 needs 0.0113 and delivers 0.0073: short by about 1.6x, and the
  * closest this program has come at a fine interval.
+ *
+ * STAGE 2, 2026-09-25. Same dataset and lag, measured at 5m, 1h AND 4h in one
+ * pass so no interval was chosen after seeing another's result. Controls
+ * reproduce the recorded lag-1 table exactly at all three: raw.ret1 h1 is
+ * -0.0231 at 5m, -0.0291 at 1h and -0.0157 at 4h.
+ *
+ * BOTH DIRECT PREDICTIONS HELD, AND THE CONDITIONING HYPOTHESIS IS FALSIFIED.
+ *
+ * `raw.varianceRatio` is not a survivor at any interval, as pre-registered: a
+ * regime reading is not a direction. `raw.fundingProximity` is not a survivor
+ * either, and is strictly WEAKER than the plain `raw.fundingZ` it was built
+ * from at every interval (1h h8: -0.0170 against -0.0234; 4h: about zero
+ * against -0.0152). Weighting funding by distance to its settlement destroys
+ * signal rather than adding it, so the event-time axis contributes nothing and
+ * the funding level alone remains the better column.
+ *
+ * The pre-registered falsification was that if the TREND subset's reversal IC
+ * is as negative as the MEAN-REVERSION subset's, the ratio is mis-signed or
+ * measuring nothing. It fires, and the way it fires is the useful part:
+ *
+ *   interval  h   uncond    revert    trend     gap as % of uncond  direction
+ *   5m        2   -0.0261   -0.0229   -0.0327   38%                 TREND deeper
+ *   5m        4   -0.0245   -0.0223   -0.0289   27%                 TREND deeper
+ *   1h        1   -0.0291   -0.0302   -0.0270   11%                 revert deeper
+ *   1h        2   -0.0268   -0.0271   -0.0260    4%                 revert deeper
+ *   4h        4   +0.0030   +0.0123   -0.0125   828%                TREND deeper
+ *
+ * The direction is INCONSISTENT across intervals: trend-deeper at 5m and 4h,
+ * revert-deeper at 1h, and at 1h every gap is at or below the one-third
+ * threshold fixed in advance. A conditioner that points one way at 5m, the
+ * other at 1h, and back again at 4h is not measuring a stable regime.
+ *
+ * The likeliest reading, and it is consistent with what the program already
+ * knows: a high variance ratio means the recent past TRENDED, and Phase 3
+ * established that trend-following inputs are wrong-signed intraday. So the
+ * ratio is picking up recent momentum, which is already contrarian and already
+ * carried by raw.ret1 and the momentum columns. It adds nothing orthogonal.
+ *
+ * `raw.ret1InMeanReversion` and `raw.ret1InTrend` DO clear the survivor rule at
+ * 5m and 1h, and that must not be read as a finding: they are subsets of
+ * raw.ret1, which clears it too. They are diagnostics, not new inputs.
+ *
+ * ONE RESIDUE, deliberately not chased. At 4h the split produces a genuine SIGN
+ * FLIP rather than a magnitude difference (h4 revert +0.0123, trend -0.0125).
+ * That is a different claim from the one tested here and 4h is the
+ * sample-limited interval, so acting on it would mean flipping a hypothesis
+ * after seeing the data. It belongs in a new pre-registration or nowhere.
+ *
+ * PHASE CONSEQUENCE: Stage 4's gate was that Stages 0 to 2 produce at least one
+ * factor surviving at a fine interval. No NEW input did. The gate stays shut and
+ * the trade-level ingest -- roughly 232 GB, a streaming parser with no
+ * precedent in the codebase, and about 17 files -- is not started. The cheap
+ * stages did their job, which was to be cheap enough to say no with.
  */
 
 import { execFileSync } from 'child_process';

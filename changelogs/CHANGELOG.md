@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research (Stage 2, 2026-09-25): both direct predictions held, the conditioning hypothesis is falsified, and Stage 4 stays shut
+- **Measured at 5m, 1h and 4h in one pass**, so no interval was chosen after seeing another's result. Controls reproduce the recorded lag-1 table exactly at all three: `raw.ret1` h1 is -0.0231 at 5m, -0.0291 at 1h, -0.0157 at 4h
+- **`raw.varianceRatio` is not a survivor anywhere**, as pre-registered: a regime reading is not a direction
+- **`raw.fundingProximity` is not a survivor either, and is strictly WEAKER than the `raw.fundingZ` it was built from** at every interval (1h h8: -0.0170 against -0.0234; 4h about zero against -0.0152). Weighting funding by distance to its settlement destroys signal rather than adding it, so the event-time axis contributes nothing and the funding level alone remains the better column
+- **The falsification fired, and how it fired is the useful part.** The criterion fixed in advance was that if the TREND subset's reversal IC is as negative as the MEAN-REVERSION subset's, the ratio is mis-signed or measuring nothing
+
+| interval | h | uncond | revert | trend | gap vs uncond | direction |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 5m | 2 | -0.0261 | -0.0229 | -0.0327 | 38% | **trend deeper** |
+| 5m | 4 | -0.0245 | -0.0223 | -0.0289 | 27% | **trend deeper** |
+| 1h | 1 | -0.0291 | -0.0302 | -0.0270 | 11% | revert deeper |
+| 1h | 2 | -0.0268 | -0.0271 | -0.0260 | 4% | revert deeper |
+| 4h | 4 | +0.0030 | +0.0123 | -0.0125 | 828% | **trend deeper** |
+
+- **The direction is inconsistent across intervals** -- trend-deeper at 5m and 4h, revert-deeper at 1h, and at 1h every gap is at or below the one-third threshold fixed in advance. A conditioner that points one way at 5m, the other at 1h and back again at 4h is not measuring a stable regime
+- **The likeliest reading is consistent with what the program already knows.** A high variance ratio means the recent past TRENDED, and Phase 3 established that trend-following inputs are wrong-signed intraday. So the ratio is picking up recent momentum, which is already contrarian and already carried by `raw.ret1` and the momentum columns. It adds nothing orthogonal
+- **`raw.ret1InMeanReversion` and `raw.ret1InTrend` do clear the survivor rule at 5m and 1h, and that is not a finding**: they are subsets of `raw.ret1`, which clears it too. They are diagnostics, not new inputs
+- **One residue, deliberately not chased.** At 4h the split produces a genuine SIGN FLIP rather than a magnitude difference (h4 revert +0.0123, trend -0.0125). That is a different claim from the one tested, at the sample-limited interval, so acting on it would mean flipping a hypothesis after seeing the data. It belongs in a new pre-registration or nowhere
+- **Stage 4 stays shut.** Its gate was that Stages 0 to 2 produce at least one factor surviving at a fine interval. No new input did, so the trade-level ingest -- roughly 232 GB, a streaming parser with no precedent in the codebase, about 17 files -- is not started. The cheap stages did their job, which was to be cheap enough to say no with
+
+
 ### Added (research): Stage 2 regime and funding-cycle columns, with predictions recorded first
 - **`raw.varianceRatio`** is Lo and MacKinlay's VR(q) = Var(r_q) / (q * Var(r_1)) over a 120-bar trailing window at q=4. A random walk has independent increments, so a q-bar return has q times the variance of a one-bar return and the ratio is 1; above 1 the series trends, below 1 it reverts. Written with running sums so the cost is one pass regardless of window size, the same reason `trailingZScore` is. The simple ratio, not the bias-corrected estimator: the correction matters for testing the null VR = 1 and not for a monotone regime indicator, which is all it is used as
 - **`raw.ret1InMeanReversion` and `raw.ret1InTrend`** are the same one-bar return split by the regime its bar sits in, and they are the actual hypothesis. A raw IC of the ratio itself would ask whether the regime predicts direction, which is not what a conditioner claims. Comparing the two ICs asks the question the ratio exists to answer: does knowing the regime tell you when reversal works
