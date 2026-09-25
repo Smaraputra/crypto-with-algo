@@ -1019,10 +1019,16 @@ const positioningHorizonFamily: StrategyFamily = {
  * 13% of every test window. research-columns.ts builds the column once over
  * the full series, and a test pins it equal to `raw.fundingZ` bar for bar.
  *
- * The column needs no execution-lag shift: snapshots align to the bar's OPEN,
- * so reading at `ctx.bar` and filling at that bar's close is already a
- * one-sided delay. Contrast depth-imbalance-fade, whose source aligns to the
- * bar's close and is therefore shifted forward a bar by the producer.
+ * The column needs no execution-lag shift HERE, because the shift lives in
+ * `buildSnapshotSeries`: a bar reads only the snapshot whose whole capture
+ * window closed before that bar opened, so reading at `ctx.bar` and filling at
+ * that bar's close is a one-sided delay twice over. This paragraph used to say
+ * the delay came from snapshots aligning to the bar's OPEN, which was the
+ * premise the 2026-09-25 audit falsified: a row stamped at a bar's open holds
+ * data captured up to one interval later. Every funding-z-fade number recorded
+ * before that date was measured on the looser join. Contrast
+ * depth-imbalance-fade, whose source aligns to the bar's close and is
+ * therefore shifted forward a bar by the producer.
  */
 const fundingZFadeFamily: StrategyFamily = {
   name: 'funding-z-fade',

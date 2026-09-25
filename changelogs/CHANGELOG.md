@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Measured (signals): the configVersion 7 re-calibration, and the half of it that cannot be measured
+- **29 and 37 stand, measured rather than assumed.** A fresh export `f470933e` was taken from production after the deploy and scored three times over the same data: the v6 scorer on the old loose snapshot join (the control), the v6 scorer on the new causal join, and v7 on the causal join. The control **reproduces the recorded v6 table exactly**, percentile for percentile and bar count for bar count (5m 27.3/36.6 on 808,517 bars, 15m 30.3/37.3, 1h 32.2/38.4, 4h 28.9/36.4, 1d 26.3/36.7), so the new export is measurement-equivalent to `e705b347` and every difference is attributable to code
+- **The causal snapshot join moves at most 0.2 points** at any percentile: p90 mean 29.0 to 29.1, p98 mean 37.1 unchanged. A correction worth 45 minutes of lookahead on one category's inputs barely reaches the composite, which is itself informative: the lookahead mattered to the research columns, not to live tiering
+- **The v7 run is bit-identical to the v6-causal run, and that is not evidence the news repair does nothing.** `score-percentiles` scores history from the stored `data.newsSentiment` aggregate, written at ingest time by the old code; only `{count, avgSentiment}` is persisted, never the article text. **No historical re-run can re-derive it**, so the historical measurement is blind to v7 by construction and will stay blind until enough post-deploy snapshots exist to measure on their own
+- **So the news change was measured the only way it can be**: both builds run against the same live feed inside one 5-minute cache window, seeing an identical article set. Across the ten signal symbols BTC moved 0.0500 to 0.0475 and SOL 0.2000 to 0.2400, the other eight were unchanged or had no articles, **no symbol's News signal changed gate state**, and no near-duplicate cluster existed in that window to collapse. One snapshot of one feed bounds the typical effect, not the worst case: the audit's measured cases were not in the window
+- The `funding-z-fade` header comment asserted that no execution-lag shift was needed because "snapshots align to the bar's OPEN" -- the exact premise the audit falsified. Corrected in place, naming the date and that every recorded funding-z-fade number predates the fix
+
+### Verified (research): `funding-z-fade` re-run on the corrected join, and the recorded verdict stands
+- **The family built on the contaminated columns was re-run as a control, not as a new trial.** `funding-z-fade` at 1h and 15m, four runs over the same fresh export, lockbox applied, identical flags: the old loose join against the new causal one
+- **The control reproduces Phase 4c exactly on a different export.** 1h point estimate **-0.1426%** against the recorded -0.143%, 15m **-0.0750%** against the recorded -0.075% with timing p **0.0050** against the recorded 0.005. That is what makes the comparison below readable
+
+| interval | build | trades | point % | CI low | timing p | gates passed |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1h | v6, loose join | 2,244 | -0.1426 | -0.3491 | 0.0896 | sample |
+| 1h | v7, causal join | 2,574 | -0.1111 | -0.3054 | 0.0249 | sample, timing |
+| 15m | v6, loose join | 1,602 | -0.0750 | -0.1944 | 0.0050 | sample, timing |
+| 15m | v7, causal join | 1,463 | -0.0915 | -0.1885 | 0.0050 | sample, timing |
+
+- **Both still fail, and nothing in the record flips.** Every CI spans well below zero, observed Sharpe is negative in all four runs, and the deflated Sharpe probability is at or near zero throughout. Removing 45 minutes of lookahead from the inputs did not turn a losing rule into a winning one, which is what was predicted in writing before the run
+- **The 1h timing gate now passes (p 0.0896 to 0.0249) and this is explicitly NOT a finding.** It is an observation from a control run rather than a pre-registered test; the shift changes which bars trigger, so it is not the same trade set (2,244 to 2,574); and it is sign-inconsistent with 15m, which moved slightly the other way (-0.0750% to -0.0915%). One gate crossing among sixteen gate evaluations is what this program's own multiplicity work says to expect from noise. Acting on it would be picking a hypothesis after seeing the data, which the phase rules forbid
+- The honest summary of the join fix's effect on results: **it moves numbers by less than the noise between two adjacent intervals, and it changes no conclusion.** Its value is that the inputs are now causal, so future funding work starts from a correct base
+
+
 ### Fixed (signals): the news input was lexically broken, and is now configVersion 7
 - **Keyword matching was substring.** `includes('ban')` fired on bank, banking, interbank, urban, Albania, bands and banner, so an institutional **bank-adoption headline scored BEARISH**; `gain` fired on "again" and `rise` on "surprise". Matching is now anchored on non-alphanumeric boundaries, the same rule `filterByCurrencies` already used to choose the articles in the first place
 - **The list was unstemmed**, so `rally` missed "rallies" and "rallied", `hack` missed "hacked", and neither "bullish" nor "bearish" matched anything at all -- the two commonest words in crypto headlines. Each keyword now carries its regular inflections, with the `y` ending and the silent `e` (decline, declining) handled explicitly. A dependency-free rule is enough for thirteen words per direction
