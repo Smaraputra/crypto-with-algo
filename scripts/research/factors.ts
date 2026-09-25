@@ -31,6 +31,7 @@ import type { IndicatorSuite } from '@/lib/indicators/types';
 import type { SignalComponent, SignalWeights } from '@/types/signal';
 import type { OHLCV } from '@/types/market';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
+import { FUNDING_INTERVAL_MS } from '@/lib/backtest/funding';
 import { prepareBacktest } from '@/lib/backtest/optimized-engine';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
@@ -181,6 +182,39 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  * Recording two predicted non-survivors matters as much as the one predicted
  * survivor: if all three clear the rule, the likeliest explanation is that the
  * rule is too loose for this input, not that three independent edges appeared.
+ *
+ * STAGE 2 PRE-REGISTRATION, 2026-09-25, for the four columns after those.
+ * Written before any measurement. Measured at 5m, 1h AND 4h in one pass, not
+ * one interval at a time: Stage 1 had to add intervals after seeing its first
+ * result, which makes the later ones post-hoc, and doing all three together
+ * avoids repeating that.
+ *
+ * - `raw.varianceRatio`: NO SURVIVOR EXPECTED as a direct factor. VR(q) is a
+ *   REGIME reading, not a direction: above 1 the series trends, below 1 it
+ *   reverts. Asking whether the level of the ratio predicts the sign of the
+ *   next return is not the hypothesis, and a survivor here would more likely
+ *   mean it is proxying volatility than forecasting anything.
+ *
+ * - `raw.ret1InMeanReversion` and `raw.ret1InTrend` ARE the hypothesis. They
+ *   are the same one-bar return split by the regime the bar sits in, so
+ *   comparing their two ICs asks the question the ratio exists to answer:
+ *   does knowing the regime tell you when reversal works? PREDICTION: both
+ *   negative, since Phase 3 found reversal dominates intraday, but materially
+ *   MORE negative in the mean-reversion subset. The conditioner earns its
+ *   place only through that gap.
+ *   FALSIFICATION, fixed now: if the trend subset's IC is as negative as, or
+ *   more negative than, the mean-reversion subset's, then the variance ratio
+ *   is either mis-signed or measuring nothing here, and no further work should
+ *   be done on it. A gap smaller than about a third of the unconditional |ic|
+ *   counts as no gap.
+ *
+ * - `raw.fundingProximity`: WEAK NEGATIVE, probably no survivor. Funding
+ *   settles on a known 8h clock, so a bar's distance from the next settlement
+ *   is an event-time coordinate that nothing here has ever used. If crowded
+ *   longs close into a settlement they are about to pay for, high positive
+ *   funding near settlement should precede lower returns, the same contrarian
+ *   direction `raw.fundingZ` already shows. The new content is the event-time
+ *   axis, not the funding level.
  */
 const RAW_NAMES = [
   'raw.rsi',
@@ -212,6 +246,10 @@ const RAW_NAMES = [
   'raw.depthNotional1',
   'raw.depthSlope',
   'raw.depthFlow1',
+  'raw.varianceRatio',
+  'raw.ret1InMeanReversion',
+  'raw.ret1InTrend',
+  'raw.fundingProximity',
 ] as const;
 
 /**
@@ -302,6 +340,101 @@ function logChange(series: Float64Array, bar: number, lookback: number): number 
   const then = series[bar - lookback];
   if (!Number.isFinite(now) || !Number.isFinite(then) || now <= 0 || then <= 0) return NaN;
   return Math.log(now / then);
+}
+
+/** Trailing observations the variance ratio is measured over. */
+const VR_WINDOW_BARS = 120;
+
+/** Aggregation period q in VR(q). Four bars, so the ratio is sensitive to
+ * reversal over roughly the horizons the program's reversal factors act on. */
+const VR_Q = 4;
+
+/**
+ * Lo and MacKinlay's variance ratio, VR(q) = Var(r_q) / (q * Var(r_1)), over a
+ * trailing window.
+ *
+ * A random walk has independent increments, so the variance of a q-bar return
+ * is q times the variance of a one-bar return and the ratio is 1. Above 1 the
+ * series trends, because moves persist and compound; below 1 it mean-reverts,
+ * because moves partly cancel. It is a REGIME reading rather than a direction,
+ * which is a role nothing else here fills: the program's strongest recorded
+ * finding is that mean reversion dominates intraday while momentum survives at
+ * 4h, and nothing measures which of the two is in force at a given bar.
+ *
+ * The simple ratio, not Lo and MacKinlay's bias-corrected estimator. The
+ * correction matters for testing the null VR = 1; it does not matter for a
+ * monotone regime indicator, which is all this is used as.
+ *
+ * Running sums, so the cost is one pass regardless of window size, the same
+ * reason trailingZScore is written that way.
+ */
+function varianceRatioSeries(candles: CandleRow[], window: number, q: number): Float64Array {
+  const n = candles.length;
+  const out = new Float64Array(n).fill(NaN);
+
+  const r1 = new Float64Array(n).fill(NaN);
+  for (let i = 1; i < n; i++) {
+    const prev = candles[i - 1].c;
+    const now = candles[i].c;
+    if (prev > 0 && now > 0) r1[i] = Math.log(now / prev);
+  }
+  const rq = new Float64Array(n).fill(NaN);
+  for (let i = q; i < n; i++) {
+    const prev = candles[i - q].c;
+    const now = candles[i].c;
+    if (prev > 0 && now > 0) rq[i] = Math.log(now / prev);
+  }
+
+  let sum1 = 0;
+  let sumSq1 = 0;
+  let count1 = 0;
+  let sumQ = 0;
+  let sumSqQ = 0;
+  let countQ = 0;
+
+  for (let bar = 0; bar < n; bar++) {
+    const entering1 = r1[bar];
+    if (Number.isFinite(entering1)) {
+      sum1 += entering1;
+      sumSq1 += entering1 * entering1;
+      count1++;
+    }
+    const enteringQ = rq[bar];
+    if (Number.isFinite(enteringQ)) {
+      sumQ += enteringQ;
+      sumSqQ += enteringQ * enteringQ;
+      countQ++;
+    }
+
+    const leaving = bar - window;
+    if (leaving >= 0) {
+      const leaving1 = r1[leaving];
+      if (Number.isFinite(leaving1)) {
+        sum1 -= leaving1;
+        sumSq1 -= leaving1 * leaving1;
+        count1--;
+      }
+      const leavingQ = rq[leaving];
+      if (Number.isFinite(leavingQ)) {
+        sumQ -= leavingQ;
+        sumSqQ -= leavingQ * leavingQ;
+        countQ--;
+      }
+    }
+
+    // A full window of both series must exist before the ratio means anything.
+    if (bar < window + q || count1 < 2 || countQ < 2) continue;
+
+    const mean1 = sum1 / count1;
+    const variance1 = sumSq1 / count1 - mean1 * mean1;
+    if (!(variance1 > 0)) continue;
+    const meanQ = sumQ / countQ;
+    const varianceQ = Math.max(0, sumSqQ / countQ - meanQ * meanQ);
+
+    out[bar] = varianceQ / (q * variance1);
+  }
+
+  return out;
 }
 
 /**
@@ -515,6 +648,8 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     }
   }
 
+  const varianceRatio = varianceRatioSeries(candles, VR_WINDOW_BARS, VR_Q);
+
   const fundingSeries = new Float64Array(n).fill(NaN);
   for (let bar = warmupBars; bar < n; bar++) {
     fundingSeries[bar] = alignedSnapshots?.[bar]?.futures?.fundingRate?.fundingRate ?? NaN;
@@ -608,6 +743,32 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
       depthNotionalSeries,
       bar
     );
+
+    const vr = varianceRatio[bar];
+    values[rawIdx.get('raw.varianceRatio')!][bar] = vr;
+    // The same one-bar return, split by the regime the bar sits in. Comparing
+    // the two ICs is the actual test of whether the ratio conditions anything:
+    // a raw IC of the ratio itself would ask whether the regime predicts
+    // direction, which is not the hypothesis.
+    const ret1ForRegime = simpleReturn(candles, bar, 1);
+    const regimeKnown = Number.isFinite(vr) && Number.isFinite(ret1ForRegime);
+    values[rawIdx.get('raw.ret1InMeanReversion')!][bar] =
+      regimeKnown && vr < 1 ? ret1ForRegime : NaN;
+    values[rawIdx.get('raw.ret1InTrend')!][bar] = regimeKnown && vr >= 1 ? ret1ForRegime : NaN;
+
+    // Funding settles on a known 8h clock, so a bar's distance from the next
+    // settlement is an EVENT-time coordinate. Everything else here is measured
+    // in clock time or bar count. Weighting the rate by proximity asks whether
+    // crowded positioning unwinds into the settlement it is about to pay.
+    const fundingNow = snap?.futures?.fundingRate?.fundingRate;
+    if (typeof fundingNow === 'number' && Number.isFinite(fundingNow)) {
+      const barClose = candle.t + intervalMs - 1;
+      const nextSettlement = Math.ceil(barClose / FUNDING_INTERVAL_MS) * FUNDING_INTERVAL_MS;
+      const proximity = 1 - (nextSettlement - barClose) / FUNDING_INTERVAL_MS;
+      values[rawIdx.get('raw.fundingProximity')!][bar] = fundingNow * proximity;
+    } else {
+      values[rawIdx.get('raw.fundingProximity')!][bar] = NaN;
+    }
 
     values[rawIdx.get('raw.fundingZ')!][bar] = fundingZ[bar];
 
