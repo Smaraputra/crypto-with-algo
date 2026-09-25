@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, FileText, Zap } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, FileText, Zap, Target } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -24,6 +24,7 @@ const NAV_ITEMS = [
 
 const ADMIN_NAV_ITEMS = [
   { href: '/admin/optimization', label: 'Optimization', icon: Zap, disabled: false },
+  { href: '/admin/calibration', label: 'Calibration', icon: Target, disabled: false },
 ];
 
 function SidebarContent() {

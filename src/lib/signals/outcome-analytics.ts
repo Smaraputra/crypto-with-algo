@@ -29,7 +29,22 @@ export interface GetLiveTierExpectancyOptions {
 }
 
 /** Tiers whose prediction wins when price falls, so the raw long-perspective return is inverted. */
-const SELL_TIER_VALUES: SignalTier[] = ['sell', 'strong_sell'];
+export const SELL_TIER_VALUES: SignalTier[] = ['sell', 'strong_sell'];
+
+/**
+ * The directional return of one outcome: the forward return read from the
+ * perspective of what the tier predicted. buy/strong_buy and neutral read it
+ * as-is; sell/strong_sell win when price falls, so theirs is negated.
+ *
+ * Exported because the Mongo `$group` pipeline below and the row-level
+ * calibration analytics (src/lib/signals/calibration-analytics.ts) must agree
+ * on this definition exactly -- the two are compared against each other, and a
+ * sign convention that drifts between them would show up as a scorer finding
+ * rather than as the bug it would be. The backtest engine uses the same rule.
+ */
+export function directionalReturn(tier: SignalTier, forwardReturnPercent: number): number {
+  return SELL_TIER_VALUES.includes(tier) ? -forwardReturnPercent : forwardReturnPercent;
+}
 
 interface TierExpectancyRow {
   _id: SignalTier;

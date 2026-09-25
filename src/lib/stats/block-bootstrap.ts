@@ -79,6 +79,58 @@ export function bootstrapCi(
 }
 
 /**
+ * Percentile bootstrap CI for a statistic over a series whose observations are
+ * grouped into contiguous time buckets, resampling whole buckets rather than
+ * individual observations.
+ *
+ * Why this exists next to bootstrapCi: bootstrapCi resamples a flat series, so
+ * it preserves dependence along ONE axis. Panel data -- the same timestamp
+ * observed across ten symbols -- is dependent along two. Ten symbols at one
+ * bar move together, so flattening them into one series and block-resampling
+ * that treats the cross-section as ten independent draws and shrinks the
+ * interval by roughly sqrt(10). Passing one bucket per timestamp, each holding
+ * that timestamp's whole cross-section, keeps both dependencies: the block
+ * structure carries the serial correlation, and a bucket moving as a unit
+ * carries the contemporaneous correlation.
+ *
+ * `meanBlockLen` is counted in BUCKETS, not observations, and should come from
+ * the horizon over which observations overlap -- never from a cbrt(n) rule of
+ * thumb calibrated on independent trades, which is badly undersized on
+ * bar-frequency data and manufactures intervals that are too narrow.
+ */
+export function groupedBlockBootstrapCi(
+  groups: number[][],
+  statistic: (sample: number[]) => number,
+  opts: { iterations: number; meanBlockLen: number; seed: number; alpha?: number }
+): { point: number; low: number; high: number; samples: number; buckets: number } {
+  const { iterations, meanBlockLen, seed, alpha = 0.05 } = opts;
+  const random = createSeededRandom(seed);
+  const nBuckets = groups.length;
+
+  const flat = groups.flat();
+  const point = statistic(flat);
+
+  const draws: number[] = new Array(iterations);
+  for (let i = 0; i < iterations; i++) {
+    const indices = stationaryBlockBootstrapIndices(nBuckets, meanBlockLen, random);
+    const sample: number[] = [];
+    for (const idx of indices) {
+      for (const value of groups[idx]) sample.push(value);
+    }
+    draws[i] = statistic(sample);
+  }
+  draws.sort((a, b) => a - b);
+
+  return {
+    point,
+    low: percentile(draws, alpha / 2),
+    high: percentile(draws, 1 - alpha / 2),
+    samples: iterations,
+    buckets: nBuckets,
+  };
+}
+
+/**
  * Max peak-to-trough drawdown of the equity path built by accumulating pnls
  * onto startEquity, expressed as a percent of the peak (e.g. 12.5 for 12.5%).
  * Throws RangeError for startEquity <= 0: zero or negative starting equity

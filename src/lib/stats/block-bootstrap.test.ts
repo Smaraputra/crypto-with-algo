@@ -3,6 +3,7 @@ import { createSeededRandom } from './seeded-random';
 import {
   stationaryBlockBootstrapIndices,
   bootstrapCi,
+  groupedBlockBootstrapCi,
   meanOf,
   maxDrawdownPercentOfPnl,
 } from './block-bootstrap';
@@ -126,5 +127,65 @@ describe('block-bootstrap', () => {
       expect(() => maxDrawdownPercentOfPnl([100, -50], 0)).toThrow(RangeError);
       expect(() => maxDrawdownPercentOfPnl([100, -50], -1000)).toThrow(RangeError);
     });
+  });
+});
+
+describe('groupedBlockBootstrapCi', () => {
+  it('computes the point estimate over every observation, not over bucket means', () => {
+    // Unequal bucket sizes: a bucket-mean average would give 1.5, the mean over
+    // all four observations is 1.25.
+    const groups = [[1, 1, 1], [2]];
+
+    const result = groupedBlockBootstrapCi(groups, meanOf, {
+      iterations: 50,
+      meanBlockLen: 2,
+      seed: 7,
+    });
+
+    expect(result.point).toBeCloseTo(1.25, 10);
+    expect(result.buckets).toBe(2);
+    expect(result.samples).toBe(50);
+  });
+
+  it('brackets the point estimate', () => {
+    const groups = Array.from({ length: 200 }, (_, i) => [Math.sin(i), Math.cos(i)]);
+
+    const result = groupedBlockBootstrapCi(groups, meanOf, {
+      iterations: 200,
+      meanBlockLen: 5,
+      seed: 3,
+    });
+
+    expect(result.low).toBeLessThanOrEqual(result.point);
+    expect(result.high).toBeGreaterThanOrEqual(result.point);
+  });
+
+  it('is deterministic for a given seed', () => {
+    const groups = Array.from({ length: 100 }, (_, i) => [i % 7, (i * 3) % 5]);
+    const opts = { iterations: 100, meanBlockLen: 4, seed: 42 };
+
+    const first = groupedBlockBootstrapCi(groups, meanOf, opts);
+    const second = groupedBlockBootstrapCi(groups, meanOf, opts);
+
+    expect(second.low).toBe(first.low);
+    expect(second.high).toBe(first.high);
+  });
+
+  it('keeps a bucket intact, so a whole cross-section moves together', () => {
+    // Buckets are all-zero or all-hundred. Any resample must therefore be a
+    // multiple of 100 / n; a resampler that mixed members across buckets could
+    // produce intermediate values.
+    const groups = Array.from({ length: 40 }, (_, i) => (i % 2 === 0 ? [0, 0, 0, 0] : [100, 100, 100, 100]));
+
+    const result = groupedBlockBootstrapCi(groups, meanOf, {
+      iterations: 100,
+      meanBlockLen: 3,
+      seed: 11,
+    });
+
+    for (const bound of [result.low, result.high]) {
+      const bucketsOfHundred = (bound / 100) * 40;
+      expect(Math.abs(bucketsOfHundred - Math.round(bucketsOfHundred))).toBeLessThan(1e-9);
+    }
   });
 });
