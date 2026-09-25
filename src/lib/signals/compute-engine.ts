@@ -383,6 +383,20 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
+        // v7: the news input is lexically repaired. Keyword matching was
+        // SUBSTRING, so `ban` fired on bank, banking, interbank, urban,
+        // Albania, bands and banner and an institutional bank-adoption
+        // headline scored BEARISH, while `gain` fired on "again" and `rise` on
+        // "surprise"; the list was unstemmed, so `rally` missed "rallies" and
+        // "rallied" and neither "bullish" nor "bearish" matched anything;
+        // articles were SELECTED on title plus body plus categories and SCORED
+        // on title alone, with 35% of attributed articles carrying titles that
+        // never named their symbol; and dedupe was by publisher URL only, so
+        // one press release rewritten by four outlets counted as four
+        // independent observations. The `count >= 3` and `|avg| >= 0.15` gate
+        // is UNCHANGED: cleaning an input and loosening the gate that contained
+        // it in the same change would leave neither testable. News scores
+        // before and after are not comparable, so v6 and v7 are not either.
         // v6: indicator strength scales made scale-free, AND the tier cutoffs
         // re-derived from the distribution that produced (29/37, exit 7.25).
         // MACD's magnitude was
@@ -407,7 +421,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         // v4: scores closed bars only (candle-finalization fix); rows written
         // before it may have been scored on a still-forming bar's partial
         // values. v3: calibrated tier cutoffs (24/30); v2: htf category + session + htfContext
-        configVersion: 6,
+        configVersion: 7,
         candleTimestamp: latestCandleTs,
         session,
         htfContext: htfContext

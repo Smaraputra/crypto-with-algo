@@ -170,7 +170,32 @@
  *
  * Re-measure with `scripts/research/score-percentiles.ts` on a fresh export
  * whenever the scorer changes, and always run the unchanged scorer over the new
- * export first as a control. Never tune these on PnL. */
+ * export first as a control. Never tune these on PnL.
+ *
+ * ---
+ *
+ * NOT YET RE-MEASURED FOR configVersion 7, 2026-09-25. THE v6 CUTOFFS STAND.
+ *
+ * v7 repairs the news input: substring keyword matching, an unstemmed keyword
+ * list, scoring on the title when selection read the body, and a URL-only
+ * dedupe that counted one press release rewritten by four outlets as four
+ * observations. That moves the sentiment category, so it moves the composite,
+ * so on the rule above these constants are owed a re-measurement.
+ *
+ * They are carried forward unchanged and DELIBERATELY, for two reasons. The
+ * effect is bounded: `sentiment` carries 0.09 of the default weights and News
+ * is one of that category's two signals, so the composite moves at most a few
+ * points and only on bars where the `count >= 3, |avg| >= 0.15` gate fires,
+ * against a v6 re-measurement that moved p90 by up to 5 points. And a
+ * re-measurement needs a fresh export of production, which does not exist yet:
+ * guessing a number here would be exactly the untested tuning the paragraph
+ * above forbids.
+ *
+ * So: re-measure on the next export, with the v7 scorer AND the unchanged v6
+ * scorer as the control, before pooling any v7 tier-conditioned statistic with
+ * a v6 one. Until then v7 rows are scored on cutoffs derived from a v6
+ * distribution, which is a known and recorded approximation rather than a
+ * silent one. */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
 export const TIER_BUY_CUTOFF = 29;
