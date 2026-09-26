@@ -801,3 +801,62 @@ describe('parseArgs', () => {
     expect(args.reportPath).toBe('/tmp/report.json');
   });
 });
+
+describe('factor-ic --return-series perp', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'factor-ic-perp-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('parseArgs defaults to spot and rejects an unknown series', () => {
+    expect(parseArgs(['--interval', '1h']).returnSeries).toBe('spot');
+    expect(parseArgs(['--interval', '1h', '--return-series', 'perp']).returnSeries).toBe('perp');
+    expect(() => parseArgs(['--interval', '1h', '--return-series', 'mark'])).toThrow(/return-series/);
+  });
+
+  it('a perp series that is a constant multiple of spot gives the same IC, records the flag, and --cell reproduces', async () => {
+    await buildFixtureDataset(dir, { perp: true });
+    const base = parseArgs(['--interval', INTERVAL, '--dataset-dir', dir, '--horizons', '1', '--factors', 'raw.ret1', '--bootstrap-n', '20']);
+    const spot = await buildFactorIcReport(base);
+    const reportPath = join(dir, 'perp.json');
+    const perp = await runFactorIc({ ...base, returnSeries: 'perp', out: reportPath });
+    expect(perp.returnSeries).toBe('perp');
+    expect('returnSeries' in spot).toBe(false);
+    const a = spot.factors[0].pooled.horizons[0];
+    const b = perp.factors[0].pooled.horizons[0];
+    expect(b.ic).toBeCloseTo(a.ic, 9);
+    expect(b.n).toBe(a.n);
+    const cell = await runCell({ ...base, cell: { factor: 'raw.ret1', horizon: 1 }, reportPath });
+    expect(cell.ic).toBeCloseTo(b.ic, 12);
+  });
+
+  it('throws naming the symbol when the dataset has no perp bars', async () => {
+    await buildFixtureDataset(dir);
+    const base = parseArgs(['--interval', INTERVAL, '--dataset-dir', dir, '--horizons', '1', '--factors', 'raw.ret1', '--return-series', 'perp']);
+    await expect(buildFactorIcReport(base)).rejects.toThrow(/BTCUSDT/);
+  });
+
+  it('drops bars without a perp close from the pairs instead of poisoning the statistic', async () => {
+    await buildFixtureDataset(dir, { perp: true });
+    // Keep only the first 300 rows of ETH's perp file and re-hash the manifest.
+    const { readJsonlGz } = await import('./dataset-format');
+    const path = join(dir, 'perp', 'ETHUSDT', `${INTERVAL}.jsonl.gz`);
+    const rows = readJsonlGz<{ t: number }>(path).slice(0, 300);
+    await writeJsonlGz(path, rows);
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as DatasetManifest;
+    const entry = manifest.files.find((f) => f.path === `perp/ETHUSDT/${INTERVAL}.jsonl.gz`)!;
+    entry.rowCount = rows.length;
+    entry.endMs = rows[rows.length - 1].t;
+    entry.sha256 = await sha256File(path);
+    manifest.datasetHash = datasetHashOf(manifest.files);
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    const base = parseArgs(['--interval', INTERVAL, '--dataset-dir', dir, '--horizons', '1', '--factors', 'raw.ret1', '--return-series', 'perp', '--bootstrap-n', '20']);
+    const report = await buildFactorIcReport(base);
+    const eth = report.factors[0].perSymbol.find((p) => p.symbol === 'ETHUSDT')!.horizons[0];
+    expect(Number.isFinite(eth.ic)).toBe(true);
+    expect(eth.n).toBeLessThan(300);
+  });
+});

@@ -291,6 +291,17 @@ describe('derived archive factors', () => {
     expect(spread[matrix.warmupBars + 6]).toBeNaN();
     expect(spread[matrix.warmupBars + 7]).toBeCloseTo(0.1, 8);
   });
+
+  it('exposes perpCloses joined on the exact bar timestamp, NaN where the perp bar is missing', () => {
+    const perpByTime = new Map(perpRows.map((r) => [r.t, r.c]));
+    for (let bar = 0; bar < candleRows.length; bar++) {
+      const expected = perpByTime.get(candleRows[bar].t);
+      if (expected === undefined) expect(matrix.perpCloses[bar]).toBeNaN();
+      else expect(matrix.perpCloses[bar]).toBe(expected);
+    }
+    const noPerp = build({ perp: null });
+    expect(noPerp.perpCloses.every((c) => Number.isNaN(c))).toBe(true);
+  });
 });
 
 describe('funding z-score', () => {
