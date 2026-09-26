@@ -221,6 +221,53 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  *   funding near settlement should precede lower returns, the same contrarian
  *   direction `raw.fundingZ` already shows. The new content is the event-time
  *   axis, not the funding level.
+ *
+ * PHASE B PRE-REGISTRATION, 2026-09-26, for the five columns after those and
+ * the cross-symbol column in cross-symbol-factors.ts. Written before any
+ * measurement. Measured at 15m, 1h AND 4h in one pass at lag 1 (5m excluded in
+ * advance: its maker breakeven IC is 0.027 against a program-best 0.009),
+ * horizons 1,2,4,8,16,32,48 at 15m so the 4 to 12 hour prior is reachable.
+ * Survivor rule with |t| >= 3.15 and Benjamini-Hochberg FDR 0.10 across every
+ * cell of the phase, both modes, both return series (report-schema.ts,
+ * survivor-table.ts). Tradability floor for a survivor: maker breakeven IC of
+ * the interval (1h 0.0044 single leg, about 0.017 cross-sectional), and the
+ * phase closes with no harness run if nothing clears it.
+ *
+ * - `raw.hourOfDayDrift` (+): trailing 60-day mean of this symbol's one-bar
+ *   return over EARLIER bars sharing the same time of day, the bar itself
+ *   excluded so no term of its own return enters. Time-series axis only: it
+ *   is market-wide by nature and per-bar demeaning would zero it by
+ *   construction. The literature says BTC calendar effects are gone
+ *   post-2023, so the expected outcome is null; it is cheap enough to test.
+ * - `raw.sessionDrift` (+): the same over the five fixed-UTC sessions of
+ *   src/lib/sessions.ts, NaN where a session is not meaningful (4h).
+ * - `raw.depthNotionalZ` (+, weak, NO SURVIVOR EXPECTED): within-symbol
+ *   30-day trailing z of log depthNotional1, the column Stage 1 deferred.
+ *   Stage 1 measured the raw level at +0.0248 at 15m h16 with symbol
+ *   agreement 0.80 and QUARTER agreement 0.45, the signature of a
+ *   non-stationary level; the z removes the drift. A state variable, so a
+ *   survivor here is more likely regime than direction.
+ * - `raw.ret1InHighTaker` and `raw.ret1InLowTaker` ARE the conditioning
+ *   hypothesis, not standalone signals: the one-bar return split by whether
+ *   the bar's absolute taker imbalance sits above (z > 0) or at or below its
+ *   30-day trailing mean. PREDICTION: both negative (reversal), MORE negative
+ *   in the HIGH-intensity subset (arXiv 2608.21888: reversal concentrates
+ *   after aggressive taker flow and grows with intensity, while depth
+ *   consumed conditions nothing, which agrees with Stage 1). FALSIFICATION,
+ *   fixed now: a gap smaller than a third of the unconditional |ic|, or a
+ *   deeper LOW subset, means the intensity conditions nothing. Diagnostics
+ *   only, never a family: a gated reversal rule would be a third rule shape
+ *   on ret1 under the standing ruling.
+ * - `raw.btcLeadLag` (+ at h1 to h4 for alts, weaker at 1h than 15m):
+ *   BTC's one-bar return minus the equal-weight cross-sectional one-bar
+ *   return, read for every non-BTC symbol, NaN for BTC and where fewer than
+ *   five symbols have a finite return. Delayed alt reaction to BTC (JEDC
+ *   2024; Springer APFM 2026, paywalled, effect sizes unverified). Both axes.
+ *
+ * DROPPED without a slot: same-symbol spot-to-perp lead-lag (arbitrage
+ * closes in milliseconds; the perpSpotSpreadPct artifact family), day-of-week
+ * drift (folded into time of day), retail-versus-top-trader spread (both legs
+ * measured at 4h and 1d only, same sign).
  */
 const RAW_NAMES = [
   'raw.rsi',
