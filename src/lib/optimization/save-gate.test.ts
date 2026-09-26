@@ -29,6 +29,16 @@ describe('passesSaveGate', () => {
     expect(result.reason).toContain(String(SAVE_GATE.minContributingWindows));
   });
 
+  it('fails with a reason when no window contributed', () => {
+    const gate = passesSaveGate([
+      { trainStart: 0, trainEnd: 1, testStart: 2, testEnd: 3, oosMetrics: null, robustCandidates: 0 },
+    ]);
+
+    expect(gate.pass).toBe(false);
+    expect(gate.contributingWindows).toBe(0);
+    expect(gate.reason).toMatch(/no window|0 windows|contributing/i);
+  });
+
   it('refuses a single contributing window even with positive expectancy', () => {
     const windows = [makeWindow(makeMetrics(5))];
     const result = passesSaveGate(windows);

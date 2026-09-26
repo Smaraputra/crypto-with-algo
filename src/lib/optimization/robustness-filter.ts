@@ -3,7 +3,9 @@ import type { RobustnessConfig } from '@/types/optimization';
 import { DEFAULT_ROBUSTNESS } from '@/types/optimization';
 
 /**
- * Check if backtest result passes robustness filters
+ * Win rate, payoff and profit factor are reported and never gated or ranked
+ * on (2026-09-17 ruling). This gate is trades, Sharpe, drawdown and positive
+ * expectancy only.
  */
 export function isRobust(
   result: IBacktestResultV2,
@@ -11,7 +13,6 @@ export function isRobust(
 ): boolean {
   const metrics = result.metrics as {
     sharpeRatio?: number;
-    winRate?: number;
     maxDrawdownPercent?: number;
     expectancyPercent?: number;
   };
@@ -26,12 +27,6 @@ export function isRobust(
   // Check Sharpe ratio (provisional threshold; see RobustnessConfig)
   const sharpe = metrics.sharpeRatio ?? -Infinity;
   if (sharpe < config.minSharpe) {
-    return false;
-  }
-
-  // Check win rate
-  const winRate = metrics.winRate ?? 0;
-  if (winRate < config.minWinRate) {
     return false;
   }
 
@@ -61,35 +56,4 @@ export function filterRobustResults(
   config: RobustnessConfig = DEFAULT_ROBUSTNESS
 ): IBacktestResultV2[] {
   return results.filter((r) => isRobust(r, config));
-}
-
-/**
- * Get robustness score (0-1) for ranking results
- * Higher score = more robust
- */
-export function getRobustnessScore(
-  result: IBacktestResultV2,
-  config: RobustnessConfig = DEFAULT_ROBUSTNESS
-): number {
-  const metrics = result.metrics as {
-    sharpeRatio?: number;
-    winRate?: number;
-    maxDrawdownPercent?: number;
-  };
-
-  const { totalTrades } = result.tradeSummary;
-
-  // If not robust, score = 0
-  if (!isRobust(result, config)) {
-    return 0;
-  }
-
-  // Compute normalized scores
-  const sharpeScore = Math.min((metrics.sharpeRatio ?? 0) / 2.0, 1.0); // Normalize to [0, 1], 2.0 = excellent
-  const winRateScore = (metrics.winRate ?? 0) / 1.0; // Already [0, 1]
-  const ddScore = 1 - Math.min((metrics.maxDrawdownPercent ?? 100) / 100 / config.maxDrawdown, 1.0); // Lower DD = better
-  const tradeScore = Math.min(totalTrades / 50, 1.0); // Normalize to 50 trades = full score
-
-  // Weighted average
-  return sharpeScore * 0.4 + winRateScore * 0.3 + ddScore * 0.2 + tradeScore * 0.1;
 }

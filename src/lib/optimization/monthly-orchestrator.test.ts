@@ -619,6 +619,56 @@ describe('monthly-orchestrator', () => {
     }
   });
 
+  it('completes (not fails) the job when no window has a robust candidate', async () => {
+    // Session 04's fix already refuses to save from too few contributing
+    // windows; a run where none contributed at all must still be a completed
+    // job with the gate's reason, never the createEnsemble crash that failed
+    // the VPS's 2026-09-16/17 runs.
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue({
+      optimizedWeights: null,
+      ensembleResults: [],
+      windows: [
+        { trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, oosMetrics: null, robustCandidates: 0 },
+      ],
+    });
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'completed' });
+
+    const result = await runMonthlyOptimization({
+      cronRunId,
+      topSymbols: ['BTCUSDT'],
+      autoActivate: false,
+    });
+
+    expect(result.completedJobs).toBe(4);
+    expect(result.failedJobs).toBe(0);
+    expect(result.errors).toHaveLength(0);
+    expect(mockCreateTemplateVersion).not.toHaveBeenCalled();
+    expect(mockExecuteAutoActivation).not.toHaveBeenCalled();
+
+    const jobUpdates = mockOptimizationJobUpdateOne.mock.calls.filter(
+      (call) => (call[1] as { status?: string }).status === 'completed'
+    );
+    expect(jobUpdates).toHaveLength(4);
+    for (const call of jobUpdates) {
+      const set = call[1] as { optimizedWeights: unknown; templateVersion: number | null };
+      expect(set.optimizedWeights).toBeNull();
+      expect(set.templateVersion).toBeNull();
+    }
+
+    const cronCompletions = mockCronRunUpdateOne.mock.calls.filter(
+      (call) => (call[1] as { $set?: { 'jobs.$.status'?: string } }).$set?.['jobs.$.status'] === 'completed'
+    );
+    expect(cronCompletions).toHaveLength(4);
+    for (const call of cronCompletions) {
+      const set = (call[1] as { $set: Record<string, unknown> }).$set;
+      expect(set['jobs.$.activated']).toBe(false);
+      expect(set['jobs.$.gateReason']).toBeTruthy();
+    }
+  });
+
   it('records error when candle result is empty', async () => {
     mockGetCandleRange.mockResolvedValue({ oldest: 0, newest: Date.now() });
     mockGetCandles.mockResolvedValue([]); // Empty candles

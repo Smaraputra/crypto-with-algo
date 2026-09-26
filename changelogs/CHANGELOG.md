@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (optimization): no-candidate runs complete instead of failing
+- **The monthly optimizer recorded "no robust candidate in any window" as a failed job** (`Cannot create ensemble from empty results`, seen on the 2026-09-16 and 2026-09-17 runs); it now completes with the save gate's reason
+- **The robustness filter no longer rejects or ranks candidates on win rate**: `minWinRate` is removed from `RobustnessConfig`, and `getRobustnessScore`, whose only callers were its own tests, is removed
+
 ### Measured (research): Phase A and Phase B, 2026-09-26
 - **The Phase A 15m control run (task pA)** measured n 4796, expectancy -0.1175%, CI95 [-0.1740, -0.0583], win rate 0.321, payoff 1.64, profit factor 0.769, median hold 7 bars, 24.02 trades a day, random-entry p 0.244. It fails on expectancy, windows, symbols, timing, trials and stress, as every control has, and its row now sits in the `frontier.ts` table: n 4796, 24.02 trades/day, sd 2.04%, breakeven IC 0.0391 taker and 0.0098 maker
 - **Phase B measured 15m, 1h and 4h in one pass on both axes**, dataset `e84cd66dbe01`, lockbox applied, lag 1, ten symbols, then a leave-one-out control pass at 1h and 15m. On the time-series axis, no new column survives at any interval. `raw.btcLeadLag` is the strongest fine-interval reading the program has recorded (h1 +0.0219 t+12.5 at 1h, 5x the 1h maker breakeven, monotone decay to h8), but it fails the rule twice: h2 is 0.0187 against the 0.02 floor, and quarter agreement at h1 is 0.63. It is recorded as a near miss, not a survivor
