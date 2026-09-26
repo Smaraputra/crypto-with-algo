@@ -47,19 +47,21 @@
  * windows, symbols, timing, trials and stress, as every control has.
  *
  * CAVEAT (2026-09-26): the "5x the 1h maker breakeven" line above is
- * SUPERSEDED. ic = gross / (2 x sd per trade) converts a decile spread into a
- * breakeven-comparable IC only for a rule with the control family's hold
- * profile, because the sd in that formula is the control family's per-trade
- * sd (4.56% at 1h), which is the dispersion of a multi-bar hold, not of one
- * bar. raw.btcLeadLag is scored one to two bars ahead, and BTC's own 1h bar
- * sd is about 0.54%, roughly an eighth of the control sd; dividing its gross
- * by the control sd overstates the IC that gross represents by about that
- * factor. The report's own decile spreads settle it without going through
- * IC at all: top decile +0.022% at h1 and +0.045% at h2, bottom decile
- * -0.014% at h1 and -0.017% at h2, all at or below the 0.04% maker round
- * trip and every one below the 0.16% taker round trip. Compare a hold's own
- * gross against its own round trip, never against a breakeven derived from
- * a different rule's sd.
+ * SUPERSEDED. That line compared raw.btcLeadLag's 0.0219 against a breakeven
+ * of 0.0044 computed by ic = gross / (2 x sd per trade) using the control
+ * family's 4.56% per-trade sd at 1h -- the dispersion of a multi-bar hold,
+ * not of one bar. raw.btcLeadLag is scored one to two bars ahead, where the
+ * per-trade sd is the bar sd: about 0.54% on BTC and up to about 0.8% on the
+ * alts at 1h. At that hold the breakeven IC is about 0.025 to 0.037, not
+ * 0.0044, so 0.0219 falls short of breakeven rather than clearing it 5x;
+ * equivalently, in gross terms, an IC of 0.0219 represents a gross of about
+ * 0.02 to 0.035% per trade, not the 0.20% the control sd would imply. The
+ * report's own decile spreads confirm the smaller number without going
+ * through IC at all: top decile +0.022% at h1 and +0.045% at h2, bottom
+ * decile -0.014% at h1 and -0.017% at h2, all at or below the 0.04% maker
+ * round trip and every one below the 0.16% taker round trip. Compare a
+ * hold's own gross against its own round trip, never against a breakeven
+ * derived from a different rule's sd.
  *
  * LEVERAGE: fees and edge are both rates per unit of notional; leverage
  * multiplies the position's notional, not the per-unit rate, so a round
