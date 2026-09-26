@@ -131,6 +131,39 @@ describe('CalibrationDashboard', () => {
     expect((screen.getByTestId('interval-select') as HTMLSelectElement).value).toBe('15m');
   });
 
+  it('clears the configVersion filter when the style changes', async () => {
+    render(<CalibrationDashboard />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByTestId('coverage-header')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('config-version-select'), { target: { value: '7' } });
+    await waitFor(() => {
+      const urls = vi.mocked(globalThis.fetch).mock.calls.map((call) => call[0] as string);
+      expect(urls.some((url) => url.includes('configVersion=7'))).toBe(true);
+    });
+
+    // A version in one style's record need not exist in another's; carrying the
+    // filter over returns nothing while the select renders blank.
+    fireEvent.change(screen.getByTestId('style-select'), { target: { value: 'swing_trading' } });
+
+    await waitFor(() => {
+      expect((screen.getByTestId('config-version-select') as HTMLSelectElement).value).toBe('');
+      const last = vi.mocked(globalThis.fetch).mock.calls.at(-1)?.[0] as string;
+      expect(last).not.toContain('configVersion=');
+    });
+  });
+
+  it('clears the configVersion filter when the interval changes', async () => {
+    render(<CalibrationDashboard />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getByTestId('coverage-header')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('config-version-select'), { target: { value: '6' } });
+    fireEvent.change(screen.getByTestId('interval-select'), { target: { value: '15m' } });
+
+    await waitFor(() => {
+      expect((screen.getByTestId('config-version-select') as HTMLSelectElement).value).toBe('');
+    });
+  });
+
   it('offers only the versions present in the record', async () => {
     render(<CalibrationDashboard />, { wrapper: createWrapper() });
     await waitFor(() => expect(screen.getByTestId('coverage-header')).toBeInTheDocument());

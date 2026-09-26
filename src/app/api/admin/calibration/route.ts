@@ -18,6 +18,7 @@ import { connectDB } from '@/lib/mongodb';
 import { cachedFetch } from '@/lib/redis';
 import { defaultCostPercent } from '@/lib/backtest/cost-model';
 import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
+import { intervalToMs } from '@/lib/intervals';
 import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
 import {
   bootstrapIterationsFor,
@@ -158,6 +159,7 @@ export async function GET(request: Request) {
           distribution: returnDistribution(rows),
           cumulative: cumulativeReturn(rows, {
             horizonBars,
+            barMs: intervalToMs(query.interval),
             costPercentRoundTrip: costPercent,
             overlapping: query.overlapping,
           }),

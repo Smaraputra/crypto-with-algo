@@ -90,6 +90,11 @@ signalOutcomeSchema.index({ symbol: 1, tradingStyle: 1, createdAt: -1 });
 signalOutcomeSchema.index({ tradingStyle: 1, status: 1, resolvedAt: -1 });
 // Live tier expectancy by source (llm calls next to the composite)
 signalOutcomeSchema.index({ source: 1, tradingStyle: 1, status: 1, resolvedAt: -1 });
+// Calibration analytics: every resolved row for one style at ONE interval,
+// which is the only query in the codebase that filters on interval. Without
+// this the match falls back to the tradingStyle+status prefix and scans every
+// interval's rows to discard most of them.
+signalOutcomeSchema.index({ tradingStyle: 1, interval: 1, status: 1, candleTimestamp: 1 });
 // TTL: outcomes older than a year are no longer useful for live expectancy
 signalOutcomeSchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 });
 

@@ -160,6 +160,31 @@ describe('GET /api/admin/calibration', () => {
     expect(data.meta.meanBlockLenBars).toBe(24);
   });
 
+  it('emits a cumulative path over rows one bar apart at 1h', async () => {
+    // The bar length comes from the interval, not from gaps between the
+    // actionable rows that survive filtering. With 100 hourly buy signals and a
+    // 24-bar horizon, a correct sampler keeps about four; inferring the bar
+    // from sparse actionable rows would keep fewer and understate the path.
+    mockLoadRows.mockResolvedValue(
+      Array.from({ length: 100 }, (_, i) => ({
+        symbol: 'BTCUSDT',
+        candleTimestamp: i * HOUR,
+        tier: 'buy' as const,
+        score: 31,
+        forwardReturnPercent: 1,
+        mfePercent: 1,
+        maePercent: -1,
+        configVersion: 7,
+      }))
+    );
+
+    const response = await GET(request('style=day_trading&interval=1h'));
+    const data = await response.json();
+
+    expect(data.cumulative).toHaveLength(1);
+    expect(data.cumulative[0].count).toBe(5);
+  });
+
   it('returns all four views plus coverage', async () => {
     const response = await GET(request('style=day_trading&interval=1h'));
     const data = await response.json();

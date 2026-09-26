@@ -301,7 +301,7 @@ describe('cumulativeReturn', () => {
       ...series(10, [1], { tier: 'buy' }).map((r) => ({ ...r, candleTimestamp: r.candleTimestamp + 1 })),
     ];
 
-    const [result] = cumulativeReturn(rows, { horizonBars: 1, costPercentRoundTrip: 0 });
+    const [result] = cumulativeReturn(rows, { horizonBars: 1, barMs: HOUR, costPercentRoundTrip: 0 });
 
     expect(result.count).toBe(10);
     expect(ACTIONABLE_TIERS).not.toContain('neutral' as SignalTier);
@@ -312,7 +312,7 @@ describe('cumulativeReturn', () => {
     // exactly one non-overlapping trade.
     const rows = series(24, [1], { tier: 'buy' });
 
-    const [result] = cumulativeReturn(rows, { horizonBars: 24, costPercentRoundTrip: 0 });
+    const [result] = cumulativeReturn(rows, { horizonBars: 24, barMs: HOUR, costPercentRoundTrip: 0 });
 
     expect(result.count).toBe(1);
   });
@@ -323,7 +323,7 @@ describe('cumulativeReturn', () => {
     const btc = series(24, [1], { tier: 'buy', symbol: 'BTCUSDT' });
     const eth = series(24, [1], { tier: 'buy', symbol: 'ETHUSDT' });
 
-    const [result] = cumulativeReturn([...btc, ...eth], { horizonBars: 24, costPercentRoundTrip: 0 });
+    const [result] = cumulativeReturn([...btc, ...eth], { horizonBars: 24, barMs: HOUR, costPercentRoundTrip: 0 });
 
     expect(result.count).toBe(2);
   });
@@ -333,6 +333,7 @@ describe('cumulativeReturn', () => {
 
     const [result] = cumulativeReturn(rows, {
       horizonBars: 24,
+      barMs: HOUR,
       costPercentRoundTrip: 0,
       overlapping: true,
     });
@@ -350,6 +351,7 @@ describe('cumulativeReturn', () => {
 
     const result = cumulativeReturn([...v6, ...v7], {
       horizonBars: 1,
+      barMs: HOUR,
       costPercentRoundTrip: 0,
       overlapping: true,
     });
@@ -359,11 +361,50 @@ describe('cumulativeReturn', () => {
     expect(result[1].points.at(-1)?.cumulativePercent).toBeCloseTo(20, 10);
   });
 
+  it('keeps every signal that is already non-overlapping, however sparse', () => {
+    // The regression this pins: bar length used to be inferred from the gaps
+    // between ACTIONABLE rows, but those are filtered first and most bars are
+    // neutral. Ten buys four bars apart at a two-bar horizon do not overlap at
+    // all, so all ten must survive; inference read the bar as 4h and thinned
+    // them to five, silently halving the path.
+    const rows = Array.from({ length: 10 }, (_, i) =>
+      row({ candleTimestamp: i * 4 * HOUR, tier: 'buy', forwardReturnPercent: 1 })
+    );
+
+    const [result] = cumulativeReturn(rows, {
+      horizonBars: 2,
+      barMs: HOUR,
+      costPercentRoundTrip: 0,
+    });
+
+    expect(result.count).toBe(10);
+  });
+
+  it('decimates a long path instead of emitting a point per signal', () => {
+    const rows = series(5000, [1], { tier: 'buy' });
+
+    const [result] = cumulativeReturn(rows, {
+      horizonBars: 1,
+      barMs: HOUR,
+      costPercentRoundTrip: 0,
+      overlapping: true,
+      maxPoints: 100,
+    });
+
+    // The count is the honest total; the path is what got decimated, and its
+    // endpoint must still be the true final value.
+    expect(result.count).toBe(5000);
+    expect(result.points.length).toBeLessThanOrEqual(101);
+    expect(result.points.at(-1)?.cumulativePercent).toBeCloseTo(5000, 6);
+    expect(result.points.at(-1)?.count).toBe(5000);
+  });
+
   it('charges the cost estimate once per signal', () => {
     const rows = series(10, [1], { tier: 'buy' });
 
     const [result] = cumulativeReturn(rows, {
       horizonBars: 1,
+      barMs: HOUR,
       costPercentRoundTrip: 0.16,
       overlapping: true,
     });
@@ -376,6 +417,7 @@ describe('cumulativeReturn', () => {
 
     const [result] = cumulativeReturn(rows, {
       horizonBars: 1,
+      barMs: HOUR,
       costPercentRoundTrip: 0,
       overlapping: true,
     });

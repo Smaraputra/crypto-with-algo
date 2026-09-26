@@ -78,7 +78,10 @@ export function CoverageHeader({ meta }: CoverageHeaderProps) {
         </p>
       ) : null}
 
-      {meta.statusCounts.resolved < meta.minSamplesForEstimate ? (
+      {/* rowCount, not statusCounts.resolved: coverage is deliberately
+          unfiltered, so a 5-row symbol slice of a 5,000-row record would
+          withhold every estimate while this note stayed hidden. */}
+      {meta.rowCount < meta.minSamplesForEstimate ? (
         <p className="text-xs text-muted-foreground" data-testid="thin-record-note">
           The record is thin. Estimates are withheld below {meta.minSamplesForEstimate} observations
           and intervals below {meta.minBlocksForCi} independent blocks.
