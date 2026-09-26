@@ -897,6 +897,24 @@ describe('validateStrategyReport', () => {
     const result = validateStrategyReport(report);
     expect(result.ok).toBe(true);
   });
+
+  it('accepts pre-2026-09-19 reports without avgWinPercent, avgLossPercent, and payoffRatio', () => {
+    const pooled = makePooledStats() as unknown as Record<string, unknown>;
+    delete pooled.avgWinPercent;
+    delete pooled.avgLossPercent;
+    delete pooled.payoffRatio;
+    const report = makeStrategyReport({ pooled: pooled as StrategyReport['pooled'] });
+    const result = validateStrategyReport(report);
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts pooled fields with avgWinPercent, avgLossPercent, and payoffRatio as null', () => {
+    const report = makeStrategyReport({
+      pooled: makePooledStats({ avgWinPercent: null, avgLossPercent: null, payoffRatio: null }),
+    });
+    const result = validateStrategyReport(report);
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe('checkStrategyFindings', () => {

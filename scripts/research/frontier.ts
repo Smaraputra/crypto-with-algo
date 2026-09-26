@@ -20,8 +20,28 @@
  *   npx tsx scripts/research/frontier.ts --reports a.json,b.json [--notional 50] [--target-per-day 0.5] [--trades-per-day 4,8,20,50]
  *
  * MEASURED 2026-09-26 (Phase 4 reports, 15m pending):
- * Phase 4 reports failed schema validation (avgWinPercent/avgLossPercent/payoffRatio missing).
- * Awaiting Phase A control runs with updated schema.
+ * frontier: notional 50 USDT per trade, target 0.5 USDT per day; ic = gross / (2 x sd per trade)
+ * family      iv          n           trades/day  sd%         cost taker  cost maker  be taker    be maker
+ * control     5m          19414       115.31      0.78        0.200       0.040       0.1274      0.0255
+ *     at   4 trades/day: ic taker 0.2867, ic maker 0.1848
+ *     at   8 trades/day: ic taker 0.2071, ic maker 0.1051
+ *     at  20 trades/day: ic taker 0.1593, ic maker 0.0573
+ *     at  50 trades/day: ic taker 0.1402, ic maker 0.0382
+ * control     1h          7519        7.34        4.56        0.160       0.040       0.0176      0.0044
+ *     at   4 trades/day: ic taker 0.0450, ic maker 0.0318
+ *     at   8 trades/day: ic taker 0.0313, ic maker 0.0181
+ *     at  20 trades/day: ic taker 0.0230, ic maker 0.0099
+ *     at  50 trades/day: ic taker 0.0198, ic maker 0.0066
+ * control     4h          1619        1.07        9.21        0.140       0.040       0.0076      0.0022
+ *     at   4 trades/day: ic taker 0.0212, ic maker 0.0157
+ *     at   8 trades/day: ic taker 0.0144, ic maker 0.0090
+ *     at  20 trades/day: ic taker 0.0103, ic maker 0.0049
+ *     at  50 trades/day: ic taker 0.0087, ic maker 0.0033
+ * control     1d          157         0.14        15.92       0.140       0.040       0.0044      0.0013
+ *     at   4 trades/day: ic taker 0.0122, ic maker 0.0091
+ *     at   8 trades/day: ic taker 0.0083, ic maker 0.0052
+ *     at  20 trades/day: ic taker 0.0060, ic maker 0.0028
+ *     at  50 trades/day: ic taker 0.0050, ic maker 0.0019
  */
 import { readFile } from 'fs/promises';
 import { BINANCE_FUTURES_MAKER_FEE, defaultCostPercent } from '@/lib/backtest/cost-model';
@@ -179,20 +199,10 @@ export function parseArgs(argv: string[]): FrontierArgs {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const rows: FrontierRow[] = [];
-  const failures: Array<{ path: string; reasons: string[] }> = [];
   for (const path of args.reports) {
     const validated = validateStrategyReport(JSON.parse(await readFile(path, 'utf8')));
-    if (!validated.ok) {
-      failures.push({ path, reasons: validated.issues });
-      continue;
-    }
+    if (!validated.ok) throw new Error(`${path} failed schema validation:\n${validated.issues.join('\n')}`);
     rows.push(frontierRow(frontierInputFromReport(validated.data), args));
-  }
-  if (failures.length > 0) {
-    console.warn(
-      `${failures.length} report(s) failed validation and were skipped:`,
-      failures.map((f) => `${f.path}: ${f.reasons.join('; ')}`).join('\n  ')
-    );
   }
   console.log(formatFrontier(rows, args));
 }
