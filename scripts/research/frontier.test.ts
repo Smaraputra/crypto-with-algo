@@ -94,4 +94,17 @@ describe('frontier parseArgs', () => {
   it('throws without --reports', () => {
     expect(() => parseArgs([])).toThrow(/--reports/);
   });
+  it('rejects an unknown flag rather than absorbing it as a no-op', () => {
+    expect(() => parseArgs(['--reports', 'a', '--notionel', '100'])).toThrow('Unknown flag --notionel');
+  });
+  it('rejects a non-finite or non-positive notional, target and trades-per-day entry', () => {
+    expect(() => parseArgs(['--reports', 'a', '--notional', 'abc'])).toThrow(/--notional/);
+    expect(() => parseArgs(['--reports', 'a', '--notional', '0'])).toThrow(/--notional/);
+    expect(() => parseArgs(['--reports', 'a', '--notional', '-50'])).toThrow(/--notional/);
+    expect(() => parseArgs(['--reports', 'a', '--target-per-day', '0'])).toThrow(/--target-per-day/);
+    expect(() => parseArgs(['--reports', 'a', '--target-per-day', 'x'])).toThrow(/--target-per-day/);
+    expect(() => parseArgs(['--reports', 'a', '--trades-per-day', '4,0,20'])).toThrow(/--trades-per-day/);
+    expect(() => parseArgs(['--reports', 'a', '--trades-per-day', '4,x'])).toThrow(/--trades-per-day/);
+    expect(() => parseArgs(['--reports', 'a', '--trades-per-day', '4,-8'])).toThrow(/--trades-per-day/);
+  });
 });

@@ -175,14 +175,31 @@ export interface FrontierArgs extends FrontierOptions {
   reports: string[];
 }
 
+// Every flag this CLI takes. An unrecognized --flag is rejected rather than
+// silently absorbed as a no-op (and its value token silently swallowed), the
+// same rule factor-ic.ts applies: a typo must fail loudly, not quietly print
+// the defaults.
+const VALUE_FLAGS = new Set(['reports', 'notional', 'target-per-day', 'trades-per-day']);
+
+/** Every number here divides or scales a required IC, so zero, a negative and NaN are all wrong answers. */
+function positiveNumber(raw: string, flag: string): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`--${flag} must be a finite positive number, got "${raw}"`);
+  }
+  return value;
+}
+
 export function parseArgs(argv: string[]): FrontierArgs {
   const flags = new Map<string, string>();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg.startsWith('--')) continue;
+    const key = arg.slice(2);
+    if (!VALUE_FLAGS.has(key)) throw new Error(`Unknown flag --${key}`);
     const value = argv[i + 1];
     if (value === undefined) throw new Error(`Missing value for ${arg}`);
-    flags.set(arg.slice(2), value);
+    flags.set(key, value);
     i++;
   }
   const reportsRaw = flags.get('reports');
@@ -190,9 +207,13 @@ export function parseArgs(argv: string[]): FrontierArgs {
   const list = (s: string) => s.split(',').map((x) => x.trim()).filter((x) => x.length > 0);
   return {
     reports: list(reportsRaw),
-    notionalUsdt: flags.has('notional') ? Number(flags.get('notional')) : 50,
-    targetPerDayUsdt: flags.has('target-per-day') ? Number(flags.get('target-per-day')) : 0.5,
-    tradesPerDay: flags.has('trades-per-day') ? list(flags.get('trades-per-day')!).map(Number) : [4, 8, 20, 50],
+    notionalUsdt: flags.has('notional') ? positiveNumber(flags.get('notional')!, 'notional') : 50,
+    targetPerDayUsdt: flags.has('target-per-day')
+      ? positiveNumber(flags.get('target-per-day')!, 'target-per-day')
+      : 0.5,
+    tradesPerDay: flags.has('trades-per-day')
+      ? list(flags.get('trades-per-day')!).map((entry) => positiveNumber(entry, 'trades-per-day'))
+      : [4, 8, 20, 50],
   };
 }
 

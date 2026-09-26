@@ -17,6 +17,7 @@ import {
   validateFactorIcReport,
   type FactorIcReport,
   type PhaseSurvivorTable,
+  type SurvivorRow,
 } from './report-schema';
 
 export interface SurvivorTableArgs {
@@ -25,14 +26,21 @@ export interface SurvivorTableArgs {
   out: string | undefined;
 }
 
+// Every flag this CLI takes. An unrecognized --flag is rejected rather than
+// silently absorbed as a no-op (and its value token silently swallowed), the
+// same rule factor-ic.ts applies.
+const VALUE_FLAGS = new Set(['reports', 'fdr-q', 'out']);
+
 export function parseArgs(argv: string[]): SurvivorTableArgs {
   const flags = new Map<string, string>();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg.startsWith('--')) continue;
+    const key = arg.slice(2);
+    if (!VALUE_FLAGS.has(key)) throw new Error(`Unknown flag --${key}`);
     const value = argv[i + 1];
     if (value === undefined) throw new Error(`Missing value for ${arg}`);
-    flags.set(arg.slice(2), value);
+    flags.set(key, value);
     i++;
   }
   const reportsRaw = flags.get('reports');
@@ -58,6 +66,55 @@ export async function loadReports(paths: string[]): Promise<FactorIcReport[]> {
   return reports;
 }
 
+/**
+ * One width per column, used by BOTH the header and the rows so a cell always
+ * starts at its own column's offset. The header labels are short enough to fit
+ * their widths ("iv" rather than "interval"), which is the other half of that:
+ * a label wider than its column shifts every column after it.
+ *
+ * horizons is 20 because a seven-horizon list (1,2,4,8,16,32,48 at 15m) is 16
+ * characters and used to run into the next column.
+ */
+const COLUMNS: ReadonlyArray<{ label: string; width: number }> = [
+  { label: 'iv', width: 6 },
+  { label: 'taskId', width: 12 },
+  { label: 'factor', width: 30 },
+  { label: 'sign', width: 6 },
+  { label: 'horizons', width: 20 },
+  { label: 'quarters', width: 10 },
+  { label: 'symbols', width: 10 },
+];
+
+/**
+ * Pads to the column's width, and keeps one separating space when the cell is
+ * wider than its column: a real taskId (defaultTaskId produces
+ * "factor-ic-15m-202609261234") does not fit 12 characters, and truncating an
+ * identifier in a research table is worse than shifting one row. Nothing is
+ * ever allowed to run into the next cell.
+ */
+function cell(text: string, width: number): string {
+  return text.length >= width ? `${text} ` : text.padEnd(width);
+}
+
+function headerLine(trailing?: string): string {
+  const padded = COLUMNS.map((c) => cell(c.label, c.width)).join('');
+  return trailing ? padded + trailing : padded.trimEnd();
+}
+
+function rowLine(row: SurvivorRow, trailing?: string): string {
+  const cells = [
+    row.interval,
+    row.taskId,
+    row.factor,
+    row.sign > 0 ? '+' : row.sign < 0 ? '-' : '0',
+    row.horizonsPassing.join(','),
+    row.quarterAgreement.toFixed(2),
+    row.symbolAgreement.toFixed(2),
+  ];
+  const padded = cells.map((text, i) => cell(text, COLUMNS[i].width)).join('');
+  return trailing ? padded + trailing : padded.trimEnd();
+}
+
 export function formatSurvivorTable(table: PhaseSurvivorTable): string {
   const lines: string[] = [];
   lines.push(
@@ -68,18 +125,24 @@ export function formatSurvivorTable(table: PhaseSurvivorTable): string {
     lines.push(`${p.interval.padEnd(4)}${p.taskId.padEnd(16)}survivors ${p.survivors} / ${p.factors}`);
   }
   lines.push('');
-  lines.push(['interval', 'factor', 'sign', 'horizons', 'quarters', 'symbols'].map((h) => h.padEnd(12)).join(''));
+  lines.push(headerLine());
   for (const row of table.rows.filter((r) => r.survivor)) {
-    lines.push(
-      [
-        row.interval.padEnd(12),
-        row.factor.padEnd(30),
-        (row.sign > 0 ? '+' : row.sign < 0 ? '-' : '0').padEnd(12),
-        row.horizonsPassing.join(',').padEnd(12),
-        row.quarterAgreement.toFixed(2).padEnd(12),
-        row.symbolAgreement.toFixed(2),
-      ].join('')
-    );
+    lines.push(rowLine(row));
+  }
+
+  // A row that cleared the effect-size and significance legs and then lost on
+  // the FDR or on quarter/symbol agreement is the one a reader of this table
+  // most needs to see next: it is where the phase's near-decisions are, and
+  // printing survivors alone hides them. A row that passed no horizon at all
+  // is not a near miss and stays out.
+  const nearMisses = table.rows.filter(
+    (r) => !r.survivor && (r.horizonsPassing.length > 0 || (r.fdrExcludedHorizons?.length ?? 0) > 0)
+  );
+  lines.push('');
+  lines.push('near misses (cleared |ic| and |t|, failed the FDR or a consistency leg):');
+  lines.push(headerLine('reasons'));
+  for (const row of nearMisses) {
+    lines.push(rowLine(row, row.reasons.join('; ')));
   }
   return lines.join('\n');
 }

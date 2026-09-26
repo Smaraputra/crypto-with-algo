@@ -10,11 +10,19 @@
  * fewer than `minSymbols` symbols have a finite return. Joined on timestamp,
  * never on position. Pre-registered POSITIVE at h1 to h4 for alts (delayed
  * reaction to BTC); see the Phase B block in factors.ts.
+ *
+ * `raw.btcLeadLagLoo`: the same, with the read symbol left out of the mean as
+ * well as BTC. The market mean above includes the read symbol's own return
+ * with weight -1/N, and that return reverses at these horizons, so
+ * `raw.btcLeadLag` carries a small own-return term of the pre-registered sign.
+ * This column has no such term: the gap between the two bounds the
+ * contamination. Same NaN rule, plus NaN where no other alt remains after
+ * both exclusions. See the 2026-09-26 addendum in the Phase B block.
  */
 import type { FactorMatrix } from './factors';
 
 export const BTC_SYMBOL = 'BTCUSDT';
-export const CROSS_SYMBOL_NAMES = ['raw.btcLeadLag'] as const;
+export const CROSS_SYMBOL_NAMES = ['raw.btcLeadLag', 'raw.btcLeadLagLoo'] as const;
 
 function ret1Of(matrix: FactorMatrix): Float64Array {
   const idx = matrix.names.indexOf('raw.ret1');
@@ -27,11 +35,17 @@ export function appendCrossSymbolFactors(
   minSymbols: number
 ): void {
   if (perSymbol.length === 0) return;
-  if (perSymbol.every((d) => d.matrix.names.includes('raw.btcLeadLag'))) return;
+  if (perSymbol.every((d) => CROSS_SYMBOL_NAMES.every((name) => d.matrix.names.includes(name)))) return;
 
+  // `market` spans every symbol, BTC included: it is what the minSymbols gate
+  // counts and what raw.btcLeadLag's own mean is taken over. `alts` spans the
+  // non-BTC symbols only, so the leave-one-out mean is one subtraction away
+  // from it rather than two away from `market`.
   const market = new Map<number, { sum: number; count: number }>();
+  const alts = new Map<number, { sum: number; count: number }>();
   for (const d of perSymbol) {
     const r = ret1Of(d.matrix);
+    const isBtc = d.symbol === BTC_SYMBOL;
     d.matrix.timestamps.forEach((t, i) => {
       const v = r[i];
       if (!Number.isFinite(v)) return;
@@ -41,6 +55,14 @@ export function appendCrossSymbolFactors(
         entry.count++;
       } else {
         market.set(t, { sum: v, count: 1 });
+      }
+      if (isBtc) return;
+      const altEntry = alts.get(t);
+      if (altEntry) {
+        altEntry.sum += v;
+        altEntry.count++;
+      } else {
+        alts.set(t, { sum: v, count: 1 });
       }
     });
   }
@@ -55,18 +77,33 @@ export function appendCrossSymbolFactors(
   }
 
   for (const d of perSymbol) {
-    if (d.matrix.names.includes('raw.btcLeadLag')) continue;
     const ts = d.matrix.timestamps;
     const col = new Float64Array(ts.length).fill(NaN);
+    const looCol = new Float64Array(ts.length).fill(NaN);
     if (d.symbol !== BTC_SYMBOL && btc) {
+      const own = ret1Of(d.matrix);
       for (let i = 0; i < ts.length; i++) {
         const b = btcByTime.get(ts[i]);
         const m = market.get(ts[i]);
-        if (b !== undefined && m && m.count >= minSymbols) col[i] = b - m.sum / m.count;
+        if (b === undefined || !m || m.count < minSymbols) continue;
+        col[i] = b - m.sum / m.count;
+
+        const a = alts.get(ts[i]);
+        if (!a) continue;
+        const ownFinite = Number.isFinite(own[i]);
+        const looCount = a.count - (ownFinite ? 1 : 0);
+        if (looCount < 1) continue;
+        looCol[i] = b - (a.sum - (ownFinite ? own[i] : 0)) / looCount;
       }
     }
-    d.matrix.names.push('raw.btcLeadLag');
-    d.matrix.categories.push('raw');
-    d.matrix.values.push(col);
+    appendColumn(d.matrix, 'raw.btcLeadLag', col);
+    appendColumn(d.matrix, 'raw.btcLeadLagLoo', looCol);
   }
+}
+
+function appendColumn(matrix: FactorMatrix, name: string, values: Float64Array): void {
+  if (matrix.names.includes(name)) return;
+  matrix.names.push(name);
+  matrix.categories.push('raw');
+  matrix.values.push(values);
 }

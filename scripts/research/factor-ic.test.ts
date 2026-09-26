@@ -550,6 +550,36 @@ describe('factor-ic cross-sectional mode', () => {
     expect(symbolCell.n).toBe(eth.n);
   }, 30_000);
 
+  it('in cross-sectional mode the pooled block is the per-bar statistic and --cell reproduces it', async () => {
+    await buildFixtureDataset(dir, { symbols: THREE });
+    const reportPath = join(dir, 'cs2.json');
+    const report = await runFactorIc(args({ crossSectionalDemean: true, minCrossSection: 3, out: reportPath }));
+    const ret1 = report.factors.find((f) => f.name === 'raw.ret1')!;
+    for (const h of ret1.pooled.horizons) {
+      const bar = ret1.crossSectional!.horizons.find((c) => c.horizon === h.horizon)!;
+      expect(h.ic).toBeCloseTo(bar.meanBarIc, 12);
+      expect(h.icT).toBeCloseTo(bar.hacT, 12);
+      expect(h.n).toBe(bar.bars);
+    }
+    expect(ret1.rollingQuarterly.length).toBeGreaterThan(0);
+    const cell = await runCell({ ...args(), cell: { factor: 'raw.ret1', horizon: 1 }, reportPath });
+    expect(cell.ic).toBeCloseTo(ret1.pooled.horizons[0].ic, 12);
+    expect(cell.n).toBe(ret1.pooled.horizons[0].n);
+  }, 30_000);
+
+  it('drops a cross-symbol column from the cross-sectional pass, with a reason', async () => {
+    await buildFixtureDataset(dir, { symbols: THREE });
+    const report = await buildFactorIcReport({
+      ...args({ crossSectionalDemean: true, minCrossSection: 3 }),
+      factors: ['raw.btcLeadLag', 'raw.btcLeadLagLoo'],
+    });
+    expect(report.factors).toEqual([]);
+    expect(report.skippedFactors.map((s) => s.name)).toEqual(['raw.btcLeadLag', 'raw.btcLeadLagLoo']);
+    for (const skipped of report.skippedFactors) {
+      expect(skipped.reason).toBe('no cross-sectional content: identical across symbols at a bar');
+    }
+  }, 30_000);
+
   it('raw.btcLeadLag reaches the report for the alts only, and --cell --report reproduces it', async () => {
     await buildFixtureDataset(dir, { symbols: THREE });
     const reportPath = join(dir, 'll.json');
@@ -849,6 +879,30 @@ describe('factor-ic --return-series perp', () => {
     await buildFixtureDataset(dir);
     const base = parseArgs(['--interval', INTERVAL, '--dataset-dir', dir, '--horizons', '1', '--factors', 'raw.ret1', '--return-series', 'perp']);
     await expect(buildFactorIcReport(base)).rejects.toThrow(/BTCUSDT/);
+  });
+
+  it('--cell --report on a perp report throws naming a symbol whose perp file has gone', async () => {
+    await buildFixtureDataset(dir, { perp: true });
+    const base = parseArgs(['--interval', INTERVAL, '--dataset-dir', dir, '--horizons', '1', '--factors', 'raw.ret1', '--bootstrap-n', '20']);
+    const reportPath = join(dir, 'perp-gone.json');
+    await runFactorIc({ ...base, returnSeries: 'perp', out: reportPath });
+
+    // Remove BTC's perp file and its manifest entry, then re-hash: the dataset
+    // stays internally consistent, so only the missing series is left to find.
+    rmSync(join(dir, 'perp', 'BTCUSDT', `${INTERVAL}.jsonl.gz`));
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as DatasetManifest;
+    manifest.files = manifest.files.filter((f) => f.path !== `perp/BTCUSDT/${INTERVAL}.jsonl.gz`);
+    manifest.datasetHash = datasetHashOf(manifest.files);
+    writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+    await expect(
+      runCell({
+        ...base,
+        cell: { factor: 'raw.ret1', horizon: 1 },
+        reportPath,
+        expectManifestHash: manifest.datasetHash,
+      })
+    ).rejects.toThrow(/no perpetual bars for BTCUSDT/);
   });
 
   it('drops bars without a perp close from the pairs instead of poisoning the statistic', async () => {

@@ -800,12 +800,19 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
   for (let bar = 0; bar < n; bar++) ret1Series[bar] = simpleReturn(candles, bar, 1);
 
   // Time of day as a bucket index: 96 quarter-hours at 15m, 24 at 1h, 6 at 4h.
-  const hourOfDayDrift = seasonalDriftSeries(
-    ret1Series,
-    (bar) => Math.floor((candles[bar].t % DAY_MS) / intervalMs),
-    daysToBars(SEASONAL_DRIFT_DAYS),
-    SEASONAL_DRIFT_MIN_SAMPLES
-  );
+  // At 1d (and coarser) every bar falls in the one bucket, so the column would
+  // be a trailing 60-day mean return with no time-of-day content at all. NaN
+  // throughout there, the same way sessionDrift is NaN off-session, rather than
+  // a differently-named momentum column.
+  const hourOfDayDrift =
+    DAY_MS / intervalMs > 1
+      ? seasonalDriftSeries(
+          ret1Series,
+          (bar) => Math.floor((candles[bar].t % DAY_MS) / intervalMs),
+          daysToBars(SEASONAL_DRIFT_DAYS),
+          SEASONAL_DRIFT_MIN_SAMPLES
+        )
+      : new Float64Array(n).fill(NaN);
   const sessionDrift = isSessionMeaningful(interval)
     ? seasonalDriftSeries(
         ret1Series,

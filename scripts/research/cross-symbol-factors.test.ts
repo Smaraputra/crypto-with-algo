@@ -41,6 +41,42 @@ describe('appendCrossSymbolFactors', () => {
     expect(Array.from(data[0].matrix.values[1]).every(Number.isNaN)).toBe(true);
   });
 
+  it('btcLeadLagLoo excludes the read symbol from the mean, and is NaN for BTC', () => {
+    const data = [
+      { symbol: 'BTCUSDT', matrix: matrixOf([0.01, 0.02, NaN]) },
+      { symbol: 'ETHUSDT', matrix: matrixOf([0.0, 0.04, 0.01]) },
+      { symbol: 'SOLUSDT', matrix: matrixOf([-0.01, 0.0, 0.02]) },
+    ];
+    appendCrossSymbolFactors(data, 3);
+    const loo = (i: number) =>
+      Array.from(data[i].matrix.values[data[i].matrix.names.indexOf('raw.btcLeadLagLoo')]);
+    // ETH's own return leaves the mean, so the mean is SOL alone.
+    expect(loo(1)[0]).toBeCloseTo(0.01 - -0.01, 12);
+    expect(loo(1)[1]).toBeCloseTo(0.02 - 0.0, 12);
+    expect(loo(1)[2]).toBeNaN();
+    // SOL's mean is ETH alone.
+    expect(loo(2)[0]).toBeCloseTo(0.01 - 0.0, 12);
+    expect(loo(2)[1]).toBeCloseTo(0.02 - 0.04, 12);
+    expect(loo(0).every(Number.isNaN)).toBe(true);
+    expect(data[1].matrix.categories[data[1].matrix.names.indexOf('raw.btcLeadLagLoo')]).toBe('raw');
+  });
+
+  it('btcLeadLagLoo is finite with four symbols, where excluding two leaves two alts', () => {
+    const data = [
+      { symbol: 'BTCUSDT', matrix: matrixOf([0.01], [0]) },
+      { symbol: 'ETHUSDT', matrix: matrixOf([0.0], [0]) },
+      { symbol: 'SOLUSDT', matrix: matrixOf([-0.01], [0]) },
+      { symbol: 'ADAUSDT', matrix: matrixOf([0.05], [0]) },
+    ];
+    appendCrossSymbolFactors(data, 3);
+    const at = (i: number, name: string) => data[i].matrix.values[data[i].matrix.names.indexOf(name)][0];
+    // ETH: mean over SOL and ADA is 0.02, against the all-symbol mean of 0.0125.
+    expect(at(1, 'raw.btcLeadLagLoo')).toBeCloseTo(0.01 - 0.02, 12);
+    expect(at(1, 'raw.btcLeadLag')).toBeCloseTo(0.01 - 0.0125, 12);
+    // SOL: mean over ETH and ADA is 0.025.
+    expect(at(2, 'raw.btcLeadLagLoo')).toBeCloseTo(0.01 - 0.025, 12);
+  });
+
   it('joins on timestamps, not positions', () => {
     const data = [
       { symbol: 'BTCUSDT', matrix: matrixOf([0.01, 0.03], [0, 2]) },

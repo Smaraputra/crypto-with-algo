@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  barIcSeries,
   benjaminiHochberg,
   bootstrapCi,
   bootstrapCiOfMean,
@@ -543,5 +544,28 @@ describe('crossSectionalIcSeries', () => {
 
   it('drops a bar whose IC is undefined (constant returns)', () => {
     expect(crossSectionalIcSeries([{ factor: [1, 2, 3], fwd: [0, 0, 0] }], 3)).toEqual([]);
+  });
+});
+
+describe('barIcSeries', () => {
+  it('groups by timestamp across symbols and returns one Spearman per bar in time order', () => {
+    const per = [
+      { timestamps: [0, 1, 2], factor: [1, 1, 1], fwd: [1, 3, 1] },
+      { timestamps: [0, 1, 2], factor: [2, 2, 2], fwd: [2, 2, 2] },
+      { timestamps: [0, 1, 2], factor: [3, 3, 3], fwd: [3, 1, NaN] },
+    ];
+    const out = barIcSeries(per, 3);
+    expect(out.t).toEqual([0, 1]);
+    expect(out.ic[0]).toBeCloseTo(1, 12);
+    expect(out.ic[1]).toBeCloseTo(-1, 12);
+  });
+
+  it('is empty when the factor is identical across symbols at every bar', () => {
+    const per = [
+      { timestamps: [0, 1], factor: [5, 6], fwd: [1, 2] },
+      { timestamps: [0, 1], factor: [5, 6], fwd: [2, 1] },
+      { timestamps: [0, 1], factor: [5, 6], fwd: [3, 3] },
+    ];
+    expect(barIcSeries(per, 3)).toEqual({ t: [], ic: [] });
   });
 });

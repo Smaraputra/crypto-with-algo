@@ -610,6 +610,15 @@ describe('Phase B seasonal, taker-intensity and depth columns', () => {
     expect(drift[bar]).toBeCloseTo(0.01 / 7, 3);
   });
 
+  it('hourOfDayDrift is NaN throughout at 1d, where the interval is one time-of-day bucket', () => {
+    // 450 bars, not 400: the 1d style's indicator warmup needs 410 (the same
+    // reason the raw.htfTrend 1d test above uses 450).
+    const c1d = generateCandles(450, 4242, 86_400_000).map(toCandleRow);
+    const h1d: HtfRow[] = c1d.map((c) => ({ t: c.t, context: null }));
+    const m1d = computeFactorMatrix({ candles: c1d, snapshots: null, htf: h1d, interval: '1d' });
+    expect(Array.from(m1d.values[m1d.names.indexOf('raw.hourOfDayDrift')]).every(Number.isNaN)).toBe(true);
+  });
+
   it('sessionDrift is NaN throughout at 4h, where a session is not meaningful', () => {
     const c4 = generateCandles(400, 4242, 4 * 3_600_000).map(toCandleRow);
     const h4: HtfRow[] = c4.map((c) => ({ t: c.t, context: null }));

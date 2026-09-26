@@ -77,7 +77,15 @@ export const FactorIcReportSchema = z.object({
    * still validate; absent means 0, the Phase 3 convention.
    */
   executionLagBars: z.number().int().min(0).optional(),
-  /** Written only when set, so a default run's report stays byte-identical to earlier ones. */
+  /**
+   * Written only when set, so a default run's report stays byte-identical to
+   * earlier ones. When it is set, each factor's `pooled.horizons[h]` is the
+   * PER-BAR (Fama-MacBeth) statistic -- one Spearman per bar across symbols,
+   * the mean over bars, HAC t at lag h-1 -- and not the Spearman pooled over
+   * pairs, which on per-bar-demeaned returns is not a cross-sectional reading
+   * at all. `crossSectional` restates those same numbers as the explicit
+   * record. See factor-ic.ts's header for the measurement that settled it.
+   */
   crossSectionalDemean: z.boolean().optional(),
   minCrossSection: z.number().int().min(3).optional(),
   returnSeries: z.enum(['spot', 'perp']).optional(),
@@ -191,6 +199,8 @@ export const PHASE_FDR_Q = 0.1;
 
 export interface SurvivorRow {
   interval: string;
+  /** The taskId of the report this row came from: what tells two rows on one interval apart. */
+  taskId: string;
   factor: string;
   category: string;
   sign: 1 | -1 | 0;
@@ -211,7 +221,12 @@ function signOf(value: number): 1 | -1 | 0 {
 
 export type FdrPass = (factorName: string, horizon: number) => boolean;
 
-function evaluateFactorSurvivor(interval: string, factor: FactorReport, fdrPass?: FdrPass): SurvivorRow {
+function evaluateFactorSurvivor(
+  interval: string,
+  taskId: string,
+  factor: FactorReport,
+  fdrPass?: FdrPass
+): SurvivorRow {
   const clearsThresholds = factor.pooled.horizons.filter(
     (h) => Math.abs(h.ic) >= SURVIVOR_RULE.minAbsIc && Math.abs(h.icT) >= SURVIVOR_RULE.minT
   );
@@ -268,6 +283,7 @@ function evaluateFactorSurvivor(interval: string, factor: FactorReport, fdrPass?
 
   return {
     interval,
+    taskId,
     factor: factor.name,
     category: factor.category,
     sign,
@@ -281,7 +297,9 @@ function evaluateFactorSurvivor(interval: string, factor: FactorReport, fdrPass?
 }
 
 export function evaluateSurvivors(report: FactorIcReport, fdrPass?: FdrPass): SurvivorRow[] {
-  return report.factors.map((factor) => evaluateFactorSurvivor(report.interval, factor, fdrPass));
+  return report.factors.map((factor) =>
+    evaluateFactorSurvivor(report.interval, report.taskId, factor, fdrPass)
+  );
 }
 
 export interface PhaseSurvivorTable {
@@ -300,9 +318,21 @@ export interface PhaseSurvivorTable {
  * report is one hypothesis, p from its HAC t, Benjamini-Hochberg at fdrQ, and
  * a horizon passes only if the FDR also rejects it. Cells are keyed by taskId
  * so two reports on one interval (say, time-series and cross-sectional) never
- * collide.
+ * collide, which is why two reports sharing a taskId are a hard error rather
+ * than a phase that silently merges their cells and gives each report the
+ * other's FDR verdicts.
  */
 export function evaluatePhaseSurvivors(reports: FactorIcReport[], fdrQ: number): PhaseSurvivorTable {
+  const seenTaskIds = new Set<string>();
+  for (const report of reports) {
+    if (seenTaskIds.has(report.taskId)) {
+      throw new Error(
+        `evaluatePhaseSurvivors: duplicate taskId "${report.taskId}"; each report needs its own task id`
+      );
+    }
+    seenTaskIds.add(report.taskId);
+  }
+
   const cells: Array<{ key: string; p: number }> = [];
   for (const report of reports) {
     for (const factor of report.factors) {

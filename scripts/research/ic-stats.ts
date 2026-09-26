@@ -586,10 +586,66 @@ export function crossSectionalIcSeries(
 ): number[] {
   const out: number[] = [];
   for (const bar of bars) {
-    const { xs, ys } = finitePairs(bar.factor, bar.fwd);
-    if (xs.length < minCrossSection) continue;
-    const ic = spearman(xs, ys);
+    const ic = oneBarIc(bar.factor, bar.fwd, minCrossSection);
     if (Number.isFinite(ic)) out.push(ic);
   }
   return out;
+}
+
+/** One bar's cross-sectional Spearman; NaN for a bar narrower than minCrossSection or with no ranking. */
+function oneBarIc(factor: number[], fwd: number[], minCrossSection: number): number {
+  const { xs, ys } = finitePairs(factor, fwd);
+  if (xs.length < minCrossSection) return NaN;
+  return spearman(xs, ys);
+}
+
+/**
+ * crossSectionalIcSeries over bars this function groups itself, keeping each
+ * surviving bar's timestamp: every symbol's (timestamp, factor, forward
+ * return) triples are joined on the timestamp, bars narrower than
+ * minCrossSection and bars whose IC is undefined are dropped, and what remains
+ * is returned in ascending time order.
+ *
+ * The timestamps are what a caller needs to reduce the series by quarter, and
+ * the join is why they cannot be recovered afterwards: symbols do not share a
+ * bar index, only a bar time. A factor identical across symbols at a bar has
+ * no within-bar ranking, so it yields an EMPTY series rather than a series of
+ * zeros -- that is the whole point of reading this statistic rather than a
+ * Spearman pooled over bars, which such a factor still scores on.
+ */
+export function barIcSeries(
+  perSymbol: ReadonlyArray<{
+    timestamps: ArrayLike<number>;
+    factor: ArrayLike<number>;
+    fwd: ArrayLike<number>;
+  }>,
+  minCrossSection: number
+): { t: number[]; ic: number[] } {
+  const byTime = new Map<number, { factor: number[]; fwd: number[] }>();
+  for (const symbol of perSymbol) {
+    const len = Math.min(symbol.timestamps.length, symbol.factor.length, symbol.fwd.length);
+    for (let i = 0; i < len; i++) {
+      const f = symbol.factor[i];
+      const r = symbol.fwd[i];
+      if (!Number.isFinite(f) || !Number.isFinite(r)) continue;
+      const bucket = byTime.get(symbol.timestamps[i]);
+      if (bucket) {
+        bucket.factor.push(f);
+        bucket.fwd.push(r);
+      } else {
+        byTime.set(symbol.timestamps[i], { factor: [f], fwd: [r] });
+      }
+    }
+  }
+
+  const t: number[] = [];
+  const ic: number[] = [];
+  for (const stamp of [...byTime.keys()].sort((a, b) => a - b)) {
+    const bar = byTime.get(stamp)!;
+    const value = oneBarIc(bar.factor, bar.fwd, minCrossSection);
+    if (!Number.isFinite(value)) continue;
+    t.push(stamp);
+    ic.push(value);
+  }
+  return { t, ic };
 }

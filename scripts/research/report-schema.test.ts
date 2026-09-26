@@ -481,6 +481,15 @@ describe('evaluatePhaseSurvivors', () => {
     const table = evaluatePhaseSurvivors([a, b], 0.1);
     expect(table.cells).toBe(4);
     expect(table.perInterval.map((p) => p.taskId)).toEqual(['a', 'b']);
+    expect(table.rows.map((r) => r.taskId)).toEqual(['a', 'b']);
+  });
+
+  it('throws when two reports share a taskId, which would merge their cells', () => {
+    const a = icReport('dup', '1h', [survivingFactor('raw.a', 4)]);
+    const b = icReport('dup', '4h', [survivingFactor('raw.a', 4)]);
+    expect(() => evaluatePhaseSurvivors([a, b], 0.1)).toThrow(
+      'evaluatePhaseSurvivors: duplicate taskId "dup"; each report needs its own task id'
+    );
   });
 });
 
