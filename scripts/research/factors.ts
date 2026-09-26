@@ -269,6 +269,30 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  * closes in milliseconds; the perpSpotSpreadPct artifact family), day-of-week
  * drift (folded into time of day), retail-versus-top-trader spread (both legs
  * measured at 4h and 1d only, same sign).
+ *
+ * ADDENDUM, 2026-09-26, written after the 4h and 1h time-series runs were read
+ * and BEFORE the 15m run was read. Two properties of `raw.btcLeadLag` were
+ * found by review, not by measurement, and are ruled on here so they are not
+ * decided after a result:
+ *
+ * - It has NO cross-sectional content by construction: b_t - m_t is the same
+ *   number for every non-BTC symbol at a bar, so a per-bar rank across symbols
+ *   is undefined. It is measured on the time-series axis only and is dropped
+ *   from the cross-sectional pass. (The same reasoning excluded the drift
+ *   columns above; the original "both axes" assignment was wrong.)
+ * - The market mean m_t includes the read symbol's own ret1 with weight -1/N,
+ *   and ret1 reverses at these horizons, so the column carries a positive
+ *   own-return term of about +0.002 at 15m and +0.006 at 1h in IC units, the
+ *   pre-registered sign. Below the 0.02 floor on its own, but it biases the
+ *   sign test. CONTROL, pre-registered now: `raw.btcLeadLagLoo`, BTC's ret1
+ *   minus the equal-weight mean over the OTHER alts (the read symbol and BTC
+ *   both excluded), NaN for BTC and below five symbols. PREDICTION: same sign
+ *   (+), and the gap btcLeadLag - btcLeadLagLoo bounds the contamination at
+ *   about the figures above. If btcLeadLag clears the rule anywhere and the
+ *   LOO control does not, the survival is the own-return reversal in disguise
+ *   and is recorded as such.
+ * - Recorded before the 15m read: at 1h btcLeadLag was +0.0219 (h1, t 12.5)
+ *   and +0.0187 (h2), failing the two-horizon |ic| leg by 0.0013.
  */
 const RAW_NAMES = [
   'raw.rsi',
