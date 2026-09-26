@@ -16,8 +16,12 @@
  * symbols, horizons 1,2,4,8,16,32, bootstrap 200 draws seed 42; reports
  * under data/research/reports/factor-ic-<interval>-p3.json, one random cell
  * per report re-run with --cell --report and reproduced digit for digit).
- * Survivor rule: pooled |ic| >= 0.02 and |t| >= 2.5 at two or more horizons,
- * same sign in 60% of quarters and in seven of ten symbols. Sign is the
+ * Survivor rule: pooled |ic| >= 0.02 and |t| >= 3.15 at two or more horizons,
+ * same sign in 60% of quarters and in seven of ten symbols. A phase-wide
+ * Benjamini-Hochberg control at q 0.10, over every pooled cell of every report
+ * the phase produced, is applied on top of that rule by survivor-table.ts.
+ * Every count recorded in this file is the same at |t| 2.5 and at 3.15, so the
+ * tables below read identically under either threshold. Sign is the
  * sign of the pooled IC; "+" means a higher reading precedes a higher
  * forward return. Survivors per interval: 5m 21 of 30, 1h 18 of 40,
  * 4h 4 of 40, 1d 2 of 35.
@@ -401,6 +405,49 @@
  * the trade-level ingest -- roughly 232 GB, a streaming parser with no
  * precedent in the codebase, and about 17 files -- is not started. The cheap
  * stages did their job, which was to be cheap enough to say no with.
+ *
+ * WHAT `pooled` MEANS, AND IT DIFFERS BY MODE. In the default time-series mode
+ * `pooled.horizons[h]` is the Spearman IC over every (factor, forward-return)
+ * pair of every symbol, concatenated, with a Newey-West t at lag h-1. Under
+ * --cross-sectional-demean it is the Fama-MacBeth reading instead: one Spearman
+ * per bar across the symbols present at that bar, the mean over bars, and a
+ * Newey-West t at lag h-1 over that bar series. The pair-pooled Spearman is NOT
+ * reported in that mode, because on per-bar-demeaned returns it is not a
+ * cross-sectional statistic: its ranks are pooled across bars, so a factor's
+ * time-series LEVEL correlates with the shape (dispersion, skew) of each bar's
+ * demeaned distribution, and uneven factor coverage across symbols breaks the
+ * zero-sum. Measured at 4h, it gave raw.htfTrend a pooled -0.025 t -9 while
+ * that factor's own per-bar mean was +0.003 t 0.7, and 27 of 63 factors
+ * "survived" against 8 in time-series mode.
+ *
+ * WHAT THE REVIEW PROBES MEASURED, 2026-09-26, recorded because two of them
+ * cleared a concern rather than confirming it. Under a pure cross-sectional
+ * null with a cross-correlated factor (40 trials, 10 symbols, 3,000 bars) the
+ * pooled pair-level icT had an sd of 0.66 against the per-bar HAC t's 0.92, so
+ * the pooled t is if anything the more conservative of the two under that null.
+ * A symbol-fixed-effect attack sized to a symbol mean-return |t| of 2 produced
+ * 0% joint passes of the |ic| and |t| legs, at a maximum pooled |ic| of 0.0166:
+ * the |ic| floor and the 70% symbol agreement are the binding protections
+ * there, not the t threshold. What the probes did NOT clear is the reading
+ * itself for a bar-constant or unevenly covered input. At 4h raw.fearGreed is
+ * identical across symbols at every bar, so its per-bar series is EMPTY, and
+ * the pair-pooled statistic still scored it at -0.028 t -10.3 across six
+ * horizons. A statistic that ranks a factor with no within-bar variation at all
+ * is not reading the cross-section, which is why cross-sectional mode now
+ * reports the per-bar statistic as `pooled`.
+ *
+ * PHASE B, 2026-09-26: column results are in factors.ts (Phase B block). What
+ * this file's runs established about the tool: the cross-sectional mode's first
+ * pooled statistic (a pair-level Spearman on per-bar demeaned returns) was found
+ * by running it, not by reading it: at 4h it gave raw.fearGreed, identical
+ * across symbols at every bar, an ic of -0.028 with t -10.3 while the per-bar
+ * series was empty, and 27 of 63 "survivors" against 8 in time-series mode.
+ * The pooled block in that mode is now the per-bar Fama-MacBeth statistic
+ * (mean bar IC, Newey-West t over the bar series), bar-constant inputs are
+ * skipped with a reason, and the three cross-sectional reports were re-run on
+ * the fixed build (crypto-ops:phaseb2, commit b4851ad). Survivors per report
+ * after the fix: 15m 12/60, 1h 14/60, 4h 9/58; phase-wide FDR over 2,361 cells
+ * rejected 1,371 and moved no count.
  */
 
 import { execFileSync } from 'child_process';
@@ -409,17 +456,22 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import {
+  barIcSeries,
   bootstrapCiOfMean,
+  demeanAcrossSymbols,
   forwardReturns,
+  hacTStatOfMean,
   icNonOverlapping,
   icWithHac,
   nonOverlappingIndices,
   quantileSpread,
+  quarterOf,
   rollingByQuarter,
   signHitRate,
   standardizedRankProducts,
 } from './ic-stats';
 import { computeFactorMatrix, type FactorMatrix } from './factors';
+import { appendCrossSymbolFactors, CROSS_SYMBOL_NAMES } from './cross-symbol-factors';
 import {
   loadCandles,
   loadHtf,
@@ -442,9 +494,15 @@ const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
 // (fewer pairs than this and those functions already return NaN).
 const MIN_PAIRS = 3;
+// Bars a cross-sectional (per-bar) series needs before its mean, its HAC t and
+// its quarterly reductions are published. MIN_PAIRS is the right floor for a
+// pooled pair count and much too low for a count of bars: one draw per bar is
+// the whole point of this statistic, so thirty of them is the smallest sample
+// worth reporting a mean and a Newey-West t over.
+const MIN_CS_BARS = 30;
 // Pooled bootstrapCi95 is only attempted for cells whose pooled HAC |icT|
 // clears this gate -- a candidate for the survivor rule (SURVIVOR_RULE.minT
-// is 2.5; this gate is deliberately its own, slightly looser, constant).
+// is 3.15; this gate is deliberately its own, looser, constant).
 // Cells below it carry bootstrapCi95: null rather than paying for a wide
 // interval on a cell nobody will treat as a finding.
 const BOOTSTRAP_GATE_ABS_T = 2;
@@ -472,6 +530,16 @@ export interface FactorIcArgs {
    * removes any shared price term between a factor and its own return.
    */
   executionLagBars: number;
+  /**
+   * Demean each bar's forward return by the equal-weight mean across the
+   * symbols present, so the IC reads a factor's relative-value content. The
+   * per-bar IC series and its HAC t are reported beside the pooled IC.
+   */
+  crossSectionalDemean: boolean;
+  /** Fewest symbols a bar needs before it is demeaned or ranked. */
+  minCrossSection: number;
+  /** Which close the forward return is measured on. spot reproduces every recorded table; perp is the traded venue. */
+  returnSeries: 'spot' | 'perp';
   allowLockbox: boolean;
   factors?: string[];
   cell?: { factor: string; horizon: number; symbol?: string };
@@ -553,7 +621,7 @@ function parseCell(value: string): { factor: string; horizon: number; symbol?: s
 
 // These two flags are presence-only switches (no following value), unlike
 // every other flag in this CLI.
-const BOOLEAN_FLAGS = new Set(['allow-lockbox', 'bootstrap-per-symbol']);
+const BOOLEAN_FLAGS = new Set(['allow-lockbox', 'bootstrap-per-symbol', 'cross-sectional-demean']);
 
 // Every flag that takes a following value. An unrecognized --flag is
 // rejected rather than silently absorbed as a no-op (and its value token
@@ -572,6 +640,8 @@ const VALUE_FLAGS = new Set([
   'bootstrap-seed',
   'bootstrap-max-pairs',
   'execution-lag',
+  'min-cross-section',
+  'return-series',
   'factors',
   'cell',
   'expect-manifest-hash',
@@ -586,6 +656,23 @@ function parseExecutionLag(raw: string | undefined): number {
     throw new Error(`--execution-lag must be a non-negative integer, got "${raw}"`);
   }
   return Number(raw);
+}
+
+export const DEFAULT_MIN_CROSS_SECTION = 5;
+
+function parseMinCrossSection(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_MIN_CROSS_SECTION;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 3) {
+    throw new Error(`--min-cross-section must be an integer of at least 3 (a per-bar rank correlation needs three symbols), got "${raw}"`);
+  }
+  return n;
+}
+
+function parseReturnSeries(raw: string | undefined): 'spot' | 'perp' {
+  if (raw === undefined || raw === 'spot') return 'spot';
+  if (raw === 'perp') return 'perp';
+  throw new Error(`--return-series must be spot or perp, got "${raw}"`);
 }
 
 export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs {
@@ -635,6 +722,9 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
       ? Number(flags.get('bootstrap-max-pairs'))
       : DEFAULT_BOOTSTRAP_MAX_PAIRS,
     executionLagBars: parseExecutionLag(flags.get('execution-lag')),
+    crossSectionalDemean: booleans.has('cross-sectional-demean'),
+    minCrossSection: parseMinCrossSection(flags.get('min-cross-section')),
+    returnSeries: parseReturnSeries(flags.get('return-series')),
     allowLockbox: booleans.has('allow-lockbox'),
     factors: flags.has('factors') ? parseList(flags.get('factors')!) : undefined,
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
@@ -930,6 +1020,108 @@ function buildRollingQuarterly(
     .map((r) => ({ quarter: r.quarter, horizon, ic: r.ic, n: r.n, t: r.t }));
 }
 
+/**
+ * The HorizonStat of a per-bar (Fama-MacBeth) IC series: one draw per bar, the
+ * mean over bars, and a Newey-West t at lag horizon-1 over that series. This is
+ * what `pooled` carries in cross-sectional mode; see this file's header for why
+ * the pair-pooled Spearman is not reported there.
+ *
+ * Every field keeps the meaning it has in buildHorizonStat with "pair" read as
+ * "bar": n is bars, nNonOverlapping counts every horizon-th bar,
+ * signHitRate is the share of bars whose own IC is positive, and
+ * quantileSpread is the top and bottom decile of the bar-IC series itself
+ * (there is no separate forward return to average at this level -- the IC
+ * already is the bar's reading).
+ */
+function barIcHorizonStat(
+  series: { t: number[]; ic: number[] },
+  horizon: number,
+  bootstrap: { iterations: number; seed: number; gateAbsT: number | null } | null
+): HorizonStat | null {
+  const n = series.ic.length;
+  if (n < MIN_CS_BARS) return null;
+
+  const { mean: ic, t: icT } = hacTStatOfMean(series.ic, horizon - 1);
+  if (!Number.isFinite(ic) || !Number.isFinite(icT)) return null;
+
+  const idxs = nonOverlappingIndices(n, horizon, 0);
+  if (idxs.length < MIN_CS_BARS) return null;
+  const icNonOverlapping = idxs.reduce((s, i) => s + series.ic[i], 0) / idxs.length;
+  if (!Number.isFinite(icNonOverlapping)) return null;
+
+  const hitRate = series.ic.filter((v) => v > 0).length / n;
+  const spread = quantileSpread(series.ic, series.ic);
+  if (
+    !Number.isFinite(spread.top) ||
+    !Number.isFinite(spread.bottom) ||
+    !Number.isFinite(spread.spread)
+  ) {
+    return null;
+  }
+
+  let bootstrapCi95: [number, number] | null = null;
+  if (bootstrap && (bootstrap.gateAbsT === null || Math.abs(icT) >= bootstrap.gateAbsT)) {
+    // No subsampling and no ranking here: the series is one number per bar,
+    // orders of magnitude shorter than the pooled pair series, and its ranks
+    // were already taken inside each bar.
+    const ci = bootstrapCiOfMean(series.ic, {
+      iterations: bootstrap.iterations,
+      meanBlockLen: horizon,
+      seed: bootstrap.seed,
+    });
+    if (Number.isFinite(ci.low) && Number.isFinite(ci.high)) {
+      bootstrapCi95 = [ci.low, ci.high];
+    }
+  }
+
+  return {
+    horizon,
+    n,
+    ic,
+    icT,
+    nNonOverlapping: idxs.length,
+    icNonOverlapping,
+    signHitRate: hitRate,
+    bootstrapCi95,
+    quantileSpread: spread,
+  };
+}
+
+/**
+ * Per-quarter reduction of a per-bar IC series: the mean of that quarter's bar
+ * ICs and its ordinary t (the bars inside one quarter are one draw each, so no
+ * HAC correction applies at this level). Quarters with fewer than MIN_CS_BARS
+ * bars, or no spread, are dropped rather than reported.
+ */
+function buildBarRollingQuarterly(
+  series: { t: number[]; ic: number[] },
+  horizon: number
+): FactorReport['rollingQuarterly'] {
+  const byQuarter = new Map<string, number[]>();
+  for (let i = 0; i < series.t.length; i++) {
+    const quarter = quarterOf(series.t[i]);
+    const bucket = byQuarter.get(quarter);
+    if (bucket) {
+      bucket.push(series.ic[i]);
+    } else {
+      byQuarter.set(quarter, [series.ic[i]]);
+    }
+  }
+
+  const out: FactorReport['rollingQuarterly'] = [];
+  for (const quarter of [...byQuarter.keys()].sort()) {
+    const values = byQuarter.get(quarter)!;
+    const n = values.length;
+    if (n < MIN_CS_BARS) continue;
+    const mean = values.reduce((s, v) => s + v, 0) / n;
+    const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1);
+    const t = mean / (Math.sqrt(variance) / Math.sqrt(n));
+    if (!Number.isFinite(mean) || !Number.isFinite(t)) continue;
+    out.push({ quarter, horizon, ic: mean, n, t });
+  }
+  return out;
+}
+
 function resolveCommit(): string {
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
@@ -971,6 +1163,8 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
       })
     );
   }
+  appendCrossSymbolFactors(perSymbolData, args.minCrossSection);
+
   const lockboxApplied = perSymbolData.every((s) => s.lockboxApplied);
 
   // Union of factor names across symbols' matrices, first-seen order (they
@@ -1028,16 +1222,60 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
   // (null in the array forces boxed/tagged elements, roughly 24-32 bytes
   // each, instead of the 8 bytes/element a homogeneous-double Float64Array
   // uses). See the C3 report's fix-round entry for the measured heap.
-  const fwdCache = new Map<string, Float64Array>();
-  function fwdFor(symbolIdx: number, horizon: number): Float64Array {
+  const closesFor = (s: number): number[] =>
+    args.returnSeries === 'perp' ? perSymbolData[s].matrix.perpCloses : perSymbolData[s].matrix.closes;
+  if (args.returnSeries === 'perp') {
+    for (const data of perSymbolData) {
+      if (!data.matrix.perpCloses.some((c) => Number.isFinite(c))) {
+        throw new Error(`--return-series perp: no perpetual bars for ${data.symbol} ${args.interval} in this dataset`);
+      }
+    }
+  }
+
+  // Raw forward returns per (symbol, horizon), cached as Float64Array (see the
+  // note on the boxed-array cost above).
+  const rawFwdCache = new Map<string, Float64Array>();
+  function rawFwdFor(symbolIdx: number, horizon: number): Float64Array {
     const key = `${symbolIdx}:${horizon}`;
-    let cached = fwdCache.get(key);
+    let cached = rawFwdCache.get(key);
     if (!cached) {
-      const raw = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon, args.executionLagBars);
+      const raw = forwardReturns(closesFor(symbolIdx), horizon, args.executionLagBars);
       cached = Float64Array.from(raw, (v) => v ?? NaN);
-      fwdCache.set(key, cached);
+      rawFwdCache.set(key, cached);
     }
     return cached;
+  }
+
+  // Cross-sectional mode demeans every symbol's return at once per horizon,
+  // because a bar's mean needs every symbol loaded; the result is cached per
+  // horizon so each symbol reads its own slice.
+  const demeanedCache = new Map<number, Float64Array[]>();
+  function fwdFor(symbolIdx: number, horizon: number): Float64Array {
+    if (!args.crossSectionalDemean) return rawFwdFor(symbolIdx, horizon);
+    let perSymbolDemeaned = demeanedCache.get(horizon);
+    if (!perSymbolDemeaned) {
+      perSymbolDemeaned = demeanAcrossSymbols(
+        perSymbolData.map((d) => d.matrix.timestamps),
+        perSymbolData.map((_, i) => rawFwdFor(i, horizon)),
+        args.minCrossSection
+      );
+      demeanedCache.set(horizon, perSymbolDemeaned);
+    }
+    return perSymbolDemeaned[symbolIdx];
+  }
+
+  /** One Spearman per bar across the symbols carrying this factor, with each surviving bar's timestamp. */
+  function barSeriesFor(
+    symbolFactorArrays: Array<number[] | null>,
+    horizon: number
+  ): { t: number[]; ic: number[] } {
+    const per: Array<{ timestamps: ArrayLike<number>; factor: ArrayLike<number>; fwd: ArrayLike<number> }> = [];
+    for (let s = 0; s < perSymbolData.length; s++) {
+      const arr = symbolFactorArrays[s];
+      if (!arr) continue;
+      per.push({ timestamps: perSymbolData[s].matrix.timestamps, factor: arr, fwd: fwdFor(s, horizon) });
+    }
+    return barIcSeries(per, args.minCrossSection);
   }
 
   const factorReports: FactorReport[] = [];
@@ -1045,6 +1283,18 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
 
   for (const factorName of requestedFactors) {
     console.error(`[factor-ic] computing ${factorName}...`);
+
+    // A cross-symbol column is the SAME number for every symbol that carries it
+    // at a bar (see cross-symbol-factors.ts), so a per-bar rank across symbols
+    // is undefined and the whole cross-sectional pass has nothing to say about
+    // it. Dropped here rather than left to produce an empty bar series, so the
+    // report records why. Ruled on in the 2026-09-26 addendum in factors.ts.
+    if (args.crossSectionalDemean && (CROSS_SYMBOL_NAMES as readonly string[]).includes(factorName)) {
+      const reason = 'no cross-sectional content: identical across symbols at a bar';
+      console.error(`[factor-ic] skipping ${factorName}: ${reason}`);
+      skippedFactors.push({ name: factorName, category: nameCategory.get(factorName) ?? 'unknown', reason });
+      continue;
+    }
 
     const perSymbol: FactorReport['perSymbol'] = [];
     // Per-symbol arrays retained for pooling below (null when this symbol's
@@ -1074,35 +1324,49 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
       }
     }
 
-    // Pooled: concatenate every symbol's factor and forward-return series in
-    // symbol order. Uses .concat, not push(...array)/Math.min(...array): a
-    // spread that large would risk exceeding the engine's call-argument limit.
-    let pooledFactor: number[] = [];
-    let pooledTimestamps: number[] = [];
-    for (let s = 0; s < perSymbolData.length; s++) {
-      const arr = symbolFactorArrays[s];
-      if (arr) {
-        pooledFactor = pooledFactor.concat(arr);
-        pooledTimestamps = pooledTimestamps.concat(perSymbolData[s].matrix.timestamps);
-      }
-    }
-
     const pooledHorizons: HorizonStat[] = [];
     const rollingQuarterly: FactorReport['rollingQuarterly'] = [];
+    const crossSectionalHorizons: NonNullable<FactorReport['crossSectional']>['horizons'] = [];
 
-    for (const h of args.horizons) {
-      const pooledFwdChunks: Float64Array[] = [];
+    if (args.crossSectionalDemean) {
+      // `pooled` IS the per-bar statistic in this mode, and the crossSectional
+      // block restates it from the same series, so the two can never disagree.
+      for (const h of args.horizons) {
+        const series = barSeriesFor(symbolFactorArrays, h);
+        const stat = barIcHorizonStat(series, h, bootstrapPooledOpt);
+        if (!stat) continue;
+        pooledHorizons.push(stat);
+        crossSectionalHorizons.push({ horizon: h, bars: stat.n, meanBarIc: stat.ic, hacT: stat.icT });
+        rollingQuarterly.push(...buildBarRollingQuarterly(series, h));
+      }
+    } else {
+      // Pooled: concatenate every symbol's factor and forward-return series in
+      // symbol order. Uses .concat, not push(...array)/Math.min(...array): a
+      // spread that large would risk exceeding the engine's call-argument limit.
+      let pooledFactor: number[] = [];
+      let pooledTimestamps: number[] = [];
       for (let s = 0; s < perSymbolData.length; s++) {
-        if (symbolFactorArrays[s]) {
-          pooledFwdChunks.push(fwdFor(s, h));
+        const arr = symbolFactorArrays[s];
+        if (arr) {
+          pooledFactor = pooledFactor.concat(arr);
+          pooledTimestamps = pooledTimestamps.concat(perSymbolData[s].matrix.timestamps);
         }
       }
-      const pooledFwd = concatFloat64(pooledFwdChunks);
 
-      const stat = buildHorizonStat(pooledFactor, pooledFwd, h, bootstrapPooledOpt);
-      if (stat) pooledHorizons.push(stat);
+      for (const h of args.horizons) {
+        const pooledFwdChunks: Float64Array[] = [];
+        for (let s = 0; s < perSymbolData.length; s++) {
+          if (symbolFactorArrays[s]) {
+            pooledFwdChunks.push(fwdFor(s, h));
+          }
+        }
+        const pooledFwd = concatFloat64(pooledFwdChunks);
 
-      rollingQuarterly.push(...buildRollingQuarterly(pooledTimestamps, pooledFactor, pooledFwd, h));
+        const stat = buildHorizonStat(pooledFactor, pooledFwd, h, bootstrapPooledOpt);
+        if (stat) pooledHorizons.push(stat);
+
+        rollingQuarterly.push(...buildRollingQuarterly(pooledTimestamps, pooledFactor, pooledFwd, h));
+      }
     }
 
     if (pooledHorizons.length === 0) {
@@ -1117,12 +1381,18 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
       continue;
     }
 
+    let crossSectional: FactorReport['crossSectional'];
+    if (args.crossSectionalDemean) {
+      crossSectional = { minCrossSection: args.minCrossSection, horizons: crossSectionalHorizons };
+    }
+
     factorReports.push({
       name: factorName,
       category: nameCategory.get(factorName) ?? 'unknown',
       perSymbol,
       pooled: { horizons: pooledHorizons },
       rollingQuarterly,
+      ...(crossSectional ? { crossSectional } : {}),
     });
   }
 
@@ -1139,6 +1409,14 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     endMs: Number.isFinite(endMs) ? endMs : 0,
   };
 
+  // A cross-symbol column (e.g. raw.btcLeadLag) bakes args.minCrossSection
+  // into its NaN pattern even without --cross-sectional-demean, so --cell
+  // --report needs that value on hand to reconstruct the same column. Only
+  // recorded when such a factor actually reached the report, so a run that
+  // never touches one stays byte-identical to a report written before this
+  // column existed.
+  const hasCrossSymbolFactor = factorReports.some((f) => (CROSS_SYMBOL_NAMES as readonly string[]).includes(f.name));
+
   const report: FactorIcReport = {
     schemaVersion: 1,
     taskId: args.taskId,
@@ -1148,6 +1426,12 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     symbols,
     horizons: args.horizons,
     executionLagBars: args.executionLagBars,
+    ...(args.crossSectionalDemean
+      ? { crossSectionalDemean: true, minCrossSection: args.minCrossSection }
+      : hasCrossSymbolFactor
+        ? { minCrossSection: args.minCrossSection }
+        : {}),
+    ...(args.returnSeries === 'perp' ? { returnSeries: 'perp' as const } : {}),
     dateRange,
     computedAt: new Date().toISOString(),
     gitCommit: resolveCommit(),
@@ -1211,7 +1495,9 @@ export async function runFactorIc(args: FactorIcArgs): Promise<FactorIcReport> {
 
   console.log(formatTopTable(report));
   const survivors = evaluateSurvivors(report).filter((row) => row.survivor).length;
-  console.log(`survivors: ${survivors} / ${report.factors.length} factors`);
+  // Pre-FDR and one report wide: the phase's reading is survivor-table.ts's,
+  // which applies Benjamini-Hochberg across every report's cells at once.
+  console.log(`survivors (pre-FDR, single report): ${survivors} / ${report.factors.length} factors`);
   console.log(`skipped: ${report.skippedFactors.length} factor(s) with no usable data`);
 
   return report;
@@ -1245,6 +1531,9 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
   let allowLockboxOverride = args.allowLockbox;
   let expectManifestHash = args.expectManifestHash;
   let executionLagOverride = args.executionLagBars;
+  let crossSectionalDemean = args.crossSectionalDemean;
+  let minCrossSection = args.minCrossSection;
+  let returnSeries = args.returnSeries;
 
   if (args.reportPath) {
     const raw = JSON.parse(await readFile(args.reportPath, 'utf8'));
@@ -1259,6 +1548,11 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
     allowLockboxOverride = !report.lockboxApplied;
     // Absent on reports written before the option existed, which all used 0.
     executionLagOverride = report.executionLagBars ?? 0;
+    // Likewise absent on every report written before cross-sectional mode
+    // existed: those all measured undemeaned spot returns.
+    crossSectionalDemean = report.crossSectionalDemean ?? false;
+    minCrossSection = report.minCrossSection ?? DEFAULT_MIN_CROSS_SECTION;
+    returnSeries = report.returnSeries ?? 'spot';
     expectManifestHash = expectManifestHash ?? report.datasetManifestHash;
   }
 
@@ -1275,46 +1569,92 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
 
   const { factor: factorName, horizon, symbol } = args.cell;
 
+  // Every symbol of the study is loaded even for a single-symbol cell: under
+  // cross-sectional demeaning a symbol's forward return is defined only
+  // against the rest of that bar's cross-section, so the symbol cell reads
+  // its own slice out of the same demeaning the report performed.
+  const symbols = symbolsOverride && symbolsOverride.length > 0 ? symbolsOverride : manifest.symbols;
+  const all: SymbolData[] = symbols.map((sym) =>
+    loadSymbolData(args.datasetDir, sym, args.interval, {
+      allowLockbox: allowLockboxOverride,
+      start: startOverride,
+      end: endOverride,
+    })
+  );
+  appendCrossSymbolFactors(all, minCrossSection);
+  // Same precondition buildFactorIcReport applies: a symbol with no perpetual
+  // bar at all would silently contribute nothing to a perp cell, so the
+  // spot-versus-perp difference would look like a real number rather than a
+  // missing file.
+  if (returnSeries === 'perp') {
+    for (const data of all) {
+      if (!data.matrix.perpCloses.some((c) => Number.isFinite(c))) {
+        throw new Error(`--return-series perp: no perpetual bars for ${data.symbol} ${args.interval} in this dataset`);
+      }
+    }
+  }
+  const rawFwd = all.map((d) =>
+    Float64Array.from(
+      forwardReturns(
+        returnSeries === 'perp' ? d.matrix.perpCloses : d.matrix.closes,
+        horizon,
+        executionLagOverride
+      ),
+      (v) => v ?? NaN
+    )
+  );
+  const fwd = crossSectionalDemean
+    ? demeanAcrossSymbols(
+        all.map((d) => d.matrix.timestamps),
+        rawFwd,
+        minCrossSection
+      )
+    : rawFwd;
+
   let ic: number;
   let n: number;
 
   if (symbol) {
-    const data = loadSymbolData(args.datasetDir, symbol, args.interval, {
-      allowLockbox: allowLockboxOverride,
-      start: startOverride,
-      end: endOverride,
-    });
+    const symbolIdx = symbols.indexOf(symbol);
+    if (symbolIdx === -1) {
+      throw new Error(`Symbol ${symbol} is not one of this cell's symbols: ${symbols.join(', ')}`);
+    }
+    const data = all[symbolIdx];
     const idx = data.matrix.names.indexOf(factorName);
     if (idx === -1) {
       throw new Error(`Factor "${factorName}" not present for symbol ${symbol}`);
     }
     const factorArr = Array.from(data.matrix.values[idx]);
-    const result = icWithHac(
-      factorArr,
-      forwardReturns(data.matrix.closes, horizon, executionLagOverride),
-      horizon
-    );
+    const result = icWithHac(factorArr, Array.from(fwd[symbolIdx]), horizon);
     ic = result.ic;
     n = result.n;
+  } else if (crossSectionalDemean) {
+    // The pooled cell of a cross-sectional report is the per-bar statistic
+    // (see buildFactorIcReport), so the spot check has to be that too: the
+    // pair-pooled Spearman would reproduce a number the report no longer
+    // carries.
+    const per: Array<{ timestamps: ArrayLike<number>; factor: ArrayLike<number>; fwd: ArrayLike<number> }> = [];
+    for (let s = 0; s < all.length; s++) {
+      const idx = all[s].matrix.names.indexOf(factorName);
+      if (idx === -1) continue;
+      per.push({ timestamps: all[s].matrix.timestamps, factor: all[s].matrix.values[idx], fwd: fwd[s] });
+    }
+    if (per.length === 0) {
+      throw new Error(`Factor "${factorName}" not present for any of: ${symbols.join(', ')}`);
+    }
+    const series = barIcSeries(per, minCrossSection);
+    n = series.ic.length;
+    ic = n === 0 ? NaN : series.ic.reduce((s, v) => s + v, 0) / n;
   } else {
-    const symbols = symbolsOverride && symbolsOverride.length > 0 ? symbolsOverride : manifest.symbols;
-
     let pooledFactor: number[] = [];
     let pooledFwd: (number | null)[] = [];
     let foundAny = false;
-    for (const sym of symbols) {
-      const data = loadSymbolData(args.datasetDir, sym, args.interval, {
-        allowLockbox: allowLockboxOverride,
-        start: startOverride,
-        end: endOverride,
-      });
-      const idx = data.matrix.names.indexOf(factorName);
+    for (let s = 0; s < all.length; s++) {
+      const idx = all[s].matrix.names.indexOf(factorName);
       if (idx === -1) continue;
       foundAny = true;
-      pooledFactor = pooledFactor.concat(Array.from(data.matrix.values[idx]));
-      pooledFwd = pooledFwd.concat(
-        forwardReturns(data.matrix.closes, horizon, executionLagOverride)
-      );
+      pooledFactor = pooledFactor.concat(Array.from(all[s].matrix.values[idx]));
+      pooledFwd = pooledFwd.concat(Array.from(fwd[s]));
     }
     if (!foundAny) {
       throw new Error(`Factor "${factorName}" not present for any of: ${symbols.join(', ')}`);

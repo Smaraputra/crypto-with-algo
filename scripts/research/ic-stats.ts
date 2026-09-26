@@ -18,6 +18,8 @@
  * naive t-stat needs no such correction.
  */
 
+import { normalCdf } from '@/lib/stats/normal';
+
 /** Average ranks (1-based), ties resolved to the mean rank of the tied group. */
 export function rank(values: number[]): number[] {
   const n = values.length;
@@ -472,4 +474,178 @@ export function rollingByQuarter(
     const { ic, n, t } = icNonOverlapping(subFactor, subFwd, h);
     return { quarter, ic, n, t };
   });
+}
+
+/**
+ * Two-sided p-value of a t-statistic against a standard normal reference,
+ * which is what a Newey-West t converges to. NaN in, NaN out; an infinite t
+ * is a p of exactly 0.
+ */
+export function pValueFromT(t: number): number {
+  if (Number.isNaN(t)) return NaN;
+  if (!Number.isFinite(t)) return 0;
+  return 2 * (1 - normalCdf(Math.abs(t)));
+}
+
+/**
+ * Benjamini-Hochberg step-up procedure at false-discovery rate q: sort the m
+ * finite p-values, find the largest k with p_(k) <= (k / m) q, and reject
+ * every hypothesis whose p is at or below p_(k). Returns one boolean per
+ * input, in input order. Non-finite p-values are never rejected and do not
+ * count toward m.
+ *
+ * This is the phase-wide multiplicity control the 2026-09-25 pre-registration
+ * fixed (factors.ts header): the survivor rule's |t| threshold alone has no
+ * control across the ~1,500 cells an interval study produces.
+ */
+export function benjaminiHochberg(pValues: readonly number[], q: number): boolean[] {
+  if (!(q > 0 && q < 1)) {
+    throw new Error(`benjaminiHochberg: q must be in (0, 1), got ${q}`);
+  }
+  const finite = pValues
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => Number.isFinite(p) && p >= 0 && p <= 1)
+    .sort((a, b) => a.p - b.p);
+  const m = finite.length;
+
+  let cutoff = -1;
+  for (let k = 1; k <= m; k++) {
+    if (finite[k - 1].p <= (k / m) * q) cutoff = finite[k - 1].p;
+  }
+
+  const rejected = new Array<boolean>(pValues.length).fill(false);
+  if (cutoff < 0) return rejected;
+  for (const { p, i } of finite) {
+    if (p <= cutoff) rejected[i] = true;
+  }
+  return rejected;
+}
+
+/**
+ * Demeans each symbol's forward-return series by the equal-weight mean across
+ * the symbols sharing that bar's timestamp: the cross-sectional (relative
+ * value) reading, which credits a factor only for what it said about this
+ * symbol against the others, not for calling the market. Bars with fewer than
+ * minCrossSection finite returns become NaN for every symbol rather than a
+ * value demeaned by too few peers. One output per input series, same length.
+ *
+ * The bar's mean is accumulated incrementally (Welford), not as sum/count.
+ * That is the standard numerically stable running mean, and it also makes the
+ * degenerate cross-section exact: when every symbol carries the same return,
+ * each update adds (v - mean)/k = 0, so the mean stays bit-for-bit v and every
+ * residual is exactly 0. The naive sum/count does not -- (v + v + v) / 3 is a
+ * rounding away from v for about one double in eight -- and those 1e-18
+ * residuals rank like real dispersion, which is a cross-section of pure noise
+ * reported as signal.
+ */
+export function demeanAcrossSymbols(
+  timestamps: ReadonlyArray<ArrayLike<number>>,
+  fwd: ReadonlyArray<Float64Array>,
+  minCrossSection: number
+): Float64Array[] {
+  const means = new Map<number, { mean: number; count: number }>();
+  for (let s = 0; s < fwd.length; s++) {
+    const ts = timestamps[s];
+    const f = fwd[s];
+    for (let i = 0; i < f.length; i++) {
+      const v = f[i];
+      if (!Number.isFinite(v)) continue;
+      const entry = means.get(ts[i]);
+      if (entry) {
+        entry.count++;
+        entry.mean += (v - entry.mean) / entry.count;
+      } else {
+        means.set(ts[i], { mean: v, count: 1 });
+      }
+    }
+  }
+  return fwd.map((f, s) => {
+    const ts = timestamps[s];
+    const out = new Float64Array(f.length).fill(NaN);
+    for (let i = 0; i < f.length; i++) {
+      const v = f[i];
+      if (!Number.isFinite(v)) continue;
+      const entry = means.get(ts[i]);
+      if (entry && entry.count >= minCrossSection) out[i] = v - entry.mean;
+    }
+    return out;
+  });
+}
+
+/**
+ * One Spearman IC per bar across the symbols present at that bar (the
+ * Fama-MacBeth reading). Each entry of `bars` pairs the factor and forward
+ * return of every symbol with both finite at one timestamp; bars narrower
+ * than minCrossSection, and bars whose IC is undefined, are skipped. The
+ * caller reduces the series with hacTStatOfMean at lag h-1: one draw per
+ * bar, so ten symbols moving together are never counted as ten.
+ */
+export function crossSectionalIcSeries(
+  bars: ReadonlyArray<{ factor: number[]; fwd: number[] }>,
+  minCrossSection: number
+): number[] {
+  const out: number[] = [];
+  for (const bar of bars) {
+    const ic = oneBarIc(bar.factor, bar.fwd, minCrossSection);
+    if (Number.isFinite(ic)) out.push(ic);
+  }
+  return out;
+}
+
+/** One bar's cross-sectional Spearman; NaN for a bar narrower than minCrossSection or with no ranking. */
+function oneBarIc(factor: number[], fwd: number[], minCrossSection: number): number {
+  const { xs, ys } = finitePairs(factor, fwd);
+  if (xs.length < minCrossSection) return NaN;
+  return spearman(xs, ys);
+}
+
+/**
+ * crossSectionalIcSeries over bars this function groups itself, keeping each
+ * surviving bar's timestamp: every symbol's (timestamp, factor, forward
+ * return) triples are joined on the timestamp, bars narrower than
+ * minCrossSection and bars whose IC is undefined are dropped, and what remains
+ * is returned in ascending time order.
+ *
+ * The timestamps are what a caller needs to reduce the series by quarter, and
+ * the join is why they cannot be recovered afterwards: symbols do not share a
+ * bar index, only a bar time. A factor identical across symbols at a bar has
+ * no within-bar ranking, so it yields an EMPTY series rather than a series of
+ * zeros -- that is the whole point of reading this statistic rather than a
+ * Spearman pooled over bars, which such a factor still scores on.
+ */
+export function barIcSeries(
+  perSymbol: ReadonlyArray<{
+    timestamps: ArrayLike<number>;
+    factor: ArrayLike<number>;
+    fwd: ArrayLike<number>;
+  }>,
+  minCrossSection: number
+): { t: number[]; ic: number[] } {
+  const byTime = new Map<number, { factor: number[]; fwd: number[] }>();
+  for (const symbol of perSymbol) {
+    const len = Math.min(symbol.timestamps.length, symbol.factor.length, symbol.fwd.length);
+    for (let i = 0; i < len; i++) {
+      const f = symbol.factor[i];
+      const r = symbol.fwd[i];
+      if (!Number.isFinite(f) || !Number.isFinite(r)) continue;
+      const bucket = byTime.get(symbol.timestamps[i]);
+      if (bucket) {
+        bucket.factor.push(f);
+        bucket.fwd.push(r);
+      } else {
+        byTime.set(symbol.timestamps[i], { factor: [f], fwd: [r] });
+      }
+    }
+  }
+
+  const t: number[] = [];
+  const ic: number[] = [];
+  for (const stamp of [...byTime.keys()].sort((a, b) => a - b)) {
+    const bar = byTime.get(stamp)!;
+    const value = oneBarIc(bar.factor, bar.fwd, minCrossSection);
+    if (!Number.isFinite(value)) continue;
+    t.push(stamp);
+    ic.push(value);
+  }
+  return { t, ic };
 }

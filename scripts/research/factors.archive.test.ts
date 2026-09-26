@@ -143,6 +143,7 @@ const ARCHIVE_FACTORS = [
   'raw.perpSpotSpreadPct',
   'raw.depthImbalance1',
   'raw.depthImbalance5',
+  'raw.depthNotionalZ',
 ];
 
 describe('archive factors: presence and category', () => {
@@ -290,6 +291,17 @@ describe('derived archive factors', () => {
     const spread = column(matrixGapped, 'raw.perpSpotSpreadPct');
     expect(spread[matrix.warmupBars + 6]).toBeNaN();
     expect(spread[matrix.warmupBars + 7]).toBeCloseTo(0.1, 8);
+  });
+
+  it('exposes perpCloses joined on the exact bar timestamp, NaN where the perp bar is missing', () => {
+    const perpByTime = new Map(perpRows.map((r) => [r.t, r.c]));
+    for (let bar = 0; bar < candleRows.length; bar++) {
+      const expected = perpByTime.get(candleRows[bar].t);
+      if (expected === undefined) expect(matrix.perpCloses[bar]).toBeNaN();
+      else expect(matrix.perpCloses[bar]).toBe(expected);
+    }
+    const noPerp = build({ perp: null });
+    expect(noPerp.perpCloses.every((c) => Number.isNaN(c))).toBe(true);
   });
 });
 
@@ -453,5 +465,16 @@ describe('book depth level, shape and flow', () => {
     const flow = column(matrixGapped, 'raw.depthFlow1');
     // The bar after the removed slot span has no previous reading to difference.
     expect(flow[BAR_COUNT - 6]).toBeNaN();
+  });
+
+  it('depthNotionalZ is NaN until 30 readings exist and finite after, and NaN on a constant book', () => {
+    const z = column(matrix, 'raw.depthNotionalZ');
+    expect(z[matrix.warmupBars]).toBeNaN();
+    const finiteBars = Array.from(z).filter((v) => Number.isFinite(v)).length;
+    expect(finiteBars).toBeGreaterThan(0);
+    const constant = build({
+      metrics: depthMetrics.map((row) => ({ ...row, depthNotional1: 1_000_000 })),
+    });
+    expect(Array.from(column(constant, 'raw.depthNotionalZ')).every(Number.isNaN)).toBe(true);
   });
 });

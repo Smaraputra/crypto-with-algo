@@ -1,13 +1,18 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import {
+  barIcSeries,
+  benjaminiHochberg,
   bootstrapCi,
   bootstrapCiOfMean,
+  crossSectionalIcSeries,
+  demeanAcrossSymbols,
   forwardReturns,
   hacTStatOfMean,
   icNonOverlapping,
   icWithHac,
   nonOverlappingIndices,
+  pValueFromT,
   quantileSpread,
   quarterOf,
   rank,
@@ -445,5 +450,122 @@ describe('rollingByQuarter', () => {
     expect(result[1].n).toBeGreaterThan(0);
     expect(result[0].ic).toBeGreaterThan(0);
     expect(result[1].ic).toBeLessThan(0);
+  });
+});
+
+describe('pValueFromT', () => {
+  it('is two-sided: |t| of 1.96 gives p 0.05 either sign', () => {
+    expect(pValueFromT(1.96)).toBeCloseTo(0.05, 3);
+    expect(pValueFromT(-1.96)).toBeCloseTo(0.05, 3);
+  });
+
+  it('is 1 at t 0, 0 at infinite t, NaN at NaN', () => {
+    expect(pValueFromT(0)).toBeCloseTo(1, 12);
+    expect(pValueFromT(Infinity)).toBe(0);
+    expect(pValueFromT(-Infinity)).toBe(0);
+    expect(pValueFromT(NaN)).toBeNaN();
+  });
+});
+
+describe('benjaminiHochberg', () => {
+  // Benjamini and Hochberg (1995), the worked example: 15 p-values, q 0.05
+  // rejects exactly the four smallest (the fifth, 0.0201, exceeds 5/15 * 0.05).
+  const BH_1995 = [
+    0.0001, 0.0004, 0.0019, 0.0095, 0.0201, 0.0278, 0.0298, 0.0344, 0.0459, 0.324, 0.4262, 0.5719,
+    0.6528, 0.759, 1.0,
+  ];
+
+  it('reproduces the 1995 worked example: four rejections at q 0.05', () => {
+    const rejected = benjaminiHochberg(BH_1995, 0.05);
+    expect(rejected.slice(0, 4)).toEqual([true, true, true, true]);
+    expect(rejected.slice(4).some(Boolean)).toBe(false);
+  });
+
+  it('returns results in input order, not sorted order', () => {
+    // m 4: thresholds 0.0125k. Sorted 0.0001, 0.0095, 0.0201, 0.324: k 3 passes
+    // (0.0201 <= 0.0375), k 4 fails, so the three small ones are rejected.
+    expect(benjaminiHochberg([0.324, 0.0001, 0.0201, 0.0095], 0.05)).toEqual([false, true, true, true]);
+  });
+
+  it('rejects nothing when every p is 1 and everything when every p is 0', () => {
+    expect(benjaminiHochberg([1, 1, 1], 0.1)).toEqual([false, false, false]);
+    expect(benjaminiHochberg([0, 0, 0], 0.1)).toEqual([true, true, true]);
+  });
+
+  it('never rejects a non-finite p and excludes it from m', () => {
+    // With m 2, 0.09 <= (2/2) * 0.1 passes. Counting the NaN as a third
+    // hypothesis would make the k 2 threshold 0.0667 and fail it.
+    expect(benjaminiHochberg([0.04, 0.09, NaN], 0.1)).toEqual([true, true, false]);
+  });
+
+  it('is monotone: every p below a rejected one is also rejected', () => {
+    const ps = [0.5, 0.001, 0.02, 0.0005, 0.3, 0.049];
+    const rejected = benjaminiHochberg(ps, 0.1);
+    const maxRejected = Math.max(...ps.filter((_, i) => rejected[i]));
+    ps.forEach((p, i) => {
+      if (p <= maxRejected) expect(rejected[i]).toBe(true);
+    });
+  });
+
+  it('throws on a q outside (0, 1) and returns [] for empty input', () => {
+    expect(() => benjaminiHochberg([0.5], 0)).toThrow();
+    expect(() => benjaminiHochberg([0.5], 1)).toThrow();
+    expect(benjaminiHochberg([], 0.1)).toEqual([]);
+  });
+});
+
+describe('demeanAcrossSymbols', () => {
+  it('subtracts the equal-weight mean of the symbols present at each timestamp', () => {
+    const timestamps = [[0, 1, 2], [0, 1, 2]];
+    const fwd = [Float64Array.from([1, 2, NaN]), Float64Array.from([3, 4, 5])];
+    const out = demeanAcrossSymbols(timestamps, fwd, 2);
+    expect(Array.from(out[0])).toEqual([-1, -1, NaN]);
+    expect(Array.from(out[1])).toEqual([1, 1, NaN]);
+  });
+
+  it('is NaN for every symbol at a bar narrower than minCrossSection, and handles gappy timestamps', () => {
+    const timestamps = [[0, 1, 2], [0, 2]];
+    const fwd = [Float64Array.from([1, 2, 3]), Float64Array.from([3, 5])];
+    const out = demeanAcrossSymbols(timestamps, fwd, 2);
+    expect(Array.from(out[0])).toEqual([-1, NaN, -1]);
+    expect(Array.from(out[1])).toEqual([1, 1]);
+  });
+});
+
+describe('crossSectionalIcSeries', () => {
+  it('is one Spearman per bar, skipping bars narrower than minCrossSection', () => {
+    const bars = [
+      { factor: [1, 2, 3], fwd: [1, 2, 3] },
+      { factor: [1, 2, 3], fwd: [3, 2, 1] },
+      { factor: [1, 2], fwd: [1, 2] },
+    ];
+    expect(crossSectionalIcSeries(bars, 3)).toEqual([1, -1]);
+  });
+
+  it('drops a bar whose IC is undefined (constant returns)', () => {
+    expect(crossSectionalIcSeries([{ factor: [1, 2, 3], fwd: [0, 0, 0] }], 3)).toEqual([]);
+  });
+});
+
+describe('barIcSeries', () => {
+  it('groups by timestamp across symbols and returns one Spearman per bar in time order', () => {
+    const per = [
+      { timestamps: [0, 1, 2], factor: [1, 1, 1], fwd: [1, 3, 1] },
+      { timestamps: [0, 1, 2], factor: [2, 2, 2], fwd: [2, 2, 2] },
+      { timestamps: [0, 1, 2], factor: [3, 3, 3], fwd: [3, 1, NaN] },
+    ];
+    const out = barIcSeries(per, 3);
+    expect(out.t).toEqual([0, 1]);
+    expect(out.ic[0]).toBeCloseTo(1, 12);
+    expect(out.ic[1]).toBeCloseTo(-1, 12);
+  });
+
+  it('is empty when the factor is identical across symbols at every bar', () => {
+    const per = [
+      { timestamps: [0, 1], factor: [5, 6], fwd: [1, 2] },
+      { timestamps: [0, 1], factor: [5, 6], fwd: [2, 1] },
+      { timestamps: [0, 1], factor: [5, 6], fwd: [3, 3] },
+    ];
+    expect(barIcSeries(per, 3)).toEqual({ t: [], ic: [] });
   });
 });

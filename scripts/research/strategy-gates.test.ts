@@ -700,6 +700,9 @@ function makeBasePooled(overrides: Partial<PooledStats> = {}): PooledStats {
     symbolsTotal: 10,
     symbolsPositive: 8,
     symbolPositiveShare: 0.8,
+    oosSymbolDays: 100,
+    tradesPerSymbolDay: 1.5,
+    tradesPerDay: 15,
     benchmarkWindows: 8,
     randomEntryP: 0.01,
     trials: 1,
@@ -889,5 +892,33 @@ describe('evaluateStrategyGates: overall pass', () => {
     const { pass, gates } = evaluateStrategyGates(pooled, '1h');
     expect(gates.filter((g) => !g.pass)).toHaveLength(1);
     expect(pass).toBe(false);
+  });
+});
+
+describe('poolStrategyResults: trades per day (reported only)', () => {
+  it('divides pooled trades by the out-of-sample span summed over symbols, in calendar days', () => {
+    // Two symbols, two 50-bar windows each at 1h: 200 bars is 8.333 symbol-days.
+    const trades = Array.from({ length: 10 }, (_, i) => makeTrade({ exitTime: i * HOUR }));
+    const a = makeResult('BTCUSDT', [makeWindow(0, trades.slice(0, 5)), makeWindow(1, trades.slice(5))]);
+    const b = makeResult('ETHUSDT', [makeWindow(0, []), makeWindow(1, [])]);
+    const pooled = poolStrategyResults([a, b], { interval: '1h', cells: ONE_CELL, familyCount: 1, ...BOOTSTRAP_OPTS });
+    expect(pooled.oosSymbolDays).toBeCloseTo(200 / 24, 10);
+    expect(pooled.tradesPerSymbolDay).toBeCloseTo(10 / (200 / 24), 10);
+    expect(pooled.tradesPerDay).toBeCloseTo((10 / (200 / 24)) * 2, 10);
+  });
+
+  it('is null with no windows at all', () => {
+    const pooled = poolStrategyResults([makeResult('BTCUSDT', [])], { interval: '1h', cells: ONE_CELL, familyCount: 1, ...BOOTSTRAP_OPTS });
+    expect(pooled.oosSymbolDays).toBeNull();
+    expect(pooled.tradesPerSymbolDay).toBeNull();
+    expect(pooled.tradesPerDay).toBeNull();
+  });
+
+  it('stays out of every gate', () => {
+    const trades = Array.from({ length: 120 }, (_, i) => makeTrade({ exitTime: i * HOUR, pnl: i % 3 === 0 ? -5 : 10, pnlPercent: i % 3 === 0 ? -0.5 : 1 }));
+    const pooled = poolStrategyResults([makeResult('BTCUSDT', [makeWindow(0, trades)])], { interval: '1h', cells: ONE_CELL, familyCount: 1, ...BOOTSTRAP_OPTS });
+    const before = evaluateStrategyGates(pooled, '1h');
+    const after = evaluateStrategyGates({ ...pooled, tradesPerDay: 1e9, tradesPerSymbolDay: 1e9, oosSymbolDays: 1e-9 }, '1h');
+    expect(after).toEqual(before);
   });
 });

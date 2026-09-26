@@ -5,6 +5,7 @@ import {
   checkFindings,
   checkReportConsistency,
   checkStrategyFindings,
+  evaluatePhaseSurvivors,
   evaluateSurvivors,
   spotCheckCell,
   spotCheckStrategyWindow,
@@ -94,6 +95,18 @@ describe('validateFactorIcReport', () => {
     }
   });
 
+  it('accepts the cross-sectional and return-series fields and rejects a minCrossSection below 3', () => {
+    const doc = {
+      ...makeFactorIcReport([makeFactorReport()]),
+      crossSectionalDemean: true,
+      minCrossSection: 5,
+      returnSeries: 'perp',
+    };
+    expect(validateFactorIcReport(doc).ok).toBe(true);
+    expect(validateFactorIcReport({ ...doc, minCrossSection: 2 }).ok).toBe(false);
+    expect(validateFactorIcReport({ ...doc, returnSeries: 'mark' }).ok).toBe(false);
+  });
+
   it('accepts skippedFactors entries and the bootstrap gateAbsT/maxPairs fields', () => {
     const report = {
       ...makeFactorIcReport([makeFactorReport()]),
@@ -179,7 +192,7 @@ describe('SURVIVOR_RULE', () => {
   it('matches the values fixed by the brief', () => {
     expect(SURVIVOR_RULE).toEqual({
       minAbsIc: 0.02,
-      minT: 2.5,
+      minT: 3.15,
       minHorizons: 2,
       minQuarterAgreement: 0.6,
       minSymbolAgreement: 0.7,
@@ -193,8 +206,8 @@ describe('evaluateSurvivors', () => {
       name: 'raw.ret1',
       pooled: {
         horizons: [
-          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.0 }),
-          makeHorizonStat({ horizon: 2, ic: 0.04, icT: 2.8 }),
+          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.3 }),
+          makeHorizonStat({ horizon: 2, ic: 0.04, icT: 3.2 }),
           makeHorizonStat({ horizon: 4, ic: 0.01, icT: 1.0 }),
         ],
       },
@@ -239,8 +252,8 @@ describe('evaluateSurvivors', () => {
     const factor = makeFactorReport({
       pooled: {
         horizons: [
-          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.0 }),
-          makeHorizonStat({ horizon: 2, ic: 0.04, icT: 2.8 }),
+          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.3 }),
+          makeHorizonStat({ horizon: 2, ic: 0.04, icT: 3.2 }),
         ],
       },
       rollingQuarterly: [
@@ -282,8 +295,8 @@ describe('evaluateSurvivors', () => {
     const factor = makeFactorReport({
       pooled: {
         horizons: [
-          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.0 }),
-          makeHorizonStat({ horizon: 2, ic: 0.04, icT: 2.8 }),
+          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.3 }),
+          makeHorizonStat({ horizon: 2, ic: 0.04, icT: 3.2 }),
         ],
       },
       rollingQuarterly: [
@@ -330,7 +343,7 @@ describe('evaluateSurvivors', () => {
     const factor = makeFactorReport({
       pooled: {
         horizons: [
-          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.0 }),
+          makeHorizonStat({ horizon: 1, ic: 0.05, icT: 3.3 }),
           makeHorizonStat({ horizon: 2, ic: 0.005, icT: 0.8 }),
           makeHorizonStat({ horizon: 4, ic: 0.01, icT: 1.2 }),
         ],
@@ -368,6 +381,115 @@ describe('evaluateSurvivors', () => {
     expect(row.symbolAgreement).toBe(0);
     expect(row.survivor).toBe(false);
     expect(row.reasons).toHaveLength(3);
+  });
+});
+
+function horizonStat(horizon: number, ic: number, icT: number): HorizonStat {
+  return {
+    horizon,
+    n: 1000,
+    ic,
+    icT,
+    nNonOverlapping: 100,
+    icNonOverlapping: ic,
+    signHitRate: 0.55,
+    bootstrapCi95: null,
+    quantileSpread: { top: ic, bottom: -ic, spread: 2 * ic },
+  };
+}
+
+/** A factor that passes the rule on its own: two horizons above |ic| 0.02 and |t| 3.15, all quarters and symbols agreeing. */
+function survivingFactor(name: string, icT: number): FactorReport {
+  const horizons = [horizonStat(1, 0.03, icT), horizonStat(2, 0.03, icT)];
+  return {
+    name,
+    category: 'raw',
+    perSymbol: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'].map((symbol) => ({ symbol, horizons })),
+    pooled: { horizons },
+    rollingQuarterly: ['2024Q1', '2024Q2', '2024Q3'].flatMap((quarter) =>
+      horizons.map((h) => ({ quarter, horizon: h.horizon, ic: 0.03, n: 100, t: 3 }))
+    ),
+  };
+}
+
+function nullFactor(name: string): FactorReport {
+  const horizons = [horizonStat(1, 0.001, 0.5), horizonStat(2, 0.001, 0.5)];
+  return { name, category: 'raw', perSymbol: [], pooled: { horizons }, rollingQuarterly: [] };
+}
+
+function icReport(taskId: string, interval: string, factors: FactorReport[]): FactorIcReport {
+  return {
+    schemaVersion: 1,
+    taskId,
+    datasetManifestHash: 'abc',
+    lockboxApplied: true,
+    interval,
+    symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+    horizons: [1, 2],
+    executionLagBars: 1,
+    dateRange: { startMs: 0, endMs: 1 },
+    computedAt: 'now',
+    gitCommit: 'test',
+    bootstrap: { iterations: 200, seed: 42, perSymbol: false, gateAbsT: 2, maxPairs: 100000 },
+    factors,
+    skippedFactors: [],
+  };
+}
+
+describe('evaluateSurvivors with an FDR predicate', () => {
+  it('drops a horizon the predicate excludes and records it', () => {
+    const report = icReport('t', '1h', [survivingFactor('raw.a', 4)]);
+    const rows = evaluateSurvivors(report, (_name, horizon) => horizon !== 2);
+    expect(rows[0].survivor).toBe(false);
+    expect(rows[0].horizonsPassing).toEqual([1]);
+    expect(rows[0].fdrExcludedHorizons).toEqual([2]);
+  });
+
+  it('is unchanged when no predicate is given', () => {
+    const report = icReport('t', '1h', [survivingFactor('raw.a', 4)]);
+    expect(evaluateSurvivors(report)[0].survivor).toBe(true);
+    expect(evaluateSurvivors(report)[0].fdrExcludedHorizons).toBeUndefined();
+  });
+});
+
+describe('evaluatePhaseSurvivors', () => {
+  it('lets a strong factor through a small phase and records the rule and cell count', () => {
+    const table = evaluatePhaseSurvivors([icReport('a', '1h', [survivingFactor('raw.a', 4), nullFactor('raw.b')])], 0.1);
+    expect(table.minT).toBe(3.15);
+    expect(table.fdrQ).toBe(0.1);
+    expect(table.cells).toBe(4);
+    expect(table.perInterval).toEqual([{ interval: '1h', taskId: 'a', survivors: 1, factors: 2 }]);
+    expect(table.rows.find((r) => r.factor === 'raw.a')?.survivor).toBe(true);
+  });
+
+  it('fails a factor at |t| 3.2 once 198 null cells share the phase', () => {
+    // t 3.2 is p 0.00137. With m 200 the k 2 threshold is 0.001, so neither
+    // of the two passing horizons is rejected by the FDR: the factor clears
+    // the |t| rule alone and fails the phase.
+    const nulls = Array.from({ length: 99 }, (_, i) => nullFactor(`raw.null${i}`));
+    const table = evaluatePhaseSurvivors([icReport('a', '1h', [survivingFactor('raw.a', 3.2), ...nulls])], 0.1);
+    expect(table.cells).toBe(200);
+    const row = table.rows.find((r) => r.factor === 'raw.a')!;
+    expect(row.survivor).toBe(false);
+    expect(row.fdrExcludedHorizons).toEqual([1, 2]);
+    expect(table.rejectedCells).toBe(0);
+  });
+
+  it('keys cells by taskId so two reports on the same interval do not collide', () => {
+    const a = icReport('a', '1h', [survivingFactor('raw.a', 4)]);
+    const b = icReport('b', '1h', [survivingFactor('raw.a', 4)]);
+    const table = evaluatePhaseSurvivors([a, b], 0.1);
+    expect(table.cells).toBe(4);
+    expect(table.perInterval.map((p) => p.taskId)).toEqual(['a', 'b']);
+    expect(table.rows.map((r) => r.taskId)).toEqual(['a', 'b']);
+  });
+
+  it('throws when two reports share a taskId, which would merge their cells', () => {
+    const a = icReport('dup', '1h', [survivingFactor('raw.a', 4)]);
+    const b = icReport('dup', '4h', [survivingFactor('raw.a', 4)]);
+    expect(() => evaluatePhaseSurvivors([a, b], 0.1)).toThrow(
+      'evaluatePhaseSurvivors: duplicate taskId "dup"; each report needs its own task id'
+    );
   });
 });
 
@@ -792,6 +914,24 @@ describe('validateStrategyReport', () => {
   it('accepts a null pooled.deflatedSharpe and pooled.plateau', () => {
     const report = makeStrategyReport({
       pooled: makePooledStats({ deflatedSharpe: null, plateau: null }),
+    });
+    const result = validateStrategyReport(report);
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts pre-2026-09-19 reports without avgWinPercent, avgLossPercent, and payoffRatio', () => {
+    const pooled = makePooledStats() as unknown as Record<string, unknown>;
+    delete pooled.avgWinPercent;
+    delete pooled.avgLossPercent;
+    delete pooled.payoffRatio;
+    const report = makeStrategyReport({ pooled: pooled as StrategyReport['pooled'] });
+    const result = validateStrategyReport(report);
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts pooled fields with avgWinPercent, avgLossPercent, and payoffRatio as null', () => {
+    const report = makeStrategyReport({
+      pooled: makePooledStats({ avgWinPercent: null, avgLossPercent: null, payoffRatio: null }),
     });
     const result = validateStrategyReport(report);
     expect(result.ok).toBe(true);

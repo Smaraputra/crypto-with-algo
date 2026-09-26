@@ -10,6 +10,8 @@
 
 import { z } from 'zod';
 
+import { benjaminiHochberg, pValueFromT } from './ic-stats';
+
 export const HorizonStatSchema = z.object({
   horizon: z.number(),
   n: z.number(),
@@ -49,6 +51,15 @@ export const FactorReportSchema = z.object({
     horizons: z.array(HorizonStatSchema),
   }),
   rollingQuarterly: z.array(RollingQuarterlyEntrySchema),
+  /** Present only on a --cross-sectional-demean run: one Spearman per bar across symbols, HAC t at lag h-1 over the bar series. */
+  crossSectional: z
+    .object({
+      minCrossSection: z.number(),
+      horizons: z.array(
+        z.object({ horizon: z.number(), bars: z.number(), meanBarIc: z.number(), hacT: z.number() })
+      ),
+    })
+    .optional(),
 });
 export type FactorReport = z.infer<typeof FactorReportSchema>;
 
@@ -66,6 +77,18 @@ export const FactorIcReportSchema = z.object({
    * still validate; absent means 0, the Phase 3 convention.
    */
   executionLagBars: z.number().int().min(0).optional(),
+  /**
+   * Written only when set, so a default run's report stays byte-identical to
+   * earlier ones. When it is set, each factor's `pooled.horizons[h]` is the
+   * PER-BAR (Fama-MacBeth) statistic -- one Spearman per bar across symbols,
+   * the mean over bars, HAC t at lag h-1 -- and not the Spearman pooled over
+   * pairs, which on per-bar-demeaned returns is not a cross-sectional reading
+   * at all. `crossSectional` restates those same numbers as the explicit
+   * record. See factor-ic.ts's header for the measurement that settled it.
+   */
+  crossSectionalDemean: z.boolean().optional(),
+  minCrossSection: z.number().int().min(3).optional(),
+  returnSeries: z.enum(['spot', 'perp']).optional(),
   dateRange: z.object({
     startMs: z.number(),
     endMs: z.number(),
@@ -155,17 +178,29 @@ export function validateSubagentReport(json: unknown): ValidationResult<Subagent
  * symbol agreement then test whether that effect is consistent over time and
  * across the study's symbols, rather than a fluke concentrated in one
  * quarter or one symbol.
+ *
+ * minT is 3.15 since 2026-09-26, the value the 2026-09-25 pre-registration
+ * fixed (factors.ts header): |t| > 2.5 fires on 4.0% to 4.5% of zero-edge
+ * trials for a persistent factor against a nominal 1.24%, and re-counting the
+ * recorded p3b lag-1 reports at 3.15 loses nothing (5m 22, 15m 20, 1h 15,
+ * 4h 7, 1d 4). The Benjamini-Hochberg control at 0.10 lives beside it in
+ * evaluatePhaseSurvivors, because it is a property of a phase's cell set,
+ * not of one report.
  */
 export const SURVIVOR_RULE = {
   minAbsIc: 0.02,
-  minT: 2.5,
+  minT: 3.15,
   minHorizons: 2,
   minQuarterAgreement: 0.6,
   minSymbolAgreement: 0.7,
 } as const;
 
+export const PHASE_FDR_Q = 0.1;
+
 export interface SurvivorRow {
   interval: string;
+  /** The taskId of the report this row came from: what tells two rows on one interval apart. */
+  taskId: string;
   factor: string;
   category: string;
   sign: 1 | -1 | 0;
@@ -174,6 +209,8 @@ export interface SurvivorRow {
   symbolAgreement: number;
   survivor: boolean;
   reasons: string[];
+  /** Horizons that cleared |ic| and |t| but not the phase FDR; absent when no FDR predicate was applied. */
+  fdrExcludedHorizons?: number[];
 }
 
 function signOf(value: number): 1 | -1 | 0 {
@@ -182,10 +219,24 @@ function signOf(value: number): 1 | -1 | 0 {
   return 0;
 }
 
-function evaluateFactorSurvivor(interval: string, factor: FactorReport): SurvivorRow {
-  const passing = factor.pooled.horizons.filter(
+export type FdrPass = (factorName: string, horizon: number) => boolean;
+
+function evaluateFactorSurvivor(
+  interval: string,
+  taskId: string,
+  factor: FactorReport,
+  fdrPass?: FdrPass
+): SurvivorRow {
+  const clearsThresholds = factor.pooled.horizons.filter(
     (h) => Math.abs(h.ic) >= SURVIVOR_RULE.minAbsIc && Math.abs(h.icT) >= SURVIVOR_RULE.minT
   );
+  const passing = fdrPass ? clearsThresholds.filter((h) => fdrPass(factor.name, h.horizon)) : clearsThresholds;
+  const fdrExcludedHorizons = fdrPass
+    ? clearsThresholds
+        .filter((h) => !fdrPass(factor.name, h.horizon))
+        .map((h) => h.horizon)
+        .sort((a, b) => a - b)
+    : undefined;
   const horizonsPassing = passing.map((h) => h.horizon).sort((a, b) => a - b);
   const passingSet = new Set(horizonsPassing);
 
@@ -232,6 +283,7 @@ function evaluateFactorSurvivor(interval: string, factor: FactorReport): Survivo
 
   return {
     interval,
+    taskId,
     factor: factor.name,
     category: factor.category,
     sign,
@@ -240,11 +292,83 @@ function evaluateFactorSurvivor(interval: string, factor: FactorReport): Survivo
     symbolAgreement,
     survivor: reasons.length === 0,
     reasons,
+    ...(fdrExcludedHorizons !== undefined ? { fdrExcludedHorizons } : {}),
   };
 }
 
-export function evaluateSurvivors(report: FactorIcReport): SurvivorRow[] {
-  return report.factors.map((factor) => evaluateFactorSurvivor(report.interval, factor));
+export function evaluateSurvivors(report: FactorIcReport, fdrPass?: FdrPass): SurvivorRow[] {
+  return report.factors.map((factor) =>
+    evaluateFactorSurvivor(report.interval, report.taskId, factor, fdrPass)
+  );
+}
+
+export interface PhaseSurvivorTable {
+  minAbsIc: number;
+  minT: number;
+  fdrQ: number;
+  /** Pooled (factor, horizon) cells across every report, the FDR's m. */
+  cells: number;
+  rejectedCells: number;
+  perInterval: Array<{ interval: string; taskId: string; survivors: number; factors: number }>;
+  rows: SurvivorRow[];
+}
+
+/**
+ * The survivor rule applied across a whole phase: every pooled cell of every
+ * report is one hypothesis, p from its HAC t, Benjamini-Hochberg at fdrQ, and
+ * a horizon passes only if the FDR also rejects it. Cells are keyed by taskId
+ * so two reports on one interval (say, time-series and cross-sectional) never
+ * collide, which is why two reports sharing a taskId are a hard error rather
+ * than a phase that silently merges their cells and gives each report the
+ * other's FDR verdicts.
+ */
+export function evaluatePhaseSurvivors(reports: FactorIcReport[], fdrQ: number): PhaseSurvivorTable {
+  const seenTaskIds = new Set<string>();
+  for (const report of reports) {
+    if (seenTaskIds.has(report.taskId)) {
+      throw new Error(
+        `evaluatePhaseSurvivors: duplicate taskId "${report.taskId}"; each report needs its own task id`
+      );
+    }
+    seenTaskIds.add(report.taskId);
+  }
+
+  const cells: Array<{ key: string; p: number }> = [];
+  for (const report of reports) {
+    for (const factor of report.factors) {
+      for (const h of factor.pooled.horizons) {
+        cells.push({ key: `${report.taskId}|${factor.name}|${h.horizon}`, p: pValueFromT(h.icT) });
+      }
+    }
+  }
+  const rejected = benjaminiHochberg(
+    cells.map((c) => c.p),
+    fdrQ
+  );
+  const passSet = new Set(cells.filter((_, i) => rejected[i]).map((c) => c.key));
+
+  const rows: SurvivorRow[] = [];
+  const perInterval: PhaseSurvivorTable['perInterval'] = [];
+  for (const report of reports) {
+    const fdrPass: FdrPass = (name, horizon) => passSet.has(`${report.taskId}|${name}|${horizon}`);
+    const reportRows = evaluateSurvivors(report, fdrPass);
+    rows.push(...reportRows);
+    perInterval.push({
+      interval: report.interval,
+      taskId: report.taskId,
+      survivors: reportRows.filter((r) => r.survivor).length,
+      factors: report.factors.length,
+    });
+  }
+  return {
+    minAbsIc: SURVIVOR_RULE.minAbsIc,
+    minT: SURVIVOR_RULE.minT,
+    fdrQ,
+    cells: cells.length,
+    rejectedCells: passSet.size,
+    perInterval,
+    rows,
+  };
 }
 
 // horizon and n are deliberately excluded: a claim's value must match a
@@ -437,9 +561,10 @@ const PooledStatsSchema = z.object({
   profitFactor: z.number().nullable(),
   // Reported only, no gate reads them. Zod strips unknown keys, so a field
   // added to PooledStats without a matching entry here vanishes on parse.
-  avgWinPercent: z.number().nullable(),
-  avgLossPercent: z.number().nullable(),
-  payoffRatio: z.number().nullable(),
+  // Optional so reports written before 2026-09-19 still validate.
+  avgWinPercent: z.number().nullable().optional(),
+  avgLossPercent: z.number().nullable().optional(),
+  payoffRatio: z.number().nullable().optional(),
   medianHoldBars: z.number().nullable(),
   maxDrawdownPercent: z.number().nullable(),
   bootstrapCi95: z.tuple([z.number(), z.number()]).nullable(),
@@ -454,6 +579,11 @@ const PooledStatsSchema = z.object({
   symbolsTotal: z.number(),
   symbolsPositive: z.number(),
   symbolPositiveShare: z.number(),
+  // Reported only, never a gate. Optional so reports written before
+  // 2026-09-26 (every p4, p4c and p5 file) still validate.
+  oosSymbolDays: z.number().nullable().optional(),
+  tradesPerSymbolDay: z.number().nullable().optional(),
+  tradesPerDay: z.number().nullable().optional(),
   benchmarkWindows: z.number(),
   randomEntryP: z.number().nullable(),
   trials: z.number(),

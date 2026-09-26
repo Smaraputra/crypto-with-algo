@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Measured (research): Phase A and Phase B, 2026-09-26
+- **The Phase A 15m control run (task pA)** measured n 4796, expectancy -0.1175%, CI95 [-0.1740, -0.0583], win rate 0.321, payoff 1.64, profit factor 0.769, median hold 7 bars, 24.02 trades a day, random-entry p 0.244. It fails on expectancy, windows, symbols, timing, trials and stress, as every control has, and its row now sits in the `frontier.ts` table: n 4796, 24.02 trades/day, sd 2.04%, breakeven IC 0.0391 taker and 0.0098 maker
+- **Phase B measured 15m, 1h and 4h in one pass on both axes**, dataset `e84cd66dbe01`, lockbox applied, lag 1, ten symbols, then a leave-one-out control pass at 1h and 15m. On the time-series axis, no new column survives at any interval. `raw.btcLeadLag` is the strongest fine-interval reading the program has recorded (h1 +0.0219 t+12.5 at 1h, 5x the 1h maker breakeven, monotone decay to h8), but it fails the rule twice: h2 is 0.0187 against the 0.02 floor, and quarter agreement at h1 is 0.63. It is recorded as a near miss, not a survivor
+- **The leave-one-out control `raw.btcLeadLagLoo` bounds the own-return contamination at 0.0011 to 0.0014** (h1 +0.0205 t11.8, h2 +0.0176), far under the predicted bound of about 0.006, so the reading is not the reversal in disguise. `raw.sessionDrift` and `raw.hourOfDayDrift` survive with the wrong sign at 15m and 1h, both a correlated variant of the slow reversal `raw.ret20` already carries rather than a new finding
+- **Taker-intensity conditioning holds at 15m** (60% and 124% over the pre-registered third-of-unconditional-|ic| floor at h2 and h8) and fails at 1h and 4h (19% and 0%). The 15m conditioned reversal still sits below the 15m taker breakeven, so it stays a diagnostic, never a family
+- **The cross-sectional axis does not fire the kill criterion.** Survivors: 12/60 at 15m, 14/60 at 1h, 9/58 at 4h, led by `raw.realizedVol20` (1h h32 -0.0745 t-8.2, 4h h32 -0.0788 t-5.8, quarters 0.91 to 0.96, symbols 1.00 at both), with relative funding, positioning and depth imbalance also surviving at 1h and 4h above the two-leg maker floor of about 0.017 at 1h
+- **Verdict under the pre-registered kill criterion.** The time-series axis fires: no new column survives above its interval's maker floor. The cross-sectional axis does not: several existing inputs survive at 1h and 4h above the two-leg floor. Phases C and D (the 1m and aggTrades ingests) were aimed at fine-interval time-series content and are not motivated by this result. A cross-sectional container at 1h and 4h is the open decision, left to the user
+- **Dataset note and task-id relabel.** The 15m cross-section has 26,766 bars with five or more symbols (about 279 days) against 41,098 at 1h (4.7 years) and 16,598 at 4h, so 15m evidence is the thinnest and its quarter agreement spans about four quarters. The eight reports were written with one task id per mode, and the phase table was built from copies relabelled `pB-<mode>-<interval>` because `evaluatePhaseSurvivors` refuses duplicate ids
+
+### Fixed (research): the cross-sectional pooled statistic was not cross-sectional
+- **At 4h `raw.fearGreed` is identical across symbols at every bar**, so its per-bar series is empty, yet the pair-pooled statistic still scored it at ic -0.028 with t -10.3 across six horizons, and 27 of 63 factors "survived" against 8 in time-series mode
+- **The pooled block in cross-sectional mode is now the per-bar Fama-MacBeth statistic** (mean bar IC, Newey-West t over the bar series), bar-constant inputs are skipped with a reason, and `MIN_CS_BARS` is set to 30. The three cross-sectional reports were re-run on the fixed build (`crypto-ops:phaseb2`, commit `b4851ad`). Survivors per report after the fix: 15m 12/60, 1h 14/60, 4h 9/58, and the phase-wide FDR over 2,361 cells rejected 1,371 and moved no count
+
+### Added (research): `raw.btcLeadLagLoo`
+- **The pre-registered leave-one-out control**: BTC's ret1 minus the equal-weight mean over the other alts, with the read symbol and BTC both excluded, NaN for BTC and below five symbols
+- **Bounds the contamination from the read symbol's own return entering the market mean.** Measured at 0.0011 to 0.0014 (h1 +0.0205 t11.8, h2 +0.0176), far under the predicted bound of about 0.006
+
+### Added (research): Phase B columns
+- **`raw.hourOfDayDrift`, `raw.sessionDrift`, `raw.depthNotionalZ`, `raw.ret1InHighTaker`, `raw.ret1InLowTaker` and `raw.btcLeadLag`**, each with a pre-registered sign, plus `seasonalDriftSeries` and `cross-symbol-factors.ts`
+
+### Added (research): cross-sectional mode and perp return series for factor-ic
+- **`--cross-sectional-demean`, `--min-cross-section` and `--return-series`**, plus `FactorMatrix.perpCloses` and `runCell` loading every symbol. Reports are byte-identical without the new flags
+
+### Added (research): `frontier.ts`
+- **The frequency-frontier tool and the 100 USDT arithmetic** it is built on, with the three pooled schema fields relaxed to optional so pre-2026-09-19 reports still validate
+
+### Added (research): trades per day, reported only
+- **`oosSymbolDays`, `tradesPerSymbolDay` and `tradesPerDay`** added to `PooledStats`, reported only and never gated
+
+### Changed (research): the survivor rule is in code at |t| 3.15 with a phase-wide FDR
+- **`benjaminiHochberg`, `pValueFromT` and `evaluatePhaseSurvivors`** in `survivor-table.ts`, with duplicate task ids refused and a near-miss section. The recorded p3b lag-1 counts reproduce: 22, 20, 15, 7, 4
+
 ### Added (signals): a calibration dashboard, so the live record can be read against what the market did
 - **New admin page `/admin/calibration`** over the resolved `SignalOutcome` record, reading it four ways: net expectancy per tier with confidence intervals, a reliability curve, the forward-return distribution per tier, and a cumulative net-return path split by `configVersion`. Read-only by construction -- the outcome resolver stays the only writer of `SignalOutcome`, which matters because that collection is the evidence base the `configVersion` record is read from
 - **`getLiveTierExpectancy` had exactly one reader before this**, `scripts/ops/live-outcomes.ts`, which runs in the seeder image against production. The same numbers now have a screen, and the same three things that must never be pooled are enforced at the type level rather than by remembering: interval (a scalping 1m row is a 12-minute return and a 5m row a 60-minute one), source (composite and the LLM panel are different predictors), and `configVersion` (each version is a different scorer). The route rejects an interval the style does not score

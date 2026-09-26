@@ -38,6 +38,7 @@ import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import type { CandleRow, HtfRow, MetricsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
 import { alignToBars, METRICS_SLOT_MS } from '@/lib/archive-ingestion';
 import { intervalToMs } from '@/lib/intervals';
+import { MARKET_SESSIONS, isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 
 export interface FactorMatrix {
   names: string[];
@@ -46,6 +47,12 @@ export interface FactorMatrix {
   warmupBars: number;
   timestamps: number[];
   closes: number[];
+  /**
+   * Perpetual close per bar, exact-timestamp join, NaN where the dataset has
+   * no perp bar. The venue every backtest charges; --return-series perp
+   * measures forward returns on it.
+   */
+  perpCloses: number[];
 }
 
 export interface FactorMatrixInput {
@@ -215,6 +222,168 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  *   funding near settlement should precede lower returns, the same contrarian
  *   direction `raw.fundingZ` already shows. The new content is the event-time
  *   axis, not the funding level.
+ *
+ * PHASE B PRE-REGISTRATION, 2026-09-26, for the five columns after those and
+ * the cross-symbol column in cross-symbol-factors.ts. Written before any
+ * measurement. Measured at 15m, 1h AND 4h in one pass at lag 1 (5m excluded in
+ * advance: its maker breakeven IC is 0.027 against a program-best 0.009),
+ * horizons 1,2,4,8,16,32,48 at 15m so the 4 to 12 hour prior is reachable.
+ * Survivor rule with |t| >= 3.15 and Benjamini-Hochberg FDR 0.10 across every
+ * cell of the phase, both modes, both return series (report-schema.ts,
+ * survivor-table.ts). Tradability floor for a survivor: maker breakeven IC of
+ * the interval (1h 0.0044 single leg, about 0.017 cross-sectional), and the
+ * phase closes with no harness run if nothing clears it.
+ *
+ * - `raw.hourOfDayDrift` (+): trailing 60-day mean of this symbol's one-bar
+ *   return over EARLIER bars sharing the same time of day, the bar itself
+ *   excluded so no term of its own return enters. Time-series axis only: it
+ *   is market-wide by nature and per-bar demeaning would zero it by
+ *   construction. The literature says BTC calendar effects are gone
+ *   post-2023, so the expected outcome is null; it is cheap enough to test.
+ * - `raw.sessionDrift` (+): the same over the five fixed-UTC sessions of
+ *   src/lib/sessions.ts, NaN where a session is not meaningful (4h).
+ * - `raw.depthNotionalZ` (+, weak, NO SURVIVOR EXPECTED): within-symbol
+ *   30-day trailing z of log depthNotional1, the column Stage 1 deferred.
+ *   Stage 1 measured the raw level at +0.0248 at 15m h16 with symbol
+ *   agreement 0.80 and QUARTER agreement 0.45, the signature of a
+ *   non-stationary level; the z removes the drift. A state variable, so a
+ *   survivor here is more likely regime than direction.
+ * - `raw.ret1InHighTaker` and `raw.ret1InLowTaker` ARE the conditioning
+ *   hypothesis, not standalone signals: the one-bar return split by whether
+ *   the bar's absolute taker imbalance sits above (z > 0) or at or below its
+ *   30-day trailing mean. PREDICTION: both negative (reversal), MORE negative
+ *   in the HIGH-intensity subset (arXiv 2608.21888: reversal concentrates
+ *   after aggressive taker flow and grows with intensity, while depth
+ *   consumed conditions nothing, which agrees with Stage 1). FALSIFICATION,
+ *   fixed now: a gap smaller than a third of the unconditional |ic|, or a
+ *   deeper LOW subset, means the intensity conditions nothing. Diagnostics
+ *   only, never a family: a gated reversal rule would be a third rule shape
+ *   on ret1 under the standing ruling.
+ * - `raw.btcLeadLag` (+ at h1 to h4 for alts, weaker at 1h than 15m):
+ *   BTC's one-bar return minus the equal-weight cross-sectional one-bar
+ *   return, read for every non-BTC symbol, NaN for BTC and where fewer than
+ *   five symbols have a finite return. Delayed alt reaction to BTC (JEDC
+ *   2024; Springer APFM 2026, paywalled, effect sizes unverified). Both axes.
+ *
+ * DROPPED without a slot: same-symbol spot-to-perp lead-lag (arbitrage
+ * closes in milliseconds; the perpSpotSpreadPct artifact family), day-of-week
+ * drift (folded into time of day), retail-versus-top-trader spread (both legs
+ * measured at 4h and 1d only, same sign).
+ *
+ * ADDENDUM, 2026-09-26, written after the 4h and 1h time-series runs were read
+ * and BEFORE the 15m run was read. Two properties of `raw.btcLeadLag` were
+ * found by review, not by measurement, and are ruled on here so they are not
+ * decided after a result:
+ *
+ * - It has NO cross-sectional content by construction: b_t - m_t is the same
+ *   number for every non-BTC symbol at a bar, so a per-bar rank across symbols
+ *   is undefined. It is measured on the time-series axis only and is dropped
+ *   from the cross-sectional pass. (The same reasoning excluded the drift
+ *   columns above; the original "both axes" assignment was wrong.)
+ * - The market mean m_t includes the read symbol's own ret1 with weight -1/N,
+ *   and ret1 reverses at these horizons, so the column carries a positive
+ *   own-return term of about +0.002 at 15m and +0.006 at 1h in IC units, the
+ *   pre-registered sign. Below the 0.02 floor on its own, but it biases the
+ *   sign test. CONTROL, pre-registered now: `raw.btcLeadLagLoo`, BTC's ret1
+ *   minus the equal-weight mean over the OTHER alts (the read symbol and BTC
+ *   both excluded), NaN for BTC and below five symbols. PREDICTION: same sign
+ *   (+), and the gap btcLeadLag - btcLeadLagLoo bounds the contamination at
+ *   about the figures above. If btcLeadLag clears the rule anywhere and the
+ *   LOO control does not, the survival is the own-return reversal in disguise
+ *   and is recorded as such.
+ * - Recorded before the 15m read: at 1h btcLeadLag was +0.0219 (h1, t 12.5)
+ *   and +0.0187 (h2), failing the two-horizon |ic| leg by 0.0013.
+ *
+ * PHASE B RESULTS, 2026-09-26. Dataset e84cd66dbe01, lockbox applied, lag 1, ten
+ * symbols, 15m (horizons to 48), 1h and 4h measured in one pass, both axes, then
+ * one leave-one-out control pass at 1h and 15m. Phase-wide survivor table
+ * (survivor-table.ts, FDR 0.10 over 2,361 cells, 1,371 rejected): the FDR moved
+ * no count. Controls reproduced the recorded lag-1 table: raw.ret1 h1 -0.0121
+ * (15m), -0.0291 (1h), -0.0157 (4h); raw.depthImbalance1 4h h8 -0.0269 t-4.9,
+ * h16 -0.0408 t-5.8, h32 -0.0515 t-5.7; raw.topTraderPositionRatio 4h h32
+ * -0.0782 t-4.9 (recorded -0.0783, causal join); raw.depthFlow1 1h h2 +0.0073.
+ *
+ * TIME-SERIES AXIS: NO NEW COLUMN SURVIVES AT ANY INTERVAL.
+ *
+ *   column                 15m best            1h best              4h best             verdict
+ *   raw.btcLeadLag         h2 +0.0067 t+3.1    h1 +0.0219 t+12.5    h1 +0.0100 t+3.5    near miss at 1h
+ *   raw.btcLeadLagLoo      h2 +0.0058 t+2.7    h1 +0.0205 t+11.8    (not run)           control, same shape
+ *   raw.hourOfDayDrift     h8 -0.0070 t-4.0    h2 -0.0161 t-10.0    h16 +0.0094 t+2.3   nothing
+ *   raw.sessionDrift       h16 -0.0321 t-6.3   h8 -0.0277 t-9.9     NaN by design       survives, WRONG sign
+ *   raw.depthNotionalZ     h1 +0.0070 t+3.9    h8 -0.0229 t-6.1     h8 -0.0137 t-1.9    nothing (one horizon)
+ *
+ * raw.btcLeadLag is the strongest fine-interval new-input reading the program has
+ * recorded (previous best raw.depthFlow1 +0.0092 t8.0 at 5m): right sign, monotone
+ * decay h1 +0.0219, h2 +0.0187, h4 +0.0133, h8 +0.0026, the coherent shape of a
+ * lead-lag with a one-to-two-hour half-life, continuation-shaped so maker
+ * fillable, 5x the 1h maker breakeven. The LOO control puts the own-return term
+ * at 0.0011 to 0.0014 (h1 +0.0205 t11.8, h2 +0.0176), far under the predicted
+ * bound of about 0.006, so it is NOT the reversal in disguise. It fails the rule
+ * twice: h2 is 0.0187 against the 0.02 floor (0.0176 LOO), and quarter agreement
+ * at h1 is 0.63 (0.58 LOO), so the effect is not stable across quarters. Recorded
+ * as a near miss, not a survivor. Not measured cross-sectionally (no content).
+ *
+ * raw.sessionDrift survives at 15m and 1h with the WRONG sign (pre-registered +),
+ * and raw.hourOfDayDrift points the same way: both carry the 60-day trailing mean
+ * return, which is the slow reversal raw.ret20 already carries (-0.02 at 1h). The
+ * column design did not subtract the unconditional trailing mean, so this is a
+ * correlated variant of an existing factor, the false-positive channel the
+ * governance section named, and is recorded as such, not as a finding. A seasonal
+ * DEVIATION column (bucket mean minus the overall trailing mean) is what a future
+ * pre-registration would test; the literature expectation of null stands.
+ *
+ * TAKER-INTENSITY CONDITIONING, pre-registered falsification at a third of the
+ * unconditional |ic|:
+ *
+ *   iv   h   unconditional  high taker      low taker       gap %   verdict
+ *   15m  2   -0.0159        -0.0184 t-5.8   -0.0088 t-3.2    60%    holds
+ *   15m  8   -0.0123        -0.0201 t-6.3   -0.0049 t-1.8   124%    holds
+ *   1h   1   -0.0291        -0.0324 t-12.3  -0.0269 t-12.0   19%    fails
+ *   4h   1   -0.0157        -0.0154 t-3.5   -0.0158 t-4.3     0%    fails
+ *
+ * Direction consistent everywhere (high deeper), magnitude only at 15m, where
+ * the conditioned reversal (-0.020 at h8) sits below the 15m taker breakeven
+ * (0.039) and reversal cannot use maker fills. A diagnostic, never a family.
+ *
+ * CROSS-SECTIONAL AXIS (existing inputs re-read against per-bar demeaned
+ * returns, pooled statistic = per-bar Fama-MacBeth IC after the fix recorded in
+ * factor-ic.ts): survivors 12/60 at 15m, 14/60 at 1h, 9/58 at 4h. The relative
+ * axis carries information the time-series axis does not:
+ *
+ *   raw.realizedVol20  1h  h1 -0.0214 t-9.7, h4 -0.0350 t-10.2, h32 -0.0745 t-8.2  quarters 0.96 symbols 1.00
+ *   raw.realizedVol20  4h  h1 -0.0337 t-9.6, h4 -0.0614 t-11.3, h32 -0.0788 t-5.8  quarters 0.91 symbols 1.00
+ *   raw.realizedVol20  15m h8 -0.0273 ... h48 -0.0623 t-4.5, symbols 0.60 (near miss)
+ *   raw.ret5           1h  h1 -0.0215 t-11.3, h2 -0.0264 t-12.3 (relative reversal)
+ *   raw.ret5           15m h8 -0.0281 t-7.2; raw.ret20 15m 2-48 symbols 1.00
+ *   raw.fundingRate, raw.fundingProximity, raw.longShortRatio, raw.topTraderPositionRatio,
+ *   raw.depthImbalance1 (1h 8-32, h32 -0.0367 t-6.9), raw.depthImbalance5: survive at 1h and 4h
+ *
+ * Symbols with higher recent realised volatility lag their peers over the next
+ * 1 to 32 hours, every symbol and 91 to 96% of quarters agreeing: the
+ * cross-sectional variance effect the literature scan recorded at weekly
+ * horizons (Bianchi et al.), seen here at 1h and 4h. Relative funding, relative
+ * positioning and relative depth imbalance carry the same contrarian sign they
+ * carry in the time series. These are level-shaped, slow-turnover readings at 2
+ * to 7x the two-leg maker floor (about 0.017 at 1h). Relative reversal (ret5,
+ * ret20, rsi) is reversal-shaped and does not reach the two-leg taker floor
+ * (about 0.067). No harness family exists for a cross-sectional book: the
+ * discrete harness is single-symbol and the exposure container is per-symbol
+ * exposure, not rank. Tradability is therefore a new-plan question.
+ *
+ * VERDICT UNDER THE PRE-REGISTERED KILL CRITERION: on the time-series axis it
+ * fires (no new column survives above its interval's maker floor). On the
+ * cross-sectional axis it does not: several existing inputs survive at 1h and
+ * 4h above the two-leg floor. Phases C and D (1m and aggTrades ingests) were
+ * aimed at fine-interval time-series content and are not motivated by this
+ * result; a cross-sectional container at 1h and 4h is. That decision is the
+ * user's.
+ *
+ * DATASET NOTES. The 15m cross-section has 26,766 bars with five or more symbols
+ * (about 279 days), against 41,098 at 1h (4.7 years) and 16,598 at 4h: 15m
+ * evidence is the thinnest and its quarter agreement spans about four quarters.
+ * The eight reports were written with one task id per mode; the phase table was
+ * built from copies relabelled pB-<mode>-<interval> because evaluatePhaseSurvivors
+ * refuses duplicate ids (the id is a label, in no hash or spot check).
  */
 const RAW_NAMES = [
   'raw.rsi',
@@ -250,6 +419,11 @@ const RAW_NAMES = [
   'raw.ret1InMeanReversion',
   'raw.ret1InTrend',
   'raw.fundingProximity',
+  'raw.hourOfDayDrift',
+  'raw.sessionDrift',
+  'raw.depthNotionalZ',
+  'raw.ret1InHighTaker',
+  'raw.ret1InLowTaker',
 ] as const;
 
 /**
@@ -264,6 +438,15 @@ export const FUNDING_Z_DAYS = 30;
 /** Finite readings needed before a z-score is emitted rather than NaN. */
 export const FUNDING_Z_MIN_SAMPLES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Days of history the time-of-day and session drifts average over, and the readings a bucket needs. */
+export const SEASONAL_DRIFT_DAYS = 60;
+export const SEASONAL_DRIFT_MIN_SAMPLES = 20;
+/** Days in the trailing z of absolute taker imbalance that splits ret1 by intensity. */
+export const TAKER_INTENSITY_DAYS = 30;
+/** Days and readings for the within-symbol z of log book notional. */
+export const DEPTH_NOTIONAL_Z_DAYS = 30;
+export const DEPTH_NOTIONAL_Z_MIN_SAMPLES = 30;
 
 /**
  * Trailing z-score of a series, over a window of `windowBars` bars.
@@ -323,6 +506,48 @@ export function trailingZScore(series: Float64Array, windowBars: number, minSamp
     out[i] = (value - mean) / Math.sqrt(variance);
   }
 
+  return out;
+}
+
+/**
+ * Trailing mean of `series` over EARLIER bars sharing the bar's bucket (time
+ * of day, session), inside a window of `windowBars` bars and excluding the
+ * bar itself, so the column carries no term of the bar's own return. NaN
+ * until the bucket holds `minSamples` finite readings inside the window.
+ *
+ * One FIFO of bar indices per bucket with a running sum, so the cost is one
+ * pass: a per-bar recompute over a 60-day window at 15m would be quadratic.
+ */
+export function seasonalDriftSeries(
+  series: Float64Array,
+  bucketOf: (bar: number) => number,
+  windowBars: number,
+  minSamples: number
+): Float64Array {
+  const n = series.length;
+  const out = new Float64Array(n).fill(NaN);
+  const queues = new Map<number, { bars: number[]; head: number; sum: number }>();
+
+  for (let bar = 0; bar < n; bar++) {
+    const bucket = bucketOf(bar);
+    let q = queues.get(bucket);
+    if (!q) {
+      q = { bars: [], head: 0, sum: 0 };
+      queues.set(bucket, q);
+    }
+    while (q.head < q.bars.length && q.bars[q.head] < bar - windowBars) {
+      q.sum -= series[q.bars[q.head]];
+      q.head++;
+    }
+    const count = q.bars.length - q.head;
+    if (count >= minSamples) out[bar] = q.sum / count;
+
+    const v = series[bar];
+    if (Number.isFinite(v)) {
+      q.bars.push(bar);
+      q.sum += v;
+    }
+  }
   return out;
 }
 
@@ -660,6 +885,52 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     FUNDING_Z_MIN_SAMPLES
   );
 
+  const daysToBars = (days: number) => Math.max(1, Math.ceil((days * DAY_MS) / intervalMs));
+
+  const ret1Series = new Float64Array(n).fill(NaN);
+  for (let bar = 0; bar < n; bar++) ret1Series[bar] = simpleReturn(candles, bar, 1);
+
+  // Time of day as a bucket index: 96 quarter-hours at 15m, 24 at 1h, 6 at 4h.
+  // At 1d (and coarser) every bar falls in the one bucket, so the column would
+  // be a trailing 60-day mean return with no time-of-day content at all. NaN
+  // throughout there, the same way sessionDrift is NaN off-session, rather than
+  // a differently-named momentum column.
+  const hourOfDayDrift =
+    DAY_MS / intervalMs > 1
+      ? seasonalDriftSeries(
+          ret1Series,
+          (bar) => Math.floor((candles[bar].t % DAY_MS) / intervalMs),
+          daysToBars(SEASONAL_DRIFT_DAYS),
+          SEASONAL_DRIFT_MIN_SAMPLES
+        )
+      : new Float64Array(n).fill(NaN);
+  const sessionDrift = isSessionMeaningful(interval)
+    ? seasonalDriftSeries(
+        ret1Series,
+        (bar) => MARKET_SESSIONS.indexOf(sessionOfCandleClose(candles[bar].t, intervalMs)),
+        daysToBars(SEASONAL_DRIFT_DAYS),
+        SEASONAL_DRIFT_MIN_SAMPLES
+      )
+    : new Float64Array(n).fill(NaN);
+
+  // Matches fundingSeries above: only counted from warmupBars, so a state
+  // variable available since bar 0 in the raw archive does not make the
+  // z-score's own ramp-up (minSamples readings) invisible by borrowing
+  // pre-warmup history nothing else here reads either.
+  const logNotional = new Float64Array(n).fill(NaN);
+  for (let bar = warmupBars; bar < n; bar++) {
+    const v = depthNotionalSeries[bar];
+    if (Number.isFinite(v) && v > 0) logNotional[bar] = Math.log(v);
+  }
+  const depthNotionalZ = trailingZScore(logNotional, daysToBars(DEPTH_NOTIONAL_Z_DAYS), DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+
+  const takerIntensity = new Float64Array(n).fill(NaN);
+  for (let bar = 0; bar < n; bar++) {
+    const c = candles[bar];
+    if (c.tbv !== null && c.v > 0) takerIntensity[bar] = Math.abs((2 * c.tbv) / c.v - 1);
+  }
+  const takerIntensityZ = trailingZScore(takerIntensity, daysToBars(TAKER_INTENSITY_DAYS), FUNDING_Z_MIN_SAMPLES);
+
   for (let bar = warmupBars; bar < n; bar++) {
     const composite = composites[bar];
     values[compositeIdx][bar] = composite.score;
@@ -770,6 +1041,17 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
       values[rawIdx.get('raw.fundingProximity')!][bar] = NaN;
     }
 
+    values[rawIdx.get('raw.hourOfDayDrift')!][bar] = hourOfDayDrift[bar];
+    values[rawIdx.get('raw.sessionDrift')!][bar] = sessionDrift[bar];
+    values[rawIdx.get('raw.depthNotionalZ')!][bar] = depthNotionalZ[bar];
+    // The one-bar return split by taker intensity: the pair is the
+    // conditioning test, never a signal on its own (see the pre-registration).
+    const r1 = ret1Series[bar];
+    const tz = takerIntensityZ[bar];
+    const intensityKnown = Number.isFinite(tz) && Number.isFinite(r1);
+    values[rawIdx.get('raw.ret1InHighTaker')!][bar] = intensityKnown && tz > 0 ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InLowTaker')!][bar] = intensityKnown && tz <= 0 ? r1 : NaN;
+
     values[rawIdx.get('raw.fundingZ')!][bar] = fundingZ[bar];
 
     // The premium index close is the perp-to-index premium as a fraction.
@@ -790,5 +1072,6 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     warmupBars,
     timestamps: candles.map((c) => c.t),
     closes: candles.map((c) => c.c),
+    perpCloses: candles.map((c) => perpByTime.get(c.t)?.c ?? NaN),
   };
 }
