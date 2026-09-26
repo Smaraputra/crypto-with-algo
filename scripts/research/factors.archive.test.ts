@@ -143,6 +143,7 @@ const ARCHIVE_FACTORS = [
   'raw.perpSpotSpreadPct',
   'raw.depthImbalance1',
   'raw.depthImbalance5',
+  'raw.depthNotionalZ',
 ];
 
 describe('archive factors: presence and category', () => {
@@ -464,5 +465,16 @@ describe('book depth level, shape and flow', () => {
     const flow = column(matrixGapped, 'raw.depthFlow1');
     // The bar after the removed slot span has no previous reading to difference.
     expect(flow[BAR_COUNT - 6]).toBeNaN();
+  });
+
+  it('depthNotionalZ is NaN until 30 readings exist and finite after, and NaN on a constant book', () => {
+    const z = column(matrix, 'raw.depthNotionalZ');
+    expect(z[matrix.warmupBars]).toBeNaN();
+    const finiteBars = Array.from(z).filter((v) => Number.isFinite(v)).length;
+    expect(finiteBars).toBeGreaterThan(0);
+    const constant = build({
+      metrics: depthMetrics.map((row) => ({ ...row, depthNotional1: 1_000_000 })),
+    });
+    expect(Array.from(column(constant, 'raw.depthNotionalZ')).every(Number.isNaN)).toBe(true);
   });
 });

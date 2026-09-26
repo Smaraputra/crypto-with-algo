@@ -38,6 +38,7 @@ import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import type { CandleRow, HtfRow, MetricsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
 import { alignToBars, METRICS_SLOT_MS } from '@/lib/archive-ingestion';
 import { intervalToMs } from '@/lib/intervals';
+import { MARKET_SESSIONS, isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 
 export interface FactorMatrix {
   names: string[];
@@ -303,6 +304,11 @@ const RAW_NAMES = [
   'raw.ret1InMeanReversion',
   'raw.ret1InTrend',
   'raw.fundingProximity',
+  'raw.hourOfDayDrift',
+  'raw.sessionDrift',
+  'raw.depthNotionalZ',
+  'raw.ret1InHighTaker',
+  'raw.ret1InLowTaker',
 ] as const;
 
 /**
@@ -317,6 +323,15 @@ export const FUNDING_Z_DAYS = 30;
 /** Finite readings needed before a z-score is emitted rather than NaN. */
 export const FUNDING_Z_MIN_SAMPLES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Days of history the time-of-day and session drifts average over, and the readings a bucket needs. */
+export const SEASONAL_DRIFT_DAYS = 60;
+export const SEASONAL_DRIFT_MIN_SAMPLES = 20;
+/** Days in the trailing z of absolute taker imbalance that splits ret1 by intensity. */
+export const TAKER_INTENSITY_DAYS = 30;
+/** Days and readings for the within-symbol z of log book notional. */
+export const DEPTH_NOTIONAL_Z_DAYS = 30;
+export const DEPTH_NOTIONAL_Z_MIN_SAMPLES = 30;
 
 /**
  * Trailing z-score of a series, over a window of `windowBars` bars.
@@ -376,6 +391,48 @@ export function trailingZScore(series: Float64Array, windowBars: number, minSamp
     out[i] = (value - mean) / Math.sqrt(variance);
   }
 
+  return out;
+}
+
+/**
+ * Trailing mean of `series` over EARLIER bars sharing the bar's bucket (time
+ * of day, session), inside a window of `windowBars` bars and excluding the
+ * bar itself, so the column carries no term of the bar's own return. NaN
+ * until the bucket holds `minSamples` finite readings inside the window.
+ *
+ * One FIFO of bar indices per bucket with a running sum, so the cost is one
+ * pass: a per-bar recompute over a 60-day window at 15m would be quadratic.
+ */
+export function seasonalDriftSeries(
+  series: Float64Array,
+  bucketOf: (bar: number) => number,
+  windowBars: number,
+  minSamples: number
+): Float64Array {
+  const n = series.length;
+  const out = new Float64Array(n).fill(NaN);
+  const queues = new Map<number, { bars: number[]; head: number; sum: number }>();
+
+  for (let bar = 0; bar < n; bar++) {
+    const bucket = bucketOf(bar);
+    let q = queues.get(bucket);
+    if (!q) {
+      q = { bars: [], head: 0, sum: 0 };
+      queues.set(bucket, q);
+    }
+    while (q.head < q.bars.length && q.bars[q.head] < bar - windowBars) {
+      q.sum -= series[q.bars[q.head]];
+      q.head++;
+    }
+    const count = q.bars.length - q.head;
+    if (count >= minSamples) out[bar] = q.sum / count;
+
+    const v = series[bar];
+    if (Number.isFinite(v)) {
+      q.bars.push(bar);
+      q.sum += v;
+    }
+  }
   return out;
 }
 
@@ -713,6 +770,45 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     FUNDING_Z_MIN_SAMPLES
   );
 
+  const daysToBars = (days: number) => Math.max(1, Math.ceil((days * DAY_MS) / intervalMs));
+
+  const ret1Series = new Float64Array(n).fill(NaN);
+  for (let bar = 0; bar < n; bar++) ret1Series[bar] = simpleReturn(candles, bar, 1);
+
+  // Time of day as a bucket index: 96 quarter-hours at 15m, 24 at 1h, 6 at 4h.
+  const hourOfDayDrift = seasonalDriftSeries(
+    ret1Series,
+    (bar) => Math.floor((candles[bar].t % DAY_MS) / intervalMs),
+    daysToBars(SEASONAL_DRIFT_DAYS),
+    SEASONAL_DRIFT_MIN_SAMPLES
+  );
+  const sessionDrift = isSessionMeaningful(interval)
+    ? seasonalDriftSeries(
+        ret1Series,
+        (bar) => MARKET_SESSIONS.indexOf(sessionOfCandleClose(candles[bar].t, intervalMs)),
+        daysToBars(SEASONAL_DRIFT_DAYS),
+        SEASONAL_DRIFT_MIN_SAMPLES
+      )
+    : new Float64Array(n).fill(NaN);
+
+  // Matches fundingSeries above: only counted from warmupBars, so a state
+  // variable available since bar 0 in the raw archive does not make the
+  // z-score's own ramp-up (minSamples readings) invisible by borrowing
+  // pre-warmup history nothing else here reads either.
+  const logNotional = new Float64Array(n).fill(NaN);
+  for (let bar = warmupBars; bar < n; bar++) {
+    const v = depthNotionalSeries[bar];
+    if (Number.isFinite(v) && v > 0) logNotional[bar] = Math.log(v);
+  }
+  const depthNotionalZ = trailingZScore(logNotional, daysToBars(DEPTH_NOTIONAL_Z_DAYS), DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+
+  const takerIntensity = new Float64Array(n).fill(NaN);
+  for (let bar = 0; bar < n; bar++) {
+    const c = candles[bar];
+    if (c.tbv !== null && c.v > 0) takerIntensity[bar] = Math.abs((2 * c.tbv) / c.v - 1);
+  }
+  const takerIntensityZ = trailingZScore(takerIntensity, daysToBars(TAKER_INTENSITY_DAYS), FUNDING_Z_MIN_SAMPLES);
+
   for (let bar = warmupBars; bar < n; bar++) {
     const composite = composites[bar];
     values[compositeIdx][bar] = composite.score;
@@ -822,6 +918,17 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     } else {
       values[rawIdx.get('raw.fundingProximity')!][bar] = NaN;
     }
+
+    values[rawIdx.get('raw.hourOfDayDrift')!][bar] = hourOfDayDrift[bar];
+    values[rawIdx.get('raw.sessionDrift')!][bar] = sessionDrift[bar];
+    values[rawIdx.get('raw.depthNotionalZ')!][bar] = depthNotionalZ[bar];
+    // The one-bar return split by taker intensity: the pair is the
+    // conditioning test, never a signal on its own (see the pre-registration).
+    const r1 = ret1Series[bar];
+    const tz = takerIntensityZ[bar];
+    const intensityKnown = Number.isFinite(tz) && Number.isFinite(r1);
+    values[rawIdx.get('raw.ret1InHighTaker')!][bar] = intensityKnown && tz > 0 ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InLowTaker')!][bar] = intensityKnown && tz <= 0 ? r1 : NaN;
 
     values[rawIdx.get('raw.fundingZ')!][bar] = fundingZ[bar];
 

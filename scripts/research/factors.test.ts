@@ -12,7 +12,7 @@ import {
 import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
 import type { CandleRow, HtfRow, SnapshotRow } from './dataset-format';
-import { computeFactorMatrix } from './factors';
+import { computeFactorMatrix, seasonalDriftSeries } from './factors';
 
 // Deterministic random walk, same LCG pattern as src/lib/backtest/engine-parity.test.ts
 function generateCandles(count: number, seed = 4242, intervalMs = 3600000): OHLCV[] {
@@ -552,5 +552,101 @@ describe('regime and funding-cycle factors', () => {
       checked++;
     }
     expect(checked).toBeGreaterThan(100);
+  });
+});
+
+/**
+ * 1h candles aligned to UTC hours from 2025-01-01 00:00 with a +1% close-to-close
+ * return at UTC hour 3 and a tiny alternating return elsewhere, so a
+ * time-of-day drift is exactly recoverable.
+ */
+function generateHourThreeCandles(days: number): CandleRow[] {
+  const rows: CandleRow[] = [];
+  let price = 100;
+  const start = Date.UTC(2025, 0, 1);
+  for (let i = 0; i < days * 24; i++) {
+    const t = start + i * 3_600_000;
+    const hour = new Date(t).getUTCHours();
+    const ret = hour === 3 ? 0.01 : i % 2 === 0 ? 0.0002 : -0.0002;
+    const open = price;
+    const close = price * (1 + ret);
+    const volume = 1000 + (i % 7) * 10;
+    rows.push({ t, o: open, h: Math.max(open, close) * 1.001, l: Math.min(open, close) * 0.999, c: close, v: volume, tbv: (i % 3 === 0 ? 0.8 : 0.4) * volume });
+    price = close;
+  }
+  return rows;
+}
+
+describe('Phase B seasonal, taker-intensity and depth columns', () => {
+  const candles = generateHourThreeCandles(40);
+  const htf: HtfRow[] = candles.map((c) => ({ t: c.t, context: null }));
+  const matrix = computeFactorMatrix({ candles, snapshots: null, htf, interval: '1h' });
+  const col = (name: string) => matrix.values[matrix.names.indexOf(name)];
+
+  it('adds the five columns under the raw category', () => {
+    for (const name of ['raw.hourOfDayDrift', 'raw.sessionDrift', 'raw.depthNotionalZ', 'raw.ret1InHighTaker', 'raw.ret1InLowTaker']) {
+      const idx = matrix.names.indexOf(name);
+      expect(idx, name).toBeGreaterThanOrEqual(0);
+      expect(matrix.categories[idx]).toBe('raw');
+    }
+  });
+
+  it('hourOfDayDrift recovers the +1% hour-3 drift and near zero elsewhere, excluding the bar itself', () => {
+    const drift = col('raw.hourOfDayDrift');
+    // 20 samples of hour 3 exist after 20 days; bar 24*20+3 is the first hour-3 bar with a full 20 behind it.
+    const firstReadable = 24 * 20 + 3;
+    expect(drift[firstReadable - 24]).toBeNaN();
+    for (let bar = firstReadable; bar < candles.length; bar++) {
+      const hour = new Date(candles[bar].t).getUTCHours();
+      if (hour === 3) expect(drift[bar]).toBeCloseTo(0.01, 3);
+      else expect(Math.abs(drift[bar])).toBeLessThan(5e-4);
+    }
+  });
+
+  it('sessionDrift averages the hour-3 return over the seven bars closing inside the Asia session', () => {
+    const drift = col('raw.sessionDrift');
+    const bar = 24 * 30 + 3;
+    // Bars opening at 23, 0, 1, 2, 3, 4, 5 close in 0-6 UTC (asia); one of the seven carries +1%.
+    expect(drift[bar]).toBeCloseTo(0.01 / 7, 3);
+  });
+
+  it('sessionDrift is NaN throughout at 4h, where a session is not meaningful', () => {
+    const c4 = generateCandles(400, 4242, 4 * 3_600_000).map(toCandleRow);
+    const h4: HtfRow[] = c4.map((c) => ({ t: c.t, context: null }));
+    const m4 = computeFactorMatrix({ candles: c4, snapshots: null, htf: h4, interval: '4h' });
+    expect(Array.from(m4.values[m4.names.indexOf('raw.sessionDrift')]).every(Number.isNaN)).toBe(true);
+  });
+
+  it('splits the one-bar return by taker intensity into two complementary subsets', () => {
+    const high = col('raw.ret1InHighTaker');
+    const low = col('raw.ret1InLowTaker');
+    const ret1 = col('raw.ret1');
+    let seenHigh = 0;
+    let seenLow = 0;
+    for (let bar = matrix.warmupBars; bar < candles.length; bar++) {
+      const h = high[bar];
+      const l = low[bar];
+      expect(Number.isFinite(h) && Number.isFinite(l), `both at ${bar}`).toBe(false);
+      if (Number.isFinite(h)) {
+        expect(h).toBe(ret1[bar]);
+        seenHigh++;
+      }
+      if (Number.isFinite(l)) {
+        expect(l).toBe(ret1[bar]);
+        seenLow++;
+      }
+    }
+    expect(seenHigh).toBeGreaterThan(0);
+    expect(seenLow).toBeGreaterThan(0);
+  });
+
+  it('seasonalDriftSeries is NaN when the bucket holds fewer than minSamples inside the window', () => {
+    // Bucket 0 sees a reading every other bar; a 6-bar window holds 3 of them, below minSamples 4.
+    const series = Float64Array.from([1, NaN, 1, NaN, 1, NaN, 1, NaN, 1, NaN]);
+    const out = seasonalDriftSeries(series, (bar) => bar % 2, 6, 4);
+    expect(Array.from(out).every(Number.isNaN)).toBe(true);
+    const wide = seasonalDriftSeries(series, (bar) => bar % 2, 8, 4);
+    expect(wide[8]).toBe(1);
+    expect(wide[6]).toBeNaN();
   });
 });
