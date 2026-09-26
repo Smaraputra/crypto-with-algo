@@ -18,6 +18,8 @@
  * naive t-stat needs no such correction.
  */
 
+import { normalCdf } from '@/lib/stats/normal';
+
 /** Average ranks (1-based), ties resolved to the mean rank of the tied group. */
 export function rank(values: number[]): number[] {
   const n = values.length;
@@ -472,4 +474,49 @@ export function rollingByQuarter(
     const { ic, n, t } = icNonOverlapping(subFactor, subFwd, h);
     return { quarter, ic, n, t };
   });
+}
+
+/**
+ * Two-sided p-value of a t-statistic against a standard normal reference,
+ * which is what a Newey-West t converges to. NaN in, NaN out; an infinite t
+ * is a p of exactly 0.
+ */
+export function pValueFromT(t: number): number {
+  if (Number.isNaN(t)) return NaN;
+  if (!Number.isFinite(t)) return 0;
+  return 2 * (1 - normalCdf(Math.abs(t)));
+}
+
+/**
+ * Benjamini-Hochberg step-up procedure at false-discovery rate q: sort the m
+ * finite p-values, find the largest k with p_(k) <= (k / m) q, and reject
+ * every hypothesis whose p is at or below p_(k). Returns one boolean per
+ * input, in input order. Non-finite p-values are never rejected and do not
+ * count toward m.
+ *
+ * This is the phase-wide multiplicity control the 2026-09-25 pre-registration
+ * fixed (factors.ts header): the survivor rule's |t| threshold alone has no
+ * control across the ~1,500 cells an interval study produces.
+ */
+export function benjaminiHochberg(pValues: readonly number[], q: number): boolean[] {
+  if (!(q > 0 && q < 1)) {
+    throw new Error(`benjaminiHochberg: q must be in (0, 1), got ${q}`);
+  }
+  const finite = pValues
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => Number.isFinite(p) && p >= 0 && p <= 1)
+    .sort((a, b) => a.p - b.p);
+  const m = finite.length;
+
+  let cutoff = -1;
+  for (let k = 1; k <= m; k++) {
+    if (finite[k - 1].p <= (k / m) * q) cutoff = finite[k - 1].p;
+  }
+
+  const rejected = new Array<boolean>(pValues.length).fill(false);
+  if (cutoff < 0) return rejected;
+  for (const { p, i } of finite) {
+    if (p <= cutoff) rejected[i] = true;
+  }
+  return rejected;
 }
