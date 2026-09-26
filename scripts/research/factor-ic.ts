@@ -410,7 +410,10 @@ import { dirname, join } from 'path';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import {
   bootstrapCiOfMean,
+  crossSectionalIcSeries,
+  demeanAcrossSymbols,
   forwardReturns,
+  hacTStatOfMean,
   icNonOverlapping,
   icWithHac,
   nonOverlappingIndices,
@@ -472,6 +475,16 @@ export interface FactorIcArgs {
    * removes any shared price term between a factor and its own return.
    */
   executionLagBars: number;
+  /**
+   * Demean each bar's forward return by the equal-weight mean across the
+   * symbols present, so the IC reads a factor's relative-value content. The
+   * per-bar IC series and its HAC t are reported beside the pooled IC.
+   */
+  crossSectionalDemean: boolean;
+  /** Fewest symbols a bar needs before it is demeaned or ranked. */
+  minCrossSection: number;
+  /** Which close the forward return is measured on. spot reproduces every recorded table; perp is the traded venue. */
+  returnSeries: 'spot' | 'perp';
   allowLockbox: boolean;
   factors?: string[];
   cell?: { factor: string; horizon: number; symbol?: string };
@@ -553,7 +566,7 @@ function parseCell(value: string): { factor: string; horizon: number; symbol?: s
 
 // These two flags are presence-only switches (no following value), unlike
 // every other flag in this CLI.
-const BOOLEAN_FLAGS = new Set(['allow-lockbox', 'bootstrap-per-symbol']);
+const BOOLEAN_FLAGS = new Set(['allow-lockbox', 'bootstrap-per-symbol', 'cross-sectional-demean']);
 
 // Every flag that takes a following value. An unrecognized --flag is
 // rejected rather than silently absorbed as a no-op (and its value token
@@ -572,6 +585,8 @@ const VALUE_FLAGS = new Set([
   'bootstrap-seed',
   'bootstrap-max-pairs',
   'execution-lag',
+  'min-cross-section',
+  'return-series',
   'factors',
   'cell',
   'expect-manifest-hash',
@@ -586,6 +601,23 @@ function parseExecutionLag(raw: string | undefined): number {
     throw new Error(`--execution-lag must be a non-negative integer, got "${raw}"`);
   }
   return Number(raw);
+}
+
+export const DEFAULT_MIN_CROSS_SECTION = 5;
+
+function parseMinCrossSection(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_MIN_CROSS_SECTION;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 3) {
+    throw new Error(`--min-cross-section must be an integer of at least 3 (a per-bar rank correlation needs three symbols), got "${raw}"`);
+  }
+  return n;
+}
+
+function parseReturnSeries(raw: string | undefined): 'spot' | 'perp' {
+  if (raw === undefined || raw === 'spot') return 'spot';
+  if (raw === 'perp') return 'perp';
+  throw new Error(`--return-series must be spot or perp, got "${raw}"`);
 }
 
 export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs {
@@ -635,6 +667,9 @@ export function parseArgs(argv: string[], now: Date = new Date()): FactorIcArgs 
       ? Number(flags.get('bootstrap-max-pairs'))
       : DEFAULT_BOOTSTRAP_MAX_PAIRS,
     executionLagBars: parseExecutionLag(flags.get('execution-lag')),
+    crossSectionalDemean: booleans.has('cross-sectional-demean'),
+    minCrossSection: parseMinCrossSection(flags.get('min-cross-section')),
+    returnSeries: parseReturnSeries(flags.get('return-series')),
     allowLockbox: booleans.has('allow-lockbox'),
     factors: flags.has('factors') ? parseList(flags.get('factors')!) : undefined,
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
@@ -1028,16 +1063,76 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
   // (null in the array forces boxed/tagged elements, roughly 24-32 bytes
   // each, instead of the 8 bytes/element a homogeneous-double Float64Array
   // uses). See the C3 report's fix-round entry for the measured heap.
-  const fwdCache = new Map<string, Float64Array>();
-  function fwdFor(symbolIdx: number, horizon: number): Float64Array {
+  const closesFor = (s: number): number[] =>
+    args.returnSeries === 'perp' ? perSymbolData[s].matrix.perpCloses : perSymbolData[s].matrix.closes;
+  if (args.returnSeries === 'perp') {
+    for (const data of perSymbolData) {
+      if (!data.matrix.perpCloses.some((c) => Number.isFinite(c))) {
+        throw new Error(`--return-series perp: no perpetual bars for ${data.symbol} ${args.interval} in this dataset`);
+      }
+    }
+  }
+
+  // Raw forward returns per (symbol, horizon), cached as Float64Array (see the
+  // note on the boxed-array cost above).
+  const rawFwdCache = new Map<string, Float64Array>();
+  function rawFwdFor(symbolIdx: number, horizon: number): Float64Array {
     const key = `${symbolIdx}:${horizon}`;
-    let cached = fwdCache.get(key);
+    let cached = rawFwdCache.get(key);
     if (!cached) {
-      const raw = forwardReturns(perSymbolData[symbolIdx].matrix.closes, horizon, args.executionLagBars);
+      const raw = forwardReturns(closesFor(symbolIdx), horizon, args.executionLagBars);
       cached = Float64Array.from(raw, (v) => v ?? NaN);
-      fwdCache.set(key, cached);
+      rawFwdCache.set(key, cached);
     }
     return cached;
+  }
+
+  // Cross-sectional mode demeans every symbol's return at once per horizon,
+  // because a bar's mean needs every symbol loaded; the result is cached per
+  // horizon so each symbol reads its own slice.
+  const demeanedCache = new Map<number, Float64Array[]>();
+  function fwdFor(symbolIdx: number, horizon: number): Float64Array {
+    if (!args.crossSectionalDemean) return rawFwdFor(symbolIdx, horizon);
+    let perSymbolDemeaned = demeanedCache.get(horizon);
+    if (!perSymbolDemeaned) {
+      perSymbolDemeaned = demeanAcrossSymbols(
+        perSymbolData.map((d) => d.matrix.timestamps),
+        perSymbolData.map((_, i) => rawFwdFor(i, horizon)),
+        args.minCrossSection
+      );
+      demeanedCache.set(horizon, perSymbolDemeaned);
+    }
+    return perSymbolDemeaned[symbolIdx];
+  }
+
+  /** One Spearman per bar across symbols for this factor and horizon; null when too few bars carry a cross-section. */
+  function buildCrossSectional(
+    symbolFactorArrays: Array<number[] | null>,
+    horizon: number
+  ): { horizon: number; bars: number; meanBarIc: number; hacT: number } | null {
+    const byTime = new Map<number, { factor: number[]; fwd: number[] }>();
+    for (let s = 0; s < perSymbolData.length; s++) {
+      const arr = symbolFactorArrays[s];
+      if (!arr) continue;
+      const fwd = fwdFor(s, horizon);
+      const ts = perSymbolData[s].matrix.timestamps;
+      for (let i = 0; i < arr.length; i++) {
+        if (!Number.isFinite(arr[i]) || !Number.isFinite(fwd[i])) continue;
+        const bucket = byTime.get(ts[i]);
+        if (bucket) {
+          bucket.factor.push(arr[i]);
+          bucket.fwd.push(fwd[i]);
+        } else {
+          byTime.set(ts[i], { factor: [arr[i]], fwd: [fwd[i]] });
+        }
+      }
+    }
+    const bars = [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([, g]) => g);
+    const series = crossSectionalIcSeries(bars, args.minCrossSection);
+    if (series.length < MIN_PAIRS) return null;
+    const { mean, t } = hacTStatOfMean(series, horizon - 1);
+    if (!Number.isFinite(mean) || !Number.isFinite(t)) return null;
+    return { horizon, bars: series.length, meanBarIc: mean, hacT: t };
   }
 
   const factorReports: FactorReport[] = [];
@@ -1117,12 +1212,23 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
       continue;
     }
 
+    let crossSectional: FactorReport['crossSectional'];
+    if (args.crossSectionalDemean) {
+      const horizons: NonNullable<FactorReport['crossSectional']>['horizons'] = [];
+      for (const h of args.horizons) {
+        const entry = buildCrossSectional(symbolFactorArrays, h);
+        if (entry) horizons.push(entry);
+      }
+      crossSectional = { minCrossSection: args.minCrossSection, horizons };
+    }
+
     factorReports.push({
       name: factorName,
       category: nameCategory.get(factorName) ?? 'unknown',
       perSymbol,
       pooled: { horizons: pooledHorizons },
       rollingQuarterly,
+      ...(crossSectional ? { crossSectional } : {}),
     });
   }
 
@@ -1148,6 +1254,8 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     symbols,
     horizons: args.horizons,
     executionLagBars: args.executionLagBars,
+    ...(args.crossSectionalDemean ? { crossSectionalDemean: true, minCrossSection: args.minCrossSection } : {}),
+    ...(args.returnSeries === 'perp' ? { returnSeries: 'perp' as const } : {}),
     dateRange,
     computedAt: new Date().toISOString(),
     gitCommit: resolveCommit(),
@@ -1245,6 +1353,9 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
   let allowLockboxOverride = args.allowLockbox;
   let expectManifestHash = args.expectManifestHash;
   let executionLagOverride = args.executionLagBars;
+  let crossSectionalDemean = args.crossSectionalDemean;
+  let minCrossSection = args.minCrossSection;
+  let returnSeries = args.returnSeries;
 
   if (args.reportPath) {
     const raw = JSON.parse(await readFile(args.reportPath, 'utf8'));
@@ -1259,6 +1370,11 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
     allowLockboxOverride = !report.lockboxApplied;
     // Absent on reports written before the option existed, which all used 0.
     executionLagOverride = report.executionLagBars ?? 0;
+    // Likewise absent on every report written before cross-sectional mode
+    // existed: those all measured undemeaned spot returns.
+    crossSectionalDemean = report.crossSectionalDemean ?? false;
+    minCrossSection = report.minCrossSection ?? DEFAULT_MIN_CROSS_SECTION;
+    returnSeries = report.returnSeries ?? 'spot';
     expectManifestHash = expectManifestHash ?? report.datasetManifestHash;
   }
 
@@ -1275,46 +1391,63 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
 
   const { factor: factorName, horizon, symbol } = args.cell;
 
+  // Every symbol of the study is loaded even for a single-symbol cell: under
+  // cross-sectional demeaning a symbol's forward return is defined only
+  // against the rest of that bar's cross-section, so the symbol cell reads
+  // its own slice out of the same demeaning the report performed.
+  const symbols = symbolsOverride && symbolsOverride.length > 0 ? symbolsOverride : manifest.symbols;
+  const all: SymbolData[] = symbols.map((sym) =>
+    loadSymbolData(args.datasetDir, sym, args.interval, {
+      allowLockbox: allowLockboxOverride,
+      start: startOverride,
+      end: endOverride,
+    })
+  );
+  const rawFwd = all.map((d) =>
+    Float64Array.from(
+      forwardReturns(
+        returnSeries === 'perp' ? d.matrix.perpCloses : d.matrix.closes,
+        horizon,
+        executionLagOverride
+      ),
+      (v) => v ?? NaN
+    )
+  );
+  const fwd = crossSectionalDemean
+    ? demeanAcrossSymbols(
+        all.map((d) => d.matrix.timestamps),
+        rawFwd,
+        minCrossSection
+      )
+    : rawFwd;
+
   let ic: number;
   let n: number;
 
   if (symbol) {
-    const data = loadSymbolData(args.datasetDir, symbol, args.interval, {
-      allowLockbox: allowLockboxOverride,
-      start: startOverride,
-      end: endOverride,
-    });
+    const symbolIdx = symbols.indexOf(symbol);
+    if (symbolIdx === -1) {
+      throw new Error(`Symbol ${symbol} is not one of this cell's symbols: ${symbols.join(', ')}`);
+    }
+    const data = all[symbolIdx];
     const idx = data.matrix.names.indexOf(factorName);
     if (idx === -1) {
       throw new Error(`Factor "${factorName}" not present for symbol ${symbol}`);
     }
     const factorArr = Array.from(data.matrix.values[idx]);
-    const result = icWithHac(
-      factorArr,
-      forwardReturns(data.matrix.closes, horizon, executionLagOverride),
-      horizon
-    );
+    const result = icWithHac(factorArr, Array.from(fwd[symbolIdx]), horizon);
     ic = result.ic;
     n = result.n;
   } else {
-    const symbols = symbolsOverride && symbolsOverride.length > 0 ? symbolsOverride : manifest.symbols;
-
     let pooledFactor: number[] = [];
     let pooledFwd: (number | null)[] = [];
     let foundAny = false;
-    for (const sym of symbols) {
-      const data = loadSymbolData(args.datasetDir, sym, args.interval, {
-        allowLockbox: allowLockboxOverride,
-        start: startOverride,
-        end: endOverride,
-      });
-      const idx = data.matrix.names.indexOf(factorName);
+    for (let s = 0; s < all.length; s++) {
+      const idx = all[s].matrix.names.indexOf(factorName);
       if (idx === -1) continue;
       foundAny = true;
-      pooledFactor = pooledFactor.concat(Array.from(data.matrix.values[idx]));
-      pooledFwd = pooledFwd.concat(
-        forwardReturns(data.matrix.closes, horizon, executionLagOverride)
-      );
+      pooledFactor = pooledFactor.concat(Array.from(all[s].matrix.values[idx]));
+      pooledFwd = pooledFwd.concat(Array.from(fwd[s]));
     }
     if (!foundAny) {
       throw new Error(`Factor "${factorName}" not present for any of: ${symbols.join(', ')}`);

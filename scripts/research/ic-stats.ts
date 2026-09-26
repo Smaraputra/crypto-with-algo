@@ -520,3 +520,76 @@ export function benjaminiHochberg(pValues: readonly number[], q: number): boolea
   }
   return rejected;
 }
+
+/**
+ * Demeans each symbol's forward-return series by the equal-weight mean across
+ * the symbols sharing that bar's timestamp: the cross-sectional (relative
+ * value) reading, which credits a factor only for what it said about this
+ * symbol against the others, not for calling the market. Bars with fewer than
+ * minCrossSection finite returns become NaN for every symbol rather than a
+ * value demeaned by too few peers. One output per input series, same length.
+ *
+ * The bar's mean is accumulated incrementally (Welford), not as sum/count.
+ * That is the standard numerically stable running mean, and it also makes the
+ * degenerate cross-section exact: when every symbol carries the same return,
+ * each update adds (v - mean)/k = 0, so the mean stays bit-for-bit v and every
+ * residual is exactly 0. The naive sum/count does not -- (v + v + v) / 3 is a
+ * rounding away from v for about one double in eight -- and those 1e-18
+ * residuals rank like real dispersion, which is a cross-section of pure noise
+ * reported as signal.
+ */
+export function demeanAcrossSymbols(
+  timestamps: ReadonlyArray<ArrayLike<number>>,
+  fwd: ReadonlyArray<Float64Array>,
+  minCrossSection: number
+): Float64Array[] {
+  const means = new Map<number, { mean: number; count: number }>();
+  for (let s = 0; s < fwd.length; s++) {
+    const ts = timestamps[s];
+    const f = fwd[s];
+    for (let i = 0; i < f.length; i++) {
+      const v = f[i];
+      if (!Number.isFinite(v)) continue;
+      const entry = means.get(ts[i]);
+      if (entry) {
+        entry.count++;
+        entry.mean += (v - entry.mean) / entry.count;
+      } else {
+        means.set(ts[i], { mean: v, count: 1 });
+      }
+    }
+  }
+  return fwd.map((f, s) => {
+    const ts = timestamps[s];
+    const out = new Float64Array(f.length).fill(NaN);
+    for (let i = 0; i < f.length; i++) {
+      const v = f[i];
+      if (!Number.isFinite(v)) continue;
+      const entry = means.get(ts[i]);
+      if (entry && entry.count >= minCrossSection) out[i] = v - entry.mean;
+    }
+    return out;
+  });
+}
+
+/**
+ * One Spearman IC per bar across the symbols present at that bar (the
+ * Fama-MacBeth reading). Each entry of `bars` pairs the factor and forward
+ * return of every symbol with both finite at one timestamp; bars narrower
+ * than minCrossSection, and bars whose IC is undefined, are skipped. The
+ * caller reduces the series with hacTStatOfMean at lag h-1: one draw per
+ * bar, so ten symbols moving together are never counted as ten.
+ */
+export function crossSectionalIcSeries(
+  bars: ReadonlyArray<{ factor: number[]; fwd: number[] }>,
+  minCrossSection: number
+): number[] {
+  const out: number[] = [];
+  for (const bar of bars) {
+    const { xs, ys } = finitePairs(bar.factor, bar.fwd);
+    if (xs.length < minCrossSection) continue;
+    const ic = spearman(xs, ys);
+    if (Number.isFinite(ic)) out.push(ic);
+  }
+  return out;
+}

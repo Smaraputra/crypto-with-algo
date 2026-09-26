@@ -4,6 +4,8 @@ import {
   benjaminiHochberg,
   bootstrapCi,
   bootstrapCiOfMean,
+  crossSectionalIcSeries,
+  demeanAcrossSymbols,
   forwardReturns,
   hacTStatOfMean,
   icNonOverlapping,
@@ -508,5 +510,38 @@ describe('benjaminiHochberg', () => {
     expect(() => benjaminiHochberg([0.5], 0)).toThrow();
     expect(() => benjaminiHochberg([0.5], 1)).toThrow();
     expect(benjaminiHochberg([], 0.1)).toEqual([]);
+  });
+});
+
+describe('demeanAcrossSymbols', () => {
+  it('subtracts the equal-weight mean of the symbols present at each timestamp', () => {
+    const timestamps = [[0, 1, 2], [0, 1, 2]];
+    const fwd = [Float64Array.from([1, 2, NaN]), Float64Array.from([3, 4, 5])];
+    const out = demeanAcrossSymbols(timestamps, fwd, 2);
+    expect(Array.from(out[0])).toEqual([-1, -1, NaN]);
+    expect(Array.from(out[1])).toEqual([1, 1, NaN]);
+  });
+
+  it('is NaN for every symbol at a bar narrower than minCrossSection, and handles gappy timestamps', () => {
+    const timestamps = [[0, 1, 2], [0, 2]];
+    const fwd = [Float64Array.from([1, 2, 3]), Float64Array.from([3, 5])];
+    const out = demeanAcrossSymbols(timestamps, fwd, 2);
+    expect(Array.from(out[0])).toEqual([-1, NaN, -1]);
+    expect(Array.from(out[1])).toEqual([1, 1]);
+  });
+});
+
+describe('crossSectionalIcSeries', () => {
+  it('is one Spearman per bar, skipping bars narrower than minCrossSection', () => {
+    const bars = [
+      { factor: [1, 2, 3], fwd: [1, 2, 3] },
+      { factor: [1, 2, 3], fwd: [3, 2, 1] },
+      { factor: [1, 2], fwd: [1, 2] },
+    ];
+    expect(crossSectionalIcSeries(bars, 3)).toEqual([1, -1]);
+  });
+
+  it('drops a bar whose IC is undefined (constant returns)', () => {
+    expect(crossSectionalIcSeries([{ factor: [1, 2, 3], fwd: [0, 0, 0] }], 3)).toEqual([]);
   });
 });

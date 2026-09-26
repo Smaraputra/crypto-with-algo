@@ -46,6 +46,12 @@ export interface FactorMatrix {
   warmupBars: number;
   timestamps: number[];
   closes: number[];
+  /**
+   * Perpetual close per bar, exact-timestamp join, NaN where the dataset has
+   * no perp bar. The venue every backtest charges; --return-series perp
+   * measures forward returns on it.
+   */
+  perpCloses: number[];
 }
 
 export interface FactorMatrixInput {
@@ -790,5 +796,6 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     warmupBars,
     timestamps: candles.map((c) => c.t),
     closes: candles.map((c) => c.c),
+    perpCloses: candles.map((c) => perpByTime.get(c.t)?.c ?? NaN),
   };
 }

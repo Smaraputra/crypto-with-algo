@@ -51,6 +51,15 @@ export const FactorReportSchema = z.object({
     horizons: z.array(HorizonStatSchema),
   }),
   rollingQuarterly: z.array(RollingQuarterlyEntrySchema),
+  /** Present only on a --cross-sectional-demean run: one Spearman per bar across symbols, HAC t at lag h-1 over the bar series. */
+  crossSectional: z
+    .object({
+      minCrossSection: z.number(),
+      horizons: z.array(
+        z.object({ horizon: z.number(), bars: z.number(), meanBarIc: z.number(), hacT: z.number() })
+      ),
+    })
+    .optional(),
 });
 export type FactorReport = z.infer<typeof FactorReportSchema>;
 
@@ -68,6 +77,10 @@ export const FactorIcReportSchema = z.object({
    * still validate; absent means 0, the Phase 3 convention.
    */
   executionLagBars: z.number().int().min(0).optional(),
+  /** Written only when set, so a default run's report stays byte-identical to earlier ones. */
+  crossSectionalDemean: z.boolean().optional(),
+  minCrossSection: z.number().int().min(3).optional(),
+  returnSeries: z.enum(['spot', 'perp']).optional(),
   dateRange: z.object({
     startMs: z.number(),
     endMs: z.number(),

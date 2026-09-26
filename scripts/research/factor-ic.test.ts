@@ -12,6 +12,7 @@ import {
   type DatasetManifest,
   type HtfRow,
   type ManifestFile,
+  type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
 import { validateFactorIcReport } from './report-schema';
@@ -64,12 +65,23 @@ function generateAr1Candles(seed: number, barMs: number = HOUR, count: number = 
   return rows;
 }
 
-/** Two symbols, 600 1h bars each, empty snapshots, and null-context htf rows. */
-async function buildFixtureDataset(dir: string): Promise<DatasetManifest> {
+/**
+ * Symbols x 600 1h bars each, empty snapshots, and null-context htf rows.
+ * Defaults to this file's original two-symbol fixture; the cross-sectional
+ * tests below widen it to three and pin the per-symbol seeds, and opts.perp
+ * adds a perpetual klines file per symbol (closes 1% above spot) for the
+ * --return-series perp path.
+ */
+async function buildFixtureDataset(
+  dir: string,
+  opts: { symbols?: string[]; seeds?: number[]; perp?: boolean } = {}
+): Promise<DatasetManifest> {
+  const symbols = opts.symbols ?? SYMBOLS;
+  const seeds = opts.seeds ?? symbols.map((_, i) => 4242 + i * 1000);
   const files: ManifestFile[] = [];
 
-  for (const [i, symbol] of SYMBOLS.entries()) {
-    const candleRows = generateAr1Candles(4242 + i * 1000);
+  for (const [i, symbol] of symbols.entries()) {
+    const candleRows = generateAr1Candles(seeds[i]);
     const snapshotRows: SnapshotRow[] = [];
     const htfRows: HtfRow[] = candleRows.map((c) => ({ t: c.t, context: null }));
 
@@ -113,6 +125,32 @@ async function buildFixtureDataset(dir: string): Promise<DatasetManifest> {
         sha256: await sha256File(htfPath),
       }
     );
+
+    if (opts.perp) {
+      const perpRows: PerpCandleRow[] = candleRows.map((c) => ({
+        t: c.t,
+        o: c.o,
+        h: c.h,
+        l: c.l,
+        c: c.c * 1.01,
+        v: c.v,
+        qv: c.v * c.c,
+        n: 100,
+        tbv: c.tbv,
+      }));
+      const perpPath = join(dir, 'perp', symbol, `${INTERVAL}.jsonl.gz`);
+      await writeJsonlGz(perpPath, perpRows);
+      files.push({
+        path: `perp/${symbol}/${INTERVAL}.jsonl.gz`,
+        kind: 'perp',
+        symbol,
+        interval: INTERVAL,
+        rowCount: perpRows.length,
+        startMs: perpRows[0].t,
+        endMs: perpRows[perpRows.length - 1].t,
+        sha256: await sha256File(perpPath),
+      });
+    }
   }
 
   const manifest: DatasetManifest = {
@@ -120,7 +158,7 @@ async function buildFixtureDataset(dir: string): Promise<DatasetManifest> {
     generatedAt: new Date().toISOString(),
     commit: 'test-fixture',
     lockboxStart: LOCKBOX_START_ISO,
-    symbols: SYMBOLS,
+    symbols,
     intervals: [INTERVAL],
     files,
     datasetHash: datasetHashOf(files),
@@ -440,6 +478,76 @@ describe('factor-ic CLI', () => {
 
     expect(cell.ic).toBeCloseTo(expected.ic, 9);
     expect(cell.n).toBe(expected.n);
+  }, 30_000);
+});
+
+describe('factor-ic cross-sectional mode', () => {
+  const THREE = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'factor-ic-cs-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function args(overrides: Partial<FactorIcArgs> = {}): FactorIcArgs {
+    return {
+      ...parseArgs(['--interval', INTERVAL, '--dataset-dir', dir, '--horizons', '1,2', '--factors', 'raw.ret1', '--bootstrap-n', '20']),
+      ...overrides,
+    };
+  }
+
+  it('parseArgs: defaults off and 5, parses the flags, rejects a min below 3', () => {
+    const base = parseArgs(['--interval', '1h']);
+    expect(base.crossSectionalDemean).toBe(false);
+    expect(base.minCrossSection).toBe(5);
+    const on = parseArgs(['--interval', '1h', '--cross-sectional-demean', '--min-cross-section', '3']);
+    expect(on.crossSectionalDemean).toBe(true);
+    expect(on.minCrossSection).toBe(3);
+    expect(() => parseArgs(['--interval', '1h', '--min-cross-section', '2'])).toThrow(/min-cross-section/);
+  });
+
+  it('writes a validating report carrying the flag and a per-bar block, and changes the pooled IC', async () => {
+    await buildFixtureDataset(dir, { symbols: THREE });
+    const plain = await buildFactorIcReport(args());
+    const demeaned = await buildFactorIcReport(args({ crossSectionalDemean: true, minCrossSection: 3 }));
+    expect(validateFactorIcReport(demeaned).ok).toBe(true);
+    expect(demeaned.crossSectionalDemean).toBe(true);
+    expect(demeaned.minCrossSection).toBe(3);
+    expect('crossSectionalDemean' in plain).toBe(false);
+    const ret1 = demeaned.factors.find((f) => f.name === 'raw.ret1')!;
+    const cs = ret1.crossSectional!;
+    expect(cs.minCrossSection).toBe(3);
+    const h1 = cs.horizons.find((h) => h.horizon === 1)!;
+    expect(h1.bars).toBeGreaterThan(300);
+    expect(h1.bars).toBeLessThan(COUNT);
+    expect(Number.isFinite(h1.meanBarIc)).toBe(true);
+    expect(Number.isFinite(h1.hacT)).toBe(true);
+    const plainIc = plain.factors.find((f) => f.name === 'raw.ret1')!.pooled.horizons[0].ic;
+    expect(ret1.pooled.horizons[0].ic).not.toBeCloseTo(plainIc, 6);
+  }, 30_000);
+
+  it('skips a factor whose demeaned returns are identically zero (three identical symbols)', async () => {
+    await buildFixtureDataset(dir, { symbols: THREE, seeds: [4242, 4242, 4242] });
+    const report = await buildFactorIcReport(args({ crossSectionalDemean: true, minCrossSection: 3 }));
+    expect(report.factors.find((f) => f.name === 'raw.ret1')).toBeUndefined();
+    expect(report.skippedFactors.map((s) => s.name)).toContain('raw.ret1');
+  }, 30_000);
+
+  it('--cell --report reproduces a pooled and a per-symbol entry under demeaning', async () => {
+    await buildFixtureDataset(dir, { symbols: THREE });
+    const reportPath = join(dir, 'cs.json');
+    const report = await runFactorIc(args({ crossSectionalDemean: true, minCrossSection: 3, out: reportPath }));
+    const ret1 = report.factors.find((f) => f.name === 'raw.ret1')!;
+    const pooledCell = await runCell({ ...args(), cell: { factor: 'raw.ret1', horizon: 1 }, reportPath });
+    expect(pooledCell.ic).toBeCloseTo(ret1.pooled.horizons[0].ic, 12);
+    expect(pooledCell.n).toBe(ret1.pooled.horizons[0].n);
+    const eth = ret1.perSymbol.find((p) => p.symbol === 'ETHUSDT')!.horizons[0];
+    const symbolCell = await runCell({ ...args(), cell: { factor: 'raw.ret1', horizon: 1, symbol: 'ETHUSDT' }, reportPath });
+    expect(symbolCell.ic).toBeCloseTo(eth.ic, 12);
+    expect(symbolCell.n).toBe(eth.n);
   }, 30_000);
 });
 

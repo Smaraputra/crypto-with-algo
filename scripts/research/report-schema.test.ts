@@ -95,6 +95,18 @@ describe('validateFactorIcReport', () => {
     }
   });
 
+  it('accepts the cross-sectional and return-series fields and rejects a minCrossSection below 3', () => {
+    const doc = {
+      ...makeFactorIcReport([makeFactorReport()]),
+      crossSectionalDemean: true,
+      minCrossSection: 5,
+      returnSeries: 'perp',
+    };
+    expect(validateFactorIcReport(doc).ok).toBe(true);
+    expect(validateFactorIcReport({ ...doc, minCrossSection: 2 }).ok).toBe(false);
+    expect(validateFactorIcReport({ ...doc, returnSeries: 'mark' }).ok).toBe(false);
+  });
+
   it('accepts skippedFactors entries and the bootstrap gateAbsT/maxPairs fields', () => {
     const report = {
       ...makeFactorIcReport([makeFactorReport()]),

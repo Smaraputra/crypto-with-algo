@@ -77,6 +77,9 @@ function fakeMatrix(): FactorMatrix {
     warmupBars: 1,
     timestamps: [0, 1, 2, 3, 4],
     closes: [1, 1, 1, 1, 1],
+    // No perpetual series in this fixture, the shape a dataset without a
+    // perp file produces.
+    perpCloses: [NaN, NaN, NaN, NaN, NaN],
   };
 }
 
