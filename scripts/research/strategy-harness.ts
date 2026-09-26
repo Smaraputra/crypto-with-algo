@@ -39,6 +39,11 @@
  *   --trials <n>               default: gridCells * number of STRATEGY_FAMILIES
  *   --stress-fee-mult <f>      default: 1.5
  *   --stress-slippage-mult <f> default: 2
+ *   --fee-profile standard|bnb|promo-btc-eth-2026-07
+ *                               default: standard. The selection run is always
+ *                               standard; the other profiles are sensitivity
+ *                               reads, priced per symbol (a symbol-scoped
+ *                               promotion falls back for any other symbol).
  *   --allow-lockbox            read data at/after the 2026-07-01 lockbox
  *   --expect-manifest-hash <h> abort unless the loaded dataset matches
  *   --cell SYMBOL:WINDOW       with --report <file>: spot-check one window,
@@ -109,7 +114,13 @@ import type { TradingStyle } from '@/lib/models/signal-template';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import type { HtfInput } from '@/lib/backtest/optimized-engine';
 import { intervalToMs } from '@/lib/intervals';
-import { studyCostConfig } from '@/lib/backtest/cost-model';
+import {
+  DEFAULT_FEE_PROFILE,
+  FEE_PROFILE_NAMES,
+  isFeeProfileName,
+  studyCostConfig,
+  type FeeProfileName,
+} from '@/lib/backtest/cost-model';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
 import { loadCandles, loadManifest, loadMetrics, loadSnapshots, verifyManifest } from './load-dataset';
@@ -125,6 +136,7 @@ import {
   resolveWindowConfig,
   runStrategyWalkForward,
   type OosTrade,
+  type StrategyCosts,
   type StrategyWalkForwardResult,
   type WindowResult,
 } from './strategy-walk-forward';
@@ -156,6 +168,7 @@ export interface StrategyHarnessArgs {
   trials: number;
   stressFeeMult: number;
   stressSlippageMult: number;
+  feeProfile: FeeProfileName;
   allowLockbox: boolean;
   expectManifestHash?: string;
   cell?: { symbol: string; window: number };
@@ -243,6 +256,7 @@ const VALUE_FLAGS = new Set([
   'trials',
   'stress-fee-mult',
   'stress-slippage-mult',
+  'fee-profile',
   'expect-manifest-hash',
   'cell',
   'report',
@@ -308,6 +322,11 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
   const gridCells = family !== undefined ? expandGrid(STRATEGY_FAMILIES[family]).length : 0;
   const defaultTrials = gridCells * Object.keys(STRATEGY_FAMILIES).length;
 
+  const feeProfileRaw = flags.get('fee-profile') ?? DEFAULT_FEE_PROFILE;
+  if (!isFeeProfileName(feeProfileRaw)) {
+    throw new Error(`Unknown --fee-profile "${feeProfileRaw}", expected one of: ${FEE_PROFILE_NAMES.join(', ')}`);
+  }
+
   return {
     family,
     interval,
@@ -333,6 +352,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
     stressSlippageMult: flags.has('stress-slippage-mult')
       ? parseNumberFlag(flags, 'stress-slippage-mult')
       : VALIDATION_PROTOCOL.stress.slippageMultiplier,
+    feeProfile: feeProfileRaw,
     allowLockbox: booleans.has('allow-lockbox'),
     expectManifestHash: flags.get('expect-manifest-hash'),
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
@@ -533,6 +553,26 @@ function buildWindowReport(w: WindowResult): StrategyReport['perSymbol'][number]
   };
 }
 
+/**
+ * The costs a symbol actually priced under in a StrategyReport: the matching
+ * `perSymbol` entry's own `costs` block when present (a report written under
+ * a symbol-scoped fee profile), else the report's top-level `costs` (a report
+ * written before per-symbol costs existed, or under a profile with no
+ * per-symbol variation).
+ */
+export function costsForSymbolReport(report: StrategyReport, symbol: string): StrategyCosts {
+  const perSymbol = report.perSymbol.find((p) => p.symbol === symbol);
+  if (perSymbol?.costs) {
+    return perSymbol.costs;
+  }
+  return {
+    feePercent: report.costs.feePercent,
+    makerFeePercent: report.costs.makerFeePercent,
+    takerFeePercent: report.costs.takerFeePercent,
+    slippageBps: report.costs.slippageBps,
+  };
+}
+
 function resolveCommit(): string {
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
@@ -621,7 +661,11 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   }
 
   const style = styleForInterval(interval);
-  const costs = studyCostConfig(interval);
+  // The fallback resolution, recorded at the top level: what a symbol-scoped
+  // profile (e.g. promo-btc-eth-2026-07) resolves to for a symbol it does not
+  // cover. Each symbol's own costs are resolved again inside the per-symbol
+  // loop below.
+  const baseCosts = studyCostConfig(interval, { profile: args.feeProfile });
   const family = STRATEGY_FAMILIES[familyName];
   if (!family) {
     throw new Error(
@@ -694,9 +738,22 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
 
   const results: StrategyWalkForwardResult[] = [];
   const benchmarkSeeds: Array<number | null> = [];
+  const perSymbolCosts: StrategyCosts[] = [];
   for (let symbolIndex = 0; symbolIndex < perSymbolInputs.length; symbolIndex++) {
     const input = perSymbolInputs[symbolIndex];
     const windowMs: number[] = [];
+    // Resolved per symbol, not reused from baseCosts: a symbol-scoped profile
+    // (e.g. promo-btc-eth-2026-07) prices BTCUSDT/ETHUSDT differently from
+    // every other symbol. deriveVolatilityStops inside runStrategyWalkForward
+    // reads costs.takerFeePercent to floor the stop distance, so the fee floor
+    // on stops follows this symbol's own schedule too.
+    const costs = studyCostConfig(interval, { profile: args.feeProfile, symbol: input.symbol });
+    perSymbolCosts.push({
+      feePercent: costs.feePercent,
+      makerFeePercent: costs.makerFeePercent as number,
+      takerFeePercent: costs.takerFeePercent as number,
+      slippageBps: costs.slippageBps as number,
+    });
     // Per-symbol benchmark seed: without this, every symbol's window i draws
     // the same mulberry32 stream on the same relative timestamps, so
     // correlated symbols correlate the pooled random-entry null and inflate
@@ -765,6 +822,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     benchmarkSeed: benchmarkSeeds[i],
     windows: result.windows.map(buildWindowReport),
     pooledOos: buildPooledOos(result.windows),
+    costs: perSymbolCosts[i],
   }));
 
   const report: StrategyReport = {
@@ -780,11 +838,12 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     gridCells: cells.length,
     trials: pooled.trials,
     snapshotSource,
+    feeProfile: args.feeProfile,
     costs: {
-      feePercent: costs.feePercent,
-      makerFeePercent: costs.makerFeePercent as number,
-      takerFeePercent: costs.takerFeePercent as number,
-      slippageBps: costs.slippageBps as number,
+      feePercent: baseCosts.feePercent,
+      makerFeePercent: baseCosts.makerFeePercent as number,
+      takerFeePercent: baseCosts.takerFeePercent as number,
+      slippageBps: baseCosts.slippageBps as number,
       fundingEnabled,
     },
     windowConfig: { mode: args.windowMode, trainFraction: args.trainFraction, count: args.windows, minIsTrades: MIN_IS_TRADES },
@@ -947,12 +1006,7 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     // silently checks a different factor from the one it is verifying.
     researchRows: input.researchRows,
     htfInput: input.htfInput,
-    costs: {
-      feePercent: report.costs.feePercent,
-      makerFeePercent: report.costs.makerFeePercent,
-      takerFeePercent: report.costs.takerFeePercent,
-      slippageBps: report.costs.slippageBps,
-    },
+    costs: costsForSymbolReport(report, symbol),
     fundingEnabled: report.costs.fundingEnabled,
     windows: { count: report.windowConfig.count, trainFraction: report.windowConfig.trainFraction, mode: report.windowConfig.mode },
     minIsTrades: report.windowConfig.minIsTrades,

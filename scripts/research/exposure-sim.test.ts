@@ -190,6 +190,31 @@ describe('simulateExposure turnover costing', () => {
   });
 });
 
+describe('simulateExposure fee profile', () => {
+  // Two symbols on one shared grid (simulateExposure requires it), each
+  // rebalancing onto z = -1 at bar 0 so bar 0's cost is non-zero for both.
+  const closes = [100, 100, 100];
+  const rates = [0, 0, 0];
+  const z = [-1, -1, -1];
+  const symbols = [daily(z, closes, rates, 'AAAUSDT'), daily(z, closes, rates, 'BBBUSDT')];
+  const grid = { band: 0, zScale: 1, smoothing: 0, gross: 1, interval: '1d' };
+
+  it('prices turnover per symbol from the fee profile and is unchanged under standard', () => {
+    // Two symbols, identical inputs, one rebalance each at bar 0.
+    const base = simulateExposure(symbols, grid);
+    const standard = simulateExposure(symbols, grid, { feeProfile: 'standard' });
+    expect(standard.costReturns).toEqual(base.costReturns);
+    const promo = simulateExposure(
+      [{ ...symbols[0], symbol: 'BTCUSDT' }, { ...symbols[1], symbol: 'SOLUSDT' }],
+      grid,
+      { feeProfile: 'promo-btc-eth-2026-07' }
+    );
+    // BTC leg: 0.00036 + slippage; SOL leg: 0.00045 + slippage. Both below standard's 0.0005 + slippage.
+    expect(promo.costReturns[0]).toBeGreaterThan(base.costReturns[0]);
+    expect(promo.perSymbol[0].symbol).toBe('BTCUSDT');
+  });
+});
+
 describe('simulateExposure funding', () => {
   const closes = [100, 100, 100];
   // The rate read at each bar, one settlement per bar. Bar 1 carries a rate,

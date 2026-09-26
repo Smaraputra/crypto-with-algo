@@ -936,6 +936,30 @@ describe('validateStrategyReport', () => {
     const result = validateStrategyReport(report);
     expect(result.ok).toBe(true);
   });
+
+  // makeStrategyReport()'s own defaults carry neither field, which is exactly
+  // the pre-2026-09-26 (fee-profile flag) shape this guards.
+  it('accepts a strategy report without feeProfile or per-symbol costs (pre-plan reports)', () => {
+    const legacy = makeStrategyReport() as unknown as { feeProfile?: string; perSymbol: { costs?: unknown }[] };
+    expect(legacy.feeProfile).toBeUndefined();
+    expect(legacy.perSymbol.every((p) => p.costs === undefined)).toBe(true);
+    expect(validateStrategyReport(legacy).ok).toBe(true);
+  });
+
+  it('keeps feeProfile and per-symbol costs when present', () => {
+    const withProfile = makeStrategyReport({
+      feeProfile: 'promo-btc-eth-2026-07',
+      perSymbol: [
+        makeStrategyPerSymbol('BTCUSDT', {
+          costs: { feePercent: 0.00036, makerFeePercent: 0, takerFeePercent: 0.00036, slippageBps: 3 },
+        }),
+        makeStrategyPerSymbol('ETHUSDT'),
+      ],
+    });
+    const result = validateStrategyReport(withProfile);
+    expect(result.ok && result.data.feeProfile).toBe('promo-btc-eth-2026-07');
+    expect(result.ok && result.data.perSymbol[0].costs?.makerFeePercent).toBe(0);
+  });
 });
 
 describe('checkStrategyFindings', () => {

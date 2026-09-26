@@ -14,8 +14,14 @@ import {
   type ManifestFile,
   type SnapshotRow,
 } from './dataset-format';
-import { validateStrategyReport } from './report-schema';
-import { parseArgs, runCell, runStrategyHarness, type StrategyHarnessArgs } from './strategy-harness';
+import { validateStrategyReport, type StrategyReport } from './report-schema';
+import {
+  costsForSymbolReport,
+  parseArgs,
+  runCell,
+  runStrategyHarness,
+  type StrategyHarnessArgs,
+} from './strategy-harness';
 
 const SYMBOLS = ['BTCUSDT', 'ETHUSDT'];
 const START = Date.UTC(2025, 0, 1);
@@ -222,6 +228,47 @@ describe('strategy-harness CLI', () => {
       expect(report.snapshotSource).toBeNull();
     }, 30_000);
 
+    it('defaults feeProfile to standard and carries matching per-symbol costs', async () => {
+      const { args } = await runBase();
+      const report = await runStrategyHarness(args);
+
+      expect(report.feeProfile).toBe('standard');
+      expect(report.costs.takerFeePercent).toBeCloseTo(0.0005, 10);
+      expect(report.costs.makerFeePercent).toBeCloseTo(0.0002, 10);
+      for (const p of report.perSymbol) {
+        expect(p.costs).toEqual({
+          feePercent: report.costs.feePercent,
+          makerFeePercent: report.costs.makerFeePercent,
+          takerFeePercent: report.costs.takerFeePercent,
+          slippageBps: report.costs.slippageBps,
+        });
+      }
+    }, 30_000);
+
+    it('threads --fee-profile through to the top-level and per-symbol costs', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const args = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--fee-profile', 'bnb',
+        '--out', join(dir, 'reports', 'report.json'),
+      ]);
+      const report = await runStrategyHarness(args);
+
+      expect(report.feeProfile).toBe('bnb');
+      expect(report.costs.takerFeePercent).toBeCloseTo(0.00045, 10);
+      expect(report.costs.makerFeePercent).toBeCloseTo(0.00018, 10);
+      expect(report.perSymbol).toHaveLength(2);
+      for (const p of report.perSymbol) {
+        expect(p.costs?.takerFeePercent).toBeCloseTo(0.00045, 10);
+        expect(p.costs?.makerFeePercent).toBeCloseTo(0.00018, 10);
+      }
+    }, 30_000);
+
     it('writes the report where --out says', async () => {
       const { args, outPath } = await runBase();
       const report = await runStrategyHarness(args);
@@ -358,6 +405,40 @@ describe('strategy-harness CLI', () => {
 
       expect(cell.symbol).toBe(symbol);
       expect(cell.window).toBe(0);
+      expect(cell.trades).toBe(window0.oos!.trades);
+      expect(cell.expectancyPercent).toBeCloseTo(window0.oos!.expectancyPercent!, 9);
+    }, 30_000);
+
+    it('reproduces a report generated under a non-default --fee-profile, via costsForSymbolReport', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const outPath = join(dir, 'reports', 'report.json');
+      const baseArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--fee-profile', 'bnb',
+        '--out', outPath,
+      ]);
+      const report = await runStrategyHarness(baseArgs);
+
+      const symbol = report.symbols[0];
+      const window0 = report.perSymbol.find((p) => p.symbol === symbol)!.windows[0];
+      expect(window0.oos).not.toBeNull();
+
+      // No --fee-profile on the cell args: runCell must read costs from the
+      // report itself (costsForSymbolReport), not from the CLI's own default.
+      const cellArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--cell', `${symbol}:0`,
+        '--report', outPath,
+      ]);
+      const cell = await runCell(cellArgs);
+
       expect(cell.trades).toBe(window0.oos!.trades);
       expect(cell.expectancyPercent).toBeCloseTo(window0.oos!.expectancyPercent!, 9);
     }, 30_000);
@@ -621,6 +702,7 @@ describe('parseArgs', () => {
     expect(args.trials).toBe(13);
     expect(args.stressFeeMult).toBe(1.5);
     expect(args.stressSlippageMult).toBe(2);
+    expect(args.feeProfile).toBe('standard');
     expect(args.allowLockbox).toBe(false);
     expect(args.expectManifestHash).toBeUndefined();
     expect(args.cell).toBeUndefined();
@@ -748,5 +830,29 @@ describe('parseArgs', () => {
     );
     expect(args.expectManifestHash).toBe('abc123');
     expect(args.reportPath).toBe('/tmp/report.json');
+  });
+
+  it('defaults --fee-profile to standard and validates the name', () => {
+    expect(parseArgs(['--family', 'control', '--interval', '1h']).feeProfile).toBe('standard');
+    expect(
+      parseArgs(['--family', 'control', '--interval', '1h', '--fee-profile', 'promo-btc-eth-2026-07']).feeProfile
+    ).toBe('promo-btc-eth-2026-07');
+    expect(() => parseArgs(['--family', 'control', '--interval', '1h', '--fee-profile', 'vip9'])).toThrow(
+      /Unknown --fee-profile/
+    );
+  });
+});
+
+describe('costsForSymbolReport', () => {
+  it('prefers the per-symbol block and falls back to the report costs', () => {
+    const report = {
+      costs: { feePercent: 0.0005, makerFeePercent: 0.0002, takerFeePercent: 0.0005, slippageBps: 3, fundingEnabled: false },
+      perSymbol: [
+        { symbol: 'BTCUSDT', costs: { feePercent: 0.00036, makerFeePercent: 0, takerFeePercent: 0.00036, slippageBps: 3 } },
+        { symbol: 'SOLUSDT' },
+      ],
+    } as unknown as StrategyReport;
+    expect(costsForSymbolReport(report, 'BTCUSDT').makerFeePercent).toBe(0);
+    expect(costsForSymbolReport(report, 'SOLUSDT').makerFeePercent).toBe(0.0002);
   });
 });
