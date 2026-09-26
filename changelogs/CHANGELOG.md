@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research): named fee profiles and the composite sign audit
+- **Named fee profiles** `standard`, `bnb` and `promo-btc-eth-2026-07` in the research cost model, with `--fee-profile` threaded through `strategy-harness.ts`, `exposure-harness.ts` and `frontier.ts`
+- **Per-symbol costs are now recorded in reports**, and `costsForSymbolReport` is spot-checked for parity against the CLI's own per-symbol pricing
+- **`scripts/research/composite-audit.ts`**, which restates a factor-ic report in the live composite's own terms: per-signal and per-category IC against the live sign, an additive ceiling, and the taker/maker breakeven under each fee profile
+
+### Changed (research): frontier per fee profile with the hold-profile caveat and leverage arithmetic
+- **`frontier.ts` prices its targets, its profile comparison and its leverage block under `--fee-profile`**, and its header now carries a caveat that a breakeven computed from a multi-bar hold's sd does not apply to a factor scored over a single bar, plus the leverage arithmetic (cost as percent of account scales with leverage, liquidation distance does not)
+
+### Audit findings, 2026-09-26
+- **The frontier header's "5x the maker breakeven" reading for `raw.btcLeadLag` was superseded**: it compared the factor's 0.0219 IC at h1 against a breakeven derived from the control family's 4.56% multi-bar hold sd rather than the single-bar sd the factor is actually scored over, so the true breakeven is about 0.025 to 0.037 and 0.0219 falls short of it rather than clearing it 5x
+- **The composite sign audit headline per interval**: 5m composite ic -0.0151, ceiling 0.015802, cheapest taker be 0.1103 (ceiling far below); 15m composite ic -0.0344, ceiling 0.018879, cheapest taker be 0.0323 (ceiling below); 1h composite ic -0.0086, ceiling 0.009404, cheapest taker be 0.0145 (ceiling below); 4h composite ic +0.0374, ceiling 0.024960, cheapest taker be 0.0061 (ceiling above, unprovable at this sample size); 1d composite ic +0.0110 (insignificant, t 0.53), ceiling 0.048550, cheapest taker be 0.0035 (ceiling above, htf category missing)
+- **The pre-registered promo fee check (BTCUSDT and ETHUSDT, `--fee-profile promo-btc-eth-2026-07`) failed expectancy at both 15m and 1h for both `control` and `control-limit`** (control-limit 1h -0.0412%, CI spanning zero); the kill criterion fires, closing the fee question for the composite under any profile, with the caveat that no matching standard-profile run on the same two symbols was pre-registered
+- **The monthly optimizer defects (empty-candidate ensemble failures, the win-rate robustness gate) are already recorded under Fixed (optimization) below**
+- **The v7 rollout watch's directional tier rate (6.9% scalping, 3.5% day trading against a 10% design) and live p90 (26.5 at 1h against a calibrated 32.2) sit inside the recorded daily spread (11.3 to 42.8)**: judged against the daily p90 spread, not a defect, and the watch is to be removed
+- **Standard VIP 0 fees (0.02% maker / 0.05% taker) are verified against the cost model, BNB gives 10% off, and the 2026-07-02 promotion's 0 maker / 20% taker discount is on contracts a Binance Square repost names "BTCU and ETHU"**, but whether that is BTCUSDT/ETHUSDT was not verified from a primary source, so the user's own account fee page is the check; leverage multiplies notional so fees and edge scale together (a 0.072% taker round trip at 10x on 100 USDT is 0.72% of the account), and liquidation distance is about 1/L minus maintenance margin (about 4.6% at 20x, 1.5 to 1.6% at 50x)
+- **The user's own February 2026 Binance USDT-M trade history (309 fills, 2026-02-15 to 2026-02-26) confirms the standard 0.02%/0.05% schedule with no BNB discount**, and was gross break-even before fees (-3.06 USDT on 945,211 USDT notional) with the realized loss essentially equal to fees paid (380.75 USDT, net -383.81)
+
 ### Fixed (optimization): no-candidate runs complete instead of failing
 - **The monthly optimizer recorded "no robust candidate in any window" as a failed job** (`Cannot create ensemble from empty results`, seen on the 2026-09-16 and 2026-09-17 runs); it now completes with the save gate's reason
 - **The robustness filter no longer rejects or ranks candidates on win rate**: `minWinRate` is removed from `RobustnessConfig`, and `getRobustnessScore`, whose only callers were its own tests, is removed

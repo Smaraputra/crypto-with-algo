@@ -38,6 +38,19 @@
  *   1h  at 4/day 0.0450 / 0.0318, at 8/day 0.0313 / 0.0181, at 20/day 0.0230 / 0.0099
  *   4h  at 4/day 0.0212 / 0.0157
  *
+ * MEASURED 2026-09-26, per fee profile (Task 3, CLI on the pA report,
+ * `npx tsx scripts/research/frontier.ts --reports
+ * data/research/reports/strategy-control-15m-pA.json`):
+ *   profiles (priced for BTCUSDT):
+ *     standard                taker 0.160 (be 0.0391)  maker 0.040 (be 0.0098)
+ *     bnb                     taker 0.150 (be 0.0367)  maker 0.036 (be 0.0088)
+ *     promo-btc-eth-2026-07   taker 0.132 (be 0.0323)  maker 0.000 (be 0.0000)
+ *   leverage (100 USDT base, standard taker round trip at this interval):
+ *     L 1: notional 100 USDT, cost 0.1600 USDT (0.160% of account), liq dist 99.60%
+ *     L 5: notional 500 USDT, cost 0.8000 USDT (0.800% of account), liq dist 19.60%
+ *     L10: notional 1000 USDT, cost 1.6000 USDT (1.600% of account), liq dist 9.60%
+ *     L20: notional 2000 USDT, cost 3.2000 USDT (3.200% of account), liq dist 4.60%
+ *
  * Reading: the largest fine-interval effect ever measured here is raw.btcLeadLag
  * at 1h, 0.0219 at h1 (factors.ts, Phase B results): 5x the 1h maker breakeven,
  * about the 8-a-day maker line, below every taker line and below every 15m line.

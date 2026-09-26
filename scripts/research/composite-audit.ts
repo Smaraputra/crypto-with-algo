@@ -36,7 +36,147 @@
  *   the run (that table only covers 5m/15m/1h/4h/1d); --horizon overrides
  *   the per-style outcome-horizon nearest-match for every report in the run.
  *
- * RESULTS: Results recorded by Task 7 of the 2026-09-26 audit plan.
+ * RESULTS, 2026-09-26. Full CLI output over the five local reports:
+ *   npx tsx scripts/research/composite-audit.ts --reports
+ *   data/research/reports/factor-ic-5m-p3b-lag1.json,data/research/reports/factor-ic-15m-pB-ts.json,
+ *   data/research/reports/factor-ic-1h-pB-ts.json,data/research/reports/factor-ic-4h-pB-ts.json,
+ *   data/research/reports/factor-ic-1d-p3b-lag1.json
+ *
+ * (a) Every live signal, ic and live-sign agreement (+ agrees, - disagrees,
+ * . absent) per interval:
+ *
+ *   signal              5m ic     5m  15m ic    15m  1h ic     1h  4h ic     4h  1d ic     1d
+ *   EMA Cross          -0.0330    -  -0.0244     -  -0.0123     -   0.0264    +   0.0280    +
+ *   SMA Trend          -0.0312    -  -0.0333     -  -0.0091     -   0.0493    +   0.0317    +
+ *   Ichimoku            .         .  -0.0216     -  -0.0060     -   0.0102    +   0.0232    +
+ *   SuperTrend         -0.0273    -  -0.0238     -  -0.0089     -   0.0302    +   0.0221    +
+ *   RSI                 0.0040    +   0.0029     +  -0.0090     -  -0.0008    -   0.0033    +
+ *   MACD               -0.0224    -  -0.0250     -  -0.0116     -   0.0308    +   0.0444    +
+ *   StochRSI            0.0064    +  -0.0053     -   0.0046     +  -0.0015    -  -0.0628    -
+ *   Williams %R          0.0218    +   0.0106     +   0.0072     +  -0.0023    -  -0.0721    -
+ *   OBV                -0.0243    -  -0.0050     -  -0.0106     -   0.0008    +   0.0706    +
+ *   MFI                 0.0036    +   0.0043     +  -0.0092     -  -0.0025    -   0.0680    +
+ *   Volume             -0.0125    -  -0.0007     -  -0.0058     -   0.0029    +   0.0337    +
+ *   Taker Flow         -0.0123    -  -0.0002     -  -0.0008     -   0.0039    +   0.0219    +
+ *   Bollinger           0.0261    +   0.0146     +   0.0170     +  -0.0024    -  -0.0441    -
+ *   Funding Rate         0.0079    +   0.0066     +   0.0032     +  -0.0310    -  -0.0218    -
+ *   Long/Short Ratio     0.0065    +   0.0185     +   0.0309     +   0.0798    +   0.1502    +
+ *   Fear & Greed         0.0052    +   0.0003     +  -0.0155     -  -0.0552    -  -0.0864    -
+ *   News                 0.0413    +  -0.0458     -   0.1183     +   0.2194    +   0.2582    +
+ *   HTF EMA Cross      -0.0218    -  -0.0391     -  -0.0084     -   0.0205    +   .          .
+ *   HTF SMA Trend      -0.0282    -  -0.0293     -  -0.0032     -   0.0348    +   .          .
+ *   HTF SuperTrend     -0.0260    -  -0.0308     -  -0.0013     -   0.0242    +   .          .
+ *
+ * (b) Per interval, exactly as the CLI printed it:
+ *
+ *   === 5m (scalping) -- report factor-ic-5m-p3b-lag1.json ===
+ *   category      weight   ic       t       contribution
+ *   trend         0.0850  -0.0334  -10.03  -0.002835
+ *   momentum      0.3400   0.0070    3.57   0.002390
+ *   volume        0.2550  -0.0095   -6.80  -0.002420
+ *   volatility    0.1275   0.0261   12.88   0.003322
+ *   futures       0.0425   0.0085    2.46   0.000362
+ *   sentiment     0.0000   0.0053    1.53   0.000000
+ *   htf           0.1500  -0.0298   -8.58  -0.004472
+ *   composite ic -0.0151 t -5.70
+ *   additive sum -0.003653
+ *   additive ceiling 0.015802
+ *   missing categories: none
+ *   cost lines (sd 0.78%/trade):
+ *     standard taker be 0.1282 (cost 0.200%), maker be 0.0256 (cost 0.040%)
+ *     bnb taker be 0.1218 (cost 0.190%), maker be 0.0231 (cost 0.036%)
+ *     promo-btc-eth-2026-07 taker be 0.1103 (cost 0.172%), maker be 0.0000 (cost 0.000%)
+ *   horizon 16 (outcome horizon 12 for scalping)
+ *
+ *   === 15m (day_trading) -- report factor-ic-15m-pB-ts.json ===
+ *   category      weight   ic       t      contribution
+ *   trend         0.2125  -0.0303   -4.64  -0.006436
+ *   momentum      0.2550  -0.0123   -2.88  -0.003145
+ *   volume        0.1700   0.0019    0.43   0.000326
+ *   volatility    0.0850   0.0146    3.27   0.001242
+ *   futures       0.0850   0.0213    2.72   0.001807
+ *   sentiment     0.0425   0.0001    0.02   0.000005
+ *   htf           0.1500  -0.0394   -5.14  -0.005916
+ *   composite ic -0.0344 t -5.00
+ *   additive sum -0.012117
+ *   additive ceiling 0.018879
+ *   missing categories: none
+ *   cost lines (sd 2.04%/trade):
+ *     standard taker be 0.0392 (cost 0.160%), maker be 0.0098 (cost 0.040%)
+ *     bnb taker be 0.0368 (cost 0.150%), maker be 0.0088 (cost 0.036%)
+ *     promo-btc-eth-2026-07 taker be 0.0324 (cost 0.132%), maker be 0.0000 (cost 0.000%)
+ *   horizon 32 (outcome horizon 24 for day_trading)
+ *
+ *   === 1h (day_trading) -- report factor-ic-1h-pB-ts.json ===
+ *   category      weight   ic       t      contribution
+ *   trend         0.2125  -0.0105   -1.79  -0.002241
+ *   momentum      0.2550  -0.0020   -0.53  -0.000511
+ *   volume        0.1700  -0.0129   -3.26  -0.002185
+ *   volatility    0.0850   0.0170    4.15   0.001447
+ *   futures       0.0850   0.0106    1.53   0.000904
+ *   sentiment     0.0425  -0.0155   -2.17  -0.000659
+ *   htf           0.1500  -0.0097   -1.46  -0.001457
+ *   composite ic -0.0086 t -1.40
+ *   additive sum -0.004702
+ *   additive ceiling 0.009404
+ *   missing categories: none
+ *   cost lines (sd 4.56%/trade):
+ *     standard taker be 0.0175 (cost 0.160%), maker be 0.0044 (cost 0.040%)
+ *     bnb taker be 0.0164 (cost 0.150%), maker be 0.0039 (cost 0.036%)
+ *     promo-btc-eth-2026-07 taker be 0.0145 (cost 0.132%), maker be 0.0000 (cost 0.000%)
+ *   horizon 32 (outcome horizon 24 for day_trading)
+ *
+ *   === 4h (swing_trading) -- report factor-ic-4h-pB-ts.json ===
+ *   category      weight   ic       t      contribution
+ *   trend         0.2700   0.0324    3.15   0.008735
+ *   momentum      0.1800   0.0138    2.03   0.002492
+ *   volume        0.0900  -0.0026   -0.41  -0.000233
+ *   volatility    0.0900  -0.0024   -0.36  -0.000220
+ *   futures       0.1800   0.0331    2.91   0.005961
+ *   sentiment     0.0900  -0.0552   -4.73  -0.004966
+ *   htf           0.1000   0.0235    1.99   0.002352
+ *   composite ic 0.0374 t 3.60
+ *   additive sum 0.014122
+ *   additive ceiling 0.024960
+ *   missing categories: none
+ *   cost lines (sd 9.21%/trade):
+ *     standard taker be 0.0076 (cost 0.140%), maker be 0.0022 (cost 0.040%)
+ *     bnb taker be 0.0071 (cost 0.130%), maker be 0.0020 (cost 0.036%)
+ *     promo-btc-eth-2026-07 taker be 0.0061 (cost 0.112%), maker be 0.0000 (cost 0.000%)
+ *   horizon 32 (outcome horizon 30 for swing_trading)
+ *
+ *   === 1d (position_trading) -- report factor-ic-1d-p3b-lag1.json ===
+ *   category      weight   ic       t      contribution
+ *   trend         0.3500   0.0298    1.37   0.010423
+ *   momentum      0.1000  -0.0331   -1.83  -0.003315
+ *   volume        0.0500   0.0753    4.95   0.003767
+ *   volatility    0.0500  -0.0441   -2.58  -0.002207
+ *   futures       0.2500   0.0463    2.39   0.011566
+ *   sentiment     0.2000  -0.0864   -4.05  -0.017272
+ *   composite ic 0.0110 t 0.53
+ *   additive sum 0.002962
+ *   additive ceiling 0.048550
+ *   missing categories: htf
+ *   cost lines (sd 15.92%/trade):
+ *     standard taker be 0.0044 (cost 0.140%), maker be 0.0013 (cost 0.040%)
+ *     bnb taker be 0.0041 (cost 0.130%), maker be 0.0011 (cost 0.036%)
+ *     promo-btc-eth-2026-07 taker be 0.0035 (cost 0.112%), maker be 0.0000 (cost 0.000%)
+ *   horizon 16 (outcome horizon 20 for position_trading)
+ *
+ * (c) Reading: at 5m, 15m and 1h every trend, HTF, momentum and volume
+ * component enters with the wrong sign at the outcome horizon and the
+ * volatility category (Bollinger, Williams %R) with the right one; at 1h
+ * the Long/Short Ratio signal reads +0.0309 (t 3.89) at h32, the only
+ * futures-category reading that agrees strongly; News rows are sparse
+ * (marked `(hN, not hM)` at 4h and 1d, t 1.28 and 0.71) and uninformative.
+ * The ceiling is generous by construction (every category flipped to its
+ * measured sign, correlations ignored) and it still sits below the
+ * cheapest taker line at 5m, 15m and 1h, so no re-weighting of these
+ * inputs pays taker costs at the intervals the user trades. At 4h and 1d
+ * the ceiling clears the line where the sample is too small to prove a
+ * rule (the record's Phase 4, 4b, 4c verdicts stand). `fade-composite`
+ * already failed at 1h (Phase 4), so flipping signs wholesale is not a
+ * new experiment.
  */
 import { readFile } from 'fs/promises';
 import {

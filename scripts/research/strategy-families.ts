@@ -182,6 +182,60 @@
  * an execution lag of one bar unchanged) and still do not pay their costs.
  * The next thing to vary is the container, not the rule: see the banded
  * target-exposure phase.
+ *
+ * PROMO FEE CHECK, 2026-09-26. Two standard-profile controls (image
+ * crypto-ops:audit from 164a192, dataset e84cd66dbe01, lockbox on, all ten
+ * symbols, --trials 1) and four promo-profile runs (same image and dataset,
+ * lockbox on, BTCUSDT and ETHUSDT only, --fee-profile
+ * promo-btc-eth-2026-07 so both symbols carry maker 0 / taker 0.036% /
+ * slippage 3 bps, --trials 32):
+ *
+ *   run                     n     exp%     CI95                win    payoff  pf     hold  trades/day  timing p  stress   gates failed
+ *   control 15m standard   4796  -0.1175  [-0.1740, -0.0583]   0.321  1.64    0.769  7     24.02       0.2438   -0.2151  expectancy, windows, symbols, timing, trials, stress
+ *   control 1h standard    8436  -0.0687  [-0.1741,  0.0385]   0.339  1.83    0.927  7      8.24       0.0050   -0.1656  expectancy, windows, symbols, trials, stress
+ *   control 15m promo      1674  -0.0988  [-0.1395, -0.0547]   0.318  1.62    0.752  6      5.03       0.1095   -0.1813  expectancy, windows, symbols, timing, trials, stress
+ *   control 1h promo       1840  -0.1082  [-0.2014, -0.0057]   0.328  1.78    0.862  6      1.80       0.4677   -0.1907  expectancy, windows, symbols, timing, trials, stress
+ *   control-limit 15m promo 1231 -0.0617  [-0.1042, -0.0182]   0.271  2.19    0.824  4      3.70       0.0050   -0.0991  expectancy, windows, symbols, trials, plateau, stress
+ *   control-limit 1h promo  1650 -0.0412  [-0.1228,  0.0539]   0.299  2.21    0.926  5      1.61       0.0050   -0.0773  expectancy, windows, symbols, trials, plateau, stress
+ *
+ * The 15m control row reproduces the recorded Phase A control (task pA,
+ * 2026-09-26) digit for digit, the byte-identity proof for the fee-profile
+ * plumbing under `standard`. The 1h control row above is the FIRST
+ * like-for-like 1h control on this dataset under the current scorer: the
+ * older 1h row in the Phase 4 table above (n 7519, -0.063%) is the Phase 4
+ * control on dataset 3fdeac9e, so it was never expected to match this one;
+ * the verdict is unchanged (same five gates fail).
+ *
+ * Predictions recorded before the runs (ledger, 2026-09-26): control fails
+ * expectancy at 1h and 15m (the discount is about 0.03% per trade against
+ * losses of 0.06 to 0.12%); control-limit 1h lands near +0.02% per trade
+ * with a CI spanning zero and fails expectancy, windows and timing;
+ * control-limit 15m stays negative.
+ *
+ * Against the predictions: control fails expectancy at both intervals
+ * (predicted); control-limit 15m stays negative (predicted); control-limit
+ * 1h fails expectancy with a CI spanning zero (predicted) but its point
+ * estimate is -0.041%, not the predicted +0.02%: the prediction assumed the
+ * ten-symbol baseline of -0.022%, and the BTCUSDT+ETHUSDT subset's baseline
+ * is lower, so the 0.04% maker saving does not lift it above zero. Both
+ * control-limit runs clear the timing gate (p 0.005) and still lose money.
+ * The trades-per-day figures above are for two symbols, not ten.
+ *
+ * VERDICT: KILL CRITERION FIRES. Both intervals fail expectancy for both
+ * families under the best schedule Binance offers, so the fee question is
+ * closed for the composite and no further composite variant runs under any
+ * profile.
+ *
+ * CAVEAT: a like-for-like standard-profile run on the same two symbols
+ * (BTCUSDT, ETHUSDT) was not pre-registered and was not run, so the promo
+ * rows above measure "does the composite pay under the promotion on BTC
+ * and ETH" (no), not "how much did the promotion lift it".
+ *
+ * Spot check: all four promo reports reproduced at BTCUSDT window 2, in
+ * the order listed above (control 15m promo, control 1h promo,
+ * control-limit 15m promo, control-limit 1h promo): 174 trades
+ * -0.11186450019777032%, 167 trades -0.09927887669979621%, 159 trades
+ * -0.04015098296845698%, 164 trades -0.03521631691686759%.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
