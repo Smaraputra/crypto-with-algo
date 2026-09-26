@@ -65,7 +65,10 @@ import {
   psrRadicand,
 } from '@/lib/stats/deflated-sharpe';
 import { sampleKurtosis, sampleSkewness } from '@/lib/stats/normal';
+import { intervalToMs } from '@/lib/intervals';
 import type { OosTrade, StrategyWalkForwardResult } from './strategy-walk-forward';
+
+const DAY_MS = 86_400_000;
 
 export const VALIDATION_PROTOCOL = {
   minOosTrades: { default: 100, '5m': 300 },
@@ -122,6 +125,17 @@ export interface PooledStats {
   symbolsTotal: number;
   symbolsPositive: number;
   symbolPositiveShare: number;
+  /**
+   * REPORTED ONLY, the same standing as payoffRatio. Calendar span of the
+   * out-of-sample windows summed over symbols (bars x interval, so a skipped
+   * window still occupies its span), and the pooled trade count over it. The
+   * user's question is how often a rule acts; the answer must never become a
+   * selection metric, because count multiplies expectancy and a negative
+   * expectancy taken more often only loses faster.
+   */
+  oosSymbolDays: number | null;
+  tradesPerSymbolDay: number | null;
+  tradesPerDay: number | null;
   benchmarkWindows: number;
   randomEntryP: number | null;
   trials: number;
@@ -355,6 +369,14 @@ export function poolStrategyResults(
   }
   const symbolPositiveShare = share(symbolsPositive, symbolsTotal);
 
+  // Windows are bar indices (testStart/testEnd), so the span comes from
+  // testWindowBars x windows per symbol converted through the interval.
+  const intervalMs = intervalToMs(opts.interval);
+  const oosBars = perSymbol.reduce((s, r) => s + r.windowConfig.testWindowBars * r.windows.length, 0);
+  const oosSymbolDays = oosBars > 0 ? (oosBars * intervalMs) / DAY_MS : null;
+  const tradesPerSymbolDay = oosSymbolDays === null ? null : toFinite(n / oosSymbolDays);
+  const tradesPerDay = tradesPerSymbolDay === null ? null : toFinite(tradesPerSymbolDay * symbolsTotal);
+
   const benchmarkWindows: NonNullable<StrategyWalkForwardResult['windows'][number]['benchmark']>[] = [];
   for (const s of perSymbol) {
     for (const w of s.windows) {
@@ -467,6 +489,9 @@ export function poolStrategyResults(
     symbolsTotal,
     symbolsPositive,
     symbolPositiveShare,
+    oosSymbolDays,
+    tradesPerSymbolDay,
+    tradesPerDay,
     benchmarkWindows: benchmarkWindows.length,
     randomEntryP,
     trials,

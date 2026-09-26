@@ -574,7 +574,8 @@ function formatReport(report: StrategyReport): string {
   lines.push(
     `pooled: trades=${report.pooled.n} expectancy=${fmtValue(report.pooled.expectancyPercent)}% ` +
       `CI95=${ci} winRate=${fmtValue(report.pooled.winRate)} medianHold=${fmtValue(report.pooled.medianHoldBars, 1)} ` +
-      `syntheticMaxDD=${fmtValue(report.pooled.maxDrawdownPercent)}%`
+      `syntheticMaxDD=${fmtValue(report.pooled.maxDrawdownPercent)}% ` +
+      `tradesPerDay=${fmtValue(report.pooled.tradesPerDay ?? null, 2)}`
   );
 
   for (const s of report.perSymbol) {

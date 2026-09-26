@@ -535,6 +535,11 @@ const PooledStatsSchema = z.object({
   symbolsTotal: z.number(),
   symbolsPositive: z.number(),
   symbolPositiveShare: z.number(),
+  // Reported only, never a gate. Optional so reports written before
+  // 2026-09-26 (every p4, p4c and p5 file) still validate.
+  oosSymbolDays: z.number().nullable().optional(),
+  tradesPerSymbolDay: z.number().nullable().optional(),
+  tradesPerDay: z.number().nullable().optional(),
   benchmarkWindows: z.number(),
   randomEntryP: z.number().nullable(),
   trials: z.number(),
