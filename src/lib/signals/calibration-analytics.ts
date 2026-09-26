@@ -88,12 +88,21 @@ export interface LoadCalibrationRowsOptions {
 }
 
 /**
- * Resolved outcome rows for one style, interval and source, oldest first.
+ * Resolved outcome rows for one style, interval and source, in natural order.
  *
  * Row level rather than a $group, because a confidence interval needs the
  * series and an aggregate cannot be un-aggregated. The projection is kept to
  * the fields the four views actually read: at 1m across ten symbols this is the
  * largest query in the module and there is no reason to carry the rest.
+ *
+ * DELIBERATELY UNSORTED. `.sort({ candleTimestamp: 1 })` here is a blocking
+ * in-memory sort: scalping writes about 14k rows a day at 1m across ten
+ * symbols, so the sorted set crosses Mongo's 32 MB sort limit within weeks of
+ * the record's 2026-09-17 start and the route begins returning 500. It also
+ * buys nothing, because every consumer already orders what it needs
+ * (bucketByTimestamp sorts its keys, cumulativeReturn sorts per symbol and per
+ * version), so the database sort added only a failure mode. The supporting
+ * index is { tradingStyle, interval, status, candleTimestamp } on the model.
  */
 export async function loadCalibrationRows(
   opts: LoadCalibrationRowsOptions
@@ -113,7 +122,6 @@ export async function loadCalibrationRows(
 
   const docs = await SignalOutcome.find(match)
     .select('symbol candleTimestamp tier score forwardReturnPercent mfePercent maePercent configVersion')
-    .sort({ candleTimestamp: 1 })
     .lean();
 
   return docs.map((doc) => ({
@@ -402,12 +410,30 @@ export function cumulativeReturn(
   rows: CalibrationRow[],
   opts: {
     horizonBars: number;
+    /**
+     * Bar length in ms for this interval, passed in rather than inferred.
+     * Inference is wrong here: the rows are filtered to actionable tiers
+     * first, and most bars are neutral, so the smallest gap between two
+     * surviving rows is usually several bars. Inferring from them overstated
+     * the bar by that factor, and the sampler then discarded valid, genuinely
+     * non-overlapping signals -- ten signals four bars apart at a two-bar
+     * horizon yielded five.
+     */
+    barMs: number;
     costPercentRoundTrip: number;
     overlapping?: boolean;
     tiers?: SignalTier[];
+    /** Cap on points per series; the path is decimated for transport above it. */
+    maxPoints?: number;
   }
 ): CumulativeSeries[] {
-  const { horizonBars, costPercentRoundTrip, overlapping = false } = opts;
+  const {
+    horizonBars,
+    barMs,
+    costPercentRoundTrip,
+    overlapping = false,
+    maxPoints = 2000,
+  } = opts;
   const tiers = opts.tiers ?? ACTIONABLE_TIERS;
 
   const actionable = rows.filter((row) => tiers.includes(row.tier));
@@ -428,15 +454,16 @@ export function cumulativeReturn(
     sampled = [];
     for (const symbolRows of bySymbol.values()) {
       const ordered = [...symbolRows].sort((a, b) => a.candleTimestamp - b.candleTimestamp);
+      // The next signal this symbol can contribute is one that fires after the
+      // current one has resolved, which is horizonBars bars later -- measured
+      // in timestamps rather than array positions, because a symbol's rows are
+      // not guaranteed to be gapless.
+      const step = horizonBars * barMs;
       let nextEligible = -Infinity;
       for (const row of ordered) {
         if (row.candleTimestamp >= nextEligible) {
           sampled.push(row);
-          // The next signal this symbol can contribute is one that fires after
-          // the current one has resolved, which is horizonBars bars later --
-          // measured in timestamps rather than array positions, because a
-          // symbol's rows are not guaranteed to be gapless.
-          nextEligible = row.candleTimestamp + horizonBars * barMs(ordered);
+          nextEligible = row.candleTimestamp + step;
         }
       }
     }
@@ -456,28 +483,35 @@ export function cumulativeReturn(
         (a, b) => a.candleTimestamp - b.candleTimestamp
       );
       let cumulative = 0;
-      const points = versionRows.map((row, index) => {
+      const allPoints = versionRows.map((row, index) => {
         cumulative += directionalReturn(row.tier, row.forwardReturnPercent) - costPercentRoundTrip;
         return { candleTimestamp: row.candleTimestamp, cumulativePercent: cumulative, count: index + 1 };
       });
-      return { configVersion, points, count: versionRows.length };
+      // Decimated, not truncated. Each point is a running total, so keeping
+      // every nth one preserves the shape and the endpoint exactly. Uncapped,
+      // 1m with overlapping on is a six-figure point count that no line chart
+      // can draw and that pushes the response past the cache's size ceiling,
+      // so every request would recompute it.
+      return {
+        configVersion,
+        points: decimate(allPoints, maxPoints),
+        count: versionRows.length,
+      };
     });
 }
 
 /**
- * Bar length in ms inferred from the smallest positive gap between consecutive
- * timestamps of one symbol. Inferred rather than taken from the interval string
- * so the sampling rule stays correct if a caller passes rows from a mislabelled
- * interval; falls back to one bar when a symbol has a single row, in which case
- * the spacing is never used.
+ * Every nth element plus the last, so a decimated path still ends exactly where
+ * the full one does. Returns the input untouched when it is already short
+ * enough.
  */
-function barMs(orderedRows: CalibrationRow[]): number {
-  let smallest = Infinity;
-  for (let i = 1; i < orderedRows.length; i++) {
-    const gap = orderedRows[i].candleTimestamp - orderedRows[i - 1].candleTimestamp;
-    if (gap > 0 && gap < smallest) smallest = gap;
-  }
-  return Number.isFinite(smallest) ? smallest : 1;
+function decimate<T>(points: T[], maxPoints: number): T[] {
+  if (points.length <= maxPoints) return points;
+  const stride = Math.ceil(points.length / maxPoints);
+  const kept = points.filter((_, index) => index % stride === 0);
+  const last = points[points.length - 1];
+  if (kept[kept.length - 1] !== last) kept.push(last);
+  return kept;
 }
 
 export interface CalibrationCoverage {

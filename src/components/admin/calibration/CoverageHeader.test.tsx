@@ -77,6 +77,23 @@ describe('CoverageHeader', () => {
     expect(screen.getByTestId('thin-record-note')).toHaveTextContent('withheld below 30');
   });
 
+  it('flags a thin VIEW even when the whole record is large', () => {
+    // Coverage is deliberately unfiltered, so a narrow filter can leave far too
+    // few rows to estimate from while the overall resolved count looks healthy.
+    // Testing the wrong one hides the note in exactly that case.
+    render(
+      <CoverageHeader
+        meta={meta({
+          symbol: 'BTCUSDT',
+          rowCount: 5,
+          statusCounts: { pending: 10, resolved: 5000, unresolvable: 0 },
+        })}
+      />
+    );
+
+    expect(screen.getByTestId('thin-record-note')).toBeInTheDocument();
+  });
+
   it('distinguishes the default cost estimate from an override', () => {
     const { rerender } = render(<CoverageHeader meta={meta()} />);
     expect(screen.getByText('taker estimate, both legs')).toBeInTheDocument();

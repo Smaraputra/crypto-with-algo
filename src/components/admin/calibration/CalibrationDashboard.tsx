@@ -62,6 +62,17 @@ export function CalibrationDashboard() {
     setStyle(next);
     const nextIntervals = STYLE_CONFIGS[next].preferredIntervals;
     if (!nextIntervals.includes(interval)) setIntervalValue(nextIntervals[0]);
+    // A configVersion present in one style's record need not exist in
+    // another's. Keeping the filter across the change sends a version the new
+    // view has no rows for, and the select -- which only lists versions the
+    // record actually holds -- renders blank, so the page shows an empty
+    // record with a control that does not admit it is filtering.
+    setConfigVersion('');
+  }
+
+  function handleIntervalChange(next: string) {
+    setIntervalValue(next);
+    setConfigVersion('');
   }
 
   const selectClass =
@@ -88,7 +99,7 @@ export function CalibrationDashboard() {
           id="calibration-interval"
           className={selectClass}
           value={interval}
-          onChange={(e) => setIntervalValue(e.target.value)}
+          onChange={(e) => handleIntervalChange(e.target.value)}
           data-testid="interval-select"
         >
           {intervals.map((value) => (
