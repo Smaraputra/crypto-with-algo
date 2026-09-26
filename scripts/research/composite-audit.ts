@@ -185,6 +185,13 @@ export interface CompositeAudit {
   additiveSum: number;
   additiveCeiling: number;
   categoriesMissing: SignalCategory[];
+  /** Categories present as a cat.* factor but with no pooled row at the
+   * exact audit horizon. Their `categories` row still displays the nearest
+   * available row (ic/icT, marked with horizonUsed), but that substituted
+   * row is excluded from additiveSum and additiveCeiling -- a fallback
+   * value must never enter either sum (controller ruling, 2026-09-26 review
+   * of this task). Its `contribution` is NaN. */
+  categoriesWithoutHorizonRow: SignalCategory[];
   sdPercent: number;
   costLines: CostLine[];
 }
@@ -202,12 +209,15 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
 
   const signals: AuditSignalRow[] = [];
   const categoriesPresent = new Map<SignalCategory, AuditCategoryRow>();
+  const categoriesWithoutHorizonRowSet = new Set<SignalCategory>();
   let compositeIc = NaN;
   let compositeT = NaN;
   let compositeHorizonUsed = horizon;
 
   for (const factor of report.factors) {
     if (factor.name === 'composite') {
+      // Display-only fallback: the composite row never enters a sum, so a
+      // substituted horizon here is informational only.
       const { row, horizonUsed } = poolRowNear(factor, horizon);
       compositeIc = row.ic;
       compositeT = row.icT;
@@ -216,16 +226,35 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
     }
     if (factor.name.startsWith('cat.')) {
       const category = factor.name.slice('cat.'.length) as SignalCategory;
-      const { row, horizonUsed } = poolRowNear(factor, horizon);
       const weight = weights[category];
-      categoriesPresent.set(category, {
-        category,
-        weight,
-        ic: row.ic,
-        icT: row.icT,
-        contribution: weight * row.ic,
-        horizonUsed,
-      });
+      // A cat.* row with no EXACT row at the audit horizon must not feed
+      // additiveSum/additiveCeiling with a substituted value (controller
+      // ruling, 2026-09-26 review). It still displays using the nearest
+      // available row, marked via horizonUsed, but its contribution is NaN
+      // and it is tracked in categoriesWithoutHorizonRowSet so both sums
+      // can exclude it explicitly rather than relying on NaN propagation.
+      const exact = factor.pooled.horizons.find((h) => h.horizon === horizon);
+      if (exact) {
+        categoriesPresent.set(category, {
+          category,
+          weight,
+          ic: exact.ic,
+          icT: exact.icT,
+          contribution: weight * exact.ic,
+          horizonUsed: horizon,
+        });
+      } else {
+        const { row, horizonUsed } = poolRowNear(factor, horizon);
+        categoriesPresent.set(category, {
+          category,
+          weight,
+          ic: row.ic,
+          icT: row.icT,
+          contribution: NaN,
+          horizonUsed,
+        });
+        categoriesWithoutHorizonRowSet.add(category);
+      }
       continue;
     }
     if (factor.name.startsWith('sig.')) {
@@ -251,9 +280,13 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
   }
 
   const categories = CATEGORY_ORDER.filter((c) => categoriesPresent.has(c)).map((c) => categoriesPresent.get(c)!);
-  const additiveSum = categories.reduce((sum, c) => sum + c.contribution, 0);
-  const additiveCeiling = categories.reduce((sum, c) => sum + c.weight * Math.abs(c.ic), 0);
   const categoriesMissing = CATEGORY_ORDER.filter((c) => !categoriesPresent.has(c));
+  const categoriesWithoutHorizonRow = CATEGORY_ORDER.filter((c) => categoriesWithoutHorizonRowSet.has(c));
+  // Only a category with an EXACT row at the audit horizon may enter either
+  // sum; a substituted (fallback) row must not, per the controller ruling.
+  const summableCategories = categories.filter((c) => !categoriesWithoutHorizonRowSet.has(c.category));
+  const additiveSum = summableCategories.reduce((sum, c) => sum + c.contribution, 0);
+  const additiveCeiling = summableCategories.reduce((sum, c) => sum + c.weight * Math.abs(c.ic), 0);
 
   const sdPercent = options.sdPercent ?? RECORDED_CONTROL_SD_PERCENT[report.interval];
   if (sdPercent === undefined) {
@@ -289,6 +322,7 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
     additiveSum,
     additiveCeiling,
     categoriesMissing,
+    categoriesWithoutHorizonRow,
     sdPercent,
     costLines,
   };
@@ -348,6 +382,11 @@ export function formatCompositeAudit(audit: CompositeAudit): string {
   lines.push(`additive ceiling ${fmt(audit.additiveCeiling, 6)}`);
   lines.push(
     `missing categories: ${audit.categoriesMissing.length > 0 ? audit.categoriesMissing.join(', ') : 'none'}`
+  );
+  lines.push(
+    `categories without a row at h${audit.horizon}: ${
+      audit.categoriesWithoutHorizonRow.length > 0 ? audit.categoriesWithoutHorizonRow.join(', ') : 'none'
+    }`
   );
 
   lines.push(`cost lines (sd ${fmt(audit.sdPercent, 2)}%/trade):`);

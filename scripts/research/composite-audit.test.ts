@@ -78,4 +78,25 @@ describe('auditComposite', () => {
     const text = formatCompositeAudit(audit);
     expect(text).toMatch(/News.*h1, not h32/);
   });
+
+  // Controller ruling (2026-09-26 review): a cat.* row with no EXACT row at
+  // the audit horizon must not feed additiveSum/additiveCeiling with a
+  // substituted value, unlike a sig.* row. cat.trend here has only h16, so
+  // at horizon h32 it must be excluded from both sums, leaving only the
+  // volatility term, while still being named in categoriesWithoutHorizonRow
+  // and in the formatted output.
+  it('excludes a category with no exact row at the audit horizon from both sums', () => {
+    const sparseTrend = { ...factor('cat.trend', -0.030, -9.0), pooled: { horizons: [pooledRow(16, -0.030, -9.0)] } };
+    const report = {
+      ...REPORT,
+      factors: REPORT.factors.map((f) => (f.name === 'cat.trend' ? sparseTrend : f)),
+    };
+    const audit = auditComposite(report as never, { sdPercent: 4.56 });
+    expect(audit.categoriesWithoutHorizonRow).toEqual(['trend']);
+    // day_trading weight for volatility is 0.085; cat.volatility ic at h32 is 0.0375.
+    expect(audit.additiveSum).toBeCloseTo(0.085 * 0.0375, 6);
+    expect(audit.additiveCeiling).toBeCloseTo(0.085 * 0.0375, 6);
+    const text = formatCompositeAudit(audit);
+    expect(text).toMatch(/categories without a row at h32:.*trend/);
+  });
 });
