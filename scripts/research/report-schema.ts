@@ -10,6 +10,8 @@
 
 import { z } from 'zod';
 
+import { benjaminiHochberg, pValueFromT } from './ic-stats';
+
 export const HorizonStatSchema = z.object({
   horizon: z.number(),
   n: z.number(),
@@ -155,14 +157,24 @@ export function validateSubagentReport(json: unknown): ValidationResult<Subagent
  * symbol agreement then test whether that effect is consistent over time and
  * across the study's symbols, rather than a fluke concentrated in one
  * quarter or one symbol.
+ *
+ * minT is 3.15 since 2026-09-26, the value the 2026-09-25 pre-registration
+ * fixed (factors.ts header): |t| > 2.5 fires on 4.0% to 4.5% of zero-edge
+ * trials for a persistent factor against a nominal 1.24%, and re-counting the
+ * recorded p3b lag-1 reports at 3.15 loses nothing (5m 22, 15m 20, 1h 15,
+ * 4h 7, 1d 4). The Benjamini-Hochberg control at 0.10 lives beside it in
+ * evaluatePhaseSurvivors, because it is a property of a phase's cell set,
+ * not of one report.
  */
 export const SURVIVOR_RULE = {
   minAbsIc: 0.02,
-  minT: 2.5,
+  minT: 3.15,
   minHorizons: 2,
   minQuarterAgreement: 0.6,
   minSymbolAgreement: 0.7,
 } as const;
+
+export const PHASE_FDR_Q = 0.1;
 
 export interface SurvivorRow {
   interval: string;
@@ -174,6 +186,8 @@ export interface SurvivorRow {
   symbolAgreement: number;
   survivor: boolean;
   reasons: string[];
+  /** Horizons that cleared |ic| and |t| but not the phase FDR; absent when no FDR predicate was applied. */
+  fdrExcludedHorizons?: number[];
 }
 
 function signOf(value: number): 1 | -1 | 0 {
@@ -182,10 +196,19 @@ function signOf(value: number): 1 | -1 | 0 {
   return 0;
 }
 
-function evaluateFactorSurvivor(interval: string, factor: FactorReport): SurvivorRow {
-  const passing = factor.pooled.horizons.filter(
+export type FdrPass = (factorName: string, horizon: number) => boolean;
+
+function evaluateFactorSurvivor(interval: string, factor: FactorReport, fdrPass?: FdrPass): SurvivorRow {
+  const clearsThresholds = factor.pooled.horizons.filter(
     (h) => Math.abs(h.ic) >= SURVIVOR_RULE.minAbsIc && Math.abs(h.icT) >= SURVIVOR_RULE.minT
   );
+  const passing = fdrPass ? clearsThresholds.filter((h) => fdrPass(factor.name, h.horizon)) : clearsThresholds;
+  const fdrExcludedHorizons = fdrPass
+    ? clearsThresholds
+        .filter((h) => !fdrPass(factor.name, h.horizon))
+        .map((h) => h.horizon)
+        .sort((a, b) => a - b)
+    : undefined;
   const horizonsPassing = passing.map((h) => h.horizon).sort((a, b) => a - b);
   const passingSet = new Set(horizonsPassing);
 
@@ -240,11 +263,69 @@ function evaluateFactorSurvivor(interval: string, factor: FactorReport): Survivo
     symbolAgreement,
     survivor: reasons.length === 0,
     reasons,
+    ...(fdrExcludedHorizons !== undefined ? { fdrExcludedHorizons } : {}),
   };
 }
 
-export function evaluateSurvivors(report: FactorIcReport): SurvivorRow[] {
-  return report.factors.map((factor) => evaluateFactorSurvivor(report.interval, factor));
+export function evaluateSurvivors(report: FactorIcReport, fdrPass?: FdrPass): SurvivorRow[] {
+  return report.factors.map((factor) => evaluateFactorSurvivor(report.interval, factor, fdrPass));
+}
+
+export interface PhaseSurvivorTable {
+  minAbsIc: number;
+  minT: number;
+  fdrQ: number;
+  /** Pooled (factor, horizon) cells across every report, the FDR's m. */
+  cells: number;
+  rejectedCells: number;
+  perInterval: Array<{ interval: string; taskId: string; survivors: number; factors: number }>;
+  rows: SurvivorRow[];
+}
+
+/**
+ * The survivor rule applied across a whole phase: every pooled cell of every
+ * report is one hypothesis, p from its HAC t, Benjamini-Hochberg at fdrQ, and
+ * a horizon passes only if the FDR also rejects it. Cells are keyed by taskId
+ * so two reports on one interval (say, time-series and cross-sectional) never
+ * collide.
+ */
+export function evaluatePhaseSurvivors(reports: FactorIcReport[], fdrQ: number): PhaseSurvivorTable {
+  const cells: Array<{ key: string; p: number }> = [];
+  for (const report of reports) {
+    for (const factor of report.factors) {
+      for (const h of factor.pooled.horizons) {
+        cells.push({ key: `${report.taskId}|${factor.name}|${h.horizon}`, p: pValueFromT(h.icT) });
+      }
+    }
+  }
+  const rejected = benjaminiHochberg(
+    cells.map((c) => c.p),
+    fdrQ
+  );
+  const passSet = new Set(cells.filter((_, i) => rejected[i]).map((c) => c.key));
+
+  const rows: SurvivorRow[] = [];
+  const perInterval: PhaseSurvivorTable['perInterval'] = [];
+  for (const report of reports) {
+    const fdrPass: FdrPass = (name, horizon) => passSet.has(`${report.taskId}|${name}|${horizon}`);
+    const reportRows = evaluateSurvivors(report, fdrPass);
+    rows.push(...reportRows);
+    perInterval.push({
+      interval: report.interval,
+      taskId: report.taskId,
+      survivors: reportRows.filter((r) => r.survivor).length,
+      factors: report.factors.length,
+    });
+  }
+  return {
+    minAbsIc: SURVIVOR_RULE.minAbsIc,
+    minT: SURVIVOR_RULE.minT,
+    fdrQ,
+    cells: cells.length,
+    rejectedCells: passSet.size,
+    perInterval,
+    rows,
+  };
 }
 
 // horizon and n are deliberately excluded: a claim's value must match a
