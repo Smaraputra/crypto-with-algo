@@ -189,7 +189,16 @@ describe('parseArgs', () => {
     expect(parsed.trials).toBe(36);
     expect(parsed.stressFeeMult).toBe(1.5);
     expect(parsed.stressSlippageMult).toBe(2);
+    expect(parsed.feeProfile).toBe('standard');
     expect(parsed.allowLockbox).toBe(false);
+  });
+
+  it('defaults --fee-profile to standard and validates the name', () => {
+    expect(parseArgs(['--interval', '1d']).feeProfile).toBe('standard');
+    expect(parseArgs(['--interval', '1d', '--fee-profile', 'promo-btc-eth-2026-07']).feeProfile).toBe(
+      'promo-btc-eth-2026-07'
+    );
+    expect(() => parseArgs(['--interval', '1d', '--fee-profile', 'vip9'])).toThrow(/Unknown --fee-profile/);
   });
 
   it('rejects a stress configuration that cannot stress anything', () => {
@@ -266,6 +275,18 @@ describe('runExposureHarness', () => {
       'plateau',
     ]);
     expect(report.perSymbol.map((p) => p.symbol)).toEqual(SYMBOLS);
+    expect(report.feeProfile).toBe('standard');
+  });
+
+  it('threads --fee-profile through to the report and its costs', async () => {
+    await buildFixture(dir);
+    const out = join(dir, 'report.json');
+    const report = await runExposureHarness(
+      args({ datasetDir: dir, out, timingDraws: 5, bootstrapN: 50, feeProfile: 'bnb' })
+    );
+
+    expect(report.feeProfile).toBe('bnb');
+    expect(report.costs.feePercent).toBeCloseTo(0.00045, 10);
   });
 
   it('reports the realised block length as the one the shuffle used', async () => {
@@ -406,6 +427,32 @@ describe('runCell', () => {
       args({ datasetDir: dir, out, timingDraws: 5, bootstrapN: 50 })
     );
 
+    const check = await runCell(
+      args({
+        datasetDir: dir,
+        cell: { symbol: 'BTCUSDT', window: 2 },
+        reportPath: out,
+        out: join(dir, 'untouched.json'),
+      })
+    );
+
+    const expected = report.windows[2];
+    expect(check.params).toEqual(expected.params);
+    expect(check.bars).toBe(expected.bars);
+    expect(check.sharpe).toBeCloseTo(expected.sharpe ?? 0, 9);
+    expect(check.meanReturnPercent).toBeCloseTo(expected.meanReturnPercent ?? 0, 9);
+  });
+
+  it('reproduces a report generated under a non-default --fee-profile, reading it from the report', async () => {
+    await buildFixture(dir);
+    const out = join(dir, 'report.json');
+    const report = await runExposureHarness(
+      args({ datasetDir: dir, out, timingDraws: 5, bootstrapN: 50, feeProfile: 'bnb' })
+    );
+
+    // No --fee-profile override here: args() defaults to 'standard', so this
+    // only reproduces if runCell reads report.feeProfile, not the CLI's own
+    // default.
     const check = await runCell(
       args({
         datasetDir: dir,

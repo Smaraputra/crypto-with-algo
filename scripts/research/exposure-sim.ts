@@ -82,7 +82,7 @@
  */
 
 import { fundingCrossings, fundingPnl } from '@/lib/backtest/funding';
-import { studyCostConfig } from '@/lib/backtest/cost-model';
+import { studyCostConfig, type FeeProfileName } from '@/lib/backtest/cost-model';
 
 /** One symbol's bars, already joined to its research column. Arrays are
  * parallel and the same length; NaN in `z` means no reading at that bar. */
@@ -116,6 +116,11 @@ export interface ExposureOptions {
   feeMultiplier?: number;
   /** Overrides the study slippage, for the stress gate. */
   slippageMultiplier?: number;
+  /** Fee schedule each symbol prices under, resolved per symbol (a
+   * symbol-scoped profile falls back for a symbol it does not cover).
+   * Default: DEFAULT_FEE_PROFILE ('standard'), byte-identical to before this
+   * option existed. */
+  feeProfile?: FeeProfileName;
 }
 
 export interface ExposureSymbolResult {
@@ -268,15 +273,20 @@ export function simulateExposure(
     };
   }
 
-  const cost = studyCostConfig(grid.interval);
-  // studyCostConfig returns a Pick over optional BacktestConfig fields, so
-  // both are typed possibly-undefined even though it always sets them. The
-  // fee falls back to 0 and the slippage budget to 0 bps rather than to each
-  // other: they are separate costs and conflating them would silently change
-  // the stress multipliers' meaning.
-  const fee = (cost.takerFeePercent ?? 0) * (options.feeMultiplier ?? 1);
-  const slippage = ((cost.slippageBps ?? 0) / 10000) * (options.slippageMultiplier ?? 1);
-  const costPerUnitTurnover = fee + slippage;
+  // Resolved PER SYMBOL: a symbol-scoped fee profile (e.g.
+  // promo-btc-eth-2026-07) prices BTCUSDT/ETHUSDT differently from every
+  // other symbol in the universe. studyCostConfig returns a Pick over
+  // optional BacktestConfig fields, so both are typed possibly-undefined
+  // even though it always sets them. The fee falls back to 0 and the
+  // slippage budget to 0 bps rather than to each other: they are separate
+  // costs and conflating them would silently change the stress multipliers'
+  // meaning.
+  const costPerUnitTurnover = symbols.map((s) => {
+    const c = studyCostConfig(grid.interval, { profile: options.feeProfile, symbol: s.symbol });
+    const fee = (c.takerFeePercent ?? 0) * (options.feeMultiplier ?? 1);
+    const slippage = ((c.slippageBps ?? 0) / 10000) * (options.slippageMultiplier ?? 1);
+    return fee + slippage;
+  });
 
   const gross = grid.gross > 0 ? grid.gross : 1;
 
@@ -362,6 +372,7 @@ export function simulateExposure(
     let fundingThisBar = 0;
     let grossThisBar = 0;
     let returnThisBar = 0;
+    let turnoverThisBar = 0;
 
     for (let s = 0; s < symbols.length; s++) {
       const previous = held[s][t];
@@ -373,7 +384,11 @@ export function simulateExposure(
         const delta = Math.abs(target - previous);
         rebalanceCounts[s]++;
         turnoverTotals[s] += delta;
-        costThisBar += delta * costPerUnitTurnover;
+        // Accumulated directly, not derived by dividing cost back out: with
+        // per-symbol costs there is no single divisor that recovers unit
+        // turnover from a summed cost.
+        turnoverThisBar += delta;
+        costThisBar += delta * costPerUnitTurnover[s];
       }
       // The trade happens at this bar's OPEN, so the weight carried through
       // t -> t+1 is the post-trade one. That is also what makes the execution
@@ -406,7 +421,7 @@ export function simulateExposure(
 
     const net = returnThisBar - costThisBar + fundingThisBar;
     netReturns.push(net);
-    turnoverSeries.push(costThisBar / costPerUnitTurnover);
+    turnoverSeries.push(turnoverThisBar);
     grossSeries.push(grossThisBar);
     costSeries.push(-costThisBar);
     fundingSeries.push(fundingThisBar);

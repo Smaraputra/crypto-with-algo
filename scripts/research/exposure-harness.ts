@@ -65,6 +65,12 @@
  *   --trials <n>               default 36 (one per grid cell)
  *   --stress-fee-mult <f>      default 1.5
  *   --stress-slippage-mult <f> default 2
+ *   --fee-profile standard|bnb|promo-btc-eth-2026-07
+ *                               default standard. The selection run is always
+ *                               standard; the other profiles are sensitivity
+ *                               reads, priced per symbol. The `--cell` spot
+ *                               check reads the profile from the report, not
+ *                               this flag.
  *   --allow-lockbox            read data from 2026-07-01 onward too
  *   --expect-manifest-hash <h> abort unless the dataset hash matches
  *   --cell SYMBOL:WINDOW       spot-check mode, needs --report
@@ -79,7 +85,13 @@ import type { OHLCV } from '@/types/market';
 import { buildSnapshotSeries, mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
-import { studyCostConfig } from '@/lib/backtest/cost-model';
+import {
+  DEFAULT_FEE_PROFILE,
+  FEE_PROFILE_NAMES,
+  isFeeProfileName,
+  studyCostConfig,
+  type FeeProfileName,
+} from '@/lib/backtest/cost-model';
 
 import {
   EXPOSURE_GRID_CELL_COUNT,
@@ -130,6 +142,7 @@ export interface ExposureHarnessArgs {
   trials: number;
   stressFeeMult: number;
   stressSlippageMult: number;
+  feeProfile: FeeProfileName;
   allowLockbox: boolean;
   expectManifestHash?: string;
   cell?: { symbol: string; window: number };
@@ -156,6 +169,7 @@ const VALUE_FLAGS = new Set([
   'trials',
   'stress-fee-mult',
   'stress-slippage-mult',
+  'fee-profile',
   'expect-manifest-hash',
   'cell',
   'report',
@@ -270,6 +284,10 @@ export function parseArgs(argv: string[], now: Date = new Date()): ExposureHarne
   const stressSlippageMult =
     parseNumberFlag(flags.get('stress-slippage-mult'), 'stress-slippage-mult') ??
     EXPOSURE_PROTOCOL.stress.slippageMultiplier;
+  const feeProfileRaw = flags.get('fee-profile') ?? DEFAULT_FEE_PROFILE;
+  if (!isFeeProfileName(feeProfileRaw)) {
+    throw new Error(`Unknown --fee-profile "${feeProfileRaw}", expected one of: ${FEE_PROFILE_NAMES.join(', ')}`);
+  }
 
   // A stress run with no stress is not a configuration, it is a guaranteed
   // FAIL: the gate reports null and no run can reach it.
@@ -310,6 +328,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): ExposureHarne
     trials,
     stressFeeMult,
     stressSlippageMult,
+    feeProfile: feeProfileRaw,
     allowLockbox: flags.get('allow-lockbox') === 'true',
     expectManifestHash: flags.get('expect-manifest-hash'),
     cell,
@@ -495,7 +514,11 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
     );
   }
 
-  const costs = studyCostConfig(args.interval);
+  // The fallback resolution, recorded on the report's top-level costs: what a
+  // symbol-scoped profile resolves to for a symbol it does not cover. Each
+  // symbol's own per-unit-turnover cost is resolved again, per symbol, inside
+  // simulateExposure via ExposureOptions.feeProfile below.
+  const costs = studyCostConfig(args.interval, { profile: args.feeProfile });
   const costPerUnit = (costs.takerFeePercent ?? 0) + (costs.slippageBps ?? 0) / 10000;
   if (costPerUnit <= 0) {
     throw new Error(
@@ -594,6 +617,7 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
       feeMultiplier: args.stressFeeMult,
       slippageMultiplier: args.stressSlippageMult,
     },
+    feeProfile: args.feeProfile,
     onWindow: ({ index, total, ms }) =>
       console.error(`[exposure-harness] window ${index + 1}/${total} in ${ms} ms`),
   });
@@ -685,6 +709,7 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
     dateRange: { startMs: args.start ?? null, endMs: args.end ?? null },
     gridCells: EXPOSURE_GRID_CELL_COUNT,
     trials: pooled.trials,
+    feeProfile: args.feeProfile,
     costs: {
       feePercent: costs.feePercent,
       slippageBps: costs.slippageBps ?? 0,
@@ -858,6 +883,15 @@ export async function runCell(args: ExposureHarnessArgs): Promise<ExposureCellCh
   }));
 
   const window = args.cell.window;
+  // The report's OWN profile, not --fee-profile: a spot check reproduces the
+  // run the report describes, not whatever the CLI invocation's own flags
+  // happen to say. report.feeProfile is optional (reports written before
+  // 2026-09-26 have none), hence the DEFAULT_FEE_PROFILE fallback; validated
+  // by isFeeProfileName the same way parseArgs validates the CLI flag.
+  if (report.feeProfile !== undefined && !isFeeProfileName(report.feeProfile)) {
+    throw new Error(`Report names unknown fee profile "${report.feeProfile}"`);
+  }
+  const feeProfile = (report.feeProfile ?? DEFAULT_FEE_PROFILE) as FeeProfileName;
   const walk = runExposureWalkForward({
     symbols: trimmed.map((l) => l.bars),
     interval: report.interval,
@@ -867,6 +901,7 @@ export async function runCell(args: ExposureHarnessArgs): Promise<ExposureCellCh
       mode: report.windowConfig.mode,
     },
     stress: report.stress,
+    feeProfile,
   });
 
   const replayed = walk.windows[window];

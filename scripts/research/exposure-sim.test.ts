@@ -190,6 +190,38 @@ describe('simulateExposure turnover costing', () => {
   });
 });
 
+describe('simulateExposure fee profile', () => {
+  // Two symbols on one shared grid (simulateExposure requires it), each
+  // rebalancing onto z = -1 at bar 0 so bar 0's cost is non-zero for both.
+  const closes = [100, 100, 100];
+  const rates = [0, 0, 0];
+  const z = [-1, -1, -1];
+  const symbols = [daily(z, closes, rates, 'AAAUSDT'), daily(z, closes, rates, 'BBBUSDT')];
+  const grid = { band: 0, zScale: 1, smoothing: 0, gross: 1, interval: '1d' };
+
+  it('prices turnover per symbol from the fee profile and is unchanged under standard', () => {
+    // Two symbols, identical inputs, one rebalance each at bar 0.
+    const base = simulateExposure(symbols, grid);
+    const standard = simulateExposure(symbols, grid, { feeProfile: 'standard' });
+    expect(standard.costReturns).toEqual(base.costReturns);
+
+    const promo = simulateExposure(
+      [{ ...symbols[0], symbol: 'BTCUSDT' }, { ...symbols[1], symbol: 'SOLUSDT' }],
+      grid,
+      { feeProfile: 'promo-btc-eth-2026-07' }
+    );
+    // Both legs rebalance from 0 onto z = -1's target at bar 0, so each
+    // leg's turnover is |W(-1)|. BTC prices under the promotion (0.00036
+    // taker, resolved for BTCUSDT); SOL falls back to bnb (0.00045 taker).
+    // Slippage comes from the grid's own interval, not hardcoded.
+    const delta = Math.abs(W(-1));
+    const slippage = STUDY_SLIPPAGE_BPS[grid.interval] / 10000;
+    const btcCost = delta * (0.00036 + slippage);
+    const solCost = delta * (0.00045 + slippage);
+    expect(promo.costReturns[0]).toBeCloseTo(-(btcCost + solCost), 12);
+  });
+});
+
 describe('simulateExposure funding', () => {
   const closes = [100, 100, 100];
   // The rate read at each bar, one settlement per bar. Bar 1 carries a rate,
