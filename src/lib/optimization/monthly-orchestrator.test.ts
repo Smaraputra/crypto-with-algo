@@ -50,6 +50,19 @@ vi.mock('./walk-forward', async (importOriginal) => ({
   runWalkForward: (...args: unknown[]) => mockRunWalkForward(...args),
 }));
 
+// Wraps the real passesSaveGate so every existing test keeps exercising real
+// gate behaviour from the windows it constructs, while one test forces
+// pass: true via mockImplementationOnce to reach the defensive
+// optimizedWeights-null guard that real gate/walk-forward wiring can never
+// reach on its own.
+vi.mock('./save-gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./save-gate')>();
+  return {
+    ...actual,
+    passesSaveGate: vi.fn(actual.passesSaveGate),
+  };
+});
+
 vi.mock('@/lib/historical-snapshots', () => ({
   getHistoricalSnapshots: vi.fn().mockResolvedValue([
     { timestamp: 1700000000000, data: { fearGreed: { index: 40, label: 'Fear' } } },
@@ -86,6 +99,7 @@ vi.mock('./top-symbols', () => ({
 
 import { runMonthlyOptimization } from './monthly-orchestrator';
 import { deriveStepSize } from './walk-forward';
+import { passesSaveGate } from './save-gate';
 import { DEFAULT_OPTIMIZATION_CONFIG } from '@/types/optimization';
 import { DEFAULT_TEMPLATE_THRESHOLDS } from '@/lib/models/signal-template';
 
@@ -666,6 +680,55 @@ describe('monthly-orchestrator', () => {
       const set = (call[1] as { $set: Record<string, unknown> }).$set;
       expect(set['jobs.$.activated']).toBe(false);
       expect(set['jobs.$.gateReason']).toBeTruthy();
+    }
+  });
+
+  it('marks the job failed when the save gate passes but optimizedWeights is null', async () => {
+    // The gate.pass branch's defensive guard (result.optimizedWeights is
+    // null) is unreachable under real passesSaveGate/runWalkForward wiring:
+    // an empty ensemble always means zero contributing windows, which the
+    // real gate always refuses. Force gate.pass: true here to reach it and
+    // confirm the throw actually fails the job (caught by the existing catch
+    // path), rather than being silently swallowed.
+    const candles = makeCandles(500);
+    mockGetCandleRange.mockResolvedValue({ oldest: candles[0].timestamp, newest: candles[candles.length - 1].timestamp });
+    mockGetCandles.mockResolvedValue(candles);
+    mockRunWalkForward.mockResolvedValue({
+      optimizedWeights: null,
+      ensembleResults: [],
+      windows: [
+        { trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, oosMetrics: null, robustCandidates: 0 },
+      ],
+    });
+    const mockedGate = vi.mocked(passesSaveGate);
+    for (let i = 0; i < 4; i++) {
+      mockedGate.mockImplementationOnce(() => ({
+        pass: true,
+        reason: null,
+        contributingWindows: 3,
+        avgOosExpectancyPercent: 1.5,
+      }));
+    }
+    mockCronRunFindById.mockResolvedValue({ _id: cronRunId, status: 'failed' });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await runMonthlyOptimization({
+      cronRunId,
+      topSymbols: ['BTCUSDT'],
+      autoActivate: false,
+    });
+
+    expect(result.completedJobs).toBe(0);
+    expect(result.failedJobs).toBe(4);
+    expect(mockCreateTemplateVersion).not.toHaveBeenCalled();
+
+    const failedUpdates = mockOptimizationJobUpdateOne.mock.calls.filter(
+      (call) => (call[1] as { $set?: { status?: string } }).$set?.status === 'failed'
+    );
+    expect(failedUpdates).toHaveLength(4);
+    for (const call of failedUpdates) {
+      const set = (call[1] as { $set: { error?: string } }).$set;
+      expect(set.error).toContain('save gate passed without an ensemble');
     }
   });
 
