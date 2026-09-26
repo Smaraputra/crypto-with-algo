@@ -293,6 +293,97 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  *   and is recorded as such.
  * - Recorded before the 15m read: at 1h btcLeadLag was +0.0219 (h1, t 12.5)
  *   and +0.0187 (h2), failing the two-horizon |ic| leg by 0.0013.
+ *
+ * PHASE B RESULTS, 2026-09-26. Dataset e84cd66dbe01, lockbox applied, lag 1, ten
+ * symbols, 15m (horizons to 48), 1h and 4h measured in one pass, both axes, then
+ * one leave-one-out control pass at 1h and 15m. Phase-wide survivor table
+ * (survivor-table.ts, FDR 0.10 over 2,361 cells, 1,371 rejected): the FDR moved
+ * no count. Controls reproduced the recorded lag-1 table: raw.ret1 h1 -0.0121
+ * (15m), -0.0291 (1h), -0.0157 (4h); raw.depthImbalance1 4h h8 -0.0269 t-4.9,
+ * h16 -0.0408 t-5.8, h32 -0.0515 t-5.7; raw.topTraderPositionRatio 4h h32
+ * -0.0782 t-4.9 (recorded -0.0783, causal join); raw.depthFlow1 1h h2 +0.0073.
+ *
+ * TIME-SERIES AXIS: NO NEW COLUMN SURVIVES AT ANY INTERVAL.
+ *
+ *   column                 15m best            1h best              4h best             verdict
+ *   raw.btcLeadLag         h2 +0.0067 t+3.1    h1 +0.0219 t+12.5    h1 +0.0100 t+3.5    near miss at 1h
+ *   raw.btcLeadLagLoo      h2 +0.0058 t+2.7    h1 +0.0205 t+11.8    (not run)           control, same shape
+ *   raw.hourOfDayDrift     h8 -0.0070 t-4.0    h2 -0.0161 t-10.0    h16 +0.0094 t+2.3   nothing
+ *   raw.sessionDrift       h16 -0.0321 t-6.3   h8 -0.0277 t-9.9     NaN by design       survives, WRONG sign
+ *   raw.depthNotionalZ     h1 +0.0070 t+3.9    h8 -0.0229 t-6.1     h8 -0.0137 t-1.9    nothing (one horizon)
+ *
+ * raw.btcLeadLag is the strongest fine-interval new-input reading the program has
+ * recorded (previous best raw.depthFlow1 +0.0092 t8.0 at 5m): right sign, monotone
+ * decay h1 +0.0219, h2 +0.0187, h4 +0.0133, h8 +0.0026, the coherent shape of a
+ * lead-lag with a one-to-two-hour half-life, continuation-shaped so maker
+ * fillable, 5x the 1h maker breakeven. The LOO control puts the own-return term
+ * at 0.0011 to 0.0014 (h1 +0.0205 t11.8, h2 +0.0176), far under the predicted
+ * bound of about 0.006, so it is NOT the reversal in disguise. It fails the rule
+ * twice: h2 is 0.0187 against the 0.02 floor (0.0176 LOO), and quarter agreement
+ * at h1 is 0.63 (0.58 LOO), so the effect is not stable across quarters. Recorded
+ * as a near miss, not a survivor. Not measured cross-sectionally (no content).
+ *
+ * raw.sessionDrift survives at 15m and 1h with the WRONG sign (pre-registered +),
+ * and raw.hourOfDayDrift points the same way: both carry the 60-day trailing mean
+ * return, which is the slow reversal raw.ret20 already carries (-0.02 at 1h). The
+ * column design did not subtract the unconditional trailing mean, so this is a
+ * correlated variant of an existing factor, the false-positive channel the
+ * governance section named, and is recorded as such, not as a finding. A seasonal
+ * DEVIATION column (bucket mean minus the overall trailing mean) is what a future
+ * pre-registration would test; the literature expectation of null stands.
+ *
+ * TAKER-INTENSITY CONDITIONING, pre-registered falsification at a third of the
+ * unconditional |ic|:
+ *
+ *   iv   h   unconditional  high taker      low taker       gap %   verdict
+ *   15m  2   -0.0159        -0.0184 t-5.8   -0.0088 t-3.2    60%    holds
+ *   15m  8   -0.0123        -0.0201 t-6.3   -0.0049 t-1.8   124%    holds
+ *   1h   1   -0.0291        -0.0324 t-12.3  -0.0269 t-12.0   19%    fails
+ *   4h   1   -0.0157        -0.0154 t-3.5   -0.0158 t-4.3     0%    fails
+ *
+ * Direction consistent everywhere (high deeper), magnitude only at 15m, where
+ * the conditioned reversal (-0.020 at h8) sits below the 15m taker breakeven
+ * (0.039) and reversal cannot use maker fills. A diagnostic, never a family.
+ *
+ * CROSS-SECTIONAL AXIS (existing inputs re-read against per-bar demeaned
+ * returns, pooled statistic = per-bar Fama-MacBeth IC after the fix recorded in
+ * factor-ic.ts): survivors 12/60 at 15m, 14/60 at 1h, 9/58 at 4h. The relative
+ * axis carries information the time-series axis does not:
+ *
+ *   raw.realizedVol20  1h  h1 -0.0214 t-9.7, h4 -0.0350 t-10.2, h32 -0.0745 t-8.2  quarters 0.96 symbols 1.00
+ *   raw.realizedVol20  4h  h1 -0.0337 t-9.6, h4 -0.0614 t-11.3, h32 -0.0788 t-5.8  quarters 0.91 symbols 1.00
+ *   raw.realizedVol20  15m h8 -0.0273 ... h48 -0.0623 t-4.5, symbols 0.60 (near miss)
+ *   raw.ret5           1h  h1 -0.0215 t-11.3, h2 -0.0264 t-12.3 (relative reversal)
+ *   raw.ret5           15m h8 -0.0281 t-7.2; raw.ret20 15m 2-48 symbols 1.00
+ *   raw.fundingRate, raw.fundingProximity, raw.longShortRatio, raw.topTraderPositionRatio,
+ *   raw.depthImbalance1 (1h 8-32, h32 -0.0367 t-6.9), raw.depthImbalance5: survive at 1h and 4h
+ *
+ * Symbols with higher recent realised volatility lag their peers over the next
+ * 1 to 32 hours, every symbol and 91 to 96% of quarters agreeing: the
+ * cross-sectional variance effect the literature scan recorded at weekly
+ * horizons (Bianchi et al.), seen here at 1h and 4h. Relative funding, relative
+ * positioning and relative depth imbalance carry the same contrarian sign they
+ * carry in the time series. These are level-shaped, slow-turnover readings at 2
+ * to 7x the two-leg maker floor (about 0.017 at 1h). Relative reversal (ret5,
+ * ret20, rsi) is reversal-shaped and does not reach the two-leg taker floor
+ * (about 0.067). No harness family exists for a cross-sectional book: the
+ * discrete harness is single-symbol and the exposure container is per-symbol
+ * exposure, not rank. Tradability is therefore a new-plan question.
+ *
+ * VERDICT UNDER THE PRE-REGISTERED KILL CRITERION: on the time-series axis it
+ * fires (no new column survives above its interval's maker floor). On the
+ * cross-sectional axis it does not: several existing inputs survive at 1h and
+ * 4h above the two-leg floor. Phases C and D (1m and aggTrades ingests) were
+ * aimed at fine-interval time-series content and are not motivated by this
+ * result; a cross-sectional container at 1h and 4h is. That decision is the
+ * user's.
+ *
+ * DATASET NOTES. The 15m cross-section has 26,766 bars with five or more symbols
+ * (about 279 days), against 41,098 at 1h (4.7 years) and 16,598 at 4h: 15m
+ * evidence is the thinnest and its quarter agreement spans about four quarters.
+ * The eight reports were written with one task id per mode; the phase table was
+ * built from copies relabelled pB-<mode>-<interval> because evaluatePhaseSurvivors
+ * refuses duplicate ids (the id is a label, in no hash or spot check).
  */
 const RAW_NAMES = [
   'raw.rsi',

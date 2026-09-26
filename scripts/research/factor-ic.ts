@@ -435,6 +435,19 @@
  * horizons. A statistic that ranks a factor with no within-bar variation at all
  * is not reading the cross-section, which is why cross-sectional mode now
  * reports the per-bar statistic as `pooled`.
+ *
+ * PHASE B, 2026-09-26: column results are in factors.ts (Phase B block). What
+ * this file's runs established about the tool: the cross-sectional mode's first
+ * pooled statistic (a pair-level Spearman on per-bar demeaned returns) was found
+ * by running it, not by reading it: at 4h it gave raw.fearGreed, identical
+ * across symbols at every bar, an ic of -0.028 with t -10.3 while the per-bar
+ * series was empty, and 27 of 63 "survivors" against 8 in time-series mode.
+ * The pooled block in that mode is now the per-bar Fama-MacBeth statistic
+ * (mean bar IC, Newey-West t over the bar series), bar-constant inputs are
+ * skipped with a reason, and the three cross-sectional reports were re-run on
+ * the fixed build (crypto-ops:phaseb2, commit b4851ad). Survivors per report
+ * after the fix: 15m 12/60, 1h 14/60, 4h 9/58; phase-wide FDR over 2,361 cells
+ * rejected 1,371 and moved no count.
  */
 
 import { execFileSync } from 'child_process';
