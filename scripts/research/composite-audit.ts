@@ -324,6 +324,10 @@ export interface CompositeAudit {
   outcomeHorizon: number;
   gitCommit: string;
   computedAt: string;
+  taskId: string;
+  executionLagBars: number;
+  /** Path the CLI read this report from, when it supplied one. */
+  sourcePath?: string;
   signals: AuditSignalRow[];
   categories: AuditCategoryRow[];
   compositeIc: number;
@@ -346,9 +350,26 @@ export interface CompositeAudit {
 export interface AuditComposeOptions {
   sdPercent?: number;
   horizon?: number;
+  /** Path the CLI read this report from, carried through only for the
+   * formatted header; the pure function does not read the filesystem. */
+  sourcePath?: string;
 }
 
 export function auditComposite(report: FactorIcReport, options: AuditComposeOptions = {}): CompositeAudit {
+  if (report.crossSectionalDemean) {
+    throw new Error(
+      'composite-audit reads time-series reports only; this report was measured in cross-sectional mode (crossSectionalDemean)'
+    );
+  }
+  const executionLagBars = report.executionLagBars ?? 0;
+  if (executionLagBars !== 1) {
+    const actual = report.executionLagBars === undefined ? 'undefined (treated as 0)' : String(executionLagBars);
+    throw new Error(
+      `composite-audit's semantics are lag-1; lag-0 tables were ruled superseded on 2026-09-20, but this ` +
+        `report's executionLagBars is ${actual}`
+    );
+  }
+
   const style = styleForInterval(report.interval);
   const outcomeHorizon = OUTCOME_HORIZON_BARS[style];
   const horizon = options.horizon ?? pickAuditHorizon(report.horizons, outcomeHorizon);
@@ -360,9 +381,11 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
   let compositeIc = NaN;
   let compositeT = NaN;
   let compositeHorizonUsed = horizon;
+  let compositeFound = false;
 
   for (const factor of report.factors) {
     if (factor.name === 'composite') {
+      compositeFound = true;
       // Display-only fallback: the composite row never enters a sum, so a
       // substituted horizon here is informational only.
       const { row, horizonUsed } = poolRowNear(factor, horizon);
@@ -373,6 +396,9 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
     }
     if (factor.name.startsWith('cat.')) {
       const category = factor.name.slice('cat.'.length) as SignalCategory;
+      if (!CATEGORY_ORDER.includes(category)) {
+        throw new Error(`Unmapped category: ${category}`);
+      }
       const weight = weights[category];
       // A cat.* row with no EXACT row at the audit horizon must not feed
       // additiveSum/additiveCeiling with a substituted value (controller
@@ -426,6 +452,10 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
     // raw.* inputs and anything else are not part of the composite; skip.
   }
 
+  if (!compositeFound) {
+    throw new Error('Report has no composite factor');
+  }
+
   const categories = CATEGORY_ORDER.filter((c) => categoriesPresent.has(c)).map((c) => categoriesPresent.get(c)!);
   const categoriesMissing = CATEGORY_ORDER.filter((c) => !categoriesPresent.has(c));
   const categoriesWithoutHorizonRow = CATEGORY_ORDER.filter((c) => categoriesWithoutHorizonRowSet.has(c));
@@ -435,6 +465,9 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
   const additiveSum = summableCategories.reduce((sum, c) => sum + c.contribution, 0);
   const additiveCeiling = summableCategories.reduce((sum, c) => sum + c.weight * Math.abs(c.ic), 0);
 
+  if (options.sdPercent !== undefined && (!Number.isFinite(options.sdPercent) || options.sdPercent <= 0)) {
+    throw new Error(`sdPercent must be a finite positive number, got ${options.sdPercent}`);
+  }
   const sdPercent = options.sdPercent ?? RECORDED_CONTROL_SD_PERCENT[report.interval];
   if (sdPercent === undefined) {
     throw new Error(
@@ -461,6 +494,9 @@ export function auditComposite(report: FactorIcReport, options: AuditComposeOpti
     outcomeHorizon,
     gitCommit: report.gitCommit,
     computedAt: report.computedAt,
+    taskId: report.taskId,
+    executionLagBars,
+    sourcePath: options.sourcePath,
     signals,
     categories,
     compositeIc,
@@ -481,8 +517,10 @@ function fmt(value: number, digits: number): string {
 
 export function formatCompositeAudit(audit: CompositeAudit): string {
   const lines: string[] = [];
+  const sourceNote = audit.sourcePath ? `, source ${audit.sourcePath}` : '';
   lines.push(
-    `=== ${audit.interval} (${audit.style}) -- gitCommit ${audit.gitCommit}, computedAt ${audit.computedAt} ===`
+    `=== ${audit.interval} (${audit.style}) -- taskId ${audit.taskId}, executionLagBars ${audit.executionLagBars}, ` +
+      `gitCommit ${audit.gitCommit}, computedAt ${audit.computedAt}${sourceNote} ===`
   );
 
   lines.push('signals:');
@@ -562,6 +600,16 @@ function finiteNumber(raw: string, flag: string): number {
   return value;
 }
 
+/** --sd-percent divides a breakeven IC, so zero, negative and NaN are all
+ * wrong answers (frontier.ts applies the same rule to its own CLI flags). */
+function positiveNumber(raw: string, flag: string): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`--${flag} must be a finite positive number, got "${raw}"`);
+  }
+  return value;
+}
+
 export interface CompositeAuditArgs {
   reports: string[];
   sdPercent?: number;
@@ -589,7 +637,7 @@ export function parseArgs(argv: string[]): CompositeAuditArgs {
 
   return {
     reports,
-    sdPercent: flags.has('sd-percent') ? finiteNumber(flags.get('sd-percent')!, 'sd-percent') : undefined,
+    sdPercent: flags.has('sd-percent') ? positiveNumber(flags.get('sd-percent')!, 'sd-percent') : undefined,
     horizon: flags.has('horizon') ? finiteNumber(flags.get('horizon')!, 'horizon') : undefined,
   };
 }
@@ -603,7 +651,11 @@ async function main(): Promise<void> {
     if (!validated.ok) {
       throw new Error(`${path} failed schema validation:\n${validated.issues.join('\n')}`);
     }
-    const audit = auditComposite(validated.data, { sdPercent: args.sdPercent, horizon: args.horizon });
+    const audit = auditComposite(validated.data, {
+      sdPercent: args.sdPercent,
+      horizon: args.horizon,
+      sourcePath: path,
+    });
     outputs.push(formatCompositeAudit(audit));
   }
   console.log(outputs.join('\n\n'));

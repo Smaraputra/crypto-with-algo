@@ -559,6 +559,11 @@ function buildWindowReport(w: WindowResult): StrategyReport['perSymbol'][number]
  * a symbol-scoped fee profile), else the report's top-level `costs` (a report
  * written before per-symbol costs existed, or under a profile with no
  * per-symbol variation).
+ *
+ * `perSymbol[].costs` is the authoritative per-symbol schedule and this
+ * function is the supported reader of it; the top-level `costs` block only
+ * records the profile's fallback resolution, not what any particular symbol
+ * paid.
  */
 export function costsForSymbolReport(report: StrategyReport, symbol: string): StrategyCosts {
   const perSymbol = report.perSymbol.find((p) => p.symbol === symbol);
@@ -748,12 +753,17 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     // reads costs.takerFeePercent to floor the stop distance, so the fee floor
     // on stops follows this symbol's own schedule too.
     const costs = studyCostConfig(interval, { profile: args.feeProfile, symbol: input.symbol });
-    perSymbolCosts.push({
+    // Built once and reused for both the recorded per-symbol costs and the
+    // walk-forward call below, so the audit trail and the simulation cannot
+    // diverge (they were previously two separate object literals from the
+    // same `costs`, which could drift if one was edited and not the other).
+    const symbolCosts: StrategyCosts = {
       feePercent: costs.feePercent,
       makerFeePercent: costs.makerFeePercent as number,
       takerFeePercent: costs.takerFeePercent as number,
       slippageBps: costs.slippageBps as number,
-    });
+    };
+    perSymbolCosts.push(symbolCosts);
     // Per-symbol benchmark seed: without this, every symbol's window i draws
     // the same mulberry32 stream on the same relative timestamps, so
     // correlated symbols correlate the pooled random-entry null and inflate
@@ -772,12 +782,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
       snapshots: input.snapshots.length > 0 ? input.snapshots : undefined,
       researchRows: input.researchRows,
       htfInput: input.htfInput,
-      costs: {
-        feePercent: costs.feePercent,
-        makerFeePercent: costs.makerFeePercent as number,
-        takerFeePercent: costs.takerFeePercent as number,
-        slippageBps: costs.slippageBps as number,
-      },
+      costs: symbolCosts,
       fundingEnabled,
       windows: { count: args.windows, trainFraction: args.trainFraction, mode: args.windowMode },
       minIsTrades: MIN_IS_TRADES,

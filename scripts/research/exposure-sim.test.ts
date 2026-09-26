@@ -204,14 +204,21 @@ describe('simulateExposure fee profile', () => {
     const base = simulateExposure(symbols, grid);
     const standard = simulateExposure(symbols, grid, { feeProfile: 'standard' });
     expect(standard.costReturns).toEqual(base.costReturns);
+
     const promo = simulateExposure(
       [{ ...symbols[0], symbol: 'BTCUSDT' }, { ...symbols[1], symbol: 'SOLUSDT' }],
       grid,
       { feeProfile: 'promo-btc-eth-2026-07' }
     );
-    // BTC leg: 0.00036 + slippage; SOL leg: 0.00045 + slippage. Both below standard's 0.0005 + slippage.
-    expect(promo.costReturns[0]).toBeGreaterThan(base.costReturns[0]);
-    expect(promo.perSymbol[0].symbol).toBe('BTCUSDT');
+    // Both legs rebalance from 0 onto z = -1's target at bar 0, so each
+    // leg's turnover is |W(-1)|. BTC prices under the promotion (0.00036
+    // taker, resolved for BTCUSDT); SOL falls back to bnb (0.00045 taker).
+    // Slippage comes from the grid's own interval, not hardcoded.
+    const delta = Math.abs(W(-1));
+    const slippage = STUDY_SLIPPAGE_BPS[grid.interval] / 10000;
+    const btcCost = delta * (0.00036 + slippage);
+    const solCost = delta * (0.00045 + slippage);
+    expect(promo.costReturns[0]).toBeCloseTo(-(btcCost + solCost), 12);
   });
 });
 

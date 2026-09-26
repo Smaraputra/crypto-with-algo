@@ -153,7 +153,7 @@ describe('fee profiles', () => {
   });
   it('the 2026-07 promotion is zero maker and 0.036% taker for BTCUSDT and ETHUSDT only', () => {
     expect(resolveFeeProfile('promo-btc-eth-2026-07', 'BTCUSDT')).toMatchObject({ makerFee: 0, takerFee: 0.00036 });
-    expect(resolveFeeProfile('promo-btc-eth-2026-07', 'ETHUSDT').makerFee).toBe(0);
+    expect(resolveFeeProfile('promo-btc-eth-2026-07', 'ETHUSDT')).toMatchObject({ makerFee: 0, takerFee: 0.00036 });
   });
   it('an alt under the promotion falls back to bnb, never to zero fees', () => {
     expect(resolveFeeProfile('promo-btc-eth-2026-07', 'SOLUSDT').name).toBe('bnb');

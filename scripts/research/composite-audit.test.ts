@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { SIGNAL_CATEGORY, auditComposite, formatCompositeAudit, pickAuditHorizon } from './composite-audit';
+import { RECORDED_CONTROL_SD_PERCENT } from './frontier';
 
 describe('pickAuditHorizon', () => {
   it('takes the nearest report horizon and breaks ties toward the longer one', () => {
@@ -20,6 +21,8 @@ function factor(name: string, ic: number, icT: number) {
 }
 
 const REPORT = {
+  taskId: 'test-task',
+  executionLagBars: 1,
   interval: '1h',
   horizons: [16, 32],
   factors: [
@@ -98,5 +101,65 @@ describe('auditComposite', () => {
     expect(audit.additiveCeiling).toBeCloseTo(0.085 * 0.0375, 6);
     const text = formatCompositeAudit(audit);
     expect(text).toMatch(/categories without a row at h32:.*trend/);
+  });
+
+  it('refuses a report measured in cross-sectional mode', () => {
+    const csReport = { ...REPORT, crossSectionalDemean: true };
+    expect(() => auditComposite(csReport as never, { sdPercent: 4.56 })).toThrow(
+      /cross-sectional mode \(crossSectionalDemean\)/
+    );
+  });
+
+  it('refuses a report with executionLagBars 0', () => {
+    const lag0 = { ...REPORT, executionLagBars: 0 };
+    expect(() => auditComposite(lag0 as never, { sdPercent: 4.56 })).toThrow(/lag-1/);
+  });
+
+  it('refuses a report with executionLagBars undefined, treating it as 0', () => {
+    const { executionLagBars, ...withoutLag } = REPORT;
+    expect(executionLagBars).toBe(1); // sanity: the base fixture does set it
+    expect(() => auditComposite(withoutLag as never, { sdPercent: 4.56 })).toThrow(/lag-1/);
+  });
+
+  it('refuses a cat name it cannot map', () => {
+    const bad = { ...REPORT, factors: [...REPORT.factors, factor('cat.mystery', 0.01, 1)] };
+    expect(() => auditComposite(bad as never, { sdPercent: 4.56 })).toThrow(/Unmapped category: mystery/);
+  });
+
+  it('throws when no recorded control sd% exists and no --sd-percent was given', () => {
+    // REPORT.interval ('1h') is both a styleForInterval key and a
+    // RECORDED_CONTROL_SD_PERCENT key today, so the only way to exercise a
+    // style with no recorded sd is to remove it here and restore it after.
+    const original = RECORDED_CONTROL_SD_PERCENT['1h'];
+    delete RECORDED_CONTROL_SD_PERCENT['1h'];
+    try {
+      expect(() => auditComposite(REPORT as never, {})).toThrow(/No recorded control sd%/);
+    } finally {
+      RECORDED_CONTROL_SD_PERCENT['1h'] = original;
+    }
+  });
+
+  it('throws when sdPercent is not finite and positive', () => {
+    expect(() => auditComposite(REPORT as never, { sdPercent: 0 })).toThrow(/finite positive/);
+    expect(() => auditComposite(REPORT as never, { sdPercent: -1 })).toThrow(/finite positive/);
+    expect(() => auditComposite(REPORT as never, { sdPercent: NaN })).toThrow(/finite positive/);
+  });
+
+  it('throws when the report has no composite factor', () => {
+    const noComposite = { ...REPORT, factors: REPORT.factors.filter((f) => f.name !== 'composite') };
+    expect(() => auditComposite(noComposite as never, { sdPercent: 4.56 })).toThrow(
+      'Report has no composite factor'
+    );
+  });
+
+  it('includes taskId, executionLagBars and an optional sourcePath in the header', () => {
+    const audit = auditComposite(REPORT as never, { sdPercent: 4.56 });
+    const text = formatCompositeAudit(audit);
+    expect(text).toMatch(/taskId test-task/);
+    expect(text).toMatch(/executionLagBars 1/);
+    expect(text).not.toMatch(/source /);
+
+    const withSource = auditComposite(REPORT as never, { sdPercent: 4.56, sourcePath: 'data/foo.json' });
+    expect(formatCompositeAudit(withSource)).toMatch(/source data\/foo\.json/);
   });
 });
