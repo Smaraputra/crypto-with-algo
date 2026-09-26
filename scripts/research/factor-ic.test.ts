@@ -549,6 +549,18 @@ describe('factor-ic cross-sectional mode', () => {
     expect(symbolCell.ic).toBeCloseTo(eth.ic, 12);
     expect(symbolCell.n).toBe(eth.n);
   }, 30_000);
+
+  it('raw.btcLeadLag reaches the report for the alts only, and --cell --report reproduces it', async () => {
+    await buildFixtureDataset(dir, { symbols: THREE });
+    const reportPath = join(dir, 'll.json');
+    const report = await runFactorIc({ ...args({ minCrossSection: 3, out: reportPath }), factors: ['raw.btcLeadLag'] });
+    const factor = report.factors.find((f) => f.name === 'raw.btcLeadLag')!;
+    expect(factor.perSymbol.map((p) => p.symbol).sort()).toEqual(['ETHUSDT', 'SOLUSDT']);
+    const eth = factor.perSymbol.find((p) => p.symbol === 'ETHUSDT')!.horizons[0];
+    const cell = await runCell({ ...args(), cell: { factor: 'raw.btcLeadLag', horizon: 1, symbol: 'ETHUSDT' }, reportPath });
+    expect(cell.ic).toBeCloseTo(eth.ic, 12);
+    expect(cell.n).toBe(eth.n);
+  }, 30_000);
 });
 
 describe('factor-ic CLI at 5m (1h snapshot passthrough)', () => {

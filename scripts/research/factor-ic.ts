@@ -423,6 +423,7 @@ import {
   standardizedRankProducts,
 } from './ic-stats';
 import { computeFactorMatrix, type FactorMatrix } from './factors';
+import { appendCrossSymbolFactors, CROSS_SYMBOL_NAMES } from './cross-symbol-factors';
 import {
   loadCandles,
   loadHtf,
@@ -1006,6 +1007,8 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
       })
     );
   }
+  appendCrossSymbolFactors(perSymbolData, args.minCrossSection);
+
   const lockboxApplied = perSymbolData.every((s) => s.lockboxApplied);
 
   // Union of factor names across symbols' matrices, first-seen order (they
@@ -1245,6 +1248,14 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     endMs: Number.isFinite(endMs) ? endMs : 0,
   };
 
+  // A cross-symbol column (e.g. raw.btcLeadLag) bakes args.minCrossSection
+  // into its NaN pattern even without --cross-sectional-demean, so --cell
+  // --report needs that value on hand to reconstruct the same column. Only
+  // recorded when such a factor actually reached the report, so a run that
+  // never touches one stays byte-identical to a report written before this
+  // column existed.
+  const hasCrossSymbolFactor = factorReports.some((f) => (CROSS_SYMBOL_NAMES as readonly string[]).includes(f.name));
+
   const report: FactorIcReport = {
     schemaVersion: 1,
     taskId: args.taskId,
@@ -1254,7 +1265,11 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     symbols,
     horizons: args.horizons,
     executionLagBars: args.executionLagBars,
-    ...(args.crossSectionalDemean ? { crossSectionalDemean: true, minCrossSection: args.minCrossSection } : {}),
+    ...(args.crossSectionalDemean
+      ? { crossSectionalDemean: true, minCrossSection: args.minCrossSection }
+      : hasCrossSymbolFactor
+        ? { minCrossSection: args.minCrossSection }
+        : {}),
     ...(args.returnSeries === 'perp' ? { returnSeries: 'perp' as const } : {}),
     dateRange,
     computedAt: new Date().toISOString(),
@@ -1403,6 +1418,7 @@ export async function runCell(args: FactorIcArgs): Promise<CellResult> {
       end: endOverride,
     })
   );
+  appendCrossSymbolFactors(all, minCrossSection);
   const rawFwd = all.map((d) =>
     Float64Array.from(
       forwardReturns(
