@@ -36,11 +36,18 @@
  *   the run (that table only covers 5m/15m/1h/4h/1d); --horizon overrides
  *   the per-style outcome-horizon nearest-match for every report in the run.
  *
- * RESULTS, 2026-09-26. Full CLI output over the five local reports:
+ * RESULTS, 2026-09-26. The category tables and summary lines as printed,
+ * with the per-signal rows transposed into table (a), over the five local
+ * reports:
  *   npx tsx scripts/research/composite-audit.ts --reports
  *   data/research/reports/factor-ic-5m-p3b-lag1.json,data/research/reports/factor-ic-15m-pB-ts.json,
  *   data/research/reports/factor-ic-1h-pB-ts.json,data/research/reports/factor-ic-4h-pB-ts.json,
  *   data/research/reports/factor-ic-1d-p3b-lag1.json
+ *
+ * VINTAGE CAVEAT: the 5m and 1d columns come from the `p3b-lag1` reports of
+ * 2026-09-20, measured under the pre-configVersion-6 scorer, while the 15m,
+ * 1h and 4h columns come from the `pB-ts` reports of 2026-09-26 under the v7
+ * scorer. Sig-level signs are not directly comparable across that boundary.
  *
  * (a) Every live signal, ic and live-sign agreement (+ agrees, - disagrees,
  * . absent) per interval:
@@ -67,7 +74,8 @@
  *   HTF SMA Trend      -0.0282    -  -0.0293     -  -0.0032     -   0.0348    +   .          .
  *   HTF SuperTrend     -0.0260    -  -0.0308     -  -0.0013     -   0.0242    +   .          .
  *
- * (b) Per interval, exactly as the CLI printed it:
+ * (b) Per interval, the category tables and summary lines as printed, with
+ * the per-signal rows transposed into table (a):
  *
  *   === 5m (scalping) -- report factor-ic-5m-p3b-lag1.json ===
  *   category      weight   ic       t       contribution

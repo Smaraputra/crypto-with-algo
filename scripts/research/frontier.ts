@@ -18,11 +18,11 @@
  *
  * Usage:
  *   npx tsx scripts/research/frontier.ts --reports a.json,b.json [--notional 50] [--target-per-day 0.5] [--trades-per-day 4,8,20,50] [--fee-profile standard|bnb|promo-btc-eth-2026-07]
- *   --fee-profile prices the `targets` block, the `profiles:` comparison and the
- *   leverage block's round trip under that schedule (default standard, the
- *   schedule every recorded number above is on); `profiles:` always prices all
- *   three regardless of the flag, for BTCUSDT, so the promotion column shows the
- *   promoted pair rather than its bnb fallback.
+ *   --fee-profile prices the `targets` block and the leverage block's round
+ *   trip under that schedule (default standard, the schedule every recorded
+ *   number above is on); `profiles:` always prices all three regardless of
+ *   the flag, for BTCUSDT, so the promotion column shows the promoted pair
+ *   rather than its bnb fallback.
  *
  * MEASURED 2026-09-26 (Phase 4 control reports plus the Phase A control run at 15m, task pA):
  *   family   iv    n      trades/day  sd%    cost taker  cost maker  be taker  be maker
@@ -179,7 +179,8 @@ export interface FrontierOptions {
   notionalUsdt: number;
   targetPerDayUsdt: number;
   tradesPerDay: number[];
-  /** Drives the `targets` block only. Default `standard`. */
+  /** Drives the `targets` block and, via `formatFrontier`'s chosen profile,
+   * the leverage block's round trip. Default `standard`. */
   feeProfile?: FeeProfileName;
 }
 
