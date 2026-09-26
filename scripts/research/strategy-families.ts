@@ -231,11 +231,11 @@
  * rows above measure "does the composite pay under the promotion on BTC
  * and ETH" (no), not "how much did the promotion lift it".
  *
- * Spot check: all four promo reports reproduced at BTCUSDT window 2, in
- * the order listed above (control 15m promo, control 1h promo,
- * control-limit 15m promo, control-limit 1h promo): 174 trades
- * -0.11186450019777032%, 167 trades -0.09927887669979621%, 159 trades
- * -0.04015098296845698%, 164 trades -0.03521631691686759%.
+ * Spot check: all four promo reports reproduced at BTCUSDT window 2:
+ * control 1h promo 174 trades -0.11186450019777032%, control 15m promo
+ * 167 trades -0.09927887669979621%, control-limit 1h promo 159 trades
+ * -0.04015098296845698%, control-limit 15m promo 164 trades
+ * -0.03521631691686759%.
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';

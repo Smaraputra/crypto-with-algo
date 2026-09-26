@@ -163,13 +163,16 @@
  *     promo-btc-eth-2026-07 taker be 0.0035 (cost 0.112%), maker be 0.0000 (cost 0.000%)
  *   horizon 16 (outcome horizon 20 for position_trading)
  *
- * (c) Reading: at 5m, 15m and 1h every trend, HTF and volume component
- * enters with the wrong sign at the outcome horizon; the momentum category
- * is mixed rather than uniform: MACD is wrong-signed at all three, Williams
- * %R right-signed at all three, RSI wrong-signed only at 1h (positive at 5m
- * +0.0040 and 15m +0.0029, the exception there), and StochRSI wrong-signed
- * only at 15m (-0.0053, positive at 5m +0.0064 and 1h +0.0046). Bollinger,
- * the volatility category, enters with the right sign at all three. At 1h
+ * (c) Reading: at 5m, 15m and 1h every trend and HTF reading enters with
+ * the wrong sign at the outcome horizon. The volume category is not
+ * uniform: OBV, Volume and Taker Flow are wrong-signed at all three, while
+ * MFI is right-signed at 5m (+0.0036) and 15m (+0.0043) and wrong-signed
+ * at 1h (-0.0092). Momentum is also mixed: MACD is wrong-signed at all
+ * three, Williams %R right-signed at all three, RSI wrong-signed only at
+ * 1h (positive at 5m +0.0040 and 15m +0.0029, the exception there), and
+ * StochRSI wrong-signed only at 15m (-0.0053, positive at 5m +0.0064 and
+ * 1h +0.0046). Bollinger, the volatility category, enters with the right
+ * sign at all three. At 1h
  * the Long/Short Ratio signal reads +0.0309 (t 3.89) at h32, the only
  * futures-category reading that agrees strongly; News rows are sparse
  * (marked `(hN, not hM)` at 4h and 1d, t 1.28 and 0.71) and uninformative.
