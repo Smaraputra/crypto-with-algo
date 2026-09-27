@@ -70,6 +70,52 @@ function fiveSymbolFixture(options: { nanAt?: { symbol: number; bar: number } } 
  * fixture's readings, so every traded bar's target magnitude clears the band. */
 const baseGrid: ExposureGrid = { band: 0.05, zScale: 3, smoothing: 0, gross: 1, interval: '1d' };
 
+/** Five symbols, four bars, built for the book-level dropout test: symbol 4
+ * (index 4) is the topBottom k=1 short leg at bar 0 (z=10 is the max of
+ * [1,2,3,4,10]), its signal is NaN at bar 1 while the other four stay finite,
+ * and at bar 2 its reading (5) is deliberately not extreme among
+ * [1,9,2,8,5], so once flattened it never re-enters a leg for the rest of the
+ * fixture. */
+function dropoutFixture(): ExposureSymbolInput[] {
+  const z = [
+    [1, 5, 1, 0],
+    [2, 6, 9, 0],
+    [3, 7, 2, 0],
+    [4, 8, 8, 0],
+    [10, Number.NaN, 5, 0],
+  ];
+  const rates = [0, 0, 0, 0];
+  return z.map((symbolZ, index) => {
+    const closes = symbolZ.map((_, bar) => 100 + index * (bar + 1));
+    return daily(symbolZ, closes, rates, `SYM${index}USDT`);
+  });
+}
+
+/** Five symbols on a grid with as many bars as `zRows` has rows: row b, index
+ * s is symbol s's reading at bar b. Every symbol's own closes are strictly
+ * increasing, so every bar earns a finite forward return and none is
+ * incomplete -- this fixture is for exercising the rank/band arithmetic
+ * itself, not the incomplete-bar path. */
+function manyRanksFixture(zRows: readonly (readonly number[])[]): ExposureSymbolInput[] {
+  const bars = zRows.length;
+  const rates = new Array(bars).fill(0);
+  return Array.from({ length: 5 }, (_, s) => {
+    const z = zRows.map((row) => row[s]);
+    const closes = Array.from({ length: bars }, (_, bar) => 100 + s * (bar + 1));
+    return daily(z, closes, rates, `SYM${s}USDT`);
+  });
+}
+
+/** Two symbols, four bars: symbol B's close is NaN at bar 1, which makes both
+ * bar 0 (its forward return) and bar 1 (its backward return) incomplete;
+ * bar 2 is the only complete, traded bar. For exercising the incomplete-bar
+ * push of the new per-bar series, not the rank arithmetic. */
+function twoSymbolGapFixture(): ExposureSymbolInput[] {
+  const a = daily([10, 20, 1, 0], [100, 102, 104, 106], [0, 0, 0, 0], 'AAAUSDT');
+  const b = daily([5, 15, 2, 0], [100, Number.NaN, 105, 110], [0, 0, 0, 0], 'BBBUSDT');
+  return [a, b];
+}
+
 describe('targetExposure', () => {
   it('is contrarian and saturating, never reaching full size', () => {
     expect(targetExposure(0, 1)).toBeCloseTo(0, 12);
@@ -568,17 +614,51 @@ describe('crossSectionalTargets', () => {
     expect(maxRankWeight('topBottom', 2, 10)).toBe(0.25);
     expect(maxRankWeight('linearRank', undefined, 10)).toBeCloseTo(4.5 / 25, 12);
   });
+  it('throws when 2 * legs exceeds the finite count', () => {
+    expect(() =>
+      crossSectionalTargets([1, 2, 3], { scheme: 'topBottom', legs: 2, factorSign: -1, minCrossSection: 1 })
+    ).toThrow(/legs/);
+  });
+  it('throws on an unsupported scheme', () => {
+    expect(() =>
+      crossSectionalTargets([1, 2, 3, 4, 5], { scheme: 'tanh', factorSign: -1, minCrossSection: 1 })
+    ).toThrow(/unsupported scheme/);
+  });
+  it('maxRankWeight throws on an unsupported scheme', () => {
+    expect(() => maxRankWeight('tanh', undefined, 10)).toThrow(/unsupported scheme/);
+  });
 });
 
 describe('simulateExposure rank scheme', () => {
   const symbols = fiveSymbolFixture();
   const grid = baseGrid;
 
-  it('is dollar neutral on every traded bar, including bars with a NaN signal', () => {
-    // five symbols, four bars; symbol 3 has NaN at bar 1
-    const result = simulateExposure(fiveSymbolFixture({ nanAt: { symbol: 3, bar: 1 } }), { ...baseGrid, scheme: 'topBottom', legs: 1, factorSign: -1, minCrossSection: 4, band: 0 });
-    for (const n of result.netExposure) expect(Math.abs(n)).toBeLessThan(1e-9);
-    expect(result.longLegReturns.length).toBe(result.netReturns.length);
+  it('an exact dollar-neutral exit when a leg symbol drops out of the cross-section', () => {
+    // dropoutFixture: symbol 4 is the topBottom k=1 short leg at bar 0 (held
+    // -0.5); its signal is NaN at bar 1 while the other four stay finite (4
+    // of 5, at the minCrossSection floor). The book-level rule flattens
+    // symbol 4 to exactly 0 rather than carrying the stale -0.5 forward,
+    // which is the only way the sum can stay at zero once the others
+    // re-rank over the smaller cross-section.
+    const result = simulateExposure(dropoutFixture(), {
+      band: 0,
+      zScale: 1,
+      smoothing: 0,
+      gross: 1,
+      interval: '1d',
+      scheme: 'topBottom',
+      legs: 1,
+      factorSign: -1,
+      minCrossSection: 4,
+    });
+    for (const n of result.netExposure) expect(Math.abs(n)).toBeLessThan(1e-12);
+    expect(result.perSymbol[4].held[1]).toBeCloseTo(-0.5, 12);
+    // From the bar-1 trade onward (index 2 is what bar 1's rebalance
+    // produces; index 3 is bar 2's, and bar 2's own reading keeps symbol 4
+    // out of a leg too), it never carries a non-zero weight again.
+    expect(result.perSymbol[4].held.slice(2).every((h) => h === 0)).toBe(true);
+    // Entry (0.5 at bar 0) plus the forced exit (0.5 at bar 1).
+    expect(result.perSymbol[4].turnover).toBeCloseTo(1, 12);
   });
   it('the tanh path is unchanged: scheme undefined equals scheme tanh equals the recorded fixture numbers', () => {
     const a = simulateExposure(symbols, grid);
@@ -591,5 +671,118 @@ describe('simulateExposure rank scheme', () => {
     const maker = simulateExposure(symbols, grid, { fill: 'maker' });
     // first traded bar: cost = delta x (0.0002 + 0) under standard maker vs delta x (0.0005 + slippage)
     expect(maker.costReturns[0]).toBeCloseTo(taker.costReturns[0] * (0.0002 / (0.0005 + STUDY_SLIPPAGE_BPS[grid.interval] / 10000)), 12);
+  });
+  it('rank weights are not divided by gross', () => {
+    const grid1: ExposureGrid = {
+      ...baseGrid,
+      band: 0,
+      gross: 1,
+      scheme: 'topBottom',
+      legs: 1,
+      factorSign: -1,
+      minCrossSection: 4,
+    };
+    const grid3: ExposureGrid = { ...grid1, gross: 3 };
+    const a = simulateExposure(fiveSymbolFixture(), grid1);
+    const b = simulateExposure(fiveSymbolFixture(), grid3);
+    expect(b.netReturns).toEqual(a.netReturns);
+    for (let s = 0; s < a.perSymbol.length; s++) {
+      expect(b.perSymbol[s].held).toEqual(a.perSymbol[s].held);
+    }
+  });
+  it('linearRank stays dollar neutral across many bars of changing ranks under a fractional band', () => {
+    const rows = [
+      [1, 2, 3, 4, 5],
+      [5, 3, 4, 2, 1],
+      [2, 5, 1, 3, 4],
+      [4, 1, 5, 2, 3],
+      [3, 4, 2, 5, 1],
+      [1, 5, 3, 4, 2],
+      [1, 5, 3, 4, 2],
+    ];
+    const band = 0.5 * maxRankWeight('linearRank', undefined, 5);
+    const result = simulateExposure(manyRanksFixture(rows), {
+      band,
+      zScale: 1,
+      smoothing: 0,
+      gross: 1,
+      interval: '1d',
+      scheme: 'linearRank',
+      factorSign: -1,
+      minCrossSection: 5,
+    });
+    expect(result.netExposure.length).toBeGreaterThan(0);
+    for (const n of result.netExposure) expect(Math.abs(n)).toBeLessThan(1e-12);
+  });
+  it('the incomplete-bar branch pushes 0 to the new series and keeps every series the same length', () => {
+    const result = simulateExposure(twoSymbolGapFixture(), {
+      band: 0,
+      zScale: 1,
+      smoothing: 0,
+      gross: 1,
+      interval: '1d',
+      scheme: 'topBottom',
+      legs: 1,
+      factorSign: -1,
+      minCrossSection: 2,
+    });
+    expect(result.incompleteBars).toBe(2);
+    expect(result.netExposure).toHaveLength(result.netReturns.length);
+    expect(result.longLegReturns).toHaveLength(result.netReturns.length);
+    expect(result.shortLegReturns).toHaveLength(result.netReturns.length);
+    expect(result.netExposure[0]).toBe(0);
+    expect(result.netExposure[1]).toBe(0);
+    expect(result.longLegReturns[0]).toBe(0);
+    expect(result.longLegReturns[1]).toBe(0);
+    expect(result.shortLegReturns[0]).toBe(0);
+    expect(result.shortLegReturns[1]).toBe(0);
+  });
+});
+
+describe('simulateExposure book-level band (rank schemes)', () => {
+  const rankGrid = (band: number): ExposureGrid => ({
+    band,
+    zScale: 1,
+    smoothing: 0,
+    gross: 1,
+    interval: '1d',
+    scheme: 'linearRank',
+    factorSign: -1,
+    minCrossSection: 5,
+  });
+
+  it('a large mover forces the whole book to rebalance, including a symbol whose own move is below the band', () => {
+    // bar 0 -> bar 1 reverses the ranking entirely: symbols 0 and 4 each move
+    // by 2/3 (well above the 0.2 band), symbol 3 by 1/3, and symbols 1 and 2
+    // by 1/6 each -- below the band on their own, but the book-level rule
+    // rebalances every symbol once the largest move clears it.
+    const fixture = manyRanksFixture([
+      [1, 2, 3, 4, 5],
+      [5, 3, 4, 2, 1],
+      [5, 3, 4, 2, 1],
+    ]);
+    const result = simulateExposure(fixture, rankGrid(0.2));
+    for (let s = 0; s < 5; s++) {
+      const moved = Math.abs(result.perSymbol[s].held[2] - result.perSymbol[s].held[1]);
+      expect(moved).toBeGreaterThan(1e-9);
+    }
+    expect(result.turnover[1]).toBeGreaterThan(0);
+    expect(Math.abs(result.netExposure[1])).toBeLessThan(1e-12);
+  });
+
+  it('every move below the band leaves the book exactly where it was', () => {
+    // bar 0 -> bar 1 only swaps the ranks of symbols 1 and 2 (adjacent
+    // ranks), the smallest possible non-zero move (1/6), which stays under a
+    // 0.7 band.
+    const fixture = manyRanksFixture([
+      [1, 2, 3, 4, 5],
+      [1, 3, 2, 4, 5],
+      [1, 3, 2, 4, 5],
+    ]);
+    const result = simulateExposure(fixture, rankGrid(0.7));
+    expect(result.turnover[1]).toBeCloseTo(0, 12);
+    for (let s = 0; s < 5; s++) {
+      expect(result.perSymbol[s].held[2]).toBeCloseTo(result.perSymbol[s].held[1], 12);
+    }
   });
 });

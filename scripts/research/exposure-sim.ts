@@ -76,6 +76,21 @@
  *   that leaves the book under-invested is not rescued by scaling it up: the
  *   number reported is the return actually earned per unit of gross deployed.
  *
+ * - `topBottom` / `linearRank` band the REBALANCE DECISION, not each symbol's
+ *   own weight, and that is a deliberate departure from the tanh path's
+ *   per-symbol band. A joint target is dollar-neutral by construction (the
+ *   weights sum to zero across the WHOLE cross-section), and a per-symbol
+ *   band would let one symbol move to its new target while its neighbours sit
+ *   still, which breaks the sum-to-zero invariant on every bar in between --
+ *   exactly the invariant a dollar-neutral book is built to hold. So the band
+ *   gates one decision per bar (rebalance every symbol to its fresh target, or
+ *   leave every symbol exactly where it was), never a subset. A symbol whose
+ *   signal drops to NaN while it still holds a non-zero weight forces that
+ *   rebalance regardless of the band, because leaving a stale leg in a
+ *   book whose other legs keep moving is the one path that guarantees a
+ *   nonzero net exposure. See `simulateExposure`'s bar loop for the exact
+ *   rule.
+ *
  * Pure: no fetch, no Mongo, no filesystem, no clock. Every input arrives as an
  * argument, so the whole model is unit-testable and a spot check of a saved
  * report re-runs the identical arithmetic.
@@ -113,7 +128,20 @@ export interface ExposureSymbolInput {
 export type TargetScheme = 'tanh' | 'topBottom' | 'linearRank';
 
 export interface ExposureGrid {
-  /** Rebalance only when |target - held| exceeds this. 0 rebalances every bar. */
+  /**
+   * `tanh`: rebalance only THIS symbol when |target - held| exceeds this. 0
+   * rebalances every bar.
+   *
+   * `topBottom` / `linearRank`: a BOOK-LEVEL gate, not a per-symbol one --
+   * rebalance EVERY symbol to its fresh target when the largest single-symbol
+   * move (max over symbols of |target - held|) exceeds this, or hold EVERY
+   * symbol exactly where it was. A per-symbol gate cannot be used here: it
+   * would let a subset of symbols move to their new targets while the rest
+   * sit still, which breaks the sum-to-zero weighting a joint target promises
+   * on every bar in between. See `simulateExposure` for the exact rule,
+   * including the forced rebalance a NaN dropout with a stale nonzero leg
+   * triggers regardless of this value.
+   */
   band: number;
   /** target = -tanh(z / zScale), in (-1, +1). The sign is contrarian. Read
    * only when `scheme` is 'tanh' (the default). */
@@ -136,7 +164,7 @@ export interface ExposureGrid {
    * stated for `factorSign: -1` (a high reading is crowded, so short it). */
   factorSign?: 1 | -1;
   /** Minimum finite readings required to form a rank target; below it every
-   * symbol holds (NaN). Default 5. Unused by 'tanh'. */
+   * symbol holds (unchanged). Default 5. Unused by 'tanh'. */
   minCrossSection?: number;
 }
 
@@ -239,11 +267,16 @@ export function targetExposure(z: number, zScale: number): number {
  * `factorSign` is applied first (multiplying every finite reading), so
  * everything below is stated in terms of the SIGNED value: a higher signed
  * value ranks toward the long leg. Symbols with a non-finite reading are
- * excluded from the ranking and their own output is NaN, which every caller
- * treats as "hold, do not trade" exactly like `targetExposure`'s NaN.
+ * excluded from the ranking and their own output is NaN. This function does
+ * NOT decide what a NaN output means to a book -- that is `simulateExposure`'s
+ * job, and it does not read the NaN as "hold": a symbol dropping out of the
+ * cross-section targets 0 (flat), which is what keeps the book dollar-neutral
+ * when a leg's reading disappears.
  *
- * Below `minCrossSection` finite readings, every symbol holds (the whole
- * output is NaN) rather than ranking a too-thin cross-section.
+ * Below `minCrossSection` finite readings, the whole output is NaN (every
+ * symbol, not just the non-finite ones) rather than ranking a too-thin
+ * cross-section; `simulateExposure` reads THAT case as "hold, do not trade
+ * anyone this bar".
  *
  * Ties (equal signed value) are broken by ascending original index, so the
  * assignment is deterministic and stable under any array reordering that
@@ -495,33 +528,32 @@ export function simulateExposure(
   const returns: number[][] = symbols.map(() => []);
   const targets: number[][] = symbols.map(() => []);
 
-  // 'topBottom' / 'linearRank' form the target JOINTLY across symbols, so it
-  // has to be computed once per bar over every symbol's signal before the
-  // per-symbol loop below, rather than per symbol like the tanh path. The
-  // tanh branch (scheme undefined or 'tanh') is untouched so its numbers stay
-  // byte-identical to before this scheme existed.
+  // 'topBottom' / 'linearRank' form the target JOINTLY across symbols and
+  // rebalance at the BOOK level (see `ExposureGrid.band`), rather than per
+  // symbol like the tanh path. The tanh branch (scheme undefined or 'tanh')
+  // is untouched below so its numbers stay byte-identical to before this
+  // scheme existed.
   const isRankScheme = grid.scheme === 'topBottom' || grid.scheme === 'linearRank';
+  const minCrossSection = grid.minCrossSection ?? 5;
 
   // Bar t earns the return t -> t+1, so the last bar has no return to earn and
   // is never traded into.
   for (let t = 0; t < length - 1; t++) {
     let complete = true;
 
-    const rankTargets: number[] | null = isRankScheme
-      ? crossSectionalTargets(symbols.map((_, s) => signal[s][t]), grid)
-      : null;
-
     for (let s = 0; s < symbols.length; s++) {
       const r = barReturn(symbols[s].closes, t);
-      const raw = rankTargets ? rankTargets[s] : targetExposure(signal[s][t], grid.zScale);
       if (!Number.isFinite(r) || gridGaps(symbols[s].timestamps, t)) {
         complete = false;
         break;
       }
       returns[s].push(r);
-      // Rank-scheme targets are unit-gross already; the tanh raw target is
-      // divided by the gross cap, exactly as before this scheme existed.
-      targets[s].push(Number.isFinite(raw) ? (rankTargets ? raw : raw / gross) : Number.NaN);
+      if (!isRankScheme) {
+        // tanh: unchanged from before the rank schemes existed. Computed
+        // here, inside the completeness loop, exactly as it always was.
+        const raw = targetExposure(signal[s][t], grid.zScale);
+        targets[s].push(Number.isFinite(raw) ? raw / gross : Number.NaN);
+      }
     }
 
     if (!complete) {
@@ -531,7 +563,7 @@ export function simulateExposure(
       // and index t keeps meaning bar t.
       for (let s = 0; s < symbols.length; s++) {
         returns[s].length = t;
-        targets[s].length = t;
+        if (!isRankScheme) targets[s].length = t;
       }
       for (let s = 0; s < symbols.length; s++) {
         // Carry the held weight forward across an unusable bar so a gap does
@@ -553,6 +585,40 @@ export function simulateExposure(
       continue;
     }
 
+    // The bar is known complete. Only NOW is it worth forming the rank
+    // targets: a bar later discarded above never reaches `crossSectionalTargets`,
+    // so its `2 * legs` guard can never throw over a bar that is not even
+    // used.
+    let bookTargets: number[] | null = null;
+    let bookRebalance = false;
+    if (isRankScheme) {
+      const signalsAtT = symbols.map((_, s) => signal[s][t]);
+      const finiteCount = signalsAtT.filter((z) => Number.isFinite(z)).length;
+      if (finiteCount >= minCrossSection) {
+        const ranked = crossSectionalTargets(signalsAtT, grid);
+        // A symbol whose signal is NaN is not in the cross-section: its
+        // target is 0 (flat), never "hold whatever it had", or a stale leg
+        // would sit in the book while the ranked symbols keep moving and the
+        // sum-to-zero invariant would break.
+        bookTargets = ranked.map((v) => (Number.isFinite(v) ? v : 0));
+        let maxAbsDelta = 0;
+        let forceRebalance = false;
+        for (let s = 0; s < symbols.length; s++) {
+          const delta = Math.abs(bookTargets[s] - held[s][t]);
+          if (delta > maxAbsDelta) maxAbsDelta = delta;
+          // A dropout still holding a non-zero weight forces the rebalance
+          // regardless of the band: leaving that stale leg in place while the
+          // rest of the book may or may not move is the one path that
+          // guarantees a non-zero net exposure.
+          if (!Number.isFinite(signalsAtT[s]) && held[s][t] !== 0) forceRebalance = true;
+        }
+        bookRebalance = maxAbsDelta > grid.band || forceRebalance;
+      }
+      // Below minCrossSection: bookTargets stays null and bookRebalance stays
+      // false, so every symbol holds below, exactly as the tanh path holds
+      // on a NaN target.
+    }
+
     let costThisBar = 0;
     let fundingThisBar = 0;
     let grossThisBar = 0;
@@ -564,12 +630,32 @@ export function simulateExposure(
 
     for (let s = 0; s < symbols.length; s++) {
       const previous = held[s][t];
-      const target = targets[s][t];
 
-      // A NaN target means "no reading this bar": hold, and do not trade.
-      const trade = Number.isFinite(target) && Math.abs(target - previous) > grid.band + EPSILON;
+      let trade: boolean;
+      let exposure: number;
+      if (isRankScheme) {
+        // Book-level: either every symbol moves to its fresh target, or none
+        // do. Never a per-symbol decision -- see `ExposureGrid.band`.
+        if (bookTargets && bookRebalance) {
+          exposure = bookTargets[s];
+          trade = Math.abs(exposure - previous) > EPSILON;
+        } else {
+          exposure = previous;
+          trade = false;
+        }
+      } else {
+        const target = targets[s][t];
+        // A NaN target means "no reading this bar": hold, and do not trade.
+        trade = Number.isFinite(target) && Math.abs(target - previous) > grid.band + EPSILON;
+        // The trade happens at this bar's OPEN, so the weight carried through
+        // t -> t+1 is the post-trade one. That is also what makes the
+        // execution lag real: the signal read at t is acted on at t and earns
+        // t's return, rather than sitting out a bar.
+        exposure = trade ? target : previous;
+      }
+
       if (trade) {
-        const delta = Math.abs(target - previous);
+        const delta = Math.abs(exposure - previous);
         rebalanceCounts[s]++;
         turnoverTotals[s] += delta;
         // Accumulated directly, not derived by dividing cost back out: with
@@ -578,11 +664,6 @@ export function simulateExposure(
         turnoverThisBar += delta;
         costThisBar += delta * costPerUnitTurnover[s];
       }
-      // The trade happens at this bar's OPEN, so the weight carried through
-      // t -> t+1 is the post-trade one. That is also what makes the execution
-      // lag real: the signal read at t is acted on at t and earns t's return,
-      // rather than sitting out a bar.
-      const exposure = trade ? target : previous;
       held[s][t + 1] = exposure;
 
       const contribution = exposure * returns[s][t];
