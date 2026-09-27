@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRobust, filterRobustResults, getRobustnessScore } from './robustness-filter';
+import { isRobust, filterRobustResults } from './robustness-filter';
 import type { IBacktestResultV2 } from '@/lib/models/backtest-result-v2';
 
 describe('robustness-filter', () => {
@@ -95,15 +95,18 @@ describe('robustness-filter', () => {
       expect(isRobust(result)).toBe(false);
     });
 
-    it('rejects low win rate', () => {
+    it('does not reject a candidate for its win rate', () => {
+      // Win rate is reported and never gated or ranked on (2026-09-17 ruling):
+      // a low-win-rate, high-expectancy candidate must still pass.
       const result = createMockResult({
-        sharpeRatio: 1.0,
-        winRate: 0.3, // Below 0.4 threshold
-        maxDrawdownPercent: 20,
-        totalTrades: 20,
+        sharpeRatio: 1.2,
+        winRate: 0.2,
+        maxDrawdownPercent: 5,
+        totalTrades: 40,
+        expectancyPercent: 0.4,
       });
 
-      expect(isRobust(result)).toBe(false);
+      expect(isRobust(result)).toBe(true);
     });
 
     it('rejects high drawdown', () => {
@@ -160,7 +163,6 @@ describe('robustness-filter', () => {
 
       const customConfig = {
         minSharpe: 0.2, // Lower threshold
-        minWinRate: 0.4,
         maxDrawdown: 0.3,
         minTrades: 10,
         minExpectancyPercent: 0,
@@ -228,7 +230,6 @@ describe('robustness-filter', () => {
 
       const customConfig = {
         minSharpe: 0.5,
-        minWinRate: 0.4,
         maxDrawdown: 0.3,
         minTrades: 10,
         minExpectancyPercent: 1.0,
@@ -243,7 +244,9 @@ describe('robustness-filter', () => {
       const results = [
         createMockResult({ sharpeRatio: 1.0, winRate: 0.5, totalTrades: 20 }), // Robust
         createMockResult({ sharpeRatio: 0.3, winRate: 0.5, totalTrades: 20 }), // Not robust (low Sharpe)
-        createMockResult({ sharpeRatio: 1.0, winRate: 0.3, totalTrades: 20 }), // Not robust (low win rate)
+        // Not robust (negative expectancy); low winRate here is incidental,
+        // never the reason -- win rate is reported, never gated.
+        createMockResult({ sharpeRatio: 1.0, winRate: 0.3, totalTrades: 20, expectancyPercent: -1 }),
         createMockResult({ sharpeRatio: 1.5, winRate: 0.6, totalTrades: 30 }), // Robust
       ];
 
@@ -272,61 +275,6 @@ describe('robustness-filter', () => {
 
       const filtered = filterRobustResults(results);
       expect(filtered).toHaveLength(3);
-    });
-  });
-
-  describe('getRobustnessScore', () => {
-    it('returns 0 for non-robust result', () => {
-      const result = createMockResult({
-        sharpeRatio: 0.2,
-        winRate: 0.3,
-        totalTrades: 5,
-      });
-
-      expect(getRobustnessScore(result)).toBe(0);
-    });
-
-    it('returns positive score for robust result', () => {
-      const result = createMockResult({
-        sharpeRatio: 1.0,
-        winRate: 0.5,
-        maxDrawdownPercent: 20,
-        totalTrades: 20,
-      });
-
-      const score = getRobustnessScore(result);
-      expect(score).toBeGreaterThan(0);
-      expect(score).toBeLessThanOrEqual(1);
-    });
-
-    it('ranks better results higher', () => {
-      const good = createMockResult({
-        sharpeRatio: 2.0,
-        winRate: 0.7,
-        maxDrawdownPercent: 10,
-        totalTrades: 50,
-      });
-
-      const okay = createMockResult({
-        sharpeRatio: 0.8,
-        winRate: 0.45,
-        maxDrawdownPercent: 25,
-        totalTrades: 15,
-      });
-
-      expect(getRobustnessScore(good)).toBeGreaterThan(getRobustnessScore(okay));
-    });
-
-    it('caps scores at 1.0', () => {
-      const excellent = createMockResult({
-        sharpeRatio: 10.0, // Very high
-        winRate: 1.0, // Perfect
-        maxDrawdownPercent: 1, // Minimal
-        totalTrades: 100, // Many trades
-      });
-
-      const score = getRobustnessScore(excellent);
-      expect(score).toBeLessThanOrEqual(1.0);
     });
   });
 });

@@ -702,6 +702,17 @@ const StrategyPerSymbolSchema = z.object({
     expectancyPercent: z.number().nullable(),
     winRate: z.number().nullable(),
   }),
+  // Optional so reports written before 2026-09-26 (the fee-profile flag)
+  // still validate; present when this symbol's costs were resolved from a
+  // fee profile (studyCostConfig's per-symbol resolution).
+  costs: z
+    .object({
+      feePercent: z.number(),
+      makerFeePercent: z.number(),
+      takerFeePercent: z.number(),
+      slippageBps: z.number(),
+    })
+    .optional(),
 });
 
 export const StrategyReportSchema = z.object({
@@ -720,6 +731,9 @@ export const StrategyReportSchema = z.object({
   gridCells: z.number(),
   trials: z.number(),
   snapshotSource: z.string().nullable(),
+  // Optional so reports written before 2026-09-26 (the fee-profile flag)
+  // still validate.
+  feeProfile: z.string().optional(),
   costs: z.object({
     feePercent: z.number(),
     makerFeePercent: z.number(),
@@ -874,6 +888,9 @@ export const ExposureReportSchema = z.object({
   }),
   gridCells: z.number(),
   trials: z.number(),
+  // Optional so reports written before 2026-09-26 (the fee-profile flag)
+  // still validate.
+  feeProfile: z.string().optional(),
   costs: z.object({
     feePercent: z.number(),
     slippageBps: z.number(),

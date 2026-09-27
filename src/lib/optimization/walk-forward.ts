@@ -50,7 +50,10 @@ export interface WalkForwardConfig {
 }
 
 export interface WalkForwardResult {
-  optimizedWeights: SignalWeights;
+  // Null when no window anywhere produced a robust in-sample candidate, so
+  // there is nothing to build an ensemble from. That is a legitimate outcome
+  // the save gate refuses with a reason, not an error.
+  optimizedWeights: SignalWeights | null;
   ensembleResults: IBacktestResultV2[];
   windows: WalkForwardWindow[];
 }
@@ -358,6 +361,15 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     .sort((a, b) => b.testSharpe - a.testSharpe)
     .slice(0, 5)
     .map((entry) => entry.doc);
+
+  // No window anywhere produced a robust candidate. createEnsemble throws on
+  // an empty results array; a run in this state is a legitimate outcome the
+  // save gate refuses with a reason (VPS runs on 2026-09-16 and 2026-09-17
+  // instead failed the whole job on "Cannot create ensemble from empty
+  // results"), not an error.
+  if (ensembleResultDocs.length === 0) {
+    return { optimizedWeights: null, ensembleResults: [], windows: windowResults };
+  }
 
   const ensemble = createEnsemble(ensembleResultDocs, 5);
 

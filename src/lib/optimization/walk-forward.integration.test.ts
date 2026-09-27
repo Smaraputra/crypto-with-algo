@@ -106,7 +106,7 @@ describe('runWalkForward integration', () => {
         htfCandles,
         htfInterval: '4h',
         // Wiring is under test, not market luck: accept every candidate
-        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+        robustness: { minSharpe: -100, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
       });
 
       // Two anchored windows fit 600 bars with 260/60/60 and the default
@@ -127,8 +127,10 @@ describe('runWalkForward integration', () => {
       expect(result.ensembleResults.length).toBeGreaterThan(0);
       expect(result.ensembleResults.length).toBeLessThanOrEqual(2);
 
-      // Weights are normalized
-      const weightSum = Object.values(result.optimizedWeights).reduce((s, w) => s + w, 0);
+      // Weights are normalized. At least one window contributed (asserted
+      // above), so an ensemble was built and optimizedWeights is non-null.
+      expect(result.optimizedWeights).not.toBeNull();
+      const weightSum = Object.values(result.optimizedWeights!).reduce((s, w) => s + w, 0);
       expect(weightSum).toBeCloseTo(1.0, 5);
 
       // Every ensemble contributor is an out-of-sample test doc

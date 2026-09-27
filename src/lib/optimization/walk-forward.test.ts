@@ -312,7 +312,7 @@ describe('runWalkForward default purge gap', () => {
       candidatesPerWindow: 2,
       constraintPercent: 0.2,
       jobId: new mongoose.Types.ObjectId(),
-      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+      robustness: { minSharpe: -100, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
     });
 
     expect(result.windows.length).toBeGreaterThan(0);
@@ -347,7 +347,7 @@ describe('runWalkForward default purge gap', () => {
         // wins via effectiveMinTrainingBars. Without a floor, every window's
         // prepareBacktest would throw on a too-short training slice.
         rollingTrainBars: 50,
-        robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+        robustness: { minSharpe: -100, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
       });
 
       expect(result.windows.length).toBeGreaterThan(1);
@@ -379,7 +379,7 @@ describe('runWalkForward window records', () => {
       candidatesPerWindow: 2,
       constraintPercent: 0.2,
       jobId: new mongoose.Types.ObjectId(),
-      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+      robustness: { minSharpe: -100, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
     });
 
     expect(result.windows.length).toBeGreaterThan(0);
@@ -419,7 +419,7 @@ describe('runWalkForward window records', () => {
       candidatesPerWindow: 2,
       constraintPercent: 0.2,
       jobId: new mongoose.Types.ObjectId(),
-      robustness: { minSharpe: -100, minWinRate: 0, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
+      robustness: { minSharpe: -100, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: -Infinity },
     });
 
     expect(result.windows.length).toBeGreaterThan(1);
@@ -433,6 +433,35 @@ describe('runWalkForward window records', () => {
     expect(first.testStart).toBeDefined();
     expect(first.testEnd).toBeDefined();
     expect(rest.some((w) => w.oosMetrics !== null)).toBe(true);
+  }, 30_000);
+
+  it('returns null weights and an empty ensemble when no window has a robust candidate', async () => {
+    const interval = '1h';
+    const tradingStyle = 'day_trading' as const;
+    const symbol = 'TESTUSDT';
+    const candles = generateSyntheticCandles(700);
+
+    const result = await runWalkForward({
+      candles,
+      symbol,
+      interval,
+      tradingStyle,
+      minTrainingBars: 210,
+      testWindowBars: 30,
+      stepSizeBars: 50,
+      candidatesPerWindow: 2,
+      constraintPercent: 0.2,
+      jobId: new mongoose.Types.ObjectId(),
+      // An impossible expectancy floor rejects every in-sample candidate in
+      // every window regardless of the underlying (real) backtest performance,
+      // so no window ever produces a robust candidate.
+      robustness: { minSharpe: -100, maxDrawdown: 1, minTrades: 0, minExpectancyPercent: Infinity },
+    });
+
+    expect(result.optimizedWeights).toBeNull();
+    expect(result.ensembleResults).toEqual([]);
+    expect(result.windows.length).toBeGreaterThan(0);
+    expect(result.windows.every((w) => w.robustCandidates === 0 && w.oosMetrics === null)).toBe(true);
   }, 30_000);
 });
 

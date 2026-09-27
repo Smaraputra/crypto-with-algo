@@ -35,7 +35,7 @@ export function passesSaveGate(windows: WalkForwardWindow[]): SaveGateResult {
   if (contributingWindows < SAVE_GATE.minContributingWindows) {
     return {
       pass: false,
-      reason: `Only ${contributingWindows} of ${windows.length} window(s) produced an out-of-sample result, need at least ${SAVE_GATE.minContributingWindows}`,
+      reason: `Only ${contributingWindows} of ${windows.length} window(s) produced an out-of-sample result, need at least ${SAVE_GATE.minContributingWindows} contributing windows`,
       contributingWindows,
       avgOosExpectancyPercent: contributingWindows > 0
         ? contributing.reduce((sum, window) => sum + window.oosMetrics.expectancyPercent, 0) / contributingWindows

@@ -38,6 +38,7 @@
 import type { OHLCV } from '@/types/market';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { calculateWindows } from '@/lib/optimization/walk-forward';
+import type { FeeProfileName } from '@/lib/backtest/cost-model';
 
 import {
   FACTOR_DECAY_HORIZON_BARS,
@@ -442,6 +443,10 @@ export interface ExposureWalkForwardInput {
   interval: string;
   windows: { count: number; trainFraction: number; mode: 'rolling' | 'anchored' };
   stress: { feeMultiplier: number; slippageMultiplier: number };
+  /** Fee schedule every simulateExposure call in this run prices under
+   * (nominal and stressed alike). Default: DEFAULT_FEE_PROFILE ('standard'),
+   * byte-identical to before this field existed. */
+  feeProfile?: FeeProfileName;
   onWindow?: (info: { index: number; total: number; ms: number }) => void;
 }
 
@@ -465,9 +470,11 @@ export function runExposureWalkForward(input: ExposureWalkForwardInput): Exposur
   const gridCells = expandExposureGrid();
   const windowConfig = resolveExposureWindowConfig(usableBars, interval, input.windows);
 
+  const nominalOptions: ExposureOptions = { feeProfile: input.feeProfile };
   const stressOptions: ExposureOptions = {
     feeMultiplier: input.stress.feeMultiplier,
     slippageMultiplier: input.stress.slippageMultiplier,
+    feeProfile: input.feeProfile,
   };
 
   const windows: ExposureWindowRun[] = [];
@@ -484,7 +491,7 @@ export function runExposureWalkForward(input: ExposureWalkForwardInput): Exposur
       const params = gridCells[cellIndex];
       const smoothed = preSmooth(trainSymbols, params.smoothing);
       const grid = gridFor(params, { gross, interval });
-      const result = simulateExposure(smoothed, grid, {});
+      const result = simulateExposure(smoothed, grid, nominalOptions);
       isRuns.set(cellIndex, result);
       isCells.push(summarizeCell(params, result));
     }
@@ -503,8 +510,8 @@ export function runExposureWalkForward(input: ExposureWalkForwardInput): Exposur
         params: selectedParams,
         symbols: smoothedTest,
         grid,
-        options: {},
-        result: simulateExposure(smoothedTest, grid, {}),
+        options: nominalOptions,
+        result: simulateExposure(smoothedTest, grid, nominalOptions),
       };
       oosStressed = {
         window: index,
@@ -549,8 +556,8 @@ export function runExposureWalkForward(input: ExposureWalkForwardInput): Exposur
         params,
         symbols: smoothed,
         grid,
-        options: {},
-        result: simulateExposure(smoothed, grid, {}),
+        options: nominalOptions,
+        result: simulateExposure(smoothed, grid, nominalOptions),
       });
     }
   }

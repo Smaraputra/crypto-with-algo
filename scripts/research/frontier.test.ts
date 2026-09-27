@@ -2,8 +2,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAKER_ROUND_TRIP_PERCENT,
+  RECORDED_CONTROL_SD_PERCENT,
   formatFrontier,
   frontierRow,
+  leverageRows,
+  liquidationDistancePercent,
   parseArgs,
   requiredIc,
   sdPerTradeFromCi,
@@ -107,4 +110,39 @@ describe('frontier parseArgs', () => {
     expect(() => parseArgs(['--reports', 'a', '--trades-per-day', '4,x'])).toThrow(/--trades-per-day/);
     expect(() => parseArgs(['--reports', 'a', '--trades-per-day', '4,-8'])).toThrow(/--trades-per-day/);
   });
+});
+
+describe('profiles block', () => {
+  it('prices the same row under standard, bnb and the promotion for BTCUSDT', () => {
+    const row = frontierRow(CONTROL_1H, { notionalUsdt: 50, targetPerDayUsdt: 0.5, tradesPerDay: [8], feeProfile: 'standard' });
+    const byName = Object.fromEntries(row.profiles.map((p) => [p.profile, p]));
+    expect(byName.standard.costTakerPercent).toBeCloseTo(0.16, 10);
+    expect(byName.bnb.costTakerPercent).toBeCloseTo(0.15, 10);
+    expect(byName['promo-btc-eth-2026-07'].costTakerPercent).toBeCloseTo(0.132, 10);
+    expect(byName['promo-btc-eth-2026-07'].costMakerPercent).toBe(0);
+    expect(byName['promo-btc-eth-2026-07'].breakevenIcMaker).toBe(0);
+    expect(byName.standard.breakevenIcTaker).toBeCloseTo(0.0175, 3);
+  });
+});
+
+describe('leverage arithmetic', () => {
+  it('scales the round trip with notional, not with edge', () => {
+    const rows = leverageRows(100, [1, 10, 20], 0.072);
+    expect(rows[1]).toEqual({ leverage: 10, notionalUsdt: 1000, costUsdt: 0.72, costPercentOfAccount: 0.72 });
+    expect(rows[2].costPercentOfAccount).toBeCloseTo(1.44, 10);
+  });
+  it('liquidation distance is 1/L minus the maintenance margin, in percent', () => {
+    expect(liquidationDistancePercent(20)).toBeCloseTo(4.6, 10);
+    expect(liquidationDistancePercent(50, 0.005)).toBeCloseTo(1.5, 10);
+  });
+});
+
+it('parseArgs takes --fee-profile and rejects an unknown one', () => {
+  expect(parseArgs(['--reports', 'a.json']).feeProfile).toBe('standard');
+  expect(parseArgs(['--reports', 'a.json', '--fee-profile', 'bnb']).feeProfile).toBe('bnb');
+  expect(() => parseArgs(['--reports', 'a.json', '--fee-profile', 'vip9'])).toThrow(/Unknown --fee-profile/);
+});
+
+it('RECORDED_CONTROL_SD_PERCENT carries the five recorded intervals', () => {
+  expect(RECORDED_CONTROL_SD_PERCENT).toEqual({ '5m': 0.78, '15m': 2.04, '1h': 4.56, '4h': 9.21, '1d': 15.92 });
 });

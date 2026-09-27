@@ -204,6 +204,14 @@ export async function runMonthlyOptimization(
       let newTemplate: Awaited<ReturnType<typeof createTemplateVersion>> | null = null;
 
       if (gate.pass) {
+        // Defensive: the save gate already refuses whenever no window
+        // contributed (which is exactly when optimizedWeights is null), so
+        // this should be unreachable. Refuse loudly rather than saving a
+        // template against default weights if that invariant ever breaks.
+        if (!result.optimizedWeights) {
+          throw new Error('save gate passed without an ensemble; refusing to save default weights as optimized');
+        }
+
         // The template stores the thresholds its weights were optimized
         // against. Walk-forward always backtests with the style defaults, so
         // borrowing an active template's thresholds could pair weights with

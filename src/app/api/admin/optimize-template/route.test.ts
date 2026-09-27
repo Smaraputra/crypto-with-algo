@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { POST } from './route';
+import { passesSaveGate } from '@/lib/optimization/save-gate';
 
 // Mock dependencies
 const mockConnectDB = vi.fn();
@@ -54,6 +55,19 @@ vi.mock('@/lib/models/signal-template', () => ({
     position_trading: { buyThreshold: 0.3, sellThreshold: -0.3 },
   },
 }));
+
+// Wraps the real passesSaveGate so every existing test keeps exercising real
+// gate behaviour from the windows it constructs, while one test forces
+// pass: true via mockImplementationOnce to reach the defensive
+// optimizedWeights-null guard that real gate/walk-forward wiring can never
+// reach on its own.
+vi.mock('@/lib/optimization/save-gate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/optimization/save-gate')>();
+  return {
+    ...actual,
+    passesSaveGate: vi.fn(actual.passesSaveGate),
+  };
+});
 
 vi.mock('@/types/optimization', () => ({
   DEFAULT_OPTIMIZATION_CONFIG: {
@@ -439,6 +453,64 @@ describe('POST /api/admin/optimize-template', () => {
     // Verify job was marked as failed
     expect(mockJob.status).toBe('failed');
     expect(mockJob.error).toBe('Walk-forward failed');
+  });
+
+  it('marks the job failed when the save gate passes but optimizedWeights is null', async () => {
+    // The gate.pass branch's defensive guard (result.optimizedWeights is
+    // null) is unreachable under real passesSaveGate/runWalkForward wiring:
+    // an empty ensemble always means zero contributing windows, which the
+    // real gate always refuses. Force gate.pass: true here to reach it and
+    // confirm the throw actually fails the job (caught by this route's
+    // existing catch path), rather than being silently swallowed.
+    process.env.ADMIN_EMAIL = 'admin@example.com';
+    mockAuth.mockResolvedValue({ user: { email: 'admin@example.com' } });
+
+    const candles = generateCandles(500);
+    mockGetCandles.mockResolvedValue(candles);
+
+    const mockJob = {
+      _id: { toString: () => 'job123' },
+      status: 'pending',
+      startedAt: null,
+      completedAt: null,
+      optimizedWeights: null,
+      ensembleResults: [],
+      templateVersion: null,
+      error: null,
+      progress: { candidatesTested: 0, validResults: 0 },
+      save: mockJobSave,
+    };
+    mockJobCreate.mockResolvedValue(mockJob);
+    mockJobSave.mockResolvedValue(mockJob);
+
+    mockRunWalkForward.mockResolvedValue({
+      optimizedWeights: null,
+      ensembleResults: [],
+      windows: [
+        { trainStart: 0, trainEnd: 299, testStart: 300, testEnd: 399, oosMetrics: null, robustCandidates: 0 },
+      ],
+    });
+
+    const mockedGate = vi.mocked(passesSaveGate);
+    mockedGate.mockImplementationOnce(() => ({
+      pass: true,
+      reason: null,
+      contributingWindows: 3,
+      avgOosExpectancyPercent: 1.5,
+    }));
+
+    const response = await POST(makeRequest({
+      tradingStyle: 'scalping', symbol: 'BTCUSDT', interval: '1m', months: 6,
+    }));
+    const data = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(data.error).toBe('Internal server error');
+
+    expect(mockJob.status).toBe('failed');
+    expect(mockJob.error).toContain('save gate passed without an ensemble');
+    expect(mockCreateTemplateVersion).not.toHaveBeenCalled();
+    expect(mockMarkResultsAsContributors).not.toHaveBeenCalled();
   });
 
   it('should handle database connection errors', async () => {
