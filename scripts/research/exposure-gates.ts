@@ -200,7 +200,19 @@ export interface ExposurePooledStats {
   /** All out-of-sample bars, exposure or not. */
   barsTotal: number;
   exposureShare: number;
+  /** Mean of |netExposure| over the concatenated selected bars. Near zero for
+   * a rank scheme, which rebalances the whole book to sum to zero on every
+   * complete bar; nonzero for `tanh`, whose per-symbol targets have no such
+   * constraint. */
+  meanAbsNetExposure: number;
   meanReturnPercent: number | null;
+  /** Per-bar return contribution summed over symbols held long, pooled and
+   * expressed in percent like `meanReturnPercent`. Null only when there are
+   * no bars at all (same condition as `meanReturnPercent`). */
+  longLegMeanReturnPercent: number | null;
+  /** Per-bar return contribution summed over symbols held short, pooled and
+   * expressed in percent like `meanReturnPercent`. */
+  shortLegMeanReturnPercent: number | null;
   /** Per-period Sharpe, not annualized, matching src/lib/stats. */
   sharpe: number | null;
   sharpeCi95: [number, number] | null;
@@ -217,6 +229,10 @@ export interface ExposurePooledStats {
   jackknifeTotal: number;
   jackknifePositive: number;
   jackknifeWorstMeanReturnPercent: number | null;
+  /** The drop-one-symbol jackknife, restricted to BTCUSDT: the pooled mean
+   * return with BTCUSDT's own contribution subtracted out. Null when
+   * BTCUSDT is not in `universe`, never computed from cell membership alone. */
+  jackknifeWithoutBtcMeanReturnPercent: number | null;
   timingDraws: number;
   timingP: number | null;
   trials: number;
@@ -288,6 +304,14 @@ export function poolExposureResults(
   const random = options.benchmarkRandom ?? createSeededRandom(options.seed);
 
   const netReturns: number[] = [];
+  // Net exposure, and the two legs' return contributions, concatenated in
+  // lockstep with `netReturns` -- same cell, same index `i`, same finiteness
+  // gate -- so a pooled mean of any one of them lines up bar for bar with the
+  // others. This is what makes the per-leg identity (long + short = net -
+  // cost - funding) hold on the POOLED means, not just per bar.
+  const netExposureAbs: number[] = [];
+  const longLegValues: number[] = [];
+  const shortLegValues: number[] = [];
   const perSymbolContributions = new Map<string, number[]>();
   for (const symbol of universe) perSymbolContributions.set(symbol, []);
 
@@ -301,6 +325,9 @@ export function poolExposureResults(
       const r = cell.result.netReturns[i];
       if (!Number.isFinite(r)) continue;
       netReturns.push(r);
+      netExposureAbs.push(Math.abs(cell.result.netExposure[i]));
+      longLegValues.push(cell.result.longLegReturns[i]);
+      shortLegValues.push(cell.result.shortLegReturns[i]);
       barsTotal++;
       if (cell.result.grossExposure[i] > 0) barsHeld++;
     }
@@ -315,6 +342,11 @@ export function poolExposureResults(
   }
 
   const meanReturnPercent = netReturns.length > 0 ? meanOf(netReturns) * 100 : null;
+  const meanAbsNetExposure = netExposureAbs.length > 0 ? meanOf(netExposureAbs) : 0;
+  const longLegMeanReturnPercent =
+    longLegValues.length > 0 ? meanOf(longLegValues) * 100 : null;
+  const shortLegMeanReturnPercent =
+    shortLegValues.length > 0 ? meanOf(shortLegValues) * 100 : null;
   const sharpe = netReturns.length > 1 ? toFinite(perPeriodSharpe(netReturns)) : null;
 
   // Block length from the holding horizon, never cbrt(n). Imported lazily to
@@ -372,6 +404,17 @@ export function poolExposureResults(
       jackknifeWorst = mean;
     }
   }
+
+  // Drop-BTC jackknife: the same machinery, restricted to BTCUSDT. Gated on
+  // `universe` membership, not on whether a selected cell happens to have
+  // traded it -- BTCUSDT absent from the universe means the question does
+  // not apply, regardless of what any individual cell's symbols were.
+  const jackknifeWithoutBtcMeanReturnPercent = universe.includes('BTCUSDT')
+    ? (() => {
+        const without = subtractPerSymbol(selected, 'BTCUSDT');
+        return without.length > 0 ? meanOf(without) * 100 : null;
+      })()
+    : null;
 
   // Timing: circular block shuffle of every symbol's z column, run through the
   // identical machinery, and count how often the shuffled portfolio's mean
@@ -493,7 +536,10 @@ export function poolExposureResults(
     barsHeld,
     barsTotal,
     exposureShare: barsTotal > 0 ? barsHeld / barsTotal : 0,
+    meanAbsNetExposure,
     meanReturnPercent,
+    longLegMeanReturnPercent,
+    shortLegMeanReturnPercent,
     sharpe,
     sharpeCi95,
     maxDrawdownPercent,
@@ -507,6 +553,7 @@ export function poolExposureResults(
     jackknifeTotal,
     jackknifePositive,
     jackknifeWorstMeanReturnPercent: jackknifeWorst === null ? null : jackknifeWorst * 100,
+    jackknifeWithoutBtcMeanReturnPercent,
     timingDraws,
     timingP,
     trials: options.trials,

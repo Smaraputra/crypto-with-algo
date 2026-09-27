@@ -813,7 +813,12 @@ const ExposurePooledStatsSchema = z.object({
   barsHeld: z.number(),
   barsTotal: z.number(),
   exposureShare: z.number(),
+  // Optional so reports written before the rank-book fields (2026-09-27)
+  // still validate.
+  meanAbsNetExposure: z.number().optional(),
   meanReturnPercent: z.number().nullable(),
+  longLegMeanReturnPercent: z.number().nullable().optional(),
+  shortLegMeanReturnPercent: z.number().nullable().optional(),
   sharpe: z.number().nullable(),
   sharpeCi95: z.tuple([z.number(), z.number()]).nullable(),
   maxDrawdownPercent: z.number().nullable(),
@@ -831,6 +836,7 @@ const ExposurePooledStatsSchema = z.object({
   jackknifeTotal: z.number(),
   jackknifePositive: z.number(),
   jackknifeWorstMeanReturnPercent: z.number().nullable(),
+  jackknifeWithoutBtcMeanReturnPercent: z.number().nullable().optional(),
   timingDraws: z.number(),
   timingP: z.number().nullable(),
   trials: z.number(),
@@ -891,6 +897,17 @@ export const ExposureReportSchema = z.object({
   // Optional so reports written before 2026-09-26 (the fee-profile flag)
   // still validate.
   feeProfile: z.string().optional(),
+  // Optional so reports written before the rank-book container (2026-09-27)
+  // still validate. 'mode' distinguishes a tanh run from a rank run;
+  // 'factorSign', 'minCrossSection', 'fill' and 'excludedSymbols' mirror the
+  // simulator options a rank run carries, and 'selectMetric' names the grid
+  // selection metric.
+  mode: z.string().optional(),
+  factorSign: z.number().optional(),
+  minCrossSection: z.number().optional(),
+  selectMetric: z.string().optional(),
+  fill: z.string().optional(),
+  excludedSymbols: z.array(z.string()).optional(),
   costs: z.object({
     feePercent: z.number(),
     slippageBps: z.number(),
