@@ -98,17 +98,46 @@ export interface ExposureSymbolInput {
   z: number[];
 }
 
+/**
+ * How a bar's target is formed.
+ *
+ * `tanh`: per symbol, independent of every other symbol, from `targetExposure`.
+ * The default, and the path every existing report was measured on.
+ *
+ * `topBottom` / `linearRank`: JOINTLY across the cross-section, from
+ * `crossSectionalTargets`. Long the k lowest (or the whole ranked book for
+ * `linearRank`) readings and short the k highest under `factorSign`,
+ * dollar-neutral and unit-gross by construction, so `grid.gross` is not
+ * applied to these two.
+ */
+export type TargetScheme = 'tanh' | 'topBottom' | 'linearRank';
+
 export interface ExposureGrid {
   /** Rebalance only when |target - held| exceeds this. 0 rebalances every bar. */
   band: number;
-  /** target = -tanh(z / zScale), in (-1, +1). The sign is contrarian. */
+  /** target = -tanh(z / zScale), in (-1, +1). The sign is contrarian. Read
+   * only when `scheme` is 'tanh' (the default). */
   zScale: number;
   /** Trailing bars averaged into the signal. 0 is no smoothing. */
   smoothing: number;
-  /** Divisor normalising the summed raw targets to a unit gross book. */
+  /** Divisor normalising the summed raw targets to a unit gross book. Not
+   * applied to `topBottom` / `linearRank`, which are unit-gross already. */
   gross: number;
   /** Trading interval, used only to look up the study slippage budget. */
   interval: string;
+  /** How the bar's target is formed. Default 'tanh', byte-identical to
+   * before this field existed. */
+  scheme?: TargetScheme;
+  /** Symbols per leg for `topBottom` (k). Default 1. Unused by 'tanh' and
+   * 'linearRank'. */
+  legs?: number;
+  /** Sign under which a HIGH reading is long. Default 1. Multiplies the
+   * signal before ranking; every rank-scheme reasoning in this module is
+   * stated for `factorSign: -1` (a high reading is crowded, so short it). */
+  factorSign?: 1 | -1;
+  /** Minimum finite readings required to form a rank target; below it every
+   * symbol holds (NaN). Default 5. Unused by 'tanh'. */
+  minCrossSection?: number;
 }
 
 export interface ExposureOptions {
@@ -121,6 +150,10 @@ export interface ExposureOptions {
    * Default: DEFAULT_FEE_PROFILE ('standard'), byte-identical to before this
    * option existed. */
   feeProfile?: FeeProfileName;
+  /** 'maker' prices turnover at the resolved profile's makerFeePercent with
+   * zero slippage (still scaled by feeMultiplier); default 'taker' is
+   * byte-identical to before this option existed. */
+  fill?: 'taker' | 'maker';
 }
 
 export interface ExposureSymbolResult {
@@ -150,6 +183,14 @@ export interface ExposureResult {
   costReturns: number[];
   /** Funding charge per bar, always <= 0 (its sign already carries the side). */
   fundingReturns: number[];
+  /** Net (signed) exposure per bar: sum of held weights, not their
+   * magnitude. Zero (within float tolerance) on every traded bar of a
+   * dollar-neutral rank scheme. */
+  netExposure: number[];
+  /** Per-bar return contribution summed over symbols held long (held > 0). */
+  longLegReturns: number[];
+  /** Per-bar return contribution summed over symbols held short (held < 0). */
+  shortLegReturns: number[];
   perSymbol: ExposureSymbolResult[];
   /** Bars in the common grid. */
   bars: number;
@@ -188,6 +229,120 @@ const EPSILON = 1e-12;
 export function targetExposure(z: number, zScale: number): number {
   if (!Number.isFinite(z) || !Number.isFinite(zScale) || zScale <= 0) return Number.NaN;
   return -Math.tanh(z / zScale);
+}
+
+/**
+ * Joint cross-sectional target for `topBottom` / `linearRank`: unlike
+ * `targetExposure`, every symbol's weight depends on where its reading falls
+ * relative to the OTHERS at the same bar, not just its own magnitude.
+ *
+ * `factorSign` is applied first (multiplying every finite reading), so
+ * everything below is stated in terms of the SIGNED value: a higher signed
+ * value ranks toward the long leg. Symbols with a non-finite reading are
+ * excluded from the ranking and their own output is NaN, which every caller
+ * treats as "hold, do not trade" exactly like `targetExposure`'s NaN.
+ *
+ * Below `minCrossSection` finite readings, every symbol holds (the whole
+ * output is NaN) rather than ranking a too-thin cross-section.
+ *
+ * Ties (equal signed value) are broken by ascending original index, so the
+ * assignment is deterministic and stable under any array reordering that
+ * preserves index identity.
+ *
+ * `topBottom`: the `legs` (k) symbols at the HEAD of the descending-signed
+ * sort (the highest signed values) each get `+1 / (2k)`; the `legs` at the
+ * TAIL (the lowest signed values) each get `-1 / (2k)`. Every other symbol is
+ * 0. Throws if `2 * legs` exceeds the finite count, since the two legs would
+ * otherwise overlap.
+ *
+ * `linearRank`: every finite symbol gets a rank from 1 (lowest signed value)
+ * to n (highest), weight `(rank - (n+1)/2) / sum_{r=1..n} |r - (n+1)/2|`, so
+ * the weights sum to (near) zero and the largest magnitude is at the two
+ * extremes.
+ *
+ * Both schemes are unit-gross by construction (sum of |weight| = 1), which is
+ * asserted below as a debug check: it should be true by the arithmetic alone,
+ * and a violation means the arithmetic above has a bug.
+ */
+export function crossSectionalTargets(
+  signals: readonly number[],
+  grid: Pick<ExposureGrid, 'scheme' | 'legs' | 'factorSign' | 'minCrossSection'>
+): number[] {
+  const n = signals.length;
+  const factorSign = grid.factorSign ?? 1;
+  const minCrossSection = grid.minCrossSection ?? 5;
+  const scheme = grid.scheme;
+
+  const out = new Array<number>(n).fill(Number.NaN);
+
+  const signed = signals.map((z) => (Number.isFinite(z) ? z * factorSign : Number.NaN));
+  const finiteIndices: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(signed[i])) finiteIndices.push(i);
+  }
+  if (finiteIndices.length < minCrossSection) return out;
+
+  // Descending by signed value (highest signed value = most long), ties
+  // broken by ascending original index. Explicit index tie-break rather than
+  // relying on sort stability, so the order is deterministic regardless of
+  // engine.
+  const sorted = [...finiteIndices].sort((a, b) => signed[b] - signed[a] || a - b);
+  const m = sorted.length;
+
+  if (scheme === 'topBottom') {
+    const legs = grid.legs ?? 1;
+    if (2 * legs > m) {
+      throw new Error(
+        `crossSectionalTargets: legs=${legs} needs ${2 * legs} finite readings, only ${m} available`
+      );
+    }
+    const w = 1 / (2 * legs);
+    for (const i of sorted) out[i] = 0;
+    for (let i = 0; i < legs; i++) out[sorted[i]] = w;
+    for (let i = 0; i < legs; i++) out[sorted[m - 1 - i]] = -w;
+  } else if (scheme === 'linearRank') {
+    const centre = (m + 1) / 2;
+    // sorted[0] is the highest signed value, which is rank m (most long).
+    const centred = sorted.map((_, i) => m - i - centre);
+    const denom = centred.reduce((acc, c) => acc + Math.abs(c), 0);
+    for (let i = 0; i < m; i++) {
+      out[sorted[i]] = denom > 0 ? centred[i] / denom : 0;
+    }
+  } else {
+    throw new Error(`crossSectionalTargets: unsupported scheme ${String(scheme)}`);
+  }
+
+  const sum = out.reduce((acc, v) => acc + (Number.isFinite(v) ? v : 0), 0);
+  if (Math.abs(sum) > EPSILON) {
+    throw new Error(`crossSectionalTargets: weights not dollar neutral, sum=${sum}`);
+  }
+
+  return out;
+}
+
+/**
+ * The largest single-symbol weight a scheme can produce over a universe of
+ * `universeSize` symbols: `1 / (2 * legs)` for `topBottom` (independent of
+ * universe size, since only the two legs' k symbols ever carry weight), and
+ * the centred top rank over the rank sum for `linearRank`.
+ *
+ * Used to express a `band` as a fraction of the scheme's own scale, since
+ * `topBottom` k=1 and `linearRank` on ten symbols do not share a native unit.
+ */
+export function maxRankWeight(scheme: TargetScheme, legs: number | undefined, universeSize: number): number {
+  if (scheme === 'topBottom') {
+    const k = legs ?? 1;
+    return 1 / (2 * k);
+  }
+  if (scheme === 'linearRank') {
+    const n = universeSize;
+    const centre = (n + 1) / 2;
+    let denom = 0;
+    for (let r = 1; r <= n; r++) denom += Math.abs(r - centre);
+    const numerator = n - centre;
+    return denom > 0 ? numerator / denom : 0;
+  }
+  throw new Error(`maxRankWeight: unsupported scheme ${String(scheme)}`);
 }
 
 /**
@@ -266,6 +421,9 @@ export function simulateExposure(
       grossExposure: [],
       costReturns: [],
       fundingReturns: [],
+      netExposure: [],
+      longLegReturns: [],
+      shortLegReturns: [],
       perSymbol: [],
       bars: 0,
       incompleteBars: 0,
@@ -281,10 +439,18 @@ export function simulateExposure(
   // slippage budget to 0 bps rather than to each other: they are separate
   // costs and conflating them would silently change the stress multipliers'
   // meaning.
+  const fill = options.fill ?? 'taker';
   const costPerUnitTurnover = symbols.map((s) => {
     const c = studyCostConfig(grid.interval, { profile: options.feeProfile, symbol: s.symbol });
-    const fee = (c.takerFeePercent ?? 0) * (options.feeMultiplier ?? 1);
-    const slippage = ((c.slippageBps ?? 0) / 10000) * (options.slippageMultiplier ?? 1);
+    // Maker: the resolved profile's maker rate, still scaled by feeMultiplier,
+    // and zero slippage -- a resting order does not cross the book. Taker
+    // (default): unchanged from before this option existed.
+    const fee =
+      fill === 'maker'
+        ? (c.makerFeePercent ?? 0) * (options.feeMultiplier ?? 1)
+        : (c.takerFeePercent ?? 0) * (options.feeMultiplier ?? 1);
+    const slippage =
+      fill === 'maker' ? 0 : ((c.slippageBps ?? 0) / 10000) * (options.slippageMultiplier ?? 1);
     return fee + slippage;
   });
 
@@ -314,6 +480,9 @@ export function simulateExposure(
   const grossSeries: number[] = [];
   const costSeries: number[] = [];
   const fundingSeries: number[] = [];
+  const netExposureSeries: number[] = [];
+  const longLegSeries: number[] = [];
+  const shortLegSeries: number[] = [];
   const perSymbolReturns: number[][] = symbols.map(() => []);
 
   let incompleteBars = 0;
@@ -326,20 +495,33 @@ export function simulateExposure(
   const returns: number[][] = symbols.map(() => []);
   const targets: number[][] = symbols.map(() => []);
 
+  // 'topBottom' / 'linearRank' form the target JOINTLY across symbols, so it
+  // has to be computed once per bar over every symbol's signal before the
+  // per-symbol loop below, rather than per symbol like the tanh path. The
+  // tanh branch (scheme undefined or 'tanh') is untouched so its numbers stay
+  // byte-identical to before this scheme existed.
+  const isRankScheme = grid.scheme === 'topBottom' || grid.scheme === 'linearRank';
+
   // Bar t earns the return t -> t+1, so the last bar has no return to earn and
   // is never traded into.
   for (let t = 0; t < length - 1; t++) {
     let complete = true;
 
+    const rankTargets: number[] | null = isRankScheme
+      ? crossSectionalTargets(symbols.map((_, s) => signal[s][t]), grid)
+      : null;
+
     for (let s = 0; s < symbols.length; s++) {
       const r = barReturn(symbols[s].closes, t);
-      const raw = targetExposure(signal[s][t], grid.zScale);
+      const raw = rankTargets ? rankTargets[s] : targetExposure(signal[s][t], grid.zScale);
       if (!Number.isFinite(r) || gridGaps(symbols[s].timestamps, t)) {
         complete = false;
         break;
       }
       returns[s].push(r);
-      targets[s].push(Number.isFinite(raw) ? raw / gross : Number.NaN);
+      // Rank-scheme targets are unit-gross already; the tanh raw target is
+      // divided by the gross cap, exactly as before this scheme existed.
+      targets[s].push(Number.isFinite(raw) ? (rankTargets ? raw : raw / gross) : Number.NaN);
     }
 
     if (!complete) {
@@ -365,6 +547,9 @@ export function simulateExposure(
       grossSeries.push(0);
       costSeries.push(0);
       fundingSeries.push(0);
+      netExposureSeries.push(0);
+      longLegSeries.push(0);
+      shortLegSeries.push(0);
       continue;
     }
 
@@ -373,6 +558,9 @@ export function simulateExposure(
     let grossThisBar = 0;
     let returnThisBar = 0;
     let turnoverThisBar = 0;
+    let netExposureThisBar = 0;
+    let longLegThisBar = 0;
+    let shortLegThisBar = 0;
 
     for (let s = 0; s < symbols.length; s++) {
       const previous = held[s][t];
@@ -401,6 +589,9 @@ export function simulateExposure(
       returnThisBar += contribution;
       grossThisBar += Math.abs(exposure);
       perSymbolReturns[s].push(contribution);
+      netExposureThisBar += exposure;
+      if (exposure > 0) longLegThisBar += contribution;
+      else if (exposure < 0) shortLegThisBar += contribution;
 
       const rate = symbols[s].fundingRates[t];
       if (Number.isFinite(rate) && exposure !== 0) {
@@ -425,6 +616,9 @@ export function simulateExposure(
     grossSeries.push(grossThisBar);
     costSeries.push(-costThisBar);
     fundingSeries.push(fundingThisBar);
+    netExposureSeries.push(netExposureThisBar);
+    longLegSeries.push(longLegThisBar);
+    shortLegSeries.push(shortLegThisBar);
   }
 
   const meanBarsBetweenRebalances = meanBarsBetweenRebalancesOf(rebalanceCounts, turnoverSeries.length);
@@ -435,6 +629,9 @@ export function simulateExposure(
     grossExposure: grossSeries,
     costReturns: costSeries,
     fundingReturns: fundingSeries,
+    netExposure: netExposureSeries,
+    longLegReturns: longLegSeries,
+    shortLegReturns: shortLegSeries,
     perSymbol: symbols.map((s, index) => {
       const contributions = perSymbolReturns[index];
       const finite = contributions.filter((v) => Number.isFinite(v));

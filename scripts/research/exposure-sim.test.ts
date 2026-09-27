@@ -6,9 +6,12 @@ import {
   FACTOR_DECAY_HORIZON_BARS,
   bootstrapBlockLength,
   circularBlockShuffle,
+  crossSectionalTargets,
+  maxRankWeight,
   simulateExposure,
   targetExposure,
   trailingMean,
+  type ExposureGrid,
   type ExposureSymbolInput,
 } from './exposure-sim';
 
@@ -31,6 +34,41 @@ const COST_PER_UNIT = BINANCE_FUTURES_TAKER_FEE + STUDY_SLIPPAGE_BPS['1d'] / 100
 /** The weight a reading produces, so a test's hand-computed cost is derived
  * rather than a magic number copied out of a run. */
 const W = (z: number, zScale = 1): number => targetExposure(z, zScale);
+
+/** Five symbols on one shared four-bar grid, for the cross-sectional target
+ * tests. Symbol index 3's bar-0 reading (40) is deliberately not the extreme
+ * of the five (10..50), so a topBottom k=1 pick never selects it at bar 0 --
+ * that is what keeps a carried-forward NaN at bar 1 dollar neutral. `nanAt`
+ * overrides one symbol's reading at one bar to NaN. */
+function fiveSymbolFixture(options: { nanAt?: { symbol: number; bar: number } } = {}): ExposureSymbolInput[] {
+  const z = [
+    [10, 15, 12, 1],
+    [20, 25, 22, 2],
+    [30, 35, 55, 3],
+    [40, 45, 42, 4],
+    [50, 5, 8, 5],
+  ];
+  const closes = [
+    [100, 102, 101, 103],
+    [100, 105, 103, 108],
+    [100, 98, 99, 97],
+    [100, 101, 102, 100],
+    [100, 110, 108, 112],
+  ];
+  const rates = [0, 0, 0, 0];
+  return z.map((symbolZ, index) => {
+    const values = [...symbolZ];
+    if (options.nanAt && options.nanAt.symbol === index) {
+      values[options.nanAt.bar] = Number.NaN;
+    }
+    return daily(values, closes[index], rates, `SYM${index}USDT`);
+  });
+}
+
+/** Grid shared by the rank-scheme describe block below: tanh by default
+ * (`scheme` unset), zScale large enough to be well past saturation for the
+ * fixture's readings, so every traded bar's target magnitude clears the band. */
+const baseGrid: ExposureGrid = { band: 0.05, zScale: 3, smoothing: 0, gross: 1, interval: '1d' };
 
 describe('targetExposure', () => {
   it('is contrarian and saturating, never reaching full size', () => {
@@ -494,5 +532,64 @@ describe('bootstrapBlockLength', () => {
 describe('FUNDING_INTERVAL_MS sanity', () => {
   it('is the 8h grid the crossings helper is built on', () => {
     expect(FUNDING_INTERVAL_MS).toBe(8 * 60 * 60 * 1000);
+  });
+});
+
+describe('crossSectionalTargets', () => {
+  const grid = { scheme: 'topBottom' as const, legs: 1, factorSign: -1 as const, minCrossSection: 5 };
+  it('topBottom k=1 goes long the lowest and short the highest reading under factorSign -1, unit gross, zero net', () => {
+    const w = crossSectionalTargets([0.5, 0.1, 0.9, 0.3, 0.7], grid);
+    expect(w).toEqual([0, 0.5, -0.5, 0, 0]);
+    expect(w.reduce((a, b) => a + Math.abs(b), 0)).toBeCloseTo(1, 12);
+    expect(w.reduce((a, b) => a + b, 0)).toBeCloseTo(0, 12);
+  });
+  it('topBottom k=2 splits each leg across two symbols', () => {
+    const w = crossSectionalTargets([0.5, 0.1, 0.9, 0.3, 0.7], { ...grid, legs: 2 });
+    expect(w).toEqual([0, 0.25, -0.25, 0.25, -0.25]);
+  });
+  it('linearRank weights are proportional to rank minus the mean rank, scaled to unit gross', () => {
+    const w = crossSectionalTargets([0.5, 0.1, 0.9, 0.3, 0.7], { ...grid, scheme: 'linearRank' });
+    // factorSign -1: lowest reading gets the highest rank. ranks (high=long): [3,5,1,4,2]; centre (n+1)/2 = 3; centred [0,2,-2,1,-1]; sum|.| = 6
+    expect(w.map((x) => Number(x.toFixed(6)))).toEqual([0, 0.333333, -0.333333, 0.166667, -0.166667]);
+    expect(w.reduce((a, b) => a + b, 0)).toBeCloseTo(0, 12);
+  });
+  it('holds (all NaN) below the minimum cross-section and ignores NaN readings above it', () => {
+    expect(crossSectionalTargets([0.5, NaN, 0.9, NaN, 0.7], grid).every(Number.isNaN)).toBe(true);
+    const w = crossSectionalTargets([0.5, NaN, 0.9, 0.3, 0.7, 0.2], { ...grid, minCrossSection: 4 });
+    expect(Number.isNaN(w[1])).toBe(true);
+    expect(w.reduce((a, b) => a + (Number.isNaN(b) ? 0 : b), 0)).toBeCloseTo(0, 12);
+  });
+  it('breaks ties by symbol order: descending signed value, ties by ascending index, long leg from the head, short leg from the tail', () => {
+    // signed (factorSign -1): [-0.2, -0.2, -0.9, -0.9, -0.5]; sorted: idx0, idx1, idx4, idx2, idx3
+    expect(crossSectionalTargets([0.2, 0.2, 0.9, 0.9, 0.5], grid)).toEqual([0.5, 0, 0, -0.5, 0]);
+  });
+  it('maxRankWeight is 1/(2k) for topBottom and the centred top rank over the rank sum for linearRank', () => {
+    expect(maxRankWeight('topBottom', 1, 10)).toBe(0.5);
+    expect(maxRankWeight('topBottom', 2, 10)).toBe(0.25);
+    expect(maxRankWeight('linearRank', undefined, 10)).toBeCloseTo(4.5 / 25, 12);
+  });
+});
+
+describe('simulateExposure rank scheme', () => {
+  const symbols = fiveSymbolFixture();
+  const grid = baseGrid;
+
+  it('is dollar neutral on every traded bar, including bars with a NaN signal', () => {
+    // five symbols, four bars; symbol 3 has NaN at bar 1
+    const result = simulateExposure(fiveSymbolFixture({ nanAt: { symbol: 3, bar: 1 } }), { ...baseGrid, scheme: 'topBottom', legs: 1, factorSign: -1, minCrossSection: 4, band: 0 });
+    for (const n of result.netExposure) expect(Math.abs(n)).toBeLessThan(1e-9);
+    expect(result.longLegReturns.length).toBe(result.netReturns.length);
+  });
+  it('the tanh path is unchanged: scheme undefined equals scheme tanh equals the recorded fixture numbers', () => {
+    const a = simulateExposure(symbols, grid);
+    const b = simulateExposure(symbols, { ...grid, scheme: 'tanh' });
+    expect(b.netReturns).toEqual(a.netReturns);
+    expect(b.turnover).toEqual(a.turnover);
+  });
+  it('maker fill charges the maker fee and no slippage', () => {
+    const taker = simulateExposure(symbols, grid);
+    const maker = simulateExposure(symbols, grid, { fill: 'maker' });
+    // first traded bar: cost = delta x (0.0002 + 0) under standard maker vs delta x (0.0005 + slippage)
+    expect(maker.costReturns[0]).toBeCloseTo(taker.costReturns[0] * (0.0002 / (0.0005 + STUDY_SLIPPAGE_BPS[grid.interval] / 10000)), 12);
   });
 });
