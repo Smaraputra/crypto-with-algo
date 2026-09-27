@@ -231,6 +231,16 @@
  * rows above measure "does the composite pay under the promotion on BTC
  * and ETH" (no), not "how much did the promotion lift it".
  *
+ * RESOLUTION, 2026-09-27: the user's account fee page shows the 0 maker /
+ * 0.036% schedule on USDC-MARGINED contracts only; USDT-M pairs, which is
+ * every pair in this dataset, are at the standard 0.0200% / 0.0500%
+ * (0.0180% / 0.0450% with BNB). The promo rows therefore priced BTCUSDT and
+ * ETHUSDT at a schedule the account cannot get on them, and the kill
+ * criterion holds a fortiori: the cheapest real schedule on the traded
+ * pairs is bnb, strictly worse than the one tested. The profile is kept in
+ * cost-model.ts, with its original scoping, only so these reports
+ * reproduce.
+ *
  * Spot check: all four promo reports reproduced at BTCUSDT window 2:
  * control 1h promo 174 trades -0.11186450019777032%, control 15m promo
  * 167 trades -0.09927887669979621%, control-limit 1h promo 159 trades

@@ -50,6 +50,10 @@
  *     L 5: notional 500 USDT, cost 0.8000 USDT (0.800% of account), liq dist 19.60%
  *     L10: notional 1000 USDT, cost 1.6000 USDT (1.600% of account), liq dist 9.60%
  *     L20: notional 2000 USDT, cost 3.2000 USDT (3.200% of account), liq dist 4.60%
+ *   The promo column is hypothetical for USDT-M pairs: verified 2026-09-27 on
+ *   the account fee page, that schedule is on USDC-margined contracts only
+ *   (USDC 0.0000% / 0.0400%, 0.0360% with BNB); USDT-M is 0.0200% / 0.0500%
+ *   (0.0180% / 0.0450% with BNB), so bnb is the cheapest real line here.
  *
  * Reading: the largest fine-interval effect ever measured here is raw.btcLeadLag
  * at 1h, 0.0219 at h1 (factors.ts, Phase B results): 5x the 1h maker breakeven,
