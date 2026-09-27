@@ -56,10 +56,14 @@ export const FEE_PROFILES: Record<FeeProfileName, FeeProfile> = {
     symbols: ['BTCUSDT', 'ETHUSDT'],
     fallback: 'bnb',
     note:
-      'Binance Futures promotion from 2026-07-02 10:00 UTC "until further notice": 0 maker fee for all users, ' +
-      '20% taker discount (0.036% with BNB) regular through VIP 3. Announced for "BTCU and ETHU" U-margined ' +
-      'perpetuals; whether that is BTCUSDT/ETHUSDT was not verified from a primary source as of 2026-09-26. ' +
-      'A sensitivity profile, never the selection profile.',
+      'HYPOTHETICAL ON USDT-M PAIRS. Binance Futures promotion from 2026-07-02 10:00 UTC "until further notice": ' +
+      '0 maker fee for all users, 20% taker discount (0.036% with BNB) regular through VIP 3, announced for ' +
+      '"BTCU and ETHU". Verified on the account fee page 2026-09-27: the schedule applies to USDC-MARGINED ' +
+      'contracts (USDC maker 0.0000% / taker 0.0400%, 0.0360% with BNB); USDT-M pairs stay at the standard ' +
+      '0.0200% / 0.0500% (0.0180% / 0.0450% with BNB). This profile prices BTCUSDT and ETHUSDT at a schedule ' +
+      'they cannot get and is kept, with its original symbol scoping, only so the 2026-09-26 audit reports ' +
+      'reproduce (strategy-families.ts, PROMO FEE CHECK). Never a selection profile; for the traded venue the ' +
+      'cheapest real schedule is bnb.',
   },
 };
 
