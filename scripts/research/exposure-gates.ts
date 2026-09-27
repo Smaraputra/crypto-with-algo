@@ -81,6 +81,42 @@
  * and would be badly undersized on autocorrelated bar returns, which is the
  * failure mode that manufactures a false pass. The realised block length is
  * carried on the report so a reviewer can check it rather than take the rule.
+ *
+ * PHASE 3 PLAN 2 PRE-REGISTRATION, 2026-09-27 (committed before any rank
+ * container code). Hypothesis: a dollar-neutral rank book across the ten
+ * USDT-M perpetuals, long the low readings and short the high readings of a
+ * cross-sectional survivor, pays standard taker costs at 1h and 4h.
+ *
+ * Factors and predicted sign (factorSign is the sign under which a HIGH
+ * reading is LONG; every one below is -1, contrarian):
+ *   realizedVol20            -1  primary. cs IC 1h h32 -0.0745 (q 0.96, s 1.00), 4h h32 -0.0788 (q 0.91, s 1.00)
+ *   fundingRate              -1  second, only if the primary passes expectancy at either interval. 1h h32 -0.026 (q 0.91, s 0.90), 4h (q 0.80, s 1.00)
+ *   topTraderPositionRatio   -1  third, same condition. 1h h32 -0.029 (q 0.81, s 0.90), 4h (q 0.81, s 0.80)
+ *
+ * Grid, fixed: scheme in {topBottom k=1, topBottom k=2, linearRank} x
+ * bandFraction in {0, 0.25, 0.5}, nine cells per run; band is the fraction of
+ * the scheme's largest weight (0.5 for k=1, 0.25 for k=2, 4.5/25 = 0.18 for
+ * linearRank on ten symbols). Smoothing 0. Minimum cross-section 5 symbols.
+ * Six runs at most (three factors x two intervals): --trials 54 for every run.
+ * Windows 6 rolling, train fraction 0.4, as Phase 5. Selection on net mean
+ * return per bar. Costs: standard taker plus study slippage on turnover.
+ * Bootstrap block: bars between rebalances, floor 32.
+ *
+ * Predicted magnitude for the primary at 1h: gross 0.2 to 0.4% per 32 bars
+ * per unit gross (cross-sectionally demeaned 32-bar return sd 2.62% x 2 x
+ * 0.0745 = 0.39% as the decile upper bound), turnover well under one full
+ * rotation per 32 bars, net mean return per bar positive with the Sharpe CI
+ * clear of zero; a band above 0 selected in most windows; the drop-BTCUSDT
+ * jackknife still positive.
+ *
+ * KILL CRITERION: if realizedVol20 fails the expectancy gate (Sharpe CI low
+ * not above zero) at BOTH 1h and 4h, the cross-sectional axis closes on this
+ * dataset and neither other factor runs.
+ *
+ * Robustness reads at the selected cell of every run that passes expectancy,
+ * reported and never selected on: alts only (--exclude-symbols BTCUSDT),
+ * maker fill (--fill maker: maker fee, zero slippage), fee profile bnb, and
+ * the per-leg split. Nothing here changes live scoring or configVersion.
  */
 
 import { bootstrapCi, maxDrawdownPercentOfPnl, meanOf } from '@/lib/stats/block-bootstrap';

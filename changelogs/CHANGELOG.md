@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research): Phase 3 plan 2 pre-registration
+- **Hypothesis, factors and grid fixed before any rank container code**: a dollar-neutral rank book across the ten USDT-M perpetuals, long the low readings and short the high readings of a cross-sectional survivor, at standard taker costs, 1h and 4h. Factors in priority order, all contrarian (factorSign -1): `realizedVol20` (primary, cs IC 1h h32 -0.0745, 4h h32 -0.0788), `fundingRate` (second, only if the primary passes expectancy), `topTraderPositionRatio` (third, same condition). Grid: scheme in {topBottom k=1, topBottom k=2, linearRank} x bandFraction in {0, 0.25, 0.5}, nine cells per run, smoothing 0, minimum cross-section 5 symbols, six runs at most (three factors x two intervals), `--trials 54` per run, 6 rolling windows, train fraction 0.4, selection on net mean return per bar
+- **Kill criterion**: if `realizedVol20` fails the expectancy gate (Sharpe CI low not above zero) at BOTH 1h and 4h, the cross-sectional axis closes on this dataset and neither other factor runs
+
 ### Changed (research): the 2026-07 zero-maker promotion is on USDC-margined contracts, not USDT-M
 - **Verified on the account fee page on 2026-09-27**: USDⓈ-M regular users pay USDT maker 0.0200% / taker 0.0500% (0.0180% / 0.0450% with BNB), while the promotional 0.0000% maker / 0.0400% taker (0.0360% with BNB) applies to USDC-margined contracts. "BTCU and ETHU" in the announcement meant the USDC pairs
 - **Consequence for the record**: the `promo-btc-eth-2026-07` profile priced BTCUSDT and ETHUSDT at a schedule the account cannot get on them. It is kept, with its original scoping, only so the 2026-09-26 promo check reports reproduce, and its note, the `strategy-families.ts` PROMO FEE CHECK block and the `frontier.ts` per-profile block now say so. The kill criterion holds a fortiori: the cheapest real schedule on the traded pairs is `bnb`, strictly worse than the one tested
