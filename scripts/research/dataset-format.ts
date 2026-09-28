@@ -120,7 +120,45 @@ export interface MetricsRow {
   depthNotional5: number | null;
 }
 
-export type DatasetKind = 'candles' | 'snapshots' | 'htf' | 'perp' | 'metrics';
+/**
+ * One row per hourly OptionsFlowHour document (src/lib/models/options-flow-hour.ts):
+ * the Deribit DVOL index and trade-flow aggregates for one currency. `t` is
+ * the UTC hour OPEN, matching the stored document's `timestamp` and
+ * OPTIONS_SLOT_MS (src/lib/options-flow.ts). Every field but `t` is
+ * `number | null`, since either the dvol pass or the trades pass (or both)
+ * may not have written a given hour yet.
+ */
+export interface OptionsRow {
+  t: number;
+  dvolOpen: number | null;
+  dvolHigh: number | null;
+  dvolLow: number | null;
+  dvolClose: number | null;
+  callBuyNotional: number | null;
+  callSellNotional: number | null;
+  putBuyNotional: number | null;
+  putSellNotional: number | null;
+  netDelta: number | null;
+  netDollarGamma: number | null;
+  tradeCount: number | null;
+  greekTradeCount: number | null;
+  vwIv: number | null;
+  putIv25: number | null;
+  callIv25: number | null;
+}
+
+export type DatasetKind = 'candles' | 'snapshots' | 'htf' | 'perp' | 'metrics' | 'options';
+
+/** The two currencies the options pipeline covers, keyed by their USDT-margined symbol. */
+export const OPTIONS_CURRENCY_OF_SYMBOL: Record<string, 'BTC' | 'ETH'> = {
+  BTCUSDT: 'BTC',
+  ETHUSDT: 'ETH',
+};
+
+/** `OPTIONS_CURRENCY_OF_SYMBOL[symbol]`, or null for a symbol Deribit has no options market for. */
+export function optionsCurrencyOf(symbol: string): 'BTC' | 'ETH' | null {
+  return OPTIONS_CURRENCY_OF_SYMBOL[symbol] ?? null;
+}
 
 export interface ManifestFile {
   path: string;

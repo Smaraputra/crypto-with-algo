@@ -22,6 +22,7 @@ import {
 } from '@/lib/models/historical-snapshot';
 import { PerpCandle, PERP_SERIES, type IPerpCandle, type PerpSeries } from '@/lib/models/perp-candle';
 import { FuturesMetric, type IFuturesMetric } from '@/lib/models/futures-metric';
+import { OptionsFlowHour, type IOptionsFlowHour } from '@/lib/models/options-flow-hour';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import {
   alignHtfToLtf,
@@ -36,6 +37,7 @@ import type { OHLCV } from '@/types/market';
 import {
   LOCKBOX_START_ISO,
   datasetHashOf,
+  optionsCurrencyOf,
   sha256File,
   writeJsonlGz,
   type CandleRow,
@@ -44,6 +46,7 @@ import {
   type HtfRow,
   type ManifestFile,
   type MetricsRow,
+  type OptionsRow,
   type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
@@ -51,9 +54,11 @@ import { styleForInterval } from './factors';
 
 const DEFAULT_INTERVALS = ['5m', '15m', '1h', '4h', '1d'];
 const SNAPSHOT_INTERVALS = new Set(['1h', '4h', '1d']);
-const ALL_KINDS: readonly DatasetKind[] = ['candles', 'snapshots', 'htf', 'perp', 'metrics'] as const;
+const ALL_KINDS: readonly DatasetKind[] = ['candles', 'snapshots', 'htf', 'perp', 'metrics', 'options'] as const;
 /** The archive publishes one 5m grid per symbol, so metrics has a single file. */
 const METRICS_INTERVAL = '5m';
+/** OptionsFlowHour rows are hourly, one file per currency. */
+const OPTIONS_INTERVAL = '1h';
 // Margin added on top of the style's own longest indicator lookback when
 // fetching HTF warmup candles by count (see fetchCandlesBefore).
 const HTF_WARMUP_MARGIN = 50;
@@ -399,6 +404,41 @@ async function fetchFuturesMetrics(
   return rows;
 }
 
+/** The hourly Deribit DVOL and trade-flow rows for one currency. One file per currency, every symbol mapped to it reads the same file. */
+async function fetchOptionsFlow(
+  currency: string,
+  startMs?: number,
+  endMs?: number
+): Promise<OptionsRow[]> {
+  const timestamp = buildTimestampFilter(startMs, endMs);
+  const query: Record<string, unknown> = { currency };
+  if (timestamp) query.timestamp = timestamp;
+
+  const rows: OptionsRow[] = [];
+  const cursor = OptionsFlowHour.find(query).sort({ timestamp: 1 }).lean().cursor();
+  for await (const doc of cursor as AsyncIterable<IOptionsFlowHour>) {
+    rows.push({
+      t: doc.timestamp,
+      dvolOpen: orNull(doc.dvolOpen),
+      dvolHigh: orNull(doc.dvolHigh),
+      dvolLow: orNull(doc.dvolLow),
+      dvolClose: orNull(doc.dvolClose),
+      callBuyNotional: orNull(doc.callBuyNotional),
+      callSellNotional: orNull(doc.callSellNotional),
+      putBuyNotional: orNull(doc.putBuyNotional),
+      putSellNotional: orNull(doc.putSellNotional),
+      netDelta: orNull(doc.netDelta),
+      netDollarGamma: orNull(doc.netDollarGamma),
+      tradeCount: orNull(doc.tradeCount),
+      greekTradeCount: orNull(doc.greekTradeCount),
+      vwIv: orNull(doc.vwIv),
+      putIv25: orNull(doc.putIv25),
+      callIv25: orNull(doc.callIv25),
+    });
+  }
+  return rows;
+}
+
 /** Matches loadPerp: the traded series keeps the bare interval name. */
 function perpFileName(interval: string, series: PerpSeries): string {
   return series === 'klines' ? `${interval}.jsonl.gz` : `${interval}.${series}.jsonl.gz`;
@@ -495,6 +535,29 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
             (row) => row.t
           )
         );
+      }
+
+      // One options file per currency, written the same way metrics is: once
+      // per symbol, outside the interval loop. A symbol with no Deribit
+      // options market (optionsCurrencyOf returns null) writes nothing.
+      // BTCUSDT and ETHUSDT map to different currencies, so each of their
+      // files is written exactly once across the whole symbol loop.
+      if (kinds.has('options')) {
+        const currency = optionsCurrencyOf(symbol);
+        if (currency) {
+          const optionsRows = await fetchOptionsFlow(currency, args.start, args.end);
+          files.push(
+            await writeDatasetFile(
+              args.out,
+              `options/${currency}/${OPTIONS_INTERVAL}.jsonl.gz`,
+              'options',
+              symbol,
+              OPTIONS_INTERVAL,
+              optionsRows,
+              (row) => row.t
+            )
+          );
+        }
       }
 
       for (const interval of args.intervals) {

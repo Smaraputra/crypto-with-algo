@@ -14,6 +14,7 @@ import {
   type HtfRow,
   type ManifestFile,
   type MetricsRow,
+  type OptionsRow,
   type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
@@ -22,6 +23,7 @@ import {
   loadHtf,
   loadManifest,
   loadMetrics,
+  loadOptions,
   loadPerp,
   loadSnapshots,
   verifyManifest,
@@ -84,18 +86,38 @@ async function buildFixtureDataset(dir: string): Promise<DatasetManifest> {
     depthNotional1: null,
     depthNotional5: null,
   }));
+  const optionsRows: OptionsRow[] = TIMESTAMPS.map((t, i) => ({
+    t,
+    dvolOpen: 60 + i,
+    dvolHigh: 61 + i,
+    dvolLow: 59 + i,
+    dvolClose: 60.5 + i,
+    callBuyNotional: 1_000_000 + i,
+    callSellNotional: null,
+    putBuyNotional: null,
+    putSellNotional: 500_000 + i,
+    netDelta: 10 + i,
+    netDollarGamma: null,
+    tradeCount: 42 + i,
+    greekTradeCount: null,
+    vwIv: 65 + i,
+    putIv25: null,
+    callIv25: null,
+  }));
 
   const candlePath = join(dir, 'candles', SYMBOL, `${INTERVAL}.jsonl.gz`);
   const perpPath = join(dir, 'perp', SYMBOL, `${INTERVAL}.jsonl.gz`);
   const metricsPath = join(dir, 'metrics', SYMBOL, '5m.jsonl.gz');
   const htfPath = join(dir, 'htf', SYMBOL, `${INTERVAL}.jsonl.gz`);
   const snapshotPath = join(dir, 'snapshots', SYMBOL, `${INTERVAL}.jsonl.gz`);
+  const optionsPath = join(dir, 'options', 'BTC', '1h.jsonl.gz');
 
   await writeJsonlGz(candlePath, candleRows);
   await writeJsonlGz(htfPath, htfRows);
   await writeJsonlGz(snapshotPath, snapshotRows);
   await writeJsonlGz(perpPath, perpRows);
   await writeJsonlGz(metricsPath, metricsRows);
+  await writeJsonlGz(optionsPath, optionsRows);
 
   const files: ManifestFile[] = [
     {
@@ -148,6 +170,19 @@ async function buildFixtureDataset(dir: string): Promise<DatasetManifest> {
       endMs: metricsRows[metricsRows.length - 1].t,
       sha256: await sha256File(metricsPath),
     },
+    {
+      // Recorded under the USDT symbol, per the pitfall in the brief:
+      // manifest.symbols is the union of the files' symbol fields, and
+      // factor-ic.ts uses it as the default universe.
+      path: 'options/BTC/1h.jsonl.gz',
+      kind: 'options',
+      symbol: SYMBOL,
+      interval: '1h',
+      rowCount: optionsRows.length,
+      startMs: optionsRows[0].t,
+      endMs: optionsRows[optionsRows.length - 1].t,
+      sha256: await sha256File(optionsPath),
+    },
   ];
 
   const manifest: DatasetManifest = {
@@ -182,8 +217,8 @@ describe('loadManifest', () => {
 
     expect(manifest.version).toBe(1);
     expect(manifest.symbols).toEqual([SYMBOL]);
-    // candles, htf, snapshots, perp, metrics
-    expect(manifest.files).toHaveLength(5);
+    // candles, htf, snapshots, perp, metrics, options
+    expect(manifest.files).toHaveLength(6);
   });
 });
 
@@ -333,5 +368,64 @@ describe('perp and metrics kinds', () => {
     const result = await verifyManifest(dir);
     expect(result.ok).toBe(false);
     expect(result.mismatches).toContain(`metrics/${SYMBOL}/5m.jsonl.gz`);
+  });
+});
+
+describe('options kind', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'load-dataset-'));
+    await buildFixtureDataset(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('loads the hourly options series for a currency, with no interval argument', () => {
+    const result = loadOptions(dir, 'BTC');
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].dvolClose).toBe(60.5);
+    expect(result.rows[0].tradeCount).toBe(42);
+  });
+
+  it('keeps a missing measure null rather than zero', () => {
+    const result = loadOptions(dir, 'BTC');
+    expect(result.rows[0].callSellNotional).toBeNull();
+    expect(result.rows[0].putBuyNotional).toBeNull();
+    expect(result.rows[0].netDollarGamma).toBeNull();
+    expect(result.rows[0].greekTradeCount).toBeNull();
+  });
+
+  it('applies the lockbox exactly as the other kinds', () => {
+    const result = loadOptions(dir, 'BTC');
+    expect(result.lockboxApplied).toBe(true);
+    expect(result.droppedRows).toBe(2);
+    expect(result.rows.every((r) => r.t < LOCKBOX_START)).toBe(true);
+  });
+
+  it('keeps every row when allowLockbox is set', () => {
+    expect(loadOptions(dir, 'BTC', { allowLockbox: true }).rows).toHaveLength(4);
+  });
+
+  it('records the options file under the USDT symbol, so manifest.symbols gains no currency', () => {
+    const manifest = loadManifest(dir);
+    const optionsFile = manifest.files.find((f) => f.kind === 'options')!;
+    expect(optionsFile.symbol).toBe(SYMBOL);
+    expect(optionsFile.path).toBe('options/BTC/1h.jsonl.gz');
+    expect(manifest.symbols).toEqual([SYMBOL]);
+  });
+
+  it('verifies with the options file in the manifest', async () => {
+    const result = await verifyManifest(dir);
+    expect(result).toEqual({ ok: true, mismatches: [] });
+  });
+
+  it('reports a tampered options file', async () => {
+    writeFileSync(join(dir, 'options', 'BTC', '1h.jsonl.gz'), 'tampered');
+    const result = await verifyManifest(dir);
+    expect(result.ok).toBe(false);
+    expect(result.mismatches).toContain('options/BTC/1h.jsonl.gz');
   });
 });
