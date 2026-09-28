@@ -37,6 +37,7 @@ import {
   deltaFlowContinuationFamily,
   deltaFlowContinuationLimitFamily,
 } from './families/delta-flow-continuation';
+import { gammaRegimeReversalFamily } from './families/gamma-regime-reversal';
 
 /**
  * The families added by the exploration, keyed by their CLI name. Round 1
@@ -57,6 +58,7 @@ export const EXPLORATION_FAMILIES: Record<string, StrategyFamily> = {
   'skew-spike-long': skewSpikeLongFamily,
   'delta-flow-continuation': deltaFlowContinuationFamily,
   'delta-flow-continuation-limit': deltaFlowContinuationLimitFamily,
+  'gamma-regime-reversal': gammaRegimeReversalFamily,
 };
 
 for (const name of Object.keys(EXPLORATION_FAMILIES)) {
