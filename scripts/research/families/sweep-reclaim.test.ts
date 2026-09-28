@@ -70,8 +70,12 @@ describe('sweep-reclaim family', () => {
     expect(grid.length).toBeLessThanOrEqual(60);
   });
 
-  it('declares the columns it cannot trade without', () => {
-    expect(sweepReclaimFamily.requiresResearchColumns).toEqual(['sweepReversal20', 'sweepReversal50']);
+  it('declares the columns it cannot trade without, volRatio included for the regime cells', () => {
+    expect(sweepReclaimFamily.requiresResearchColumns).toEqual([
+      'sweepReversal20',
+      'sweepReversal50',
+      'volRatio',
+    ]);
   });
 
   it('every grid cell maps to a declared column', () => {

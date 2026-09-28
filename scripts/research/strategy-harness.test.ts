@@ -15,7 +15,7 @@ import {
   type SnapshotRow,
 } from './dataset-format';
 import { validateStrategyReport, type StrategyReport } from './report-schema';
-import { STRATEGY_FAMILIES } from './strategy-families';
+import { ALL_FAMILIES } from './exploration-families';
 import {
   costsForSymbolReport,
   parseArgs,
@@ -833,7 +833,7 @@ describe('parseArgs', () => {
     // --trials fixed for the whole phase. Derived from the registry itself,
     // not a literal, so this assertion does not need editing the next time
     // the count changes.
-    expect(args.trials).toBe(Object.keys(STRATEGY_FAMILIES).length);
+    expect(args.trials).toBe(Object.keys(ALL_FAMILIES).length);
     expect(args.stressFeeMult).toBe(1.5);
     expect(args.stressSlippageMult).toBe(2);
     expect(args.feeProfile).toBe('standard');

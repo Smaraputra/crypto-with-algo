@@ -14,7 +14,7 @@
  *     --cell BTCUSDT:0 --report data/research/reports/strategy-control-1h-....json
  *
  * Flags:
- *   --family <name>            required (a key of STRATEGY_FAMILIES), except
+ *   --family <name>            required (a key of ALL_FAMILIES), except
  *                               with --cell --report, which reads it from
  *                               the report; if passed there too, it must
  *                               agree with the report's own family
@@ -36,7 +36,7 @@
  *   --bootstrap-n <n>          default: 1000
  *   --benchmark-n <n>          default: 200
  *   --no-benchmark             disable the random-entry benchmark entirely
- *   --trials <n>               default: gridCells * number of STRATEGY_FAMILIES
+ *   --trials <n>               default: gridCells * number of ALL_FAMILIES
  *   --stress-fee-mult <f>      default: 1.5
  *   --stress-slippage-mult <f> default: 2
  *   --fee-profile standard|bnb|promo-btc-eth-2026-07
@@ -144,7 +144,8 @@ import { computeAllIndicators } from '@/lib/indicators/compute';
 import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { toLeanSnapshot, toOHLCV, styleForInterval } from './factors';
-import { STRATEGY_FAMILIES, expandGrid, type StrategyFamily } from './strategy-families';
+import { expandGrid, type StrategyFamily } from './strategy-families';
+import { ALL_FAMILIES } from './exploration-families';
 import {
   resolveWindowConfig,
   runStrategyWalkForward,
@@ -395,9 +396,9 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
 
   const family = flags.get('family');
   if (family !== undefined) {
-    if (!STRATEGY_FAMILIES[family]) {
+    if (!ALL_FAMILIES[family]) {
       throw new Error(
-        `Unknown --family "${family}", expected one of: ${Object.keys(STRATEGY_FAMILIES).join(', ')}`
+        `Unknown --family "${family}", expected one of: ${Object.keys(ALL_FAMILIES).join(', ')}`
       );
     }
   } else if (!cellReportMode) {
@@ -421,8 +422,8 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
       ? `data/research/reports/strategy-${family}-${interval}-${taskId}.json`
       : `data/research/reports/strategy-cell-${taskId}.json`);
 
-  const gridCells = family !== undefined ? expandGrid(STRATEGY_FAMILIES[family]).length : 0;
-  const defaultTrials = gridCells * Object.keys(STRATEGY_FAMILIES).length;
+  const gridCells = family !== undefined ? expandGrid(ALL_FAMILIES[family]).length : 0;
+  const defaultTrials = gridCells * Object.keys(ALL_FAMILIES).length;
 
   const feeProfileRaw = flags.get('fee-profile') ?? DEFAULT_FEE_PROFILE;
   if (!isFeeProfileName(feeProfileRaw)) {
@@ -800,10 +801,10 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   // cover. Each symbol's own costs are resolved again inside the per-symbol
   // loop below.
   const baseCosts = studyCostConfig(interval, { profile: args.feeProfile });
-  const family = STRATEGY_FAMILIES[familyName];
+  const family = ALL_FAMILIES[familyName];
   if (!family) {
     throw new Error(
-      `Unknown --family "${familyName}", expected one of: ${Object.keys(STRATEGY_FAMILIES).join(', ')}`
+      `Unknown --family "${familyName}", expected one of: ${Object.keys(ALL_FAMILIES).join(', ')}`
     );
   }
   let cells = expandGrid(family);
@@ -950,7 +951,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   const pooled = poolStrategyResults(results, {
     interval,
     cells,
-    familyCount: Object.keys(STRATEGY_FAMILIES).length,
+    familyCount: Object.keys(ALL_FAMILIES).length,
     trialsOverride: args.trials,
     bootstrapIterations: args.bootstrapN,
     seed: args.seed,
@@ -1063,7 +1064,7 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     );
   }
 
-  const family = STRATEGY_FAMILIES[report.family];
+  const family = ALL_FAMILIES[report.family];
   if (!family) {
     throw new Error(`Report names unknown family "${report.family}"`);
   }

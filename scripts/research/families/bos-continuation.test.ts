@@ -62,8 +62,8 @@ describe('bos-continuation family', () => {
     expect(grid.length).toBeLessThanOrEqual(60);
   });
 
-  it('declares the column it cannot trade without', () => {
-    expect(bosContinuationFamily.requiresResearchColumns).toEqual(['bosBreak']);
+  it('declares the columns it cannot trade without, volRatio included for the regime cells', () => {
+    expect(bosContinuationFamily.requiresResearchColumns).toEqual(['bosBreak', 'volRatio']);
   });
 
   it('longs on a +1 bosBreak reading and shorts on -1', () => {
