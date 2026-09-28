@@ -768,6 +768,14 @@ export const StrategyReportSchema = z.object({
   computedAt: z.string(),
   gitCommit: z.string(),
   durationMs: z.number(),
+  // Optional so reports written before --fix-params/--allowed-sessions
+  // (2026-09-28) still validate. fixedParams is the single grid cell
+  // --fix-params collapsed expandGrid's output to, recorded so --cell
+  // --report can read it back rather than re-deriving it; allowedSessions
+  // is the session gate every window, the random-entry benchmark, and the
+  // stress re-run all ran under (see strategy-walk-forward.ts).
+  fixedParams: GridParamsSchema.optional(),
+  allowedSessions: z.array(z.string()).optional(),
 });
 export type StrategyReport = z.infer<typeof StrategyReportSchema>;
 

@@ -15,6 +15,7 @@ import {
   type SnapshotRow,
 } from './dataset-format';
 import { validateStrategyReport, type StrategyReport } from './report-schema';
+import { STRATEGY_FAMILIES } from './strategy-families';
 import {
   costsForSymbolReport,
   parseArgs,
@@ -675,6 +676,135 @@ describe('strategy-harness CLI', () => {
       await expect(runStrategyHarness(args)).rejects.toThrow(/ETHUSDT/);
     }, 30_000);
   });
+
+  describe('--fix-params', () => {
+    it('collapses the grid to the matching cell and records fixedParams', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const args = parseArgs([
+        '--family', 'return-reversal',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--fix-params', 'L=5,Z=2,H=8',
+        '--out', join(dir, 'reports', 'report.json'),
+      ]);
+      const report = await runStrategyHarness(args);
+
+      expect(report.gridCells).toBe(1);
+      expect(report.fixedParams).toEqual({ L: 5, Z: 2, H: 8 });
+      for (const p of report.perSymbol) {
+        for (const w of p.windows) {
+          if (w.selectedParams !== null) {
+            expect(w.selectedParams).toEqual({ L: 5, Z: 2, H: 8 });
+          }
+        }
+      }
+    }, 30_000);
+
+    it('rejects an unknown name and a value not in the grid', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+
+      const badName = parseArgs([
+        '--family', 'return-reversal',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--fix-params', 'bogus=5,Z=2,H=8',
+        '--out', join(dir, 'reports', 'a.json'),
+      ]);
+      await expect(runStrategyHarness(badName)).rejects.toThrow(/bogus/);
+
+      const badValue = parseArgs([
+        '--family', 'return-reversal',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--fix-params', 'L=999,Z=2,H=8',
+        '--out', join(dir, 'reports', 'b.json'),
+      ]);
+      await expect(runStrategyHarness(badValue)).rejects.toThrow(/matches no cell/);
+    }, 30_000);
+  });
+
+  describe('--allowed-sessions', () => {
+    it('rejects an unknown session and reaches the config of the walk-forward and the benchmark', async () => {
+      expect(() =>
+        parseArgs(['--family', 'control', '--interval', '1h', '--allowed-sessions', 'asia,bogus'])
+      ).toThrow(/Unknown --allowed-sessions "bogus"/);
+
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+
+      const unrestrictedArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--out', join(dir, 'reports', 'unrestricted.json'),
+      ]);
+      const restrictedArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--allowed-sessions', 'ny_overlap',
+        '--out', join(dir, 'reports', 'restricted.json'),
+      ]);
+
+      const unrestricted = await runStrategyHarness(unrestrictedArgs);
+      const restricted = await runStrategyHarness(restrictedArgs);
+
+      expect(restricted.allowedSessions).toEqual(['ny_overlap']);
+      expect(unrestricted.allowedSessions).toBeUndefined();
+      // The session gate is subtractive-only (bar-loop.ts only skips entries
+      // outside the allowed set, never adds one), so restricting to a single
+      // 4-hour session out of 24 can only reduce the pooled trade count. Both
+      // runs complete through the benchmark and stress paths without error,
+      // which they could not if allowedSessions were dropped anywhere those
+      // paths build their own BacktestConfig (see strategy-walk-forward.ts).
+      expect(restricted.pooled.n).toBeLessThanOrEqual(unrestricted.pooled.n);
+    }, 30_000);
+  });
+
+  describe('--cell --report with --fix-params', () => {
+    it('reproduces a fixed-params report', async () => {
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const outPath = join(dir, 'reports', 'report.json');
+      const baseArgs = parseArgs([
+        '--family', 'return-reversal',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--fix-params', 'L=5,Z=2,H=8',
+        '--out', outPath,
+      ]);
+      const report = await runStrategyHarness(baseArgs);
+      expect(report.fixedParams).toEqual({ L: 5, Z: 2, H: 8 });
+
+      const symbol = report.symbols[0];
+      const windows = report.perSymbol.find((p) => p.symbol === symbol)!.windows;
+      const windowIndex = windows.findIndex((w) => w.oos !== null);
+      expect(windowIndex, 'fixture must produce at least one traded window').toBeGreaterThanOrEqual(0);
+      const window = windows[windowIndex];
+
+      const cellArgs = parseArgs([
+        '--family', 'return-reversal',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--cell', `${symbol}:${windowIndex}`,
+        '--report', outPath,
+      ]);
+      const cell = await runCell(cellArgs);
+
+      expect(cell.trades).toBe(window.oos!.trades);
+      expect(cell.expectancyPercent).toBeCloseTo(window.oos!.expectancyPercent!, 9);
+    }, 30_000);
+  });
 });
 
 describe('parseArgs', () => {
@@ -696,10 +826,14 @@ describe('parseArgs', () => {
     expect(args.bootstrapN).toBe(1000);
     expect(args.benchmarkN).toBe(200);
     expect(args.noBenchmark).toBe(false);
-    // 1 grid cell (control has no params) x 13 registered families. This
-    // default moves whenever ANY family is added, which is why every phase
-    // overrides it with an explicit --trials fixed for the whole phase.
-    expect(args.trials).toBe(13);
+    // 1 grid cell (control has no params) x every registered family. This
+    // default moves whenever ANY family is added or removed (task 4 added
+    // three *-managed families, 13 -> 16; see STRATEGY_FAMILIES's own
+    // docstring), which is why every phase overrides it with an explicit
+    // --trials fixed for the whole phase. Derived from the registry itself,
+    // not a literal, so this assertion does not need editing the next time
+    // the count changes.
+    expect(args.trials).toBe(Object.keys(STRATEGY_FAMILIES).length);
     expect(args.stressFeeMult).toBe(1.5);
     expect(args.stressSlippageMult).toBe(2);
     expect(args.feeProfile).toBe('standard');

@@ -44,6 +44,18 @@
  *                               standard; the other profiles are sensitivity
  *                               reads, priced per symbol (a symbol-scoped
  *                               promotion falls back for any other symbol).
+ *   --fix-params k=v,...       collapse the family's grid to the single cell
+ *                               whose params equal these values exactly;
+ *                               every window then reports out-of-sample
+ *                               results for that one cell (in-sample
+ *                               selection is trivial with one candidate).
+ *                               Recorded on the report as `fixedParams`.
+ *   --allowed-sessions a,b,... entry filter (MARKET_SESSIONS names), applied
+ *                               to every window's config AND the random-entry
+ *                               benchmark AND the stress rerun -- the same
+ *                               gate throughout, or the timing p-value would
+ *                               compare a gated strategy to an ungated null.
+ *                               Recorded on the report as `allowedSessions`.
  *   --allow-lockbox            read data at/after the 2026-07-01 lockbox
  *   --expect-manifest-hash <h> abort unless the loaded dataset matches
  *   --cell SYMBOL:WINDOW       with --report <file>: spot-check one window,
@@ -114,6 +126,7 @@ import type { TradingStyle } from '@/lib/models/signal-template';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import type { HtfInput } from '@/lib/backtest/optimized-engine';
 import { intervalToMs } from '@/lib/intervals';
+import { MARKET_SESSIONS, type MarketSession } from '@/lib/sessions';
 import {
   DEFAULT_FEE_PROFILE,
   FEE_PROFILE_NAMES,
@@ -124,14 +137,14 @@ import {
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
 import { loadCandles, loadManifest, loadMetrics, loadSnapshots, verifyManifest } from './load-dataset';
-import type { MetricsRow } from './dataset-format';
+import type { CandleRow, MetricsRow } from './dataset-format';
 import type { ResearchRow } from '@/lib/backtest/research-series';
 import { buildResearchColumns } from './research-columns';
 import { computeAllIndicators } from '@/lib/indicators/compute';
 import { computeWarmupBars } from '@/lib/indicators/interpret-at-bar';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { toLeanSnapshot, toOHLCV, styleForInterval } from './factors';
-import { STRATEGY_FAMILIES, expandGrid } from './strategy-families';
+import { STRATEGY_FAMILIES, expandGrid, type StrategyFamily } from './strategy-families';
 import {
   resolveWindowConfig,
   runStrategyWalkForward,
@@ -169,6 +182,13 @@ export interface StrategyHarnessArgs {
   stressFeeMult: number;
   stressSlippageMult: number;
   feeProfile: FeeProfileName;
+  /** Collapses expandGrid(family)'s output to the single matching cell; see
+   * selectFixedCell. Undefined runs the family's whole grid, unchanged. */
+  fixParams?: Record<string, number>;
+  /** Entry session gate, threaded into every window's config, the
+   * random-entry benchmark, and the stress rerun alike (see
+   * strategy-walk-forward.ts). Undefined/empty allows every session. */
+  allowedSessions?: MarketSession[];
   allowLockbox: boolean;
   expectManifestHash?: string;
   cell?: { symbol: string; window: number };
@@ -223,6 +243,86 @@ function parseNumberFlag(flags: Map<string, string>, key: string, opts: { intege
   return value;
 }
 
+/** Parses `k=v,k2=v2` into a plain numeric record. Throws on a malformed
+ * entry or a non-finite value, rather than silently producing NaN. */
+function parseFixParams(value: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const pair of parseList(value)) {
+    const eq = pair.indexOf('=');
+    if (eq <= 0 || eq === pair.length - 1) {
+      throw new Error(`Invalid --fix-params entry "${pair}", expected name=value`);
+    }
+    const name = pair.slice(0, eq).trim();
+    const raw = pair.slice(eq + 1).trim();
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+      throw new Error(`Invalid --fix-params value for "${name}": "${raw}"`);
+    }
+    out[name] = num;
+  }
+  if (Object.keys(out).length === 0) {
+    throw new Error(`Invalid --fix-params value: "${value}"`);
+  }
+  return out;
+}
+
+/** Parses a comma-separated session list, validating every name against
+ * MARKET_SESSIONS (src/lib/sessions.ts). */
+function parseAllowedSessions(value: string): MarketSession[] {
+  return parseList(value).map((name) => {
+    if (!(MARKET_SESSIONS as readonly string[]).includes(name)) {
+      throw new Error(`Unknown --allowed-sessions "${name}", expected one of: ${MARKET_SESSIONS.join(', ')}`);
+    }
+    return name as MarketSession;
+  });
+}
+
+function cellMatchesFixedParams(cell: Record<string, number>, fixedParams: Record<string, number>): boolean {
+  const cellKeys = Object.keys(cell);
+  const fixedKeys = Object.keys(fixedParams);
+  if (cellKeys.length !== fixedKeys.length) return false;
+  return fixedKeys.every(
+    (key) => Object.prototype.hasOwnProperty.call(cell, key) && Math.abs(cell[key] - fixedParams[key]) <= 1e-9
+  );
+}
+
+/**
+ * Filters `expandGrid(family)`'s output to the single cell whose params
+ * equal `fixedParams` exactly -- every param name the family declares, not
+ * a subset, matching within a tiny float epsilon. Throws naming the
+ * family's own params (and, when nothing matches, the whole grid) rather
+ * than silently running the first cell or an unintended partial match: a
+ * multi-hour walk-forward is the wrong place to discover a CLI typo.
+ */
+function selectFixedCell(
+  family: StrategyFamily,
+  cells: Record<string, number>[],
+  fixedParams: Record<string, number>
+): Record<string, number> {
+  const knownNames = new Set(family.params.map((p) => p.name));
+  const paramsDescription =
+    family.params.length > 0
+      ? family.params.map((p) => `${p.name}=[${p.values.join(',')}]`).join(', ')
+      : '(family has no params)';
+
+  for (const name of Object.keys(fixedParams)) {
+    if (!knownNames.has(name)) {
+      throw new Error(
+        `--fix-params names unknown parameter "${name}" for family "${family.name}"; params: ${paramsDescription}`
+      );
+    }
+  }
+
+  const match = cells.find((cell) => cellMatchesFixedParams(cell, fixedParams));
+  if (!match) {
+    throw new Error(
+      `--fix-params ${JSON.stringify(fixedParams)} matches no cell of family "${family.name}"; ` +
+        `params: ${paramsDescription}; grid: ${JSON.stringify(cells)}`
+    );
+  }
+  return match;
+}
+
 function parseCell(value: string): { symbol: string; window: number } {
   const parts = value.split(':');
   if (parts.length !== 2) {
@@ -257,6 +357,8 @@ const VALUE_FLAGS = new Set([
   'stress-fee-mult',
   'stress-slippage-mult',
   'fee-profile',
+  'fix-params',
+  'allowed-sessions',
   'expect-manifest-hash',
   'cell',
   'report',
@@ -353,6 +455,8 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
       ? parseNumberFlag(flags, 'stress-slippage-mult')
       : VALIDATION_PROTOCOL.stress.slippageMultiplier,
     feeProfile: feeProfileRaw,
+    fixParams: flags.has('fix-params') ? parseFixParams(flags.get('fix-params')!) : undefined,
+    allowedSessions: flags.has('allowed-sessions') ? parseAllowedSessions(flags.get('allowed-sessions')!) : undefined,
     allowLockbox: booleans.has('allow-lockbox'),
     expectManifestHash: flags.get('expect-manifest-hash'),
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
@@ -364,6 +468,29 @@ function inRange(t: number, start: number | undefined, end: number | undefined):
   if (start !== undefined && t < start) return false;
   if (end !== undefined && t > end) return false;
   return true;
+}
+
+/**
+ * Loads BTCUSDT's candles once per run for btcLeadLagZ (research-columns.ts),
+ * filtered to [start, end] like every other symbol's candles. Returns null
+ * (after logging once) when this dataset has no BTCUSDT candle file at this
+ * interval, so btcLeadLagZ is simply NaN for every symbol rather than
+ * aborting the run over a column no family is required to use.
+ */
+function loadMarketCandles(
+  datasetDir: string,
+  interval: string,
+  opts: { allowLockbox: boolean; start?: number; end?: number }
+): CandleRow[] | null {
+  const path = join(datasetDir, 'candles', 'BTCUSDT', `${interval}.jsonl.gz`);
+  if (!existsSync(path)) {
+    console.error(
+      `[strategy-harness] no BTCUSDT candles for ${interval}; btcLeadLagZ will be NaN for every symbol`
+    );
+    return null;
+  }
+  const result = loadCandles(datasetDir, 'BTCUSDT', interval, { allowLockbox: opts.allowLockbox });
+  return result.rows.filter((r) => inRange(r.t, opts.start, opts.end));
 }
 
 interface SymbolInputs {
@@ -393,6 +520,7 @@ function loadSymbolInputs(
   interval: string,
   style: TradingStyle,
   snapshotInterval: string,
+  marketCandles: CandleRow[] | null,
   opts: { allowLockbox: boolean; start?: number; end?: number }
 ): SymbolInputs {
   const candleResult = loadCandles(datasetDir, symbol, interval, { allowLockbox: opts.allowLockbox });
@@ -470,6 +598,7 @@ function loadSymbolInputs(
     interval,
     symbol,
     warmupBars,
+    marketCandles,
   });
 
   return {
@@ -677,7 +806,10 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
       `Unknown --family "${familyName}", expected one of: ${Object.keys(STRATEGY_FAMILIES).join(', ')}`
     );
   }
-  const cells = expandGrid(family);
+  let cells = expandGrid(family);
+  if (args.fixParams) {
+    cells = [selectFixedCell(family, cells, args.fixParams)];
+  }
 
   const symbols = args.symbols && args.symbols.length > 0 ? args.symbols : manifest.symbols;
   const snapshotInterval = mapToSnapshotInterval(interval);
@@ -690,11 +822,19 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     );
   }
 
+  // Loaded once and passed to every symbol's buildResearchColumns call
+  // (btcLeadLagZ), rather than once per symbol.
+  const marketCandles = loadMarketCandles(args.datasetDir, interval, {
+    allowLockbox: args.allowLockbox,
+    start: args.start,
+    end: args.end,
+  });
+
   const perSymbolInputs: SymbolInputs[] = [];
   for (const symbol of symbols) {
     console.error(`[strategy-harness] loading ${symbol}...`);
     perSymbolInputs.push(
-      loadSymbolInputs(args.datasetDir, symbol, interval, style, snapshotInterval, {
+      loadSymbolInputs(args.datasetDir, symbol, interval, style, snapshotInterval, marketCandles, {
         allowLockbox: args.allowLockbox,
         start: args.start,
         end: args.end,
@@ -788,6 +928,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
       minIsTrades: MIN_IS_TRADES,
       stress: { feeMultiplier: args.stressFeeMult, slippageMultiplier: args.stressSlippageMult },
       benchmark: symbolBenchmarkSeed === null ? null : { iterations: args.benchmarkN, seed: symbolBenchmarkSeed },
+      allowedSessions: args.allowedSessions,
       onWindow: ({ index, total, ms }) => {
         windowMs[index] = ms;
         console.error(`[strategy-harness] ${input.symbol} window ${index + 1}/${total} done in ${ms} ms`);
@@ -844,6 +985,8 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     trials: pooled.trials,
     snapshotSource,
     feeProfile: args.feeProfile,
+    fixedParams: args.fixParams,
+    allowedSessions: args.allowedSessions,
     costs: {
       feePercent: baseCosts.feePercent,
       makerFeePercent: baseCosts.makerFeePercent as number,
@@ -958,7 +1101,8 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
   const end = report.dateRange.endMs ?? undefined;
   const allowLockbox = !report.lockboxApplied;
 
-  const input = loadSymbolInputs(args.datasetDir, symbol, report.interval, style, snapshotInterval, {
+  const marketCandles = loadMarketCandles(args.datasetDir, report.interval, { allowLockbox, start, end });
+  const input = loadSymbolInputs(args.datasetDir, symbol, report.interval, style, snapshotInterval, marketCandles, {
     allowLockbox,
     start,
     end,
@@ -1017,6 +1161,10 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     minIsTrades: report.windowConfig.minIsTrades,
     stress: report.stress,
     benchmark: null,
+    // Reproduces the same session gate the report itself ran under (see
+    // strategy-walk-forward.ts's allowedSessions doc), so a spot check on a
+    // report written with --allowed-sessions checks the same rule.
+    allowedSessions: report.allowedSessions as MarketSession[] | undefined,
   });
 
   const oos = result.windows[window]?.oos ?? null;
