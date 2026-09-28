@@ -6,7 +6,7 @@ import { ALL_FAMILIES, EXPLORATION_FAMILIES } from './exploration-families';
 import { MAX_GRID_CELLS, STRATEGY_FAMILIES, expandGrid } from './strategy-families';
 
 describe('EXPLORATION_FAMILIES', () => {
-  it('registers the seven exploration families under their own names', () => {
+  it('registers the twelve exploration families under their own names', () => {
     expect(Object.keys(EXPLORATION_FAMILIES).sort()).toEqual(
       [
         'vwap-fade',
@@ -16,6 +16,11 @@ describe('EXPLORATION_FAMILIES', () => {
         'bos-continuation',
         'btc-leadlag-continuation',
         'btc-leadlag-continuation-limit',
+        'dvol-spike-long',
+        'dvol-spike-long-limit',
+        'skew-spike-long',
+        'delta-flow-continuation',
+        'delta-flow-continuation-limit',
       ].sort()
     );
     for (const [key, family] of Object.entries(EXPLORATION_FAMILIES)) {

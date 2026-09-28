@@ -31,8 +31,19 @@ import {
   btcLeadlagContinuationFamily,
   btcLeadlagContinuationLimitFamily,
 } from './families/btc-leadlag-continuation';
+import { dvolSpikeLongFamily, dvolSpikeLongLimitFamily } from './families/dvol-spike-long';
+import { skewSpikeLongFamily } from './families/skew-spike-long';
+import {
+  deltaFlowContinuationFamily,
+  deltaFlowContinuationLimitFamily,
+} from './families/delta-flow-continuation';
 
-/** The families added by the exploration, keyed by their CLI name. */
+/**
+ * The families added by the exploration, keyed by their CLI name. Round 1
+ * (Reddit rule shapes on existing inputs) first, then round 2 (the Deribit
+ * options input, motivated by the develop-slice IC triage: DVOL z, put-call
+ * skew and signed delta flow).
+ */
 export const EXPLORATION_FAMILIES: Record<string, StrategyFamily> = {
   'vwap-fade': vwapFadeFamily,
   'value-area-rejection': valueAreaRejectionFamily,
@@ -41,6 +52,11 @@ export const EXPLORATION_FAMILIES: Record<string, StrategyFamily> = {
   'bos-continuation': bosContinuationFamily,
   'btc-leadlag-continuation': btcLeadlagContinuationFamily,
   'btc-leadlag-continuation-limit': btcLeadlagContinuationLimitFamily,
+  'dvol-spike-long': dvolSpikeLongFamily,
+  'dvol-spike-long-limit': dvolSpikeLongLimitFamily,
+  'skew-spike-long': skewSpikeLongFamily,
+  'delta-flow-continuation': deltaFlowContinuationFamily,
+  'delta-flow-continuation-limit': deltaFlowContinuationLimitFamily,
 };
 
 for (const name of Object.keys(EXPLORATION_FAMILIES)) {
