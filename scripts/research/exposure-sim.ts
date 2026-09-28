@@ -612,7 +612,11 @@ export function simulateExposure(
           // guarantees a non-zero net exposure.
           if (!Number.isFinite(signalsAtT[s]) && held[s][t] !== 0) forceRebalance = true;
         }
-        bookRebalance = maxAbsDelta > grid.band || forceRebalance;
+        // + EPSILON matches the tanh branch's tie convention below. Inert on
+        // the shipped grid: linearRank moves are multiples of 1/25 = 0.04
+        // against bands of 0.045 and 0.09, topBottom moves are 0.25/0.5
+        // against 0.125/0.25, so exact equality with `grid.band` never arises.
+        bookRebalance = maxAbsDelta > grid.band + EPSILON || forceRebalance;
       }
       // Below minCrossSection: bookTargets stays null and bookRebalance stays
       // false, so every symbol holds below, exactly as the tanh path holds

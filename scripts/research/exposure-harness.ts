@@ -111,6 +111,8 @@ import {
 import {
   EXPOSURE_GRID_CELL_COUNT,
   RANK_GRID_CELL_COUNT,
+  RANK_PREREGISTERED_TRIALS,
+  RANK_SCHEMES,
   alignToSharedGrid,
   jointFactorStart,
   maxSmoothingWarmupBars,
@@ -330,6 +332,12 @@ export function parseArgs(argv: string[], now: Date = new Date()): ExposureHarne
     integer: true,
   });
   const minCrossSection = cellMode ? undefined : (rawMinCrossSection ?? 5);
+  if (!cellMode && mode === 'rank' && minCrossSection !== undefined) {
+    const maxLegs = Math.max(...RANK_SCHEMES.map((s) => s.legs));
+    if (minCrossSection < 2 * maxLegs) {
+      throw new Error(`--min-cross-section must be at least ${2 * maxLegs} for the rank grid`);
+    }
+  }
 
   const rawSelectMetric = flags.get('select-metric');
   if (rawSelectMetric !== undefined && rawSelectMetric !== 'sharpe' && rawSelectMetric !== 'meanReturn') {
@@ -377,7 +385,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): ExposureHarne
     EXPOSURE_PROTOCOL.timingShuffleDraws;
   const trials =
     parseNumberFlag(flags.get('trials'), 'trials', { integer: true }) ??
-    (mode === 'rank' ? RANK_GRID_CELL_COUNT : EXPOSURE_GRID_CELL_COUNT);
+    (mode === 'rank' ? RANK_PREREGISTERED_TRIALS : EXPOSURE_GRID_CELL_COUNT);
   const stressFeeMult =
     parseNumberFlag(flags.get('stress-fee-mult'), 'stress-fee-mult') ??
     EXPOSURE_PROTOCOL.stress.feeMultiplier;
@@ -513,6 +521,12 @@ function loadExposureSymbol(
   // No filtering when the spot file is absent (spotTimes.size === 0): there
   // is nothing to intersect against, and the perp grid stands on its own.
   const perpRows = spotTimes.size > 0 ? rawPerpRows.filter((r) => spotTimes.has(r.t)) : rawPerpRows;
+  // Dropping a perp bar here leaves the PREVIOUS bar's return spanning two
+  // intervals, because `gridGaps` in exposure-sim.ts only requires the next
+  // timestamp's step to be positive, not that it equal one interval. At 1h
+  // this affects one bar (2023-03-24T12:00Z to 14:00Z) on all ten symbols.
+  // Making `gridGaps` interval-aware is deliberately deferred: it would move
+  // every recorded exposure number and break the byte-identity control.
   const perpBarsOffSpotGrid = rawPerpRows.length - perpRows.length;
   if (perpBarsOffSpotGrid > 0) {
     console.error(
@@ -1049,48 +1063,16 @@ export async function runCell(args: ExposureHarnessArgs): Promise<ExposureCellCh
   }
 
   // Read every rank-container option from the REPORT, never from a CLI
-  // default: `args.mode` etc. are undefined unless a caller explicitly set
-  // them (parseArgs nils them out in cell mode, exactly like `factor` and
-  // `interval` above), so this only ever fires on an explicit disagreement.
-  const reportMode = (report.mode as 'exposure' | 'rank' | undefined) ?? 'exposure';
-  if (args.mode !== undefined && args.mode !== reportMode) {
-    throw new Error(`--mode "${args.mode}" disagrees with the report's mode "${reportMode}"`);
-  }
-  const reportFactorSign = report.factorSign as 1 | -1 | undefined;
-  if (args.factorSign !== undefined && args.factorSign !== reportFactorSign) {
-    throw new Error(
-      `--factor-sign ${args.factorSign} disagrees with the report's factor sign ${reportFactorSign}`
-    );
-  }
+  // default: `parseArgs` nils `args.mode` etc. to undefined in `--cell` mode,
+  // so a CLI-driven call can never disagree with the report here. There is
+  // no disagreement guard to run. These are simply the report-derived values
+  // the walk-forward replay below is built from.
+  const reportMode = report.mode ?? 'exposure';
+  const reportFactorSign = report.factorSign;
   const reportMinCrossSection = report.minCrossSection ?? 5;
-  if (args.minCrossSection !== undefined && args.minCrossSection !== reportMinCrossSection) {
-    throw new Error(
-      `--min-cross-section ${args.minCrossSection} disagrees with the report's ${reportMinCrossSection}`
-    );
-  }
-  const reportSelectMetric =
-    (report.selectMetric as SelectMetric | undefined) ?? (reportMode === 'rank' ? 'meanReturn' : 'sharpe');
-  if (args.selectMetric !== undefined && args.selectMetric !== reportSelectMetric) {
-    throw new Error(
-      `--select-metric "${args.selectMetric}" disagrees with the report's "${reportSelectMetric}"`
-    );
-  }
-  const reportFill = (report.fill as 'taker' | 'maker' | undefined) ?? 'taker';
-  if (args.fill !== undefined && args.fill !== reportFill) {
-    throw new Error(`--fill "${args.fill}" disagrees with the report's "${reportFill}"`);
-  }
-  const reportExcludedSymbols = report.excludedSymbols ?? [];
-  if (args.excludeSymbols !== undefined) {
-    const sameExclusions =
-      args.excludeSymbols.length === reportExcludedSymbols.length &&
-      args.excludeSymbols.every((s, i) => s === reportExcludedSymbols[i]);
-    if (!sameExclusions) {
-      throw new Error(
-        `--exclude-symbols ${JSON.stringify(args.excludeSymbols)} disagrees with the report's ` +
-          `excludedSymbols ${JSON.stringify(reportExcludedSymbols)}`
-      );
-    }
-  }
+  const reportSelectMetric: SelectMetric =
+    report.selectMetric ?? (reportMode === 'rank' ? 'meanReturn' : 'sharpe');
+  const reportFill = report.fill ?? 'taker';
 
   const verify = await verifyManifest(args.datasetDir);
   if (!verify.ok) {

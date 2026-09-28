@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
+import {
+  BINANCE_FUTURES_MAKER_FEE,
+  BINANCE_FUTURES_TAKER_FEE,
+  STUDY_SLIPPAGE_BPS,
+} from '@/lib/backtest/cost-model';
 import { FUNDING_INTERVAL_MS, fundingCrossings, fundingPnl } from '@/lib/backtest/funding';
 import {
   FACTOR_DECAY_HORIZON_BARS,
@@ -660,7 +664,7 @@ describe('simulateExposure rank scheme', () => {
     // Entry (0.5 at bar 0) plus the forced exit (0.5 at bar 1).
     expect(result.perSymbol[4].turnover).toBeCloseTo(1, 12);
   });
-  it('the tanh path is unchanged: scheme undefined equals scheme tanh equals the recorded fixture numbers', () => {
+  it('scheme undefined and scheme tanh produce identical output', () => {
     const a = simulateExposure(symbols, grid);
     const b = simulateExposure(symbols, { ...grid, scheme: 'tanh' });
     expect(b.netReturns).toEqual(a.netReturns);
@@ -669,8 +673,12 @@ describe('simulateExposure rank scheme', () => {
   it('maker fill charges the maker fee and no slippage', () => {
     const taker = simulateExposure(symbols, grid);
     const maker = simulateExposure(symbols, grid, { fill: 'maker' });
-    // first traded bar: cost = delta x (0.0002 + 0) under standard maker vs delta x (0.0005 + slippage)
-    expect(maker.costReturns[0]).toBeCloseTo(taker.costReturns[0] * (0.0002 / (0.0005 + STUDY_SLIPPAGE_BPS[grid.interval] / 10000)), 12);
+    // first traded bar: cost = delta x (maker fee + 0) vs delta x (taker fee + slippage)
+    expect(maker.costReturns[0]).toBeCloseTo(
+      taker.costReturns[0] *
+        (BINANCE_FUTURES_MAKER_FEE / (BINANCE_FUTURES_TAKER_FEE + STUDY_SLIPPAGE_BPS[grid.interval] / 10000)),
+      12
+    );
   });
   it('rank weights are not divided by gross', () => {
     const grid1: ExposureGrid = {

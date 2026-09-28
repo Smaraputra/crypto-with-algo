@@ -17,7 +17,11 @@ import {
   type SnapshotRow,
 } from './dataset-format';
 import { validateExposureReport } from './report-schema';
-import { EXPOSURE_GRID_CELL_COUNT, RANK_GRID_CELL_COUNT } from './exposure-walk-forward';
+import {
+  EXPOSURE_GRID_CELL_COUNT,
+  RANK_GRID_CELL_COUNT,
+  RANK_PREREGISTERED_TRIALS,
+} from './exposure-walk-forward';
 import { computeFactorMatrix } from './factors';
 import {
   TIMING_SEED_OFFSET,
@@ -307,12 +311,43 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--interval', '1d', '--fill', 'bogus'])).toThrow(/Invalid --fill/);
   });
 
+  it('rejects a rank-mode --min-cross-section below twice the widest rank scheme', () => {
+    expect(() =>
+      parseArgs([
+        '--mode',
+        'rank',
+        '--interval',
+        '1h',
+        '--factor',
+        'realizedVol20',
+        '--factor-sign',
+        '1',
+        '--min-cross-section',
+        '3',
+      ])
+    ).toThrow(/--min-cross-section must be at least 4 for the rank grid/);
+
+    const parsed = parseArgs([
+      '--mode',
+      'rank',
+      '--interval',
+      '1h',
+      '--factor',
+      'realizedVol20',
+      '--factor-sign',
+      '1',
+      '--min-cross-section',
+      '5',
+    ]);
+    expect(parsed.minCrossSection).toBe(5);
+  });
+
   it('parses --exclude-symbols into a list', () => {
     const parsed = parseArgs(['--interval', '1d', '--exclude-symbols', 'BTCUSDT, ETHUSDT']);
     expect(parsed.excludeSymbols).toEqual(['BTCUSDT', 'ETHUSDT']);
   });
 
-  it('defaults --trials to the rank grid cell count in rank mode', () => {
+  it('defaults --trials to the pre-registered 54 in rank mode', () => {
     const parsed = parseArgs([
       '--mode',
       'rank',
@@ -323,8 +358,15 @@ describe('parseArgs', () => {
       '--factor-sign',
       '1',
     ]);
-    expect(parsed.trials).toBe(RANK_GRID_CELL_COUNT);
+    expect(parsed.trials).toBe(RANK_PREREGISTERED_TRIALS);
+    expect(RANK_PREREGISTERED_TRIALS).toBe(54);
     expect(RANK_GRID_CELL_COUNT).toBe(9);
+  });
+
+  it('keeps the exposure-mode --trials default unchanged in rank mode', () => {
+    const parsed = parseArgs(['--interval', '1d']);
+    expect(parsed.trials).toBe(EXPOSURE_GRID_CELL_COUNT);
+    expect(parsed.trials).toBe(36);
   });
 });
 

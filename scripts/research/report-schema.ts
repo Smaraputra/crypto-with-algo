@@ -907,11 +907,11 @@ export const ExposureReportSchema = z.object({
   // 'factorSign', 'minCrossSection', 'fill' and 'excludedSymbols' mirror the
   // simulator options a rank run carries, and 'selectMetric' names the grid
   // selection metric.
-  mode: z.string().optional(),
-  factorSign: z.number().optional(),
-  minCrossSection: z.number().optional(),
-  selectMetric: z.string().optional(),
-  fill: z.string().optional(),
+  mode: z.enum(['exposure', 'rank']).optional(),
+  factorSign: z.union([z.literal(1), z.literal(-1)]).optional(),
+  minCrossSection: z.number().int().min(2).optional(),
+  selectMetric: z.enum(['sharpe', 'meanReturn']).optional(),
+  fill: z.enum(['taker', 'maker']).optional(),
   excludedSymbols: z.array(z.string()).optional(),
   costs: z.object({
     feePercent: z.number(),

@@ -650,6 +650,45 @@ describe('ExposureReportSchema', () => {
     const result = validateExposureReport(phase5Report);
     expect(result.ok).toBe(true);
   });
+
+  it('rejects an unrecognised mode or factorSign value', () => {
+    const base = {
+      schemaVersion: 1,
+      taskId: 'p3',
+      datasetManifestHash: 'abc',
+      lockboxApplied: true,
+      factor: 'realizedVol20',
+      interval: '1h',
+      symbols: ['BTCUSDT', 'ETHUSDT'],
+      dateRange: { startMs: 0, endMs: 1 },
+      gridCells: 9,
+      trials: 54,
+      mode: 'rank',
+      factorSign: -1,
+      minCrossSection: 5,
+      selectMetric: 'meanReturn',
+      fill: 'taker',
+      costs: { feePercent: 0.0005, slippageBps: 2 },
+      windowConfig: { mode: 'rolling', trainFraction: 0.4, count: 6, minIsSharpeBars: 100 },
+      stress: { feeMultiplier: 1.5, slippageMultiplier: 2 },
+      bootstrap: { iterations: 1000, seed: 42, meanBlockLen: 40 },
+      timing: { draws: 200, blockLength: 40 },
+      perSymbol: [],
+      windows: [],
+      pooled: buildMinimalPooled(),
+      gates: [],
+      pass: false,
+      computedAt: '2026-09-27T00:00:00.000Z',
+      gitCommit: 'abc1234',
+      durationMs: 10,
+    };
+
+    const badMode = { ...base, mode: 'Rank' };
+    expect(validateExposureReport(badMode).ok).toBe(false);
+
+    const badFactorSign = { ...base, factorSign: 2 };
+    expect(validateExposureReport(badFactorSign).ok).toBe(false);
+  });
 });
 
 /** A pooled block with every field present and null where a run had no data. */

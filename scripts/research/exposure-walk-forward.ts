@@ -149,6 +149,14 @@ export const RANK_BAND_FRACTIONS = [0, 0.25, 0.5] as const;
 export const RANK_GRID_CELL_COUNT = RANK_SCHEMES.length * RANK_BAND_FRACTIONS.length;
 
 /**
+ * The pre-registration fixes `--trials 54` for every rank run (nine grid
+ * cells x six pre-registered runs), not the nine-cell grid size, so the
+ * deflated-Sharpe trials gate stays as hard as it was pre-registered even
+ * when a run tests fewer than six factors.
+ */
+export const RANK_PREREGISTERED_TRIALS = 54;
+
+/**
  * The rank grid, scheme-major then band fraction. The order is fixed for the
  * same reason `expandExposureGrid`'s is: it sets the grid index.
  *
