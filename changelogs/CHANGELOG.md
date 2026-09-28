@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Per-leg and net-exposure statistics in `exposure-gates.ts`**, plus a drop-BTC jackknife, alongside `--mode rank` in `exposure-harness.ts` with factors `realizedVol20`, `fundingRate`, `topTraderPositionRatio`, and flags `--fill` and `--exclude-symbols`
 - **A spot-grid intersection in the loader**, dropping perp bars absent from the spot grid and recording the count as `perpBarsOffSpotGrid` per symbol
 
-### Research result: the cross-sectional axis closes on this dataset
+### Measured (research): the cross-sectional axis closes on this dataset, 2026-09-28
 - **`realizedVol20` fails expectancy at both intervals**: 4h mean -0.006881 %/bar, Sharpe CI [-0.038117, 0.013164], 3/6 windows positive, jackknife 0/10 (worst -0.010796), timing p 0.935, 7 of 8 gates failed. 1h mean -0.006305 %/bar, Sharpe CI [-0.035073, -0.011112] entirely below zero, 1/6 windows positive, jackknife 0/10 (worst -0.007170), timing p 1.000, 7 of 8 gates failed
 - **KILL CRITERION FIRES**: `realizedVol20` fails the expectancy gate at both 1h and 4h, so the cross-sectional axis closes on this dataset. `fundingRate` and `topTraderPositionRatio` did not run
 - **Scale observation**: a rank IC of -0.0745 (1h) and -0.0788 (4h) did not become a positive gross spread in an equal-dollar rank book, because the factor sorts symbols by their own return volatility and the high-vol short leg moves more than the long leg. The frontier conversion `2 x IC x sd` assumes a scale-free relationship that does not hold here. A volatility-scaled variant is a bounded future question, not run in this phase

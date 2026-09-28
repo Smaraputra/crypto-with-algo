@@ -95,8 +95,9 @@
  * is one long and one short of 50 USDT each, 100 USDT gross at 1x. linearRank
  * on ten symbols holds all ten with weights from 0.02 to 0.18 of gross, so
  * the smallest weight at a 50 USDT minimum notional needs 2,500 USDT gross,
- * 25x on 100 USDT, 5x on 500 USDT. The selected cells were linearRank, which
- * the 100 USDT base cannot implement at 1x.
+ * 25x on 100 USDT, 5x on 500 USDT. linearRank was selected in eleven of the
+ * twelve windows, with 4h window 5 selecting topBottom k=1 at band 0. The
+ * 100 USDT base cannot implement linearRank at 1x.
  */
 import { readFile } from 'fs/promises';
 import {

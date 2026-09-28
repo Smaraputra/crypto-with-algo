@@ -152,6 +152,12 @@
  * | 4h       | f5625a2  | 5856/5856       | -0.006881  | -0.012569 | [-0.038117, 0.013164]    | 53.3       | 3/6      | 6/10     | 0/10 (-0.010796)    | -0.005704   | 0.935 (200)       | 0.0702  | n/a     | -0.011261   | 570.0    | 14.41      | +0.005838 | -0.005892 | 9.6e-18               | expectancy, windows, symbols, timing, trials, stress, plateau |
  * | 1h       | 29f01df  | 23532/23532     | -0.006305  | -0.023461 | [-0.035073, -0.011112]   | 79.5       | 1/6      | 4/10     | 0/10 (-0.007170)    | -0.006548   | 1.000 (200)       | 5.2e-09 | n/a     | -0.010011   | 1586.0   | 11.61      | +0.001410 | -0.002379 | 1.0e-17               | expectancy, windows, symbols, timing, trials, stress, plateau |
  *
+ * The without-BTC column removes BTCUSDT's return contribution only: its
+ * share of turnover cost is not removed and the residual book is not dollar
+ * neutral, so it is a contribution-removal statistic, not the alts-only
+ * re-run the pre-registration lists separately (which did not run because
+ * nothing passed).
+ *
  * Selected cells per window: 4h linearRank with band fraction 0.25 (window 0)
  * and 0.5 (windows 1 to 4), topBottom k=1 band 0 (window 5); 1h linearRank
  * band fraction 0.5 in all six windows. The band was selected (unlike Phase
@@ -193,7 +199,12 @@
  * because no run passed. Spot checks: 4h BTCUSDT window 2 reproduced (params
  * linearRank band 0.5, 976 bars, mean -0.03728195892975744 %/bar); 1h
  * BTCUSDT window 2 reproduced (params linearRank band 0.5, 3922 bars, mean
- * -0.013161281383872741 %/bar).
+ * -0.013161281383872741 %/bar). The timing p values (1.000 at 1h, 0.935 at
+ * 4h) are uninformative at this cost-to-gross ratio: the observed mean is
+ * almost entirely turnover cost, and the per-symbol shuffle likely churns
+ * the book harder, so the null draws pay at least as much cost, the same
+ * caveat Phase 5 recorded at 1d. The conclusion rests on the expectancy
+ * gate.
  *
  * THE FINDING WORTH KEEPING (observation, not a change to the
  * pre-registration). A rank IC of -0.0745 (1h) and -0.0788 (4h) with quarter
@@ -208,9 +219,11 @@
  * scale; this is the same lesson as the btcLeadLag hold-profile caveat in a
  * different coat. A volatility-scaled (risk-parity) weighting is the
  * natural next container variant and is NOT run in this phase (the grid was
- * fixed in advance); it would need a new pre-registration, and its expected
- * gross is bounded above by the equal-dollar result's scale asymmetry, so it
- * should be written up as a bounded question, not a promise.
+ * fixed in advance); it would need a new pre-registration. The equal-dollar
+ * result says only that the rank ordering carries information an
+ * equal-dollar weighting cannot monetise, and says nothing about what a
+ * volatility-scaled weighting would earn, so it should be written up as a
+ * bounded question, not a promise.
  */
 
 import { bootstrapCi, maxDrawdownPercentOfPnl, meanOf } from '@/lib/stats/block-bootstrap';
