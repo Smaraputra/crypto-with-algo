@@ -81,6 +81,149 @@
  * and would be badly undersized on autocorrelated bar returns, which is the
  * failure mode that manufactures a false pass. The realised block length is
  * carried on the report so a reviewer can check it rather than take the rule.
+ *
+ * PHASE 3 PLAN 2 PRE-REGISTRATION, 2026-09-27 (committed before any rank
+ * container code). Hypothesis: a dollar-neutral rank book across the ten
+ * USDT-M perpetuals, long the low readings and short the high readings of a
+ * cross-sectional survivor, pays standard taker costs at 1h and 4h.
+ *
+ * Factors and predicted sign (factorSign is the sign under which a HIGH
+ * reading is LONG; every one below is -1, contrarian):
+ *   realizedVol20            -1  primary. cs IC 1h h32 -0.0745 (q 0.96, s 1.00), 4h h32 -0.0788 (q 0.91, s 1.00)
+ *   fundingRate              -1  second, only if the primary passes expectancy at either interval. 1h h32 -0.026 (q 0.91, s 0.90), 4h (q 0.80, s 1.00)
+ *   topTraderPositionRatio   -1  third, same condition. 1h h32 -0.029 (q 0.81, s 0.90), 4h (q 0.81, s 0.80)
+ *
+ * Grid, fixed: scheme in {topBottom k=1, topBottom k=2, linearRank} x
+ * bandFraction in {0, 0.25, 0.5}, nine cells per run; band is the fraction of
+ * the scheme's largest weight (0.5 for k=1, 0.25 for k=2, 4.5/25 = 0.18 for
+ * linearRank on ten symbols). Smoothing 0. Minimum cross-section 5 symbols.
+ * Six runs at most (three factors x two intervals): --trials 54 for every run.
+ * Windows 6 rolling, train fraction 0.4, as Phase 5. Selection on net mean
+ * return per bar. Costs: standard taker plus study slippage on turnover.
+ * Bootstrap block: bars between rebalances, floor 32.
+ *
+ * Predicted magnitude for the primary at 1h: gross 0.2 to 0.4% per 32 bars
+ * per unit gross (cross-sectionally demeaned 32-bar return sd 2.62% x 2 x
+ * 0.0745 = 0.39% as the decile upper bound), turnover well under one full
+ * rotation per 32 bars, net mean return per bar positive with the Sharpe CI
+ * clear of zero; a band above 0 selected in most windows; the drop-BTCUSDT
+ * jackknife still positive.
+ *
+ * KILL CRITERION: if realizedVol20 fails the expectancy gate (Sharpe CI low
+ * not above zero) at BOTH 1h and 4h, the cross-sectional axis closes on this
+ * dataset and neither other factor runs.
+ *
+ * Robustness reads at the selected cell of every run that passes expectancy,
+ * reported and never selected on: alts only (--exclude-symbols BTCUSDT),
+ * maker fill (--fill maker: maker fee, zero slippage), fee profile bnb, and
+ * the per-leg split. Nothing here changes live scoring or configVersion.
+ *
+ * PHASE 3 PLAN 2 RESULT, 2026-09-28. Dataset e84cd66dbe01, lockbox on, ten
+ * symbols, six rolling windows, train fraction 0.4, standard taker plus study
+ * slippage on turnover, selection on net mean return per bar, --trials 54.
+ *
+ * BYTE-IDENTITY CONTROL. The recorded Phase 5 row
+ * (exposure-positioningZ360-4h-p5c.json, 2026-09-21) does NOT reproduce on
+ * the branch, and the reason is vintage, not code: the branch run
+ * (exposure-positioningZ360-4h-control.json, image f5625a2) matches the
+ * recorded report on selected params, bars held 5237/5340, total turnover
+ * 94.01456912315177 and bars per rebalance 1.0221151680472687, while every
+ * return-side number moved (mean -0.0026737 to -0.0023714 %/bar, Sharpe CI
+ * [-0.027782, 0.018162] to [-0.028749, 0.018609], timing p 0.725 to 0.75,
+ * symbols positive 3 to 4). Identical trades with different returns is the
+ * signature of the causal snapshot join deployed 2026-09-25 (PR #43), which
+ * already breaks reproduction of pre-2026-09-25 snapshot-derived numbers.
+ * The valid control is pre-branch main (c47e775) on today's join:
+ * exposure-positioningZ360-4h-main.json is digit-identical to the branch
+ * control on all 25 pre-existing pooled fields, every gate, every window and
+ * every per-symbol row (mean -0.0023714498866813038 %/bar both); the branch
+ * adds only meanAbsNetExposure, longLegMeanReturnPercent,
+ * shortLegMeanReturnPercent, jackknifeWithoutBtcMeanReturnPercent and the
+ * mode, fill, minCrossSection, selectMetric metadata. The post-join
+ * reference for positioningZ360 4h is therefore -0.0023714 %/bar, CI
+ * [-0.028749, 0.018609], timing p 0.75, 7 of 8 failed; the Phase 5 table
+ * above is the pre-join vintage.
+ *
+ * PRIMARY RUNS, realizedVol20, factorSign -1 (long low relative volatility,
+ * short high):
+ *
+ * | interval | image    | bars held/total | mean %/bar | Sharpe    | Sharpe CI95              | drawdown % | windows+ | symbols+ | jackknife+ (worst) | without BTC | timing p (draws) | dsp     | plateau | stress mean | turnover | bars/rebal | long leg  | short leg | mean abs net exposure | gates failed |
+ * | ---      | ---      | ---             | ---:       | ---:      | ---                      | ---:       | ---      | ---      | ---                 | ---:        | ---               | ---:    | ---     | ---:        | ---:     | ---:       | ---:      | ---:      | ---:                  | ---          |
+ * | 4h       | f5625a2  | 5856/5856       | -0.006881  | -0.012569 | [-0.038117, 0.013164]    | 53.3       | 3/6      | 6/10     | 0/10 (-0.010796)    | -0.005704   | 0.935 (200)       | 0.0702  | n/a     | -0.011261   | 570.0    | 14.41      | +0.005838 | -0.005892 | 9.6e-18               | expectancy, windows, symbols, timing, trials, stress, plateau |
+ * | 1h       | 29f01df  | 23532/23532     | -0.006305  | -0.023461 | [-0.035073, -0.011112]   | 79.5       | 1/6      | 4/10     | 0/10 (-0.007170)    | -0.006548   | 1.000 (200)       | 5.2e-09 | n/a     | -0.010011   | 1586.0   | 11.61      | +0.001410 | -0.002379 | 1.0e-17               | expectancy, windows, symbols, timing, trials, stress, plateau |
+ *
+ * The without-BTC column removes BTCUSDT's return contribution only: its
+ * share of turnover cost is not removed and the residual book is not dollar
+ * neutral, so it is a contribution-removal statistic, not the alts-only
+ * re-run the pre-registration lists separately (which did not run because
+ * nothing passed).
+ *
+ * Selected cells per window: 4h linearRank with band fraction 0.25 (window 0)
+ * and 0.5 (windows 1 to 4), topBottom k=1 band 0 (window 5); 1h linearRank
+ * band fraction 0.5 in all six windows. The band was selected (unlike Phase
+ * 5): 14.4 bars between rebalances at 4h, 11.6 at 1h.
+ *
+ * Per-window means (%/bar): 4h -0.03346, +0.01607, -0.03728, +0.00796,
+ * +0.01134, -0.00591 (976 bars each); 1h -0.01424, +0.00043, -0.01316,
+ * -0.00261, -0.00403, -0.00422 (3922 bars each).
+ *
+ * Per-symbol mean contribution (%/bar, positive?): 4h ADA +0.00036 yes, AVAX
+ * 0.0 yes, BNB +0.00285 yes, BTC -0.00118 no, DOGE -0.00524 no, DOT +0.00392
+ * yes, ETH +0.00206 yes, LINK +0.00285 yes, SOL -0.00447 no, XRP -0.0012 no.
+ * 1h ADA -0.00036 no, AVAX -0.00026 no, BNB +0.00087 yes, BTC +0.00024 yes,
+ * DOGE -0.00093 no, DOT +0.00065 yes, ETH -0.00013 no, LINK +0.00086 yes,
+ * SOL -0.00082 no, XRP -0.00109 no.
+ *
+ * Cost arithmetic: 4h 570 turnover units x 0.0007 per unit (0.05% taker + 2
+ * bps) over 5856 bars = 0.0068 %/bar, so gross is about zero (legs +0.0058
+ * and -0.0059); 1h 1586 x 0.0008 (0.05% + 3 bps) over 23532 bars = 0.0054
+ * %/bar, so gross is about -0.001 %/bar.
+ *
+ * Loader note: at 1h every symbol had exactly one perp bar absent from the
+ * spot grid (the same hour, 2023-03-24T13:00Z), dropped by the intersection
+ * and recorded as perpBarsOffSpotGrid: 1 per symbol; 39407 perp bars per
+ * symbol remain. Phase 5 never ran 1h, which is why the guard had never
+ * fired.
+ *
+ * VERDICT AGAINST THE PRE-REGISTRATION. Predictions: gross 0.2 to 0.4% per
+ * 32 bars per unit gross at 1h, net mean return per bar positive with the
+ * Sharpe CI clear of zero, a band above 0 selected in most windows, the
+ * drop-BTC jackknife positive. Observed: the band prediction held (band 0.5
+ * in every 1h window, in five of six at 4h); everything else failed. Gross
+ * at 1h is about -0.001 %/bar (-0.03% per 32 bars) against a predicted +0.2
+ * to +0.4%; the Sharpe CI at 1h is entirely below zero; the drop-BTC
+ * jackknife is negative at both intervals. KILL CRITERION FIRES:
+ * realizedVol20 fails the expectancy gate at both 1h and 4h, so the
+ * cross-sectional axis closes on this dataset; fundingRate and
+ * topTraderPositionRatio were not run, and no robustness read applies
+ * because no run passed. Spot checks: 4h BTCUSDT window 2 reproduced (params
+ * linearRank band 0.5, 976 bars, mean -0.03728195892975744 %/bar); 1h
+ * BTCUSDT window 2 reproduced (params linearRank band 0.5, 3922 bars, mean
+ * -0.013161281383872741 %/bar). The timing p values (1.000 at 1h, 0.935 at
+ * 4h) are uninformative at this cost-to-gross ratio: the observed mean is
+ * almost entirely turnover cost, and the per-symbol shuffle likely churns
+ * the book harder, so the null draws pay at least as much cost, the same
+ * caveat Phase 5 recorded at 1d. The conclusion rests on the expectancy
+ * gate.
+ *
+ * THE FINDING WORTH KEEPING (observation, not a change to the
+ * pre-registration). A rank IC of -0.0745 (1h) and -0.0788 (4h) with quarter
+ * agreement above 0.9 did not become a positive gross spread in an
+ * equal-dollar rank book. The factor sorts symbols by their own return
+ * volatility, so the short leg (high vol) moves more than the long leg: a
+ * Spearman IC counts a bar where the high-vol names outperform by 5% the
+ * same as a bar where they underperform by 0.1%, while the book's P&L does
+ * not. Frequent small wins and rare large losses net to about zero at both
+ * intervals. The frontier conversion 2 x IC x sd assumes a scale-free
+ * relationship and does not hold for a factor that sorts on the return
+ * scale; this is the same lesson as the btcLeadLag hold-profile caveat in a
+ * different coat. A volatility-scaled (risk-parity) weighting is the
+ * natural next container variant and is NOT run in this phase (the grid was
+ * fixed in advance); it would need a new pre-registration. The equal-dollar
+ * result says only that the rank ordering carries information an
+ * equal-dollar weighting cannot monetise, and says nothing about what a
+ * volatility-scaled weighting would earn, so it should be written up as a
+ * bounded question, not a promise.
  */
 
 import { bootstrapCi, maxDrawdownPercentOfPnl, meanOf } from '@/lib/stats/block-bootstrap';
@@ -164,7 +307,19 @@ export interface ExposurePooledStats {
   /** All out-of-sample bars, exposure or not. */
   barsTotal: number;
   exposureShare: number;
+  /** Mean of |netExposure| over the concatenated selected bars. Near zero for
+   * a rank scheme, which rebalances the whole book to sum to zero on every
+   * complete bar; nonzero for `tanh`, whose per-symbol targets have no such
+   * constraint. */
+  meanAbsNetExposure: number;
   meanReturnPercent: number | null;
+  /** Per-bar return contribution summed over symbols held long, pooled and
+   * expressed in percent like `meanReturnPercent`. Null only when there are
+   * no bars at all (same condition as `meanReturnPercent`). */
+  longLegMeanReturnPercent: number | null;
+  /** Per-bar return contribution summed over symbols held short, pooled and
+   * expressed in percent like `meanReturnPercent`. */
+  shortLegMeanReturnPercent: number | null;
   /** Per-period Sharpe, not annualized, matching src/lib/stats. */
   sharpe: number | null;
   sharpeCi95: [number, number] | null;
@@ -181,6 +336,10 @@ export interface ExposurePooledStats {
   jackknifeTotal: number;
   jackknifePositive: number;
   jackknifeWorstMeanReturnPercent: number | null;
+  /** The drop-one-symbol jackknife, restricted to BTCUSDT: the pooled mean
+   * return with BTCUSDT's own contribution subtracted out. Null when
+   * BTCUSDT is not in `universe`, never computed from cell membership alone. */
+  jackknifeWithoutBtcMeanReturnPercent: number | null;
   timingDraws: number;
   timingP: number | null;
   trials: number;
@@ -252,6 +411,14 @@ export function poolExposureResults(
   const random = options.benchmarkRandom ?? createSeededRandom(options.seed);
 
   const netReturns: number[] = [];
+  // Net exposure, and the two legs' return contributions, concatenated in
+  // lockstep with `netReturns` -- same cell, same index `i`, same finiteness
+  // gate -- so a pooled mean of any one of them lines up bar for bar with the
+  // others. This is what makes the per-leg identity (long + short = net -
+  // cost - funding) hold on the POOLED means, not just per bar.
+  const netExposureAbs: number[] = [];
+  const longLegValues: number[] = [];
+  const shortLegValues: number[] = [];
   const perSymbolContributions = new Map<string, number[]>();
   for (const symbol of universe) perSymbolContributions.set(symbol, []);
 
@@ -265,6 +432,9 @@ export function poolExposureResults(
       const r = cell.result.netReturns[i];
       if (!Number.isFinite(r)) continue;
       netReturns.push(r);
+      netExposureAbs.push(Math.abs(cell.result.netExposure[i]));
+      longLegValues.push(cell.result.longLegReturns[i]);
+      shortLegValues.push(cell.result.shortLegReturns[i]);
       barsTotal++;
       if (cell.result.grossExposure[i] > 0) barsHeld++;
     }
@@ -279,6 +449,11 @@ export function poolExposureResults(
   }
 
   const meanReturnPercent = netReturns.length > 0 ? meanOf(netReturns) * 100 : null;
+  const meanAbsNetExposure = netExposureAbs.length > 0 ? meanOf(netExposureAbs) : 0;
+  const longLegMeanReturnPercent =
+    longLegValues.length > 0 ? meanOf(longLegValues) * 100 : null;
+  const shortLegMeanReturnPercent =
+    shortLegValues.length > 0 ? meanOf(shortLegValues) * 100 : null;
   const sharpe = netReturns.length > 1 ? toFinite(perPeriodSharpe(netReturns)) : null;
 
   // Block length from the holding horizon, never cbrt(n). Imported lazily to
@@ -336,6 +511,17 @@ export function poolExposureResults(
       jackknifeWorst = mean;
     }
   }
+
+  // Drop-BTC jackknife: the same machinery, restricted to BTCUSDT. Gated on
+  // `universe` membership, not on whether a selected cell happens to have
+  // traded it -- BTCUSDT absent from the universe means the question does
+  // not apply, regardless of what any individual cell's symbols were.
+  const jackknifeWithoutBtcMeanReturnPercent = universe.includes('BTCUSDT')
+    ? (() => {
+        const without = subtractPerSymbol(selected, 'BTCUSDT');
+        return without.length > 0 ? meanOf(without) * 100 : null;
+      })()
+    : null;
 
   // Timing: circular block shuffle of every symbol's z column, run through the
   // identical machinery, and count how often the shuffled portfolio's mean
@@ -457,7 +643,10 @@ export function poolExposureResults(
     barsHeld,
     barsTotal,
     exposureShare: barsTotal > 0 ? barsHeld / barsTotal : 0,
+    meanAbsNetExposure,
     meanReturnPercent,
+    longLegMeanReturnPercent,
+    shortLegMeanReturnPercent,
     sharpe,
     sharpeCi95,
     maxDrawdownPercent,
@@ -471,6 +660,7 @@ export function poolExposureResults(
     jackknifeTotal,
     jackknifePositive,
     jackknifeWorstMeanReturnPercent: jackknifeWorst === null ? null : jackknifeWorst * 100,
+    jackknifeWithoutBtcMeanReturnPercent,
     timingDraws,
     timingP,
     trials: options.trials,

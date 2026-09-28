@@ -42,6 +42,7 @@ import type { FeeProfileName } from '@/lib/backtest/cost-model';
 
 import {
   FACTOR_DECAY_HORIZON_BARS,
+  maxRankWeight,
   simulateExposure,
   trailingMean,
   type ExposureGrid,
@@ -126,6 +127,86 @@ export function gridFor(
     smoothing: 0,
     gross: opts.gross,
     interval: opts.interval,
+  };
+}
+
+/**
+ * The rank grid: which cross-sectional scheme, then the book-level band
+ * expressed as a fraction of that scheme's own largest single-symbol weight.
+ *
+ * `topBottom` k=1, `topBottom` k=2 and `linearRank` do not share a native
+ * weight scale (see `maxRankWeight`), so the grid varies the FRACTION of a
+ * scheme's own max weight rather than an absolute band. `bandFraction: 0` is
+ * the internal control, same reasoning as `EXPOSURE_BAND_VALUES[0]`: rebalance
+ * every bar the ranking changes, with no gate at all.
+ */
+export const RANK_SCHEMES = [
+  { scheme: 'topBottom', legs: 1 },
+  { scheme: 'topBottom', legs: 2 },
+  { scheme: 'linearRank', legs: 0 },
+] as const;
+export const RANK_BAND_FRACTIONS = [0, 0.25, 0.5] as const;
+export const RANK_GRID_CELL_COUNT = RANK_SCHEMES.length * RANK_BAND_FRACTIONS.length;
+
+/**
+ * The pre-registration fixes `--trials 54` for every rank run (nine grid
+ * cells x six pre-registered runs), not the nine-cell grid size, so the
+ * deflated-Sharpe trials gate stays as hard as it was pre-registered even
+ * when a run tests fewer than six factors.
+ */
+export const RANK_PREREGISTERED_TRIALS = 54;
+
+/**
+ * The rank grid, scheme-major then band fraction. The order is fixed for the
+ * same reason `expandExposureGrid`'s is: it sets the grid index.
+ *
+ * `schemeIndex` (not the scheme string) is the param, so every logical cell
+ * stays a flat `Record<string, number>` like the tanh grid's cells.
+ */
+export function expandRankGrid(): Array<Record<string, number>> {
+  const cells: Array<Record<string, number>> = [];
+  for (let schemeIndex = 0; schemeIndex < RANK_SCHEMES.length; schemeIndex++) {
+    const { legs } = RANK_SCHEMES[schemeIndex];
+    for (const bandFraction of RANK_BAND_FRACTIONS) {
+      cells.push({ schemeIndex, legs, bandFraction });
+    }
+  }
+  return cells;
+}
+
+/**
+ * The grid handed to the simulator for one rank-mode logical cell.
+ *
+ * `band` is resolved from `bandFraction * maxRankWeight(...)`: an absolute
+ * band tuned for `tanh`'s continuous target (up to +/-1) would either never
+ * gate a `topBottom` book (whose largest weight is 1/(2*legs), well under 1)
+ * or never let a `linearRank` book trade at all past a wide fraction, since
+ * that scheme's largest weight is smaller still. Scaling by the scheme's own
+ * max weight makes `bandFraction` comparable across all three schemes.
+ *
+ * `gross` is always 1: rank targets are unit-gross by construction (see
+ * `crossSectionalTargets`), so `gridFor`'s per-cell `gross = universe size`
+ * does not apply here. `smoothing` is always 0: the rank schemes rank a raw
+ * cross-section bar by bar, so there is no smoothing warmup to pre-apply, and
+ * `zScale` is unused by either rank scheme and pinned to 1 for a valid,
+ * inert `ExposureGrid`.
+ */
+export function rankGridFor(
+  params: Record<string, number>,
+  opts: { interval: string; universeSize: number; factorSign: 1 | -1; minCrossSection: number }
+): ExposureGrid {
+  const { scheme } = RANK_SCHEMES[params.schemeIndex];
+  const band = params.bandFraction * maxRankWeight(scheme, params.legs, opts.universeSize);
+  return {
+    band,
+    zScale: 1,
+    smoothing: 0,
+    gross: 1,
+    interval: opts.interval,
+    scheme,
+    legs: params.legs,
+    factorSign: opts.factorSign,
+    minCrossSection: opts.minCrossSection,
   };
 }
 
@@ -300,12 +381,18 @@ export function minIsSharpeBarsFor(interval: string, trainFraction: number): num
  * cold-start round trip bounded by the symbol count in turnover units, which
  * biases AGAINST the run; a gap cannot fix it, because the weight resets either
  * way, and would throw away real bars.
+ *
+ * `minTrainBars` defaults to `MIN_TRAIN_BARS`, the tanh grid's smoothing
+ * warmup floor. Rank mode has no smoothing to warm up (see `rankGridFor`), so
+ * its caller passes `FACTOR_DECAY_HORIZON_BARS` instead: enough training bars
+ * to estimate one factor decay horizon of Sharpe, no more.
  */
 export function resolveExposureWindowConfig(
   usableBars: number,
   interval: string,
   windows: { count: number; trainFraction: number; mode: 'rolling' | 'anchored' },
-  factorWarmupBars = 0
+  factorWarmupBars = 0,
+  minTrainBars: number = MIN_TRAIN_BARS
 ): ExposureWindowConfig & { bounds: ExposureWindowBounds[] } {
   if (usableBars < 2) {
     throw new Error(
@@ -315,7 +402,7 @@ export function resolveExposureWindowConfig(
   }
 
   const returnBars = usableBars - 1;
-  const trainBars = Math.max(Math.floor(returnBars * windows.trainFraction), MIN_TRAIN_BARS);
+  const trainBars = Math.max(Math.floor(returnBars * windows.trainFraction), minTrainBars);
   const purgeGapBars = 0;
   const testWindowBars = Math.floor((returnBars - trainBars - purgeGapBars) / windows.count);
 
@@ -392,30 +479,41 @@ export function summarizeCell(params: Record<string, number>, result: ExposureRe
   };
 }
 
+/** Which in-sample number ranks the grid. Default `'sharpe'` is
+ * byte-identical to before this parameter existed; `'meanReturn'` ranks on
+ * `meanReturnPercent` instead, for a grid (rank mode) where a highest-Sharpe
+ * cell can be a thin, barely-held one that a mean-return selection would not
+ * pick. */
+export type SelectMetric = 'sharpe' | 'meanReturn';
+
 /**
- * Highest in-sample per-period Sharpe among eligible cells; the earliest grid
- * index wins ties; -1 when nothing qualifies.
+ * Highest in-sample metric among eligible cells; the earliest grid index wins
+ * ties; -1 when nothing qualifies.
  *
- * Eligibility is stricter than the bars floor alone. `perPeriodSharpe` returns
- * 0 rather than NaN for a series with fewer than two observations or zero
- * standard deviation, so ranking raw on that value would let a degenerate cell
- * outrank genuinely losing ones. A cell therefore also needs at least two
- * finite returns AND a non-zero sample spread for its Sharpe to be a
- * measurement rather than the library's placeholder.
+ * Eligibility is stricter than the bars floor alone, and is the SAME for both
+ * metrics. `perPeriodSharpe` returns 0 rather than NaN for a series with
+ * fewer than two observations or zero standard deviation, so ranking raw on
+ * that value would let a degenerate cell outrank genuinely losing ones. A
+ * mean return has no such placeholder, but a degenerate cell (one finite
+ * return, or a constant series) is not a measurement under either metric, so
+ * the same floors gate both: a cell needs at least two finite returns AND a
+ * non-zero sample spread.
  */
 export function selectCellIndex(
   cells: readonly ExposureCellSummary[],
-  minIsSharpeBars: number
+  minIsSharpeBars: number,
+  metric: SelectMetric = 'sharpe'
 ): number {
   let bestIndex = -1;
-  let bestSharpe = Number.NEGATIVE_INFINITY;
+  let bestValue = Number.NEGATIVE_INFINITY;
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
     if (cell.barsHeld < minIsSharpeBars) continue;
     if (cell.bars < 2) continue;
     if (!(cell.returnSd > 0)) continue;
-    if (cell.sharpe > bestSharpe) {
-      bestSharpe = cell.sharpe;
+    const value = metric === 'meanReturn' ? cell.meanReturnPercent : cell.sharpe;
+    if (value > bestValue) {
+      bestValue = value;
       bestIndex = i;
     }
   }
@@ -447,6 +545,22 @@ export interface ExposureWalkForwardInput {
    * (nominal and stressed alike). Default: DEFAULT_FEE_PROFILE ('standard'),
    * byte-identical to before this field existed. */
   feeProfile?: FeeProfileName;
+  /** `'exposure'` (default) runs the tanh band/zScale/smoothing grid,
+   * byte-identical to before this field existed. `'rank'` runs the
+   * cross-sectional grid (`expandRankGrid`) instead: unit gross, no
+   * smoothing warmup, book-level rebalancing. */
+  mode?: 'exposure' | 'rank';
+  /** Sign under which a high reading is long. Rank mode only; forwarded to
+   * `rankGridFor`. Default 1. */
+  factorSign?: 1 | -1;
+  /** Minimum finite cross-section readings to form a rank target. Rank mode
+   * only; forwarded to `rankGridFor`. Default 5. */
+  minCrossSection?: number;
+  /** Which in-sample number `selectCellIndex` ranks on. Default `'sharpe'`. */
+  selectMetric?: SelectMetric;
+  /** 'maker' or 'taker' fill assumption, forwarded to every simulateExposure
+   * call (nominal and stressed alike). Default 'taker'. */
+  fill?: ExposureOptions['fill'];
   onWindow?: (info: { index: number; total: number; ms: number }) => void;
 }
 
@@ -465,16 +579,40 @@ export function runExposureWalkForward(input: ExposureWalkForwardInput): Exposur
   const { symbols, interval } = input;
   if (symbols.length === 0) throw new Error('runExposureWalkForward: empty universe');
 
+  const mode = input.mode ?? 'exposure';
+  const isRank = mode === 'rank';
   const usableBars = symbols[0].timestamps.length;
   const gross = symbols.length;
-  const gridCells = expandExposureGrid();
-  const windowConfig = resolveExposureWindowConfig(usableBars, interval, input.windows);
+  const gridCells = isRank ? expandRankGrid() : expandExposureGrid();
+  const windowConfig = resolveExposureWindowConfig(
+    usableBars,
+    interval,
+    input.windows,
+    0,
+    isRank ? FACTOR_DECAY_HORIZON_BARS : MIN_TRAIN_BARS
+  );
 
-  const nominalOptions: ExposureOptions = { feeProfile: input.feeProfile };
+  // Rank mode has no per-cell smoothing to warm up (see `rankGridFor`), so a
+  // slice is handed to the simulator as-is rather than through `preSmooth`.
+  const smoothFor = (slice: readonly ExposureSymbolInput[], smoothing: number): ExposureSymbolInput[] =>
+    isRank ? slice.map((s) => ({ ...s, z: [...s.z] })) : preSmooth(slice, smoothing);
+  const gridForCell = (params: Record<string, number>): ExposureGrid =>
+    isRank
+      ? rankGridFor(params, {
+          interval,
+          universeSize: symbols.length,
+          factorSign: input.factorSign ?? 1,
+          minCrossSection: input.minCrossSection ?? 5,
+        })
+      : gridFor(params, { gross, interval });
+  const selectMetric: SelectMetric = input.selectMetric ?? 'sharpe';
+
+  const nominalOptions: ExposureOptions = { feeProfile: input.feeProfile, fill: input.fill };
   const stressOptions: ExposureOptions = {
     feeMultiplier: input.stress.feeMultiplier,
     slippageMultiplier: input.stress.slippageMultiplier,
     feeProfile: input.feeProfile,
+    fill: input.fill,
   };
 
   const windows: ExposureWindowRun[] = [];
@@ -489,22 +627,22 @@ export function runExposureWalkForward(input: ExposureWalkForwardInput): Exposur
     const isRuns = new Map<number, ExposureResult>();
     for (let cellIndex = 0; cellIndex < gridCells.length; cellIndex++) {
       const params = gridCells[cellIndex];
-      const smoothed = preSmooth(trainSymbols, params.smoothing);
-      const grid = gridFor(params, { gross, interval });
+      const smoothed = smoothFor(trainSymbols, params.smoothing);
+      const grid = gridForCell(params);
       const result = simulateExposure(smoothed, grid, nominalOptions);
       isRuns.set(cellIndex, result);
       isCells.push(summarizeCell(params, result));
     }
 
-    const selectedIndex = selectCellIndex(isCells, windowConfig.minIsSharpeBars);
+    const selectedIndex = selectCellIndex(isCells, windowConfig.minIsSharpeBars, selectMetric);
     let selectedParams: Record<string, number> | null = null;
     let oos: ExposureCellRun | null = null;
     let oosStressed: ExposureCellRun | null = null;
 
     if (selectedIndex >= 0) {
       selectedParams = gridCells[selectedIndex];
-      const smoothedTest = preSmooth(testSymbols, selectedParams.smoothing);
-      const grid = gridFor(selectedParams, { gross, interval });
+      const smoothedTest = smoothFor(testSymbols, selectedParams.smoothing);
+      const grid = gridForCell(selectedParams);
       oos = {
         window: index,
         params: selectedParams,
@@ -549,8 +687,8 @@ export function runExposureWalkForward(input: ExposureWalkForwardInput): Exposur
   if (windowConfig.bounds.length > 0) {
     const oosSymbols = symbols.map((s) => sliceSymbolInput(s, oosStart, oosEnd));
     for (const params of gridCells) {
-      const smoothed = preSmooth(oosSymbols, params.smoothing);
-      const grid = gridFor(params, { gross, interval });
+      const smoothed = smoothFor(oosSymbols, params.smoothing);
+      const grid = gridForCell(params);
       allCells.push({
         window: -1,
         params,

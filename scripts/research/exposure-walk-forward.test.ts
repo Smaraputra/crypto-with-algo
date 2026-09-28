@@ -4,14 +4,17 @@ import { simulateExposure, type ExposureSymbolInput } from './exposure-sim';
 import {
   EXPOSURE_GRID_CELL_COUNT,
   MIN_TEST_BARS,
+  RANK_GRID_CELL_COUNT,
   alignToSharedGrid,
   MIN_TRAIN_BARS,
   expandExposureGrid,
+  expandRankGrid,
   gridFor,
   jointFactorStart,
   maxSmoothingWarmupBars,
   minIsSharpeBarsFor,
   preSmooth,
+  rankGridFor,
   resolveExposureWindowConfig,
   runExposureWalkForward,
   selectCellIndex,
@@ -46,6 +49,23 @@ function sym(name: string, n: number, drift: number, seed: number, zFn: (i: numb
   };
 }
 
+/**
+ * Ten symbols on one shared grid, long enough for two rolling windows at
+ * train fraction 0.5 with `FACTOR_DECAY_HORIZON_BARS` (32) as the minimum
+ * train length and `MIN_TEST_BARS` (50) as the minimum test length: 300 bars
+ * gives 149 train / 75 test per window, both comfortably above their floors.
+ *
+ * Each symbol's `z` is a sine wave with a per-symbol phase offset, so the
+ * cross-sectional ranking of the ten readings changes bar to bar rather than
+ * staying fixed, the way a real factor's ranking does.
+ */
+function tenSymbolFixture(): ExposureSymbolInput[] {
+  const n = 300;
+  return Array.from({ length: 10 }, (_, i) =>
+    sym(`S${i}USDT`, n, 0.0002, 17 + i, (idx) => Math.sin(idx / 30 + i) * 3)
+  );
+}
+
 describe('expandExposureGrid', () => {
   it('produces 36 distinct cells in the fixed band-major order', () => {
     const cells = expandExposureGrid();
@@ -61,6 +81,33 @@ describe('expandExposureGrid', () => {
     expect(cells[cells.length - 1]).toEqual({ band: 0.5, zScale: 12, smoothing: 32 });
     // band=0 must be present: it is the internal control.
     expect(cells.some((c) => c.band === 0)).toBe(true);
+  });
+});
+
+describe('expandRankGrid', () => {
+  it('is nine cells, scheme-major then band fraction, in a fixed order', () => {
+    const cells = expandRankGrid();
+    expect(cells.length).toBe(RANK_GRID_CELL_COUNT);
+    expect(cells[0]).toEqual({ schemeIndex: 0, legs: 1, bandFraction: 0 });
+    expect(cells[2]).toEqual({ schemeIndex: 0, legs: 1, bandFraction: 0.5 });
+    expect(cells[8]).toEqual({ schemeIndex: 2, legs: 0, bandFraction: 0.5 });
+  });
+});
+
+describe('rankGridFor', () => {
+  it('resolves the band from the scheme largest weight so linearRank at 0.5 still trades', () => {
+    const g = rankGridFor(
+      { schemeIndex: 2, legs: 0, bandFraction: 0.5 },
+      { interval: '1h', universeSize: 10, factorSign: -1, minCrossSection: 5 }
+    );
+    expect(g.scheme).toBe('linearRank');
+    expect(g.band).toBeCloseTo(0.5 * (4.5 / 25), 12);
+    expect(g.gross).toBe(1);
+    const k1 = rankGridFor(
+      { schemeIndex: 0, legs: 1, bandFraction: 0.25 },
+      { interval: '1h', universeSize: 10, factorSign: -1, minCrossSection: 5 }
+    );
+    expect(k1.band).toBeCloseTo(0.125, 12);
   });
 });
 
@@ -311,6 +358,16 @@ describe('summarizeCell and selectCellIndex', () => {
     expect(selectCellIndex([summary({ barsHeld: 1 })], 40)).toBe(-1);
   });
 
+  it('on meanReturn picks the highest mean, not the highest Sharpe', () => {
+    const cells = [
+      summary({ sharpe: 0.9, meanReturnPercent: 0.01 }),
+      summary({ sharpe: 0.3, meanReturnPercent: 0.03, returnSd: 0.1 }),
+    ];
+    expect(selectCellIndex(cells, 10, 'sharpe')).toBe(0);
+    expect(selectCellIndex(cells, 10, 'meanReturn')).toBe(1);
+    expect(selectCellIndex(cells, 10)).toBe(0); // default unchanged
+  });
+
   it('summarizeCell reports bars held from the gross exposure series', () => {
     const symbols = [sym('AAAUSDT', 300, 0.001, 9, () => -1)];
     const grid = gridFor({ band: 0, zScale: 1, smoothing: 0 }, { gross: 1, interval: '1d' });
@@ -389,5 +446,21 @@ describe('runExposureWalkForward', () => {
     const nominal = window.oos!.result.netReturns.reduce((a, b) => a + b, 0);
     const stressed = window.oosStressed!.result.netReturns.reduce((a, b) => a + b, 0);
     expect(stressed).toBeLessThan(nominal);
+  });
+
+  it('in rank mode runs the rank grid, records rank params and stays dollar neutral', () => {
+    const walk = runExposureWalkForward({
+      symbols: tenSymbolFixture(),
+      interval: '1h',
+      windows: { count: 2, trainFraction: 0.5, mode: 'rolling' },
+      stress: { feeMultiplier: 1.5, slippageMultiplier: 2 },
+      mode: 'rank',
+      factorSign: -1,
+      minCrossSection: 5,
+      selectMetric: 'meanReturn',
+    });
+    expect(walk.allCells.length).toBe(9);
+    expect(Object.keys(walk.allCells[0].params).sort()).toEqual(['bandFraction', 'legs', 'schemeIndex']);
+    for (const cell of walk.allCells) for (const n of cell.result.netExposure) expect(Math.abs(n)).toBeLessThan(1e-9);
   });
 });

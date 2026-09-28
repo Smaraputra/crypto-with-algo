@@ -75,6 +75,21 @@
  *   --expect-manifest-hash <h> abort unless the dataset hash matches
  *   --cell SYMBOL:WINDOW       spot-check mode, needs --report
  *   --report <file>            the report --cell checks against
+ *   --mode exposure|rank       default exposure. 'rank' runs the
+ *                               cross-sectional grid (expandRankGrid) instead
+ *                               of the tanh band/zScale/smoothing grid.
+ *   --factor <column>          also accepts realizedVol20, fundingRate,
+ *                               topTraderPositionRatio in rank mode only.
+ *   --factor-sign 1|-1         required in rank mode; sign under which a high
+ *                               reading is long.
+ *   --min-cross-section <n>    default 5. Rank mode only.
+ *   --select-metric sharpe|meanReturn
+ *                               default sharpe in exposure mode, meanReturn
+ *                               in rank mode.
+ *   --fill taker|maker         default taker.
+ *   --exclude-symbols <a,b>    removes symbols after loading, before the
+ *                               shared grid; recorded on the report as
+ *                               excludedSymbols.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -95,12 +110,16 @@ import {
 
 import {
   EXPOSURE_GRID_CELL_COUNT,
+  RANK_GRID_CELL_COUNT,
+  RANK_PREREGISTERED_TRIALS,
+  RANK_SCHEMES,
   alignToSharedGrid,
   jointFactorStart,
   maxSmoothingWarmupBars,
   preSmooth,
   runExposureWalkForward,
   sliceSymbolInput,
+  type SelectMetric,
 } from './exposure-walk-forward';
 import {
   EXPOSURE_PROTOCOL,
@@ -147,6 +166,24 @@ export interface ExposureHarnessArgs {
   expectManifestHash?: string;
   cell?: { symbol: string; window: number };
   reportPath?: string;
+  /** 'rank' runs the cross-sectional grid instead of the tanh grid. Nilled to
+   * undefined in cell mode, mirroring `factor`/`interval`, so `runCell` can
+   * tell "not specified" apart from an explicit disagreeing value. Default
+   * (outside cell mode) 'exposure'. */
+  mode?: 'exposure' | 'rank';
+  /** Sign under which a high reading is long. Rank mode only; required there. */
+  factorSign?: 1 | -1;
+  /** Minimum finite cross-section readings to form a rank target. Default
+   * (outside cell mode) 5. */
+  minCrossSection?: number;
+  /** Which in-sample number selection ranks on. Default (outside cell mode)
+   * 'sharpe' in exposure mode, 'meanReturn' in rank mode. */
+  selectMetric?: SelectMetric;
+  /** 'taker' or 'maker' fill assumption. Default (outside cell mode) 'taker'. */
+  fill?: 'taker' | 'maker';
+  /** Symbols removed from the universe after loading, before the shared
+   * grid. */
+  excludeSymbols?: string[];
 }
 
 const BOOLEAN_FLAGS = new Set(['allow-lockbox']);
@@ -173,7 +210,26 @@ const VALUE_FLAGS = new Set([
   'expect-manifest-hash',
   'cell',
   'report',
+  'mode',
+  'factor-sign',
+  'min-cross-section',
+  'select-metric',
+  'fill',
+  'exclude-symbols',
 ]);
+
+/** Rank-only factors: sourced directly from the perp bar grid the loader
+ * already builds, none of which is a trailing z of positioning. See
+ * `loadExposureSymbol`. */
+const RANK_ONLY_FACTORS = new Set(['realizedVol20', 'fundingRate', 'topTraderPositionRatio']);
+
+/** `RESEARCH_COLUMNS` is the strategy-harness's own column universe (funding,
+ * depth and positioning z's); the exposure path has only ever actually
+ * supported `positioningZ<N>` of that set (see `factorWindowBars`), but
+ * `parseFactor` validated against the whole list before this constant
+ * existed, and this keeps that pre-existing behaviour rather than narrowing
+ * it, only adding the three rank-only factors on top. */
+const EXPOSURE_HARNESS_FACTORS: readonly string[] = [...RESEARCH_COLUMNS, ...RANK_ONLY_FACTORS];
 
 function parseList(raw: string): string[] {
   return raw
@@ -214,8 +270,8 @@ function parseCell(raw: string): { symbol: string; window: number } {
 }
 
 function parseFactor(raw: string): string {
-  if (!RESEARCH_COLUMNS.includes(raw)) {
-    throw new Error(`Unknown --factor "${raw}", expected one of: ${RESEARCH_COLUMNS.join(', ')}`);
+  if (!EXPOSURE_HARNESS_FACTORS.includes(raw)) {
+    throw new Error(`Unknown --factor "${raw}", expected one of: ${EXPOSURE_HARNESS_FACTORS.join(', ')}`);
   }
   return raw;
 }
@@ -259,9 +315,59 @@ export function parseArgs(argv: string[], now: Date = new Date()): ExposureHarne
   const factor = cellMode ? undefined : (rawFactor ?? DEFAULT_FACTOR);
 
   const interval = flags.get('interval');
+
+  const rawMode = flags.get('mode');
+  if (rawMode !== undefined && rawMode !== 'exposure' && rawMode !== 'rank') {
+    throw new Error(`Invalid --mode "${rawMode}", expected exposure or rank`);
+  }
+  const mode = cellMode ? undefined : ((rawMode as 'exposure' | 'rank' | undefined) ?? 'exposure');
+
+  const rawFactorSign = parseNumberFlag(flags.get('factor-sign'), 'factor-sign', { integer: true });
+  if (rawFactorSign !== undefined && rawFactorSign !== 1 && rawFactorSign !== -1) {
+    throw new Error(`Invalid --factor-sign "${flags.get('factor-sign')}", expected 1 or -1`);
+  }
+  const factorSign = cellMode ? undefined : (rawFactorSign as 1 | -1 | undefined);
+
+  const rawMinCrossSection = parseNumberFlag(flags.get('min-cross-section'), 'min-cross-section', {
+    integer: true,
+  });
+  const minCrossSection = cellMode ? undefined : (rawMinCrossSection ?? 5);
+  if (!cellMode && mode === 'rank' && minCrossSection !== undefined) {
+    const maxLegs = Math.max(...RANK_SCHEMES.map((s) => s.legs));
+    if (minCrossSection < 2 * maxLegs) {
+      throw new Error(`--min-cross-section must be at least ${2 * maxLegs} for the rank grid`);
+    }
+  }
+
+  const rawSelectMetric = flags.get('select-metric');
+  if (rawSelectMetric !== undefined && rawSelectMetric !== 'sharpe' && rawSelectMetric !== 'meanReturn') {
+    throw new Error(`Invalid --select-metric "${rawSelectMetric}", expected sharpe or meanReturn`);
+  }
+  const selectMetric = cellMode
+    ? undefined
+    : ((rawSelectMetric as SelectMetric | undefined) ?? (mode === 'rank' ? 'meanReturn' : 'sharpe'));
+
+  const rawFill = flags.get('fill');
+  if (rawFill !== undefined && rawFill !== 'taker' && rawFill !== 'maker') {
+    throw new Error(`Invalid --fill "${rawFill}", expected taker or maker`);
+  }
+  const fill = cellMode ? undefined : ((rawFill as 'taker' | 'maker' | undefined) ?? 'taker');
+
+  const excludeSymbols = cellMode
+    ? undefined
+    : flags.has('exclude-symbols')
+      ? parseList(flags.get('exclude-symbols')!)
+      : undefined;
+
   if (!cellMode) {
     if (factor !== undefined && rawFactor === undefined) parseFactor(factor);
     if (interval === undefined) throw new Error('--interval is required');
+    if (mode === 'rank' && factorSign === undefined) {
+      throw new Error('--mode rank requires --factor-sign 1 or -1');
+    }
+    if (factor !== undefined && RANK_ONLY_FACTORS.has(factor) && mode !== 'rank') {
+      throw new Error(`--factor "${factor}" is only valid in rank mode (pass --mode rank)`);
+    }
   }
 
   const windows = parseNumberFlag(flags.get('windows'), 'windows', { integer: true }) ?? 6;
@@ -277,7 +383,9 @@ export function parseArgs(argv: string[], now: Date = new Date()): ExposureHarne
   const timingDraws =
     parseNumberFlag(flags.get('timing-draws'), 'timing-draws', { integer: true }) ??
     EXPOSURE_PROTOCOL.timingShuffleDraws;
-  const trials = parseNumberFlag(flags.get('trials'), 'trials', { integer: true }) ?? EXPOSURE_GRID_CELL_COUNT;
+  const trials =
+    parseNumberFlag(flags.get('trials'), 'trials', { integer: true }) ??
+    (mode === 'rank' ? RANK_PREREGISTERED_TRIALS : EXPOSURE_GRID_CELL_COUNT);
   const stressFeeMult =
     parseNumberFlag(flags.get('stress-fee-mult'), 'stress-fee-mult') ??
     EXPOSURE_PROTOCOL.stress.feeMultiplier;
@@ -333,6 +441,12 @@ export function parseArgs(argv: string[], now: Date = new Date()): ExposureHarne
     expectManifestHash: flags.get('expect-manifest-hash'),
     cell,
     reportPath,
+    mode,
+    factorSign,
+    minCrossSection,
+    selectMetric,
+    fill,
+    excludeSymbols,
   };
 }
 
@@ -360,6 +474,10 @@ interface LoadedSymbol {
   /** True when the symbol carried a recoverable funding rate on at least one bar. */
   fundingCovered: boolean;
   snapshotRows: number;
+  /** Perp bars dropped because the spot file exists but does not carry that
+   * timestamp. Zero when the spot file is absent (no filtering happens) or
+   * when the two grids agree. */
+  perpBarsOffSpotGrid: number;
 }
 
 /**
@@ -382,30 +500,41 @@ function loadExposureSymbol(
   const perpResult = loadPerp(datasetDir, symbol, interval, 'klines', {
     allowLockbox: opts.allowLockbox,
   });
-  const perpRows = perpResult.rows.filter((r) => inRange(r.t, opts.start, opts.end));
-  if (perpRows.length === 0) return null;
+  const rawPerpRows = perpResult.rows.filter((r) => inRange(r.t, opts.start, opts.end));
+  if (rawPerpRows.length === 0) return null;
 
-  // This path holds the position on the perp, so the perp grid is the one that
-  // counts. Assert the spot grid agrees wherever the spot file exists, so a
-  // future dataset whose two series diverge fails here instead of silently
-  // producing perp returns against a spot-derived factor. On the current
-  // dataset every perp bar is a spot bar, so this is a guard against a
-  // regression rather than an active constraint.
+  // This path holds the position on the perp, so the perp grid is the one
+  // that counts, but funding and every snapshot-derived factor are read off
+  // a candle series joined to it, and `alignToSharedGrid` downstream already
+  // treats a missing bar (SOLUSDT, XRPUSDT) as one to INTERSECT out rather
+  // than forward-fill. A perp bar absent from the spot grid gets the same
+  // treatment here, one level up: filtered out rather than thrown on. This
+  // used to throw, on the premise that the two grids always agreed on the
+  // dataset measured at the time; that premise is false at 1h on the real
+  // archive (ADAUSDT 1h has a perp bar the spot file does not), so the
+  // filter is the actual invariant and the throw was the bug.
   const spotTimes = new Set(
     loadCandles(datasetDir, symbol, interval, { allowLockbox: opts.allowLockbox })
       .rows.filter((r) => inRange(r.t, opts.start, opts.end))
       .map((r) => r.t)
   );
-  if (spotTimes.size > 0) {
-    for (const row of perpRows) {
-      if (!spotTimes.has(row.t)) {
-        throw new Error(
-          `${symbol} ${interval}: perp bar ${new Date(row.t).toISOString()} is not on the spot ` +
-            'grid; the exposure path needs one shared bar grid'
-        );
-      }
-    }
+  // No filtering when the spot file is absent (spotTimes.size === 0): there
+  // is nothing to intersect against, and the perp grid stands on its own.
+  const perpRows = spotTimes.size > 0 ? rawPerpRows.filter((r) => spotTimes.has(r.t)) : rawPerpRows;
+  // Dropping a perp bar here leaves the PREVIOUS bar's return spanning two
+  // intervals, because `gridGaps` in exposure-sim.ts only requires the next
+  // timestamp's step to be positive, not that it equal one interval. At 1h
+  // this affects one bar (2023-03-24T12:00Z to 14:00Z) on all ten symbols.
+  // Making `gridGaps` interval-aware is deliberately deferred: it would move
+  // every recorded exposure number and break the byte-identity control.
+  const perpBarsOffSpotGrid = rawPerpRows.length - perpRows.length;
+  if (perpBarsOffSpotGrid > 0) {
+    console.error(
+      `[exposure-harness] ${symbol} ${interval}: dropped ${perpBarsOffSpotGrid} perp bars absent ` +
+        'from the spot grid'
+    );
   }
+  if (perpRows.length === 0) return null;
 
   const candles: OHLCV[] = perpRows.map((r) => ({
     timestamp: r.t,
@@ -436,15 +565,36 @@ function loadExposureSymbol(
     return typeof ratio === 'number' && Number.isFinite(ratio) ? ratio : Number.NaN;
   });
 
-  // Same estimator research-columns uses for this column, so the rule is one
-  // rule: a trailing z over `bars` with a 30-sample floor.
-  const windowBars = factorWindowBars(factor);
-  const z = trailingZ(rawPositioning, windowBars, 30);
+  // Three factor sources, each read straight off the perp bar grid already
+  // built above, and one legacy source. See this file's header for the flag
+  // documentation and the module docstring above `RANK_ONLY_FACTORS` for why
+  // these three are rank-only.
+  let z: number[];
+  if (factor === 'realizedVol20') {
+    // Close-aligned, so it is not knowable at its own bar's open: shift
+    // forward one bar (see `realizedVol20Column`).
+    z = realizedVol20Column(candles.map((c) => c.close));
+  } else if (factor === 'fundingRate') {
+    // Already pinned to a snapshot whose capture window closed before the
+    // bar's open (buildSnapshotSeries); no shift.
+    z = [...fundingRates];
+  } else if (factor === 'topTraderPositionRatio') {
+    // The raw level, no z: the rank is taken within the bar across symbols,
+    // and the cs IC this factor is measured against was measured on the
+    // level, not a trailing z of it.
+    z = [...rawPositioning];
+  } else {
+    // Same estimator research-columns uses for this column, so the rule is
+    // one rule: a trailing z over `bars` with a 30-sample floor.
+    const windowBars = factorWindowBars(factor);
+    z = trailingZ(rawPositioning, windowBars, 30);
+  }
 
   return {
     symbol,
     fundingCovered: fundingRates.some((v) => Number.isFinite(v)),
     snapshotRows: snapshotRows.length,
+    perpBarsOffSpotGrid,
     bars: {
       symbol,
       timestamps: candles.map((c) => c.timestamp),
@@ -497,10 +647,60 @@ function trailingZ(series: readonly number[], windowBars: number, minSamples: nu
   return out;
 }
 
+/**
+ * Sample standard deviation (ddof 1) of the 20 log close-to-close returns
+ * ending at `bar`, NaN until `bar >= 20`.
+ *
+ * Identical arithmetic to `factors.ts`'s unexported `realizedVol20`, and
+ * inlined here rather than imported for two reasons: that function is not
+ * exported (it is private to `factors.ts`), and its parameter type is
+ * `CandleRow[]` (`{t,o,h,l,c,v,tbv}`), not the plain closes array this loader
+ * already holds. `exposure-harness.test.ts` pins this function against
+ * `computeFactorMatrix`'s `raw.realizedVol20` column on a shared synthetic
+ * series, so a future edit to either side that drifts from the other fails
+ * loudly.
+ */
+function realizedVol20(closes: readonly number[], bar: number): number {
+  if (bar < 20) return Number.NaN;
+  const logReturns: number[] = [];
+  for (let k = bar - 19; k <= bar; k++) {
+    logReturns.push(Math.log(closes[k] / closes[k - 1]));
+  }
+  const mean = logReturns.reduce((s, v) => s + v, 0) / logReturns.length;
+  const variance = logReturns.reduce((s, v) => s + (v - mean) ** 2, 0) / (logReturns.length - 1);
+  return Math.sqrt(variance);
+}
+
+/**
+ * `realizedVol20` is close-aligned: its reading at bar `b` uses `closes[b]`
+ * as the most recent close, so it is not yet observable at bar `b`'s own
+ * open. Shifted forward one bar so index `i` carries the value computed at
+ * close `i - 1`, i.e. what was already knowable before bar `i` opened -- the
+ * same causality rule `research-columns.ts` applies to its close-aligned
+ * metric columns.
+ */
+function realizedVol20Column(closes: readonly number[]): number[] {
+  const n = closes.length;
+  const out = new Array<number>(n).fill(Number.NaN);
+  for (let i = 1; i < n; i++) {
+    out[i] = realizedVol20(closes, i - 1);
+  }
+  return out;
+}
+
 export async function runExposureHarness(args: ExposureHarnessArgs): Promise<ExposureReport> {
   const startedAt = Date.now();
   if (!args.factor) throw new Error('--factor is required');
   if (!args.interval) throw new Error('--interval is required');
+
+  const mode = args.mode ?? 'exposure';
+  const isRank = mode === 'rank';
+  if (isRank && args.factorSign === undefined) {
+    throw new Error('--mode rank requires --factor-sign 1 or -1');
+  }
+  const minCrossSection = args.minCrossSection ?? 5;
+  const selectMetric: SelectMetric = args.selectMetric ?? (isRank ? 'meanReturn' : 'sharpe');
+  const fill = args.fill ?? 'taker';
 
   const verify = await verifyManifest(args.datasetDir);
   if (!verify.ok) {
@@ -549,11 +749,22 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
   }
   if (loaded.length === 0) throw new Error(`No symbols produced ${args.interval} perp bars`);
 
+  // --exclude-symbols removes symbols AFTER loading, before every check and
+  // before the shared grid: an excluded symbol should not even count toward
+  // the mixed-snapshot-coverage refusal below, since the whole point of the
+  // flag is to opt a bad symbol out entirely.
+  const excludeSet = new Set(args.excludeSymbols ?? []);
+  const excludedSymbols = loaded.filter((l) => excludeSet.has(l.symbol)).map((l) => l.symbol);
+  const kept = excludeSet.size > 0 ? loaded.filter((l) => !excludeSet.has(l.symbol)) : loaded;
+  if (kept.length === 0) {
+    throw new Error('--exclude-symbols removed every symbol that loaded');
+  }
+
   // Asymmetric funding is invisible in the report (ExposureReportSchema.costs
   // has no fundingEnabled field), so a run where some symbols pay and others do
   // not would be flattered with no trace. Refuse it.
-  const uncovered = loaded.filter((l) => !l.fundingCovered).map((l) => l.symbol);
-  if (uncovered.length > 0 && uncovered.length < loaded.length) {
+  const uncovered = kept.filter((l) => !l.fundingCovered).map((l) => l.symbol);
+  if (uncovered.length > 0 && uncovered.length < kept.length) {
     throw new Error(
       `Mixed snapshot coverage: ${uncovered.join(', ')} carry no ${snapshotInterval} funding ` +
         'reading while others do; pass --symbols to exclude them'
@@ -566,7 +777,7 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
   // The perp series is not perfectly rectangular (SOLUSDT and XRPUSDT are each
   // missing two 2022 days), and the portfolio's held weights carry across a
   // bar, so the book runs on the timestamps every symbol shares.
-  const aligned = alignToSharedGrid(loaded.map((l) => l.bars));
+  const aligned = alignToSharedGrid(kept.map((l) => l.bars));
   if (aligned.droppedBars > 0) {
     console.error(
       `[exposure-harness] aligned to the shared grid: dropped ${aligned.droppedBars} bars ` +
@@ -574,7 +785,7 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
     );
   }
   const alignedBySymbol = new Map(aligned.symbols.map((b) => [b.symbol, b]));
-  const alignedLoaded = loaded.map((l) => ({
+  const alignedLoaded = kept.map((l) => ({
     ...l,
     bars: alignedBySymbol.get(l.symbol) as ExposureSymbolInput,
   }));
@@ -618,6 +829,11 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
       slippageMultiplier: args.stressSlippageMult,
     },
     feeProfile: args.feeProfile,
+    mode,
+    factorSign: args.factorSign,
+    minCrossSection,
+    selectMetric,
+    fill,
     onWindow: ({ index, total, ms }) =>
       console.error(`[exposure-harness] window ${index + 1}/${total} in ${ms} ms`),
   });
@@ -665,6 +881,8 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
 
   const { gates, pass } = evaluateExposureGates(pooled, args.interval);
 
+  const perpBarsOffSpotGridBySymbol = new Map(kept.map((l) => [l.symbol, l.perpBarsOffSpotGrid]));
+
   const perSymbol: ExposurePerSymbolRow[] = universe.map((symbol) => {
     const contributions: number[] = [];
     for (const cell of selected) {
@@ -676,11 +894,13 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
       contributions.length > 0
         ? contributions.reduce((a, b) => a + b, 0) / contributions.length
         : Number.NaN;
+    const offSpotGrid = perpBarsOffSpotGridBySymbol.get(symbol) ?? 0;
     return {
       symbol,
       bars: contributions.length,
       meanContributionPercent: Number.isFinite(mean) ? mean * 100 : null,
       positive: Number.isFinite(mean) && mean > 0,
+      perpBarsOffSpotGrid: offSpotGrid > 0 ? offSpotGrid : undefined,
     };
   });
 
@@ -707,9 +927,15 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
     interval: args.interval,
     symbols: universe,
     dateRange: { startMs: args.start ?? null, endMs: args.end ?? null },
-    gridCells: EXPOSURE_GRID_CELL_COUNT,
+    gridCells: isRank ? RANK_GRID_CELL_COUNT : EXPOSURE_GRID_CELL_COUNT,
     trials: pooled.trials,
     feeProfile: args.feeProfile,
+    mode,
+    factorSign: args.factorSign,
+    minCrossSection,
+    selectMetric,
+    fill,
+    excludedSymbols: excludedSymbols.length > 0 ? excludedSymbols : undefined,
     costs: {
       feePercent: costs.feePercent,
       slippageBps: costs.slippageBps ?? 0,
@@ -836,6 +1062,18 @@ export async function runCell(args: ExposureHarnessArgs): Promise<ExposureCellCh
     );
   }
 
+  // Read every rank-container option from the REPORT, never from a CLI
+  // default: `parseArgs` nils `args.mode` etc. to undefined in `--cell` mode,
+  // so a CLI-driven call can never disagree with the report here. There is
+  // no disagreement guard to run. These are simply the report-derived values
+  // the walk-forward replay below is built from.
+  const reportMode = report.mode ?? 'exposure';
+  const reportFactorSign = report.factorSign;
+  const reportMinCrossSection = report.minCrossSection ?? 5;
+  const reportSelectMetric: SelectMetric =
+    report.selectMetric ?? (reportMode === 'rank' ? 'meanReturn' : 'sharpe');
+  const reportFill = report.fill ?? 'taker';
+
   const verify = await verifyManifest(args.datasetDir);
   if (!verify.ok) {
     throw new Error(`Dataset manifest verification failed for: ${verify.mismatches.join(', ')}`);
@@ -902,6 +1140,11 @@ export async function runCell(args: ExposureHarnessArgs): Promise<ExposureCellCh
     },
     stress: report.stress,
     feeProfile,
+    mode: reportMode,
+    factorSign: reportFactorSign,
+    minCrossSection: reportMinCrossSection,
+    selectMetric: reportSelectMetric,
+    fill: reportFill,
   });
 
   const replayed = walk.windows[window];
@@ -973,9 +1216,9 @@ function fmt(value: number | null, digits = 4): string {
 function formatReport(report: ExposureReport): string {
   const lines: string[] = [];
   lines.push(
-    `exposure ${report.factor} ${report.interval} symbols=${report.symbols.length} ` +
-      `windows=${report.windowConfig.count} trials=${report.trials} ` +
-      `dataset=${report.datasetManifestHash.slice(0, 12)}`
+    `exposure ${report.factor} ${report.interval} mode=${report.mode ?? 'exposure'} ` +
+      `symbols=${report.symbols.length} windows=${report.windowConfig.count} ` +
+      `trials=${report.trials} dataset=${report.datasetManifestHash.slice(0, 12)}`
   );
   lines.push(
     `  barsHeld=${report.pooled.barsHeld}/${report.pooled.barsTotal} ` +
@@ -992,8 +1235,26 @@ function formatReport(report: ExposureReport): string {
       `timingP=${fmt(report.pooled.timingP)} ` +
       `stressMean=${fmt(report.pooled.stressMeanReturnPercent)}%`
   );
+  // The rank-book statistics: meaningful for a dollar-neutral rank scheme
+  // (near zero net exposure, both legs contributing), still computed and
+  // printed for a tanh run even though there `meanAbsNetExposure` need not be
+  // near zero.
+  lines.push(
+    `  fill=${report.fill ?? 'taker'} ` +
+      `netExposure=${fmt(report.pooled.meanAbsNetExposure ?? null, 4)} ` +
+      `longLeg=${fmt(report.pooled.longLegMeanReturnPercent ?? null)}% ` +
+      `shortLeg=${fmt(report.pooled.shortLegMeanReturnPercent ?? null)}% ` +
+      `jackknifeNoBtc=${fmt(report.pooled.jackknifeWithoutBtcMeanReturnPercent ?? null)}%`
+  );
   for (const gate of report.gates) {
     lines.push(`  ${gate.pass ? 'PASS' : 'FAIL'} ${gate.name.padEnd(10)} ${fmt(gate.value)}`);
+  }
+  // The selected cells' own scheme params, one line per window: a rank run's
+  // params are {schemeIndex, legs, bandFraction}, a tanh run's are
+  // {band, zScale, smoothing}, and this prints whichever the grid produced
+  // without needing to know which.
+  for (const w of report.windows) {
+    lines.push(`  window ${w.window} params=${JSON.stringify(w.params)}`);
   }
   lines.push(`  ${report.pass ? 'PASS' : 'FAIL'}`);
   return lines.join('\n');
@@ -1025,4 +1286,6 @@ export const __testing = {
   trailingZ,
   factorWindowBars,
   simulateExposure,
+  realizedVol20,
+  realizedVol20Column,
 };

@@ -61,6 +61,95 @@ function cell(
   };
 }
 
+/** Like `cell()`, but for a caller-supplied grid -- a rank scheme, unlike the
+ * fixed tanh `GRID` above. */
+function rankCell(
+  window: number,
+  symbols: ExposureSymbolInput[],
+  grid: ExposureGrid,
+  params: Record<string, number> = { schemeIndex: 0, legs: grid.legs ?? 1, bandFraction: 0 },
+  options = {}
+): ExposureCellRun {
+  return {
+    window,
+    params,
+    symbols,
+    grid,
+    options,
+    result: simulateExposure(symbols, grid, options),
+  };
+}
+
+/** Pooled mean of a cell set's cost plus funding return, in percent, over the
+ * same finite bars `poolExposureResults` concatenates. The other half of the
+ * per-leg identity: long + short = net - cost - funding, restated as
+ * `long% + short% = mean% - meanCostAndFundingPercent(cells)`. */
+function meanCostAndFundingPercent(cells: readonly ExposureCellRun[]): number {
+  const values: number[] = [];
+  for (const c of cells) {
+    for (let i = 0; i < c.result.netReturns.length; i++) {
+      if (!Number.isFinite(c.result.netReturns[i])) continue;
+      values.push(c.result.costReturns[i] + c.result.fundingReturns[i]);
+    }
+  }
+  if (values.length === 0) return 0;
+  return (values.reduce((a, b) => a + b, 0) / values.length) * 100;
+}
+
+/**
+ * Five symbols whose z at bar t is `factorSign` times the cross-sectionally
+ * demeaned return from t to t+1: `z[i][t] = factorSign * (r[i][t] -
+ * mean_i(r[i][t]))`. `crossSectionalTargets` multiplies by `factorSign`
+ * again before ranking (`signed = z * factorSign`), so the value it actually
+ * ranks on is `factorSign^2 * (r[i][t] - mean) = r[i][t] - mean` regardless
+ * of which factorSign this fixture and the grid agree to use. A rank book
+ * built on it is therefore right by construction: every bar, it longs the
+ * best forward performer and shorts the worst.
+ */
+function crossSectionalFactorFixture(
+  n: number,
+  factorSign: 1 | -1,
+  seed: number
+): ExposureSymbolInput[] {
+  const symbolCount = 5;
+  let s = seed;
+  const rand = (): number => {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s / 0x7fffffff;
+  };
+
+  const returns: number[][] = Array.from({ length: symbolCount }, () => []);
+  for (let t = 0; t < n - 1; t++) {
+    for (let i = 0; i < symbolCount; i++) {
+      returns[i].push((rand() - 0.5) * 0.06);
+    }
+  }
+
+  const closes: number[][] = Array.from({ length: symbolCount }, () => [100]);
+  for (let t = 0; t < n - 1; t++) {
+    for (let i = 0; i < symbolCount; i++) {
+      const prev = closes[i][t];
+      closes[i].push(prev * (1 + returns[i][t]));
+    }
+  }
+
+  const z: number[][] = Array.from({ length: symbolCount }, () => new Array(n).fill(0));
+  for (let t = 0; t < n - 1; t++) {
+    let rowSum = 0;
+    for (let i = 0; i < symbolCount; i++) rowSum += returns[i][t];
+    const rowMean = rowSum / symbolCount;
+    for (let i = 0; i < symbolCount; i++) z[i][t] = factorSign * (returns[i][t] - rowMean);
+  }
+
+  return Array.from({ length: symbolCount }, (_, i) => ({
+    symbol: `SYM${i}USDT`,
+    timestamps: closes[i].map((_, t) => t * DAY),
+    closes: closes[i],
+    fundingRates: closes[i].map(() => 0),
+    z: z[i],
+  }));
+}
+
 describe('EXPOSURE_PROTOCOL', () => {
   it('carries the same eight gate names as the discrete path', () => {
     expect([...EXPOSURE_GATE_NAMES]).toEqual([
@@ -209,6 +298,112 @@ describe('poolExposureResults', () => {
         expect(Number.isNaN(value), `${key} is NaN`).toBe(false);
       }
     }
+  });
+
+  it('pools per-leg returns, net exposure and the drop-BTC jackknife', () => {
+    const rankUniverse = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT'];
+    const rankGrid: ExposureGrid = {
+      band: 0,
+      zScale: 1,
+      smoothing: 0,
+      gross: 1,
+      interval: '1h',
+      scheme: 'topBottom',
+      legs: 1,
+      factorSign: -1,
+      minCrossSection: 5,
+    };
+    const rankSymbols = [
+      symbol('BTCUSDT', 400, 0.0005, 61, -2),
+      symbol('ETHUSDT', 400, 0.0004, 62, -1),
+      symbol('SOLUSDT', 400, 0.0003, 63, 0),
+      symbol('ADAUSDT', 400, 0.0002, 64, 1),
+      symbol('XRPUSDT', 400, 0.0001, 65, 2),
+    ];
+    const selectedRankCells = [rankCell(0, rankSymbols, rankGrid)];
+
+    const stats = poolExposureResults(selectedRankCells, selectedRankCells, rankUniverse, {
+      interval: '1h',
+      seed: 1,
+      trials: 9,
+      bootstrapIterations: 50,
+      timingDraws: 10,
+    });
+
+    // A topBottom k=1 book long the lowest reading and short the highest
+    // (factorSign -1) rebalances to a fixed +0.5/-0.5 leg here, since every
+    // symbol's z is constant: the net exposure summed across the book is
+    // zero on every complete bar, by construction of the rank scheme.
+    expect(stats.meanAbsNetExposure).toBeLessThan(1e-9);
+    expect(stats.longLegMeanReturnPercent).not.toBeNull();
+    expect(stats.shortLegMeanReturnPercent).not.toBeNull();
+    expect(
+      (stats.longLegMeanReturnPercent as number) + (stats.shortLegMeanReturnPercent as number)
+    ).toBeCloseTo(
+      (stats.meanReturnPercent as number) - meanCostAndFundingPercent(selectedRankCells),
+      6
+    );
+    expect(stats.jackknifeWithoutBtcMeanReturnPercent).not.toBeNull();
+  });
+
+  it('jackknifeWithoutBtc is null when BTCUSDT is not in the universe', () => {
+    const universeNoBtc = ['ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT'];
+    const rankGrid: ExposureGrid = {
+      band: 0,
+      zScale: 1,
+      smoothing: 0,
+      gross: 1,
+      interval: '1h',
+      scheme: 'topBottom',
+      legs: 1,
+      factorSign: -1,
+      minCrossSection: 4,
+    };
+    const rankSymbols = [
+      symbol('ETHUSDT', 400, 0.0004, 62, -1.5),
+      symbol('SOLUSDT', 400, 0.0003, 63, -0.5),
+      symbol('ADAUSDT', 400, 0.0002, 64, 0.5),
+      symbol('XRPUSDT', 400, 0.0001, 65, 1.5),
+    ];
+    const selectedRankCells = [rankCell(0, rankSymbols, rankGrid)];
+
+    const stats = poolExposureResults(selectedRankCells, selectedRankCells, universeNoBtc, {
+      interval: '1h',
+      seed: 1,
+      trials: 9,
+      bootstrapIterations: 50,
+      timingDraws: 10,
+    });
+
+    expect(stats.jackknifeWithoutBtcMeanReturnPercent).toBeNull();
+  });
+
+  it('the timing null destroys the cross-section: a factor equal to the next demeaned return scores p at the floor, its per-symbol shuffle does not', () => {
+    const symbols = crossSectionalFactorFixture(240, -1, 777);
+    const universeFive = symbols.map((s) => s.symbol);
+    const grid: ExposureGrid = {
+      band: 0,
+      zScale: 1,
+      smoothing: 0,
+      gross: 1,
+      interval: '1d',
+      scheme: 'topBottom',
+      legs: 1,
+      factorSign: -1,
+      minCrossSection: 5,
+    };
+    const built = rankCell(0, symbols, grid);
+
+    const pooled = poolExposureResults([built], [built], universeFive, {
+      interval: '1d',
+      seed: 9,
+      trials: 1,
+      timingDraws: 100,
+    });
+
+    expect(pooled.timingP).not.toBeNull();
+    expect(pooled.timingP as number).toBeLessThanOrEqual(0.02);
+    expect(pooled.meanReturnPercent as number).toBeGreaterThan(0);
   });
 });
 
@@ -373,6 +568,126 @@ describe('ExposureReportSchema', () => {
     const result = validateExposureReport({ schemaVersion: 1, taskId: 'x' });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.issues.length).toBeGreaterThan(0);
+  });
+
+  it('a Phase 5 report without the new fields still validates', () => {
+    const pooled = {
+      ...buildMinimalPooled(),
+      meanAbsNetExposure: 0.0002,
+      longLegMeanReturnPercent: 0.02,
+      shortLegMeanReturnPercent: -0.01,
+      jackknifeWithoutBtcMeanReturnPercent: 0.005,
+    };
+    const report = {
+      schemaVersion: 1,
+      taskId: 'p3',
+      datasetManifestHash: 'abc',
+      lockboxApplied: true,
+      factor: 'realizedVol20',
+      interval: '1h',
+      symbols: ['BTCUSDT', 'ETHUSDT'],
+      dateRange: { startMs: 0, endMs: 1 },
+      gridCells: 9,
+      trials: 54,
+      mode: 'rank',
+      factorSign: -1,
+      minCrossSection: 5,
+      selectMetric: 'meanReturn',
+      fill: 'taker',
+      excludedSymbols: ['BTCUSDT'],
+      costs: { feePercent: 0.0005, slippageBps: 2 },
+      windowConfig: { mode: 'rolling', trainFraction: 0.4, count: 6, minIsSharpeBars: 100 },
+      stress: { feeMultiplier: 1.5, slippageMultiplier: 2 },
+      bootstrap: { iterations: 1000, seed: 42, meanBlockLen: 40 },
+      timing: { draws: 200, blockLength: 40 },
+      perSymbol: [],
+      windows: [],
+      pooled,
+      gates: [],
+      pass: false,
+      computedAt: '2026-09-27T00:00:00.000Z',
+      gitCommit: 'abc1234',
+      durationMs: 10,
+    };
+
+    // With the new fields present, this is what a rank-book run's own report
+    // looks like. Confirm it validates AND that the new fields actually
+    // survive parsing -- a plain z.object strips an undeclared key silently
+    // rather than erroring (the payoffRatio incident this program already
+    // hit once), so "validates" alone would not prove the fields were
+    // declared.
+    const rankResult = validateExposureReport(report);
+    expect(rankResult.ok).toBe(true);
+    if (rankResult.ok) {
+      expect(rankResult.data.mode).toBe('rank');
+      expect(rankResult.data.factorSign).toBe(-1);
+      expect(rankResult.data.minCrossSection).toBe(5);
+      expect(rankResult.data.selectMetric).toBe('meanReturn');
+      expect(rankResult.data.fill).toBe('taker');
+      expect(rankResult.data.excludedSymbols).toEqual(['BTCUSDT']);
+      expect(rankResult.data.pooled.meanAbsNetExposure).toBe(0.0002);
+      expect(rankResult.data.pooled.longLegMeanReturnPercent).toBe(0.02);
+      expect(rankResult.data.pooled.shortLegMeanReturnPercent).toBe(-0.01);
+      expect(rankResult.data.pooled.jackknifeWithoutBtcMeanReturnPercent).toBe(0.005);
+    }
+
+    // structuredClone with every new key deleted: the shape a Phase 5
+    // (tanh-only) report was always written in. Every new field is optional
+    // for exactly this reason.
+    const phase5Report = structuredClone(report) as Record<string, unknown>;
+    delete phase5Report.mode;
+    delete phase5Report.factorSign;
+    delete phase5Report.minCrossSection;
+    delete phase5Report.selectMetric;
+    delete phase5Report.fill;
+    delete phase5Report.excludedSymbols;
+    const phase5Pooled = phase5Report.pooled as Record<string, unknown>;
+    delete phase5Pooled.meanAbsNetExposure;
+    delete phase5Pooled.longLegMeanReturnPercent;
+    delete phase5Pooled.shortLegMeanReturnPercent;
+    delete phase5Pooled.jackknifeWithoutBtcMeanReturnPercent;
+
+    const result = validateExposureReport(phase5Report);
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects an unrecognised mode or factorSign value', () => {
+    const base = {
+      schemaVersion: 1,
+      taskId: 'p3',
+      datasetManifestHash: 'abc',
+      lockboxApplied: true,
+      factor: 'realizedVol20',
+      interval: '1h',
+      symbols: ['BTCUSDT', 'ETHUSDT'],
+      dateRange: { startMs: 0, endMs: 1 },
+      gridCells: 9,
+      trials: 54,
+      mode: 'rank',
+      factorSign: -1,
+      minCrossSection: 5,
+      selectMetric: 'meanReturn',
+      fill: 'taker',
+      costs: { feePercent: 0.0005, slippageBps: 2 },
+      windowConfig: { mode: 'rolling', trainFraction: 0.4, count: 6, minIsSharpeBars: 100 },
+      stress: { feeMultiplier: 1.5, slippageMultiplier: 2 },
+      bootstrap: { iterations: 1000, seed: 42, meanBlockLen: 40 },
+      timing: { draws: 200, blockLength: 40 },
+      perSymbol: [],
+      windows: [],
+      pooled: buildMinimalPooled(),
+      gates: [],
+      pass: false,
+      computedAt: '2026-09-27T00:00:00.000Z',
+      gitCommit: 'abc1234',
+      durationMs: 10,
+    };
+
+    const badMode = { ...base, mode: 'Rank' };
+    expect(validateExposureReport(badMode).ok).toBe(false);
+
+    const badFactorSign = { ...base, factorSign: 2 };
+    expect(validateExposureReport(badFactorSign).ok).toBe(false);
   });
 });
 
