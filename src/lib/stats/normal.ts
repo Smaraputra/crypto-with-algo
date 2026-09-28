@@ -96,7 +96,7 @@ export function normalCdf(x: number): number {
 }
 
 /** Probability density function of the standard normal distribution. */
-function normalPdf(x: number): number {
+export function normalPdf(x: number): number {
   return Math.exp((-x * x) / 2) / SQRT_2PI;
 }
 
