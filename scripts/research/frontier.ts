@@ -89,6 +89,14 @@
  * maintenance margin rate (default 0.4%), so 20x leaves about 4.6% of room
  * and 50x about 1.6%, a band an ordinary intraday range on a control-family
  * hold can cross before the trade's edge has had time to realize.
+ *
+ * RANK BOOK TRANSLATION, 2026-09-28 (descriptive; nothing passed the gates,
+ * see exposure-gates.ts PHASE 3 PLAN 2 RESULT). topBottom k=1 on ten symbols
+ * is one long and one short of 50 USDT each, 100 USDT gross at 1x. linearRank
+ * on ten symbols holds all ten with weights from 0.02 to 0.18 of gross, so
+ * the smallest weight at a 50 USDT minimum notional needs 2,500 USDT gross,
+ * 25x on 100 USDT, 5x on 500 USDT. The selected cells were linearRank, which
+ * the 100 USDT base cannot implement at 1x.
  */
 import { readFile } from 'fs/promises';
 import {

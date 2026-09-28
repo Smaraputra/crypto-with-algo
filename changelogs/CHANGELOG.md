@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research): cross-sectional rank container
+- **Joint per-bar rank targets in `exposure-sim.ts`** beside the existing per-symbol `tanh` target: `topBottom` and `linearRank` schemes, dollar-neutral and unit gross by construction, book-level rebalancing (all symbols trade together when the largest target move exceeds the band or a held symbol drops out of the cross-section) with exact neutrality even when a held symbol's signal turns NaN
+- **The rank grid in `exposure-walk-forward.ts`**, band expressed as a fraction of the scheme's largest weight, and selection by mean net return per bar rather than Sharpe
+- **Per-leg and net-exposure statistics in `exposure-gates.ts`**, plus a drop-BTC jackknife, alongside `--mode rank` in `exposure-harness.ts` with factors `realizedVol20`, `fundingRate`, `topTraderPositionRatio`, and flags `--fill` and `--exclude-symbols`
+- **A spot-grid intersection in the loader**, dropping perp bars absent from the spot grid and recording the count as `perpBarsOffSpotGrid` per symbol
+
+### Research result: the cross-sectional axis closes on this dataset
+- **`realizedVol20` fails expectancy at both intervals**: 4h mean -0.006881 %/bar, Sharpe CI [-0.038117, 0.013164], 3/6 windows positive, jackknife 0/10 (worst -0.010796), timing p 0.935, 7 of 8 gates failed; 1h mean -0.006305 %/bar, Sharpe CI [-0.035073, -0.011112] entirely below zero, 1/6 windows positive, jackknife 0/10 (worst -0.007170), timing p 1.000, 7 of 8 gates failed
+- **KILL CRITERION FIRES**: `realizedVol20` fails the expectancy gate at both 1h and 4h, so the cross-sectional axis closes on this dataset; `fundingRate` and `topTraderPositionRatio` did not run
+- **Scale observation**: a rank IC of -0.0745 (1h) and -0.0788 (4h) did not become a positive gross spread in an equal-dollar rank book, because the factor sorts symbols by their own return volatility and the high-vol short leg moves more than the long leg. The frontier conversion `2 x IC x sd` assumes a scale-free relationship that does not hold here; a volatility-scaled variant is a bounded future question, not run in this phase
+
+### Changed (research): the Phase 5 exposure reference is post-join
+- **The recorded `positioningZ360` 4h row (2026-09-21) does not reproduce on this branch** because the 2026-09-25 causal snapshot join (PR #43) shifted every snapshot-derived return after the join, giving identical trades with different returns. The valid control is pre-branch main (c47e775) run on today's join, digit-identical to the branch on all pre-existing fields; the new reference row is mean -0.0023714 %/bar, CI [-0.028749, 0.018609], timing p 0.75, 7 of 8 failed
+
 ### Added (research): Phase 3 plan 2 pre-registration
 - **Hypothesis, factors and grid fixed before any rank container code**: a dollar-neutral rank book across the ten USDT-M perpetuals, long the low readings and short the high readings of a cross-sectional survivor, at standard taker costs, 1h and 4h. Factors in priority order, all contrarian (factorSign -1): `realizedVol20` (primary, cs IC 1h h32 -0.0745, 4h h32 -0.0788), `fundingRate` (second, only if the primary passes expectancy), `topTraderPositionRatio` (third, same condition). Grid: scheme in {topBottom k=1, topBottom k=2, linearRank} x bandFraction in {0, 0.25, 0.5}, nine cells per run, smoothing 0, minimum cross-section 5 symbols, six runs at most (three factors x two intervals), `--trials 54` per run, 6 rolling windows, train fraction 0.4, selection on net mean return per bar
 - **Kill criterion**: if `realizedVol20` fails the expectancy gate (Sharpe CI low not above zero) at BOTH 1h and 4h, the cross-sectional axis closes on this dataset and neither other factor runs

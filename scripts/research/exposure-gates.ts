@@ -117,6 +117,100 @@
  * reported and never selected on: alts only (--exclude-symbols BTCUSDT),
  * maker fill (--fill maker: maker fee, zero slippage), fee profile bnb, and
  * the per-leg split. Nothing here changes live scoring or configVersion.
+ *
+ * PHASE 3 PLAN 2 RESULT, 2026-09-28. Dataset e84cd66dbe01, lockbox on, ten
+ * symbols, six rolling windows, train fraction 0.4, standard taker plus study
+ * slippage on turnover, selection on net mean return per bar, --trials 54.
+ *
+ * BYTE-IDENTITY CONTROL. The recorded Phase 5 row
+ * (exposure-positioningZ360-4h-p5c.json, 2026-09-21) does NOT reproduce on
+ * the branch, and the reason is vintage, not code: the branch run
+ * (exposure-positioningZ360-4h-control.json, image f5625a2) matches the
+ * recorded report on selected params, bars held 5237/5340, total turnover
+ * 94.01456912315177 and bars per rebalance 1.0221151680472687, while every
+ * return-side number moved (mean -0.0026737 to -0.0023714 %/bar, Sharpe CI
+ * [-0.027782, 0.018162] to [-0.028749, 0.018609], timing p 0.725 to 0.75,
+ * symbols positive 3 to 4). Identical trades with different returns is the
+ * signature of the causal snapshot join deployed 2026-09-25 (PR #43), which
+ * already breaks reproduction of pre-2026-09-25 snapshot-derived numbers.
+ * The valid control is pre-branch main (c47e775) on today's join:
+ * exposure-positioningZ360-4h-main.json is digit-identical to the branch
+ * control on all 25 pre-existing pooled fields, every gate, every window and
+ * every per-symbol row (mean -0.0023714498866813038 %/bar both); the branch
+ * adds only meanAbsNetExposure, longLegMeanReturnPercent,
+ * shortLegMeanReturnPercent, jackknifeWithoutBtcMeanReturnPercent and the
+ * mode, fill, minCrossSection, selectMetric metadata. The post-join
+ * reference for positioningZ360 4h is therefore -0.0023714 %/bar, CI
+ * [-0.028749, 0.018609], timing p 0.75, 7 of 8 failed; the Phase 5 table
+ * above is the pre-join vintage.
+ *
+ * PRIMARY RUNS, realizedVol20, factorSign -1 (long low relative volatility,
+ * short high):
+ *
+ * | interval | image    | bars held/total | mean %/bar | Sharpe    | Sharpe CI95              | drawdown % | windows+ | symbols+ | jackknife+ (worst) | without BTC | timing p (draws) | dsp     | plateau | stress mean | turnover | bars/rebal | long leg  | short leg | mean abs net exposure | gates failed |
+ * | ---      | ---      | ---             | ---:       | ---:      | ---                      | ---:       | ---      | ---      | ---                 | ---:        | ---               | ---:    | ---     | ---:        | ---:     | ---:       | ---:      | ---:      | ---:                  | ---          |
+ * | 4h       | f5625a2  | 5856/5856       | -0.006881  | -0.012569 | [-0.038117, 0.013164]    | 53.3       | 3/6      | 6/10     | 0/10 (-0.010796)    | -0.005704   | 0.935 (200)       | 0.0702  | n/a     | -0.011261   | 570.0    | 14.41      | +0.005838 | -0.005892 | 9.6e-18               | expectancy, windows, symbols, timing, trials, stress, plateau |
+ * | 1h       | 29f01df  | 23532/23532     | -0.006305  | -0.023461 | [-0.035073, -0.011112]   | 79.5       | 1/6      | 4/10     | 0/10 (-0.007170)    | -0.006548   | 1.000 (200)       | 5.2e-09 | n/a     | -0.010011   | 1586.0   | 11.61      | +0.001410 | -0.002379 | 1.0e-17               | expectancy, windows, symbols, timing, trials, stress, plateau |
+ *
+ * Selected cells per window: 4h linearRank with band fraction 0.25 (window 0)
+ * and 0.5 (windows 1 to 4), topBottom k=1 band 0 (window 5); 1h linearRank
+ * band fraction 0.5 in all six windows. The band was selected (unlike Phase
+ * 5): 14.4 bars between rebalances at 4h, 11.6 at 1h.
+ *
+ * Per-window means (%/bar): 4h -0.03346, +0.01607, -0.03728, +0.00796,
+ * +0.01134, -0.00591 (976 bars each); 1h -0.01424, +0.00043, -0.01316,
+ * -0.00261, -0.00403, -0.00422 (3922 bars each).
+ *
+ * Per-symbol mean contribution (%/bar, positive?): 4h ADA +0.00036 yes, AVAX
+ * 0.0 yes, BNB +0.00285 yes, BTC -0.00118 no, DOGE -0.00524 no, DOT +0.00392
+ * yes, ETH +0.00206 yes, LINK +0.00285 yes, SOL -0.00447 no, XRP -0.0012 no.
+ * 1h ADA -0.00036 no, AVAX -0.00026 no, BNB +0.00087 yes, BTC +0.00024 yes,
+ * DOGE -0.00093 no, DOT +0.00065 yes, ETH -0.00013 no, LINK +0.00086 yes,
+ * SOL -0.00082 no, XRP -0.00109 no.
+ *
+ * Cost arithmetic: 4h 570 turnover units x 0.0007 per unit (0.05% taker + 2
+ * bps) over 5856 bars = 0.0068 %/bar, so gross is about zero (legs +0.0058
+ * and -0.0059); 1h 1586 x 0.0008 (0.05% + 3 bps) over 23532 bars = 0.0054
+ * %/bar, so gross is about -0.001 %/bar.
+ *
+ * Loader note: at 1h every symbol had exactly one perp bar absent from the
+ * spot grid (the same hour, 2023-03-24T13:00Z), dropped by the intersection
+ * and recorded as perpBarsOffSpotGrid: 1 per symbol; 39407 perp bars per
+ * symbol remain. Phase 5 never ran 1h, which is why the guard had never
+ * fired.
+ *
+ * VERDICT AGAINST THE PRE-REGISTRATION. Predictions: gross 0.2 to 0.4% per
+ * 32 bars per unit gross at 1h, net mean return per bar positive with the
+ * Sharpe CI clear of zero, a band above 0 selected in most windows, the
+ * drop-BTC jackknife positive. Observed: the band prediction held (band 0.5
+ * in every 1h window, in five of six at 4h); everything else failed. Gross
+ * at 1h is about -0.001 %/bar (-0.03% per 32 bars) against a predicted +0.2
+ * to +0.4%; the Sharpe CI at 1h is entirely below zero; the drop-BTC
+ * jackknife is negative at both intervals. KILL CRITERION FIRES:
+ * realizedVol20 fails the expectancy gate at both 1h and 4h, so the
+ * cross-sectional axis closes on this dataset; fundingRate and
+ * topTraderPositionRatio were not run, and no robustness read applies
+ * because no run passed. Spot checks: 4h BTCUSDT window 2 reproduced (params
+ * linearRank band 0.5, 976 bars, mean -0.03728195892975744 %/bar); 1h
+ * BTCUSDT window 2 reproduced (params linearRank band 0.5, 3922 bars, mean
+ * -0.013161281383872741 %/bar).
+ *
+ * THE FINDING WORTH KEEPING (observation, not a change to the
+ * pre-registration). A rank IC of -0.0745 (1h) and -0.0788 (4h) with quarter
+ * agreement above 0.9 did not become a positive gross spread in an
+ * equal-dollar rank book. The factor sorts symbols by their own return
+ * volatility, so the short leg (high vol) moves more than the long leg: a
+ * Spearman IC counts a bar where the high-vol names outperform by 5% the
+ * same as a bar where they underperform by 0.1%, while the book's P&L does
+ * not. Frequent small wins and rare large losses net to about zero at both
+ * intervals. The frontier conversion 2 x IC x sd assumes a scale-free
+ * relationship and does not hold for a factor that sorts on the return
+ * scale; this is the same lesson as the btcLeadLag hold-profile caveat in a
+ * different coat. A volatility-scaled (risk-parity) weighting is the
+ * natural next container variant and is NOT run in this phase (the grid was
+ * fixed in advance); it would need a new pre-registration, and its expected
+ * gross is bounded above by the equal-dollar result's scale asymmetry, so it
+ * should be written up as a bounded question, not a promise.
  */
 
 import { bootstrapCi, maxDrawdownPercentOfPnl, meanOf } from '@/lib/stats/block-bootstrap';
