@@ -442,6 +442,43 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  * `options` kind), every column this paragraph describes is NaN throughout,
  * exactly like every other optional input in this file.
  *
+ * OPTIONS TRIAGE RESULTS (2026-09-28, develop slice to 2022-12-31 on the
+ * options-enabled export research-p4o, hash 3483a511, execution lag 1, ten
+ * symbols; the options rows begin 2021-10-01, so every options cell is
+ * measured on 2021-10 to 2022-12, one bear regime). At 1h: `raw.mktDvolZ30`
+ * h8 +0.0326 t 4.63 [0.016, 0.046], h16 +0.0472 t 4.78, h32 +0.0611 t 4.64,
+ * 10/10 symbols, 4/5 quarters, the program's first new-input survivor at 1h;
+ * `raw.mktOptSkew24` h8 +0.0282 t 3.97 (put-rich skew precedes HIGHER
+ * returns, the opposite of the thread claim); `raw.mktOptDeltaFlow24Z` h1 to
+ * h16 within +/-0.008, h32 +0.0262 t 2.27. At 4h: `raw.mktDvolZ30` h32
+ * +0.1228 t 5.01; `raw.mktOptDeltaFlow24Z` h8 +0.0273 t 2.42, h16 +0.0656
+ * t 4.89 [0.040, 0.089], h32 +0.0439 t 3.05; `raw.mktOptGammaFlow24Z` h32
+ * -0.0601 t -4.12; `raw.mktOptPutCallVol24` h32 +0.0812 t 3.98;
+ * `raw.ret1InNegGammaFlow` h2 -0.0615 t -6.87 against unconditional
+ * -0.0118 at h8 and `raw.ret1InPosGammaFlow` h4 +0.0230 (the 4h reversal is
+ * much stronger when customers sold gamma, mild continuation when
+ * they bought; the unconditional `raw.ret1` is -0.0118 at h8, so the
+ * like-for-like ratio is about 52 at h2 and about 3.6 at h8). At 15m the
+ * delta-flow, gamma-flow and put/call columns sit below the 0.02 floor;
+ * `raw.mktDvolZ30` clears it at h16 (+0.0203 t 4.10) and h32 (+0.0294
+ * t 4.20, 10/10 symbols) and the skew at 8h (+0.0294 t 4.2).
+ *
+ * WHAT THE RULES BUILT ON THESE CELLS DID (exploration-families.ts header
+ * has the tables): the long-only DVOL-spike and skew-spike rules and the
+ * gamma-regime fade LOSE on the same slice at 1h, 4h and 15m without
+ * exception (a 2 to 3 ATR stop is hit inside the high-vol bars the drift
+ * needs), while delta-flow continuation paid +1.7% to +2.0% per trade at 1h
+ * and 4h (6 of 8 gates at 1h) and then lost on EVERY symbol in 2023 with
+ * parameters fixed. A record-only 2023 read of `raw.mktOptDeltaFlow24Z`
+ * alone (no other column's 2023 IC was computed) shows why: at 1h the
+ * column's relation to the next 4 to 16 hours flipped from about zero to
+ * h4 -0.0353 t -6.58, h8 -0.0405 t -5.52, h16 -0.0374 t -3.70; at 4h the
+ * 64-hour cell fell to +0.0176 t 1.12 while the 5-day cell held (+0.0486
+ * t 2.87, 9/10 symbols). The sign of "options flow leads the underlying" is
+ * regime-dependent on this data, and a whole-distribution rank IC at the
+ * multi-day horizon does not reach a tail-entry rule with an ATR stop, the
+ * same IC-to-rule gap Phase 3b recorded for the positioning factor.
+ *
  * EXPLORATION COLUMNS, 2026-09-28, for the calendar and conditioning claims
  * the reading produced (Monday/Wednesday direction, OPEX-style weekday
  * effects, "short the session open", Asia is chop, round numbers are levels,

@@ -30,6 +30,21 @@
  * a time. See each family's own header comment below for its rule, its
  * params, and the exact Phase 3 cells it rests on.
  *
+ * EXPLORATION (session 19, 2026-09-28): `withManagement` and the three
+ * `*-managed` families below belong to the Reddit-derived exploration whose
+ * other families live under families/ and are registered in
+ * exploration-families.ts; that file's header carries the exploration's
+ * round-by-round results tables. The managed control's own rows (develop
+ * slice to 2022-12-31, dataset research-p4 3f14b27e, trials 1141, standard
+ * profile, ten symbols): 1h n 2043 -0.0375% CI [-0.2475, 0.1622] timing
+ * p 0.015 symbols 3/10 against the plain control's n 1644 +0.0384%
+ * [-0.2165, 0.3064] p 0.010 5/10; 4h n 531 -0.0042% [-0.6441, 0.5681]
+ * p 0.304 6/10 against -0.1871% [-0.9350, 0.4550]; 15m n 6781 -0.1319%
+ * [-0.1831, -0.0829] p 0.035 0/10 against -0.1339% [-0.2020, -0.0659].
+ * Break-even and trailing management made the control worse at 1h on
+ * 2022 and changed nothing at 4h and 15m: the "+2.4R to +15.8R" thread
+ * claim does not transfer.
+ *
  * Phase 4 results (2026-09-18, dataset 3fdeac9e495e3051ad2e2c7553be6b07b1da0d7b9e84f468d635d2708c624782,
  * commit 30a56ef, lockbox applied so every window ends 2026-06-30, ten
  * symbols, six rolling windows with train fraction 0.4 and purge equal to

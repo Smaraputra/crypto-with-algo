@@ -49,8 +49,9 @@
  *   mktOptDeltaFlow24Z), added for the round-2 families that trade the
  *   develop-slice IC triage's survivors (the DVOL/skew pair from the 1h
  *   triage; gamma and delta flow from the 4h triage, where ret1 reversal ran
- *   five times stronger when customers sold gamma -- dealers long -- than
- *   when they bought, and delta flow predicted positive 16-bar returns),
+ *   far stronger over the next two bars when customers sold gamma -- dealers
+ *   long -- than when they bought, and delta flow predicted positive 16-bar
+ *   returns),
  *   read `marketOptions` -- BTC's hourly Deribit options-flow rows
  *   (OptionsRow), read by every symbol as the market-wide reading, exactly as
  *   factors.ts's `marketOptions` -- and follow the metric-derived rule too:
