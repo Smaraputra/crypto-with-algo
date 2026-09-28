@@ -44,6 +44,35 @@
  *   computed close-aligned first and then SHIFTED FORWARD ONE BAR via
  *   `shiftForwardOneBar`, so a family acting at bar i's close reads what was
  *   knowable at the previous close. All eight are shifted; none is exempt.
+ *
+ * - Options-derived columns (mktDvolZ30, mktOptSkew24, mktOptGammaFlow24Z,
+ *   mktOptDeltaFlow24Z), added for the round-2 families that trade the
+ *   develop-slice IC triage's survivors (the DVOL/skew pair from the 1h
+ *   triage; gamma and delta flow from the 4h triage, where ret1 reversal ran
+ *   five times stronger when customers sold gamma -- dealers long -- than
+ *   when they bought, and delta flow predicted positive 16-bar returns),
+ *   read `marketOptions` -- BTC's hourly Deribit options-flow rows
+ *   (OptionsRow), read by every symbol as the market-wide reading, exactly as
+ *   factors.ts's `marketOptions` -- and follow the metric-derived rule too:
+ *   an hourly row is observable at its hour's CLOSE (`row.t + OPTIONS_SLOT_MS
+ *   - 1`), joined onto `alignToBars(barCloses, ..., Math.max(intervalMs, 2 *
+ *   OPTIONS_SLOT_MS))`, the same join rule factors.ts's (unexported)
+ *   `alignOptionsToBars` uses, reimplemented here rather than imported.
+ *   `mktDvolZ30` is a 30-day trailing z of the aligned DVOL close.
+ *   `mktOptSkew24` is the aligned 24-consecutive-hour trailing MEAN of
+ *   `putIv25 - callIv25`, computed on the hourly rows BEFORE alignment (a
+ *   gap in the hourly rows makes that hour's window NaN), and reported as
+ *   the raw level, not a z-score -- the triage measured the level.
+ *   `mktOptGammaFlow24Z`/`mktOptDeltaFlow24Z` are 30-day trailing z-scores of
+ *   the aligned 24-consecutive-hour trailing SUM of hourly `netDollarGamma`/
+ *   `netDelta`, computed on the hourly rows BEFORE alignment: a missing hour,
+ *   or a null/non-finite reading inside an otherwise gap-free window, makes
+ *   that hour's sum NaN rather than a partial total -- these are FLOWS, and a
+ *   flow with an unknown hour inside it is not a smaller flow, it is an
+ *   unknown one (the mean-based skew24 tolerates a thin hour; the sum-based
+ *   flows do not). All four are masked from `warmupBars` before their
+ *   close-aligned reading is derived further, then SHIFTED FORWARD ONE BAR
+ *   like every other close-aligned column above.
  */
 
 import type { OHLCV } from '@/types/market';
@@ -52,8 +81,9 @@ import { buildSnapshotSeries } from '@/lib/backtest/snapshot-series';
 import type { ResearchRow } from '@/lib/backtest/research-series';
 import { alignToBars, METRICS_SLOT_MS } from '@/lib/archive-ingestion';
 import { intervalToMs } from '@/lib/intervals';
-import { trailingZScore, FUNDING_Z_MIN_SAMPLES } from './factors';
-import type { CandleRow, MetricsRow } from './dataset-format';
+import { OPTIONS_SLOT_MS } from '@/lib/options-flow';
+import { trailingZScore, FUNDING_Z_MIN_SAMPLES, OPTIONS_FLOW_WINDOW_HOURS } from './factors';
+import type { CandleRow, MetricsRow, OptionsRow } from './dataset-format';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -93,6 +123,10 @@ export const RESEARCH_COLUMNS: readonly string[] = [
   'bosBreak',
   'volRatio',
   'btcLeadLagZ',
+  'mktDvolZ30',
+  'mktOptSkew24',
+  'mktOptGammaFlow24Z',
+  'mktOptDeltaFlow24Z',
 ];
 
 export interface ResearchColumnInput {
@@ -122,6 +156,15 @@ export interface ResearchColumnInput {
    * dataset has no BTCUSDT candles at the requested interval).
    */
   marketCandles?: CandleRow[] | null;
+  /**
+   * BTC's hourly options-flow rows (Deribit DVOL, IV skew, and trade flow),
+   * for mktDvolZ30, mktOptSkew24, mktOptGammaFlow24Z and mktOptDeltaFlow24Z.
+   * Always BTC's file, read by every symbol as the market-wide reading
+   * regardless of this symbol's own currency, mirroring factors.ts's
+   * `marketOptions`. Optional: null or absent means all four columns are NaN
+   * for the whole series (see strategy-harness.ts's `loadMarketOptions`).
+   */
+  marketOptions?: OptionsRow[] | null;
 }
 
 /** Days to bars at this interval, the same conversion factors.ts applies to
@@ -548,6 +591,166 @@ function computeBtcLeadLagRaw(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// mktDvolZ30 / mktOptSkew24: BTC-wide options readings, close-aligned then
+// shifted. factors.ts's alignOptionsToBars is not exported, so the small
+// piece of it this module needs -- dvolClose and the skew24 trailing mean,
+// not the flow/putCallVol series -- is reimplemented here.
+// ---------------------------------------------------------------------------
+
+/** Finite putIv25 minus callIv25 for one hourly row, NaN when either leg is
+ * null or non-finite. Mirrors factors.ts's (unexported) ivSkewOf. */
+function ivSkewOf(row: OptionsRow): number {
+  if (row.putIv25 === null || row.callIv25 === null) return NaN;
+  if (!Number.isFinite(row.putIv25) || !Number.isFinite(row.callIv25)) return NaN;
+  return row.putIv25 - row.callIv25;
+}
+
+/**
+ * Trailing `OPTIONS_FLOW_WINDOW_HOURS`-hour mean of `value(row)`, over
+ * CONSECUTIVE hourly rows only: a gap -- a missing hour in `rows` itself --
+ * makes that hour's window NaN. Tolerant of an individual hour's own value
+ * being non-finite, since skew24 is already a mean of a difference rather
+ * than a summed flow: the mean is taken over however many of the window's
+ * gap-free hours turn out finite (NaN if none do). Mirrors factors.ts's
+ * (unexported) trailingConsecutiveMean, specialised to this module's one
+ * caller. `rows` must be sorted ascending by `t`.
+ */
+function trailingConsecutiveMean(rows: OptionsRow[], value: (row: OptionsRow) => number): Float64Array {
+  const n = rows.length;
+  const out = new Float64Array(n).fill(NaN);
+
+  for (let i = OPTIONS_FLOW_WINDOW_HOURS - 1; i < n; i++) {
+    let expectedT = rows[i].t;
+    let gapFree = true;
+    let sum = 0;
+    let count = 0;
+    for (let k = i; k > i - OPTIONS_FLOW_WINDOW_HOURS; k--) {
+      if (rows[k].t !== expectedT) {
+        gapFree = false;
+        break;
+      }
+      const v = value(rows[k]);
+      if (Number.isFinite(v)) {
+        sum += v;
+        count++;
+      }
+      expectedT -= OPTIONS_SLOT_MS;
+    }
+    if (gapFree && count > 0) out[i] = sum / count;
+  }
+
+  return out;
+}
+
+/**
+ * Trailing `OPTIONS_FLOW_WINDOW_HOURS`-hour SUM of `value(row)`, over
+ * CONSECUTIVE hourly rows only, requiring every one of those hours to be
+ * present at an exact hourly spacing and to carry a finite value: a missing
+ * hour (a gap in `rows` itself) or a null/non-finite value anywhere in the
+ * window makes that bar's sum NaN rather than a partial total --
+ * gammaFlow24 and deltaFlow24 are FLOWS, and a flow with an unknown hour
+ * inside it is not a smaller flow, it is an unknown one. Mirrors
+ * factors.ts's (unexported) trailingConsecutiveSum, specialised to this
+ * module's callers. `rows` must be sorted ascending by `t`.
+ */
+function trailingConsecutiveSum(rows: OptionsRow[], value: (row: OptionsRow) => number | null): Float64Array {
+  const n = rows.length;
+  const out = new Float64Array(n).fill(NaN);
+
+  for (let i = OPTIONS_FLOW_WINDOW_HOURS - 1; i < n; i++) {
+    let sum = 0;
+    let ok = true;
+    let expectedT = rows[i].t;
+    for (let k = i; k > i - OPTIONS_FLOW_WINDOW_HOURS; k--) {
+      if (rows[k].t !== expectedT) {
+        ok = false;
+        break;
+      }
+      const v = value(rows[k]);
+      if (v === null || !Number.isFinite(v)) {
+        ok = false;
+        break;
+      }
+      sum += v;
+      expectedT -= OPTIONS_SLOT_MS;
+    }
+    if (ok) out[i] = sum;
+  }
+
+  return out;
+}
+
+interface MarketOptionsAligned {
+  dvolClose: Float64Array;
+  skew24: Float64Array;
+  gammaFlow24: Float64Array;
+  deltaFlow24: Float64Array;
+}
+
+/**
+ * Joins BTC's hourly options rows' dvolClose, 24-hour skew mean, and
+ * 24-hour gamma/delta flow sums onto `barCloses`, by the same rule
+ * factors.ts's alignOptionsToBars uses: a row is observable only from its
+ * own close onward (`row.t + OPTIONS_SLOT_MS - 1`), and a bar more than
+ * `Math.max(intervalMs, 2 * OPTIONS_SLOT_MS)` past the last observable row
+ * reads NaN rather than a stale carry-forward. `rows` null, missing or
+ * empty yields every series NaN throughout, the same "absent input, NaN
+ * column" rule every optional input here follows.
+ */
+function alignMarketOptionsToBars(
+  rows: OptionsRow[] | null | undefined,
+  barCloses: number[],
+  intervalMs: number
+): MarketOptionsAligned {
+  const n = barCloses.length;
+  const empty: MarketOptionsAligned = {
+    dvolClose: new Float64Array(n).fill(NaN),
+    skew24: new Float64Array(n).fill(NaN),
+    gammaFlow24: new Float64Array(n).fill(NaN),
+    deltaFlow24: new Float64Array(n).fill(NaN),
+  };
+  if (!rows || rows.length === 0) return empty;
+
+  const skewMean = trailingConsecutiveMean(rows, ivSkewOf);
+  const gammaSum = trailingConsecutiveSum(rows, (r) => r.netDollarGamma);
+  const deltaSum = trailingConsecutiveSum(rows, (r) => r.netDelta);
+
+  interface Joined {
+    timestamp: number;
+    dvolClose: number;
+    skew24: number;
+    gammaFlow24: number;
+    deltaFlow24: number;
+  }
+  const joined: Joined[] = rows.map((row, i) => ({
+    timestamp: row.t + OPTIONS_SLOT_MS - 1,
+    dvolClose: row.dvolClose ?? NaN,
+    skew24: skewMean[i],
+    gammaFlow24: gammaSum[i],
+    deltaFlow24: deltaSum[i],
+  }));
+
+  const staleness = Math.max(intervalMs, 2 * OPTIONS_SLOT_MS);
+  const aligned = alignToBars(barCloses, joined, staleness);
+
+  const out: MarketOptionsAligned = {
+    dvolClose: new Float64Array(n).fill(NaN),
+    skew24: new Float64Array(n).fill(NaN),
+    gammaFlow24: new Float64Array(n).fill(NaN),
+    deltaFlow24: new Float64Array(n).fill(NaN),
+  };
+  for (let bar = 0; bar < n; bar++) {
+    const a = aligned[bar];
+    if (!a) continue;
+    out.dvolClose[bar] = a.dvolClose;
+    out.skew24[bar] = a.skew24;
+    out.gammaFlow24[bar] = a.gammaFlow24;
+    out.deltaFlow24[bar] = a.deltaFlow24;
+  }
+  return out;
+}
+
 /**
  * Build every research column for one symbol, over its FULL candle series.
  *
@@ -556,7 +759,7 @@ function computeBtcLeadLagRaw(
  * NaN, which every family treats as "do not trade".
  */
 export function buildResearchColumns(input: ResearchColumnInput): ResearchRow[] {
-  const { candles, snapshots, metrics, interval, symbol, warmupBars, marketCandles } = input;
+  const { candles, snapshots, metrics, interval, symbol, warmupBars, marketCandles, marketOptions } = input;
   const n = candles.length;
   const intervalMs = intervalToMs(interval);
   // A "day" needs more than one bar for a day boundary to mean anything;
@@ -610,6 +813,32 @@ export function buildResearchColumns(input: ResearchColumnInput): ResearchRow[] 
     const unshifted = trailingZScore(depthRaw, windowBarsForDays(days, interval), Z_MIN_SAMPLES);
     columns.set(depthColumn(days), shiftForwardOneBar(unshifted));
   }
+
+  // --- Options-derived columns: close-aligned per factors.ts's join rule,
+  // masked from warmupBars, then shifted, exactly like the depth columns
+  // above (see this file's header). ---
+  const optionsBarCloses = candles.map((candle) => candle.timestamp + intervalMs - 1);
+  const marketOptionsAligned = alignMarketOptionsToBars(marketOptions, optionsBarCloses, intervalMs);
+  const maskFromWarmup = (series: Float64Array): Float64Array => {
+    const out = new Float64Array(n).fill(Number.NaN);
+    for (let i = warmupBars; i < n; i++) out[i] = series[i];
+    return out;
+  };
+
+  const dvolMasked = maskFromWarmup(marketOptionsAligned.dvolClose);
+  const dvolZ = trailingZScore(dvolMasked, windowBarsForDays(NEW_COLUMN_Z_DAYS, interval), Z_MIN_SAMPLES);
+  columns.set('mktDvolZ30', shiftForwardOneBar(dvolZ));
+
+  const skewMasked = maskFromWarmup(marketOptionsAligned.skew24);
+  columns.set('mktOptSkew24', shiftForwardOneBar(skewMasked));
+
+  const gammaFlowMasked = maskFromWarmup(marketOptionsAligned.gammaFlow24);
+  const gammaFlowZ = trailingZScore(gammaFlowMasked, windowBarsForDays(NEW_COLUMN_Z_DAYS, interval), Z_MIN_SAMPLES);
+  columns.set('mktOptGammaFlow24Z', shiftForwardOneBar(gammaFlowZ));
+
+  const deltaFlowMasked = maskFromWarmup(marketOptionsAligned.deltaFlow24);
+  const deltaFlowZ = trailingZScore(deltaFlowMasked, windowBarsForDays(NEW_COLUMN_Z_DAYS, interval), Z_MIN_SAMPLES);
+  columns.set('mktOptDeltaFlow24Z', shiftForwardOneBar(deltaFlowZ));
 
   // --- Price/volume-derived columns: close-aligned, then shifted, exactly
   // like the depth columns above (see this file's header). ---

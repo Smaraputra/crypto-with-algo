@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -12,6 +12,7 @@ import {
   type CandleRow,
   type DatasetManifest,
   type ManifestFile,
+  type OptionsRow,
   type SnapshotRow,
 } from './dataset-format';
 import { validateStrategyReport, type StrategyReport } from './report-schema';
@@ -82,6 +83,39 @@ interface FixtureOptions {
   /** Overrides the default oscillating funding rate (0.0001 * ((k % 3) - 1),
    * zero for a third of rows) with a fixed non-zero rate for every row. */
   fundingRate?: number;
+  /** When true, writes an hourly BTC options-flow file (options/BTC/1h.jsonl.gz,
+   * currency-keyed, not per-symbol -- read by every symbol as the market-wide
+   * reading, per strategy-harness.ts's loadMarketOptions) spanning the
+   * fixture's full candle range plus warmup, with distinct finite values so
+   * mktDvolZ30/mktOptSkew24/mktOptGammaFlow24Z/mktOptDeltaFlow24Z can
+   * actually populate. */
+  options?: boolean;
+}
+
+const OPTIONS_HOUR_MS = 3_600_000;
+
+/** One synthetic hourly options row, everything finite so the sum/mean/z
+ * columns all have something to work with. Mirrors factor-ic.test.ts's
+ * optionsRow fixture helper. */
+function optionsRow(h: number): OptionsRow {
+  return {
+    t: START + h * OPTIONS_HOUR_MS,
+    dvolOpen: 55 + Math.sin(h / 11) * 10,
+    dvolHigh: 56 + Math.sin(h / 11) * 10,
+    dvolLow: 54 + Math.sin(h / 11) * 10,
+    dvolClose: 55 + Math.sin(h / 11) * 10,
+    callBuyNotional: 1_000_000 + h * 100,
+    callSellNotional: 900_000 + h * 90,
+    putBuyNotional: 800_000 + h * 80,
+    putSellNotional: 700_000 + h * 70,
+    netDelta: (h % 13) - 6,
+    netDollarGamma: Math.sin(h / 9) * 20,
+    tradeCount: 20 + h,
+    greekTradeCount: 10 + h,
+    vwIv: 60,
+    putIv25: 60 + (h % 5),
+    callIv25: 58 + (h % 7),
+  };
 }
 
 /**
@@ -153,6 +187,26 @@ async function buildFixtureDataset(dir: string, opts: FixtureOptions): Promise<D
         sha256: await sha256File(htfPath),
       });
     }
+  }
+
+  if (opts.options) {
+    // Currency-keyed, not per-symbol: one file, read by every symbol as the
+    // market-wide reading (strategy-harness.ts's loadMarketOptions always
+    // reads options/BTC/1h.jsonl.gz regardless of which symbol is running).
+    const optionsHours = Math.ceil((opts.count * opts.stepMs) / OPTIONS_HOUR_MS) + 24;
+    const optionsRows: OptionsRow[] = Array.from({ length: optionsHours }, (_, h) => optionsRow(h));
+    const optionsPath = join(dir, 'options', 'BTC', '1h.jsonl.gz');
+    await writeJsonlGz(optionsPath, optionsRows);
+    files.push({
+      path: 'options/BTC/1h.jsonl.gz',
+      kind: 'options',
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      rowCount: optionsRows.length,
+      startMs: optionsRows[0].t,
+      endMs: optionsRows[optionsRows.length - 1].t,
+      sha256: await sha256File(optionsPath),
+    });
   }
 
   const manifest: DatasetManifest = {
@@ -674,6 +728,101 @@ describe('strategy-harness CLI', () => {
         '--out', join(dir, 'reports', 'report.json'),
       ]);
       await expect(runStrategyHarness(args)).rejects.toThrow(/ETHUSDT/);
+    }, 30_000);
+  });
+
+  describe('runStrategyHarness: options file', () => {
+    it('loads BTC options once and passes them to every symbol', async () => {
+      await buildFixtureDataset(dir, {
+        interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h', options: true,
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const args = parseArgs([
+          '--family', 'control',
+          '--interval', '1h',
+          '--dataset-dir', dir,
+          '--windows', '3',
+          '--bootstrap-n', '20',
+          '--benchmark-n', '10',
+          '--out', join(dir, 'reports', 'report.json'),
+        ]);
+        const report = await runStrategyHarness(args);
+
+        // loadMarketOptions is called once per run, not once per symbol; its
+        // "no BTC options file" warning (strategy-harness.ts) must never
+        // fire when the file is present, for either symbol, and every
+        // symbol must still complete (nothing silently dropped).
+        const warned = errorSpy.mock.calls.some((call) => String(call[0]).includes('no BTC options file'));
+        expect(warned).toBe(false);
+        expect(report.perSymbol.map((p) => p.symbol).sort()).toEqual(['BTCUSDT', 'ETHUSDT']);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    }, 30_000);
+
+    it('runs with a warning and NaN columns when the options file is absent', async () => {
+      // The base fixture (no `options: true`) writes no options file at all.
+      await buildFixtureDataset(dir, { interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h' });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const args = parseArgs([
+          '--family', 'control',
+          '--interval', '1h',
+          '--dataset-dir', dir,
+          '--windows', '3',
+          '--bootstrap-n', '20',
+          '--benchmark-n', '10',
+          '--out', join(dir, 'reports', 'report.json'),
+        ]);
+        const report = await runStrategyHarness(args);
+
+        const warned = errorSpy.mock.calls.some((call) =>
+          String(call[0]).includes(
+            'no BTC options file; mktDvolZ30/mktOptSkew24/mktOptGammaFlow24Z/mktOptDeltaFlow24Z will be NaN for every symbol'
+          )
+        );
+        expect(warned).toBe(true);
+        // Absent options data is not fatal: the run still completes normally.
+        expect(report.gates).toHaveLength(8);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    }, 30_000);
+
+    it('--cell --report reproduces a run that read the options file', async () => {
+      await buildFixtureDataset(dir, {
+        interval: '1h', stepMs: 3_600_000, count: 1200, htfInterval: '4h', options: true,
+      });
+      const outPath = join(dir, 'reports', 'report.json');
+      const baseArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--windows', '3',
+        '--bootstrap-n', '20',
+        '--benchmark-n', '10',
+        '--out', outPath,
+      ]);
+      const report = await runStrategyHarness(baseArgs);
+
+      const symbol = report.symbols[0];
+      const window0 = report.perSymbol.find((p) => p.symbol === symbol)!.windows[0];
+      expect(window0.oos).not.toBeNull();
+
+      const cellArgs = parseArgs([
+        '--family', 'control',
+        '--interval', '1h',
+        '--dataset-dir', dir,
+        '--cell', `${symbol}:0`,
+        '--report', outPath,
+      ]);
+      const cell = await runCell(cellArgs);
+
+      expect(cell.symbol).toBe(symbol);
+      expect(cell.window).toBe(0);
+      expect(cell.trades).toBe(window0.oos!.trades);
+      expect(cell.expectancyPercent).toBeCloseTo(window0.oos!.expectancyPercent!, 9);
     }, 30_000);
   });
 

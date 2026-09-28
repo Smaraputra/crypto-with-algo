@@ -136,8 +136,8 @@ import {
 } from '@/lib/backtest/cost-model';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
-import { loadCandles, loadManifest, loadMetrics, loadSnapshots, verifyManifest } from './load-dataset';
-import type { CandleRow, MetricsRow } from './dataset-format';
+import { loadCandles, loadManifest, loadMetrics, loadOptions, loadSnapshots, verifyManifest } from './load-dataset';
+import type { CandleRow, MetricsRow, OptionsRow } from './dataset-format';
 import type { ResearchRow } from '@/lib/backtest/research-series';
 import { buildResearchColumns } from './research-columns';
 import { computeAllIndicators } from '@/lib/indicators/compute';
@@ -494,6 +494,30 @@ function loadMarketCandles(
   return result.rows.filter((r) => inRange(r.t, opts.start, opts.end));
 }
 
+/**
+ * Loads BTC's hourly options-flow rows once per run for mktDvolZ30,
+ * mktOptSkew24, mktOptGammaFlow24Z and mktOptDeltaFlow24Z
+ * (research-columns.ts), filtered to [start, end] like every other loaded
+ * series. Mirrors loadMarketCandles: returns null (after logging once) when
+ * this dataset has no BTC options file, so all four columns are simply NaN
+ * for every symbol rather than aborting the run over columns no family is
+ * required to use.
+ */
+function loadMarketOptions(
+  datasetDir: string,
+  opts: { allowLockbox: boolean; start?: number; end?: number }
+): OptionsRow[] | null {
+  const path = join(datasetDir, 'options', 'BTC', '1h.jsonl.gz');
+  if (!existsSync(path)) {
+    console.error(
+      `[strategy-harness] no BTC options file; mktDvolZ30/mktOptSkew24/mktOptGammaFlow24Z/mktOptDeltaFlow24Z will be NaN for every symbol`
+    );
+    return null;
+  }
+  const result = loadOptions(datasetDir, 'BTC', { allowLockbox: opts.allowLockbox });
+  return result.rows.filter((r) => inRange(r.t, opts.start, opts.end));
+}
+
 interface SymbolInputs {
   symbol: string;
   candles: OHLCV[];
@@ -522,6 +546,7 @@ function loadSymbolInputs(
   style: TradingStyle,
   snapshotInterval: string,
   marketCandles: CandleRow[] | null,
+  marketOptions: OptionsRow[] | null,
   opts: { allowLockbox: boolean; start?: number; end?: number }
 ): SymbolInputs {
   const candleResult = loadCandles(datasetDir, symbol, interval, { allowLockbox: opts.allowLockbox });
@@ -600,6 +625,7 @@ function loadSymbolInputs(
     symbol,
     warmupBars,
     marketCandles,
+    marketOptions,
   });
 
   return {
@@ -824,8 +850,14 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   }
 
   // Loaded once and passed to every symbol's buildResearchColumns call
-  // (btcLeadLagZ), rather than once per symbol.
+  // (btcLeadLagZ, mktDvolZ30, mktOptSkew24, mktOptGammaFlow24Z,
+  // mktOptDeltaFlow24Z), rather than once per symbol.
   const marketCandles = loadMarketCandles(args.datasetDir, interval, {
+    allowLockbox: args.allowLockbox,
+    start: args.start,
+    end: args.end,
+  });
+  const marketOptions = loadMarketOptions(args.datasetDir, {
     allowLockbox: args.allowLockbox,
     start: args.start,
     end: args.end,
@@ -835,7 +867,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   for (const symbol of symbols) {
     console.error(`[strategy-harness] loading ${symbol}...`);
     perSymbolInputs.push(
-      loadSymbolInputs(args.datasetDir, symbol, interval, style, snapshotInterval, marketCandles, {
+      loadSymbolInputs(args.datasetDir, symbol, interval, style, snapshotInterval, marketCandles, marketOptions, {
         allowLockbox: args.allowLockbox,
         start: args.start,
         end: args.end,
@@ -1103,11 +1135,17 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
   const allowLockbox = !report.lockboxApplied;
 
   const marketCandles = loadMarketCandles(args.datasetDir, report.interval, { allowLockbox, start, end });
-  const input = loadSymbolInputs(args.datasetDir, symbol, report.interval, style, snapshotInterval, marketCandles, {
-    allowLockbox,
-    start,
-    end,
-  });
+  const marketOptions = loadMarketOptions(args.datasetDir, { allowLockbox, start, end });
+  const input = loadSymbolInputs(
+    args.datasetDir,
+    symbol,
+    report.interval,
+    style,
+    snapshotInterval,
+    marketCandles,
+    marketOptions,
+    { allowLockbox, start, end }
+  );
 
   const resolved = resolveWindowConfig(input.candles, symbol, report.interval, style, {
     count: report.windowConfig.count,
