@@ -441,6 +441,58 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  * `marketOptions` are both absent (the default until a dataset carries the
  * `options` kind), every column this paragraph describes is NaN throughout,
  * exactly like every other optional input in this file.
+ *
+ * EXPLORATION COLUMNS, 2026-09-28, for the calendar and conditioning claims
+ * the reading produced (Monday/Wednesday direction, OPEX-style weekday
+ * effects, "short the session open", Asia is chop, round numbers are levels,
+ * down moves are sharper, trending regimes weaken reversal). Two are a
+ * DEVIATION form of the Phase B seasonal columns the PHASE B RESULTS block
+ * above named as the next test: raw.hourOfDayDrift and raw.sessionDrift both
+ * carry the 60-day trailing mean return, the same slow reversal raw.ret20
+ * already carries, because neither column subtracted the unconditional
+ * trailing mean. The other eight are Stage-2-style diagnostics, masks of
+ * raw.ret1 rather than standalone signals, following the pattern
+ * raw.ret1InMeanReversion/InTrend and raw.ret1InHighTaker/InLowTaker set: the
+ * two subset ICs are compared and read as the gap between them (a third of
+ * the unconditional |ic| counts as a gap), never as survivors on their own.
+ *
+ * `raw.hourOfDayDriftDev` and `raw.weekdayDriftDev` subtract the trailing
+ * unconditional mean of ret1 -- obtained from the SAME `seasonalDriftSeries`
+ * call with a single, constant bucket, so both terms exclude the bar itself
+ * identically -- from the bucketed drift, leaving only the bucket's
+ * departure from the overall trailing mean. `raw.hourOfDayDriftDev` is NaN
+ * wherever `raw.hourOfDayDrift` is (1d and coarser, no time-of-day content).
+ * `raw.weekdayDriftDev` buckets on `getUTCDay()` (7 buckets) and is NaN at
+ * 1d by the ordinary minSamples rule (about 8 readings in 60 days, below
+ * SEASONAL_DRIFT_MIN_SAMPLES) -- not by an added interval gate.
+ *
+ * `raw.ret1InAsia` / `raw.ret1InNyOverlap`: the "Asia is chop" / "short the
+ * session open" claims, ret1Series masked by sessionOfCandleClose, NaN
+ * together where isSessionMeaningful(interval) is false (4h, 1d).
+ *
+ * `raw.ret1NearRound` / `raw.ret1FarRound`: the "round numbers are levels"
+ * claim, split by whether the bar's close sits within 0.2% of the nearest
+ * two-significant-figure price level.
+ *
+ * `raw.ret1AfterDown` / `raw.ret1AfterUp`: the "down moves are sharper"
+ * claim, ret1 conditioned on the sign of the PRECEDING bar's return.
+ *
+ * `raw.ret1InHighVolRatio` / `raw.ret1InLowVolRatio`: the "trending regimes
+ * weaken reversal" claim, ret1 split at 0.7 of a realised-vol ratio (sd of
+ * log returns over the trailing 24h divided by the trailing 168h, ddof 1) --
+ * a ratio-of-vols regime reading in the spirit of raw.varianceRatio, not a
+ * rebuild of it: VR(4) over a 120-bar window answers whether the series
+ * trends or reverts, this answers whether realised volatility has itself
+ * picked up relative to its own recent history. Structurally NaN at 1d and
+ * whenever the 168h window exceeds the series: hoursToBars(24) is a single
+ * bar at 1d, and a one-sample variance (ddof 1) has no degrees of freedom,
+ * so the column is NaN there without a separate interval gate, the same
+ * mechanism raw.weekdayDriftDev relies on.
+ *
+ * `EXPLORATION_DIAGNOSTIC_NAMES` is the eight `ret1In*`/`ret1Near*`/
+ * `ret1After*` names above, exported for the S0 IC triage record; the two
+ * `*Dev` columns are deviations, not diagnostics of raw.ret1, and are left
+ * out of it.
  */
 const RAW_NAMES = [
   'raw.rsi',
@@ -497,6 +549,18 @@ const RAW_NAMES = [
   'raw.ret1InLowDvol',
   'raw.ret1InPosGammaFlow',
   'raw.ret1InNegGammaFlow',
+  // Exploration columns (calendar deviations and diagnostic splits), Task
+  // 2b, 2026-09-28. See the "EXPLORATION COLUMNS" paragraph above.
+  'raw.hourOfDayDriftDev',
+  'raw.weekdayDriftDev',
+  'raw.ret1InAsia',
+  'raw.ret1InNyOverlap',
+  'raw.ret1NearRound',
+  'raw.ret1FarRound',
+  'raw.ret1AfterDown',
+  'raw.ret1AfterUp',
+  'raw.ret1InHighVolRatio',
+  'raw.ret1InLowVolRatio',
 ] as const;
 
 /**
@@ -512,6 +576,24 @@ export const MARKET_OPTIONS_NAMES = [
   'raw.mktOptGammaFlow24Z',
   'raw.mktOptPutCallVol24',
   'raw.mktOptSkew24',
+] as const;
+
+/**
+ * The eight exploration diagnostics (Task 2b, 2026-09-28): masks of raw.ret1,
+ * never standalone signals, read as the gap between the two subset ICs in
+ * the S0 triage record (see the "EXPLORATION COLUMNS" header paragraph).
+ * raw.hourOfDayDriftDev and raw.weekdayDriftDev are deviations, not masks of
+ * raw.ret1, and are not included here.
+ */
+export const EXPLORATION_DIAGNOSTIC_NAMES = [
+  'raw.ret1InAsia',
+  'raw.ret1InNyOverlap',
+  'raw.ret1NearRound',
+  'raw.ret1FarRound',
+  'raw.ret1AfterDown',
+  'raw.ret1AfterUp',
+  'raw.ret1InHighVolRatio',
+  'raw.ret1InLowVolRatio',
 ] as const;
 
 /**
@@ -804,6 +886,85 @@ function realizedVol20(candles: CandleRow[], bar: number): number {
   const variance =
     logReturns.reduce((s, v) => s + (v - mean) ** 2, 0) / (logReturns.length - 1);
   return Math.sqrt(variance);
+}
+
+/**
+ * Ratio of two trailing sample standard deviations (ddof 1) of log returns:
+ * `shortWindow` bars over `longWindow` bars, both ending at (and including)
+ * each bar. Below 1 the recent short window has been quieter than the
+ * longer one behind it; above 1 louder. Feeds raw.ret1InHighVolRatio /
+ * raw.ret1InLowVolRatio (see the "EXPLORATION COLUMNS" header paragraph) --
+ * a ratio of realised volatility to its own recent history, distinct from
+ * raw.varianceRatio's Lo-MacKinlay trend/reversion regime reading.
+ *
+ * Running sums, so the cost is one pass regardless of window size, the same
+ * reason trailingZScore and varianceRatioSeries are written that way. NaN
+ * until `longWindow` bars have been seen (since longWindow > shortWindow by
+ * construction here, the short window is already full by then too) and
+ * whenever either window's sample count is below 2, the minimum for a ddof-1
+ * variance to be defined -- the mechanism that makes the column NaN at 1d
+ * without a separate interval gate: hoursToBars(24) is a single bar there.
+ */
+function volRatioSeries(candles: CandleRow[], shortWindow: number, longWindow: number): Float64Array {
+  const n = candles.length;
+  const out = new Float64Array(n).fill(NaN);
+
+  const logRet = new Float64Array(n).fill(NaN);
+  for (let i = 1; i < n; i++) {
+    const prev = candles[i - 1].c;
+    const now = candles[i].c;
+    if (prev > 0 && now > 0) logRet[i] = Math.log(now / prev);
+  }
+
+  let sumS = 0;
+  let sumSqS = 0;
+  let countS = 0;
+  let sumL = 0;
+  let sumSqL = 0;
+  let countL = 0;
+
+  for (let bar = 0; bar < n; bar++) {
+    const entering = logRet[bar];
+    if (Number.isFinite(entering)) {
+      sumS += entering;
+      sumSqS += entering * entering;
+      countS++;
+      sumL += entering;
+      sumSqL += entering * entering;
+      countL++;
+    }
+
+    const leavingS = bar - shortWindow;
+    if (leavingS >= 0) {
+      const v = logRet[leavingS];
+      if (Number.isFinite(v)) {
+        sumS -= v;
+        sumSqS -= v * v;
+        countS--;
+      }
+    }
+    const leavingL = bar - longWindow;
+    if (leavingL >= 0) {
+      const v = logRet[leavingL];
+      if (Number.isFinite(v)) {
+        sumL -= v;
+        sumSqL -= v * v;
+        countL--;
+      }
+    }
+
+    if (bar < longWindow || countS < 2 || countL < 2) continue;
+
+    const meanS = sumS / countS;
+    const varianceS = (sumSqS - countS * meanS * meanS) / (countS - 1);
+    const meanL = sumL / countL;
+    const varianceL = (sumSqL - countL * meanL * meanL) / (countL - 1);
+    if (!(varianceS >= 0) || !(varianceL > 0)) continue;
+
+    out[bar] = Math.sqrt(varianceS) / Math.sqrt(varianceL);
+  }
+
+  return out;
 }
 
 /**
@@ -1234,6 +1395,33 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
       )
     : new Float64Array(n).fill(NaN);
 
+  // Exploration deviations (see the "EXPLORATION COLUMNS" header paragraph).
+  // The unconditional trailing mean is the SAME seasonalDriftSeries call with
+  // a single, constant bucket, so it excludes the bar itself exactly like
+  // hourOfDayDrift and weekdayDrift do -- subtracting it removes the slow
+  // trailing-mean reversal both bucketed columns were found to carry.
+  const unconditionalDrift = seasonalDriftSeries(
+    ret1Series,
+    () => 0,
+    daysToBars(SEASONAL_DRIFT_DAYS),
+    SEASONAL_DRIFT_MIN_SAMPLES
+  );
+  // Day of week (UTC), 7 buckets. Unlike hourOfDayDrift, no interval-level
+  // gate: at 1d each bucket holds about 8 readings in 60 days, below
+  // SEASONAL_DRIFT_MIN_SAMPLES, so seasonalDriftSeries's own threshold
+  // already yields NaN there without a special case.
+  const weekdayDrift = seasonalDriftSeries(
+    ret1Series,
+    (bar) => new Date(candles[bar].t).getUTCDay(),
+    daysToBars(SEASONAL_DRIFT_DAYS),
+    SEASONAL_DRIFT_MIN_SAMPLES
+  );
+
+  // Realised-vol ratio for raw.ret1InHighVolRatio/InLowVolRatio (see the
+  // "EXPLORATION COLUMNS" header paragraph and volRatioSeries above).
+  const hoursToBars = (hours: number) => Math.max(1, Math.round((hours * 60 * 60 * 1000) / intervalMs));
+  const volRatio = volRatioSeries(candles, hoursToBars(24), hoursToBars(168));
+
   // Matches fundingSeries above: only counted from warmupBars, so a state
   // variable available since bar 0 in the raw archive does not make the
   // z-score's own ramp-up (minSamples readings) invisible by borrowing
@@ -1413,6 +1601,48 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     const intensityKnown = Number.isFinite(tz) && Number.isFinite(r1);
     values[rawIdx.get('raw.ret1InHighTaker')!][bar] = intensityKnown && tz > 0 ? r1 : NaN;
     values[rawIdx.get('raw.ret1InLowTaker')!][bar] = intensityKnown && tz <= 0 ? r1 : NaN;
+
+    // Exploration columns, 2026-09-28: see the "EXPLORATION COLUMNS" header
+    // paragraph. hourOfDayDriftDev/weekdayDriftDev are deviations of the
+    // Phase B seasonal columns above; the rest are Stage-2-style diagnostic
+    // masks of raw.ret1, never signals on their own.
+    values[rawIdx.get('raw.hourOfDayDriftDev')!][bar] =
+      Number.isFinite(hourOfDayDrift[bar]) && Number.isFinite(unconditionalDrift[bar])
+        ? hourOfDayDrift[bar] - unconditionalDrift[bar]
+        : NaN;
+    values[rawIdx.get('raw.weekdayDriftDev')!][bar] =
+      Number.isFinite(weekdayDrift[bar]) && Number.isFinite(unconditionalDrift[bar])
+        ? weekdayDrift[bar] - unconditionalDrift[bar]
+        : NaN;
+
+    const sessionMeaningful = isSessionMeaningful(interval);
+    const session = sessionMeaningful ? sessionOfCandleClose(candle.t, intervalMs) : null;
+    values[rawIdx.get('raw.ret1InAsia')!][bar] = session === 'asia' ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InNyOverlap')!][bar] = session === 'ny_overlap' ? r1 : NaN;
+
+    // Nearest two-significant-figure price level: e.g. 60050 -> step 1000,
+    // nearest 60000 (0.08% away, "near"); 100.5 -> step 10, nearest 100
+    // (0.50% away, "far").
+    let nearRound = NaN;
+    let farRound = NaN;
+    if (candle.c > 0) {
+      const step = 10 ** (Math.floor(Math.log10(candle.c)) - 1);
+      const nearest = Math.round(candle.c / step) * step;
+      const fraction = Math.abs(candle.c - nearest) / candle.c;
+      if (fraction <= 0.002) nearRound = r1;
+      else farRound = r1;
+    }
+    values[rawIdx.get('raw.ret1NearRound')!][bar] = nearRound;
+    values[rawIdx.get('raw.ret1FarRound')!][bar] = farRound;
+
+    const prevRet = bar >= 1 ? ret1Series[bar - 1] : NaN;
+    values[rawIdx.get('raw.ret1AfterDown')!][bar] = Number.isFinite(prevRet) && prevRet < 0 ? r1 : NaN;
+    values[rawIdx.get('raw.ret1AfterUp')!][bar] = Number.isFinite(prevRet) && prevRet > 0 ? r1 : NaN;
+
+    const vRatio = volRatio[bar];
+    const vRatioKnown = Number.isFinite(vRatio) && Number.isFinite(r1);
+    values[rawIdx.get('raw.ret1InHighVolRatio')!][bar] = vRatioKnown && vRatio > 0.7 ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InLowVolRatio')!][bar] = vRatioKnown && vRatio <= 0.7 ? r1 : NaN;
 
     values[rawIdx.get('raw.fundingZ')!][bar] = fundingZ[bar];
 
