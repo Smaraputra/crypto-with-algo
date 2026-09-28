@@ -434,6 +434,8 @@ describe('openPosition', () => {
       targetPrice: 110,
       timeStopBars: null,
       entrySlippageCost: 5, // |100 - 99.5| * 10 units
+      initialStopPrice: 95,
+      initialRisk: 5, // |100 - 95|, the risk the management hook measures R against
     });
   });
 

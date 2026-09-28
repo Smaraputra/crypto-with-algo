@@ -71,6 +71,56 @@ export interface EntryDecision {
 }
 
 /**
+ * A per-bar adjustment to an open position's stop and/or target, returned by
+ * a strategy's optional `manage` hook. Either field may be omitted to leave
+ * that price unchanged this bar; `targetPrice` may be `null` to remove the
+ * target outright. The engine (bar-loop.ts) is the only place that applies
+ * this: it rejects a `stopPrice` that lands on the wrong side of the bar's
+ * open (long: not below it, short: not above it), and a non-null
+ * `targetPrice` on the wrong side the same way (long: not above it, short:
+ * not below it), rather than trust the strategy, since accepting either
+ * would let a position get stopped out, or take-profited, by its own
+ * management on a bar it could never have exited on that side.
+ */
+export interface ManagementDecision {
+  stopPrice?: number;
+  targetPrice?: number | null;
+}
+
+/**
+ * The context handed to a strategy's optional `manage` hook. Deliberately
+ * NOT `StrategyContext`: `manage`'s decision is applied before the CURRENT
+ * bar's `checkStopTakeProfit` runs (see `Strategy.manage` below), so unlike
+ * `decideEntry`/`decideExit` (which act at a bar's CLOSE and may read
+ * `candles[bar]` in full), `manage` acts at a bar's OPEN and may only read
+ * data that exists at that instant: bars strictly before the engine's
+ * current bar, and indicators/score computed from them.
+ *
+ * `bar`, `suite`, `score`, and `tier` are one bar behind the engine's current
+ * bar BY CONSTRUCTION -- the engine (bar-loop.ts) builds this type from
+ * values it cached at the bottom of the PREVIOUS iteration, so there is no
+ * current-bar suite or score for these fields to accidentally carry.
+ * `candles`, however, is the engine's FULL array (not a slice ending at
+ * `bar`), the same convention `StrategyContext` already relies on: reading
+ * `candles[bar]` is reading the previous bar's fully-formed candle as
+ * intended, but `candles[bar + 1]` and above IS the current (or a future)
+ * bar and is reachable by index. That bound is therefore a CONTRACT, not a
+ * compiler guarantee (task-4-review.md N1): a `manage` implementation must
+ * never index `candles` past `bar`. The current bar's OPEN is real, causal
+ * information at the decision point, but it is not part of this context
+ * either: the engine checks a returned price against it directly
+ * (bar-loop.ts's wrong-side check) rather than exposing it here.
+ */
+export interface ManagementContext {
+  bar: number; // one bar behind the engine's current bar; see the type header
+  candles: OHLCV[]; // the engine's FULL array; reading past `bar` is a contract violation, not a type error -- see the header
+  interval: string;
+  suite: IndicatorSuite | null; // as of `bar` (one bar behind), null before warmup
+  score: number; // composite score as of `bar`
+  tier: SignalTier; // composite tier as of `bar`
+}
+
+/**
  * A rule set the backtest engines can run in place of today's hardcoded
  * score-threshold logic. Pure decision functions: a strategy reads the
  * context it is given and returns a decision, it never mutates state or
@@ -83,4 +133,38 @@ export interface Strategy {
   decideEntry(ctx: StrategyContext, config: BacktestConfig): EntryDecision | null;
   /** Called only when in a position; true means exit at this bar's close. */
   decideExit(ctx: StrategyContext, config: BacktestConfig): boolean;
+  /**
+   * Optional per-bar position management: move the stop and/or target of an
+   * already-open position. Called by the engine once per bar, before that
+   * bar's checkStopTakeProfit, for a position opened on an earlier bar (never
+   * on the entry bar itself, mirroring how funding accrual skips it). Absent
+   * entirely for a strategy that never manages a position, so the default
+   * path (no `manage`) never calls this and the engine's output is
+   * unaffected.
+   *
+   * CAUSALITY. `ctx` is a `ManagementContext`, not a `StrategyContext`:
+   * `ctx.bar`, `ctx.suite`, `ctx.score`, `ctx.tier` are one bar behind the
+   * engine's current bar BY CONSTRUCTION (all as of the PREVIOUS bar; the
+   * engine builds them from values cached at the bottom of the prior
+   * iteration, never from the current one). `ctx.candles`, however, is the
+   * engine's FULL array, so the current bar's high/low/close ARE reachable
+   * at `ctx.candles[ctx.bar + 1]` -- that bound is a CONTRACT, not something
+   * the type prevents (task-4-review.md N1; see `ManagementContext`'s own
+   * header). The only current-bar value legitimately available at this
+   * decision point is that bar's OPEN, which the engine checks a returned
+   * price against itself (accepting a `stopPrice` only on the correct side
+   * of it, long: below, short: above; same rule for a non-null
+   * `targetPrice`, long: above, short: below) rather than handing it to
+   * `manage` to read. A `manage` implementation must never index `ctx.candles`
+   * past `ctx.bar`, and must never derive its decision from the current
+   * bar's high, low, or close: the engine applies the decision BEFORE that
+   * bar's own `checkStopTakeProfit` runs, so doing so is intrabar lookahead
+   * -- the decision would be made with information that does not exist yet
+   * at the bar's open, and would bias every such rule's measured expectancy
+   * in a favourable direction. (This is exactly the defect task-4-review.md's
+   * C1 found; `bar`/`suite`/`score`/`tier` are narrowed by the compiler so it
+   * cannot recur through them, but the `candles` bound still relies on every
+   * `manage` implementation honouring it.)
+   */
+  manage?(ctx: ManagementContext, position: OpenPosition): ManagementDecision | null;
 }

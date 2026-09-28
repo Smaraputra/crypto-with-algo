@@ -80,6 +80,7 @@ export interface BacktestTrade {
   entryFillKind: FillKind;
   exitFillKind: FillKind;
   fundingCost: number; // currency paid to funding while open; positive when the trade paid, 0 when disabled or no data
+  managed?: boolean; // absent for a strategy with no manage hook; true once any management change was applied during the trade's life
 }
 
 export interface EquityPoint {
@@ -143,6 +144,7 @@ export interface BacktestResult {
   totalBars: number;
   warmupBars: number;
   snapshotCoverage?: SnapshotCoverage; // present when a snapshot series was supplied
+  managementRejected?: number; // present when the strategy declares a manage hook; counts stopPrice and non-null targetPrice decisions rejected for landing on the wrong side of the bar's open
 }
 
 export type BacktestProgressCallback = (progress: number, barsProcessed: number, totalBars: number) => void;
