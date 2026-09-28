@@ -868,6 +868,11 @@ const ExposurePerSymbolSchema = z.object({
   bars: z.number(),
   meanContributionPercent: z.number().nullable(),
   positive: z.boolean(),
+  // Optional so reports written before the spot-grid intersection fix
+  // (2026-09-28) still validate. Perp bars dropped because the spot file
+  // exists but does not carry that timestamp; absent (not zero) when nothing
+  // was dropped.
+  perpBarsOffSpotGrid: z.number().optional(),
 });
 
 const ExposureWindowSchema = z.object({

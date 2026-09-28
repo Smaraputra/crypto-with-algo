@@ -466,6 +466,10 @@ interface LoadedSymbol {
   /** True when the symbol carried a recoverable funding rate on at least one bar. */
   fundingCovered: boolean;
   snapshotRows: number;
+  /** Perp bars dropped because the spot file exists but does not carry that
+   * timestamp. Zero when the spot file is absent (no filtering happens) or
+   * when the two grids agree. */
+  perpBarsOffSpotGrid: number;
 }
 
 /**
@@ -488,30 +492,35 @@ function loadExposureSymbol(
   const perpResult = loadPerp(datasetDir, symbol, interval, 'klines', {
     allowLockbox: opts.allowLockbox,
   });
-  const perpRows = perpResult.rows.filter((r) => inRange(r.t, opts.start, opts.end));
-  if (perpRows.length === 0) return null;
+  const rawPerpRows = perpResult.rows.filter((r) => inRange(r.t, opts.start, opts.end));
+  if (rawPerpRows.length === 0) return null;
 
-  // This path holds the position on the perp, so the perp grid is the one that
-  // counts. Assert the spot grid agrees wherever the spot file exists, so a
-  // future dataset whose two series diverge fails here instead of silently
-  // producing perp returns against a spot-derived factor. On the current
-  // dataset every perp bar is a spot bar, so this is a guard against a
-  // regression rather than an active constraint.
+  // This path holds the position on the perp, so the perp grid is the one
+  // that counts, but funding and every snapshot-derived factor are read off
+  // a candle series joined to it, and `alignToSharedGrid` downstream already
+  // treats a missing bar (SOLUSDT, XRPUSDT) as one to INTERSECT out rather
+  // than forward-fill. A perp bar absent from the spot grid gets the same
+  // treatment here, one level up: filtered out rather than thrown on. This
+  // used to throw, on the premise that the two grids always agreed on the
+  // dataset measured at the time; that premise is false at 1h on the real
+  // archive (ADAUSDT 1h has a perp bar the spot file does not), so the
+  // filter is the actual invariant and the throw was the bug.
   const spotTimes = new Set(
     loadCandles(datasetDir, symbol, interval, { allowLockbox: opts.allowLockbox })
       .rows.filter((r) => inRange(r.t, opts.start, opts.end))
       .map((r) => r.t)
   );
-  if (spotTimes.size > 0) {
-    for (const row of perpRows) {
-      if (!spotTimes.has(row.t)) {
-        throw new Error(
-          `${symbol} ${interval}: perp bar ${new Date(row.t).toISOString()} is not on the spot ` +
-            'grid; the exposure path needs one shared bar grid'
-        );
-      }
-    }
+  // No filtering when the spot file is absent (spotTimes.size === 0): there
+  // is nothing to intersect against, and the perp grid stands on its own.
+  const perpRows = spotTimes.size > 0 ? rawPerpRows.filter((r) => spotTimes.has(r.t)) : rawPerpRows;
+  const perpBarsOffSpotGrid = rawPerpRows.length - perpRows.length;
+  if (perpBarsOffSpotGrid > 0) {
+    console.error(
+      `[exposure-harness] ${symbol} ${interval}: dropped ${perpBarsOffSpotGrid} perp bars absent ` +
+        'from the spot grid'
+    );
   }
+  if (perpRows.length === 0) return null;
 
   const candles: OHLCV[] = perpRows.map((r) => ({
     timestamp: r.t,
@@ -571,6 +580,7 @@ function loadExposureSymbol(
     symbol,
     fundingCovered: fundingRates.some((v) => Number.isFinite(v)),
     snapshotRows: snapshotRows.length,
+    perpBarsOffSpotGrid,
     bars: {
       symbol,
       timestamps: candles.map((c) => c.timestamp),
@@ -857,6 +867,8 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
 
   const { gates, pass } = evaluateExposureGates(pooled, args.interval);
 
+  const perpBarsOffSpotGridBySymbol = new Map(kept.map((l) => [l.symbol, l.perpBarsOffSpotGrid]));
+
   const perSymbol: ExposurePerSymbolRow[] = universe.map((symbol) => {
     const contributions: number[] = [];
     for (const cell of selected) {
@@ -868,11 +880,13 @@ export async function runExposureHarness(args: ExposureHarnessArgs): Promise<Exp
       contributions.length > 0
         ? contributions.reduce((a, b) => a + b, 0) / contributions.length
         : Number.NaN;
+    const offSpotGrid = perpBarsOffSpotGridBySymbol.get(symbol) ?? 0;
     return {
       symbol,
       bars: contributions.length,
       meanContributionPercent: Number.isFinite(mean) ? mean * 100 : null,
       positive: Number.isFinite(mean) && mean > 0,
+      perpBarsOffSpotGrid: offSpotGrid > 0 ? offSpotGrid : undefined,
     };
   });
 

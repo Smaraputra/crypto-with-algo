@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -66,6 +66,10 @@ interface FixtureOptions {
    * `topBottom legs=2` cell needs at least 4 finite readings, which the
    * default two-symbol fixture cannot supply. */
   symbols?: string[];
+  /** Symbols whose perp file gets one extra bar, inside the pre-lockbox
+   * range, that the spot file never carries -- the real defect this fixture
+   * reproduces: ADAUSDT's perp file at 1h has a bar the spot file does not. */
+  perpExtraBarSymbols?: string[];
 }
 
 /**
@@ -116,6 +120,27 @@ async function buildFixture(dir: string, opts: FixtureOptions = {}): Promise<voi
         n: 500 + i,
         tbv: null,
       }));
+      if (opts.perpExtraBarSymbols?.includes(symbol)) {
+        // Inserted well inside the pre-lockbox window (index 50, comfortably
+        // before lockboxStart 2026-07-01), at a timestamp exactly between two
+        // real bars: the fixture's default `--allow-lockbox`-off range trims
+        // everything from ~day 912 on, so a bar appended past the series end
+        // (like ADAUSDT's real extra 1h bar chronologically is not, but a
+        // synthetic one placed past this fixture's end would be) never
+        // survives the lockbox filter to reach the spot-grid check at all.
+        const anchor = closes[50];
+        perpRows.splice(51, 0, {
+          t: START + 50 * stepMs + Math.floor(stepMs / 2),
+          o: anchor * 1.0005,
+          h: anchor * 1.006,
+          l: anchor * 0.994,
+          c: anchor * 1.001,
+          v: 1200,
+          qv: 120000,
+          n: 500,
+          tbv: null,
+        });
+      }
       const perpPath = join(dir, 'perp', symbol, `${INTERVAL}.jsonl.gz`);
       await writeJsonlGz(perpPath, perpRows);
       files.push({
@@ -786,5 +811,54 @@ describe('--exclude-symbols', () => {
         })
       )
     ).rejects.toThrow(/removed every symbol/);
+  });
+});
+
+describe('perp/spot grid intersection', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'exposure-gridfix-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('drops a perp bar absent from the spot grid, logs it and records the count per symbol', async () => {
+    await buildFixture(dir, { perpExtraBarSymbols: ['ETHUSDT'] });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const out = join(dir, 'report.json');
+      const report = await runExposureHarness(args({ datasetDir: dir, out, timingDraws: 5, bootstrapN: 50 }));
+
+      expect(validateExposureReport(report).ok).toBe(true);
+
+      const eth = report.perSymbol.find((p) => p.symbol === 'ETHUSDT');
+      const btc = report.perSymbol.find((p) => p.symbol === 'BTCUSDT');
+      expect(eth?.perpBarsOffSpotGrid).toBe(1);
+      expect(btc?.perpBarsOffSpotGrid ?? 0).toBe(0);
+
+      const logged = errorSpy.mock.calls.some((call) =>
+        String(call[0]).includes('ETHUSDT 1d: dropped 1 perp bars absent from the spot grid')
+      );
+      expect(logged).toBe(true);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('reports no drop when the perp and spot grids agree, and the report is otherwise unchanged', async () => {
+    await buildFixture(dir);
+    const out = join(dir, 'report.json');
+    const report = await runExposureHarness(args({ datasetDir: dir, out, timingDraws: 5, bootstrapN: 50 }));
+
+    expect(validateExposureReport(report).ok).toBe(true);
+    for (const p of report.perSymbol) {
+      expect(p.perpBarsOffSpotGrid).toBeUndefined();
+    }
+    // Same shape and gates the pre-fix test already pinned: the filter is a
+    // no-op when the two grids' timestamp sets are equal.
+    expect(report.gridCells).toBe(36);
+    expect(report.perSymbol.map((p) => p.symbol)).toEqual(SYMBOLS);
   });
 });
