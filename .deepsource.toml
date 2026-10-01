@@ -1,0 +1,43 @@
+version = 1
+
+test_patterns = [
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "e2e/**",
+  "src/test/**",
+  "src/__fixtures__/**",
+  "src/__mocks__/**",
+]
+
+exclude_patterns = [
+  "**/node_modules/**",
+  "**/.next/**",
+  "**/coverage/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/out/**",
+]
+
+# Replaces the dashboard config, which read the codebase as CommonJS (every
+# module-scope function became a "global", and import/export in .mjs files a
+# syntax error), applied the airbnb style guide the project never adopted,
+# and flagged complexity at the strictest threshold. ESLint
+# (eslint-config-next) remains the project's style authority.
+[[analyzers]]
+name = "javascript"
+
+  [analyzers.meta]
+  plugins = ["react"]
+  # mongo: docker/mongo-init.js runs in the mongo shell, where `db` is a global.
+  environment = ["nodejs", "browser", "vitest", "mongo"]
+  module_system = "es-modules"
+  dialect = "typescript"
+  cyclomatic_complexity_threshold = "high"
+
+# No dialect: detected per script from its shebang. The dashboard forced
+# "sh", which read the bash scripts' [[ == ]] as POSIX sh.
+[[analyzers]]
+name = "shell"
+
+[[analyzers]]
+name = "docker"

@@ -143,9 +143,9 @@ export function TradingPatterns({ summary, byMonth }: TradingPatternsProps) {
 
   return (
     <div className="space-y-2" data-testid="trading-patterns">
-      {patterns.map((pattern, i) => (
+      {patterns.map((pattern) => (
         <div
-          key={i}
+          key={pattern.label}
           className="flex items-start gap-2 rounded-md border border-border p-2"
         >
           <PatternIcon type={pattern.type} />
