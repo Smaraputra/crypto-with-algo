@@ -33,7 +33,12 @@ import type {
  * One bar of one (book, symbol) ledger, as a pure function.
  *
  * The per-bar order is `src/lib/backtest/bar-loop.ts`'s, step for step, so the
- * engine track is comparable with every recorded research number:
+ * engine track is comparable with every recorded research number. The one
+ * engine step the desk leaves out is bar-loop's step 1, the optional
+ * `strategy.manage` hook: it runs only for a strategy that defines `manage`,
+ * and `TRADE_PLAN_STRATEGY` does not (`step.test.ts` pins that). A strategy
+ * that gains a `manage` hook must not be stepped here until the desk grows the
+ * same step, or the parity with the engine silently breaks.
  *
  *  1. Price and bar exits for a position open at the top of the bar: the stop
  *     before the target (`checkStopTakeProfit`), then the time stop. Funding is

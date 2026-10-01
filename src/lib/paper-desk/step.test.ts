@@ -6,6 +6,7 @@ import { DEFAULT_BACKTEST_CONFIG } from '@/lib/backtest/types';
 import { studyCostConfig } from '@/lib/backtest/cost-model';
 import { emptyLedger, barOfTimestamp, stepLedger } from './step';
 import type { BarDecision, LedgerState } from './types';
+import { TRADE_PLAN_STRATEGY } from '@/lib/trade-plan/rule';
 
 const HOUR = 3_600_000;
 const T0 = 1_700_000_000_000;
@@ -78,6 +79,15 @@ function run(
   }
   return { state, closed, skips };
 }
+
+describe('the desk strategy has no management hook', () => {
+  // The desk omits bar-loop's management step (see step.ts's header). If the
+  // strategy ever gains a manage hook, the desk must grow the same step first,
+  // or its trades stop matching the engine's.
+  it('TRADE_PLAN_STRATEGY defines no manage hook', () => {
+    expect(TRADE_PLAN_STRATEGY.manage).toBeUndefined();
+  });
+});
 
 describe('barOfTimestamp', () => {
   it('recovers an earlier bar index from its timestamp on the interval grid', () => {

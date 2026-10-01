@@ -125,7 +125,13 @@ interface Live {
   entryConfigVersion: number;
 }
 
-/** Rebuilds the in-memory position from its stored document, against `refBar`. */
+/**
+ * Rebuilds the in-memory position from its stored document, against `refBar`.
+ *
+ * `initialStopPrice` and `initialRisk`, which `openPosition` sets, are
+ * deliberately not stored or restored: only a `strategy.manage` hook reads
+ * them, and the desk's strategy has none (see `step.ts`'s header).
+ */
 export function restorePosition(
   stored: IPaperPosition,
   candles: OHLCV[],
