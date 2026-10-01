@@ -1,7 +1,8 @@
 import type { IPaperTrade } from '@/lib/models/paper-trade';
 import { bootstrapCi } from '@/lib/stats/block-bootstrap';
 import { evidenceFor } from '@/lib/trade-plan/evidence';
-import { BOOK_START_EQUITY, bookId, type BookKey } from './books';
+import { normalQuantile } from '@/lib/stats/normal';
+import { BOOK_START_EQUITY, DESK_READ_RULE, bookId, type BookKey } from './books';
 
 /**
  * Per-book statistics over the desk's closed trades.
@@ -10,8 +11,10 @@ import { BOOK_START_EQUITY, bookId, type BookKey } from './books';
  * never come to disagree about what "expectancy" means, the same reason
  * `defaultCostPercent` has one home.
  *
- * Win rate is computed but never targeted, per the standing programme
- * decision: a rule can win most of its trades and still lose money.
+ * Win rate is DESCRIPTIVE only, per the standing programme decision: a rule
+ * can win most of its trades and still lose money, so it is shown and never
+ * read as a verdict. The verdict is `readRule`, declared in `books.ts` before
+ * any v8 trade existed.
  */
 
 export interface TrackStats {
@@ -45,6 +48,23 @@ export interface BookReport {
   /** What the research record says about this rule at this interval. */
   recordedExpectancyPercent: number | null;
   evidenceStatus: string;
+  /** The pre-declared read rule (`DESK_READ_RULE`), evaluated on the executable track. */
+  readRule: ReadRuleState;
+}
+
+export interface ReadRuleState {
+  declaredOn: string;
+  /** Executable trades needed to detect DESK_READ_RULE.deltaPercent; null with no recorded sd. */
+  requiredTrades: number | null;
+  /** `requiredTrades` at the recorded trades a day, for scale; null when either is unknown. */
+  daysAtRecordedRate: number | null;
+  executableTrades: number;
+  /** The executable track's whole 95% interval is below zero: the edge read is closed. */
+  futility: boolean;
+  /** `not_yet` until the count is reached, then read once: `pass` or `fail`. */
+  goLive: 'not_yet' | 'pass' | 'fail' | 'no_count';
+  /** Executable trades reached DESK_READ_RULE.executionReadMinTrades. */
+  executionReadReady: boolean;
 }
 
 /** Bootstrap block length: a few trades, so neighbouring trades stay together. */
@@ -53,6 +73,44 @@ const BOOTSTRAP_ITERATIONS = 2000;
 const BOOTSTRAP_SEED = 42;
 
 const mean = (xs: number[]) => (xs.length === 0 ? 0 : xs.reduce((s, x) => s + x, 0) / xs.length);
+
+/**
+ * Trades needed to detect a per-trade edge of `deltaPercent` at one-sided
+ * `alpha` with `power`, for a per-trade sd of `sdPercent` (all percent):
+ * n = ((z(1 - alpha) + z(power)) x sd / delta)^2, rounded up.
+ */
+export function requiredTrades(sdPercent: number, deltaPercent: number, alpha: number, power: number): number {
+  const z = normalQuantile(1 - alpha) + normalQuantile(power);
+  return Math.ceil(((z * sdPercent) / deltaPercent) ** 2);
+}
+
+/** The read rule's state for one book, from its executable track and the recorded evidence. */
+export function readRuleState(interval: string, executable: TrackStats | null): ReadRuleState {
+  const evidence = evidenceFor(interval);
+  const rule = DESK_READ_RULE;
+  const required =
+    evidence.sdPercentEffective !== null && evidence.sdPercentEffective > 0
+      ? requiredTrades(evidence.sdPercentEffective, rule.deltaPercent, rule.alphaOneSided, rule.power)
+      : null;
+  const trades = executable?.trades ?? 0;
+  let goLive: ReadRuleState['goLive'] = 'no_count';
+  if (required !== null) {
+    if (trades < required) goLive = 'not_yet';
+    else goLive = executable !== null && executable.ciLowPercent > 0 ? 'pass' : 'fail';
+  }
+  return {
+    declaredOn: rule.declaredOn,
+    requiredTrades: required,
+    daysAtRecordedRate:
+      required !== null && evidence.tradesPerDay !== null && evidence.tradesPerDay > 0
+        ? required / evidence.tradesPerDay
+        : null,
+    executableTrades: trades,
+    futility: executable !== null && executable.ciHighPercent < 0,
+    goLive,
+    executionReadReady: trades >= rule.executionReadMinTrades,
+  };
+}
 
 export function trackStats(returns: number[], pnls: number[]): TrackStats | null {
   if (returns.length === 0) return null;
@@ -71,6 +129,26 @@ export function trackStats(returns: number[], pnls: number[]): TrackStats | null
   };
 }
 
+/** One line for a book's read-rule state. */
+export function describeReadRule(rule: ReadRuleState): string {
+  const count =
+    rule.requiredTrades === null
+      ? 'no recorded sd, so no trade count'
+      : `needs ${rule.requiredTrades.toLocaleString('en-US')} executable trades` +
+        (rule.daysAtRecordedRate === null ? '' : ` (~${Math.round(rule.daysAtRecordedRate).toLocaleString('en-US')} days at the recorded rate)`);
+  const verdict = rule.futility
+    ? 'FUTILITY: the executable interval is below zero, the edge read is closed'
+    : rule.goLive === 'not_yet'
+      ? `go-live not yet read (${rule.executableTrades} so far)`
+      : rule.goLive === 'pass'
+        ? 'go-live read: PASS'
+        : rule.goLive === 'fail'
+          ? 'go-live read: FAIL'
+          : 'go-live cannot be read';
+  const execution = rule.executionReadReady ? 'execution read ready' : `execution read after ${DESK_READ_RULE.executionReadMinTrades} executable trades`;
+  return `${count}; ${verdict}; ${execution}`;
+}
+
 export function buildBookReport(
   key: BookKey,
   trades: IPaperTrade[],
@@ -78,6 +156,11 @@ export function buildBookReport(
   book: { missingScoreBars: number; peakLeverage: number } | null
 ): BookReport {
   const engineReturns = trades.map((t) => t.engine.pnlPercent);
+  const filledTrades = trades.filter((t) => t.executable.filled);
+  const executableStats = trackStats(
+    filledTrades.map((t) => t.executable.pnlPercent),
+    filledTrades.map((t) => t.executable.pnl)
+  );
   const enginePnls = trades.map((t) => t.engine.pnl);
   const filled = trades.filter((t) => t.executable.filled);
 
@@ -92,10 +175,7 @@ export function buildBookReport(
     executableEquity: ledgers.reduce((s, l) => s + l.executableEquity, 0),
     startEquity: ledgers.length * BOOK_START_EQUITY,
     engine: trackStats(engineReturns, enginePnls),
-    executable: trackStats(
-      filled.map((t) => t.executable.pnlPercent),
-      filled.map((t) => t.executable.pnl)
-    ),
+    executable: executableStats,
     lagCostPercent:
       filled.length === 0
         ? null
@@ -109,6 +189,7 @@ export function buildBookReport(
     openPositions: ledgers.filter((l) => l.position !== null).length,
     recordedExpectancyPercent: evidenceFor(key.interval).expectancyPercent,
     evidenceStatus: evidenceFor(key.interval).status,
+    readRule: readRuleState(key.interval, executableStats),
   };
 }
 

@@ -133,8 +133,9 @@ describe('runPaperDesk: the first run', () => {
     const report = await runPaperDesk(NOW);
 
     // Seven books: scalping 1m/5m, day trading 15m/1h, swing 4h/1d, position 1d.
-    expect(report.books).toHaveLength(7);
-    expect(await PaperBook.countDocuments()).toBe(7);
+    // Seven style-and-interval pairs less the retired scalping:1m.
+    expect(report.books).toHaveLength(6);
+    expect(await PaperBook.countDocuments()).toBe(6);
 
     const oneHour = report.books.find((b) => b.book === 'day_trading:1h')!;
     expect(oneHour.bars).toBe(1);

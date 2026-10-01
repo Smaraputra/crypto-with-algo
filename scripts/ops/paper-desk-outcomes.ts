@@ -41,8 +41,8 @@ import { connectDB } from '@/lib/mongodb';
 import { PaperBook } from '@/lib/models/paper-book';
 import { PaperLedger } from '@/lib/models/paper-ledger';
 import { PaperTrade, type IPaperTrade } from '@/lib/models/paper-trade';
-import { DESK_BOOKS, parseBookId, type BookKey } from '@/lib/paper-desk/books';
-import { buildBookReport, type BookReport } from '@/lib/paper-desk/report';
+import { DESK_BOOKS, DESK_READ_RULE, parseBookId, type BookKey } from '@/lib/paper-desk/books';
+import { buildBookReport, describeReadRule, type BookReport } from '@/lib/paper-desk/report';
 import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 
 export { buildBookReport, trackStats, type BookReport, type TrackStats } from '@/lib/paper-desk/report';
@@ -121,6 +121,7 @@ export function formatReport(reports: BookReport[], json: boolean): string {
   for (const r of reports) {
     lines.push('');
     lines.push(`=== ${r.book} ===`);
+    lines.push(`  read rule   ${describeReadRule(r.readRule)}`);
     if (r.trades === 0) {
       lines.push(
         `  no closed trades yet; ${r.openPositions} open, ${r.symbols} ledgers, ${r.missingScoreBars} unscored bars`
@@ -131,14 +132,14 @@ export function formatReport(reports: BookReport[], json: boolean): string {
     lines.push(
       `  engine      n=${e.trades} exp=${pct(e.expectancyPercent)} CI95=[${pct(e.ciLowPercent)}, ${pct(
         e.ciHighPercent
-      )}] win=${(e.winRate * 100).toFixed(1)}% pnl=${e.totalPnl.toFixed(2)}`
+      )}] win (descriptive)=${(e.winRate * 100).toFixed(1)}% pnl=${e.totalPnl.toFixed(2)}`
     );
     if (r.executable) {
       const x = r.executable;
       lines.push(
         `  executable  n=${x.trades} exp=${pct(x.expectancyPercent)} CI95=[${pct(x.ciLowPercent)}, ${pct(
           x.ciHighPercent
-        )}] win=${(x.winRate * 100).toFixed(1)}% pnl=${x.totalPnl.toFixed(2)}`
+        )}] win (descriptive)=${(x.winRate * 100).toFixed(1)}% pnl=${x.totalPnl.toFixed(2)}`
       );
     }
     lines.push(
@@ -163,7 +164,10 @@ export function formatReport(reports: BookReport[], json: boolean): string {
     lines.push(`  bars        ${r.missingScoreBars} stepped with at least one symbol unscored`);
   }
   lines.push('');
-  lines.push('Win rate is reported, never targeted. Books are never pooled.');
+  lines.push(
+    `Read rule declared ${DESK_READ_RULE.declaredOn}: futility any time, go-live read once at the count, ` +
+      'on the executable track. Win rate is descriptive, never a verdict. Books are never pooled.'
+  );
   return lines.join('\n');
 }
 

@@ -208,7 +208,8 @@ describe('formatReport', () => {
     expect(text).toContain('lag cost    +0.2000%');
     expect(text).toContain('recorded    -0.0551%');
     expect(text).toContain('peak leverage=2.40x');
-    expect(text).toContain('Win rate is reported, never targeted.');
+    expect(text).toContain('Win rate is descriptive, never a verdict.');
+    expect(text).toContain('read rule');
   });
 
   it('says so when a book has no closed trades', () => {

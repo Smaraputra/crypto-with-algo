@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { cn } from '@/lib/utils';
 import { usePaperDesk, type PaperDeskBook } from '@/hooks/usePaperDesk';
+import { describeReadRule } from '@/lib/paper-desk/report';
 
 function pct(value: number | null, digits = 4): string {
   if (value === null) return 'n/a';
@@ -41,6 +42,19 @@ function BookPanel({ book }: { book: PaperDeskBook }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <p
+          className={cn(
+            'text-xs',
+            book.readRule.futility
+              ? 'text-bearish'
+              : book.readRule.goLive === 'pass'
+                ? 'text-bullish'
+                : 'text-muted-foreground'
+          )}
+          data-testid={`paper-desk-read-rule-${book.book}`}
+        >
+          Read rule: {describeReadRule(book.readRule)}
+        </p>
         {book.trades === 0 ? (
           <p className="text-sm text-muted-foreground">
             No closed trades yet. {book.missingScoreBars} bars stepped with at least one symbol unscored.
@@ -65,7 +79,7 @@ function BookPanel({ book }: { book: PaperDeskBook }) {
                 }
               />
               <Stat label="Lag cost" value={pct(book.lagCostPercent)} />
-              <Stat label="Win rate" value={`${(engine!.winRate * 100).toFixed(1)}%`} />
+              <Stat label="Win rate (descriptive)" value={`${(engine!.winRate * 100).toFixed(1)}%`} />
               <Stat label="Recorded" value={pct(book.recordedExpectancyPercent)} />
               <Stat label="Peak leverage" value={`${book.peakLeverage.toFixed(2)}x`} />
               <Stat

@@ -43,6 +43,15 @@ function book(over: Record<string, unknown> = {}) {
     openPositions: 2,
     recordedExpectancyPercent: -0.0687,
     evidenceStatus: 'current',
+    readRule: {
+      declaredOn: '2026-10-02',
+      requiredTrades: 61_000,
+      daysAtRecordedRate: null,
+      executableTrades: 12,
+      futility: false,
+      goLive: 'not_yet',
+      executionReadReady: false,
+    },
     engineCurve: [{ bar: 0, time: 1, equity: 9990, drawdown: 0.1 }],
     executableCurve: [{ bar: 0, time: 1, equity: 9980, drawdown: 0.2 }],
     ...over,
@@ -92,12 +101,36 @@ describe('PaperDeskDashboard', () => {
 
   it('renders one panel per book, never pooled', () => {
     mockUsePaperDesk.mockReturnValue({
-      data: { books: [book(), book({ book: 'scalping:1m' })] },
+      data: { books: [book(), book({ book: 'day_trading:15m' })] },
       isLoading: false,
       isError: false,
     });
     render(<PaperDeskDashboard />);
     expect(screen.getByTestId('paper-desk-book-day_trading:1h')).toBeInTheDocument();
-    expect(screen.getByTestId('paper-desk-book-scalping:1m')).toBeInTheDocument();
+    expect(screen.getByTestId('paper-desk-book-day_trading:15m')).toBeInTheDocument();
+  });
+
+  it('shows the pre-declared read rule on every book, closed trades or not', () => {
+    mockUsePaperDesk.mockReturnValue({
+      data: {
+        books: [
+          book(),
+          book({
+            book: 'day_trading:15m',
+            trades: 0,
+            readRule: { ...book().readRule, futility: true },
+          }),
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+    render(<PaperDeskDashboard />);
+    expect(screen.getByTestId('paper-desk-read-rule-day_trading:1h')).toHaveTextContent(
+      'needs 61,000 executable trades; go-live not yet read (12 so far)'
+    );
+    const closed = screen.getByTestId('paper-desk-read-rule-day_trading:15m');
+    expect(closed).toHaveTextContent('FUTILITY');
+    expect(closed).toHaveClass('text-bearish');
   });
 });
