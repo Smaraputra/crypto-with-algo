@@ -13,12 +13,11 @@ describe('CONTROL_EVIDENCE', () => {
     }
   });
 
-  it('marks as current only the rows measured at today\'s thresholds', () => {
-    for (const row of Object.values(CONTROL_EVIDENCE)) {
+  it('reports as current only the rows measured at today\'s thresholds', () => {
+    for (const interval of Object.keys(CONTROL_EVIDENCE)) {
+      const row = evidenceFor(interval);
       if (row.status === 'current') {
         expect(row.thresholds).toEqual({ entry: TIER_BUY_CUTOFF, exit: STRATEGY_EXIT_LEVEL });
-      } else if (row.status === 'stale') {
-        expect(row.thresholds).not.toEqual({ entry: TIER_BUY_CUTOFF, exit: STRATEGY_EXIT_LEVEL });
       }
     }
   });

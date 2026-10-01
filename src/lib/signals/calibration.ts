@@ -225,17 +225,46 @@
  * four-outlet press release) simply were not in that window.
  *
  * So 29 and 37 are carried forward MEASURED, not assumed, for everything a
- * historical export can see. */
+ * historical export can see.
+ *
+ * RE-MEASURED FOR configVersion 8, 2026-10-02: THE CUTOFFS MOVE TO 28 AND 36,
+ * EXIT 7. v8 reads the Long/Short Ratio as a 30-day z within the symbol (it was
+ * fixed bands centred on 1.0 against a ratio whose median is 1.513, so 65.1% of
+ * bars read bearish) and takes live futures from stored snapshots. Measured on
+ * export `e705b347`, the one the record calls measurement-equivalent to
+ * `f470933e`, lockbox applied, both scorers over the SAME export:
+ *
+ *   interval / style       bars      p90 v7 -> v8    p98 v7 -> v8
+ *   5m  scalping        808,517     27.3 -> 27.2     36.7 -> 36.4
+ *   15m day_trading     320,847     30.4 -> 29.7     37.4 -> 36.9
+ *   1h  day_trading     411,013     32.2 -> 31.3     38.4 -> 37.2
+ *   4h  swing_trading   152,048     28.9 -> 26.6     36.3 -> 33.5
+ *   1d  position_trading 21,687     26.5 -> 24.2     36.7 -> 33.9
+ *
+ * THE v7 CONTROL REPRODUCES THE RECORDED COLUMN C ABOVE EXACTLY, bar count and
+ * percentile at every interval, so every v8 difference is the code. The drop
+ * is largest at 4h and 1d, the styles where futures carries the most weight:
+ * the standing bearish pull had been inflating |score| on one side. The z's
+ * own shares on the stored 1h snapshots are 26.9% bearish and 22.1% bullish
+ * pooled (the validation target was 27.0% and 22.1%), 23.7-28.5% and
+ * 18.8-23.8% per symbol: the signal now changes direction.
+ *
+ * The rule that set 29/37 sets the new pair: means of the per-interval p90
+ * and p98, 27.8 and 35.6, so 28 and 36; the exit stays a quarter of the
+ * entry, 7. A fresh 2026-10-01 export was not used for this: it carries more
+ * history than `f470933e`, so the unchanged scorer could not have reproduced
+ * the record on it, and a control that cannot reproduce cannot attribute. */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
-export const TIER_BUY_CUTOFF = 29;
+export const TIER_BUY_CUTOFF = 28;
 
 /** |score| above this is a strong buy or strong sell: roughly the top 2%. */
-export const TIER_STRONG_CUTOFF = 37;
+export const TIER_STRONG_CUTOFF = 36;
 
 /**
  * A position opened on a buy signal closes once the score falls back to a
  * quarter of the entry level, the same exit-to-entry ratio the previous
- * defaults used. Moves with TIER_BUY_CUTOFF to hold that ratio: 24 -> 30 -> 29.
+ * defaults used. Moves with TIER_BUY_CUTOFF to hold that ratio: 24 -> 30 -> 29
+ * -> 28.
  */
-export const STRATEGY_EXIT_LEVEL = 7.25;
+export const STRATEGY_EXIT_LEVEL = 7;
