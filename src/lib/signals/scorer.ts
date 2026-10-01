@@ -196,76 +196,58 @@ function scoreFutures(futuresData: FuturesData | null): SignalComponent {
     });
   }
 
-  // Long/Short ratio: deviation from 1.0.
+  // Long/Short ratio, read as a trailing z WITHIN the symbol (configVersion 8).
   //
-  // MEASURED DEFECT, 2026-09-25, NOT YET FIXED. These bands assume the ratio is
-  // centred on 1.0. It is not, and worse, its centre MOVES.
+  // Until v8 this compared the raw level against bands centred on 1.0. The
+  // field holds the TOP TRADER POSITION ratio, whose pooled median over 436,552
+  // stored snapshots is 1.513 (per symbol 1.18 for BNB to 2.22 for DOGE), so the
+  // 1.3 bearish trigger fired on 65.1% of bars and the 0.77 bullish one on
+  // 0.4%, and ETH read bearish on every bar for eight straight quarters. The
+  // centre also drifts by more than the band is wide (BTC's bearish share went
+  // 3% in 2023Q1, 100% in 2025Q3, 10% in 2026Q2, 94% in 2026Q3), so no fixed
+  // threshold could be right. Weighted through, it was a standing bearish pull
+  // of -2.1 points of composite for scalping, -4.2 day_trading, -8.8
+  // swing_trading and -12.3 position_trading.
   //
-  // The field holds the TOP TRADER POSITION ratio, whose pooled median over
-  // 436,552 stored snapshots is 1.513 and mean 1.718. Per-symbol medians run
-  // 1.18 (BNB) to 2.22 (DOGE). Against the 1.3 trigger below that makes
-  // 65.1% of all bars read bearish and 0.4% bullish -- a 163:1 asymmetry. The
-  // 0.77 bullish trigger sits BELOW the 5th percentile of every symbol (the
-  // lowest value ever observed for any of them is 0.68), so the bullish branch
-  // is close to dead code, and 26.3% of bars land above 2.0, a branch written
-  // to mark an extreme.
-  //
-  // The centre also drifts by more than the band is wide, so no fixed threshold
-  // can be correct. Share of bars called bearish, by quarter:
-  //
-  //           BTC    ETH   DOGE    BNB
-  //   2023Q1    3%    22%    87%     0%
-  //   2024Q1   76%   100%   100%    64%
-  //   2025Q3  100%   100%   100%    16%
-  //   2026Q2   10%    47%   100%    47%
-  //   2026Q3   94%    86%   100%   100%
-  //
-  // ETH read bearish on 100% of bars for the eight consecutive quarters from
-  // 2024Q1 to 2025Q4. A signal that never changes direction carries no
-  // information; over those stretches this contributes a constant offset to
-  // every composite and nothing else. Weighted through, the standing bearish
-  // contribution is -2.1 points of composite for scalping, -4.2 day_trading,
-  // -8.8 swing_trading and -12.3 position_trading, where futures carries 0.25
-  // of the weight.
-  //
-  // The fix shape is already validated by the research side: a WITHIN-SYMBOL
-  // trailing z, which is what Phase 3b used when the raw level failed quarter
-  // agreement. Measured on the same snapshots with a 30-day trailing window,
-  // |z| > 1 gives 27.0% bearish and 22.1% bullish pooled, and stays inside
-  // 24.6-29.0% / 19.4-23.8% for every symbol.
-  //
-  // Not fixed here because it changes live scoring, which means configVersion 8
-  // and another break in the live record. Note that the research record also
-  // says positioning is "a robust factor, not an edge" -- both rule shapes
-  // failed the gates -- so this fix buys honesty and cross-symbol
-  // comparability, not profit.
+  // The z is the ratio's trailing 30-day z on the 1h snapshot grid, computed
+  // in `buildSnapshotSeries` for research and live alike. Measured on the
+  // stored snapshots, |z| > 1 reads 27.0% bearish and 22.1% bullish pooled,
+  // 24.6-29.0% and 19.4-23.8% per symbol: a signal that changes direction. The
+  // sign stays contrarian (a crowded long reads bearish), and the strength keeps
+  // the old shape: 40 beyond one sd, rising to the 80 cap at four. With no z
+  // (too little history, or a stale row) the signal abstains entirely rather
+  // than reading neutral. The research record says positioning is "a robust
+  // factor, not an edge", so this buys honesty and cross-symbol comparability,
+  // not profit.
   if (futuresData.longShortRatio) {
     const ratio = futuresData.longShortRatio.longShortRatio;
-    let direction: 'bullish' | 'bearish' | 'neutral' = 'neutral';
-    let strength = 0;
+    const z = futuresData.longShortRatio.zScore;
+    if (typeof z === 'number' && Number.isFinite(z)) {
+      let direction: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+      let strength = 0;
+      const strong = (absZ: number) => Math.min(80, 40 + (absZ - 2) * 20);
 
-    if (ratio > 2.0) {
-      // Heavily long = bearish contrarian
-      direction = 'bearish';
-      strength = Math.min(80, (ratio - 1) * 40);
-    } else if (ratio > 1.3) {
-      direction = 'bearish';
-      strength = 40;
-    } else if (ratio < 0.5) {
-      // Heavily short = bullish contrarian
-      direction = 'bullish';
-      strength = Math.min(80, (1 / ratio - 1) * 40);
-    } else if (ratio < 0.77) {
-      direction = 'bullish';
-      strength = 40;
+      if (z > 2) {
+        direction = 'bearish';
+        strength = strong(z);
+      } else if (z > 1) {
+        direction = 'bearish';
+        strength = 40;
+      } else if (z < -2) {
+        direction = 'bullish';
+        strength = strong(-z);
+      } else if (z < -1) {
+        direction = 'bullish';
+        strength = 40;
+      }
+
+      signals.push({
+        name: 'Long/Short Ratio',
+        direction,
+        strength,
+        description: `L/S ratio: ${ratio.toFixed(2)} (z ${z >= 0 ? '+' : ''}${z.toFixed(2)} vs 30d)`,
+      });
     }
-
-    signals.push({
-      name: 'Long/Short Ratio',
-      direction,
-      strength,
-      description: `L/S ratio: ${ratio.toFixed(2)}`,
-    });
   }
 
   const score = categoryScore(

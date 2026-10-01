@@ -54,7 +54,13 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
 };
 
 export type TradeSide = 'long' | 'short';
-export type ExitReason = 'signal' | 'stop_loss' | 'take_profit' | 'end_of_data' | 'time_stop';
+/**
+ * `epoch_end` is the paper desk's alone: a position opened under one scorer
+ * configVersion, closed at market when the live scorer moves to the next, so
+ * one ledger never holds trades from two versions (src/lib/paper-desk/run.ts).
+ * The research engine never produces it.
+ */
+export type ExitReason = 'signal' | 'stop_loss' | 'take_profit' | 'end_of_data' | 'time_stop' | 'epoch_end';
 
 export interface BacktestTrade {
   entryBar: number;

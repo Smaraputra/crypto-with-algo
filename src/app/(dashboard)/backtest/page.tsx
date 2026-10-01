@@ -28,6 +28,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { DEFAULT_BACKTEST_CONFIG } from '@/lib/backtest/types';
 import {
   buildSnapshotSeries,
+  LS_Z_WARMUP_MS,
   mapToSnapshotInterval,
   type SnapshotBar,
 } from '@/lib/backtest/snapshot-series';
@@ -227,17 +228,22 @@ export default function BacktestPage() {
       try {
         const snapshotInterval = mapToSnapshotInterval(interval);
         const maxRangeMs = 364 * 24 * 60 * 60 * 1000; // API caps at 1 year
-        const snapStart = Math.max(
-          klines[0].timestamp - 8 * 60 * 60 * 1000,
-          Date.now() - maxRangeMs
-        );
-        const snapRes = await fetch(
-          `/api/historical-snapshots?symbol=${symbol}&interval=${snapshotInterval}&startTime=${snapStart}&endTime=${Date.now()}`
-        );
+        // Thirty days early, so the L/S z (configVersion 8) is defined from the
+        // first bar; a 4h/1d run also needs the 1h rows the z is computed on.
+        const snapStart = Math.max(klines[0].timestamp - LS_Z_WARMUP_MS, Date.now() - maxRangeMs);
+        const snapshotUrl = (iv: string) =>
+          `/api/historical-snapshots?symbol=${symbol}&interval=${iv}&startTime=${snapStart}&endTime=${Date.now()}`;
+        const [snapRes, lsRes] = await Promise.all([
+          fetch(snapshotUrl(snapshotInterval)),
+          snapshotInterval === '1h' ? Promise.resolve(null) : fetch(snapshotUrl('1h')),
+        ]);
         if (snapRes.ok) {
           const snapData = await snapRes.json();
+          // A failed 1h read leaves the z undefined, so the L/S signal abstains
+          // openly instead of the series refusing to build.
+          const lsRows1h = lsRes ? (lsRes.ok ? ((await lsRes.json()).snapshots ?? []) : []) : undefined;
           if (snapData.snapshots?.length) {
-            snapshots = buildSnapshotSeries(klines, snapData.snapshots, interval, { symbol });
+            snapshots = buildSnapshotSeries(klines, snapData.snapshots, interval, { symbol, lsRows1h });
           }
         }
       } catch {

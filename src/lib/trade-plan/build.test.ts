@@ -5,8 +5,9 @@ import type { StrategyContext } from '@/lib/backtest/strategy';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import type { OpenPosition } from '@/lib/backtest/trade-utils';
 import { TradePlanError, buildTradePlan, signalContext, type TradePlanInput } from './build';
-import { CONTROL_EVIDENCE } from './evidence';
+import { CONTROL_EVIDENCE, evidenceFor } from './evidence';
 import { STOP_WINDOW_BARS, TRADE_PLAN_STRATEGY, stopsFor, tradePlanConfig } from './rule';
+import { STRATEGY_EXIT_LEVEL, TIER_BUY_CUTOFF } from '@/lib/signals/calibration';
 
 const HOUR = 3_600_000;
 
@@ -82,10 +83,12 @@ describe('buildTradePlan: the ticket is the rule', () => {
     expect(quiet.holding).toEqual({ longExits: true, shortExits: true });
   });
 
-  it('enters at exactly 29 like the backtest, and notes that the live label disagrees', () => {
-    const plan = buildTradePlan(input({ score: 29, tier: 'neutral' }));
+  it('enters at exactly the buy cutoff like the backtest, and notes that the live label disagrees', () => {
+    const plan = buildTradePlan(input({ score: TIER_BUY_CUTOFF, tier: 'neutral' }));
     expect(plan.entry?.side).toBe('long');
-    expect(plan.notes.some((n) => n.includes('29 or beyond') && n.includes('"Neutral" label'))).toBe(true);
+    expect(
+      plan.notes.some((n) => n.includes(`${TIER_BUY_CUTOFF} or beyond`) && n.includes('"Neutral" label'))
+    ).toBe(true);
   });
 
   it('adds no boundary note when the tier agrees', () => {
@@ -95,10 +98,10 @@ describe('buildTradePlan: the ticket is the rule', () => {
   it('carries the rule parameters and the signal close time', () => {
     const plan = buildTradePlan(input());
     expect(plan.rule).toEqual({
-      entryThreshold: 29,
-      exitThreshold: 7.25,
-      shortEntryThreshold: -29,
-      shortExitThreshold: -7.25,
+      entryThreshold: TIER_BUY_CUTOFF,
+      exitThreshold: STRATEGY_EXIT_LEVEL,
+      shortEntryThreshold: -TIER_BUY_CUTOFF,
+      shortExitThreshold: -STRATEGY_EXIT_LEVEL,
       stopWindowBars: STOP_WINDOW_BARS,
       riskPerTrade: 0.01,
       equity: 1000,
@@ -198,7 +201,9 @@ describe('buildTradePlan: costs', () => {
   });
 
   it('attaches the recorded evidence for the interval', () => {
-    expect(buildTradePlan(input()).evidence).toBe(CONTROL_EVIDENCE['1h']);
+    // The recorded row, with its status derived for today's scorer version.
+    expect(buildTradePlan(input()).evidence).toEqual(evidenceFor('1h'));
+    expect(buildTradePlan(input()).evidence).toMatchObject({ ...CONTROL_EVIDENCE['1h'], status: evidenceFor('1h').status });
   });
 });
 

@@ -553,7 +553,9 @@ function loadExposureSymbol(
     .filter((r) => opts.end === undefined || r.t <= opts.end)
     .map(toLeanSnapshot);
 
-  const snapBars = buildSnapshotSeries(candles, snapshots, interval, { symbol });
+  // Funding and the RAW positioning level only; nothing here is scored, so
+  // the configVersion 8 L/S z is not needed (lsRows1h [] says so explicitly).
+  const snapBars = buildSnapshotSeries(candles, snapshots, interval, { symbol, lsRows1h: [] });
 
   const fundingRates = candles.map((_, i) => {
     const rate = snapBars[i]?.futures?.fundingRate?.fundingRate;

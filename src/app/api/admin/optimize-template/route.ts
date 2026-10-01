@@ -3,8 +3,8 @@ import { requireAdmin, adminAuthError, adminAuthStatus } from '@/lib/admin-auth'
 import { connectDB } from '@/lib/mongodb';
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
-import { getHistoricalSnapshots } from '@/lib/historical-snapshots';
-import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
+import { getScoringSnapshots } from '@/lib/historical-snapshots';
+import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
 import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
@@ -91,14 +91,12 @@ export async function POST(req: Request) {
 
     // Point-in-time futures/sentiment for the same range; zero snapshots
     // degrades to null-scored categories, matching pre-parity behavior
+    // configVersion 8: the rows start thirty days early for the L/S z, and a
+    // 4h/1d run also carries the 1h rows the z is computed on.
     let snapshots: LeanSnapshot[] = [];
+    let lsRows1h: LeanSnapshot[] | undefined;
     try {
-      snapshots = await getHistoricalSnapshots(
-        symbol,
-        mapToSnapshotInterval(interval),
-        startTime - 8 * 60 * 60 * 1000,
-        endTime
-      );
+      ({ snapshots, lsRows1h } = await getScoringSnapshots(symbol, interval, startTime, endTime));
     } catch (error) {
       console.error(`Failed to fetch snapshots for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
     }
@@ -127,6 +125,7 @@ export async function POST(req: Request) {
         interval,
         tradingStyle: tradingStyle as TradingStyle,
         snapshots,
+        lsRows1h,
         htfCandles,
         htfInterval: htfInterval ?? undefined,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,

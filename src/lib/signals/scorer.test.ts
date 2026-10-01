@@ -327,30 +327,48 @@ describe('computeSignalScore', () => {
     expect(futuresComponent!.score).toBeLessThan(0);
   });
 
-  it('heavily long L/S ratio is bearish contrarian', () => {
-    const suite = makeIndicatorSuite('sideways');
-    const futuresData: FuturesData = {
+  // configVersion 8: the L/S signal reads the ratio's trailing z within the
+  // symbol, never the raw level, whose centre sits near 1.5 and drifts.
+  function lsFutures(ratio: number, zScore: number | null | undefined): FuturesData {
+    return {
       fundingRate: null,
       openInterest: null,
-      longShortRatio: { symbol: 'BTCUSDT', longShortRatio: 3.0, longAccount: 0.75, shortAccount: 0.25, timestamp: 0 },
+      longShortRatio: { symbol: 'BTCUSDT', longShortRatio: ratio, longAccount: 0.6, shortAccount: 0.4, timestamp: 0, zScore },
     };
-    const result = computeSignalScore(suite, futuresData);
+  }
+  function lsSignal(futuresData: FuturesData) {
+    const result = computeSignalScore(makeIndicatorSuite('sideways'), futuresData);
+    const futures = result.components.find((c) => c.category === 'futures')!;
+    return { futures, signal: futures.signals.find((s) => s.name === 'Long/Short Ratio') };
+  }
 
-    const futuresComponent = result.components.find((c) => c.category === 'futures');
-    expect(futuresComponent!.score).toBeLessThan(0);
+  it('a crowded long (z above +1) is bearish contrarian', () => {
+    const { futures, signal } = lsSignal(lsFutures(1.6, 1.4));
+    expect(signal).toMatchObject({ direction: 'bearish', strength: 40 });
+    expect(futures.score).toBeLessThan(0);
   });
 
-  it('heavily short L/S ratio is bullish contrarian', () => {
-    const suite = makeIndicatorSuite('sideways');
-    const futuresData: FuturesData = {
-      fundingRate: null,
-      openInterest: null,
-      longShortRatio: { symbol: 'BTCUSDT', longShortRatio: 0.3, longAccount: 0.23, shortAccount: 0.77, timestamp: 0 },
-    };
-    const result = computeSignalScore(suite, futuresData);
+  it('a crowded short (z below -1) is bullish contrarian', () => {
+    const { futures, signal } = lsSignal(lsFutures(1.2, -1.4));
+    expect(signal).toMatchObject({ direction: 'bullish', strength: 40 });
+    expect(futures.score).toBeGreaterThan(0);
+  });
 
-    const futuresComponent = result.components.find((c) => c.category === 'futures');
-    expect(futuresComponent!.score).toBeGreaterThan(0);
+  it('scales strength from 40 at two sd to the 80 cap at four', () => {
+    expect(lsSignal(lsFutures(2, 3)).signal!.strength).toBeCloseTo(60, 10);
+    expect(lsSignal(lsFutures(2, 6)).signal!.strength).toBe(80);
+    expect(lsSignal(lsFutures(0.9, -3)).signal).toMatchObject({ direction: 'bullish', strength: 60 });
+  });
+
+  it('reads neutral inside one sd, whatever the raw level', () => {
+    // A ratio of 3.0 was "heavily long" under the old fixed bands; if it is
+    // ordinary for this symbol lately, it is not a signal.
+    expect(lsSignal(lsFutures(3.0, 0.4)).signal).toMatchObject({ direction: 'neutral' });
+  });
+
+  it('abstains entirely without a z, rather than reading the raw level', () => {
+    expect(lsSignal(lsFutures(3.0, null)).signal).toBeUndefined();
+    expect(lsSignal(lsFutures(0.3, undefined)).signal).toBeUndefined();
   });
 
   it('includes SuperTrend in trend component when provided', () => {

@@ -4,8 +4,8 @@ import { CronRun, type ICronRun } from '@/lib/models/cron-run';
 import { OptimizationJob } from '@/lib/models/optimization-job';
 import { DEFAULT_TEMPLATE_THRESHOLDS } from '@/lib/models/signal-template';
 import { getCandles, backfillCandles, getCandleRange } from '@/lib/candle-ingestion';
-import { getHistoricalSnapshots } from '@/lib/historical-snapshots';
-import { mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
+import { getScoringSnapshots } from '@/lib/historical-snapshots';
+import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
 import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
@@ -147,14 +147,12 @@ export async function runMonthlyOptimization(
 
       // Point-in-time futures/sentiment for the same range (8h margin covers
       // the funding cadence); zero snapshots degrades to null-scored categories
+      // configVersion 8: the rows start thirty days early for the L/S z, and a
+      // 4h/1d run also carries the 1h rows the z is computed on.
       let snapshots: LeanSnapshot[] = [];
+      let lsRows1h: LeanSnapshot[] | undefined;
       try {
-        snapshots = await getHistoricalSnapshots(
-          symbol,
-          mapToSnapshotInterval(interval),
-          startTime - 8 * 60 * 60 * 1000,
-          endTime
-        );
+        ({ snapshots, lsRows1h } = await getScoringSnapshots(symbol, interval, startTime, endTime));
       } catch (error) {
         console.error(`Failed to fetch snapshots for ${symbol}:`, error instanceof Error ? error.message : 'Unknown error');
       }
@@ -182,6 +180,7 @@ export async function runMonthlyOptimization(
         interval,
         tradingStyle,
         snapshots,
+        lsRows1h,
         htfCandles,
         htfInterval: htfInterval ?? undefined,
         minTrainingBars: DEFAULT_OPTIMIZATION_CONFIG.minTrainingBars,

@@ -7,10 +7,24 @@ import {
   parseArgs,
   trackStats,
 } from './paper-desk-outcomes';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
+import { evidenceFor } from '@/lib/trade-plan/evidence';
 
 describe('parseArgs', () => {
   it('defaults to every book, every symbol, table output', () => {
-    expect(parseArgs([])).toEqual({ book: null, symbol: null, since: null, json: false, mongoUri: null });
+    expect(parseArgs([])).toEqual({
+      book: null,
+      symbol: null,
+      since: null,
+      configVersion: SCORER_CONFIG_VERSION,
+      json: false,
+      mongoUri: null,
+    });
+  });
+
+  it('reads an earlier scorer epoch on request, and rejects a malformed version', () => {
+    expect(parseArgs(['--config-version', '7']).configVersion).toBe(7);
+    expect(() => parseArgs(['--config-version', 'v7'])).toThrow(/--config-version/);
   });
 
   it('parses a book, a symbol, a date, json and a mongo uri', () => {
@@ -129,8 +143,9 @@ describe('buildBookReport', () => {
 
   it('attaches the recorded research expectancy for the interval', () => {
     const current = buildBookReport({ tradingStyle: 'day_trading', interval: '1h' }, [trade()], ledgers, null);
-    expect(current.recordedExpectancyPercent).toBeCloseTo(-0.0687, 10);
-    expect(current.evidenceStatus).toBe('current');
+    expect(current.recordedExpectancyPercent).toBe(evidenceFor('1h').expectancyPercent);
+    // Derived for today's scorer: a row measured under an earlier version is stale.
+    expect(current.evidenceStatus).toBe(evidenceFor('1h').status);
 
     const unmeasured = buildBookReport({ tradingStyle: 'scalping', interval: '1m' }, [trade()], ledgers, null);
     expect(unmeasured.recordedExpectancyPercent).toBeNull();
@@ -191,7 +206,7 @@ describe('formatReport', () => {
     expect(text).toContain('engine      n=2');
     expect(text).toContain('executable  n=2');
     expect(text).toContain('lag cost    +0.2000%');
-    expect(text).toContain('recorded    -0.0687%');
+    expect(text).toContain('recorded    -0.0551%');
     expect(text).toContain('peak leverage=2.40x');
     expect(text).toContain('Win rate is reported, never targeted.');
   });

@@ -5,6 +5,7 @@ import {
   mapToSnapshotInterval,
   snapshotToScorerInputs,
   type LeanSnapshot,
+  longShortZSeries,
 } from './snapshot-series';
 import type { OHLCV } from '@/types/market';
 
@@ -199,5 +200,62 @@ describe('buildSnapshotSeries', () => {
     expect(bars[0]).toBeNull();
     expect(bars[1]!.sentiment!.fearGreedIndex).toBe(10);
     expect(bars[2]!.sentiment!.fearGreedIndex).toBe(10);
+  });
+});
+
+describe('the L/S z (configVersion 8)', () => {
+  /** Hourly 1h rows with a moving ratio, enough for the 360-sample floor. */
+  function lsRows(count: number, start = BASE): LeanSnapshot[] {
+    return Array.from({ length: count }, (_, i) =>
+      makeSnapshot(start + i * HOUR, {
+        longShortRatio: { ratio: 1.5 + 0.3 * Math.sin(i / 11), longAccount: 0.6, shortAccount: 0.4 },
+      })
+    );
+  }
+
+  it('attaches the z of the latest 1h row whose window closed at or before the candle open', () => {
+    const rows = lsRows(500);
+    const candles = makeCandles(500);
+    const bars = buildSnapshotSeries(candles, rows, '1h', { symbol: 'BTCUSDT' });
+    const { t, z } = longShortZSeries(rows);
+    // Candle 450 opens at BASE + 450h; the latest readable row is t = 449h.
+    const zAt450 = bars[450]!.futures!.longShortRatio!.zScore;
+    expect(zAt450).toBeCloseTo(z[t.indexOf(BASE + 449 * HOUR)], 12);
+  });
+
+  it('is null before the 360-sample floor is reached, so the signal abstains', () => {
+    const bars = buildSnapshotSeries(makeCandles(400), lsRows(400), '1h', { symbol: 'BTCUSDT' });
+    expect(bars[300]!.futures!.longShortRatio!.zScore).toBeNull();
+    expect(Number.isFinite(bars[390]!.futures!.longShortRatio!.zScore ?? Number.NaN)).toBe(true);
+  });
+
+  it('gives 4h candles the 1h-grid z, and refuses to run without the 1h rows', () => {
+    const rows1h = lsRows(720);
+    const rows4h = rows1h.filter((_, i) => i % 4 === 0);
+    const candles4h = makeCandles(180, 4 * HOUR);
+    expect(() => buildSnapshotSeries(candles4h, rows4h, '4h', { symbol: 'BTCUSDT' })).toThrow(/lsRows1h/);
+
+    const bars = buildSnapshotSeries(candles4h, rows4h, '4h', { symbol: 'BTCUSDT', lsRows1h: rows1h });
+    const { t, z } = longShortZSeries(rows1h);
+    // Candle 170 opens at BASE + 680h; the latest readable 1h row is 679h.
+    expect(bars[170]!.futures!.longShortRatio!.zScore).toBeCloseTo(z[t.indexOf(BASE + 679 * HOUR)], 12);
+  });
+
+  it('drops a 1h z older than three hours, as it drops a stale snapshot', () => {
+    const rows1h = lsRows(400);
+    const rows4h = [makeSnapshot(BASE + 400 * HOUR, { longShortRatio: { ratio: 1.5, longAccount: 0.6, shortAccount: 0.4 } })];
+    // A 4h candle opening 410h reads the 4h row (window closed at 404h) but the
+    // newest 1h row is 399h, eleven hours old.
+    const candle = makeCandles(1, 4 * HOUR).map((c) => ({ ...c, timestamp: BASE + 410 * HOUR }));
+    const bars = buildSnapshotSeries(candle, rows4h, '4h', { symbol: 'BTCUSDT', lsRows1h: rows1h });
+    expect(bars[0]!.futures!.longShortRatio!.zScore).toBeNull();
+  });
+
+  it('accepts an empty lsRows1h for a funding-only caller', () => {
+    const rows4h = [makeSnapshot(BASE, fullData)];
+    const candle = makeCandles(1, 4 * HOUR).map((c) => ({ ...c, timestamp: BASE + 4 * HOUR }));
+    const bars = buildSnapshotSeries(candle, rows4h, '4h', { symbol: 'BTCUSDT', lsRows1h: [] });
+    expect(bars[0]!.futures!.fundingRate).not.toBeNull();
+    expect(bars[0]!.futures!.longShortRatio!.zScore).toBeNull();
   });
 });

@@ -40,6 +40,7 @@ import { OPTIONS_SLOT_MS } from '@/lib/options-flow';
 import { alignToBars, METRICS_SLOT_MS } from '@/lib/archive-ingestion';
 import { intervalToMs } from '@/lib/intervals';
 import { MARKET_SESSIONS, isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
+import { trailingZScore } from '@/lib/stats/trailing-z';
 
 export interface FactorMatrix {
   names: string[];
@@ -59,6 +60,13 @@ export interface FactorMatrix {
 export interface FactorMatrixInput {
   candles: CandleRow[];
   snapshots: SnapshotRow[] | null;
+  /**
+   * The symbol's 1h snapshot rows, which the scorer's L/S z is computed on
+   * (configVersion 8). Required when `snapshots` are 4h or 1d rows, ignored at
+   * 1h and finer, where `snapshots` are the 1h rows already. Pass [] when the
+   * dataset has no 1h file: the L/S signal then abstains.
+   */
+  lsRows1h?: SnapshotRow[] | null;
   htf: HtfRow[];
   interval: string;
   /**
@@ -659,66 +667,9 @@ export const OPTIONS_FLOW_WINDOW_HOURS = 24;
 /** Days of history the DVOL tercile diagnostic (raw.ret1InHighDvol/InLowDvol) classifies against. */
 export const DVOL_TERCILE_DAYS = 90;
 
-/**
- * Trailing z-score of a series, over a window of `windowBars` bars.
- *
- * Running sums, so the cost is one pass regardless of window size: at 5m a
- * thirty-day window is 8,640 bars and a naive recompute per bar would be
- * quadratic over the 800,000-bar dataset.
- *
- * NaN entries take part in neither the mean nor the count, so a gap in the
- * input thins the window instead of poisoning it, and a bar whose own value
- * is NaN stays NaN. A window with no spread returns NaN rather than 0: a
- * constant funding rate has no z-score, and reporting 0 would read as
- * "exactly average" on what is really "no information".
- */
-export function trailingZScore(series: Float64Array, windowBars: number, minSamples: number): Float64Array {
-  const n = series.length;
-  const out = new Float64Array(n).fill(NaN);
-  let count = 0;
-  let sum = 0;
-  let sumSq = 0;
-
-  for (let i = 0; i < n; i++) {
-    const entering = series[i];
-    if (Number.isFinite(entering)) {
-      count++;
-      sum += entering;
-      sumSq += entering * entering;
-    }
-
-    const leavingIndex = i - windowBars;
-    if (leavingIndex >= 0) {
-      const leaving = series[leavingIndex];
-      if (Number.isFinite(leaving)) {
-        count--;
-        sum -= leaving;
-        sumSq -= leaving * leaving;
-      }
-    }
-
-    const value = series[i];
-    if (!Number.isFinite(value) || count < minSamples) continue;
-
-    const mean = sum / count;
-    const meanSq = mean * mean;
-    // Sample variance, matching realizedVol20's ddof of 1.
-    const variance = (sumSq - count * meanSq) / (count - 1);
-
-    // sumSq and count*meanSq are nearly equal for a near-constant series, so
-    // their difference is pure cancellation noise there: a constant funding
-    // rate would otherwise get a standard deviation around 1e-12 and a z-score
-    // of arbitrary size. Anything at or below the scale of that noise counts as
-    // no spread, which is NaN rather than 0: a series that never moves has no
-    // z-score, and 0 would read as "exactly average".
-    const epsilon = 1e-12 * Math.max(sumSq / count, meanSq, Number.MIN_VALUE);
-    if (variance <= epsilon) continue;
-
-    out[i] = (value - mean) / Math.sqrt(variance);
-  }
-
-  return out;
-}
+// trailingZScore lives in src/lib/stats/trailing-z.ts since 2026-10-01 (the live
+// scorer needs it too); re-exported so every research import is unchanged.
+export { trailingZScore };
 
 /**
  * Trailing mean of `series` over EARLIER bars sharing the bar's bucket (time
@@ -1274,10 +1225,11 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
 
   const ohlcv = candles.map(toOHLCV);
   const leanSnapshots = snapshots ? snapshots.map(toLeanSnapshot) : undefined;
+  const leanLsRows1h = input.lsRows1h ? input.lsRows1h.map(toLeanSnapshot) : undefined;
 
   // No htfInput: HTF context is already precomputed per bar in `htf` (C1's export),
   // computed the same causal way (computeHtfSeries + alignHtfToLtf + htfContextAtBar).
-  const prepared = prepareBacktest(ohlcv, '', interval, profile.config, leanSnapshots);
+  const prepared = prepareBacktest(ohlcv, '', interval, profile.config, leanSnapshots, undefined, undefined, leanLsRows1h);
   const { indicators, superTrend, warmupBars, stOffset, snapshots: alignedSnapshots } = prepared;
 
   const n = candles.length;
