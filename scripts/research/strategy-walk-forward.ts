@@ -80,6 +80,8 @@ export interface StrategyWalkForwardInput {
   family: StrategyFamily;
   cells: Record<string, number>[];
   snapshots?: LeanSnapshot[];
+  /** 1h snapshot rows for the scorer's L/S z when `snapshots` are 4h/1d (configVersion 8). */
+  lsRows1h?: LeanSnapshot[];
   /**
    * Research-only per-bar columns for this symbol, precomputed over the FULL
    * candle series by the caller and keyed by candle open time.
@@ -320,6 +322,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
     family,
     cells,
     snapshots,
+    lsRows1h,
     researchRows,
     htfInput,
     costs,
@@ -346,7 +349,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
 
     // 1. Train slice, prepared indicators, and this window's own stops.
     const train = candles.slice(trainStart, trainEnd + 1);
-    const preparedTrain = prepareBacktest(train, symbol, interval, indicatorConfig, snapshots, htfInput, researchRows);
+    const preparedTrain = prepareBacktest(train, symbol, interval, indicatorConfig, snapshots, htfInput, researchRows, lsRows1h);
     const stops = deriveVolatilityStops(train, costs.takerFeePercent);
 
     // 2. Base config, reused for every cell in this window.
@@ -388,7 +391,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
     // whether or not anything was selected.
     const testSliceStart = Math.max(0, testStart - preparedTrain.warmupBars);
     const testSlice = candles.slice(testSliceStart, testEnd + 1);
-    const preparedTest = prepareBacktest(testSlice, symbol, interval, indicatorConfig, snapshots, htfInput, researchRows);
+    const preparedTest = prepareBacktest(testSlice, symbol, interval, indicatorConfig, snapshots, htfInput, researchRows, lsRows1h);
 
     // The bar loop skips preparedTest.warmupBars bars of testSlice before it
     // starts trading, so the first traded bar of testSlice must land exactly

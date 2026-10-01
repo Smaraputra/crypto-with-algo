@@ -1,5 +1,6 @@
 import { HistoricalSnapshot, type IHistoricalSnapshot } from './models/historical-snapshot';
 import { SIGNAL_SYMBOLS } from './signals/signal-symbols';
+import { LS_Z_WARMUP_MS, mapToSnapshotInterval, type LeanSnapshot } from './backtest/snapshot-series';
 
 /**
  * Align timestamp to interval boundary (candle close time)
@@ -57,6 +58,30 @@ export async function getHistoricalSnapshots(
   })
     .sort({ timestamp: 1 })
     .lean();
+}
+
+/**
+ * Everything a SCORING path needs from stored snapshots for candles in
+ * `[startTime, endTime]` (scorer configVersion 8): the rows at the candle
+ * interval's snapshot interval, and, when that is coarser than 1h, the 1h rows
+ * the L/S z is computed on (`buildSnapshotSeries`'s `lsRows1h`). Both start
+ * `LS_Z_WARMUP_MS` early, so the first candle's z already has its thirty days.
+ * `lsRows1h` is undefined at 1h and finer, where the snapshot rows are the 1h
+ * rows.
+ */
+export async function getScoringSnapshots(
+  symbol: string,
+  candleInterval: string,
+  startTime: number,
+  endTime: number
+): Promise<{ snapshots: LeanSnapshot[]; lsRows1h: LeanSnapshot[] | undefined }> {
+  const snapshotInterval = mapToSnapshotInterval(candleInterval);
+  const from = startTime - LS_Z_WARMUP_MS;
+  const [snapshots, lsRows1h] = await Promise.all([
+    getHistoricalSnapshots(symbol, snapshotInterval, from, endTime),
+    snapshotInterval === '1h' ? Promise.resolve(undefined) : getHistoricalSnapshots(symbol, '1h', from, endTime),
+  ]);
+  return { snapshots, lsRows1h };
 }
 
 /**

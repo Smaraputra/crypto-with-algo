@@ -35,9 +35,9 @@ vi.mock('@/lib/optimization/walk-forward', () => ({
   runWalkForward: (...args: unknown[]) => mockRunWalkForward(...args),
 }));
 
-const mockGetHistoricalSnapshots = vi.fn();
+const mockGetScoringSnapshots = vi.fn();
 vi.mock('@/lib/historical-snapshots', () => ({
-  getHistoricalSnapshots: (...args: unknown[]) => mockGetHistoricalSnapshots(...args),
+  getScoringSnapshots: (...args: unknown[]) => mockGetScoringSnapshots(...args),
 }));
 
 const mockCreateTemplateVersion = vi.fn();
@@ -97,7 +97,7 @@ describe('POST /api/admin/optimize-template', () => {
     mockConnectDB.mockResolvedValue(undefined);
     mockGetCandleRange.mockResolvedValue({ oldest: Date.now() - 365 * 24 * 3600000, newest: Date.now() });
     mockBackfillCandles.mockResolvedValue(undefined);
-    mockGetHistoricalSnapshots.mockResolvedValue([]);
+    mockGetScoringSnapshots.mockResolvedValue({ snapshots: [], lsRows1h: undefined });
   });
 
   afterEach(() => {

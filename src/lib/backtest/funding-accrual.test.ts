@@ -311,7 +311,8 @@ describe('funding accrual on the exit bar itself', () => {
     }));
 
     const config: BacktestConfig = { ...DEFAULT_BACKTEST_CONFIG, fundingEnabled: true };
-    const snapshots = buildSnapshotSeries(candles, makeSnapshots(candles), '1d', { symbol: 'BTCUSDT' });
+    // Funding only: no L/S rows, so the 1d series is told so explicitly.
+    const snapshots = buildSnapshotSeries(candles, makeSnapshots(candles), '1d', { symbol: 'BTCUSDT', lsRows1h: [] });
 
     const result = runBacktest(
       candles,

@@ -483,7 +483,7 @@ import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
-import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
+import { mapToSnapshotInterval, LS_Z_WARMUP_MS } from '@/lib/backtest/snapshot-series';
 import {
   barIcSeries,
   bootstrapCiOfMean,
@@ -809,13 +809,31 @@ export function loadSymbolData(
   // exactly as live scoring (buildSnapshotSeries) and strategy-harness.ts do.
   const snapshotInterval = mapToSnapshotInterval(interval);
   const snapshotPath = join(datasetDir, 'snapshots', symbol, `${snapshotInterval}.jsonl.gz`);
+  // Snapshot rows start LS_Z_WARMUP_MS before --start, so the scorer's L/S z
+  // (configVersion 8) has its thirty days at the first bar; buildSnapshotSeries
+  // reads nothing later than a candle's open, so the padding adds no lookahead.
+  const snapshotStart = opts.start === undefined ? undefined : opts.start - LS_Z_WARMUP_MS;
   let snapshots: SnapshotRow[] | null = null;
   if (existsSync(snapshotPath)) {
     snapshots = loadSnapshots(datasetDir, symbol, snapshotInterval, { allowLockbox: opts.allowLockbox }).rows.filter(
-      (r) => inRange(r.t, opts.start, opts.end)
+      (r) => inRange(r.t, snapshotStart, opts.end)
     );
   } else {
     console.error(`[factor-ic] ${symbol}: no ${snapshotInterval} snapshot file, snapshots=null`);
+  }
+  // At 4h and 1d the L/S z is computed on the 1h rows. A dataset without them
+  // scores the L/S signal as absent, said here rather than silently.
+  let lsRows1h: SnapshotRow[] | null = null;
+  if (snapshotInterval !== '1h') {
+    const lsPath = join(datasetDir, 'snapshots', symbol, '1h.jsonl.gz');
+    if (existsSync(lsPath)) {
+      lsRows1h = loadSnapshots(datasetDir, symbol, '1h', { allowLockbox: opts.allowLockbox }).rows.filter((r) =>
+        inRange(r.t, snapshotStart, opts.end)
+      );
+    } else {
+      console.error(`[factor-ic] ${symbol}: no 1h snapshot file, the L/S z is absent at ${interval}`);
+      lsRows1h = [];
+    }
   }
 
   // Archive inputs (scripts/ops/ingest-archive.ts). Each is optional and
@@ -847,6 +865,7 @@ export function loadSymbolData(
   const matrix = computeFactorMatrix({
     candles,
     snapshots,
+    lsRows1h,
     htf,
     interval,
     metrics,
