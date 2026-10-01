@@ -24,6 +24,7 @@ import {
   loadManifest,
   loadMetrics,
   loadOptions,
+  loadFunding,
   loadPerp,
   loadSnapshots,
   verifyManifest,
@@ -427,5 +428,34 @@ describe('options kind', () => {
     const result = await verifyManifest(dir);
     expect(result.ok).toBe(false);
     expect(result.mismatches).toContain('options/BTC/1h.jsonl.gz');
+  });
+});
+
+describe('loadFunding', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'load-dataset-funding-'));
+    const EIGHT_H = 8 * HOUR;
+    await writeJsonlGz(join(dir, 'funding', SYMBOL, 'settlements.jsonl.gz'), [
+      { t: LOCKBOX_START - 2 * EIGHT_H, rate: 0.0001, intervalHours: 8 },
+      { t: LOCKBOX_START - EIGHT_H, rate: 0.00012, intervalHours: 8 },
+      { t: LOCKBOX_START, rate: 0.0002, intervalHours: 8 },
+    ]);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reads one row per settlement and applies the lockbox to the settlement time', () => {
+    const result = loadFunding(dir, SYMBOL);
+    expect(result.rows.map((r) => r.rate)).toEqual([0.0001, 0.00012]);
+    expect(result.droppedRows).toBe(1);
+    expect(result.rows[0].intervalHours).toBe(8);
+  });
+
+  it('keeps the lockbox settlement when allowLockbox is true', () => {
+    expect(loadFunding(dir, SYMBOL, { allowLockbox: true }).rows).toHaveLength(3);
   });
 });
