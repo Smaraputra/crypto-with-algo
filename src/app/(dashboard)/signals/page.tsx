@@ -10,6 +10,7 @@ import { StyleTabs } from '@/components/signals/StyleTabs';
 import { AutoUpdateStatus } from '@/components/signals/AutoUpdateStatus';
 import { SignalTimeline } from '@/components/signals/SignalTimeline';
 import { MultiStyleOverview } from '@/components/signals/MultiStyleOverview';
+import { TradePlanCard } from '@/components/signals/TradePlanCard';
 import { EnhancedJournalForm } from '@/components/journal/EnhancedJournalForm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +24,7 @@ import {
   useGlobalSignals,
   useLatestSignals,
   useLatestSignalForStyle,
+  useTradePlan,
 } from '@/hooks/useSignals';
 import { useFearAndGreed } from '@/hooks/useSentiment';
 import { SentimentGauge } from '@/components/market/SentimentGauge';
@@ -54,6 +56,11 @@ export default function SignalsPage() {
     interval,
     20
   );
+  const {
+    data: tradePlanData,
+    isLoading: tradePlanLoading,
+    isError: tradePlanError,
+  } = useTradePlan(selectedSymbol, tradingStyle, interval);
   // Futures data
   const { data: fundingData, isLoading: fundingLoading } = useFundingRate(selectedSymbol);
   const { data: oiData, isLoading: oiLoading } = useOpenInterest(selectedSymbol);
@@ -213,6 +220,17 @@ export default function SignalsPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Trade plan: the ticket the composite's own rule would place */}
+          <ErrorBoundary
+            fallback={<p className="text-sm text-muted-foreground">Trade plan unavailable</p>}
+          >
+            <TradePlanCard
+              data={tradePlanData}
+              isLoading={tradePlanLoading}
+              isError={tradePlanError}
+            />
+          </ErrorBoundary>
 
           {/* Signal breakdown */}
           {latestSignal && latestSignal.components.length > 0 && (

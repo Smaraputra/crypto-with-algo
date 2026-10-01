@@ -269,6 +269,22 @@ describe('getLiveTierExpectancy', () => {
     expect(results[0].expectancyPercent).toBeCloseTo(9, 6);
   });
 
+  it('filters by configVersion, so tiers from different scorers are never pooled', async () => {
+    const { getLiveTierExpectancy, SignalOutcome } = await importModules();
+
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 1, configVersion: 6 }));
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 5, configVersion: 7 }));
+    await SignalOutcome.create(makeResolvedOutcome({ tier: 'buy', forwardReturnPercent: 7, configVersion: 7 }));
+
+    const v7 = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h', configVersion: 7 });
+    expect(v7).toHaveLength(1);
+    expect(v7[0].count).toBe(2);
+    expect(v7[0].expectancyPercent).toBeCloseTo(6, 6);
+
+    const all = await getLiveTierExpectancy({ tradingStyle: 'day_trading', interval: '1h' });
+    expect(all[0].count).toBe(3);
+  });
+
   it('defaults cost to 0 and returns an empty array when nothing matches', async () => {
     const { getLiveTierExpectancy, SignalOutcome } = await importModules();
 

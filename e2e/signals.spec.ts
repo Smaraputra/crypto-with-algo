@@ -191,4 +191,26 @@ test.describe('Signals page (authenticated)', () => {
     const select = page.getByTestId('interval-select');
     await expect(select.locator('option[value="1m"]')).toHaveCount(1);
   });
+  test('shows the trade plan card for the selected style and interval', async ({ page }) => {
+    await page.goto('/signals');
+
+    const card = page.getByTestId('trade-plan-card');
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await expect(card.getByText('Trade Plan', { exact: true })).toBeVisible();
+
+    // Once loaded, the card holds exactly one of: a ticket, the flat state, a
+    // reason no plan exists (for example no signal in this database yet), or
+    // the error text. Which one depends on the data, not on this page.
+    await expect(page.getByTestId('trade-plan-loading')).toHaveCount(0, { timeout: 15000 });
+    await expect(card).toContainText(
+      /at the next 15m open|No entry on this 15m bar|No 15m signal has been computed|The scored 15m bar|Trade plan unavailable/
+    );
+
+    // Switching style re-asks for the plan at the new style's interval.
+    await page.getByTestId('style-tab-scalping').click();
+    await expect(page.getByTestId('trade-plan-loading')).toHaveCount(0, { timeout: 15000 });
+    await expect(card).toContainText(
+      /at the next 1m open|No entry on this 1m bar|No 1m signal has been computed|The scored 1m bar|Trade plan unavailable/
+    );
+  });
 });
