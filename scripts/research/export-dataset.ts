@@ -23,6 +23,7 @@ import {
 import { PerpCandle, PERP_SERIES, type IPerpCandle, type PerpSeries } from '@/lib/models/perp-candle';
 import { FuturesMetric, type IFuturesMetric } from '@/lib/models/futures-metric';
 import { OptionsFlowHour, type IOptionsFlowHour } from '@/lib/models/options-flow-hour';
+import { FundingSettlement, type IFundingSettlement } from '@/lib/models/funding-settlement';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import {
   alignHtfToLtf,
@@ -43,6 +44,7 @@ import {
   type CandleRow,
   type DatasetManifest,
   type DatasetKind,
+  type FundingRow,
   type HtfRow,
   type ManifestFile,
   type MetricsRow,
@@ -54,7 +56,17 @@ import { styleForInterval } from './factors';
 
 const DEFAULT_INTERVALS = ['5m', '15m', '1h', '4h', '1d'];
 const SNAPSHOT_INTERVALS = new Set(['1h', '4h', '1d']);
-const ALL_KINDS: readonly DatasetKind[] = ['candles', 'snapshots', 'htf', 'perp', 'metrics', 'options'] as const;
+const ALL_KINDS: readonly DatasetKind[] = [
+  'candles',
+  'snapshots',
+  'htf',
+  'perp',
+  'metrics',
+  'options',
+  'funding',
+] as const;
+/** FundingSettlement rows are one per settlement, not per bar: one file per symbol. */
+const FUNDING_FILE = 'settlements';
 /** The archive publishes one 5m grid per symbol, so metrics has a single file. */
 const METRICS_INTERVAL = '5m';
 /** OptionsFlowHour rows are hourly, one file per currency. */
@@ -405,6 +417,19 @@ async function fetchFuturesMetrics(
 }
 
 /** The hourly Deribit DVOL and trade-flow rows for one currency. One file per currency, every symbol mapped to it reads the same file. */
+async function fetchFundingSettlements(symbol: string, startMs?: number, endMs?: number): Promise<FundingRow[]> {
+  const fundingTime = buildTimestampFilter(startMs, endMs);
+  const query: Record<string, unknown> = { symbol };
+  if (fundingTime) query.fundingTime = fundingTime;
+
+  const rows: FundingRow[] = [];
+  const cursor = FundingSettlement.find(query).sort({ fundingTime: 1 }).lean().cursor();
+  for await (const doc of cursor as AsyncIterable<IFundingSettlement>) {
+    rows.push({ t: doc.fundingTime, rate: doc.rate, intervalHours: doc.intervalHours ?? null });
+  }
+  return rows;
+}
+
 async function fetchOptionsFlow(
   currency: string,
   startMs?: number,
@@ -532,6 +557,22 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
             symbol,
             METRICS_INTERVAL,
             metricsRows,
+            (row) => row.t
+          )
+        );
+      }
+
+      // One funding file per symbol, one row per settlement (not per bar).
+      if (kinds.has('funding')) {
+        const fundingRows = await fetchFundingSettlements(symbol, args.start, args.end);
+        files.push(
+          await writeDatasetFile(
+            args.out,
+            `funding/${symbol}/${FUNDING_FILE}.jsonl.gz`,
+            'funding',
+            symbol,
+            FUNDING_FILE,
+            fundingRows,
             (row) => row.t
           )
         );

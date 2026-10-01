@@ -18,6 +18,7 @@ import {
   type ManifestFile,
   type MetricsRow,
   type OptionsRow,
+  type FundingRow,
   type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
@@ -162,4 +163,17 @@ export function loadOptions(
 ): LoadResult<OptionsRow> {
   const path = join(dir, 'options', currency, '1h.jsonl.gz');
   return applyLockbox(readJsonlGz<OptionsRow>(path), opts);
+}
+
+/**
+ * One symbol's funding settlements, one row per settlement (see `FundingRow`).
+ * The lockbox applies to the settlement time like any other row.
+ */
+export function loadFunding(
+  dir: string,
+  symbol: string,
+  opts: LoadOptions = {}
+): LoadResult<FundingRow> {
+  const path = join(dir, 'funding', symbol, 'settlements.jsonl.gz');
+  return applyLockbox(readJsonlGz<FundingRow>(path), opts);
 }

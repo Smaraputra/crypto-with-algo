@@ -23,7 +23,9 @@
  *   klines        PerpCandle, series 'klines'
  *   premiumIndex  PerpCandle, series 'premiumIndex'
  *   markPrice     PerpCandle, series 'markPrice'
- *   fundingRate   HistoricalSnapshot.data.fundingRate
+ *   fundingRate   HistoricalSnapshot.data.fundingRate (default), and/or
+ *                 FundingSettlement, one document per settlement, with
+ *                 --funding-target settlements|both
  *   snapshots     HistoricalSnapshot.data.longShortRatio and .openInterest,
  *                 read back out of FuturesMetric, so it can run on its own
  *                 after a metrics pass
@@ -51,6 +53,11 @@
  *   --concurrency 8                             parallel downloads per job
  *   --refresh                                   re-download cached files
  *   --dry-run                                   print the job list only
+ *   --funding-target snapshots|settlements|both where fundingRate rows go
+ *                                               (default snapshots, unchanged):
+ *                                               settlements writes one
+ *                                               FundingSettlement per archive
+ *                                               row and touches no snapshot
  */
 import { connectDB } from '@/lib/mongodb';
 import {
@@ -81,6 +88,8 @@ import { VALID_INTERVALS } from '@/lib/models/candle';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { alignTimestamp } from '@/lib/historical-snapshots';
 import { intervalToMs } from '@/lib/intervals';
+import { FundingSettlement } from '@/lib/models/funding-settlement';
+import { fundingSettlementUpserts, type FundingEvent } from '@/lib/funding-settlements';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Documents per bulkWrite. 5m metrics for a year is about 105,000 rows. */
@@ -115,7 +124,12 @@ export interface ParsedArgs {
   concurrency: number;
   refresh: boolean;
   dryRun: boolean;
+  /** Where `fundingRate` rows are written. Default `snapshots`, the original behaviour. */
+  fundingTarget: FundingTarget;
 }
+
+export const FUNDING_TARGETS = ['snapshots', 'settlements', 'both'] as const;
+export type FundingTarget = (typeof FUNDING_TARGETS)[number];
 
 export interface Job {
   kind: JobKind;
@@ -172,6 +186,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
   let concurrency = DEFAULT_CONCURRENCY;
   let refresh = false;
   let dryRun = false;
+  let fundingTarget: FundingTarget = 'snapshots';
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -211,6 +226,14 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
       case '--dry-run':
         dryRun = true;
         break;
+      case '--funding-target': {
+        const raw = nextValue(argv, ++i, '--funding-target');
+        if (!(FUNDING_TARGETS as readonly string[]).includes(raw)) {
+          throw new Error(`--funding-target must be one of ${FUNDING_TARGETS.join(', ')}, got "${raw}"`);
+        }
+        fundingTarget = raw as FundingTarget;
+        break;
+      }
       default:
         throw new Error(`Unknown flag "${flag}"`);
     }
@@ -259,6 +282,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
     concurrency,
     refresh,
     dryRun,
+    fundingTarget,
   };
 }
 
@@ -336,6 +360,20 @@ async function forEachWithConcurrency<T>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
 }
 
+/** One FundingSettlement per archive row; touches no snapshot. */
+async function writeFundingSettlements(symbol: string, events: FundingEvent[]): Promise<number> {
+  const ops = fundingSettlementUpserts(symbol, events);
+  let written = 0;
+  for (let i = 0; i < ops.length; i += WRITE_CHUNK) {
+    const chunk = ops.slice(i, i + WRITE_CHUNK).map((op) => ({
+      updateOne: { filter: op.filter, update: { $set: op.set }, upsert: true },
+    }));
+    const result = await FundingSettlement.bulkWrite(chunk, { ordered: false });
+    written += (result.upsertedCount ?? 0) + (result.modifiedCount ?? 0);
+  }
+  return written;
+}
+
 async function writeFuturesMetrics<T extends object>(ops: UpsertOp<T>[]): Promise<number> {
   let written = 0;
   for (let i = 0; i < ops.length; i += WRITE_CHUNK) {
@@ -392,7 +430,7 @@ export async function main(): Promise<number> {
           missing++;
           return;
         }
-        const result = await ingestCsv(job, csv);
+        const result = await ingestCsv(job, csv, args.fundingTarget);
         rows += result.rows;
         written += result.written;
       });
@@ -423,7 +461,11 @@ export async function main(): Promise<number> {
   return hasError ? 1 : 0;
 }
 
-async function ingestCsv(job: Job, csv: string): Promise<{ rows: number; written: number }> {
+async function ingestCsv(
+  job: Job,
+  csv: string,
+  fundingTarget: FundingTarget
+): Promise<{ rows: number; written: number }> {
   switch (job.kind) {
     case 'metrics': {
       const parsed = parseMetricsCsv(csv);
@@ -450,7 +492,10 @@ async function ingestCsv(job: Job, csv: string): Promise<{ rows: number; written
     }
     case 'fundingRate': {
       const parsed = parseFundingCsv(csv);
-      return { rows: parsed.length, written: await writeFundingSnapshots(job.symbol, parsed) };
+      let written = 0;
+      if (fundingTarget !== 'settlements') written += await writeFundingSnapshots(job.symbol, parsed);
+      if (fundingTarget !== 'snapshots') written += await writeFundingSettlements(job.symbol, parsed);
+      return { rows: parsed.length, written };
     }
     default:
       throw new Error(`Internal error: no ingest path for ${job.kind}`);

@@ -88,12 +88,16 @@ describe('parseArgs', () => {
 
   it('defaults to every dataset kind and only the traded perp series', () => {
     const args = parseArgs([], {});
-    expect(args.kinds).toEqual(['candles', 'snapshots', 'htf', 'perp', 'metrics', 'options']);
+    expect(args.kinds).toEqual(['candles', 'snapshots', 'htf', 'perp', 'metrics', 'options', 'funding']);
     expect(args.perpSeries).toEqual(['klines']);
   });
 
   it('parses a partial --datasets list, so a re-export can be cheap', () => {
     expect(parseArgs(['--datasets', 'metrics,perp'], {}).kinds).toEqual(['metrics', 'perp']);
+  });
+
+  it('parses --datasets funding on its own, the per-settlement series the carry test reads', () => {
+    expect(parseArgs(['--datasets', 'funding'], {}).kinds).toEqual(['funding']);
   });
 
   it('parses --datasets options on its own', () => {
