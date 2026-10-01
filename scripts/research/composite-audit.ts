@@ -192,6 +192,15 @@
  * rule (the record's Phase 4, 4b, 4c verdicts stand). `fade-composite`
  * already failed at 1h (Phase 4), so flipping signs wholesale is not a
  * new experiment.
+ *
+ * REVIEW M6, 2026-10-01: the taker lines above convert cost to an IC with
+ * RECORDED_CONTROL_SD_PERCENT, the CI-implied EFFECTIVE sd, which runs 1.6 to
+ * 2.0x the raw per-trade sd intraday (frontier.ts,
+ * RECORDED_CONTROL_RAW_SD_PERCENT). With the raw sd every taker line is that
+ * factor higher, so the 5m, 15m and 1h verdict (ceiling below the line) holds
+ * with more margin. At 4h the line rises about 1.58x and at 1d about 1.17x;
+ * the recorded ceilings still clear both. Not re-run: the default stays the
+ * effective table so the recorded output above reproduces.
  */
 import { readFile } from 'fs/promises';
 import {
