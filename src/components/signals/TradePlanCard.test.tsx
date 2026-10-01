@@ -36,7 +36,7 @@ describe('TradePlanCard', () => {
     render(<TradePlanCard data={makeTradePlanResponse()} isLoading={false} isError={false} />);
     const ticket = screen.getByTestId('trade-plan-ticket');
 
-    expect(within(ticket).getByText('Long')).toHaveClass('text-bullish');
+    expect(within(ticket).getByText('long')).toHaveClass('text-bullish');
     expect(ticket).toHaveTextContent('SOL at the next 1h open');
     expect(ticket).toHaveTextContent('Score +35.2 is at or above +29');
     expect(ticket).toHaveTextContent('closed 2026-10-01 14:00 UTC');
@@ -70,7 +70,7 @@ describe('TradePlanCard', () => {
     });
     render(<TradePlanCard data={makeTradePlanResponse({ plan })} isLoading={false} isError={false} />);
     const ticket = screen.getByTestId('trade-plan-ticket');
-    expect(within(ticket).getByText('Short')).toHaveClass('text-bearish');
+    expect(within(ticket).getByText('short')).toHaveClass('text-bearish');
     expect(ticket).toHaveTextContent('at or below -29');
     expect(ticket).toHaveTextContent('+4.00%');
     expect(ticket).toHaveTextContent('-8.00%');
@@ -156,7 +156,7 @@ describe('TradePlanCard', () => {
     const ticket = screen.getByTestId('trade-plan-ticket');
     expect(verdict.compareDocumentPosition(ticket) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByTestId('trade-plan-rule-heading')).toHaveTextContent('What the rule would do on this bar');
-    expect(ticket).toHaveTextContent('The rule would go Long SOL at the next 1h open');
+    expect(ticket).toHaveTextContent('The rule would go long SOL at the next 1h open');
   });
 
   it('styles a proven loss as bearish: the whole interval is below zero', () => {

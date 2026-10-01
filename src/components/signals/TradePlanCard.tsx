@@ -98,7 +98,7 @@ function Ticket({ plan, ticket }: { plan: TradePlan; ticket: TradeTicket }) {
         <p className="text-sm">
           The rule would go{' '}
           <span className={cn('font-semibold', isLong ? 'text-bullish' : 'text-bearish')}>
-            {isLong ? 'Long' : 'Short'}
+            {isLong ? 'long' : 'short'}
           </span>{' '}
           {baseAsset(plan.symbol)} at the next {plan.interval} open
         </p>
