@@ -29,6 +29,12 @@
 import { createHmac } from 'node:crypto';
 
 const BASE = 'https://demo-fapi.binance.com';
+/** Live, read-only, public only: used solely to diff the venue filters. */
+const LIVE_BASE = 'https://fapi.binance.com';
+const SIGNAL_SYMBOLS = [
+  'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+  'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT',
+];
 const KEY = process.env.BINANCE_DEMO_API_KEY;
 const SECRET = process.env.BINANCE_DEMO_API_SECRET;
 
@@ -45,14 +51,14 @@ function log(...parts) {
   console.log(redact(parts.join(' ')));
 }
 
-async function call(path, { signed = false, params = {} } = {}) {
+async function call(path, { signed = false, params = {}, base = BASE } = {}) {
   const query = new URLSearchParams(params);
   if (signed) {
     query.set('timestamp', String(Date.now()));
     query.set('recvWindow', '5000');
     query.set('signature', createHmac('sha256', SECRET).update(query.toString()).digest('hex'));
   }
-  const url = `${BASE}${path}${query.size > 0 ? `?${query}` : ''}`;
+  const url = `${base}${path}${query.size > 0 ? `?${query}` : ''}`;
   const started = Date.now();
   const res = await fetch(url, {
     method: 'GET',
@@ -88,29 +94,67 @@ async function main() {
 
   const findings = {};
 
-  // 1. Public reachability and the venue filters for the signal symbols.
+  // 1. Public reachability, and whether the DEMO venue filters match the LIVE
+  //    ones the trade-plan ticket was built from. They are not guaranteed to:
+  //    the demo venue carries its own filters, so an order sized against live
+  //    filters can be rejected on demo, or vice versa.
   const info = await call('/fapi/v1/exchangeInfo');
   log('');
   log('1. exchangeInfo     ', info.ok ? `ok (${info.ms}ms)` : `FAILED ${errorOf(info)}`);
   if (info.ok && Array.isArray(info.body?.symbols)) {
-    const wanted = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
-    const perpetual = info.body.symbols.filter(
-      (s) => wanted.includes(s.symbol) && s.contractType === 'PERPETUAL'
-    );
-    log('   symbols total     ', info.body.symbols.length);
-    for (const s of perpetual) {
+    log('   symbols on demo   ', info.body.symbols.length);
+    findings.exchangeInfo = true;
+
+    const live = await call('/fapi/v1/exchangeInfo', { base: LIVE_BASE });
+    log('   live exchangeInfo ', live.ok ? `ok (${live.ms}ms)` : `FAILED ${errorOf(live)}`);
+
+    const filtersOf = (body, symbol) => {
+      const s = body?.symbols?.find((x) => x.symbol === symbol && x.contractType === 'PERPETUAL');
+      if (!s) return null;
       const lot = s.filters.find((f) => f.filterType === 'LOT_SIZE');
       const notional = s.filters.find((f) => f.filterType === 'MIN_NOTIONAL');
-      log(
-        `   ${s.symbol.padEnd(9)} status=${s.status} stepSize=${lot?.stepSize} minNotional=${notional?.notional}`
+      const price = s.filters.find((f) => f.filterType === 'PRICE_FILTER');
+      return {
+        status: s.status,
+        stepSize: lot?.stepSize,
+        minQty: lot?.minQty,
+        minNotional: notional?.notional,
+        tickSize: price?.tickSize,
+      };
+    };
+
+    const mismatches = [];
+    for (const symbol of SIGNAL_SYMBOLS) {
+      const d = filtersOf(info.body, symbol);
+      const l = live.ok ? filtersOf(live.body, symbol) : null;
+      if (!d) {
+        mismatches.push(`${symbol}: ABSENT on demo`);
+        continue;
+      }
+      if (!l) continue;
+      const differing = ['stepSize', 'minQty', 'minNotional', 'tickSize'].filter(
+        (f) => String(d[f]) !== String(l[f])
       );
+      if (differing.length > 0) {
+        mismatches.push(
+          `${symbol}: ${differing.map((f) => `${f} demo=${d[f]} live=${l[f]}`).join(' ')}`
+        );
+      }
     }
-    findings.exchangeInfo = true;
-    // Whether demo filters match the live ones the ticket was built from.
-    findings.symbolsPresent = perpetual.length === wanted.length;
+    findings.symbolsPresent = SIGNAL_SYMBOLS.every((sym) => filtersOf(info.body, sym) !== null);
+    findings.filtersMatchLive = live.ok && mismatches.length === 0;
+    log('   all 10 symbols    ', findings.symbolsPresent);
+    if (mismatches.length === 0) {
+      log('   filters vs live   ', live.ok ? 'identical' : 'not compared');
+    } else {
+      log('   filters vs live   ', `${mismatches.length} differ:`);
+      for (const m of mismatches) log('     ', m);
+    }
   }
 
-  // 2. The keys, the balance, and the margin mode.
+  // 2. The keys and the balance. v3 is the current account endpoint, but it
+  //    DROPPED the permission flags, so `canTrade` and `feeTier` have to come
+  //    from v2. Checking them on v3 silently reads undefined.
   const account = await call('/fapi/v3/account', { signed: true });
   log('');
   log('2. v3/account       ', account.ok ? `ok (${account.ms}ms)` : `FAILED ${errorOf(account)}`);
@@ -118,13 +162,21 @@ async function main() {
     const usdt = (account.body.assets ?? []).find((a) => a.asset === 'USDT');
     log('   walletBalance USDT', usdt?.walletBalance ?? 'none');
     log('   availableBalance  ', account.body.availableBalance ?? 'none');
-    log('   canTrade          ', account.body.canTrade);
-    log('   feeTier           ', account.body.feeTier);
     findings.account = true;
-    findings.canTrade = account.body.canTrade === true;
     findings.balance = Number(usdt?.walletBalance ?? 0);
   } else {
     findings.account = false;
+  }
+
+  const perms = await call('/fapi/v2/account', { signed: true });
+  log('   v2/account        ', perms.ok ? `ok (${perms.ms}ms)` : `FAILED ${errorOf(perms)}`);
+  if (perms.ok) {
+    log('   canTrade          ', perms.body.canTrade);
+    log('   feeTier           ', perms.body.feeTier);
+    log('   multiAssetsMargin ', perms.body.multiAssetsMargin);
+    findings.canTrade = perms.body.canTrade === true;
+    findings.feeTier = perms.body.feeTier;
+    findings.multiAssets = perms.body.multiAssetsMargin === true;
   }
 
   // 3. One-way vs Hedge Mode. reduceOnly is rejected in Hedge Mode, so the
@@ -188,6 +240,7 @@ async function main() {
     ['one-way mode (reduceOnly usable)', findings.oneWay === true],
     ['account is flat', findings.flat === true],
     ['algo endpoints readable', findings.algoRead === true],
+    ['all ten signal symbols tradable', findings.symbolsPresent === true],
   ];
   for (const [label, ok] of checks) log(` ${ok ? 'PASS' : 'FAIL'}  ${label}`);
 
@@ -203,7 +256,14 @@ async function main() {
     log('STOP: the keys were refused or the account cannot trade.');
   } else {
     log('Clear to proceed to the signed client and a DRY RUN mirror.');
-    log(`Demo USDT balance: ${findings.balance}. Nothing was placed or changed by this probe.`);
+    log(`Demo USDT balance: ${findings.balance}, feeTier ${findings.feeTier}.`);
+    if (findings.filtersMatchLive === false) {
+      log('');
+      log('NOTE: the demo venue filters differ from live (listed above). The mirror must');
+      log('size orders against the DEMO filters it reads at runtime, not against the live');
+      log('table the trade-plan ticket uses, or orders will be rejected or mis-rounded.');
+    }
+    log('Nothing was placed or changed by this probe.');
   }
 }
 
