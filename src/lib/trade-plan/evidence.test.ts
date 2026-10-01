@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
 import { STRATEGY_EXIT_LEVEL, TIER_BUY_CUTOFF } from '@/lib/signals/calibration';
 import { CONTROL_EVIDENCE, evidenceFor, evidenceVerdictKind } from './evidence';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 
 describe('CONTROL_EVIDENCE', () => {
   it('has a row for every interval a style scores', () => {
@@ -56,8 +57,10 @@ describe('CONTROL_EVIDENCE', () => {
 });
 
 describe('evidenceFor', () => {
-  it('returns the recorded row', () => {
-    expect(evidenceFor('1h')).toBe(CONTROL_EVIDENCE['1h']);
+  it('returns the recorded row, its status derived for today', () => {
+    const derived = evidenceFor('1h');
+    expect({ ...derived, status: CONTROL_EVIDENCE['1h'].status }).toEqual(CONTROL_EVIDENCE['1h']);
+    expect(['current', 'stale']).toContain(derived.status);
   });
 
   it('returns an explicit unmeasured row for an interval with no record', () => {
@@ -84,5 +87,29 @@ describe('evidenceVerdictKind', () => {
     expect(CONTROL_EVIDENCE['1h'].configVersion).toBe(7);
     expect(CONTROL_EVIDENCE['5m'].configVersion).toBeNull();
     expect(CONTROL_EVIDENCE['1m'].configVersion).toBeNull();
+  });
+});
+
+describe('evidenceFor: status follows the live scorer version', () => {
+  it('is current only for a row measured under SCORER_CONFIG_VERSION at today\'s levels', () => {
+    for (const [interval, row] of Object.entries(CONTROL_EVIDENCE)) {
+      const derived = evidenceFor(interval).status;
+      if (row.status === 'none') {
+        expect(derived).toBe('none');
+      } else {
+        const matches =
+          row.configVersion === SCORER_CONFIG_VERSION &&
+          row.thresholds?.entry === TIER_BUY_CUTOFF &&
+          row.thresholds?.exit === STRATEGY_EXIT_LEVEL;
+        expect(derived).toBe(matches ? 'current' : 'stale');
+      }
+    }
+  });
+
+  it('turns a row from an earlier scorer stale without editing the table', () => {
+    const v7Row = Object.entries(CONTROL_EVIDENCE).find(([, r]) => r.configVersion === 7);
+    if (v7Row && (SCORER_CONFIG_VERSION as number) !== 7) {
+      expect(evidenceFor(v7Row[0]).status).toBe('stale');
+    }
   });
 });

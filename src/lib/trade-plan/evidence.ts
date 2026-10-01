@@ -1,4 +1,6 @@
 import type { ControlEvidence } from './types';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
+import { STRATEGY_EXIT_LEVEL, TIER_BUY_CUTOFF } from '@/lib/signals/calibration';
 
 /**
  * What the research record says about the rule the ticket describes.
@@ -109,11 +111,18 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
   },
 };
 
+/**
+ * The recorded row for an interval, with its status DERIVED for today: current
+ * only when it was measured under the live scorer's configVersion AND at
+ * today's entry and exit levels. A scorer change therefore turns every row
+ * measured before it stale by itself, without anyone editing the table, until
+ * the control is re-measured under the new version.
+ */
 export function evidenceFor(interval: string): ControlEvidence {
-  return (
+  const row =
     CONTROL_EVIDENCE[interval] ?? {
       interval,
-      status: 'none',
+      status: 'none' as const,
       label: 'No research record',
       provenance: `The composite control was never measured at ${interval}.`,
       thresholds: null,
@@ -124,8 +133,13 @@ export function evidenceFor(interval: string): ControlEvidence {
       medianHoldBars: null,
       verdict: `Unmeasured: nothing in the record supports or rejects this rule at ${interval}.`,
       configVersion: null,
-    }
-  );
+    };
+  if (row.status === 'none') return row;
+  const current =
+    row.configVersion === SCORER_CONFIG_VERSION &&
+    row.thresholds?.entry === TIER_BUY_CUTOFF &&
+    row.thresholds?.exit === STRATEGY_EXIT_LEVEL;
+  return { ...row, status: current ? 'current' : 'stale' };
 }
 
 /**

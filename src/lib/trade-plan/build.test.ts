@@ -5,7 +5,7 @@ import type { StrategyContext } from '@/lib/backtest/strategy';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import type { OpenPosition } from '@/lib/backtest/trade-utils';
 import { TradePlanError, buildTradePlan, signalContext, type TradePlanInput } from './build';
-import { CONTROL_EVIDENCE } from './evidence';
+import { CONTROL_EVIDENCE, evidenceFor } from './evidence';
 import { STOP_WINDOW_BARS, TRADE_PLAN_STRATEGY, stopsFor, tradePlanConfig } from './rule';
 
 const HOUR = 3_600_000;
@@ -198,7 +198,9 @@ describe('buildTradePlan: costs', () => {
   });
 
   it('attaches the recorded evidence for the interval', () => {
-    expect(buildTradePlan(input()).evidence).toBe(CONTROL_EVIDENCE['1h']);
+    // The recorded row, with its status derived for today's scorer version.
+    expect(buildTradePlan(input()).evidence).toEqual(evidenceFor('1h'));
+    expect(buildTradePlan(input()).evidence).toMatchObject({ ...CONTROL_EVIDENCE['1h'], status: evidenceFor('1h').status });
   });
 });
 
