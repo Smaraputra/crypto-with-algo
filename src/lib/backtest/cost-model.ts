@@ -10,6 +10,17 @@ export type FillKind = 'maker' | 'taker';
 export const BINANCE_FUTURES_MAKER_FEE = 0.0002; // 0.02%
 export const BINANCE_FUTURES_TAKER_FEE = 0.0005; // 0.05%
 
+/**
+ * Binance SPOT, VIP 0: 0.10% maker and taker, 0.075% when fees are paid in BNB.
+ * The published schedule as of 2026-10; only the funding carry test
+ * (scripts/research/carry-sim.ts) reads these, and it records them as pending
+ * the user's own fee-page confirmation, as the perp fees were confirmed on
+ * 2026-09-27 against the user's fills.
+ */
+export const BINANCE_SPOT_MAKER_FEE = 0.001; // 0.10%
+export const BINANCE_SPOT_TAKER_FEE = 0.001; // 0.10%
+export const BINANCE_SPOT_BNB_FEE = 0.00075; // 0.075%
+
 /** Slippage budget, in basis points, applied to taker fills for a study
  * backtest. Shorter intervals move faster relative to book depth and get a
  * wider allowance. */
