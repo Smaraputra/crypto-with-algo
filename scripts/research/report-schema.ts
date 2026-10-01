@@ -965,6 +965,103 @@ export function validateExposureReport(json: unknown): ValidationResult<Exposure
   return { ok: false, issues: formatIssues(result.error) };
 }
 
+/**
+ * The funding carry report (scripts/research/carry-harness.ts). Its own
+ * schema rather than a widened exposure one: a carry book has two legs,
+ * settlements, capital and leverage, none of which the exposure report
+ * carries. Every field is declared, because Zod strips what is not.
+ */
+const AnnualStatSchema = z.object({
+  annual: z.number().nullable(),
+  ciLow: z.number().nullable(),
+  ciHigh: z.number().nullable(),
+  days: z.number(),
+});
+
+const CarryGateSchema = z.object({
+  name: z.enum(['significance', 'hurdle', 'periods']),
+  pass: z.boolean(),
+  value: z.number().nullable(),
+  threshold: z.number(),
+  note: z.string(),
+});
+
+const CarryRuleResultSchema = z.object({
+  rule: z.string(),
+  stat: AnnualStatSchema,
+  /** Block-length sensitivity: the same statistic at 10 and 40 day blocks. */
+  statBlock10: AnnualStatSchema,
+  statBlock40: AnnualStatSchema,
+  periods: z.array(z.object({ label: z.string(), annual: z.number().nullable(), days: z.number() })),
+  gates: z.array(CarryGateSchema),
+  killed: z.boolean(),
+  fundingAnnual: z.number().nullable(),
+  costAnnual: z.number().nullable(),
+  perSymbolAnnual: z.record(z.string(), z.number().nullable()),
+  jackknifeAnnual: z.record(z.string(), z.number().nullable()),
+  costRows: z.array(z.object({ profile: z.string(), annual: z.number().nullable() })),
+  leverage: z.array(
+    z.object({
+      leverage: z.number(),
+      liquidationDistance: z.number(),
+      annualOnCapital: z.number().nullable(),
+      liquidations: z.number(),
+      liquidationCostAnnual: z.number().nullable(),
+      worstAdverseMove: z.number(),
+      worstDrawdownOnCapital: z.number(),
+    })
+  ),
+});
+
+export const CarryReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  taskId: z.string(),
+  datasetManifestHash: z.string(),
+  lockboxApplied: z.boolean(),
+  symbols: z.array(z.string()),
+  trials: z.number(),
+  costPerSide: z.number(),
+  meanBlockLenDays: z.number(),
+  windows: z.array(
+    z.object({
+      testFrom: z.number(),
+      testTo: z.number(),
+      trainFrom: z.number(),
+      trainTo: z.number(),
+      r1Selected: z.string(),
+      r1TrainAnnual: z.number().nullable(),
+      r0Annual: z.number().nullable(),
+      r1Annual: z.number().nullable(),
+    })
+  ),
+  r0: CarryRuleResultSchema,
+  r1: CarryRuleResultSchema,
+  r1VsR0: AnnualStatSchema,
+  timing: z.object({ p: z.number(), observed: z.number().nullable(), nullMean: z.number().nullable(), draws: z.number() }),
+  r1IsTimingFinding: z.boolean(),
+  feasibility: z.array(
+    z.object({
+      symbol: z.string(),
+      capital: z.number(),
+      notionalSingle: z.number(),
+      feasibleSingle: z.boolean(),
+      notionalInBook: z.number(),
+      feasibleInBook: z.boolean(),
+    })
+  ),
+  killCriterionFires: z.boolean(),
+  computedAt: z.string(),
+  gitCommit: z.string(),
+  durationMs: z.number(),
+});
+export type CarryReport = z.infer<typeof CarryReportSchema>;
+
+export function validateCarryReport(json: unknown): ValidationResult<CarryReport> {
+  const result = CarryReportSchema.safeParse(json);
+  if (result.success) return { ok: true, data: result.data };
+  return { ok: false, issues: formatIssues(result.error) };
+}
+
 // Every finite number reachable inside `pooled`, except the counts and
 // indexes listed here: a sample size, a raw trial/window/year count, or an
 // array index is not a "statistic" a finding should be able to cite by
