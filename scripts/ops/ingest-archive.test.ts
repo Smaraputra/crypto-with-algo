@@ -64,6 +64,15 @@ describe('parseArgs', () => {
     expect(args.concurrency).toBe(8);
     expect(args.refresh).toBe(false);
     expect(args.dryRun).toBe(false);
+    // fundingRate rows keep going to snapshots unless told otherwise, so an
+    // existing invocation behaves exactly as before.
+    expect(args.fundingTarget).toBe('snapshots');
+  });
+
+  it('parses --funding-target and rejects an unknown target', () => {
+    expect(parseArgs(['--funding-target', 'settlements'], NOW).fundingTarget).toBe('settlements');
+    expect(parseArgs(['--funding-target', 'both'], NOW).fundingTarget).toBe('both');
+    expect(() => parseArgs(['--funding-target', 'bars'], NOW)).toThrow(/--funding-target must be one of/);
   });
 
   it('defaults --from to the archive floor and --to to yesterday', () => {
