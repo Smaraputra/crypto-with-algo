@@ -54,15 +54,22 @@
  *   use. A traded-weight notional of `|w|` in a portfolio whose total gross is
  *   `gross` carries funding in proportion to `|w| / gross`.
  *
- *   One deliberate divergence from `accrueFunding` in `trade-utils.ts`. That
- *   helper calls `fundingPnl(notional, rate, side, crossings)` with the bar's
- *   whole crossing count, which is right for an engine whose position persists
- *   across bars and whose rate is a snapshot: it has no better rate to use for
- *   the intermediate boundaries. Here the rate column is read per bar, so the
- *   rate at bar t IS the rate settling at that bar's boundary, and charging it
- *   `crossings` times would apply one settlement's rate to all three of a 1d
- *   bar's settlements. On a flat rate the two agree exactly, which is why the
- *   tests pin the flat case and the engine's own tests still pass unchanged.
+ *   Charged exactly as `accrueFunding` in `trade-utils.ts` charges it:
+ *   `fundingPnl(notional, rate, side, crossings)` with the bar's whole
+ *   crossing count. The rate column is the snapshot's last SETTLED rate,
+ *   carried forward onto every bar, not one settlement per bar, so a 1d bar
+ *   that spans three 8h boundaries owes three settlements. Using the one rate
+ *   for all three is a stale-rate approximation (exact on a flat rate), the
+ *   same one the engines make. Until 2026-10-01 this charged a single
+ *   settlement per bar on the reasoning that the per-bar rate "is the rate
+ *   settling at that boundary", which undercharged every 1d bar by two
+ *   thirds; 1h and 4h bars cross at most one boundary and were unaffected
+ *   (review finding M8). The Phase 5 1d rows in `exposure-gates.ts` were
+ *   computed before the fix.
+ *
+ *   `FUNDING_INTERVAL_MS` in `funding.ts` is a fixed 8h, so a symbol whose
+ *   settlement interval Binance shortened to 4h is undercounted here and in
+ *   both engines.
  *
  * - The bootstrap block length is set from the holding horizon, NOT by the
  *   `max(2, round(cbrt(n)))` rule `strategy-gates.ts` uses. See
@@ -682,15 +689,10 @@ export function simulateExposure(
       if (Number.isFinite(rate) && exposure !== 0) {
         const crossings = fundingCrossings(symbols[s].timestamps[t], symbols[s].timestamps[t + 1]);
         if (crossings > 0) {
-          // fundingPnl takes a long/short side and multiplies by the number of
-          // crossings. Called with crossings = 1 and the weight carrying the
-          // sign, which is what the 8h grid actually implies: the rate read at
-          // this bar is the rate settling at THIS boundary. Passing the bar's
-          // crossing count would apply one settlement's rate to every boundary
-          // the bar spans, which overcharges a 1d bar threefold whenever the
-          // rate moved between its settlements.
-          const signed = exposure > 0 ? fundingPnl(1, rate, 'long', 1) : fundingPnl(1, rate, 'short', 1);
-          fundingThisBar += Math.abs(exposure) * signed;
+          // Every settlement the bar spans is owed, at the last settled rate
+          // (see the header): a 1d bar pays three, a 1h or 4h bar at most one.
+          const side = exposure > 0 ? 'long' : 'short';
+          fundingThisBar += Math.abs(exposure) * fundingPnl(1, rate, side, crossings);
         }
       }
     }

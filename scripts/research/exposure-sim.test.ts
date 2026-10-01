@@ -312,8 +312,8 @@ describe('simulateExposure fee profile', () => {
 
 describe('simulateExposure funding', () => {
   const closes = [100, 100, 100];
-  // The rate read at each bar, one settlement per bar. Bar 1 carries a rate,
-  // so the funding it causes lands on bar 1's own return.
+  // The rate read at each bar is the last SETTLED rate carried forward. Bar 1
+  // carries a rate, so the funding it causes lands on bar 1's own return.
   const rates = [0, 0.0001, 0];
 
   it('charges a long weight negatively on a positive rate, matching fundingPnl', () => {
@@ -326,13 +326,14 @@ describe('simulateExposure funding', () => {
       interval: '1d',
     });
 
-    // One settlement's rate applied to one settlement, not three: the rate
-    // column is per bar, so multiplying by the bar's crossing count would
-    // charge the same rate to every boundary the bar spans.
+    // A 1d bar spans three 8h boundaries and owes all three settlements, as
+    // accrueFunding charges them (review M8: this used to pin ONE settlement,
+    // a two-thirds undercharge on every 1d bar).
     const w = Math.abs(W(-1));
-    const expected = fundingPnl(w, 0.0001, 'long', 1);
-    expect(expected).toBeLessThan(0);
     expect(fundingCrossings(0, DAY)).toBe(3);
+    const expected = fundingPnl(w, 0.0001, 'long', 3);
+    expect(expected).toBeLessThan(0);
+    expect(expected).toBeCloseTo(3 * fundingPnl(w, 0.0001, 'long', 1), 15);
     expect(result.fundingReturns[1]).toBeCloseTo(expected, 12);
     expect(result.netReturns[1]).toBeCloseTo(expected, 12);
   });
@@ -346,9 +347,29 @@ describe('simulateExposure funding', () => {
       gross: 1,
       interval: '1d',
     });
-    const expected = fundingPnl(Math.abs(W(1)), 0.0001, 'short', 1);
+    const expected = fundingPnl(Math.abs(W(1)), 0.0001, 'short', 3);
     expect(expected).toBeGreaterThan(0);
     expect(result.fundingReturns[1]).toBeCloseTo(expected, 12);
+  });
+
+  it('charges one settlement on a 4h bar that crosses one boundary, none on one that crosses none', () => {
+    // A 4h grid starting at 00:00: the bar 00:00 -> 04:00 crosses no 8h
+    // boundary, the bar 04:00 -> 08:00 crosses 08:00. The 1h and 4h recorded
+    // runs are therefore untouched by the M8 fix.
+    const FOUR_H = 4 * 3_600_000;
+    const input = {
+      symbol: 'BTCUSDT',
+      timestamps: [0, FOUR_H, 2 * FOUR_H],
+      closes: [100, 100, 100],
+      z: [-1, -1, -1],
+      fundingRates: [0.0001, 0.0001, 0.0001],
+    };
+    const result = simulateExposure([input], { band: 0, zScale: 1, smoothing: 0, gross: 1, interval: '4h' });
+    const w = Math.abs(W(-1));
+    expect(fundingCrossings(0, FOUR_H)).toBe(0);
+    expect(fundingCrossings(FOUR_H, 2 * FOUR_H)).toBe(1);
+    expect(result.fundingReturns[0]).toBe(0);
+    expect(result.fundingReturns[1]).toBeCloseTo(fundingPnl(w, 0.0001, 'long', 1), 12);
   });
 
   it('charges nothing on a zero weight', () => {
@@ -375,7 +396,8 @@ describe('simulateExposure funding', () => {
       gross: 1,
       interval: '1d',
     });
-    const expected = fundingPnl(Math.abs(W(-1, 2)), 0.0001, 'long', 1);
+    // Three settlements on a 1d bar, as in the cases above.
+    const expected = fundingPnl(Math.abs(W(-1, 2)), 0.0001, 'long', 3);
     expect(result.fundingReturns[1]).toBeCloseTo(expected, 12);
   });
 });
