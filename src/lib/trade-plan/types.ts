@@ -43,6 +43,20 @@ export interface ControlEvidence {
   ciLowPercent: number | null;
   ciHighPercent: number | null;
   medianHoldBars: number | null;
+  /**
+   * Raw per-trade sd, in percent: one trade's dispersion (review M6). Null
+   * when there is no run.
+   */
+  sdPercentRaw: number | null;
+  /**
+   * Effective per-trade sd, in percent, recovered from the run's bootstrap CI
+   * (half-width x sqrt(n) / 1.96). It carries the correlation of trades taken
+   * at the same time on different symbols, so it is the one that says how
+   * many trades a forward record needs. Null when there is no run.
+   */
+  sdPercentEffective: number | null;
+  /** Trades a day across the ten symbols in the run's out-of-sample span. */
+  tradesPerDay: number | null;
   verdict: string;
   /**
    * The scorer configVersion the run was measured under; null for a run on

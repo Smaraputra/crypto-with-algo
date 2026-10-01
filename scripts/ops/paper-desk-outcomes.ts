@@ -30,6 +30,10 @@
  *   --book <style:interval>   one book only, e.g. day_trading:1h
  *   --symbol <SYMBOL>         one symbol only
  *   --since <ISO date>        trades that closed at or after this moment
+ *   --config-version <n>      the scorer epoch to read (default: the live
+ *                             SCORER_CONFIG_VERSION); an earlier epoch's
+ *                             trades, epoch_end closes included, stay
+ *                             readable this way
  *   --json                    one JSON line per book instead of a table
  *   --mongo-uri <uri>         connect here instead of MONGODB_URI
  */
@@ -37,8 +41,9 @@ import { connectDB } from '@/lib/mongodb';
 import { PaperBook } from '@/lib/models/paper-book';
 import { PaperLedger } from '@/lib/models/paper-ledger';
 import { PaperTrade, type IPaperTrade } from '@/lib/models/paper-trade';
-import { DESK_BOOKS, parseBookId, type BookKey } from '@/lib/paper-desk/books';
-import { buildBookReport, type BookReport } from '@/lib/paper-desk/report';
+import { DESK_BOOKS, DESK_READ_RULE, parseBookId, type BookKey } from '@/lib/paper-desk/books';
+import { buildBookReport, describeReadRule, type BookReport } from '@/lib/paper-desk/report';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 
 export { buildBookReport, trackStats, type BookReport, type TrackStats } from '@/lib/paper-desk/report';
 
@@ -46,6 +51,8 @@ export interface ParsedArgs {
   book: BookKey | null;
   symbol: string | null;
   since: Date | null;
+  /** The scorer configVersion whose trades are read. */
+  configVersion: number;
   json: boolean;
   mongoUri: string | null;
 }
@@ -63,6 +70,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let book: BookKey | null = null;
   let symbol: string | null = null;
   let since: Date | null = null;
+  let configVersion = SCORER_CONFIG_VERSION;
   let json = false;
   let mongoUri: string | null = null;
 
@@ -82,6 +90,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
         since = parsed;
         break;
       }
+      case '--config-version': {
+        const value = nextValue(argv, ++i, '--config-version');
+        if (!/^\d+$/.test(value)) throw new Error(`--config-version: expected a positive integer, got "${value}"`);
+        configVersion = Number(value);
+        break;
+      }
       case '--json':
         json = true;
         break;
@@ -93,7 +107,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
   }
 
-  return { book, symbol, since, json, mongoUri };
+  return { book, symbol, since, configVersion, json, mongoUri };
 }
 
 function pct(value: number | null, digits = 4): string {
@@ -107,6 +121,7 @@ export function formatReport(reports: BookReport[], json: boolean): string {
   for (const r of reports) {
     lines.push('');
     lines.push(`=== ${r.book} ===`);
+    lines.push(`  read rule   ${describeReadRule(r.readRule)}`);
     if (r.trades === 0) {
       lines.push(
         `  no closed trades yet; ${r.openPositions} open, ${r.symbols} ledgers, ${r.missingScoreBars} unscored bars`
@@ -117,14 +132,14 @@ export function formatReport(reports: BookReport[], json: boolean): string {
     lines.push(
       `  engine      n=${e.trades} exp=${pct(e.expectancyPercent)} CI95=[${pct(e.ciLowPercent)}, ${pct(
         e.ciHighPercent
-      )}] win=${(e.winRate * 100).toFixed(1)}% pnl=${e.totalPnl.toFixed(2)}`
+      )}] win (descriptive)=${(e.winRate * 100).toFixed(1)}% pnl=${e.totalPnl.toFixed(2)}`
     );
     if (r.executable) {
       const x = r.executable;
       lines.push(
         `  executable  n=${x.trades} exp=${pct(x.expectancyPercent)} CI95=[${pct(x.ciLowPercent)}, ${pct(
           x.ciHighPercent
-        )}] win=${(x.winRate * 100).toFixed(1)}% pnl=${x.totalPnl.toFixed(2)}`
+        )}] win (descriptive)=${(x.winRate * 100).toFixed(1)}% pnl=${x.totalPnl.toFixed(2)}`
       );
     }
     lines.push(
@@ -149,7 +164,10 @@ export function formatReport(reports: BookReport[], json: boolean): string {
     lines.push(`  bars        ${r.missingScoreBars} stepped with at least one symbol unscored`);
   }
   lines.push('');
-  lines.push('Win rate is reported, never targeted. Books are never pooled.');
+  lines.push(
+    `Read rule declared ${DESK_READ_RULE.declaredOn}: futility any time, go-live read once at the count, ` +
+      'on the executable track. Win rate is descriptive, never a verdict. Books are never pooled.'
+  );
   return lines.join('\n');
 }
 
@@ -161,6 +179,7 @@ export async function runPaperDeskOutcomes(args: ParsedArgs): Promise<BookReport
     const filter: Record<string, unknown> = { tradingStyle: key.tradingStyle, interval: key.interval };
     if (args.symbol) filter.symbol = args.symbol;
     if (args.since) filter.exitTime = { $gte: args.since.getTime() };
+    filter.entryConfigVersion = args.configVersion;
 
     const trades = await PaperTrade.find(filter).sort({ exitTime: 1 }).lean<IPaperTrade[]>();
     const ledgerFilter: Record<string, unknown> = {

@@ -7,6 +7,7 @@ import { PaperLedger } from '@/lib/models/paper-ledger';
 import { PaperTrade, type IPaperTrade } from '@/lib/models/paper-trade';
 import { BOOK_START_EQUITY, DESK_BOOKS } from '@/lib/paper-desk/books';
 import { buildBookReport, equityCurveFromTrades } from '@/lib/paper-desk/report';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 
 /**
  * GET /api/admin/paper-desk
@@ -28,7 +29,11 @@ export async function GET() {
   const books = [];
   for (const key of DESK_BOOKS) {
     const filter = { tradingStyle: key.tradingStyle, interval: key.interval };
-    const trades = await PaperTrade.find(filter).sort({ exitTime: 1 }).lean<IPaperTrade[]>();
+    // The current scorer epoch only: trades opened under an earlier
+    // configVersion, including the epoch_end closes, belong to another record.
+    const trades = await PaperTrade.find({ ...filter, entryConfigVersion: SCORER_CONFIG_VERSION })
+      .sort({ exitTime: 1 })
+      .lean<IPaperTrade[]>();
     const ledgers = await PaperLedger.find(filter).lean();
     const book = await PaperBook.findOne(filter).lean();
     const startEquity = ledgers.length * BOOK_START_EQUITY;

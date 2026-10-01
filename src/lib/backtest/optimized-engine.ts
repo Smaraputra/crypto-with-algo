@@ -72,6 +72,9 @@ export function prepareHtf(
  * by candle open time and are precomputed over the FULL series by the caller,
  * so preparing a slice selects a sub-range rather than recomputing a shorter
  * window; see research-series.ts for why that distinction matters.
+ * Optional lsRows1h are the symbol's 1h snapshots for the L/S z (scorer
+ * configVersion 8). Required by buildSnapshotSeries whenever snapshotDocs are
+ * coarser than 1h (4h, 1d), which it enforces by throwing.
  */
 export function prepareBacktest(
   candles: OHLCV[],
@@ -80,7 +83,8 @@ export function prepareBacktest(
   indicatorConfig?: IndicatorConfig,
   snapshotDocs?: LeanSnapshot[],
   htfInput?: HtfInput,
-  researchRows?: readonly ResearchRow[]
+  researchRows?: readonly ResearchRow[],
+  lsRows1h?: readonly LeanSnapshot[]
 ): PreparedBacktest {
   // Compute raw indicators with optional style-specific config
   const raw = computeAllIndicators(candles, symbol, interval, indicatorConfig);
@@ -103,7 +107,7 @@ export function prepareBacktest(
     warmupBars: warmup,
     stOffset,
     ...(snapshotDocs
-      ? { snapshots: buildSnapshotSeries(candles, snapshotDocs, interval, { symbol }) }
+      ? { snapshots: buildSnapshotSeries(candles, snapshotDocs, interval, { symbol, lsRows1h }) }
       : {}),
     ...(researchRows ? { research: buildResearchSeries(candles, researchRows) } : {}),
     ...(htfInput ? { htf: prepareHtf(candles, interval, htfInput, indicatorConfig) } : {}),

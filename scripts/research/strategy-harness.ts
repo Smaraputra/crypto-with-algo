@@ -522,6 +522,8 @@ interface SymbolInputs {
   symbol: string;
   candles: OHLCV[];
   snapshots: LeanSnapshot[];
+  /** 1h rows for the scorer's L/S z when `snapshots` are 4h/1d (configVersion 8); undefined at 1h and finer. */
+  lsRows1h: LeanSnapshot[] | undefined;
   snapshotRows: number;
   htfInput: HtfInput | undefined;
   htfBars: number;
@@ -565,6 +567,22 @@ function loadSymbolInputs(
     snapshots = snapshotResult.rows.filter((r) => opts.end === undefined || r.t <= opts.end).map(toLeanSnapshot);
     if (snapshotInterval !== interval) {
       console.error(`[strategy-harness] ${symbol}: using ${snapshotInterval} snapshots for ${interval} candles`);
+    }
+  }
+
+  // At 4h and 1d the scorer's L/S z (configVersion 8) is computed on the 1h
+  // rows, kept to t <= end like the rows above. Without the file the L/S
+  // signal abstains, and the run says so.
+  let lsRows1h: LeanSnapshot[] | undefined;
+  if (snapshotInterval !== '1h') {
+    const lsPath = join(datasetDir, 'snapshots', symbol, '1h.jsonl.gz');
+    if (existsSync(lsPath)) {
+      lsRows1h = loadSnapshots(datasetDir, symbol, '1h', { allowLockbox: opts.allowLockbox })
+        .rows.filter((r) => opts.end === undefined || r.t <= opts.end)
+        .map(toLeanSnapshot);
+    } else {
+      console.error(`[strategy-harness] ${symbol}: no 1h snapshot file, the L/S z is absent at ${interval}`);
+      lsRows1h = [];
     }
   }
 
@@ -632,6 +650,7 @@ function loadSymbolInputs(
     symbol,
     candles,
     snapshots,
+    lsRows1h,
     snapshotRows: snapshots.length,
     htfInput,
     htfBars,
@@ -953,6 +972,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
       family,
       cells,
       snapshots: input.snapshots.length > 0 ? input.snapshots : undefined,
+      lsRows1h: input.lsRows1h,
       researchRows: input.researchRows,
       htfInput: input.htfInput,
       costs: symbolCosts,
@@ -1190,6 +1210,7 @@ export async function runCell(args: StrategyHarnessArgs): Promise<StrategyCellRe
     family,
     cells: [windowReport.selectedParams],
     snapshots: input.snapshots.length > 0 ? input.snapshots : undefined,
+    lsRows1h: input.lsRows1h,
     // runCell must build the SAME columns as the full run, or a spot check
     // silently checks a different factor from the one it is verifying.
     researchRows: input.researchRows,

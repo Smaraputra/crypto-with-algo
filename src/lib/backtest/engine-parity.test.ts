@@ -165,6 +165,43 @@ describe('engine parity', () => {
     expect(optimized.snapshotCoverage).toEqual(direct.snapshotCoverage);
   });
 
+  it('parity holds when the L/S z is live (configVersion 8)', async () => {
+    // A constant ratio has no spread, so its z is undefined and the signal
+    // abstains: the case above. Here the ratio moves and the snapshots are
+    // hourly, so the 30-day z (360-sample floor) is defined for the bars past
+    // the warmup and the L/S signal actually takes part in the score.
+    const { buildSnapshotSeries } = await import('./snapshot-series');
+    const candles = generateCandles(900);
+    const config = {
+      ...DEFAULT_BACKTEST_CONFIG,
+      allowShorts: true,
+      entryThreshold: 15,
+      exitThreshold: -5,
+      shortEntryThreshold: -15,
+      shortExitThreshold: 5,
+    };
+    const snapshotDocs = candles.map((c, i) => ({
+      timestamp: c.timestamp,
+      data: {
+        fundingRate: { rate: 0.0001, markPrice: c.close },
+        longShortRatio: { ratio: 1.5 + 0.4 * Math.sin(i / 25), longAccount: 0.6, shortAccount: 0.4 },
+        fearGreed: { index: 50, label: 'Neutral' },
+      },
+    }));
+
+    const series = buildSnapshotSeries(candles, snapshotDocs, '1h', { symbol: 'BTCUSDT' });
+    const withZ = series.filter((b) => Number.isFinite(b?.futures?.longShortRatio?.zScore ?? Number.NaN));
+    expect(withZ.length).toBeGreaterThan(400);
+
+    const direct = runBacktest(candles, config, 'BTCUSDT', '1h', undefined, series);
+    const prepared = prepareBacktest(candles, 'BTCUSDT', '1h', undefined, snapshotDocs);
+    const optimized = runOptimizedBacktest(prepared, config, 'BTCUSDT', '1h');
+
+    expect(direct.trades.length).toBeGreaterThan(0);
+    expect(optimized.trades).toEqual(direct.trades);
+    expect(optimized.metrics).toEqual(direct.metrics);
+  });
+
   it('parity holds with funding accrual enabled', async () => {
     const { buildSnapshotSeries } = await import('./snapshot-series');
     const candles = generateCandles(400);

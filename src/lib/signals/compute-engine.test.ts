@@ -1,15 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import type { OHLCV } from '@/types/market';
+import { SCORER_CONFIG_VERSION } from './config-version';
 
 const mockGetCandles = vi.fn();
 const mockFetchKlines = vi.fn();
-const mockFetchFundingRate = vi.fn();
-const mockFetchLongShortRatio = vi.fn();
 const mockFetchFearAndGreed = vi.fn();
 const mockConnectDB = vi.fn();
 const mockInsertMany = vi.fn();
 const mockSnapshotAggregate = vi.fn();
+const mockSnapshotFind = vi.fn();
 const mockCreate = vi.fn();
 const mockFindOne = vi.fn();
 const mockCreatePendingOutcomes = vi.hoisted(() => vi.fn());
@@ -38,10 +38,6 @@ vi.mock('@/lib/binance', () => ({
   fetchKlines: (...args: unknown[]) => mockFetchKlines(...args),
 }));
 
-vi.mock('@/lib/binance-futures', () => ({
-  fetchFundingRate: (...args: unknown[]) => mockFetchFundingRate(...args),
-  fetchLongShortRatio: (...args: unknown[]) => mockFetchLongShortRatio(...args),
-}));
 
 vi.mock('@/lib/external/fear-greed', () => ({
   fetchFearAndGreed: () => mockFetchFearAndGreed(),
@@ -101,6 +97,8 @@ function generateCandles(count: number, startPrice = 40000): OHLCV[] {
 vi.mock('@/lib/models/historical-snapshot', () => ({
   HistoricalSnapshot: {
     aggregate: (...args: unknown[]) => mockSnapshotAggregate(...args),
+    // configVersion 8: the futures input is read from stored snapshots.
+    find: (...args: unknown[]) => ({ sort: () => ({ lean: () => mockSnapshotFind(...args) }) }),
   },
 }));
 
@@ -108,8 +106,7 @@ describe('compute-engine', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetchFearAndGreed.mockResolvedValue(null);
-    mockFetchFundingRate.mockResolvedValue([]);
-    mockFetchLongShortRatio.mockResolvedValue([]);
+    mockSnapshotFind.mockResolvedValue([]);
     mockFindOne.mockResolvedValue(null);
     mockInsertMany.mockResolvedValue([]);
     mockSnapshotAggregate.mockResolvedValue([]);
@@ -117,6 +114,57 @@ describe('compute-engine', () => {
   });
 
   describe('computeSignalBatch', () => {
+    it('reads the futures input from stored snapshots, with the 30-day L/S z (v8)', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockResolvedValue(candles);
+      mockFetchKlines.mockResolvedValue(candles);
+      // 800 hourly rows ending two hours before the newest candle opens, with
+      // a moving ratio, so the z is defined at whichever bar is scored.
+      const last = candles[candles.length - 1].timestamp;
+      const rows = Array.from({ length: 800 }, (_, k) => {
+        const t = last - (801 - k) * 60 * 60 * 1000;
+        return {
+          timestamp: t,
+          data: {
+            fundingRate: { rate: 0.0003 },
+            longShortRatio: { ratio: 1.5 + 0.4 * Math.sin(k / 30), longAccount: 0.6, shortAccount: 0.4 },
+          },
+        };
+      });
+      mockSnapshotFind.mockResolvedValue(rows);
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      const result = await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+      ]);
+
+      expect(result.computed).toBe(1);
+      expect(result.details[0].futures).toEqual({ funding: true, lsZ: true });
+      const futures = mockInsertMany.mock.calls[0][0][0].components.find(
+        (c: { category: string }) => c.category === 'futures'
+      );
+      const ls = futures.signals.find((sig: { name: string }) => sig.name === 'Long/Short Ratio');
+      expect(ls.description).toMatch(/z [+-]\d+\.\d{2} vs 30d/);
+      // The query reads only the 1h rows at 1h, projected to the futures fields.
+      const [filter, projection] = mockSnapshotFind.mock.calls[0];
+      expect(filter).toMatchObject({ symbol: 'BTCUSDT', interval: '1h' });
+      expect(projection).toEqual({ timestamp: 1, 'data.fundingRate': 1, 'data.longShortRatio': 1 });
+    });
+
+    it('scores without futures, and says so, when no snapshot is stored', async () => {
+      const candles = generateCandles(500);
+      mockGetCandles.mockResolvedValue(candles);
+      mockFetchKlines.mockResolvedValue(candles);
+
+      const { computeSignalBatch } = await import('./compute-engine');
+      const result = await computeSignalBatch([
+        { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+      ]);
+
+      expect(result.computed).toBe(1);
+      expect(result.details[0].futures).toEqual({ funding: false, lsZ: false });
+    });
+
     it('returns zeros for empty tasks', async () => {
       const { computeSignalBatch } = await import('./compute-engine');
       const result = await computeSignalBatch([]);
@@ -156,10 +204,12 @@ describe('compute-engine', () => {
         insertedDocs[0].session
       );
       // The version is what keeps tier-conditioned statistics from being
-      // pooled across a change that moved every score. 7 is the news lexicon
-      // repair, 6 the indicator scale fixes and the 29/37 cutoffs, 5 the
-      // scorer-correctness fixes and the 30/38 cutoffs before them.
-      expect(insertedDocs[0].configVersion).toBe(7);
+      // pooled across a change that moved every score. 8 is the L/S z and the
+      // stored-snapshot futures input, 7 the news lexicon repair, 6 the
+      // indicator scale fixes and the 29/37 cutoffs, 5 the scorer-correctness
+      // fixes and the 30/38 cutoffs before them.
+      expect(insertedDocs[0].configVersion).toBe(SCORER_CONFIG_VERSION);
+      expect(SCORER_CONFIG_VERSION).toBe(8);
       expect(insertedDocs[0].htfContext).not.toBeNull();
       expect(insertedDocs[0].htfContext.interval).toBe('4h');
       expect(['bullish', 'bearish', 'neutral']).toContain(insertedDocs[0].htfContext.trendDirection);
@@ -439,7 +489,7 @@ describe('compute-engine', () => {
           symbol: 'BTCUSDT',
           interval: '1h',
           tradingStyle: 'day_trading',
-          configVersion: 7,
+          configVersion: SCORER_CONFIG_VERSION,
         });
         expect(typeof signalsArg[0].score).toBe('number');
         expect(['strong_buy', 'buy', 'neutral', 'sell', 'strong_sell']).toContain(

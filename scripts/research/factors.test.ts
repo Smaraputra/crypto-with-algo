@@ -67,21 +67,25 @@ function toCandleRow(candle: OHLCV): CandleRow {
   };
 }
 
-/** Sparse synthetic snapshots: every 4th bar, mirroring engine-parity.test.ts's pattern. */
+/**
+ * Synthetic hourly snapshots. Funding and Fear & Greed step every 4th bar and
+ * hold in between, and news appears on one bar in 24, so those inputs keep
+ * the coverage the old every-4th-bar rows gave through carry-forward. The L/S
+ * ratio moves on every row, so its 30-day z (configVersion 8, 360-sample
+ * floor) is defined over the later part of the fixture.
+ */
 function buildSnapshotRows(candles: OHLCV[]): SnapshotRow[] {
-  return candles
-    .filter((_, i) => i % 4 === 0)
-    .map((c, i) => ({
+  return candles.map((c, bar) => {
+    const i = Math.floor(bar / 4);
+    return {
       t: c.timestamp,
       fundingRate: { rate: -0.001 + (i % 5) * 0.0004, markPrice: c.close },
-      longShortRatio: { ratio: 1.2 + (i % 3) * 0.5, longAccount: 0.55, shortAccount: 0.45 },
+      longShortRatio: { ratio: 1.5 + 0.4 * Math.sin(bar / 13), longAccount: 0.55, shortAccount: 0.45 },
       openInterest: null,
       fearGreed: { index: (i * 7) % 100, label: 'Varies' },
-      newsSentiment:
-        i % 6 === 0
-          ? { count: 5, avgSentiment: 0.4, topics: ['btc'] }
-          : null,
-    }));
+      newsSentiment: bar % 24 === 0 ? { count: 5, avgSentiment: 0.4, topics: ['btc'] } : null,
+    };
+  });
 }
 
 /** Real causal HTF rows, replicating export-dataset.ts's buildHtfRows (not exported) for a test fixture. */

@@ -4,7 +4,6 @@ import { SignalTemplate } from '@/lib/models/signal-template';
 import { GlobalSignal } from '@/lib/models/global-signal';
 import { getCandles, dropOpenBars } from '@/lib/candle-ingestion';
 import { fetchKlines } from '@/lib/binance';
-import { fetchFundingRate, fetchLongShortRatio } from '@/lib/binance-futures';
 import { computeIndicatorsForStyle } from '@/lib/indicators/compute-for-style';
 import { computeSuperTrend } from '@/lib/indicators/supertrend';
 import { computeSignalScore } from '@/lib/signals/scorer';
@@ -16,6 +15,13 @@ import { computeHtfSeries, getConfirmationInterval, htfContextAtBar } from '@/li
 import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import type { HtfContext, SignalTier } from '@/types/signal';
 import { createPendingOutcomes } from '@/lib/signals/outcome-resolver';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
+import {
+  buildSnapshotSeries,
+  LS_Z_WARMUP_MS,
+  mapToSnapshotInterval,
+  type LeanSnapshot,
+} from '@/lib/backtest/snapshot-series';
 
 const NEWS_STALENESS_MS = 2 * 60 * 60 * 1000; // snapshots ingest every 15m; 2h covers outages
 
@@ -82,6 +88,12 @@ export interface ComputeResult {
     tradingStyle: TradingStyle;
     status: 'computed' | 'error' | 'skipped';
     error?: string;
+    /**
+     * What the stored snapshots supplied the futures category on a computed
+     * task (configVersion 8): a funding rate, and a defined L/S z. A false
+     * here means that signal abstained on this score.
+     */
+    futures?: { funding: boolean; lsZ: boolean };
   }>;
 }
 
@@ -120,39 +132,63 @@ async function fetchCandlesForTask(
   );
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Fetch futures data (funding rate + long/short ratio) safely.
+ * Stored snapshot rows for one symbol at one snapshot interval, from far enough
+ * back that the L/S z has its thirty days for any candle this run scores (the
+ * latest closed 1d candle opened up to two days before `now`). Only the fields
+ * the futures category reads are projected: the scalping run fires every
+ * minute.
  */
-async function fetchFuturesDataSafe(symbol: string): Promise<FuturesData> {
-  const result: FuturesData = {
-    fundingRate: null,
-    openInterest: null,
-    longShortRatio: null,
+async function storedSnapshotRows(symbol: string, snapshotInterval: string, now: number): Promise<LeanSnapshot[]> {
+  return HistoricalSnapshot.find(
+    { symbol, interval: snapshotInterval, timestamp: { $gte: now - LS_Z_WARMUP_MS - 2 * DAY_MS, $lte: now } },
+    { timestamp: 1, 'data.fundingRate': 1, 'data.longShortRatio': 1 }
+  )
+    .sort({ timestamp: 1 })
+    .lean<LeanSnapshot[]>();
+}
+
+/**
+ * The futures input for one candle, from STORED snapshots through the same
+ * `buildSnapshotSeries` research scores with (configVersion 8).
+ *
+ * Until v7 the live path fetched funding and the 1h top-trader ratio from
+ * Binance REST at compute time while research read the stored rows, held back
+ * one interval: the scoring CODE matched bar for bar, the INPUTS did not, and
+ * a trailing z cannot be taken from a single REST read anyway (the endpoint
+ * serves about 500 bars, less than thirty days at 1h). Now live reads what
+ * research reads, under the same causal rule: the latest row whose capture
+ * window closed at or before the candle's open, within three intervals. The
+ * value is up to about two hours older at 1h than the REST read was; parity is
+ * worth more than that hour for a thirty-day z. There is no REST fallback: a
+ * missing or stale row leaves the signal absent, which the scorer handles by
+ * redistributing weight, exactly as research does.
+ */
+async function storedFuturesForCandle(
+  symbol: string,
+  interval: string,
+  candle: OHLCV,
+  now: number,
+  rowsCache: Map<string, Promise<LeanSnapshot[]>>
+): Promise<FuturesData | null> {
+  const rowsFor = (snapshotInterval: string) => {
+    const key = `${symbol}:${snapshotInterval}`;
+    let rows = rowsCache.get(key);
+    if (!rows) {
+      rows = storedSnapshotRows(symbol, snapshotInterval, now);
+      rowsCache.set(key, rows);
+    }
+    return rows;
   };
-
-  try {
-    const rates = await cachedFetch(
-      `futures:funding:${symbol}:1`,
-      () => fetchFundingRate(symbol, 1),
-      300
-    );
-    if (rates.length > 0) result.fundingRate = rates[0];
-  } catch {
-    // Futures data is optional
-  }
-
-  try {
-    const ratios = await cachedFetch(
-      `futures:ls:top:${symbol}:1h:1`,
-      () => fetchLongShortRatio(symbol, '1h', 1),
-      300
-    );
-    if (ratios.length > 0) result.longShortRatio = ratios[0];
-  } catch {
-    // Futures data is optional
-  }
-
-  return result;
+  const snapshotInterval = mapToSnapshotInterval(interval);
+  const [snapshots, lsRows1h] = await Promise.all([
+    rowsFor(snapshotInterval),
+    snapshotInterval === '1h' ? Promise.resolve(undefined) : rowsFor('1h'),
+  ]);
+  const [bar] = buildSnapshotSeries([candle], snapshots, interval, { symbol, lsRows1h });
+  return bar?.futures ?? null;
 }
 
 /**
@@ -206,7 +242,8 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
 
   // Deduplicate candle fetches by (symbol, interval)
   const candleCache = new Map<string, OHLCV[]>();
-  const futuresCache = new Map<string, FuturesData>();
+  // Stored snapshot rows by (symbol, snapshot interval), shared across tasks.
+  const snapshotRowsCache = new Map<string, Promise<LeanSnapshot[]>>();
 
   // Pre-fetch weights for all styles used in this batch
   const stylesNeeded = new Set(tasks.map((t) => t.tradingStyle));
@@ -318,11 +355,18 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         continue;
       }
 
-      // Get futures data (cached by symbol)
-      let futuresData = futuresCache.get(symbol);
-      if (!futuresData) {
-        futuresData = await fetchFuturesDataSafe(symbol);
-        futuresCache.set(symbol, futuresData);
+      // Futures input from stored snapshots, as research reads it (v8)
+      let futuresData: FuturesData | null = null;
+      try {
+        futuresData = await storedFuturesForCandle(
+          symbol,
+          interval,
+          candles[candles.length - 1],
+          now,
+          snapshotRowsCache
+        );
+      } catch {
+        // Futures data is optional: the category redistributes its weight
       }
 
       // Compute indicators with style-specific parameters
@@ -383,6 +427,13 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         tier: signal.tier,
         confidence: signal.confidence,
         components: signal.components,
+        // v8 (SCORER_CONFIG_VERSION): the Long/Short Ratio signal reads the
+        // ratio's trailing 30-day z within the symbol instead of fixed bands
+        // centred on 1.0, which read bearish on 65.1% of bars because the
+        // top-trader ratio's median is 1.513 and drifts; and the whole futures
+        // input now comes from stored snapshots through buildSnapshotSeries,
+        // as research reads it, not from REST at compute time. v7 and v8
+        // scores are not comparable.
         // v7: the news input is lexically repaired. Keyword matching was
         // SUBSTRING, so `ban` fired on bank, banking, interbank, urban,
         // Albania, bands and banner and an institutional bank-adoption
@@ -421,7 +472,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         // v4: scores closed bars only (candle-finalization fix); rows written
         // before it may have been scored on a still-forming bar's partial
         // values. v3: calibrated tier cutoffs (24/30); v2: htf category + session + htfContext
-        configVersion: 7,
+        configVersion: SCORER_CONFIG_VERSION,
         candleTimestamp: latestCandleTs,
         session,
         htfContext: htfContext
@@ -436,7 +487,16 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       });
 
       result.computed++;
-      result.details.push({ symbol, interval, tradingStyle, status: 'computed' });
+      result.details.push({
+        symbol,
+        interval,
+        tradingStyle,
+        status: 'computed',
+        futures: {
+          funding: futuresData?.fundingRate != null,
+          lsZ: typeof futuresData?.longShortRatio?.zScore === 'number',
+        },
+      });
     } catch (err) {
       result.errors++;
       result.details.push({

@@ -280,6 +280,14 @@ export function stepLedger(state: LedgerState, input: StepInput): StepOutcome {
     }
   }
 
+  // A scorer-version change closes what is still open, at this bar's close,
+  // scored bar or not, and opens nothing until the next bar (as a score exit
+  // allows no same-bar re-entry).
+  if (input.forceExit) {
+    if (position) close(position, candle.close, 'epoch_end', 0);
+    return { state: { equity, executableEquity, position }, closed, skipped: null, funding };
+  }
+
   // A bar the scorer never covered carries no decision: manage only.
   if (!decision.scored) {
     if (position) {

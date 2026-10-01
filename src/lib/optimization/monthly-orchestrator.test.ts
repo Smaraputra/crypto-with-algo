@@ -64,9 +64,10 @@ vi.mock('./save-gate', async (importOriginal) => {
 });
 
 vi.mock('@/lib/historical-snapshots', () => ({
-  getHistoricalSnapshots: vi.fn().mockResolvedValue([
-    { timestamp: 1700000000000, data: { fearGreed: { index: 40, label: 'Fear' } } },
-  ]),
+  getScoringSnapshots: vi.fn().mockResolvedValue({
+    snapshots: [{ timestamp: 1700000000000, data: { fearGreed: { index: 40, label: 'Fear' } } }],
+    lsRows1h: [],
+  }),
 }));
 
 vi.mock('./template-versioning', () => ({

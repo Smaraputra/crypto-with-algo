@@ -22,6 +22,9 @@ afterEach(async () => {
   await mongoose.connection.db?.dropDatabase();
 });
 
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
+import { BOOK_START_EQUITY } from './books';
+
 const HOUR = 3_600_000;
 /** 2026-01-01T00:00:00Z, a clean 1h and 8h grid boundary. */
 const T0 = Date.UTC(2026, 0, 1);
@@ -63,9 +66,12 @@ async function seedCandles(
 async function seedSignals(
   GlobalSignal: Awaited<ReturnType<typeof modules>>['GlobalSignal'],
   count: number,
-  scoreAt: (i: number) => number
+  scoreAt: (i: number) => number,
+  opts: { from?: number; configVersion?: number } = {}
 ) {
-  const docs = Array.from({ length: count }, (_, i) => {
+  const from = opts.from ?? 0;
+  const docs = Array.from({ length: count - from }, (_, k) => {
+    const i = from + k;
     const score = scoreAt(i);
     return {
       symbol: 'BTCUSDT',
@@ -75,7 +81,7 @@ async function seedSignals(
       tier: score >= 37 ? 'strong_buy' : score >= 29 ? 'buy' : score <= -29 ? 'sell' : 'neutral',
       confidence: 60,
       components: [],
-      configVersion: 7,
+      configVersion: opts.configVersion ?? SCORER_CONFIG_VERSION,
       candleTimestamp: T0 + i * HOUR,
       session: null,
       htfContext: null,
@@ -127,8 +133,9 @@ describe('runPaperDesk: the first run', () => {
     const report = await runPaperDesk(NOW);
 
     // Seven books: scalping 1m/5m, day trading 15m/1h, swing 4h/1d, position 1d.
-    expect(report.books).toHaveLength(7);
-    expect(await PaperBook.countDocuments()).toBe(7);
+    // Seven style-and-interval pairs less the retired scalping:1m.
+    expect(report.books).toHaveLength(6);
+    expect(await PaperBook.countDocuments()).toBe(6);
 
     const oneHour = report.books.find((b) => b.book === 'day_trading:1h')!;
     expect(oneHour.bars).toBe(1);
@@ -171,7 +178,7 @@ describe('runPaperDesk: stepping forward', () => {
     expect(ledger?.position).not.toBeNull();
     expect(ledger?.position?.side).toBe('long');
     expect(ledger?.position?.entryTime).toBe(T0 + 25 * HOUR);
-    expect(ledger?.position?.entryConfigVersion).toBe(7);
+    expect(ledger?.position?.entryConfigVersion).toBe(SCORER_CONFIG_VERSION);
     // The ticket's own rule: a stop floored at five taker round trips on flat bars.
     expect(ledger?.position?.stopPrice).toBeCloseTo(99.5, 6);
   });
@@ -199,7 +206,7 @@ describe('runPaperDesk: stepping forward', () => {
     expect(trade?.executable.gappedStop).toBe(false);
     // A long that entered a point higher earns a point less on the same exit.
     expect(trade?.executable.pnl).toBeLessThan(trade!.engine.pnl);
-    expect(trade?.entryConfigVersion).toBe(7);
+    expect(trade?.entryConfigVersion).toBe(SCORER_CONFIG_VERSION);
   });
 
   it('is idempotent: re-stepping the same bars neither duplicates a trade nor moves the equity', async () => {
@@ -237,6 +244,65 @@ describe('runPaperDesk: stepping forward', () => {
     // One symbol seeded, 1% risk over a 0.5% stop, so about 2x on that ledger.
     expect(book!.peakNotional).toBeGreaterThan(0);
     expect(book!.peakLeverage).toBeGreaterThan(1);
+  });
+});
+
+describe('runPaperDesk: the scorer-version epoch', () => {
+  it('reads only the current scorer version: another version reads as unscored', async () => {
+    const { Candle, GlobalSignal } = await modules();
+    await seedCandles(Candle, 30);
+    await seedSignals(GlobalSignal, 30, (i) => (i >= 25 ? 35 : 5), { configVersion: SCORER_CONFIG_VERSION - 1 });
+    const { runPaperDesk } = await rewindTo(20);
+
+    const report = await runPaperDesk(NOW);
+    const book = report.books.find((b) => b.book === 'day_trading:1h')!;
+    expect(book.opened).toBe(0);
+    expect(book.missingScoreBars).toBeGreaterThan(0);
+  });
+
+  it('closes an earlier version position as epoch_end, books it under that version, and restarts the ledger', async () => {
+    const { Candle, GlobalSignal } = await modules();
+    // Bars 0..29, decisive from 25, so a position is open when the first run ends.
+    await seedCandles(Candle, 35);
+    await seedSignals(GlobalSignal, 30, (i) => (i >= 25 ? 35 : 5));
+    const { runPaperDesk, PaperBook, PaperLedger, PaperTrade } = await rewindTo(20);
+    await runPaperDesk(T0 + 30 * HOUR + 60_000);
+    expect((await PaperLedger.findOne({ symbol: 'BTCUSDT', interval: '1h' }).lean())?.position).not.toBeNull();
+
+    // Pretend that run and its position belong to the previous scorer version.
+    await PaperBook.updateOne(
+      { tradingStyle: 'day_trading', interval: '1h' },
+      { $set: { epochConfigVersion: SCORER_CONFIG_VERSION - 1, peakNotional: 999, missingScoreBars: 7 } }
+    );
+    await PaperLedger.updateOne(
+      { symbol: 'BTCUSDT', interval: '1h' },
+      { $set: { 'position.entryConfigVersion': SCORER_CONFIG_VERSION - 1 } }
+    );
+    // The new version scores bars 30..34, still decisive.
+    await seedSignals(GlobalSignal, 35, () => 35, { from: 30 });
+
+    const report = await runPaperDesk(NOW);
+    const book = report.books.find((b) => b.book === 'day_trading:1h')!;
+    expect(book.epochClosed).toBe(1);
+
+    const epochTrade = await PaperTrade.findOne({ symbol: 'BTCUSDT', exitReason: 'epoch_end' }).lean();
+    expect(epochTrade).not.toBeNull();
+    expect(epochTrade?.entryConfigVersion).toBe(SCORER_CONFIG_VERSION - 1);
+    // Closed at the first stepped bar's close (bar 30), and nothing re-opened on that bar.
+    expect(epochTrade?.exitTime).toBe(T0 + 30 * HOUR);
+
+    const ledger = await PaperLedger.findOne({ symbol: 'BTCUSDT', interval: '1h' }).lean();
+    // A new-version position opened on bar 31, sized from a fresh ledger.
+    expect(ledger?.position?.entryConfigVersion).toBe(SCORER_CONFIG_VERSION);
+    expect(ledger?.position?.entryTime).toBe(T0 + 31 * HOUR);
+    expect(ledger?.equity).toBe(BOOK_START_EQUITY);
+    expect(ledger?.trades).toBe(0);
+
+    const stored = await PaperBook.findOne({ tradingStyle: 'day_trading', interval: '1h' }).lean();
+    expect(stored?.epochConfigVersion).toBe(SCORER_CONFIG_VERSION);
+    expect(stored?.epochStartBarTime).toBe(T0 + 30 * HOUR);
+    expect(stored?.peakNotional).not.toBe(999);
+    expect(stored?.missingScoreBars).toBeLessThan(7);
   });
 });
 

@@ -120,11 +120,11 @@ describe('TradePlanCard', () => {
   it('shows the recorded evidence with its interval, verdict and provenance', () => {
     render(<TradePlanCard data={makeTradePlanResponse()} isLoading={false} isError={false} />);
     const evidence = screen.getByTestId('trade-plan-evidence');
-    expect(evidence).toHaveTextContent('v7 control, 2026-09-26');
-    expect(evidence).toHaveTextContent('-0.0687% per trade after costs, 95% CI -0.1741 to +0.0385, 8,436 trades');
+    expect(evidence).toHaveTextContent('v8 control, 2026-10-02');
+    expect(evidence).toHaveTextContent('-0.0551% per trade after costs, 95% CI -0.1527 to +0.0458, 8,467 trades');
     expect(evidence).toHaveTextContent(CONTROL_EVIDENCE['1h'].verdict);
     expect(evidence).toHaveTextContent('dataset e84cd66dbe01');
-    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveTextContent('v7 evidence');
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveTextContent('v8 evidence');
   });
 
   it('marks stale and missing evidence', () => {
@@ -168,7 +168,7 @@ describe('TradePlanCard', () => {
       />
     );
     expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveClass('text-bearish');
-    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveTextContent('v7 evidence');
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveTextContent('v8 evidence');
     expect(screen.getByTestId('trade-plan-verdict')).toHaveClass('text-bearish');
   });
 

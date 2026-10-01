@@ -769,7 +769,9 @@ export function buildResearchColumns(input: ResearchColumnInput): ResearchRow[] 
 
   // --- Snapshot-derived columns: buildSnapshotSeries holds each snapshot back
   // until its capture window has closed, so no further shift here. ---
-  const snapBars = buildSnapshotSeries(candles, snapshots, interval, { symbol });
+  // These columns read funding and the RAW positioning level, never the
+  // scorer's L/S z, so lsRows1h is [] at every interval.
+  const snapBars = buildSnapshotSeries(candles, snapshots, interval, { symbol, lsRows1h: [] });
 
   const fundingRaw = new Float64Array(n).fill(Number.NaN);
   const positioningRaw = new Float64Array(n).fill(Number.NaN);

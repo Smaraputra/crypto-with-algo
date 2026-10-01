@@ -32,6 +32,16 @@ export interface IPaperBook extends Document {
   peakNotional: number;
   /** `peakNotional` divided by the aggregate equity at that moment. */
   peakLeverage: number;
+  /**
+   * The scorer configVersion this book is measuring. When the live scorer's
+   * version differs, the next run closes every open position as `epoch_end`,
+   * restarts every ledger from `startEquity`, resets the peaks and the
+   * missing-score count, and then sets this, so no statistic pools two
+   * versions. Null on a book that has not run since epochs existed.
+   */
+  epochConfigVersion: number | null;
+  /** Open time of the first bar stepped under `epochConfigVersion`. */
+  epochStartBarTime: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,6 +57,8 @@ const paperBookSchema = new Schema<IPaperBook>(
     missingScoreBars: { type: Number, default: 0 },
     peakNotional: { type: Number, default: 0 },
     peakLeverage: { type: Number, default: 0 },
+    epochConfigVersion: { type: Number, default: null },
+    epochStartBarTime: { type: Number, default: null },
   },
   { timestamps: true }
 );

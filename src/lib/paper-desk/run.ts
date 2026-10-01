@@ -6,7 +6,7 @@ import { GlobalSignal } from '@/lib/models/global-signal';
 import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import { PaperBook, type IPaperBook } from '@/lib/models/paper-book';
 import { PaperLedger, type IPaperLedger, type IPaperPosition } from '@/lib/models/paper-ledger';
-import { PaperTrade, type PaperExitReason } from '@/lib/models/paper-trade';
+import { PAPER_EXIT_REASONS, PaperTrade, type PaperExitReason } from '@/lib/models/paper-trade';
 import { buildSnapshotSeries, mapToSnapshotInterval, type LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { intervalToMs } from '@/lib/intervals';
 import { CRON_JOBS } from '@/lib/cron-jobs';
@@ -14,6 +14,7 @@ import { STOP_WINDOW_BARS, stopsFor, tradePlanConfig } from '@/lib/trade-plan/ru
 import { BOOK_START_EQUITY, DESK_BOOKS, bookId, type BookKey } from './books';
 import { stepLedger } from './step';
 import type { BarDecision, DeskPosition, FundingCharge, LedgerState, SignalTierOf } from './types';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 
 /**
  * One run of the paper desk.
@@ -62,6 +63,8 @@ export interface BookRunReport {
   skippedEntries: number;
   capped: boolean;
   cursor: number | null;
+  /** Positions closed as `epoch_end` this run, when the scorer version changed. */
+  epochClosed?: number;
   error?: string;
 }
 
@@ -123,6 +126,8 @@ interface Live {
   trades: number;
   /** configVersion of the signal that opened the current position. */
   entryConfigVersion: number;
+  /** A position from an earlier scorer version still awaits its `epoch_end` close. */
+  epochClosePending: boolean;
 }
 
 /**
@@ -196,9 +201,7 @@ function toStoredPosition(
 
 /** The exit reasons the rule can reach; `end_of_data` has no live counterpart. */
 function paperExitReason(reason: string): PaperExitReason {
-  if (reason === 'signal' || reason === 'stop_loss' || reason === 'take_profit' || reason === 'time_stop') {
-    return reason;
-  }
+  if ((PAPER_EXIT_REASONS as readonly string[]).includes(reason)) return reason as PaperExitReason;
   throw new Error(`The paper desk cannot book an exit reason of ${reason}`);
 }
 
@@ -221,9 +224,19 @@ async function loadSymbol(
   })
     .sort({ timestamp: 1 })
     .lean<LeanSnapshot[]>();
-  const series = buildSnapshotSeries(candles, snapshots, interval, { symbol });
+  // Funding only: the desk takes scores from GlobalSignal and never re-scores,
+  // so it needs no L/S z (lsRows1h [] says so explicitly at 4h/1d).
+  const series = buildSnapshotSeries(candles, snapshots, interval, { symbol, lsRows1h: [] });
 
-  const rows = await GlobalSignal.find({ symbol, tradingStyle, interval, candleTimestamp: { $gte: from } })
+  // Only the current scorer's rows are decisions. A bar scored by an earlier
+  // configVersion alone reads as unscored: stops still fire, nothing opens.
+  const rows = await GlobalSignal.find({
+    symbol,
+    tradingStyle,
+    interval,
+    configVersion: SCORER_CONFIG_VERSION,
+    candleTimestamp: { $gte: from },
+  })
     .sort({ candleTimestamp: 1, createdAt: 1 })
     .lean<SignalRow[]>();
 
@@ -323,6 +336,13 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
   // still says where it is rather than reading as "no cursor".
   report.cursor = leased.lastProcessedBarTime;
 
+  // A scorer-version change opens a new epoch: every open position is closed
+  // as `epoch_end` on its symbol's first bar this run, every ledger restarts
+  // from the start equity, and the book's peaks and missing-score count start
+  // over, so no number the desk reports pools two scorers. The book records
+  // the new version only once a bar has actually stepped under it.
+  const epochPending = (leased.epochConfigVersion ?? null) !== SCORER_CONFIG_VERSION;
+
   let leaseHeld = true;
   try {
     const cadenceSeconds = computeCadenceSeconds(tradingStyle);
@@ -362,6 +382,9 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
         $match: {
           tradingStyle,
           interval,
+          // This epoch's trades only. A position closed as `epoch_end` keeps
+          // the version that opened it, so it never counts here.
+          entryConfigVersion: SCORER_CONFIG_VERSION,
           ...(leased.lastProcessedBarTime === null
             ? {}
             : { exitTime: { $lte: leased.lastProcessedBarTime } }),
@@ -398,11 +421,12 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
         charges: position ? [...(doc?.position?.fundingCharges ?? [])] : [],
         trades: bank?.trades ?? 0,
         entryConfigVersion: doc?.position?.entryConfigVersion ?? 0,
+        epochClosePending: epochPending && position !== null,
       });
     }
 
-    let peakNotional = leased.peakNotional;
-    let peakLeverage = leased.peakLeverage;
+    let peakNotional = epochPending ? 0 : leased.peakNotional;
+    let peakLeverage = epochPending ? 0 : leased.peakLeverage;
     let missingScoreBars = 0;
 
     for (const barTime of plan.bars) {
@@ -432,6 +456,7 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
         const config = tradePlanConfig(tradingStyle, interval, stops, entry.state.equity);
         const had = entry.state.position !== null;
 
+        const forceExit = entry.epochClosePending;
         const out = stepLedger(entry.state, {
           candles: data.candles,
           bar,
@@ -439,6 +464,7 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
           decision,
           fundingRate: data.rates[bar] ?? null,
           config,
+          forceExit,
         });
 
         if (out.funding) entry.charges.push(out.funding);
@@ -458,6 +484,16 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
           entry.entryConfigVersion = row?.configVersion ?? 0;
         }
         entry.state = out.state;
+
+        if (forceExit) {
+          // The old epoch's position is closed and booked under its own
+          // version; this ledger starts the new epoch from scratch.
+          entry.epochClosePending = false;
+          entry.state = { equity: BOOK_START_EQUITY, executableEquity: BOOK_START_EQUITY, position: null };
+          entry.trades = 0;
+          entry.charges = [];
+          report.epochClosed = (report.epochClosed ?? 0) + out.closed.length;
+        }
       }
 
       // Aggregate exposure, measured once the whole bar has stepped.
@@ -504,16 +540,29 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
     // between them cannot leave a book both advanced and locked.
     await PaperBook.updateOne(
       { tradingStyle, interval },
-      {
-        $set: {
-          lastProcessedBarTime: report.cursor,
-          peakNotional,
-          peakLeverage,
-          leaseUntil: null,
-          leaseOwner: null,
-        },
-        $inc: { missingScoreBars },
-      }
+      epochPending
+        ? {
+            $set: {
+              lastProcessedBarTime: report.cursor,
+              peakNotional,
+              peakLeverage,
+              missingScoreBars,
+              epochConfigVersion: SCORER_CONFIG_VERSION,
+              epochStartBarTime: plan.bars[0],
+              leaseUntil: null,
+              leaseOwner: null,
+            },
+          }
+        : {
+            $set: {
+              lastProcessedBarTime: report.cursor,
+              peakNotional,
+              peakLeverage,
+              leaseUntil: null,
+              leaseOwner: null,
+            },
+            $inc: { missingScoreBars },
+          }
     );
     leaseHeld = false;
     return report;

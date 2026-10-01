@@ -44,6 +44,9 @@ export interface WalkForwardConfig {
   jobId: mongoose.Types.ObjectId; // For progress updates
 
   snapshots?: LeanSnapshot[]; // point-in-time futures/sentiment for the candle range
+  // 1h snapshots for the L/S z when `snapshots` are 4h or 1d (configVersion 8);
+  // see getScoringSnapshots in historical-snapshots.ts
+  lsRows1h?: LeanSnapshot[];
   robustness?: RobustnessConfig;
   htfCandles?: OHLCV[]; // confirmation-timeframe candles (with warmup margin)
   htfInterval?: string;
@@ -79,6 +82,7 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
     constraintPercent,
     jobId,
     snapshots,
+    lsRows1h,
     robustness = DEFAULT_ROBUSTNESS,
     htfCandles,
     htfInterval,
@@ -181,7 +185,9 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       interval,
       indicatorConfig,
       snapshots,
-      htfInput
+      htfInput,
+      undefined,
+      lsRows1h
     );
 
     // Stops scale with this window's own volatility, measured on training bars
@@ -291,7 +297,9 @@ export async function runWalkForward(config: WalkForwardConfig): Promise<WalkFor
       interval,
       indicatorConfig,
       snapshots,
-      htfInput
+      htfInput,
+      undefined,
+      lsRows1h
     );
 
     const testConfig: BacktestConfig = {
