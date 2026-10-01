@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
 import { STRATEGY_EXIT_LEVEL, TIER_BUY_CUTOFF } from '@/lib/signals/calibration';
-import { CONTROL_EVIDENCE, evidenceFor } from './evidence';
+import { CONTROL_EVIDENCE, evidenceFor, evidenceVerdictKind } from './evidence';
 
 describe('CONTROL_EVIDENCE', () => {
   it('has a row for every interval a style scores', () => {
@@ -62,5 +62,27 @@ describe('evidenceFor', () => {
 
   it('returns an explicit unmeasured row for an interval with no record', () => {
     expect(evidenceFor('30m')).toMatchObject({ interval: '30m', status: 'none', trades: null });
+  });
+});
+
+describe('evidenceVerdictKind', () => {
+  it('reads a whole interval below zero as a proven loss', () => {
+    expect(evidenceVerdictKind(CONTROL_EVIDENCE['15m'])).toBe('loses');
+  });
+  it('reads a negative estimate whose interval spans zero as negative, not proven', () => {
+    expect(evidenceVerdictKind(CONTROL_EVIDENCE['1h'])).toBe('negative');
+  });
+  it('reads a negative estimate with only a recorded low bound as negative', () => {
+    expect(evidenceVerdictKind(CONTROL_EVIDENCE['5m'])).toBe('negative');
+  });
+  it('reads a non-negative estimate as other, and no run as unmeasured', () => {
+    expect(evidenceVerdictKind(CONTROL_EVIDENCE['4h'])).toBe('other');
+    expect(evidenceVerdictKind(CONTROL_EVIDENCE['1m'])).toBe('unmeasured');
+  });
+  it('records the scorer version of each run, null for runs before v5', () => {
+    expect(CONTROL_EVIDENCE['15m'].configVersion).toBe(7);
+    expect(CONTROL_EVIDENCE['1h'].configVersion).toBe(7);
+    expect(CONTROL_EVIDENCE['5m'].configVersion).toBeNull();
+    expect(CONTROL_EVIDENCE['1m'].configVersion).toBeNull();
   });
 });

@@ -135,7 +135,7 @@ describe('TradePlanCard', () => {
         isError={false}
       />
     );
-    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveTextContent('Pre-v7 evidence');
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveTextContent('Earlier-rule evidence');
     expect(screen.getByTestId('trade-plan-evidence')).toHaveTextContent('95% CI low -0.424');
     unmount();
 
@@ -150,6 +150,54 @@ describe('TradePlanCard', () => {
     expect(screen.getByTestId('trade-plan-evidence')).toHaveTextContent('Unmeasured');
   });
 
+  it('leads with the research verdict, before what the rule would do', () => {
+    render(<TradePlanCard data={makeTradePlanResponse()} isLoading={false} isError={false} />);
+    const verdict = screen.getByTestId('trade-plan-verdict');
+    const ticket = screen.getByTestId('trade-plan-ticket');
+    expect(verdict.compareDocumentPosition(ticket) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('trade-plan-rule-heading')).toHaveTextContent('What the rule would do on this bar');
+    expect(ticket).toHaveTextContent('The rule would go Long SOL at the next 1h open');
+  });
+
+  it('styles a proven loss as bearish: the whole interval is below zero', () => {
+    render(
+      <TradePlanCard
+        data={makeTradePlanResponse({ plan: makeTradePlan({ interval: '15m', evidence: CONTROL_EVIDENCE['15m'] }) })}
+        isLoading={false}
+        isError={false}
+      />
+    );
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveClass('text-bearish');
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveTextContent('v7 evidence');
+    expect(screen.getByTestId('trade-plan-verdict')).toHaveClass('text-bearish');
+  });
+
+  it('styles a negative estimate whose interval spans zero as a warning', () => {
+    render(<TradePlanCard data={makeTradePlanResponse()} isLoading={false} isError={false} />);
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveClass('text-accent');
+    expect(screen.getByTestId('trade-plan-verdict')).toHaveClass('text-accent');
+  });
+
+  it('keeps stale and missing evidence muted, since it carries no current verdict', () => {
+    const { unmount } = render(
+      <TradePlanCard
+        data={makeTradePlanResponse({ plan: makeTradePlan({ interval: '5m', evidence: CONTROL_EVIDENCE['5m'] }) })}
+        isLoading={false}
+        isError={false}
+      />
+    );
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveClass('text-muted-foreground');
+    unmount();
+    render(
+      <TradePlanCard
+        data={makeTradePlanResponse({ plan: makeTradePlan({ interval: '1m', evidence: CONTROL_EVIDENCE['1m'] }) })}
+        isLoading={false}
+        isError={false}
+      />
+    );
+    expect(screen.getByTestId('trade-plan-evidence-badge')).toHaveClass('text-muted-foreground');
+  });
+
   it('shows the live record per tier and labels it as a different measurement', () => {
     render(<TradePlanCard data={makeTradePlanResponse()} isLoading={false} isError={false} />);
     const live = screen.getByTestId('trade-plan-live-record');
@@ -158,7 +206,7 @@ describe('TradePlanCard', () => {
     const rows = within(live).getAllByRole('row');
     // Header plus two tiers; the current tier (buy) is emphasised.
     expect(rows).toHaveLength(3);
-    expect(rows[1]).toHaveTextContent('buy412-0.051%48.2%');
+    expect(rows[1]).toHaveTextContent('Long score412-0.051%48.2%');
     expect(rows[1]).toHaveClass('font-medium');
     expect(rows[2]).not.toHaveClass('font-medium');
   });

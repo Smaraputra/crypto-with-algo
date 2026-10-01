@@ -44,6 +44,13 @@ export interface ControlEvidence {
   ciHighPercent: number | null;
   medianHoldBars: number | null;
   verdict: string;
+  /**
+   * The scorer configVersion the run was measured under; null for a run on
+   * the scorer before v5 (whose version and thresholds both differ) or for no
+   * run. The card's badge label is derived from it, so a re-measurement under
+   * a new scorer changes data, not strings.
+   */
+  configVersion: number | null;
 }
 
 /** Cost of one round trip, every figure a percent of entry notional. */
