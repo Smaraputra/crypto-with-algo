@@ -97,6 +97,62 @@
  * with timing p against R0 above 0.05.
  *
  * The lockbox is read once, only if the criterion is passed.
+ *
+ * RESULT, 2026-10-02. Export `0789efcd350f` (1h spot candles, 1h perp klines
+ * and per-settlement funding, taken 2026-10-01), lockbox applied, ten
+ * symbols, the seven pre-registered windows, trials 7, cost 0.21% a side,
+ * mean block 53.5 days (R1's mean episode), image from `71d29c2`. Report
+ * `carry-c1.json`, reconciled: simulated funding for BTCUSDT 2024-03 (93
+ * settlements) and SOLUSDT 2022-11 (165 settlements on its 2h interval)
+ * equals the archive's sum of settled rates exactly.
+ *
+ *   rule  annual   95% CI            funding  cost    2023    2024    2025    2026H1  gates
+ *   R0    +4.57%   [+1.91%, +7.81%]  5.43%    0.84%   +4.38%  +10.51% +1.91%  -1.67%  significance pass, HURDLE FAIL, periods pass
+ *   R1    +4.55%   [+1.83%, +7.97%]  6.08%    1.69%   +4.57%  +10.73% +1.09%  -1.03%  significance pass, HURDLE FAIL, periods pass
+ *
+ *   R1 - R0: -0.03% a year, CI [-0.67%, +0.61%]; timing null p 0.005 (shifted
+ *   paths average +2.94%). Not a timing finding: R1 beats its own shifted
+ *   paths, so WHEN it holds matters, but it does not beat simply always
+ *   holding. Selected cells: L7d E10% in three windows, L7d E5% in four.
+ *
+ * THE KILL CRITERION FIRES, ON THE HURDLE, FOR BOTH RULES, as predicted. The
+ * magnitude prediction was wrong: +4.57% against a predicted +2% to +3.5%.
+ * This is nonetheless the first net return this program has measured whose
+ * confidence interval excludes zero, at every block length (R0 at 10 days
+ * [+2.65%, +6.79%], at 40 days [+1.97%, +7.74%]). It is a real transfer that
+ * pays less than the stated savings yield, and it is shrinking: 2024 paid
+ * about 10.5%, 2025 about 1.9%, 2026H1 lost about 1.7%.
+ *
+ * Reported, never selected on:
+ *   costs     maker R0 +4.93%, R1 +5.27% (above the hurdle); spot fees in
+ *             BNB R0 +4.67%, R1 +4.75%. Spot fees still await the user's
+ *             fee-page confirmation.
+ *   symbols   R0 BTC +6.4%, ETH +6.6%, BNB -4.7%, SOL +3.2%, XRP +6.3%,
+ *             ADA +6.5%, DOGE +7.4%, AVAX +4.2%, DOT +1.9%, LINK +7.9%. The
+ *             jackknife without BNB reads +5.61%, above the hurdle; choosing
+ *             the universe after seeing this would be exactly the post-hoc
+ *             selection the pre-registration exists to prevent, so it is a
+ *             reading, not a result.
+ *   leverage  return on capital, liquidations over 2023 to 2026H1, R0 / R1:
+ *               1x   +2.27% (1) / +2.27% (0)
+ *               3x   +3.07% (12) / +3.26% (5)
+ *               10x  -16.2% (553) / -9.2% (362)
+ *               20x  -117.8% (3,161) / -72.9% (1,998)
+ *               50x  -653.5% (16,535) / -402.6% (10,230)
+ *             Under a once-a-day top-up the leverage range the user asked
+ *             about (10x to 50x) turns a positive carry into a large loss
+ *             through liquidation churn; even 1x was liquidated once, on
+ *             XRPUSDT 2023-07-13 (the SEC ruling), when the perp wicked to
+ *             0.965 against a 0.4707 reference, +105% in the day. The
+ *             counts depend on the stated top-up cadence and fee and would
+ *             fall with intraday top-ups, but the direction does not.
+ *   capacity  at 100 USDT a single-symbol hedge is placeable on nine of ten
+ *             symbols (BTCUSDT's 50 USDT perp minimum fails at 1x) and the
+ *             ten-symbol book on none; at 500 USDT the ten-symbol book
+ *             places on every symbol but BTCUSDT; at 1,000 USDT every
+ *             single-symbol hedge places.
+ *
+ * The lockbox stays closed: the criterion fired.
  */
 import {
   BINANCE_FUTURES_MAKER_FEE,
