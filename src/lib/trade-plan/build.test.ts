@@ -85,7 +85,7 @@ describe('buildTradePlan: the ticket is the rule', () => {
   it('enters at exactly 29 like the backtest, and notes that the live label disagrees', () => {
     const plan = buildTradePlan(input({ score: 29, tier: 'neutral' }));
     expect(plan.entry?.side).toBe('long');
-    expect(plan.notes.some((n) => n.includes('29 or beyond') && n.includes('neutral'))).toBe(true);
+    expect(plan.notes.some((n) => n.includes('29 or beyond') && n.includes('"Neutral" label'))).toBe(true);
   });
 
   it('adds no boundary note when the tier agrees', () => {

@@ -32,7 +32,8 @@ import { useUIStore } from '@/stores/uiStore';
 import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import type { TradingStyle } from '@/lib/models/signal-template';
-import { formatWinRate } from '@/components/journal/analytics/format';
+import { formatAvgPnl } from '@/components/journal/analytics/format';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 export default function SignalsPage() {
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
@@ -198,16 +199,19 @@ export default function SignalsPage() {
                       )}
                     </div>
                   )}
-                  {tierRecord && tierRecord.count >= 5 && (
+                  {/* Average P&L per trade rather than win rate: the program
+                      reports win rate but never targets it, since a win rate
+                      can be bought by moving the target (review P2). */}
+                  {tierRecord && tierRecord.count >= 5 && tierRecord.avgPnlPercent !== null && (
                     <p
                       className="mt-2 text-center text-xs text-muted-foreground"
                       data-testid="tier-record-hint"
                     >
-                      Your {latestSignal.tier.replace('_', ' ')} record:{' '}
+                      Your {tierDisplayLabel(latestSignal.tier)} record:{' '}
                       <span className="font-mono tabular-nums">
-                        {formatWinRate(tierRecord.winRate, 0)}
+                        {formatAvgPnl(tierRecord.avgPnlPercent)}
                       </span>{' '}
-                      win rate over {tierRecord.count} journaled trades
+                      average per trade over {tierRecord.count} journaled trades
                     </p>
                   )}
                 </ErrorBoundary>

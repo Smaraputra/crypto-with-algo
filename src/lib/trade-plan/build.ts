@@ -18,6 +18,7 @@ import {
 } from './rule';
 import { decimalsOf, placeability, roundPrice, roundQty, venueFilterFor } from './venue';
 import type { ControlEvidence, TicketCosts, TradePlan, TradeTicket } from './types';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 /**
  * Turns the latest live signal into a concrete order ticket under the
@@ -223,7 +224,7 @@ export function buildTradePlan(input: TradePlanInput): TradePlan {
       (side === 'short' && (signal.tier === 'sell' || signal.tier === 'strong_sell'));
     if (!tierAgrees) {
       notes.push(
-        `The rule enters at a score of ${config.entryThreshold} or beyond, while the ${signal.tier.replace('_', ' ')} label needs a score strictly beyond it.`
+        `The rule enters at a score of ${config.entryThreshold} or beyond, while the "${tierDisplayLabel(signal.tier)}" label needs a score strictly beyond it.`
       );
     }
   }

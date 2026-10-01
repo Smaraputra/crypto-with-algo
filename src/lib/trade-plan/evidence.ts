@@ -35,6 +35,7 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
     ciHighPercent: null,
     medianHoldBars: null,
     verdict: 'Unmeasured: nothing in the record supports or rejects this rule at 1m.',
+    configVersion: null,
   },
   '5m': {
     interval: '5m',
@@ -48,6 +49,7 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
     ciHighPercent: null,
     medianHoldBars: null,
     verdict: 'Lost after costs on an earlier version of the rule; not re-measured under v7.',
+    configVersion: null,
   },
   '15m': {
     interval: '15m',
@@ -61,6 +63,7 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
     ciHighPercent: -0.0583,
     medianHoldBars: 7,
     verdict: 'Loses after costs: the whole 95% interval is below zero.',
+    configVersion: 7,
   },
   '1h': {
     interval: '1h',
@@ -74,6 +77,7 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
     ciHighPercent: 0.0385,
     medianHoldBars: 7,
     verdict: 'Negative estimate after costs; the interval spans zero, so it is not shown to beat breakeven either.',
+    configVersion: 7,
   },
   '4h': {
     interval: '4h',
@@ -87,6 +91,7 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
     ciHighPercent: null,
     medianHoldBars: null,
     verdict: 'About breakeven on an earlier version of the rule, with a wide interval and no timing edge over random entries.',
+    configVersion: null,
   },
   '1d': {
     interval: '1d',
@@ -100,6 +105,7 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
     ciHighPercent: null,
     medianHoldBars: null,
     verdict: 'Lost over 1% per trade on an earlier version of the rule, on a small sample.',
+    configVersion: null,
   },
 };
 
@@ -117,6 +123,23 @@ export function evidenceFor(interval: string): ControlEvidence {
       ciHighPercent: null,
       medianHoldBars: null,
       verdict: `Unmeasured: nothing in the record supports or rejects this rule at ${interval}.`,
+      configVersion: null,
     }
   );
+}
+
+/**
+ * What a recorded run says, as one of four kinds the card styles by:
+ * `loses` when the whole 95% interval is below zero, `negative` when the
+ * estimate is below zero but the interval does not exclude zero (or only its
+ * low bound was recorded), `other` for a non-negative estimate, and
+ * `unmeasured` when there is no run.
+ */
+export type EvidenceVerdictKind = 'loses' | 'negative' | 'other' | 'unmeasured';
+
+export function evidenceVerdictKind(evidence: ControlEvidence): EvidenceVerdictKind {
+  if (evidence.expectancyPercent === null) return 'unmeasured';
+  if (evidence.ciHighPercent !== null && evidence.ciHighPercent < 0) return 'loses';
+  if (evidence.expectancyPercent < 0) return 'negative';
+  return 'other';
 }

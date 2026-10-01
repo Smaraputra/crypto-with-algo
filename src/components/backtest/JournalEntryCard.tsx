@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { JournalEntry } from '@/types/journal';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 interface JournalEntryCardProps {
   entry: JournalEntry;
@@ -45,8 +46,8 @@ export function JournalEntryCard({ entry, onDelete, isDeleting }: JournalEntryCa
               <span className="text-muted-foreground">
                 Score: <span className="font-mono tabular-nums">{Math.round(entry.signalScore)}</span>
               </span>
-              <span className="text-muted-foreground capitalize">
-                {entry.signalTier.replace('_', ' ')}
+              <span className="text-muted-foreground">
+                {tierDisplayLabel(entry.signalTier)}
               </span>
               {entry.entryPrice != null && (
                 <span className="text-muted-foreground">

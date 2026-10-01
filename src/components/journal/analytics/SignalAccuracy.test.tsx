@@ -22,9 +22,9 @@ describe('SignalAccuracy', () => {
 
   it('shows tier labels', () => {
     render(<SignalAccuracy data={mockData} />);
-    expect(screen.getByText('Strong Buy')).toBeInTheDocument();
-    expect(screen.getByText('Buy')).toBeInTheDocument();
-    expect(screen.getByText('Sell')).toBeInTheDocument();
+    expect(screen.getByText('Strong long score')).toBeInTheDocument();
+    expect(screen.getByText('Long score')).toBeInTheDocument();
+    expect(screen.getByText('Short score')).toBeInTheDocument();
   });
 
   it('shows trade counts', () => {

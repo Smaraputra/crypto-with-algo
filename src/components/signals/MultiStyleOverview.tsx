@@ -3,6 +3,7 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { GlobalSignalRecord } from '@/hooks/useSignals';
 import { STYLE_LABELS } from './StyleTabs';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 interface MultiStyleOverviewProps {
   signals: Record<TradingStyle, GlobalSignalRecord | null>;
@@ -22,10 +23,6 @@ function scoreColorClass(score: number): string {
   if (score > 0) return 'text-bullish';
   if (score < 0) return 'text-bearish';
   return 'text-muted-foreground';
-}
-
-function tierLabel(tier: string): string {
-  return tier.replace(/_/g, ' ');
 }
 
 export function MultiStyleOverview({
@@ -72,8 +69,8 @@ export function MultiStyleOverview({
                   {signal.score > 0 ? '+' : ''}
                   {Math.round(signal.score)}
                 </div>
-                <div className="text-xs text-muted-foreground capitalize">
-                  {tierLabel(signal.tier)}
+                <div className="text-xs text-muted-foreground">
+                  {tierDisplayLabel(signal.tier)}
                 </div>
               </>
             ) : (
