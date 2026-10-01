@@ -115,6 +115,16 @@ export interface PooledStats {
   avgWinPercent: number | null;
   avgLossPercent: number | null;
   payoffRatio: number | null;
+  /**
+   * REPORTED ONLY. Sample standard deviation of the pooled per-trade
+   * pnlPercent, the raw dispersion of one trade. Distinct from the sd a
+   * reader recovers from `bootstrapCi95` (half-width x sqrt(n) / 1.96), which
+   * is an EFFECTIVE sd that also carries the cross-symbol correlation of
+   * trades taken at the same time: 1.021 raw vs 2.045 effective on the 15m
+   * control (review M6, 2026-10-01). Use this one to convert an IC into a
+   * per-trade return, the effective one to judge what a sample can detect.
+   */
+  sdPercent?: number | null;
   medianHoldBars: number | null;
   maxDrawdownPercent: number | null;
   bootstrapCi95: [number, number] | null;
@@ -327,6 +337,16 @@ export function poolStrategyResults(
   const payoffRatio =
     avgWinPercent === null || avgLossPercent === null ? null : toFinite(avgWinPercent / avgLossPercent);
 
+  // Raw per-trade dispersion, n - 1 denominator. See `PooledStats.sdPercent`.
+  const sdPercent =
+    n < 2
+      ? null
+      : toFinite(
+          Math.sqrt(
+            pnlPercents.reduce((sum, v) => sum + (v - (expectancyPercent as number)) ** 2, 0) / (n - 1)
+          )
+        );
+
   const medianHoldBars = toFinite(median(trades.map((t) => t.holdTimeBars)));
   // maxDrawdownPercentOfPnl([], 10000) returns 0 (a real, finite "no drawdown"
   // over an empty walk), which toFinite would not catch -- null it explicitly
@@ -479,6 +499,7 @@ export function poolStrategyResults(
     avgWinPercent,
     avgLossPercent,
     payoffRatio,
+    sdPercent,
     medianHoldBars,
     maxDrawdownPercent,
     bootstrapCi95,

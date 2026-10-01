@@ -2,12 +2,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAKER_ROUND_TRIP_PERCENT,
+  RECORDED_CONTROL_RAW_SD_PERCENT,
   RECORDED_CONTROL_SD_PERCENT,
   formatFrontier,
   frontierRow,
   leverageRows,
   liquidationDistancePercent,
   parseArgs,
+  rawSdFromReport,
   requiredIc,
   sdPerTradeFromCi,
   tradesPerDayOf,
@@ -23,6 +25,8 @@ const CONTROL_1H: FrontierInput = {
   symbolsTotal: 10,
   // 7519 trades over 10 symbols x 6 windows x 686 bars is about 4.7 years.
   oosBars: 41160,
+  // Recovered from the same report as expectancy / observedSharpe.
+  rawSdPercent: 2.431,
 };
 
 describe('sdPerTradeFromCi', () => {
@@ -65,13 +69,52 @@ describe('frontierRow', () => {
     expect(MAKER_ROUND_TRIP_PERCENT).toBeCloseTo(0.04, 10);
   });
 
-  it('adds the target per trade to the cost before converting to an IC', () => {
+  it('adds the target per trade to the cost before converting to an IC with the RAW sd', () => {
     // 0.5 USDT over 10 trades on 50 USDT is 0.10% net per trade.
     const target = row.targets[0];
-    const sd = sdPerTradeFromCi(CONTROL_1H.bootstrapCi95, CONTROL_1H.n);
     expect(target.tradesPerDay).toBe(10);
-    expect(target.icTaker).toBeCloseTo((0.1 + 0.16) / (2 * sd), 6);
-    expect(target.icMaker).toBeCloseTo((0.1 + 0.04) / (2 * sd), 6);
+    expect(target.icTaker).toBeCloseTo((0.1 + 0.16) / (2 * 2.431), 6);
+    expect(target.icMaker).toBeCloseTo((0.1 + 0.04) / (2 * 2.431), 6);
+  });
+
+  it('reports both sds and converts with the raw one (review M6)', () => {
+    expect(row.sdBasis).toBe('raw');
+    expect(row.sdPercent).toBe(2.431);
+    expect(row.rawSdPercent).toBe(2.431);
+    expect(row.effectiveSdPercent).toBeCloseTo(4.56, 1);
+    // The effective sd ran about 1.87x the raw at 1h, so the old breakeven
+    // was understated by that factor.
+    expect(row.breakevenIcTaker).toBeCloseTo(0.16 / (2 * 2.431), 6);
+    expect(row.breakevenIcTaker / requiredIc(0.16, row.effectiveSdPercent)).toBeCloseTo(
+      row.effectiveSdPercent / 2.431,
+      6
+    );
+  });
+
+  it('falls back to the effective sd, and says so, when the report has no raw sd', () => {
+    const fallback = frontierRow(
+      { ...CONTROL_1H, rawSdPercent: NaN },
+      { notionalUsdt: 50, targetPerDayUsdt: 0.5, tradesPerDay: [10] }
+    );
+    expect(fallback.sdBasis).toBe('effective');
+    expect(fallback.sdPercent).toBeCloseTo(sdPerTradeFromCi(CONTROL_1H.bootstrapCi95, CONTROL_1H.n), 10);
+    const text = formatFrontier([fallback], { notionalUsdt: 50, targetPerDayUsdt: 0.5 });
+    expect(text).toContain('*');
+  });
+});
+
+describe('rawSdFromReport', () => {
+  const base = { pooled: { expectancyPercent: -0.1, deflatedSharpe: { observedSharpe: -0.05 } } };
+  it('prefers a recorded pooled.sdPercent', () => {
+    const report = { pooled: { ...base.pooled, sdPercent: 1.5 } };
+    expect(rawSdFromReport(report as never)).toBe(1.5);
+  });
+  it('recovers expectancy over observedSharpe for an older report', () => {
+    expect(rawSdFromReport(base as never)).toBeCloseTo(2, 12);
+  });
+  it('is NaN when neither is usable', () => {
+    expect(rawSdFromReport({ pooled: { expectancyPercent: 0, deflatedSharpe: { observedSharpe: 0 } } } as never)).toBeNaN();
+    expect(rawSdFromReport({ pooled: { expectancyPercent: null, deflatedSharpe: null } } as never)).toBeNaN();
   });
 });
 
@@ -121,7 +164,7 @@ describe('profiles block', () => {
     expect(byName['promo-btc-eth-2026-07'].costTakerPercent).toBeCloseTo(0.132, 10);
     expect(byName['promo-btc-eth-2026-07'].costMakerPercent).toBe(0);
     expect(byName['promo-btc-eth-2026-07'].breakevenIcMaker).toBe(0);
-    expect(byName.standard.breakevenIcTaker).toBeCloseTo(0.0175, 3);
+    expect(byName.standard.breakevenIcTaker).toBeCloseTo(0.16 / (2 * 2.431), 6);
   });
 });
 
@@ -141,6 +184,13 @@ it('parseArgs takes --fee-profile and rejects an unknown one', () => {
   expect(parseArgs(['--reports', 'a.json']).feeProfile).toBe('standard');
   expect(parseArgs(['--reports', 'a.json', '--fee-profile', 'bnb']).feeProfile).toBe('bnb');
   expect(() => parseArgs(['--reports', 'a.json', '--fee-profile', 'vip9'])).toThrow(/Unknown --fee-profile/);
+});
+
+it('RECORDED_CONTROL_RAW_SD_PERCENT carries the raw sd of the same five reports', () => {
+  expect(RECORDED_CONTROL_RAW_SD_PERCENT).toEqual({ '5m': 0.424, '15m': 1.021, '1h': 2.431, '4h': 5.828, '1d': 13.633 });
+  for (const iv of Object.keys(RECORDED_CONTROL_RAW_SD_PERCENT)) {
+    expect(RECORDED_CONTROL_RAW_SD_PERCENT[iv]).toBeLessThan(RECORDED_CONTROL_SD_PERCENT[iv]);
+  }
 });
 
 it('RECORDED_CONTROL_SD_PERCENT carries the five recorded intervals', () => {
