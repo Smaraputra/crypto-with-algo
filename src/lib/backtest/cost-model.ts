@@ -167,9 +167,9 @@ export function exitFillKind(reason: ExitReason): FillKind {
 }
 
 /** Whether an exit reason's fill is subject to slippage. stop_loss, signal,
- * and time_stop exits cross the book at an unknown price and slip;
- * take_profit fills at its resting limit price and end_of_data is a
+ * time_stop and the desk's epoch_end exits cross the book at an unknown price
+ * and slip; take_profit fills at its resting limit price and end_of_data is a
  * mark-to-model close, so neither slips. */
 export function exitSlippageApplies(reason: ExitReason): boolean {
-  return reason === 'stop_loss' || reason === 'signal' || reason === 'time_stop';
+  return reason === 'stop_loss' || reason === 'signal' || reason === 'time_stop' || reason === 'epoch_end';
 }

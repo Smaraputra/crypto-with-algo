@@ -410,3 +410,47 @@ describe('stepLedger: funding', () => {
     expect(closed[0].engine.fundingCost).toBe(0);
   });
 });
+
+describe('stepLedger: forceExit, the scorer-version epoch close', () => {
+  function openThen(decisionAt2: BarDecision, candle2 = bar(2, 101)) {
+    const candles = [bar(0, 100), bar(1, 100), candle2];
+    const opened = stepLedger(emptyLedger(CLEAN.startEquity), {
+      candles,
+      bar: 1,
+      interval: '1h',
+      decision: scored(35, T0 + 2 * HOUR),
+      fundingRate: null,
+      config: CLEAN,
+    });
+    expect(opened.state.position).not.toBeNull();
+    return stepLedger(opened.state, {
+      candles,
+      bar: 2,
+      interval: '1h',
+      decision: decisionAt2,
+      fundingRate: null,
+      config: CLEAN,
+      forceExit: true,
+    });
+  }
+
+  it('closes at this bar close as epoch_end even when the score would hold', () => {
+    const out = openThen(scored(35, T0 + 3 * HOUR));
+    expect(out.closed).toHaveLength(1);
+    expect(out.closed[0].engine).toMatchObject({ exitReason: 'epoch_end', exitPrice: 101, exitBar: 2 });
+    expect(out.state.position).toBeNull();
+  });
+
+  it('closes on an unscored bar too, and opens nothing on the bar', () => {
+    const out = openThen(UNSCORED);
+    expect(out.closed).toHaveLength(1);
+    expect(out.state.position).toBeNull();
+    expect(out.skipped).toBeNull();
+  });
+
+  it('lets the bar stop fire first: a stop hit books stop_loss, not epoch_end', () => {
+    const out = openThen(scored(35, T0 + 3 * HOUR), bar(2, 97, { low: 97.5, open: 100 }));
+    expect(out.closed).toHaveLength(1);
+    expect(out.closed[0].engine.exitReason).toBe('stop_loss');
+  });
+});

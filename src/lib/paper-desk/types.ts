@@ -83,6 +83,14 @@ export interface StepInput {
   /** Funding rate pinned to this bar by buildSnapshotSeries, or null. */
   fundingRate: number | null;
   config: BacktestConfig;
+  /**
+   * Close an open position at this bar's close as `epoch_end`, after the
+   * bar's own stop and target checks, whatever the score says, and open
+   * nothing this bar. Set by `runBook` on a symbol's first bar after the live
+   * scorer's configVersion changes, so no ledger carries a position across
+   * versions.
+   */
+  forceExit?: boolean;
 }
 
 /** One funding settlement charged while a position was held. */

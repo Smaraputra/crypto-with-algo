@@ -5,7 +5,7 @@ import { SIGNAL_TIERS } from '@/types/signal';
 import { MARKET_SESSIONS } from '@/lib/sessions';
 import type { TradingStyle } from '@/lib/models/signal-template';
 
-export const PAPER_EXIT_REASONS = ['signal', 'stop_loss', 'take_profit', 'time_stop'] as const;
+export const PAPER_EXIT_REASONS = ['signal', 'stop_loss', 'take_profit', 'time_stop', 'epoch_end'] as const;
 export type PaperExitReason = (typeof PAPER_EXIT_REASONS)[number];
 
 /**
