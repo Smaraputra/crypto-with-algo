@@ -147,7 +147,21 @@ export interface OptionsRow {
   callIv25: number | null;
 }
 
-export type DatasetKind = 'candles' | 'snapshots' | 'htf' | 'perp' | 'metrics' | 'options';
+/**
+ * One row per USDT-M funding SETTLEMENT (src/lib/models/funding-settlement.ts),
+ * not per bar: `t` is the settlement boundary, `rate` the rate that settled
+ * there, `intervalHours` the archive's stated spacing. The snapshot column
+ * forward-fills funding onto bars and keeps one rate per bar, which is wrong
+ * for anything that must collect each settlement a position crossed (the
+ * funding carry test, review 2026-10-01).
+ */
+export interface FundingRow {
+  t: number;
+  rate: number;
+  intervalHours: number | null;
+}
+
+export type DatasetKind = 'candles' | 'snapshots' | 'htf' | 'perp' | 'metrics' | 'options' | 'funding';
 
 /** The two currencies the options pipeline covers, keyed by their USDT-margined symbol. */
 export const OPTIONS_CURRENCY_OF_SYMBOL: Record<string, 'BTC' | 'ETH'> = {
