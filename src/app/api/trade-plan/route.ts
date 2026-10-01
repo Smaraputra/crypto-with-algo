@@ -13,9 +13,10 @@ import { getLiveTierExpectancy } from '@/lib/signals/outcome-analytics';
 import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { defaultCostPercent } from '@/lib/backtest/cost-model';
+import { PaperLedger } from '@/lib/models/paper-ledger';
 import { TradePlanError, buildTradePlan } from '@/lib/trade-plan/build';
 import { STOP_WINDOW_BARS } from '@/lib/trade-plan/rule';
-import type { LiveRecord, TradePlanResponse } from '@/lib/trade-plan/types';
+import type { DeskPositionView, LiveRecord, TradePlanResponse } from '@/lib/trade-plan/types';
 
 /** The live record changes only as outcomes resolve (every 15 minutes), and its aggregate is the heaviest read here. */
 const LIVE_RECORD_CACHE_SECONDS = 600;
@@ -97,11 +98,12 @@ export async function GET(req: NextRequest) {
       plan: null,
       unavailableReason: `No ${interval} signal has been computed for ${symbol} yet.`,
       liveRecord: null,
+      deskPosition: null,
     };
     return NextResponse.json(body);
   }
 
-  const [candles, fundingRow, liveRecord] = await Promise.all([
+  const [candles, fundingRow, liveRecord, ledger] = await Promise.all([
     getCandles(symbol, interval, undefined, signal.candleTimestamp, STOP_WINDOW_BARS + 1),
     HistoricalSnapshot.findOne({
       symbol,
@@ -111,6 +113,7 @@ export async function GET(req: NextRequest) {
       .sort({ timestamp: -1 })
       .lean(),
     liveRecordFor(tradingStyle, interval, signal.configVersion),
+    PaperLedger.findOne({ tradingStyle, interval, symbol }).lean(),
   ]);
 
   const fundingRate = fundingRow?.data?.fundingRate?.rate;
@@ -130,11 +133,40 @@ export async function GET(req: NextRequest) {
       candles,
       fundingRate: typeof fundingRate === 'number' ? fundingRate : null,
     });
-    const body: TradePlanResponse = { plan, unavailableReason: null, liveRecord };
+
+    // The desk's own position, so the card states what IS held rather than
+    // what would happen to a hypothetical one.
+    const open = ledger?.position ?? null;
+    const close = candles[candles.length - 1]?.close ?? 0;
+    const deskPosition: DeskPositionView | null = open
+      ? {
+          side: open.side,
+          entryPrice: open.entryPrice,
+          entryTime: open.entryTime,
+          quantity: open.quantity,
+          stopPrice: open.stopPrice,
+          targetPrice: open.targetPrice,
+          entryScore: open.entryScore,
+          exitsNow: open.side === 'long' ? plan.holding.longExits : plan.holding.shortExits,
+          unrealisedPercent:
+            open.entryPrice > 0
+              ? ((open.side === 'long' ? close - open.entryPrice : open.entryPrice - close) /
+                  open.entryPrice) *
+                100
+              : 0,
+        }
+      : null;
+
+    const body: TradePlanResponse = { plan, unavailableReason: null, liveRecord, deskPosition };
     return NextResponse.json(body);
   } catch (error) {
     if (error instanceof TradePlanError) {
-      const body: TradePlanResponse = { plan: null, unavailableReason: error.message, liveRecord };
+      const body: TradePlanResponse = {
+        plan: null,
+        unavailableReason: error.message,
+        liveRecord,
+        deskPosition: null,
+      };
       return NextResponse.json(body);
     }
     throw error;

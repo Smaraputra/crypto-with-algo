@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type {
   ControlEvidence,
+  DeskPositionView,
   EvidenceStatus,
   LiveRecord,
   TradePlan,
@@ -185,6 +186,65 @@ function Flat({ plan }: { plan: TradePlan }) {
   );
 }
 
+/** What the paper desk actually holds, when it holds something. */
+function DeskPosition({
+  plan,
+  position,
+  ticket,
+}: {
+  plan: TradePlan;
+  position: DeskPositionView;
+  ticket: TradeTicket | null;
+}) {
+  const isLong = position.side === 'long';
+  const decimals = ticket?.priceDecimals ?? 2;
+  const quantityDecimals = ticket?.quantityDecimals ?? 2;
+  const exitLevel = isLong ? plan.rule.exitThreshold : plan.rule.shortExitThreshold;
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3" data-testid="trade-plan-desk-position">
+      <p className="text-xs text-muted-foreground">The paper desk holds</p>
+      <p className="text-sm">
+        <span className={cn('font-semibold', isLong ? 'text-bullish' : 'text-bearish')}>
+          {isLong ? 'Long' : 'Short'}
+        </span>{' '}
+        <span className="font-mono tabular-nums">
+          {position.quantity.toFixed(quantityDecimals)} {baseAsset(plan.symbol)}
+        </span>{' '}
+        from <span className="font-mono tabular-nums">{price(position.entryPrice, decimals)}</span>, opened{' '}
+        {utcTime(position.entryTime)}
+      </p>
+      <dl className="grid grid-cols-3 gap-3">
+        <Field label="Stop">{price(position.stopPrice, decimals)}</Field>
+        <Field label="Target">
+          {position.targetPrice === null ? 'none' : price(position.targetPrice, decimals)}
+        </Field>
+        <Field label="Unrealised">
+          <span className={position.unrealisedPercent >= 0 ? 'text-bullish' : 'text-bearish'}>
+            {signed(position.unrealisedPercent)}%
+          </span>
+        </Field>
+      </dl>
+      <p className="text-xs">
+        {position.exitsNow ? (
+          <span className="text-accent">
+            This bar&apos;s score closes it: exit at the next open (level{' '}
+            <span className="font-mono tabular-nums">{signed(exitLevel)}</span>).
+          </span>
+        ) : (
+          <>
+            Still held: the score has not reached{' '}
+            <span className="font-mono tabular-nums">{signed(exitLevel)}</span>.
+          </>
+        )}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Unrealised is marked at the signal bar&apos;s close and excludes fees and funding.
+      </p>
+    </div>
+  );
+}
+
 function Holding({ plan }: { plan: TradePlan }) {
   const rows = [
     { side: 'long', exits: plan.holding.longExits, level: plan.rule.exitThreshold },
@@ -305,7 +365,11 @@ export function TradePlanCard({ data, isLoading, isError }: TradePlanCardProps) 
         ) : (
           <>
             {plan.entry ? <Ticket plan={plan} ticket={plan.entry} /> : <Flat plan={plan} />}
-            <Holding plan={plan} />
+            {data?.deskPosition ? (
+              <DeskPosition plan={plan} position={data.deskPosition} ticket={plan.entry} />
+            ) : (
+              <Holding plan={plan} />
+            )}
             {plan.notes.length > 0 && (
               <ul className="space-y-1 text-xs text-accent" data-testid="trade-plan-notes">
                 {plan.notes.map((note) => (
