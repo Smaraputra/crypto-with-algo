@@ -253,7 +253,15 @@
  * and p98, 27.8 and 35.6, so 28 and 36; the exit stays a quarter of the
  * entry, 7. A fresh 2026-10-01 export was not used for this: it carries more
  * history than `f470933e`, so the unchanged scorer could not have reproduced
- * the record on it, and a control that cannot reproduce cannot attribute. */
+ * the record on it, and a control that cannot reproduce cannot attribute.
+ *
+ * Verified at the new pair on the same export: shares above 28 run 5.8% (1d)
+ * to 17.7% (1h), mean 10.6%, and above 36 run 0.97% (4h) to 3.0% (1h), mean
+ * 2.0%, the intended selectivity. The control rule re-run under v8 at 28 / 7
+ * on `e84cd66dbe01`, the dataset of the v7 controls it replaces: 15m n 4,766
+ * -0.1345% CI [-0.1914, -0.0793] (v7 -0.1175%), 1h n 8,467 -0.0551% CI
+ * [-0.1527, +0.0458] (v7 -0.0687%). Both still lose after costs and fail the
+ * same gates: the fix buys honesty, not an edge. */
 
 /** |score| above this is a buy or sell: roughly the most decisive 10% of bars. */
 export const TIER_BUY_CUTOFF = 28;

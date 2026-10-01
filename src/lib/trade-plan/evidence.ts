@@ -11,8 +11,9 @@ import { STRATEGY_EXIT_LEVEL, TIER_BUY_CUTOFF } from '@/lib/signals/calibration'
  * `scripts/research/strategy-families.ts`, which holds the full run
  * parameters. Nothing here is recomputed.
  *
- * Only 15m and 1h were measured like for like under the current scorer (v7)
- * and today's 29 / 7.25 levels. 5m, 4h and 1d exist only from Phase 4, run on
+ * Only 15m and 1h were measured like for like under the current scorer (v8)
+ * and today's 28 / 7 levels, re-run on 2026-10-02 on the same dataset as the
+ * v7 controls they replace (15m v7 -0.1175%, 1h v7 -0.0687%). 5m, 4h and 1d exist only from Phase 4, run on
  * the scorer before v5 with entry 24 and exit 6, so those rows describe an
  * earlier version of the rule. 1m was never measured. The live SignalOutcome
  * record is a different measurement (a close-to-close return over a fixed hold
@@ -21,8 +22,8 @@ import { STRATEGY_EXIT_LEVEL, TIER_BUY_CUTOFF } from '@/lib/signals/calibration'
 const PHASE_4_PROVENANCE =
   'Phase 4, 2026-09-18: dataset 3fdeac9e, commit 30a56ef, entry 24 / exit 6 on the scorer before v5, ten symbols, six rolling windows, standard fees, slippage and funding';
 
-const V7_PROVENANCE =
-  'Session 17 audit, 2026-09-26: dataset e84cd66dbe01, image from 164a192, entry 29 / exit 7.25 under configVersion 7, ten symbols, lockbox on, standard fees, slippage and funding';
+const V8_PROVENANCE =
+  'Session 22, 2026-10-02: dataset e84cd66dbe01, image from 90c2eb5, entry 28 / exit 7 under configVersion 8, ten symbols, lockbox on, standard fees, slippage and funding';
 
 export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
   '1m': {
@@ -62,36 +63,36 @@ export const CONTROL_EVIDENCE: Record<string, ControlEvidence> = {
   '15m': {
     interval: '15m',
     status: 'current',
-    label: 'v7 control, 2026-09-26',
-    provenance: V7_PROVENANCE,
-    thresholds: { entry: 29, exit: 7.25 },
-    trades: 4796,
-    expectancyPercent: -0.1175,
-    ciLowPercent: -0.174,
-    ciHighPercent: -0.0583,
+    label: 'v8 control, 2026-10-02',
+    provenance: V8_PROVENANCE,
+    thresholds: { entry: 28, exit: 7 },
+    trades: 4766,
+    expectancyPercent: -0.1345,
+    ciLowPercent: -0.1914,
+    ciHighPercent: -0.0793,
     medianHoldBars: 7,
-    sdPercentRaw: 1.021,
-    sdPercentEffective: 2.045,
-    tradesPerDay: 24.02,
+    sdPercentRaw: 1.001,
+    sdPercentEffective: 1.974,
+    tradesPerDay: 23.87,
     verdict: 'Loses after costs: the whole 95% interval is below zero.',
-    configVersion: 7,
+    configVersion: 8,
   },
   '1h': {
     interval: '1h',
     status: 'current',
-    label: 'v7 control, 2026-09-26',
-    provenance: V7_PROVENANCE,
-    thresholds: { entry: 29, exit: 7.25 },
-    trades: 8436,
-    expectancyPercent: -0.0687,
-    ciLowPercent: -0.1741,
-    ciHighPercent: 0.0385,
+    label: 'v8 control, 2026-10-02',
+    provenance: V8_PROVENANCE,
+    thresholds: { entry: 28, exit: 7 },
+    trades: 8467,
+    expectancyPercent: -0.0551,
+    ciLowPercent: -0.1527,
+    ciHighPercent: 0.0458,
     medianHoldBars: 7,
-    sdPercentRaw: null,
-    sdPercentEffective: 4.98,
-    tradesPerDay: null,
+    sdPercentRaw: 2.42,
+    sdPercentEffective: 4.658,
+    tradesPerDay: 8.27,
     verdict: 'Negative estimate after costs; the interval spans zero, so it is not shown to beat breakeven either.',
-    configVersion: 7,
+    configVersion: 8,
   },
   '4h': {
     interval: '4h',
