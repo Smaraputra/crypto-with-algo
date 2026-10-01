@@ -16,22 +16,24 @@ describe('SignalGauge', () => {
 
   it('displays the tier label', () => {
     render(<SignalGauge score={45} tier="buy" />);
-    expect(screen.getByTestId('gauge-tier')).toHaveTextContent('Buy');
+    expect(screen.getByTestId('gauge-tier')).toHaveTextContent('Long score');
   });
 
-  it('displays Strong Buy tier', () => {
+  it('describes the strong_buy tier as a score, not advice', () => {
     render(<SignalGauge score={75} tier="strong_buy" />);
-    expect(screen.getByTestId('gauge-tier')).toHaveTextContent('Strong Buy');
+    expect(screen.getByTestId('gauge-tier')).toHaveTextContent('Strong long score');
+    expect(screen.getByTestId('gauge-tier')).not.toHaveTextContent(/buy/i);
   });
 
-  it('displays Strong Sell tier', () => {
+  it('describes the strong_sell tier as a score, not advice', () => {
     render(<SignalGauge score={-80} tier="strong_sell" />);
-    expect(screen.getByTestId('gauge-tier')).toHaveTextContent('Strong Sell');
+    expect(screen.getByTestId('gauge-tier')).toHaveTextContent('Strong short score');
   });
 
-  it('displays confidence when provided', () => {
+  it('labels the scorer confidence as data coverage, which is what it measures', () => {
     render(<SignalGauge score={50} tier="buy" confidence={85} />);
-    expect(screen.getByTestId('gauge-confidence')).toHaveTextContent('85% confidence');
+    expect(screen.getByTestId('gauge-confidence')).toHaveTextContent('85% data coverage');
+    expect(screen.getByTestId('gauge-confidence')).not.toHaveTextContent('confidence');
   });
 
   it('hides confidence when not provided', () => {
@@ -42,7 +44,7 @@ describe('SignalGauge', () => {
   it('has accessible aria-label', () => {
     render(<SignalGauge score={-30} tier="sell" />);
     const svg = screen.getByRole('img');
-    expect(svg).toHaveAttribute('aria-label', 'Signal gauge: Sell (-30)');
+    expect(svg).toHaveAttribute('aria-label', 'Signal gauge: Short score (-30)');
   });
 
   it('clamps displayed score to range', () => {

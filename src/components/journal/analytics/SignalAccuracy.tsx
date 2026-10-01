@@ -2,18 +2,11 @@
 
 import type { SignalTierAccuracy } from '@/types/journal-analytics';
 import { formatWinRate, winRateColorClass, formatAvgPnl, avgPnlColorClass } from './format';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 interface SignalAccuracyProps {
   data: SignalTierAccuracy[];
 }
-
-const TIER_LABELS: Record<string, string> = {
-  strong_buy: 'Strong Buy',
-  buy: 'Buy',
-  neutral: 'Neutral',
-  sell: 'Sell',
-  strong_sell: 'Strong Sell',
-};
 
 const TIER_COLORS: Record<string, string> = {
   strong_buy: 'bg-bullish',
@@ -50,7 +43,7 @@ export function SignalAccuracy({ data }: SignalAccuracyProps) {
                 <span
                   className={`inline-block w-2 h-2 rounded-full mr-1.5 ${TIER_COLORS[row.tier] ?? 'bg-muted-foreground'}`}
                 />
-                {TIER_LABELS[row.tier] ?? row.tier}
+                {tierDisplayLabel(row.tier)}
               </td>
               <td className="py-1.5 pr-4 text-xs text-right font-mono tabular-nums">
                 {row.count}

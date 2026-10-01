@@ -65,7 +65,7 @@ describe('SignalTimeline', () => {
     ];
     render(<SignalTimeline signals={signals} isLoading={false} />);
 
-    expect(screen.getByText('strong buy')).toBeInTheDocument();
+    expect(screen.getByText('Strong long score')).toBeInTheDocument();
   });
 
   it('shows confidence percentage', () => {

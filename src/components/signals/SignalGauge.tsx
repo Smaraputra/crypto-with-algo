@@ -1,21 +1,14 @@
 'use client';
 
 import type { SignalTier } from '@/types/signal';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 interface SignalGaugeProps {
   score: number; // -100 to +100
   tier: SignalTier;
-  confidence?: number; // 0 to 100
+  confidence?: number; // 0 to 100, the share of weighted input present
   size?: number; // SVG viewport width
 }
-
-const TIER_LABELS: Record<SignalTier, string> = {
-  strong_buy: 'Strong Buy',
-  buy: 'Buy',
-  neutral: 'Neutral',
-  sell: 'Sell',
-  strong_sell: 'Strong Sell',
-};
 
 const TIER_COLORS: Record<SignalTier, string> = {
   strong_buy: 'var(--signal-strong-buy)',
@@ -52,7 +45,7 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
   const gradientId = `gauge-gradient-${size}`;
 
   const tierColor = TIER_COLORS[tier];
-  const tierLabel = TIER_LABELS[tier];
+  const tierLabel = tierDisplayLabel(tier);
 
   return (
     <div className="flex flex-col items-center text-white" data-testid="signal-gauge">
@@ -150,10 +143,13 @@ export function SignalGauge({ score, tier, confidence, size = 240 }: SignalGauge
         {tierLabel}
       </div>
 
-      {/* Confidence indicator */}
+      {/* Data coverage: the scorer's "confidence" is the share of weighted
+          input that was present, less a haircut when ATR is extreme
+          (computeConfidence in scorer.ts). It says nothing about how likely
+          the score is to be right, so it is labelled for what it measures. */}
       {confidence !== undefined && (
         <div className="text-xs text-muted-foreground mt-1" data-testid="gauge-confidence">
-          {confidence}% confidence
+          {confidence}% data coverage
         </div>
       )}
     </div>

@@ -73,10 +73,10 @@ const FEATURES = [
     icon: Brain,
     title: 'Trading Signals',
     description:
-      'Multi-indicator signal engine combining RSI, MACD, Stochastic RSI, and Ichimoku Cloud. Aggregated confidence scores produce Strong Buy to Strong Sell ratings per symbol.',
+      'Multi-indicator composite score combining RSI, MACD, Stochastic RSI, Ichimoku Cloud, futures and sentiment into a long-to-short reading per symbol, shown beside the research record of the rule built on it.',
     highlights: [
       'RSI, MACD, StochRSI, Ichimoku Cloud',
-      'Aggregated confidence scoring',
+      'Composite score with data coverage',
       'Signal history with timestamps',
     ],
   },

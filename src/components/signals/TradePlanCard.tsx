@@ -7,12 +7,13 @@ import { cn } from '@/lib/utils';
 import type {
   ControlEvidence,
   DeskPositionView,
-  EvidenceStatus,
   LiveRecord,
   TradePlan,
   TradePlanResponse,
   TradeTicket,
 } from '@/lib/trade-plan/types';
+import { evidenceVerdictKind, type EvidenceVerdictKind } from '@/lib/trade-plan/evidence';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 interface TradePlanCardProps {
   data: TradePlanResponse | undefined;
@@ -20,11 +21,33 @@ interface TradePlanCardProps {
   isError: boolean;
 }
 
-const EVIDENCE_BADGE: Record<EvidenceStatus, { label: string; className: string }> = {
-  current: { label: 'v7 evidence', className: 'border-border text-muted-foreground' },
-  stale: { label: 'Pre-v7 evidence', className: 'border-accent/40 text-accent' },
-  none: { label: 'No evidence', className: 'border-accent/40 text-accent' },
+/**
+ * Tone follows what the record SAYS, not how old it is (review P1). A rule
+ * whose whole interval is below zero reads bearish; a negative estimate whose
+ * interval still spans zero reads as a warning; stale or missing evidence
+ * carries no verdict of its own and stays muted. Until 2026-10-01 this was
+ * inverted: the proven-losing 15m row got the calmest style.
+ */
+const VERDICT_TONE: Record<EvidenceVerdictKind, { text: string; badge: string }> = {
+  loses: { text: 'text-bearish', badge: 'border-bearish/40 text-bearish' },
+  negative: { text: 'text-accent', badge: 'border-accent/40 text-accent' },
+  other: { text: 'text-foreground', badge: 'border-border text-muted-foreground' },
+  unmeasured: { text: 'text-muted-foreground', badge: 'border-border text-muted-foreground' },
 };
+
+const MUTED_TONE = { text: 'text-muted-foreground', badge: 'border-border text-muted-foreground' };
+
+/** Current evidence is styled by its verdict; stale or missing evidence is muted. */
+function evidenceTone(evidence: ControlEvidence) {
+  return evidence.status === 'current' ? VERDICT_TONE[evidenceVerdictKind(evidence)] : MUTED_TONE;
+}
+
+/** The badge text, derived from the run's own scorer version. */
+function evidenceBadgeLabel(evidence: ControlEvidence): string {
+  if (evidence.status === 'none') return 'No evidence';
+  if (evidence.status === 'stale' || evidence.configVersion === null) return 'Earlier-rule evidence';
+  return `v${evidence.configVersion} evidence`;
+}
 
 function signed(value: number, digits = 2): string {
   const fixed = value.toFixed(digits);
@@ -54,10 +77,6 @@ function baseAsset(symbol: string): string {
   return symbol.replace(/USDT$/, '');
 }
 
-function tierLabel(tier: string): string {
-  return tier.replace('_', ' ');
-}
-
 /** A label and a value, laid out as one cell of a definition grid. */
 function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
@@ -77,8 +96,9 @@ function Ticket({ plan, ticket }: { plan: TradePlan; ticket: TradeTicket }) {
     <div className="space-y-4" data-testid="trade-plan-ticket">
       <div>
         <p className="text-sm">
+          The rule would go{' '}
           <span className={cn('font-semibold', isLong ? 'text-bullish' : 'text-bearish')}>
-            {isLong ? 'Long' : 'Short'}
+            {isLong ? 'long' : 'short'}
           </span>{' '}
           {baseAsset(plan.symbol)} at the next {plan.interval} open
         </p>
@@ -252,7 +272,7 @@ function Holding({ plan }: { plan: TradePlan }) {
   ];
   return (
     <div className="space-y-1 text-xs" data-testid="trade-plan-holding">
-      <p className="text-muted-foreground">If you already hold a position from an earlier signal</p>
+      <p className="text-muted-foreground">For a position from an earlier signal, the rule would</p>
       {rows.map((row) => (
         <p key={row.side}>
           A {row.side}:{' '}
@@ -268,12 +288,16 @@ function Holding({ plan }: { plan: TradePlan }) {
   );
 }
 
+/**
+ * The research verdict on the rule, shown FIRST (review P1): what the record
+ * says about the rule comes before what the rule would do on this bar.
+ */
 function Evidence({ evidence }: { evidence: ControlEvidence }) {
+  const tone = evidenceTone(evidence);
   return (
-    <div className="space-y-1 border-t border-border pt-3 text-xs" data-testid="trade-plan-evidence">
-      <p>
-        <span className="text-muted-foreground">Recorded for this rule: </span>
-        {evidence.label}
+    <div className="space-y-1 text-xs" data-testid="trade-plan-evidence">
+      <p className={cn('text-sm font-medium', tone.text)} data-testid="trade-plan-verdict">
+        {evidence.verdict}
       </p>
       {evidence.expectancyPercent !== null && (
         <p className="font-mono tabular-nums">
@@ -285,7 +309,10 @@ function Evidence({ evidence }: { evidence: ControlEvidence }) {
           {evidence.trades !== null && `, ${evidence.trades.toLocaleString('en-US')} trades`}
         </p>
       )}
-      <p className={cn(evidence.status === 'current' ? 'text-foreground' : 'text-accent')}>{evidence.verdict}</p>
+      <p>
+        <span className="text-muted-foreground">Recorded for this rule: </span>
+        {evidence.label}
+      </p>
       <p className="text-muted-foreground">{evidence.provenance}</p>
     </div>
   );
@@ -317,7 +344,7 @@ function LiveRecordTable({ record, currentTier }: { record: LiveRecord; currentT
         <tbody className="font-mono tabular-nums">
           {record.tiers.map((row) => (
             <tr key={row.tier} className={cn(row.tier === currentTier && 'text-foreground font-medium')}>
-              <td className="py-0.5 font-sans capitalize">{tierLabel(row.tier)}</td>
+              <td className="py-0.5 font-sans">{tierDisplayLabel(row.tier)}</td>
               <td className="py-0.5 text-right">{row.count.toLocaleString('en-US')}</td>
               <td className={cn('py-0.5 text-right', row.expectancyPercent >= 0 ? 'text-bullish' : 'text-bearish')}>
                 {signed(row.expectancyPercent, 3)}%
@@ -341,10 +368,10 @@ export function TradePlanCard({ data, isLoading, isError }: TradePlanCardProps) 
           <CardTitle className="text-sm font-medium">Trade Plan</CardTitle>
           {plan && (
             <span
-              className={cn('rounded-full border px-2 py-0.5 text-xs', EVIDENCE_BADGE[plan.evidence.status].className)}
+              className={cn('rounded-full border px-2 py-0.5 text-xs', evidenceTone(plan.evidence).badge)}
               data-testid="trade-plan-evidence-badge"
             >
-              {EVIDENCE_BADGE[plan.evidence.status].label}
+              {evidenceBadgeLabel(plan.evidence)}
             </span>
           )}
         </div>
@@ -364,7 +391,13 @@ export function TradePlanCard({ data, isLoading, isError }: TradePlanCardProps) 
           </p>
         ) : (
           <>
-            {plan.entry ? <Ticket plan={plan} ticket={plan.entry} /> : <Flat plan={plan} />}
+            <Evidence evidence={plan.evidence} />
+            <div className="space-y-4 border-t border-border pt-3">
+              <p className="text-xs text-muted-foreground" data-testid="trade-plan-rule-heading">
+                What the rule would do on this bar
+              </p>
+              {plan.entry ? <Ticket plan={plan} ticket={plan.entry} /> : <Flat plan={plan} />}
+            </div>
             {data?.deskPosition ? (
               <DeskPosition plan={plan} position={data.deskPosition} ticket={plan.entry} />
             ) : (
@@ -377,7 +410,6 @@ export function TradePlanCard({ data, isLoading, isError }: TradePlanCardProps) 
                 ))}
               </ul>
             )}
-            <Evidence evidence={plan.evidence} />
             {data?.liveRecord && <LiveRecordTable record={data.liveRecord} currentTier={plan.signal.tier} />}
             <p className="text-xs text-muted-foreground">
               Research books the entry at the signal close. A live order fills at the next open, which no research run
