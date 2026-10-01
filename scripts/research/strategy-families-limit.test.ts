@@ -8,6 +8,7 @@ import {
   returnReversalLimitFamily,
   STRATEGY_FAMILIES,
   withLimitEntry,
+  withManagement,
 } from './strategy-families';
 import { depthColumn } from './research-columns';
 import { runStrategyWalkForward, type StrategyWalkForwardInput } from './strategy-walk-forward';
@@ -321,6 +322,42 @@ describe('withLimitEntry', () => {
     const wrapped = withLimitEntry(base, 'my-wrapped-name', params, { timeoutBars: 2, offsetBps: 5 });
     expect(wrapped.name).toBe('my-wrapped-name');
     expect(wrapped.params).toBe(params);
+  });
+
+  it('exposes an entryWrapper that applies the same limit to another strategy', () => {
+    // The random-entry null wraps its own random decisions with this, so it
+    // must rest the same offset and timeout as the family (review M4).
+    const family = withLimitEntry(
+      { name: 'base', decideEntry: () => null, decideExit: () => false },
+      'family',
+      {},
+      { timeoutBars: 3, offsetBps: 10 }
+    );
+    const randomBase: Strategy = { name: 'random', decideEntry: () => baseShort, decideExit: () => false };
+    expect(family.entryWrapper).toBeDefined();
+    const wrappedRandom = family.entryWrapper!(randomBase);
+    const decision = wrappedRandom.decideEntry(makeContext({ candles: [makeCandle(200)] }), CONFIG);
+    expect(decision).toMatchObject({
+      side: 'short',
+      orderType: 'limit',
+      limitPrice: 200 * (1 + 10 / 10000),
+      timeoutBars: 3,
+    });
+  });
+
+  it('withManagement keeps the base strategy entryWrapper, and adds none to a market base', () => {
+    const limitBase = withLimitEntry(
+      { name: 'base', decideEntry: () => null, decideExit: () => false },
+      'family',
+      {},
+      { timeoutBars: 2, offsetBps: 0 }
+    );
+    const managedLimit = withManagement(limitBase, { breakEvenR: 1, trailStartR: 2, trailAtr: 1 }, 'm', {});
+    expect(managedLimit.entryWrapper).toBe(limitBase.entryWrapper);
+
+    const marketBase: Strategy = { name: 'base', decideEntry: () => null, decideExit: () => false };
+    const managedMarket = withManagement(marketBase, { breakEvenR: 1, trailStartR: 2, trailAtr: 1 }, 'm', {});
+    expect('entryWrapper' in managedMarket).toBe(false);
   });
 });
 

@@ -371,6 +371,17 @@
  * depthFlow1 needs 0.0113 and delivers 0.0073: short by about 1.6x, and the
  * closest this program has come at a fine interval.
  *
+ * REVIEW M6, 2026-10-01: the sd column above is the CI-implied EFFECTIVE sd,
+ * which carries the cross-symbol correlation of simultaneous trades. Both IC
+ * columns divide by it where they need one trade's raw dispersion (the
+ * detectable column should be 1.96 x effective sd / sqrt(n) over 2 x RAW sd).
+ * Both are therefore understated by the same effective-to-raw ratio, measured
+ * on the control reports at 1.85 (5m), 1.87 (1h) and 1.58 (4h). The BINDING
+ * column is unchanged, since both columns scale together, but every absolute
+ * threshold roughly doubles intraday: at 1h about 0.0082 to pay maker and about
+ * 0.021 to be detectable, so depthFlow1's 0.0073 falls short by about 2.9x, not
+ * 1.6x. See frontier.ts's RE-MEASURED table and `RECORDED_CONTROL_RAW_SD_PERCENT`.
+ *
  * STAGE 2, 2026-09-25. Same dataset and lag, measured at 5m, 1h AND 4h in one
  * pass so no interval was chosen after seeing another's result. Controls
  * reproduce the recorded lag-1 table exactly at all three: raw.ret1 h1 is

@@ -453,9 +453,12 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
       // cell actually traded out of sample.
       if (benchmark !== null && selectedOosResult.trades.length > 0) {
         const seed = benchmark.seed + 100000 * (index + 1);
+        // The selected cell's own entry mechanism, so a limit family's null
+        // rests the same limit and pays the same maker fee (review M4).
         const bm = randomEntryBenchmark(preparedTest, baseConfig, symbol, interval, selectedOosResult, {
           iterations: benchmark.iterations,
           seed,
+          entryWrapper: stressStrategy.entryWrapper,
         });
         benchmarkResult = {
           iterations: benchmark.iterations,

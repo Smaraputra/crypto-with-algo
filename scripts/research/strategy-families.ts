@@ -45,6 +45,45 @@
  * 2022 and changed nothing at 4h and 15m: the "+2.4R to +15.8R" thread
  * claim does not transfer.
  *
+ * REVIEW CAVEATS, 2026-10-01. Every results table in this header was
+ * produced under the conditions below, recorded by the program review of
+ * that date and NOT corrected by re-running. None can turn a recorded FAIL
+ * into a pass, because each correction moves a number toward realism. They
+ * do weaken every favourable reading ("closest yet", "best ever", a timing
+ * pass), and those readings are what justified reopening tracks.
+ *
+ *  M1  Entry and score exits fill at the decision bar's OWN close
+ *      (`bar-loop.ts`, the market-entry branch), which is lag 0 for any
+ *      family whose signal is built from that bar's candle or indicator
+ *      suite (control, fade-composite, return-reversal,
+ *      oscillator-reversion, stochrsi-momentum and their limit variants).
+ *      The IC study mandates lag 1. Research-column families (positioning,
+ *      funding, depth) read values knowable at the bar's open, so they run
+ *      at about lag 1: one gate set mixes the two. Biases toward passing.
+ *  M3  Trades are priced on SPOT candles (`strategy-harness.ts` loads
+ *      `candles/`) while fees and funding are the USDT-M perpetual's. The
+ *      control family on perp prices, open since session 10, never ran.
+ *      Sign unknown.
+ *  M4  Until 2026-10-01 the random-entry null entered at MARKET for every
+ *      family, so a *-limit family's null paid taker fees and slippage and
+ *      skipped the fill selection the reference went through. Every
+ *      limit-family timing p below (the 0.005 rows) was computed against a
+ *      null not matched on entry mechanism. The direction of that bias is
+ *      not established: the fee saving favours a limit null, adverse fill
+ *      selection penalises it, and the sign varied by series on synthetic
+ *      data. Fixed by `Strategy.entryWrapper`, which `withLimitEntry` sets.
+ *  M5  The trials gate's deflated Sharpe multiplies the declared trial
+ *      count by the variance of THIS family's own grid, so it is vacuous for
+ *      a one-cell run (`--fix-params`, `control`), and pooled trades are
+ *      treated as independent. Biases toward passing.
+ *  M9  A stop the bar gaps through fills at the stop price, not the open
+ *      (`trade-utils.ts` `checkStopTakeProfit`). The paper desk fills it at
+ *      the open. Biases toward passing.
+ *  M2  Session 19's confirmation slices (2023, 2024, 2025H1, 2025H2 to
+ *      2026H1) were development data for every earlier phase in this
+ *      header, and its families descend from results on those years. Only
+ *      its options families and the 2026-07-01 lockbox are clean holdouts.
+ *
  * Phase 4 results (2026-09-18, dataset 3fdeac9e495e3051ad2e2c7553be6b07b1da0d7b9e84f468d635d2708c624782,
  * commit 30a56ef, lockbox applied so every window ends 2026-06-30, ten
  * symbols, six rolling windows with train fraction 0.4 and purge equal to
@@ -95,7 +134,8 @@
  * 123, reports strategy-<family>-<interval>-p4.json for the three
  * *-limit families, each spot-checked with --cell --report). The maker
  * entry recovers 0.04 to 0.07% per trade and no more; every run still
- * fails, timing p 0.005 in all four.
+ * fails, timing p 0.005 in all four. (Review M4: these four timing p values
+ * were computed against a market-entry null; see the caveats above.)
  *
  *   interval family                        trades   exp%    CI low   p      stress  market version
  *   5m       control-limit                 13896   -0.110  -0.121   0.005  -0.192  -0.178
@@ -747,6 +787,10 @@ export function withLimitEntry(
     decideExit(ctx: StrategyContext, config: BacktestConfig): boolean {
       return base.decideExit(ctx, config);
     },
+    // The random-entry null wraps its own random decisions with this, so it
+    // rests the same limit (same offset, same timeout) and pays the same
+    // maker fee as the family it is the null for.
+    entryWrapper: (inner: Strategy) => withLimitEntry(inner, inner.name, params, opts),
   };
 }
 
@@ -828,6 +872,8 @@ export function withManagement(
   return {
     name,
     params,
+    // A managed limit family keeps its entry mechanism for the null.
+    ...(base.entryWrapper ? { entryWrapper: base.entryWrapper } : {}),
     decideEntry(ctx: StrategyContext, config: BacktestConfig): EntryDecision | null {
       return base.decideEntry(ctx, config);
     },

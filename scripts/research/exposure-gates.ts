@@ -23,6 +23,16 @@
  * `positioningZ720` are mildly positive there, but the interval is what decides
  * and neither clears it.
  *
+ * REVIEW M8, 2026-10-01: the three 1d rows above were computed while
+ * `simulateExposure` charged ONE funding settlement per bar from the per-8h
+ * rate, a two-thirds undercharge on every 1d bar (it spans three settlements).
+ * Fixed in `exposure-sim.ts`, not re-run. The 4h rows cross at most one
+ * boundary per bar and are unaffected. The fade is mostly short when the crowd
+ * is long, and a short RECEIVES positive funding, so the "mildly positive" 1d
+ * readings may owe part of their sign to the undercharge as well as part of
+ * their size; either way they stay inside their intervals and the verdict
+ * stands.
+ *
  * TWO HONEST CAVEATS, both recorded because they bound what this can be said to
  * show. First, the BAND WAS NEVER SELECTED: `band = 0` won all 6 windows at 4h
  * and 5 of 6 at 1d in the final grid (and 11 of 12 in the first, discarded one).

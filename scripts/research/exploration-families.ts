@@ -22,6 +22,28 @@
  * walk-forward cells, the stress re-run and the random-entry benchmark alike
  * (see strategy-walk-forward.ts), which is what makes its timing p readable.
  *
+ * REVIEW CAVEATS, 2026-10-01 (not re-run; see the full list in the header of
+ * strategy-families.ts). Two bear on these tables in particular:
+ *
+ *  M2  The confirmation slices S1 to S4 (2023, 2024, 2025H1, 2025H2 to
+ *      2026H1) are NOT clean holdouts for most families here. Phases 3 to B
+ *      developed on every year to 2026-06-30, and btc-leadlag-continuation
+ *      (Phase B's btcLeadLag), the session-gated control (control's per-year
+ *      results were already known), vwap-fade and sweep-reclaim (Phase 3's
+ *      intraday reversal) and the managed depth and positioning families
+ *      (Phase 4c base cells) all descend from results on those years. Only
+ *      the options families, whose Deribit input was ingested fresh and
+ *      triaged on S0 alone, and the 2026-07-01 lockbox are clean. Every
+ *      promoted candidate failed its first slice anyway, so this produced no
+ *      false pass; it means S1 to S4 could not have certified one.
+ *  M5  Under `--fix-params` a confirmation run has one cell, so the trials
+ *      gate's deflated-Sharpe benchmark is computed from a grid variance of
+ *      zero and the gate is vacuous there. The promotion rule (expectancy
+ *      above zero, symbols at or above 0.6, no more than half the S0 value
+ *      lost) did not read that gate. Also: "S1 2023" scores only the last
+ *      55 to 60% of 2023, because the 0.4 train fraction still applies inside
+ *      a fixed-parameter slice.
+ *
  * ROUND 1 RESULTS (2026-09-28, develop slice S0 = everything before
  * 2023-01-01, which at 1h and 15m is 2021-10 to 2022-12 and at 4h from
  * 2018-10; dataset research-p4, hash 3f14b27e; trials 1141 as run (1186 on

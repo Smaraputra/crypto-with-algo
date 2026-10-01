@@ -38,6 +38,32 @@
  *   1h  at 4/day 0.0450 / 0.0318, at 8/day 0.0313 / 0.0181, at 20/day 0.0230 / 0.0099
  *   4h  at 4/day 0.0212 / 0.0157
  *
+ * SUPERSEDED 2026-10-01 (review M6): every IC in the two tables above was
+ * computed from the CI-implied sd, which carries the cross-symbol correlation
+ * of simultaneous trades and runs 1.6 to 2.0x the raw per-trade sd intraday.
+ * The IC conversion needs one trade's dispersion, so each breakeven above is
+ * understated by that ratio and every "near miss" measured against it was
+ * farther away than recorded. RE-MEASURED from the same five reports, raw sd
+ * recovered as expectancy / observedSharpe (`rawSdFromReport`):
+ *   family   iv    n      trades/day  raw sd%  eff sd%  cost taker  cost maker  be taker  be maker
+ *   control  5m    19414  115.31      0.424    0.78     0.200       0.040       0.2356    0.0471
+ *   control  15m   4796   24.02       1.021    2.04     0.160       0.040       0.0783    0.0196
+ *   control  1h    7519   7.34        2.431    4.56     0.160       0.040       0.0329    0.0082
+ *   control  4h    1619   1.07        5.828    9.21     0.140       0.040       0.0120    0.0034
+ *   control  1d    157    0.14        13.633   15.92    0.140       0.040       0.0051    0.0015
+ *
+ *   Target 0.5 USDT a day on 50 USDT per trade, IC needed (taker / maker):
+ *   5m  at 20/day 0.2945 / 0.1060, at 50/day 0.2592 / 0.0707
+ *   15m at 8/day 0.1395 / 0.0808, at 20/day 0.1028 / 0.0441, at 50/day 0.0881 / 0.0294
+ *   1h  at 4/day 0.0843 / 0.0597, at 8/day 0.0586 / 0.0339, at 20/day 0.0432 / 0.0185
+ *   4h  at 4/day 0.0335 / 0.0249
+ *
+ *   Against the largest fine-interval effect ever measured, raw.btcLeadLag 1h
+ *   h1 0.0219: the 1h maker breakeven is 0.0082 and the taker 0.0329, so it
+ *   clears maker and misses taker by 1.5x, and the hold-mismatch caveat below
+ *   still applies on top. The effective sd stays the right number for what a
+ *   sample can DETECT; only the IC conversion changed.
+ *
  * MEASURED 2026-09-26, per fee profile (Task 3, CLI on the pA report,
  * `npx tsx scripts/research/frontier.ts --reports
  * data/research/reports/strategy-control-15m-pA.json`):
@@ -118,10 +144,13 @@ const DAY_MS = 86_400_000;
 export const MAKER_ROUND_TRIP_PERCENT = 2 * BINANCE_FUTURES_MAKER_FEE * 100;
 
 /**
- * Per-trade sd (percent) recovered from the recorded control reports at each
- * interval (the "sd%" column of the MEASURED table above). Consumed by the
- * frequency-frontier stress work (Task 4) that needs the recorded dispersion
- * without re-deriving it from a bootstrap CI each time.
+ * EFFECTIVE per-trade sd (percent) recovered from the recorded control
+ * reports' bootstrap CIs at each interval (the "sd%" column of the 2026-09-26
+ * MEASURED table above). It folds in the cross-symbol correlation of trades
+ * taken at the same time, so it is the right number for what a sample can
+ * DETECT and the wrong one for converting an IC into a per-trade return
+ * (review M6, 2026-10-01; see RECORDED_CONTROL_RAW_SD_PERCENT). Kept unchanged
+ * so `composite-audit.ts`'s recorded output still reproduces.
  */
 export const RECORDED_CONTROL_SD_PERCENT: Record<string, number> = {
   '5m': 0.78,
@@ -129,6 +158,21 @@ export const RECORDED_CONTROL_SD_PERCENT: Record<string, number> = {
   '1h': 4.56,
   '4h': 9.21,
   '1d': 15.92,
+};
+
+/**
+ * RAW per-trade sd (percent) of the same five control reports, recovered as
+ * expectancyPercent / deflatedSharpe.observedSharpe (observedSharpe is the
+ * pooled per-trade mean over the sample sd). Measured 2026-10-01 from
+ * data/research/reports: 5m/1h/4h/1d Phase 4 on 3fdeac9e495e, 15m pA on
+ * e84cd66dbe01. Effective over raw: 1.85, 2.00, 1.87, 1.58, 1.17.
+ */
+export const RECORDED_CONTROL_RAW_SD_PERCENT: Record<string, number> = {
+  '5m': 0.424,
+  '15m': 1.021,
+  '1h': 2.431,
+  '4h': 5.828,
+  '1d': 13.633,
 };
 
 export interface FrontierInput {
@@ -139,6 +183,31 @@ export interface FrontierInput {
   symbolsTotal: number;
   /** Sum over symbols of testWindowBars x windows: the out-of-sample span in bars. */
   oosBars: number;
+  /** Raw per-trade sd (percent), NaN when the report cannot supply one. */
+  rawSdPercent: number;
+}
+
+/**
+ * Raw per-trade sd of a report: `pooled.sdPercent` when the report carries it
+ * (written since 2026-10-01), otherwise recovered as expectancyPercent /
+ * deflatedSharpe.observedSharpe, otherwise NaN.
+ */
+export function rawSdFromReport(report: StrategyReport): number {
+  const recorded = report.pooled.sdPercent;
+  if (typeof recorded === 'number' && Number.isFinite(recorded) && recorded > 0) return recorded;
+  const expectancy = report.pooled.expectancyPercent;
+  const observed = report.pooled.deflatedSharpe?.observedSharpe;
+  if (
+    typeof expectancy === 'number' &&
+    typeof observed === 'number' &&
+    Number.isFinite(expectancy) &&
+    Number.isFinite(observed) &&
+    Math.abs(observed) > 1e-9
+  ) {
+    const sd = expectancy / observed;
+    return sd > 0 ? sd : NaN;
+  }
+  return NaN;
 }
 
 export function frontierInputFromReport(report: StrategyReport): FrontierInput {
@@ -149,6 +218,7 @@ export function frontierInputFromReport(report: StrategyReport): FrontierInput {
     bootstrapCi95: report.pooled.bootstrapCi95,
     symbolsTotal: report.pooled.symbolsTotal,
     oosBars: report.perSymbol.reduce((s, p) => s + p.windowConfig.testWindowBars * p.windows.length, 0),
+    rawSdPercent: rawSdFromReport(report),
   };
 }
 
@@ -173,7 +243,13 @@ export interface FrontierRow {
   interval: string;
   n: number;
   tradesPerDay: number;
+  /** The sd every IC in this row is computed from: raw when known, else effective. */
   sdPercent: number;
+  sdBasis: 'raw' | 'effective';
+  /** Raw per-trade sd (NaN when the report cannot supply one). */
+  rawSdPercent: number;
+  /** CI-implied sd, carrying cross-symbol correlation: for detectability, not IC. */
+  effectiveSdPercent: number;
   costTakerPercent: number;
   costMakerPercent: number;
   breakevenIcTaker: number;
@@ -198,7 +274,15 @@ export interface FrontierOptions {
 }
 
 export function frontierRow(input: FrontierInput, opts: FrontierOptions): FrontierRow {
-  const sd = sdPerTradeFromCi(input.bootstrapCi95, input.n);
+  // The IC conversion needs one trade's dispersion, so it takes the RAW sd.
+  // Until 2026-10-01 it took the CI-implied sd, which carries cross-symbol
+  // correlation and runs 1.6 to 2.0x the raw value intraday, so every
+  // breakeven IC was understated by that factor (review M6). The effective sd
+  // is the fallback only for a report that cannot supply a raw one.
+  const effectiveSd = sdPerTradeFromCi(input.bootstrapCi95, input.n);
+  const rawSd = input.rawSdPercent;
+  const sdBasis: 'raw' | 'effective' = Number.isFinite(rawSd) && rawSd > 0 ? 'raw' : 'effective';
+  const sd = sdBasis === 'raw' ? rawSd : effectiveSd;
   // Continuity with the recorded header table: these top-level fields stay
   // the standard-profile numbers regardless of opts.feeProfile.
   const costTaker = defaultCostPercent(input.interval);
@@ -236,6 +320,9 @@ export function frontierRow(input: FrontierInput, opts: FrontierOptions): Fronti
     n: input.n,
     tradesPerDay: tradesPerDayOf(input),
     sdPercent: sd,
+    sdBasis,
+    rawSdPercent: rawSd,
+    effectiveSdPercent: effectiveSd,
     costTakerPercent: costTaker,
     costMakerPercent: costMaker,
     breakevenIcTaker: requiredIc(costTaker, sd),
@@ -284,10 +371,10 @@ export function formatFrontier(
   const lines: string[] = [];
   lines.push(
     `frontier: notional ${opts.notionalUsdt} USDT per trade, target ${opts.targetPerDayUsdt} USDT per day; ` +
-      `ic = gross / (2 x sd per trade); targets priced under fee profile ${feeProfile}`
+      `ic = gross / (2 x raw sd per trade); targets priced under fee profile ${feeProfile}`
   );
   lines.push(
-    ['family', 'iv', 'n', 'trades/day', 'sd%', 'cost taker', 'cost maker', 'be taker', 'be maker']
+    ['family', 'iv', 'n', 'trades/day', 'raw sd%', 'eff sd%', 'cost taker', 'cost maker', 'be taker', 'be maker']
       .map((h) => h.padEnd(12))
       .join('')
   );
@@ -298,7 +385,8 @@ export function formatFrontier(
         r.interval.padEnd(12),
         String(r.n).padEnd(12),
         fmt(r.tradesPerDay, 2).padEnd(12),
-        fmt(r.sdPercent, 2).padEnd(12),
+        (fmt(r.rawSdPercent, 3) + (r.sdBasis === 'effective' ? '*' : '')).padEnd(12),
+        fmt(r.effectiveSdPercent, 2).padEnd(12),
         fmt(r.costTakerPercent, 3).padEnd(12),
         fmt(r.costMakerPercent, 3).padEnd(12),
         fmt(r.breakevenIcTaker, 4).padEnd(12),

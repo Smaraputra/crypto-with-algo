@@ -179,6 +179,21 @@ describe('poolStrategyResults: basic pooling', () => {
     expect(pooled.payoffRatio).toBeCloseTo(1.75, 12);
   });
 
+  it('computes sdPercent as the sample sd of pnlPercent, the raw per-trade dispersion', () => {
+    // pnlPercents 2, 1.5, -1: mean 0.8333..., n - 1 denominator.
+    const mean = (2 + 1.5 - 1) / 3;
+    const variance = ((2 - mean) ** 2 + (1.5 - mean) ** 2 + (-1 - mean) ** 2) / 2;
+    expect(pooled.sdPercent).toBeCloseTo(Math.sqrt(variance), 12);
+  });
+
+  it('nulls sdPercent below two trades', () => {
+    const one = [makeResult('AAAUSDT', [makeWindow(0, [tradeA1])])];
+    const single = poolStrategyResults(one, {
+      interval: '1h', cells: ONE_CELL, familyCount: 1, bootstrapIterations: 50, seed: 7,
+    });
+    expect(single.sdPercent).toBeNull();
+  });
+
   it('nulls the payoff ratio rather than dividing by an absent leg', () => {
     const allWinners = [makeResult('AAAUSDT', [makeWindow(0, [tradeA1, tradeB1])])];
     const noLosses = poolStrategyResults(allWinners, {

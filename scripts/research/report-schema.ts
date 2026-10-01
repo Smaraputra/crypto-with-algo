@@ -565,6 +565,9 @@ const PooledStatsSchema = z.object({
   avgWinPercent: z.number().nullable().optional(),
   avgLossPercent: z.number().nullable().optional(),
   payoffRatio: z.number().nullable().optional(),
+  // Raw per-trade sd, added 2026-10-01 (review M6). Optional so every earlier
+  // report still validates; frontier.ts recovers it for those reports.
+  sdPercent: z.number().nullable().optional(),
   medianHoldBars: z.number().nullable(),
   maxDrawdownPercent: z.number().nullable(),
   bootstrapCi95: z.tuple([z.number(), z.number()]).nullable(),
