@@ -35,7 +35,8 @@ import { FUNDING_INTERVAL_MS } from '@/lib/backtest/funding';
 import { prepareBacktest } from '@/lib/backtest/optimized-engine';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
-import type { CandleRow, HtfRow, MetricsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
+import type { CandleRow, HtfRow, MetricsRow, OptionsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
+import { OPTIONS_SLOT_MS } from '@/lib/options-flow';
 import { alignToBars, METRICS_SLOT_MS } from '@/lib/archive-ingestion';
 import { intervalToMs } from '@/lib/intervals';
 import { MARKET_SESSIONS, isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
@@ -71,6 +72,22 @@ export interface FactorMatrixInput {
   perp?: PerpCandleRow[] | null;
   /** The premium index series for the same symbol and interval. */
   premiumIndex?: PerpCandleRow[] | null;
+  /**
+   * Hourly Deribit options-flow rows for this symbol's OWN currency (see
+   * scripts/research/dataset-format.ts's optionsCurrencyOf), from
+   * load-dataset.ts's loadOptions. Optional and NaN throughout when omitted,
+   * same rule as metrics/perp. A symbol with no options market (anything but
+   * BTCUSDT/ETHUSDT) never has one.
+   */
+  options?: OptionsRow[] | null;
+  /**
+   * BTC's hourly options-flow rows, read by EVERY symbol as the market-wide
+   * options reading -- passed here rather than derived, since
+   * computeFactorMatrix is per symbol and has no access to another symbol's
+   * dataset file. Identical across every symbol at a given bar by
+   * construction (see MARKET_OPTIONS_NAMES below).
+   */
+  marketOptions?: OptionsRow[] | null;
 }
 
 // Fixes each interval's indicator periods and DEFAULT_TEMPLATE_WEIGHTS, per the brief.
@@ -384,6 +401,135 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  * The eight reports were written with one task id per mode; the phase table was
  * built from copies relabelled pB-<mode>-<interval> because evaluatePhaseSurvivors
  * refuses duplicate ids (the id is a label, in no hash or spot check).
+ *
+ * OPTIONS INPUTS (exploration, 2026-09-28). Task 3b stores hourly Deribit
+ * options-flow rows (OptionsFlowHour, src/lib/models/options-flow-hour.ts):
+ * the DVOL implied-vol index and trade-flow aggregates (call/put notional by
+ * taker side, net delta, net dollar gamma, and two implied-vol readings).
+ * `options` carries the symbol's OWN currency (BTCUSDT/ETHUSDT only,
+ * scripts/research/dataset-format.ts's optionsCurrencyOf); `marketOptions`
+ * always carries BTC's file, read by every symbol as the market-wide
+ * reading. JOIN RULE: an hourly row is observable at its hour's CLOSE
+ * (t + OPTIONS_SLOT_MS - 1), the same "published by the time a factor reads
+ * it" reasoning the 5m metrics grid join uses above, and joins onto
+ * `alignToBars(barCloses, ..., Math.max(intervalMs, 2 * OPTIONS_SLOT_MS))` --
+ * a bar more than two hours past the last options row is NaN, never a stale
+ * carry-forward. Before alignment, four hourly series are precomputed over
+ * CONSECUTIVE hours only (a gap -- a missing hour, or a null measure inside
+ * an hour that exists -- makes that hour's 24-hour window NaN, never a
+ * partial sum): `deltaFlow24` and `gammaFlow24`, 24-hour trailing sums of
+ * netDelta and netDollarGamma; `putCallVol24`, the 24-hour put-to-call
+ * notional ratio (NaN when the call sum is zero); `skew24`, putIv25 minus
+ * callIv25 as an unweighted mean of the hours in the window whose own
+ * putIv25/callIv25 pair is finite (this one alone tolerates a thin-hour gap
+ * inside an otherwise gap-free window, since it is already a mean rather
+ * than a sum). `raw.mktDvolZ30`, `raw.mktOptDeltaFlow24Z`,
+ * `raw.mktOptGammaFlow24Z`, `raw.ownDvolZ30`, `raw.ownOptDeltaFlow24Z` and
+ * `raw.ownOptGammaFlow24Z` are `trailingZScore` over the aligned series with
+ * `daysToBars(DEPTH_NOTIONAL_Z_DAYS)` and `DEPTH_NOTIONAL_Z_MIN_SAMPLES`, the
+ * same helper and constants `raw.depthNotionalZ` uses; `raw.mktOptPutCallVol24`,
+ * `raw.mktOptSkew24`, `raw.ownOptPutCallVol24` and `raw.ownOptSkew24` are the
+ * aligned levels, not z-scored. Two Stage-2-style diagnostics, masks of
+ * `raw.ret1` rather than standalone signals: `raw.ret1InHighDvol` /
+ * `raw.ret1InLowDvol` split by the top/bottom tercile of a trailing 90-day
+ * window of the aligned market DVOL close, and `raw.ret1InPosGammaFlow` /
+ * `raw.ret1InNegGammaFlow` split by the sign of the aligned market
+ * `gammaFlow24`. `MARKET_OPTIONS_NAMES` (the five `mkt` columns) is
+ * identical across every symbol at a bar by construction -- marketOptions is
+ * always BTC's file -- the same "no cross-sectional content" reasoning
+ * factor-ic.ts already applies to raw.btcLeadLag. When `options` and
+ * `marketOptions` are both absent (the default until a dataset carries the
+ * `options` kind), every column this paragraph describes is NaN throughout,
+ * exactly like every other optional input in this file.
+ *
+ * OPTIONS TRIAGE RESULTS (2026-09-28, develop slice to 2022-12-31 on the
+ * options-enabled export research-p4o, hash 3483a511, execution lag 1, ten
+ * symbols; the options rows begin 2021-10-01, so every options cell is
+ * measured on 2021-10 to 2022-12, one bear regime). At 1h: `raw.mktDvolZ30`
+ * h8 +0.0326 t 4.63 [0.016, 0.046], h16 +0.0472 t 4.78, h32 +0.0611 t 4.64,
+ * 10/10 symbols, 4/5 quarters, the program's first new-input survivor at 1h;
+ * `raw.mktOptSkew24` h8 +0.0282 t 3.97 (put-rich skew precedes HIGHER
+ * returns, the opposite of the thread claim); `raw.mktOptDeltaFlow24Z` h1 to
+ * h16 within +/-0.008, h32 +0.0262 t 2.27. At 4h: `raw.mktDvolZ30` h32
+ * +0.1228 t 5.01; `raw.mktOptDeltaFlow24Z` h8 +0.0273 t 2.42, h16 +0.0656
+ * t 4.89 [0.040, 0.089], h32 +0.0439 t 3.05; `raw.mktOptGammaFlow24Z` h32
+ * -0.0601 t -4.12; `raw.mktOptPutCallVol24` h32 +0.0812 t 3.98;
+ * `raw.ret1InNegGammaFlow` h2 -0.0615 t -6.87 against unconditional
+ * -0.0118 at h8 and `raw.ret1InPosGammaFlow` h4 +0.0230 (the 4h reversal is
+ * much stronger when customers sold gamma, mild continuation when
+ * they bought; the unconditional `raw.ret1` is -0.0118 at h8, so the
+ * like-for-like ratio is about 52 at h2 and about 3.6 at h8). At 15m the
+ * delta-flow, gamma-flow and put/call columns sit below the 0.02 floor;
+ * `raw.mktDvolZ30` clears it at h16 (+0.0203 t 4.10) and h32 (+0.0294
+ * t 4.20, 10/10 symbols) and the skew at 8h (+0.0294 t 4.2).
+ *
+ * WHAT THE RULES BUILT ON THESE CELLS DID (exploration-families.ts header
+ * has the tables): the long-only DVOL-spike and skew-spike rules and the
+ * gamma-regime fade LOSE on the same slice at 1h, 4h and 15m without
+ * exception (a 2 to 3 ATR stop is hit inside the high-vol bars the drift
+ * needs), while delta-flow continuation paid +1.7% to +2.0% per trade at 1h
+ * and 4h (6 of 8 gates at 1h) and then lost on EVERY symbol in 2023 with
+ * parameters fixed. A record-only 2023 read of `raw.mktOptDeltaFlow24Z`
+ * alone (no other column's 2023 IC was computed) shows why: at 1h the
+ * column's relation to the next 4 to 16 hours flipped from about zero to
+ * h4 -0.0353 t -6.58, h8 -0.0405 t -5.52, h16 -0.0374 t -3.70; at 4h the
+ * 64-hour cell fell to +0.0176 t 1.12 while the 5-day cell held (+0.0486
+ * t 2.87, 9/10 symbols). The sign of "options flow leads the underlying" is
+ * regime-dependent on this data, and a whole-distribution rank IC at the
+ * multi-day horizon does not reach a tail-entry rule with an ATR stop, the
+ * same IC-to-rule gap Phase 3b recorded for the positioning factor.
+ *
+ * EXPLORATION COLUMNS, 2026-09-28, for the calendar and conditioning claims
+ * the reading produced (Monday/Wednesday direction, OPEX-style weekday
+ * effects, "short the session open", Asia is chop, round numbers are levels,
+ * down moves are sharper, trending regimes weaken reversal). Two are a
+ * DEVIATION form of the Phase B seasonal columns the PHASE B RESULTS block
+ * above named as the next test: raw.hourOfDayDrift and raw.sessionDrift both
+ * carry the 60-day trailing mean return, the same slow reversal raw.ret20
+ * already carries, because neither column subtracted the unconditional
+ * trailing mean. The other eight are Stage-2-style diagnostics, masks of
+ * raw.ret1 rather than standalone signals, following the pattern
+ * raw.ret1InMeanReversion/InTrend and raw.ret1InHighTaker/InLowTaker set: the
+ * two subset ICs are compared and read as the gap between them (a third of
+ * the unconditional |ic| counts as a gap), never as survivors on their own.
+ *
+ * `raw.hourOfDayDriftDev` and `raw.weekdayDriftDev` subtract the trailing
+ * unconditional mean of ret1 -- obtained from the SAME `seasonalDriftSeries`
+ * call with a single, constant bucket, so both terms exclude the bar itself
+ * identically -- from the bucketed drift, leaving only the bucket's
+ * departure from the overall trailing mean. `raw.hourOfDayDriftDev` is NaN
+ * wherever `raw.hourOfDayDrift` is (1d and coarser, no time-of-day content).
+ * `raw.weekdayDriftDev` buckets on `getUTCDay()` (7 buckets) and is NaN at
+ * 1d by the ordinary minSamples rule (about 8 readings in 60 days, below
+ * SEASONAL_DRIFT_MIN_SAMPLES) -- not by an added interval gate.
+ *
+ * `raw.ret1InAsia` / `raw.ret1InNyOverlap`: the "Asia is chop" / "short the
+ * session open" claims, ret1Series masked by sessionOfCandleClose, NaN
+ * together where isSessionMeaningful(interval) is false (4h, 1d).
+ *
+ * `raw.ret1NearRound` / `raw.ret1FarRound`: the "round numbers are levels"
+ * claim, split by whether the bar's close sits within 0.2% of the nearest
+ * two-significant-figure price level.
+ *
+ * `raw.ret1AfterDown` / `raw.ret1AfterUp`: the "down moves are sharper"
+ * claim, ret1 conditioned on the sign of the PRECEDING bar's return.
+ *
+ * `raw.ret1InHighVolRatio` / `raw.ret1InLowVolRatio`: the "trending regimes
+ * weaken reversal" claim, ret1 split at 0.7 of a realised-vol ratio (sd of
+ * log returns over the trailing 24h divided by the trailing 168h, ddof 1) --
+ * a ratio-of-vols regime reading in the spirit of raw.varianceRatio, not a
+ * rebuild of it: VR(4) over a 120-bar window answers whether the series
+ * trends or reverts, this answers whether realised volatility has itself
+ * picked up relative to its own recent history. Structurally NaN at 1d and
+ * whenever the 168h window exceeds the series: hoursToBars(24) is a single
+ * bar at 1d, and a one-sample variance (ddof 1) has no degrees of freedom,
+ * so the column is NaN there without a separate interval gate, the same
+ * mechanism raw.weekdayDriftDev relies on.
+ *
+ * `EXPLORATION_DIAGNOSTIC_NAMES` is the eight `ret1In*`/`ret1Near*`/
+ * `ret1After*` names above, exported for the S0 IC triage record; the two
+ * `*Dev` columns are deviations, not diagnostics of raw.ret1, and are left
+ * out of it.
  */
 const RAW_NAMES = [
   'raw.rsi',
@@ -424,6 +570,67 @@ const RAW_NAMES = [
   'raw.depthNotionalZ',
   'raw.ret1InHighTaker',
   'raw.ret1InLowTaker',
+  // Options inputs (Deribit DVOL and trade flow, Task 3c). See the "OPTIONS
+  // INPUTS" paragraph above for the join rule and every column's definition.
+  'raw.mktDvolZ30',
+  'raw.mktOptDeltaFlow24Z',
+  'raw.mktOptGammaFlow24Z',
+  'raw.mktOptPutCallVol24',
+  'raw.mktOptSkew24',
+  'raw.ownDvolZ30',
+  'raw.ownOptDeltaFlow24Z',
+  'raw.ownOptGammaFlow24Z',
+  'raw.ownOptPutCallVol24',
+  'raw.ownOptSkew24',
+  'raw.ret1InHighDvol',
+  'raw.ret1InLowDvol',
+  'raw.ret1InPosGammaFlow',
+  'raw.ret1InNegGammaFlow',
+  // Exploration columns (calendar deviations and diagnostic splits), Task
+  // 2b, 2026-09-28. See the "EXPLORATION COLUMNS" paragraph above.
+  'raw.hourOfDayDriftDev',
+  'raw.weekdayDriftDev',
+  'raw.ret1InAsia',
+  'raw.ret1InNyOverlap',
+  'raw.ret1NearRound',
+  'raw.ret1FarRound',
+  'raw.ret1AfterDown',
+  'raw.ret1AfterUp',
+  'raw.ret1InHighVolRatio',
+  'raw.ret1InLowVolRatio',
+] as const;
+
+/**
+ * The five market-wide options columns: identical across every symbol at a
+ * bar by construction, since `marketOptions` is always BTC's file. Exported
+ * so factor-ic.ts can drop them from the cross-sectional pass with the same
+ * "no cross-sectional content" reason it already applies to raw.btcLeadLag
+ * (scripts/research/cross-symbol-factors.ts's CROSS_SYMBOL_NAMES).
+ */
+export const MARKET_OPTIONS_NAMES = [
+  'raw.mktDvolZ30',
+  'raw.mktOptDeltaFlow24Z',
+  'raw.mktOptGammaFlow24Z',
+  'raw.mktOptPutCallVol24',
+  'raw.mktOptSkew24',
+] as const;
+
+/**
+ * The eight exploration diagnostics (Task 2b, 2026-09-28): masks of raw.ret1,
+ * never standalone signals, read as the gap between the two subset ICs in
+ * the S0 triage record (see the "EXPLORATION COLUMNS" header paragraph).
+ * raw.hourOfDayDriftDev and raw.weekdayDriftDev are deviations, not masks of
+ * raw.ret1, and are not included here.
+ */
+export const EXPLORATION_DIAGNOSTIC_NAMES = [
+  'raw.ret1InAsia',
+  'raw.ret1InNyOverlap',
+  'raw.ret1NearRound',
+  'raw.ret1FarRound',
+  'raw.ret1AfterDown',
+  'raw.ret1AfterUp',
+  'raw.ret1InHighVolRatio',
+  'raw.ret1InLowVolRatio',
 ] as const;
 
 /**
@@ -447,6 +654,10 @@ export const TAKER_INTENSITY_DAYS = 30;
 /** Days and readings for the within-symbol z of log book notional. */
 export const DEPTH_NOTIONAL_Z_DAYS = 30;
 export const DEPTH_NOTIONAL_Z_MIN_SAMPLES = 30;
+/** Hourly rows summed for the options flow columns (deltaFlow24, gammaFlow24, putCallVol24, skew24). */
+export const OPTIONS_FLOW_WINDOW_HOURS = 24;
+/** Days of history the DVOL tercile diagnostic (raw.ret1InHighDvol/InLowDvol) classifies against. */
+export const DVOL_TERCILE_DAYS = 90;
 
 /**
  * Trailing z-score of a series, over a window of `windowBars` bars.
@@ -715,6 +926,314 @@ function realizedVol20(candles: CandleRow[], bar: number): number {
 }
 
 /**
+ * Ratio of two trailing sample standard deviations (ddof 1) of log returns:
+ * `shortWindow` bars over `longWindow` bars, both ending at (and including)
+ * each bar. Below 1 the recent short window has been quieter than the
+ * longer one behind it; above 1 louder. Feeds raw.ret1InHighVolRatio /
+ * raw.ret1InLowVolRatio (see the "EXPLORATION COLUMNS" header paragraph) --
+ * a ratio of realised volatility to its own recent history, distinct from
+ * raw.varianceRatio's Lo-MacKinlay trend/reversion regime reading.
+ *
+ * Running sums, so the cost is one pass regardless of window size, the same
+ * reason trailingZScore and varianceRatioSeries are written that way. NaN
+ * until `longWindow` bars have been seen (since longWindow > shortWindow by
+ * construction here, the short window is already full by then too) and
+ * whenever either window's sample count is below 2, the minimum for a ddof-1
+ * variance to be defined -- the mechanism that makes the column NaN at 1d
+ * without a separate interval gate: hoursToBars(24) is a single bar there.
+ */
+function volRatioSeries(candles: CandleRow[], shortWindow: number, longWindow: number): Float64Array {
+  const n = candles.length;
+  const out = new Float64Array(n).fill(NaN);
+
+  const logRet = new Float64Array(n).fill(NaN);
+  for (let i = 1; i < n; i++) {
+    const prev = candles[i - 1].c;
+    const now = candles[i].c;
+    if (prev > 0 && now > 0) logRet[i] = Math.log(now / prev);
+  }
+
+  let sumS = 0;
+  let sumSqS = 0;
+  let countS = 0;
+  let sumL = 0;
+  let sumSqL = 0;
+  let countL = 0;
+
+  for (let bar = 0; bar < n; bar++) {
+    const entering = logRet[bar];
+    if (Number.isFinite(entering)) {
+      sumS += entering;
+      sumSqS += entering * entering;
+      countS++;
+      sumL += entering;
+      sumSqL += entering * entering;
+      countL++;
+    }
+
+    const leavingS = bar - shortWindow;
+    if (leavingS >= 0) {
+      const v = logRet[leavingS];
+      if (Number.isFinite(v)) {
+        sumS -= v;
+        sumSqS -= v * v;
+        countS--;
+      }
+    }
+    const leavingL = bar - longWindow;
+    if (leavingL >= 0) {
+      const v = logRet[leavingL];
+      if (Number.isFinite(v)) {
+        sumL -= v;
+        sumSqL -= v * v;
+        countL--;
+      }
+    }
+
+    if (bar < longWindow || countS < 2 || countL < 2) continue;
+
+    const meanS = sumS / countS;
+    const varianceS = (sumSqS - countS * meanS * meanS) / (countS - 1);
+    const meanL = sumL / countL;
+    const varianceL = (sumSqL - countL * meanL * meanL) / (countL - 1);
+    if (!(varianceS >= 0) || !(varianceL > 0)) continue;
+
+    out[bar] = Math.sqrt(varianceS) / Math.sqrt(varianceL);
+  }
+
+  return out;
+}
+
+/**
+ * A trailing 24-row sum of `value(row)` over the `OPTIONS_FLOW_WINDOW_HOURS`
+ * hourly rows ending at (and including) each row, requiring every one of
+ * those hours to be present at an exact hourly spacing and to carry a finite
+ * value. A missing hour (a gap in `rows` itself) or a null/non-finite value
+ * anywhere in the window makes that bar's sum NaN rather than a partial
+ * total -- `deltaFlow24` and `gammaFlow24` are FLOWS, and a flow with an
+ * unknown hour inside it is not a smaller flow, it is an unknown one.
+ *
+ * `rows` must be sorted ascending by `t`, the same assumption every other
+ * loader in this file makes of its input rows.
+ */
+function trailingConsecutiveSum(
+  rows: OptionsRow[],
+  value: (row: OptionsRow) => number | null
+): Float64Array {
+  const n = rows.length;
+  const out = new Float64Array(n).fill(NaN);
+
+  for (let i = OPTIONS_FLOW_WINDOW_HOURS - 1; i < n; i++) {
+    let sum = 0;
+    let ok = true;
+    let expectedT = rows[i].t;
+    for (let k = i; k > i - OPTIONS_FLOW_WINDOW_HOURS; k--) {
+      if (rows[k].t !== expectedT) {
+        ok = false;
+        break;
+      }
+      const v = value(rows[k]);
+      if (v === null || !Number.isFinite(v)) {
+        ok = false;
+        break;
+      }
+      sum += v;
+      expectedT -= OPTIONS_SLOT_MS;
+    }
+    if (ok) out[i] = sum;
+  }
+
+  return out;
+}
+
+/**
+ * Like `trailingConsecutiveSum`, but a MEAN rather than a sum, and tolerant
+ * of an individual hour's `value(row)` being non-finite: only the hours that
+ * clear the fixed-spacing (no missing-hour) gate contribute their finite
+ * value, and the mean is taken over however many of the 24 turn out finite
+ * (NaN if none do). Used for `skew24`, which is already an average of a
+ * difference rather than a summed flow, so a thin-quoted hour inside an
+ * otherwise gap-free window thins the average instead of poisoning it.
+ */
+function trailingConsecutiveMean(
+  rows: OptionsRow[],
+  value: (row: OptionsRow) => number
+): Float64Array {
+  const n = rows.length;
+  const out = new Float64Array(n).fill(NaN);
+
+  for (let i = OPTIONS_FLOW_WINDOW_HOURS - 1; i < n; i++) {
+    let expectedT = rows[i].t;
+    let gapFree = true;
+    let sum = 0;
+    let count = 0;
+    for (let k = i; k > i - OPTIONS_FLOW_WINDOW_HOURS; k--) {
+      if (rows[k].t !== expectedT) {
+        gapFree = false;
+        break;
+      }
+      const v = value(rows[k]);
+      if (Number.isFinite(v)) {
+        sum += v;
+        count++;
+      }
+      expectedT -= OPTIONS_SLOT_MS;
+    }
+    if (gapFree && count > 0) out[i] = sum / count;
+  }
+
+  return out;
+}
+
+/** Finite putIv25 minus callIv25 for one hourly row, NaN when either leg is null. */
+function ivSkewOf(row: OptionsRow): number {
+  if (row.putIv25 === null || row.callIv25 === null) return NaN;
+  if (!Number.isFinite(row.putIv25) || !Number.isFinite(row.callIv25)) return NaN;
+  return row.putIv25 - row.callIv25;
+}
+
+/** The five per-bar series `computeFactorMatrix` joins from an OptionsRow[], aligned onto the caller's bar grid. */
+interface OptionsAligned {
+  dvolClose: Float64Array;
+  deltaFlow24: Float64Array;
+  gammaFlow24: Float64Array;
+  putCallVol24: Float64Array;
+  skew24: Float64Array;
+}
+
+/**
+ * Precomputes `deltaFlow24`, `gammaFlow24`, `putCallVol24` and `skew24` on
+ * the hourly rows (see this file's "OPTIONS INPUTS" header paragraph), then
+ * joins all five series (dvolClose included) onto `barCloses` by the join
+ * rule every archive input in this file uses: a row is observable only from
+ * its own close onward (`row.t + OPTIONS_SLOT_MS - 1`), and a bar more than
+ * `Math.max(intervalMs, 2 * OPTIONS_SLOT_MS)` past the last observable row
+ * reads NaN rather than a stale carry-forward.
+ *
+ * `rows` null, missing or empty yields every series NaN throughout, the same
+ * "absent input, NaN column" rule every optional input in this file follows.
+ */
+function alignOptionsToBars(
+  rows: OptionsRow[] | null | undefined,
+  barCloses: number[],
+  intervalMs: number
+): OptionsAligned {
+  const n = barCloses.length;
+  const empty: OptionsAligned = {
+    dvolClose: new Float64Array(n).fill(NaN),
+    deltaFlow24: new Float64Array(n).fill(NaN),
+    gammaFlow24: new Float64Array(n).fill(NaN),
+    putCallVol24: new Float64Array(n).fill(NaN),
+    skew24: new Float64Array(n).fill(NaN),
+  };
+  if (!rows || rows.length === 0) return empty;
+
+  const deltaSum = trailingConsecutiveSum(rows, (r) => r.netDelta);
+  const gammaSum = trailingConsecutiveSum(rows, (r) => r.netDollarGamma);
+  const putBuySum = trailingConsecutiveSum(rows, (r) => r.putBuyNotional);
+  const putSellSum = trailingConsecutiveSum(rows, (r) => r.putSellNotional);
+  const callBuySum = trailingConsecutiveSum(rows, (r) => r.callBuyNotional);
+  const callSellSum = trailingConsecutiveSum(rows, (r) => r.callSellNotional);
+  const skewMean = trailingConsecutiveMean(rows, ivSkewOf);
+
+  interface Joined {
+    timestamp: number;
+    dvolClose: number;
+    deltaFlow24: number;
+    gammaFlow24: number;
+    putCallVol24: number;
+    skew24: number;
+  }
+
+  const joined: Joined[] = rows.map((row, i) => {
+    const putSum = putBuySum[i] + putSellSum[i];
+    const callSum = callBuySum[i] + callSellSum[i];
+    const putCallVol24 =
+      Number.isFinite(putSum) && Number.isFinite(callSum) && callSum !== 0 ? putSum / callSum : NaN;
+
+    return {
+      timestamp: row.t + OPTIONS_SLOT_MS - 1,
+      dvolClose: row.dvolClose ?? NaN,
+      deltaFlow24: deltaSum[i],
+      gammaFlow24: gammaSum[i],
+      putCallVol24,
+      skew24: skewMean[i],
+    };
+  });
+
+  const staleness = Math.max(intervalMs, 2 * OPTIONS_SLOT_MS);
+  const aligned = alignToBars(barCloses, joined, staleness);
+
+  const out: OptionsAligned = {
+    dvolClose: new Float64Array(n).fill(NaN),
+    deltaFlow24: new Float64Array(n).fill(NaN),
+    gammaFlow24: new Float64Array(n).fill(NaN),
+    putCallVol24: new Float64Array(n).fill(NaN),
+    skew24: new Float64Array(n).fill(NaN),
+  };
+  for (let bar = 0; bar < n; bar++) {
+    const a = aligned[bar];
+    if (!a) continue;
+    out.dvolClose[bar] = a.dvolClose;
+    out.deltaFlow24[bar] = a.deltaFlow24;
+    out.gammaFlow24[bar] = a.gammaFlow24;
+    out.putCallVol24[bar] = a.putCallVol24;
+    out.skew24[bar] = a.skew24;
+  }
+  return out;
+}
+
+/**
+ * Classifies each bar's value against the top/bottom tercile of a trailing
+ * window of `windowBars` bars (the bar's own value included in its own
+ * window, the same inclusion rule `trailingZScore` uses), among however many
+ * of those bars carry a finite value. NaN (neither high nor low) before
+ * `minSamples` finite readings have accumulated, on a non-finite bar itself,
+ * and on the middle third of the window. Ties are broken by rank, so there
+ * is no separate "exactly at the cut" case.
+ *
+ * Sorts the window's finite values on every qualifying bar: a quantile
+ * boundary, unlike a mean or a variance, cannot be maintained with a running
+ * sum the way `trailingZScore` maintains its. Fine for a diagnostic measured
+ * once per research run, not a hot path.
+ */
+function trailingTercileMask(
+  series: Float64Array,
+  windowBars: number,
+  minSamples: number
+): { high: Uint8Array; low: Uint8Array } {
+  const n = series.length;
+  const high = new Uint8Array(n);
+  const low = new Uint8Array(n);
+  const values: number[] = [];
+  const enteredAt: number[] = [];
+  let head = 0;
+
+  for (let i = 0; i < n; i++) {
+    const v = series[i];
+    if (Number.isFinite(v)) {
+      values.push(v);
+      enteredAt.push(i);
+    }
+    while (head < enteredAt.length && enteredAt[head] <= i - windowBars) head++;
+
+    const count = values.length - head;
+    if (!Number.isFinite(v) || count < minSamples) continue;
+
+    const window = values.slice(head).sort((a, b) => a - b);
+    let rank = 0;
+    while (rank < window.length && window[rank] < v) rank++;
+
+    const lowerCut = Math.floor(count / 3);
+    const upperCut = count - Math.floor(count / 3);
+    if (rank < lowerCut) low[i] = 1;
+    else if (rank >= upperCut) high[i] = 1;
+  }
+
+  return { high, low };
+}
+
+/**
  * Whether a category has no real input to score, matching what actually
  * determines `component.score` rather than the displayed `signals` list.
  * scoreVolatility (src/lib/signals/scorer.ts) excludes ATR -- a volatility
@@ -730,7 +1249,7 @@ function isCategoryDataMissing(component: SignalComponent): boolean {
 }
 
 export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
-  const { candles, snapshots, htf, interval, metrics, perp, premiumIndex } = input;
+  const { candles, snapshots, htf, interval, metrics, perp, premiumIndex, options, marketOptions } = input;
   const style = styleForInterval(interval);
   const profile = getStyleConfig(style);
   const weights = DEFAULT_TEMPLATE_WEIGHTS[style];
@@ -913,6 +1432,33 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
       )
     : new Float64Array(n).fill(NaN);
 
+  // Exploration deviations (see the "EXPLORATION COLUMNS" header paragraph).
+  // The unconditional trailing mean is the SAME seasonalDriftSeries call with
+  // a single, constant bucket, so it excludes the bar itself exactly like
+  // hourOfDayDrift and weekdayDrift do -- subtracting it removes the slow
+  // trailing-mean reversal both bucketed columns were found to carry.
+  const unconditionalDrift = seasonalDriftSeries(
+    ret1Series,
+    () => 0,
+    daysToBars(SEASONAL_DRIFT_DAYS),
+    SEASONAL_DRIFT_MIN_SAMPLES
+  );
+  // Day of week (UTC), 7 buckets. Unlike hourOfDayDrift, no interval-level
+  // gate: at 1d each bucket holds about 8 readings in 60 days, below
+  // SEASONAL_DRIFT_MIN_SAMPLES, so seasonalDriftSeries's own threshold
+  // already yields NaN there without a special case.
+  const weekdayDrift = seasonalDriftSeries(
+    ret1Series,
+    (bar) => new Date(candles[bar].t).getUTCDay(),
+    daysToBars(SEASONAL_DRIFT_DAYS),
+    SEASONAL_DRIFT_MIN_SAMPLES
+  );
+
+  // Realised-vol ratio for raw.ret1InHighVolRatio/InLowVolRatio (see the
+  // "EXPLORATION COLUMNS" header paragraph and volRatioSeries above).
+  const hoursToBars = (hours: number) => Math.max(1, Math.round((hours * 60 * 60 * 1000) / intervalMs));
+  const volRatio = volRatioSeries(candles, hoursToBars(24), hoursToBars(168));
+
   // Matches fundingSeries above: only counted from warmupBars, so a state
   // variable available since bar 0 in the raw archive does not make the
   // z-score's own ramp-up (minSamples readings) invisible by borrowing
@@ -930,6 +1476,47 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     if (c.tbv !== null && c.v > 0) takerIntensity[bar] = Math.abs((2 * c.tbv) / c.v - 1);
   }
   const takerIntensityZ = trailingZScore(takerIntensity, daysToBars(TAKER_INTENSITY_DAYS), FUNDING_Z_MIN_SAMPLES);
+
+  // Options inputs (see the "OPTIONS INPUTS" header paragraph). `own` reads
+  // this symbol's own currency file, `market` always reads BTC's, joined the
+  // same way for every symbol.
+  const ownOptions = alignOptionsToBars(options, barCloses, intervalMs);
+  const marketOptionsAligned = alignOptionsToBars(marketOptions, barCloses, intervalMs);
+
+  // Matches fundingSeries/logNotional above: masked to NaN before warmupBars,
+  // so a reading available since bar 0 does not let the z-score's own
+  // ramp-up borrow pre-warmup history nothing else here reads either. The
+  // masked series also feeds the two diagnostics below directly (unscored
+  // levels, not z-scores).
+  const maskFromWarmup = (series: Float64Array): Float64Array => {
+    const out = new Float64Array(n).fill(NaN);
+    for (let bar = warmupBars; bar < n; bar++) out[bar] = series[bar];
+    return out;
+  };
+
+  const ownDvolMasked = maskFromWarmup(ownOptions.dvolClose);
+  const ownDeltaFlow24Masked = maskFromWarmup(ownOptions.deltaFlow24);
+  const ownGammaFlow24Masked = maskFromWarmup(ownOptions.gammaFlow24);
+  const mktDvolMasked = maskFromWarmup(marketOptionsAligned.dvolClose);
+  const mktDeltaFlow24Masked = maskFromWarmup(marketOptionsAligned.deltaFlow24);
+  const mktGammaFlow24Masked = maskFromWarmup(marketOptionsAligned.gammaFlow24);
+
+  // Same helper and constants raw.depthNotionalZ uses (both windows happen
+  // to be 30 days / 30 samples today, but this traces to the constant the
+  // brief actually named rather than the funding z-score's, which is only
+  // equal by coincidence).
+  const optionsZWindow = daysToBars(DEPTH_NOTIONAL_Z_DAYS);
+  const ownDvolZ30 = trailingZScore(ownDvolMasked, optionsZWindow, DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+  const ownOptDeltaFlow24Z = trailingZScore(ownDeltaFlow24Masked, optionsZWindow, DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+  const ownOptGammaFlow24Z = trailingZScore(ownGammaFlow24Masked, optionsZWindow, DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+  const mktDvolZ30 = trailingZScore(mktDvolMasked, optionsZWindow, DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+  const mktOptDeltaFlow24Z = trailingZScore(mktDeltaFlow24Masked, optionsZWindow, DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+  const mktOptGammaFlow24Z = trailingZScore(mktGammaFlow24Masked, optionsZWindow, DEPTH_NOTIONAL_Z_MIN_SAMPLES);
+
+  // Diagnostics: masks of raw.ret1 by a market-wide options reading, in the
+  // Stage 2 style (raw.ret1InMeanReversion/InTrend above). Never a signal on
+  // their own.
+  const dvolTercile = trailingTercileMask(mktDvolMasked, daysToBars(DVOL_TERCILE_DAYS), FUNDING_Z_MIN_SAMPLES);
 
   for (let bar = warmupBars; bar < n; bar++) {
     const composite = composites[bar];
@@ -1052,6 +1639,48 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     values[rawIdx.get('raw.ret1InHighTaker')!][bar] = intensityKnown && tz > 0 ? r1 : NaN;
     values[rawIdx.get('raw.ret1InLowTaker')!][bar] = intensityKnown && tz <= 0 ? r1 : NaN;
 
+    // Exploration columns, 2026-09-28: see the "EXPLORATION COLUMNS" header
+    // paragraph. hourOfDayDriftDev/weekdayDriftDev are deviations of the
+    // Phase B seasonal columns above; the rest are Stage-2-style diagnostic
+    // masks of raw.ret1, never signals on their own.
+    values[rawIdx.get('raw.hourOfDayDriftDev')!][bar] =
+      Number.isFinite(hourOfDayDrift[bar]) && Number.isFinite(unconditionalDrift[bar])
+        ? hourOfDayDrift[bar] - unconditionalDrift[bar]
+        : NaN;
+    values[rawIdx.get('raw.weekdayDriftDev')!][bar] =
+      Number.isFinite(weekdayDrift[bar]) && Number.isFinite(unconditionalDrift[bar])
+        ? weekdayDrift[bar] - unconditionalDrift[bar]
+        : NaN;
+
+    const sessionMeaningful = isSessionMeaningful(interval);
+    const session = sessionMeaningful ? sessionOfCandleClose(candle.t, intervalMs) : null;
+    values[rawIdx.get('raw.ret1InAsia')!][bar] = session === 'asia' ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InNyOverlap')!][bar] = session === 'ny_overlap' ? r1 : NaN;
+
+    // Nearest two-significant-figure price level: e.g. 60050 -> step 1000,
+    // nearest 60000 (0.08% away, "near"); 100.5 -> step 10, nearest 100
+    // (0.50% away, "far").
+    let nearRound = NaN;
+    let farRound = NaN;
+    if (candle.c > 0) {
+      const step = 10 ** (Math.floor(Math.log10(candle.c)) - 1);
+      const nearest = Math.round(candle.c / step) * step;
+      const fraction = Math.abs(candle.c - nearest) / candle.c;
+      if (fraction <= 0.002) nearRound = r1;
+      else farRound = r1;
+    }
+    values[rawIdx.get('raw.ret1NearRound')!][bar] = nearRound;
+    values[rawIdx.get('raw.ret1FarRound')!][bar] = farRound;
+
+    const prevRet = bar >= 1 ? ret1Series[bar - 1] : NaN;
+    values[rawIdx.get('raw.ret1AfterDown')!][bar] = Number.isFinite(prevRet) && prevRet < 0 ? r1 : NaN;
+    values[rawIdx.get('raw.ret1AfterUp')!][bar] = Number.isFinite(prevRet) && prevRet > 0 ? r1 : NaN;
+
+    const vRatio = volRatio[bar];
+    const vRatioKnown = Number.isFinite(vRatio) && Number.isFinite(r1);
+    values[rawIdx.get('raw.ret1InHighVolRatio')!][bar] = vRatioKnown && vRatio > 0.7 ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InLowVolRatio')!][bar] = vRatioKnown && vRatio <= 0.7 ? r1 : NaN;
+
     values[rawIdx.get('raw.fundingZ')!][bar] = fundingZ[bar];
 
     // The premium index close is the perp-to-index premium as a fraction.
@@ -1063,6 +1692,27 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     const perpBar = perpByTime.get(candle.t);
     values[rawIdx.get('raw.perpSpotSpreadPct')!][bar] =
       perpBar && candle.c !== 0 ? ((perpBar.c - candle.c) / candle.c) * 100 : NaN;
+
+    // Options inputs: see the "OPTIONS INPUTS" header paragraph.
+    values[rawIdx.get('raw.mktDvolZ30')!][bar] = mktDvolZ30[bar];
+    values[rawIdx.get('raw.mktOptDeltaFlow24Z')!][bar] = mktOptDeltaFlow24Z[bar];
+    values[rawIdx.get('raw.mktOptGammaFlow24Z')!][bar] = mktOptGammaFlow24Z[bar];
+    values[rawIdx.get('raw.mktOptPutCallVol24')!][bar] = marketOptionsAligned.putCallVol24[bar];
+    values[rawIdx.get('raw.mktOptSkew24')!][bar] = marketOptionsAligned.skew24[bar];
+    values[rawIdx.get('raw.ownDvolZ30')!][bar] = ownDvolZ30[bar];
+    values[rawIdx.get('raw.ownOptDeltaFlow24Z')!][bar] = ownOptDeltaFlow24Z[bar];
+    values[rawIdx.get('raw.ownOptGammaFlow24Z')!][bar] = ownOptGammaFlow24Z[bar];
+    values[rawIdx.get('raw.ownOptPutCallVol24')!][bar] = ownOptions.putCallVol24[bar];
+    values[rawIdx.get('raw.ownOptSkew24')!][bar] = ownOptions.skew24[bar];
+
+    // Diagnostics: masks of raw.ret1 by a market-wide options reading, never
+    // a signal on their own (see the Stage 2 precedent above).
+    const gammaFlowNow = mktGammaFlow24Masked[bar];
+    const gammaFlowKnown = Number.isFinite(gammaFlowNow) && Number.isFinite(r1);
+    values[rawIdx.get('raw.ret1InHighDvol')!][bar] = dvolTercile.high[bar] === 1 && Number.isFinite(r1) ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InLowDvol')!][bar] = dvolTercile.low[bar] === 1 && Number.isFinite(r1) ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InPosGammaFlow')!][bar] = gammaFlowKnown && gammaFlowNow > 0 ? r1 : NaN;
+    values[rawIdx.get('raw.ret1InNegGammaFlow')!][bar] = gammaFlowKnown && gammaFlowNow <= 0 ? r1 : NaN;
   }
 
   return {

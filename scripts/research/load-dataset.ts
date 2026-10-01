@@ -17,6 +17,7 @@ import {
   type HtfRow,
   type ManifestFile,
   type MetricsRow,
+  type OptionsRow,
   type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
@@ -146,4 +147,19 @@ export function loadMetrics(
 ): LoadResult<MetricsRow> {
   const path = join(dir, 'metrics', symbol, '5m.jsonl.gz');
   return applyLockbox(readJsonlGz<MetricsRow>(path), opts);
+}
+
+/**
+ * The hourly options-flow series for one currency ('BTC' or 'ETH'), keyed by
+ * currency rather than symbol -- the dataset carries one options file per
+ * currency, and every symbol whose factors join to it (its own currency, or
+ * BTC as the market-wide series) reads the same file.
+ */
+export function loadOptions(
+  dir: string,
+  currency: string,
+  opts: LoadOptions = {}
+): LoadResult<OptionsRow> {
+  const path = join(dir, 'options', currency, '1h.jsonl.gz');
+  return applyLockbox(readJsonlGz<OptionsRow>(path), opts);
 }

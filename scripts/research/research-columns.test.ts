@@ -2,16 +2,31 @@
 import { describe, expect, it } from 'vitest';
 import { intervalToMs } from '@/lib/intervals';
 import type { OHLCV } from '@/types/market';
-import type { CandleRow, HtfRow, MetricsRow, SnapshotRow } from './dataset-format';
+import type { CandleRow, HtfRow, MetricsRow, OptionsRow, SnapshotRow } from './dataset-format';
 import { computeFactorMatrix, toLeanSnapshot, toOHLCV, trailingZScore, type FactorMatrix } from './factors';
 import {
   RESEARCH_COLUMNS,
+  Z_MIN_SAMPLES,
   buildResearchColumns,
   depthColumn,
   fundingColumn,
   positioningColumn,
   windowBarsForDays,
 } from './research-columns';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Same log-price bucket math as research-columns.ts's pocBucketOf/pocBucketEdge, duplicated here so the pocDist/outsideValue tests build their expectation independently of the module under test. */
+const POC_LOG_FACTOR = Math.log(1.001);
+function bucketEdge(bucket: number): number {
+  return Math.exp(bucket * POC_LOG_FACTOR);
+}
+/** A price unambiguously inside bucket `bucket` (its geometric midpoint), so floor(log(p)/log(1.001)) === bucket regardless of floating-point edge rounding. */
+function bucketMidPrice(bucket: number): number {
+  return Math.exp((bucket + 0.5) * POC_LOG_FACTOR);
+}
+function flatCandle(timestamp: number, price: number, volume: number): OHLCV {
+  return { timestamp, open: price, high: price, low: price, close: price, volume };
+}
 
 const INTERVAL = '1h';
 const INTERVAL_MS = intervalToMs(INTERVAL);
@@ -132,6 +147,21 @@ describe('buildResearchColumns', () => {
     for (const name of produced) expect(RESEARCH_COLUMNS).toContain(name);
   });
 
+  it('adds the new research columns to RESEARCH_COLUMNS', () => {
+    for (const name of [
+      'vwapDevZ',
+      'pocDist',
+      'outsideValue',
+      'sweepReversal20',
+      'sweepReversal50',
+      'bosBreak',
+      'volRatio',
+      'btcLeadLagZ',
+    ]) {
+      expect(RESEARCH_COLUMNS).toContain(name);
+    }
+  });
+
   it('reproduces raw.fundingZ exactly at the 30-day window', () => {
     // The 30-day column must BE the measured factor, not merely resemble it.
     // factors.ts uses FUNDING_Z_DAYS = 30 and FUNDING_Z_MIN_SAMPLES = 30 on a
@@ -238,7 +268,52 @@ describe('buildResearchColumns', () => {
         symbol: SYMBOL,
         warmupBars: WARMUP(),
       });
-      for (const name of [fundingColumn(30), positioningColumn(360), depthColumn(30)]) {
+      for (const name of [
+        fundingColumn(30),
+        positioningColumn(360),
+        depthColumn(30),
+        'vwapDevZ',
+        'pocDist',
+        'outsideValue',
+        'sweepReversal20',
+        'sweepReversal50',
+        'bosBreak',
+        'volRatio',
+      ]) {
+        const a = full[bar].values[name];
+        const b = truncated[bar].values[name];
+        if (a === undefined) {
+          expect(b, `${name} at ${bar}`).toBeUndefined();
+        } else {
+          expect(b, `${name} at ${bar}`).toBeCloseTo(a, 10);
+        }
+      }
+    }
+  });
+
+  it('no lookahead for every new column: truncating the candles after bar i leaves the column value at i unchanged', () => {
+    // Separate from the slice-invariance test above (which reuses its fixed
+    // bar list); this one is the defect the module exists to fix, stated
+    // explicitly for the new columns per the brief's own test list.
+    const full = columns();
+    for (const bar of [500, 700, 899]) {
+      const truncated = buildResearchColumns({
+        candles: candles.slice(0, bar + 1),
+        snapshots: leanSnapshots.filter((s) => s.timestamp <= candles[bar].timestamp),
+        metrics: metricsRows.filter((r) => r.t <= candles[bar].timestamp + INTERVAL_MS - 1),
+        interval: INTERVAL,
+        symbol: SYMBOL,
+        warmupBars: WARMUP(),
+      });
+      for (const name of [
+        'vwapDevZ',
+        'pocDist',
+        'outsideValue',
+        'sweepReversal20',
+        'sweepReversal50',
+        'bosBreak',
+        'volRatio',
+      ]) {
         const a = full[bar].values[name];
         const b = truncated[bar].values[name];
         if (a === undefined) {
@@ -271,6 +346,900 @@ describe('buildResearchColumns', () => {
     expect(rows).toHaveLength(BAR_COUNT);
     expect(rows.every((r) => r.values[fundingColumn(30)] === undefined)).toBe(true);
     expect(rows.some((r) => Number.isFinite(r.values[depthColumn(30)]))).toBe(true);
+  });
+});
+
+describe('vwapDevZ', () => {
+  const DAY_START = Date.UTC(2024, 0, 1);
+  const HOUR_MS = 60 * 60 * 1000;
+
+  /** Independent re-implementation of the cumulative UTC-day VWAP deviation
+   * (research-columns.ts's computeVwapDevRaw), so the test does not simply
+   * call the module under test to build its own expectation. */
+  function handVwapDevRaw(bars: OHLCV[]): number[] {
+    let day = NaN;
+    let cumPV = 0;
+    let cumV = 0;
+    const out: number[] = [];
+    for (const bar of bars) {
+      const thisDay = Math.floor(bar.timestamp / DAY_MS);
+      if (thisDay !== day) {
+        day = thisDay;
+        cumPV = 0;
+        cumV = 0;
+      }
+      const typicalPrice = (bar.high + bar.low + bar.close) / 3;
+      cumPV += typicalPrice * bar.volume;
+      cumV += bar.volume;
+      out.push(cumV > 0 ? (bar.close - cumPV / cumV) / (cumPV / cumV) : NaN);
+    }
+    return out;
+  }
+
+  it('resets at the UTC day boundary and matches a hand VWAP on a two-day fixture', () => {
+    const closesDay1 = [100, 101, 99, 102, 98, 103];
+    const volsDay1 = [10, 20, 15, 5, 25, 10];
+    const closesDay2 = [200, 202, 198, 204, 196, 206];
+    const volsDay2 = [12, 18, 22, 8, 14, 26];
+
+    const bars: OHLCV[] = [];
+    for (let i = 0; i < 6; i++) {
+      bars.push(flatCandle(DAY_START + i * HOUR_MS, closesDay1[i], volsDay1[i]));
+    }
+    for (let i = 0; i < 6; i++) {
+      bars.push(flatCandle(DAY_START + DAY_MS + i * HOUR_MS, closesDay2[i], volsDay2[i]));
+    }
+
+    const handRaw = handVwapDevRaw(bars);
+    // Proves the reset actually happened: day 2's own cumulative VWAP must
+    // differ from what it would be if day 1's sums had carried over (day 2's
+    // prices are roughly double day 1's, so a carried-over VWAP would put
+    // every day-2 deviation far from what a fresh day 2 VWAP gives).
+    expect(handRaw[6]).toBeCloseTo((closesDay2[0] - closesDay2[0]) / closesDay2[0], 10); // first bar of day 2: VWAP == its own close
+    expect(handRaw[6]).not.toBeCloseTo(handRaw[5], 6);
+
+    const windowBars = windowBarsForDays(30, '1h');
+    const expectedZ = trailingZScore(Float64Array.from(handRaw), windowBars, Z_MIN_SAMPLES);
+
+    const rows = buildResearchColumns({
+      candles: bars, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+
+    for (let i = 1; i < bars.length; i++) {
+      const emitted = rows[i].values.vwapDevZ;
+      if (Number.isFinite(expectedZ[i - 1])) {
+        expect(emitted, `bar ${i}`).toBeCloseTo(expectedZ[i - 1], 10);
+      } else {
+        expect(emitted, `bar ${i}`).toBeUndefined();
+      }
+    }
+    expect(rows[0].values.vwapDevZ).toBeUndefined();
+  });
+
+  it('is NaN at 1d', () => {
+    const bars: OHLCV[] = Array.from({ length: 40 }, (_, i) =>
+      flatCandle(DAY_START + i * DAY_MS, 100 + i, 10 + i)
+    );
+    const rows = buildResearchColumns({
+      candles: bars, snapshots: [], metrics: [], interval: '1d', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    expect(rows.every((r) => r.values.vwapDevZ === undefined)).toBe(true);
+  });
+});
+
+describe('pocDist / outsideValue', () => {
+  const DAY_START = Date.UTC(2024, 0, 1);
+  const HOUR_MS = 60 * 60 * 1000;
+  // Day d-1's profile: bucket 101 is the POC (volume 50). Expanding from it,
+  // bucket 102 (12) beats bucket 100 (8) so the area grows up first, then
+  // bucket 103 (9) still beats bucket 100 (8) so it grows up again -- both
+  // steps decided by a clear inequality, not a tie, so the result does not
+  // depend on how ties are broken. 50+12+9 = 71 >= 70% of 100.
+  const PRIOR_DAY_BUCKETS = [100, 101, 102, 103, 104, 105];
+  const PRIOR_DAY_VOLUMES = [8, 50, 12, 9, 11, 10];
+  const POC_BUCKET = 101;
+  const VAL_BUCKET = 101; // bottom never moves
+  const VAH_TOP_BUCKET = 103; // top ends here; VAH is its upper edge
+
+  function buildPriorDay(startMs: number): OHLCV[] {
+    return PRIOR_DAY_BUCKETS.map((bucket, i) =>
+      flatCandle(startMs + i * HOUR_MS, bucketMidPrice(bucket), PRIOR_DAY_VOLUMES[i])
+    );
+  }
+
+  it("pocDist is 0 when the close sits on the prior day's POC and outsideValue reads +1/-1/0 against a hand value area", () => {
+    const priorDay = buildPriorDay(DAY_START);
+    const poc = (bucketEdge(POC_BUCKET) + bucketEdge(POC_BUCKET + 1)) / 2;
+    const val = bucketEdge(VAL_BUCKET);
+    const vah = bucketEdge(VAH_TOP_BUCKET + 1);
+    const range = bucketMidPrice(105) - bucketMidPrice(100);
+
+    const dayD = [
+      flatCandle(DAY_START + DAY_MS + 0 * HOUR_MS, poc, 5), // on the POC
+      flatCandle(DAY_START + DAY_MS + 1 * HOUR_MS, vah * 1.0005, 5), // just above VAH
+      flatCandle(DAY_START + DAY_MS + 2 * HOUR_MS, val * 0.9995, 5), // just below VAL
+      flatCandle(DAY_START + DAY_MS + 3 * HOUR_MS, bucketMidPrice(102), 5), // inside, not POC
+      flatCandle(DAY_START + DAY_MS + 4 * HOUR_MS, 1, 1), // dummy landing bar for the shift
+    ];
+    const bars = [...priorDay, ...dayD];
+
+    const rows = buildResearchColumns({
+      candles: bars, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+
+    // Shifted forward one bar: dayD[0] (index 6) lands at row 7, etc.
+    expect(rows[7].values.pocDist).toBeCloseTo(0, 10);
+    expect(rows[7].values.outsideValue).toBe(0);
+    expect(rows[8].values.outsideValue).toBe(1);
+    expect(rows[9].values.outsideValue).toBe(-1);
+    expect(rows[10].values.outsideValue).toBe(0);
+
+    // pocDist sanity: matches (close - poc) / range directly for the VAH bar too.
+    const expectedPocDistBarB = (dayD[1].close - poc) / range;
+    expect(rows[8].values.pocDist).toBeCloseTo(expectedPocDistBarB, 10);
+  });
+
+  it('pocDist ignores the current day\'s bars', () => {
+    const priorDay = buildPriorDay(DAY_START);
+    const poc = (bucketEdge(POC_BUCKET) + bucketEdge(POC_BUCKET + 1)) / 2;
+
+    // Variant 1: day d = [barA, dummy].
+    const variant1 = [
+      ...priorDay,
+      flatCandle(DAY_START + DAY_MS + 0 * HOUR_MS, poc, 5),
+      flatCandle(DAY_START + DAY_MS + 1 * HOUR_MS, 1, 1),
+    ];
+    // Variant 2: day d = [huge outlier bar, barA, dummy] -- an extra bar
+    // with an enormous volume at a wildly different price inserted BEFORE
+    // barA. If pocDist/outsideValue ever read the current day's own bars,
+    // this outlier would change barA's computed profile.
+    const variant2 = [
+      ...priorDay,
+      flatCandle(DAY_START + DAY_MS + 0 * HOUR_MS, 100000, 999999),
+      flatCandle(DAY_START + DAY_MS + 1 * HOUR_MS, poc, 5),
+      flatCandle(DAY_START + DAY_MS + 2 * HOUR_MS, 1, 1),
+    ];
+
+    const rows1 = buildResearchColumns({
+      candles: variant1, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    const rows2 = buildResearchColumns({
+      candles: variant2, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+
+    // barA is at index 6 in variant1 (shifted to row 7) and index 7 in
+    // variant2 (shifted to row 8).
+    expect(rows1[7].values.pocDist).toBeCloseTo(0, 10);
+    expect(rows2[8].values.pocDist).toBeCloseTo(0, 10);
+    expect(rows2[8].values.pocDist).toBeCloseTo(rows1[7].values.pocDist!, 10);
+    expect(rows2[8].values.outsideValue).toBe(rows1[7].values.outsideValue);
+  });
+});
+
+describe('sweepReversal20 / sweepReversal50', () => {
+  const START = Date.UTC(2024, 0, 1);
+  const HOUR_MS = 60 * 60 * 1000;
+
+  /** windowBars flat bars (low=100, high=110), then one bar appended whose
+   * own low/high/close is given -- exactly what computeSweepReversalRaw
+   * reads as bar i's prior window and bar i itself. */
+  function buildWindowFixture(windowBars: number, bar: { low: number; high: number; close: number }): OHLCV[] {
+    const bars: OHLCV[] = [];
+    for (let i = 0; i < windowBars; i++) {
+      bars.push(flatCandle(START + i * HOUR_MS, 105, 10));
+    }
+    bars[bars.length - 1] = { ...bars[bars.length - 1], high: 110, low: 100 };
+    // Make every prior bar span [100,110] so priorLow=100, priorHigh=110
+    // regardless of which one the window actually reads.
+    for (let i = 0; i < bars.length; i++) bars[i] = { ...bars[i], high: 110, low: 100, close: 105 };
+    bars.push({
+      timestamp: START + windowBars * HOUR_MS,
+      open: bar.close, high: bar.high, low: bar.low, close: bar.close, volume: 10,
+    });
+    // One more bar so the shift has somewhere to land.
+    bars.push({
+      timestamp: START + (windowBars + 1) * HOUR_MS,
+      open: 105, high: 110, low: 100, close: 105, volume: 10,
+    });
+    return bars;
+  }
+
+  it('is +1 on a low sweep that closes back above, -1 mirrored, 0 on an outside bar', () => {
+    const lowSweep = buildWindowFixture(20, { low: 95, high: 105, close: 103 });
+    const rowsLow = buildResearchColumns({
+      candles: lowSweep, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    // Bar at index 20 (the sweep bar) shifts to row 21.
+    expect(rowsLow[21].values.sweepReversal20).toBe(1);
+
+    const highSweep = buildWindowFixture(20, { low: 102, high: 115, close: 104 });
+    const rowsHigh = buildResearchColumns({
+      candles: highSweep, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    expect(rowsHigh[21].values.sweepReversal20).toBe(-1);
+
+    const outsideBar = buildWindowFixture(20, { low: 90, high: 120, close: 105 });
+    const rowsOutside = buildResearchColumns({
+      candles: outsideBar, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    // close=105 is inside (100,110) so both the low-sweep and high-sweep
+    // reclaim conditions fire; summed they net 0.
+    expect(rowsOutside[21].values.sweepReversal20).toBe(0);
+  });
+
+  it('is NaN for i < N', () => {
+    const bars = buildWindowFixture(20, { low: 95, high: 105, close: 103 });
+    const rows = buildResearchColumns({
+      candles: bars.slice(0, 15), snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    expect(rows.every((r) => r.values.sweepReversal20 === undefined)).toBe(true);
+  });
+});
+
+describe('bosBreak', () => {
+  const START = Date.UTC(2024, 0, 1);
+  const HOUR_MS = 60 * 60 * 1000;
+
+  function flat(i: number, high = 100, low = 90, close = 95): OHLCV {
+    return { timestamp: START + i * HOUR_MS, open: close, high, low, close, volume: 10 };
+  }
+
+  it('fires only after the swing is confirmed by two later bars', () => {
+    // Bars 0..4 flat. Bar 5 is a swing high (110, strictly above bars 3,4,6,7).
+    // Confirmed at bar 5+2=7. Bar 8's close crosses above 110 for the first
+    // time -- that is the earliest bar bosBreak can read a confirmed swing
+    // high and see a fresh cross, so (after the one-bar shift) row 9 is the
+    // first row that can read +1.
+    const bars: OHLCV[] = [];
+    for (let i = 0; i <= 4; i++) bars.push(flat(i));
+    bars.push(flat(5, 110, 90, 95)); // the swing high bar itself
+    for (let i = 6; i <= 7; i++) bars.push(flat(i, 100, 90, 95)); // confirms it at bar 7
+    bars.push(flat(8, 115, 111, 112)); // close 112 > 110 for the first time
+    for (let i = 9; i <= 11; i++) bars.push(flat(i, 115, 111, 112)); // stays above; must not re-fire
+
+    const rows = buildResearchColumns({
+      candles: bars, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+
+    // Nothing confirmed yet through bar 7 (as-of bar i-1 for i <= 7): NaN.
+    for (let i = 0; i <= 7; i++) {
+      expect(rows[i].values.bosBreak, `row ${i}`).toBeUndefined();
+    }
+    // Bar 8 is the break bar (shifted to row 9): +1.
+    expect(rows[9].values.bosBreak).toBe(1);
+    // Bars 9..11 stay above 110 without a fresh cross: 0, not another +1.
+    expect(rows[10].values.bosBreak).toBe(0);
+    expect(rows[11].values.bosBreak).toBe(0);
+  });
+});
+
+describe('volRatio', () => {
+  const START = Date.UTC(2024, 0, 1);
+  const HOUR_MS = 60 * 60 * 1000;
+
+  function makeReturnsCandles(returns: number[]): OHLCV[] {
+    const bars: OHLCV[] = [];
+    let price = 100;
+    bars.push(flatCandle(START, price, 10));
+    for (let i = 0; i < returns.length; i++) {
+      price = price * Math.exp(returns[i]);
+      bars.push(flatCandle(START + (i + 1) * HOUR_MS, price, 10));
+    }
+    return bars;
+  }
+
+  /** Sample standard deviation (ddof 1) over the last `windowBars` log
+   * returns ending at (and including) `endIndex` of `logReturns`, matching
+   * research-columns.ts's trailingFullStd. */
+  function handStd(logReturns: number[], endIndex: number, windowBars: number): number {
+    const slice = logReturns.slice(endIndex - windowBars + 1, endIndex + 1);
+    const mean = slice.reduce((s, v) => s + v, 0) / slice.length;
+    const variance = slice.reduce((s, v) => s + (v - mean) ** 2, 0) / (slice.length - 1);
+    return Math.sqrt(variance);
+  }
+
+  it('is the hand ratio of the two realised vols', () => {
+    // Deterministic LCG, same pattern as the rest of this file.
+    let rng = 777;
+    const next = () => {
+      rng = (rng * 16807) % 2147483647;
+      return rng / 2147483647;
+    };
+    const returns = Array.from({ length: 220 }, () => (next() - 0.5) * 0.02);
+    const bars = makeReturnsCandles(returns);
+
+    const logReturns: number[] = [NaN];
+    for (let i = 1; i < bars.length; i++) {
+      logReturns.push(Math.log(bars[i].close / bars[i - 1].close));
+    }
+
+    const rows = buildResearchColumns({
+      candles: bars, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+
+    // Check a handful of bars deep enough for both the 24-bar and 168-bar
+    // windows to be full (index >= 168).
+    let compared = 0;
+    for (const i of [168, 190, 210]) {
+      const shortStd = handStd(logReturns, i, 24);
+      const longStd = handStd(logReturns, i, 168);
+      const expected = shortStd / longStd;
+      // Shifted forward one bar.
+      const emitted = rows[i + 1].values.volRatio;
+      expect(emitted, `bar ${i}`).toBeCloseTo(expected, 8);
+      compared++;
+    }
+    expect(compared).toBe(3);
+  });
+
+  it('is NaN throughout at 1d', () => {
+    const bars: OHLCV[] = Array.from({ length: 250 }, (_, i) => flatCandle(START + i * DAY_MS, 100 + i, 10));
+    const rows = buildResearchColumns({
+      candles: bars, snapshots: [], metrics: [], interval: '1d', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    expect(rows.every((r) => r.values.volRatio === undefined)).toBe(true);
+  });
+});
+
+describe('btcLeadLagZ', () => {
+  const START = Date.UTC(2024, 0, 1);
+  const HOUR_MS = 60 * 60 * 1000;
+
+  function makeSeries(seed: number, count: number): OHLCV[] {
+    let rng = seed;
+    const next = () => {
+      rng = (rng * 16807) % 2147483647;
+      return rng / 2147483647;
+    };
+    const bars: OHLCV[] = [];
+    let price = 100;
+    for (let i = 0; i < count; i++) {
+      price = price * (1 + (next() - 0.5) * 0.01);
+      bars.push(flatCandle(START + i * HOUR_MS, price, 10));
+    }
+    return bars;
+  }
+
+  function toCandleRow(bar: OHLCV): CandleRow {
+    return { t: bar.timestamp, o: bar.open, h: bar.high, l: bar.low, c: bar.close, v: bar.volume, tbv: null };
+  }
+
+  it('joins BTC on timestamp and is NaN for BTCUSDT and without marketCandles', () => {
+    const own = makeSeries(11, 60);
+    const btc = makeSeries(22, 60).map(toCandleRow);
+    // Remove BTC's bar at index 30 to create a join gap.
+    const btcWithGap = btc.filter((_, i) => i !== 30);
+
+    const rowsJoined = buildResearchColumns({
+      candles: own, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+      marketCandles: btcWithGap,
+    });
+    // The gap at BTC index 30 means own bar 30's timestamp has no BTC match:
+    // NaN there (shifted to row 31), while a neighbouring bar with a real
+    // BTC match is finite.
+    expect(rowsJoined[31].values.btcLeadLagZ).toBeUndefined();
+
+    const rowsNoBtcArg = buildResearchColumns({
+      candles: own, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+      marketCandles: null,
+    });
+    expect(rowsNoBtcArg.every((r) => r.values.btcLeadLagZ === undefined)).toBe(true);
+
+    const rowsBtcSymbol = buildResearchColumns({
+      candles: own, snapshots: [], metrics: [], interval: '1h', symbol: 'BTCUSDT', warmupBars: 0,
+      marketCandles: btc,
+    });
+    expect(rowsBtcSymbol.every((r) => r.values.btcLeadLagZ === undefined)).toBe(true);
+  });
+
+  it('matches a hand join-and-z computation on a full BTC series', () => {
+    const own = makeSeries(11, 260);
+    const btcOhlc = makeSeries(22, 260);
+    const btc = btcOhlc.map(toCandleRow);
+
+    const btcRet1ByTimestamp = new Map<number, number>();
+    for (let j = 1; j < btc.length; j++) {
+      btcRet1ByTimestamp.set(btc[j].t, (btc[j].c - btc[j - 1].c) / btc[j - 1].c);
+    }
+    const raw = new Array<number>(own.length).fill(NaN);
+    for (let i = 1; i < own.length; i++) {
+      const btcRet1 = btcRet1ByTimestamp.get(own[i].timestamp);
+      if (btcRet1 === undefined) continue;
+      const ownRet1 = (own[i].close - own[i - 1].close) / own[i - 1].close;
+      raw[i] = btcRet1 - ownRet1;
+    }
+    const expectedZ = trailingZScore(Float64Array.from(raw), windowBarsForDays(30, '1h'), Z_MIN_SAMPLES);
+
+    const rows = buildResearchColumns({
+      candles: own, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+      marketCandles: btc,
+    });
+
+    let compared = 0;
+    for (let i = 1; i < own.length; i++) {
+      const emitted = rows[i].values.btcLeadLagZ;
+      if (Number.isFinite(expectedZ[i - 1])) {
+        expect(emitted, `bar ${i}`).toBeCloseTo(expectedZ[i - 1], 10);
+        compared++;
+      } else {
+        expect(emitted, `bar ${i}`).toBeUndefined();
+      }
+    }
+    expect(compared).toBeGreaterThan(100);
+  });
+});
+
+describe('mktDvolZ30 / mktOptSkew24 / mktOptGammaFlow24Z / mktOptDeltaFlow24Z', () => {
+  const OPT_START = Date.UTC(2024, 0, 1);
+  const HOUR_MS = 60 * 60 * 1000;
+
+  function makeHourlyCandles(hours: number, seed: number): OHLCV[] {
+    let rng = seed;
+    const next = () => {
+      rng = (rng * 16807) % 2147483647;
+      return rng / 2147483647;
+    };
+    const bars: OHLCV[] = [];
+    let price = 100;
+    for (let i = 0; i < hours; i++) {
+      price = price * (1 + (next() - 0.5) * 0.01);
+      bars.push(flatCandle(OPT_START + i * HOUR_MS, price, 10));
+    }
+    return bars;
+  }
+
+  /** One OptionsRow per hour from OPT_START, gap-free, with distinct dvolClose,
+   * putIv25/callIv25, netDelta and netDollarGamma via a deterministic LCG. */
+  function makeHourlyOptionsRows(hours: number, seed: number): OptionsRow[] {
+    let rng = seed;
+    const next = () => {
+      rng = (rng * 16807) % 2147483647;
+      return rng / 2147483647;
+    };
+    const rows: OptionsRow[] = [];
+    for (let h = 0; h < hours; h++) {
+      rows.push({
+        t: OPT_START + h * HOUR_MS,
+        dvolOpen: null,
+        dvolHigh: null,
+        dvolLow: null,
+        dvolClose: 40 + next() * 30,
+        callBuyNotional: null,
+        callSellNotional: null,
+        putBuyNotional: null,
+        putSellNotional: null,
+        netDelta: (next() - 0.5) * 2_000_000,
+        netDollarGamma: (next() - 0.5) * 500_000,
+        tradeCount: null,
+        greekTradeCount: null,
+        vwIv: null,
+        putIv25: 0.55 + next() * 0.1,
+        callIv25: 0.5 + next() * 0.1,
+      });
+    }
+    return rows;
+  }
+
+  /** Independent hand replica of research-columns.ts's ivSkewOf. */
+  function handIvSkewOf(row: OptionsRow): number {
+    if (row.putIv25 === null || row.callIv25 === null) return NaN;
+    return row.putIv25 - row.callIv25;
+  }
+
+  /** Independent hand replica of research-columns.ts's trailingConsecutiveSum:
+   * a 24-consecutive-hour trailing sum, NaN across a missing hour or a
+   * non-finite reading anywhere in the window. */
+  function handConsecutiveSum(rows: OptionsRow[], value: (r: OptionsRow) => number | null): number[] {
+    const out = new Array<number>(rows.length).fill(NaN);
+    for (let i = 23; i < rows.length; i++) {
+      let sum = 0;
+      let ok = true;
+      let expectedT = rows[i].t;
+      for (let k = i; k > i - 24; k--) {
+        if (rows[k].t !== expectedT) {
+          ok = false;
+          break;
+        }
+        const v = value(rows[k]);
+        if (v === null || !Number.isFinite(v)) {
+          ok = false;
+          break;
+        }
+        sum += v;
+        expectedT -= HOUR_MS;
+      }
+      if (ok) out[i] = sum;
+    }
+    return out;
+  }
+
+  /** Independent hand replica of research-columns.ts's trailingConsecutiveMean:
+   * tolerant of a non-finite individual reading, intolerant of a missing hour. */
+  function handConsecutiveMean(rows: OptionsRow[], value: (r: OptionsRow) => number): number[] {
+    const out = new Array<number>(rows.length).fill(NaN);
+    for (let i = 23; i < rows.length; i++) {
+      let sum = 0;
+      let count = 0;
+      let ok = true;
+      let expectedT = rows[i].t;
+      for (let k = i; k > i - 24; k--) {
+        if (rows[k].t !== expectedT) {
+          ok = false;
+          break;
+        }
+        const v = value(rows[k]);
+        if (Number.isFinite(v)) {
+          sum += v;
+          count++;
+        }
+        expectedT -= HOUR_MS;
+      }
+      if (ok && count > 0) out[i] = sum / count;
+    }
+    return out;
+  }
+
+  /** Independent hand replica of research-columns.ts's join (alignToBars over
+   * `row.t + OPTIONS_SLOT_MS - 1`, staleness = max(intervalMs, 2 * hour)). */
+  function handJoin<T extends { t: number }>(rows: T[], barCloses: number[], intervalMs: number): (T | null)[] {
+    const staleness = Math.max(intervalMs, 2 * HOUR_MS);
+    const out: (T | null)[] = new Array(barCloses.length).fill(null);
+    let cursor = 0;
+    let latest: T | null = null;
+    for (let i = 0; i < barCloses.length; i++) {
+      const target = barCloses[i];
+      while (cursor < rows.length && rows[cursor].t + HOUR_MS - 1 <= target) {
+        latest = rows[cursor];
+        cursor++;
+      }
+      if (latest !== null && target - (latest.t + HOUR_MS - 1) <= staleness) out[i] = latest;
+    }
+    return out;
+  }
+
+  /** Hand-computes the four aligned (pre-mask, pre-z, pre-shift) series onto
+   * `candles`' bar closes, independently of research-columns.ts. */
+  function handAlign(rows: OptionsRow[], candles: OHLCV[], intervalMs: number) {
+    const barCloses = candles.map((c) => c.timestamp + intervalMs - 1);
+    const skewMean = handConsecutiveMean(rows, handIvSkewOf);
+    const gammaSum = handConsecutiveSum(rows, (r) => r.netDollarGamma);
+    const deltaSum = handConsecutiveSum(rows, (r) => r.netDelta);
+
+    const joined = rows.map((r, i) => ({
+      t: r.t,
+      dvolClose: r.dvolClose ?? NaN,
+      skew24: skewMean[i],
+      gammaFlow24: gammaSum[i],
+      deltaFlow24: deltaSum[i],
+    }));
+    const aligned = handJoin(joined, barCloses, intervalMs);
+
+    return {
+      dvolClose: aligned.map((a) => a?.dvolClose ?? NaN),
+      skew24: aligned.map((a) => a?.skew24 ?? NaN),
+      gammaFlow24: aligned.map((a) => a?.gammaFlow24 ?? NaN),
+      deltaFlow24: aligned.map((a) => a?.deltaFlow24 ?? NaN),
+    };
+  }
+
+  it('adds mktDvolZ30, mktOptSkew24, mktOptGammaFlow24Z and mktOptDeltaFlow24Z to RESEARCH_COLUMNS', () => {
+    for (const name of ['mktDvolZ30', 'mktOptSkew24', 'mktOptGammaFlow24Z', 'mktOptDeltaFlow24Z']) {
+      expect(RESEARCH_COLUMNS).toContain(name);
+    }
+  });
+
+  it('all four are NaN throughout without marketOptions', () => {
+    const candles = makeHourlyCandles(80, 11);
+    const rowsNoArg = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: null,
+    });
+    for (const name of ['mktDvolZ30', 'mktOptSkew24', 'mktOptGammaFlow24Z', 'mktOptDeltaFlow24Z']) {
+      expect(rowsNoArg.every((r) => r.values[name] === undefined), name).toBe(true);
+    }
+
+    const rowsOmitted = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+    for (const name of ['mktDvolZ30', 'mktOptSkew24', 'mktOptGammaFlow24Z', 'mktOptDeltaFlow24Z']) {
+      expect(rowsOmitted.every((r) => r.values[name] === undefined), name).toBe(true);
+    }
+  });
+
+  it("mktDvolZ30 reads the row whose hour has closed at or before the bar close, not the bar's own hour", () => {
+    // 15m bars over a stretch of otherwise-CONSTANT dvolClose, except hour 12
+    // which carries a distinctly different reading. A constant series has
+    // zero variance, so trailingZScore reports NaN throughout the constant
+    // stretch and only turns finite the moment the distinct hour-12 reading
+    // first enters the (unshifted, pre-emission) window -- exactly the bar
+    // whose join first reads the hour-12 row rather than hour 11's.
+    const INTERVAL = '15m';
+    const INTERVAL_MS = intervalToMs(INTERVAL);
+    const hours = 40;
+    const candles: OHLCV[] = [];
+    for (let i = 0; i < (hours * HOUR_MS) / INTERVAL_MS; i++) {
+      candles.push(flatCandle(OPT_START + i * INTERVAL_MS, 100, 10));
+    }
+    const rows: OptionsRow[] = Array.from({ length: hours }, (_, h) => ({
+      t: OPT_START + h * HOUR_MS,
+      dvolOpen: null, dvolHigh: null, dvolLow: null,
+      dvolClose: h === 12 ? 90 : 50,
+      callBuyNotional: null, callSellNotional: null, putBuyNotional: null, putSellNotional: null,
+      netDelta: null, netDollarGamma: null, tradeCount: null, greekTradeCount: null, vwIv: null,
+      putIv25: null, callIv25: null,
+    }));
+
+    const rowsOut = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: rows,
+    });
+
+    // Bar-starts 12:00, 12:15, 12:30 (closing 12:14/12:29/12:44) still read
+    // the 11:00 row (constant, dvolClose 50): the emitted (shifted) column
+    // at the NEXT bar -- indices 49, 50, 51 -- must still be NaN.
+    for (const i of [49, 50, 51]) {
+      expect(rowsOut[i].values.mktDvolZ30, `bar ${i}`).toBeUndefined();
+    }
+    // Bar-start 12:45 (closing 12:59:59.999) is the first bar whose close is
+    // >= hour 12's own observable timestamp, so it is the first to read the
+    // hour-12 row; the emitted (shifted) column shows this one bar later, at
+    // index 52.
+    expect(rowsOut[52].values.mktDvolZ30, 'bar 52').toBeTypeOf('number');
+    expect(Number.isFinite(rowsOut[52].values.mktDvolZ30)).toBe(true);
+  });
+
+  it('mktDvolZ30 matches a hand z over a constructed DVOL series', () => {
+    const INTERVAL = '1h';
+    const hours = 120;
+    const candles = makeHourlyCandles(hours, 21);
+    const rows = makeHourlyOptionsRows(hours, 33);
+
+    const aligned = handAlign(rows, candles, HOUR_MS);
+    const expectedZ = trailingZScore(Float64Array.from(aligned.dvolClose), windowBarsForDays(30, INTERVAL), Z_MIN_SAMPLES);
+
+    const rowsOut = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: rows,
+    });
+
+    let compared = 0;
+    for (let i = 1; i < hours; i++) {
+      const emitted = rowsOut[i].values.mktDvolZ30;
+      if (Number.isFinite(expectedZ[i - 1])) {
+        expect(emitted, `bar ${i}`).toBeCloseTo(expectedZ[i - 1], 8);
+        compared++;
+      } else {
+        expect(emitted, `bar ${i}`).toBeUndefined();
+      }
+    }
+    expect(compared).toBeGreaterThan(30);
+  });
+
+  it('mktOptSkew24 equals the hand mean of the 24 preceding hourly differences and is NaN across a one-hour gap', () => {
+    const INTERVAL = '1h';
+    const hours = 60;
+    const candles = makeHourlyCandles(hours, 44);
+    const rows = makeHourlyOptionsRows(hours, 55);
+
+    const aligned = handAlign(rows, candles, HOUR_MS);
+    const rowsOut = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: rows,
+    });
+
+    let compared = 0;
+    for (let i = 1; i < hours; i++) {
+      const emitted = rowsOut[i].values.mktOptSkew24;
+      if (Number.isFinite(aligned.skew24[i - 1])) {
+        expect(emitted, `bar ${i}`).toBeCloseTo(aligned.skew24[i - 1], 10);
+        compared++;
+      } else {
+        expect(emitted, `bar ${i}`).toBeUndefined();
+      }
+    }
+    expect(compared).toBeGreaterThan(20);
+
+    // Remove one hourly row entirely (a gap, not just a null value): every
+    // 24-hour window whose span crosses the missing hour must go NaN, per
+    // the module's own trailingConsecutiveMean, and the hand replica (run
+    // against this same gapped input) predicts exactly which ones.
+    const gapped = rows.filter((_, i) => i !== 30);
+    const alignedGapped = handAlign(gapped, candles, HOUR_MS);
+    const rowsGapped = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: gapped,
+    });
+
+    let comparedGapped = 0;
+    let sawNaNFromGap = 0;
+    for (let i = 1; i < hours; i++) {
+      const emitted = rowsGapped[i].values.mktOptSkew24;
+      if (Number.isFinite(alignedGapped.skew24[i - 1])) {
+        expect(emitted, `gapped bar ${i}`).toBeCloseTo(alignedGapped.skew24[i - 1], 10);
+        comparedGapped++;
+      } else {
+        expect(emitted, `gapped bar ${i}`).toBeUndefined();
+        // A bar that was finite in the gap-free run but is undefined here is
+        // directly attributable to the missing hour.
+        if (Number.isFinite(aligned.skew24[i - 1])) sawNaNFromGap++;
+      }
+    }
+    expect(comparedGapped).toBeGreaterThan(0);
+    expect(sawNaNFromGap).toBeGreaterThan(0);
+  });
+
+  it('mktOptGammaFlow24Z equals a hand sum-then-z over the 24 preceding hourly netDollarGamma readings, and is NaN across a one-hour gap; mktOptDeltaFlow24Z matches the same pipeline on netDelta', () => {
+    const INTERVAL = '1h';
+    const hours = 120;
+    const candles = makeHourlyCandles(hours, 66);
+    const rows = makeHourlyOptionsRows(hours, 77);
+
+    const aligned = handAlign(rows, candles, HOUR_MS);
+    const expectedGammaZ = trailingZScore(
+      Float64Array.from(aligned.gammaFlow24), windowBarsForDays(30, INTERVAL), Z_MIN_SAMPLES
+    );
+    const expectedDeltaZ = trailingZScore(
+      Float64Array.from(aligned.deltaFlow24), windowBarsForDays(30, INTERVAL), Z_MIN_SAMPLES
+    );
+
+    const rowsOut = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: rows,
+    });
+
+    let comparedGamma = 0;
+    let comparedDelta = 0;
+    for (let i = 1; i < hours; i++) {
+      const emittedGamma = rowsOut[i].values.mktOptGammaFlow24Z;
+      if (Number.isFinite(expectedGammaZ[i - 1])) {
+        expect(emittedGamma, `gamma bar ${i}`).toBeCloseTo(expectedGammaZ[i - 1], 8);
+        comparedGamma++;
+      } else {
+        expect(emittedGamma, `gamma bar ${i}`).toBeUndefined();
+      }
+
+      const emittedDelta = rowsOut[i].values.mktOptDeltaFlow24Z;
+      if (Number.isFinite(expectedDeltaZ[i - 1])) {
+        expect(emittedDelta, `delta bar ${i}`).toBeCloseTo(expectedDeltaZ[i - 1], 8);
+        comparedDelta++;
+      } else {
+        expect(emittedDelta, `delta bar ${i}`).toBeUndefined();
+      }
+    }
+    expect(comparedGamma).toBeGreaterThan(30);
+    expect(comparedDelta).toBeGreaterThan(30);
+
+    // Gap case for the gamma sum: removing one hourly row poisons every
+    // 24-hour window spanning it (a sum, unlike skew24's mean, tolerates no
+    // thinning at all), verified against the hand replica run on the same
+    // gapped input.
+    const gapped = rows.filter((_, i) => i !== 50);
+    const alignedGapped = handAlign(gapped, candles, HOUR_MS);
+    const expectedGammaZGapped = trailingZScore(
+      Float64Array.from(alignedGapped.gammaFlow24), windowBarsForDays(30, INTERVAL), Z_MIN_SAMPLES
+    );
+    const rowsGapped = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: gapped,
+    });
+
+    let comparedGammaGapped = 0;
+    let sawNaNFromGap = 0;
+    for (let i = 1; i < hours; i++) {
+      const emitted = rowsGapped[i].values.mktOptGammaFlow24Z;
+      if (Number.isFinite(expectedGammaZGapped[i - 1])) {
+        expect(emitted, `gapped gamma bar ${i}`).toBeCloseTo(expectedGammaZGapped[i - 1], 8);
+        comparedGammaGapped++;
+      } else {
+        expect(emitted, `gapped gamma bar ${i}`).toBeUndefined();
+        if (Number.isFinite(expectedGammaZ[i - 1])) sawNaNFromGap++;
+      }
+    }
+    expect(comparedGammaGapped).toBeGreaterThan(0);
+    expect(sawNaNFromGap).toBeGreaterThan(0);
+  });
+
+  it('all four are shifted forward one bar (value at i equals the unshifted value at i-1)', () => {
+    // The hand-z/hand-mean comparisons above already assert emitted[i] ===
+    // f(hand-aligned)[i-1] throughout; this test isolates the shift itself
+    // by checking index 0 is always unemitted (no bar -1 to have observed)
+    // and that at least one column's value visibly changes between the
+    // unshifted reading and its shifted (one-bar-later) emission.
+    const INTERVAL = '1h';
+    const hours = 120;
+    const candles = makeHourlyCandles(hours, 88);
+    const rows = makeHourlyOptionsRows(hours, 99);
+    const rowsOut = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: rows,
+    });
+
+    for (const name of ['mktDvolZ30', 'mktOptSkew24', 'mktOptGammaFlow24Z', 'mktOptDeltaFlow24Z']) {
+      expect(rowsOut[0].values[name], name).toBeUndefined();
+    }
+
+    const aligned = handAlign(rows, candles, HOUR_MS);
+    let differing = 0;
+    for (let i = 1; i < hours - 1; i++) {
+      if (Number.isFinite(aligned.skew24[i]) && Number.isFinite(aligned.skew24[i + 1])) {
+        if (Math.abs(aligned.skew24[i] - aligned.skew24[i + 1]) > 1e-9) {
+          differing++;
+          const emittedNow = rowsOut[i + 1].values.mktOptSkew24;
+          const emittedNext = rowsOut[i + 2]?.values.mktOptSkew24;
+          if (emittedNext !== undefined) {
+            expect(emittedNow).not.toBeCloseTo(aligned.skew24[i + 1], 9);
+            expect(emittedNext).toBeCloseTo(aligned.skew24[i + 1], 9);
+          }
+        }
+      }
+    }
+    expect(differing).toBeGreaterThan(10);
+  });
+
+  it('no lookahead: truncating the options rows after the bar close leaves the value at that bar unchanged, for all four columns', () => {
+    const INTERVAL = '1h';
+    const INTERVAL_MS = intervalToMs(INTERVAL);
+    const hours = 120;
+    const candles = makeHourlyCandles(hours, 111);
+    const rows = makeHourlyOptionsRows(hours, 222);
+
+    const full = buildResearchColumns({
+      candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+      marketOptions: rows,
+    });
+
+    for (const bar of [70, 90, 119]) {
+      const truncatedRows = rows.filter((r) => r.t <= candles[bar].timestamp + INTERVAL_MS - 1);
+      const truncated = buildResearchColumns({
+        candles, snapshots: [], metrics: [], interval: INTERVAL, symbol: 'ETHUSDT', warmupBars: 0,
+        marketOptions: truncatedRows,
+      });
+      for (const name of ['mktDvolZ30', 'mktOptSkew24', 'mktOptGammaFlow24Z', 'mktOptDeltaFlow24Z']) {
+        const a = full[bar].values[name];
+        const b = truncated[bar].values[name];
+        if (a === undefined) {
+          expect(b, `${name} at ${bar}`).toBeUndefined();
+        } else {
+          expect(b, `${name} at ${bar}`).toBeCloseTo(a, 8);
+        }
+      }
+    }
+  });
+});
+
+describe('shift: every new column reads the previous bar', () => {
+  it('sweepReversal20 at row i equals a hand recomputation of the unshifted value at i-1', () => {
+    const START = Date.UTC(2024, 0, 1);
+    const HOUR_MS = 60 * 60 * 1000;
+    const bars: OHLCV[] = [];
+    for (let i = 0; i < 30; i++) {
+      bars.push({ timestamp: START + i * HOUR_MS, open: 100, high: 110, low: 100, close: 105, volume: 10 });
+    }
+    // A low sweep at bar 25.
+    bars[25] = { ...bars[25], low: 90, high: 105, close: 103 };
+
+    const rows = buildResearchColumns({
+      candles: bars, snapshots: [], metrics: [], interval: '1h', symbol: 'ETHUSDT', warmupBars: 0,
+    });
+
+    function handUnshifted(i: number): number {
+      let priorLow = Infinity;
+      let priorHigh = -Infinity;
+      for (let k = i - 20; k < i; k++) {
+        if (bars[k].low < priorLow) priorLow = bars[k].low;
+        if (bars[k].high > priorHigh) priorHigh = bars[k].high;
+      }
+      let value = 0;
+      if (bars[i].low < priorLow && bars[i].close > priorLow) value += 1;
+      if (bars[i].high > priorHigh && bars[i].close < priorHigh) value -= 1;
+      return value;
+    }
+
+    for (const i of [21, 26, 27, 29]) {
+      const expected = handUnshifted(i - 1);
+      const emitted = rows[i].values.sweepReversal20;
+      expect(emitted ?? 0, `row ${i}`).toBe(expected);
+    }
   });
 });
 

@@ -30,6 +30,21 @@
  * a time. See each family's own header comment below for its rule, its
  * params, and the exact Phase 3 cells it rests on.
  *
+ * EXPLORATION (session 19, 2026-09-28): `withManagement` and the three
+ * `*-managed` families below belong to the Reddit-derived exploration whose
+ * other families live under families/ and are registered in
+ * exploration-families.ts; that file's header carries the exploration's
+ * round-by-round results tables. The managed control's own rows (develop
+ * slice to 2022-12-31, dataset research-p4 3f14b27e, trials 1141, standard
+ * profile, ten symbols): 1h n 2043 -0.0375% CI [-0.2475, 0.1622] timing
+ * p 0.015 symbols 3/10 against the plain control's n 1644 +0.0384%
+ * [-0.2165, 0.3064] p 0.010 5/10; 4h n 531 -0.0042% [-0.6441, 0.5681]
+ * p 0.304 6/10 against -0.1871% [-0.9350, 0.4550]; 15m n 6781 -0.1319%
+ * [-0.1831, -0.0829] p 0.035 0/10 against -0.1339% [-0.2020, -0.0659].
+ * Break-even and trailing management made the control worse at 1h on
+ * 2022 and changed nothing at 4h and 15m: the "+2.4R to +15.8R" thread
+ * claim does not transfer.
+ *
  * Phase 4 results (2026-09-18, dataset 3fdeac9e495e3051ad2e2c7553be6b07b1da0d7b9e84f468d635d2708c624782,
  * commit 30a56ef, lockbox applied so every window ends 2026-06-30, ten
  * symbols, six rolling windows with train fraction 0.4 and purge equal to
@@ -249,8 +264,15 @@
  */
 
 import type { TradingStyle } from '@/lib/models/signal-template';
-import type { EntryDecision, Strategy, StrategyContext } from '@/lib/backtest/strategy';
+import type {
+  EntryDecision,
+  ManagementContext,
+  ManagementDecision,
+  Strategy,
+  StrategyContext,
+} from '@/lib/backtest/strategy';
 import type { IndicatorSuite } from '@/lib/indicators/types';
+import type { OpenPosition } from '@/lib/backtest/trade-utils';
 import type { BacktestConfig } from '@/lib/backtest/types';
 import { createScoreThresholdStrategy } from '@/lib/backtest/strategies/score-threshold';
 import { STRATEGY_EXIT_LEVEL } from '@/lib/signals/calibration';
@@ -343,7 +365,7 @@ export function expandGrid(family: StrategyFamily): Record<string, number>[] {
  * `ctx.suite` for null themselves first, both for TypeScript narrowing (most
  * families also read other suite fields) and so the pre-warmup null check
  * reads the same way, once, in every family. */
-function currentAtr(suite: IndicatorSuite): number | null {
+export function currentAtr(suite: IndicatorSuite): number | null {
   const atr = suite.atr.current;
   return Number.isFinite(atr) && atr > 0 ? atr : null;
 }
@@ -724,6 +746,152 @@ export function withLimitEntry(
     },
     decideExit(ctx: StrategyContext, config: BacktestConfig): boolean {
       return base.decideExit(ctx, config);
+    },
+  };
+}
+
+/**
+ * withManagement: wraps a base strategy's decideEntry/decideExit untouched
+ * and adds a `manage` hook that trails the stop toward break-even and then
+ * an ATR distance behind the position's favourable extreme, never loosening
+ * it. `decideEntry` and `decideExit` delegate to `base` exactly as
+ * `withLimitEntry` does; the entry decision's own stop and target (and
+ * therefore `OpenPosition.initialStopPrice`/`initialRisk`, set once at fill
+ * time in trade-utils.ts openPosition) are untouched by this wrapper -- it
+ * only ever proposes a NEW stop through `manage`.
+ *
+ * CAUSALITY (task-4-review.md C1, N1). `manage` takes a `ManagementContext`
+ * (strategy.ts), not a `StrategyContext`: `ctx.bar`, `ctx.suite`, `ctx.score`,
+ * `ctx.tier` are ONE BAR BEHIND the engine's current bar by construction (see
+ * that type's own header). An earlier version of this wrapper read
+ * `ctx.candles[ctx.bar]`'s high/low and `currentAtr(ctx.suite)` back when
+ * `ctx.bar` WAS the current bar, which meant the stop it proposed -- then
+ * applied by the engine before that same bar's own stop/target check -- was
+ * computed from information (that bar's true range) that did not exist at
+ * the bar's open. That was intrabar lookahead, and every managed run before
+ * this fix is invalid. The fix is not a local patch to the extreme/ATR
+ * calculation alone: `bar`/`suite`/`score`/`tier` are now compiler-narrowed
+ * to one bar behind. `ctx.candles` itself is still the engine's FULL array,
+ * so it is a CONTRACT, not a compiler guarantee, that this wrapper (and any
+ * other `manage` implementation) never indexes past `ctx.bar` -- the loop
+ * below honours that bound and stops at `ctx.bar`, never `ctx.bar + 1` or
+ * higher.
+ *
+ * `manage` reads `position.initialRisk` (the entry's own absolute stop
+ * distance) to convert `options.breakEvenR`/`trailStartR` into price
+ * distances, and computes the "favourable extreme" as a RUNNING max high
+ * (long) / min low (short) over every bar SINCE entry: `position.entryBar +
+ * 1` through `ctx.bar` inclusive (`ctx.bar` being one bar behind the
+ * engine's current bar, so this is every post-entry bar whose range is
+ * already fully known at the current bar's open). The entry bar itself
+ * (`position.entryBar`) is deliberately excluded: the market entry happens
+ * at that bar's CLOSE, so its high/low span time before the position
+ * existed, not favourable excursion since entry (task-4-review.md N3). When
+ * `ctx.bar === position.entryBar` (the first bar manage is ever called for),
+ * this range is empty, `favorableExtreme` stays +/-Infinity, and the
+ * `!Number.isFinite` guard below returns null -- correct, since no post-entry
+ * bar has completed yet. Recomputed from `candles` on every call rather than
+ * cached on the position -- `manage` is otherwise stateless, and hold is
+ * <=32 bars for every family that uses this wrapper, so the rescan is cheap.
+ * ATR comes from `currentAtr(ctx.suite)`, i.e. as of `ctx.bar` (one bar
+ * behind), never the current bar's.
+ *
+ * Two candidate stops are computed, either of which may be absent:
+ *   - break-even: once the running favourable move (extreme vs. entryPrice)
+ *     is at least `breakEvenR * initialRisk`, entryPrice itself is a
+ *     candidate (no buffer added, exactly at entry).
+ *   - trailing: once the running favourable move is at least
+ *     `trailStartR * initialRisk` AND currentAtr(ctx.suite) is available,
+ *     `extreme - trailAtr * atr` (long) or `extreme + trailAtr * atr`
+ *     (short) is a candidate.
+ *
+ * The more favourable of the candidates present (max for a long, min for a
+ * short) is compared against `position.stopPrice`: only a strictly more
+ * favourable value (never a loosening, satisfying "a stop is never moved
+ * against the position") is returned. Returns null when neither threshold is
+ * reached, `ctx.suite` is null, `position.initialRisk` is not a positive
+ * finite number, or the best candidate would not improve the current stop.
+ * Never returns a targetPrice -- this wrapper only ever moves the stop.
+ */
+export interface ManagementOptions {
+  breakEvenR?: number;
+  trailStartR?: number;
+  trailAtr?: number;
+}
+
+export function withManagement(
+  base: Strategy,
+  options: ManagementOptions,
+  name: string,
+  params: Record<string, number>
+): Strategy {
+  return {
+    name,
+    params,
+    decideEntry(ctx: StrategyContext, config: BacktestConfig): EntryDecision | null {
+      return base.decideEntry(ctx, config);
+    },
+    decideExit(ctx: StrategyContext, config: BacktestConfig): boolean {
+      return base.decideExit(ctx, config);
+    },
+    manage(ctx: ManagementContext, position: OpenPosition): ManagementDecision | null {
+      if (!ctx.suite) return null;
+
+      const { entryPrice, side, stopPrice } = position;
+      // openPosition (trade-utils.ts) always sets initialRisk; the fallback
+      // only covers a hand-built OpenPosition (e.g. an existing test
+      // fixture) that predates the field, deriving it from the position's
+      // current stop the same way openPosition derives it from the initial
+      // one.
+      const initialRisk = position.initialRisk ?? Math.abs(position.entryPrice - position.stopPrice);
+      if (!(initialRisk > 0)) return null;
+
+      // Running extreme over every bar SINCE entry, already fully known at
+      // the current bar's open: (position.entryBar, ctx.bar] i.e.
+      // [entryBar + 1, ctx.bar] inclusive, where ctx.bar is one bar behind
+      // the engine's current bar. entryBar itself is excluded: the market
+      // entry happens at that bar's CLOSE, so its high/low is partly
+      // pre-entry, not favourable excursion since entry (task-4-review.md
+      // N3). `ctx.bar >= position.entryBar` is guaranteed by the engine's own
+      // entry-bar skip, but the loop can still run zero times (when
+      // `ctx.bar === entryBar`, the first bar manage is ever called for) --
+      // handled below by the finite-extreme guard, not by this loop.
+      let favorableExtreme = side === 'long' ? -Infinity : Infinity;
+      for (let i = position.entryBar + 1; i <= ctx.bar; i++) {
+        const c = ctx.candles[i];
+        favorableExtreme = side === 'long' ? Math.max(favorableExtreme, c.high) : Math.min(favorableExtreme, c.low);
+      }
+      if (!Number.isFinite(favorableExtreme)) return null;
+
+      const favorableMove = side === 'long' ? favorableExtreme - entryPrice : entryPrice - favorableExtreme;
+      if (!Number.isFinite(favorableMove)) return null;
+
+      const candidates: number[] = [];
+
+      if (options.breakEvenR !== undefined && favorableMove >= options.breakEvenR * initialRisk) {
+        candidates.push(entryPrice);
+      }
+
+      if (
+        options.trailStartR !== undefined &&
+        options.trailAtr !== undefined &&
+        favorableMove >= options.trailStartR * initialRisk
+      ) {
+        const atr = currentAtr(ctx.suite);
+        if (atr !== null) {
+          candidates.push(
+            side === 'long' ? favorableExtreme - options.trailAtr * atr : favorableExtreme + options.trailAtr * atr
+          );
+        }
+      }
+
+      if (candidates.length === 0) return null;
+
+      const bestCandidate = side === 'long' ? Math.max(...candidates) : Math.min(...candidates);
+      const improves = side === 'long' ? bestCandidate > stopPrice : bestCandidate < stopPrice;
+      if (!improves) return null;
+
+      return { stopPrice: bestCandidate };
     },
   };
 }
@@ -1215,6 +1383,116 @@ const depthImbalanceFadeFamily: StrategyFamily = {
   },
 };
 
+/** The break-even + ATR trailing management grid every *-managed family
+ * below shares: breakEvenR [0.5, 1] x trailStartR [1.5, 2] x trailAtr [1, 2],
+ * 8 cells. Reading task-4-brief.md/the "1wme959" table this program is
+ * exploring: a break-even move at 0.5-1R and an ATR trail from 1.5-2R. */
+const MANAGEMENT_PARAMS: ParamSpec[] = [
+  { name: 'breakEvenR', values: [0.5, 1] },
+  { name: 'trailStartR', values: [1.5, 2] },
+  { name: 'trailAtr', values: [1, 2] },
+];
+
+/**
+ * control-managed: control's composite threshold rule (createScoreThresholdStrategy),
+ * with a break-even + ATR trailing stop applied once open. Thresholds,
+ * weights, stop, and target still come from the caller's own config exactly
+ * as control's do; withManagement only adds a per-bar stop adjustment.
+ *
+ * Params: the shared 8-cell management grid. Control itself has no other
+ * parameters to carry, so this is the family's full grid.
+ */
+export const controlManagedFamily: StrategyFamily = {
+  name: 'control-managed',
+  description: 'control (composite threshold) with a break-even + ATR trailing stop management hook',
+  params: MANAGEMENT_PARAMS,
+  create(params: Record<string, number>): Strategy {
+    const { breakEvenR, trailStartR, trailAtr } = params;
+    return withManagement(
+      createScoreThresholdStrategy(),
+      { breakEvenR, trailStartR, trailAtr },
+      'control-managed',
+      params
+    );
+  },
+};
+
+/**
+ * depth-imbalance-fade-managed: depth-imbalance-fade's fade-the-crowded-book
+ * rule (see depthImbalanceFadeFamily above), fixed at ONE base cell, with a
+ * break-even + ATR trailing stop applied once open. MAX_PARAMS is 4 and the
+ * base family already uses all four of its own, so this family cannot also
+ * sweep them: it fixes the base cell and sweeps only the management grid.
+ *
+ * BASE CELL CHOICE. The Phase 4c header (depthImbalanceFadeLimitFamily's
+ * comment above) records the cells Phase 4c's own walk-forward selected most
+ * often at 4h: "days 90/z 2/hold 32 and days 30/z 2/hold 32 at nine windows
+ * each, then days 30/z 2/hold 16, days 30/z 1.5/hold 32 and days 90/z
+ * 1.5/hold 32", with k FIXED at 3 (it "carried all five of the cells"). The
+ * top two cells are tied at nine selecting windows each; this family picks
+ * days=90 (the first of the tied pair as the header lists it), z=2, hold=32,
+ * k=3.
+ *
+ * Params: the shared 8-cell management grid.
+ */
+export const depthImbalanceFadeManagedFamily: StrategyFamily = {
+  name: 'depth-imbalance-fade-managed',
+  description:
+    'depth-imbalance-fade at its Phase 4c most-selected 4h cell (days 90/z 2/hold 32/k 3) with a break-even + ATR trailing stop management hook',
+  requiresResearchColumns: depthImbalanceFadeFamily.requiresResearchColumns,
+  params: MANAGEMENT_PARAMS,
+  create(params: Record<string, number>, ctx: { style: TradingStyle; interval: string }): Strategy {
+    const { breakEvenR, trailStartR, trailAtr } = params;
+    const base = depthImbalanceFadeFamily.create({ days: 90, z: 2, hold: 32, k: 3 }, ctx);
+    return withManagement(base, { breakEvenR, trailStartR, trailAtr }, 'depth-imbalance-fade-managed', params);
+  },
+};
+
+/**
+ * positioning-fade-managed: positioning-fade's fade-the-crowded-positioning
+ * rule (see positioningFadeFamily above), fixed at ONE base cell, with a
+ * break-even + ATR trailing stop applied once open. Same reason as
+ * depth-imbalance-fade-managed: MAX_PARAMS is 4 and the base family already
+ * uses all four, so the base cell is fixed and only the management grid is
+ * swept.
+ *
+ * BASE CELL CHOICE. The Phase 4c header (positioning-fade's own comment
+ * above, "WHY A STRONG IC STILL PRODUCES THIS") states that in-sample
+ * selection "took the shortest hold on offer (median hold 8 bars at 1d and
+ * 4h)", so hold=8 is read from the header. window, z, and k are not stated
+ * there, so each uses the middle value of its own grid (index
+ * Math.floor(length / 2)): window [180, 360, 720] -> 360, z [1, 1.5, 2] ->
+ * 1.5, k [2, 3] -> 3 (index 1 of a 2-element grid has no true middle; this
+ * family takes the higher of the two, the same index rule applied to k
+ * elsewhere).
+ *
+ * Params: the shared 8-cell management grid.
+ */
+export const positioningFadeManagedFamily: StrategyFamily = {
+  name: 'positioning-fade-managed',
+  description:
+    'positioning-fade at its header-stated hold (8) plus the grid midpoint for window/z/k (360/1.5/3) with a break-even + ATR trailing stop management hook',
+  requiresResearchColumns: positioningFadeFamily.requiresResearchColumns,
+  params: MANAGEMENT_PARAMS,
+  create(params: Record<string, number>, ctx: { style: TradingStyle; interval: string }): Strategy {
+    const { breakEvenR, trailStartR, trailAtr } = params;
+    const base = positioningFadeFamily.create({ window: 360, z: 1.5, hold: 8, k: 3 }, ctx);
+    return withManagement(base, { breakEvenR, trailStartR, trailAtr }, 'positioning-fade-managed', params);
+  },
+};
+
+/**
+ * The registry every research entry point reads. `Object.keys(...).length`
+ * also feeds `strategy-harness.ts`'s DEFAULT `--trials` denominator
+ * (`gridCells * familyCount`), so adding or removing a family here silently
+ * moves that default for every future run, including a rerun of an
+ * already-recorded family (task-4-review.md I3: 13 -> 16 when the three
+ * *-managed families below were added). That default is a FALLBACK only:
+ * every trials count this program has ever recorded came from an explicit
+ * `--trials` passed by the run (see the exploration ledger), never the
+ * default, and a rerun intended to compare against a recorded result must
+ * keep doing so.
+ */
 export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   control: {
     name: 'control',
@@ -1236,4 +1514,7 @@ export const STRATEGY_FAMILIES: Record<string, StrategyFamily> = {
   'funding-z-fade': fundingZFadeFamily,
   'depth-imbalance-fade': depthImbalanceFadeFamily,
   'depth-imbalance-fade-limit': depthImbalanceFadeLimitFamily,
+  'control-managed': controlManagedFamily,
+  'depth-imbalance-fade-managed': depthImbalanceFadeManagedFamily,
+  'positioning-fade-managed': positioningFadeManagedFamily,
 };

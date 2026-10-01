@@ -95,6 +95,24 @@
  * exported before those kinds existed still loads: the archive columns are
  * NaN throughout and land in skippedFactors rather than failing the run.
  *
+ * Options inputs (Task 3c). When the dataset carries the `options` kind
+ * (scripts/ops/ingest-deribit.ts's OptionsFlowHour rows, exported by
+ * export-dataset.ts), this CLI also measures the ten raw.mktOpt* / raw.ownOpt*
+ * and raw.{mkt,own}DvolZ30 columns plus the four raw.ret1In{High,Low}Dvol /
+ * raw.ret1In{Pos,Neg}GammaFlow diagnostics (factors.ts's "OPTIONS INPUTS"
+ * paragraph has every definition). `options` reads a symbol's own currency
+ * (BTCUSDT/ETHUSDT only); `marketOptions` always reads BTC's file, for every
+ * symbol. In cross-sectional mode, MARKET_OPTIONS_NAMES (the five `mkt*`
+ * columns, identical across every symbol at a bar since `marketOptions` is
+ * always BTC's file) is dropped with a reason, the same treatment
+ * raw.btcLeadLag already gets; the four ret1In* diagnostics above are NOT
+ * dropped -- their masking condition is market-wide but the value they
+ * carry (each symbol's own raw.ret1) is not, so the per-bar cross-section is
+ * real (see the skip site below). A dataset exported before the `options`
+ * kind existed still loads: every options column is NaN throughout and
+ * lands in skippedFactors rather than failing
+ * the run.
+ *
  * PHASE 3B RESULTS, 2026-09-20. Dataset hash e84cd66dbe01..., lockbox
  * applied, 10 symbols, horizons 1,2,4,8,16,32, reports under
  * data/research/reports/factor-ic-<interval>-p3b.json. Same survivor rule as
@@ -470,13 +488,14 @@ import {
   signHitRate,
   standardizedRankProducts,
 } from './ic-stats';
-import { computeFactorMatrix, type FactorMatrix } from './factors';
+import { computeFactorMatrix, MARKET_OPTIONS_NAMES, type FactorMatrix } from './factors';
 import { appendCrossSymbolFactors, CROSS_SYMBOL_NAMES } from './cross-symbol-factors';
 import {
   loadCandles,
   loadHtf,
   loadManifest,
   loadMetrics,
+  loadOptions,
   loadPerp,
   loadSnapshots,
   verifyManifest,
@@ -488,7 +507,7 @@ import {
   type FactorReport,
   type HorizonStat,
 } from './report-schema';
-import type { MetricsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
+import { optionsCurrencyOf, type MetricsRow, type OptionsRow, type PerpCandleRow, type SnapshotRow } from './dataset-format';
 
 const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
@@ -805,6 +824,15 @@ export function loadSymbolData(
   const perp = loadPerpSeries(datasetDir, symbol, interval, 'klines', opts);
   const premiumIndex = loadPerpSeries(datasetDir, symbol, interval, 'premiumIndex', opts);
 
+  // Options inputs (Task 3c). `options` is this symbol's own currency file
+  // (null for any symbol but BTCUSDT/ETHUSDT); `marketOptions` is always
+  // BTC's file, read by every symbol as the market-wide reading. Both are
+  // absent, and every options factor NaN, on a dataset exported before the
+  // `options` kind existed.
+  const ownCurrency = optionsCurrencyOf(symbol);
+  const options = ownCurrency ? loadOptionsSeries(datasetDir, ownCurrency, opts) : null;
+  const marketOptions = loadOptionsSeries(datasetDir, 'BTC', opts);
+
   const matrix = computeFactorMatrix({
     candles,
     snapshots,
@@ -813,6 +841,8 @@ export function loadSymbolData(
     metrics,
     perp,
     premiumIndex,
+    options,
+    marketOptions,
   });
 
   return { symbol, matrix, lockboxApplied: !opts.allowLockbox };
@@ -831,6 +861,28 @@ function loadPerpSeries(
   return loadPerp(datasetDir, symbol, interval, series, {
     allowLockbox: opts.allowLockbox,
   }).rows.filter((r) => inRange(r.t, opts.start, opts.end));
+}
+
+/**
+ * The hourly options-flow series for one currency, or null when the dataset
+ * has no file for it. Mirrors loadPerpSeries: an existsSync check rather
+ * than a try/catch, and a single console.error line rather than a thrown
+ * error, since an older dataset (exported before the `options` kind
+ * existed) must still load successfully with every options factor NaN.
+ */
+function loadOptionsSeries(
+  datasetDir: string,
+  currency: string,
+  opts: { allowLockbox: boolean; start?: number; end?: number }
+): OptionsRow[] | null {
+  const path = join(datasetDir, 'options', currency, '1h.jsonl.gz');
+  if (!existsSync(path)) {
+    console.error(`[factor-ic] ${currency}: no options file, options factors are NaN`);
+    return null;
+  }
+  return loadOptions(datasetDir, currency, { allowLockbox: opts.allowLockbox }).rows.filter((r) =>
+    inRange(r.t, opts.start, opts.end)
+  );
 }
 
 // Number of equal strata the pooled series is split into when it needs
@@ -1289,7 +1341,22 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
     // is undefined and the whole cross-sectional pass has nothing to say about
     // it. Dropped here rather than left to produce an empty bar series, so the
     // report records why. Ruled on in the 2026-09-26 addendum in factors.ts.
-    if (args.crossSectionalDemean && (CROSS_SYMBOL_NAMES as readonly string[]).includes(factorName)) {
+    // MARKET_OPTIONS_NAMES (factors.ts) is the same situation for the same
+    // reason: `marketOptions` is always BTC's file, so those five columns are
+    // identical across every symbol at a bar. The raw.ret1In{High,Low}Dvol /
+    // raw.ret1In{Pos,Neg}GammaFlow diagnostics are NOT in this list even
+    // though their masking condition is market-wide: the VALUE they carry
+    // (each symbol's own raw.ret1) differs by symbol, so the per-bar
+    // cross-section is a real, non-degenerate ret1 cross-section on a subset
+    // of bars -- structurally identical to the already-unskipped
+    // raw.ret1InMeanReversion/InTrend/InHighTaker/InLowTaker masks, which
+    // condition on a per-symbol reading instead of a market-wide one. Ruled
+    // on in Task 3c review round 1.
+    if (
+      args.crossSectionalDemean &&
+      ((CROSS_SYMBOL_NAMES as readonly string[]).includes(factorName) ||
+        (MARKET_OPTIONS_NAMES as readonly string[]).includes(factorName))
+    ) {
       const reason = 'no cross-sectional content: identical across symbols at a bar';
       console.error(`[factor-ic] skipping ${factorName}: ${reason}`);
       skippedFactors.push({ name: factorName, category: nameCategory.get(factorName) ?? 'unknown', reason });

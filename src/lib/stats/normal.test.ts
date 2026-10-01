@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createSeededRandom } from './seeded-random';
-import { normalCdf, normalQuantile, sampleSkewness, sampleKurtosis } from './normal';
+import { normalCdf, normalPdf, normalQuantile, sampleSkewness, sampleKurtosis } from './normal';
 
 describe('normal', () => {
   describe('normalCdf', () => {
@@ -62,6 +62,17 @@ describe('normal', () => {
         expect(value).toBeGreaterThanOrEqual(previous);
         previous = value;
       }
+    });
+  });
+
+  describe('normalPdf', () => {
+    it('normalPdf(0) equals 1/sqrt(2*pi), the peak of the density', () => {
+      expect(normalPdf(0)).toBeCloseTo(1 / Math.sqrt(2 * Math.PI), 12);
+    });
+
+    it('is symmetric and shrinks away from 0', () => {
+      expect(normalPdf(1)).toBeCloseTo(normalPdf(-1), 12);
+      expect(normalPdf(2)).toBeLessThan(normalPdf(1));
     });
   });
 

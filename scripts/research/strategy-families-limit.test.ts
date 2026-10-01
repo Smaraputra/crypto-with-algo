@@ -325,13 +325,16 @@ describe('withLimitEntry', () => {
 });
 
 describe('registry', () => {
-  it('STRATEGY_FAMILIES has thirteen names', () => {
+  it('STRATEGY_FAMILIES has sixteen names', () => {
     expect(Object.keys(STRATEGY_FAMILIES).sort()).toEqual(
       [
         'control',
         'control-limit',
+        'control-managed',
         'depth-imbalance-fade',
         'depth-imbalance-fade-limit',
+        'depth-imbalance-fade-managed',
+        'positioning-fade-managed',
         'fade-composite',
         'funding-z-fade',
         'oscillator-reversion',

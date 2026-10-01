@@ -24,10 +24,13 @@ export interface OpenPosition {
   entrySession?: MarketSession | null;
   entryFillKind?: FillKind; // absent means taker (all entries today are market fills)
   fundingPnl?: number; // accumulated signed funding while open; absent means 0
-  stopPrice: number; // absolute stop price
+  stopPrice: number; // absolute stop price, may trail once a strategy's manage hook moves it
   targetPrice: number | null; // absolute target price; null means no target
   timeStopBars: number | null; // bars held before a forced exit; null means no time stop
   entrySlippageCost: number; // currency lost to slippage on the entry fill, 0 for a limit fill or when slippageBps is unset
+  initialStopPrice?: number; // the stop price set at entry (decision.stopPrice), fixed for the position's life even as stopPrice trails; openPosition always sets it, optional only so existing fixtures that build an OpenPosition literal without it still type-check
+  initialRisk?: number; // abs(fill.price - initialStopPrice) -- the FILLED entry price (equal to entryPrice), not decision.stopPrice's own reference price, so a manage hook's R multiples are measured against the risk actually taken, entry slippage included; same optionality reason as initialStopPrice
+  managed?: boolean; // set once a manage hook's returned decision is accepted for this position
 }
 
 /** Accrue funding for a bar the position stayed open through. Shared by both
@@ -135,6 +138,7 @@ export function closeTrade(
     entryFillKind: position.entryFillKind ?? 'taker',
     exitFillKind: exitKind,
     fundingCost: position.fundingPnl ? -position.fundingPnl : 0,
+    ...(position.managed ? { managed: true as const } : {}),
   });
 }
 
@@ -230,5 +234,7 @@ export function openPosition(
     targetPrice: decision.targetPrice,
     timeStopBars: decision.timeStopBars ?? null,
     entrySlippageCost: Math.abs(fill.price - fill.rawPrice) * quantity,
+    initialStopPrice: decision.stopPrice,
+    initialRisk: Math.abs(fill.price - decision.stopPrice),
   };
 }

@@ -50,6 +50,7 @@
  */
 
 import type { OHLCV } from '@/types/market';
+import type { MarketSession } from '@/lib/sessions';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { DEFAULT_TEMPLATE_THRESHOLDS, DEFAULT_TEMPLATE_WEIGHTS } from '@/lib/models/signal-template';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
@@ -97,6 +98,16 @@ export interface StrategyWalkForwardInput {
   minIsTrades: number;
   stress: { feeMultiplier: number; slippageMultiplier: number };
   benchmark: { iterations: number; seed: number } | null;
+  /**
+   * Entry session gate, applied to `baseConfig` below so every in-sample
+   * cell, every out-of-sample cell, the stress rerun (which spreads
+   * `baseConfig`), and the random-entry benchmark (which receives
+   * `baseConfig` directly) all see the same gate -- the benchmark must, or
+   * its p-value would compare a gated strategy against an ungated null.
+   * Undefined/empty means every session is allowed (BacktestConfig's own
+   * default).
+   */
+  allowedSessions?: MarketSession[];
   onWindow?: (info: { index: number; total: number; ms: number }) => void;
 }
 
@@ -317,6 +328,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
     minIsTrades,
     stress,
     benchmark,
+    allowedSessions,
     onWindow,
   } = input;
 
@@ -355,6 +367,7 @@ export function runStrategyWalkForward(input: StrategyWalkForwardInput): Strateg
       slippageBps: costs.slippageBps,
       fundingEnabled,
       startEquity: 10000,
+      ...(allowedSessions && allowedSessions.length > 0 ? { allowedSessions } : {}),
     };
 
     // 3. Every cell, in-sample.

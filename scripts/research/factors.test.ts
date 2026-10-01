@@ -10,9 +10,16 @@ import {
   htfContextAtBar,
 } from '@/lib/signals/htf';
 import { intervalToMs } from '@/lib/intervals';
+import { sessionOfCandleClose } from '@/lib/sessions';
 import type { OHLCV } from '@/types/market';
 import type { CandleRow, HtfRow, SnapshotRow } from './dataset-format';
-import { computeFactorMatrix, seasonalDriftSeries } from './factors';
+import {
+  computeFactorMatrix,
+  seasonalDriftSeries,
+  EXPLORATION_DIAGNOSTIC_NAMES,
+  SEASONAL_DRIFT_DAYS,
+  SEASONAL_DRIFT_MIN_SAMPLES,
+} from './factors';
 
 // Deterministic random walk, same LCG pattern as src/lib/backtest/engine-parity.test.ts
 function generateCandles(count: number, seed = 4242, intervalMs = 3600000): OHLCV[] {
@@ -657,5 +664,298 @@ describe('Phase B seasonal, taker-intensity and depth columns', () => {
     const wide = seasonalDriftSeries(series, (bar) => bar % 2, 8, 4);
     expect(wide[8]).toBe(1);
     expect(wide[6]).toBeNaN();
+  });
+});
+
+/** ret1Series exactly as computeFactorMatrix builds it internally: every bar from 0, never masked by warmup. */
+function ret1From(candles: CandleRow[]): Float64Array {
+  const out = new Float64Array(candles.length).fill(NaN);
+  for (let i = 1; i < candles.length; i++) {
+    out[i] = (candles[i].c - candles[i - 1].c) / candles[i - 1].c;
+  }
+  return out;
+}
+
+describe('exploration calendar and diagnostic columns', () => {
+  const ONE_HOUR = 3_600_000;
+  const DAY_MS = 24 * ONE_HOUR;
+  const SEASONAL_WINDOW_BARS_1H = Math.max(1, Math.ceil((SEASONAL_DRIFT_DAYS * DAY_MS) / ONE_HOUR));
+
+  const candles = generateHourThreeCandles(40);
+  const htf: HtfRow[] = candles.map((c) => ({ t: c.t, context: null }));
+  const matrix = computeFactorMatrix({ candles, snapshots: null, htf, interval: '1h' });
+  const col = (name: string) => matrix.values[matrix.names.indexOf(name)];
+
+  it('adds the ten columns under the raw category', () => {
+    for (const name of [
+      'raw.hourOfDayDriftDev',
+      'raw.weekdayDriftDev',
+      'raw.ret1InAsia',
+      'raw.ret1InNyOverlap',
+      'raw.ret1NearRound',
+      'raw.ret1FarRound',
+      'raw.ret1AfterDown',
+      'raw.ret1AfterUp',
+      'raw.ret1InHighVolRatio',
+      'raw.ret1InLowVolRatio',
+    ]) {
+      const idx = matrix.names.indexOf(name);
+      expect(idx, name).toBeGreaterThanOrEqual(0);
+      expect(matrix.categories[idx]).toBe('raw');
+    }
+    // EXPLORATION_DIAGNOSTIC_NAMES is the ret1In*/ret1Near*/ret1After* subset
+    // (eight names): the two *Dev columns are deviations, not masks of
+    // raw.ret1, and are deliberately not included.
+    expect(EXPLORATION_DIAGNOSTIC_NAMES).toHaveLength(8);
+    for (const name of EXPLORATION_DIAGNOSTIC_NAMES) {
+      expect(matrix.names).toContain(name);
+    }
+    const diagnosticNames = EXPLORATION_DIAGNOSTIC_NAMES as readonly string[];
+    expect(diagnosticNames).not.toContain('raw.hourOfDayDriftDev');
+    expect(diagnosticNames).not.toContain('raw.weekdayDriftDev');
+  });
+
+  it('hourOfDayDriftDev is the bucket drift minus the unconditional trailing mean and is NaN at 1d', () => {
+    const drift = col('raw.hourOfDayDrift');
+    const dev = col('raw.hourOfDayDriftDev');
+    const unconditional = seasonalDriftSeries(
+      ret1From(candles),
+      () => 0,
+      SEASONAL_WINDOW_BARS_1H,
+      SEASONAL_DRIFT_MIN_SAMPLES
+    );
+
+    let checked = 0;
+    for (let bar = matrix.warmupBars; bar < candles.length; bar++) {
+      if (!Number.isFinite(drift[bar]) || !Number.isFinite(unconditional[bar])) {
+        expect(dev[bar]).toBeNaN();
+        continue;
+      }
+      expect(dev[bar]).toBeCloseTo(drift[bar] - unconditional[bar], 10);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(100);
+
+    // NaN throughout at 1d, matching raw.hourOfDayDrift there (450 bars for
+    // the same warmup-length reason the raw.htfTrend 1d test above uses).
+    const c1d = generateCandles(450, 4242, 86_400_000).map(toCandleRow);
+    const h1d: HtfRow[] = c1d.map((c) => ({ t: c.t, context: null }));
+    const m1d = computeFactorMatrix({ candles: c1d, snapshots: null, htf: h1d, interval: '1d' });
+    expect(Array.from(m1d.values[m1d.names.indexOf('raw.hourOfDayDriftDev')]).every(Number.isNaN)).toBe(true);
+  });
+
+  it('weekdayDriftDev is finite at 1h after warm-up and NaN at 1d', () => {
+    const dev = col('raw.weekdayDriftDev');
+    let sawFinite = false;
+    for (let bar = matrix.warmupBars; bar < candles.length; bar++) {
+      if (Number.isFinite(dev[bar])) sawFinite = true;
+    }
+    expect(sawFinite).toBe(true);
+
+    // At 1d each weekday bucket holds about 8 readings in 60 days, below
+    // SEASONAL_DRIFT_MIN_SAMPLES (20) -- NaN by the ordinary threshold, not a
+    // special-cased gate.
+    const c1d = generateCandles(450, 4242, 86_400_000).map(toCandleRow);
+    const h1d: HtfRow[] = c1d.map((c) => ({ t: c.t, context: null }));
+    const m1d = computeFactorMatrix({ candles: c1d, snapshots: null, htf: h1d, interval: '1d' });
+    expect(Array.from(m1d.values[m1d.names.indexOf('raw.weekdayDriftDev')]).every(Number.isNaN)).toBe(true);
+  });
+
+  it('ret1InAsia and ret1InNyOverlap follow sessionOfCandleClose and are NaN at 4h', () => {
+    const asia = col('raw.ret1InAsia');
+    const nyOverlap = col('raw.ret1InNyOverlap');
+    const ret1 = col('raw.ret1');
+    let sawAsia = false;
+    let sawNyOverlap = false;
+    for (let bar = matrix.warmupBars; bar < candles.length; bar++) {
+      const session = sessionOfCandleClose(candles[bar].t, ONE_HOUR);
+      if (session === 'asia') {
+        expect(asia[bar]).toBe(ret1[bar]);
+        sawAsia = true;
+      } else {
+        expect(asia[bar]).toBeNaN();
+      }
+      if (session === 'ny_overlap') {
+        expect(nyOverlap[bar]).toBe(ret1[bar]);
+        sawNyOverlap = true;
+      } else {
+        expect(nyOverlap[bar]).toBeNaN();
+      }
+    }
+    expect(sawAsia && sawNyOverlap).toBe(true);
+
+    const c4 = generateCandles(400, 4242, 4 * ONE_HOUR).map(toCandleRow);
+    const h4: HtfRow[] = c4.map((c) => ({ t: c.t, context: null }));
+    const m4 = computeFactorMatrix({ candles: c4, snapshots: null, htf: h4, interval: '4h' });
+    expect(Array.from(m4.values[m4.names.indexOf('raw.ret1InAsia')]).every(Number.isNaN)).toBe(true);
+    expect(Array.from(m4.values[m4.names.indexOf('raw.ret1InNyOverlap')]).every(Number.isNaN)).toBe(true);
+  });
+
+  it('ret1NearRound and ret1FarRound split at 0.2% of a two-significant-figure level (100 near, 100.5 far, 60050 near)', () => {
+    const { candleRows, snapshotRows, htfRows } = buildFixture(700);
+    const probe = computeFactorMatrix({ candles: candleRows, snapshots: snapshotRows, htf: htfRows, interval: INTERVAL });
+    const bars = [probe.warmupBars + 100, probe.warmupBars + 120, probe.warmupBars + 140];
+    const closes = [100, 100.5, 60050];
+    const expectNear = [true, false, true];
+    expect(bars[bars.length - 1]).toBeLessThan(candleRows.length);
+
+    const mutatedCandles = candleRows.map((row, i) => {
+      const pos = bars.indexOf(i);
+      if (pos === -1) return row;
+      const c = closes[pos];
+      return { ...row, o: c, h: c * 1.001, l: c * 0.999, c };
+    });
+
+    const mutatedMatrix = computeFactorMatrix({ candles: mutatedCandles, snapshots: snapshotRows, htf: htfRows, interval: INTERVAL });
+    const near = mutatedMatrix.values[mutatedMatrix.names.indexOf('raw.ret1NearRound')];
+    const far = mutatedMatrix.values[mutatedMatrix.names.indexOf('raw.ret1FarRound')];
+    const ret1 = mutatedMatrix.values[mutatedMatrix.names.indexOf('raw.ret1')];
+
+    bars.forEach((bar, i) => {
+      if (expectNear[i]) {
+        expect(near[bar]).toBe(ret1[bar]);
+        expect(far[bar]).toBeNaN();
+      } else {
+        expect(far[bar]).toBe(ret1[bar]);
+        expect(near[bar]).toBeNaN();
+      }
+    });
+  });
+
+  it('ret1AfterDown and ret1AfterUp are complementary and NaN when the previous return is zero', () => {
+    const { candles: fixtureCandles, htfCandles } = buildFixture(600);
+    const alternating: OHLCV[] = fixtureCandles.map((c, i) => {
+      const close = i % 2 === 0 ? 100 : 110;
+      return { ...c, open: close, high: close, low: close, close, volume: 1000 };
+    });
+    const alt = computeFactorMatrix({
+      candles: alternating.map(toCandleRow),
+      snapshots: [],
+      htf: buildHtfRows(alternating, INTERVAL, htfCandles, '4h'),
+      interval: INTERVAL,
+    });
+    const down = alt.values[alt.names.indexOf('raw.ret1AfterDown')];
+    const up = alt.values[alt.names.indexOf('raw.ret1AfterUp')];
+    const ret1 = alt.values[alt.names.indexOf('raw.ret1')];
+    let seenDown = 0;
+    let seenUp = 0;
+    for (let bar = alt.warmupBars + 1; bar < alternating.length; bar++) {
+      expect(Number.isFinite(down[bar]) && Number.isFinite(up[bar])).toBe(false);
+      if (Number.isFinite(down[bar])) {
+        expect(down[bar]).toBe(ret1[bar]);
+        seenDown++;
+      }
+      if (Number.isFinite(up[bar])) {
+        expect(up[bar]).toBe(ret1[bar]);
+        seenUp++;
+      }
+    }
+    expect(seenDown).toBeGreaterThan(0);
+    expect(seenUp).toBeGreaterThan(0);
+
+    // A flat run makes ret1[bar-1] exactly 0, so both must read NaN there.
+    const flatThenMove: OHLCV[] = fixtureCandles.map((c, i) => {
+      const close = i < 300 ? 100 : 105 + (i % 2);
+      return { ...c, open: close, high: close, low: close, close, volume: 1000 };
+    });
+    const flat = computeFactorMatrix({
+      candles: flatThenMove.map(toCandleRow),
+      snapshots: [],
+      htf: buildHtfRows(flatThenMove, INTERVAL, htfCandles, '4h'),
+      interval: INTERVAL,
+    });
+    expect(flat.warmupBars).toBeLessThan(299);
+    const flatDown = flat.values[flat.names.indexOf('raw.ret1AfterDown')];
+    const flatUp = flat.values[flat.names.indexOf('raw.ret1AfterUp')];
+    for (let bar = flat.warmupBars + 1; bar <= 299; bar++) {
+      expect(flatDown[bar]).toBeNaN();
+      expect(flatUp[bar]).toBeNaN();
+    }
+  });
+
+  /**
+   * Three volatility regimes (quiet, loud, quiet again), so the 24h/168h
+   * ratio genuinely crosses 0.7 in both directions: right after the
+   * quiet-to-loud transition the trailing 24h is already loud while the
+   * trailing 168h is still mostly quiet (ratio well above 0.7), and right
+   * after the loud-to-quiet transition back the trailing 24h is already
+   * quiet while the trailing 168h still carries most of the loud regime
+   * (ratio well below 0.7). The hour-three fixture used elsewhere in this
+   * describe block has near-constant volatility by construction (the same
+   * daily pattern repeats every 24h), so both windows stay in near-fixed
+   * proportion and the ratio never moves far from 1.
+   */
+  function generateVolRegimeCandles(count: number, seed = 8181): CandleRow[] {
+    let price = 100;
+    let rng = seed;
+    const next = () => {
+      rng = (rng * 16807) % 2147483647;
+      return rng / 2147483647;
+    };
+    const start = 1700000000000;
+    const rows: CandleRow[] = [];
+    for (let i = 0; i < count; i++) {
+      const quiet = i < 300 || i >= 600;
+      const noisePct = quiet ? 0.05 : 3;
+      const noise = ((next() - 0.5) * noisePct) / 100;
+      price = price * (1 + noise);
+      rows.push({ t: start + i * ONE_HOUR, o: price, h: price * 1.001, l: price * 0.999, c: price, v: 1000, tbv: 500 });
+    }
+    return rows;
+  }
+
+  it('ret1InHighVolRatio and ret1InLowVolRatio partition ret1 at 0.7 and are NaN before both windows fill', () => {
+    const volCandles = generateVolRegimeCandles(900);
+    const volHtf: HtfRow[] = volCandles.map((c) => ({ t: c.t, context: null }));
+    const volMatrix = computeFactorMatrix({ candles: volCandles, snapshots: null, htf: volHtf, interval: '1h' });
+    const high = volMatrix.values[volMatrix.names.indexOf('raw.ret1InHighVolRatio')];
+    const low = volMatrix.values[volMatrix.names.indexOf('raw.ret1InLowVolRatio')];
+    const ret1 = volMatrix.values[volMatrix.names.indexOf('raw.ret1')];
+
+    let seenHigh = 0;
+    let seenLow = 0;
+    for (let bar = volMatrix.warmupBars; bar < volCandles.length; bar++) {
+      expect(Number.isFinite(high[bar]) && Number.isFinite(low[bar])).toBe(false);
+      if (Number.isFinite(high[bar])) {
+        expect(high[bar]).toBe(ret1[bar]);
+        seenHigh++;
+      }
+      if (Number.isFinite(low[bar])) {
+        expect(low[bar]).toBe(ret1[bar]);
+        seenLow++;
+      }
+    }
+    expect(seenHigh).toBeGreaterThan(0);
+    expect(seenLow).toBeGreaterThan(0);
+
+    // Before both trailing windows fill (bar < warmupBars is already NaN via
+    // the standard warmup mask; nothing extra to probe there for this fixture
+    // since hoursToBars(168) = 168 bars, comfortably inside warmupBars).
+    expect(Number.isNaN(high[volMatrix.warmupBars - 1])).toBe(true);
+    expect(Number.isNaN(low[volMatrix.warmupBars - 1])).toBe(true);
+
+    // Too short a series for the 168h window: at 5m, hoursToBars(168) is
+    // 2,016 bars, far more than the scalping style's indicator warmup needs,
+    // so a series comfortably past warmup can still fall short of the
+    // window and read NaN throughout.
+    const FIVE_MIN = 5 * 60_000;
+    const shortCandles = generateCandles(300, 4242, FIVE_MIN).map(toCandleRow);
+    const shortHtf: HtfRow[] = shortCandles.map((c) => ({ t: c.t, context: null }));
+    const shortMatrix = computeFactorMatrix({ candles: shortCandles, snapshots: null, htf: shortHtf, interval: '5m' });
+    expect(shortMatrix.warmupBars).toBeLessThan(300);
+    expect(
+      Array.from(shortMatrix.values[shortMatrix.names.indexOf('raw.ret1InHighVolRatio')]).every(Number.isNaN)
+    ).toBe(true);
+    expect(
+      Array.from(shortMatrix.values[shortMatrix.names.indexOf('raw.ret1InLowVolRatio')]).every(Number.isNaN)
+    ).toBe(true);
+
+    // NaN throughout at 1d: hoursToBars(24) collapses to a single bar, whose
+    // sample variance (ddof 1) has no degrees of freedom.
+    const c1d = generateCandles(450, 4242, 86_400_000).map(toCandleRow);
+    const h1d: HtfRow[] = c1d.map((c) => ({ t: c.t, context: null }));
+    const m1d = computeFactorMatrix({ candles: c1d, snapshots: null, htf: h1d, interval: '1d' });
+    expect(Array.from(m1d.values[m1d.names.indexOf('raw.ret1InHighVolRatio')]).every(Number.isNaN)).toBe(true);
+    expect(Array.from(m1d.values[m1d.names.indexOf('raw.ret1InLowVolRatio')]).every(Number.isNaN)).toBe(true);
   });
 });

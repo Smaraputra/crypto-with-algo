@@ -37,6 +37,18 @@ export interface BackfillOptions {
  * after `now`, i.e. bars that are still in progress. Mongo holds closed bars
  * only, so every fetched batch must pass through this before it is stored.
  */
+/**
+ * Appends every element of `source` to `target` without spreading it into a
+ * call. `target.push(...source)` passes each element as an argument, and V8
+ * throws "Maximum call stack size exceeded" somewhere above 100k arguments,
+ * which is fewer bars than a 36-month 5m backfill fetches (about 315k). Seen
+ * on the VPS on 2026-09-28 on every job after the first once the fetch window
+ * was widened; the live sync never trips it because it fetches a few bars.
+ */
+export function appendAll<T>(target: T[], source: readonly T[]): void {
+  for (let i = 0; i < source.length; i++) target.push(source[i]);
+}
+
 export function dropOpenBars(candles: OHLCV[], interval: string, now: number): OHLCV[] {
   const ms = intervalToMs(interval);
   return candles.filter((c) => c.timestamp + ms <= now);
@@ -93,7 +105,7 @@ export async function backfillCandles(
         (fetched) =>
           onProgress?.({ fetched, inserted: 0, symbol, interval })
       );
-      candles.push(...dropOpenBars(older, interval, endTime));
+      appendAll(candles, dropOpenBars(older, interval, endTime));
     }
 
     // Fetch gap after existing data
@@ -111,7 +123,7 @@ export async function backfillCandles(
             interval,
           })
       );
-      candles.push(...dropOpenBars(newer, interval, endTime));
+      appendAll(candles, dropOpenBars(newer, interval, endTime));
     }
   } else {
     // No existing data, or a refill: fetch the entire range
@@ -123,7 +135,7 @@ export async function backfillCandles(
       (fetched) =>
         onProgress?.({ fetched, inserted: 0, symbol, interval })
     );
-    candles.push(...dropOpenBars(all, interval, endTime));
+    appendAll(candles, dropOpenBars(all, interval, endTime));
   }
 
   if (candles.length === 0) {

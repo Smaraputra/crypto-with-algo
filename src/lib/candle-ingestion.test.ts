@@ -73,6 +73,22 @@ describe('candle-ingestion', () => {
     };
   }
 
+  describe('appendAll', () => {
+    it('appends more elements than a spread call can carry', async () => {
+      const { appendAll } = await import('@/lib/candle-ingestion');
+      const source = Array.from({ length: 320_000 }, (_, i) => i);
+      const target: number[] = [-1];
+
+      // The spread form this replaces throws RangeError at this size.
+      expect(() => target.push(...source)).toThrow(RangeError);
+
+      appendAll(target, source);
+      expect(target.length).toBe(320_001);
+      expect(target[1]).toBe(0);
+      expect(target[320_000]).toBe(319_999);
+    });
+  });
+
   describe('dropOpenBars', () => {
     it('keeps a bar closing exactly at now and drops one closing after now', async () => {
       const { dropOpenBars } = await importModules();

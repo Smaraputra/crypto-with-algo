@@ -6,12 +6,14 @@ import { join } from 'path';
 import {
   LOCKBOX_START_ISO,
   datasetHashOf,
+  optionsCurrencyOf,
   sha256File,
   writeJsonlGz,
   type CandleRow,
   type DatasetManifest,
   type HtfRow,
   type ManifestFile,
+  type OptionsRow,
   type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
@@ -66,15 +68,48 @@ function generateAr1Candles(seed: number, barMs: number = HOUR, count: number = 
 }
 
 /**
+ * One synthetic hourly options row, everything finite so a z-score and a
+ * 24-row trailing sum both have something to work with. `seed` keeps BTC's
+ * and ETH's series distinguishable.
+ */
+function optionsRow(i: number, seed: number): OptionsRow {
+  return {
+    t: START + i * HOUR,
+    dvolOpen: 60 + seed + Math.sin(i / 13) * 8,
+    dvolHigh: 61 + seed + Math.sin(i / 13) * 8,
+    dvolLow: 59 + seed + Math.sin(i / 13) * 8,
+    dvolClose: 60 + seed + Math.sin(i / 13) * 8,
+    callBuyNotional: 1_000_000 + seed + i * 50,
+    callSellNotional: 900_000 + seed + i * 40,
+    putBuyNotional: 800_000 + seed + i * 30,
+    putSellNotional: 700_000 + seed + i * 20,
+    netDelta: 10 + seed + (i % 7),
+    // Oscillates around zero (unlike the always-positive fixture this
+    // replaced) so raw.ret1InPosGammaFlow AND raw.ret1InNegGammaFlow both
+    // have finite hours to test against.
+    netDollarGamma: Math.sin(i / 9) * 20,
+    tradeCount: 20 + i,
+    greekTradeCount: 10 + i,
+    vwIv: 62 + seed,
+    putIv25: 61 + seed + (i % 4),
+    callIv25: 59 + seed + (i % 6),
+  };
+}
+
+/**
  * Symbols x 600 1h bars each, empty snapshots, and null-context htf rows.
  * Defaults to this file's original two-symbol fixture; the cross-sectional
- * tests below widen it to three and pin the per-symbol seeds, and opts.perp
+ * tests below widen it to three and pin the per-symbol seeds, opts.perp
  * adds a perpetual klines file per symbol (closes 1% above spot) for the
- * --return-series perp path.
+ * --return-series perp path, and opts.optionsCurrencies writes an hourly
+ * options file for each named currency ('BTC' and/or 'ETH') whose USDT
+ * symbol is in `symbols` -- so a fixture can carry BTC's file alone, to
+ * exercise the market-wide reading without an own-currency reading for
+ * every symbol.
  */
 async function buildFixtureDataset(
   dir: string,
-  opts: { symbols?: string[]; seeds?: number[]; perp?: boolean } = {}
+  opts: { symbols?: string[]; seeds?: number[]; perp?: boolean; optionsCurrencies?: string[] } = {}
 ): Promise<DatasetManifest> {
   const symbols = opts.symbols ?? SYMBOLS;
   const seeds = opts.seeds ?? symbols.map((_, i) => 4242 + i * 1000);
@@ -150,6 +185,25 @@ async function buildFixtureDataset(
         endMs: perpRows[perpRows.length - 1].t,
         sha256: await sha256File(perpPath),
       });
+    }
+
+    if (opts.optionsCurrencies) {
+      const currency = optionsCurrencyOf(symbol);
+      if (currency && opts.optionsCurrencies.includes(currency)) {
+        const optionsRows: OptionsRow[] = candleRows.map((c, idx) => optionsRow(idx, currency === 'BTC' ? 0 : 500));
+        const optionsPath = join(dir, 'options', currency, `${INTERVAL}.jsonl.gz`);
+        await writeJsonlGz(optionsPath, optionsRows);
+        files.push({
+          path: `options/${currency}/${INTERVAL}.jsonl.gz`,
+          kind: 'options',
+          symbol,
+          interval: INTERVAL,
+          rowCount: optionsRows.length,
+          startMs: optionsRows[0].t,
+          endMs: optionsRows[optionsRows.length - 1].t,
+          sha256: await sha256File(optionsPath),
+        });
+      }
     }
   }
 
@@ -478,6 +532,150 @@ describe('factor-ic CLI', () => {
 
     expect(cell.ic).toBeCloseTo(expected.ic, 9);
     expect(cell.n).toBe(expected.n);
+  }, 30_000);
+});
+
+describe('options inputs', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'factor-ic-options-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const OPTIONS_FACTORS = [
+    'raw.mktDvolZ30',
+    'raw.mktOptDeltaFlow24Z',
+    'raw.mktOptGammaFlow24Z',
+    'raw.mktOptPutCallVol24',
+    'raw.mktOptSkew24',
+    'raw.ownDvolZ30',
+    'raw.ownOptDeltaFlow24Z',
+    'raw.ownOptGammaFlow24Z',
+    'raw.ownOptPutCallVol24',
+    'raw.ownOptSkew24',
+    'raw.ret1InHighDvol',
+    'raw.ret1InLowDvol',
+    'raw.ret1InPosGammaFlow',
+    'raw.ret1InNegGammaFlow',
+  ];
+
+  it('without an options file, every options column lands in skippedFactors and the run succeeds', async () => {
+    await buildFixtureDataset(dir);
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', OPTIONS_FACTORS.join(','),
+      '--bootstrap-n', '10',
+      '--allow-lockbox',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    expect(report.factors).toEqual([]);
+    expect(report.skippedFactors.map((s) => s.name).sort()).toEqual([...OPTIONS_FACTORS].sort());
+  }, 30_000);
+
+  it("with BTC's file, raw.mktDvolZ30 reaches every symbol's report and raw.ownDvolZ30 only BTCUSDT's", async () => {
+    await buildFixtureDataset(dir, { optionsCurrencies: ['BTC'] });
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.mktDvolZ30,raw.ownDvolZ30',
+      '--bootstrap-n', '10',
+      '--allow-lockbox',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    const mkt = report.factors.find((f) => f.name === 'raw.mktDvolZ30')!;
+    expect(mkt.perSymbol.map((p) => p.symbol).sort()).toEqual([...SYMBOLS].sort());
+
+    const own = report.factors.find((f) => f.name === 'raw.ownDvolZ30')!;
+    expect(own.perSymbol.map((p) => p.symbol)).toEqual(['BTCUSDT']);
+  }, 30_000);
+
+  it('cross-sectional mode drops only the market columns; the diagnostics still measure', async () => {
+    // Three symbols, so the per-bar cross-section (min-cross-section 3) is
+    // actually reachable: with only two (this file's default SYMBOLS) every
+    // factor would be skipped for "no finite pairs" regardless of the
+    // bar-constant question, which would prove nothing about the diagnostics.
+    // Only BTC's options file is needed: the diagnostics and the mkt* columns
+    // both read marketOptions alone, which is always BTC's file for every
+    // symbol (own-currency `options` is irrelevant to this test).
+    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+    await buildFixtureDataset(dir, { symbols, optionsCurrencies: ['BTC'] });
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', OPTIONS_FACTORS.join(','),
+      '--bootstrap-n', '10',
+      '--allow-lockbox',
+      '--cross-sectional-demean',
+      '--min-cross-section', '3',
+    ]);
+    const report = await buildFactorIcReport(args);
+
+    const marketNames = [
+      'raw.mktDvolZ30',
+      'raw.mktOptDeltaFlow24Z',
+      'raw.mktOptGammaFlow24Z',
+      'raw.mktOptPutCallVol24',
+      'raw.mktOptSkew24',
+    ];
+    const diagnosticNames = [
+      'raw.ret1InHighDvol',
+      'raw.ret1InLowDvol',
+      'raw.ret1InPosGammaFlow',
+      'raw.ret1InNegGammaFlow',
+    ];
+
+    // The market columns are bar-constant (marketOptions is always BTC's
+    // file) and are skipped with a reason, exactly like raw.btcLeadLag.
+    const skipped = new Map(report.skippedFactors.map((s) => [s.name, s.reason]));
+    for (const name of marketNames) {
+      expect(skipped.get(name)).toBe('no cross-sectional content: identical across symbols at a bar');
+    }
+
+    // The diagnostics mask each symbol's OWN raw.ret1 by a market-wide
+    // condition, so the per-bar cross-section is real (not degenerate) and
+    // they are measured, not skipped -- the same treatment
+    // raw.ret1InMeanReversion/InTrend/InHighTaker/InLowTaker already get.
+    const measured = report.factors.map((f) => f.name).sort();
+    expect(measured).toEqual([...diagnosticNames].sort());
+    for (const name of diagnosticNames) {
+      expect(skipped.has(name)).toBe(false);
+      const factor = report.factors.find((f) => f.name === name)!;
+      expect(factor.crossSectional).toBeDefined();
+      expect(factor.crossSectional!.horizons.length).toBeGreaterThan(0);
+    }
+  }, 30_000);
+
+  it('--cell --report reproduces a pooled raw.mktOptDeltaFlow24Z cell', async () => {
+    await buildFixtureDataset(dir, { optionsCurrencies: ['BTC'] });
+    const reportPath = join(dir, 'reports', 'options.json');
+    const args = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--factors', 'raw.mktOptDeltaFlow24Z',
+      '--bootstrap-n', '10',
+      '--allow-lockbox',
+      '--out', reportPath,
+    ]);
+    const report = await runFactorIc(args);
+    const factor = report.factors.find((f) => f.name === 'raw.mktOptDeltaFlow24Z')!;
+    const pooledH1 = factor.pooled.horizons.find((h) => h.horizon === 1)!;
+
+    const cellArgs = parseArgs([
+      '--interval', INTERVAL,
+      '--dataset-dir', dir,
+      '--cell', 'raw.mktOptDeltaFlow24Z:1',
+      '--report', reportPath,
+    ]);
+    const cell = await runCell(cellArgs);
+
+    expect(cell.ic).toBeCloseTo(pooledH1.ic, 12);
+    expect(cell.n).toBe(pooledH1.n);
   }, 30_000);
 });
 
