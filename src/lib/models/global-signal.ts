@@ -102,6 +102,9 @@ const globalSignalSchema = new Schema<IGlobalSignal>(
 globalSignalSchema.index({ symbol: 1, tradingStyle: 1, interval: 1, createdAt: -1 });
 // Latest signal query: get latest signal for a symbol/style
 globalSignalSchema.index({ symbol: 1, tradingStyle: 1, createdAt: -1 });
+// The paper desk resolves one exact bar per (symbol, style, interval), and
+// needs the earliest row when a bar somehow carries more than one.
+globalSignalSchema.index({ symbol: 1, tradingStyle: 1, interval: 1, candleTimestamp: 1, createdAt: 1 });
 // TTL: auto-delete expired signals (expiresAt is set per-style)
 globalSignalSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 

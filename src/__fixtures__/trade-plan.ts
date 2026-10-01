@@ -1,4 +1,4 @@
-import type { TradePlan, TradePlanResponse, TradeTicket } from '@/lib/trade-plan/types';
+import type { DeskPositionView, TradePlan, TradePlanResponse, TradeTicket } from '@/lib/trade-plan/types';
 import { CONTROL_EVIDENCE } from '@/lib/trade-plan/evidence';
 
 /** A long SOLUSDT ticket on a 1h bar with a 4% stop and an 8% target, as buildTradePlan produces it. */
@@ -66,10 +66,27 @@ export function makeTradePlan(overrides: Partial<TradePlan> = {}): TradePlan {
   };
 }
 
+/** The paper desk holding a long, as the trade-plan API projects it. */
+export function makeDeskPosition(overrides: Partial<DeskPositionView> = {}): DeskPositionView {
+  return {
+    side: 'long',
+    entryPrice: 100.03,
+    entryTime: Date.UTC(2026, 9, 1, 10),
+    quantity: 2.48,
+    stopPrice: 96,
+    targetPrice: 108,
+    entryScore: 31.4,
+    exitsNow: false,
+    unrealisedPercent: -0.03,
+    ...overrides,
+  };
+}
+
 export function makeTradePlanResponse(overrides: Partial<TradePlanResponse> = {}): TradePlanResponse {
   return {
     plan: makeTradePlan(),
     unavailableReason: null,
+    deskPosition: null,
     liveRecord: {
       configVersion: 7,
       horizonBars: 24,

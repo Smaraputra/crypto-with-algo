@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 
 import { CONTROL_EVIDENCE } from '@/lib/trade-plan/evidence';
-import { makeTicket, makeTradePlan, makeTradePlanResponse } from '@/__fixtures__/trade-plan';
+import { makeDeskPosition, makeTicket, makeTradePlan, makeTradePlanResponse } from '@/__fixtures__/trade-plan';
 import { TradePlanCard } from './TradePlanCard';
 
 describe('TradePlanCard', () => {
@@ -19,7 +19,12 @@ describe('TradePlanCard', () => {
   it('shows the reason when no plan could be built', () => {
     render(
       <TradePlanCard
-        data={{ plan: null, unavailableReason: 'No 1h signal has been computed for SOLUSDT yet.', liveRecord: null }}
+        data={{
+          plan: null,
+          unavailableReason: 'No 1h signal has been computed for SOLUSDT yet.',
+          liveRecord: null,
+          deskPosition: null,
+        }}
         isLoading={false}
         isError={false}
       />
@@ -169,6 +174,44 @@ describe('TradePlanCard', () => {
       />
     );
     expect(screen.getByTestId('trade-plan-live-record')).toHaveTextContent('No resolved live outcomes yet');
+  });
+
+  it('shows the desk\'s real position instead of the hypothetical panel', () => {
+    render(
+      <TradePlanCard
+        data={makeTradePlanResponse({ deskPosition: makeDeskPosition() })}
+        isLoading={false}
+        isError={false}
+      />
+    );
+    const held = screen.getByTestId('trade-plan-desk-position');
+    expect(held).toHaveTextContent('The paper desk holds');
+    expect(held).toHaveTextContent('2.48 SOL');
+    expect(held).toHaveTextContent('from 100.03');
+    expect(held).toHaveTextContent('opened 2026-10-01 10:00 UTC');
+    expect(held).toHaveTextContent('-0.03%');
+    expect(held).toHaveTextContent('Still held: the score has not reached +7.25');
+    // The hypothetical panel is replaced, not shown alongside.
+    expect(screen.queryByTestId('trade-plan-holding')).not.toBeInTheDocument();
+  });
+
+  it('says when this bar\'s score closes the held position', () => {
+    render(
+      <TradePlanCard
+        data={makeTradePlanResponse({ deskPosition: makeDeskPosition({ exitsNow: true }) })}
+        isLoading={false}
+        isError={false}
+      />
+    );
+    expect(screen.getByTestId('trade-plan-desk-position')).toHaveTextContent(
+      "This bar's score closes it: exit at the next open"
+    );
+  });
+
+  it('shows the hypothetical panel while the desk is flat', () => {
+    render(<TradePlanCard data={makeTradePlanResponse()} isLoading={false} isError={false} />);
+    expect(screen.getByTestId('trade-plan-holding')).toBeInTheDocument();
+    expect(screen.queryByTestId('trade-plan-desk-position')).not.toBeInTheDocument();
   });
 
   it('lists the builder notes', () => {

@@ -55,6 +55,12 @@
 # overlapping inside the one app container and gives a clean log boundary.
 30   10 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/ingest-perp?days=3" >> /var/log/cron.log 2>&1
 
+# Paper desk: step every paper book over its newly closed bars. Every minute
+# because the 1m book needs it; a book with nothing new to step returns in a
+# couple of queries, and each book takes a lease so an overlapping run is a
+# no-op rather than a double-step.
+*/1  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/paper-desk >> /var/log/cron.log 2>&1
+
 # Portfolio snapshots
 0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1
 

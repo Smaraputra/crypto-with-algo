@@ -61,6 +61,8 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'compute-signals:swing_trading', path: '/api/cron/compute-signals', params: { style: 'swing_trading' }, schedule: '1-59/15 * * * *', expectedEverySeconds: 15 * MINUTE, method: 'GET' },
   { job: 'compute-signals:position_trading', path: '/api/cron/compute-signals', params: { style: 'position_trading' }, schedule: '1 * * * *', expectedEverySeconds: HOUR, method: 'GET' },
 
+  { job: 'paper-desk', path: '/api/cron/paper-desk', params: {}, schedule: '*/1 * * * *', expectedEverySeconds: MINUTE, method: 'GET' },
+
   { job: 'resolve-outcomes', path: '/api/cron/resolve-outcomes', params: {}, schedule: '*/15 * * * *', expectedEverySeconds: 15 * MINUTE, method: 'GET' },
 
   { job: 'ingest-snapshots:1h', path: '/api/cron/ingest-snapshots', params: { interval: '1h' }, schedule: '*/15 * * * *', expectedEverySeconds: 15 * MINUTE, method: 'GET' },

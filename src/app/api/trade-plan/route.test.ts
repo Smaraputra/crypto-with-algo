@@ -10,6 +10,7 @@ const mockSignalFindOne = vi.fn();
 const mockSnapshotFindOne = vi.fn();
 const mockGetCandles = vi.fn();
 const mockGetLiveTierExpectancy = vi.fn();
+const mockLedgerFindOne = vi.fn();
 
 vi.mock('@/lib/auth', () => ({ auth: () => mockAuth() }));
 vi.mock('@/lib/mongodb', () => ({ connectDB: () => mockConnectDB() }));
@@ -24,6 +25,9 @@ vi.mock('@/lib/models/global-signal', () => ({
 }));
 vi.mock('@/lib/models/historical-snapshot', () => ({
   HistoricalSnapshot: { findOne: (...args: unknown[]) => mockSnapshotFindOne(...args) },
+}));
+vi.mock('@/lib/models/paper-ledger', () => ({
+  PaperLedger: { findOne: (...args: unknown[]) => mockLedgerFindOne(...args) },
 }));
 vi.mock('@/lib/signals/outcome-analytics', () => ({
   getLiveTierExpectancy: (...args: unknown[]) => mockGetLiveTierExpectancy(...args),
@@ -47,6 +51,11 @@ function chain(doc: unknown) {
   return { sort: () => ({ lean: () => Promise.resolve(doc) }) };
 }
 
+/** Mongoose's findOne(...).lean() chain, with no sort. */
+function plain(doc: unknown) {
+  return { lean: () => Promise.resolve(doc) };
+}
+
 function makeRequest(params: Record<string, string>): NextRequest {
   const url = new URL('http://localhost:3000/api/trade-plan');
   for (const [key, val] of Object.entries(params)) url.searchParams.set(key, val);
@@ -64,6 +73,7 @@ describe('GET /api/trade-plan', () => {
       { tier: 'buy', count: 40, expectancyPercent: -0.05, winRate: 0.48, avgMfePercent: 1, avgMaePercent: -1 },
     ]);
     mockSnapshotFindOne.mockReturnValue(chain({ data: { fundingRate: { rate: 0.0001 } } }));
+    mockLedgerFindOne.mockReturnValue(plain(null));
   });
 
   it('returns 401 when not authenticated', async () => {
@@ -170,6 +180,87 @@ describe('GET /api/trade-plan', () => {
     expect(mockSnapshotFindOne).toHaveBeenCalledWith(expect.objectContaining({ interval: '1h' }));
     expect(body.plan?.entry?.costs.fundingRate).toBeNull();
     expect(body.plan?.entry?.costs.fundingPercent).toBeNull();
+  });
+
+  it('projects the paper desk position when the desk holds one', async () => {
+    const candles = bars(1001);
+    const last = candles[candles.length - 1];
+    mockSignalFindOne.mockReturnValue(
+      chain({ score: 35, tier: 'buy', candleTimestamp: last.timestamp, configVersion: 7, createdAt: new Date() })
+    );
+    mockGetCandles.mockResolvedValue(candles);
+    mockLedgerFindOne.mockReturnValue(
+      plain({
+        position: {
+          side: 'long',
+          entryPrice: 98,
+          entryTime: last.timestamp - HOUR,
+          quantity: 1.5,
+          stopPrice: 96,
+          targetPrice: 108,
+          entryScore: 31,
+        },
+      })
+    );
+
+    const { GET } = await import('./route');
+    const body = (await (await GET(makeRequest(VALID))).json()) as TradePlanResponse;
+
+    expect(mockLedgerFindOne).toHaveBeenCalledWith({
+      tradingStyle: 'day_trading',
+      interval: '1h',
+      symbol: 'SOLUSDT',
+    });
+    expect(body.deskPosition).toMatchObject({ side: 'long', entryPrice: 98, quantity: 1.5 });
+    // A long entered at 98 with the bar closing at 100 is about 2% up.
+    expect(body.deskPosition?.unrealisedPercent).toBeCloseTo((2 / 98) * 100, 10);
+    // A score of 35 is nowhere near the 7.25 exit level.
+    expect(body.deskPosition?.exitsNow).toBe(false);
+  });
+
+  it('marks the desk position as exiting once the score crosses back', async () => {
+    const candles = bars(1001);
+    const last = candles[candles.length - 1];
+    mockSignalFindOne.mockReturnValue(
+      chain({ score: 3, tier: 'neutral', candleTimestamp: last.timestamp, configVersion: 7, createdAt: new Date() })
+    );
+    mockGetCandles.mockResolvedValue(candles);
+    mockLedgerFindOne.mockReturnValue(
+      plain({
+        position: {
+          side: 'long',
+          entryPrice: 100,
+          entryTime: last.timestamp - HOUR,
+          quantity: 1,
+          stopPrice: 96,
+          targetPrice: 108,
+          entryScore: 31,
+        },
+      })
+    );
+
+    const { GET } = await import('./route');
+    const body = (await (await GET(makeRequest(VALID))).json()) as TradePlanResponse;
+    expect(body.deskPosition?.exitsNow).toBe(true);
+  });
+
+  it('reports no desk position when the desk is flat', async () => {
+    const candles = bars(1001);
+    mockSignalFindOne.mockReturnValue(
+      chain({
+        score: 35,
+        tier: 'buy',
+        candleTimestamp: candles[1000].timestamp,
+        configVersion: 7,
+        createdAt: new Date(),
+      })
+    );
+    mockGetCandles.mockResolvedValue(candles);
+    mockLedgerFindOne.mockReturnValue(plain({ position: null }));
+
+    const { GET } = await import('./route');
+    const body = (await (await GET(makeRequest(VALID))).json()) as TradePlanResponse;
+    expect(body.deskPosition).toBeNull();
   });
 
   it('returns the reason when the scored bar is missing from the candle store', async () => {

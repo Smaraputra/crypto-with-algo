@@ -137,9 +137,26 @@ export interface LiveRecord {
   tiers: LiveTierRecord[];
 }
 
+/** The paper desk's actual open position for this book and symbol. */
+export interface DeskPositionView {
+  side: TradeSide;
+  entryPrice: number;
+  entryTime: number;
+  quantity: number;
+  stopPrice: number;
+  targetPrice: number | null;
+  entryScore: number;
+  /** Whether this bar's score closes it under the rule. */
+  exitsNow: boolean;
+  /** Unrealised pnl at the signal bar's close, in percent of entry notional. */
+  unrealisedPercent: number;
+}
+
 export interface TradePlanResponse {
   plan: TradePlan | null;
   /** Why no plan could be built, when plan is null. */
   unavailableReason: string | null;
   liveRecord: LiveRecord | null;
+  /** The desk's real position, when the paper desk holds one. Null when flat. */
+  deskPosition: DeskPositionView | null;
 }
