@@ -1,6 +1,7 @@
 'use client';
 
 import type { GlobalSignalRecord } from '@/hooks/useSignals';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 interface SignalTimelineProps {
   signals: GlobalSignalRecord[];
@@ -126,8 +127,8 @@ export function SignalTimeline({ signals, isLoading }: SignalTimelineProps) {
                     {Math.round(signal.score)}
                   </span>
                 </td>
-                <td className="py-2 pr-4 text-xs capitalize">
-                  {signal.tier.replace('_', ' ')}
+                <td className="py-2 pr-4 text-xs">
+                  {tierDisplayLabel(signal.tier)}
                 </td>
                 <td className="py-2 text-xs">{signal.confidence}%</td>
               </tr>

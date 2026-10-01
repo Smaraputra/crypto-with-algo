@@ -141,6 +141,6 @@ describe('MultiStyleOverview', () => {
       />
     );
 
-    expect(screen.getByText('strong buy')).toBeInTheDocument();
+    expect(screen.getByText('Strong long score')).toBeInTheDocument();
   });
 });

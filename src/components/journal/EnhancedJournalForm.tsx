@@ -36,6 +36,7 @@ import {
 } from '@/types/journal';
 import type { SignalTier } from '@/types/signal';
 import type { IndicatorSnapshot } from '@/types/indicator-snapshot';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 interface EnhancedJournalFormProps {
   symbol: string;
@@ -161,8 +162,8 @@ export function EnhancedJournalForm({
             <span className="font-medium">{symbol}</span>
             <span className="text-muted-foreground">{interval}</span>
             <span className="font-mono tabular-nums">Score: {Math.round(score)}</span>
-            <span className="capitalize text-muted-foreground">
-              {tier.replace('_', ' ')}
+            <span className="text-muted-foreground">
+              {tierDisplayLabel(tier)}
             </span>
             {confidence != null && (
               <span className="text-muted-foreground">
