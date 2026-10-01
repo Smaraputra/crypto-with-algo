@@ -26,6 +26,13 @@ export interface GetLiveTierExpectancyOptions {
   since?: Date;
   costPercentRoundTrip?: number;
   source?: SignalOutcomeSource;
+  /**
+   * Restrict to rows scored under one configVersion. Tier-conditioned
+   * statistics are not comparable across versions (each bump re-derived the
+   * cutoffs or changed the score scale; see compute-engine.ts), so a reader
+   * that presents one number per tier should pass the version it describes.
+   */
+  configVersion?: number;
 }
 
 /** Tiers whose prediction wins when price falls, so the raw long-perspective return is inverted. */
@@ -76,6 +83,7 @@ export async function getLiveTierExpectancy(
     since,
     costPercentRoundTrip = 0,
     source = 'composite',
+    configVersion,
   } = opts;
 
   const match: Record<string, unknown> = {
@@ -90,6 +98,7 @@ export async function getLiveTierExpectancy(
   };
   if (symbol) match.symbol = symbol;
   if (since) match.resolvedAt = { $gte: since };
+  if (configVersion !== undefined) match.configVersion = configVersion;
 
   const rows: TierExpectancyRow[] = await SignalOutcome.aggregate([
     { $match: match },

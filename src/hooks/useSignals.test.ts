@@ -7,6 +7,7 @@ import {
   useGlobalSignals,
   useLatestSignals,
   useLatestSignalForStyle,
+  useTradePlan,
 } from './useSignals';
 
 function createWrapper() {
@@ -229,5 +230,39 @@ describe('useLatestSignalForStyle', () => {
     await waitFor(() => {
       expect(result.current.data?.signal?.score).toBe(72);
     });
+  });
+});
+
+describe('useTradePlan', () => {
+  it('does not fetch until symbol, style and interval are all set', () => {
+    const fetchSpy = mockFetch({});
+    const { wrapper } = createWrapper();
+    renderHook(() => useTradePlan('BTCUSDT', 'day_trading', null), { wrapper });
+    renderHook(() => useTradePlan(null, 'day_trading', '1h'), { wrapper });
+    renderHook(() => useTradePlan('BTCUSDT', null, '1h'), { wrapper });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('fetches the plan for one symbol, style and interval', async () => {
+    const fetchSpy = mockFetch({ plan: null, unavailableReason: 'none yet', liveRecord: null });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useTradePlan('BTCUSDT', 'day_trading', '1h'), { wrapper });
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/trade-plan?symbol=BTCUSDT&tradingStyle=day_trading&interval=1h',
+        undefined
+      );
+    });
+    await waitFor(() => {
+      expect(result.current.data?.unavailableReason).toBe('none yet');
+    });
+  });
+
+  it('keys the query by symbol, style and interval', () => {
+    mockFetch({});
+    const { wrapper, queryClient } = createWrapper();
+    renderHook(() => useTradePlan('ETHUSDT', 'scalping', '5m'), { wrapper });
+    expect(queryClient.getQueryCache().find({ queryKey: ['tradePlan', 'ETHUSDT', 'scalping', '5m'] })).toBeDefined();
   });
 });

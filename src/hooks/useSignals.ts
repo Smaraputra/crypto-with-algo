@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchJson } from '@/lib/fetch-json';
 import type { SignalComponent, SignalTier } from '@/types/signal';
 import type { TradingStyle } from '@/lib/models/signal-template';
+import type { TradePlanResponse } from '@/lib/trade-plan/types';
 
 export interface GlobalSignalRecord {
   _id: string;
@@ -111,6 +112,30 @@ export function useLatestSignalForStyle(
       return fetchJson(`/api/signals/latest?${params}`);
     },
     enabled: !!symbol && !!tradingStyle,
+    staleTime: tradingStyle ? GLOBAL_STALE_TIMES[tradingStyle] : SIGNAL_STALE_TIME,
+  });
+}
+
+/**
+ * The order ticket the composite's rule would place on the latest scored bar,
+ * with its costs and the recorded evidence for that rule. Refreshes on the
+ * same cadence as the signal it is built from.
+ */
+export function useTradePlan(
+  symbol: string | null,
+  tradingStyle: TradingStyle | null,
+  interval: string | null
+) {
+  return useQuery<TradePlanResponse>({
+    queryKey: ['tradePlan', symbol, tradingStyle, interval],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (symbol) params.set('symbol', symbol);
+      if (tradingStyle) params.set('tradingStyle', tradingStyle);
+      if (interval) params.set('interval', interval);
+      return fetchJson(`/api/trade-plan?${params}`);
+    },
+    enabled: !!symbol && !!tradingStyle && !!interval,
     staleTime: tradingStyle ? GLOBAL_STALE_TIMES[tradingStyle] : SIGNAL_STALE_TIME,
   });
 }
