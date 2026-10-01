@@ -10,6 +10,7 @@ import {
 import { prepareBacktest, runOptimizedBacktest } from './optimized-engine';
 import { DEFAULT_BACKTEST_CONFIG } from './types';
 import { studyCostConfig } from './cost-model';
+import { createScoreThresholdStrategy } from './strategies/score-threshold';
 import type { BacktestConfig, BacktestResult, BacktestTrade } from './types';
 import type { EntryDecision, Strategy, StrategyContext } from './strategy';
 import type { OHLCV } from '@/types/market';
@@ -453,5 +454,110 @@ describe('entryProbabilityForTargetTrades', () => {
 
   it('never exceeds 1 for a reference that is almost always in a position', () => {
     expect(entryProbabilityForTargetTrades(10, 100, 9.9)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('the random-entry null enters the way a limit-entry reference does', () => {
+  // Review finding M4 (2026-10-01): the null always entered at market, so for
+  // a limit-entry family it paid the taker fee plus slippage on every entry
+  // and skipped the fill selection the reference went through. The null was
+  // therefore not matched on entry mechanism. `entryWrapper` closes it.
+  const cfg: BacktestConfig = {
+    ...DEFAULT_BACKTEST_CONFIG,
+    ...studyCostConfig('1h'),
+    allowShorts: true,
+    entryThreshold: 15,
+    exitThreshold: -5,
+    shortEntryThreshold: -15,
+    shortExitThreshold: 5,
+  };
+
+  /** A test-local twin of research's `withLimitEntry`: same transform, same
+   * `entryWrapper` contract (src cannot import from scripts). */
+  function limitEntry(base: Strategy, offsetBps: number, timeoutBars: number): Strategy {
+    return {
+      name: `${base.name}-limit`,
+      decideEntry(ctx, config) {
+        const decision = base.decideEntry(ctx, config);
+        if (!decision) return null;
+        const close = ctx.candles[ctx.bar].close;
+        const limitPrice =
+          decision.side === 'long'
+            ? close * (1 - offsetBps / 10000)
+            : close * (1 + offsetBps / 10000);
+        return { ...decision, orderType: 'limit', limitPrice, timeoutBars };
+      },
+      decideExit(ctx, config) {
+        return base.decideExit(ctx, config);
+      },
+      entryWrapper: (inner) => limitEntry(inner, offsetBps, timeoutBars),
+    };
+  }
+
+  function limitReference(bars: number) {
+    const prepared = prepareBacktest(generateCandles(bars), 'BTCUSDT', '1h');
+    const strategy = limitEntry(createScoreThresholdStrategy(), 0, 3);
+    const reference = runOptimizedBacktest(prepared, cfg, 'BTCUSDT', '1h', undefined, strategy);
+    expect(reference.trades.length).toBeGreaterThan(0);
+    expect(reference.trades.every((t) => t.entryFillKind === 'maker')).toBe(true);
+    return { prepared, strategy, reference };
+  }
+
+  it('the same random decisions fill as maker when wrapped and as taker when not', () => {
+    // The deterministic part of M4. The DIRECTION of the old bias is not
+    // fixed: the maker fee and the absent slippage favour the limit null,
+    // while adverse fill selection (an order fills only once price comes to
+    // it) penalises it, and which dominates varies by series. What is fixed is
+    // that the null must enter the way its reference does.
+    const { prepared, strategy, reference } = limitReference(1200);
+    const profile = referenceProfile(reference);
+    const wrapped = runOptimizedBacktest(
+      prepared,
+      cfg,
+      'BTCUSDT',
+      '1h',
+      undefined,
+      strategy.entryWrapper!(createRandomEntryStrategy(profile, 4242))
+    );
+    const market = runOptimizedBacktest(
+      prepared,
+      cfg,
+      'BTCUSDT',
+      '1h',
+      undefined,
+      createRandomEntryStrategy(profile, 4242)
+    );
+    expect(wrapped.trades.length).toBeGreaterThan(0);
+    expect(wrapped.trades.every((t) => t.entryFillKind === 'maker')).toBe(true);
+    expect(market.trades.length).toBeGreaterThan(0);
+    expect(market.trades.every((t) => t.entryFillKind === 'taker')).toBe(true);
+  });
+
+  it('the wrapped null matches the reference trade count within 10%', () => {
+    const { prepared, strategy, reference } = limitReference(1200);
+    const bm = randomEntryBenchmark(prepared, cfg, 'BTCUSDT', '1h', reference, {
+      iterations: 40,
+      seed: 9100,
+      entryWrapper: strategy.entryWrapper,
+    });
+    const ratio = bm.meanRandomTrades / reference.trades.length;
+    expect(ratio).toBeGreaterThan(0.9);
+    expect(ratio).toBeLessThan(1.1);
+  });
+
+  it('a market reference is unchanged when no wrapper is passed', () => {
+    const prepared = prepareBacktest(generateCandles(600), 'BTCUSDT', '1h');
+    const reference = runOptimizedBacktest(prepared, cfg, 'BTCUSDT', '1h');
+    const a = randomEntryBenchmark(prepared, cfg, 'BTCUSDT', '1h', reference, {
+      iterations: 20,
+      seed: 9300,
+    });
+    const b = randomEntryBenchmark(prepared, cfg, 'BTCUSDT', '1h', reference, {
+      iterations: 20,
+      seed: 9300,
+      entryWrapper: undefined,
+    });
+    expect(b.randomExpectancies).toEqual(a.randomExpectancies);
+    expect(b.entryProbability).toBe(a.entryProbability);
   });
 });

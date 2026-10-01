@@ -747,6 +747,10 @@ export function withLimitEntry(
     decideExit(ctx: StrategyContext, config: BacktestConfig): boolean {
       return base.decideExit(ctx, config);
     },
+    // The random-entry null wraps its own random decisions with this, so it
+    // rests the same limit (same offset, same timeout) and pays the same
+    // maker fee as the family it is the null for.
+    entryWrapper: (inner: Strategy) => withLimitEntry(inner, inner.name, params, opts),
   };
 }
 
@@ -828,6 +832,8 @@ export function withManagement(
   return {
     name,
     params,
+    // A managed limit family keeps its entry mechanism for the null.
+    ...(base.entryWrapper ? { entryWrapper: base.entryWrapper } : {}),
     decideEntry(ctx: StrategyContext, config: BacktestConfig): EntryDecision | null {
       return base.decideEntry(ctx, config);
     },

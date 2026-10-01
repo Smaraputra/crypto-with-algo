@@ -119,6 +119,11 @@ const CALIBRATION_SEED_OFFSET = 1_000_000;
 /** Relative change in the entry rate below which calibration stops early. */
 const CALIBRATION_TOLERANCE = 0.01;
 
+/** Rounds for the wrapped (limit-entry) path. Its ratio update contracts more
+ * slowly than the closed form the market path uses, and starts further away
+ * because unfilled orders are invisible to `referenceProfile`. */
+const WRAPPED_CALIBRATION_ROUNDS = 6;
+
 /**
  * A Strategy that enters randomly at the reference's own rate, side mix, and
  * hold/stop/target distances, and never exits by signal (so stop, target,
@@ -184,7 +189,16 @@ export function randomEntryBenchmark(
   symbol: string,
   interval: string,
   reference: BacktestResult,
-  opts: { iterations: number; seed: number }
+  opts: {
+    iterations: number;
+    seed: number;
+    /**
+     * The reference strategy's own entry mechanism (`Strategy.entryWrapper`),
+     * applied to every pilot and every draw. Omitted for a market-entry
+     * reference, whose null is unchanged by this option.
+     */
+    entryWrapper?: (inner: Strategy) => Strategy;
+  }
 ): {
   observedExpectancy: number;
   randomExpectancies: number[];
@@ -204,8 +218,15 @@ export function randomEntryBenchmark(
   // Calibrate the entry rate against the hold the random strategy actually
   // realizes, not the one the reference realized. Seeded, so a report still
   // reproduces exactly.
+  const wrap = opts.entryWrapper;
+  const buildStrategy = (p: ReferenceProfile, seed: number): Strategy => {
+    const random = createRandomEntryStrategy(p, seed);
+    return wrap ? wrap(random) : random;
+  };
+
   let profile = referenceProfile(reference);
-  for (let round = 0; round < CALIBRATION_ROUNDS; round++) {
+  const rounds = wrap ? WRAPPED_CALIBRATION_ROUNDS : CALIBRATION_ROUNDS;
+  for (let round = 0; round < rounds; round++) {
     let heldBars = 0;
     let trades = 0;
     for (let k = 0; k < CALIBRATION_DRAWS; k++) {
@@ -215,7 +236,7 @@ export function randomEntryBenchmark(
         symbol,
         interval,
         undefined,
-        createRandomEntryStrategy(profile, opts.seed + CALIBRATION_SEED_OFFSET + round * 1000 + k)
+        buildStrategy(profile, opts.seed + CALIBRATION_SEED_OFFSET + round * 1000 + k)
       );
       for (const trade of pilot.trades) {
         heldBars += trade.holdTimeBars;
@@ -226,11 +247,14 @@ export function randomEntryBenchmark(
     // leave it where it is rather than guess.
     if (trades === 0) break;
 
-    const next = entryProbabilityForTargetTrades(
-      targetTrades,
-      reference.totalBars,
-      heldBars / trades
-    );
+    // The market path keeps its closed form, so every recorded market-family
+    // report still reproduces. A wrapped entry spends bars on pending orders
+    // and drops the orders that never fill, which that closed form does not
+    // model, so it takes the model-free fixed-point step instead: scale the
+    // rate by how far the pilots' trade count sits from the target.
+    const next = wrap
+      ? Math.min(1, profile.entryProbability * (targetTrades / (trades / CALIBRATION_DRAWS)))
+      : entryProbabilityForTargetTrades(targetTrades, reference.totalBars, heldBars / trades);
     if (!Number.isFinite(next) || next <= 0) break;
 
     const converged =
@@ -242,7 +266,7 @@ export function randomEntryBenchmark(
   const randomExpectancies: number[] = [];
   let tradeCountTotal = 0;
   for (let k = 0; k < opts.iterations; k++) {
-    const strategy = createRandomEntryStrategy(profile, opts.seed + k);
+    const strategy = buildStrategy(profile, opts.seed + k);
     const result = runOptimizedBacktest(prepared, config, symbol, interval, undefined, strategy);
     randomExpectancies.push(result.metrics.expectancyPercent);
     tradeCountTotal += result.trades.length;

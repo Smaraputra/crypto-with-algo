@@ -167,4 +167,15 @@ export interface Strategy {
    * `manage` implementation honouring it.)
    */
   manage?(ctx: ManagementContext, position: OpenPosition): ManagementDecision | null;
+  /**
+   * Optional: applies this strategy's entry MECHANISM (order type, limit
+   * offset, timeout) to another strategy's entry decisions. The engine never
+   * reads it. Set by entry wrappers such as research's `withLimitEntry`, and
+   * read by `randomEntryBenchmark`, so the random-entry null enters the way
+   * the reference does: same fill selection, same maker fee, no taker
+   * slippage. Without it a limit family's null paid taker fees plus slippage
+   * on every entry while the reference paid maker, which biased the timing
+   * gate toward passing (2026-10-01 review, finding M4).
+   */
+  entryWrapper?: (inner: Strategy) => Strategy;
 }
