@@ -1,7 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 const mockMutate = vi.fn();
+const mockUseTradePlan = vi.fn<(...args: unknown[]) => { data: undefined; isLoading: boolean; isError: boolean }>(
+  () => ({ data: undefined, isLoading: true, isError: false })
+);
 
 vi.mock('@/hooks/useSignals', () => ({
   useSignals: () => ({ data: { signals: [] }, isLoading: false }),
@@ -25,6 +28,13 @@ vi.mock('@/hooks/useSignals', () => ({
     isLoading: false,
   }),
   useLatestSignalForStyle: () => ({ data: null, isLoading: false }),
+  useTradePlan: (...args: unknown[]) => mockUseTradePlan(...args),
+}));
+
+vi.mock('@/components/signals/TradePlanCard', () => ({
+  TradePlanCard: ({ isLoading }: { isLoading: boolean }) => (
+    <div data-testid="trade-plan-card" data-loading={String(isLoading)} />
+  ),
 }));
 
 vi.mock('@/hooks/useFutures', () => ({
@@ -155,6 +165,20 @@ describe('SignalsPage', () => {
     render(<SignalsPage />);
     expect(screen.getByText('Signal History')).toBeInTheDocument();
     expect(screen.getByTestId('signal-timeline')).toBeInTheDocument();
+  });
+
+  it('renders the trade plan for the selected symbol, style and interval', () => {
+    mockUseTradePlan.mockClear();
+    render(<SignalsPage />);
+    expect(screen.getByTestId('trade-plan-card')).toHaveAttribute('data-loading', 'true');
+    expect(mockUseTradePlan).toHaveBeenLastCalledWith('BTCUSDT', 'day_trading', '15m');
+  });
+
+  it('asks for the trade plan of the newly selected style', () => {
+    mockUseTradePlan.mockClear();
+    render(<SignalsPage />);
+    fireEvent.click(screen.getByTestId('style-tab-scalping'));
+    expect(mockUseTradePlan).toHaveBeenLastCalledWith('BTCUSDT', 'scalping', '1m');
   });
 
   it('shows empty state when no signal computed', () => {

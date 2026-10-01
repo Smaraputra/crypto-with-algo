@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (signals): trade plan card on /signals
+- **`src/lib/trade-plan/`, a pure module turning the latest `GlobalSignal` into a concrete order ticket** under the composite's own rule. `rule.ts` holds the rule in one place: `createScoreThresholdStrategy` (the research `control` family) on the research configuration (`DEFAULT_TEMPLATE_THRESHOLDS`, shorts allowed, `risk_based` 1%, `studyCostConfig`), with stops from `deriveVolatilityStops` over the trailing 1,000 closed bars. `build.ts` obtains direction, stop and target by calling the strategy's own `decideEntry` on a real `StrategyContext` rather than re-deriving the thresholds, so the ticket cannot drift from the rule the evidence measured; a proxy-guarded test pins the context fields the strategy reads
+- **`evidence.ts`, the recorded out-of-sample result for that rule per interval**, copied from the tables in `scripts/research/strategy-families.ts` with its provenance. 15m and 1h are the only like-for-like v7 rows (-0.1175%, CI [-0.174, -0.058]; -0.0687%, CI [-0.1741, 0.0385]); 5m, 4h and 1d are flagged as Phase 4 under entry 24 / exit 6 on the pre-v5 scorer, and 1m is marked unmeasured
+- **`venue.ts`, Binance USDT-M order filters for all ten signal symbols**, fetched from `fapi.binance.com/fapi/v1/exchangeInfo` via the VPS on 2026-10-01, with down-rounding to `stepSize`, tick rounding and a placeability check. A ticket below `minQty` or `MIN_NOTIONAL` is reported as not placeable with the reason instead of as a tradeable order
+- **`GET /api/trade-plan`**, session-guarded, reading the latest signal, the spot candles up to its scored bar, and funding from the `HistoricalSnapshot` at `mapToSnapshotInterval(interval)`. It never scores and never writes a `GlobalSignal`
+- **`TradePlanCard` on `/signals`**, below the gauge: the ticket (or the flat state), what to do with a position already held, the round-trip cost shown as a share of the risk, the expected funding over the recorded hold, and the recorded expectancy with its verdict directly beneath. It states that research books the entry at the signal close while a live order fills at the next open, a gap no research run has measured
+
+### Added (signals): configVersion filter on the live expectancy reader
+- **`getLiveTierExpectancy` takes an optional `configVersion`**, so a reader presenting one number per tier can restrict to the scorer version it describes. Tier-conditioned statistics are not comparable across versions. The parameter is additive and defaults to the previous pooled behaviour
+
+
 ### Added (research): cross-sectional rank container
 - **Joint per-bar rank targets in `exposure-sim.ts`** beside the existing per-symbol `tanh` target: `topBottom` and `linearRank` schemes, dollar-neutral and unit gross by construction, book-level rebalancing (all symbols trade together when the largest target move exceeds the band or a held symbol drops out of the cross-section) with exact neutrality even when a held symbol's signal turns NaN
 - **The rank grid in `exposure-walk-forward.ts`**, band expressed as a fraction of the scheme's largest weight, and selection by mean net return per bar rather than Sharpe
