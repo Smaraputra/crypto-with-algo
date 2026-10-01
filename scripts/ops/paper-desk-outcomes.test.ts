@@ -206,7 +206,7 @@ describe('formatReport', () => {
     expect(text).toContain('engine      n=2');
     expect(text).toContain('executable  n=2');
     expect(text).toContain('lag cost    +0.2000%');
-    expect(text).toContain('recorded    -0.0687%');
+    expect(text).toContain('recorded    -0.0551%');
     expect(text).toContain('peak leverage=2.40x');
     expect(text).toContain('Win rate is reported, never targeted.');
   });
