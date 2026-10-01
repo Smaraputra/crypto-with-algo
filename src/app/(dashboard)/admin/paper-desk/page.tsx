@@ -26,7 +26,7 @@ export default async function PaperDeskPage() {
           between them is the lag cost no research run has measured. Each book is read by a rule declared on
           2026-10-02, before its first trade: it closes as soon as the executable interval sits below zero, and
           it is read for going live only once, at a trade count sized from the recorded evidence, which at 1h
-          is years of trading. The research record says this rule loses after costs; the desk measures how it
+          is years of trading. The research record says this rule loses after costs. The desk measures how it
           executes, not whether it has an edge.
         </p>
       </div>

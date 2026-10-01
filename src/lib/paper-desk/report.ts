@@ -129,24 +129,33 @@ export function trackStats(returns: number[], pnls: number[]): TrackStats | null
   };
 }
 
-/** One line for a book's read-rule state. */
+/** How long a count takes at the recorded rate, in days or, past two years, in years. */
+function horizon(days: number): string {
+  return days < 730
+    ? `about ${Math.round(days).toLocaleString('en-US')} days`
+    : `about ${Math.round(days / 365).toLocaleString('en-US')} years`;
+}
+
+/** A book's read-rule state, as plain sentences for the CLI and the dashboard. */
 export function describeReadRule(rule: ReadRuleState): string {
   const count =
     rule.requiredTrades === null
-      ? 'no recorded sd, so no trade count'
-      : `needs ${rule.requiredTrades.toLocaleString('en-US')} executable trades` +
-        (rule.daysAtRecordedRate === null ? '' : ` (~${Math.round(rule.daysAtRecordedRate).toLocaleString('en-US')} days at the recorded rate)`);
+      ? 'No recorded sd, so no trade count.'
+      : `Needs ${rule.requiredTrades.toLocaleString('en-US')} executable trades` +
+        (rule.daysAtRecordedRate === null ? '.' : ` (${horizon(rule.daysAtRecordedRate)} at the recorded rate).`);
   const verdict = rule.futility
-    ? 'FUTILITY: the executable interval is below zero, the edge read is closed'
+    ? 'FUTILITY: the executable interval is below zero, so the edge read is closed.'
     : rule.goLive === 'not_yet'
-      ? `go-live not yet read (${rule.executableTrades} so far)`
+      ? `Go-live not yet read, ${rule.executableTrades} so far.`
       : rule.goLive === 'pass'
-        ? 'go-live read: PASS'
+        ? 'Go-live read: PASS.'
         : rule.goLive === 'fail'
-          ? 'go-live read: FAIL'
-          : 'go-live cannot be read';
-  const execution = rule.executionReadReady ? 'execution read ready' : `execution read after ${DESK_READ_RULE.executionReadMinTrades} executable trades`;
-  return `${count}; ${verdict}; ${execution}`;
+          ? 'Go-live read: FAIL.'
+          : 'Go-live cannot be read.';
+  const execution = rule.executionReadReady
+    ? 'Execution read ready.'
+    : `Execution read after ${DESK_READ_RULE.executionReadMinTrades} executable trades.`;
+  return `${count} ${verdict} ${execution}`;
 }
 
 export function buildBookReport(

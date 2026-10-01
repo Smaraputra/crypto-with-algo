@@ -127,7 +127,7 @@ describe('PaperDeskDashboard', () => {
     });
     render(<PaperDeskDashboard />);
     expect(screen.getByTestId('paper-desk-read-rule-day_trading:1h')).toHaveTextContent(
-      'needs 61,000 executable trades; go-live not yet read (12 so far)'
+      'Needs 61,000 executable trades. Go-live not yet read, 12 so far.'
     );
     const closed = screen.getByTestId('paper-desk-read-rule-day_trading:15m');
     expect(closed).toHaveTextContent('FUTILITY');
