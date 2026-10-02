@@ -247,6 +247,648 @@
  * 2. Program-level trial ledger. Before this phase: 1,706 (the session 19 audited ledger, cumulative
  *    across phases) + 7 (funding carry, session 22) = 1,713. This phase adds 11, for 1,724. The
  *    program-count deflated Sharpe beside each result uses 1,724.
+ *
+ * IMPLEMENTATION NOTES 3 TO 14, recorded at build time on 2026-10-02 after the lock and before any run,
+ * each a choice the locked text leaves open. None changes a rule.
+ *
+ * 3. Daily data. Spot 1d bars are complete for all ten symbols from their first bar to 2026-06-30. The
+ *    perp series has no bars for 2022-02-26 to 2022-02-28 and 2022-04-01 to 2022-04-02 on SOLUSDT and
+ *    XRPUSDT at every interval (a production data defect found at build). In CONSISTENCY those five days
+ *    carry the last perp close forward (open = close = last close): no price is invented, a lookback of
+ *    L bars stays L days, and the move across the gap is booked on the day data resumes. Each report
+ *    records the filled days.
+ * 4. CONSISTENCY warmup. Perp closes start 2022-01-01, so lookbacks there read spot closes before that
+ *    date, PRIMARY's "spot history is warmup only" convention. Every symbol's first holding day is
+ *    2022-01-01 in both the perp run and the matching spot run, so their difference is the proxy's
+ *    error and nothing else.
+ * 5. Listing and joining. A listing day is the open time of a symbol's first 1d snapshot carrying a
+ *    funding rate: BTC 2019-09-11, ETH 2019-11-28, XRP 2020-01-07, LINK 2020-01-18, ADA 2020-01-20, BNB
+ *    2020-02-11, DOGE 2020-07-11, DOT 2020-08-21, SOL 2020-09-14, AVAX 2020-09-23. A sleeve's first
+ *    order is decided at the close before that day and fills at that day's open, whatever the rule's
+ *    schedule (a weekly or monthly rule does not wait for its next decision day). A joining sleeve
+ *    triggers the same re-equalisation as a month end.
+ * 6. Missing history. TF4's text says a lookback contributes 0 until it has n days; TF1's and TF2's
+ *    lookbacks follow the same convention, and a sleeve whose volatility estimate is not yet defined
+ *    holds nothing. Only SOL, DOT and AVAX are affected (spot history starts 1 to 34 days before
+ *    listing).
+ * 7. TF2's EWMA is seeded with the mean square of the first 60 returns (no seed is stated).
+ * 8. Decisions and rebalancing. TF2's "first daily close of each calendar month" is the 00:00 UTC close
+ *    on the 1st (the end of the month's last bar), TF1's and the month-end re-equalisation's 00:00
+ *    convention. TF1 and TF2 trade to the target (signal and size) at every decision close. TF3 and
+ *    C3 trade only when the state changes, C3 re-checking only at the end of a hold. In TF4's band,
+ *    "current" is the weight the sleeve holds at the decision close, drifted, or under the one-bar
+ *    delay the target of an order not yet filled. A target is the signal times the size, 0 while the
+ *    size is undefined.
+ * 9. Re-equalisation keeps each sleeve's current weight: the quantity is rescaled to the new capital by
+ *    an order filled at the next open, paying fee and slippage on the traded notional. A rule order
+ *    decided at the same close replaces it.
+ * 10. Funding is charged on the quantity times the day's open for each settlement in (open, next open];
+ *    a settlement exactly at the fill's own 00:00 belongs to the day before (carry-sim.ts's convention).
+ *    Positions are marked to market daily and nothing is closed at the end of a sample.
+ * 11. C3's basket index chain-links the equal-weighted daily return of every symbol with closes on both
+ *    the day and the day before (spot in PRIMARY, spliced in CONSISTENCY), from 2018-10-31. Its state is
+ *    shared by every sleeve.
+ * 12. Statistics. Bootstrap CIs: 2,000 circular-block draws, seed 42, percentile 95%. Timing null: 200
+ *    draws, seed 7, each symbol's shift uniform on [365, len - 365] bars of its decision span, p = (1 +
+ *    draws with alpha at or above the observed) / 201. Alpha is the intercept, times 365, of OLS of T's
+ *    daily returns on T+'s over the days any sleeve holds capital. Gate 5 removes one sleeve (C3's
+ *    signal still reads the full basket). Gate 6 regresses within each calendar year. Sharpe is
+ *    annualised by sqrt(365).
+ * 13. The one-bar delay fills every order one bar later at that bar's open.
+ * 14. Gate 8 is not decided in a rule's report: it is computed once across all eleven trials, after the
+ *    harness rules have run.
  */
+import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
+import { createSeededRandom } from '@/lib/stats/seeded-random';
+import { DAY_MS, YEAR_DAYS, type RulePaths } from './trend-signals';
 
-export {};
+/** One settled funding rate at boundary `t`. Positive means longs pay shorts. */
+export interface Settlement {
+  t: number;
+  rate: number;
+}
+
+/** One symbol's daily bars, warmup included, consecutive UTC days. */
+export interface TrendSymbolInput {
+  symbol: string;
+  /** Bar OPEN times, ascending, one per UTC day with no gap. The bar closes at t + 1 day. */
+  t: number[];
+  /** Fill prices. */
+  open: number[];
+  /** Signal and mark prices. */
+  close: number[];
+  /** UTC day of the perp listing (the first funding row): the first day the sleeve may hold. */
+  listingDay: number;
+  /** Settlements sorted by t: the archive's, plus the snapshot fallback before its first. */
+  settlements: Settlement[];
+}
+
+/** Cost per unit of traded notional, both fractions. */
+export interface TrendCost {
+  fee: number;
+  slippage: number;
+}
+
+/** Standard USDT-M taker plus the 1d study slippage, charged on every unit of turnover. */
+export const TREND_COST: TrendCost = {
+  fee: BINANCE_FUTURES_TAKER_FEE,
+  slippage: (STUDY_SLIPPAGE_BPS['1d'] ?? 0) / 10_000,
+};
+
+/** Gate 7's stress: 1.5x fees and 2x slippage. */
+export function stressCost(cost: TrendCost): TrendCost {
+  return { fee: cost.fee * 1.5, slippage: cost.slippage * 2 };
+}
+
+export interface SimOptions {
+  /** First UTC day a sleeve may hold; a symbol listed later starts at its listing day. */
+  from: number;
+  /** End, exclusive: the last simulated day is the last one before `to`. */
+  to: number;
+  cost: TrendCost;
+  /** Bars between the deciding close and the fill: 0 fills at the next open (the rule), 1 is the sensitivity. */
+  delay: number;
+}
+
+export interface TrendRun {
+  /** UTC day starts, `from` to `to`. */
+  days: number[];
+  /** Net portfolio return per day, on the equity at the previous close. */
+  returns: number[];
+  /** Price and funding PnL of long holdings, on the same equity. */
+  longLeg: number[];
+  shortLeg: number[];
+  /** Fees and slippage (positive, already subtracted from `returns`). */
+  cost: number[];
+  /** Funding PnL (negative when paid, already in `returns` and the legs). */
+  funding: number[];
+  /** Traded notional over the equity at the previous close. */
+  turnover: number[];
+  /** Sum of |notional| over equity at the close. */
+  gross: number[];
+  /** Each sleeve's PnL over its own capital at the previous close; NaN before it starts. */
+  sleeveReturns: Record<string, number[]>;
+  /** Each symbol's PnL over the portfolio equity at the previous close. */
+  contributions: Record<string, number[]>;
+  /** Summed contributions of each episode (a run of one position sign), every sleeve. */
+  episodes: number[];
+  /** First holding day of each sleeve. */
+  startDay: Record<string, number>;
+}
+
+interface SleeveState {
+  input: TrendSymbolInput;
+  paths: RulePaths;
+  startDay: number;
+  active: boolean;
+  capital: number;
+  qty: number;
+  /** Last price the quantity was marked at. */
+  mark: number;
+  /** Signal at the last rule order; NaN before the first. */
+  lastSignal: number;
+  /** Target weight by fill day. */
+  pending: Map<number, number>;
+  settlementPtr: number;
+  episodeSign: number;
+  episodeSum: number;
+}
+
+/** UTC day start of a moment. */
+export function utcDay(ms: number): number {
+  return Math.floor(ms / DAY_MS) * DAY_MS;
+}
+
+/** Index of the bar opening at `day`, or -1 outside the input. */
+export function barIndex(input: TrendSymbolInput, day: number): number {
+  if (input.t.length === 0) return -1;
+  const i = Math.round((day - input.t[0]) / DAY_MS);
+  return i >= 0 && i < input.t.length && input.t[i] === day ? i : -1;
+}
+
+/** Throws unless the input's bars are consecutive UTC days, so a lookback of L bars is L days. */
+export function assertDaily(input: TrendSymbolInput): void {
+  for (let i = 0; i < input.t.length; i++) {
+    if (input.t[i] % DAY_MS !== 0) throw new Error(`${input.symbol}: bar ${i} is not at 00:00 UTC`);
+    if (i > 0 && input.t[i] - input.t[i - 1] !== DAY_MS) {
+      throw new Error(`${input.symbol}: gap between ${new Date(input.t[i - 1]).toISOString()} and ${new Date(input.t[i]).toISOString()}`);
+    }
+  }
+}
+
+/** First holding day of a sleeve in a sample. */
+export function sleeveStart(input: TrendSymbolInput, from: number): number {
+  return Math.max(from, utcDay(input.listingDay));
+}
+
+/**
+ * The sleeve portfolio pre-registered in the header. Every sleeve holds its
+ * rule's weight of its own capital; between orders it holds QUANTITY, so its
+ * exposure drifts. Capital is re-equalised across the live sleeves at every
+ * month end and whenever a sleeve joins, each sleeve keeping its current weight
+ * through an order that pays the usual costs. A rule order placed at the same
+ * close replaces that order.
+ *
+ * Per day d (bar open d, close d + 1 day), for each live sleeve:
+ *   gap     qty x (open - last mark)               the overnight quantity, up to the fill
+ *   fill    a pending order trades to target x equity at the open / open, paying
+ *           |traded notional| x (fee + slippage)
+ *   funding -qty x open x rate for every settlement in (d, d + 1 day]
+ *   mark    qty x (close - open)
+ * A settlement exactly at the open belongs to the day before, as in carry-sim.ts.
+ * Decisions read the close of day d and fill at the open of day d + 1 + delay.
+ */
+export function runTrend(
+  inputs: TrendSymbolInput[],
+  paths: Record<string, RulePaths>,
+  opts: SimOptions
+): TrendRun {
+  const { cost, delay } = opts;
+  const perUnitCost = cost.fee + cost.slippage;
+  const sleeves: SleeveState[] = inputs.map((input) => ({
+    input,
+    paths: paths[input.symbol],
+    startDay: sleeveStart(input, opts.from),
+    active: false,
+    capital: 0,
+    qty: 0,
+    mark: Number.NaN,
+    lastSignal: Number.NaN,
+    pending: new Map(),
+    settlementPtr: 0,
+    episodeSign: 0,
+    episodeSum: 0,
+  }));
+  for (const s of sleeves) {
+    if (!s.paths) throw new Error(`No rule paths for ${s.input.symbol}`);
+    assertDaily(s.input);
+  }
+
+  const days: number[] = [];
+  for (let d = opts.from; d < opts.to; d += DAY_MS) days.push(d);
+  const n = days.length;
+  const run: TrendRun = {
+    days,
+    returns: new Array(n).fill(0),
+    longLeg: new Array(n).fill(0),
+    shortLeg: new Array(n).fill(0),
+    cost: new Array(n).fill(0),
+    funding: new Array(n).fill(0),
+    turnover: new Array(n).fill(0),
+    gross: new Array(n).fill(0),
+    sleeveReturns: Object.fromEntries(inputs.map((i) => [i.symbol, new Array(n).fill(Number.NaN)])),
+    contributions: Object.fromEntries(inputs.map((i) => [i.symbol, new Array(n).fill(0)])),
+    episodes: [],
+    startDay: Object.fromEntries(sleeves.map((s) => [s.input.symbol, s.startDay])),
+  };
+
+  let equity = 1;
+
+  // k = -1 is the close before the first day, where the first sleeves join.
+  for (let k = -1; k < n; k++) {
+    const d = k === -1 ? opts.from - DAY_MS : days[k];
+
+    if (k >= 0) {
+      const prevEquity = equity;
+      let dayPnl = 0;
+      for (const s of sleeves) {
+        if (!s.active) continue;
+        const i = barIndex(s.input, d);
+        if (i === -1) throw new Error(`${s.input.symbol}: no bar on ${new Date(d).toISOString()}`);
+        const open = s.input.open[i];
+        const close = s.input.close[i];
+        const preQty = s.qty;
+        let pnl = 0;
+        let longPnl = 0;
+        let shortPnl = 0;
+        let fundingPnl = 0;
+        let costPaid = 0;
+        let traded = 0;
+
+        const gap = preQty === 0 ? 0 : preQty * (open - s.mark);
+        pnl += gap;
+        if (preQty > 0) longPnl += gap;
+        else if (preQty < 0) shortPnl += gap;
+
+        const target = s.pending.get(d);
+        if (target !== undefined) {
+          s.pending.delete(d);
+          const equityAtOpen = s.capital + pnl;
+          const newQty = open > 0 ? (target * equityAtOpen) / open : 0;
+          traded = Math.abs(newQty - s.qty) * open;
+          costPaid = traded * perUnitCost;
+          pnl -= costPaid;
+          s.qty = newQty;
+        }
+
+        const settlements = s.input.settlements;
+        while (s.settlementPtr < settlements.length && settlements[s.settlementPtr].t <= d) s.settlementPtr++;
+        let p = s.settlementPtr;
+        while (p < settlements.length && settlements[p].t <= d + DAY_MS) {
+          fundingPnl -= s.qty * open * settlements[p].rate;
+          p++;
+        }
+        pnl += fundingPnl;
+
+        const move = s.qty * (close - open);
+        pnl += move;
+        if (s.qty > 0) longPnl += move + fundingPnl;
+        else if (s.qty < 0) shortPnl += move + fundingPnl;
+        s.mark = close;
+
+        const sleeveCapitalBefore = s.capital;
+        s.capital += pnl;
+        dayPnl += pnl;
+
+        const contribution = pnl / prevEquity;
+        run.contributions[s.input.symbol][k] = contribution;
+        run.sleeveReturns[s.input.symbol][k] = sleeveCapitalBefore > 0 ? pnl / sleeveCapitalBefore : Number.NaN;
+        run.longLeg[k] += longPnl / prevEquity;
+        run.shortLeg[k] += shortPnl / prevEquity;
+        run.cost[k] += costPaid / prevEquity;
+        run.funding[k] += fundingPnl / prevEquity;
+        run.turnover[k] += traded / prevEquity;
+
+        // Episodes: the day goes to the position held after the fill, or to
+        // the one it closed when the fill went flat.
+        const postSign = Math.sign(s.qty);
+        if (postSign === s.episodeSign) {
+          if (s.episodeSign !== 0) s.episodeSum += contribution;
+        } else if (postSign === 0) {
+          run.episodes.push(s.episodeSum + contribution);
+          s.episodeSign = 0;
+          s.episodeSum = 0;
+        } else {
+          if (s.episodeSign !== 0) run.episodes.push(s.episodeSum);
+          s.episodeSign = postSign;
+          s.episodeSum = contribution;
+        }
+      }
+      equity += dayPnl;
+      if (!(equity > 0)) throw new Error(`Portfolio equity reached ${equity} on ${new Date(d).toISOString()}`);
+      run.returns[k] = dayPnl / prevEquity;
+      let gross = 0;
+      for (const s of sleeves) if (s.active) gross += Math.abs(s.qty * s.mark);
+      run.gross[k] = gross / equity;
+    }
+
+    // The close of day d, at the instant d + 1 day.
+    const closeAt = d + DAY_MS;
+    if (closeAt >= opts.to) continue;
+    const fillDay = closeAt + delay * DAY_MS;
+
+    const joining = sleeves.filter((s) => !s.active && s.startDay === closeAt);
+    const monthEnd = new Date(closeAt).getUTCDate() === 1;
+    const anyActive = sleeves.some((s) => s.active);
+    if (joining.length > 0 || (monthEnd && anyActive)) {
+      for (const s of joining) {
+        s.active = true;
+        s.qty = 0;
+        s.capital = 0;
+      }
+      const live = sleeves.filter((s) => s.active);
+      const share = equity / live.length;
+      for (const s of live) {
+        // Keep the weight the sleeve means to hold: a pending order's target
+        // under a delay, otherwise the drifted weight at the close.
+        const drifted = s.capital > 0 ? (s.qty * s.mark) / s.capital : 0;
+        const intended = latestPending(s.pending) ?? drifted;
+        s.capital = share;
+        if (s.qty !== 0 || intended !== 0) s.pending.set(fillDay, intended);
+      }
+    }
+
+    for (const s of sleeves) {
+      if (!s.active) continue;
+      const i = barIndex(s.input, d);
+      if (i === -1) continue;
+      const signal = s.paths.signal[i];
+      const size = s.paths.size[i];
+      const target = signal === 0 || !Number.isFinite(size) ? 0 : signal * size;
+      // A sleeve's first decision after it joins is forced, whatever the schedule.
+      let order = Number.isNaN(s.lastSignal);
+      if (!order && s.paths.decide(i)) {
+        const latest = latestPending(s.pending);
+        const current =
+          latest !== undefined ? latest : s.capital > 0 ? (s.qty * s.input.close[i]) / s.capital : 0;
+        const changed = signal !== s.lastSignal;
+        const rb = s.paths.rebalance;
+        if (rb.kind === 'on-decision') order = true;
+        else if (rb.kind === 'on-signal-change') order = changed || (target !== 0 && current === 0);
+        else order = changed || (current === 0 ? target !== 0 : Math.abs(target - current) / Math.abs(current) > rb.band);
+      }
+      if (order) {
+        s.pending.set(fillDay, target);
+        s.lastSignal = signal;
+      }
+    }
+  }
+
+  for (const s of sleeves) if (s.episodeSign !== 0) run.episodes.push(s.episodeSum);
+  return run;
+}
+
+function latestPending(pending: Map<number, number>): number | undefined {
+  let bestDay = -Infinity;
+  let best: number | undefined;
+  for (const [day, w] of pending) {
+    if (day > bestDay) {
+      bestDay = day;
+      best = w;
+    }
+  }
+  return best;
+}
+
+/** Mean and sample standard deviation. */
+function meanSd(xs: readonly number[]): { mean: number; sd: number } {
+  const n = xs.length;
+  if (n < 2) return { mean: Number.NaN, sd: Number.NaN };
+  let m = 0;
+  for (const x of xs) m += x;
+  m /= n;
+  let v = 0;
+  for (const x of xs) v += (x - m) ** 2;
+  return { mean: m, sd: Math.sqrt(v / (n - 1)) };
+}
+
+/** Annualised Sharpe of a daily series: mean over sample sd, times sqrt(365). NaN when undefined. */
+export function annualisedSharpe(xs: readonly number[]): number {
+  const { mean, sd } = meanSd(xs);
+  return sd > 0 ? (mean / sd) * Math.sqrt(YEAR_DAYS) : Number.NaN;
+}
+
+/** Annualised arithmetic mean of a daily series. */
+export function annualMean(xs: readonly number[]): number {
+  return xs.length === 0 ? Number.NaN : (xs.reduce((a, b) => a + b, 0) / xs.length) * YEAR_DAYS;
+}
+
+/**
+ * Circular block bootstrap (Politis and Romano 1992): ceil(n / L) blocks of
+ * fixed length L, each starting at a uniform index and wrapping past the end,
+ * concatenated and cut to n. The pre-registered resampler (circular blocks of
+ * 60 days), distinct from the stationary bootstrap in block-bootstrap.ts.
+ */
+export function circularBlockIndices(n: number, blockLen: number, random: () => number): number[] {
+  const L = Math.max(1, Math.min(n, Math.floor(blockLen)));
+  const out: number[] = [];
+  while (out.length < n) {
+    const start = Math.floor(random() * n);
+    for (let j = 0; j < L && out.length < n; j++) out.push((start + j) % n);
+  }
+  return out;
+}
+
+function percentile(sorted: number[], p: number): number {
+  const index = p * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] * (upper - index) + sorted[upper] * (index - lower);
+}
+
+export interface BootOptions {
+  blockLen: number;
+  iterations?: number;
+  seed?: number;
+}
+
+export interface CiStat {
+  point: number;
+  low: number;
+  high: number;
+  blockLen: number;
+}
+
+/**
+ * Percentile 95% CI of a statistic of n aligned days, the days resampled in
+ * circular blocks; `stat` reads the resampled index list. Draws whose
+ * statistic is undefined are dropped.
+ */
+export function circularBootstrapCi(n: number, stat: (idx: number[]) => number, opts: BootOptions): CiStat {
+  const iterations = opts.iterations ?? 2000;
+  const random = createSeededRandom(opts.seed ?? 42);
+  const all = Array.from({ length: n }, (_, i) => i);
+  const point = stat(all);
+  const draws: number[] = [];
+  for (let b = 0; b < iterations; b++) {
+    const v = stat(circularBlockIndices(n, opts.blockLen, random));
+    if (Number.isFinite(v)) draws.push(v);
+  }
+  draws.sort((a, b) => a - b);
+  if (draws.length === 0) return { point, low: Number.NaN, high: Number.NaN, blockLen: opts.blockLen };
+  return { point, low: percentile(draws, 0.025), high: percentile(draws, 0.975), blockLen: opts.blockLen };
+}
+
+/** OLS of y on x with an intercept: daily alpha and beta. */
+export function olsAlphaBeta(y: readonly number[], x: readonly number[]): { alpha: number; beta: number } {
+  const n = y.length;
+  if (n < 2 || x.length !== n) return { alpha: Number.NaN, beta: Number.NaN };
+  let mx = 0;
+  let my = 0;
+  for (let i = 0; i < n; i++) {
+    mx += x[i];
+    my += y[i];
+  }
+  mx /= n;
+  my /= n;
+  let sxy = 0;
+  let sxx = 0;
+  for (let i = 0; i < n; i++) {
+    sxy += (x[i] - mx) * (y[i] - my);
+    sxx += (x[i] - mx) ** 2;
+  }
+  const beta = sxx > 0 ? sxy / sxx : Number.NaN;
+  return { alpha: my - beta * mx, beta };
+}
+
+/** Annualised alpha of T on its twin over the given day indices (all when omitted). */
+export function annualAlpha(t: readonly number[], twin: readonly number[], idx?: readonly number[]): { alpha: number; beta: number } {
+  const ys = idx ? idx.map((i) => t[i]) : t;
+  const xs = idx ? idx.map((i) => twin[i]) : twin;
+  const { alpha, beta } = olsAlphaBeta(ys, xs);
+  return { alpha: alpha * YEAR_DAYS, beta };
+}
+
+/** Annualised Sharpe with its circular block bootstrap CI. */
+export function sharpeCi(returns: readonly number[], opts: BootOptions): CiStat {
+  return circularBootstrapCi(returns.length, (idx) => annualisedSharpe(idx.map((i) => returns[i])), opts);
+}
+
+/** Annualised alpha of T on T+ with a paired circular block bootstrap CI. */
+export function alphaCi(t: readonly number[], twin: readonly number[], opts: BootOptions): CiStat {
+  return circularBootstrapCi(t.length, (idx) => annualAlpha(t, twin, idx).alpha, opts);
+}
+
+/** The slice of a run's days from the first day any sleeve holds capital. */
+export function liveRange(run: TrendRun): { first: number; last: number } {
+  const first = Math.min(...Object.values(run.startDay));
+  const k = run.days.findIndex((d) => d >= first);
+  return { first: k === -1 ? run.days.length : k, last: run.days.length - 1 };
+}
+
+/** Maximum drawdown of the compounded equity of a daily return series, as a positive fraction. */
+export function maxDrawdown(returns: readonly number[]): number {
+  let equity = 1;
+  let peak = 1;
+  let worst = 0;
+  for (const r of returns) {
+    equity *= 1 + r;
+    if (equity > peak) peak = equity;
+    const dd = 1 - equity / peak;
+    if (dd > worst) worst = dd;
+  }
+  return worst;
+}
+
+/** Calendar-year alphas, `years` inclusive, from aligned daily series. */
+export function yearAlphas(
+  days: readonly number[],
+  t: readonly number[],
+  twin: readonly number[],
+  years: readonly number[]
+): Array<{ year: number; alpha: number; days: number }> {
+  return years.map((year) => {
+    const from = Date.UTC(year, 0, 1);
+    const to = Date.UTC(year + 1, 0, 1);
+    const idx: number[] = [];
+    for (let i = 0; i < days.length; i++) if (days[i] >= from && days[i] < to) idx.push(i);
+    return { year, alpha: idx.length >= 2 ? annualAlpha(t, twin, idx).alpha : Number.NaN, days: idx.length };
+  });
+}
+
+/** Share of the summed episode PnL taken by the best `share` of episodes (Brandt). */
+export function topEpisodeShare(episodes: readonly number[], share = 0.15): { share: number; top: number; total: number } {
+  const total = episodes.reduce((a, b) => a + b, 0);
+  const sorted = [...episodes].sort((a, b) => b - a);
+  const k = Math.max(1, Math.ceil(sorted.length * share));
+  const top = sorted.slice(0, k).reduce((a, b) => a + b, 0);
+  return { share: total !== 0 ? top / total : Number.NaN, top, total };
+}
+
+/**
+ * Longest run of losing episodes against its expectation for independent
+ * episodes with the same loss rate q: about log(n (1 - q)) / log(1 / q)
+ * (Schilling 1990).
+ */
+export function losingStreak(episodes: readonly number[]): { longest: number; expected: number; lossRate: number } {
+  let longest = 0;
+  let run = 0;
+  let losses = 0;
+  for (const e of episodes) {
+    if (e < 0) {
+      losses++;
+      run++;
+      if (run > longest) longest = run;
+    } else run = 0;
+  }
+  const n = episodes.length;
+  const q = n > 0 ? losses / n : Number.NaN;
+  const expected = q > 0 && q < 1 && n * (1 - q) > 1 ? Math.log(n * (1 - q)) / Math.log(1 / q) : Number.NaN;
+  return { longest, expected, lossRate: q };
+}
+
+/**
+ * One symbol's paths with the signal circularly shifted by `k` over the bars
+ * the sample decides at, [first decision bar, last bar]; the size path stays
+ * on its true dates (gate 4).
+ */
+export function shiftSignal(paths: RulePaths, firstIdx: number, lastIdx: number, k: number): RulePaths {
+  const signal = Float64Array.from(paths.signal);
+  const len = lastIdx - firstIdx + 1;
+  for (let j = 0; j < len; j++) signal[firstIdx + ((j + k) % len)] = paths.signal[firstIdx + j];
+  return { ...paths, signal };
+}
+
+/** The bar span a sleeve decides at in a sample: from the close before its first day to the last day. */
+export function decisionSpan(input: TrendSymbolInput, opts: SimOptions): { firstIdx: number; lastIdx: number } {
+  const start = sleeveStart(input, opts.from);
+  let firstIdx = barIndex(input, start - DAY_MS);
+  if (firstIdx === -1) firstIdx = barIndex(input, start);
+  const lastIdx = barIndex(input, utcDay(opts.to - 1));
+  if (firstIdx === -1 || lastIdx === -1) throw new Error(`${input.symbol}: sample outside its bars`);
+  return { firstIdx, lastIdx };
+}
+
+/** Pre-registered minimum circular shift, in days, for the timing null. */
+export const MIN_SHIFT_DAYS = 365;
+
+/**
+ * Gate 4's timing null: in each draw every symbol's signal path is shifted by
+ * its own uniform offset in [365, len - 365] bars, the rule re-run, and its
+ * alpha taken against the UNSHIFTED twin. p = (1 + draws at or above the
+ * observed alpha) / (draws + 1).
+ */
+export function timingNull(
+  inputs: TrendSymbolInput[],
+  paths: Record<string, RulePaths>,
+  twinReturns: readonly number[],
+  observedAlpha: number,
+  opts: SimOptions,
+  range: { first: number; last: number },
+  draws = 200,
+  seed = 7
+): { p: number; nullMean: number; draws: number } {
+  const random = createSeededRandom(seed);
+  const spans = inputs.map((input) => decisionSpan(input, opts));
+  for (let s = 0; s < inputs.length; s++) {
+    const len = spans[s].lastIdx - spans[s].firstIdx + 1;
+    if (len < 2 * MIN_SHIFT_DAYS + 1) throw new Error(`${inputs[s].symbol}: ${len} bars is too short for a ${MIN_SHIFT_DAYS}-day shift`);
+  }
+  const twin = twinReturns.slice(range.first, range.last + 1);
+  let atOrAbove = 0;
+  let sum = 0;
+  for (let d = 0; d < draws; d++) {
+    const shifted: Record<string, RulePaths> = {};
+    inputs.forEach((input, s) => {
+      const len = spans[s].lastIdx - spans[s].firstIdx + 1;
+      const k = MIN_SHIFT_DAYS + Math.floor(random() * (len - 2 * MIN_SHIFT_DAYS + 1));
+      shifted[input.symbol] = shiftSignal(paths[input.symbol], spans[s].firstIdx, spans[s].lastIdx, k);
+    });
+    const r = runTrend(inputs, shifted, opts).returns.slice(range.first, range.last + 1);
+    const a = annualAlpha(r, twin).alpha;
+    sum += a;
+    if (a >= observedAlpha) atOrAbove++;
+  }
+  return { p: (1 + atOrAbove) / (draws + 1), nullMean: sum / draws, draws };
+}

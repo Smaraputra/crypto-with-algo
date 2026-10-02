@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research): legends trend container, built to the locked pre-registration
+- **`trend-signals.ts`**: TF1 to TF4 and C3 as pure functions of daily closes, each split into a pre-sizing signal path and a volatility size path so the timing null can shift one and keep the other on its true dates; three rebalance modes (trade to target on every decision day, trade only on a state change, TF4's 20% band); the always-long twin
+- **`trend-sim.ts`** (below the locked header): `runTrend`, a sleeve portfolio that fills at the next open, holds quantity between orders so exposure drifts, re-equalises capital at each month end and when a sleeve joins (costs charged on that turnover), charges every funding settlement in (open, next open], and keeps long and short legs apart; circular block bootstrap, alpha on the twin, the 365-day-minimum signal-shift timing null, drawdown and episode statistics
+- **`trend-gates.ts`** (the nine gates, gate 8 pending until all eleven trials exist), **`trend-harness.ts`** (CLI: PRIMARY on spot closes from each symbol's listing, CONSISTENCY on perp closes from 2022 with spot warmup, the matching spot run, drop-one, years, stress, one-bar delay) and `TrendReportSchema`, which carries the PRIMARY daily series for the phase-level deflated Sharpe
+- **Data defect found at build**: the production perp series has no bars for 2022-02-26 to 02-28 and 2022-04-01 to 04-02 on SOLUSDT and XRPUSDT, at 1h, 4h and 1d. CONSISTENCY carries the last close across those five days and reports the count. Funding carry (2023 onward) is unaffected
+- Build-time implementation notes 3 onward in the header record every choice the locked text left open; none changes a rule
+- Export `d84b32d9fb31` (spot, perp and snapshots at 1h, 4h and 1d, per-settlement funding), taken 2026-10-02, lockbox applied
+
 ### Added (research): legends phase pre-registered before any code
 - **Why** (session 23, 2026-10-01 to 02): the user asked to study well-known traders and their published rules, "maybe they inspire or contradict us". A reading round covered 13 papers, 23 YouTube transcripts, about 50 Reddit threads, X and Threads. Nothing read refutes a program finding with cost-inclusive, out-of-sample crypto evidence; the strongest challenge is to "only the 1-bar reversal and positioning carry information at 1d": slow, volatility-sized, exit-driven trend rules (Zarattini, Pagani, Barbon 2025: net Sharpe 1.0 to 1.7 per coin, 2015 to 2025) are not what the IC study measured and were never run here
 - **The full pre-registration is the header of `scripts/research/trend-sim.ts`**, committed before the simulator exists, locked by the user after an adversarial agy review (five changes accepted, three misreadings rejected, one dissent recorded: agy would deflate by the program's trial count)
