@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: legends phase closed, no rule passes
+- **Harness rules** (RESULT block in `scripts/research/trend-sim.ts`, export `d84b32d9fb31`, image from `be688f2`): P1 Turtle System 2 +24.9% a trade, CI [-0.8%, +76.5%]; P2 NR7 +0.19%, CI [-0.03%, +0.42%]; P3 Holy Grail +2.4% on 87 trades; P4 Turtle Soup Plus One -1.40%; C1 Bollinger 1h -0.088% (still -0.031% with every ambiguous bar booked as the target, so the source's +0.56% does not survive); C2 RSI above 70 at 4h +0.55%, CI [+0.11%, +1.12%], timing p 0.005, failing only the windows gate (0.533 against 0.6). Every one fails at least one of the seven harness gates
+- **Gate 8** (`legends-dsr.ts`, computed once across all eleven trials): the expected maximum annual Sharpe at N = 11 is 1.52 (the pre-registration estimated about 1.2). C3 reaches a deflated Sharpe probability of 0.33, TF4 0.29, TF1 0.05, the rest less; every trial fails, and every one is 0.000 at the program's 1,724 trials
+- **Verdict**: no rule passes, the lockbox stays closed, and by the pre-registration every family is closed on this universe; only a survivorship-free, broader universe reopens one. Slow trend rules and C2's 4h continuation show real timing here, but none clears its own phase's multiple-testing bar
+- **Pre-run review finding fixed before the runs**: P3 could re-enter a setup it had already traded; a setup is now spent once a later bar reaches its trigger
+- Program trial ledger: 1,724
+
+### Added (research): legends phase PR 2, the engine additions and the six harness rules
+- **Engine** (`src/lib/backtest`, opt-in, golden-regression, engine-parity and paper-desk parity unchanged): stop-entry orders with an optional OCO bracket and a timeout (`stop-orders.ts`), next-open market entries and an optional next-open exit (`Strategy.exitFill`), stops and targets measured from the fill, funding from per-settlement sums with the fill bar charged for an open or intrabar fill, a target-first sensitivity order, and `riskPercent` measured from the initial stop (the trailed stop mis-specified the random-entry null)
+- **Families** (`scripts/research/families/legends.ts`, causal indicators in `legends-indicators.ts`): P1 Turtle System 2, P2 Crabel NR7, P3 Raschke Holy Grail, P4 Turtle Soup Plus One, C1 Bollinger (42, 2.5) 1h breakout, C2 RSI(14) above 70 at 4h, each one fixed cell exactly as pre-registered
+- **Harness**: `--fixed-eval` (one continuous run per symbol, no selection, calendar windows by exit time for the windows gate), `--start-at-listing`, `--eval-from`, `--funding-settlements`, `--price perp`; reports carry the per-window trades and a `fixedEvaluation` block
+- **Gate 8**: `legends-dsr.ts` computes the deflated Sharpe once across all eleven trials, each a daily series, and the final provisional verdicts
+- Implementation notes 15 to 23 in the `trend-sim.ts` header record the choices the locked text left open, before any harness run
+
 ### Research: legends trend set run, three rules clear every gate a single report can decide
 - **Result** (RESULT block in `scripts/research/trend-sim.ts`, export `d84b32d9fb31`, image from `9b12f61`, PRIMARY 2019-09-11 to 2026-06-30): TF4 (Zarattini's Donchian ensemble) Sharpe 1.31, alpha on its always-long twin +7.1% CI [+1.8%, +12.0%]; C3 (Han, Kang, Ryu basket timing) 1.36, +40.3% CI [+10.6%, +66.2%]; TF1 (the 4-horizon weekly score) 0.91, +20.4% CI [+4.7%, +34.5%]; all three at timing p 0.005, positive in every drop-one portfolio, under stress and on perp closes 2022-2026, and in 5 of 6 years 2020-2025 (TF4 in 4 of 6, the gate's minimum). TF2 (AQR blend, 0.23) and TF3 (200-day, 0.83, alpha CI spanning zero, timing p 0.10) FAIL
 - **Nothing has passed yet**: gate 8, the deflated Sharpe at N = 11 computed once across all eleven trials, waits for the six harness trials, and any pass is PROVISIONAL until it repeats on a survivorship-free universe (the universe is ten 2026 survivors). The lockbox stays closed

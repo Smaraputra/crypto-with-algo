@@ -56,6 +56,24 @@
  *                               gate throughout, or the timing p-value would
  *                               compare a gated strategy to an ungated null.
  *                               Recorded on the report as `allowedSessions`.
+ *   --fixed-eval               FIXED-EVALUATION MODE (legends phase): the family
+ *                               must resolve to one cell; no in-sample selection,
+ *                               one continuous run per symbol from its evaluation
+ *                               start, trades grouped into --windows calendar spans
+ *                               by exit time for the windows gate only
+ *                               (strategy-walk-forward.ts, runFixedEvaluation)
+ *   --start-at-listing         with --fixed-eval: a symbol's evaluation starts no
+ *                               earlier than its perp listing (the first 1d snapshot
+ *                               with a funding rate); earlier bars are warmup
+ *   --eval-from <ISO>          with --fixed-eval: no evaluation before this instant
+ *                               (bars before it stay available as warmup)
+ *   --funding-settlements      funding accrues from the per-settlement series (the
+ *                               archive, preceded by the 4h-snapshot fallback before
+ *                               its first settlement), one settlement at a time
+ *   --price spot|perp          default spot; perp prices the run on perp klines from
+ *                               --perp-from (default 2022-01-01), spot bars before it
+ *                               as warmup, a missing perp bar carrying the last close
+ *   --perp-from <ISO>          see --price
  *   --allow-lockbox            read data at/after the 2026-07-01 lockbox
  *   --expect-manifest-hash <h> abort unless the loaded dataset matches
  *   --cell SYMBOL:WINDOW       with --report <file>: spot-check one window,
@@ -136,8 +154,18 @@ import {
 } from '@/lib/backtest/cost-model';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { getConfirmationInterval } from '@/lib/signals/htf';
-import { loadCandles, loadManifest, loadMetrics, loadOptions, loadSnapshots, verifyManifest } from './load-dataset';
-import type { CandleRow, MetricsRow, OptionsRow } from './dataset-format';
+import {
+  loadCandles,
+  loadFunding,
+  loadManifest,
+  loadMetrics,
+  loadOptions,
+  loadPerp,
+  loadSnapshots,
+  verifyManifest,
+} from './load-dataset';
+import type { CandleRow, MetricsRow, OptionsRow, PerpCandleRow } from './dataset-format';
+import { buildSettlements, listingDayOf } from './trend-harness';
 import type { ResearchRow } from '@/lib/backtest/research-series';
 import { buildResearchColumns } from './research-columns';
 import { computeAllIndicators } from '@/lib/indicators/compute';
@@ -148,7 +176,9 @@ import { expandGrid, type StrategyFamily } from './strategy-families';
 import { ALL_FAMILIES } from './exploration-families';
 import {
   resolveWindowConfig,
+  runFixedEvaluation,
   runStrategyWalkForward,
+  type FixedEvaluationExtras,
   type OosTrade,
   type StrategyCosts,
   type StrategyWalkForwardResult,
@@ -194,6 +224,13 @@ export interface StrategyHarnessArgs {
   expectManifestHash?: string;
   cell?: { symbol: string; window: number };
   reportPath?: string;
+  /** Legends phase: one continuous run per symbol, no selection (see --fixed-eval). */
+  fixedEval: boolean;
+  startAtListing: boolean;
+  evalFrom?: number;
+  fundingSettlements: boolean;
+  price: 'spot' | 'perp';
+  perpFrom: number;
 }
 
 export interface StrategyCellResult {
@@ -337,7 +374,7 @@ function parseCell(value: string): { symbol: string; window: number } {
   return { symbol, window };
 }
 
-const BOOLEAN_FLAGS = new Set(['allow-lockbox', 'no-benchmark']);
+const BOOLEAN_FLAGS = new Set(['allow-lockbox', 'no-benchmark', 'fixed-eval', 'start-at-listing', 'funding-settlements']);
 
 const VALUE_FLAGS = new Set([
   'family',
@@ -363,6 +400,9 @@ const VALUE_FLAGS = new Set([
   'expect-manifest-hash',
   'cell',
   'report',
+  'eval-from',
+  'price',
+  'perp-from',
 ]);
 
 /** Pure CLI argument parsing. `now` is injectable so default-taskId tests are deterministic. */
@@ -462,7 +502,50 @@ export function parseArgs(argv: string[], now: Date = new Date()): StrategyHarne
     expectManifestHash: flags.get('expect-manifest-hash'),
     cell: flags.has('cell') ? parseCell(flags.get('cell')!) : undefined,
     reportPath: flags.get('report'),
+    fixedEval: booleans.has('fixed-eval'),
+    startAtListing: booleans.has('start-at-listing'),
+    evalFrom: parseIsoFlag(flags.get('eval-from'), 'eval-from'),
+    fundingSettlements: booleans.has('funding-settlements'),
+    price: parsePrice(flags.get('price')),
+    perpFrom: parseIsoFlag(flags.get('perp-from'), 'perp-from') ?? DEFAULT_PERP_FROM,
   };
+}
+
+/** Perp klines start 2022-01-01 in the archive ingest. */
+export const DEFAULT_PERP_FROM = Date.UTC(2022, 0, 1);
+
+function parsePrice(value: string | undefined): 'spot' | 'perp' {
+  if (value === undefined || value === 'spot') return 'spot';
+  if (value === 'perp') return 'perp';
+  throw new Error(`Invalid --price "${value}", expected spot or perp`);
+}
+
+/**
+ * Spot rows before `from`, perp rows from it, every missing bar inside the
+ * series filled by carrying the last close forward (open = high = low = close
+ * = last close, volume 0), so a lookback of L bars stays L bars and the move
+ * across a gap is booked on the bar data resumes; no price is invented. The
+ * production perp series lacked five days on SOLUSDT and XRPUSDT in 2022 when
+ * the legends export was taken (backfilled afterwards, PR #65).
+ */
+export function splicePerpCandles(
+  spot: CandleRow[],
+  perp: PerpCandleRow[],
+  from: number,
+  intervalMs: number
+): { candles: OHLCV[]; filled: number } {
+  const rows = [...spot.filter((r) => r.t < from), ...perp.filter((r) => r.t >= from)].sort((a, b) => a.t - b.t);
+  const out: OHLCV[] = [];
+  let filled = 0;
+  for (const r of rows) {
+    while (out.length > 0 && r.t - out[out.length - 1].timestamp > intervalMs) {
+      const last = out[out.length - 1];
+      out.push({ timestamp: last.timestamp + intervalMs, open: last.close, high: last.close, low: last.close, close: last.close, volume: 0 });
+      filled++;
+    }
+    out.push(toOHLCV(r as CandleRow));
+  }
+  return { candles: out, filled };
 }
 
 function inRange(t: number, start: number | undefined, end: number | undefined): boolean {
@@ -532,6 +615,8 @@ interface SymbolInputs {
    * series so a window's slice merely selects a sub-range. */
   researchRows: ResearchRow[];
   metricsRows: number;
+  /** Perp bars filled by carrying the last close (--price perp only). */
+  perpFilledBars: number;
 }
 
 /**
@@ -549,10 +634,22 @@ function loadSymbolInputs(
   snapshotInterval: string,
   marketCandles: CandleRow[] | null,
   marketOptions: OptionsRow[] | null,
-  opts: { allowLockbox: boolean; start?: number; end?: number }
+  opts: { allowLockbox: boolean; start?: number; end?: number; price?: 'spot' | 'perp'; perpFrom?: number }
 ): SymbolInputs {
   const candleResult = loadCandles(datasetDir, symbol, interval, { allowLockbox: opts.allowLockbox });
-  const candles = candleResult.rows.filter((r) => inRange(r.t, opts.start, opts.end)).map(toOHLCV);
+  let candles = candleResult.rows.filter((r) => inRange(r.t, opts.start, opts.end)).map(toOHLCV);
+  let perpFilledBars = 0;
+  if (opts.price === 'perp') {
+    const perp = loadPerp(datasetDir, symbol, interval, 'klines', { allowLockbox: opts.allowLockbox });
+    const spliced = splicePerpCandles(
+      candleResult.rows.filter((r) => inRange(r.t, opts.start, opts.end)),
+      perp.rows.filter((r) => inRange(r.t, opts.start, opts.end)),
+      opts.perpFrom ?? DEFAULT_PERP_FROM,
+      intervalToMs(interval)
+    );
+    candles = spliced.candles;
+    perpFilledBars = spliced.filled;
+  }
 
   const snapshotPath = join(datasetDir, 'snapshots', symbol, `${snapshotInterval}.jsonl.gz`);
   let snapshots: LeanSnapshot[] = [];
@@ -657,6 +754,7 @@ function loadSymbolInputs(
     lockboxApplied: candleResult.lockboxApplied,
     researchRows,
     metricsRows: metrics.length,
+    perpFilledBars,
   };
 }
 
@@ -675,8 +773,20 @@ function buildPooledOos(windows: WindowResult[]): StrategyReport['perSymbol'][nu
   };
 }
 
-function buildWindowReport(w: WindowResult): StrategyReport['perSymbol'][number]['windows'][number] {
+function buildWindowReport(w: WindowResult, withTrades = false): StrategyReport['perSymbol'][number]['windows'][number] {
   return {
+    ...(withTrades
+      ? {
+          trades: w.oosTrades.map((t) => ({
+            entryTime: t.entryTime,
+            exitTime: t.exitTime,
+            side: t.side,
+            pnlPercent: finiteOr(t.pnlPercent, 0),
+            exitReason: t.exitReason,
+            holdTimeBars: t.holdTimeBars,
+          })),
+        }
+      : {}),
     index: w.index,
     trainStart: w.trainStart,
     trainEnd: w.trainEnd,
@@ -753,7 +863,95 @@ export function costsForSymbolReport(report: StrategyReport, symbol: string): St
   };
 }
 
+/** Per-symbol fixed-evaluation bookkeeping recorded on the report. */
+export interface FixedSymbolInfo {
+  listingDay: number | null;
+  evalStartTime: number;
+  warmupBars: number;
+  perpFilledBars: number;
+  fallbackSettlements: number;
+  stopEntries: FixedEvaluationExtras['stopEntries'];
+  stopExitsReachingTarget: number;
+  targetFirst: FixedEvaluationExtras['targetFirst'];
+}
+
+/**
+ * One symbol's fixed evaluation: its evaluation start (the later of its perp
+ * listing under --start-at-listing, --eval-from and --start), its funding
+ * settlements under --funding-settlements (the archive, preceded by the
+ * 4h-snapshot fallback before its first settlement, as trend-harness.ts builds
+ * them), then runFixedEvaluation.
+ */
+function runFixedForSymbol(
+  args: StrategyHarnessArgs,
+  input: SymbolInputs,
+  ctx: {
+    interval: string;
+    style: TradingStyle;
+    family: StrategyFamily;
+    cell: Record<string, number>;
+    costs: StrategyCosts;
+    fundingEnabled: boolean;
+    benchmarkSeed: number | null;
+  }
+): { result: StrategyWalkForwardResult; info: FixedSymbolInfo } {
+  let listingDay: number | null = null;
+  if (args.startAtListing || args.fundingSettlements) {
+    const snap1d = loadSnapshots(args.datasetDir, input.symbol, '1d', { allowLockbox: args.allowLockbox });
+    listingDay = listingDayOf(input.symbol, snap1d.rows);
+  }
+  let settlements: Array<{ t: number; rate: number }> | undefined;
+  let fallbackSettlements = 0;
+  if (args.fundingSettlements) {
+    const archive = loadFunding(args.datasetDir, input.symbol, { allowLockbox: args.allowLockbox }).rows;
+    const snaps4h = loadSnapshots(args.datasetDir, input.symbol, '4h', { allowLockbox: args.allowLockbox }).rows;
+    const built = buildSettlements(listingDay as number, archive, snaps4h);
+    settlements = built.settlements;
+    fallbackSettlements = built.fallback;
+  }
+  const evalFrom = Math.max(
+    args.startAtListing && listingDay !== null ? listingDay : -Infinity,
+    args.evalFrom ?? -Infinity,
+    args.start ?? -Infinity,
+    input.candles[0]?.timestamp ?? -Infinity
+  );
+  const run = runFixedEvaluation({
+    candles: input.candles,
+    symbol: input.symbol,
+    interval: ctx.interval,
+    style: ctx.style,
+    family: ctx.family,
+    cell: ctx.cell,
+    snapshots: input.snapshots.length > 0 ? input.snapshots : undefined,
+    lsRows1h: input.lsRows1h,
+    researchRows: input.researchRows,
+    htfInput: input.htfInput,
+    costs: ctx.costs,
+    fundingEnabled: ctx.fundingEnabled,
+    settlements,
+    evalFrom,
+    windowCount: args.windows,
+    stress: { feeMultiplier: args.stressFeeMult, slippageMultiplier: args.stressSlippageMult },
+    benchmark: ctx.benchmarkSeed === null ? null : { iterations: args.benchmarkN, seed: ctx.benchmarkSeed },
+  });
+  const { fixed, ...result } = run;
+  return {
+    result,
+    info: {
+      listingDay,
+      evalStartTime: fixed.evalStartTime,
+      warmupBars: fixed.warmupBars,
+      perpFilledBars: input.perpFilledBars,
+      fallbackSettlements,
+      stopEntries: fixed.stopEntries,
+      stopExitsReachingTarget: fixed.stopExitsReachingTarget,
+      targetFirst: fixed.targetFirst,
+    },
+  };
+}
+
 function resolveCommit(): string {
+  if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT;
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
   } catch {
@@ -856,6 +1054,12 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   if (args.fixParams) {
     cells = [selectFixedCell(family, cells, args.fixParams)];
   }
+  if (args.fixedEval && cells.length !== 1) {
+    throw new Error(`--fixed-eval needs one cell; "${familyName}" has ${cells.length} (pass --fix-params)`);
+  }
+  if (!args.fixedEval && (args.startAtListing || args.evalFrom !== undefined || args.fundingSettlements)) {
+    throw new Error('--start-at-listing, --eval-from and --funding-settlements need --fixed-eval');
+  }
 
   const symbols = args.symbols && args.symbols.length > 0 ? args.symbols : manifest.symbols;
   const snapshotInterval = mapToSnapshotInterval(interval);
@@ -890,6 +1094,8 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
         allowLockbox: args.allowLockbox,
         start: args.start,
         end: args.end,
+        price: args.price,
+        perpFrom: args.perpFrom,
       })
     );
   }
@@ -934,6 +1140,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
   }
 
   const results: StrategyWalkForwardResult[] = [];
+  const fixedExtras: Record<string, FixedSymbolInfo> = {};
   const benchmarkSeeds: Array<number | null> = [];
   const perSymbolCosts: StrategyCosts[] = [];
   for (let symbolIndex = 0; symbolIndex < perSymbolInputs.length; symbolIndex++) {
@@ -963,6 +1170,17 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     // multi-symbol run it exists to check.
     const symbolBenchmarkSeed = args.noBenchmark ? null : args.seed + symbolIndex * 1_000_000;
     benchmarkSeeds.push(symbolBenchmarkSeed);
+
+    if (args.fixedEval) {
+      const fixed = runFixedForSymbol(args, input, { interval, style, family, cell: cells[0], costs: symbolCosts, fundingEnabled, benchmarkSeed: symbolBenchmarkSeed });
+      fixedExtras[input.symbol] = fixed.info;
+      console.error(
+        `[strategy-harness] ${input.symbol} fixed evaluation from ${new Date(fixed.info.evalStartTime).toISOString().slice(0, 10)}: ` +
+          `${fixed.result.windows.reduce((n, w) => n + w.oosTrades.length, 0)} trades`
+      );
+      results.push(fixed.result);
+      continue;
+    }
 
     const result = runStrategyWalkForward({
       candles: input.candles,
@@ -1019,7 +1237,7 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     // request, which calculateWindows is not guaranteed to fully satisfy.
     windowConfig: { ...result.windowConfig, count: result.windows.length },
     benchmarkSeed: benchmarkSeeds[i],
-    windows: result.windows.map(buildWindowReport),
+    windows: result.windows.map((w) => buildWindowReport(w, args.fixedEval)),
     pooledOos: buildPooledOos(result.windows),
     costs: perSymbolCosts[i],
   }));
@@ -1055,6 +1273,18 @@ export async function runStrategyHarness(args: StrategyHarnessArgs): Promise<Str
     pooled,
     gates,
     pass,
+    ...(args.fixedEval
+      ? {
+          fixedEvaluation: {
+            startAtListing: args.startAtListing,
+            evalFrom: args.evalFrom ?? null,
+            fundingSource: args.fundingSettlements ? ('settlements' as const) : ('snapshots' as const),
+            price: args.price,
+            perpFrom: args.price === 'perp' ? args.perpFrom : null,
+            perSymbol: fixedExtras,
+          },
+        }
+      : {}),
     computedAt: new Date().toISOString(),
     gitCommit: resolveCommit(),
     durationMs: Date.now() - startedAt,

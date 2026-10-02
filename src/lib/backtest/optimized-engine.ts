@@ -37,6 +37,8 @@ export interface PreparedBacktest {
   snapshots?: (SnapshotBar | null)[]; // index-aligned point-in-time futures/sentiment
   research?: (ResearchBar | null)[]; // index-aligned research-only columns
   htf?: BarLoopHtf & { interval: string };
+  /** Research-only, index-aligned: settled funding rates summed per bar (see BarLoopInput.fundingSums). */
+  fundingSums?: Float64Array;
 }
 
 /**
@@ -126,7 +128,7 @@ export function runOptimizedBacktest(
   onProgress?: BacktestProgressCallback,
   strategy: Strategy = createScoreThresholdStrategy()
 ): BacktestResult {
-  const { candles, indicators, superTrend, warmupBars, stOffset, snapshots, research, htf } = prepared;
+  const { candles, indicators, superTrend, warmupBars, stOffset, snapshots, research, htf, fundingSums } = prepared;
 
   return runBarLoop({
     candles,
@@ -140,6 +142,7 @@ export function runOptimizedBacktest(
     htf,
     snapshots,
     research,
+    fundingSums,
     strategy,
     onProgress,
   });

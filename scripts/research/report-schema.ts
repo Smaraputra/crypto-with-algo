@@ -637,7 +637,19 @@ const StrategyOosCellSchema = z.object({
   expectancyPercent: z.number().nullable(),
 });
 
+/** One out-of-sample trade, written only by fixed-evaluation runs (the legends phase's daily series reads it). */
+const StrategyWindowTradeSchema = z.object({
+  entryTime: z.number(),
+  exitTime: z.number(),
+  side: z.enum(['long', 'short']),
+  pnlPercent: z.number(),
+  exitReason: z.string(),
+  holdTimeBars: z.number(),
+});
+
 const StrategyWindowSchema = z.object({
+  /** Fixed-evaluation runs only. */
+  trades: z.array(StrategyWindowTradeSchema).optional(),
   index: z.number(),
   trainStart: z.number(),
   trainEnd: z.number(),
@@ -718,7 +730,30 @@ const StrategyPerSymbolSchema = z.object({
     .optional(),
 });
 
+const FixedEvaluationSchema = z.object({
+  startAtListing: z.boolean(),
+  evalFrom: z.number().nullable(),
+  fundingSource: z.enum(['settlements', 'snapshots']),
+  price: z.enum(['spot', 'perp']),
+  perpFrom: z.number().nullable(),
+  perSymbol: z.record(
+    z.string(),
+    z.object({
+      listingDay: z.number().nullable(),
+      evalStartTime: z.number(),
+      warmupBars: z.number(),
+      perpFilledBars: z.number(),
+      fallbackSettlements: z.number(),
+      stopEntries: z.object({ placed: z.number(), filled: z.number(), ambiguous: z.number(), expired: z.number() }),
+      stopExitsReachingTarget: z.number(),
+      targetFirst: z.object({ trades: z.number(), expectancyPercent: z.number() }),
+    })
+  ),
+});
+
 export const StrategyReportSchema = z.object({
+  /** Legends phase fixed-evaluation runs only (strategy-harness.ts --fixed-eval). */
+  fixedEvaluation: FixedEvaluationSchema.optional(),
   schemaVersion: z.literal(1),
   taskId: z.string(),
   datasetManifestHash: z.string(),

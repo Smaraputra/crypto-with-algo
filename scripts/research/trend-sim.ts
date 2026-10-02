@@ -300,6 +300,51 @@
  * 14. Gate 8 is not decided in a rule's report: it is computed once across all eleven trials, after the
  *    harness rules have run.
  *
+ * IMPLEMENTATION NOTES 15 TO 23, the six harness rules, recorded at build time on 2026-10-02 after the
+ * trend set's result and before any harness run, each a choice the locked text leaves open. None changes
+ * a rule.
+ *
+ * 15. Fixed evaluation (strategy-harness.ts --fixed-eval, strategy-walk-forward.ts runFixedEvaluation):
+ *    one continuous run per symbol from the later of its perp listing (--start-at-listing) and the
+ *    harness style's indicator warmup to 2026-06-30, no selection; trades fall into six equal calendar
+ *    spans by exit time, used only by the windows gate. The 1d style's warmup is 400 bars, so a symbol
+ *    with spot history from 2018 starts on 2019-12-05 (BTCUSDT) or at its later listing, and SOL, DOT and
+ *    AVAX (spot history from 2020) a year after their listing.
+ * 16. Engine (src/lib/backtest, behind the unchanged golden-regression, engine-parity and paper-desk
+ *    parity tests): a stop entry fills at its trigger, or at the open when the bar opened through it,
+ *    plus slippage and taker fee; an untriggered one-bar order expires at that bar's close, where the
+ *    rule decides again (P1's "re-placed every bar", P3's "up to 3 bars"); an OCO bracket whose legs
+ *    both trigger in one bar fills the leg nearer the open (counted per symbol). A next-open fill is at
+ *    the next open plus slippage. After either fill the bar's range is checked against the stop first
+ *    and its close against the rule's exit. Exits at a stop keep the engine's convention of the stop
+ *    price (a gap through a stop is not modelled). Risk is measured from the initial stop.
+ * 17. Funding for the harness rules: the per-settlement series with the 4h-snapshot fallback (note 1),
+ *    per bar (previous close, close]; a next-open or stop fill pays its whole fill bar (conservative for a
+ *    stop filled inside the bar), and a next-open exit pays nothing on the bar it exits at.
+ * 18. The timing null enters at the next open with the reference's stop and target distances measured
+ *    from the fill, for P1 to P4 as well (a breakout trigger has no meaning for a random entry).
+ * 19. CONSISTENCY for the harness rules (COMMON SETUP: the primary statistic must have the same sign): a
+ *    second fixed-evaluation run per rule with --price perp --eval-from 2022-01-01, perp klines from
+ *    2022-01-01 and spot bars before as warmup (the five missing SOLUSDT and XRPUSDT days of this export
+ *    carried forward, note 3); the sign of its pooled expectancy must equal PRIMARY's.
+ * 20. Of the harness's eight gates, `trials` is vacuous with one cell (M5) and is replaced by gate 8;
+ *    the other seven gate. Gate 8 (legends-dsr.ts): each trial's daily series is, for a harness rule,
+ *    its realised trade returns (pnlPercent / 100) booked on the exit day, each symbol a sleeve, the
+ *    sleeves equal-weighted over the symbols evaluating that day; the per-period Sharpes of all eleven
+ *    give the variance; a trial passes at a deflated Sharpe probability of 0.95.
+ * 21. Rule readings (families/legends.ts header): P1's 55-day channel at a close spans bars t-54..t and
+ *    its 2N stop is measured from the fill after slippage; P2's NR7 is a range at most each of the prior
+ *    six; P3's setup is the most recent qualifying bar of the last three while ADX > 30 and the DI order
+ *    still hold at the decision close, its stop the extreme from the setup bar through the decision
+ *    bar, a target on the wrong side of the trigger cancels it, and a later bar reaching the trigger
+ *    spends it (re-placement is for an unfilled order; found by the pre-run review); P4's prior extreme is its most
+ *    recent bar; short legs mirror long ones.
+ * 22. Time exits count full bars after the entry moment: C1 enters at an open, so "the close of the
+ *    18th bar after entry" (the source's 1,075 minutes) is the fill bar + 17; P4 enters inside day two,
+ *    so "the sixth bar after entry" is day two + 6.
+ * 23. C1's same-bar ordering is reported per symbol beside its stop-first result: the count of stop
+ *    exits on bars that also reached the target, and the expectancy with those bars booked as targets.
+ *
  * RUN RECORD
  *
  * Run 1, 2026-10-02, image from `dc70041`, export `d84b32d9fb31`: DISCARDED for a container defect.
@@ -349,6 +394,48 @@
  *   it is, no rule has passed and the lockbox stays closed. By the pre-registration any pass is
  *   PROVISIONAL until the same rule passes on a survivorship-free universe, and the universe here is ten
  *   2026 survivors.
+ *
+ * RESULT, HARNESS RULES AND GATE 8, 2026-10-02. Export `d84b32d9fb31` (the same export), image from
+ * `be688f2`, fixed evaluation from each symbol's listing or warmup end (BTCUSDT and ETHUSDT from
+ * 2019-12-04, SOL, DOT and AVAX from 2021-09 to 2021-10) to 2026-06-30, settlement funding, reports
+ * `strategy-{p1..p4,c1,c2}.json` and the perp CONSISTENCY runs `strategy-*-perp.json` (2022-01-01 on).
+ * P2 reproduced digit for digit on a second machine from the hash-verified export. Expectancy is per
+ * trade after costs, CI the bootstrap 95% interval, p the random-entry timing p.
+ *
+ *   rule  n       expectancy  95% CI              p      symbols  failed gates (of seven; trials is gate 8)   perp 2022-26
+ *   P1    456     +24.93%     [-0.83%, +76.47%]   0.010  9/10     expectancy, windows (0.55)                  +0.94%
+ *   P2    2,736   +0.195%     [-0.028%, +0.424%]  0.010  8/10     expectancy                                  +0.026%
+ *   P3    87      +2.43%      [-0.38%, +5.81%]    0.010  7/10     sample, expectancy, windows                 +0.15%
+ *   P4    433     -1.40%      [-2.10%, -0.75%]    1.000  0/10     expectancy, windows, symbols, timing, stress -1.30%
+ *   C1    10,677  -0.088%     [-0.156%, -0.025%]  0.005  2/10     expectancy, windows, symbols, stress        -0.074%
+ *   C2    2,224   +0.545%     [+0.109%, +1.119%]  0.005  8/10     windows (0.533 against 0.6)                 +0.11%
+ *
+ *   Reported: C1's same-bar ordering, 134 stop exits on bars that also reached the target; booked as
+ *   targets the expectancy is still -0.031%, so the source's +0.56% a trade survives neither ordering.
+ *   P2's bracket triggered on both sides on 653 of its 2,736 fill bars (24%), each booked as the
+ *   nearer leg then stopped on the same bar (note 16). P1's mean is dominated by a few multi-month
+ *   trends (win rate 34%). The perp runs carried 10 1d, 240 1h and 97 4h bars forward (the five known
+ *   days, plus about six spot 4h maintenance gaps per symbol inside the pre-2022 warmup).
+ *
+ *   GATE 8 (legends-dsr.ts, report legends-gate8.json): the variance of the eleven per-period Sharpes
+ *   puts the expected maximum annual Sharpe at 1.52 at N = 11 (3.19 at the program's 1,724). Deflated
+ *   Sharpe probabilities: C3 0.330 (Sharpe 1.36), TF4 0.294 (1.31), TF1 0.054 (0.91), TF3 0.031,
+ *   P2 0.019, C2 0.007 (0.95), P3 0.003, the rest 0.000; every one is 0.000 at the program count.
+ *   EVERY TRIAL FAILS GATE 8. The pre-registration's "about 1.2" was an estimate; the spread of the
+ *   eleven, widened by P4's and C1's strongly negative Sharpes, set the bar higher.
+ *
+ *   Predictions: right that no rule passes and that TF4 would be the best trend rule; right for P3
+ *   (sample), P4 and C1 (negative, C1 win rate 36%); right on P2's win rate above 55% (57%) but wrong
+ *   on its sign (+0.19%, CI spanning zero); wrong for C2 (+0.55% with a CI above zero and timing at
+ *   0.005, failing only the windows gate); P1's timing gate passed where a failure was predicted.
+ *
+ * PHASE VERDICT. NO RULE PASSES. All eleven trials fail; the lockbox stays closed. By the
+ * pre-registration every family is CLOSED ON THIS UNIVERSE (ten Binance USDT-M survivors); only a
+ * survivorship-free, materially broader universe reopens one, under a new pre-registration. Program
+ * trial ledger: 1,724. What the phase leaves standing, as readings and not results: slow trend rules
+ * (TF4, C3, TF1) and C2's 4h continuation carry real timing (p 0.005 against shifted or random entries)
+ * and positive alpha or expectancy here, but none clears the multiple-testing bar of its own phase,
+ * and the universe they were measured on is the one most favourable to long trend rules.
  */
 import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
