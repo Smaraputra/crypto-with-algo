@@ -143,7 +143,9 @@ export function computeGate8(
     const dsrPhase = at(PHASE_TRIALS);
     const gate8 = dsrPhase >= DSR_MIN;
     const other = otherGates[s.id];
-    const pass = other.pass && other.consistency !== false && gate8;
+    // A harness rule needs its perp CONSISTENCY run to agree; a missing run is not a pass.
+    const consistent = s.kind === 'harness' ? other.consistency === true : other.consistency !== false;
+    const pass = other.pass && consistent && gate8;
     return {
       id: s.id,
       kind: s.kind,

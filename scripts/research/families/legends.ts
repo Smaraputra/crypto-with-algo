@@ -20,7 +20,9 @@
  *   the DI order) still holding at each re-placement close; the setup bar is the
  *   most recent one in the last three bars; the stop is the lowest low (highest
  *   high) from the setup bar through the decision bar; a target on the wrong
- *   side of the trigger cancels the setup.
+ *   side of the trigger cancels the setup, and so does any later bar reaching
+ *   the trigger (re-placement is for an UNFILLED order, so a setup whose trade
+ *   filled, or whose breakout passed, is never entered again).
  * - P4's "prior 20-day low at least 3 sessions old" takes the most recent bar at
  *   that low and requires it at t-3 or earlier.
  * - C1's "close of the 18th bar after entry", with entry at a bar's open (that
@@ -137,7 +139,15 @@ function holyGrailSetup(ctx: StrategyContext, side: 'long' | 'short'): number {
       side === 'long'
         ? c[s].low <= e[s] && c[s - 1].close > e[s - 1]
         : c[s].high >= e[s] && c[s - 1].close < e[s - 1];
-    if (pulledBack) return s;
+    if (!pulledBack) continue;
+    // A setup is re-placed only while its order is UNFILLED: once a bar after
+    // the setup has reached the trigger, the setup has been traded (or its
+    // breakout passed) and is spent, so a trade that exited never re-enters it.
+    if (s < t) {
+      const reached = side === 'long' ? highest(c, s + 1, t) >= c[s].high : lowest(c, s + 1, t) <= c[s].low;
+      if (reached) return -1;
+    }
+    return s;
   }
   return -1;
 }

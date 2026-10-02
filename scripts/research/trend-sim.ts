@@ -336,7 +336,8 @@
  *    its 2N stop is measured from the fill after slippage; P2's NR7 is a range at most each of the prior
  *    six; P3's setup is the most recent qualifying bar of the last three while ADX > 30 and the DI order
  *    still hold at the decision close, its stop the extreme from the setup bar through the decision
- *    bar, and a target on the wrong side of the trigger cancels it; P4's prior extreme is its most
+ *    bar, a target on the wrong side of the trigger cancels it, and a later bar reaching the trigger
+ *    spends it (re-placement is for an unfilled order; found by the pre-run review); P4's prior extreme is its most
  *    recent bar; short legs mirror long ones.
  * 22. Time exits count full bars after the entry moment: C1 enters at an open, so "the close of the
  *    18th bar after entry" (the source's 1,075 minutes) is the fill bar + 17; P4 enters inside day two,

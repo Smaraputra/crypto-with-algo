@@ -149,6 +149,13 @@ describe('P3 holy-grail', () => {
     expect(s.decideEntry(ctxAt(later, 58), CONFIG)).toBeNull();
   });
 
+  it('spends a setup once a later bar reaches its trigger, so a filled trade is never re-entered', () => {
+    const p = pullback[55];
+    // Bar 56 trades through the setup high and stays far above the EMA (not a new setup itself).
+    const through = [...pullback, candle(p.high - 0.05, p.high + 0.5, p.high - 0.1, p.high + 0.3, 56)];
+    expect(s.decideEntry(ctxAt(through, 56), CONFIG)).toBeNull();
+  });
+
   it('takes no setup without a trend', () => {
     expect(s.decideEntry(ctxAt(wavy(80), 70), CONFIG)).toBeNull();
   });

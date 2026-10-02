@@ -73,5 +73,12 @@ describe('computeGate8', () => {
     expect(g.results.find((r) => r.id === 'TF4')!.verdict).toBe('fail');
     const h = computeGate8(all, { ...others, TF4: { pass: true, consistency: false, note: 'x' } });
     expect(h.results.find((r) => r.id === 'TF4')!.verdict).toBe('fail');
+
+    // A harness trial with no consistency run cannot pass.
+    const asHarness = all.map((t) => (t.id === 'TF4' ? { ...t, kind: 'harness' as const } : t));
+    const missing = computeGate8(asHarness, { ...others, TF4: { pass: true, consistency: null, note: 'x' } });
+    expect(missing.results.find((r) => r.id === 'TF4')!.verdict).toBe('fail');
+    const agreed = computeGate8(asHarness, { ...others, TF4: { pass: true, consistency: true, note: 'x' } });
+    expect(agreed.results.find((r) => r.id === 'TF4')!.verdict).toBe('pass (provisional)');
   });
 });
