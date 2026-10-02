@@ -246,8 +246,8 @@ export function CronHistory() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {run.jobs.map((job, idx) => (
-                            <TableRow key={idx}>
+                          {run.jobs.map((job) => (
+                            <TableRow key={job.tradingStyle}>
                               <TableCell className="capitalize">
                                 {job.tradingStyle.replace('_', ' ')}
                               </TableCell>
