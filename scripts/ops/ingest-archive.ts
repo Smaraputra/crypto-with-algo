@@ -58,11 +58,22 @@
  *                                               settlements writes one
  *                                               FundingSettlement per archive
  *                                               row and touches no snapshot
+ *   --cadence daily|monthly                     archive files to read for the
+ *                                               kline-shaped datasets only
+ *                                               (default: monthly, ARCHIVE_CADENCE)
+ *
+ * Why --cadence exists: Binance's MONTHLY kline files can silently omit days
+ * that its DAILY files carry. SOLUSDT and XRPUSDT perp klines for 2022-02-26
+ * to 02-28 and 2022-04-01 to 04-02 are absent from the 2022-02, 2022-03 and
+ * 2022-04 monthly files at every interval, so a monthly backfill left those
+ * bars missing in production (found 2026-10-02). Re-ingesting the affected
+ * days with `--cadence daily` fills them; upserts make it safe to re-run.
  */
 import { connectDB } from '@/lib/mongodb';
 import {
   ARCHIVE_CADENCE,
   fetchArchiveFile,
+  type ArchiveCadence,
   parseBookDepthCsv,
   parseFundingCsv,
   parseKlineCsv,
@@ -126,6 +137,8 @@ export interface ParsedArgs {
   dryRun: boolean;
   /** Where `fundingRate` rows are written. Default `snapshots`, the original behaviour. */
   fundingTarget: FundingTarget;
+  /** Archive cadence override for the kline-shaped datasets; null keeps ARCHIVE_CADENCE. */
+  cadence: ArchiveCadence | null;
 }
 
 export const FUNDING_TARGETS = ['snapshots', 'settlements', 'both'] as const;
@@ -137,6 +150,8 @@ export interface Job {
   interval?: string;
   fromMs: number;
   toMs: number;
+  /** Set only on kline-shaped jobs when `--cadence` overrides the default. */
+  cadence?: ArchiveCadence;
 }
 
 const DEFAULT_DATASETS = 'metrics,snapshots';
@@ -187,6 +202,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
   let refresh = false;
   let dryRun = false;
   let fundingTarget: FundingTarget = 'snapshots';
+  let cadence: ArchiveCadence | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -234,6 +250,14 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
         fundingTarget = raw as FundingTarget;
         break;
       }
+      case '--cadence': {
+        const raw = nextValue(argv, ++i, '--cadence');
+        if (raw !== 'daily' && raw !== 'monthly') {
+          throw new Error(`--cadence must be daily or monthly, got "${raw}"`);
+        }
+        cadence = raw;
+        break;
+      }
       default:
         throw new Error(`Unknown flag "${flag}"`);
     }
@@ -245,6 +269,16 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
     }
     return name as JobKind;
   });
+
+  // Only the kline-shaped datasets are published both ways; metrics and
+  // bookDepth exist only daily and fundingRate only monthly, so an override
+  // there would ask for files that do not exist.
+  if (cadence !== null) {
+    const other = datasets.filter((d) => !INTERVAL_KINDS.has(d));
+    if (other.length > 0) {
+      throw new Error(`--cadence applies only to klines, premiumIndex and markPrice, not ${other.join(', ')}`);
+    }
+  }
 
   const intervals = parseList(intervalsSpec, '--intervals').map((interval) => {
     if (!(VALID_INTERVALS as readonly string[]).includes(interval)) {
@@ -283,6 +317,7 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
     refresh,
     dryRun,
     fundingTarget,
+    cadence,
   };
 }
 
@@ -307,7 +342,14 @@ export function buildJobs(args: ParsedArgs): Job[] {
         }
       } else if (INTERVAL_KINDS.has(kind)) {
         for (const interval of args.intervals) {
-          jobs.push({ kind, symbol, interval, fromMs: args.fromMs, toMs: args.toMs });
+          jobs.push({
+            kind,
+            symbol,
+            interval,
+            fromMs: args.fromMs,
+            toMs: args.toMs,
+            ...(args.cadence ? { cadence: args.cadence } : {}),
+          });
         }
       } else {
         jobs.push({ kind, symbol, fromMs: args.fromMs, toMs: args.toMs });
@@ -321,7 +363,7 @@ export function buildJobs(args: ParsedArgs): Job[] {
 /** The archive file keys one job needs, oldest first. */
 export function jobFileKeys(job: Job): string[] {
   if (job.kind === 'snapshots') return [];
-  return ARCHIVE_CADENCE[job.kind] === 'daily'
+  return (job.cadence ?? ARCHIVE_CADENCE[job.kind]) === 'daily'
     ? enumerateDays(job.fromMs, job.toMs)
     : enumerateMonths(job.fromMs, job.toMs);
 }
@@ -423,7 +465,7 @@ export async function main(): Promise<number> {
       // these are plain additions on a single thread.
       await forEachWithConcurrency(keys, args.concurrency, async (date) => {
         const csv = await fetchArchiveFile(
-          { dataset: job.kind as ArchiveDataset, symbol: job.symbol, interval: job.interval, date },
+          { dataset: job.kind as ArchiveDataset, symbol: job.symbol, interval: job.interval, date, cadence: job.cadence },
           fetchOptions
         );
         if (csv === null) {

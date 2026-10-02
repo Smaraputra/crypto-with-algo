@@ -75,6 +75,17 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--funding-target', 'bars'], NOW)).toThrow(/--funding-target must be one of/);
   });
 
+  it('parses --cadence for the kline-shaped datasets only, default none', () => {
+    expect(parseArgs([], NOW).cadence).toBeNull();
+    expect(parseArgs(['--datasets', 'klines,premiumIndex', '--cadence', 'daily'], NOW).cadence).toBe('daily');
+    expect(() => parseArgs(['--datasets', 'klines', '--cadence', 'weekly'], NOW)).toThrow(/--cadence must be daily or monthly/);
+    // metrics exists only daily and fundingRate only monthly: an override there asks for files that do not exist.
+    expect(() => parseArgs(['--datasets', 'klines,metrics', '--cadence', 'daily'], NOW)).toThrow(
+      /--cadence applies only to klines, premiumIndex and markPrice, not metrics/
+    );
+    expect(() => parseArgs(['--cadence', 'monthly'], NOW)).toThrow(/not metrics, snapshots/);
+  });
+
   it('defaults --from to the archive floor and --to to yesterday', () => {
     const args = parseArgs([], NOW);
     expect(new Date(args.fromMs).toISOString().slice(0, 10)).toBe('2021-01-01');
@@ -211,6 +222,12 @@ describe('jobFileKeys', () => {
     ]);
   });
 
+  it('enumerates days for a kline job whose cadence is overridden to daily', () => {
+    expect(
+      jobFileKeys({ kind: 'klines', symbol: 'SOLUSDT', interval: '1d', fromMs: from, toMs: to, cadence: 'daily' })
+    ).toEqual(['2024-01-30', '2024-01-31', '2024-02-01', '2024-02-02']);
+  });
+
   it('needs no files for the snapshots job', () => {
     expect(jobFileKeys({ kind: 'snapshots', symbol: 'BTCUSDT', interval: '1h', fromMs: from, toMs: to })).toEqual([]);
   });
@@ -298,6 +315,24 @@ describe('main', () => {
       symbol: 'BTCUSDT', interval: '5m', series: 'klines', timestamp: 1704067200000,
     });
     expect(ops[0].updateOne.update.$set.close).toBe(42437.1);
+  });
+
+  it('reads daily kline files under --cadence daily and carries the cadence onto every job', async () => {
+    mockFetchArchiveFile.mockResolvedValue(
+      '1645833600000,90.21,92.50,88.10,90.21,1000,1645919999999,90000,500,400,36000,0\n'
+    );
+    const code = await run([
+      '--datasets', 'klines', '--symbols', 'SOLUSDT', '--intervals', '1d',
+      '--from', '2022-02-26', '--to', '2022-02-28', '--cadence', 'daily',
+    ]);
+    expect(code).toBe(0);
+    expect(mockFetchArchiveFile).toHaveBeenCalledTimes(3);
+    expect(mockFetchArchiveFile.mock.calls.map((c) => c[0].date).sort()).toEqual(['2022-02-26', '2022-02-27', '2022-02-28']);
+    for (const call of mockFetchArchiveFile.mock.calls) expect(call[0].cadence).toBe('daily');
+    expect(JSON.parse(logged[0])).toMatchObject({ kind: 'klines', symbol: 'SOLUSDT', files: 3, from: '2022-02-26' });
+    const jobs = buildJobs(parseArgs(['--datasets', 'klines', '--intervals', '1h,1d', '--cadence', 'daily'], NOW));
+    expect(jobs.every((j) => j.cadence === 'daily')).toBe(true);
+    expect(buildJobs(parseArgs(['--datasets', 'klines'], NOW)).every((j) => j.cadence === undefined)).toBe(true);
   });
 
   it('writes premium index bars under their own series', async () => {

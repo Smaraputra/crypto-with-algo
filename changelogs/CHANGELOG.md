@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (data): missing perp bars filled from Binance's daily archive files
+- **Cause**: Binance's MONTHLY kline-shaped files omit days its DAILY files carry, and the historical backfill read only monthly files. SOLUSDT and XRPUSDT perp klines had no bars for 2022-02-26 to 02-28 and 2022-04-01 to 04-02 at every interval (5m to 1d); the premium index had no bars for 2022-10-02, 2023-02-24 or 2023-04-09 on five to eight symbols. A fourth premium index day, 2026-06-29, was missing on all ten symbols, a day the daily keeper did not ingest
+- **Fix**: `scripts/ops/ingest-archive.ts` takes `--cadence daily|monthly` for klines, premiumIndex and markPrice (rejected for the other datasets, whose files exist in one cadence only). Production re-ingested the affected days from daily files on 2026-10-02: 4,150 kline bars and 11,620 premium index bars, each count equal to the gap it filled
+- **Verified** by a scan of every symbol, interval and series: the klines are complete; the premium index lacks only 8 or 9 5m bars per symbol (2022-07-12 13:15 to 14:25 and 2023-11-10 04:00, and the two 15m bars spanning the first), which Binance's daily files and its REST API also lack, so they stay missing rather than invented
+
 ### Fixed (e2e): the Playwright web server no longer sends real email
 - **Cause**: the E2E web server inherited `.env.local`'s SMTP settings, so every test registration made a real SMTP round trip to the developer's MailerSend sandbox. The sandbox had reached its unique-recipient limit (each run registers a new `e2e-<timestamp>@test.local`), and its slow `450` reply took about 11 s a registration, enough to time out the auth setup project and both email-auth specs, so 89 dependent tests never ran. Reproduced identically on unmodified `main`
 - **Fix**: `SMTP_HOST=` in the `webServer` command, matching CI, which has no SMTP; the register, resend and forgot-password routes already catch a send failure and carry on. Local E2E: 104 passed, 18 skipped, 0 failed (was 30 passed, 3 failed, 89 not run)
