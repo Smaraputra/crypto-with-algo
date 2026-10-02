@@ -15,7 +15,7 @@ import {
   turtleSoupPlusOneFamily,
 } from './legends';
 
-const CTX = { style: 'swing' as const, interval: '1d' };
+const CTX = { style: 'swing_trading' as const, interval: '1d' };
 const CONFIG = DEFAULT_BACKTEST_CONFIG;
 
 function candle(open: number, high: number, low: number, close: number, i = 0): OHLCV {
