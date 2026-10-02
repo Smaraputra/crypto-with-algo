@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: legends trend set run, three rules clear every gate a single report can decide
+- **Result** (RESULT block in `scripts/research/trend-sim.ts`, export `d84b32d9fb31`, image from `9b12f61`, PRIMARY 2019-09-11 to 2026-06-30): TF4 (Zarattini's Donchian ensemble) Sharpe 1.31, alpha on its always-long twin +7.1% CI [+1.8%, +12.0%]; C3 (Han, Kang, Ryu basket timing) 1.36, +40.3% CI [+10.6%, +66.2%]; TF1 (the 4-horizon weekly score) 0.91, +20.4% CI [+4.7%, +34.5%]; all three at timing p 0.005, positive in every drop-one portfolio, under stress and on perp closes 2022-2026, and in 5 of 6 years 2020-2025 (TF4 in 4 of 6, the gate's minimum). TF2 (AQR blend, 0.23) and TF3 (200-day, 0.83, alpha CI spanning zero, timing p 0.10) FAIL
+- **Nothing has passed yet**: gate 8, the deflated Sharpe at N = 11 computed once across all eleven trials, waits for the six harness trials, and any pass is PROVISIONAL until it repeats on a survivorship-free universe (the universe is ten 2026 survivors). The lockbox stays closed
+- **Run 1 was discarded for a container defect**: re-equalisation restored each sleeve's drifted weight, so paid funding compounded into leverage (the buy-and-hold twin reached a gross of 6.5 and a 98.5% drawdown, against 81% in an independent pandas re-computation). Fixed in `9b12f61` with a regression test and every rule re-run once; run 1's numbers are kept in the run record
+- **Checks**: TF4 reproduced digit for digit on a second machine; BTCUSDT 2024-03 funding reconciled to the archive (93 settlements); an independent pandas re-implementation agrees within 0.11 Sharpe and 1.5% alpha on TF1, TF4 and C3
+- **Predictions**: wrong for TF1 and C3 (both expected to fail the twin gate) and for TF4's alpha interval; right for TF2 and TF3
+- Program trial ledger: 1,713 before this phase, 1,718 after these five; the phase's eleven bring it to 1,724
+
 ### Added (research): legends trend container, built to the locked pre-registration
 - **`trend-signals.ts`**: TF1 to TF4 and C3 as pure functions of daily closes, each split into a pre-sizing signal path and a volatility size path so the timing null can shift one and keep the other on its true dates; three rebalance modes (trade to target on every decision day, trade only on a state change, TF4's 20% band); the always-long twin
 - **`trend-sim.ts`** (below the locked header): `runTrend`, a sleeve portfolio that fills at the next open, holds quantity between orders so exposure drifts, re-equalises capital at each month end and when a sleeve joins (costs charged on that turnover), charges every funding settlement in (open, next open], and keeps long and short legs apart; circular block bootstrap, alpha on the twin, the 365-day-minimum signal-shift timing null, drawdown and episode statistics

@@ -314,6 +314,41 @@
  * failed; TF3 0.82, +24.6%, failed; TF4 1.31, +7.0%, all but 8 passed; C3 1.36, +51.1%, all but 8
  * passed. Fixed with a regression test (`trend-sim.test.ts`, "re-equalisation restores the rule
  * weight"); every rule re-run once.
+ *
+ * RESULT, 2026-10-02 (run 2, the run of record). Export `d84b32d9fb31`, image from `9b12f61`, lockbox
+ * applied, PRIMARY 2019-09-11 to 2026-06-30 (2,485 days), reports `trend-{tf1,tf2,tf3,tf4,c3}.json`.
+ * Checks: TF4 reproduced digit for digit on a second machine from the hash-verified export; BTCUSDT
+ * 2024-03 funding reconciled (93 settlements, the archive's sum exactly); an independent pandas
+ * re-implementation sharing no code reads TF1 0.80 / +18.9%, TF4 1.28 / +6.8%, C3 1.32 / +39.8%
+ * (Sharpe / alpha), against 0.91 / +20.4%, 1.31 / +7.1%, 1.36 / +40.3% here.
+ *
+ *   rule  Sharpe  95% CI         alpha    95% CI            beta   timing p  failed gates   verdict
+ *   TF1   0.91    [0.20, 1.59]   +20.4%   [+4.7%, +34.5%]   -0.07  0.005     none           gate 8 pending
+ *   TF2   0.23    [-0.61, 0.98]  +2.0%    [-17.0%, +19.0%]  0.13   0.224     2, 3, 4, 5, 6  FAIL
+ *   TF3   0.83    [-0.10, 1.68]  +7.9%    [-17.0%, +30.3%]  0.54   0.100     2, 3, 4, 6     FAIL
+ *   TF4   1.31    [0.24, 2.29]   +7.1%    [+1.8%, +12.0%]   0.30   0.005     none           gate 8 pending
+ *   C3    1.36    [0.47, 2.15]   +40.3%   [+10.6%, +66.2%]  0.37   0.005     none           gate 8 pending
+ *
+ *   Reported, not gated. One-bar delay (Sharpe / alpha): TF1 0.65 / +15.6%, TF4 1.23 / +6.4%, C3 1.33 /
+ *   +38.6%. CONSISTENCY, perp 2022-2026 (alpha, Sharpe): TF1 +7.8%, 0.33; TF4 +4.5%, 0.73; C3 +27.1%,
+ *   0.72; spot minus perp alpha within 0.31% for every rule, so the spot proxy's error is small. Twin
+ *   Sharpes: TF1+ 0.76, TF2+ 0.78, TF4+ 0.71, TF3+ and C3+ (buy and hold) 0.86. Max drawdown TF1 34.1%,
+ *   TF4 10.9%, C3 37.5%, against 49.2%, 35.6% and 80.9% for their twins. The long legs carry every
+ *   rule; TF1's short leg earns +0.78% a year, TF2's loses 8.95%. Concentration: C3's alpha is +138%
+ *   in 2021 and its losing streak of episodes is 25 against 9.8 expected; TF4's is 64 against 33 (its
+ *   losses cluster). Average gross exposure: TF1 0.31, TF4 0.10, C3 0.37.
+ *
+ *   Predictions: right for TF2 and TF3 (fail, alpha CI spanning zero) and that TF4 is the best of the
+ *   four TF rules; wrong that TF4's alpha CI would span zero, and wrong for TF1 and C3, both predicted
+ *   to fail gate 3 and both clearing it. The Sharpe predictions were low for TF1 (0.3 to 0.7, read
+ *   0.91), TF4 (0.7 to 1.1, read 1.31) and C3 (0.4 to 0.8, read 1.36).
+ *
+ *   STATUS. TF1, TF4 and C3 pass every gate a single report can decide. Gate 8, the deflated Sharpe
+ *   at N = 11 across all eleven trials, needs the six harness trials (P1 to P4, C1, C2) and is NOT
+ *   computed on these five: that would be a peek at a figure the pre-registration computes once. Until
+ *   it is, no rule has passed and the lockbox stays closed. By the pre-registration any pass is
+ *   PROVISIONAL until the same rule passes on a survivorship-free universe, and the universe here is ten
+ *   2026 survivors.
  */
 import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
