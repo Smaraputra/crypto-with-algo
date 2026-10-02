@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (e2e): the Playwright web server no longer sends real email
+- **Cause**: the E2E web server inherited `.env.local`'s SMTP settings, so every test registration made a real SMTP round trip to the developer's MailerSend sandbox. The sandbox had reached its unique-recipient limit (each run registers a new `e2e-<timestamp>@test.local`), and its slow `450` reply took about 11 s a registration, enough to time out the auth setup project and both email-auth specs, so 89 dependent tests never ran. Reproduced identically on unmodified `main`
+- **Fix**: `SMTP_HOST=` in the `webServer` command, matching CI, which has no SMTP; the register, resend and forgot-password routes already catch a send failure and carry on. Local E2E: 104 passed, 18 skipped, 0 failed (was 30 passed, 3 failed, 89 not run)
+
 ### Fixed (ci): the DeepSource JavaScript check failed on almost every PR, a configuration fault
 - **Why**: from #40 to #62 the check failed on every PR that touched more than a few TypeScript files (#44, #50 and #62 passed). The repo had no `.deepsource.toml`, so the dashboard config applied, and it read this ES-module TypeScript codebase as CommonJS. Every module-scope function became a "global" (JS-0067, 1,819 of the 4,241 issues on `main`) and `import`/`export` in `.mjs` files a syntax error. It also applied the airbnb style guide and the strictest complexity threshold, and the quality gate failed a PR on any new issue in any category at any priority
 - **`.deepsource.toml`** now holds the analyzer config in the repo: `es-modules`, `typescript`, the react plugin, the `nodejs`, `browser`, `vitest` and `mongo` environments, the default `high` complexity threshold, no style guide (ESLint stays the style authority), the full test patterns, and shell dialect detected from each shebang (the dashboard forced `sh`, which read the bash scripts' `[[ == ]]` as POSIX)
