@@ -1062,6 +1062,124 @@ export function validateCarryReport(json: unknown): ValidationResult<CarryReport
   return { ok: false, issues: formatIssues(result.error) };
 }
 
+/**
+ * The legends phase trend report (scripts/research/trend-harness.ts), one per
+ * pre-registered exposure rule (TF1 to TF4, C3). It carries the PRIMARY daily
+ * return series so the phase-level deflated Sharpe (gate 8) can be computed
+ * once across all eleven trials. Every field is declared, because Zod strips
+ * what is not.
+ */
+const TrendCiSchema = z.object({
+  point: z.number().nullable(),
+  low: z.number().nullable(),
+  high: z.number().nullable(),
+  blockLen: z.number(),
+});
+
+const TrendRunSummarySchema = z.object({
+  days: z.number(),
+  sharpe: z.number().nullable(),
+  annualReturn: z.number().nullable(),
+  longLegAnnual: z.number().nullable(),
+  shortLegAnnual: z.number().nullable(),
+  costAnnual: z.number().nullable(),
+  fundingAnnual: z.number().nullable(),
+  turnoverAnnual: z.number().nullable(),
+  maxDrawdown: z.number(),
+  gross: z.object({
+    mean: z.number().nullable(),
+    p50: z.number().nullable(),
+    p95: z.number().nullable(),
+    max: z.number().nullable(),
+    shareAbove1: z.number().nullable(),
+    shareAbove2: z.number().nullable(),
+    shareAbove3: z.number().nullable(),
+  }),
+});
+
+const TrendGateSchema = z.object({
+  id: z.number(),
+  name: z.enum(['sample', 'expectancy', 'twin', 'timing', 'symbols', 'years', 'stress', 'trials', 'consistency']),
+  pass: z.boolean().nullable(),
+  value: z.number().nullable(),
+  threshold: z.number(),
+  note: z.string(),
+});
+
+const TrendAlphaPointSchema = z.object({
+  alpha: z.number().nullable(),
+  beta: z.number().nullable(),
+  sharpe: z.number().nullable(),
+  twinSharpe: z.number().nullable(),
+});
+
+export const TrendReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  taskId: z.string(),
+  rule: z.enum(['TF1', 'TF2', 'TF3', 'TF4', 'C3']),
+  datasetManifestHash: z.string(),
+  lockboxApplied: z.boolean(),
+  symbols: z.array(z.string()),
+  cost: z.object({ fee: z.number(), slippage: z.number() }),
+  sample: z.object({ from: z.number(), to: z.number(), firstDay: z.number(), lastDay: z.number(), days: z.number() }),
+  startDays: z.record(z.string(), z.number()),
+  fallbackSettlements: z.record(z.string(), z.number()),
+  filledDays: z.record(z.string(), z.object({ primary: z.number(), perp: z.number() })),
+  run: TrendRunSummarySchema,
+  twin: TrendRunSummarySchema,
+  sharpe: TrendCiSchema,
+  sharpeBlock20: TrendCiSchema,
+  sharpeBlock120: TrendCiSchema,
+  sharpeDifference: z.number().nullable(),
+  alpha: TrendCiSchema,
+  alphaBlock20: TrendCiSchema,
+  alphaBlock120: TrendCiSchema,
+  beta: z.number().nullable(),
+  timing: z.object({ p: z.number(), nullMean: z.number().nullable(), draws: z.number() }),
+  dropOne: z.record(z.string(), z.number().nullable()),
+  years: z.array(z.object({ year: z.number(), alpha: z.number().nullable(), days: z.number() })),
+  stress: TrendAlphaPointSchema,
+  delay1: TrendAlphaPointSchema,
+  consistency: z.object({
+    from: z.number(),
+    days: z.number(),
+    perp: TrendAlphaPointSchema,
+    spot: TrendAlphaPointSchema,
+    spotMinusPerpAlpha: z.number().nullable(),
+  }),
+  episodes: z.object({
+    count: z.number(),
+    topShare: z.number().nullable(),
+    topSum: z.number(),
+    total: z.number(),
+    longestLosingStreak: z.number(),
+    expectedLongestLosingStreak: z.number().nullable(),
+    lossRate: z.number().nullable(),
+  }),
+  perSymbol: z.record(
+    z.string(),
+    z.object({
+      sharpe: z.number().nullable(),
+      annual: z.number().nullable(),
+      twinSharpe: z.number().nullable(),
+      twinAnnual: z.number().nullable(),
+    })
+  ),
+  gates: z.array(TrendGateSchema),
+  verdict: z.enum(['fail', 'pending-trials', 'pass']),
+  daily: z.object({ days: z.array(z.number()), returns: z.array(z.number()) }),
+  computedAt: z.string(),
+  gitCommit: z.string(),
+  durationMs: z.number(),
+});
+export type TrendReport = z.infer<typeof TrendReportSchema>;
+
+export function validateTrendReport(json: unknown): ValidationResult<TrendReport> {
+  const result = TrendReportSchema.safeParse(json);
+  if (result.success) return { ok: true, data: result.data };
+  return { ok: false, issues: formatIssues(result.error) };
+}
+
 // Every finite number reachable inside `pooled`, except the counts and
 // indexes listed here: a sample size, a raw trial/window/year count, or an
 // array index is not a "statistic" a finding should be able to cite by
