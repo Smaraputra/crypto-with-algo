@@ -300,6 +300,50 @@
  * 14. Gate 8 is not decided in a rule's report: it is computed once across all eleven trials, after the
  *    harness rules have run.
  *
+ * IMPLEMENTATION NOTES 15 TO 23, the six harness rules, recorded at build time on 2026-10-02 after the
+ * trend set's result and before any harness run, each a choice the locked text leaves open. None changes
+ * a rule.
+ *
+ * 15. Fixed evaluation (strategy-harness.ts --fixed-eval, strategy-walk-forward.ts runFixedEvaluation):
+ *    one continuous run per symbol from the later of its perp listing (--start-at-listing) and the
+ *    harness style's indicator warmup to 2026-06-30, no selection; trades fall into six equal calendar
+ *    spans by exit time, used only by the windows gate. The 1d style's warmup is 400 bars, so a symbol
+ *    with spot history from 2018 starts on 2019-12-05 (BTCUSDT) or at its later listing, and SOL, DOT and
+ *    AVAX (spot history from 2020) a year after their listing.
+ * 16. Engine (src/lib/backtest, behind the unchanged golden-regression, engine-parity and paper-desk
+ *    parity tests): a stop entry fills at its trigger, or at the open when the bar opened through it,
+ *    plus slippage and taker fee; an untriggered one-bar order expires at that bar's close, where the
+ *    rule decides again (P1's "re-placed every bar", P3's "up to 3 bars"); an OCO bracket whose legs
+ *    both trigger in one bar fills the leg nearer the open (counted per symbol). A next-open fill is at
+ *    the next open plus slippage. After either fill the bar's range is checked against the stop first
+ *    and its close against the rule's exit. Exits at a stop keep the engine's convention of the stop
+ *    price (a gap through a stop is not modelled). Risk is measured from the initial stop.
+ * 17. Funding for the harness rules: the per-settlement series with the 4h-snapshot fallback (note 1),
+ *    per bar (previous close, close]; a next-open or stop fill pays its whole fill bar (conservative for a
+ *    stop filled inside the bar), and a next-open exit pays nothing on the bar it exits at.
+ * 18. The timing null enters at the next open with the reference's stop and target distances measured
+ *    from the fill, for P1 to P4 as well (a breakout trigger has no meaning for a random entry).
+ * 19. CONSISTENCY for the harness rules (COMMON SETUP: the primary statistic must have the same sign): a
+ *    second fixed-evaluation run per rule with --price perp --eval-from 2022-01-01, perp klines from
+ *    2022-01-01 and spot bars before as warmup (the five missing SOLUSDT and XRPUSDT days of this export
+ *    carried forward, note 3); the sign of its pooled expectancy must equal PRIMARY's.
+ * 20. Of the harness's eight gates, `trials` is vacuous with one cell (M5) and is replaced by gate 8;
+ *    the other seven gate. Gate 8 (legends-dsr.ts): each trial's daily series is, for a harness rule,
+ *    its realised trade returns (pnlPercent / 100) booked on the exit day, each symbol a sleeve, the
+ *    sleeves equal-weighted over the symbols evaluating that day; the per-period Sharpes of all eleven
+ *    give the variance; a trial passes at a deflated Sharpe probability of 0.95.
+ * 21. Rule readings (families/legends.ts header): P1's 55-day channel at a close spans bars t-54..t and
+ *    its 2N stop is measured from the fill after slippage; P2's NR7 is a range at most each of the prior
+ *    six; P3's setup is the most recent qualifying bar of the last three while ADX > 30 and the DI order
+ *    still hold at the decision close, its stop the extreme from the setup bar through the decision
+ *    bar, and a target on the wrong side of the trigger cancels it; P4's prior extreme is its most
+ *    recent bar; short legs mirror long ones.
+ * 22. Time exits count full bars after the entry moment: C1 enters at an open, so "the close of the
+ *    18th bar after entry" (the source's 1,075 minutes) is the fill bar + 17; P4 enters inside day two,
+ *    so "the sixth bar after entry" is day two + 6.
+ * 23. C1's same-bar ordering is reported per symbol beside its stop-first result: the count of stop
+ *    exits on bars that also reached the target, and the expectancy with those bars booked as targets.
+ *
  * RUN RECORD
  *
  * Run 1, 2026-10-02, image from `dc70041`, export `d84b32d9fb31`: DISCARDED for a container defect.
