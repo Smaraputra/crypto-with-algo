@@ -9,6 +9,7 @@ import type { EntryDecision } from './strategy';
 import type {
   BacktestConfig,
   BacktestTrade,
+  IntrabarOrder,
   TradeSide,
   ExitReason,
 } from './types';
@@ -31,6 +32,13 @@ export interface OpenPosition {
   initialStopPrice?: number; // the stop price set at entry (decision.stopPrice), fixed for the position's life even as stopPrice trails; openPosition always sets it, optional only so existing fixtures that build an OpenPosition literal without it still type-check
   initialRisk?: number; // abs(fill.price - initialStopPrice) -- the FILLED entry price (equal to entryPrice), not decision.stopPrice's own reference price, so a manage hook's R multiples are measured against the risk actually taken, entry slippage included; same optionality reason as initialStopPrice
   managed?: boolean; // set once a manage hook's returned decision is accepted for this position
+  /**
+   * True for a fill at a bar's OPEN or inside the bar (a 'next-open' or 'stop'
+   * entry): the position is held across that bar's own funding settlements, so
+   * funding accrues from the entry bar itself. Absent for a fill at the
+   * decision close or a limit fill, which keep the original entry-bar skip.
+   */
+  accrueFromEntryBar?: boolean;
 }
 
 /** Accrue funding for a bar the position stayed open through. Shared by both
@@ -48,15 +56,31 @@ export function accrueFunding(
   position.fundingPnl = (position.fundingPnl ?? 0) + fundingPnl(notional, rate, position.side, crossings);
 }
 
+/** Accrue funding for a bar the position stayed open through from the SUM of
+ * the settled rates the bar spans, one per settlement, instead of one stale
+ * rate times a crossing count (`accrueFunding`). The research harness supplies
+ * the sums from the per-settlement series (FundingSettlement); notional is
+ * marked to the bar's close, as in `accrueFunding`. */
+export function accrueFundingSum(position: OpenPosition, candle: OHLCV, rateSum: number): void {
+  const notional = position.quantity * candle.close;
+  position.fundingPnl = (position.fundingPnl ?? 0) + fundingPnl(notional, rateSum, position.side, 1);
+}
+
 /** Checks the bar's high/low against the position's own absolute stop and
  * target prices (set at open time by the strategy's EntryDecision, or by the
  * limit order's decision on a fill). A null targetPrice never triggers.
- * Stop is checked before target, as before. */
+ * Stop is checked before target unless `order` is 'target-first'. */
 export function checkStopTakeProfit(
   position: OpenPosition,
-  candle: OHLCV
+  candle: OHLCV,
+  order: IntrabarOrder = 'stop-first'
 ): { exitReason: ExitReason | null; exitPrice: number } {
   const { stopPrice, targetPrice } = position;
+
+  if (order === 'target-first' && targetPrice !== null) {
+    const hit = position.side === 'long' ? candle.high >= targetPrice : candle.low <= targetPrice;
+    if (hit) return { exitReason: 'take_profit', exitPrice: targetPrice };
+  }
 
   if (position.side === 'long') {
     if (candle.low <= stopPrice) {
@@ -129,7 +153,11 @@ export function closeTrade(
     entryTier: position.entryTier,
     holdTimeBars: exitBar - position.entryBar,
     entrySession: position.entrySession ?? null,
-    riskPercent: (Math.abs(position.entryPrice - position.stopPrice) / position.entryPrice) * 100,
+    // Risk is the INITIAL stop's distance: a stop a manage hook trailed would
+    // otherwise report the trailed distance, and the random-entry null samples
+    // its stops from this field (legends pre-registration, exploration finding).
+    riskPercent:
+      (Math.abs(position.entryPrice - (position.initialStopPrice ?? position.stopPrice)) / position.entryPrice) * 100,
     rewardPercent:
       position.targetPrice === null
         ? null
@@ -193,17 +221,40 @@ export function computePositionSize(
   }
 }
 
-/** Builds the OpenPosition for a fill (market or limit) from a strategy's
- * EntryDecision. Shared by both engines so a fill's sizing, stop, target,
- * and time-stop bookkeeping cannot diverge between them.
+/** The stop and target a decision implies for a fill at `price`: its
+ * `fillRelative` distances where given ('next-open' and 'stop' entries only),
+ * its absolute prices otherwise. */
+export function resolveStopTarget(
+  decision: EntryDecision,
+  price: number
+): { stopPrice: number; targetPrice: number | null } {
+  const rel = decision.fillRelative;
+  if (!rel || (decision.orderType !== 'next-open' && decision.orderType !== 'stop')) {
+    return { stopPrice: decision.stopPrice, targetPrice: decision.targetPrice };
+  }
+  const sign = decision.side === 'long' ? 1 : -1;
+  const stopDistance = rel.stopDistance ?? (rel.stopFraction !== undefined ? rel.stopFraction * price : undefined);
+  const targetDistance =
+    rel.targetDistance ?? (rel.targetFraction !== undefined ? rel.targetFraction * price : undefined);
+  return {
+    stopPrice: stopDistance !== undefined ? price - sign * stopDistance : decision.stopPrice,
+    targetPrice: targetDistance !== undefined ? price + sign * targetDistance : decision.targetPrice,
+  };
+}
+
+/** Builds the OpenPosition for a fill (market, limit, next-open or stop) from
+ * a strategy's EntryDecision. Shared by both engines so a fill's sizing,
+ * stop, target, and time-stop bookkeeping cannot diverge between them.
  *
  * `fill.rawPrice` is the pre-slippage price: the bar's close for a market
- * fill, or the same as `fill.price` for a limit fill (no entry slippage).
- * The difference, scaled by the sized quantity, becomes `entrySlippageCost`
- * so a round-trip trade's `slippageCost` accounts for both legs. */
+ * fill, the open or trigger for a next-open or stop fill, or the same as
+ * `fill.price` for a limit fill (no entry slippage). The difference, scaled
+ * by the sized quantity, becomes `entrySlippageCost` so a round-trip trade's
+ * `slippageCost` accounts for both legs. A fill-relative stop or target is
+ * measured from `fill.price`, the entry after slippage. */
 export function openPosition(
   decision: EntryDecision,
-  fill: { price: number; rawPrice: number; bar: number; time: number; kind: FillKind },
+  fill: { price: number; rawPrice: number; bar: number; time: number; kind: FillKind; accrueFromEntryBar?: boolean },
   equity: number,
   config: BacktestConfig,
   trades: BacktestTrade[],
@@ -211,13 +262,14 @@ export function openPosition(
   tier: SignalTier,
   session: MarketSession | null
 ): OpenPosition {
+  const { stopPrice, targetPrice } = resolveStopTarget(decision, fill.price);
   const quantity = computePositionSize(
     equity,
     fill.price,
     decision.side,
     config,
     trades,
-    decision.stopPrice
+    stopPrice
   );
 
   return {
@@ -230,11 +282,12 @@ export function openPosition(
     entryTier: tier,
     entrySession: session,
     entryFillKind: fill.kind,
-    stopPrice: decision.stopPrice,
-    targetPrice: decision.targetPrice,
+    stopPrice,
+    targetPrice,
     timeStopBars: decision.timeStopBars ?? null,
     entrySlippageCost: Math.abs(fill.price - fill.rawPrice) * quantity,
-    initialStopPrice: decision.stopPrice,
-    initialRisk: Math.abs(fill.price - decision.stopPrice),
+    initialStopPrice: stopPrice,
+    initialRisk: Math.abs(fill.price - stopPrice),
+    ...(fill.accrueFromEntryBar ? { accrueFromEntryBar: true } : {}),
   };
 }

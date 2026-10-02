@@ -60,14 +60,50 @@ export interface StrategyContext {
   pendingOrder: PendingOrder | null;
 }
 
+/**
+ * Stop and target distances measured from the ACTUAL fill (the entry price
+ * after slippage), for an order whose fill price is unknown when it is placed:
+ * a 'next-open' or a 'stop' entry. A given field overrides the decision's
+ * absolute `stopPrice` / `targetPrice`; a distance is in price units, a
+ * fraction is of the fill price. Ignored on 'market' and 'limit' entries.
+ */
+export interface FillRelative {
+  stopDistance?: number;
+  stopFraction?: number;
+  targetDistance?: number;
+  targetFraction?: number;
+}
+
+/** The opposite leg of a one-cancels-other stop-entry bracket. */
+export interface StopBracketLeg {
+  side: TradeSide;
+  triggerPrice: number;
+  stopPrice: number;
+  targetPrice: number | null;
+  timeStopBars?: number | null;
+  fillRelative?: FillRelative;
+}
+
 export interface EntryDecision {
   side: TradeSide;
-  orderType: 'market' | 'limit';
+  /**
+   * 'market'    fills at this bar's close, the decision close, with slippage.
+   * 'limit'     rests at `limitPrice` from the next bar (limit-orders.ts).
+   * 'next-open' fills at the next bar's open, with slippage (legends phase;
+   *             review item M1, the decision close is not a tradable price).
+   * 'stop'      a stop entry at `triggerPrice` from the next bar, live for
+   *             `timeoutBars` bars (default 1), optionally bracketed with an
+   *             `oco` leg (stop-orders.ts).
+   */
+  orderType: 'market' | 'limit' | 'next-open' | 'stop';
   limitPrice?: number; // required for limit
-  timeoutBars?: number; // limit only; the engine falls back to config.limitTimeoutBars
+  timeoutBars?: number; // limit and stop; a limit falls back to config.limitTimeoutBars, a stop to 1
+  triggerPrice?: number; // required for stop
+  oco?: StopBracketLeg; // stop only
   stopPrice: number; // absolute price
   targetPrice: number | null; // absolute price or null for no target
   timeStopBars?: number | null;
+  fillRelative?: FillRelative; // next-open and stop only
 }
 
 /**
@@ -131,8 +167,15 @@ export interface Strategy {
   params?: Record<string, number | string | boolean>;
   /** Called only when flat with no pending order. */
   decideEntry(ctx: StrategyContext, config: BacktestConfig): EntryDecision | null;
-  /** Called only when in a position; true means exit at this bar's close. */
+  /** Called only when in a position; true means exit at this bar's close (or, with `exitFill: 'next-open'`, at the next bar's open). */
   decideExit(ctx: StrategyContext, config: BacktestConfig): boolean;
+  /**
+   * Where a `decideExit` exit fills: 'close' (absent, the default) at the
+   * deciding bar's close, 'next-open' at the next bar's open with taker fee
+   * and slippage. Added for the legends phase's "exit at the next open"
+   * rules; absent for every earlier strategy, whose exits are unchanged.
+   */
+  exitFill?: 'close' | 'next-open';
   /**
    * Optional per-bar position management: move the stop and/or target of an
    * already-open position. Called by the engine once per bar, before that

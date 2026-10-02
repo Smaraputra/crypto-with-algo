@@ -29,7 +29,14 @@ export interface BacktestConfig {
   startEquity: number;          // starting capital (default 10000)
   allowedSessions?: MarketSession[]; // entry filter; undefined/empty = all sessions
   limitTimeoutBars?: number;    // fallback timeout for a limit EntryDecision that omits timeoutBars (default 3)
+  intrabarOrder?: IntrabarOrder; // a bar reaching both stop and target: 'stop-first' (absent, the default) or the 'target-first' sensitivity bound
 }
+
+/** Which exit a bar that reaches both the stop and the target books. OHLC data
+ * cannot say which came first; 'stop-first' (the default, every engine run to
+ * date) is the conservative reading, 'target-first' the optimistic bound a
+ * study may report beside it (legends C1). */
+export type IntrabarOrder = 'stop-first' | 'target-first';
 
 export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
   entryThreshold: 30,
@@ -151,6 +158,16 @@ export interface BacktestResult {
   warmupBars: number;
   snapshotCoverage?: SnapshotCoverage; // present when a snapshot series was supplied
   managementRejected?: number; // present when the strategy declares a manage hook; counts stopPrice and non-null targetPrice decisions rejected for landing on the wrong side of the bar's open
+  stopEntries?: StopEntryCounts; // present when the run placed at least one stop-entry order
+}
+
+/** Stop-entry bookkeeping for a run (legends phase). */
+export interface StopEntryCounts {
+  placed: number;
+  filled: number;
+  /** Fills on a bar where both legs of a bracket triggered, so which came first was assumed. */
+  ambiguous: number;
+  expired: number;
 }
 
 export type BacktestProgressCallback = (progress: number, barsProcessed: number, totalBars: number) => void;

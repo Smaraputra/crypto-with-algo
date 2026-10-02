@@ -9,8 +9,10 @@ import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
 import { applySlippage } from './cost-model';
 import { evaluateLimitOrder, type PendingOrder } from './limit-orders';
+import { evaluateStopOrder, type PendingStopOrder } from './stop-orders';
 import {
   accrueFunding,
+  accrueFundingSum,
   checkStopTakeProfit,
   closeTrade,
   computeEquityAfterTrade,
@@ -27,6 +29,7 @@ import type {
   EquityPoint,
   BacktestProgressCallback,
   SnapshotCoverage,
+  StopEntryCounts,
 } from './types';
 
 /**
@@ -59,6 +62,14 @@ export interface BarLoopInput {
   /** Research-only per-bar columns; see research-series.ts. Absent for
    * every live and UI backtest, which is why it defaults to []. */
   research?: (ResearchBar | null)[];
+  /**
+   * Research-only: per bar, the SUM of the funding rates that settled in
+   * (previous bar's close, this bar's close], from the per-settlement series.
+   * When present (and funding is enabled), funding accrues one settlement at a
+   * time from it instead of from the snapshot's last rate times a crossing
+   * count. Absent for every live, UI and earlier research run.
+   */
+  fundingSums?: Float64Array;
   strategy: Strategy;
   onProgress?: BacktestProgressCallback;
 }
@@ -72,6 +83,44 @@ interface PendingLimit {
   score: number;
   tier: SignalTier;
   session: MarketSession | null;
+}
+
+/** A next-open or stop entry awaiting its fill, with the decision context it
+ * was placed under. Kept apart from `PendingLimit` so the limit path stays
+ * exactly as it was. */
+type PendingEntry =
+  | {
+      kind: 'next-open';
+      decision: EntryDecision;
+      score: number;
+      tier: SignalTier;
+      session: MarketSession | null;
+    }
+  | {
+      kind: 'stop';
+      order: PendingStopOrder;
+      /** One decision per leg, index-matched to `order.legs`. */
+      decisions: EntryDecision[];
+      score: number;
+      tier: SignalTier;
+      session: MarketSession | null;
+    };
+
+/** The legs of a 'stop' EntryDecision, each as a decision of its own. */
+function stopLegDecisions(decision: EntryDecision): EntryDecision[] {
+  const legs: EntryDecision[] = [decision];
+  if (decision.oco) {
+    legs.push({
+      side: decision.oco.side,
+      orderType: 'stop',
+      triggerPrice: decision.oco.triggerPrice,
+      stopPrice: decision.oco.stopPrice,
+      targetPrice: decision.oco.targetPrice,
+      timeStopBars: decision.oco.timeStopBars,
+      fillRelative: decision.oco.fillRelative,
+    });
+  }
+  return legs;
 }
 
 /**
@@ -120,6 +169,25 @@ interface PendingLimit {
  *   (strategy.ts) for why the context is shaped this way. Absent entirely for
  *   a strategy with no manage hook, so the default path never runs this step
  *   and its output is unaffected.
+ *
+ * Legends phase additions (2026-10-02), each reached only by a decision or
+ * strategy that asks for it, so every earlier path is unchanged:
+ * - A 'next-open' entry fills at the next bar's OPEN, and a 'stop' entry
+ *   (stop-orders.ts) fills inside a later bar; both are resolved at the TOP
+ *   of the bar, before its management, stop/target and time checks. The
+ *   position is therefore open for the whole bar's range: a fill bar that
+ *   also reaches the stop is booked as stopped after the fill, and the
+ *   strategy's decideExit runs at the fill bar's own close. Both pay taker
+ *   fee and slippage, and funding accrues from the fill bar itself.
+ * - A stop order that does not trigger by its last live bar expires there,
+ *   and the strategy may decide again at that same close (a rule re-placed
+ *   every bar is a one-bar order placed every bar).
+ * - A strategy with `exitFill: 'next-open'` has a true decideExit fill at the
+ *   NEXT bar's open (taker, slippage, reason 'signal'), before anything else
+ *   that bar does; the bar's own funding is not charged, since the position
+ *   is gone at the instant it starts.
+ * - `config.intrabarOrder` 'target-first' checks the target before the stop,
+ *   a sensitivity bound only.
  */
 export function runBarLoop(input: BarLoopInput): BacktestResult {
   const {
@@ -134,6 +202,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
     htf,
     snapshots,
     research,
+    fundingSums,
     strategy,
     onProgress,
   } = input;
@@ -153,6 +222,9 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
   let peakEquity = equity;
   let position: OpenPosition | null = null;
   let pending: PendingLimit | null = null;
+  let pendingEntry: PendingEntry | null = null;
+  let exitAtNextOpen = false;
+  const stopEntries: StopEntryCounts = { placed: 0, filled: 0, ambiguous: 0, expired: 0 };
   let barsWithFutures = 0;
   let barsWithSentiment = 0;
   let managementRejected = 0;
@@ -182,7 +254,13 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
     atCandle: OHLCV,
     atSnap: SnapshotBar | null
   ): void {
-    if (!config.fundingEnabled || atBar <= pos.entryBar) return;
+    if (!config.fundingEnabled) return;
+    if (atBar < pos.entryBar || (atBar === pos.entryBar && !pos.accrueFromEntryBar)) return;
+    if (fundingSums) {
+      const sum = fundingSums[atBar];
+      if (Number.isFinite(sum) && sum !== 0) accrueFundingSum(pos, atCandle, sum);
+      return;
+    }
     const rate = atSnap?.futures?.fundingRate?.fundingRate;
     if (typeof rate !== 'number') return;
     accrueFunding(
@@ -265,6 +343,48 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
     const htfBar = htf ? htf.ltfToHtf[bar] : -1;
     const htfCtx = htf && htfBar >= 0 ? htf.contextAtHtfBar[htfBar] : null;
 
+    // 0a. An exit decided at the previous close with exitFill 'next-open'
+    // fills at this bar's open, before anything else happens on this bar.
+    if (position && exitAtNextOpen) {
+      closeTrade(position, candle.open, bar, candle.timestamp, 'signal', 0, trades, config);
+      equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
+      position = null;
+      exitAtNextOpen = false;
+    }
+
+    // 0b. A pending next-open or stop entry fills at this bar's open or inside
+    // its range, so the position is open for the bar's own checks below.
+    if (!position && pendingEntry) {
+      let fill: { decision: EntryDecision; raw: number } | null = null;
+      if (pendingEntry.kind === 'next-open') {
+        fill = { decision: pendingEntry.decision, raw: candle.open };
+      } else {
+        const outcome = evaluateStopOrder(pendingEntry.order, bar, candle);
+        if (outcome.status === 'filled') {
+          fill = { decision: pendingEntry.decisions[outcome.leg], raw: outcome.fillPrice };
+          stopEntries.filled++;
+          if (outcome.ambiguous) stopEntries.ambiguous++;
+        } else if (outcome.status === 'expired') {
+          stopEntries.expired++;
+          pendingEntry = null;
+        }
+      }
+      if (fill && pendingEntry) {
+        const price = applySlippage(fill.raw, fill.decision.side === 'long' ? 'buy' : 'sell', config.slippageBps);
+        position = openPosition(
+          fill.decision,
+          { price, rawPrice: fill.raw, bar, time: candle.timestamp, kind: 'taker', accrueFromEntryBar: true },
+          equity,
+          config,
+          trades,
+          pendingEntry.score,
+          pendingEntry.tier,
+          pendingEntry.session
+        );
+        pendingEntry = null;
+      }
+    }
+
     // 1. Position management hook, for a position opened on an earlier bar,
     // applied before this bar's price/bar-based exit checks so a tightened
     // stop or a removed target take effect on the same bar (see
@@ -287,7 +407,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
 
     // 2. Price/bar-based exit checks for a position open at the top of this bar
     if (position) {
-      const { exitReason, exitPrice } = checkStopTakeProfit(position, candle);
+      const { exitReason, exitPrice } = checkStopTakeProfit(position, candle, config.intrabarOrder);
       if (exitReason) {
         accrueFundingThisBar(position, bar, candle, snap);
         closeTrade(position, exitPrice, bar, candle.timestamp, exitReason, 0, trades, config);
@@ -336,19 +456,24 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
         pendingOrder: null,
       };
       if (strategy.decideExit(ctx, config)) {
-        accrueFundingThisBar(position, bar, candle, snap);
-        closeTrade(
-          position,
-          candle.close,
-          bar,
-          candle.timestamp,
-          'signal',
-          composite.score,
-          trades,
-          config
-        );
-        equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
-        position = null;
+        if (strategy.exitFill === 'next-open') {
+          // Held through this close; the exit fills at the next bar's open (step 0a).
+          exitAtNextOpen = true;
+        } else {
+          accrueFundingThisBar(position, bar, candle, snap);
+          closeTrade(
+            position,
+            candle.close,
+            bar,
+            candle.timestamp,
+            'signal',
+            composite.score,
+            trades,
+            config
+          );
+          equity = computeEquityAfterTrade(equity, trades[trades.length - 1]);
+          position = null;
+        }
       }
     } else if (pending) {
       const outcome = evaluateLimitOrder(pending.order, bar, candle);
@@ -375,7 +500,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
         // against the position that was just opened (fill first, then
         // stop/target), so a bar that gaps through the limit and then runs
         // through the stop books the loss on this bar, not the next one.
-        const fillBarExit = checkStopTakeProfit(position, candle);
+        const fillBarExit = checkStopTakeProfit(position, candle, config.intrabarOrder);
         if (fillBarExit.exitReason) {
           accrueFundingThisBar(position, bar, candle, snap);
           closeTrade(
@@ -395,6 +520,8 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
         pending = null;
       }
       // pending: leave state untouched, evaluate again next bar
+    } else if (pendingEntry) {
+      // A next-open or stop order still live (step 0b): no fresh decision this bar.
     } else {
       // Flat with no pending order; the session filter gates entries only, never exits
       const sessionAllowed = !sessionFilter || (session !== null && sessionFilter.has(session));
@@ -433,7 +560,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
               composite.tier,
               session
             );
-          } else {
+          } else if (decision.orderType === 'limit') {
             pending = {
               order: {
                 side: decision.side,
@@ -446,6 +573,25 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
               tier: composite.tier,
               session,
             };
+          } else if (decision.orderType === 'next-open') {
+            pendingEntry = { kind: 'next-open', decision, score: composite.score, tier: composite.tier, session };
+          } else {
+            const decisions = stopLegDecisions(decision);
+            if (decisions.every((d) => Number.isFinite(d.triggerPrice))) {
+              pendingEntry = {
+                kind: 'stop',
+                order: {
+                  legs: decisions.map((d) => ({ side: d.side, triggerPrice: d.triggerPrice as number })),
+                  placedBar: bar,
+                  timeoutBars: decision.timeoutBars ?? 1,
+                },
+                decisions,
+                score: composite.score,
+                tier: composite.tier,
+                session,
+              };
+              stopEntries.placed++;
+            }
           }
         }
       }
@@ -516,6 +662,7 @@ export function runBarLoop(input: BarLoopInput): BacktestResult {
       ? { snapshotCoverage: computeSnapshotCoverage(barsWithFutures, barsWithSentiment, totalBars) }
       : {}),
     ...(strategy.manage ? { managementRejected } : {}),
+    ...(stopEntries.placed > 0 ? { stopEntries } : {}),
   };
 }
 
