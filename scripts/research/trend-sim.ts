@@ -394,6 +394,48 @@
  *   it is, no rule has passed and the lockbox stays closed. By the pre-registration any pass is
  *   PROVISIONAL until the same rule passes on a survivorship-free universe, and the universe here is ten
  *   2026 survivors.
+ *
+ * RESULT, HARNESS RULES AND GATE 8, 2026-10-02. Export `d84b32d9fb31` (the same export), image from
+ * `be688f2`, fixed evaluation from each symbol's listing or warmup end (BTCUSDT and ETHUSDT from
+ * 2019-12-04, SOL, DOT and AVAX from 2021-09 to 2021-10) to 2026-06-30, settlement funding, reports
+ * `strategy-{p1..p4,c1,c2}.json` and the perp CONSISTENCY runs `strategy-*-perp.json` (2022-01-01 on).
+ * P2 reproduced digit for digit on a second machine from the hash-verified export. Expectancy is per
+ * trade after costs, CI the bootstrap 95% interval, p the random-entry timing p.
+ *
+ *   rule  n       expectancy  95% CI              p      symbols  failed gates (of seven; trials is gate 8)   perp 2022-26
+ *   P1    456     +24.93%     [-0.83%, +76.47%]   0.010  9/10     expectancy, windows (0.55)                  +0.94%
+ *   P2    2,736   +0.195%     [-0.028%, +0.424%]  0.010  8/10     expectancy                                  +0.026%
+ *   P3    87      +2.43%      [-0.38%, +5.81%]    0.010  7/10     sample, expectancy, windows                 +0.15%
+ *   P4    433     -1.40%      [-2.10%, -0.75%]    1.000  0/10     expectancy, windows, symbols, timing, stress -1.30%
+ *   C1    10,677  -0.088%     [-0.156%, -0.025%]  0.005  2/10     expectancy, windows, symbols, stress        -0.074%
+ *   C2    2,224   +0.545%     [+0.109%, +1.119%]  0.005  8/10     windows (0.533 against 0.6)                 +0.11%
+ *
+ *   Reported: C1's same-bar ordering, 134 stop exits on bars that also reached the target; booked as
+ *   targets the expectancy is still -0.031%, so the source's +0.56% a trade survives neither ordering.
+ *   P2's bracket triggered on both sides on 653 of its 2,736 fill bars (24%), each booked as the
+ *   nearer leg then stopped on the same bar (note 16). P1's mean is dominated by a few multi-month
+ *   trends (win rate 34%). The perp runs carried 10 1d, 240 1h and 97 4h bars forward (the five known
+ *   days, plus about six spot 4h maintenance gaps per symbol inside the pre-2022 warmup).
+ *
+ *   GATE 8 (legends-dsr.ts, report legends-gate8.json): the variance of the eleven per-period Sharpes
+ *   puts the expected maximum annual Sharpe at 1.52 at N = 11 (3.19 at the program's 1,724). Deflated
+ *   Sharpe probabilities: C3 0.330 (Sharpe 1.36), TF4 0.294 (1.31), TF1 0.054 (0.91), TF3 0.031,
+ *   P2 0.019, C2 0.007 (0.95), P3 0.003, the rest 0.000; every one is 0.000 at the program count.
+ *   EVERY TRIAL FAILS GATE 8. The pre-registration's "about 1.2" was an estimate; the spread of the
+ *   eleven, widened by P4's and C1's strongly negative Sharpes, set the bar higher.
+ *
+ *   Predictions: right that no rule passes and that TF4 would be the best trend rule; right for P3
+ *   (sample), P4 and C1 (negative, C1 win rate 36%); right on P2's win rate above 55% (57%) but wrong
+ *   on its sign (+0.19%, CI spanning zero); wrong for C2 (+0.55% with a CI above zero and timing at
+ *   0.005, failing only the windows gate); P1's timing gate passed where a failure was predicted.
+ *
+ * PHASE VERDICT. NO RULE PASSES. All eleven trials fail; the lockbox stays closed. By the
+ * pre-registration every family is CLOSED ON THIS UNIVERSE (ten Binance USDT-M survivors); only a
+ * survivorship-free, materially broader universe reopens one, under a new pre-registration. Program
+ * trial ledger: 1,724. What the phase leaves standing, as readings and not results: slow trend rules
+ * (TF4, C3, TF1) and C2's 4h continuation carry real timing (p 0.005 against shifted or random entries)
+ * and positive alpha or expectancy here, but none clears the multiple-testing bar of its own phase,
+ * and the universe they were measured on is the one most favourable to long trend rules.
  */
 import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
