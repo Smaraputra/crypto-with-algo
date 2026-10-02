@@ -180,6 +180,25 @@ describe('runTrend, sleeves', () => {
     expect(run.turnover.filter((x) => x > 0)).toHaveLength(2);
   });
 
+  it('re-equalisation restores the rule weight, so paid funding cannot ratchet into leverage', () => {
+    // A falling price and heavy funding: the funding paid is a fixed debt against the held
+    // quantity, so the weight drifts above 1 within a month. Each month end must put it back to 1.
+    const n = 70;
+    const closes = Array.from({ length: n }, (_, i) => 100 * 0.98 ** i);
+    const settlements: Settlement[] = [];
+    for (let t = D0; t <= D0 + n * DAY_MS; t += 8 * 3_600_000) settlements.push({ t, rate: 0.001 });
+    const run = runTrend(
+      [input('A', closes, { settlements })],
+      { A: paths(n, 1, 1, ON_CHANGE) },
+      opts(D0 + DAY_MS, D0 + n * DAY_MS)
+    );
+    const at = (y: number, m: number, d: number) => run.gross[run.days.indexOf(Date.UTC(y, m, d))];
+    expect(at(2024, 0, 31)).toBeGreaterThan(1.1);
+    expect(at(2024, 1, 1)).toBeLessThan(1.01);
+    expect(at(2024, 1, 29)).toBeGreaterThan(1.1);
+    expect(at(2024, 2, 1)).toBeLessThan(1.01);
+  });
+
   it('assigns each day to an episode and records them when a position ends', () => {
     const closes = [100, 100, 110, 110, 99, 99];
     const run = runTrend(

@@ -279,9 +279,11 @@
  *    "current" is the weight the sleeve holds at the decision close, drifted, or under the one-bar
  *    delay the target of an order not yet filled. A target is the signal times the size, 0 while the
  *    size is undefined.
- * 9. Re-equalisation keeps each sleeve's current weight: the quantity is rescaled to the new capital by
- *    an order filled at the next open, paying fee and slippage on the traded notional. A rule order
- *    decided at the same close replaces it.
+ * 9. Re-equalisation returns each sleeve to its rule's weight (the target of its last rule order; "a
+ *    sleeve's exposure is the rule's weight") on the new capital, by an order filled at the next open
+ *    that pays fee and slippage on the traded notional. A rule order decided at the same close
+ *    replaces it. CORRECTED after run 1: the note first read "keeps each sleeve's current weight",
+ *    which was the defect described in the run record below.
  * 10. Funding is charged on the quantity times the day's open for each settlement in (open, next open];
  *    a settlement exactly at the fill's own 00:00 belongs to the day before (carry-sim.ts's convention).
  *    Positions are marked to market daily and nothing is closed at the end of a sample.
@@ -297,6 +299,21 @@
  * 13. The one-bar delay fills every order one bar later at that bar's open.
  * 14. Gate 8 is not decided in a rule's report: it is computed once across all eleven trials, after the
  *    harness rules have run.
+ *
+ * RUN RECORD
+ *
+ * Run 1, 2026-10-02, image from `dc70041`, export `d84b32d9fb31`: DISCARDED for a container defect.
+ * Re-equalisation restored each sleeve's DRIFTED weight instead of the rule's weight, so funding and
+ * costs already paid, a fixed cash debt against the held quantity, compounded into leverage month after
+ * month: the buy-and-hold twin of TF3 and C3 reached a gross exposure of 6.5 on 2022-05-11, ran at 117%
+ * annualised volatility and drew down 98.5%, where an independent pandas re-computation of the same
+ * twin (sharing no code with this file) gives 81% and 81.4%. The defect was found by that check before
+ * anything was recorded; it inflated the twin's losses and so inflated TF3's and C3's alphas. Rules
+ * that rebalance to target at each decision (TF1, TF2) or within a band (TF4) were affected less. For
+ * the record, run 1 read: TF1 Sharpe 0.93, alpha +20.8%, all gates but 8 passed; TF2 0.22, +1.8%,
+ * failed; TF3 0.82, +24.6%, failed; TF4 1.31, +7.0%, all but 8 passed; C3 1.36, +51.1%, all but 8
+ * passed. Fixed with a regression test (`trend-sim.test.ts`, "re-equalisation restores the rule
+ * weight"); every rule re-run once.
  */
 import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
@@ -387,6 +404,8 @@ interface SleeveState {
   mark: number;
   /** Signal at the last rule order; NaN before the first. */
   lastSignal: number;
+  /** Target weight of the last rule order: the weight re-equalisation restores. */
+  ruleTarget: number;
   /** Target weight by fill day. */
   pending: Map<number, number>;
   settlementPtr: number;
@@ -425,9 +444,12 @@ export function sleeveStart(input: TrendSymbolInput, from: number): number {
  * The sleeve portfolio pre-registered in the header. Every sleeve holds its
  * rule's weight of its own capital; between orders it holds QUANTITY, so its
  * exposure drifts. Capital is re-equalised across the live sleeves at every
- * month end and whenever a sleeve joins, each sleeve keeping its current weight
- * through an order that pays the usual costs. A rule order placed at the same
- * close replaces that order.
+ * month end and whenever a sleeve joins, each sleeve returning to its RULE's
+ * weight (the target of its last rule order, "a sleeve's exposure is the rule's
+ * weight") through an order that pays the usual costs. A rule order placed at
+ * the same close replaces that order. Restoring the drifted weight instead let
+ * paid funding and costs, a fixed cash debt against a held position, compound
+ * into leverage month after month (defect found 2026-10-02, see the run record).
  *
  * Per day d (bar open d, close d + 1 day), for each live sleeve:
  *   gap     qty x (open - last mark)               the overnight quantity, up to the fill
@@ -454,6 +476,7 @@ export function runTrend(
     qty: 0,
     mark: Number.NaN,
     lastSignal: Number.NaN,
+    ruleTarget: 0,
     pending: new Map(),
     settlementPtr: 0,
     episodeSign: 0,
@@ -589,12 +612,10 @@ export function runTrend(
       const live = sleeves.filter((s) => s.active);
       const share = equity / live.length;
       for (const s of live) {
-        // Keep the weight the sleeve means to hold: a pending order's target
-        // under a delay, otherwise the drifted weight at the close.
-        const drifted = s.capital > 0 ? (s.qty * s.mark) / s.capital : 0;
-        const intended = latestPending(s.pending) ?? drifted;
+        // Back to the rule's weight on the new capital. Under a delay the last
+        // rule order may still be pending; its target is the rule's weight too.
         s.capital = share;
-        if (s.qty !== 0 || intended !== 0) s.pending.set(fillDay, intended);
+        if (s.qty !== 0 || s.ruleTarget !== 0) s.pending.set(fillDay, s.ruleTarget);
       }
     }
 
@@ -620,6 +641,7 @@ export function runTrend(
       if (order) {
         s.pending.set(fillDay, target);
         s.lastSignal = signal;
+        s.ruleTarget = target;
       }
     }
   }
