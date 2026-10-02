@@ -65,7 +65,11 @@ export default defineConfig({
     // headlessly and server-side verification passes deterministically during E2E.
     // REDIS_URL='' disables the rate limiter (matching CI, which has no Redis) so
     // repeated local runs are not blocked by 429s on the auth endpoints.
-    command: `PORT=${TEST_PORT} ALLOW_REGISTRATION=true REDIS_URL= NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA npm run dev`,
+    // SMTP_HOST='' keeps E2E off a real mail server (matching CI, which has no SMTP):
+    // the auth routes catch the send failure and carry on. With .env.local's SMTP set,
+    // every registration made a real SMTP round trip (about 11 s against a sandbox at
+    // its recipient limit), enough to time out the auth setup and email-auth specs.
+    command: `PORT=${TEST_PORT} ALLOW_REGISTRATION=true REDIS_URL= SMTP_HOST= NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA npm run dev`,
     url: `http://localhost:${TEST_PORT}`,
     reuseExistingServer: !process.env.CI,
   },
