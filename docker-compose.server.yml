@@ -106,11 +106,10 @@ services:
     environment:
       # Heap below the container limit, so V8 collects before the kernel kills.
       NODE_OPTIONS: --max-old-space-size=384
-    # --yes: npx installs tsx when the container is created (it is not a
-    # project dependency) and must not wait on a prompt. --prefer-offline: a
-    # restart of the same container reuses that copy without asking the
-    # registry, so a crash restart does not depend on npm being reachable.
-    command: ["npx", "--yes", "--prefer-offline", "tsx", "scripts/ops/market-recorder.ts"]
+    # tsx is a pinned devDependency (package-lock.json, installed by `npm ci`
+    # in the deps stage), so the service runs the image's own copy and never
+    # downloads code from the registry at start (supply-chain review, 2026-10-08).
+    command: ["node_modules/.bin/tsx", "scripts/ops/market-recorder.ts"]
     # tini as PID 1, so SIGTERM reaches the recorder through npx and tsx.
     init: true
     # Time for the shutdown flush (bounded at 20 s in the recorder).

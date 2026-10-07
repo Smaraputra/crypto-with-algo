@@ -49,7 +49,7 @@
  * is research data.
  *
  * Runs as the `recorder` service in docker-compose.server.yml (seeder image,
- * `npx --yes --prefer-offline tsx scripts/ops/market-recorder.ts`). SIGTERM
+ * `node_modules/.bin/tsx scripts/ops/market-recorder.ts`, the pinned devDependency). SIGTERM
  * or SIGINT flushes every open bucket (the last marked incomplete), writes an
  * open-ended shutdown gap and exits; a second signal exits at once.
  *

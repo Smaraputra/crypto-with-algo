@@ -87,6 +87,7 @@
     "prettier-plugin-organize-imports": "^4.3.0",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "tailwindcss": "^4",
+    "tsx": "4.21.1",
     "typescript": "^5",
     "vitest": "^4.0.18"
   }
