@@ -1,3 +1,4 @@
+import type { ExchangeInfoSymbolFilters } from '@/lib/venue-filters';
 import type {
   FundingRate,
   GlobalLongShortRatio,
@@ -150,4 +151,135 @@ export async function fetchGlobalLongShortRatio(
       timestamp: d.timestamp,
     })
   );
+}
+
+// --- Cost check market facts ---
+
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/** A non-2xx answer from the futures venue. Carries no upstream body. */
+export class BinanceHttpError extends Error {
+  readonly status: number;
+  /** The `Retry-After` header value (seconds as sent), when the venue gave one. */
+  readonly retryAfter: string | null;
+
+  constructor(path: string, status: number, retryAfter: string | null = null) {
+    super(`Binance futures ${path} failed: HTTP ${status}`);
+    this.name = 'BinanceHttpError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+async function getJson<T>(path: string, params?: Record<string, string>): Promise<T> {
+  const query = params ? `?${new URLSearchParams(params)}` : '';
+  const res = await fetch(`${getBaseUrl()}${path}${query}`, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new BinanceHttpError(path, res.status, res.headers?.get?.('Retry-After') ?? null);
+  }
+  return (await res.json()) as T;
+}
+
+/** An exchangeInfo symbol, with the fields the cost check reads. */
+export interface PerpExchangeSymbol extends ExchangeInfoSymbolFilters {
+  baseAsset: string;
+  quoteAsset: string;
+  /** `COIN` for crypto, other values for TradFi-style perpetuals. */
+  underlyingType?: string;
+  /** Listing time, epoch ms. */
+  onboardDate?: number;
+}
+
+/** `/fapi/v1/exchangeInfo` (weight 1): every futures symbol. */
+export async function fetchPerpExchangeInfo(): Promise<PerpExchangeSymbol[]> {
+  const data = await getJson<{ symbols: PerpExchangeSymbol[] }>('/fapi/v1/exchangeInfo');
+  return data.symbols;
+}
+
+export interface PerpKline {
+  openTime: number;
+  closeTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** Quote-asset (USDT) volume. */
+  quoteVolume: number;
+}
+
+/** `/fapi/v1/klines`. The in-progress bar, when present, is last. */
+export async function fetchPerpKlines(
+  symbol: string,
+  interval: string,
+  limit = 1000
+): Promise<PerpKline[]> {
+  const rows = await getJson<unknown[][]>('/fapi/v1/klines', {
+    symbol,
+    interval,
+    limit: String(limit),
+  });
+  return rows.map((r) => ({
+    openTime: Number(r[0]),
+    open: parseFloat(String(r[1])),
+    high: parseFloat(String(r[2])),
+    low: parseFloat(String(r[3])),
+    close: parseFloat(String(r[4])),
+    closeTime: Number(r[6]),
+    quoteVolume: parseFloat(String(r[7])),
+  }));
+}
+
+export interface PremiumIndex {
+  markPrice: number;
+  lastFundingRate: number;
+  nextFundingTime: number;
+}
+
+/** `/fapi/v1/premiumIndex?symbol=`: mark price and the funding rate in force. */
+export async function fetchPremiumIndex(symbol: string): Promise<PremiumIndex> {
+  const d = await getJson<{ markPrice: string; lastFundingRate: string; nextFundingTime: number }>(
+    '/fapi/v1/premiumIndex',
+    { symbol }
+  );
+  return {
+    markPrice: parseFloat(d.markPrice),
+    lastFundingRate: parseFloat(d.lastFundingRate),
+    nextFundingTime: Number(d.nextFundingTime),
+  };
+}
+
+/** Funding settlement interval assumed for a symbol absent from `fundingInfo`. */
+export const DEFAULT_FUNDING_INTERVAL_HOURS = 8;
+
+/**
+ * `/fapi/v1/fundingInfo`: symbol to `fundingIntervalHours`. The endpoint lists
+ * ONLY symbols whose funding parameters were adjusted, so a symbol absent from
+ * the map settles every 8 hours (`DEFAULT_FUNDING_INTERVAL_HOURS`).
+ */
+export async function fetchFundingInfo(): Promise<Record<string, number>> {
+  const rows = await getJson<Array<{ symbol: string; fundingIntervalHours: number }>>(
+    '/fapi/v1/fundingInfo'
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.symbol] = Number(r.fundingIntervalHours);
+  return out;
+}
+
+export interface PerpDepth {
+  /** Best (highest) first, [price, quantity in base units]. */
+  bids: [number, number][];
+  /** Best (lowest) first, [price, quantity in base units]. */
+  asks: [number, number][];
+}
+
+/** `/fapi/v1/depth`: the top `limit` levels per side. */
+export async function fetchDepth(symbol: string, limit = 20): Promise<PerpDepth> {
+  const d = await getJson<{ bids: [string, string][]; asks: [string, string][] }>(
+    '/fapi/v1/depth',
+    { symbol, limit: String(limit) }
+  );
+  const level = ([p, q]: [string, string]): [number, number] => [parseFloat(p), parseFloat(q)];
+  return { bids: d.bids.map(level), asks: d.asks.map(level) };
 }
