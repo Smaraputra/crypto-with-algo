@@ -420,7 +420,9 @@ import { assetKey } from './universe-source';
  *   section estimated. No deflated probability comes near 0.95; at the program count 1,729 all are under 0.01.
  *   EVERY TRIAL FAILS, and every one also fails gate 2 (its Sharpe CI spans zero).
  *
- *   Checks. An independent pandas re-implementation written from this header and its notes only, sharing no
+ *   Checks. TF4 reproduced on a second machine from the hash-verified export (at `381c312`, comment-only changes
+ *   after the image's commit): every field of the report identical, bootstrap CIs and timing nulls included.
+ *   An independent pandas re-implementation written from this header and its notes only, sharing no
  *   code and never shown a report, reproduces C3 digit for digit (largest daily return difference 8e-16 over
  *   1,948 days, Sharpe, alpha, beta, ex-2021 alpha, every year's alpha, 5 delisting exits and 393 leaves all
  *   equal) and TF4 to within rounding (daily correlation 0.999996, 66 days differing by more than 1e-6, the
