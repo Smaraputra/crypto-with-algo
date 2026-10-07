@@ -46,6 +46,10 @@ describe('parseArgs', () => {
       nullSizeUniverses: 50,
     });
     expect(parseArgs([...required, '--draws', '10', '--null-size-universes', '0'])).toMatchObject({ draws: 10, nullSizeUniverses: 0 });
+    expect(parseArgs([...required, '--funding-resolutions', '/r.json', '--funding-check-out', '/c.json'])).toMatchObject({
+      fundingResolutions: '/r.json',
+      fundingCheckOut: '/c.json',
+    });
   });
 
   it('refuses a missing flag, an unknown flag, a bad rule and bad counts', () => {

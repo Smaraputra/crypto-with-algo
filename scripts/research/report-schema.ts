@@ -1264,6 +1264,14 @@ const BroadDropSchema = z.object({
   beta: z.number().nullable(),
 });
 
+/** Recorded resolutions of flagged funding settlements (broad-trend.ts implementation note A6-1). */
+export const FundingResolutionsRecordSchema = z.object({
+  sha256: z.string().nullable(),
+  noEvent: z.number(),
+  rest: z.number(),
+  restSettlements: z.number(),
+});
+
 export const BroadTrendReportSchema = z.object({
   schemaVersion: z.literal(2),
   phase: z.literal('broad-trend'),
@@ -1392,13 +1400,7 @@ export const BroadTrendReportSchema = z.object({
     intervalSwitches: z.number(),
     byInterval: z.record(z.string(), z.number()),
   }),
-  /** Recorded resolutions of flagged funding settlements (broad-trend.ts implementation note A6-1). */
-  fundingResolutions: z.object({
-    sha256: z.string().nullable(),
-    noEvent: z.number(),
-    unavailable: z.number(),
-    imputed: z.number(),
-  }),
+  fundingResolutions: FundingResolutionsRecordSchema,
   carriedDays: z.record(z.string(), z.number()),
   gates: z.array(BroadGateSchema),
   verdict: z.enum(['fail', 'pending-trials', 'pass']),

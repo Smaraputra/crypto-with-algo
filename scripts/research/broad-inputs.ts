@@ -100,21 +100,20 @@ export interface BroadInputs {
 /**
  * A recorded resolution of a settlement the coverage check flagged, with its evidence (implementation note
  * A6-1). `no-event`: Binance's own REST funding history confirms no settlement at `t`, so nothing was paid
- * and nothing is charged. `unavailable`: the archive and Binance's REST history both lack the contract's
- * funding over [from, to) (a contract relaunched under the same ticker keeps only the new contract's history);
- * its settlements on member days there are imputed on the 8h grid at the median rate of the other universe
- * members' archive settlements at the same instant, which keeps the contract in the universe (dropping it
- * would remove a failing contract, a bias toward passing).
+ * and nothing is charged. `rest`: the archive lacks a contract's settlements that Binance's REST funding
+ * history holds (a ticker relaunched after a delisting keeps only the new contract's archive files); the
+ * REST rows are recorded here verbatim and join the archive's, and the coverage check then runs over both.
+ * Keeping the contract with its own settlements avoids both a guessed rate and dropping it (which would
+ * remove a failing contract, a bias toward passing).
  */
 export const FundingResolutionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('no-event'), symbol: z.string(), t: z.string(), evidence: z.string() }),
   z.object({
-    kind: z.literal('unavailable'),
+    kind: z.literal('rest'),
     symbol: z.string(),
     contract: z.string(),
-    from: z.string(),
-    to: z.string(),
     evidence: z.string(),
+    rows: z.array(z.object({ t: z.string(), rate: z.number(), intervalHours: z.number().int().positive() })).min(1),
   }),
 ]);
 export type FundingResolution = z.infer<typeof FundingResolutionSchema>;
@@ -124,9 +123,9 @@ export interface FundingResolutionsRecord {
   /** sha256 of the resolutions file as read, or null when none was given. */
   sha256: string | null;
   noEvent: number;
-  unavailable: number;
-  /** Settlements imputed for `unavailable` contracts. */
-  imputed: number;
+  rest: number;
+  /** Settlements taken from `rest` entries. */
+  restSettlements: number;
 }
 
 /** Thrown when settlements due on member days are missing; carries the full list for the check-out file. */
@@ -249,9 +248,10 @@ export function dueDay(t: number): number {
 /**
  * Header DATA (funding): the settlements due on `checkDays` per the archive's own
  * interval that the archive lacks. `rows` are the contract's settlements within its
- * life (t in (firstDay, lastDay + 1 day]), sorted. Each row's interval is the
- * spacing BEFORE it (the archive's own convention, note A6-1): a gap longer than
- * the next row's interval is missing settlements at that spacing; before the first row and after the last the
+ * life (t in (firstDay, lastDay + 1 day]), sorted. A row states the interval in
+ * force when it settled, so the first row after a switch states the new one (note
+ * A6-1); each gap is judged by its later row's interval, and a gap longer than it
+ * is missing settlements at that spacing; before the first row and after the last the
  * grid extends at their intervals. Not due: settlements up to 2026-07-01 00:00 and
  * after it (the lockbox), on the contract's first day before its first settlement
  * (it lists inside the day), and on a delisted contract's last day after its last
@@ -286,9 +286,10 @@ export function missingSettlements(
     }
   }
   for (let i = 0; i + 1 < rows.length; i++) {
-    // The archive's interval on a row is the spacing BEFORE it (verified 2026-10-08: SOLUSDT's 2022-11-18 16:00
-    // row says 8 after an 08:00 row, LUNA2USDT's 2026-01-05 08:00 row says 4 after 04:00), so the gap from row
-    // i to row i + 1 is judged by row i + 1's interval (implementation note A6-1).
+    // A row states the interval in force when it settled, so the first row after a switch states the new one
+    // (verified against Binance REST 2026-10-08). Judging the gap by the later row clears a lengthening switch
+    // (SOLUSDT 2022-11-18 16:00 states 8 after 08:00) and flags a shortening one (SOLUSDT 2022-11-10 04:00
+    // states 2 after 00:00), which then needs recorded REST evidence (implementation note A6-1).
     const h = rows[i + 1].intervalHours;
     if (h === null) {
       if (touches(rows[i].t, rows[i + 1].t)) out.push({ contract: contract.id, t: rows[i + 1].t, reason: 'interval-unknown' });
@@ -348,14 +349,6 @@ export interface BuildSource {
   resolutions?: { sha256: string; entries: FundingResolution[] };
 }
 
-const EIGHT_HOURS = 8 * 3_600_000;
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((x, y) => x - y);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
 function formatMissing(missing: readonly MissingSettlement[], symbolOf: (id: string) => string): string {
   const shown = missing
     .slice(0, 40)
@@ -408,30 +401,13 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
   // Recorded resolutions (note A6-1). Every entry must be used, so the file stays an exact record.
   const entries = src.resolutions?.entries ?? [];
   const noEvent = new Map<string, number>();
-  const unavailable = new Map<string, { from: number; to: number; index: number }>();
+  const fromRest = new Map<string, { rows: FundingRow[]; index: number }>();
   entries.forEach((entry, index) => {
     if (entry.kind === 'no-event') noEvent.set(`${entry.symbol}|${Date.parse(entry.t)}`, index);
-    else unavailable.set(entry.contract, { from: dayStartMs(entry.from), to: dayStartMs(entry.to), index });
+    else fromRest.set(entry.contract, { rows: entry.rows.map((r) => ({ t: Date.parse(r.t), rate: r.rate, intervalHours: r.intervalHours })), index });
   });
   const used = new Set<number>();
-  let imputed = 0;
-
-  // Member rates by settlement instant, for imputing an `unavailable` contract at the median of the others.
-  const memberRatesAt = new Map<number, number[]>();
-  if (unavailable.size > 0) {
-    for (const id of needed) {
-      const spans = uSpans[id];
-      if (!spans || unavailable.has(id)) continue;
-      const meta = metaById.get(id)!;
-      const member = (t: number) => spans.some((sp) => dueDay(t) >= sp.from && dueDay(t) < sp.to);
-      for (const r of loadFundingRows(meta.symbol)) {
-        if (!member(r.t)) continue;
-        const list = memberRatesAt.get(r.t) ?? [];
-        list.push(r.rate);
-        memberRatesAt.set(r.t, list);
-      }
-    }
-  }
+  let restSettlements = 0;
   const summary: FundingSummary = { contracts: 0, settlements: 0, intervalSwitches: 0, byInterval: {} };
   for (const id of needed) {
     const contract = segmented.get(id);
@@ -461,24 +437,20 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
       let life = rows.filter((r) => r.t > firstDay && r.t <= lastDay + DAY_MS);
       const wholeSample = contract.symbol === BENCHMARK_SYMBOL;
       const checkDays = fundingCheckDays(input, from, to, wholeSample);
-      const gap = unavailable.get(id);
-      if (gap) {
-        used.add(gap.index);
+      const rest = fromRest.get(id);
+      if (rest) {
+        used.add(rest.index);
         const have = new Set(life.map((r) => r.t));
-        const extra: FundingRow[] = [];
-        for (const d of [...checkDays].sort((x, y) => x - y)) {
-          if (d < gap.from || d >= gap.to) continue;
-          for (let t = d + EIGHT_HOURS; t <= d + DAY_MS; t += EIGHT_HOURS) {
-            if (have.has(t) || t > lastDay + DAY_MS || t >= LOCKBOX_START) continue;
-            const others = memberRatesAt.get(t);
-            if (!others || others.length === 0) {
-              throw new Error(`Cannot impute ${id}'s funding at ${new Date(t).toISOString()}: no other member settled then`);
-            }
-            extra.push({ t, rate: median(others), intervalHours: 8 });
+        for (const r of rest.rows) {
+          const at = Number.isFinite(r.t) ? new Date(r.t).toISOString() : 'an unreadable time';
+          if (!Number.isFinite(r.t) || !Number.isFinite(r.rate) || r.t <= firstDay || r.t > lastDay + DAY_MS || r.t >= LOCKBOX_START) {
+            throw new Error(`${id}: the REST row at ${at} is unreadable or outside the contract's life before the lockbox`);
           }
+          if (have.has(r.t)) throw new Error(`${id}: the REST row at ${at} duplicates a settlement already present`);
+          have.add(r.t);
         }
-        imputed += extra.length;
-        life = [...life, ...extra].sort((a, b) => a.t - b.t);
+        restSettlements += rest.rows.length;
+        life = [...life, ...rest.rows].sort((a, b) => a.t - b.t);
       }
       input.settlements = life.map((r): Settlement => ({ t: r.t, rate: r.rate }));
       for (const m of missingSettlements({ id, firstDay, lastDay, endDay }, life, checkDays)) {
@@ -525,7 +497,7 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
   if (unused.length > 0) {
     throw new Error(
       `${unused.length} funding resolution(s) matched nothing, so the file is not an exact record: ${unused
-        .map((u) => (u.kind === 'no-event' ? `${u.symbol} ${u.t}` : `${u.contract} ${u.from}..${u.to}`))
+        .map((u) => (u.kind === 'no-event' ? `${u.symbol} ${u.t}` : `${u.contract} (REST rows)`))
         .join('; ')}`
     );
   }
@@ -542,8 +514,8 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
     fundingResolutions: {
       sha256: src.resolutions?.sha256 ?? null,
       noEvent: entries.filter((e) => e.kind === 'no-event').length,
-      unavailable: entries.filter((e) => e.kind === 'unavailable').length,
-      imputed,
+      rest: entries.filter((e) => e.kind === 'rest').length,
+      restSettlements,
     },
     lockboxApplied,
   };
@@ -564,25 +536,34 @@ export async function loadBroadInputs(
   const universe = verifyUniverseFile(JSON.parse(readFileSync(universePath, 'utf8')), manifest.datasetHash, {
     preregistered: opts.preregistered ?? true,
   });
-  let resolutions: BuildSource['resolutions'];
-  if (opts.fundingResolutionsPath) {
-    const text = readFileSync(opts.fundingResolutionsPath, 'utf8');
-    resolutions = {
-      sha256: createHash('sha256').update(text).digest('hex'),
-      entries: FundingResolutionsFileSchema.parse(JSON.parse(text)).resolutions,
-    };
-  }
-  try {
-    return buildBroadInputs({
+  const resolutions = opts.fundingResolutionsPath ? readFundingResolutions(opts.fundingResolutionsPath) : undefined;
+  return withFundingCheckOut(opts.fundingCheckOut, () =>
+    buildBroadInputs({
       datasetHash: manifest.datasetHash,
       universe,
       perp: (symbol) => loadPerp(datasetDir, symbol, '1d'),
       funding: (symbol) => loadFunding(datasetDir, symbol),
       resolutions,
-    });
+    })
+  );
+}
+
+/** Reads a recorded resolutions file (note A6-1) with the sha256 of its text as read. */
+export function readFundingResolutions(path: string): NonNullable<BuildSource['resolutions']> {
+  const text = readFileSync(path, 'utf8');
+  return {
+    sha256: createHash('sha256').update(text).digest('hex'),
+    entries: FundingResolutionsFileSchema.parse(JSON.parse(text)).resolutions,
+  };
+}
+
+/** Runs `build`; when the coverage check stops it and `checkOut` is set, writes the flagged list there first. */
+export function withFundingCheckOut<T>(checkOut: string | undefined, build: () => T): T {
+  try {
+    return build();
   } catch (error) {
-    if (error instanceof MissingFundingError && opts.fundingCheckOut) {
-      writeFileSync(opts.fundingCheckOut, `${JSON.stringify({ missing: error.missing }, null, 1)}\n`);
+    if (error instanceof MissingFundingError && checkOut) {
+      writeFileSync(checkOut, `${JSON.stringify({ missing: error.missing }, null, 1)}\n`);
     }
     throw error;
   }

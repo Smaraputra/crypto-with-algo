@@ -367,17 +367,24 @@ import { assetKey } from './universe-source';
  *
  * - A6-1 Funding intervals and resolutions (2026-10-08). The TF4 smoke run on export aa62c5a1cb51 stopped on 34
  *   flagged settlements before any return. Binance's REST funding history showed A5's reading of the archive's
- *   interval was wrong: a row's interval is the spacing BEFORE it (SOLUSDT's 2022-11-18 16:00 row states 8 after an
- *   08:00 row, LUNA2USDT's 2026-01-05 08:00 row states 4 after 04:00), so each gap is judged by the later row's
- *   interval, and a row without a stated interval leaves the gap before it unverified (reported at that row). This
- *   replaces A5's "spacing to the next". What the check still flags is resolved only through a recorded file
- *   (`--funding-resolutions`, its sha256 and counts in the report). `no-event`: Binance's REST history for the
- *   symbol confirms no settlement at that instant, so nothing is paid or charged. `unavailable`: neither the archive
- *   nor REST holds the contract's funding over a stretch (REST keeps only a relaunched ticker's newest contract); its
- *   settlements on checked days there are imputed on the 8h grid at the median of the other universe members'
- *   archive settlements at the same instant. Dropping such a contract instead would remove a failing contract from
- *   the universe, a bias toward passing. Every entry must match a flagged settlement or a member contract, or the run
- *   stops. `--funding-check-out` writes the flagged list as JSON for the evidence pass.
+ *   interval was wrong: a row states the interval in force when it settled, so the first row after a switch states
+ *   the new interval. A5 judged each gap by its earlier row, which flagged every lengthening switch (SOLUSDT
+ *   2022-11-18: 2h rows to 08:00, then 16:00 states 8). Each gap is now judged by its later row: a lengthening switch
+ *   is complete, and a shortening one is flagged (SOLUSDT 2022-11-10 04:00 states 2 after 00:00) and needs evidence.
+ *   A row without a stated interval leaves the gap before it unverified (reported at that row). This replaces A5's
+ *   "spacing to the next". The check then flagged 19, resolved only through a recorded file (`--funding-resolutions`,
+ *   its sha256 and counts in the report; every entry must match a flag or a member contract, or the run stops):
+ *   - `no-event` (18): Binance's REST history for the symbol has no settlement at that instant, so nothing is paid or
+ *     charged. Fourteen symbols skipped 2026-06-24 04:00 on the 4h grid; OMGUSDT 2021-11-11 10:00 and 12:00, SOLUSDT
+ *     2022-11-10 02:00 and REEFUSDT 2024-10-16 04:00 are shortening switches. Each entry carries the archive and REST
+ *     times around it.
+ *   - `rest` (1): ICPUSDT#1 (2021-05-11 to 2022-06-10, delisted, relaunched as ICPUSDT#2 on 2022-09-27) has no
+ *     archive settlements, because the archive keeps only the relaunched contract's files (from 2022-09). Binance's
+ *     REST history holds its settlements; they are recorded verbatim in the file, join the archive's, and the coverage
+ *     check runs over them. This is a source exception to the header's archive-only funding, chosen over imputing a
+ *     rate or dropping the contract (which would remove a failing contract, a bias toward passing); the evidence
+ *     entry records REST's agreement with the archive where both exist.
+ *   `--funding-check-out` writes the flagged list as JSON for the evidence pass.
  */
 
 export const DAY_MS = 86_400_000;
