@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   barIcSeries,
   benjaminiHochberg,
+  benjaminiYekutieli,
   bootstrapCi,
+  byHarmonic,
   bootstrapCiOfMean,
   crossSectionalIcSeries,
   demeanAcrossSymbols,
@@ -511,6 +513,53 @@ describe('benjaminiHochberg', () => {
     expect(() => benjaminiHochberg([0.5], 0)).toThrow();
     expect(() => benjaminiHochberg([0.5], 1)).toThrow();
     expect(benjaminiHochberg([], 0.1)).toEqual([]);
+  });
+});
+
+describe('benjaminiYekutieli', () => {
+  // m 9, q 0.10: c(9) = 7129 / 2520, so the rank-k threshold is k * 0.1 / (9 * c(9)) = k * 0.0039276...
+  const C9 = 7129 / 2520;
+  const STEP = 0.1 / (9 * C9);
+  const rest = new Array<number>(7).fill(0.5);
+
+  it('computes c(m) as the harmonic number', () => {
+    expect(byHarmonic(1)).toBe(1);
+    expect(byHarmonic(9)).toBeCloseTo(C9, 12);
+    expect(STEP).toBeCloseTo(0.0039276, 6);
+  });
+
+  it('rejects the smallest p exactly at its threshold and not just above it', () => {
+    expect(benjaminiYekutieli([STEP, 0.5, ...rest], 0.1)[0]).toBe(true);
+    expect(benjaminiYekutieli([STEP * 1.0001, 0.5, ...rest], 0.1)[0]).toBe(false);
+  });
+
+  it('is step-up: a rank-2 pass rescues a rank-1 p above its own threshold', () => {
+    // 0.005 > STEP fails rank 1, but 0.0078 <= 2 * STEP passes rank 2, so both are rejected.
+    expect(benjaminiYekutieli([0.005, 2 * STEP, ...rest], 0.1).slice(0, 2)).toEqual([true, true]);
+    expect(benjaminiYekutieli([0.005, 2 * STEP * 1.0001, ...rest], 0.1).slice(0, 2)).toEqual([false, false]);
+  });
+
+  it('is stricter than Benjamini-Hochberg at the same q', () => {
+    const ps = [0.005, 0.5, ...rest];
+    expect(benjaminiHochberg(ps, 0.1)[0]).toBe(true); // 0.005 <= 0.1 / 9
+    expect(benjaminiYekutieli(ps, 0.1)[0]).toBe(false); // 0.005 > 0.1 / (9 c(9))
+  });
+
+  it('rejects all nine at p 0 and none at p 1, in input order', () => {
+    expect(benjaminiYekutieli(new Array<number>(9).fill(0), 0.1)).toEqual(new Array<boolean>(9).fill(true));
+    expect(benjaminiYekutieli(new Array<number>(9).fill(1), 0.1)).toEqual(new Array<boolean>(9).fill(false));
+    expect(benjaminiYekutieli([0.5, 0.0001, 0.5], 0.1)).toEqual([false, true, false]);
+  });
+
+  it('never rejects a non-finite p and excludes it from m', () => {
+    // m 1: c(1) = 1, so 0.09 <= 0.1 passes; counting the NaN would make it m 2 with threshold 0.0333.
+    expect(benjaminiYekutieli([0.09, NaN], 0.1)).toEqual([true, false]);
+    expect(benjaminiYekutieli([NaN], 0.1)).toEqual([false]);
+  });
+
+  it('throws on a q outside (0, 1)', () => {
+    expect(() => benjaminiYekutieli([0.5], 0)).toThrow();
+    expect(() => benjaminiYekutieli([0.5], 1)).toThrow();
   });
 });
 

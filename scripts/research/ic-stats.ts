@@ -521,6 +521,31 @@ export function benjaminiHochberg(pValues: readonly number[], q: number): boolea
   return rejected;
 }
 
+/** The Benjamini-Yekutieli constant c(m) = 1 + 1/2 + ... + 1/m. */
+export function byHarmonic(m: number): number {
+  let c = 0;
+  for (let k = 1; k <= m; k++) c += 1 / k;
+  return c;
+}
+
+/**
+ * Benjamini-Yekutieli step-up procedure at false-discovery rate q: the
+ * Benjamini-Hochberg procedure run at q / c(m), which keeps the FDR at q under
+ * ANY dependence between the tests (Benjamini and Yekutieli 2001, theorem 1.3),
+ * where Benjamini-Hochberg needs positive regression dependence. The event
+ * studies phase (event-studies.ts) uses it because its nine cells share events
+ * across horizons. Same conventions as benjaminiHochberg: one boolean per input
+ * in input order, non-finite p-values never rejected and not counted in m.
+ */
+export function benjaminiYekutieli(pValues: readonly number[], q: number): boolean[] {
+  if (!(q > 0 && q < 1)) {
+    throw new Error(`benjaminiYekutieli: q must be in (0, 1), got ${q}`);
+  }
+  const m = pValues.filter((p) => Number.isFinite(p) && p >= 0 && p <= 1).length;
+  if (m === 0) return new Array<boolean>(pValues.length).fill(false);
+  return benjaminiHochberg(pValues, q / byHarmonic(m));
+}
+
 /**
  * Demeans each symbol's forward-return series by the equal-weight mean across
  * the symbols sharing that bar's timestamp: the cross-sectional (relative
