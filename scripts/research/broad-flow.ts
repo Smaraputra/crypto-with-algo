@@ -225,6 +225,42 @@
  *     every decision close.
  */
 
+/*
+ * RESULT, 2026-10-08 (the one run of each). Export `aa62c5a1cb51` and universe `4f34816acb72` (the broad trend
+ * phase's, with its funding resolutions file `6a2a3dad`, broad-trend.ts note A6-1), image from `cb91ad9`,
+ * 2021-03-01 to 2026-06-30, reports `broad/flow/flow-{DO,W,WO,D}.json`, gate 7 `broad-flow-gate7.json`.
+ *
+ *   rule        Sharpe  95% CI          annual   long    short   cost    turnover  timing p (perm, aligned)  failed gates
+ *   DO          -2.54   [-3.52, -1.63]  -20.45%  -2.44%  +4.34%  22.35%  188x      0.005, 0.647             2, 3, 4, 5, 6, 7, 8
+ *   W           0.53    [-0.19, 1.26]   +4.58%   +1.09%  +6.33%  2.84%   24x       0.015, 0.035             2, 7
+ *   WO          0.49    [-0.21, 1.19]   +4.34%   +1.52%  +5.61%  2.79%   23x       0.020, 0.065             2, 3, 7
+ *   D control   -2.35   [-3.37, -1.35]  -18.80%  -1.42%  +5.08%  22.46%  190x      0.005, 0.318             (control)
+ *
+ *   GATE 7 (N = 3): V = 8.514e-3 per day (cross-trial, above the floor 5.149e-4), expected maximum annual
+ *   Sharpe 1.50; deflated probabilities W 0.011, WO 0.009, DO 0.000, all 0.000 at the program count 1,732.
+ *   EVERY TRIAL FAILS. DO's strongly negative Sharpe widens the cross-trial variance, as P4 and C1 did in
+ *   the legends phase; at the power section's estimate (about 1.08) W's 0.53 would still fall short.
+ *
+ *   Reported. In the paper's own window (2021-03 to 2022-06) every book loses: W Sharpe -0.70, WO -0.56, DO
+ *   -2.93, D -2.04, against the paper's +1.34 to +1.79 gross on its survivor panel. After it (2022-07 on) the
+ *   weekly books earn +0.023% (W) and +0.020% (WO) a day. The weekly books' return comes from the short leg
+ *   (the lowest-flow members underperform); net exposure averages about zero (0.06% of equity, at most 8% as
+ *   prices drift within a week). At the daily frequency
+ *   the gross spread is small and positive and the 188x turnover costs about 22% a year, so cost decides DO
+ *   and the control. The permuted null's p of 0.005 for DO and D says random rankings did even worse: a
+ *   random daily ranking churns far more than a persistent flow ranking, so at that frequency this null
+ *   measures turnover as much as information; the aligned null, which keeps each ranking's persistence, reads
+ *   0.65 and 0.32.
+ *
+ *   Predictions: right that nothing passes gate 7 and for W and WO (Sharpe 0.0 to +0.6, read 0.53 and 0.49,
+ *   failing gates 2 and 7); wrong for DO's size (predicted -0.5 to +0.3, read -2.54: the daily turnover cost
+ *   was underestimated by a factor of several).
+ *
+ * PHASE VERDICT. NO TRIAL PASSES. Daily and weekly cross-sectional taker flow on Binance USDT-M perpetuals is
+ * CLOSED. Program trial ledger: 1,732. The weekly sort's positive point estimate after the paper's window is a
+ * reading, not a result: its CI spans zero and it lost money in the paper's own period.
+ */
+
 import { createSeededRandom } from '@/lib/stats/seeded-random';
 import { buildBroadInputs, type BroadInputs, type BuildSource } from './broad-inputs';
 import { segmentContracts, tradedDays, type Contract } from './broad-trend';
