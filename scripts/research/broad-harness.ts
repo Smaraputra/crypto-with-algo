@@ -11,7 +11,12 @@
  *
  * Usage:
  *   npx tsx scripts/research/broad-harness.ts --rule TF4 --dataset-dir <export> --universe-file <universe.json> \
- *     --out <report.json> --task-id <id> [--draws 200] [--null-size-universes 50]
+ *     --out <report.json> --task-id <id> [--draws 200] [--null-size-universes 50] \
+ *     [--funding-resolutions <resolutions.json>] [--funding-check-out <flagged.json>]
+ *
+ * --funding-resolutions reads the recorded resolutions of settlements the coverage
+ * check flags; --funding-check-out writes the flagged list as JSON when the check
+ * stops the run (implementation note A6-1).
  *
  * Gate 8 is left pending: broad-dsr.ts computes it once across the five reports.
  * The choices the header leaves open are recorded in broad-trend.ts's

@@ -140,7 +140,7 @@ describe('missingSettlements (header DATA: every settlement due on a member day 
     expect(missingSettlements(contract, lacking, days(6)).map((m) => m.t)).toEqual([utc(2022, 1, 6, 12)]);
   });
 
-  it('reads the archive interval as the spacing BEFORE a row, so a lengthening switch is complete (SOL 2022-11-18)', () => {
+  it('judges each gap by its later row\'s interval: a lengthening switch is complete, a shortening one is flagged', () => {
     // 2h settlements up to 08:00, then the interval lengthens: the 16:00 row says 8 (the gap before it).
     const two = grid(2, utc(2022, 1, 4, 2), utc(2022, 1, 4, 8));
     const eight = grid(8, utc(2022, 1, 4, 16), utc(2022, 1, 6));
@@ -149,6 +149,9 @@ describe('missingSettlements (header DATA: every settlement due on a member day 
     // A row stating 4 after an 8h gap is a genuinely skipped settlement (BIOUSDT 2026-06-24 04:00).
     const skipped = [...grid(4, utc(2022, 1, 4), utc(2022, 1, 4, 20)), { t: utc(2022, 1, 5, 4), rate: 0.0001, intervalHours: 4 }];
     expect(missingSettlements(contract, skipped, days(4)).map((m) => m.t)).toEqual([utc(2022, 1, 5)]);
+    // 4h rows to 00:00, then the first 2h row at 04:00 (SOLUSDT 2022-11-10): 02:00 is flagged for REST evidence.
+    const shortened = [...grid(4, utc(2022, 1, 4, 4), utc(2022, 1, 5)), ...grid(2, utc(2022, 1, 5, 4), utc(2022, 1, 6))];
+    expect(missingSettlements(contract, shortened, days(4, 5))).toEqual([{ contract: 'X#1', t: utc(2022, 1, 5, 2), reason: 'missing' }]);
   });
 
   it('extends the grid before the first row and after the last, except on the listing day', () => {
@@ -286,7 +289,7 @@ describe('buildBroadInputs on a synthetic universe', () => {
     const iso = new Date(t).toISOString();
     expect(() => withResolutions(u, [])).toThrow(MissingFundingError);
     const built = withResolutions(u, [{ kind: 'no-event', symbol: 'BTCUSDT', t: iso, evidence: 'REST fundingRate shows none' }]);
-    expect(built.fundingResolutions).toEqual({ sha256: 'f'.repeat(64), noEvent: 1, unavailable: 0, imputed: 0 });
+    expect(built.fundingResolutions).toEqual({ sha256: 'f'.repeat(64), noEvent: 1, rest: 0, restSettlements: 0 });
     expect(built.inputs.find((i) => i.symbol === 'BTCUSDT#1')!.settlements.some((s) => s.t === t)).toBe(false);
     // The no-event entry names a symbol and an instant, so it covers nothing on another symbol.
     expect(() =>
@@ -294,30 +297,27 @@ describe('buildBroadInputs on a synthetic universe', () => {
     ).toThrow(MissingFundingError);
   });
 
-  it('imputes an unavailable stretch on member days at the median rate of the other members at the same instant', () => {
+  it('takes a contract\'s missing settlements from recorded REST rows, and checks coverage over them', () => {
     const aaa = inputs.inputs.find((i) => i.symbol === 'AAAUSDT#1')!;
     const from = aaa.membership![1].from + 3 * DAY_MS;
-    const to = from + 10 * DAY_MS;
     const dropped: number[] = [];
-    for (let t = from + 8 * H; t <= to; t += 8 * H) dropped.push(t);
+    for (let t = from + 8 * H; t <= from + 10 * DAY_MS; t += 8 * H) dropped.push(t);
     const u = syntheticUniverse(SMALL_SPECS.map((s) => (s.symbol === 'AAAUSDT' ? { ...s, dropSettlements: dropped } : s)));
     expect(() => withResolutions(u, [])).toThrow(/30 funding settlement/);
-    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-    const built = withResolutions(u, [
-      { kind: 'unavailable', symbol: 'AAAUSDT', contract: 'AAAUSDT#1', from: day(from), to: day(to), evidence: 'archive and REST empty' },
-    ]);
-    expect(built.fundingResolutions.imputed).toBe(30);
-    // The median of the other members' rates at one imputed instant, from the same inputs.
-    const t = dropped[7];
-    const others = built.inputs
-      .filter((i) => i.symbol !== 'AAAUSDT#1' && i.membership!.some((sp) => dueDay(t) >= sp.from && dueDay(t) < sp.to))
-      .map((i) => i.settlements.find((s) => s.t === t)?.rate)
-      .filter((r): r is number => r !== undefined)
-      .sort((x, y) => x - y);
-    expect(others.length).toBeGreaterThan(1);
-    const mid = others.length >> 1;
-    const expected = others.length % 2 === 1 ? others[mid] : (others[mid - 1] + others[mid]) / 2;
-    expect(built.inputs.find((i) => i.symbol === 'AAAUSDT#1')!.settlements.find((s) => s.t === t)!.rate).toBeCloseTo(expected, 15);
+    const rows = dropped.map((t, k) => ({ t: new Date(t).toISOString(), rate: 0.0002 + k * 1e-6, intervalHours: 8 }));
+    const rest = (r: typeof rows): FundingResolution => ({ kind: 'rest', symbol: 'AAAUSDT', contract: 'AAAUSDT#1', evidence: 'REST', rows: r });
+    const built = withResolutions(u, [rest(rows)]);
+    expect(built.fundingResolutions).toEqual({ sha256: 'f'.repeat(64), noEvent: 0, rest: 1, restSettlements: 30 });
+    const settled = built.inputs.find((i) => i.symbol === 'AAAUSDT#1')!.settlements;
+    expect(settled.find((s) => s.t === dropped[7])!.rate).toBeCloseTo(0.0002 + 7e-6, 15);
+    // Short of the stretch, the check still stops the run on what the rows do not cover.
+    expect(() => withResolutions(u, [rest(rows.slice(1))])).toThrow(MissingFundingError);
+    // A row the archive already has, or one outside the contract's life, stops the run.
+    const kept = new Date(from).toISOString();
+    expect(() => withResolutions(u, [rest([...rows, { t: kept, rate: 0, intervalHours: 8 }])])).toThrow(/duplicates a settlement/);
+    expect(() =>
+      withResolutions(u, [rest([...rows, { t: '2019-01-01T00:00:00.000Z', rate: 0, intervalHours: 8 }])])
+    ).toThrow(/outside the contract's life/);
   });
 
   it('refuses a resolution that matches nothing, so the file stays an exact record', () => {
@@ -396,8 +396,8 @@ describe('loadBroadInputs from an export directory', () => {
     expect(loaded.fundingResolutions).toEqual({
       sha256: createHash('sha256').update(text).digest('hex'),
       noEvent: 1,
-      unavailable: 0,
-      imputed: 0,
+      rest: 0,
+      restSettlements: 0,
     });
   });
 

@@ -1396,8 +1396,8 @@ export const BroadTrendReportSchema = z.object({
   fundingResolutions: z.object({
     sha256: z.string().nullable(),
     noEvent: z.number(),
-    unavailable: z.number(),
-    imputed: z.number(),
+    rest: z.number(),
+    restSettlements: z.number(),
   }),
   carriedDays: z.record(z.string(), z.number()),
   gates: z.array(BroadGateSchema),
