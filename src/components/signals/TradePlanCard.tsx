@@ -162,10 +162,41 @@ function Ticket({ plan, ticket }: { plan: TradePlan; ticket: TradeTicket }) {
       <div className="space-y-1 text-xs" data-testid="trade-plan-costs">
         <p>
           <span className="text-muted-foreground">Round trip: </span>
-          <span className="font-mono tabular-nums">{costs.roundTripStopPercent.toFixed(3)}%</span> if stopped,{' '}
+          <span className="font-mono tabular-nums">{costs.roundTripStopPercent.toFixed(3)}%</span> (
+          <span className="font-mono tabular-nums">{usdt(costs.roundTripStopUsdt)}</span> USDT) if stopped,{' '}
           <span className="font-mono tabular-nums">{costs.roundTripTargetPercent.toFixed(3)}%</span> at the target.
           Costs are <span className="font-mono tabular-nums">{(costs.costShareOfRisk * 100).toFixed(1)}%</span> of
           the risk.
+        </p>
+        <p data-testid="trade-plan-move">
+          <span className="text-muted-foreground">Move: </span>
+          {costs.holdMove === null || costs.costShareOfMove === null ? (
+            <>no recorded {plan.interval} hold to compare the costs against</>
+          ) : (
+            <>
+              a {costs.holdMove.holdBars}-bar hold typically moves{' '}
+              <span className="font-mono tabular-nums">{costs.holdMove.medianPercent.toFixed(2)}%</span> (mean{' '}
+              <span className="font-mono tabular-nums">{costs.holdMove.meanPercent.toFixed(2)}%</span>); the stop round
+              trip is <span className="font-mono tabular-nums">{(costs.costShareOfMove * 100).toFixed(0)}%</span> of
+              the mean move
+            </>
+          )}
+        </p>
+        <p data-testid="trade-plan-breakeven">
+          <span className="text-muted-foreground">Breakeven: </span>
+          {costs.bracketBreakeven.kind === 'impossible' ? (
+            'no win rate covers the costs at the target'
+          ) : (
+            <>
+              if every trade ended at its stop or target it would need{' '}
+              <span className="font-mono tabular-nums">{(costs.bracketBreakeven.winRate * 100).toFixed(1)}%</span>{' '}
+              winners after costs (
+              <span className="font-mono tabular-nums">
+                {((ticket.stopPercent / (ticket.stopPercent + ticket.targetPercent)) * 100).toFixed(1)}%
+              </span>{' '}
+              before costs); exits on the score make this approximate
+            </>
+          )}
         </p>
         <p>
           <span className="text-muted-foreground">Funding: </span>
