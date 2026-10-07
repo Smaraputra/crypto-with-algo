@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StrategyReport } from './report-schema';
-import { computeGate8, harnessDailySeries, PHASE_TRIALS, type TrialSeries } from './legends-dsr';
+import { computeGate8, formatGate8, harnessDailySeries, PHASE_TRIALS, type TrialSeries } from './legends-dsr';
 import { expectedMaxSharpe } from '@/lib/stats/deflated-sharpe';
 
 const DAY = 86_400_000;
@@ -80,5 +80,36 @@ describe('computeGate8', () => {
     expect(missing.results.find((r) => r.id === 'TF4')!.verdict).toBe('fail');
     const agreed = computeGate8(asHarness, { ...others, TF4: { pass: true, consistency: true, note: 'x' } });
     expect(agreed.results.find((r) => r.id === 'TF4')!.verdict).toBe('pass (provisional)');
+  });
+});
+
+/** JSON with object keys sorted recursively; numbers go through JSON so doubles round-trip exactly. */
+function stableStringify(value: unknown): string {
+  const sort = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sort);
+    if (v && typeof v === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(v as Record<string, unknown>).sort()) out[k] = sort((v as Record<string, unknown>)[k]);
+      return out;
+    }
+    return v;
+  };
+  return JSON.stringify(sort(value), null, 1) + '\n';
+}
+
+describe('golden: the default gate 8 path', () => {
+  // Pinned against the unparameterised legends-dsr.ts: a later change to the defaults must fail here.
+  const ids = ['TF1', 'TF2', 'TF3', 'TF4', 'C3', 'P1', 'P2', 'P3', 'P4', 'C1', 'C2'];
+  const all = ids.map((id, k) =>
+    series(id, [0.001, -0.0004, 0.0007, 0.003, 0.0025, 0.0002, 0.0009, -0.002, -0.0015, 0.0011, 0.0004][k], 0.02 + k * 0.001, 1200 + k * 37, k + 11)
+  );
+  const others = Object.fromEntries(
+    ids.map((id, k) => [id, { pass: k % 3 !== 1, consistency: k < 5 ? null : k % 2 === 0, note: `n${k}` }])
+  );
+  const asHarness = all.map((s, k) => (k >= 5 ? { ...s, kind: 'harness' as const } : s));
+
+  it('computeGate8 and formatGate8 are pinned', async () => {
+    const g = computeGate8(asHarness, others);
+    await expect(stableStringify({ result: g, text: formatGate8(g) })).toMatchFileSnapshot('./__golden__/legends-gate8.json');
   });
 });
