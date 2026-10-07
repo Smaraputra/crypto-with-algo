@@ -46,6 +46,7 @@ import {
   type GroupMean,
   type HourlyPanel,
   type KeptEvent,
+  marketWideStressHours,
 } from './event-studies';
 
 const H = HOUR_MS;
@@ -387,7 +388,7 @@ describe('event detection', () => {
     expect(events.find((e) => e.hour === 2_223)).toBeUndefined();
   });
 
-  it('E2 on ties: a window of equal rates gives no direction; a rate tied with the 99th alone is an event', () => {
+  it('E2 on ties (AMENDMENT 1): a window of equal rates gives nothing, and a base rate tied with the 99th is no event', () => {
     const bars = Array.from({ length: 10 }, () => bar(0));
     const start = T0 + 400 * 8 * H;
     const times = Array.from({ length: 405 }, (_, j) => T0 + j * 8 * H);
@@ -397,13 +398,41 @@ describe('event detection', () => {
     const [lo, hi] = settlementQuantiles(panelEqual.settlementTimes, panelEqual.settlementRates, [0.01, 0.99]);
     expect(detectE2(panelEqual, hi, lo, window)).toEqual([]);
 
-    // A few low rates early on: the 1st percentile drops, the 99th stays 1e-4, and 1e-4 is "at or above" it.
+    // A few low rates early on: the 1st percentile drops, the 99th stays at the 1e-4 base rate. The base rate is
+    // tied with the 99th, not above it, so under the strict rule it marks nothing (it was every settlement before).
     const someLow = times.map((t, j) => ({ t, rate: j < 20 ? -1e-4 : 1e-4 }));
     const panelLow = panelFrom(bars, { funding: someLow, start });
     const [lo2, hi2] = settlementQuantiles(panelLow.settlementTimes, panelLow.settlementRates, [0.01, 0.99]);
-    const events = detectE2(panelLow, hi2, lo2, window);
-    expect(events.length).toBeGreaterThan(0);
-    expect(events.every((e) => e.d === 1 && e.atThreshold)).toBe(true);
+    expect(detectE2(panelLow, hi2, lo2, window)).toEqual([]);
+
+    // A rate strictly above a base-rate 99th is a crowded-long event.
+    const spike = times.map((t, j) => ({ t, rate: j < 20 ? -1e-4 : j === 401 ? 5e-4 : 1e-4 }));
+    const panelSpike = panelFrom(bars, { funding: spike, start });
+    const [lo3, hi3] = settlementQuantiles(panelSpike.settlementTimes, panelSpike.settlementRates, [0.01, 0.99]);
+    const events = detectE2(panelSpike, hi3, lo3, window);
+    expect(events).toHaveLength(1);
+    expect(events[0].d).toBe(1);
+    expect(events[0].atThreshold).toBe(false);
+  });
+
+  it('marks market-wide stress hours: any E1, or E3 on at least three symbols in the same hour', () => {
+    const h = (k: number) => T0 + k * H;
+    const hours = marketWideStressHours(
+      [h(5), h(9)],
+      [
+        { symbol: 'AUSDT', t: h(1) },
+        { symbol: 'BUSDT', t: h(1) },
+        { symbol: 'AUSDT', t: h(2) },
+        { symbol: 'BUSDT', t: h(2) },
+        { symbol: 'CUSDT', t: h(2) },
+        { symbol: 'AUSDT', t: h(9) },
+        { symbol: 'AUSDT', t: h(3) },
+        { symbol: 'AUSDT', t: h(3) },
+        { symbol: 'BUSDT', t: h(3) },
+      ]
+    );
+    // h1 has two symbols, h3 two distinct symbols (A twice): neither counts. h2 has three: it does.
+    expect(hours).toEqual([h(2), h(5), h(9)]);
   });
 });
 

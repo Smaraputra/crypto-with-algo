@@ -104,6 +104,23 @@
  * the p-value is recentred, de-overlap and percentile windows are mechanical, multiple testing is
  * Benjamini-Yekutieli, E2 enters an hour after the settlement, and the stress flag is judged on balanced
  * accuracy.
+ *
+ * AMENDMENT 1 (2026-10-08, before any real data was loaded or any event computed)
+ *
+ * Building the harness on synthetic data exposed two definitions that would have measured something other
+ * than what they name. Each change supersedes the line it names; trials, gates and predictions otherwise
+ * stand.
+ *
+ * - E2 thresholds are STRICT: the rate must be strictly above the trailing 99th percentile (crowded longs) or
+ *   strictly below the 1st (crowded shorts). Binance funding sits at exactly 0.0100% for long stretches, so
+ *   in a window where that base rate fills more than 1% of the tail the 99th percentile equals it and "at or
+ *   above" would mark ordinary base-rate settlements as crowded. Supersedes "at or above ... or at or below"
+ *   in the E2 bullet.
+ * - The stress flag is MARKET-WIDE: an E1 event on any of the ten symbols, or E3 events on at least 3 of the
+ *   ten symbols in the same hour, within the last 24 hours. As written (any E1 or E3 on any symbol), E3's 1%
+ *   per-symbol hourly rate alone flags about 91% of days under independence, so the flag would be on almost
+ *   always and its balanced accuracy pinned near 0.5 whatever the market did. Supersedes "a stress flag = any
+ *   E1 or E3 event on any of the ten symbols in the last 24 hours".
  */
 
 /**
@@ -646,8 +663,8 @@ export function detectE3(panel: HourlyPanel, volumeThreshold: Float64Array, wind
 }
 
 /**
- * E2: a settlement at or above its trailing 99th percentile (d = +1) or at or below its 1st (d = -1). The
- * event hour is the hour whose close is the settlement, and entry is the open of h + 2.
+ * E2: a settlement strictly above its trailing 99th percentile (d = +1) or strictly below its 1st (d = -1),
+ * AMENDMENT 1. The event hour is the hour whose close is the settlement, and entry is the open of h + 2.
  */
 export function detectE2(
   panel: HourlyPanel,
@@ -661,8 +678,9 @@ export function detectE2(
     const lo = lowThreshold[j];
     if (!Number.isFinite(hi) || !Number.isFinite(lo)) continue;
     const rate = panel.settlementRates[j];
-    const up = rate >= hi;
-    const down = rate <= lo;
+    // AMENDMENT 1: strict, so a tail made of the 0.0100% base rate marks no event.
+    const up = rate > hi;
+    const down = rate < lo;
     if (up === down) continue; // neither, or both (note 6)
     const closeT = Math.ceil(panel.settlementTimes[j] / HOUR_MS) * HOUR_MS;
     const t = closeT - HOUR_MS;
@@ -1151,10 +1169,32 @@ export interface StressRead {
   balancedAccuracy: number;
 }
 
+/** AMENDMENT 1: E3 events on at least this many distinct symbols in one hour make a market-wide shock. */
+export const STRESS_MIN_E3_SYMBOLS = 3;
+
+/**
+ * The hour opens that set the market-wide stress flag (AMENDMENT 1): every E1 event hour on any symbol, and
+ * every hour in which E3 fired on at least three distinct symbols. Sorted, unique.
+ */
+export function marketWideStressHours(
+  e1Opens: readonly number[],
+  e3: ReadonlyArray<{ symbol: string; t: number }>
+): number[] {
+  const bySymbolHour = new Map<number, Set<string>>();
+  for (const e of e3) {
+    const set = bySymbolHour.get(e.t) ?? new Set<string>();
+    set.add(e.symbol);
+    bySymbolHour.set(e.t, set);
+  }
+  const hours = new Set<number>(e1Opens);
+  for (const [t, symbols] of bySymbolHour) if (symbols.size >= STRESS_MIN_E3_SYMBOLS) hours.add(t);
+  return [...hours].sort((a, b) => a - b);
+}
+
 /**
  * The stress flag's balanced accuracy for the reference panel's next-day realised variance landing in its
  * trailing 180-day top quintile, one evaluation per UTC day in [from, to) (note 15). `eventHourOpens` are the
- * open times of every detected E1 and E3 event hour, any symbol.
+ * market-wide stress hours from `marketWideStressHours`.
  */
 export function evaluateStressFlag(
   eventHourOpens: readonly number[],
@@ -1377,7 +1417,10 @@ export function runEventStudies(
   const pooledRead = ratioRead([...pooled.values()], panelOf, calendar);
 
   const reference = panelBySymbol.get(STRESS_SYMBOL);
-  const stressOpens = detections.flatMap(({ events }) => [...events.E1, ...events.E3].map((e) => e.t));
+  const stressOpens = marketWideStressHours(
+    detections.flatMap(({ events }) => events.E1.map((e) => e.t)),
+    detections.flatMap(({ events }) => events.E3.map((e) => ({ symbol: e.symbol, t: e.t })))
+  );
   const stress = reference ? evaluateStressFlag(stressOpens, reference, config.stressFrom, config.stressTo) : null;
   const balancedAccuracyPass =
     stress !== null && Number.isFinite(stress.balancedAccuracy) && stress.balancedAccuracy >= MIN_BALANCED_ACCURACY;
