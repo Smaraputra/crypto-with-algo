@@ -21,7 +21,11 @@ export interface CostCheckMarketResponse {
   symbol: string;
   /** When this response was built from venue data, epoch ms. For a stale copy, its original build time. */
   asOf: number;
-  /** True when the venue was unreachable and a last-good copy (up to 24 h old) is served. */
+  /**
+   * True when the venue was unreachable and a last-good copy (up to 24 h old) is served. That copy is
+   * shared across users, so its slippage is always the flat fallback, never one measured for another
+   * request's notional.
+   */
   stale: boolean;
   /** Mark price, USDT. */
   markPrice: number;

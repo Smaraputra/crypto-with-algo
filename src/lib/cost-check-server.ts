@@ -30,6 +30,13 @@ export const LAST_GOOD_TTL = 24 * 3600;
 /** Flat one-way slippage assumed when the order book cannot be read. */
 export const FALLBACK_SLIPPAGE_BPS = 5;
 
+export const FALLBACK_SLIPPAGE: CostCheckMarketResponse['slippage'] = {
+  bps: FALLBACK_SLIPPAGE_BPS,
+  source: 'fallback',
+  halfSpreadBps: null,
+  exceedsTopOfBook: false,
+};
+
 const KEPT_FILTERS = new Set(['LOT_SIZE', 'MIN_NOTIONAL', 'PRICE_FILTER', 'MARKET_LOT_SIZE']);
 
 /** exchangeInfo trimmed to the fields the cost check reads, so the cached copy stays small. */
@@ -82,12 +89,7 @@ export async function buildMarketFacts(
 
   const closes = closedBars(klines, now).map((k) => k.close);
 
-  let slippage: CostCheckMarketResponse['slippage'] = {
-    bps: FALLBACK_SLIPPAGE_BPS,
-    source: 'fallback',
-    halfSpreadBps: null,
-    exceedsTopOfBook: false,
-  };
+  let slippage: CostCheckMarketResponse['slippage'] = FALLBACK_SLIPPAGE;
   if (depth) {
     try {
       const s = depthSlippageBps(depth, notional);
@@ -141,10 +143,17 @@ export async function readLastGood(key: string): Promise<CostCheckMarketResponse
   }
 }
 
+/**
+ * The last-good copy is shared by every user who asks for the same symbol and
+ * hold, so it keeps only public market facts. Slippage is measured for the
+ * requester's own notional, which would reveal another user's order size if
+ * a stale copy were served with it; the copy carries the flat fallback instead.
+ */
 export async function writeLastGood(key: string, body: CostCheckMarketResponse): Promise<void> {
   if (!redis) return;
   try {
-    await redis.set(key, JSON.stringify(body), { ex: LAST_GOOD_TTL });
+    const shared: CostCheckMarketResponse = { ...body, slippage: FALLBACK_SLIPPAGE };
+    await redis.set(key, JSON.stringify(shared), { ex: LAST_GOOD_TTL });
   } catch {
     // Fail open: the live response is still returned.
   }

@@ -329,4 +329,16 @@ describe('GET /api/cost-check', () => {
     expect(body.asOf).toBe(first.asOf);
     expect(body.markPrice).toBe(first.markPrice);
   });
+
+  it("never serves another request's notional-dependent slippage from the shared last-good copy", async () => {
+    const first = (await (await GET(request({ ...GOOD, notional: '250000' }))).json()) as CostCheckMarketResponse;
+    expect(first.slippage.source).toBe('depth');
+    const stored = JSON.parse(store.get('cost-check:last-good:BTCUSDT:15m:4') as string) as CostCheckMarketResponse;
+    expect(stored.slippage).toEqual({ bps: 5, source: 'fallback', halfSpreadBps: null, exceedsTopOfBook: false });
+    for (const key of [...store.keys()]) if (!key.startsWith('cost-check:last-good:')) store.delete(key);
+    stubVenue({ klineCount: 10, failWith: { status: 451 } });
+    const body = (await (await GET(request(GOOD))).json()) as CostCheckMarketResponse;
+    expect(body.stale).toBe(true);
+    expect(body.slippage.source).toBe('fallback');
+  });
 });
