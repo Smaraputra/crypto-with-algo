@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { CRON_JOB_NAMES } from '@/lib/cron-jobs';
+import { HEARTBEAT_JOB_NAMES } from '@/lib/cron-jobs';
 import { connectDB } from '@/lib/mongodb';
 import { JobHeartbeat } from '@/lib/models/job-heartbeat';
 
@@ -31,8 +31,8 @@ export async function recordJobRun(job: string, outcome: JobRunOutcome): Promise
   // guard an unrecognised key (a route called with a parameter no crontab line
   // uses) quietly creates a row that /api/health/cron never reads, because it
   // iterates the job table rather than the collection.
-  if (!CRON_JOB_NAMES.includes(job)) {
-    console.error(`Refusing to record run for unknown job "${job}" -- not in CRON_JOBS`);
+  if (!HEARTBEAT_JOB_NAMES.includes(job)) {
+    console.error(`Refusing to record run for unknown job "${job}" -- not in CRON_JOBS or SERVICE_JOBS`);
     return;
   }
 

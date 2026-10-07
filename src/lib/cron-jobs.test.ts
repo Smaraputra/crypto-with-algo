@@ -8,6 +8,8 @@ import {
   CRON_JOB_NAMES,
   DERIVED_JOBS,
   HEARTBEAT_JOBS,
+  HEARTBEAT_JOB_NAMES,
+  SERVICE_JOBS,
   cronJob,
   secondsBetweenRuns,
 } from './cron-jobs';
@@ -180,6 +182,30 @@ describe('DERIVED_JOBS', () => {
       expect(job.derivedFrom, `${job.job} must say what it derives from`).toBeTruthy();
       expect(job.expectedEverySeconds).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('SERVICE_JOBS', () => {
+  it('keeps long-running services out of the crontab table and the template', () => {
+    // A service has no crontab line, so the bijection test must never demand one.
+    for (const service of SERVICE_JOBS) {
+      expect(CRON_JOB_NAMES).not.toContain(service.job);
+      expect(DERIVED_JOBS.some((j) => j.job === service.job)).toBe(false);
+      expect(TEMPLATE).not.toContain(service.job);
+    }
+  });
+
+  it('allows a heartbeat row for every crontab line and every service, and nothing else', () => {
+    expect(HEARTBEAT_JOB_NAMES).toEqual([...CRON_JOB_NAMES, ...SERVICE_JOBS.map((j) => j.job)]);
+    expect(new Set(HEARTBEAT_JOB_NAMES).size).toBe(HEARTBEAT_JOB_NAMES.length);
+    expect(HEARTBEAT_JOB_NAMES).toContain('market-recorder');
+  });
+
+  it('expects the market recorder every minute and says where it runs', () => {
+    const recorder = SERVICE_JOBS.find((j) => j.job === 'market-recorder');
+
+    expect(recorder?.expectedEverySeconds).toBe(60);
+    expect(recorder?.runsIn).toMatch(/market-recorder\.ts/);
   });
 });
 
