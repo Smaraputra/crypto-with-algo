@@ -7,6 +7,7 @@ import {
   closeJumps,
   dayKey,
   dayNumberOf,
+  gapRange,
   expectedRange,
   findGaps,
   zeroVolumeRuns,
@@ -69,6 +70,34 @@ describe('expectedRange', () => {
 
   it('is null when no 1d file is listed', () => {
     expect(expectedRange({ klineMonths: [], dailyKlines: null }, '2026-06-30')).toBeNull();
+  });
+});
+
+describe('gapRange', () => {
+  const day = (iso: string) => dayNumberOf(iso);
+
+  it('runs from the listing day in the daily file names, not the month start', () => {
+    const range = gapRange(
+      { klineMonths: ['2021-05', '2021-06'], dailyKlines: { first: '2021-05-10', last: '2021-06-30', count: 52 } },
+      [day('2021-05-10'), day('2021-06-30')],
+      '2026-06-30'
+    );
+    expect([dayKey(range!.first), dayKey(range!.last)]).toEqual(['2021-05-10', '2021-06-30']);
+  });
+
+  it('never reaches before 2020-01-01 or past `through`', () => {
+    const range = gapRange(
+      { klineMonths: ['2020-01'], dailyKlines: { first: '2019-12-31', last: '2026-09-30', count: 2465 } },
+      [day('2020-01-01'), day('2026-09-30')],
+      '2026-06-30'
+    );
+    expect([dayKey(range!.first), dayKey(range!.last)]).toEqual(['2020-01-01', '2026-06-30']);
+  });
+
+  it('falls back to the stored bars without daily files, and is null without bars', () => {
+    const range = gapRange({ klineMonths: ['2022-02'], dailyKlines: null }, [day('2022-02-03'), day('2022-02-20')], '2026-06-30');
+    expect([dayKey(range!.first), dayKey(range!.last)]).toEqual(['2022-02-03', '2022-02-20']);
+    expect(gapRange({ klineMonths: ['2022-02'], dailyKlines: null }, [], '2026-06-30')).toBeNull();
   });
 });
 

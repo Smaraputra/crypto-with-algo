@@ -105,6 +105,34 @@ export function expectedRange(
   return last >= first ? { first, last } : null;
 }
 
+/** The archive's monthly files begin in 2020-01; the broad phase's calendar starts here (broad-trend.ts header). */
+export const CALENDAR_START = '2020-01-01';
+
+/**
+ * The days a contract should have a bar on: from its listing to its last day, capped to the calendar
+ * [2020-01-01, through]. Daily file names give the listing and last day exactly; month boundaries do not
+ * (a contract listed on the 10th has no bars on the 1st to the 9th, and none after its delisting in the
+ * last month), so the month range is used only when there are no daily files, narrowed to the bars on hand.
+ */
+export function gapRange(
+  folder: Pick<UniverseFolder, 'klineMonths' | 'dailyKlines'>,
+  storedDays: readonly number[],
+  through: string
+): { first: number; last: number } | null {
+  if (storedDays.length === 0) return null;
+  const firstStored = Math.min(...storedDays);
+  const lastStored = Math.max(...storedDays);
+  let first = firstStored;
+  let last = lastStored;
+  if (folder.dailyKlines) {
+    first = Math.min(first, dayNumberOf(folder.dailyKlines.first));
+    last = Math.max(last, dayNumberOf(folder.dailyKlines.last));
+  }
+  first = Math.max(first, dayNumberOf(CALENDAR_START));
+  last = Math.min(last, dayNumberOf(through));
+  return last >= first ? { first, last } : null;
+}
+
 export interface ZeroVolumeRun {
   start: string;
   end: string;
@@ -174,9 +202,15 @@ export async function analyzeSymbol(
   };
   if (base.notIngested) return base;
 
+  const listed = gapRange(
+    folder,
+    sorted.map((b) => b.day),
+    through
+  );
+  if (!listed) return base;
   const missing = findGaps(
     sorted.map((b) => b.day),
-    range
+    listed
   );
   if (missing.length === 0) return base;
 
