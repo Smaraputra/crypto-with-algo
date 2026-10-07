@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const {
   mockConnectDB,
@@ -472,5 +475,133 @@ describe('main', () => {
     expect(code).toBe(1);
     expect(JSON.parse(logged[0])).toMatchObject({ kind: 'klines', symbol: 'BTCUSDT', error: 'archive unreachable' });
     expect(JSON.parse(logged[1])).toMatchObject({ kind: 'klines', symbol: 'ETHUSDT', rows: 1 });
+  });
+});
+
+describe('--symbols-file mode', () => {
+  const LIST = JSON.stringify([
+    { symbol: 'LUNAUSDT', klineMonths: ['2022-04', '2022-05'], klineDays: ['2022-05-10'], fundingMonths: ['2022-05'] },
+    { symbol: 'BTCUSDT', klineMonths: ['2020-01'] },
+  ]);
+  const read = (text: string) => () => text;
+  const BASE = ['--symbols-file', 'list.json', '--datasets', 'klines,fundingRate', '--intervals', '1d', '--funding-target', 'settlements'];
+
+  it('parses the contract list and takes its symbols', () => {
+    const args = parseArgs(BASE, NOW, read(LIST));
+    expect(args.symbolsFile).toBe('list.json');
+    expect(args.symbols).toEqual(['LUNAUSDT', 'BTCUSDT']);
+    expect(args.contracts).toHaveLength(2);
+  });
+
+  it('leaves the legacy mode without a contract list', () => {
+    const args = parseArgs([], NOW);
+    expect(args.symbolsFile).toBeNull();
+    expect(args.contracts).toBeNull();
+  });
+
+  it('requires --datasets, --intervals and --funding-target explicitly', () => {
+    for (const flag of ['--datasets', '--intervals', '--funding-target']) {
+      const argv = [...BASE];
+      const at = argv.indexOf(flag);
+      argv.splice(at, 2);
+      expect(() => parseArgs(argv, NOW, read(LIST))).toThrow(new RegExp(`requires ${flag}`));
+    }
+  });
+
+  it('requires the settlements funding target', () => {
+    for (const target of ['snapshots', 'both']) {
+      const argv = [...BASE];
+      argv[argv.indexOf('--funding-target') + 1] = target;
+      expect(() => parseArgs(argv, NOW, read(LIST))).toThrow(/--funding-target settlements/);
+    }
+  });
+
+  it('refuses --symbols, --cadence and datasets without listed files', () => {
+    expect(() => parseArgs([...BASE, '--symbols', 'BTCUSDT'], NOW, read(LIST))).toThrow(/mutually exclusive/);
+    expect(() => parseArgs([...BASE, '--cadence', 'daily'], NOW, read(LIST))).toThrow(/--cadence/);
+    const argv = [...BASE];
+    argv[argv.indexOf('--datasets') + 1] = 'metrics';
+    expect(() => parseArgs(argv, NOW, read(LIST))).toThrow(/supports only klines, fundingRate and snapshots/);
+  });
+
+  it('refuses a bad symbol, because it ends up in cache paths', () => {
+    expect(() => parseArgs(BASE, NOW, read(JSON.stringify([{ symbol: '../x/USDT' }])))).toThrow(/archive-contract shape/);
+    expect(() => parseArgs(BASE, NOW, read(JSON.stringify([{ symbol: 'BTCUSDC' }])))).toThrow(/archive-contract shape/);
+  });
+
+  it('refuses the snapshots dataset for symbols outside SIGNAL_SYMBOLS, and allows it for the live ones', () => {
+    const argv = [...BASE];
+    argv[argv.indexOf('--datasets') + 1] = 'klines,snapshots';
+    expect(() => parseArgs(argv, NOW, read(LIST))).toThrow(/refused for symbols outside SIGNAL_SYMBOLS: LUNAUSDT/);
+    const live = JSON.stringify([{ symbol: 'BTCUSDT', klineMonths: ['2024-01'] }]);
+    expect(parseArgs(argv, NOW, read(live)).contracts).toHaveLength(1);
+    // buildJobs refuses it too, for an args object built by hand.
+    const args = { ...parseArgs(BASE, NOW, read(LIST)), datasets: ['snapshots' as const] };
+    expect(() => buildJobs(args)).toThrow(/SIGNAL_SYMBOLS/);
+  });
+
+  it('builds one job per listed file group and enumerates nothing', () => {
+    const jobs = buildJobs(parseArgs(BASE, NOW, read(LIST)));
+    expect(jobs.map((j) => [j.kind, j.symbol, j.cadence, j.keys])).toEqual([
+      ['klines', 'LUNAUSDT', 'monthly', ['2022-04', '2022-05']],
+      ['klines', 'LUNAUSDT', 'daily', ['2022-05-10']],
+      ['klines', 'BTCUSDT', 'monthly', ['2020-01']],
+      ['fundingRate', 'LUNAUSDT', undefined, ['2022-05']],
+    ]);
+    expect(jobFileKeys(jobs[0])).toEqual(['2022-04', '2022-05']);
+    expect(jobFileKeys(jobs[1])).toEqual(['2022-05-10']);
+  });
+});
+
+describe('--symbols-file main', () => {
+  const logged: string[] = [];
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let dir: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logged.length = 0;
+    logSpy = vi.spyOn(console, 'log').mockImplementation((line: string) => {
+      logged.push(line);
+    });
+    mockPerpBulkWrite.mockResolvedValue({ upsertedCount: 1, modifiedCount: 0 });
+    dir = mkdtempSync(join(tmpdir(), 'symbols-file-'));
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+    process.argv = ['node', 'ingest-archive'];
+  });
+
+  function run(entries: unknown[]): Promise<number> {
+    const file = join(dir, 'list.json');
+    writeFileSync(file, JSON.stringify(entries));
+    process.argv = [
+      'node', 'ingest-archive', '--symbols-file', file, '--datasets', 'klines', '--intervals', '1d',
+      '--funding-target', 'settlements',
+    ];
+    return main();
+  }
+
+  it('fetches only the listed files, ignoring remembered 404s', async () => {
+    mockFetchArchiveFile.mockResolvedValue('1704067200000,1,2,0.5,1.5,10,1704067499999,15,7,5,5,0\n');
+    const code = await run([{ symbol: 'LUNAUSDT', klineMonths: ['2022-04', '2022-05'], klineDays: ['2022-05-10'] }]);
+    expect(code).toBe(0);
+    expect(mockFetchArchiveFile).toHaveBeenCalledTimes(3);
+    const specs = mockFetchArchiveFile.mock.calls.map((c) => [c[0].date, c[0].cadence]).sort();
+    expect(specs).toEqual([['2022-04', 'monthly'], ['2022-05', 'monthly'], ['2022-05-10', 'daily']]);
+    for (const call of mockFetchArchiveFile.mock.calls) expect(call[1].ignoreNegativeCache).toBe(true);
+  });
+
+  it('treats a 404 on a listed file as an error for that job, not missing', async () => {
+    mockFetchArchiveFile.mockImplementation(async (spec: { date: string }) =>
+      spec.date === '2022-05' ? null : '1704067200000,1,2,0.5,1.5,10,1704067499999,15,7,5,5,0\n'
+    );
+    const code = await run([{ symbol: 'LUNAUSDT', klineMonths: ['2022-04', '2022-05'] }]);
+    expect(code).toBe(1);
+    const summary = JSON.parse(logged[0]);
+    expect(summary.error).toMatch(/1 listed archive file\(s\) returned 404: 2022-05/);
+    expect(summary.missing).toBeUndefined();
   });
 });
