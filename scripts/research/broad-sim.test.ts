@@ -651,6 +651,15 @@ describe('timing nulls', () => {
       expect(timingNull([a, b], p, twin.returns, alpha, opts, range, 6, 7, { mode, ...calendar })).toEqual(result);
     });
 
+    it.each(['independent', 'wrapped', 'aligned'] as const)(
+      '%s: an undefined observed alpha is never a pass (p = 1, no draws)',
+      (mode) => {
+        const result = timingNull([a, b], p, twin.returns, Number.NaN, opts, range, 6, 7, { mode, ...calendar });
+        expect(result.p).toBe(1);
+        expect(result.draws).toBe(0);
+      }
+    );
+
     it('draws k = 365 + floor(u x (S - 729)) from one seeded uniform per draw', () => {
       const result = timingNull([a, b], p, twin.returns, alpha, opts, range, 6, 7, { mode: 'wrapped', ...calendar });
       const random = createSeededRandom(7);

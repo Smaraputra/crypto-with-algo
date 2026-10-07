@@ -1507,6 +1507,9 @@ export function timingNull(
   seed = 7,
   nullOptions: TimingNullOptions = {}
 ): TimingNullResult {
+  // An undefined observed alpha is no evidence of timing. Without this guard no draw compares
+  // "at or above" NaN, so p came out at its minimum, 1 / (draws + 1), and read as a pass.
+  if (!Number.isFinite(observedAlpha)) return { p: 1, nullMean: Number.NaN, draws: 0 };
   const mode = nullOptions.mode ?? 'independent';
   if (mode !== 'independent') {
     return commonShiftNull(mode, inputs, paths, twinReturns, observedAlpha, opts, range, draws, seed, nullOptions);
