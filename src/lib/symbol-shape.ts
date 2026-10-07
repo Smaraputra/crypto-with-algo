@@ -15,9 +15,8 @@
 export const SYMBOL_SHAPE = /^[A-Z0-9]{2,20}(USDT|USDC|BUSD|BTC|ETH)$/;
 
 /**
- * The archive-contract shape used by research folders: a USDT-quoted ticker,
- * optionally with trailing SETTLED repeats (an earlier contract of a relisted
- * ticker). Longer tickers than the live shape are allowed (1000000MOGUSDT,
- * AERGOUSDTSETTLEDSETTLED).
+ * The archive-contract shape used by research folders: a USDT-quoted ticker.
+ * Longer tickers than the live shape are allowed (1000000MOGUSDT). SETTLED
+ * folders are not candidates (broad-trend.ts AMENDMENT 1).
  */
-export const ARCHIVE_CONTRACT_SHAPE = /^[A-Z0-9]{1,40}USDT(SETTLED)*$/;
+export const ARCHIVE_CONTRACT_SHAPE = /^[A-Z0-9]{1,40}USDT$/;

@@ -8,12 +8,12 @@ describe('parseContractList', () => {
     expect(
       parseContractList([
         { symbol: 'BTCUSDT', klineMonths: ['2020-02', '2020-01', '2020-02'], klineDays: ['2022-02-28'], fundingMonths: ['2020-01'] },
-        { symbol: 'AERGOUSDTSETTLEDSETTLED' },
+        { symbol: '1000SHIBUSDT' },
         { symbol: 'AUSDT' },
       ])
     ).toEqual([
       { symbol: 'BTCUSDT', klineMonths: ['2020-01', '2020-02'], fundingMonths: ['2020-01'], klineDays: ['2022-02-28'] },
-      { symbol: 'AERGOUSDTSETTLEDSETTLED' },
+      { symbol: '1000SHIBUSDT' },
       { symbol: 'AUSDT' },
     ]);
   });
@@ -25,6 +25,7 @@ describe('parseContractList', () => {
     [[{ symbol: '../../etc/passwdUSDT' }], /archive-contract shape/],
     [[{ symbol: 'BTCUSDC' }], /archive-contract shape/],
     [[{ symbol: 'btcusdt' }], /archive-contract shape/],
+    [[{ symbol: 'LUNCUSDTSETTLED' }], /archive-contract shape/],
     [[{ symbol: 'BTCUSDT' }, { symbol: 'BTCUSDT' }], /twice/],
     [[{ symbol: 'BTCUSDT', klineMonths: ['2020-13'] }], /real YYYY-MM/],
     [[{ symbol: 'BTCUSDT', klineDays: ['2022-02-30'] }], /real YYYY-MM-DD/],

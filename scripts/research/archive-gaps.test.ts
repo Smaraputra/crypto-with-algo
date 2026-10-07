@@ -9,6 +9,7 @@ import {
   dayNumberOf,
   expectedRange,
   findGaps,
+  zeroVolumeRuns,
 } from './archive-gaps';
 
 const d = dayNumberOf;
@@ -133,5 +134,38 @@ describe('analyzeSymbol and buildReport', () => {
     expect(buildReport('abc', '2026-06-30', [result!]).report.jumps).toEqual([
       { symbol: 'XUSDT', day: '2022-02-02', ratio: 1000 },
     ]);
+  });
+});
+
+describe('zero-volume days', () => {
+  it('groups consecutive zero-volume days into runs', () => {
+    const days = ['2025-07-01', '2025-07-02', '2025-07-03', '2025-07-09'].map(d);
+    expect(zeroVolumeRuns(days)).toEqual([
+      { start: '2025-07-01', end: '2025-07-03', length: 3 },
+      { start: '2025-07-09', end: '2025-07-09', length: 1 },
+    ]);
+    expect(zeroVolumeRuns([])).toEqual([]);
+  });
+
+  it('reports them apart from gaps, never as repairs, and ignores them for close jumps', async () => {
+    const folder = { name: 'CVXUSDT', klineMonths: ['2025-07'], dailyKlines: null };
+    const bars: Array<{ day: number; close: number; volume: number }> = [];
+    for (let day = d('2025-07-01'); day <= d('2025-07-31'); day++) {
+      const halted = day <= d('2025-07-30');
+      bars.push({ day, close: halted ? 2.374 : 20, volume: halted ? 0 : 5 });
+    }
+    const listDaily = vi.fn(async () => []);
+    const result = await analyzeSymbol(folder, bars, listDaily, '2026-06-30');
+    expect(listDaily).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ repairDays: [], sourceGapDays: [], jumps: [] });
+    expect(result!.zeroVolumeDays).toHaveLength(30);
+    expect(result!.zeroVolumeRuns).toEqual([{ start: '2025-07-01', end: '2025-07-30', length: 30 }]);
+
+    const { report, repairFile } = buildReport('abc', '2026-06-30', [result!]);
+    expect(repairFile).toEqual([]);
+    expect(report.zeroVolume).toEqual([
+      { symbol: 'CVXUSDT', days: result!.zeroVolumeDays, runs: result!.zeroVolumeRuns },
+    ]);
+    expect(report.counts.zeroVolumeDays).toBe(30);
   });
 });

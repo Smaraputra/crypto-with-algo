@@ -3,7 +3,8 @@
  * repairable days (a daily archive file exists) and source gaps (no file anywhere). Also lists every
  * consecutive-day close ratio above 5 or below one fifth, the redenomination check that broad-trend.ts
  * (CONTRACTS) requires in the universe report before any rule runs. Data tooling only: the Mongo access is a
- * read-only query and nothing is written to any database.
+ * read-only query and nothing is written to any database. Zero-volume days (AMENDMENT 1) are listed
+ * per symbol as days and runs, apart from missing days, and are not repair targets.
  *
  * Usage:
  *   npx tsx scripts/research/archive-gaps.ts --universe universe.json --repair-out repair.json \
@@ -104,6 +105,31 @@ export function expectedRange(
   return last >= first ? { first, last } : null;
 }
 
+export interface ZeroVolumeRun {
+  start: string;
+  end: string;
+  length: number;
+}
+
+/**
+ * Header AMENDMENT 1: a zero-volume bar counts as a missing day for every rule, but it is a halted or
+ * settling contract printing a flat bar, not a hole in the archive, so it is never a repair target.
+ * `days` must be ascending; runs are maximal runs of consecutive calendar days.
+ */
+export function zeroVolumeRuns(days: number[]): ZeroVolumeRun[] {
+  const runs: ZeroVolumeRun[] = [];
+  for (const day of days) {
+    const last = runs[runs.length - 1];
+    if (last && dayNumberOf(last.end) + 1 === day) {
+      last.end = dayKey(day);
+      last.length++;
+    } else {
+      runs.push({ start: dayKey(day), end: dayKey(day), length: 1 });
+    }
+  }
+  return runs;
+}
+
 export interface SymbolGapResult {
   symbol: string;
   /** No bars at all in the database: not ingested, reported apart from gaps. */
@@ -112,6 +138,9 @@ export interface SymbolGapResult {
   repairDays: string[];
   /** Missing days with no file anywhere: the archive itself lacks them. */
   sourceGapDays: string[];
+  /** Days with a bar of zero volume: reported apart from gaps, never repaired. */
+  zeroVolumeDays: string[];
+  zeroVolumeRuns: ZeroVolumeRun[];
   jumps: CloseJump[];
   barCount: number;
 }
@@ -122,7 +151,7 @@ export interface SymbolGapResult {
  */
 export async function analyzeSymbol(
   folder: Pick<UniverseFolder, 'name' | 'klineMonths' | 'dailyKlines'>,
-  bars: Array<{ day: number; close: number }>,
+  bars: Array<{ day: number; close: number; volume?: number }>,
   listDailyKeys: (symbol: string) => Promise<string[]>,
   through: string = DEFAULT_THROUGH
 ): Promise<SymbolGapResult | null> {
@@ -130,12 +159,17 @@ export async function analyzeSymbol(
   if (!range) return null;
 
   const sorted = [...bars].sort((a, b) => a.day - b.day);
+  const zeroDays = sorted.filter((b) => b.volume === 0).map((b) => b.day);
+  // A zero-volume bar is not a bar (AMENDMENT 1), so it neither forms nor hides a close jump.
+  const traded = sorted.filter((b) => b.volume !== 0);
   const base: SymbolGapResult = {
     symbol: folder.name,
     notIngested: sorted.length === 0,
     repairDays: [],
     sourceGapDays: [],
-    jumps: closeJumps(sorted),
+    zeroVolumeDays: zeroDays.map(dayKey),
+    zeroVolumeRuns: zeroVolumeRuns(zeroDays),
+    jumps: closeJumps(traded),
     barCount: sorted.length,
   };
   if (base.notIngested) return base;
@@ -164,10 +198,12 @@ export interface GapReport {
     repairDays: number;
     sourceGapDays: number;
     jumps: number;
+    zeroVolumeDays: number;
   };
   notIngested: string[];
   sourceGaps: Array<{ symbol: string; days: string[] }>;
   repairs: Array<{ symbol: string; days: string[] }>;
+  zeroVolume: Array<{ symbol: string; days: string[]; runs: ZeroVolumeRun[] }>;
   jumps: Array<{ symbol: string; day: string; ratio: number }>;
   sha256: string;
 }
@@ -188,10 +224,14 @@ export function buildReport(
       repairDays: sorted.reduce((n, r) => n + r.repairDays.length, 0),
       sourceGapDays: sorted.reduce((n, r) => n + r.sourceGapDays.length, 0),
       jumps: sorted.reduce((n, r) => n + r.jumps.length, 0),
+      zeroVolumeDays: sorted.reduce((n, r) => n + r.zeroVolumeDays.length, 0),
     },
     notIngested: sorted.filter((r) => r.notIngested).map((r) => r.symbol),
     sourceGaps: sorted.filter((r) => r.sourceGapDays.length > 0).map((r) => ({ symbol: r.symbol, days: r.sourceGapDays })),
     repairs: sorted.filter((r) => r.repairDays.length > 0).map((r) => ({ symbol: r.symbol, days: r.repairDays })),
+    zeroVolume: sorted
+      .filter((r) => r.zeroVolumeDays.length > 0)
+      .map((r) => ({ symbol: r.symbol, days: r.zeroVolumeDays, runs: r.zeroVolumeRuns })),
     jumps: sorted.flatMap((r) => r.jumps.map((j) => ({ symbol: r.symbol, day: j.day, ratio: j.ratio }))),
   };
   const sha256 = createHash('sha256').update(JSON.stringify(content)).digest('hex');
@@ -247,9 +287,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       // Read-only: a projection of two fields of one symbol's 1d klines.
       const docs = await PerpCandle.find(
         { symbol: folder.name, interval: '1d', series: 'klines' },
-        { timestamp: 1, close: 1, _id: 0 }
+        { timestamp: 1, close: 1, volume: 1, _id: 0 }
       ).lean();
-      const bars = docs.map((d) => ({ day: dayNumber(d.timestamp), close: d.close }));
+      const bars = docs.map((d) => ({ day: dayNumber(d.timestamp), close: d.close, volume: d.volume }));
       const result = await analyzeSymbol(
         folder,
         bars,

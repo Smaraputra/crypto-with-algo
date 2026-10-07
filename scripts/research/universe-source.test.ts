@@ -4,7 +4,6 @@ import { describe, it, expect } from 'vitest';
 import {
   ABSENT_CRYPTO_TICKERS,
   assetKey,
-  baseTicker,
   buildUniverseSource,
   classifyFolder,
   exchangeMapFromJson,
@@ -50,8 +49,8 @@ const FIXTURE: Array<[string, boolean, string]> = [
   ['1000SHIBUSDT', true, 'exchange:perpetual-coin-usdt'],
   ['LUNA2USDT', true, 'exchange:perpetual-coin-usdt'],
   ['LUNCUSDT', true, 'exchange:perpetual-coin-usdt'],
-  ['LUNCUSDTSETTLED', true, 'exchange:perpetual-coin-usdt'],
-  ['AERGOUSDTSETTLEDSETTLED', true, 'absent:crypto'],
+  ['LUNCUSDTSETTLED', false, 'settled-folder'],
+  ['AERGOUSDTSETTLEDSETTLED', false, 'settled-folder'],
   ['AAPLUSDT', false, 'exchange:tradfi'],
   ['XAUUSDT', false, 'exchange:tradfi'],
   ['DEFIUSDT', false, 'exchange:index'],
@@ -68,7 +67,7 @@ const FIXTURE: Array<[string, boolean, string]> = [
   ['FOOTBALLUSDT', false, 'absent:index'],
   ['DOTECOUSDT', false, 'absent:index'],
   ['NEWTHINGUSDT', false, 'unclassified-absent'],
-  ['NEWTHINGUSDTSETTLED', false, 'unclassified-absent'],
+  ['NEWTHINGUSDTSETTLED', false, 'settled-folder'],
   ['AUSDT', false, 'unclassified-absent'],
   ['BUSDT', true, 'exchange:perpetual-coin-usdt'],
   ['BTCUSDT_230331', false, 'shape:dated-quarterly'],
@@ -83,20 +82,13 @@ const FIXTURE: Array<[string, boolean, string]> = [
   ['A' + 'B'.repeat(41) + 'USDT', false, 'shape:other-shape'],
 ];
 
-describe('baseTicker and assetKey', () => {
-  it('strips trailing SETTLED repeats only', () => {
-    expect(baseTicker('BTCUSDT')).toBe('BTCUSDT');
-    expect(baseTicker('LUNCUSDTSETTLED')).toBe('LUNCUSDT');
-    expect(baseTicker('AERGOUSDTSETTLEDSETTLED')).toBe('AERGOUSDT');
-  });
-
+describe('assetKey', () => {
   it('strips USDT and the multiplier prefixes in order', () => {
     expect(assetKey('1000SHIBUSDT')).toBe('SHIB');
     expect(assetKey('1MBABYDOGEUSDT')).toBe('BABYDOGE');
     expect(assetKey('1000000MOGUSDT')).toBe('MOG');
     expect(assetKey('1INCHUSDT')).toBe('1INCH');
     expect(assetKey('BTCUSDT')).toBe('BTC');
-    expect(assetKey('1000SHIBUSDTSETTLED')).toBe('SHIB');
   });
 });
 

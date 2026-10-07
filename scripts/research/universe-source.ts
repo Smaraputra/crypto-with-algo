@@ -54,18 +54,12 @@ export const ABSENT_CRYPTO_TICKERS: ReadonlySet<string> = new Set([
   'TOMOUSDT', 'YFIIUSDT',
 ]);
 
-/** Header: "A folder's base ticker is its name without trailing SETTLED repeats." */
-export function baseTicker(folder: string): string {
-  return folder.replace(/(SETTLED)+$/, '');
-}
-
 /**
  * Header: "Asset key: the base ticker without USDT and without a leading multiplier prefix (1000000, 1000,
  * 1M)." Tried in that order; a prefix is stripped only when something remains.
  */
 export function assetKey(folder: string): string {
-  const base = baseTicker(folder);
-  const bare = base.endsWith('USDT') ? base.slice(0, -4) : base;
+  const bare = folder.endsWith('USDT') ? folder.slice(0, -4) : folder;
   for (const prefix of ['1000000', '1000', '1M']) {
     if (bare.startsWith(prefix) && bare.length > prefix.length) return bare.slice(prefix.length);
   }
@@ -74,6 +68,7 @@ export function assetKey(folder: string): string {
 
 /** The class of a folder that fails the candidate shape, named for the report. */
 function shapeClass(name: string): string {
+  if (/^[A-Z0-9]+USDT(SETTLED)+$/.test(name)) return 'settled-folder';
   if (/[^\x20-\x7E]/.test(name)) return 'non-ascii';
   if (/_\d{6}$/.test(name)) return 'dated-quarterly';
   if (name.includes('_')) return 'underscore-other';
@@ -83,18 +78,19 @@ function shapeClass(name: string): string {
 }
 
 /**
- * Header: "A folder is a candidate only if its name matches ^[A-Z0-9]+USDT(SETTLED)*$; every other folder
- * is excluded and counted." then the exchangeInfo class, then the explicit lists for absent tickers.
+ * Header (AMENDMENT 1): "A folder is a candidate only if its name matches ^[A-Z0-9]+USDT$; every other
+ * folder is excluded and counted", SETTLED folders as `settled-folder`. Then the exchangeInfo class, then the explicit lists for absent tickers.
  */
 export function classifyFolder(
   name: string,
   exchangeBySymbol: ReadonlyMap<string, ExchangeEntry>
 ): Classification {
   if (!ARCHIVE_CONTRACT_SHAPE.test(name)) {
-    return { include: false, reason: `shape:${shapeClass(name)}` };
+    const cls = shapeClass(name);
+    return { include: false, reason: cls === 'settled-folder' ? cls : `shape:${cls}` };
   }
 
-  const base = baseTicker(name);
+  const base = name;
   const entry = exchangeBySymbol.get(base);
   if (entry) {
     if (entry.contractType === 'TRADIFI_PERPETUAL') return { include: false, reason: 'exchange:tradfi' };
@@ -161,7 +157,6 @@ export function keyDates(keys: string[], symbol: string, middle: string, shape: 
 
 export interface UniverseFolder {
   name: string;
-  baseTicker: string;
   assetKey: string;
   include: boolean;
   reason: string;
@@ -233,14 +228,12 @@ export async function buildUniverseSource(
   const unique = [...new Set(names)].sort();
   const folders = await mapLimit(unique, concurrency, async (name): Promise<UniverseFolder> => {
     const verdict = classifyFolder(name, exchangeBySymbol);
-    const base = baseTicker(name);
     const folder: UniverseFolder = {
       name,
-      baseTicker: base,
       assetKey: assetKey(name),
       include: verdict.include,
       reason: verdict.reason,
-      exchange: exchangeBySymbol.get(base) ?? null,
+      exchange: exchangeBySymbol.get(name) ?? null,
       klineMonths: [],
       dailyKlines: null,
       fundingMonths: [],
