@@ -385,6 +385,69 @@ import { assetKey } from './universe-source';
  *     rate or dropping the contract (which would remove a failing contract, a bias toward passing); the evidence
  *     entry records REST's agreement with the archive where both exist.
  *   `--funding-check-out` writes the flagged list as JSON for the evidence pass.
+ * - A6-2 Consecutive-day jumps (header CONTRACTS). The universe file does not list them. They were listed and
+ *   reviewed on 2026-10-07, before any rule ran, but that review was written here only on 2026-10-08, after the
+ *   five runs had started. Export aa62c5a1cb51 has 17 consecutive-day close ratios above 5 or below one fifth
+ *   inside a universe contract (5 more fall in the lockbox): LUNA 2022-05-11 and 05-12, UNFI 2022-06-07, VIDT
+ *   2025-04-12, OM 2025-04-13, ALPACA 2025-04-30, ZKJ 2025-06-15, HIFI 2025-09-12, COAI 2025-10-06, BLESS
+ *   2025-10-15, BULLA 2026-02-01, POWER 2026-03-03, ARIA 2026-04-14, RAVE 2026-04-18, TRADOOR 2026-04-24, ESPORTS
+ *   2026-05-25 and H 2026-06-08. All are genuine moves, none a redenomination, so no gap-jump break is added:
+ *   - LUNA, UNFI, OM, ALPACA, ZKJ and HIFI are documented crashes or squeezes.
+ *   - The rest show continuous hourly trading through the day, with the move spread over several hours on a
+ *     volume surge rather than a step at midnight. Ratios near one tenth (POWER 0.0999, TRADOOR 0.103, H 0.106)
+ *     were checked hourly for that reason.
+ *   An independent re-implementation (pandas, written from this header and these notes only) lists the same 17.
+ *   The universe file counts 24 eligible contracts at the 2021-03-01 start close, against the header's 23 from the
+ *   exchangeInfo count taken before the archive was ingested. The start close is unchanged.
+ */
+
+/*
+ * RESULT, 2026-10-08 (the one run of each). Export `aa62c5a1cb51` (668 symbols, lockbox applied), universe
+ * `4f34816acb72` (680 contracts, 204 ever members, 319 basket contracts), funding resolutions `6a2a3dad` (note
+ * A6-1), image from `d8ee759`, 200 null draws, 50 null-size universes, 2021-03-01 to 2026-06-30 (1,948 days,
+ * every rule defined from the first day), reports `broad/reports/broad-{tf1,tf2,tf3,tf4,c3}.json`, gate 8
+ * `broad-gate8.json`.
+ *
+ *   rule  Sharpe  95% CI          alpha    95% CI             beta   timing p (wrapped, aligned)  failed gates  DSR
+ *   TF1   0.39    [-0.27, 1.02]   +6.6%    [-5.2%, +17.4%]    -0.12  0.015, 0.095                2, 3, 4, 8    0.187
+ *   TF2   0.23    [-0.52, 1.01]   +4.3%    [-10.0%, +17.8%]   -0.03  0.189, 0.229                2, 3, 4, 8    0.103
+ *   TF3   -0.19   [-1.01, 0.65]   -6.6%    [-30.0%, +18.0%]   0.45   0.910, 0.886                all but 1     0.012
+ *   TF4   0.26    [-0.70, 1.18]   +1.7%    [-1.8%, +5.0%]     0.24   0.010, 0.035                2, 3, 6, 8    0.117
+ *   C3    0.37    [-0.40, 1.14]   +19.4%   [-6.0%, +43.7%]    0.31   0.055, 0.065                2, 3, 4, 8    0.172
+ *
+ *   GATE 8 (broad-dsr.ts, N = 16, computed once): V sits at the null floor 5.136e-4 per day (the five Sharpes
+ *   spread less than sampling error, 1.545e-4), so the expected maximum annual Sharpe is 0.78, as the power
+ *   section estimated. No deflated probability comes near 0.95; at the program count 1,729 all are under 0.01.
+ *   EVERY TRIAL FAILS, and every one also fails gate 2 (its Sharpe CI spans zero).
+ *
+ *   Checks. An independent pandas re-implementation written from this header and its notes only, sharing no
+ *   code and never shown a report, reproduces C3 digit for digit (largest daily return difference 8e-16 over
+ *   1,948 days, Sharpe, alpha, beta, ex-2021 alpha, every year's alpha, 5 delisting exits and 393 leaves all
+ *   equal) and TF4 to within rounding (daily correlation 0.999996, 66 days differing by more than 1e-6, the
+ *   largest 1.7e-4; Sharpe 0.2596 against 0.2575, alpha +1.71% both, the same 7 delisting exits). It also
+ *   re-segments all 680 contracts exactly and flags the same 18 settlements under note A6-1's reading.
+ *
+ *   Reported, not gated. Ex-2021 alpha: TF1 +3.5%, TF2 +0.8%, TF3 -6.6%, TF4 +1.7%, C3 +12.3%. Alpha against
+ *   BTC: TF1 +7.2%, TF4 +0.9%, C3 +13.1%. One-bar delay Sharpe: TF1 0.05, TF4 0.14, C3 0.23. Max drawdown:
+ *   TF1 18%, TF4 13%, C3 57%, TF3 88%, against 96% for the always-long member twin of TF3 and C3 (the top 50
+ *   by volume, rebalanced monthly, lost almost everything from 2021). C3's alpha by year: 2021 +62.7%, 2022
+ *   -16.8%, 2023 +42.6%, 2024 -4.3%, 2025 +23.3%, 2026H1 -46.9%. Null size (reject rate at 0.05 on
+ *   timing-free universes): 0.00 to 0.04 for every rule, so the timing nulls are not anti-conservative.
+ *
+ *   Against the legends phase on ten 2026 survivors (Sharpe / alpha): TF1 0.91 / +20.4% to 0.39 / +6.6%, TF4
+ *   1.31 / +7.1% to 0.26 / +1.7%, C3 1.36 / +40.3% to 0.37 / +19.4%. Widening the universe to the point-in-time
+ *   top 50 with delisted contracts cut every near miss's Sharpe by more than half (TF1 57%, C3 73%, TF4 80%).
+ *
+ *   Predictions: right that nothing passes gate 8, for TF1 and TF2 (Sharpe and alpha CI), and that C3's alpha
+ *   falls under half the legends +40.3% (+19.4%, just under +20.2%); TF4's Sharpe fell below 1.0 as expected
+ *   but also below its 0.5 to 0.9 range, and its alpha CI spans zero; TF3 was wrong in sign (predicted +0.3 to
+ *   +0.7 with a positive alpha); C3's Sharpe sits just under its 0.4 to 0.9 range. Every rule failed gate 2,
+ *   which only TF2's prediction listed.
+ *
+ * PHASE VERDICT. NO RULE PASSES. All five trials fail; the lockbox stays closed. By the legends
+ * pre-registration and this one, daily trend (TF1 to TF4, C3) is CLOSED on both the survivor universe and the
+ * survivorship-free one. Program trial ledger: 1,729. What survives as a reading, not a result: C3 and TF1
+ * keep positive alphas whose CIs span zero, and C3's comes mostly from 2021 and 2023.
  */
 
 export const DAY_MS = 86_400_000;
