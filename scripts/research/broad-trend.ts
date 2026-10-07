@@ -233,6 +233,7 @@
 import { createHash } from 'node:crypto';
 
 import type { PerpCandleRow } from './dataset-format';
+import { TREND_COST, type BroadCost, type TrendCost } from './trend-sim';
 import { assetKey } from './universe-source';
 
 /*
@@ -258,6 +259,45 @@ import { assetKey } from './universe-source';
  *   end of the sample (2026-07-01 as a day start, so the last close is 2026-06-01 and its membership is valid
  *   until 2026-07-01). A close at `to` would read only bars through 2026-06-30 but would hold no sample day.
  * - The C3 basket has no start threshold: it starts at its `from` close, whatever the eligible count.
+ *
+ * A4, the container: trend-sim.ts runTrend with SimOptions.broad, trend-signals.ts broadPaths,
+ * pointInTimeBasket and twinOfBroad, and trend-sim.ts timingNull's 'wrapped' and 'aligned' modes. All opt-in:
+ * without `broad` and a null mode the legends container is byte-identical (trend-golden.test.ts).
+ *
+ * - Ranking closes are the 00:00 UTC closes on the 1st. A broad run starts at one. Membership spans run from one
+ *   ranking close to another, sorted and disjoint; the members of [C, next C) are the inputs whose span covers C.
+ *   An input's listing day is not read in broad mode.
+ * - Legends mode refuses an input carrying membership, an end day or a carried day rather than ignore it.
+ * - Costs. `cost.slippage` is not read in broad mode. A fill pays the taker fee plus the tier of the member's rank in
+ *   the span that kept it at the last ranking close; a leaving member's exit pays the fee plus 10 bps; a delisting
+ *   exit pays no slippage.
+ * - Leaving. At C a sleeve that is not a member gets capital 0 (its capital enters the split), and its pending
+ *   orders, including a rule order not yet filled under the one-bar delay, are replaced by one order to 0 at the next
+ *   open. It makes no decision while leaving. After that order fills, its capital (the overnight PnL minus the cost,
+ *   possibly negative) moves to cash and its state resets. A sleeve selected again before its exit has filled stops
+ *   the run (it cannot happen with carried gaps of at most 7 days and a delay of at most one bar).
+ * - A member whose contract's last bar closes at or before C is selected (the ranking cannot see the future) but
+ *   never trades: its equal share is held as cash at 0% until the next ranking close.
+ * - Delisting. On the end day, after the funding and the mark, a position is closed at close x (1 - h) for a long or
+ *   close x (1 + h) for a short; the fee is the taker fee on |qty| x that exit price. The haircut (|qty| x close x h)
+ *   and the fee are booked as cost, not in the long or short leg; the exit notional counts as turnover. Funding for
+ *   the settlements in (end day, end day + 1 day] is charged first, the position being held to the close.
+ * - Carried days. No price PnL, no fill and no funding; the mark is the carried close, which must equal the last real
+ *   close (asserted on input). When several orders are due at the next real open, the most recently decided fills.
+ * - Cash and the invariant are checked after every day and after every ranking close.
+ * - `run.startDay` holds each input's first join; an input never joined is left out.
+ * - Defined signals: TF1 from bar 60, TF2 from 365, TF3 from 199, TF4 from 359 (each with a finite size); C3 from
+ *   basket index position 28 + 365. broadPaths sets the signal to 0 where it is not defined, so a timing null that
+ *   moves an undefined stretch onto member days holds nothing there.
+ * - C3 basket. The index is 1 on the first basket day (the legends convention: no return that day). A member with a
+ *   carried close on either day is skipped that day; a day with no contributor keeps the level. The haircut is
+ *   charged on the day after the end day to a contract that was a basket member ON its end day: the header's "so
+ *   the index pays every failure the portfolio pays", and the portfolio pays when it holds a contract on its last
+ *   day, whether or not the next ranking keeps it.
+ * - Timing nulls. k = 365 + floor(u x (S - 729)) with one uniform u per draw (seed 7); S = 2,373 for 2020-01-01 to
+ *   2026-06-30. 'aligned' stops on an input bar outside the calendar. In 'wrapped', C3's misaligned share is 1 when
+ *   the basket index is no longer than k, else 0. A member-day is a day of [from, to) that a membership span covers
+ *   while the contract has a bar.
  */
 
 export const DAY_MS = 86_400_000;
@@ -636,3 +676,31 @@ export function universeFile(input: UniverseFileInput): UniverseFile {
   const sha256 = createHash('sha256').update(stableStringify(content)).digest('hex');
   return { ...content, sha256 };
 }
+
+/** Header COSTS: slippage per side by the member's rank at the last ranking close. */
+export const SLIPPAGE_TIERS = [
+  { maxRank: 10, bps: 2 },
+  { maxRank: 25, bps: 5 },
+  { maxRank: 50, bps: 10 },
+] as const;
+/** Header COSTS: "A leaving member's exit is charged 10 bps." */
+export const LEAVE_SLIPPAGE = 10 / 10_000;
+/** Header CONTRACTS: the delisting haircut. */
+export const DELIST_HAIRCUT = 0.02;
+
+/** The slippage tier of a rank, 1 to 50; any other rank throws. */
+export function tierSlippage(rank: number): number {
+  if (!Number.isInteger(rank) || rank < 1) throw new Error(`Rank ${rank} is not a positive integer`);
+  for (const tier of SLIPPAGE_TIERS) if (rank <= tier.maxRank) return tier.bps / 10_000;
+  throw new Error(`Rank ${rank} is outside the top ${SLIPPAGE_TIERS[SLIPPAGE_TIERS.length - 1].maxRank}`);
+}
+
+/** The broad phase's costs beyond the fee: SimOptions.broad. */
+export const BROAD_COST: BroadCost = {
+  slippageForRank: tierSlippage,
+  leaveSlippage: LEAVE_SLIPPAGE,
+  delistHaircut: DELIST_HAIRCUT,
+};
+
+/** Header COSTS: the taker fee on every unit of traded notional. Slippage comes from BROAD_COST, so it is 0 here. */
+export const BROAD_FEE: TrendCost = { fee: TREND_COST.fee, slippage: 0 };

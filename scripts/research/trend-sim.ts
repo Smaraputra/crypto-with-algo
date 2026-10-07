@@ -460,6 +460,26 @@ export interface TrendSymbolInput {
   listingDay: number;
   /** Settlements sorted by t: the archive's, plus the snapshot fallback before its first. */
   settlements: Settlement[];
+  /**
+   * Broad mode only (broad-trend.ts): 1 on a carried day, a missing day inside a
+   * gap of 1 to 7 days that did not end the contract (open = close = the last real
+   * close). Nothing fills, no funding is charged and the mark does not move then.
+   */
+  carried?: Uint8Array;
+  /** Broad mode only: the universe membership, ranking close to ranking close. */
+  membership?: MembershipSpan[];
+  /**
+   * Broad mode only: the contract's last traded day when it ends before
+   * 2026-06-30 (a delisting), else null. It must be the input's last bar.
+   */
+  endDay?: number | null;
+}
+
+/** Broad mode: a member for days from <= d < to (UTC day starts, both on a 1st), ranked `rank` at `from`. */
+export interface MembershipSpan {
+  from: number;
+  to: number;
+  rank: number;
 }
 
 /** Cost per unit of traded notional, both fractions. */
@@ -479,6 +499,28 @@ export function stressCost(cost: TrendCost): TrendCost {
   return { fee: cost.fee * 1.5, slippage: cost.slippage * 2 };
 }
 
+/**
+ * Broad phase costs beyond the taker fee (broad-trend.ts header, COSTS), all
+ * fractions of traded notional except the haircut, a fraction of the close.
+ */
+export interface BroadCost {
+  /** Slippage per side by the member's rank at the last ranking close. */
+  slippageForRank: (rank: number) => number;
+  /** Slippage of a leaving member's exit order. */
+  leaveSlippage: number;
+  /** A delisting exit fills at the last close moved this much against the position. */
+  delistHaircut: number;
+}
+
+/** Broad gate 7's stress on the broad costs: 2x every slippage tier, 2x the leave slippage, 2x the haircut. */
+export function stressBroad(broad: BroadCost): BroadCost {
+  return {
+    slippageForRank: (rank) => 2 * broad.slippageForRank(rank),
+    leaveSlippage: 2 * broad.leaveSlippage,
+    delistHaircut: 2 * broad.delistHaircut,
+  };
+}
+
 export interface SimOptions {
   /** First UTC day a sleeve may hold; a symbol listed later starts at its listing day. */
   from: number;
@@ -487,6 +529,13 @@ export interface SimOptions {
   cost: TrendCost;
   /** Bars between the deciding close and the fill: 0 fills at the next open (the rule), 1 is the sensitivity. */
   delay: number;
+  /**
+   * Broad mode (broad-trend.ts header, PORTFOLIO and COSTS): membership drives
+   * joins, leaves and re-equalisation, with delistings, carried days and a cash
+   * account. Absent: the legends container, unchanged. In broad mode
+   * `cost.slippage` is not read; slippage comes from these tiers.
+   */
+  broad?: BroadCost;
 }
 
 export interface TrendRun {
@@ -513,6 +562,44 @@ export interface TrendRun {
   episodes: number[];
   /** First holding day of each sleeve. */
   startDay: Record<string, number>;
+  /** Broad mode only. */
+  broad?: BroadRunDetail;
+}
+
+/** A delisting exit (broad mode), in units of the starting equity. */
+export interface DelistingExit {
+  symbol: string;
+  /** The contract's last traded day; the exit is at its close. */
+  day: number;
+  qty: number;
+  close: number;
+  exitPrice: number;
+  /** |qty| x close x haircut. */
+  haircut: number;
+  /** Taker fee on |qty| x exitPrice. */
+  fee: number;
+}
+
+/** A leaving member's exit (broad mode), in units of the starting equity. */
+export interface LeaveExit {
+  symbol: string;
+  /** The ranking close it left at. */
+  close: number;
+  /** The day its exit order filled. */
+  day: number;
+  traded: number;
+  cost: number;
+  /** The sleeve's capital moved to cash after the fill (overnight PnL minus cost; may be negative). */
+  residual: number;
+}
+
+export interface BroadRunDetail {
+  /** Cash over equity at each day's close. */
+  cash: number[];
+  /** Members holding a live sleeve (active, not leaving) at each day's close. */
+  members: number[];
+  delistings: DelistingExit[];
+  leaves: LeaveExit[];
 }
 
 interface SleeveState {
@@ -581,12 +668,17 @@ export function sleeveStart(input: TrendSymbolInput, from: number): number {
  *   mark    qty x (close - open)
  * A settlement exactly at the open belongs to the day before, as in carry-sim.ts.
  * Decisions read the close of day d and fill at the open of day d + 1 + delay.
+ *
+ * With `opts.broad` set, the broad phase's membership container runs instead
+ * (runBroadTrend, below); without it, inputs carrying broad-only fields throw.
  */
 export function runTrend(
   inputs: TrendSymbolInput[],
   paths: Record<string, RulePaths>,
   opts: SimOptions
 ): TrendRun {
+  if (opts.broad) return runBroadTrend(inputs, paths, opts, opts.broad);
+  for (const input of inputs) assertLegendsInput(input);
   const { cost, delay } = opts;
   const perUnitCost = cost.fee + cost.slippage;
   const sleeves: SleeveState[] = inputs.map((input) => ({
@@ -782,6 +874,404 @@ function latestPending(pending: Map<number, number>): number | undefined {
     }
   }
   return best;
+}
+
+/*
+ * BROAD MODE (broad-trend.ts header, CONTRACTS, PORTFOLIO and COSTS). A separate
+ * path so the legends container above stays byte-identical; the per-day
+ * accounting (gap, fill, funding, mark) is the same as runTrend's. The choices the
+ * header leaves open are listed in broad-trend.ts's implementation notes (A4).
+ */
+
+/** Legends mode reads none of the broad fields, so it refuses inputs that carry them rather than ignore them. */
+function assertLegendsInput(input: TrendSymbolInput): void {
+  const carried = input.carried !== undefined && input.carried.some((x) => x === 1);
+  if (input.membership !== undefined || (input.endDay !== undefined && input.endDay !== null) || carried) {
+    throw new Error(`${input.symbol}: membership, endDay and carried days need SimOptions.broad`);
+  }
+}
+
+/** 00:00 UTC on the 1st of a month: a ranking close. */
+export function isRankingClose(ms: number): boolean {
+  return ms % DAY_MS === 0 && new Date(ms).getUTCDate() === 1;
+}
+
+/** The membership span covering `day`, or undefined. */
+export function spanAt(membership: readonly MembershipSpan[] | undefined, day: number): MembershipSpan | undefined {
+  if (!membership) return undefined;
+  for (const span of membership) if (span.from <= day && day < span.to) return span;
+  return undefined;
+}
+
+/** Throws unless a broad input is daily, its carried days copy the last close, its spans are sorted month ranges and its end is its last real bar. */
+export function assertBroadInput(input: TrendSymbolInput): void {
+  assertDaily(input);
+  const n = input.t.length;
+  const { carried, membership, endDay } = input;
+  if (carried !== undefined) {
+    if (carried.length !== n) throw new Error(`${input.symbol}: carried has ${carried.length} flags for ${n} bars`);
+    for (let i = 0; i < n; i++) {
+      if (carried[i] !== 1) continue;
+      if (i === 0 || input.open[i] !== input.close[i - 1] || input.close[i] !== input.close[i - 1]) {
+        throw new Error(`${input.symbol}: carried bar ${i} does not repeat the last close`);
+      }
+    }
+  }
+  if (membership !== undefined) {
+    let previousTo = -Infinity;
+    for (const span of membership) {
+      if (!isRankingClose(span.from) || !isRankingClose(span.to) || !(span.to > span.from)) {
+        throw new Error(`${input.symbol}: membership span [${span.from}, ${span.to}) is not ranking close to ranking close`);
+      }
+      if (span.from < previousTo) throw new Error(`${input.symbol}: membership spans overlap or are unsorted`);
+      if (!Number.isInteger(span.rank) || span.rank < 1) throw new Error(`${input.symbol}: rank ${span.rank} is not a positive integer`);
+      previousTo = span.to;
+    }
+  }
+  if (endDay !== undefined && endDay !== null) {
+    if (n === 0 || input.t[n - 1] !== endDay) throw new Error(`${input.symbol}: endDay is not its last bar`);
+    if (carried !== undefined && carried[n - 1] === 1) throw new Error(`${input.symbol}: its last bar is carried`);
+  }
+}
+
+/**
+ * Header PORTFOLIO: "Sleeve capital plus cash equals portfolio equity on every
+ * day (asserted)." Throws when |sum of capital + cash - equity| exceeds 1e-9 of
+ * max(1, equity).
+ */
+export function assertCashBalance(capitalSum: number, cash: number, equity: number, day: number): void {
+  const gap = Math.abs(capitalSum + cash - equity);
+  if (!(gap <= 1e-9 * Math.max(1, Math.abs(equity)))) {
+    throw new Error(
+      `Sleeve capital ${capitalSum} plus cash ${cash} is not equity ${equity} on ${new Date(day).toISOString()}`
+    );
+  }
+}
+
+interface BroadSleeve extends SleeveState {
+  /** Rank at the last ranking close that kept it. */
+  rank: number;
+  /** Left at a ranking close; its exit order has not filled yet. */
+  leaving: boolean;
+  leaveClose: number;
+}
+
+/**
+ * The fill due on day d: the order with the latest fill day at or before d (the
+ * most recently decided one), every such order removed. An order due on a
+ * carried day stays pending and fills at the next real bar's open.
+ */
+function takeDue(pending: Map<number, number>, day: number): number | undefined {
+  let bestDay = -Infinity;
+  let best: number | undefined;
+  for (const [fillDay, w] of pending) {
+    if (fillDay <= day && fillDay > bestDay) {
+      bestDay = fillDay;
+      best = w;
+    }
+  }
+  if (best !== undefined) for (const fillDay of [...pending.keys()]) if (fillDay <= day) pending.delete(fillDay);
+  return best;
+}
+
+/** Discards a sleeve's rule state: a later rejoin decides afresh, as at a listing. */
+function resetBroadSleeve(s: BroadSleeve): void {
+  s.active = false;
+  s.capital = 0;
+  s.qty = 0;
+  s.mark = Number.NaN;
+  s.lastSignal = Number.NaN;
+  s.ruleTarget = 0;
+  s.pending.clear();
+  s.rank = Number.NaN;
+  s.leaving = false;
+  s.leaveClose = Number.NaN;
+}
+
+/**
+ * runTrend in broad mode. Per day d, for each active sleeve, as runTrend (gap,
+ * fill, funding, mark), except:
+ *   - a carried day books nothing: no fill (the due order waits for the next real
+ *     bar's open), no funding, no price move;
+ *   - a fill pays the taker fee plus the slippage of the sleeve's rank, or plus
+ *     the leave slippage for a leaving sleeve's exit;
+ *   - on the contract's endDay, after the mark, any position is closed at the close
+ *     moved the haircut against it, plus the taker fee on that notional; the
+ *     sleeve's capital moves to cash and its state resets;
+ *   - after a leaving sleeve's exit fills, its capital moves to cash and its state
+ *     resets.
+ * At each ranking close C (00:00 UTC on a 1st): equity, all sleeve capital plus
+ * cash, is split equally across the members of [C, next C); a sleeve that is not
+ * one gets capital 0 and an order to 0 at the next open; a member keeps (or, on
+ * joining, starts from a reset) its rule state and gets an order back to its
+ * rule's target weight on the new capital. A member whose contract ended before C
+ * holds its share as cash. Decisions read the close of d as in runTrend.
+ */
+function runBroadTrend(
+  inputs: TrendSymbolInput[],
+  paths: Record<string, RulePaths>,
+  opts: SimOptions,
+  broad: BroadCost
+): TrendRun {
+  const { cost, delay } = opts;
+  if (!isRankingClose(opts.from)) throw new Error('A broad run starts at a ranking close (00:00 UTC on the 1st)');
+  const sleeves: BroadSleeve[] = inputs.map((input) => ({
+    input,
+    paths: paths[input.symbol],
+    startDay: Number.NaN,
+    active: false,
+    capital: 0,
+    qty: 0,
+    mark: Number.NaN,
+    lastSignal: Number.NaN,
+    ruleTarget: 0,
+    pending: new Map(),
+    settlementPtr: 0,
+    episodeSign: 0,
+    episodeSum: 0,
+    rank: Number.NaN,
+    leaving: false,
+    leaveClose: Number.NaN,
+  }));
+  for (const s of sleeves) {
+    if (!s.paths) throw new Error(`No rule paths for ${s.input.symbol}`);
+    assertBroadInput(s.input);
+  }
+
+  const days: number[] = [];
+  for (let d = opts.from; d < opts.to; d += DAY_MS) days.push(d);
+  const n = days.length;
+  const detail: BroadRunDetail = {
+    cash: new Array(n).fill(0),
+    members: new Array(n).fill(0),
+    delistings: [],
+    leaves: [],
+  };
+  const startDay: Record<string, number> = {};
+  const run: TrendRun = {
+    days,
+    returns: new Array(n).fill(0),
+    longLeg: new Array(n).fill(0),
+    shortLeg: new Array(n).fill(0),
+    cost: new Array(n).fill(0),
+    funding: new Array(n).fill(0),
+    turnover: new Array(n).fill(0),
+    gross: new Array(n).fill(0),
+    sleeveReturns: Object.fromEntries(inputs.map((i) => [i.symbol, new Array(n).fill(Number.NaN)])),
+    contributions: Object.fromEntries(inputs.map((i) => [i.symbol, new Array(n).fill(0)])),
+    episodes: [],
+    startDay,
+    broad: detail,
+  };
+
+  let equity = 1;
+  let cash = 0;
+  const capitalSum = (): number => sleeves.reduce((sum, s) => sum + s.capital, 0);
+
+  for (let k = -1; k < n; k++) {
+    const d = k === -1 ? opts.from - DAY_MS : days[k];
+
+    if (k >= 0) {
+      const prevEquity = equity;
+      let dayPnl = 0;
+      for (const s of sleeves) {
+        if (!s.active) continue;
+        const i = barIndex(s.input, d);
+        if (i === -1) throw new Error(`${s.input.symbol}: no bar on ${new Date(d).toISOString()}`);
+        const carried = s.input.carried !== undefined && s.input.carried[i] === 1;
+        const open = s.input.open[i];
+        const close = s.input.close[i];
+        const preQty = s.qty;
+        let pnl = 0;
+        let longPnl = 0;
+        let shortPnl = 0;
+        let fundingPnl = 0;
+        let costPaid = 0;
+        let traded = 0;
+        let filled = false;
+
+        if (!carried) {
+          const gap = preQty === 0 ? 0 : preQty * (open - s.mark);
+          pnl += gap;
+          if (preQty > 0) longPnl += gap;
+          else if (preQty < 0) shortPnl += gap;
+
+          const target = takeDue(s.pending, d);
+          if (target !== undefined) {
+            const equityAtOpen = s.capital + pnl;
+            const newQty = open > 0 ? (target * equityAtOpen) / open : 0;
+            traded = Math.abs(newQty - s.qty) * open;
+            const slippage = s.leaving ? broad.leaveSlippage : broad.slippageForRank(s.rank);
+            costPaid = traded * (cost.fee + slippage);
+            pnl -= costPaid;
+            s.qty = newQty;
+            filled = true;
+          }
+
+          const settlements = s.input.settlements;
+          while (s.settlementPtr < settlements.length && settlements[s.settlementPtr].t <= d) s.settlementPtr++;
+          let p = s.settlementPtr;
+          while (p < settlements.length && settlements[p].t <= d + DAY_MS) {
+            fundingPnl -= s.qty * open * settlements[p].rate;
+            p++;
+          }
+          pnl += fundingPnl;
+
+          const move = s.qty * (close - open);
+          pnl += move;
+          if (s.qty > 0) longPnl += move + fundingPnl;
+          else if (s.qty < 0) shortPnl += move + fundingPnl;
+        }
+        // On a carried day the close repeats the last real close (assertBroadInput), so the mark does not move.
+        s.mark = close;
+
+        const delisted = s.input.endDay !== undefined && s.input.endDay !== null && d === s.input.endDay;
+        if (delisted && s.qty !== 0) {
+          const exitPrice = close * (1 - Math.sign(s.qty) * broad.delistHaircut);
+          const haircut = Math.abs(s.qty) * close * broad.delistHaircut;
+          const exitNotional = Math.abs(s.qty) * exitPrice;
+          const fee = exitNotional * cost.fee;
+          detail.delistings.push({ symbol: s.input.symbol, day: d, qty: s.qty, close, exitPrice, haircut, fee });
+          pnl -= haircut + fee;
+          costPaid += haircut + fee;
+          traded += exitNotional;
+          s.qty = 0;
+        }
+
+        const sleeveCapitalBefore = s.capital;
+        s.capital += pnl;
+        dayPnl += pnl;
+
+        const contribution = pnl / prevEquity;
+        run.contributions[s.input.symbol][k] = contribution;
+        run.sleeveReturns[s.input.symbol][k] = sleeveCapitalBefore > 0 ? pnl / sleeveCapitalBefore : Number.NaN;
+        run.longLeg[k] += longPnl / prevEquity;
+        run.shortLeg[k] += shortPnl / prevEquity;
+        run.cost[k] += costPaid / prevEquity;
+        run.funding[k] += fundingPnl / prevEquity;
+        run.turnover[k] += traded / prevEquity;
+
+        const postSign = Math.sign(s.qty);
+        if (postSign === s.episodeSign) {
+          if (s.episodeSign !== 0) s.episodeSum += contribution;
+        } else if (postSign === 0) {
+          run.episodes.push(s.episodeSum + contribution);
+          s.episodeSign = 0;
+          s.episodeSum = 0;
+        } else {
+          if (s.episodeSign !== 0) run.episodes.push(s.episodeSum);
+          s.episodeSign = postSign;
+          s.episodeSum = contribution;
+        }
+
+        const left = s.leaving && filled;
+        if (left) {
+          detail.leaves.push({
+            symbol: s.input.symbol,
+            close: s.leaveClose,
+            day: d,
+            traded,
+            cost: costPaid,
+            residual: s.capital,
+          });
+        }
+        if (delisted || left) {
+          cash += s.capital;
+          resetBroadSleeve(s);
+        }
+      }
+      equity += dayPnl;
+      if (!(equity > 0)) throw new Error(`Portfolio equity reached ${equity} on ${new Date(d).toISOString()}`);
+      run.returns[k] = dayPnl / prevEquity;
+      let gross = 0;
+      let members = 0;
+      for (const s of sleeves) {
+        if (!s.active) continue;
+        gross += Math.abs(s.qty * s.mark);
+        if (!s.leaving) members++;
+      }
+      run.gross[k] = gross / equity;
+      detail.cash[k] = cash / equity;
+      detail.members[k] = members;
+      assertCashBalance(capitalSum(), cash, equity, d);
+    }
+
+    // The close of day d, at the instant d + 1 day.
+    const closeAt = d + DAY_MS;
+    if (closeAt >= opts.to) continue;
+    const fillDay = closeAt + delay * DAY_MS;
+
+    if (isRankingClose(closeAt)) {
+      const members: Array<{ s: BroadSleeve; rank: number }> = [];
+      for (const s of sleeves) {
+        const span = spanAt(s.input.membership, closeAt);
+        if (span) members.push({ s, rank: span.rank });
+      }
+      const isMember = new Set(members.map((m) => m.s));
+      for (const s of sleeves) {
+        if (!s.active || isMember.has(s)) continue;
+        // Its capital goes into the split; it keeps its position until its exit order fills.
+        s.capital = 0;
+        if (!s.leaving) {
+          s.pending.clear();
+          s.pending.set(fillDay, 0);
+          s.leaving = true;
+          s.leaveClose = closeAt;
+        }
+      }
+      const share = members.length > 0 ? equity / members.length : 0;
+      let dead = 0;
+      for (const { s, rank } of members) {
+        if (s.leaving) throw new Error(`${s.input.symbol}: rejoins at ${new Date(closeAt).toISOString()} before its exit filled`);
+        const endDay = s.input.endDay;
+        if (endDay !== undefined && endDay !== null && endDay < closeAt) {
+          // Selected at C, but its last bar closed at or before C: it never trades again.
+          dead++;
+          continue;
+        }
+        if (!s.active) {
+          resetBroadSleeve(s);
+          s.active = true;
+          if (startDay[s.input.symbol] === undefined) startDay[s.input.symbol] = closeAt;
+        }
+        s.capital = share;
+        s.rank = rank;
+        // Back to the rule's weight on the new capital, as runTrend's re-equalisation.
+        if (s.qty !== 0 || s.ruleTarget !== 0) s.pending.set(fillDay, s.ruleTarget);
+      }
+      cash = members.length > 0 ? dead * share : equity;
+      assertCashBalance(capitalSum(), cash, equity, closeAt);
+    }
+
+    for (const s of sleeves) {
+      if (!s.active || s.leaving) continue;
+      const i = barIndex(s.input, d);
+      if (i === -1) continue;
+      const signal = s.paths.signal[i];
+      const size = s.paths.size[i];
+      const target = signal === 0 || !Number.isFinite(size) ? 0 : signal * size;
+      // A sleeve's first decision after it joins (or rejoins) is forced, whatever the schedule.
+      let order = Number.isNaN(s.lastSignal);
+      if (!order && s.paths.decide(i)) {
+        const latest = latestPending(s.pending);
+        const current =
+          latest !== undefined ? latest : s.capital > 0 ? (s.qty * s.input.close[i]) / s.capital : 0;
+        const changed = signal !== s.lastSignal;
+        const rb = s.paths.rebalance;
+        if (rb.kind === 'on-decision') order = true;
+        else if (rb.kind === 'on-signal-change') order = changed || (target !== 0 && current === 0);
+        else order = changed || (current === 0 ? target !== 0 : Math.abs(target - current) / Math.abs(current) > rb.band);
+      }
+      if (order) {
+        s.pending.set(fillDay, target);
+        s.lastSignal = signal;
+        s.ruleTarget = target;
+      }
+    }
+  }
+
+  for (const s of sleeves) if (s.episodeSign !== 0) run.episodes.push(s.episodeSum);
+  return run;
 }
 
 /** Mean and sample standard deviation. */
@@ -1002,6 +1492,9 @@ export const MIN_SHIFT_DAYS = 365;
  * its own uniform offset in [365, len - 365] bars, the rule re-run, and its
  * alpha taken against the UNSHIFTED twin. p = (1 + draws at or above the
  * observed alpha) / (draws + 1).
+ *
+ * `nullOptions.mode` 'wrapped' or 'aligned' runs the broad phase's common-shift
+ * nulls instead (commonShiftNull, below); the default 'independent' is this one.
  */
 export function timingNull(
   inputs: TrendSymbolInput[],
@@ -1011,8 +1504,13 @@ export function timingNull(
   opts: SimOptions,
   range: { first: number; last: number },
   draws = 200,
-  seed = 7
-): { p: number; nullMean: number; draws: number } {
+  seed = 7,
+  nullOptions: TimingNullOptions = {}
+): TimingNullResult {
+  const mode = nullOptions.mode ?? 'independent';
+  if (mode !== 'independent') {
+    return commonShiftNull(mode, inputs, paths, twinReturns, observedAlpha, opts, range, draws, seed, nullOptions);
+  }
   const random = createSeededRandom(seed);
   const spans = inputs.map((input) => decisionSpan(input, opts));
   for (let s = 0; s < inputs.length; s++) {
@@ -1035,4 +1533,202 @@ export function timingNull(
     if (a >= observedAlpha) atOrAbove++;
   }
   return { p: (1 + atOrAbove) / (draws + 1), nullMean: sum / draws, draws };
+}
+
+/*
+ * BROAD GATE 4 (broad-trend.ts header): two timing nulls with ONE shift k per
+ * draw, uniform on [365, S - 365] days, S the days of the null calendar
+ * (2020-01-01 to 2026-06-30 inclusive by default). Sizes stay on their true
+ * dates; alpha is taken against the UNSHIFTED twin, as in the legends null.
+ */
+
+export type TimingNullMode = 'independent' | 'wrapped' | 'aligned';
+
+/** The broad null calendar: 2020-01-01 (the archive's first month) to 2026-06-30, inclusive. */
+export const NULL_CALENDAR_START = Date.UTC(2020, 0, 1);
+export const NULL_CALENDAR_DAYS = (Date.UTC(2026, 5, 30) - NULL_CALENDAR_START) / DAY_MS + 1;
+
+/** A shared state path (C3's basket state) on consecutive days, shifted once for every input. */
+export interface SharedStatePath {
+  days: readonly number[];
+  state: Float64Array;
+}
+
+export interface TimingNullOptions {
+  /** 'independent' (default): the legends null, unchanged. */
+  mode?: TimingNullMode;
+  /** First day of the null calendar. */
+  calendarStart?: number;
+  /** S, the days of the null calendar. */
+  calendarDays?: number;
+  /** C3: the shared basket state. It is shifted instead, and each input's signal is read from it by date. */
+  shared?: SharedStatePath;
+  /** Test hook: each draw's shift and the paths it runs. */
+  onDraw?: (k: number, shifted: Record<string, RulePaths>) => void;
+}
+
+export interface TimingNullResult {
+  p: number;
+  nullMean: number;
+  draws: number;
+  /** 'wrapped' and 'aligned': each draw's common shift, in days. */
+  shifts?: number[];
+  /**
+   * 'wrapped': the mean over draws of the share of member-days whose input is no
+   * longer than k bars (shifted out of calendar alignment with the others).
+   */
+  misalignedShare?: number;
+}
+
+/** A signal path circularly shifted by k: out[(j + k) mod n] = values[j]. */
+function circularShift(values: Float64Array, k: number): Float64Array {
+  const n = values.length;
+  const out = new Float64Array(n);
+  for (let j = 0; j < n; j++) out[(j + k) % n] = values[j];
+  return out;
+}
+
+/** Calendar position of a day, throwing outside the calendar. */
+function calendarPosition(day: number, start: number, days: number, symbol: string): number {
+  const c = Math.round((day - start) / DAY_MS);
+  if (c < 0 || c >= days || start + c * DAY_MS !== day) {
+    throw new Error(`${symbol}: bar ${new Date(day).toISOString()} lies outside the null calendar`);
+  }
+  return c;
+}
+
+/** The day k days before `day` on the calendar that wraps from its last day back to its first. */
+function calendarSource(day: number, k: number, start: number, days: number, symbol: string): number {
+  const c = calendarPosition(day, start, days, symbol);
+  return start + ((((c - k) % days) + days) % days) * DAY_MS;
+}
+
+function valueOn(days: readonly number[], values: Float64Array, day: number): number {
+  if (days.length === 0) return 0;
+  const k = Math.round((day - days[0]) / DAY_MS);
+  return k >= 0 && k < days.length && days[k] === day ? values[k] : 0;
+}
+
+/**
+ * One draw's shifted paths for a common shift k (exported for tests).
+ *   - 'wrapped': each input's signal is shifted circularly by k modulo its own
+ *     full length in bars; with `shared`, the shared state is shifted by k modulo
+ *     its own length and each input reads it by date.
+ *   - 'aligned': the signal on day d is the signal on day d - k on the calendar
+ *     that wraps from its last day back to its first; 0 (holds nothing) where that
+ *     day is outside the input's bars (or, with `shared`, outside the state's days).
+ * Size, schedule, band and `defined` stay on the true dates.
+ */
+export function commonShiftPaths(
+  mode: Exclude<TimingNullMode, 'independent'>,
+  inputs: readonly TrendSymbolInput[],
+  paths: Record<string, RulePaths>,
+  k: number,
+  calendar: { start: number; days: number },
+  shared?: SharedStatePath
+): Record<string, RulePaths> {
+  const out: Record<string, RulePaths> = {};
+  let sharedShifted: Float64Array | undefined;
+  if (shared && mode === 'wrapped') sharedShifted = circularShift(shared.state, k);
+  for (const input of inputs) {
+    const base = paths[input.symbol];
+    if (!base) throw new Error(`No rule paths for ${input.symbol}`);
+    if (base.signal.length !== input.t.length) throw new Error(`${input.symbol}: paths and bars differ in length`);
+    let signal: Float64Array;
+    if (shared) {
+      signal = new Float64Array(input.t.length);
+      for (let i = 0; i < input.t.length; i++) {
+        signal[i] =
+          mode === 'wrapped'
+            ? valueOn(shared.days, sharedShifted!, input.t[i])
+            : valueOn(shared.days, shared.state, calendarSource(input.t[i], k, calendar.start, calendar.days, input.symbol));
+      }
+    } else if (mode === 'wrapped') {
+      signal = input.t.length > 0 ? circularShift(base.signal, k % input.t.length) : new Float64Array(0);
+    } else {
+      signal = new Float64Array(input.t.length);
+      for (let i = 0; i < input.t.length; i++) {
+        const j = barIndex(input, calendarSource(input.t[i], k, calendar.start, calendar.days, input.symbol));
+        signal[i] = j === -1 ? 0 : base.signal[j];
+      }
+    }
+    out[input.symbol] = { ...base, signal };
+  }
+  return out;
+}
+
+/**
+ * Days an input is a member in a sample: in broad mode the days of [from, to)
+ * its membership covers while it has a bar; otherwise its days from its sleeve
+ * start while it has a bar.
+ */
+export function memberDays(input: TrendSymbolInput, opts: SimOptions): number {
+  let count = 0;
+  const first = opts.broad ? opts.from : sleeveStart(input, opts.from);
+  for (let d = first; d < opts.to; d += DAY_MS) {
+    if (barIndex(input, d) === -1) continue;
+    if (opts.broad && !spanAt(input.membership, d)) continue;
+    count++;
+  }
+  return count;
+}
+
+/**
+ * 'wrapped': the share of member-days whose shifted path is no longer than k
+ * bars, so wraps whole and leaves calendar alignment with the others. NaN when
+ * there are no member-days.
+ */
+export function misalignedShare(lengths: readonly number[], memberDayCounts: readonly number[], k: number): number {
+  let total = 0;
+  let misaligned = 0;
+  lengths.forEach((length, s) => {
+    total += memberDayCounts[s];
+    if (length <= k) misaligned += memberDayCounts[s];
+  });
+  return total > 0 ? misaligned / total : Number.NaN;
+}
+
+function commonShiftNull(
+  mode: Exclude<TimingNullMode, 'independent'>,
+  inputs: TrendSymbolInput[],
+  paths: Record<string, RulePaths>,
+  twinReturns: readonly number[],
+  observedAlpha: number,
+  opts: SimOptions,
+  range: { first: number; last: number },
+  draws: number,
+  seed: number,
+  nullOptions: TimingNullOptions
+): TimingNullResult {
+  const calendar = {
+    start: nullOptions.calendarStart ?? NULL_CALENDAR_START,
+    days: nullOptions.calendarDays ?? NULL_CALENDAR_DAYS,
+  };
+  if (!Number.isInteger(calendar.days) || calendar.days < 2 * MIN_SHIFT_DAYS + 1) {
+    throw new Error(`A ${calendar.days}-day calendar is too short for a ${MIN_SHIFT_DAYS}-day shift`);
+  }
+  const { shared } = nullOptions;
+  const random = createSeededRandom(seed);
+  const twin = twinReturns.slice(range.first, range.last + 1);
+  const memberDayCounts = inputs.map((input) => memberDays(input, opts));
+  // In 'wrapped' the shifted path of an input is its own signal, or with a shared state that state.
+  const lengths = inputs.map((input) => (shared ? shared.days.length : input.t.length));
+  const shifts: number[] = [];
+  let misalignedSum = 0;
+  let atOrAbove = 0;
+  let sum = 0;
+  for (let draw = 0; draw < draws; draw++) {
+    const k = MIN_SHIFT_DAYS + Math.floor(random() * (calendar.days - 2 * MIN_SHIFT_DAYS + 1));
+    shifts.push(k);
+    if (mode === 'wrapped') misalignedSum += misalignedShare(lengths, memberDayCounts, k);
+    const shifted = commonShiftPaths(mode, inputs, paths, k, calendar, shared);
+    nullOptions.onDraw?.(k, shifted);
+    const r = runTrend(inputs, shifted, opts).returns.slice(range.first, range.last + 1);
+    const a = annualAlpha(r, twin).alpha;
+    sum += a;
+    if (a >= observedAlpha) atOrAbove++;
+  }
+  const result: TimingNullResult = { p: (1 + atOrAbove) / (draws + 1), nullMean: sum / draws, draws, shifts };
+  if (mode === 'wrapped') result.misalignedShare = misalignedSum / draws;
+  return result;
 }
