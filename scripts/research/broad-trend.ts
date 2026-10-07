@@ -204,5 +204,29 @@
  * - "V should be the variance of all sixteen trials' Sharpes": no. The eleven legends Sharpes were measured
  *   on another universe over another length, so their spread is not this sample's null dispersion. N = 16
  *   counts the lineage of tries; V measures this sample, bounded below by the floor.
+ *
+ * AMENDMENT 1 (2026-10-07, before any data was ingested or any return computed)
+ *
+ * Reading the archive's folder contents while building the data tooling showed that three statements above
+ * rest on a wrong picture of the archive. Each change below supersedes the bullets it names; nothing else
+ * changes, and the trials, gates and predictions stand.
+ *
+ * - SETTLED folders are excluded. Verified 2026-10-07: every XXXUSDT(SETTLED)+ folder (16) and
+ *   ICPUSDT_SETTLED is either a settlement stub (one or two daily rows, almost all with zero volume) or a
+ *   month-for-month copy of rows its base ticker already holds (TLMUSDTSETTLED for 2022-01 to 2023-03,
+ *   ICPUSDT_SETTLED for 2022-01 to 2022-09, identical rows). None holds an earlier contract, so including
+ *   them could only count a contract twice. A folder is therefore a candidate only if its name matches
+ *   ^[A-Z0-9]+USDT$ (single-character tickers such as AUSDT included, as the original pattern allowed).
+ *   Supersedes the CANDIDATES bullets on SETTLED folders and the "base ticker" bullet's SETTLED clause.
+ * - A daily bar with zero traded volume counts as a missing day for every rule: contract segmentation
+ *   (a run of more than 7 such or absent days ends a contract), eligibility's bar count, the ranking median
+ *   (it is not a bar), fills, marks and funding. The archive prints flat zero-volume bars while a contract is
+ *   halted or settling (CVXUSDT for all of 2025-07, at a constant 2.374), so without this a halt would never
+ *   end a contract and a relisting jump would be booked as one day's return. Supersedes the CONTRACTS
+ *   bullets' notion of a missing day.
+ * - Same-asset ties: when two contracts sharing an asset key have equal median volume at a ranking close,
+ *   the ticker that sorts first is ranked.
+ * - "The archive's first monthly file is 2020-01 for every contract" means the archive begins in 2020-01;
+ *   a contract listed later begins at its own first file (LUNAUSDT 2021-01). No rule depended on it.
  */
 export {};
