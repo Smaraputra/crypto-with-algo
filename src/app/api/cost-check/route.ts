@@ -14,7 +14,8 @@ import {
 import { createRateLimiter, rateLimitUser } from '@/lib/rate-limit';
 import type { CostCheckError, CostCheckMarketResponse } from '@/types/cost-check';
 
-const costCheckLimiter = createRateLimiter(20, 60);
+// Every settled change of hold or size is a request; 60 a minute leaves room for normal editing.
+const costCheckLimiter = createRateLimiter(60, 60);
 
 const SYMBOL_PATTERN = /^[A-Z0-9]{2,20}USDT$/;
 const MAX_HOLD_MINUTES = 30 * 24 * 60;

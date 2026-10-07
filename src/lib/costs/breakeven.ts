@@ -36,6 +36,8 @@ export function bracketBreakeven(input: BracketInput): Breakeven {
 
 /** Breakeven directional accuracy when wins and losses are each about `meanMovePercent`. */
 export function symmetricBreakeven(costPercent: number, meanMovePercent: number): Breakeven {
+  // A market that did not move leaves nothing to win: no win rate covers any cost.
+  if (!(meanMovePercent > 0)) return { kind: 'impossible' };
   return bracketBreakeven({
     stopPercent: meanMovePercent,
     targetPercent: meanMovePercent,

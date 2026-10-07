@@ -263,7 +263,11 @@ export async function fetchFundingInfo(): Promise<Record<string, number>> {
     '/fapi/v1/fundingInfo'
   );
   const out: Record<string, number> = {};
-  for (const r of rows) out[r.symbol] = Number(r.fundingIntervalHours);
+  for (const r of rows) {
+    const hours = Number(r.fundingIntervalHours);
+    // A row without a usable interval is left out, so the caller's 8-hour default applies.
+    if (Number.isFinite(hours) && hours > 0) out[r.symbol] = hours;
+  }
   return out;
 }
 

@@ -84,6 +84,10 @@ export function NumberField({
           aria-invalid={!valid}
           aria-describedby={hint || unit ? hintId : undefined}
           onChange={(e) => handle(e.target.value)}
+          // An invalid draft is dropped on leaving the field, so it cannot sit beside a value it does not show.
+          onBlur={() => {
+            if (!valid) setText(format(value));
+          }}
           className={cn('font-mono tabular-nums', unit && 'pr-14')}
         />
         {unit && (

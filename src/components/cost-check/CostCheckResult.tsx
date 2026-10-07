@@ -3,7 +3,12 @@
 import type { ReactNode } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatHold, MIN_INDEPENDENT_WINDOWS, type CostCheckInputs, type CostCheckModel } from '@/lib/costs/cost-check-model';
+import {
+  formatHold,
+  MIN_INDEPENDENT_WINDOWS,
+  type CostCheckInputs,
+  type CostCheckModel,
+} from '@/lib/costs/cost-check-model';
 import { COST_TONE_LABEL, type CostTone } from '@/lib/costs/verdict';
 import { cn } from '@/lib/utils';
 import type { CostCheckMarketResponse } from '@/types/cost-check';
@@ -64,8 +69,8 @@ function Verdict({
   if (verdict.kind === 'no-market' && isLoading) {
     return (
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-muted-foreground">Measuring the move</p>
-        <p className="max-w-prose text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm font-semibold">Measuring the move</p>
+        <p className="text-muted-foreground max-w-prose text-sm">
           Reading recent {inputs.symbol} bars, funding and the order book for a {hold} hold.
         </p>
       </div>
@@ -75,11 +80,11 @@ function Verdict({
   if (verdict.kind === 'no-market') {
     return (
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-muted-foreground">No verdict</p>
+        <p className="text-muted-foreground text-sm font-semibold">No verdict</p>
         <p className="max-w-prose text-sm">
-          Market data is unavailable{marketProblem ? `: ${marketProblem}` : ''}. The costs below use a flat{' '}
-          <Num>{model.slippageBps}</Num> bps slippage and no funding; without the measured move there is nothing to
-          weigh them against.
+          Market data is unavailable{marketProblem ? `: ${marketProblem}` : ''}. The costs below use
+          a flat <Num>{model.slippageBps}</Num> bps slippage and no funding; without the measured
+          move there is nothing to weigh them against.
         </p>
       </div>
     );
@@ -88,10 +93,13 @@ function Verdict({
   if (verdict.kind === 'thin') {
     return (
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-muted-foreground">Too little history for a verdict</p>
+        <p className="text-muted-foreground text-sm font-semibold">
+          Too little history for a verdict
+        </p>
         <p className="max-w-prose text-sm">
-          The move of a {hold} hold rests on <Num>{verdict.independentWindows}</Num> independent windows; a verdict needs{' '}
-          <Num>{MIN_INDEPENDENT_WINDOWS}</Num>. Recently listed perpetuals and long holds run into this.
+          The move of a {hold} hold rests on <Num>{verdict.independentWindows}</Num> independent
+          windows; a verdict needs <Num>{MIN_INDEPENDENT_WINDOWS}</Num>. Recently listed perpetuals
+          and long holds run into this.
         </p>
       </div>
     );
@@ -106,28 +114,40 @@ function Verdict({
       {breakeven.kind === 'impossible' ? (
         <p className="max-w-prose text-sm">
           The round trip, <Num>{pct(model.verdictCostPercent)}</Num>, is larger than the typical{' '}
-          <Num>{pct(move!.meanPercent, 2)}</Num> move of a {hold} hold. When wins and losses are about that size, no win
-          rate breaks even.
+          <Num>{pct(move!.meanPercent, 2)}</Num> move of a {hold} hold. When wins and losses are
+          about that size, no win rate breaks even.
         </p>
       ) : (
         <p className="max-w-prose text-sm">
-          If wins and losses are each about the typical <Num>{pct(move!.meanPercent, 2)}</Num> move of a {hold} hold, you
-          must call direction right more than <Num className="font-semibold">{(breakeven.winRate * 100).toFixed(1)}%</Num>{' '}
-          of the time just to cover <Num>{pct(model.verdictCostPercent)}</Num> of costs.
+          If wins and losses are each about the typical <Num>{pct(move!.meanPercent, 2)}</Num> move
+          of a {hold} hold, you must call direction right more than{' '}
+          <Num className="font-semibold">{(breakeven.winRate * 100).toFixed(1)}%</Num> of the time
+          just to cover <Num>{pct(model.verdictCostPercent)}</Num> of costs.
         </p>
       )}
-      <p className="max-w-prose text-xs text-muted-foreground">
-        Leverage does not change this percentage; it multiplies the USDT at stake. A coin flip is 50%; the best signals the
-        research behind this app measured called direction right about 51 to 54% of the time.
+      <p className="text-muted-foreground max-w-prose text-xs">
+        Leverage does not change this percentage; it multiplies the USDT at stake. A coin flip is
+        50%; the best signals the research behind this app measured called direction right about 51
+        to 54% of the time.
       </p>
     </div>
   );
 }
 
-function Row({ label, percent, amount, note }: { label: string; percent: number; amount: number; note?: ReactNode }) {
+function Row({
+  label,
+  percent,
+  amount,
+  note,
+}: {
+  label: string;
+  percent: number;
+  amount: number;
+  note?: ReactNode;
+}) {
   return (
-    <tr className="border-b border-border last:border-0">
-      <th scope="row" className="py-1.5 text-left font-normal text-muted-foreground">
+    <tr className="border-border border-b last:border-0">
+      <th scope="row" className="text-muted-foreground py-1.5 text-left font-normal">
         {label}
         {note && <span className="block text-xs">{note}</span>}
       </th>
@@ -159,9 +179,11 @@ export function CostCheckResult({
     model.slippageSource === 'override'
       ? 'your figure'
       : model.slippageSource === 'depth'
-        ? market?.slippage.exceedsTopOfBook
-          ? 'larger than the visible book: at least this much'
-          : 'measured from the order book for this size'
+        ? model.slippageForOtherSize
+          ? 'measured for the previous size, updating'
+          : market?.slippage.exceedsTopOfBook
+            ? 'larger than the visible book: at least this much'
+            : 'measured from the order book for this size'
         : 'flat assumption, no order book';
 
   return (
@@ -172,16 +194,27 @@ export function CostCheckResult({
         </CardHeader>
         <CardContent className="space-y-3">
           <div role="status" aria-live="polite" data-testid="cost-check-verdict">
-            <Verdict inputs={inputs} model={model} marketProblem={marketProblem} isLoading={isLoading} />
+            <Verdict
+              inputs={inputs}
+              model={model}
+              marketProblem={marketProblem}
+              isLoading={isLoading}
+            />
           </div>
           {market?.stale && (
-            <p className="rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs" role="note">
-              The exchange could not be reached. Market data is from {utcTime(market.asOf)}, and slippage falls back to a
-              flat figure.
+            <p
+              className="border-accent/40 bg-accent/10 rounded-md border px-3 py-2 text-xs"
+              role="note"
+            >
+              The exchange could not be reached. Market data is from {utcTime(market.asOf)}, and
+              slippage falls back to a flat figure.
             </p>
           )}
           {model.belowMinNotional && model.effectiveMinNotional !== null && (
-            <p className="rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs" role="note">
+            <p
+              className="border-accent/40 bg-accent/10 rounded-md border px-3 py-2 text-xs"
+              role="note"
+            >
               Below the venue minimum: an order on {inputs.symbol} must be at least{' '}
               <Num>{usdt(model.effectiveMinNotional)}</Num> USDT.
             </p>
@@ -195,9 +228,11 @@ export function CostCheckResult({
         </CardHeader>
         <CardContent>
           <table className="w-full text-sm" data-testid="cost-check-breakdown">
-            <caption className="sr-only">Round-trip cost of the position, in percent of notional and in USDT</caption>
+            <caption className="sr-only">
+              Round-trip cost of the position, in percent of notional and in USDT
+            </caption>
             <thead>
-              <tr className="text-xs text-muted-foreground">
+              <tr className="text-muted-foreground text-xs">
                 <th scope="col" className="pb-1 text-left font-normal">
                   Component
                 </th>
@@ -241,8 +276,9 @@ export function CostCheckResult({
             </tbody>
           </table>
           {roundTrip.fundingUsdt < 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Funding received is shown but not credited in the verdict: the rate can turn before the hold ends.
+            <p className="text-muted-foreground mt-2 text-xs">
+              Funding received is shown but not credited in the verdict: the rate can turn before
+              the hold ends.
             </p>
           )}
         </CardContent>
@@ -257,15 +293,17 @@ export function CostCheckResult({
             {move && market ? (
               <>
                 <p>
-                  A {formatHold(inputs.holdMinutes)} hold typically moves <Num>{pct(move.medianPercent, 2)}</Num> either way
-                  (mean <Num>{pct(move.meanPercent, 2)}</Num>); one hold in four moves more than{' '}
+                  A {formatHold(inputs.holdMinutes)} hold typically moves{' '}
+                  <Num>{pct(move.medianPercent, 2)}</Num> either way (mean{' '}
+                  <Num>{pct(move.meanPercent, 2)}</Num>); one hold in four moves more than{' '}
                   <Num>{pct(move.p75Percent, 2)}</Num>.
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  Close to close on the last <Num>{market.measurement.barsUsed}</Num> {market.measurement.interval} bars of{' '}
-                  {market.symbol}, measured as {market.measurement.holdBars} bars (
-                  {formatHold(market.measurement.measuredHoldMs / 60_000)}); <Num>{move.independentWindows}</Num>{' '}
-                  independent windows.
+                <p className="text-muted-foreground text-xs">
+                  Close to close on the last <Num>{market.measurement.barsUsed}</Num>{' '}
+                  {market.measurement.interval} bars of {market.symbol}, measured as{' '}
+                  {market.measurement.holdBars} bars (
+                  {formatHold(market.measurement.measuredHoldMs / 60_000)});{' '}
+                  <Num>{move.independentWindows}</Num> independent windows.
                 </p>
               </>
             ) : (
@@ -280,8 +318,9 @@ export function CostCheckResult({
           </CardHeader>
           <CardContent className="space-y-1 text-sm">
             <p>
-              At <Num>{inputs.leverage}x</Num> a round trip costs <Num>{pct(model.costPercentOfMargin, 2)}</Num> of the margin,
-              and liquidation is at most <Num>{pct(model.liquidationDistancePercent, 1)}</Num> away.
+              At <Num>{inputs.leverage}x</Num> a round trip costs{' '}
+              <Num>{pct(model.costPercentOfMargin, 2)}</Num> of the margin, and liquidation is at
+              most <Num>{pct(model.liquidationDistancePercent, 1)}</Num> away.
             </p>
             <p>
               At <Num>{inputs.tradesPerDay}</Num> trades a day, costs come to about{' '}

@@ -122,6 +122,8 @@ export interface CostCheckModel {
   notional: number;
   slippageBps: number;
   slippageSource: 'override' | 'depth' | 'fallback';
+  /** The depth figure was measured for a different position size and is being re-measured. */
+  slippageForOtherSize: boolean;
   settlements: number;
   roundTrip: RoundTripCost;
   /**
@@ -143,7 +145,8 @@ export interface CostCheckModel {
 export function computeCostCheck(
   inputs: CostCheckInputs,
   market: CostCheckMarketResponse | null,
-  now: number
+  now: number,
+  options: { slippageForOtherSize?: boolean } = {}
 ): CostCheckModel {
   const notional = notionalOf(inputs);
   const fees = feeRatesFor(inputs.feeTier, {
@@ -193,6 +196,7 @@ export function computeCostCheck(
     notional,
     slippageBps,
     slippageSource,
+    slippageForOtherSize: slippageSource === 'depth' && options.slippageForOtherSize === true,
     settlements,
     roundTrip,
     verdictCostPercent,

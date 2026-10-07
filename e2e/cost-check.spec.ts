@@ -32,7 +32,22 @@ async function stubApi(page: Page, market: unknown = MARKET, status = 200) {
       },
     })
   );
-  await page.route('**/api/cost-check?*', (route) => route.fulfill({ status, json: market }));
+  // The page only prices a hold with a move measured for that hold, so answer per hold.
+  const measurements: Record<string, { interval: string; holdBars: number; measuredHoldMs: number }> = {
+    '60': { interval: '15m', holdBars: 4, measuredHoldMs: 3_600_000 },
+    '420': { interval: '1h', holdBars: 7, measuredHoldMs: 7 * 3_600_000 },
+    '10080': { interval: '1d', holdBars: 7, measuredHoldMs: 7 * 86_400_000 },
+  };
+  await page.route('**/api/cost-check?*', (route) => {
+    if (status !== 200) return route.fulfill({ status, json: market });
+    const url = new URL(route.request().url());
+    const hold = url.searchParams.get('holdMinutes') ?? '60';
+    const symbol = url.searchParams.get('symbol') ?? 'BTCUSDT';
+    const measurement = measurements[hold];
+    return route.fulfill({
+      json: { ...(market as typeof MARKET), symbol, measurement: { ...measurement, barsUsed: 999 } },
+    });
+  });
 }
 
 test.describe('Cost Check (authenticated)', () => {

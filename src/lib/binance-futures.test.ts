@@ -266,6 +266,15 @@ describe('cost check fetchers', () => {
     expect(await fetchFundingInfo()).toEqual({ XUSDT: 4 });
   });
 
+  it('leaves out a fundingInfo row without a usable interval, so the 8-hour default applies', async () => {
+    mockOk([
+      { symbol: 'AUSDT', fundingIntervalHours: 4 },
+      { symbol: 'BUSDT' },
+      { symbol: 'CUSDT', fundingIntervalHours: 0 },
+    ]);
+    expect(await fetchFundingInfo()).toEqual({ AUSDT: 4 });
+  });
+
   it('parses depth levels to numbers', async () => {
     mockOk({ bids: [['99', '2']], asks: [['101', '3']] });
     expect(await fetchDepth('BTCUSDT')).toEqual({ bids: [[99, 2]], asks: [[101, 3]] });

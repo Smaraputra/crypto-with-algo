@@ -15,7 +15,7 @@ vi.mock('@/hooks/useCostCheck', () => ({
   }),
   useCostCheckMarket: (symbol: string, holdMinutes: number, notional: number) => {
     marketCalls.push([symbol, holdMinutes, notional]);
-    return { data: marketData.current, isError: false, error: null, isFetching: false };
+    return { data: marketData.current, isError: false, error: null, isFetching: false, isPlaceholderData: false };
   },
 }));
 
@@ -59,12 +59,37 @@ describe('CostCheckView', () => {
     expect(marketCalls.at(-1)).toEqual(['ETHUSDT', 420, 248]);
   });
 
-  it('recomputes the verdict at once when a hold preset is picked, and saves the inputs', () => {
+  it('never prices a new hold with a move measured for the previous one, and saves the inputs', () => {
     render(<CostCheckView />);
+    expect(screen.getByTestId('cost-check-tone')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', { name: '1w' }));
-    // The client-side verdict uses the new hold immediately; the server request waits for the debounce.
-    expect(screen.getByTestId('cost-check-verdict')).toHaveTextContent('of a 7d hold');
+    // The response on hand was measured on 15m x 4 (a 1h hold); a week is measured on 1d x 7.
+    expect(screen.getByTestId('cost-check-verdict')).toHaveTextContent('Measuring the move');
+    expect(screen.getByTestId('cost-check-verdict')).toHaveTextContent('for a 7d hold');
+    expect(screen.queryByTestId('cost-check-tone')).not.toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) as string).holdMinutes).toBe(10_080);
+  });
+
+  it('prices a new hold once its own measurement arrives', () => {
+    marketData.current = { ...market(), measurement: { interval: '1d', holdBars: 7, measuredHoldMs: 7 * 86_400_000, barsUsed: 999 }, move: { medianPercent: 6, meanPercent: 8, p75Percent: 10, samples: 990, independentWindows: 142 } };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...DEFAULT_INPUTS, holdMinutes: 10_080 }));
+    render(<CostCheckView />);
+    expect(screen.getByTestId('cost-check-verdict')).toHaveTextContent('of a 7d hold');
+  });
+
+  it('labels slippage measured for the previous size while the new size is pending', () => {
+    vi.useFakeTimers();
+    try {
+      render(<CostCheckView />);
+      fireEvent.change(screen.getByLabelText('Margin'), { target: { value: '250' } });
+      expect(screen.getByTestId('cost-check-breakdown')).toHaveTextContent('measured for the previous size, updating');
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      expect(screen.getByTestId('cost-check-breakdown')).toHaveTextContent('measured from the order book for this size');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('debounces size changes before asking the server again', () => {

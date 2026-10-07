@@ -20,6 +20,8 @@ interface SymbolPickerProps {
 export function SymbolPicker({ value, onChange, symbols, isLoading, isError }: SymbolPickerProps) {
   const [open, setOpen] = useState(false);
   const labelId = useId();
+  const buttonId = useId();
+  const listId = useId();
 
   return (
     <div className="min-w-0 space-y-1">
@@ -31,8 +33,10 @@ export function SymbolPicker({ value, onChange, symbols, isLoading, isError }: S
           <Button
             variant="outline"
             role="combobox"
+            id={buttonId}
             aria-expanded={open}
-            aria-labelledby={labelId}
+            aria-controls={listId}
+            aria-labelledby={`${labelId} ${buttonId}`}
             className="h-9 w-full justify-between font-mono tabular-nums"
             data-testid="cost-check-symbol"
           >
@@ -43,7 +47,7 @@ export function SymbolPicker({ value, onChange, symbols, isLoading, isError }: S
         <PopoverContent className="w-[--radix-popover-trigger-width] min-w-56 p-0" align="start">
           <Command>
             <CommandInput placeholder="Search, e.g. SOL" />
-            <CommandList>
+            <CommandList id={listId}>
               <CommandEmpty>
                 {isLoading ? 'Loading perpetuals...' : isError ? 'The list could not be loaded.' : 'No perpetual found.'}
               </CommandEmpty>

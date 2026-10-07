@@ -12,6 +12,7 @@ import {
   parseStoredInputs,
   type CostCheckInputs,
 } from '@/lib/costs/cost-check-model';
+import { pickMeasurementInterval } from '@/lib/costs/move';
 import { CostCheckForm } from './CostCheckForm';
 import { CostCheckResult } from './CostCheckResult';
 import { CostCheckSummaryBar } from './CostCheckSummaryBar';
@@ -66,10 +67,24 @@ export function CostCheckView() {
 
   const symbols = useCostCheckSymbols();
   const market = useCostCheckMarket(inputs.symbol, holdMinutes, notional);
-  // A previous symbol's data stays visible while the next one loads; never price a trade with it.
-  const marketData = market.data && market.data.symbol === inputs.symbol ? market.data : null;
+  // The query keeps the previous response while the next one loads. Never price a trade with a move
+  // measured for another symbol or hold; a depth measured for another size is used but labelled.
+  const expected = pickMeasurementInterval(inputs.holdMinutes * 60_000);
+  const data = market.data;
+  const marketData =
+    data &&
+    data.symbol === inputs.symbol &&
+    data.measurement.interval === expected.interval &&
+    data.measurement.holdBars === expected.holdBars
+      ? data
+      : null;
+  const slippageForOtherSize =
+    marketData !== null && (market.isPlaceholderData || notional !== notionalOf(inputs));
 
-  const model = useMemo(() => computeCostCheck(inputs, marketData, now), [inputs, marketData, now]);
+  const model = useMemo(
+    () => computeCostCheck(inputs, marketData, now, { slippageForOtherSize }),
+    [inputs, marketData, now, slippageForOtherSize]
+  );
 
   const marketProblem =
     market.isError && !marketData ? marketProblemText(market.error?.code) : null;

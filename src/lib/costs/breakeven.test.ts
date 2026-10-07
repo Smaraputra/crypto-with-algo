@@ -36,6 +36,12 @@ describe('symmetricBreakeven', () => {
     expect(winRate(symmetricBreakeven(0.12, 0.8))).toBeCloseTo(winRate(bracket), 12);
   });
 
+  it('is impossible, not an error, when the market did not move', () => {
+    expect(symmetricBreakeven(0.1, 0)).toEqual({ kind: 'impossible' });
+    expect(symmetricBreakeven(0, 0)).toEqual({ kind: 'impossible' });
+    expect(symmetricBreakeven(0.1, Number.NaN)).toEqual({ kind: 'impossible' });
+  });
+
   it('is exactly a coin flip with no cost, and impossible once cost reaches the move', () => {
     expect(winRate(symmetricBreakeven(0, 0.5))).toBe(0.5);
     expect(symmetricBreakeven(0.5, 0.5)).toEqual({ kind: 'impossible' });

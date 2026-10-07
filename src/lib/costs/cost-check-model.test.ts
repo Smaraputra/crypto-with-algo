@@ -74,6 +74,17 @@ describe('computeCostCheck', () => {
     expect(m.verdict).toEqual({ kind: 'verdict', tone: 'exceed', breakeven: { kind: 'impossible' } });
   });
 
+  it('reads a market that did not move as costs exceeding the move, never a crash', () => {
+    const flat = computeCostCheck(inputs(), market({ move: { medianPercent: 0, meanPercent: 0, p75Percent: 0, samples: 995, independentWindows: 249 } }), NOW);
+    expect(flat.verdict).toEqual({ kind: 'verdict', tone: 'exceed', breakeven: { kind: 'impossible' } });
+  });
+
+  it('flags depth slippage measured for another size, and only depth slippage', () => {
+    expect(computeCostCheck(inputs(), market(), NOW, { slippageForOtherSize: true }).slippageForOtherSize).toBe(true);
+    expect(computeCostCheck(inputs(), market(), NOW).slippageForOtherSize).toBe(false);
+    expect(computeCostCheck(inputs({ slippageOverrideBps: 2 }), market(), NOW, { slippageForOtherSize: true }).slippageForOtherSize).toBe(false);
+  });
+
   it('withholds the verdict on thin history and without market data', () => {
     const thin = computeCostCheck(inputs(), market({ move: { medianPercent: 0.3, meanPercent: 0.4, p75Percent: 0.5, samples: 200, independentWindows: 50 } }), NOW);
     expect(thin.verdict).toEqual({ kind: 'thin', independentWindows: 50 });
