@@ -243,7 +243,7 @@ function quantile(sorted: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1)))];
 }
 
-function summarise(run: TrendRun, range: { first: number; last: number }) {
+export function summarise(run: TrendRun, range: { first: number; last: number }) {
   const slice = <T>(xs: T[]) => xs.slice(range.first, range.last + 1);
   const returns = slice(run.returns);
   const gross = slice(run.gross);
@@ -271,7 +271,7 @@ function summarise(run: TrendRun, range: { first: number; last: number }) {
   };
 }
 
-function ciJson(ci: CiStat) {
+export function ciJson(ci: CiStat) {
   return { point: finiteOrNull(ci.point), low: finiteOrNull(ci.low), high: finiteOrNull(ci.high), blockLen: ci.blockLen };
 }
 
@@ -299,7 +299,7 @@ function pairPoint(p: ReturnType<typeof pair>) {
   };
 }
 
-function resolveCommit(): string {
+export function resolveCommit(): string {
   if (process.env.GIT_COMMIT) return process.env.GIT_COMMIT;
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();

@@ -1245,7 +1245,8 @@ const BroadBenchmarkSchema = z.object({
 
 const BroadNullSchema = z.object({
   mode: z.enum(['wrapped', 'aligned']),
-  p: z.number(),
+  /** Null when the observed alpha is undefined: the gate fails. */
+  p: z.number().nullable(),
   nullMean: z.number().nullable(),
   draws: z.number(),
   /** Member-days shifted out of calendar alignment ('wrapped'); 0 by construction for 'aligned'. */
@@ -1329,7 +1330,7 @@ export const BroadTrendReportSchema = z.object({
   alphaBlock120: TrendCiSchema,
   beta: z.number().nullable(),
   benchmarks: z.object({ btc: BroadBenchmarkSchema, memberBasket: BroadBenchmarkSchema }),
-  timing: z.object({ wrapped: BroadNullSchema, aligned: BroadNullSchema, gatingP: z.number() }),
+  timing: z.object({ wrapped: BroadNullSchema, aligned: BroadNullSchema, gatingP: z.number().nullable() }),
   nullSize: z
     .object({
       universes: z.number(),
@@ -1339,7 +1340,7 @@ export const BroadTrendReportSchema = z.object({
       alignedRejection: z.number().nullable(),
       bothRejection: z.number().nullable(),
       perUniverse: z.array(
-        z.object({ observedAlpha: z.number().nullable(), wrappedP: z.number(), alignedP: z.number() })
+        z.object({ observedAlpha: z.number().nullable(), wrappedP: z.number().nullable(), alignedP: z.number().nullable() })
       ),
     })
     .nullable(),

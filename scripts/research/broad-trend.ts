@@ -298,6 +298,70 @@ import { assetKey } from './universe-source';
  *   2026-06-30. 'aligned' stops on an input bar outside the calendar. In 'wrapped', C3's misaligned share is 1 when
  *   the basket index is no longer than k, else 0. A member-day is a day of [from, to) that a membership span covers
  *   while the contract has a bar.
+ *
+ * A5, the harness: broad-inputs.ts (inputs), broad-gates.ts (the nine gates), broad-harness.ts (runBroadStudy and the
+ * CLI), the schema v2 report (report-schema.ts BroadTrendReportSchema), broad-dsr.ts and legends-dsr.ts's options
+ * (gate 8). Recorded before any run; none changes a rule.
+ *
+ * - Inputs. One TrendSymbolInput per contract with `symbol` = the contract id (SYMBOL#n), so sleeves, paths,
+ *   contributions and drops are per contract. The sleeves are the universe members; the C3 basket reads every basket
+ *   member, and a contract that is only a basket member never trades, so its funding is not read. Each contract is
+ *   re-segmented from the export and must equal the universe file's metadata for it, or nothing runs. The CLI also
+ *   requires the universe file's parameters to be the pre-registered ones.
+ * - Sample. The run spans the universe's start close to its end (2026-07-01). Gate 1 counts, and every gated or reported
+ *   statistic uses, the days from the first day d on which some member, with bars on d - 1 day and d, has its rule
+ *   defined at the bar of d - 1 day (the close whose decision sets day d's holding). With 366-bar eligibility TF1 to TF4
+ *   are defined at every member's first close; C3 from basket position 393 (the decision of 2021-02-28 when the basket
+ *   starts on 2020-02-01).
+ * - Funding coverage. A contract's settlements are those with t in (first bar day, last bar day + 1 day]. A row's
+ *   interval is its spacing to the next (settlementSpacingReport's convention): a longer gap is missing settlements at
+ *   that spacing, and the grid extends at the first row's interval before it and the last row's after it. Checked days:
+ *   member days with a real (non-carried) bar, plus the day a membership ends while the contract trades (a leaver under
+ *   the one-bar delay holds through it); BTCUSDT, the reported benchmark, on every real sample day. Not due: anything at
+ *   or after 2026-07-01 00:00 (the lockbox, so the last sample day's 00:00 settlement is neither required nor charged),
+ *   a contract's first day before its first settlement (it lists inside the day; never a member day under 366-bar
+ *   eligibility), and a delisted contract's last day after its last settlement (it stops inside the day). A row without
+ *   a stated interval whose stretch touches a checked day cannot be verified and stops the run like a missing one. Every
+ *   missing settlement is listed in one error before any return. A halt that starts inside a traded day (that day's
+ *   later settlements absent) stops the run: the header grants no exemption, so its resolution is recorded at run time.
+ * - Calendar. Every bar of every input must lie in 2020-01-01 to 2026-06-30 (the null calendar), or the run stops
+ *   before any return.
+ * - Gate 4. An undefined observed alpha runs no null and records p as null, so the gate fails (no draw is at or above a
+ *   NaN, which would read as p = 1/201). 'aligned' reports a misaligned share of 0 (alignment is kept) and its exposure
+ *   loss: the mean over draws of the share of member-days whose source day lies outside the contract's bars (C3:
+ *   outside the basket's days), where the shifted rule holds nothing.
+ * - Null size (gate 4, reported). One stream (seed 11) permutes, universe by universe and contract by contract in id
+ *   order (Fisher-Yates), each contract's close-to-close returns on its real days among those days; prices are rebuilt
+ *   from the first close with each open at the previous close; carried days, membership, funding and end days stay;
+ *   C3's basket is rebuilt from the permuted closes. Each universe re-runs T, T+ and both nulls at seed 7 with the
+ *   gate's draw count; a null rejects at p < 0.05, both when the larger p does. It runs before the rule's own run.
+ * - Gate 5. Member-days are trend-sim.ts memberDays over the run. The merge repeats until no cohort is under 10% (strict)
+ *   or one remains, taking the youngest cohort under 10% first; a merged cohort merges again while still under. The
+ *   legends ten and BTC and ETH are chosen by asset key, so every contract of those assets is dropped. The top five
+ *   rank contracts by the summed daily contribution (portfolio-equity units) of T minus beta x T+'s, beta the OLS beta of
+ *   T on T+ over the sample, ties by contract id. A drop re-runs T and T+ without those sleeves (capital splits over the
+ *   rest) with the paths unchanged, so C3's state reads the full basket; an empty drop re-runs the whole portfolio. If
+ *   the merge leaves one cohort, dropping it drops every member, the alpha is undefined and the gate fails.
+ * - Gate 6. A gated year with fewer than two sample days has no alpha and counts as not positive; the share is over the
+ *   five years 2021 to 2025 always.
+ * - Gate 7. 1.5x the taker fee and stressBroad (2x every tier, 2x the 10 bps leave slippage, a 4% haircut). The
+ *   reported 5% case is the same stress with the haircut at 5%.
+ * - Gate 9. The alpha over the sample days from 2022-01-01 to 2026-06-30 of the same run, not a fresh run from 2022.
+ * - Benchmarks (gate 3, reported). BTC: the BTCUSDT contract that spans the sample, a member at rank 1 every month,
+ *   signal and size 1, trading only at ranking closes back to 1x (so drifting between), broad costs and archive funding;
+ *   unavailable when no BTCUSDT contract spans the sample. Members: every member at 1x of its sleeve, traded back to 1x
+ *   at every close, capital split equally at ranking closes, so gross is constant outside cash and equal weight is
+ *   restored monthly. Alpha and beta of T on each over the sample.
+ * - Reported detail. Members per month are read at the close of each month's first day; a delisting's day contribution is
+ *   the sleeve's PnL on its end day (haircut and fee included) over the equity at the previous close.
+ * - Counts. The CLI runs 2,000 bootstrap draws, 200 null draws and 50 null-size universes; the core takes lower counts
+ *   for tests only, and every report records the counts it used.
+ * - Gate 8 (broad-dsr.ts). N = 16, the program count 1,729 beside, V = max(the five per-period Sharpes' sample variance,
+ *   1/(T - 1)) with T the shortest of the five daily series, each trial's probabilistic Sharpe with its own length,
+ *   skewness and kurtosis. The five reports must share one export hash and one universe sha256. A trial passes when its
+ *   report reads 'pending-trials' and its deflated probability is at least 0.95. legends-dsr.ts's defaults are the
+ *   legends rule, unchanged: a golden pins the default path and the record (2.405e-3, 1.520, C3 0.330, TF4 0.294) is
+ *   reproduced from its own trial statistics (legends-dsr.test.ts).
  */
 
 export const DAY_MS = 86_400_000;

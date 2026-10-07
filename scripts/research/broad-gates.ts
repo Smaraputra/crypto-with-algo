@@ -208,14 +208,15 @@ export function yearAlphaBetas(
   });
 }
 
-/** Gate 4's null size: the share of universes in which each null, and both, reject at `level`. */
+/** Gate 4's null size: the share of universes in which each null, and both, reject at `level` (a null p never rejects). */
 export function rejectionRates(
-  perUniverse: ReadonlyArray<{ wrappedP: number; alignedP: number }>,
+  perUniverse: ReadonlyArray<{ wrappedP: number | null; alignedP: number | null }>,
   level = BROAD_TIMING_P
 ): { wrapped: number; aligned: number; both: number } {
   const n = perUniverse.length;
   if (n === 0) return { wrapped: Number.NaN, aligned: Number.NaN, both: Number.NaN };
-  const count = (f: (u: { wrappedP: number; alignedP: number }) => boolean) => perUniverse.filter(f).length / n;
+  const count = (f: (u: { wrappedP: number; alignedP: number }) => boolean) =>
+    perUniverse.filter((u) => f({ wrappedP: u.wrappedP ?? Number.NaN, alignedP: u.alignedP ?? Number.NaN })).length / n;
   return {
     wrapped: count((u) => u.wrappedP < level),
     aligned: count((u) => u.alignedP < level),
