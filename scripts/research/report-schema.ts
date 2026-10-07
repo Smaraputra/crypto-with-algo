@@ -1215,6 +1215,185 @@ export function validateTrendReport(json: unknown): ValidationResult<TrendReport
   return { ok: false, issues: formatIssues(result.error) };
 }
 
+/**
+ * The event studies report (scripts/research/event-studies-harness.ts): nine
+ * cells (E1, E2, E3 x 1h, 4h, 24h) with their five gates, the reported block,
+ * E1's 1st/99th percentile sensitivity and the volatility read, as
+ * pre-registered in event-studies.ts's header. Every field is declared,
+ * because Zod strips what is not. Statistics that can be undefined (a cell
+ * with no events) are null, never NaN.
+ */
+const EventMeanCiSchema = z.object({
+  mean: z.number().nullable(),
+  ciLow: z.number().nullable(),
+  ciHigh: z.number().nullable(),
+});
+
+const EventCellStatsSchema = z.object({
+  n: z.number(),
+  days: z.number(),
+  gross: EventMeanCiSchema.extend({ p: z.number(), emptyDraws: z.number() }),
+  net: EventMeanCiSchema,
+  fundingMean: z.number().nullable(),
+  drops: z.object({
+    noDirection: z.number(),
+    beyondSample: z.number(),
+    missing: z.number(),
+    overlap: z.number(),
+  }),
+});
+
+const EventGateSchema = z.object({
+  id: z.number(),
+  name: z.enum(['significance', 'pays', 'breadth', 'time', 'sample']),
+  pass: z.boolean(),
+  value: z.number().nullable(),
+  threshold: z.number(),
+  note: z.string(),
+});
+
+const EventGroupMeanSchema = z.object({
+  key: z.string(),
+  n: z.number(),
+  grossMean: z.number().nullable(),
+  agrees: z.boolean(),
+});
+
+const EventCellSchema = EventCellStatsSchema.extend({
+  event: z.enum(['E1', 'E2', 'E3']),
+  horizon: z.number(),
+  side: z.number(),
+  byRejected: z.boolean(),
+  gates: z.array(EventGateSchema),
+  pass: z.boolean(),
+  symbols: z.array(EventGroupMeanSchema),
+  periods: z.array(EventGroupMeanSchema),
+  reported: z.object({
+    countsBySymbol: z.record(z.string(), z.number()),
+    countsByYear: z.record(z.string(), z.number()),
+    netMeanAt2xCost: z.number().nullable(),
+    medianSigned: z.number().nullable(),
+    hitRate: z.number().nullable(),
+    top10DayShare: z.number().nullable(),
+  }),
+});
+
+const EventSensitivitySchema = EventCellStatsSchema.extend({
+  event: z.literal('E1'),
+  horizon: z.number(),
+  oiPercentile: z.number(),
+  absReturnPercentile: z.number(),
+});
+
+const EventRatioStatSchema = z.object({
+  n: z.number(),
+  excluded: z.number(),
+  median: z.number().nullable(),
+  ciLow: z.number().nullable(),
+  ciHigh: z.number().nullable(),
+});
+
+const EventStressSchema = z.object({
+  symbol: z.string(),
+  from: z.number(),
+  to: z.number(),
+  days: z.number(),
+  skippedDays: z.number(),
+  topQuintileDays: z.number(),
+  flaggedDays: z.number(),
+  tp: z.number(),
+  fn: z.number(),
+  tn: z.number(),
+  fp: z.number(),
+  hitRate: z.number().nullable(),
+  trueNegativeRate: z.number().nullable(),
+  balancedAccuracy: z.number().nullable(),
+});
+
+const EventDetectedSchema = z.object({
+  total: z.number(),
+  bySymbol: z.record(z.string(), z.number()),
+  noDirection: z.number(),
+  atThreshold: z.number(),
+});
+
+export const EventStudyReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  taskId: z.string(),
+  datasetManifestHash: z.string(),
+  lockboxApplied: z.boolean(),
+  symbols: z.array(z.string()),
+  trials: z.number(),
+  ledgerBefore: z.number(),
+  ledgerAfter: z.number(),
+  config: z.object({
+    sampleStart: z.number(),
+    sampleEnd: z.number(),
+    trailingHours: z.number(),
+    minTrailingHours: z.number(),
+    settlementWindowDays: z.number(),
+    minSettlements: z.number(),
+    horizons: z.array(z.number()),
+    cost: z.number(),
+    fdrQ: z.number(),
+    bootstrap: z.object({ draws: z.number(), seed: z.number(), blockDays: z.number() }),
+    calendarStart: z.number(),
+    calendarDays: z.number(),
+    periods: z.array(z.object({ label: z.string(), from: z.number(), to: z.number() })),
+    stressFrom: z.number(),
+    stressTo: z.number(),
+  }),
+  coverage: z.record(
+    z.string(),
+    z.object({
+      sampleHours: z.number(),
+      validHours: z.number(),
+      oiChangeHours: z.number(),
+      settlements: z.number(),
+      firstValidHour: z.number().nullable(),
+      lastValidHour: z.number().nullable(),
+    })
+  ),
+  detected: z.object({
+    E1: EventDetectedSchema,
+    E2: EventDetectedSchema,
+    E3: EventDetectedSchema,
+    E1Sensitivity: EventDetectedSchema,
+  }),
+  cells: z.array(EventCellSchema),
+  e1Sensitivity: z.array(EventSensitivitySchema),
+  volatility: z.object({
+    byEvent: z.object({ E1: EventRatioStatSchema, E2: EventRatioStatSchema, E3: EventRatioStatSchema }),
+    pooledE1E3: EventRatioStatSchema,
+    stress: EventStressSchema.nullable(),
+    product: z.object({
+      minBalancedAccuracy: z.number(),
+      balancedAccuracyPass: z.boolean(),
+      ratioPass: z.boolean(),
+      pass: z.boolean(),
+    }),
+  }),
+  passingCells: z.array(z.string()),
+  verdict: z.enum(['no-cell-passes', 'provisional-pass']),
+  computedAt: z.string(),
+  gitCommit: z.string(),
+  durationMs: z.number(),
+});
+export type EventStudyReport = z.infer<typeof EventStudyReportSchema>;
+export type EventCell = z.infer<typeof EventCellSchema>;
+export type EventCellStatsJson = z.infer<typeof EventCellStatsSchema>;
+export type EventGate = z.infer<typeof EventGateSchema>;
+export type EventGroupMean = z.infer<typeof EventGroupMeanSchema>;
+export type EventRatioStat = z.infer<typeof EventRatioStatSchema>;
+export type EventStress = z.infer<typeof EventStressSchema>;
+export type EventDetected = z.infer<typeof EventDetectedSchema>;
+
+export function validateEventStudyReport(json: unknown): ValidationResult<EventStudyReport> {
+  const result = EventStudyReportSchema.safeParse(json);
+  if (result.success) return { ok: true, data: result.data };
+  return { ok: false, issues: formatIssues(result.error) };
+}
+
 // Every finite number reachable inside `pooled`, except the counts and
 // indexes listed here: a sample size, a raw trial/window/year count, or an
 // array index is not a "statistic" a finding should be able to cite by
