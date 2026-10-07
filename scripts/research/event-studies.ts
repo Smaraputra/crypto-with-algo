@@ -189,6 +189,53 @@
  *     > 1.
  */
 
+/*
+ * RESULT, 2026-10-08 (the one run). Export `a93d2d26403c` (ten symbols: 1h perp klines, 5m metrics, funding
+ * settlements, lockbox applied), image from `ab67970`, events 2022-07-01 to 2026-06-30, report
+ * `events/out/event-studies.json`. Reproduced on a second machine from the hash-verified export: every count,
+ * gate and verdict identical, floats within 2.8e-15 relative (Node 24 against the image's Node 22).
+ *
+ *   Detected: E1 1,503, E2 1,431 (none at threshold, which AMENDMENT 1's strict comparison makes structural),
+ *   E3 3,851, E1 at 1st/99th 699.
+ *
+ *   cell     n      days  gross mean (95% CI)          p       net mean (95% CI)            failed gates
+ *   E1 1h    1,503  456   -0.079% [-0.257%, +0.094%]   0.394   -0.238% [-0.416%, -0.066%]   1, 2, 3, 4
+ *   E1 4h    1,354  456   -0.051% [-0.352%, +0.222%]   0.730   -0.211% [-0.510%, +0.062%]   1, 2, 3, 4
+ *   E1 24h   1,160  440   -0.262% [-0.662%, +0.182%]   0.232   -0.399% [-0.799%, +0.042%]   1, 2, 3, 4
+ *   E2 1h    1,431  433   -0.063% [-0.195%, +0.080%]   0.369   -0.090% [-0.226%, +0.041%]   1, 2, 4
+ *   E2 4h    1,429  433   -0.170% [-0.411%, +0.058%]   0.167   +0.021% [-0.206%, +0.267%]   1, 2, 4
+ *   E2 24h   922    414   -0.173% [-0.661%, +0.373%]   0.527   +0.093% [-0.444%, +0.570%]   1, 2
+ *   E3 1h    3,846  673   +0.023% [-0.083%, +0.137%]   0.686   -0.183% [-0.296%, -0.078%]   1, 2, 3, 4
+ *   E3 4h    2,513  672   +0.153% [-0.079%, +0.389%]   0.200   -0.318% [-0.552%, -0.092%]   1, 2, 3, 4
+ *   E3 24h   1,711  629   -0.093% [-0.496%, +0.339%]   0.654   -0.058% [-0.487%, +0.345%]   1, 2, 3
+ *
+ *   Gross is signed by the event direction d (positive = it continued); net by the pre-set side s. No p-value
+ *   is rejected by Benjamini-Yekutieli; no net CI clears zero, and three sit wholly below it (E1 1h, E3 1h and
+ *   4h: the cost of trading an event). E1 at the 1st/99th thresholds reads the same (-0.127%, -0.145%, -0.509%
+ *   gross, p 0.13 to 0.53).
+ *
+ *   VOLATILITY (the product read). Median next-24h realised variance over its trailing mean: E1 1.21 [1.04,
+ *   1.38], E2 1.02 [0.87, 1.24], E3 1.31 [1.18, 1.53], pooled E1/E3 1.29 [1.14, 1.45] over 2,550 events. Stress
+ *   flag on BTCUSDT, 2024-07-01 to 2026-06-30: 729 days (1 skipped), 145 top-quintile, 249 flagged, hit rate
+ *   0.566, true-negative rate 0.714, balanced accuracy 0.640. PRODUCT CRITERION MET (0.640 >= 0.60, ratio CI
+ *   low 1.14 > 1).
+ *
+ *   Post-hoc context, computed after the run and outside the pre-registration (no gate, no verdict): a flag
+ *   that only says "yesterday's BTCUSDT realised variance was in its own trailing top quintile" reads 0.643 on
+ *   the same 728 days (hit 0.428, true-negative 0.858), and flagging when either fires reads 0.658. The event
+ *   flag predicts the next day's volatility about as well as volatility persistence does, and adds little to it.
+ *
+ *   Predictions: right that no directional cell passes and that the volatility read meets its criterion; right
+ *   for E2 (24h gross -0.17%, against the crowd and under 0.3%, not paying) and for the balanced accuracy (0.64
+ *   inside 0.58 to 0.66); wrong for E1 at 1h (predicted +0.02% to +0.10% continuation, read -0.08%, p 0.39) and
+ *   for E3 at 1h (predicted a reversal, read +0.02%, p 0.69); the pooled ratio 1.29 sits just under the
+ *   predicted 1.3 to 2.0.
+ *
+ * PHASE VERDICT. NO CELL PASSES. E1 (forced deleveraging), E2 (funding extremes) and E3 (volume shocks), as
+ * defined here, are CLOSED for direction at 1h to 24h. Program trial ledger: 1,741. What stands is a
+ * volatility reading, not a trade: after these events the next day is about 1.3 times as volatile as usual.
+ */
+
 import { BINANCE_FUTURES_TAKER_FEE, STUDY_SLIPPAGE_BPS } from '@/lib/backtest/cost-model';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
 import { LOCKBOX_START, type FundingRow, type MetricsRow, type PerpCandleRow } from './dataset-format';
