@@ -15,6 +15,8 @@ interface CostCheckResultProps {
   /** Why market data is missing, when it is. */
   marketProblem: string | null;
   isFetching: boolean;
+  /** The first market response for this symbol and hold has not arrived yet. */
+  isLoading?: boolean;
 }
 
 /**
@@ -50,15 +52,31 @@ function utcTime(ms: number): string {
   return `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 }
 
-function Verdict({ inputs, model, marketProblem }: Pick<CostCheckResultProps, 'inputs' | 'model' | 'marketProblem'>) {
+function Verdict({
+  inputs,
+  model,
+  marketProblem,
+  isLoading,
+}: Pick<CostCheckResultProps, 'inputs' | 'model' | 'marketProblem' | 'isLoading'>) {
   const hold = formatHold(inputs.holdMinutes);
   const { verdict, move } = model;
+
+  if (verdict.kind === 'no-market' && isLoading) {
+    return (
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-muted-foreground">Measuring the move</p>
+        <p className="max-w-prose text-sm text-muted-foreground">
+          Reading recent {inputs.symbol} bars, funding and the order book for a {hold} hold.
+        </p>
+      </div>
+    );
+  }
 
   if (verdict.kind === 'no-market') {
     return (
       <div className="space-y-1">
         <p className="text-sm font-semibold text-muted-foreground">No verdict</p>
-        <p className="text-sm">
+        <p className="max-w-prose text-sm">
           Market data is unavailable{marketProblem ? `: ${marketProblem}` : ''}. The costs below use a flat{' '}
           <Num>{model.slippageBps}</Num> bps slippage and no funding; without the measured move there is nothing to
           weigh them against.
@@ -71,7 +89,7 @@ function Verdict({ inputs, model, marketProblem }: Pick<CostCheckResultProps, 'i
     return (
       <div className="space-y-1">
         <p className="text-sm font-semibold text-muted-foreground">Too little history for a verdict</p>
-        <p className="text-sm">
+        <p className="max-w-prose text-sm">
           The move of a {hold} hold rests on <Num>{verdict.independentWindows}</Num> independent windows; a verdict needs{' '}
           <Num>{MIN_INDEPENDENT_WINDOWS}</Num>. Recently listed perpetuals and long holds run into this.
         </p>
@@ -86,19 +104,19 @@ function Verdict({ inputs, model, marketProblem }: Pick<CostCheckResultProps, 'i
         {COST_TONE_LABEL[tone]}
       </p>
       {breakeven.kind === 'impossible' ? (
-        <p className="text-sm">
+        <p className="max-w-prose text-sm">
           The round trip, <Num>{pct(model.verdictCostPercent)}</Num>, is larger than the typical{' '}
           <Num>{pct(move!.meanPercent, 2)}</Num> move of a {hold} hold. When wins and losses are about that size, no win
           rate breaks even.
         </p>
       ) : (
-        <p className="text-sm">
+        <p className="max-w-prose text-sm">
           If wins and losses are each about the typical <Num>{pct(move!.meanPercent, 2)}</Num> move of a {hold} hold, you
           must call direction right more than <Num className="font-semibold">{(breakeven.winRate * 100).toFixed(1)}%</Num>{' '}
           of the time just to cover <Num>{pct(model.verdictCostPercent)}</Num> of costs.
         </p>
       )}
-      <p className="text-xs text-muted-foreground">
+      <p className="max-w-prose text-xs text-muted-foreground">
         Leverage does not change this percentage; it multiplies the USDT at stake. A coin flip is 50%; the best signals the
         research behind this app measured called direction right about 51 to 54% of the time.
       </p>
@@ -109,21 +127,28 @@ function Verdict({ inputs, model, marketProblem }: Pick<CostCheckResultProps, 'i
 function Row({ label, percent, amount, note }: { label: string; percent: number; amount: number; note?: ReactNode }) {
   return (
     <tr className="border-b border-border last:border-0">
-      <th scope="row" className="py-1.5 pr-3 text-left font-normal text-muted-foreground">
+      <th scope="row" className="py-1.5 text-left font-normal text-muted-foreground">
         {label}
         {note && <span className="block text-xs">{note}</span>}
       </th>
-      <td className="py-1.5 pr-3 text-right">
+      <td className="py-1.5 pl-3 text-right align-top">
         <Num>{pct(percent, 4)}</Num>
       </td>
-      <td className="py-1.5 text-right">
+      <td className="py-1.5 pl-3 text-right align-top">
         <Num>{signedUsdt(amount)}</Num>
       </td>
     </tr>
   );
 }
 
-export function CostCheckResult({ inputs, model, market, marketProblem, isFetching }: CostCheckResultProps) {
+export function CostCheckResult({
+  inputs,
+  model,
+  market,
+  marketProblem,
+  isFetching,
+  isLoading = false,
+}: CostCheckResultProps) {
   const { roundTrip, move } = model;
   const fundingNote = market
     ? model.settlements === 0
@@ -147,7 +172,7 @@ export function CostCheckResult({ inputs, model, market, marketProblem, isFetchi
         </CardHeader>
         <CardContent className="space-y-3">
           <div role="status" aria-live="polite" data-testid="cost-check-verdict">
-            <Verdict inputs={inputs} model={model} marketProblem={marketProblem} />
+            <Verdict inputs={inputs} model={model} marketProblem={marketProblem} isLoading={isLoading} />
           </div>
           {market?.stale && (
             <p className="rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs" role="note">
@@ -176,10 +201,10 @@ export function CostCheckResult({ inputs, model, market, marketProblem, isFetchi
                 <th scope="col" className="pb-1 text-left font-normal">
                   Component
                 </th>
-                <th scope="col" className="pb-1 text-right font-normal">
+                <th scope="col" className="pb-1 pl-3 text-right font-normal whitespace-nowrap">
                   Of position
                 </th>
-                <th scope="col" className="pb-1 text-right font-normal">
+                <th scope="col" className="pb-1 pl-3 text-right font-normal">
                   USDT
                 </th>
               </tr>
@@ -206,10 +231,10 @@ export function CostCheckResult({ inputs, model, market, marketProblem, isFetchi
                 <th scope="row" className="pt-2 text-left font-semibold">
                   Total
                 </th>
-                <td className="pt-2 text-right">
+                <td className="pt-2 pl-3 text-right">
                   <Num className="font-semibold">{pct(roundTrip.totalPercent, 4)}</Num>
                 </td>
-                <td className="pt-2 text-right">
+                <td className="pt-2 pl-3 text-right">
                   <Num className="font-semibold">{signedUsdt(roundTrip.totalUsdt)}</Num>
                 </td>
               </tr>

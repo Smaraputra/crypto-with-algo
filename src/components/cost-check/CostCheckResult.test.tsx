@@ -79,6 +79,15 @@ describe('CostCheckResult', () => {
     expect(screen.getByTestId('cost-check-breakdown')).toHaveTextContent('flat assumption, no order book');
   });
 
+  it('says it is measuring while the first market response loads, not that data is unavailable', () => {
+    const model = computeCostCheck(DEFAULT_INPUTS, null, NOW);
+    render(
+      <CostCheckResult inputs={DEFAULT_INPUTS} model={model} market={null} marketProblem={null} isFetching isLoading />
+    );
+    expect(screen.getByTestId('cost-check-verdict')).toHaveTextContent('Measuring the move');
+    expect(screen.getByTestId('cost-check-verdict')).not.toHaveTextContent('unavailable');
+  });
+
   it('warns on stale data and on an order below the venue minimum', () => {
     renderWith(market({ stale: true }), { ...DEFAULT_INPUTS, margin: 5, leverage: 10 });
     expect(screen.getByText(/could not be reached. Market data is from 2026-10-07 09:30 UTC/)).toBeInTheDocument();

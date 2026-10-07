@@ -77,7 +77,7 @@ export function NumberField({
       <div className="relative">
         <Input
           id={id}
-          inputMode="decimal"
+          inputMode={integer ? 'numeric' : 'decimal'}
           autoComplete="off"
           value={text}
           placeholder={placeholder}
@@ -128,7 +128,7 @@ export function Segmented<T extends string>({ legend, name, value, options, onCh
             <label
               key={option.value}
               className={cn(
-                'relative cursor-pointer rounded-sm border px-2.5 py-1 text-xs transition-colors',
+                'relative inline-flex min-h-7 cursor-pointer items-center rounded-sm border px-2.5 text-xs transition-colors',
                 'has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50',
                 checked
                   ? 'border-border-strong bg-card-hover text-foreground'
@@ -141,7 +141,8 @@ export function Segmented<T extends string>({ legend, name, value, options, onCh
                 value={option.value}
                 checked={checked}
                 onChange={() => onChange(option.value)}
-                className="sr-only"
+                // Covers the whole label, so the native radio is the full-size pointer target.
+                className="absolute inset-0 m-0 cursor-pointer appearance-none opacity-0"
               />
               {option.label}
             </label>

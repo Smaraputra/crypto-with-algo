@@ -14,6 +14,7 @@ import {
 } from '@/lib/costs/cost-check-model';
 import { CostCheckForm } from './CostCheckForm';
 import { CostCheckResult } from './CostCheckResult';
+import { CostCheckSummaryBar } from './CostCheckSummaryBar';
 
 /** Saved inputs, then URL parameters on top. Runs in the browser only (the page loads this view without SSR). */
 function initialInputs(): CostCheckInputs {
@@ -70,25 +71,32 @@ export function CostCheckView() {
 
   const model = useMemo(() => computeCostCheck(inputs, marketData, now), [inputs, marketData, now]);
 
-  const marketProblem = market.isError && !marketData ? marketProblemText(market.error?.code) : null;
+  const marketProblem =
+    market.isError && !marketData ? marketProblemText(market.error?.code) : null;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
-      <CostCheckForm
-        inputs={inputs}
-        onChange={(patch) => setInputs((prev) => ({ ...prev, ...patch }))}
-        symbols={symbols.data?.symbols}
-        symbolsLoading={symbols.isLoading}
-        symbolsError={symbols.isError}
-        measuredSlippageBps={marketData?.slippage.source === 'depth' ? marketData.slippage.bps : null}
-      />
-      <CostCheckResult
-        inputs={inputs}
-        model={model}
-        market={marketData}
-        marketProblem={marketProblem}
-        isFetching={market.isFetching}
-      />
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+        <CostCheckForm
+          inputs={inputs}
+          onChange={(patch) => setInputs((prev) => ({ ...prev, ...patch }))}
+          symbols={symbols.data?.symbols}
+          symbolsLoading={symbols.isLoading}
+          symbolsError={symbols.isError}
+          measuredSlippageBps={
+            marketData?.slippage.source === 'depth' ? marketData.slippage.bps : null
+          }
+        />
+        <CostCheckResult
+          inputs={inputs}
+          model={model}
+          market={marketData}
+          marketProblem={marketProblem}
+          isFetching={market.isFetching}
+          isLoading={!marketData && !market.isError}
+        />
+      </div>
+      <CostCheckSummaryBar model={model} />
     </div>
   );
 }

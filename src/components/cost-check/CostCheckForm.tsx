@@ -86,7 +86,7 @@ export function CostCheckForm({
               onChange={(leverage) => leverage !== null && onChange({ leverage })}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground" data-testid="cost-check-notional">
             Position <span className="font-mono tabular-nums text-foreground">{usdt(notionalOf(inputs))}</span> USDT
           </p>
         </div>
