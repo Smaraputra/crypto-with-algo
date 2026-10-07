@@ -229,4 +229,410 @@
  * - "The archive's first monthly file is 2020-01 for every contract" means the archive begins in 2020-01;
  *   a contract listed later begins at its own first file (LUNAUSDT 2021-01). No rule depended on it.
  */
-export {};
+
+import { createHash } from 'node:crypto';
+
+import type { PerpCandleRow } from './dataset-format';
+import { assetKey } from './universe-source';
+
+/*
+ * IMPLEMENTATION NOTES (build time, before any run; none changes a rule). The header above is untouched.
+ *
+ * A3, the point-in-time universe. Pure functions over exported perp rows; no returns, signals or statistics.
+ *
+ * - Volume. "Zero volume" is the bar's base-asset volume `v` being 0 (the archive's flat halted bars).
+ *   A bar is traded only when v > 0. The ranking median still reads the quote volume `qv` of traded bars.
+ * - Sample end. A contract "ends before 2026-06-30" when its last traded bar's day start is earlier than
+ *   2026-06-30 00:00 UTC; a last bar on 2026-06-30 itself is not a delisting.
+ * - Segment boundaries. A contract that stops trading and resumes after more than 7 missing days, or after
+ *   1 to 7 missing days across a close ratio beyond 5x or under 1/5, ends at its last traded bar before the
+ *   stop. A non-final contract of a symbol therefore also reports an end day (contractEnded).
+ * - Eligible versus ranked. The start rule counts eligible contracts (bar count and a bar closing at C),
+ *   before the asset dedupe, as the header's counts did. A contract with fewer than 20 volume bars in its
+ *   30 days is eligible but not ranked, so members are the top min(topN, ranked), which never exceeds
+ *   min(topN, eligible). Both counts are recorded per month.
+ * - Median of an even count of volumes is the mean of the two middle values.
+ * - Ties between equal volumes are broken by plain code-unit string order of the symbol, ascending, then by
+ *   contract id (two segments of one symbol cannot both be eligible at one C, so the id never decides).
+ * - Month closes. Ranking closes run over the 1st of each month with from <= C < to. `to` is the exclusive
+ *   end of the sample (2026-07-01 as a day start, so the last close is 2026-06-01 and its membership is valid
+ *   until 2026-07-01). A close at `to` would read only bars through 2026-06-30 but would hold no sample day.
+ * - The C3 basket has no start threshold: it starts at its `from` close, whatever the eligible count.
+ */
+
+export const DAY_MS = 86_400_000;
+/** Header CONTRACTS: a gap of more than 7 missing days ends a contract. */
+export const MAX_GAP_DAYS = 7;
+/** Header CONTRACTS: a 1 to 7 day gap ends a contract when the close ratio is beyond 5 or under 1/5. */
+export const GAP_JUMP_RATIO = 5;
+/** Header UNIVERSE: the rank is the median over the 30 days closing by C, needing at least 20 bars. */
+export const RANKING_WINDOW_DAYS = 30;
+export const MIN_RANKING_BARS = 20;
+/** Header CONTRACTS: delisting is an end before 2026-06-30. */
+export const SAMPLE_END_MS = Date.UTC(2026, 5, 30);
+
+export interface Contract {
+  id: string;
+  symbol: string;
+  assetKey: string;
+  /** Traded bars only (volume > 0), ascending by t, unique. */
+  bars: PerpCandleRow[];
+}
+
+export function dayStartMs(isoDay: string): number {
+  const ms = Date.parse(`${isoDay}T00:00:00Z`);
+  if (!Number.isFinite(ms)) throw new Error(`Bad day "${isoDay}"`);
+  return ms;
+}
+
+export function isoDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** Header AMENDMENT 1: a bar with zero volume is a missing day for every rule. Ascending, one bar per t. */
+export function tradedDays(rows: PerpCandleRow[]): PerpCandleRow[] {
+  const byTime = new Map<number, PerpCandleRow>();
+  for (const row of rows) {
+    if (row.v > 0) byTime.set(row.t, row);
+  }
+  return [...byTime.values()].sort((a, b) => a.t - b.t);
+}
+
+/**
+ * Header CONTRACTS (with AMENDMENT 1): a run of more than 7 missing days (absent or zero-volume) ends a
+ * contract; 1 to 7 missing days end it only when the close after is more than 5x, or under 1/5 of, the
+ * close before; consecutive traded days never split. Ids are `SYMBOL#1`, `SYMBOL#2`, ... in time order.
+ */
+export function segmentContracts(symbol: string, rows: PerpCandleRow[]): Contract[] {
+  const bars = tradedDays(rows);
+  const key = assetKey(symbol);
+  const contracts: Contract[] = [];
+  let current: PerpCandleRow[] = [];
+  const flush = (): void => {
+    if (current.length === 0) return;
+    contracts.push({ id: `${symbol}#${contracts.length + 1}`, symbol, assetKey: key, bars: current });
+    current = [];
+  };
+  for (const bar of bars) {
+    const previous = current[current.length - 1];
+    if (previous) {
+      const missing = Math.round((bar.t - previous.t) / DAY_MS) - 1;
+      let split = missing > MAX_GAP_DAYS;
+      if (!split && missing >= 1) {
+        const ratio = bar.c / previous.c;
+        split = ratio > GAP_JUMP_RATIO || ratio < 1 / GAP_JUMP_RATIO;
+      }
+      if (split) flush();
+    }
+    current.push(bar);
+  }
+  flush();
+  return contracts;
+}
+
+/** Header CONTRACTS: "A contract's end before 2026-06-30 is a delisting." The last traded day, or null. */
+export function contractEnded(contract: Contract, sampleEnd: number = SAMPLE_END_MS): number | null {
+  const last = contract.bars[contract.bars.length - 1];
+  if (!last) return null;
+  return last.t < sampleEnd ? last.t : null;
+}
+
+/**
+ * Header UNIVERSE: eligible at C when it has at least `minBars` (366) daily bars closed by C and a bar
+ * closing at C. Only traded bars exist in a contract, so a bar at C - 1 day is a traded bar.
+ */
+export function eligibleAt(contract: Contract, closeMs: number, minBars: number = 366): boolean {
+  let count = 0;
+  let closesAtC = false;
+  for (const bar of contract.bars) {
+    if (bar.t + DAY_MS > closeMs) break;
+    count++;
+    if (bar.t === closeMs - DAY_MS) closesAtC = true;
+  }
+  return closesAtC && count >= minBars;
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Header UNIVERSE: the median daily quote volume of the bars among the 30 days closing by C (at least 20
+ * present, otherwise null). Nothing closing after C is read.
+ */
+export function rankingVolume(contract: Contract, closeMs: number): number | null {
+  const volumes: number[] = [];
+  for (const bar of contract.bars) {
+    if (bar.t + DAY_MS > closeMs) break;
+    if (bar.t >= closeMs - RANKING_WINDOW_DAYS * DAY_MS) volumes.push(bar.qv);
+  }
+  return volumes.length >= MIN_RANKING_BARS ? median(volumes) : null;
+}
+
+export interface RankedEntry {
+  id: string;
+  symbol: string;
+  assetKey: string;
+  rank: number;
+  volume: number;
+}
+
+export interface RankOptions {
+  minBars: number;
+  topN: number;
+}
+
+export function eligibleContracts(contracts: Contract[], closeMs: number, minBars: number): Contract[] {
+  return contracts.filter((c) => eligibleAt(c, closeMs, minBars));
+}
+
+function byVolumeThenTicker(
+  a: { volume: number; symbol: string; id: string },
+  b: { volume: number; symbol: string; id: string }
+): number {
+  if (a.volume !== b.volume) return b.volume - a.volume;
+  if (a.symbol !== b.symbol) return a.symbol < b.symbol ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Header UNIVERSE and CANDIDATES: eligible contracts ranked by median quote volume (ties by ticker), only
+ * the higher-volume contract of an asset key ranked (equal volume: the ticker that sorts first, AMENDMENT 1),
+ * top min(topN, ranked). Ranks start at 1.
+ */
+export function rankAt(contracts: Contract[], closeMs: number, options: RankOptions): RankedEntry[] {
+  const measured: Array<{ contract: Contract; volume: number; symbol: string; id: string }> = [];
+  for (const contract of eligibleContracts(contracts, closeMs, options.minBars)) {
+    const volume = rankingVolume(contract, closeMs);
+    if (volume !== null) measured.push({ contract, volume, symbol: contract.symbol, id: contract.id });
+  }
+  const best = new Map<string, (typeof measured)[number]>();
+  for (const entry of measured) {
+    const held = best.get(entry.contract.assetKey);
+    if (!held || byVolumeThenTicker(entry, held) < 0) best.set(entry.contract.assetKey, entry);
+  }
+  return [...best.values()]
+    .sort(byVolumeThenTicker)
+    .slice(0, options.topN)
+    .map((entry, index) => ({
+      id: entry.id,
+      symbol: entry.symbol,
+      assetKey: entry.contract.assetKey,
+      rank: index + 1,
+      volume: entry.volume,
+    }));
+}
+
+export interface MembershipOptions {
+  /** First ranking close considered, a day string (the 1st of a month). */
+  from: string;
+  /** Exclusive end of the sample (see the implementation notes). */
+  to: string;
+  minBars: number;
+  topN: number;
+  /** The membership starts at the first close with at least this many eligible contracts. */
+  minEligibleToStart: number;
+}
+
+export interface MonthMembership {
+  close: string;
+  closeMs: number;
+  validFrom: string;
+  validUntil: string;
+  eligibleCount: number;
+  rankedCount: number;
+  members: RankedEntry[];
+}
+
+export interface Membership {
+  options: MembershipOptions;
+  /** Every ranking close from `from`, with its eligible count, including those before the start. */
+  eligibleCounts: Array<{ close: string; eligible: number }>;
+  /** The first close with enough eligible contracts, or null if none. */
+  startClose: string | null;
+  /** Header: a start later than 2021-07-01 makes gate 1 fail by construction. */
+  startLaterThan20210701: boolean;
+  months: MonthMembership[];
+}
+
+/** The 1st of each month with from <= C < to, as UTC day starts. */
+export function monthCloses(from: string, to: string): number[] {
+  const end = dayStartMs(to);
+  const start = new Date(dayStartMs(from));
+  const out: number[] = [];
+  let y = start.getUTCFullYear();
+  let m = start.getUTCMonth();
+  for (;;) {
+    const ms = Date.UTC(y, m, 1);
+    if (ms >= end) break;
+    if (ms >= dayStartMs(from)) out.push(ms);
+    m++;
+    if (m === 12) {
+      m = 0;
+      y++;
+    }
+  }
+  return out;
+}
+
+/** Header UNIVERSE: monthly top-N membership from the first close with enough eligible contracts. */
+export function buildMembership(contracts: Contract[], options: MembershipOptions): Membership {
+  const closes = monthCloses(options.from, options.to);
+  const eligibleCounts: Membership['eligibleCounts'] = [];
+  const months: MonthMembership[] = [];
+  let startClose: string | null = null;
+  for (let index = 0; index < closes.length; index++) {
+    const closeMs = closes[index];
+    const eligible = eligibleContracts(contracts, closeMs, options.minBars).length;
+    eligibleCounts.push({ close: isoDay(closeMs), eligible });
+    if (startClose === null && eligible >= options.minEligibleToStart) startClose = isoDay(closeMs);
+    if (startClose === null) continue;
+    const members = rankAt(contracts, closeMs, { minBars: options.minBars, topN: options.topN });
+    months.push({
+      close: isoDay(closeMs),
+      closeMs,
+      validFrom: isoDay(closeMs),
+      validUntil: index + 1 < closes.length ? isoDay(closes[index + 1]) : options.to,
+      eligibleCount: eligible,
+      rankedCount: members.length,
+      members,
+    });
+  }
+  return {
+    options,
+    eligibleCounts,
+    startClose,
+    startLaterThan20210701: startClose !== null && startClose > '2021-07-01',
+    months,
+  };
+}
+
+export const UNIVERSE_OPTIONS = {
+  from: '2021-01-01',
+  to: '2026-07-01',
+  minBars: 366,
+  topN: 50,
+  minEligibleToStart: 20,
+} as const satisfies MembershipOptions;
+
+export const BASKET_OPTIONS = {
+  from: '2020-02-01',
+  to: '2026-07-01',
+  minBars: 30,
+  topN: 50,
+  minEligibleToStart: 0,
+} as const satisfies MembershipOptions;
+
+/** Header C3 BASKET: the same ranking with 30-bar eligibility from the 2020-02-01 ranking close. */
+export function basketMembership(
+  contracts: Contract[],
+  options: Partial<MembershipOptions> = {}
+): Membership {
+  return buildMembership(contracts, { ...BASKET_OPTIONS, ...options });
+}
+
+export interface ContractMeta {
+  id: string;
+  symbol: string;
+  assetKey: string;
+  firstDay: string;
+  lastDay: string;
+  bars: number;
+  /** The last traded day when the contract ends before 2026-06-30, else null. */
+  endedDay: string | null;
+}
+
+export interface UniverseFile {
+  sourceDatasetHash: string;
+  parameters: {
+    universe: MembershipOptions;
+    basket: MembershipOptions;
+    sampleEnd: string;
+    rankingWindowDays: number;
+    minRankingBars: number;
+    maxGapDays: number;
+    gapJumpRatio: number;
+  };
+  contracts: ContractMeta[];
+  universe: Membership;
+  basket: Membership;
+  countsPerMonth: Array<{
+    close: string;
+    eligible: number;
+    members: number;
+    basketEligible: number;
+    basketMembers: number;
+  }>;
+  sha256: string;
+}
+
+export function contractMeta(contract: Contract, sampleEnd: number = SAMPLE_END_MS): ContractMeta {
+  const ended = contractEnded(contract, sampleEnd);
+  return {
+    id: contract.id,
+    symbol: contract.symbol,
+    assetKey: contract.assetKey,
+    firstDay: isoDay(contract.bars[0].t),
+    lastDay: isoDay(contract.bars[contract.bars.length - 1].t),
+    bars: contract.bars.length,
+    endedDay: ended === null ? null : isoDay(ended),
+  };
+}
+
+/** JSON with object keys in sorted order at every depth, so a hash does not depend on construction order. */
+export function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export interface UniverseFileInput {
+  sourceDatasetHash: string;
+  contracts: Contract[];
+  universe?: MembershipOptions;
+  basket?: MembershipOptions;
+}
+
+/** The universe file: manifest hash, parameters, memberships, contract metadata, counts and its own sha256. */
+export function universeFile(input: UniverseFileInput): UniverseFile {
+  const universeOptions = input.universe ?? UNIVERSE_OPTIONS;
+  const basketOptions = input.basket ?? BASKET_OPTIONS;
+  const universe = buildMembership(input.contracts, universeOptions);
+  const basket = buildMembership(input.contracts, basketOptions);
+  const basketByClose = new Map(basket.months.map((m) => [m.close, m]));
+  const basketEligible = new Map(basket.eligibleCounts.map((e) => [e.close, e.eligible]));
+  const content: Omit<UniverseFile, 'sha256'> = {
+    sourceDatasetHash: input.sourceDatasetHash,
+    parameters: {
+      universe: universeOptions,
+      basket: basketOptions,
+      sampleEnd: isoDay(SAMPLE_END_MS),
+      rankingWindowDays: RANKING_WINDOW_DAYS,
+      minRankingBars: MIN_RANKING_BARS,
+      maxGapDays: MAX_GAP_DAYS,
+      gapJumpRatio: GAP_JUMP_RATIO,
+    },
+    contracts: input.contracts
+      .filter((c) => c.bars.length > 0)
+      .map((c) => contractMeta(c))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+    universe,
+    basket,
+    countsPerMonth: universe.months.map((m) => ({
+      close: m.close,
+      eligible: m.eligibleCount,
+      members: m.members.length,
+      basketEligible: basketEligible.get(m.close) ?? 0,
+      basketMembers: basketByClose.get(m.close)?.members.length ?? 0,
+    })),
+  };
+  const sha256 = createHash('sha256').update(stableStringify(content)).digest('hex');
+  return { ...content, sha256 };
+}
