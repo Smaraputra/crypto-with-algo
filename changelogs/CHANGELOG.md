@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (research): event studies harness, built to the locked pre-registration
+- **`event-studies.ts`** (below the locked header of `fe4c99b`, which is unchanged): hourly panels from 1h perp klines, 5m metrics (last OI inside the hour) and funding settlements, trailing 180-day percentile thresholds (2,000-hour and 300-settlement floors, causal by construction and by test), E1, E2 and E3 detection, the greedy per-horizon de-overlap, signed forward returns, funding over the hold signed by the position, net returns at 0.16%, the 7-day circular day bootstrap (2,000 draws, seed 42) with the recentred p, the five gates, the reported block, E1's 1st/99th sensitivity and the volatility read (24h variance ratio and the stress flag's balanced accuracy), all in the pure core `runEventStudies`
+- **`event-studies-harness.ts`** (CLI: verifies the manifest, refuses unlisted input files, builds one panel per symbol) and `EventStudyReportSchema`
+- **`benjaminiYekutieli`** beside `benjaminiHochberg` in `ic-stats.ts`
+- Implementation notes 1 to 16 below the header record every choice the locked text left open, before any run. Nothing has been computed on real data
+- The existing export already produces the input: `export-dataset.ts --datasets perp,metrics,funding --intervals 1h --out <fresh dir>`
+
 ### Research: legends phase closed, no rule passes
 - **Harness rules** (RESULT block in `scripts/research/trend-sim.ts`, export `d84b32d9fb31`, image from `be688f2`): P1 Turtle System 2 +24.9% a trade, CI [-0.8%, +76.5%]; P2 NR7 +0.19%, CI [-0.03%, +0.42%]; P3 Holy Grail +2.4% on 87 trades; P4 Turtle Soup Plus One -1.40%; C1 Bollinger 1h -0.088% (still -0.031% with every ambiguous bar booked as the target, so the source's +0.56% does not survive); C2 RSI above 70 at 4h +0.55%, CI [+0.11%, +1.12%], timing p 0.005, failing only the windows gate (0.533 against 0.6). Every one fails at least one of the seven harness gates
 - **Gate 8** (`legends-dsr.ts`, computed once across all eleven trials): the expected maximum annual Sharpe at N = 11 is 1.52 (the pre-registration estimated about 1.2). C3 reaches a deflated Sharpe probability of 0.33, TF4 0.29, TF1 0.05, the rest less; every trial fails, and every one is 0.000 at the program's 1,724 trials
