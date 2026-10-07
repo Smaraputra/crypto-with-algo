@@ -62,6 +62,10 @@ describe('TradePlanCard', () => {
       'would need 34.5% winners after costs (33.3% before costs); exits on the score make this approximate'
     );
     expect(screen.queryByTestId('trade-plan-not-placeable')).not.toBeInTheDocument();
+    expect(screen.getByTestId('trade-plan-cost-check-link')).toHaveAttribute(
+      'href',
+      '/cost-check?symbol=SOLUSDT&side=long&notional=248.00&holdMinutes=420'
+    );
   });
 
   it('renders a short ticket with the stop above and the target below', () => {

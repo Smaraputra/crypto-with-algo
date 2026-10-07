@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, FileText, Zap, Target, Receipt } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, FileText, Zap, Target, Receipt, Calculator } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: '/research', label: 'Research', icon: FileText, disabled: false },
   { href: '/signals', label: 'Signals', icon: Activity, disabled: false },
   { href: '/backtest', label: 'Backtest', icon: FlaskConical, disabled: false },
+  { href: '/cost-check', label: 'Cost Check', icon: Calculator, disabled: false },
 ];
 
 const ADMIN_NAV_ITEMS = [

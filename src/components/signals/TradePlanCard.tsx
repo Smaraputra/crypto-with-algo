@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -14,6 +15,7 @@ import type {
 } from '@/lib/trade-plan/types';
 import { evidenceVerdictKind, type EvidenceVerdictKind } from '@/lib/trade-plan/evidence';
 import { tierDisplayLabel } from '@/lib/signals/tier-labels';
+import { intervalToMs } from '@/lib/intervals';
 
 interface TradePlanCardProps {
   data: TradePlanResponse | undefined;
@@ -85,6 +87,20 @@ function Field({ label, children, className }: { label: string; children: ReactN
       <dd className="font-mono tabular-nums text-sm">{children}</dd>
     </div>
   );
+}
+
+/** The ticket as Cost Check URL parameters: symbol, side, notional at 1x, and the recorded hold when there is one. */
+function costCheckHref(plan: TradePlan, ticket: TradeTicket): string {
+  const params = new URLSearchParams({
+    symbol: plan.symbol,
+    side: ticket.side,
+    notional: ticket.notional.toFixed(2),
+  });
+  const holdBars = ticket.costs.holdMove?.holdBars ?? plan.evidence.medianHoldBars;
+  if (holdBars !== null && holdBars !== undefined) {
+    params.set('holdMinutes', String(Math.round((holdBars * intervalToMs(plan.interval)) / 60_000)));
+  }
+  return `/cost-check?${params}`;
 }
 
 function Ticket({ plan, ticket }: { plan: TradePlan; ticket: TradeTicket }) {
@@ -181,6 +197,15 @@ function Ticket({ plan, ticket }: { plan: TradePlan; ticket: TradeTicket }) {
               the mean move
             </>
           )}
+        </p>
+        <p>
+          <Link
+            href={costCheckHref(plan, ticket)}
+            className="text-accent underline-offset-2 hover:underline focus-visible:underline"
+            data-testid="trade-plan-cost-check-link"
+          >
+            Open this trade in Cost Check
+          </Link>
         </p>
         <p data-testid="trade-plan-breakeven">
           <span className="text-muted-foreground">Breakeven: </span>
