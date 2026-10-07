@@ -385,6 +385,20 @@ import { assetKey } from './universe-source';
  *     rate or dropping the contract (which would remove a failing contract, a bias toward passing); the evidence
  *     entry records REST's agreement with the archive where both exist.
  *   `--funding-check-out` writes the flagged list as JSON for the evidence pass.
+ * - A6-2 Consecutive-day jumps (header CONTRACTS). The universe file does not list them. They were listed and
+ *   reviewed on 2026-10-07, before any rule ran, but that review was written here only on 2026-10-08, after the
+ *   five runs had started. Export aa62c5a1cb51 has 17 consecutive-day close ratios above 5 or below one fifth
+ *   inside a universe contract (5 more fall in the lockbox): LUNA 2022-05-11 and 05-12, UNFI 2022-06-07, VIDT
+ *   2025-04-12, OM 2025-04-13, ALPACA 2025-04-30, ZKJ 2025-06-15, HIFI 2025-09-12, COAI 2025-10-06, BLESS
+ *   2025-10-15, BULLA 2026-02-01, POWER 2026-03-03, ARIA 2026-04-14, RAVE 2026-04-18, TRADOOR 2026-04-24, ESPORTS
+ *   2026-05-25 and H 2026-06-08. All are genuine moves, none a redenomination, so no gap-jump break is added:
+ *   - LUNA, UNFI, OM, ALPACA, ZKJ and HIFI are documented crashes or squeezes.
+ *   - The rest show continuous hourly trading through the day, with the move spread over several hours on a
+ *     volume surge rather than a step at midnight. Ratios near one tenth (POWER 0.0999, TRADOOR 0.103, H 0.106)
+ *     were checked hourly for that reason.
+ *   An independent re-implementation (pandas, written from this header and these notes only) lists the same 17.
+ *   The universe file counts 24 eligible contracts at the 2021-03-01 start close, against the header's 23 from the
+ *   exchangeInfo count taken before the archive was ingested. The start close is unchanged.
  */
 
 export const DAY_MS = 86_400_000;
