@@ -27,6 +27,10 @@ describe('parseArgs', () => {
   it('reads the required flags and defaults to 200 draws', () => {
     expect(parseArgs(required)).toEqual({ rule: 'DO', datasetDir: '/d', universeFile: '/u.json', out: '/o.json', taskId: 'do', draws: 200 });
     expect(parseArgs([...required, '--draws', '10']).draws).toBe(10);
+    expect(parseArgs([...required, '--funding-resolutions', '/r.json', '--funding-check-out', '/c.json'])).toMatchObject({
+      fundingResolutions: '/r.json',
+      fundingCheckOut: '/c.json',
+    });
     for (const rule of FLOW_RULE_IDS) expect(parseArgs(['--rule', rule, ...required.slice(2)]).rule).toBe(rule);
   });
 

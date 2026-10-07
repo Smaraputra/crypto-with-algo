@@ -10,7 +10,11 @@
  *
  * Usage:
  *   npx tsx scripts/research/broad-flow-harness.ts --rule DO --dataset-dir <export> --universe-file <universe.json> \
- *     --out <report.json> --task-id <id> [--draws 200]
+ *     --out <report.json> --task-id <id> [--draws 200] \
+ *     [--funding-resolutions <resolutions.json>] [--funding-check-out <flagged.json>]
+ *
+ * The funding flags are broad-harness.ts's (broad-trend.ts implementation note A6-1): the recorded resolutions of
+ * settlements the coverage check flags, and where to write the flagged list when the check stops the run.
  *
  * Gate 7 is left pending: broad-flow-dsr.ts computes it once across the three trial reports. The choices the
  * header leaves open are recorded in broad-flow.ts's implementation notes (F1 to F17).
@@ -80,7 +84,7 @@ import {
   topContributors,
 } from './broad-gates';
 import { assertInCalendar, broadOptions, btcBenchmark, memberBasketBenchmark, stressOptions } from './broad-harness';
-import { verifyUniverseFile } from './broad-inputs';
+import { readFundingResolutions, verifyUniverseFile, withFundingCheckOut } from './broad-inputs';
 import { BROAD_COST, BROAD_FEE, DELIST_HAIRCUT, LEAVE_SLIPPAGE, SLIPPAGE_TIERS, isoDay } from './broad-trend';
 import { loadFunding, loadManifest, loadPerp, verifyManifest } from './load-dataset';
 import { validateBroadFlowReport, type BroadFlowReport } from './report-schema';
@@ -106,9 +110,13 @@ export interface FlowArgs {
   out: string;
   taskId: string;
   draws: number;
+  /** Recorded resolutions of flagged funding settlements (broad-trend.ts note A6-1). */
+  fundingResolutions?: string;
+  /** Where to write the full list of flagged settlements when the coverage check stops the run. */
+  fundingCheckOut?: string;
 }
 
-const FLAGS = ['rule', 'dataset-dir', 'universe-file', 'out', 'task-id', 'draws'];
+const FLAGS = ['rule', 'dataset-dir', 'universe-file', 'out', 'task-id', 'draws', 'funding-resolutions', 'funding-check-out'];
 
 export function parseArgs(argv: string[]): FlowArgs {
   const flags = new Map<string, string>();
@@ -136,6 +144,8 @@ export function parseArgs(argv: string[]): FlowArgs {
     out: flags.get('out')!,
     taskId: flags.get('task-id')!,
     draws,
+    ...(flags.has('funding-resolutions') ? { fundingResolutions: flags.get('funding-resolutions')! } : {}),
+    ...(flags.has('funding-check-out') ? { fundingCheckOut: flags.get('funding-check-out')! } : {}),
   };
 }
 
@@ -147,7 +157,7 @@ export function parseArgs(argv: string[]): FlowArgs {
 export async function loadFlowInputs(
   datasetDir: string,
   universePath: string,
-  opts: { preregistered?: boolean } = {}
+  opts: { preregistered?: boolean; fundingResolutionsPath?: string; fundingCheckOut?: string } = {}
 ): Promise<FlowInputs> {
   const check = await verifyManifest(datasetDir);
   if (!check.ok) throw new Error(`Manifest verification failed: ${check.mismatches.join(', ')}`);
@@ -155,12 +165,16 @@ export async function loadFlowInputs(
   const universe = verifyUniverseFile(JSON.parse(readFileSync(universePath, 'utf8')), manifest.datasetHash, {
     preregistered: opts.preregistered ?? true,
   });
-  return buildFlowInputs({
-    datasetHash: manifest.datasetHash,
-    universe,
-    perp: (symbol) => loadPerp(datasetDir, symbol, '1d'),
-    funding: (symbol) => loadFunding(datasetDir, symbol),
-  });
+  const resolutions = opts.fundingResolutionsPath ? readFundingResolutions(opts.fundingResolutionsPath) : undefined;
+  return withFundingCheckOut(opts.fundingCheckOut, () =>
+    buildFlowInputs({
+      datasetHash: manifest.datasetHash,
+      universe,
+      perp: (symbol) => loadPerp(datasetDir, symbol, '1d'),
+      funding: (symbol) => loadFunding(datasetDir, symbol),
+      resolutions,
+    })
+  );
 }
 
 const finiteOrNull = (v: number) => (Number.isFinite(v) ? v : null);
@@ -532,6 +546,7 @@ export function runBroadFlowStudy(
     delistings,
     leaves,
     funding: loaded.funding,
+    fundingResolutions: loaded.fundingResolutions,
     carriedDays,
     gates,
     verdict: flowVerdict(gates, control),
@@ -587,7 +602,10 @@ export function formatFlow(r: BroadFlowReport): string {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const loaded = await loadFlowInputs(args.datasetDir, args.universeFile);
+  const loaded = await loadFlowInputs(args.datasetDir, args.universeFile, {
+    fundingResolutionsPath: args.fundingResolutions,
+    fundingCheckOut: args.fundingCheckOut,
+  });
   const report = runBroadFlowStudy(args, loaded, { draws: args.draws, gitCommit: resolveCommit() });
   mkdirSync(dirname(args.out), { recursive: true });
   writeFileSync(args.out, JSON.stringify(report, null, 2));

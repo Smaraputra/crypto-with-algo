@@ -1640,6 +1640,7 @@ export const BroadFlowReportSchema = z.object({
     intervalSwitches: z.number(),
     byInterval: z.record(z.string(), z.number()),
   }),
+  fundingResolutions: FundingResolutionsRecordSchema,
   carriedDays: z.record(z.string(), z.number()),
   gates: z.array(FlowGateSchema),
   verdict: z.enum(['fail', 'pending-trials', 'pass', 'control']),
