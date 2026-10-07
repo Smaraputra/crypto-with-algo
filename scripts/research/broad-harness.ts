@@ -105,9 +105,23 @@ export interface BroadArgs {
   taskId: string;
   draws: number;
   nullSizeUniverses: number;
+  /** Recorded resolutions of flagged funding settlements (note A6-1). */
+  fundingResolutions?: string;
+  /** Where to write the full list of flagged settlements when the coverage check stops the run. */
+  fundingCheckOut?: string;
 }
 
-const FLAGS = ['rule', 'dataset-dir', 'universe-file', 'out', 'task-id', 'draws', 'null-size-universes'];
+const FLAGS = [
+  'rule',
+  'dataset-dir',
+  'universe-file',
+  'out',
+  'task-id',
+  'draws',
+  'null-size-universes',
+  'funding-resolutions',
+  'funding-check-out',
+];
 
 export function parseArgs(argv: string[]): BroadArgs {
   const flags = new Map<string, string>();
@@ -138,6 +152,8 @@ export function parseArgs(argv: string[]): BroadArgs {
     taskId: flags.get('task-id')!,
     draws,
     nullSizeUniverses,
+    ...(flags.has('funding-resolutions') ? { fundingResolutions: flags.get('funding-resolutions')! } : {}),
+    ...(flags.has('funding-check-out') ? { fundingCheckOut: flags.get('funding-check-out')! } : {}),
   };
 }
 
@@ -697,6 +713,7 @@ export function runBroadStudy(
     delistings,
     leaves,
     funding: loaded.funding,
+    fundingResolutions: loaded.fundingResolutions,
     carriedDays,
     gates,
     verdict: broadVerdict(gates),
@@ -750,7 +767,10 @@ export function formatBroad(r: BroadTrendReport): string {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const loaded = await loadBroadInputs(args.datasetDir, args.universeFile);
+  const loaded = await loadBroadInputs(args.datasetDir, args.universeFile, {
+    fundingResolutionsPath: args.fundingResolutions,
+    fundingCheckOut: args.fundingCheckOut,
+  });
   const report = runBroadStudy(args, loaded, {
     draws: args.draws,
     nullSizeUniverses: args.nullSizeUniverses,
