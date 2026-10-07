@@ -19,9 +19,10 @@
  * Computes no return, signal or statistic. The choices the header leaves open are
  * recorded in broad-trend.ts's implementation notes (A5).
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
+import { z } from 'zod';
 import { settlementSpacingReport } from '@/lib/funding-settlements';
 import {
   BASKET_OPTIONS,
@@ -91,7 +92,52 @@ export interface BroadInputs {
   /** Basket membership by contract id: member for days from <= d < to. */
   basketMembership: Record<string, Array<{ from: number; to: number }>>;
   funding: FundingSummary;
+  /** Recorded resolutions of settlements the coverage check flagged (header DATA: "its resolution is recorded"). */
+  fundingResolutions: FundingResolutionsRecord;
   lockboxApplied: boolean;
+}
+
+/**
+ * A recorded resolution of a settlement the coverage check flagged, with its evidence (implementation note
+ * A6-1). `no-event`: Binance's own REST funding history confirms no settlement at `t`, so nothing was paid
+ * and nothing is charged. `unavailable`: the archive and Binance's REST history both lack the contract's
+ * funding over [from, to) (a contract relaunched under the same ticker keeps only the new contract's history);
+ * its settlements on member days there are imputed on the 8h grid at the median rate of the other universe
+ * members' archive settlements at the same instant, which keeps the contract in the universe (dropping it
+ * would remove a failing contract, a bias toward passing).
+ */
+export const FundingResolutionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('no-event'), symbol: z.string(), t: z.string(), evidence: z.string() }),
+  z.object({
+    kind: z.literal('unavailable'),
+    symbol: z.string(),
+    contract: z.string(),
+    from: z.string(),
+    to: z.string(),
+    evidence: z.string(),
+  }),
+]);
+export type FundingResolution = z.infer<typeof FundingResolutionSchema>;
+export const FundingResolutionsFileSchema = z.object({ resolutions: z.array(FundingResolutionSchema) });
+
+export interface FundingResolutionsRecord {
+  /** sha256 of the resolutions file as read, or null when none was given. */
+  sha256: string | null;
+  noEvent: number;
+  unavailable: number;
+  /** Settlements imputed for `unavailable` contracts. */
+  imputed: number;
+}
+
+/** Thrown when settlements due on member days are missing; carries the full list for the check-out file. */
+export class MissingFundingError extends Error {
+  constructor(
+    message: string,
+    readonly missing: ReadonlyArray<{ symbol: string; contract: string; t: string; reason: MissingSettlement['reason'] }>
+  ) {
+    super(message);
+    this.name = 'MissingFundingError';
+  }
 }
 
 function byId<T extends { id: string }>(a: T, b: T): number {
@@ -203,9 +249,9 @@ export function dueDay(t: number): number {
 /**
  * Header DATA (funding): the settlements due on `checkDays` per the archive's own
  * interval that the archive lacks. `rows` are the contract's settlements within its
- * life (t in (firstDay, lastDay + 1 day]), sorted. Each row's interval is its
- * spacing to the next (settlementSpacingReport's convention): a longer gap is
- * missing settlements at that spacing; before the first row and after the last the
+ * life (t in (firstDay, lastDay + 1 day]), sorted. Each row's interval is the
+ * spacing BEFORE it (the archive's own convention, note A6-1): a gap longer than
+ * the next row's interval is missing settlements at that spacing; before the first row and after the last the
  * grid extends at their intervals. Not due: settlements up to 2026-07-01 00:00 and
  * after it (the lockbox), on the contract's first day before its first settlement
  * (it lists inside the day), and on a delisted contract's last day after its last
@@ -240,9 +286,12 @@ export function missingSettlements(
     }
   }
   for (let i = 0; i + 1 < rows.length; i++) {
-    const h = rows[i].intervalHours;
+    // The archive's interval on a row is the spacing BEFORE it (verified 2026-10-08: SOLUSDT's 2022-11-18 16:00
+    // row says 8 after an 08:00 row, LUNA2USDT's 2026-01-05 08:00 row says 4 after 04:00), so the gap from row
+    // i to row i + 1 is judged by row i + 1's interval (implementation note A6-1).
+    const h = rows[i + 1].intervalHours;
     if (h === null) {
-      if (touches(rows[i].t, rows[i + 1].t)) out.push({ contract: contract.id, t: rows[i].t, reason: 'interval-unknown' });
+      if (touches(rows[i].t, rows[i + 1].t)) out.push({ contract: contract.id, t: rows[i + 1].t, reason: 'interval-unknown' });
       continue;
     }
     for (let t = rows[i].t + hours(h); t < rows[i + 1].t; t += hours(h)) if (due(t)) out.push({ contract: contract.id, t, reason: 'missing' });
@@ -295,6 +344,16 @@ export interface BuildSource {
   universe: UniverseFile;
   perp: (symbol: string) => { rows: PerpCandleRow[]; lockboxApplied: boolean };
   funding: (symbol: string) => { rows: FundingRow[]; lockboxApplied: boolean };
+  /** Recorded resolutions of flagged settlements (note A6-1); every entry must match something. */
+  resolutions?: { sha256: string; entries: FundingResolution[] };
+}
+
+const EIGHT_HOURS = 8 * 3_600_000;
+
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((x, y) => x - y);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function formatMissing(missing: readonly MissingSettlement[], symbolOf: (id: string) => string): string {
@@ -334,7 +393,45 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
   const inputs: TrendSymbolInput[] = [];
   const basketInputs: TrendSymbolInput[] = [];
   const fundingRows = new Map<string, FundingRow[]>();
+  const loadFundingRows = (symbol: string): FundingRow[] => {
+    let rows = fundingRows.get(symbol);
+    if (!rows) {
+      const loaded = src.funding(symbol);
+      lockboxApplied = lockboxApplied && loaded.lockboxApplied;
+      rows = loaded.rows.filter((r) => Number.isFinite(r.rate) && Number.isFinite(r.t)).sort((a, b) => a.t - b.t);
+      fundingRows.set(symbol, rows);
+    }
+    return rows;
+  };
   const missing: MissingSettlement[] = [];
+
+  // Recorded resolutions (note A6-1). Every entry must be used, so the file stays an exact record.
+  const entries = src.resolutions?.entries ?? [];
+  const noEvent = new Map<string, number>();
+  const unavailable = new Map<string, { from: number; to: number; index: number }>();
+  entries.forEach((entry, index) => {
+    if (entry.kind === 'no-event') noEvent.set(`${entry.symbol}|${Date.parse(entry.t)}`, index);
+    else unavailable.set(entry.contract, { from: dayStartMs(entry.from), to: dayStartMs(entry.to), index });
+  });
+  const used = new Set<number>();
+  let imputed = 0;
+
+  // Member rates by settlement instant, for imputing an `unavailable` contract at the median of the others.
+  const memberRatesAt = new Map<number, number[]>();
+  if (unavailable.size > 0) {
+    for (const id of needed) {
+      const spans = uSpans[id];
+      if (!spans || unavailable.has(id)) continue;
+      const meta = metaById.get(id)!;
+      const member = (t: number) => spans.some((sp) => dueDay(t) >= sp.from && dueDay(t) < sp.to);
+      for (const r of loadFundingRows(meta.symbol)) {
+        if (!member(r.t)) continue;
+        const list = memberRatesAt.get(r.t) ?? [];
+        list.push(r.rate);
+        memberRatesAt.set(r.t, list);
+      }
+    }
+  }
   const summary: FundingSummary = { contracts: 0, settlements: 0, intervalSwitches: 0, byInterval: {} };
   for (const id of needed) {
     const contract = segmented.get(id);
@@ -360,19 +457,39 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
     };
     const isMember = uSpans[id] !== undefined;
     if (isMember) {
-      let rows = fundingRows.get(contract.symbol);
-      if (!rows) {
-        const loaded = src.funding(contract.symbol);
-        lockboxApplied = lockboxApplied && loaded.lockboxApplied;
-        rows = loaded.rows.filter((r) => Number.isFinite(r.rate) && Number.isFinite(r.t)).sort((a, b) => a.t - b.t);
-        fundingRows.set(contract.symbol, rows);
-      }
-      const life = rows.filter((r) => r.t > firstDay && r.t <= lastDay + DAY_MS);
-      input.settlements = life.map((r): Settlement => ({ t: r.t, rate: r.rate }));
+      const rows = loadFundingRows(contract.symbol);
+      let life = rows.filter((r) => r.t > firstDay && r.t <= lastDay + DAY_MS);
       const wholeSample = contract.symbol === BENCHMARK_SYMBOL;
-      missing.push(
-        ...missingSettlements({ id, firstDay, lastDay, endDay }, life, fundingCheckDays(input, from, to, wholeSample))
-      );
+      const checkDays = fundingCheckDays(input, from, to, wholeSample);
+      const gap = unavailable.get(id);
+      if (gap) {
+        used.add(gap.index);
+        const have = new Set(life.map((r) => r.t));
+        const extra: FundingRow[] = [];
+        for (const d of [...checkDays].sort((x, y) => x - y)) {
+          if (d < gap.from || d >= gap.to) continue;
+          for (let t = d + EIGHT_HOURS; t <= d + DAY_MS; t += EIGHT_HOURS) {
+            if (have.has(t) || t > lastDay + DAY_MS || t >= LOCKBOX_START) continue;
+            const others = memberRatesAt.get(t);
+            if (!others || others.length === 0) {
+              throw new Error(`Cannot impute ${id}'s funding at ${new Date(t).toISOString()}: no other member settled then`);
+            }
+            extra.push({ t, rate: median(others), intervalHours: 8 });
+          }
+        }
+        imputed += extra.length;
+        life = [...life, ...extra].sort((a, b) => a.t - b.t);
+      }
+      input.settlements = life.map((r): Settlement => ({ t: r.t, rate: r.rate }));
+      for (const m of missingSettlements({ id, firstDay, lastDay, endDay }, life, checkDays)) {
+        const key = `${contract.symbol}|${m.t}`;
+        const resolved = noEvent.get(key);
+        if (resolved !== undefined && m.reason === 'missing') {
+          used.add(resolved);
+          continue;
+        }
+        missing.push(m);
+      }
       summary.contracts++;
       for (const year of settlementSpacingReport(life)) {
         summary.settlements += year.settlements;
@@ -399,7 +516,18 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
   }
   if (missing.length > 0) {
     const symbolOf = (id: string) => metaById.get(id)?.symbol ?? id;
-    throw new Error(formatMissing(missing, symbolOf));
+    throw new MissingFundingError(
+      formatMissing(missing, symbolOf),
+      missing.map((m) => ({ symbol: symbolOf(m.contract), contract: m.contract, t: new Date(m.t).toISOString(), reason: m.reason }))
+    );
+  }
+  const unused = entries.filter((_, index) => !used.has(index));
+  if (unused.length > 0) {
+    throw new Error(
+      `${unused.length} funding resolution(s) matched nothing, so the file is not an exact record: ${unused
+        .map((u) => (u.kind === 'no-event' ? `${u.symbol} ${u.t}` : `${u.contract} ${u.from}..${u.to}`))
+        .join('; ')}`
+    );
   }
   return {
     datasetHash: src.datasetHash,
@@ -411,6 +539,12 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
     basketInputs: basketInputs.sort((a, b) => (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0)),
     basketMembership: bMembership,
     funding: summary,
+    fundingResolutions: {
+      sha256: src.resolutions?.sha256 ?? null,
+      noEvent: entries.filter((e) => e.kind === 'no-event').length,
+      unavailable: entries.filter((e) => e.kind === 'unavailable').length,
+      imputed,
+    },
     lockboxApplied,
   };
 }
@@ -422,7 +556,7 @@ export function buildBroadInputs(src: BuildSource): BroadInputs {
 export async function loadBroadInputs(
   datasetDir: string,
   universePath: string,
-  opts: { preregistered?: boolean } = {}
+  opts: { preregistered?: boolean; fundingResolutionsPath?: string; fundingCheckOut?: string } = {}
 ): Promise<BroadInputs> {
   const check = await verifyManifest(datasetDir);
   if (!check.ok) throw new Error(`Manifest verification failed: ${check.mismatches.join(', ')}`);
@@ -430,10 +564,26 @@ export async function loadBroadInputs(
   const universe = verifyUniverseFile(JSON.parse(readFileSync(universePath, 'utf8')), manifest.datasetHash, {
     preregistered: opts.preregistered ?? true,
   });
-  return buildBroadInputs({
-    datasetHash: manifest.datasetHash,
-    universe,
-    perp: (symbol) => loadPerp(datasetDir, symbol, '1d'),
-    funding: (symbol) => loadFunding(datasetDir, symbol),
-  });
+  let resolutions: BuildSource['resolutions'];
+  if (opts.fundingResolutionsPath) {
+    const text = readFileSync(opts.fundingResolutionsPath, 'utf8');
+    resolutions = {
+      sha256: createHash('sha256').update(text).digest('hex'),
+      entries: FundingResolutionsFileSchema.parse(JSON.parse(text)).resolutions,
+    };
+  }
+  try {
+    return buildBroadInputs({
+      datasetHash: manifest.datasetHash,
+      universe,
+      perp: (symbol) => loadPerp(datasetDir, symbol, '1d'),
+      funding: (symbol) => loadFunding(datasetDir, symbol),
+      resolutions,
+    });
+  } catch (error) {
+    if (error instanceof MissingFundingError && opts.fundingCheckOut) {
+      writeFileSync(opts.fundingCheckOut, `${JSON.stringify({ missing: error.missing }, null, 1)}\n`);
+    }
+    throw error;
+  }
 }

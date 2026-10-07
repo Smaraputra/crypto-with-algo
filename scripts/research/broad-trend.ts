@@ -362,6 +362,22 @@ import { assetKey } from './universe-source';
  *   report reads 'pending-trials' and its deflated probability is at least 0.95. legends-dsr.ts's defaults are the
  *   legends rule, unchanged: a golden pins the default path and the record (2.405e-3, 1.520, C3 0.330, TF4 0.294) is
  *   reproduced from its own trial statistics (legends-dsr.test.ts).
+ *
+ * A6, the runs. Recorded while running, before any statistic of a run is read; none changes a rule.
+ *
+ * - A6-1 Funding intervals and resolutions (2026-10-08). The TF4 smoke run on export aa62c5a1cb51 stopped on 34
+ *   flagged settlements before any return. Binance's REST funding history showed A5's reading of the archive's
+ *   interval was wrong: a row's interval is the spacing BEFORE it (SOLUSDT's 2022-11-18 16:00 row states 8 after an
+ *   08:00 row, LUNA2USDT's 2026-01-05 08:00 row states 4 after 04:00), so each gap is judged by the later row's
+ *   interval, and a row without a stated interval leaves the gap before it unverified (reported at that row). This
+ *   replaces A5's "spacing to the next". What the check still flags is resolved only through a recorded file
+ *   (`--funding-resolutions`, its sha256 and counts in the report). `no-event`: Binance's REST history for the
+ *   symbol confirms no settlement at that instant, so nothing is paid or charged. `unavailable`: neither the archive
+ *   nor REST holds the contract's funding over a stretch (REST keeps only a relaunched ticker's newest contract); its
+ *   settlements on checked days there are imputed on the 8h grid at the median of the other universe members'
+ *   archive settlements at the same instant. Dropping such a contract instead would remove a failing contract from
+ *   the universe, a bias toward passing. Every entry must match a flagged settlement or a member contract, or the run
+ *   stops. `--funding-check-out` writes the flagged list as JSON for the evidence pass.
  */
 
 export const DAY_MS = 86_400_000;

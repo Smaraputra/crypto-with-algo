@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,12 +13,21 @@ import {
   dueDay,
   fundingCheckDays,
   loadBroadInputs,
+  MissingFundingError,
   missingSettlements,
   preregisteredParameters,
   universeSpans,
   verifyUniverseFile,
+  type FundingResolution,
 } from './broad-inputs';
-import { SMALL_OPTIONS, SMALL_SPECS, syntheticBroadInputs, syntheticUniverse, writeSyntheticExport } from './broad-fixtures';
+import {
+  SMALL_OPTIONS,
+  SMALL_SPECS,
+  syntheticBroadInputs,
+  syntheticUniverse,
+  writeSyntheticExport,
+  type SyntheticUniverse,
+} from './broad-fixtures';
 import { DAY_MS, dayStartMs, segmentContracts, universeFile, type Membership } from './broad-trend';
 import type { FundingRow, PerpCandleRow } from './dataset-format';
 import type { TrendSymbolInput } from './trend-sim';
@@ -129,6 +138,17 @@ describe('missingSettlements (header DATA: every settlement due on a member day 
     expect(missingSettlements(contract, switched, days(2, 3, 4, 5, 6, 7, 8, 9))).toEqual([]);
     const lacking = switched.filter((r) => r.t !== utc(2022, 1, 6, 12));
     expect(missingSettlements(contract, lacking, days(6)).map((m) => m.t)).toEqual([utc(2022, 1, 6, 12)]);
+  });
+
+  it('reads the archive interval as the spacing BEFORE a row, so a lengthening switch is complete (SOL 2022-11-18)', () => {
+    // 2h settlements up to 08:00, then the interval lengthens: the 16:00 row says 8 (the gap before it).
+    const two = grid(2, utc(2022, 1, 4, 2), utc(2022, 1, 4, 8));
+    const eight = grid(8, utc(2022, 1, 4, 16), utc(2022, 1, 6));
+    const lengthened = [...two, ...eight];
+    expect(missingSettlements(contract, lengthened, days(4, 5))).toEqual([]);
+    // A row stating 4 after an 8h gap is a genuinely skipped settlement (BIOUSDT 2026-06-24 04:00).
+    const skipped = [...grid(4, utc(2022, 1, 4), utc(2022, 1, 4, 20)), { t: utc(2022, 1, 5, 4), rate: 0.0001, intervalHours: 4 }];
+    expect(missingSettlements(contract, skipped, days(4)).map((m) => m.t)).toEqual([utc(2022, 1, 5)]);
   });
 
   it('extends the grid before the first row and after the last, except on the listing day', () => {
@@ -249,6 +269,64 @@ describe('buildBroadInputs on a synthetic universe', () => {
     expect(() => syntheticBroadInputs(syntheticUniverse(early))).not.toThrow();
   });
 
+  function withResolutions(u: SyntheticUniverse, entries: FundingResolution[]) {
+    return buildBroadInputs({
+      datasetHash: u.datasetHash,
+      universe: u.universe,
+      perp: (s) => ({ rows: u.perp[s] ?? [], lockboxApplied: true }),
+      funding: (s) => ({ rows: u.funding[s] ?? [], lockboxApplied: true }),
+      resolutions: { sha256: 'f'.repeat(64), entries },
+    });
+  }
+
+  it('accepts a flagged settlement that a recorded no-event resolution covers, and charges nothing for it', () => {
+    const btc = inputs.inputs.find((i) => i.symbol === 'BTCUSDT#1')!;
+    const t = btc.membership![2].from + 5 * DAY_MS + 16 * H;
+    const u = syntheticUniverse(SMALL_SPECS.map((s) => (s.symbol === 'BTCUSDT' ? { ...s, dropSettlements: [t] } : s)));
+    const iso = new Date(t).toISOString();
+    expect(() => withResolutions(u, [])).toThrow(MissingFundingError);
+    const built = withResolutions(u, [{ kind: 'no-event', symbol: 'BTCUSDT', t: iso, evidence: 'REST fundingRate shows none' }]);
+    expect(built.fundingResolutions).toEqual({ sha256: 'f'.repeat(64), noEvent: 1, unavailable: 0, imputed: 0 });
+    expect(built.inputs.find((i) => i.symbol === 'BTCUSDT#1')!.settlements.some((s) => s.t === t)).toBe(false);
+    // The no-event entry names a symbol and an instant, so it covers nothing on another symbol.
+    expect(() =>
+      withResolutions(u, [{ kind: 'no-event', symbol: 'ETHUSDT', t: iso, evidence: 'x' }])
+    ).toThrow(MissingFundingError);
+  });
+
+  it('imputes an unavailable stretch on member days at the median rate of the other members at the same instant', () => {
+    const aaa = inputs.inputs.find((i) => i.symbol === 'AAAUSDT#1')!;
+    const from = aaa.membership![1].from + 3 * DAY_MS;
+    const to = from + 10 * DAY_MS;
+    const dropped: number[] = [];
+    for (let t = from + 8 * H; t <= to; t += 8 * H) dropped.push(t);
+    const u = syntheticUniverse(SMALL_SPECS.map((s) => (s.symbol === 'AAAUSDT' ? { ...s, dropSettlements: dropped } : s)));
+    expect(() => withResolutions(u, [])).toThrow(/30 funding settlement/);
+    const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    const built = withResolutions(u, [
+      { kind: 'unavailable', symbol: 'AAAUSDT', contract: 'AAAUSDT#1', from: day(from), to: day(to), evidence: 'archive and REST empty' },
+    ]);
+    expect(built.fundingResolutions.imputed).toBe(30);
+    // The median of the other members' rates at one imputed instant, from the same inputs.
+    const t = dropped[7];
+    const others = built.inputs
+      .filter((i) => i.symbol !== 'AAAUSDT#1' && i.membership!.some((sp) => dueDay(t) >= sp.from && dueDay(t) < sp.to))
+      .map((i) => i.settlements.find((s) => s.t === t)?.rate)
+      .filter((r): r is number => r !== undefined)
+      .sort((x, y) => x - y);
+    expect(others.length).toBeGreaterThan(1);
+    const mid = others.length >> 1;
+    const expected = others.length % 2 === 1 ? others[mid] : (others[mid - 1] + others[mid]) / 2;
+    expect(built.inputs.find((i) => i.symbol === 'AAAUSDT#1')!.settlements.find((s) => s.t === t)!.rate).toBeCloseTo(expected, 15);
+  });
+
+  it('refuses a resolution that matches nothing, so the file stays an exact record', () => {
+    const u = syntheticUniverse();
+    expect(() =>
+      withResolutions(u, [{ kind: 'no-event', symbol: 'BTCUSDT', t: '2022-01-04T08:00:00.000Z', evidence: 'x' }])
+    ).toThrow(/1 funding resolution\(s\) matched nothing.*BTCUSDT 2022-01-04T08:00:00.000Z/);
+  });
+
   it('refuses a contract whose bars differ from the universe file\'s metadata', () => {
     const u = syntheticUniverse();
     const perp: Record<string, PerpCandleRow[]> = { ...u.perp, BTCUSDT: u.perp.BTCUSDT.slice(0, -1) };
@@ -288,6 +366,39 @@ describe('loadBroadInputs from an export directory', () => {
       memory.inputs.map((i) => [i.symbol, i.t.length, i.settlements.length])
     );
     await expect(loadBroadInputs(join(dir, 'export'), universePath)).rejects.toThrow(/pre-registered/);
+  });
+
+  it('writes every flagged settlement to the check-out file, then reads a resolutions file and records its sha256', async () => {
+    const btc = syntheticBroadInputs().inputs.find((i) => i.symbol === 'BTCUSDT#1')!;
+    const t = btc.membership![2].from + 5 * DAY_MS + 16 * H;
+    const u = syntheticUniverse(SMALL_SPECS.map((s) => (s.symbol === 'BTCUSDT' ? { ...s, dropSettlements: [t] } : s)));
+    const exportDir = join(dir, 'export-missing');
+    const missingHash = await writeSyntheticExport(exportDir, u);
+    const contracts = SMALL_SPECS.flatMap((s) => segmentContracts(s.symbol, u.perp[s.symbol]));
+    const file = universeFile({ sourceDatasetHash: missingHash, contracts, universe: SMALL_OPTIONS.universe, basket: SMALL_OPTIONS.basket });
+    const uPath = join(dir, 'universe-missing.json');
+    writeFileSync(uPath, `${JSON.stringify(file, null, 1)}\n`);
+
+    const checkOut = join(dir, 'funding-check.json');
+    await expect(
+      loadBroadInputs(exportDir, uPath, { preregistered: false, fundingCheckOut: checkOut })
+    ).rejects.toThrow(MissingFundingError);
+    const iso = new Date(t).toISOString();
+    expect(JSON.parse(readFileSync(checkOut, 'utf8'))).toEqual({
+      missing: [{ symbol: 'BTCUSDT', contract: 'BTCUSDT#1', t: iso, reason: 'missing' }],
+    });
+
+    const resolutionsPath = join(dir, 'funding-resolutions.json');
+    const text = `${JSON.stringify({ resolutions: [{ kind: 'no-event', symbol: 'BTCUSDT', t: iso, evidence: 'REST' }] })}\n`;
+    writeFileSync(resolutionsPath, text);
+    const loaded = await loadBroadInputs(exportDir, uPath, { preregistered: false, fundingResolutionsPath: resolutionsPath });
+    const { createHash } = await import('node:crypto');
+    expect(loaded.fundingResolutions).toEqual({
+      sha256: createHash('sha256').update(text).digest('hex'),
+      noEvent: 1,
+      unavailable: 0,
+      imputed: 0,
+    });
   });
 
   it('refuses a tampered export file', async () => {
