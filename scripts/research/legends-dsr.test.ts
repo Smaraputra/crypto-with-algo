@@ -123,9 +123,24 @@ describe('golden: the default gate 8 path', () => {
   );
   const asHarness = all.map((s, k) => (k >= 5 ? { ...s, kind: 'harness' as const } : s));
 
+  // Twelve significant digits: the last one or two bits of skewness differ between Node 20 (CI) and Node 24,
+  // which says nothing about the gate 8 path this pins.
+  const significant = (v: unknown): unknown =>
+    typeof v === 'number'
+      ? Number.isFinite(v)
+        ? Number(v.toPrecision(12))
+        : v
+      : Array.isArray(v)
+        ? v.map(significant)
+        : v !== null && typeof v === 'object'
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, significant(x)]))
+          : v;
+
   it('computeGate8 and formatGate8 are pinned', async () => {
     const g = computeGate8(asHarness, others);
-    await expect(stableStringify({ result: g, text: formatGate8(g) })).toMatchFileSnapshot('./__golden__/legends-gate8.json');
+    await expect(stableStringify({ result: significant(g), text: formatGate8(g) })).toMatchFileSnapshot(
+      './__golden__/legends-gate8.json'
+    );
   });
 
   it('explicit legends options give the same result as the defaults', () => {
