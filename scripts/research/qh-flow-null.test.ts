@@ -15,7 +15,13 @@ import {
   type ManifestFile,
   type PerpCandleRow,
 } from './dataset-format';
-import { buildFactorIcReport, parseArgs as parseFactorIcArgs } from './factor-ic';
+import {
+  buildFactorIcReport,
+  loadSymbolData,
+  parseArgs as parseFactorIcArgs,
+  pooledHorizonStat,
+  symbolForwardReturns,
+} from './factor-ic';
 import {
   assertBeforeLockbox,
   buildNullReport,
@@ -143,6 +149,12 @@ describe('qh-flow-null', () => {
       expect(a.factors).toEqual(['raw.qhOpenImb', 'raw.fiveMinOpenImb', 'raw.largeTakerImb', 'raw.smallTakerImb']);
     });
 
+    it('accepts seed 0 and rejects negative seeds', () => {
+      expect(parseNullArgs(['--interval', '1h', '--seed', '0']).seed).toBe(0);
+      expect(() => parseNullArgs(['--interval', '1h', '--seed', '-1'])).toThrow(/--seed/);
+      expect(() => parseNullArgs(['--interval', '1h', '--draws', '0'])).toThrow(/--draws/);
+    });
+
     it('rejects --allow-lockbox as an unknown flag', () => {
       expect(() => parseNullArgs(['--interval', '1h', '--allow-lockbox'])).toThrow(/Unknown flag/);
     });
@@ -230,7 +242,6 @@ describe('qh-flow-null', () => {
       );
       const pooled = ref.factors.find((f) => f.name === 'raw.ret1')!.pooled.horizons;
       expect(report.cells).toHaveLength(2);
-      console.error(`[self-check] ${JSON.stringify(report.cells.map((c) => [c.horizon, c.observedIc, c.observedT]))}`);
       for (const cell of report.cells) {
         const stat = pooled.find((h) => h.horizon === cell.horizon)!;
         expect(cell.observedIc).toBe(stat.ic);
@@ -241,9 +252,7 @@ describe('qh-flow-null', () => {
 
     it('gives a strongly predictive column the minimum empirical p', async () => {
       const args = parseNullArgs(argv(arDir, ['--draws', '200', '--horizons', '1']));
-      const started = Date.now();
       const report = await buildNullReport(args);
-      console.error(`[timing] 200 draws, 3 symbols x 600 bars, 1 cell: ${Date.now() - started}ms`);
       const cell = report.cells[0];
       expect(cell.observedIc!).toBeGreaterThan(0.3);
       expect(cell.empiricalP).toBeCloseTo(1 / 201, 12);
@@ -267,6 +276,54 @@ describe('qh-flow-null', () => {
         );
       }
       expect(JSON.stringify(report)).not.toMatch(/observed|empiricalP/);
+    });
+  });
+
+  describe('shared pooled code path', () => {
+    for (const lag of [0, 1]) {
+      for (const returnSeries of ['spot', 'perp'] as const) {
+        it(`factor-ic pooled block equals pooledHorizonStat at lag ${lag}, ${returnSeries}`, async () => {
+          const factors = ['raw.ret1', 'raw.rsi'];
+          const horizons = [1, 4, 8];
+          const report = await buildFactorIcReport(
+            parseFactorIcArgs([
+              '--interval', '1h',
+              '--dataset-dir', arDir,
+              '--factors', factors.join(','),
+              '--horizons', horizons.join(','),
+              '--execution-lag', String(lag),
+              '--return-series', returnSeries,
+              '--bootstrap-n', '50',
+            ])
+          );
+          const data = SYMBOLS.map((s) =>
+            loadSymbolData(arDir, s, '1h', { allowLockbox: false })
+          );
+          for (const name of factors) {
+            const cols = data.map((d) => d.matrix.values[d.matrix.names.indexOf(name)]);
+            const expected = report.factors.find((f) => f.name === name)!.pooled.horizons;
+            expect(expected.length).toBe(horizons.length);
+            for (const h of horizons) {
+              const fwd = data.map((d) => symbolForwardReturns(d, h, lag, returnSeries));
+              const stat = pooledHorizonStat(cols, fwd, h, { iterations: 50, seed: 42, maxPairs: 100_000, gateAbsT: 2 });
+              expect(stat).toEqual(expected.find((e) => e.horizon === h));
+            }
+          }
+        });
+      }
+    }
+
+    it('marks a cell factor-ic drops (all-NaN column) with NaN stats and a reason', async () => {
+      const args = parseNullArgs(argv(arDir, ['--draws', '5', '--factors', 'raw.qhOpenImb', '--horizons', '1']));
+      const report = await buildNullReport(args);
+      expect(report.cells).toHaveLength(1);
+      const cell = report.cells[0];
+      expect(cell.nullSdIc).toBeNaN();
+      expect(cell.observedIc).toBeNull();
+      expect(cell.observedT).toBeNull();
+      expect(cell.empiricalP).toBeNull();
+      expect(cell.reason).toMatch(/draws/);
+      expect(cell.reason).toMatch(/observed/);
     });
   });
 });

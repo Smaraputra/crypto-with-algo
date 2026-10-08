@@ -18,9 +18,14 @@
  *   shifted[i] = column[(i + k) mod n]; forward returns stay in place.
  * - nullSdIc is the sample standard deviation (n - 1) across draws.
  *   nullP95AbsT is the nearest-rank 95th percentile of |t| across draws.
- * - A draw whose t is not finite never counts as exceeding the observed |t|.
- * - The pooled statistic is factor-ic's own (pooledIcStat in factor-ic.ts),
- *   so --execution-lag and --return-series mean exactly what they mean there.
+ * - A draw factor-ic would drop never counts as exceeding the observed |t|.
+ * - A cell with fewer than 2 valid draws is emitted with NaN statistics and a
+ *   reason; an observed cell factor-ic would drop gets null observed fields and
+ *   a reason, logged to stderr.
+ * - The pooled statistic is factor-ic's own: buildFactorIcReport and this null
+ *   both call pooledHorizonStat (factor-ic.ts), so --execution-lag,
+ *   --return-series and every MIN_PAIRS / non-finite drop rule are shared. A
+ *   draw factor-ic would drop (null stat) is not counted.
  * - Lockbox: the loaders always truncate at 2026-07-01 and --allow-lockbox is
  *   not accepted; assertBeforeLockbox additionally refuses any loaded bar at
  *   or after the lockbox start.
@@ -36,7 +41,7 @@ import {
   DEFAULT_MIN_CROSS_SECTION,
   loadSymbolData,
   mulberry32,
-  pooledIcStat,
+  pooledHorizonStat,
   symbolForwardReturns,
   type SymbolData,
 } from './factor-ic';
@@ -74,9 +79,11 @@ export interface NullCell {
   nullSdIc: number;
   nullP95AbsT: number;
   detectionFloorIc: number;
-  observedIc?: number;
-  observedT?: number;
-  empiricalP?: number;
+  observedIc?: number | null;
+  observedT?: number | null;
+  empiricalP?: number | null;
+  /** Present only when the cell could not be fully computed. */
+  reason?: string;
 }
 
 export interface NullReport {
@@ -107,10 +114,12 @@ function parseIso(value: string | undefined, name: string): number | undefined {
   return ms;
 }
 
-function parsePositiveInt(value: string | undefined, name: string, fallback: number): number {
+function parseInteger(value: string | undefined, name: string, fallback: number, min: number): number {
   if (value === undefined) return fallback;
   const n = Number(value);
-  if (!Number.isInteger(n) || n <= 0) throw new Error(`--${name} must be a positive integer, got "${value}"`);
+  if (!Number.isInteger(n) || n < min) {
+    throw new Error(`--${name} must be an integer of at least ${min}, got "${value}"`);
+  }
   return n;
 }
 
@@ -164,8 +173,8 @@ export function parseNullArgs(argv: string[]): NullArgs {
     factors: flags.has('factors') ? parseList(flags.get('factors')!) : [...QH_FLOW_FACTORS],
     executionLagBars: lagRaw === undefined ? 0 : Number(lagRaw),
     returnSeries: rs === 'perp' ? 'perp' : 'spot',
-    draws: parsePositiveInt(flags.get('draws'), 'draws', NULL_DRAWS),
-    seed: parsePositiveInt(flags.get('seed'), 'seed', NULL_SEED),
+    draws: parseInteger(flags.get('draws'), 'draws', NULL_DRAWS, 1),
+    seed: parseInteger(flags.get('seed'), 'seed', NULL_SEED, 0),
     minShiftDays,
     nullOnly: booleans.has('null-only'),
     out: flags.get('out') ?? `data/research/reports/qh-flow-null-${interval}.json`,
@@ -280,10 +289,10 @@ export async function buildNullReport(args: NullArgs): Promise<NullReport> {
     for (let d = 0; d < args.draws; d++) {
       const shifted = columns.map((col, s) => (col ? shiftColumn(col, offsets[d][s]) : null));
       for (const h of args.horizons) {
-        const stat = pooledIcStat(shifted, fwd.get(h)!, h);
-        if (Number.isFinite(stat.ic) && Number.isFinite(stat.t)) {
+        const stat = pooledHorizonStat(shifted, fwd.get(h)!, h);
+        if (stat) {
           nullIc.get(h)!.push(stat.ic);
-          nullAbsT.get(h)!.push(Math.abs(stat.t));
+          nullAbsT.get(h)!.push(Math.abs(stat.icT));
         }
       }
     }
@@ -291,24 +300,44 @@ export async function buildNullReport(args: NullArgs): Promise<NullReport> {
     for (const h of args.horizons) {
       const ics = nullIc.get(h)!;
       const absT = nullAbsT.get(h)!.slice().sort((a, b) => a - b);
-      if (ics.length < 2) continue;
-      const mean = ics.reduce((s, v) => s + v, 0) / ics.length;
-      const sd = Math.sqrt(ics.reduce((s, v) => s + (v - mean) ** 2, 0) / (ics.length - 1));
-      const cell: NullCell = {
-        factor,
-        horizon: h,
-        nullMeanIc: mean,
-        nullSdIc: sd,
-        nullP95AbsT: percentileNearestRank(absT, 0.95),
-        detectionFloorIc: DETECTION_FLOOR_MULTIPLIER * sd,
-      };
+      let cell: NullCell;
+      if (ics.length < 2) {
+        const reason = `only ${ics.length} of ${args.draws} draws produced a statistic factor-ic would keep`;
+        console.error(`[qh-flow-null] ${factor} h=${h}: ${reason}`);
+        cell = {
+          factor,
+          horizon: h,
+          nullMeanIc: NaN,
+          nullSdIc: NaN,
+          nullP95AbsT: NaN,
+          detectionFloorIc: NaN,
+          reason,
+        };
+      } else {
+        const mean = ics.reduce((sum, v) => sum + v, 0) / ics.length;
+        const sd = Math.sqrt(ics.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (ics.length - 1));
+        cell = {
+          factor,
+          horizon: h,
+          nullMeanIc: mean,
+          nullSdIc: sd,
+          nullP95AbsT: percentileNearestRank(absT, 0.95),
+          detectionFloorIc: DETECTION_FLOOR_MULTIPLIER * sd,
+        };
+      }
       if (!args.nullOnly) {
-        const obs = pooledIcStat(columns, fwd.get(h)!, h);
-        if (Number.isFinite(obs.ic) && Number.isFinite(obs.t)) {
-          const exceed = absT.filter((v) => v >= Math.abs(obs.t)).length;
+        const obs = pooledHorizonStat(columns, fwd.get(h)!, h);
+        if (obs) {
           cell.observedIc = obs.ic;
-          cell.observedT = obs.t;
-          cell.empiricalP = (1 + exceed) / (1 + args.draws);
+          cell.observedT = obs.icT;
+          cell.empiricalP = absT.length === 0 ? null : (1 + absT.filter((v) => v >= Math.abs(obs.icT)).length) / (1 + args.draws);
+        } else {
+          const reason = 'observed cell has no statistic factor-ic would keep';
+          console.error(`[qh-flow-null] ${factor} h=${h}: ${reason}`);
+          cell.observedIc = null;
+          cell.observedT = null;
+          cell.empiricalP = null;
+          cell.reason = cell.reason ? `${cell.reason}; ${reason}` : reason;
         }
       }
       cells.push(cell);
@@ -335,7 +364,7 @@ async function main(): Promise<void> {
   for (const c of report.cells) {
     console.error(
       `[qh-flow-null] ${c.factor} h=${c.horizon} sd=${c.nullSdIc.toFixed(5)} floor=${c.detectionFloorIc.toFixed(5)} p95|t|=${c.nullP95AbsT.toFixed(2)}` +
-        (c.empiricalP === undefined ? '' : ` obsIc=${c.observedIc!.toFixed(5)} obsT=${c.observedT!.toFixed(2)} p=${c.empiricalP.toFixed(4)}`)
+        (c.empiricalP == null ? '' : ` obsIc=${c.observedIc!.toFixed(5)} obsT=${c.observedT!.toFixed(2)} p=${c.empiricalP.toFixed(4)}`)
     );
   }
   console.error(`[qh-flow-null] wrote ${args.out}`);
