@@ -123,3 +123,28 @@ export const QH_FLOW_PREDICTED_SIGN = {
   'raw.largeTakerImb': 1,
   'raw.smallTakerImb': -1,
 } as const;
+
+/*
+ * IMPLEMENTATION NOTES, recorded at build time on 2026-10-09, before any archive month is ingested and before
+ * any IC run. They settle choices the locked header leaves open; none changes a definition, a window, a
+ * threshold or the trial budget.
+ *
+ * N1. One export, two windows. A single dataset (kinds candles, htf, perp, flow; 1h and 4h; ten symbols) is
+ *     exported once and hashed; factor-ic.ts and qh-flow-null.ts select the REPRODUCTION and HOLD-OUT windows
+ *     with --start/--end. Same data either way, one manifest hash to cite. The export CLI flag is --datasets.
+ * N2. The detection floor is 3.15 x the null's standard deviation of pooled IC, from scripts/research/
+ *     qh-flow-null.ts --null-only on the hold-out, run and recorded before the real hold-out run. frontier.ts
+ *     is not involved: it converts strategy-report dispersion to breakeven IC and has no IC standard error.
+ * N3. Matrix warmup. factors.ts fills every raw column only from warmupBars on (the longest indicator lookback,
+ *     about 200 bars), so each measured window starts about 8 days (1h) or 33 days (4h) after its --start. This
+ *     only shortens the declared windows; nothing crosses the reproduction/hold-out boundary.
+ * N4. Out-of-order rows. The fold counts rows whose trade time falls before the open bucket; archive files are
+ *     ordered by aggregate id, so zero is expected (BTCUSDT 2025-01: 55,419,155 lines, 0). Any nonzero count in
+ *     the ingest summary is investigated before the export.
+ * N5. Survivor family. survivor-table.ts is applied to this phase's HOLD-OUT reports only (1h and 4h); the
+ *     reproduction reports never enter the Benjamini-Hochberg family because no decision reads them.
+ * N6. The null uses factor-ic's own pooled (not cross-sectionally demeaned) statistic through an exported
+ *     helper; the unshifted run reproduces factor-ic's pooled ic and t exactly (test in qh-flow-null.test.ts).
+ * N7. Validation timing. The recorder's BTCUSDT bars start 2026-10-08 01:05 UTC; that day's daily archive file
+ *     is published after UTC midnight, so the ingest waits for it, as the header requires.
+ */
