@@ -24,12 +24,25 @@
  * Usage:
  *   npx tsx scripts/research/legends-dsr.ts --trend a.json,b.json,... --harness c.json,... \
  *     --consistency d.json,... [--out data/research/reports/legends-gate8.json]
+ *
+ * Parameterised for the broad trend phase (Gate8Options: trial ids, N, program
+ * count, variance mode); the defaults, LEGENDS_GATE8, are the legends rule above
+ * and reproduce its record exactly (legends-dsr.test.ts). BROAD_GATE8 and the
+ * schema v2 reader serve broad-dsr.ts.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import { deflatedSharpe, expectedMaxSharpe, perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { sampleKurtosis, sampleSkewness } from '@/lib/stats/normal';
-import { validateStrategyReport, validateTrendReport, type StrategyReport, type TrendReport } from './report-schema';
+import {
+  validateBroadTrendReport,
+  validateStrategyReport,
+  validateTrendReport,
+  type BroadTrendReport,
+  type StrategyReport,
+  type TrendReport,
+} from './report-schema';
+import { BROAD_PHASE_TRIALS, BROAD_PROGRAM_TRIALS, BROAD_TRIAL_IDS } from './broad-gates';
 
 const DAY_MS = 86_400_000;
 const YEAR_DAYS = 365;
@@ -118,29 +131,129 @@ export interface Gate8Result {
   results: TrialResult[];
 }
 
-export function computeGate8(
-  series: TrialSeries[],
-  otherGates: Record<string, { pass: boolean; consistency: boolean | null; note: string }>
-): Gate8Result {
-  if (series.length !== PHASE_TRIALS) {
-    throw new Error(`gate 8 is computed once across all ${PHASE_TRIALS} trials; got ${series.length}`);
-  }
-  const sharpes = series.map((s) => perPeriodSharpe(s.returns));
+/**
+ * Where V, the variance behind the expected maximum Sharpe, comes from:
+ *   - 'cross-trial' (the legends rule): the sample variance of the trials' per-period Sharpes;
+ *   - 'max-cross-sampling' (broad-trend.ts header, gate 8): the larger of that and the null floor
+ *     1 / (T - 1), the sampling variance of a per-period Sharpe over T periods.
+ */
+export type VarianceMode = 'cross-trial' | 'max-cross-sampling';
+
+export interface Gate8Options {
+  /** The trial ids the series must be, in any order; null checks the count alone (the legends default). */
+  trialIds: readonly string[] | null;
+  /** N, the trial count the expected maximum is taken over. */
+  numTrials: number;
+  /** The program-level trial count, reported beside, never gated. */
+  programTrials: number;
+  varianceMode: VarianceMode;
+  /** T of the floor in 'max-cross-sampling'; when absent, the shortest series. */
+  floorObservations?: number;
+}
+
+/** The legends phase's gate 8, the defaults: N = 11, program 1,724, cross-trial variance. */
+export const LEGENDS_GATE8: Gate8Options = {
+  trialIds: null,
+  numTrials: PHASE_TRIALS,
+  programTrials: PROGRAM_TRIALS,
+  varianceMode: 'cross-trial',
+};
+
+/** One trial's inputs to gate 8: its per-period Sharpe and moments over its own series. */
+export interface TrialStats {
+  id: string;
+  kind: 'trend' | 'harness';
+  /** Periods in the trial's series. */
+  n: number;
+  perPeriodSharpe: number;
+  skewness: number;
+  kurtosis: number;
+}
+
+export function trialStats(s: TrialSeries): TrialStats {
+  return {
+    id: s.id,
+    kind: s.kind,
+    n: s.returns.length,
+    perPeriodSharpe: perPeriodSharpe(s.returns),
+    skewness: sampleSkewness(s.returns),
+    kurtosis: sampleKurtosis(s.returns),
+  };
+}
+
+export interface Gate8Variance {
+  mode: VarianceMode;
+  /** Sample variance of the trials' per-period Sharpes. */
+  crossTrial: number;
+  /** 1 / (T - 1) in 'max-cross-sampling', else null. */
+  floor: number | null;
+  floorObservations: number | null;
+  /** The V used. */
+  used: number;
+}
+
+/** V from the trials' per-period Sharpes (VarianceMode). */
+export function gate8Variance(sharpes: readonly number[], mode: VarianceMode, floorObservations: number | null): Gate8Variance {
   const mean = sharpes.reduce((a, b) => a + b, 0) / sharpes.length;
-  const variance = sharpes.reduce((a, b) => a + (b - mean) ** 2, 0) / (sharpes.length - 1);
-  const results = series.map((s, i) => {
-    const skewness = sampleSkewness(s.returns);
-    const kurtosis = sampleKurtosis(s.returns);
+  const crossTrial = sharpes.reduce((a, b) => a + (b - mean) ** 2, 0) / (sharpes.length - 1);
+  if (mode === 'cross-trial') return { mode, crossTrial, floor: null, floorObservations: null, used: crossTrial };
+  if (floorObservations === null || !Number.isInteger(floorObservations) || floorObservations < 2) {
+    throw new Error(`the sampling floor needs T >= 2 observations; got ${floorObservations}`);
+  }
+  const floor = 1 / (floorObservations - 1);
+  return { mode, crossTrial, floor, floorObservations, used: Math.max(crossTrial, floor) };
+}
+
+function resolveOptions(options: Partial<Gate8Options>): Gate8Options {
+  return { ...LEGENDS_GATE8, ...options };
+}
+
+function checkTrialSet(ids: readonly string[], options: Gate8Options): void {
+  if (options.trialIds === null) {
+    if (ids.length !== options.numTrials) {
+      throw new Error(`gate 8 is computed once across all ${options.numTrials} trials; got ${ids.length}`);
+    }
+    return;
+  }
+  const got = [...ids].sort();
+  const expected = [...options.trialIds].sort();
+  if (got.join(',') !== expected.join(',')) {
+    throw new Error(`gate 8 is computed once across the trials ${expected.join(',')}; got ${got.join(',')}`);
+  }
+}
+
+/**
+ * Gate 8 from each trial's statistics: V (Gate8Options.varianceMode), the
+ * expected maximum per-period Sharpe at N, and each trial's deflated Sharpe
+ * probability with its own length, skewness and kurtosis; the same at the
+ * program count is reported. computeGate8 is this on the series' statistics.
+ */
+export function gate8FromStats(
+  stats: readonly TrialStats[],
+  otherGates: Record<string, { pass: boolean; consistency: boolean | null; note: string }>,
+  options: Partial<Gate8Options> = {}
+): { result: Gate8Result; variance: Gate8Variance } {
+  const opts = resolveOptions(options);
+  checkTrialSet(
+    stats.map((s) => s.id),
+    opts
+  );
+  const sharpes = stats.map((s) => s.perPeriodSharpe);
+  const floorT = opts.varianceMode === 'cross-trial' ? null : (opts.floorObservations ?? Math.min(...stats.map((s) => s.n)));
+  const v = gate8Variance(sharpes, opts.varianceMode, floorT);
+  const variance = v.used;
+  const results = stats.map((s, i) => {
+    const { skewness, kurtosis } = s;
     const at = (numTrials: number) =>
       deflatedSharpe({
         observedSharpe: sharpes[i],
         numTrials,
         varianceOfTrialSharpes: variance,
-        nObservations: s.returns.length,
+        nObservations: s.n,
         skewness,
         kurtosis,
       }).probability;
-    const dsrPhase = at(PHASE_TRIALS);
+    const dsrPhase = at(opts.numTrials);
     const gate8 = dsrPhase >= DSR_MIN;
     const other = otherGates[s.id];
     // A harness rule needs its perp CONSISTENCY run to agree; a missing run is not a pass.
@@ -149,13 +262,13 @@ export function computeGate8(
     return {
       id: s.id,
       kind: s.kind,
-      days: s.returns.length,
+      days: s.n,
       annualSharpe: sharpes[i] * Math.sqrt(YEAR_DAYS),
       perPeriodSharpe: sharpes[i],
       skewness,
       kurtosis,
       dsrPhase,
-      dsrProgram: at(PROGRAM_TRIALS),
+      dsrProgram: at(opts.programTrials),
       gate8,
       otherGates: other.pass,
       consistency: other.consistency,
@@ -164,12 +277,37 @@ export function computeGate8(
     };
   });
   return {
-    trials: PHASE_TRIALS,
-    varianceOfPerPeriodSharpes: variance,
-    expectedMaxAnnualSharpePhase: expectedMaxSharpe(PHASE_TRIALS, variance) * Math.sqrt(YEAR_DAYS),
-    expectedMaxAnnualSharpeProgram: expectedMaxSharpe(PROGRAM_TRIALS, variance) * Math.sqrt(YEAR_DAYS),
-    results,
+    result: {
+      trials: opts.numTrials,
+      varianceOfPerPeriodSharpes: variance,
+      expectedMaxAnnualSharpePhase: expectedMaxSharpe(opts.numTrials, variance) * Math.sqrt(YEAR_DAYS),
+      expectedMaxAnnualSharpeProgram: expectedMaxSharpe(opts.programTrials, variance) * Math.sqrt(YEAR_DAYS),
+      results,
+    },
+    variance: v,
   };
+}
+
+/** gate8FromStats with the variance detail, from the daily series. */
+export function computeGate8Detailed(
+  series: TrialSeries[],
+  otherGates: Record<string, { pass: boolean; consistency: boolean | null; note: string }>,
+  options: Partial<Gate8Options> = {}
+): { result: Gate8Result; variance: Gate8Variance } {
+  checkTrialSet(
+    series.map((s) => s.id),
+    resolveOptions(options)
+  );
+  return gate8FromStats(series.map(trialStats), otherGates, options);
+}
+
+/** Gate 8 across the trials' daily series; the defaults are the legends phase's (LEGENDS_GATE8). */
+export function computeGate8(
+  series: TrialSeries[],
+  otherGates: Record<string, { pass: boolean; consistency: boolean | null; note: string }>,
+  options: Partial<Gate8Options> = {}
+): Gate8Result {
+  return computeGate8Detailed(series, otherGates, options).result;
 }
 
 function readJson(path: string): unknown {
@@ -244,11 +382,75 @@ export function loadTrials(
   return { series, other };
 }
 
-export function formatGate8(g: Gate8Result): string {
+/**
+ * The broad trend phase's gate 8 (broad-trend.ts header): N = 16 (the eleven
+ * legends trials plus these five), V the larger of the five per-period Sharpes'
+ * sample variance and 1 / (T - 1) with T the shortest of the five series, the
+ * program count 1,729 reported beside.
+ */
+export const BROAD_GATE8: Gate8Options = {
+  trialIds: BROAD_TRIAL_IDS,
+  numTrials: BROAD_PHASE_TRIALS,
+  programTrials: BROAD_PROGRAM_TRIALS,
+  varianceMode: 'max-cross-sampling',
+};
+
+export interface BroadTrials {
+  series: TrialSeries[];
+  other: Record<string, { pass: boolean; consistency: boolean | null; note: string }>;
+  datasetManifestHash: string;
+  universeSha256: string;
+}
+
+/**
+ * The five broad reports (schema v2) as gate 8 trials. Refuses a report that
+ * fails its schema, a missing or repeated rule, and reports from different
+ * exports or universes. A trial's other gates pass when its verdict is
+ * 'pending-trials' (every gate but 8 passed); ex-2021 is one of those gates.
+ */
+export function broadTrialsFrom(reports: readonly unknown[], labels: readonly string[] = []): BroadTrials {
+  const parsed: BroadTrendReport[] = reports.map((json, k) => {
+    const v = validateBroadTrendReport(json);
+    if (!v.ok) throw new Error(`${labels[k] ?? `report ${k}`}: ${v.issues.join('; ')}`);
+    return v.data;
+  });
+  const hashes = new Set(parsed.map((r) => r.datasetManifestHash));
+  const universes = new Set(parsed.map((r) => r.universe.sha256));
+  if (hashes.size !== 1) throw new Error(`the broad reports come from ${hashes.size} exports: ${[...hashes].join(', ')}`);
+  if (universes.size !== 1) throw new Error(`the broad reports come from ${universes.size} universes: ${[...universes].join(', ')}`);
+  const series: TrialSeries[] = [];
+  const other: BroadTrials['other'] = {};
+  for (const r of parsed) {
+    if (other[r.rule]) throw new Error(`two reports for ${r.rule}`);
+    series.push({ id: r.rule, kind: 'trend', days: r.daily.days, returns: r.daily.returns });
+    const failed = r.gates.filter((g) => g.pass === false).map((g) => g.name);
+    other[r.rule] = {
+      pass: r.verdict === 'pending-trials',
+      consistency: null,
+      note: failed.length > 0 ? `failed gates ${failed.join(', ')}` : 'every gate but 8 passed',
+    };
+  }
+  checkTrialSet(
+    series.map((s) => s.id),
+    BROAD_GATE8
+  );
+  return { series, other, datasetManifestHash: [...hashes][0], universeSha256: [...universes][0] };
+}
+
+/** Reads the five broad reports from disk (broadTrialsFrom). */
+export function loadBroadTrials(paths: readonly string[]): BroadTrials {
+  return broadTrialsFrom(
+    paths.map((p) => readJson(p)),
+    paths
+  );
+}
+
+export function formatGate8(g: Gate8Result, options: Partial<Gate8Options> = {}): string {
+  const opts = resolveOptions(options);
   const lines = [
     `gate 8 across ${g.trials} trials: variance of per-period Sharpes ${g.varianceOfPerPeriodSharpes.toExponential(3)}, ` +
-      `expected max annual Sharpe ${g.expectedMaxAnnualSharpePhase.toFixed(3)} at N = ${PHASE_TRIALS}, ` +
-      `${g.expectedMaxAnnualSharpeProgram.toFixed(3)} at N = ${PROGRAM_TRIALS}`,
+      `expected max annual Sharpe ${g.expectedMaxAnnualSharpePhase.toFixed(3)} at N = ${opts.numTrials}, ` +
+      `${g.expectedMaxAnnualSharpeProgram.toFixed(3)} at N = ${opts.programTrials}`,
   ];
   for (const r of g.results) {
     lines.push(

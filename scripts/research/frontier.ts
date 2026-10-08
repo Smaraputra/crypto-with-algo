@@ -136,9 +136,13 @@ import {
   type FeeProfileName,
 } from '@/lib/backtest/cost-model';
 import { intervalToMs } from '@/lib/intervals';
+import { leverageRows, liquidationDistancePercent } from '@/lib/costs/leverage';
 import { validateStrategyReport, type StrategyReport } from './report-schema';
 
 const DAY_MS = 86_400_000;
+
+/** Moved to src/lib/costs/leverage.ts for the Cost Check page; re-exported so this module's API is unchanged. */
+export { leverageRows, liquidationDistancePercent };
 
 /** Maker on both legs, no slippage: the bar a continuation-shaped signal can reach. */
 export const MAKER_ROUND_TRIP_PERCENT = 2 * BINANCE_FUTURES_MAKER_FEE * 100;
@@ -330,33 +334,6 @@ export function frontierRow(input: FrontierInput, opts: FrontierOptions): Fronti
     targets,
     profiles,
   };
-}
-
-/**
- * Pure leverage arithmetic: fees and edge are both per unit of notional,
- * and leverage multiplies the notional, not the round-trip rate. costUsdt
- * and costPercentOfAccount therefore scale linearly with leverage.
- */
-export function leverageRows(
-  baseUsdt: number,
-  leverages: number[],
-  roundTripPercent: number
-): Array<{ leverage: number; notionalUsdt: number; costUsdt: number; costPercentOfAccount: number }> {
-  return leverages.map((leverage) => {
-    const notionalUsdt = baseUsdt * leverage;
-    const costUsdt = (notionalUsdt * roundTripPercent) / 100;
-    const costPercentOfAccount = (costUsdt / baseUsdt) * 100;
-    return { leverage, notionalUsdt, costUsdt, costPercentOfAccount };
-  });
-}
-
-/**
- * Approximate distance to liquidation, in percent of entry price, for an
- * isolated position at leverage L: 1/L minus the maintenance margin rate
- * (default 0.4%, Binance's lowest USDT-M tier).
- */
-export function liquidationDistancePercent(leverage: number, maintenanceMarginRate = 0.004): number {
-  return (1 / leverage - maintenanceMarginRate) * 100;
 }
 
 function fmt(value: number, digits: number): string {

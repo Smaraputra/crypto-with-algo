@@ -62,6 +62,23 @@
  *                                               kline-shaped datasets only
  *                                               (default: monthly, ARCHIVE_CADENCE)
  *
+ *   --symbols-file path.json                    an explicit contract list: a JSON
+ *                                               array of { symbol, klineMonths?,
+ *                                               fundingMonths?, klineDays? }, the
+ *                                               exact files to fetch (see below)
+ *
+ * --symbols-file mode (the broad trend universe, any listed USDT-M contract):
+ * only the listed months and days are fetched, with no blind enumeration, and a
+ * 404 on a listed file is an ERROR for that job, not `missing`. A zero-length
+ * negative-cache file for a listed file is a cache miss and is re-fetched.
+ * Every symbol must match the archive-contract shape, because it ends up in
+ * cache paths. --datasets, --intervals and --funding-target are required
+ * (the funding target must be `settlements`, so no HistoricalSnapshot is
+ * touched through funding), only klines, fundingRate and snapshots are
+ * accepted, and `snapshots` is refused for any symbol not in SIGNAL_SYMBOLS.
+ * Listed files are 1d, so pass `--intervals 1d`. --symbols and --cadence
+ * conflict with it.
+ *
  * Why --cadence exists: Binance's MONTHLY kline files can silently omit days
  * that its DAILY files carry. SOLUSDT and XRPUSDT perp klines for 2022-02-26
  * to 02-28 and 2022-04-01 to 04-02 are absent from the 2022-02, 2022-03 and
@@ -69,7 +86,10 @@
  * bars missing in production (found 2026-10-02). Re-ingesting the affected
  * days with `--cadence daily` fills them; upserts make it safe to re-run.
  */
+import { readFileSync } from 'node:fs';
+
 import { connectDB } from '@/lib/mongodb';
+import { parseContractList, type ContractEntry } from '@/lib/contract-list';
 import {
   ARCHIVE_CADENCE,
   fetchArchiveFile,
@@ -139,6 +159,10 @@ export interface ParsedArgs {
   fundingTarget: FundingTarget;
   /** Archive cadence override for the kline-shaped datasets; null keeps ARCHIVE_CADENCE. */
   cadence: ArchiveCadence | null;
+  /** The --symbols-file path, or null in the legacy enumerated mode. */
+  symbolsFile: string | null;
+  /** The validated contract list from --symbols-file; null in the legacy mode. */
+  contracts: ContractEntry[] | null;
 }
 
 export const FUNDING_TARGETS = ['snapshots', 'settlements', 'both'] as const;
@@ -152,7 +176,15 @@ export interface Job {
   toMs: number;
   /** Set only on kline-shaped jobs when `--cadence` overrides the default. */
   cadence?: ArchiveCadence;
+  /**
+   * Set only in --symbols-file mode: the exact archive file keys of this job
+   * ('YYYY-MM' or 'YYYY-MM-DD'). Their presence also means a 404 is an error.
+   */
+  keys?: string[];
 }
+
+/** The datasets --symbols-file mode accepts; the others have no listed files. */
+const SYMBOLS_FILE_DATASETS = new Set<JobKind>(['klines', 'fundingRate', 'snapshots']);
 
 const DEFAULT_DATASETS = 'metrics,snapshots';
 const DEFAULT_INTERVALS = '5m,15m,1h,4h,1d';
@@ -190,7 +222,11 @@ function nextValue(argv: string[], index: number, flag: string): string {
 }
 
 /** Pure argv parser: no I/O, so it is unit tested directly. */
-export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
+export function parseArgs(
+  argv: string[],
+  now: Date = new Date(),
+  readText: (path: string) => string = (path) => readFileSync(path, 'utf8')
+): ParsedArgs {
   let datasetsSpec = DEFAULT_DATASETS;
   let symbolsSpec: string | null = null;
   let intervalsSpec = DEFAULT_INTERVALS;
@@ -203,10 +239,16 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
   let dryRun = false;
   let fundingTarget: FundingTarget = 'snapshots';
   let cadence: ArchiveCadence | null = null;
+  let symbolsFile: string | null = null;
+  const given = new Set<string>();
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    given.add(flag);
     switch (flag) {
+      case '--symbols-file':
+        symbolsFile = nextValue(argv, ++i, '--symbols-file');
+        break;
       case '--datasets':
         datasetsSpec = nextValue(argv, ++i, '--datasets');
         break;
@@ -305,9 +347,31 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
     throw new Error(`--to (${new Date(toMs).toISOString().slice(0, 10)}) is before --from`);
   }
 
+  let contracts: ContractEntry[] | null = null;
+  if (symbolsFile !== null) {
+    if (symbolsSpec !== null) throw new Error('--symbols-file and --symbols are mutually exclusive');
+    if (cadence !== null) throw new Error('--symbols-file lists exact files, so --cadence does not apply');
+    for (const required of ['--datasets', '--intervals', '--funding-target']) {
+      if (!given.has(required)) throw new Error(`--symbols-file requires ${required} to be given explicitly`);
+    }
+    if (fundingTarget !== 'settlements') {
+      throw new Error(`--symbols-file requires --funding-target settlements, got "${fundingTarget}"`);
+    }
+    const unsupported = datasets.filter((d) => !SYMBOLS_FILE_DATASETS.has(d));
+    if (unsupported.length > 0) {
+      throw new Error(`--symbols-file supports only klines, fundingRate and snapshots, not ${unsupported.join(', ')}`);
+    }
+    contracts = parseContractList(JSON.parse(readText(symbolsFile)));
+    if (datasets.includes('snapshots')) assertSnapshotSymbols(contracts.map((c) => c.symbol));
+  }
+
   return {
     datasets,
-    symbols: symbolsSpec ? parseList(symbolsSpec, '--symbols') : [...SIGNAL_SYMBOLS],
+    symbols: contracts
+      ? contracts.map((c) => c.symbol)
+      : symbolsSpec
+        ? parseList(symbolsSpec, '--symbols')
+        : [...SIGNAL_SYMBOLS],
     intervals,
     snapshotIntervals,
     fromMs,
@@ -318,7 +382,53 @@ export function parseArgs(argv: string[], now: Date = new Date()): ParsedArgs {
     dryRun,
     fundingTarget,
     cadence,
+    symbolsFile,
+    contracts,
   };
+}
+
+/** `snapshots` writes HistoricalSnapshot, which live scoring reads: only the live symbols may touch it. */
+function assertSnapshotSymbols(symbols: string[]): void {
+  const live = new Set<string>(SIGNAL_SYMBOLS);
+  const refused = symbols.filter((symbol) => !live.has(symbol));
+  if (refused.length > 0) {
+    throw new Error(
+      `the snapshots dataset (HistoricalSnapshot) is refused for symbols outside SIGNAL_SYMBOLS: ${refused.slice(0, 5).join(', ')}${refused.length > 5 ? ', ...' : ''}`
+    );
+  }
+}
+
+/** The jobs of an explicit contract list: only the listed files, never an enumerated range. */
+function buildListedJobs(args: ParsedArgs, contracts: ContractEntry[], ordered: JobKind[]): Job[] {
+  const jobs: Job[] = [];
+  if (ordered.includes('snapshots')) assertSnapshotSymbols(contracts.map((c) => c.symbol));
+
+  for (const kind of ordered) {
+    for (const contract of contracts) {
+      const { symbol } = contract;
+      if (kind === 'snapshots') {
+        for (const interval of args.snapshotIntervals) {
+          jobs.push({ kind, symbol, interval, fromMs: args.fromMs, toMs: args.toMs });
+        }
+      } else if (kind === 'klines') {
+        for (const interval of args.intervals) {
+          if (contract.klineMonths?.length) {
+            jobs.push({ kind, symbol, interval, fromMs: args.fromMs, toMs: args.toMs, cadence: 'monthly', keys: contract.klineMonths });
+          }
+          if (contract.klineDays?.length) {
+            jobs.push({ kind, symbol, interval, fromMs: args.fromMs, toMs: args.toMs, cadence: 'daily', keys: contract.klineDays });
+          }
+        }
+      } else if (kind === 'fundingRate') {
+        if (contract.fundingMonths?.length) {
+          jobs.push({ kind, symbol, fromMs: args.fromMs, toMs: args.toMs, keys: contract.fundingMonths });
+        }
+      } else {
+        throw new Error(`Internal error: ${kind} has no listed-file job`);
+      }
+    }
+  }
+  return jobs;
 }
 
 /**
@@ -333,6 +443,8 @@ export function buildJobs(args: ParsedArgs): Job[] {
     ...args.datasets.filter((d) => d !== 'snapshots'),
     ...args.datasets.filter((d) => d === 'snapshots'),
   ];
+
+  if (args.contracts) return buildListedJobs(args, args.contracts, ordered);
 
   for (const kind of ordered) {
     for (const symbol of args.symbols) {
@@ -363,6 +475,7 @@ export function buildJobs(args: ParsedArgs): Job[] {
 /** The archive file keys one job needs, oldest first. */
 export function jobFileKeys(job: Job): string[] {
   if (job.kind === 'snapshots') return [];
+  if (job.keys) return job.keys;
   return (job.cadence ?? ARCHIVE_CADENCE[job.kind]) === 'daily'
     ? enumerateDays(job.fromMs, job.toMs)
     : enumerateMonths(job.fromMs, job.toMs);
@@ -443,6 +556,8 @@ export async function main(): Promise<number> {
 
   let hasError = false;
   const fetchOptions = { cacheDir: args.cacheDir, refresh: args.refresh };
+  // A file a listing names must exist: its remembered 404 is stale, and a new 404 is an error.
+  const listedFetchOptions = { ...fetchOptions, ignoreNegativeCache: true };
 
   for (const job of jobs) {
     const started = Date.now();
@@ -454,6 +569,8 @@ export async function main(): Promise<number> {
       }
 
       const keys = jobFileKeys(job);
+      const listed = job.keys !== undefined;
+      const notFound: string[] = [];
       let missing = 0;
       let rows = 0;
       let written = 0;
@@ -466,16 +583,24 @@ export async function main(): Promise<number> {
       await forEachWithConcurrency(keys, args.concurrency, async (date) => {
         const csv = await fetchArchiveFile(
           { dataset: job.kind as ArchiveDataset, symbol: job.symbol, interval: job.interval, date, cadence: job.cadence },
-          fetchOptions
+          listed ? listedFetchOptions : fetchOptions
         );
         if (csv === null) {
-          missing++;
+          if (listed) notFound.push(date);
+          else missing++;
           return;
         }
         const result = await ingestCsv(job, csv, args.fundingTarget);
         rows += result.rows;
         written += result.written;
       });
+
+      if (notFound.length > 0) {
+        notFound.sort();
+        throw new Error(
+          `${notFound.length} listed archive file(s) returned 404: ${notFound.slice(0, 5).join(', ')}${notFound.length > 5 ? ', ...' : ''}`
+        );
+      }
 
       console.log(JSON.stringify({
         kind: job.kind,

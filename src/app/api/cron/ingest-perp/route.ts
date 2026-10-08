@@ -8,6 +8,7 @@ import { enumerateDays, perpCandleUpserts, perpPairsForSeries } from '@/lib/arch
 import { bulkUpsertPerpCandles } from '@/lib/perp-candles';
 import { PERP_SERIES, type PerpSeries } from '@/lib/models/perp-candle';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
+import { SYMBOL_SHAPE } from '@/lib/symbol-shape';
 
 /**
  * Keeps the perpetual bar series current from the Binance public data archive.
@@ -69,18 +70,6 @@ function parseDays(req: NextRequest): number {
   if (!Number.isInteger(days) || days < 1) return DEFAULT_DAYS;
   return Math.min(days, MAX_DAYS);
 }
-
-/**
- * A symbol as Binance names it: upper-case letters and digits, ending in a
- * quote asset. Strict on purpose.
- *
- * The symbol reaches the archive URL and, if a cache directory is ever wired
- * into this route, the cache path. It is the one request parameter that is not
- * drawn from a fixed set, so it is the one that has to be checked by shape
- * rather than by membership. A value like `../../etc/passwd` is not a symbol
- * under this pattern and is refused before any path is built.
- */
-const SYMBOL_SHAPE = /^[A-Z0-9]{2,20}(USDT|USDC|BUSD|BTC|ETH)$/;
 
 function parseSymbols(req: NextRequest): string[] | { error: string } {
   const raw = req.nextUrl.searchParams.get('symbols');

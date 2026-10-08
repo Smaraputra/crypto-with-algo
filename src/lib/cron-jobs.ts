@@ -121,7 +121,49 @@ export const DERIVED_JOBS: readonly DerivedJobSpec[] = [
   },
 ] as const;
 
+/**
+ * A long-running process, not a crontab line, that writes its own heartbeat
+ * row through `recordJobRun` on a fixed cadence.
+ *
+ * WHY A THIRD TABLE: a service is in neither of the other two. It has no line
+ * in `docker/crontab.template`, so putting it in `CRON_JOBS` would break the
+ * bijection test, and it does write a heartbeat row, so it is not derived from
+ * some other record the way `DERIVED_JOBS` are. `/api/health/cron` classifies
+ * it from its row exactly like a cron job: `expectedEverySeconds` is the
+ * heartbeat cadence, so a process that died, hung or lost Mongo goes overdue
+ * after the same grace a 1-minute cron job gets, and a process that is up but
+ * not doing its work reports `failure` and reads as failing.
+ */
+export interface ServiceJobSpec {
+  job: string;
+  /** Not a crontab expression; shown on /api/health/cron so a reader knows why. */
+  schedule: string;
+  /** The heartbeat cadence. */
+  expectedEverySeconds: number;
+  /** Where the process runs, since no crontab line says so. */
+  runsIn: string;
+}
+
+export const SERVICE_JOBS: readonly ServiceJobSpec[] = [
+  {
+    job: 'market-recorder',
+    schedule: 'continuous, heartbeat every minute',
+    expectedEverySeconds: MINUTE,
+    runsIn: 'the recorder service in docker-compose.server.yml (scripts/ops/market-recorder.ts)',
+  },
+] as const;
+
 export const CRON_JOB_NAMES: readonly string[] = CRON_JOBS.map((j) => j.job);
+
+/**
+ * Every key allowed a heartbeat row: the crontab lines plus the services.
+ * `recordJobRun` and the `JobHeartbeat` enum both check against THIS, so a
+ * typo'd key still cannot create a row that no health check reads.
+ */
+export const HEARTBEAT_JOB_NAMES: readonly string[] = [
+  ...CRON_JOB_NAMES,
+  ...SERVICE_JOBS.map((j) => j.job),
+];
 
 /** Jobs that `withJobRun` wraps, i.e. everything whose completion the response actually reports. */
 export const HEARTBEAT_JOBS: readonly CronJobSpec[] = CRON_JOBS.filter((j) => !j.noHeartbeat);

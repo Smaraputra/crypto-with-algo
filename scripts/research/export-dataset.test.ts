@@ -123,6 +123,29 @@ describe('parseArgs', () => {
   });
 });
 
+describe('parseArgs --symbols-file', () => {
+  const list = JSON.stringify([{ symbol: 'LUNAUSDT' }, { symbol: 'AUSDT', klineMonths: ['2024-01'] }]);
+
+  it('takes the symbols from the contract list and records the path', () => {
+    const args = parseArgs(['--symbols-file', 'list.json'], {}, () => list);
+    expect(args.symbols).toEqual(['LUNAUSDT', 'AUSDT']);
+    expect(args.symbolsFile).toBe('list.json');
+  });
+
+  it('is absent without the flag', () => {
+    expect(parseArgs([], {}).symbolsFile).toBeUndefined();
+  });
+
+  it('refuses --symbols beside it and a malformed list', () => {
+    expect(() => parseArgs(['--symbols-file', 'l.json', '--symbols', 'BTCUSDT'], {}, () => list)).toThrow(
+      /mutually exclusive/
+    );
+    expect(() => parseArgs(['--symbols-file', 'l.json'], {}, () => '[{"symbol":"btc"}]')).toThrow(
+      /archive-contract shape/
+    );
+  });
+});
+
 describe('buildHtfRows config wiring (item 1: must match live scoring, not DEFAULT_CONFIG)', () => {
   const SYMBOL = 'BTCUSDT';
   const DAY = 24 * 3600000;

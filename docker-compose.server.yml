@@ -83,6 +83,51 @@ services:
     networks:
       - crypto-internal
 
+  # Forward-only Binance liquidation and trade-flow recorder
+  # (scripts/ops/market-recorder.ts). Research data: no study may read it
+  # before its own pre-registration. Built from the seeder stage because it
+  # runs TypeScript through tsx, like the ops scripts.
+  #
+  # Egress: crypto-internal is a plain bridge network (not `internal: true`),
+  # so containers on it reach the internet through Docker's NAT; the ops
+  # recipe's `docker run --network crypto_crypto-internal` ingest jobs already
+  # download from Binance that way.
+  #
+  # Every image change (any commit, since the stage copies the whole repo)
+  # recreates this container on deploy, which the recorder logs as a gap.
+  recorder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: seeder
+    container_name: crypto-recorder
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Heap below the container limit, so V8 collects before the kernel kills.
+      NODE_OPTIONS: --max-old-space-size=384
+    # tsx is a pinned devDependency (package-lock.json, installed by `npm ci`
+    # in the deps stage), so the service runs the image's own copy and never
+    # downloads code from the registry at start (supply-chain review, 2026-10-08).
+    command: ["node_modules/.bin/tsx", "scripts/ops/market-recorder.ts"]
+    # tini as PID 1, so SIGTERM reaches the recorder through npx and tsx.
+    init: true
+    # Time for the shutdown flush (bounded at 20 s in the recorder).
+    stop_grace_period: 30s
+    mem_limit: 512m
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - crypto-internal
+    # The other services set no rotation and rely on the daemon default; this
+    # one logs a line a minute for months, so it is bounded here.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   mongodb_data:
   redis_data:

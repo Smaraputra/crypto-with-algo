@@ -550,6 +550,20 @@ describe('fetchArchiveFile', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('re-fetches a remembered 404 when ignoreNegativeCache is set, and does not remember a new one', async () => {
+    mkdirSync(join(cacheDir, 'metrics', 'BTCUSDT'), { recursive: true });
+    writeFileSync(archiveCachePath(cacheDir, spec), Buffer.alloc(0));
+    mockFetch.mockResolvedValue(okResponse('fresh,row\n'));
+    await expect(fetchArchiveFile(spec, { cacheDir, ignoreNegativeCache: true })).resolves.toBe('fresh,row\n');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(readFileSync(archiveCachePath(cacheDir, spec)).length).toBeGreaterThan(0);
+
+    const other = { ...spec, date: '2025-06-02' } as const;
+    mockFetch.mockResolvedValue({ ok: false, status: 404 });
+    await expect(fetchArchiveFile(other, { cacheDir, ignoreNegativeCache: true })).resolves.toBeNull();
+    expect(() => readFileSync(archiveCachePath(cacheDir, other))).toThrow();
+  });
+
   it('reads a cache file written by an earlier run', async () => {
     const path = archiveCachePath(cacheDir, spec);
     mkdirSync(join(cacheDir, 'metrics', 'BTCUSDT'), { recursive: true });

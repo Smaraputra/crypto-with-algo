@@ -270,6 +270,13 @@ export interface FetchArchiveOptions {
   refresh?: boolean;
   /** Base backoff in ms. Tests pass 0; nothing in production should set it. */
   retryBaseMs?: number;
+  /**
+   * Treat a zero-length cache file (a remembered 404) as a cache miss and ask the
+   * archive again, and do not write a new negative-cache file on a 404. For callers
+   * that list files from a bucket listing: a file the listing names must exist, so
+   * a remembered 404 for it is stale.
+   */
+  ignoreNegativeCache?: boolean;
 }
 
 /**
@@ -287,8 +294,8 @@ export async function fetchArchiveFile(
     const cached = await readFile(cachePath).catch(() => null);
     if (cached) {
       // A zero-length cache file is how a known 404 is remembered.
-      if (cached.length === 0) return null;
-      return readSingleZipEntry(cached).data.toString('utf8');
+      if (cached.length > 0) return readSingleZipEntry(cached).data.toString('utf8');
+      if (!options.ignoreNegativeCache) return null;
     }
   }
 
@@ -303,7 +310,7 @@ export async function fetchArchiveFile(
       const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 
       if (res.status === 404) {
-        if (cachePath) {
+        if (cachePath && !options.ignoreNegativeCache) {
           await mkdir(dirname(cachePath), { recursive: true });
           await writeFile(cachePath, Buffer.alloc(0));
         }

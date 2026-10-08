@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  BinanceHttpError,
+  fetchDepth,
+  fetchFundingInfo,
+  fetchPerpExchangeInfo,
+  fetchPerpKlines,
+  fetchPerpKlinesRange,
+  fetchPremiumIndex,
+  KLINES_PAGE,
+  MAX_KLINE_PAGES,
   fetchFundingRate,
   fetchGlobalLongShortRatio,
   fetchLongShortRatio,
@@ -205,5 +214,100 @@ describe('fetchGlobalLongShortRatio', () => {
   it('throws on HTTP error', async () => {
     mockError(503);
     await expect(fetchGlobalLongShortRatio('BTCUSDT')).rejects.toThrow('HTTP 503');
+  });
+});
+
+describe('cost check fetchers', () => {
+  it('maps a 429 to BinanceHttpError with status and Retry-After', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'Retry-After': '12' }),
+    });
+    const error = await fetchPremiumIndex('BTCUSDT').catch((e) => e);
+    expect(error).toBeInstanceOf(BinanceHttpError);
+    expect(error.status).toBe(429);
+    expect(error.retryAfter).toBe('12');
+  });
+
+  it('carries a null Retry-After when the header is absent', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 451, headers: new Headers() });
+    const error = await fetchPerpExchangeInfo().catch((e) => e);
+    expect(error).toBeInstanceOf(BinanceHttpError);
+    expect(error.status).toBe(451);
+    expect(error.retryAfter).toBeNull();
+    expect(error.message).not.toContain('{');
+  });
+
+  it('sends a timeout signal', async () => {
+    mockOk({ symbols: [] });
+    await fetchPerpExchangeInfo();
+    expect(mockFetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('parses klines into rows', async () => {
+    mockOk([[1000, '1.5', '2', '1', '1.8', '10', 1999, '18.5', 3, '5', '9', '0']]);
+    const rows = await fetchPerpKlines('BTCUSDT', '15m');
+    expect(String(mockFetch.mock.calls[0][0])).toContain('interval=15m');
+    expect(String(mockFetch.mock.calls[0][0])).toContain('limit=1000');
+    expect(rows).toEqual([
+      { openTime: 1000, closeTime: 1999, open: 1.5, high: 2, low: 1, close: 1.8, quoteVolume: 18.5 },
+    ]);
+  });
+
+  it('pages a kline range forward from the last open time until a short page', async () => {
+    const H = 3_600_000;
+    const row = (t: number) => [t, '1', '1', '1', '1', '1', t + H - 1, '1', 1, '1', '1', '0'];
+    const page = (from: number, n: number) => Array.from({ length: n }, (_, i) => row(from + i * H));
+    mockOk(page(0, KLINES_PAGE));
+    mockOk(page(KLINES_PAGE * H, KLINES_PAGE));
+    mockOk(page(2 * KLINES_PAGE * H, 300));
+    const bars = await fetchPerpKlinesRange('BTCUSDT', '1h', 0, 4000 * H);
+    expect(bars).toHaveLength(2 * KLINES_PAGE + 300);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    const second = new URL(String(mockFetch.mock.calls[1][0]));
+    expect(second.searchParams.get('startTime')).toBe(String((KLINES_PAGE - 1) * H + 1));
+    expect(second.searchParams.get('endTime')).toBe(String(4000 * H));
+    expect(second.searchParams.get('limit')).toBe(String(KLINES_PAGE));
+  });
+
+  it('refuses a range that would need more than the page cap', async () => {
+    const H = 3_600_000;
+    for (let p = 0; p < MAX_KLINE_PAGES; p++) {
+      mockOk(Array.from({ length: KLINES_PAGE }, (_, i) => {
+        const t = (p * KLINES_PAGE + i) * H;
+        return [t, '1', '1', '1', '1', '1', t + H - 1, '1', 1, '1', '1', '0'];
+      }));
+    }
+    await expect(fetchPerpKlinesRange('BTCUSDT', '1h', 0, 1e15)).rejects.toThrow(/more than 10 requests/);
+    expect(mockFetch).toHaveBeenCalledTimes(MAX_KLINE_PAGES);
+  });
+
+  it('parses the premium index', async () => {
+    mockOk({ markPrice: '100.5', lastFundingRate: '0.0001', nextFundingTime: 123 });
+    expect(await fetchPremiumIndex('BTCUSDT')).toEqual({
+      markPrice: 100.5,
+      lastFundingRate: 0.0001,
+      nextFundingTime: 123,
+    });
+  });
+
+  it('maps fundingInfo to a symbol to hours record', async () => {
+    mockOk([{ symbol: 'XUSDT', fundingIntervalHours: 4 }]);
+    expect(await fetchFundingInfo()).toEqual({ XUSDT: 4 });
+  });
+
+  it('leaves out a fundingInfo row without a usable interval, so the 8-hour default applies', async () => {
+    mockOk([
+      { symbol: 'AUSDT', fundingIntervalHours: 4 },
+      { symbol: 'BUSDT' },
+      { symbol: 'CUSDT', fundingIntervalHours: 0 },
+    ]);
+    expect(await fetchFundingInfo()).toEqual({ AUSDT: 4 });
+  });
+
+  it('parses depth levels to numbers', async () => {
+    mockOk({ bids: [['99', '2']], asks: [['101', '3']] });
+    expect(await fetchDepth('BTCUSDT')).toEqual({ bids: [[99, 2]], asks: [[101, 3]] });
   });
 });
