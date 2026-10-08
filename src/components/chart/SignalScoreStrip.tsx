@@ -67,11 +67,16 @@ function StatusLine({ symbol, interval, signal }: Pick<SignalScoreStripProps, 's
     case 'no-record':
       return <>No recorded score arrived for the last bar.</>;
     case 'waiting':
-      return signal.reason === 'awaiting-candle-sync' ? (
-        <>Waiting for the last closed bar to sync.</>
-      ) : (
-        <>Not enough history at this interval.</>
-      );
+      switch (signal.reasonCode) {
+        case 'awaiting-candle-sync':
+          return <>Waiting for the last closed bar to sync.</>;
+        case 'insufficient-history':
+          return <>Not enough history at this interval.</>;
+        case 'awaiting-price':
+          return <>Waiting for the next price update.</>;
+        default:
+          return <>{signal.reason ? `${signal.reason.replace(/\.$/, '')}.` : 'Waiting for signal inputs.'}</>;
+      }
     case 'loading':
       return <>Loading signal inputs.</>;
     case 'unavailable':

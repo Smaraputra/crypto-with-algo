@@ -26,6 +26,13 @@ export type ProvisionalStatus =
   | 'recorded'
   | 'no-record';
 
+/** Why the status is `waiting`, as a code the UI can switch on. */
+export type WaitingReasonCode =
+  | 'awaiting-candle-sync'
+  | 'insufficient-history'
+  | 'context-unavailable'
+  | 'awaiting-price';
+
 export interface RecordedSignal {
   score: number;
   tier: SignalTier;
@@ -35,7 +42,10 @@ export interface RecordedSignal {
 
 export interface ProvisionalSignalState {
   status: ProvisionalStatus;
+  /** Display text for the reason. */
   reason: string | null;
+  /** Set only while `waiting`. */
+  reasonCode: WaitingReasonCode | null;
   /** The forming bar's value, or the closed bar's final one while awaiting its record. */
   provisional: ProvisionalScore | null;
   /** The scheduler's recorded values by candleTimestamp. */
@@ -339,24 +349,32 @@ export function useProvisionalSignal(
       recorded: EMPTY_RECORDED,
       lastComputeMs: null,
       status: 'unavailable',
+      reasonCode: null,
       reason: 'No provisional score for this symbol, interval or style',
       provisional: null,
     };
   }
   if (!context) {
     return contextQuery.isError
-      ? { ...base, status: 'waiting', reason: 'Signal context could not be loaded', provisional: null }
-      : { ...base, status: 'loading', reason: null, provisional: null };
+      ? { ...base, status: 'waiting', reason: 'Signal context could not be loaded', reasonCode: 'context-unavailable', provisional: null }
+      : { ...base, status: 'loading', reason: null, reasonCode: null, provisional: null };
   }
   if (!context.ready) {
-    return { ...base, status: 'waiting', reason: context.reason, provisional: null };
+    return { ...base, status: 'waiting', reason: context.reason, reasonCode: context.reason, provisional: null };
   }
   if (current.status === null) {
-    return { ...base, status: 'waiting', reason: 'Waiting for the next price update', provisional: null };
+    return {
+      ...base,
+      status: 'waiting',
+      reason: 'Waiting for the next price update',
+      reasonCode: 'awaiting-price',
+      provisional: null,
+    };
   }
   return {
     ...base,
     status: current.status,
+    reasonCode: null,
     reason: current.status === 'no-record' ? 'The scheduler recorded no value for this bar in time' : null,
     provisional: current.provisional,
   };

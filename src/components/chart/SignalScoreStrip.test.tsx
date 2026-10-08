@@ -11,6 +11,7 @@ function signal(over: Partial<ProvisionalSignalState> = {}): ProvisionalSignalSt
   return {
     status: 'provisional',
     reason: null,
+    reasonCode: null,
     provisional: { openTime: HOUR, score: 31.25, tier: 'buy', confidence: 72.4, components: [] },
     recorded: new Map(),
     configVersion: 8,
@@ -45,13 +46,20 @@ describe('SignalScoreStrip', () => {
   it.each([
     ['awaiting-record', {}, "Bar closed. Waiting for the scheduler's recorded score."],
     ['no-record', {}, 'No recorded score arrived for the last bar.'],
-    ['waiting', { reason: 'awaiting-candle-sync' }, 'Waiting for the last closed bar to sync.'],
-    ['waiting', { reason: 'insufficient-history' }, 'Not enough history at this interval.'],
+    ['waiting', { reason: 'awaiting-candle-sync', reasonCode: 'awaiting-candle-sync' }, 'Waiting for the last closed bar to sync.'],
+    ['waiting', { reason: 'insufficient-history', reasonCode: 'insufficient-history' }, 'Not enough history at this interval.'],
+    ['waiting', { reason: 'Waiting for the next price update', reasonCode: 'awaiting-price' }, 'Waiting for the next price update.'],
+    ['waiting', { reason: 'Signal context could not be loaded', reasonCode: 'context-unavailable' }, 'Signal context could not be loaded.'],
     ['loading', {}, 'Loading signal inputs.'],
     ['unavailable', {}, 'No scheduler score for BTCUSDT at 1h.'],
   ] as const)('shows the %s line', (st, extra, text) => {
     strip({ status: st, provisional: null, ...extra });
     expect(status()).toHaveTextContent(text);
+  });
+
+  it('never claims missing history for a reason other than insufficient-history', () => {
+    strip({ status: 'waiting', provisional: null, reason: 'Signal context could not be loaded', reasonCode: 'context-unavailable' });
+    expect(status()).not.toHaveTextContent(/history/i);
   });
 
   it('shows the newest recorded score when recorded', () => {

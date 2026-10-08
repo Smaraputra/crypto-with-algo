@@ -13,6 +13,7 @@ vi.mock('@/hooks/useProvisionalSignal', () => ({
 const baseSignal = (over: Partial<ProvisionalSignalState> = {}): ProvisionalSignalState => ({
   status: 'loading',
   reason: null,
+  reasonCode: null,
   provisional: null,
   recorded: new Map(),
   configVersion: 8,

@@ -132,6 +132,7 @@ describe('useProvisionalSignal compute floor', () => {
     const { result } = setup();
     await flush();
     expect(result.current.status).toBe('waiting');
+    expect(result.current.reasonCode).toBe('awaiting-price');
     expect(result.current.configVersion).toBe(8);
 
     tick(bar(60010));
@@ -313,6 +314,7 @@ describe('useProvisionalSignal availability', () => {
     await flush();
     expect(result.current.status).toBe('waiting');
     expect(result.current.reason).toBe('awaiting-candle-sync');
+    expect(result.current.reasonCode).toBe('awaiting-candle-sync');
     expect(server.count('/api/signals/provisional-context')).toBe(1);
 
     await flush(30_000);
