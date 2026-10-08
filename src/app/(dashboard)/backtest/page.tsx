@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Play, Plus, Save, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -87,12 +87,13 @@ export default function BacktestPage() {
   const { data: savedResults } = useBacktestResults();
   const deleteResultMutation = useDeleteBacktestResult();
 
-  // Auto-navigate to results when backtest completes
-  useEffect(() => {
-    if (backtest.status === 'complete') {
-      setActiveTab('results');
-    }
-  }, [backtest.status]);
+  // Auto-navigate to results when a backtest completes ("previous value in state",
+  // so the tab switches during render instead of from an effect)
+  const [prevBacktestStatus, setPrevBacktestStatus] = useState(backtest.status);
+  if (backtest.status !== prevBacktestStatus) {
+    setPrevBacktestStatus(backtest.status);
+    if (backtest.status === 'complete') setActiveTab('results');
+  }
 
   const strategies = useMemo(() => data?.strategies ?? [], [data]);
   const selectedStrategy = strategies.find((s) => s._id === selectedStrategyId);
