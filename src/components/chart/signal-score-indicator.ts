@@ -74,8 +74,8 @@ export function ensureSignalScoreIndicatorRegistered(): void {
     shortName: 'SIGNAL SCORE',
     series: 'normal',
     precision: 1,
-    minValue: -100,
-    maxValue: 100,
+    minValue: -50,
+    maxValue: 50,
     calcParams: [],
     shouldOhlc: false,
     figures: [

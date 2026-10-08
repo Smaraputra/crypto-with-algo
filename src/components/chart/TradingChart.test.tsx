@@ -295,7 +295,7 @@ describe('TradingChart', () => {
     it('creates the pane when visible and keeps the default indicators', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay()} />);
       expect(mockRegisterIndicator).toHaveBeenCalled();
-      expect(mockCreateIndicator).toHaveBeenCalledWith('SIGNAL_SCORE', false, { id: 'signal_score_pane', height: 90 });
+      expect(mockCreateIndicator).toHaveBeenCalledWith('SIGNAL_SCORE', false, { id: 'signal_score_pane', height: 140 });
       expect(mockCreateIndicator).toHaveBeenCalledWith('MA', false, { id: 'candle_pane' });
       expect(mockCreateIndicator).toHaveBeenCalledWith('VOL', false);
     });

@@ -90,8 +90,8 @@ describe('ensureSignalScoreIndicatorRegistered', () => {
     const template = registerIndicator.mock.calls[0][0];
     expect(template.name).toBe(mod.SIGNAL_SCORE_INDICATOR);
     expect(template.series).toBe('normal');
-    expect(template.minValue).toBe(-100);
-    expect(template.maxValue).toBe(100);
+    expect(template.minValue).toBe(-50);
+    expect(template.maxValue).toBe(50);
     expect(template.figures.map((f: { key: string }) => f.key)).toEqual(['recorded', 'provisional']);
   });
 

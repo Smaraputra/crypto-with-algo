@@ -497,7 +497,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     const chart = chartRef.current;
     if (!chart || !overlayVisible) return;
     ensureSignalScoreIndicatorRegistered();
-    chart.createIndicator(SIGNAL_SCORE_INDICATOR, false, { id: SIGNAL_SCORE_PANE_ID, height: 90 });
+    chart.createIndicator(SIGNAL_SCORE_INDICATOR, false, { id: SIGNAL_SCORE_PANE_ID, height: 140 });
     return () => {
       // After dispose chartRef is null, and the pane went with the chart.
       chartRef.current?.removeIndicator({ paneId: SIGNAL_SCORE_PANE_ID, name: SIGNAL_SCORE_INDICATOR });
