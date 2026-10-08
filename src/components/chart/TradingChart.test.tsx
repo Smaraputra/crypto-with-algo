@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useFormingBarStore } from '@/stores/formingBarStore';
 import { periodToInterval, TradingChart, INTERVALS, PRIMARY_INTERVALS, MORE_INTERVALS, CHART_TYPES, DRAWING_TOOLS } from './TradingChart';
 
 // Mock klinecharts module (canvas-based, won't work in jsdom)
@@ -522,6 +523,66 @@ describe('TradingChart', () => {
     it('includes candle_solid, candle_stroke, ohlc, and area', () => {
       const values = CHART_TYPES.map((t) => t.value);
       expect(values).toEqual(['candle_solid', 'candle_stroke', 'ohlc', 'area']);
+    });
+  });
+  describe('forming bar stream', () => {
+    function openStream() {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const loader = mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+      const callback = vi.fn();
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback,
+      });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      return { loader, callback, ws };
+    }
+
+    const kline = (over: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        k: { t: 1000, o: '1', h: '2', l: '0.5', c: '1.5', v: '10', V: '4', x: false, ...over },
+      });
+
+    beforeEach(() => useFormingBarStore.getState().reset());
+
+    it('pushes a matching event and keeps the chart callback unchanged', () => {
+      const { callback, ws } = openStream();
+      ws.onmessage?.({ data: kline() } as MessageEvent);
+
+      expect(callback).toHaveBeenCalledWith({
+        timestamp: 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10,
+      });
+      const event = useFormingBarStore.getState().latest;
+      expect(event).toMatchObject({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        closed: false,
+        bar: { openTime: 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10, takerBuyVolume: 4 },
+      });
+      expect(event?.receivedAt).toBeTypeOf('number');
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it('flags the final message as closed', () => {
+      const { ws } = openStream();
+      ws.onmessage?.({ data: kline({ x: true }) } as MessageEvent);
+      expect(useFormingBarStore.getState().latest?.closed).toBe(true);
+    });
+
+    it('does not push when a number is not finite, but still feeds the chart', () => {
+      const { callback, ws } = openStream();
+      ws.onmessage?.({ data: kline({ V: 'abc' }) } as MessageEvent);
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(useFormingBarStore.getState().latest).toBeNull();
+    });
+
+    it('resets the store on unsubscribeBar', () => {
+      const { loader, ws } = openStream();
+      ws.onmessage?.({ data: kline() } as MessageEvent);
+      expect(useFormingBarStore.getState().latest).not.toBeNull();
+      loader.unsubscribeBar();
+      expect(useFormingBarStore.getState().latest).toBeNull();
     });
   });
 });

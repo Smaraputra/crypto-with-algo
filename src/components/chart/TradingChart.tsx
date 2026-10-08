@@ -47,6 +47,7 @@ import { Separator } from '@/components/ui/separator';
 import { IndicatorSettings } from './IndicatorSettings';
 import { ChartLegend } from './ChartLegend';
 import { getDefaultCalcParams } from './indicator-params';
+import { useFormingBarStore } from '@/stores/formingBarStore';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
 const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
@@ -393,6 +394,27 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
                 volume: parseFloat(k.v),
               });
             }
+            if (k) {
+              // Market data for the provisional-signal overlay (never a score).
+              const bar = {
+                openTime: Number(k.t),
+                open: parseFloat(k.o),
+                high: parseFloat(k.h),
+                low: parseFloat(k.l),
+                close: parseFloat(k.c),
+                volume: parseFloat(k.v),
+                takerBuyVolume: parseFloat(k.V),
+              };
+              if (Object.values(bar).every(Number.isFinite)) {
+                useFormingBarStore.getState().push({
+                  symbol: params.symbol.ticker.toUpperCase(),
+                  interval: intv,
+                  bar,
+                  closed: k.x === true,
+                  receivedAt: Date.now(),
+                });
+              }
+            }
           } catch {
             // ignore parse errors
           }
@@ -401,6 +423,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
       },
       unsubscribeBar: () => {
         barCallbackRef.current = null;
+        useFormingBarStore.getState().reset();
         if (wsRef.current) {
           wsRef.current.close();
           wsRef.current = null;
