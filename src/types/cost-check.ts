@@ -1,4 +1,5 @@
 import type { HoldMoveStats, MeasurementInterval } from '@/lib/costs/move';
+import type { VolatilityRegime } from '@/lib/costs/volatility-regime';
 
 /**
  * Wire types for the Cost Check API. The server returns market facts and move
@@ -73,6 +74,15 @@ export interface CostCheckMarketResponse {
   };
   /** Listing time, epoch ms (0 when unknown). Short histories follow from a recent listing. */
   onboardDate: number;
+}
+
+/** GET /api/cost-check/regime */
+export interface CostCheckRegimeResponse {
+  symbol: string;
+  /** When the regime was computed, epoch ms. It changes only when a UTC day completes. */
+  asOf: number;
+  /** Null when the last complete day, or too many of the 180 before it, lack a full set of traded hours. */
+  regime: VolatilityRegime | null;
 }
 
 export type CostCheckErrorCode =

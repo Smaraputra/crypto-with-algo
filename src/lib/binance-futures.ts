@@ -209,6 +209,18 @@ export interface PerpKline {
   quoteVolume: number;
 }
 
+function parseKline(r: unknown[]): PerpKline {
+  return {
+    openTime: Number(r[0]),
+    open: parseFloat(String(r[1])),
+    high: parseFloat(String(r[2])),
+    low: parseFloat(String(r[3])),
+    close: parseFloat(String(r[4])),
+    closeTime: Number(r[6]),
+    quoteVolume: parseFloat(String(r[7])),
+  };
+}
+
 /** `/fapi/v1/klines`. The in-progress bar, when present, is last. */
 export async function fetchPerpKlines(
   symbol: string,
@@ -220,15 +232,41 @@ export async function fetchPerpKlines(
     interval,
     limit: String(limit),
   });
-  return rows.map((r) => ({
-    openTime: Number(r[0]),
-    open: parseFloat(String(r[1])),
-    high: parseFloat(String(r[2])),
-    low: parseFloat(String(r[3])),
-    close: parseFloat(String(r[4])),
-    closeTime: Number(r[6]),
-    quoteVolume: parseFloat(String(r[7])),
-  }));
+  return rows.map(parseKline);
+}
+
+/** Bars per `/fapi/v1/klines` request in a range fetch: the endpoint's maximum (weight 10 each). */
+export const KLINES_PAGE = 1500;
+/** A range fetch stops after this many pages, so a bad range cannot loop on the venue. */
+export const MAX_KLINE_PAGES = 10;
+
+/**
+ * `/fapi/v1/klines` for every bar opening in [startTime, endTime], paged
+ * forward. Throws when the range needs more than MAX_KLINE_PAGES requests.
+ */
+export async function fetchPerpKlinesRange(
+  symbol: string,
+  interval: string,
+  startTime: number,
+  endTime: number
+): Promise<PerpKline[]> {
+  const out: PerpKline[] = [];
+  let from = startTime;
+  for (let page = 0; page < MAX_KLINE_PAGES; page++) {
+    const rows = await getJson<unknown[][]>('/fapi/v1/klines', {
+      symbol,
+      interval,
+      startTime: String(from),
+      endTime: String(endTime),
+      limit: String(KLINES_PAGE),
+    });
+    const bars = rows.map(parseKline);
+    out.push(...bars);
+    if (bars.length < KLINES_PAGE) return out;
+    from = bars[bars.length - 1].openTime + 1;
+    if (from > endTime) return out;
+  }
+  throw new Error(`Klines range for ${symbol} ${interval} needs more than ${MAX_KLINE_PAGES} requests`);
 }
 
 export interface PremiumIndex {

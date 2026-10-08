@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { useCostCheckMarket, useCostCheckSymbols } from '@/hooks/useCostCheck';
+import { useCostCheckMarket, useCostCheckRegime, useCostCheckSymbols } from '@/hooks/useCostCheck';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   STORAGE_KEY,
@@ -16,6 +16,7 @@ import { pickMeasurementInterval } from '@/lib/costs/move';
 import { CostCheckForm } from './CostCheckForm';
 import { CostCheckResult } from './CostCheckResult';
 import { CostCheckSummaryBar } from './CostCheckSummaryBar';
+import { VolatilityRegimeCard } from './VolatilityRegimeCard';
 
 /** Saved inputs, then URL parameters on top. Runs in the browser only (the page loads this view without SSR). */
 function initialInputs(): CostCheckInputs {
@@ -67,6 +68,7 @@ export function CostCheckView() {
 
   const symbols = useCostCheckSymbols();
   const market = useCostCheckMarket(inputs.symbol, holdMinutes, notional);
+  const regime = useCostCheckRegime();
   // The query keeps the previous response while the next one loads. Never price a trade with a move
   // measured for another symbol or hold; a depth measured for another size is used but labelled.
   const expected = pickMeasurementInterval(inputs.holdMinutes * 60_000);
@@ -102,14 +104,21 @@ export function CostCheckView() {
             marketData?.slippage.source === 'depth' ? marketData.slippage.bps : null
           }
         />
-        <CostCheckResult
-          inputs={inputs}
-          model={model}
-          market={marketData}
-          marketProblem={marketProblem}
-          isFetching={market.isFetching}
-          isLoading={!marketData && !market.isError}
-        />
+        <div className="space-y-4">
+          <CostCheckResult
+            inputs={inputs}
+            model={model}
+            market={marketData}
+            marketProblem={marketProblem}
+            isFetching={market.isFetching}
+            isLoading={!marketData && !market.isError}
+          />
+          <VolatilityRegimeCard
+            regime={regime.data?.regime}
+            isLoading={regime.isLoading}
+            problem={regime.isError ? marketProblemText(regime.error?.code) : null}
+          />
+        </div>
       </div>
       <CostCheckSummaryBar model={model} />
     </div>
