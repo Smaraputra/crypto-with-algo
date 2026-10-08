@@ -11,7 +11,7 @@
  */
 
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import mongoose from 'mongoose';
@@ -25,6 +25,7 @@ import { FuturesMetric, type IFuturesMetric } from '@/lib/models/futures-metric'
 import { OptionsFlowHour, type IOptionsFlowHour } from '@/lib/models/options-flow-hour';
 import { FundingSettlement, type IFundingSettlement } from '@/lib/models/funding-settlement';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
+import { parseContractList } from '@/lib/contract-list';
 import {
   alignHtfToLtf,
   computeHtfSeries,
@@ -95,6 +96,12 @@ export interface ExportArgs {
   end?: number;
   out: string;
   mongoUri: string;
+  /**
+   * Set by --symbols-file: the symbols come from an explicit contract list, the
+   * output directory must be empty (no manifest merge), and any symbol that fails
+   * or exports zero rows for a requested kind fails the run.
+   */
+  symbolsFile?: string;
 }
 
 function parseList(value: string): string[] {
@@ -119,7 +126,8 @@ function parseIsoFlag(value: string | undefined, name: string): number | undefin
  */
 export function parseArgs(
   argv: string[],
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  readText: (path: string) => string = (path) => readFileSync(path, 'utf8')
 ): ExportArgs {
   const flags = new Map<string, string>();
 
@@ -154,8 +162,17 @@ export function parseArgs(
       })
     : ['klines' as PerpSeries];
 
+  const symbolsFile = flags.get('symbols-file');
+  if (symbolsFile !== undefined && flags.has('symbols')) {
+    throw new Error('--symbols-file and --symbols are mutually exclusive');
+  }
+  const listed = symbolsFile !== undefined
+    ? parseContractList(JSON.parse(readText(symbolsFile))).map((entry) => entry.symbol)
+    : null;
+
   return {
-    symbols: flags.has('symbols') ? parseList(flags.get('symbols')!) : [...SIGNAL_SYMBOLS],
+    ...(symbolsFile !== undefined ? { symbolsFile } : {}),
+    symbols: listed ?? (flags.has('symbols') ? parseList(flags.get('symbols')!) : [...SIGNAL_SYMBOLS]),
     intervals: flags.has('intervals') ? parseList(flags.get('intervals')!) : [...DEFAULT_INTERVALS],
     kinds,
     perpSeries,
@@ -532,9 +549,18 @@ function resolveCommit(): string {
   }
 }
 
+/** True when `dir` exists and holds anything at all. */
+function isNonEmptyDir(dir: string): boolean {
+  return existsSync(dir) && readdirSync(dir).length > 0;
+}
+
 export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
   if (!args.mongoUri) {
     throw new Error('A MongoDB URI is required (--mongo-uri or MONGODB_URI)');
+  }
+  const strict = args.symbolsFile !== undefined;
+  if (strict && isNonEmptyDir(args.out)) {
+    throw new Error(`--symbols-file needs a fresh --out directory, but ${args.out} is not empty (no manifest merge)`);
   }
 
   await mongoose.connect(args.mongoUri);
@@ -544,148 +570,168 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
 
     const kinds = new Set(args.kinds);
 
+    // Under --symbols-file a symbol that fails, or writes zero rows for a requested
+    // kind, is collected and the run fails at the end, before the manifest is written.
+    const failures: string[] = [];
+
     for (const symbol of args.symbols) {
-      // One 5m grid per symbol, outside the interval loop: every interval's
-      // factors align onto the same file rather than getting a copy each.
-      if (kinds.has('metrics')) {
-        const metricsRows = await fetchFuturesMetrics(symbol, args.start, args.end);
-        files.push(
-          await writeDatasetFile(
-            args.out,
-            `metrics/${symbol}/${METRICS_INTERVAL}.jsonl.gz`,
-            'metrics',
-            symbol,
-            METRICS_INTERVAL,
-            metricsRows,
-            (row) => row.t
-          )
-        );
-      }
-
-      // One funding file per symbol, one row per settlement (not per bar).
-      if (kinds.has('funding')) {
-        const fundingRows = await fetchFundingSettlements(symbol, args.start, args.end);
-        files.push(
-          await writeDatasetFile(
-            args.out,
-            `funding/${symbol}/${FUNDING_FILE}.jsonl.gz`,
-            'funding',
-            symbol,
-            FUNDING_FILE,
-            fundingRows,
-            (row) => row.t
-          )
-        );
-      }
-
-      // One options file per currency, written the same way metrics is: once
-      // per symbol, outside the interval loop. A symbol with no Deribit
-      // options market (optionsCurrencyOf returns null) writes nothing.
-      // BTCUSDT and ETHUSDT map to different currencies, so each of their
-      // files is written exactly once across the whole symbol loop.
-      if (kinds.has('options')) {
-        const currency = optionsCurrencyOf(symbol);
-        if (currency) {
-          const optionsRows = await fetchOptionsFlow(currency, args.start, args.end);
+      const firstFile = files.length;
+      try {
+        // One 5m grid per symbol, outside the interval loop: every interval's
+        // factors align onto the same file rather than getting a copy each.
+        if (kinds.has('metrics')) {
+          const metricsRows = await fetchFuturesMetrics(symbol, args.start, args.end);
           files.push(
             await writeDatasetFile(
               args.out,
-              `options/${currency}/${OPTIONS_INTERVAL}.jsonl.gz`,
-              'options',
+              `metrics/${symbol}/${METRICS_INTERVAL}.jsonl.gz`,
+              'metrics',
               symbol,
-              OPTIONS_INTERVAL,
-              optionsRows,
-              (row) => row.t
-            )
-          );
-        }
-      }
-
-      for (const interval of args.intervals) {
-        // HTF rows are index-aligned to the LTF candles, so the candle read
-        // happens whenever either kind is being written.
-        const needsCandles = kinds.has('candles') || kinds.has('htf');
-        const ltfCandles = needsCandles ? await fetchCandles(symbol, interval, args.start, args.end) : [];
-
-        if (kinds.has('candles')) {
-          files.push(
-            await writeDatasetFile(
-              args.out,
-              `candles/${symbol}/${interval}.jsonl.gz`,
-              'candles',
-              symbol,
-              interval,
-              ltfCandles.map(toCandleRow),
+              METRICS_INTERVAL,
+              metricsRows,
               (row) => row.t
             )
           );
         }
 
-        if (kinds.has('perp')) {
-          for (const series of args.perpSeries) {
-            const perpRows = await fetchPerpCandles(symbol, interval, series, args.start, args.end);
+        // One funding file per symbol, one row per settlement (not per bar).
+        if (kinds.has('funding')) {
+          const fundingRows = await fetchFundingSettlements(symbol, args.start, args.end);
+          files.push(
+            await writeDatasetFile(
+              args.out,
+              `funding/${symbol}/${FUNDING_FILE}.jsonl.gz`,
+              'funding',
+              symbol,
+              FUNDING_FILE,
+              fundingRows,
+              (row) => row.t
+            )
+          );
+        }
+
+        // One options file per currency, written the same way metrics is: once
+        // per symbol, outside the interval loop. A symbol with no Deribit
+        // options market (optionsCurrencyOf returns null) writes nothing.
+        // BTCUSDT and ETHUSDT map to different currencies, so each of their
+        // files is written exactly once across the whole symbol loop.
+        if (kinds.has('options')) {
+          const currency = optionsCurrencyOf(symbol);
+          if (currency) {
+            const optionsRows = await fetchOptionsFlow(currency, args.start, args.end);
             files.push(
               await writeDatasetFile(
                 args.out,
-                `perp/${symbol}/${perpFileName(interval, series)}`,
-                'perp',
+                `options/${currency}/${OPTIONS_INTERVAL}.jsonl.gz`,
+                'options',
                 symbol,
-                interval,
-                perpRows,
+                OPTIONS_INTERVAL,
+                optionsRows,
                 (row) => row.t
               )
             );
           }
         }
 
-        if (kinds.has('snapshots') && SNAPSHOT_INTERVALS.has(interval)) {
-          const snapshotRows = await fetchSnapshots(symbol, interval, args.start, args.end);
+        for (const interval of args.intervals) {
+          // HTF rows are index-aligned to the LTF candles, so the candle read
+          // happens whenever either kind is being written.
+          const needsCandles = kinds.has('candles') || kinds.has('htf');
+          const ltfCandles = needsCandles ? await fetchCandles(symbol, interval, args.start, args.end) : [];
+
+          if (kinds.has('candles')) {
+            files.push(
+              await writeDatasetFile(
+                args.out,
+                `candles/${symbol}/${interval}.jsonl.gz`,
+                'candles',
+                symbol,
+                interval,
+                ltfCandles.map(toCandleRow),
+                (row) => row.t
+              )
+            );
+          }
+
+          if (kinds.has('perp')) {
+            for (const series of args.perpSeries) {
+              const perpRows = await fetchPerpCandles(symbol, interval, series, args.start, args.end);
+              files.push(
+                await writeDatasetFile(
+                  args.out,
+                  `perp/${symbol}/${perpFileName(interval, series)}`,
+                  'perp',
+                  symbol,
+                  interval,
+                  perpRows,
+                  (row) => row.t
+                )
+              );
+            }
+          }
+
+          if (kinds.has('snapshots') && SNAPSHOT_INTERVALS.has(interval)) {
+            const snapshotRows = await fetchSnapshots(symbol, interval, args.start, args.end);
+            files.push(
+              await writeDatasetFile(
+                args.out,
+                `snapshots/${symbol}/${interval}.jsonl.gz`,
+                'snapshots',
+                symbol,
+                interval,
+                snapshotRows,
+                (row) => row.t
+              )
+            );
+          }
+
+          if (!kinds.has('htf')) continue;
+
+          // The LTF interval's own trading style resolves both which config
+          // computeHtfSeries uses (must match live scoring's profile.config
+          // for that style) and how many HTF warmup bars it needs.
+          const style = styleForInterval(interval);
+          const styleConfig = getStyleConfig(style).config;
+
+          const htfInterval = getConfirmationInterval(interval, style);
+          let htfCandles: OHLCV[] = [];
+          if (htfInterval) {
+            const warmupBarsNeeded = longestHtfLookback(styleConfig) + HTF_WARMUP_MARGIN;
+            const warmupCandles =
+              args.start !== undefined
+                ? await fetchCandlesBefore(symbol, htfInterval, args.start, warmupBarsNeeded)
+                : [];
+            const mainRangeCandles = await fetchCandles(symbol, htfInterval, args.start, args.end);
+            htfCandles = [...warmupCandles, ...mainRangeCandles];
+          }
+
+          const htfRows = buildHtfRows(symbol, interval, ltfCandles, htfInterval, htfCandles, styleConfig);
           files.push(
             await writeDatasetFile(
               args.out,
-              `snapshots/${symbol}/${interval}.jsonl.gz`,
-              'snapshots',
+              `htf/${symbol}/${interval}.jsonl.gz`,
+              'htf',
               symbol,
               interval,
-              snapshotRows,
+              htfRows,
               (row) => row.t
             )
           );
         }
-
-        if (!kinds.has('htf')) continue;
-
-        // The LTF interval's own trading style resolves both which config
-        // computeHtfSeries uses (must match live scoring's profile.config
-        // for that style) and how many HTF warmup bars it needs.
-        const style = styleForInterval(interval);
-        const styleConfig = getStyleConfig(style).config;
-
-        const htfInterval = getConfirmationInterval(interval, style);
-        let htfCandles: OHLCV[] = [];
-        if (htfInterval) {
-          const warmupBarsNeeded = longestHtfLookback(styleConfig) + HTF_WARMUP_MARGIN;
-          const warmupCandles =
-            args.start !== undefined
-              ? await fetchCandlesBefore(symbol, htfInterval, args.start, warmupBarsNeeded)
-              : [];
-          const mainRangeCandles = await fetchCandles(symbol, htfInterval, args.start, args.end);
-          htfCandles = [...warmupCandles, ...mainRangeCandles];
-        }
-
-        const htfRows = buildHtfRows(symbol, interval, ltfCandles, htfInterval, htfCandles, styleConfig);
-        files.push(
-          await writeDatasetFile(
-            args.out,
-            `htf/${symbol}/${interval}.jsonl.gz`,
-            'htf',
-            symbol,
-            interval,
-            htfRows,
-            (row) => row.t
-          )
-        );
+      } catch (error) {
+        if (!strict) throw error;
+        failures.push(`${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
       }
+      if (strict) {
+        for (const file of files.slice(firstFile)) {
+          if (file.rowCount === 0) failures.push(`${symbol}: zero rows for ${file.kind} ${file.interval}`);
+        }
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(`Export failed for ${failures.length} item(s), no manifest written:\n${failures.join('\n')}`);
     }
 
     // A partial run (--datasets, --symbols, --intervals) must not drop the

@@ -35,6 +35,11 @@ export interface RulePaths {
   /** Whether the close of day i is a decision day. */
   decide: (i: number) => boolean;
   rebalance: Rebalance;
+  /**
+   * Broad phase only (broad-trend.ts): 1 where the rule's signal AND size are
+   * both defined. Absent on the legends builders' paths.
+   */
+  defined?: Uint8Array;
 }
 
 /** Daily simple returns; r[i] is close i over close i-1, NaN at 0. */
@@ -276,4 +281,201 @@ export function c3Paths(c: ArrayLike<number>, basketState: Float64Array): RulePa
 /** The always-long twin T+: the same paths with the signal forced to fully long. */
 export function twinOf(paths: RulePaths): RulePaths {
   return { ...paths, signal: new Float64Array(paths.signal.length).fill(1) };
+}
+
+/*
+ * BROAD PHASE (broad-trend.ts header): undefined-aware paths, the symmetric
+ * twin and the point-in-time C3 basket. Nothing above changes; these are new
+ * functions, and the legends builders keep their exact outputs.
+ */
+
+/**
+ * The first bar index at which each TF rule's signal and size are both defined,
+ * from the rule's definition (trend-sim.ts header, TREND SET):
+ *   - TF1: the 60-day lookback reads close_{i-60} (i >= 60); the 30-day mean
+ *     absolute volatility needs 30 returns (i >= 30).
+ *   - TF2: the 365-day lookback (i >= 365); the EWMA is seeded at i = 60.
+ *   - TF3: the 200-day SMA needs 200 closes including i (i >= 199).
+ *   - TF4: the 360-day Donchian needs 360 closes including i (i >= 359); sigma90
+ *     needs 90 returns (i >= 90).
+ */
+export const TF_FIRST_DEFINED: Readonly<Record<Exclude<TrendRuleId, 'C3'>, number>> = {
+  TF1: Math.max(...TF1_LOOKBACKS, 30),
+  TF2: Math.max(...TF2_LOOKBACKS, 60),
+  TF3: 200 - 1,
+  TF4: Math.max(Math.max(...TF4_LOOKBACKS) - 1, 90),
+};
+
+/** C3's state needs a 28-day return and its trailing 365 values: index position 28 + 365 on. */
+export const C3_FIRST_DEFINED = 28 + 365;
+
+/**
+ * A TF rule's defined mask: 1 from its first defined index where its size is
+ * finite (TF1 and TF2 leave the size undefined on a zero volatility).
+ */
+export function tfDefined(rule: Exclude<TrendRuleId, 'C3'>, size: Float64Array): Uint8Array {
+  const first = TF_FIRST_DEFINED[rule];
+  const defined = new Uint8Array(size.length);
+  for (let i = first; i < size.length; i++) defined[i] = Number.isFinite(size[i]) ? 1 : 0;
+  return defined;
+}
+
+/** One contract's closes as the point-in-time basket reads them (TrendSymbolInput fits). */
+export interface BasketInput {
+  symbol: string;
+  /** Bar open times, consecutive UTC days. */
+  t: readonly number[];
+  close: ArrayLike<number>;
+  /** 1 on a carried day (no real close). */
+  carried?: Uint8Array;
+  /** The last traded day when the contract ends before the sample end (a delisting), else null. */
+  endDay?: number | null;
+}
+
+/** C3's point-in-time basket: the index, its state and where the state is defined, on consecutive days. */
+export interface BroadBasket {
+  /** Consecutive UTC day starts from the first basket day. */
+  days: number[];
+  index: Float64Array;
+  /** c3State on the index, unchanged. */
+  state: Float64Array;
+  /** 1 from position C3_FIRST_DEFINED on. */
+  defined: Uint8Array;
+}
+
+function dayIndexOf(t: readonly number[], day: number): number {
+  if (t.length === 0) return -1;
+  const i = Math.round((day - t[0]) / DAY_MS);
+  return i >= 0 && i < t.length && t[i] === day ? i : -1;
+}
+
+/**
+ * Header C3 BASKET: the basket index from its own point-in-time membership
+ * (`membership[symbol]`: member for days from <= d < to). On each day after the
+ * first, the index moves by the equal-weighted close-to-close return of that
+ * day's members with real (non-carried) closes on both days; a contract that was
+ * a basket member on its last traded day (`endDay`) adds -delistHaircut as its
+ * return on the day after. A day with no contributor keeps the level. Chain-
+ * linked from 1 on the first basket day (the legends index convention: the
+ * first day carries no return). Its state is c3State, unchanged.
+ *
+ * Reading recorded at build time (broad-trend.ts implementation notes, A4): the
+ * header charges "a member whose contract ends ... so the index pays every
+ * failure the portfolio pays". The portfolio pays a delisting when it holds the
+ * contract on its last day, so the index charges a contract that was a member on
+ * its last traded day, whether or not the next month's ranking keeps it.
+ */
+export function pointInTimeBasket(
+  inputs: readonly BasketInput[],
+  membership: Readonly<Record<string, ReadonlyArray<{ from: number; to: number }>>>,
+  delistHaircut: number
+): BroadBasket {
+  let first = Infinity;
+  let last = -Infinity;
+  for (const spans of Object.values(membership)) {
+    for (const span of spans) {
+      if (!(span.to > span.from) || span.from % DAY_MS !== 0 || span.to % DAY_MS !== 0) {
+        throw new Error(`Basket span [${span.from}, ${span.to}) is not a range of UTC days`);
+      }
+      first = Math.min(first, span.from);
+      last = Math.max(last, span.to - DAY_MS);
+    }
+  }
+  if (!Number.isFinite(first)) throw new Error('The basket has no membership');
+  const n = Math.round((last - first) / DAY_MS) + 1;
+  const days = Array.from({ length: n }, (_, k) => first + k * DAY_MS);
+
+  const flags = inputs.map((input) => {
+    const flag = new Uint8Array(n);
+    for (const span of membership[input.symbol] ?? []) {
+      for (let d = span.from; d < span.to; d += DAY_MS) flag[Math.round((d - first) / DAY_MS)] = 1;
+    }
+    return flag;
+  });
+
+  const index = new Float64Array(n);
+  index[0] = 1;
+  for (let k = 1; k < n; k++) {
+    const day = days[k];
+    let sum = 0;
+    let count = 0;
+    inputs.forEach((input, j) => {
+      if (flags[j][k] === 1) {
+        const i = dayIndexOf(input.t, day);
+        const before = dayIndexOf(input.t, day - DAY_MS);
+        const real = (x: number) => input.carried === undefined || input.carried[x] !== 1;
+        if (i !== -1 && before !== -1 && real(i) && real(before)) {
+          sum += input.close[i] / input.close[before] - 1;
+          count++;
+          return;
+        }
+      }
+      if (input.endDay !== undefined && input.endDay !== null && input.endDay === day - DAY_MS && flags[j][k - 1] === 1) {
+        sum -= delistHaircut;
+        count++;
+      }
+    });
+    index[k] = index[k - 1] * (1 + (count > 0 ? sum / count : 0));
+  }
+  const state = c3State(index);
+  const defined = new Uint8Array(n);
+  for (let k = C3_FIRST_DEFINED; k < n; k++) defined[k] = 1;
+  return { days, index, state, defined };
+}
+
+/** C3's paths for one contract from the point-in-time basket; 0 (holds nothing) outside the basket's days. */
+export function c3BroadPaths(t: readonly number[], basket: BroadBasket): RulePaths {
+  const signal = new Float64Array(t.length);
+  const defined = new Uint8Array(t.length);
+  const first = basket.days.length > 0 ? basket.days[0] : 0;
+  for (let i = 0; i < t.length; i++) {
+    const k = Math.round((t[i] - first) / DAY_MS);
+    if (k >= 0 && k < basket.days.length && basket.days[k] === t[i]) {
+      signal[i] = basket.state[k];
+      defined[i] = basket.defined[k];
+    }
+  }
+  return {
+    signal,
+    size: new Float64Array(t.length).fill(1),
+    decide: () => true,
+    rebalance: { kind: 'on-signal-change' },
+    defined,
+  };
+}
+
+/**
+ * Broad phase paths for one contract, computed on its own full history: the
+ * legends builder's paths (unchanged) with `defined` set and the signal set to 0
+ * where it is not defined ("A signal that is not yet defined holds nothing").
+ * C3 reads the shared point-in-time basket.
+ */
+export function broadPaths(
+  rule: TrendRuleId,
+  input: { t: readonly number[]; close: ArrayLike<number> },
+  basket?: BroadBasket
+): RulePaths {
+  if (rule === 'C3') {
+    if (!basket) throw new Error('C3 needs the point-in-time basket');
+    return c3BroadPaths(input.t, basket);
+  }
+  const build = { TF1: tf1Paths, TF2: tf2Paths, TF3: tf3Paths, TF4: tf4Paths }[rule];
+  const base = build(input.t, input.close);
+  const defined = tfDefined(rule, base.size);
+  const signal = new Float64Array(base.signal.length);
+  for (let i = 0; i < signal.length; i++) signal[i] = defined[i] === 1 ? base.signal[i] : 0;
+  return { ...base, signal, defined };
+}
+
+/**
+ * Header PORTFOLIO: the always-long twin T+ of the broad phase, forced fully long
+ * where the rule's signal is defined and holding nothing where it is not. Same
+ * size, schedule and band. `twinOf` is unchanged for the legends phase.
+ */
+export function twinOfBroad(paths: RulePaths): RulePaths {
+  const { defined } = paths;
+  if (!defined) throw new Error('twinOfBroad needs the paths\' defined mask (broadPaths)');
+  const signal = new Float64Array(paths.signal.length);
+  for (let i = 0; i < signal.length; i++) signal[i] = defined[i] === 1 ? 1 : 0;
+  return { ...paths, signal };
 }

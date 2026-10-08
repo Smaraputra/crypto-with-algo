@@ -1215,6 +1215,208 @@ export function validateTrendReport(json: unknown): ValidationResult<TrendReport
   return { ok: false, issues: formatIssues(result.error) };
 }
 
+/**
+ * The broad trend phase report (scripts/research/broad-harness.ts), schema
+ * version 2, one per pre-registered rule (broad-trend.ts header). A new schema:
+ * TrendReportSchema above stays the legends phase's. It carries the nine gates
+ * (gate 8 pending, settled by broad-dsr.ts across the five), every reported
+ * statistic, the export and universe hashes, the parameters and the daily
+ * return series gate 8 reads. Every field is declared, because Zod strips what
+ * is not.
+ */
+const BroadGateSchema = z.object({
+  id: z.number(),
+  name: z.enum(['sample', 'expectancy', 'twin', 'timing', 'cohorts', 'years', 'stress', 'trials', 'ex2021']),
+  pass: z.boolean().nullable(),
+  value: z.number().nullable(),
+  threshold: z.number(),
+  note: z.string(),
+});
+export type BroadGate = z.infer<typeof BroadGateSchema>;
+
+const BroadBenchmarkSchema = z.object({
+  available: z.boolean(),
+  note: z.string(),
+  alpha: z.number().nullable(),
+  beta: z.number().nullable(),
+  benchmarkSharpe: z.number().nullable(),
+  benchmarkAnnual: z.number().nullable(),
+});
+
+const BroadNullSchema = z.object({
+  mode: z.enum(['wrapped', 'aligned']),
+  /** Null when the observed alpha is undefined: the gate fails. */
+  p: z.number().nullable(),
+  nullMean: z.number().nullable(),
+  draws: z.number(),
+  /** Member-days shifted out of calendar alignment ('wrapped'); 0 by construction for 'aligned'. */
+  misalignedShare: z.number().nullable(),
+  /** 'aligned': member-days whose shifted source lies outside the contract's life (exposure lost). */
+  outsideLifeShare: z.number().nullable(),
+});
+
+const BroadDropSchema = z.object({
+  label: z.string(),
+  contracts: z.array(z.string()),
+  memberDays: z.number(),
+  share: z.number().nullable(),
+  alpha: z.number().nullable(),
+  beta: z.number().nullable(),
+});
+
+/** Recorded resolutions of flagged funding settlements (broad-trend.ts implementation note A6-1). */
+export const FundingResolutionsRecordSchema = z.object({
+  sha256: z.string().nullable(),
+  noEvent: z.number(),
+  rest: z.number(),
+  restSettlements: z.number(),
+});
+
+export const BroadTrendReportSchema = z.object({
+  schemaVersion: z.literal(2),
+  phase: z.literal('broad-trend'),
+  taskId: z.string(),
+  rule: z.enum(['TF1', 'TF2', 'TF3', 'TF4', 'C3']),
+  datasetManifestHash: z.string(),
+  universe: z.object({
+    sha256: z.string(),
+    sourceDatasetHash: z.string(),
+    startClose: z.string(),
+    startLaterThan20210701: z.boolean(),
+    contracts: z.number(),
+    basketContracts: z.number(),
+  }),
+  lockboxApplied: z.boolean(),
+  parameters: z.object({
+    from: z.number(),
+    to: z.number(),
+    fee: z.number(),
+    slippageTiers: z.array(z.object({ maxRank: z.number(), bps: z.number() })),
+    leaveSlippage: z.number(),
+    delistHaircut: z.number(),
+    stress: z.object({
+      feeMultiple: z.number(),
+      slippageMultiple: z.number(),
+      delistHaircut: z.number(),
+      reportedHaircut: z.number(),
+    }),
+    blockDays: z.number(),
+    blockSensitivity: z.array(z.number()),
+    bootstrapDraws: z.number(),
+    bootstrapSeed: z.number(),
+    nullDraws: z.number(),
+    nullSeed: z.number(),
+    nullCalendarStart: z.number(),
+    nullCalendarDays: z.number(),
+    nullSizeUniverses: z.number(),
+    nullSizeSeed: z.number(),
+    nullSizeDraws: z.number(),
+    minSampleDays: z.number(),
+    timingP: z.number(),
+    minPositiveYearShare: z.number(),
+    gatedYears: z.array(z.number()),
+    cohortMinShare: z.number(),
+    ex2021From: z.number(),
+    ex2021To: z.number(),
+  }),
+  sample: z.object({
+    from: z.number(),
+    to: z.number(),
+    firstDefinedDay: z.number().nullable(),
+    firstDay: z.number().nullable(),
+    lastDay: z.number().nullable(),
+    days: z.number(),
+  }),
+  run: TrendRunSummarySchema,
+  twin: TrendRunSummarySchema,
+  sharpe: TrendCiSchema,
+  sharpeBlock20: TrendCiSchema,
+  sharpeBlock120: TrendCiSchema,
+  sharpeDifference: z.number().nullable(),
+  alpha: TrendCiSchema,
+  alphaBlock20: TrendCiSchema,
+  alphaBlock120: TrendCiSchema,
+  beta: z.number().nullable(),
+  benchmarks: z.object({ btc: BroadBenchmarkSchema, memberBasket: BroadBenchmarkSchema }),
+  timing: z.object({ wrapped: BroadNullSchema, aligned: BroadNullSchema, gatingP: z.number().nullable() }),
+  nullSize: z
+    .object({
+      universes: z.number(),
+      seed: z.number(),
+      draws: z.number(),
+      wrappedRejection: z.number().nullable(),
+      alignedRejection: z.number().nullable(),
+      bothRejection: z.number().nullable(),
+      perUniverse: z.array(
+        z.object({ observedAlpha: z.number().nullable(), wrappedP: z.number().nullable(), alignedP: z.number().nullable() })
+      ),
+    })
+    .nullable(),
+  cohorts: z.object({
+    listingYears: z.array(BroadDropSchema.extend({ years: z.array(z.number()) })),
+    legendsTen: BroadDropSchema,
+    btcEth: BroadDropSchema,
+    top5: BroadDropSchema.extend({
+      contributions: z.array(z.object({ contract: z.string(), contribution: z.number() })),
+    }),
+  }),
+  years: z.array(z.object({ year: z.number(), alpha: z.number().nullable(), beta: z.number().nullable(), days: z.number() })),
+  stress: TrendAlphaPointSchema,
+  stressHaircut5: TrendAlphaPointSchema,
+  ex2021: z.object({
+    from: z.number(),
+    to: z.number(),
+    days: z.number(),
+    alpha: z.number().nullable(),
+    beta: z.number().nullable(),
+  }),
+  delay1: TrendAlphaPointSchema,
+  membersPerMonth: z.array(
+    z.object({
+      close: z.string(),
+      eligible: z.number(),
+      members: z.number(),
+      live: z.number(),
+      cashShare: z.number().nullable(),
+    })
+  ),
+  delistings: z.array(
+    z.object({
+      contract: z.string(),
+      day: z.number(),
+      qty: z.number(),
+      close: z.number(),
+      exitPrice: z.number(),
+      haircut: z.number(),
+      fee: z.number(),
+      /** The sleeve's PnL on its end day over the portfolio equity at the previous close. */
+      dayContribution: z.number(),
+    })
+  ),
+  leaves: z.object({ count: z.number(), traded: z.number(), cost: z.number() }),
+  funding: z.object({
+    contracts: z.number(),
+    settlements: z.number(),
+    intervalSwitches: z.number(),
+    byInterval: z.record(z.string(), z.number()),
+  }),
+  fundingResolutions: FundingResolutionsRecordSchema,
+  carriedDays: z.record(z.string(), z.number()),
+  gates: z.array(BroadGateSchema),
+  verdict: z.enum(['fail', 'pending-trials', 'pass']),
+  daily: z.object({ days: z.array(z.number()), returns: z.array(z.number()) }),
+  computedAt: z.string(),
+  gitCommit: z.string(),
+  durationMs: z.number(),
+});
+export type BroadTrendReport = z.infer<typeof BroadTrendReportSchema>;
+
+export function validateBroadTrendReport(json: unknown): ValidationResult<BroadTrendReport> {
+  const result = BroadTrendReportSchema.safeParse(json);
+  if (result.success) return { ok: true, data: result.data };
+  return { ok: false, issues: formatIssues(result.error) };
+}
+
 // Every finite number reachable inside `pooled`, except the counts and
 // indexes listed here: a sample size, a raw trial/window/year count, or an
 // array index is not a "statistic" a finding should be able to cite by
