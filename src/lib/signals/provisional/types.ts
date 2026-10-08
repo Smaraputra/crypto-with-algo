@@ -32,7 +32,10 @@ export interface ProvisionalContextReady {
   futures: FuturesData | null;
   sentiment: SentimentData | null;
   weights: SignalWeights;
-  /** From HTF bars closed at request time. */
+  /**
+   * From HTF bars closed at request time. At an HTF boundary this can be one
+   * HTF bar older than the scheduler's, so the score can shift at the close.
+   */
   htfContext: HtfContext | null;
   generatedAt: number;
 }

@@ -64,7 +64,7 @@ let mongoServer: MongoMemoryServer;
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
+  await mongoose.connect(mongoServer.getUri(), { monitorCommands: true });
 }, 60_000);
 
 afterAll(async () => {
@@ -129,9 +129,9 @@ async function seed() {
     symbol: SYMBOL,
     interval: '1h',
     tradingStyle: 'day_trading',
-    score: 17,
+    score: 17.318429,
     tier: 'neutral',
-    confidence: 41,
+    confidence: 41.726193,
     components: [],
     configVersion: SCORER_CONFIG_VERSION,
     candleTimestamp: FORMING - HOUR,
@@ -145,12 +145,33 @@ async function seed() {
     interval: '1h',
     tradingStyle: 'day_trading',
     tier: 'neutral',
-    score: 17,
+    score: 17.318429,
     configVersion: SCORER_CONFIG_VERSION,
     candleTimestamp: FORMING - HOUR,
     horizonBars: 4,
     resolveAt: FORMING + 3 * HOUR,
   });
+}
+
+const WRITE_COMMANDS = new Set([
+  'insert',
+  'update',
+  'delete',
+  'findAndModify',
+  'createIndexes',
+  'drop',
+  'dropIndexes',
+  'dropDatabase',
+  'create',
+  'renameCollection',
+]);
+
+/** A write command, or an aggregate that writes through $out or $merge. */
+function isWriteCommand(name: string, command: Record<string, unknown>): boolean {
+  if (WRITE_COMMANDS.has(name)) return true;
+  if (name !== 'aggregate') return false;
+  const pipeline = Array.isArray(command.pipeline) ? command.pipeline : [];
+  return pipeline.some((stage) => stage && typeof stage === 'object' && ('$out' in stage || '$merge' in stage));
 }
 
 interface Snapshot {
@@ -198,6 +219,14 @@ describe('provisional context never reaches Mongo', () => {
     for (const model of MODELS) await model.init();
 
     const before = await snapshotDb();
+    const observed: string[] = [];
+    const writes: string[] = [];
+    const onCommand = (ev: { commandName: string; command: Record<string, unknown> }) => {
+      observed.push(ev.commandName);
+      if (isWriteCommand(ev.commandName, ev.command)) writes.push(ev.commandName);
+    };
+    const client = mongoose.connection.getClient();
+    client.on('commandStarted', onCommand);
     expect(before.hashes.size).toBeGreaterThanOrEqual(MODELS.length);
 
     vi.useFakeTimers({ now: FORMING + 60_000, toFake: ['Date'] });
@@ -235,6 +264,13 @@ describe('provisional context never reaches Mongo', () => {
     expect(readyContexts).toBe(times.length);
     expect(scores.length).toBeGreaterThanOrEqual(20);
     expect(new Set(scores.map((s) => s.score)).size).toBeGreaterThan(1);
+
+    client.off('commandStarted', onCommand);
+
+    // The listener really saw the route's reads, and no command wrote. A hash
+    // comparison alone cannot see an idempotent upsert or an insert then delete.
+    expect(observed).toContain('find');
+    expect(writes).toEqual([]);
 
     const after = await snapshotDb();
 

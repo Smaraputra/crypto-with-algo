@@ -183,6 +183,21 @@ describe('GET /api/signals/provisional-context', () => {
     }
   });
 
+  it('pins the 99-closed-bar window for scalping on 1m', async () => {
+    const minute = intervalToMs('1m');
+    const formingMinute = Math.floor(NOW / minute) * minute;
+    mocks.getCandles.mockImplementation(candlesUpTo('1m', formingMinute - minute));
+    const scalpRec = getStyleConfig('scalping').recommendedCandles;
+    expect(scalpRec).toBe(100);
+
+    const body = await (await GET(request({ symbol: 'BTCUSDT', interval: '1m', style: 'scalping' }))).json();
+    expect(body.ready).toBe(true);
+    expect(body.formingOpenTime).toBe(formingMinute);
+    expect(body.closedCandles).toHaveLength(99);
+    expect(body.closedCandles[98].timestamp).toBe(formingMinute - minute);
+    expect(mocks.getCandles).toHaveBeenCalledWith('BTCUSDT', '1m', undefined, undefined, 100);
+  });
+
   it('only uses provisional: cache keys and never the shared fetchers', async () => {
     await GET(request(GOOD));
     expect(mocks.cacheKeys.length).toBeGreaterThan(0);
