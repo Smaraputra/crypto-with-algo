@@ -19,6 +19,10 @@ export interface IArchiveFlowFile extends Document {
   /** Rows older than their open bucket, left out of every bucket. Nonzero is a defect to look at. */
   outOfOrder: number;
   bytesUncompressed: number;
+  /** Days in the period x 288. */
+  expectedBuckets: number;
+  /** UTC dates ('YYYY-MM-DD') of the period holding fewer than 288 buckets. */
+  missingDays: string[];
   /** The zip's crc32 and size matched what was inflated (a mismatch fails the file instead). */
   crcOk: boolean;
   startedAt: Date;
@@ -34,6 +38,8 @@ const archiveFlowFileSchema = new Schema<IArchiveFlowFile>(
     buckets: { type: Number, required: true, default: 0 },
     outOfOrder: { type: Number, required: true, default: 0 },
     bytesUncompressed: { type: Number, required: true, default: 0 },
+    expectedBuckets: { type: Number, required: true, default: 0 },
+    missingDays: { type: [String], default: [] },
     crcOk: { type: Boolean, required: true },
     startedAt: { type: Date, required: true },
     completedAt: { type: Date, required: true },

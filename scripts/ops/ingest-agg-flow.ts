@@ -28,10 +28,20 @@
  *   --concurrency 1             files processed at once
  *   --refresh                   re-ingest files already recorded (complete or missing)
  *   --dry-run                   print the job list with its status and exit
+ *   --daily-repair BTCUSDT:2024-03-05[,...]
+ *                               repair mode: ingest the DAILY aggTrades file of each
+ *                               SYMBOL:date (days a monthly file omits), then refresh that
+ *                               month's ledger coverage. Nothing else runs. Refuses 2026-07-01 on.
  *
- * One JSON line per file: { symbol, period, status, lines, buckets, outOfOrder, seconds },
- * then a final summary line.
+ * One JSON line per file: { symbol, period, status, lines, buckets, outOfOrder, expectedBuckets,
+ * missingDays, seconds }, then one { coverage } line per file with missing days, then a final
+ * summary line.
+ *
+ * Month guard: a file whose buckets are not all inside its own month (a boundary trade, a
+ * microsecond timestamp) fails with no writes and no ledger row; the error carries the first and
+ * last bucketStart. The same guard bounds a daily repair file to its own day.
  */
+import type { FlowBucket } from '@/lib/archive-flow/fold';
 import { foldArchiveFile } from '@/lib/archive-flow/fold-file';
 import { archiveFileName } from '@/lib/external/binance-archive';
 import { ArchiveFlowBar } from '@/lib/models/archive-flow-bar';
@@ -46,6 +56,14 @@ export const LOCKBOX_FIRST_PERIOD = '2026-07';
 /** Documents per bulkWrite. */
 export const WRITE_CHUNK = 5_000;
 
+/** 5-minute buckets in a UTC day. */
+export const BUCKETS_PER_DAY = 288;
+const DAY_MS = 86_400_000;
+const BUCKET_MS = 300_000;
+/** First UTC date nothing may read (the lockbox), for the daily repair mode. */
+export const LOCKBOX_FIRST_DATE = '2026-07-01';
+
+const DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 const SYMBOL = /^[A-Z0-9]+$/;
 
@@ -56,6 +74,13 @@ export interface Args {
   concurrency: number;
   refresh: boolean;
   dryRun: boolean;
+  dailyRepair: RepairJob[];
+}
+
+export interface RepairJob {
+  symbol: string;
+  /** 'YYYY-MM-DD'. */
+  date: string;
 }
 
 export interface Job {
@@ -73,6 +98,8 @@ export interface FileResult {
   lines: number;
   buckets: number;
   outOfOrder: number;
+  expectedBuckets?: number;
+  missingDays?: string[];
   seconds: number;
   error?: string;
 }
@@ -86,6 +113,7 @@ export interface Summary {
   failed: number;
   buckets: number;
   outOfOrderFiles: number;
+  filesWithMissing: number;
   seconds: number;
 }
 
@@ -104,6 +132,92 @@ export function assertOutsideLockbox(period: string): void {
   }
 }
 
+/** Throws unless `date` is 'YYYY-MM-DD' and strictly before the lockbox. */
+export function assertDateOutsideLockbox(date: string): void {
+  if (date >= LOCKBOX_FIRST_DATE) {
+    throw new Error(
+      `Lockbox: date ${date} is at or after ${LOCKBOX_FIRST_DATE}, which this ingest never reads`
+    );
+  }
+}
+
+/** Parses 'SYMBOL:YYYY-MM-DD[,...]'. Refuses a bad shape, an impossible date or a lockbox date. */
+export function parseRepairList(raw: string): RepairJob[] {
+  const jobs = raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const [symbol, date, ...extra] = item.split(':');
+      const upper = symbol?.toUpperCase() ?? '';
+      if (extra.length > 0 || !SYMBOL.test(upper) || !date || !DATE.test(date)) {
+        throw new Error(`--daily-repair items must be SYMBOL:YYYY-MM-DD, got ${item}`);
+      }
+      if (new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
+        throw new Error(`--daily-repair has an impossible date: ${date}`);
+      }
+      assertDateOutsideLockbox(date);
+      return { symbol: upper, date };
+    });
+  if (jobs.length === 0) throw new Error('--daily-repair is empty');
+  return jobs;
+}
+
+/** UTC [start, end) in epoch ms of a 'YYYY-MM' period or a 'YYYY-MM-DD' date. */
+export function rangeOf(label: string): { start: number; end: number } {
+  const year = Number(label.slice(0, 4));
+  const month = Number(label.slice(5, 7)) - 1;
+  if (label.length === 7)
+    return { start: Date.UTC(year, month, 1), end: Date.UTC(year, month + 1, 1) };
+  const start = Date.UTC(year, month, Number(label.slice(8, 10)));
+  return { start, end: start + DAY_MS };
+}
+
+/**
+ * Throws unless EVERY bucketStart is in [start, end), naming the first and last bucketStart of the
+ * file. Runs before any write, so a boundary trade or a wrong-unit timestamp cannot overwrite a
+ * neighbouring file's bucket.
+ */
+export function assertBucketsInRange(
+  label: string,
+  buckets: Pick<FlowBucket, 'bucketStart'>[],
+  start: number,
+  end: number
+): void {
+  const outside = buckets.filter((b) => b.bucketStart < start || b.bucketStart >= end);
+  if (outside.length === 0) return;
+  const starts = buckets.map((b) => b.bucketStart);
+  const iso = (ms: number): string =>
+    Number.isFinite(ms) ? new Date(ms).toISOString() : String(ms);
+  throw new Error(
+    `${label}: ${outside.length} of ${buckets.length} buckets fall outside ` +
+      `[${iso(start)}, ${iso(end)}); first bucketStart ${iso(Math.min(...starts))}, ` +
+      `last bucketStart ${iso(Math.max(...starts))}`
+  );
+}
+
+/** 'YYYY-MM-DD' dates of [start, end) holding fewer than 288 of the given bucket starts. */
+export function missingDaysOf(starts: number[], start: number, end: number): string[] {
+  const counts = new Map<number, number>();
+  for (const bucketStart of starts) {
+    if (bucketStart < start || bucketStart >= end) continue;
+    const day = start + Math.floor((bucketStart - start) / DAY_MS) * DAY_MS;
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  const missing: string[] = [];
+  for (let day = start; day < end; day += DAY_MS) {
+    if ((counts.get(day) ?? 0) < BUCKETS_PER_DAY) {
+      missing.push(new Date(day).toISOString().slice(0, 10));
+    }
+  }
+  return missing;
+}
+
+/** Days in the range x 288. */
+export function expectedBucketsOf(start: number, end: number): number {
+  return Math.round((end - start) / BUCKET_MS);
+}
+
 /** Pure argv parser: no I/O, so it is unit tested directly. */
 export function parseArgs(argv: string[]): Args {
   let symbols: string[] = [...SIGNAL_SYMBOLS];
@@ -112,6 +226,7 @@ export function parseArgs(argv: string[]): Args {
   let concurrency = 1;
   let refresh = false;
   let dryRun = false;
+  let dailyRepair: RepairJob[] = [];
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -143,6 +258,9 @@ export function parseArgs(argv: string[]): Args {
       case '--dry-run':
         dryRun = true;
         break;
+      case '--daily-repair':
+        dailyRepair = parseRepairList(nextValue(argv, ++i, flag));
+        break;
       default:
         throw new Error(`Unknown flag: ${flag}`);
     }
@@ -162,7 +280,7 @@ export function parseArgs(argv: string[]): Args {
   assertOutsideLockbox(to);
   if (from > to) throw new Error(`--from ${from} is after --to ${to}`);
 
-  return { symbols, from, to, concurrency, refresh, dryRun };
+  return { symbols, from, to, concurrency, refresh, dryRun, dailyRepair };
 }
 
 /** Every 'YYYY-MM' from `from` to `to`, inclusive. */
@@ -193,12 +311,40 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
-async function ledgerStatuses(jobs: Job[]): Promise<Map<string, LedgerStatus>> {
+interface LedgerEntry {
+  status: LedgerStatus;
+  expectedBuckets: number;
+  missingDays: string[];
+}
+
+async function ledgerStatuses(jobs: Job[]): Promise<Map<string, LedgerEntry>> {
   const symbols = [...new Set(jobs.map((j) => j.symbol))];
   const rows = await ArchiveFlowFile.find({ symbol: { $in: symbols } })
-    .select('symbol period status')
+    .select('symbol period status expectedBuckets missingDays')
     .lean();
-  return new Map(rows.map((r) => [`${r.symbol}|${r.period}`, r.status as LedgerStatus]));
+  return new Map(
+    rows.map((r) => [
+      `${r.symbol}|${r.period}`,
+      {
+        status: r.status as LedgerStatus,
+        expectedBuckets: r.expectedBuckets ?? 0,
+        missingDays: r.missingDays ?? [],
+      },
+    ])
+  );
+}
+
+async function writeBuckets(symbol: string, source: string, buckets: FlowBucket[]): Promise<void> {
+  for (let i = 0; i < buckets.length; i += WRITE_CHUNK) {
+    const chunk = buckets.slice(i, i + WRITE_CHUNK).map((bucket) => ({
+      updateOne: {
+        filter: { symbol, bucketStart: bucket.bucketStart },
+        update: { $set: { ...bucket, symbol, source } },
+        upsert: true,
+      },
+    }));
+    await ArchiveFlowBar.bulkWrite(chunk, { ordered: false });
+  }
 }
 
 /** Ingest one file. Never throws: a failure is returned as status 'error' and leaves no ledger row. */
@@ -232,6 +378,8 @@ export async function ingestFile(job: Job): Promise<FileResult> {
             buckets: 0,
             outOfOrder: 0,
             bytesUncompressed: 0,
+            expectedBuckets: 0,
+            missingDays: [],
             crcOk: false,
             startedAt,
             completedAt: new Date(),
@@ -242,17 +390,17 @@ export async function ingestFile(job: Job): Promise<FileResult> {
       return result({ status: 'missing' });
     }
 
-    const source = archiveFileName(spec);
-    for (let i = 0; i < folded.buckets.length; i += WRITE_CHUNK) {
-      const chunk = folded.buckets.slice(i, i + WRITE_CHUNK).map((bucket) => ({
-        updateOne: {
-          filter: { symbol: job.symbol, bucketStart: bucket.bucketStart },
-          update: { $set: { ...bucket, symbol: job.symbol, source } },
-          upsert: true,
-        },
-      }));
-      await ArchiveFlowBar.bulkWrite(chunk, { ordered: false });
-    }
+    // Before any write: every bucket must belong to this file's own month.
+    const { start, end } = rangeOf(job.period);
+    assertBucketsInRange(`${job.symbol} ${job.period}`, folded.buckets, start, end);
+    const expectedBuckets = expectedBucketsOf(start, end);
+    const missingDays = missingDaysOf(
+      folded.buckets.map((b) => b.bucketStart),
+      start,
+      end
+    );
+
+    await writeBuckets(job.symbol, archiveFileName(spec), folded.buckets);
 
     // Last: a row means every bucket above was written.
     await ArchiveFlowFile.updateOne(
@@ -264,6 +412,8 @@ export async function ingestFile(job: Job): Promise<FileResult> {
           buckets: folded.buckets.length,
           outOfOrder: folded.outOfOrder,
           bytesUncompressed: folded.uncompressedBytes,
+          expectedBuckets,
+          missingDays,
           crcOk: true,
           startedAt,
           completedAt: new Date(),
@@ -274,6 +424,77 @@ export async function ingestFile(job: Job): Promise<FileResult> {
     return result({
       status: 'complete',
       lines: folded.lines,
+      buckets: folded.buckets.length,
+      outOfOrder: folded.outOfOrder,
+      expectedBuckets,
+      missingDays,
+    });
+  } catch (error) {
+    return result({ status: 'error', error: errorMessage(error) });
+  }
+}
+
+export interface RepairResult {
+  repair: true;
+  symbol: string;
+  date: string;
+  status: 'repaired' | 'missing' | 'error';
+  buckets: number;
+  outOfOrder: number;
+  seconds: number;
+  error?: string;
+}
+
+/** Recomputes a month's ledger coverage from the stored buckets (after a repair). No-op without a row. */
+async function refreshCoverage(symbol: string, period: string): Promise<void> {
+  const { start, end } = rangeOf(period);
+  const docs = await ArchiveFlowBar.find({ symbol, bucketStart: { $gte: start, $lt: end } })
+    .select('bucketStart')
+    .lean();
+  await ArchiveFlowFile.updateOne(
+    { symbol, period, status: 'complete' },
+    {
+      $set: {
+        expectedBuckets: expectedBucketsOf(start, end),
+        missingDays: missingDaysOf(
+          docs.map((d) => d.bucketStart),
+          start,
+          end
+        ),
+      },
+    }
+  );
+}
+
+/** Ingest one DAILY aggTrades file with the same fold and a day-bounded guard. Never throws. */
+export async function repairDay(job: RepairJob): Promise<RepairResult> {
+  const t0 = Date.now();
+  const result = (r: Partial<RepairResult> & { status: RepairResult['status'] }): RepairResult => ({
+    repair: true,
+    symbol: job.symbol,
+    date: job.date,
+    buckets: 0,
+    outOfOrder: 0,
+    seconds: Math.round((Date.now() - t0) / 100) / 10,
+    ...r,
+  });
+  try {
+    assertDateOutsideLockbox(job.date);
+    const spec = {
+      dataset: 'aggTrades',
+      symbol: job.symbol,
+      date: job.date,
+      cadence: 'daily',
+    } as const;
+    const folded = await foldArchiveFile(spec);
+    if (folded.status === 'missing') return result({ status: 'missing' });
+
+    const { start, end } = rangeOf(job.date);
+    assertBucketsInRange(`${job.symbol} ${job.date}`, folded.buckets, start, end);
+    await writeBuckets(job.symbol, archiveFileName(spec), folded.buckets);
+    await refreshCoverage(job.symbol, job.date.slice(0, 7));
+    return result({
+      status: 'repaired',
       buckets: folded.buckets.length,
       outOfOrder: folded.outOfOrder,
     });
@@ -302,13 +523,24 @@ export async function run(
   args: Args,
   log: (line: object) => void = (l) => console.log(JSON.stringify(l))
 ): Promise<number> {
-  const jobs = buildJobs(args);
   const t0 = Date.now();
+  if (args.dailyRepair.length > 0) {
+    for (const job of args.dailyRepair) assertDateOutsideLockbox(job.date);
+    let failed = 0;
+    await runPool(args.dailyRepair, args.concurrency, async (job) => {
+      const result = await repairDay(job);
+      if (result.status === 'error') failed++;
+      log(result);
+    });
+    return failed > 0 ? 1 : 0;
+  }
+
+  const jobs = buildJobs(args);
   const statuses = await ledgerStatuses(jobs);
 
   if (args.dryRun) {
     for (const job of jobs) {
-      log({ ...job, status: statuses.get(`${job.symbol}|${job.period}`) ?? 'pending' });
+      log({ ...job, status: statuses.get(`${job.symbol}|${job.period}`)?.status ?? 'pending' });
     }
     return 0;
   }
@@ -318,12 +550,32 @@ export async function run(
     const recorded = statuses.get(`${job.symbol}|${job.period}`);
     const result: FileResult =
       recorded && !args.refresh
-        ? { ...job, status: 'skipped', lines: 0, buckets: 0, outOfOrder: 0, seconds: 0 }
+        ? {
+            ...job,
+            status: 'skipped',
+            lines: 0,
+            buckets: 0,
+            outOfOrder: 0,
+            expectedBuckets: recorded.expectedBuckets,
+            missingDays: recorded.missingDays,
+            seconds: 0,
+          }
         : await ingestFile(job);
     results.push(result);
     const { error, ...line } = result;
     log(error ? { ...line, error } : line);
   });
+
+  const withMissing = results.filter((r) => (r.missingDays?.length ?? 0) > 0);
+  for (const r of withMissing) {
+    log({
+      coverage: true,
+      symbol: r.symbol,
+      period: r.period,
+      expectedBuckets: r.expectedBuckets,
+      missingDays: r.missingDays,
+    });
+  }
 
   const count = (status: FileStatus): number => results.filter((r) => r.status === status).length;
   const summary: Summary = {
@@ -335,6 +587,7 @@ export async function run(
     failed: count('error'),
     buckets: results.reduce((sum, r) => sum + r.buckets, 0),
     outOfOrderFiles: results.filter((r) => r.outOfOrder > 0).length,
+    filesWithMissing: withMissing.length,
     seconds: Math.round((Date.now() - t0) / 100) / 10,
   };
   log(summary);

@@ -15,11 +15,21 @@ import { FlowFolder } from '@/lib/archive-flow/fold';
 import { ArchiveFlowBar } from '@/lib/models/archive-flow-bar';
 import { ArchiveFlowFile } from '@/lib/models/archive-flow-file';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
-import { buildJobs, parseArgs, periodsBetween, run, type Args } from './ingest-agg-flow';
+import {
+  assertBucketsInRange,
+  buildJobs,
+  missingDaysOf,
+  parseArgs,
+  parseRepairList,
+  periodsBetween,
+  rangeOf,
+  run,
+  type Args,
+} from './ingest-agg-flow';
 
 const HEADER =
   'agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker';
-const BASE = 1_700_000_100_000 - (1_700_000_100_000 % 300_000);
+const BASE = Date.UTC(2024, 0, 10);
 const ROWS = [
   `1,10,2,1,3,${BASE + 1_000},false`,
   `2,10,1,4,4,${BASE + 20_000},true`,
@@ -64,6 +74,7 @@ function args(over: Partial<Args> = {}): Args {
     concurrency: 1,
     refresh: false,
     dryRun: false,
+    dailyRepair: [],
     ...over,
   };
 }
@@ -93,6 +104,7 @@ describe('parseArgs and jobs', () => {
       concurrency: 1,
       refresh: false,
       dryRun: false,
+      dailyRepair: [],
     });
     expect(buildJobs(a)).toHaveLength(10 * 42);
   });
@@ -119,6 +131,8 @@ describe('parseArgs and jobs', () => {
         '2',
         '--refresh',
         '--dry-run',
+        '--daily-repair',
+        'btcusdt:2024-01-05,ETHUSDT:2024-02-01',
       ])
     ).toEqual({
       symbols: ['BTCUSDT', 'ETHUSDT'],
@@ -127,6 +141,10 @@ describe('parseArgs and jobs', () => {
       concurrency: 2,
       refresh: true,
       dryRun: true,
+      dailyRepair: [
+        { symbol: 'BTCUSDT', date: '2024-01-05' },
+        { symbol: 'ETHUSDT', date: '2024-02-01' },
+      ],
     });
   });
 
@@ -172,8 +190,10 @@ describe('run', () => {
       buckets: 3,
       outOfOrder: 0,
       bytesUncompressed: 1234,
+      expectedBuckets: 31 * 288,
       crcOk: true,
     });
+    expect(ledger?.missingDays).toHaveLength(31);
     expect(ledger?.startedAt).toBeInstanceOf(Date);
     expect(ledger?.completedAt).toBeInstanceOf(Date);
 
@@ -186,7 +206,20 @@ describe('run', () => {
       outOfOrder: 0,
     });
     expect(typeof lines[0].seconds).toBe('number');
-    expect(lines[1]).toMatchObject({ summary: true, files: 1, complete: 1, failed: 0 });
+    expect(lines[1]).toMatchObject({
+      coverage: true,
+      symbol: 'BTCUSDT',
+      period: '2024-01',
+      expectedBuckets: 31 * 288,
+    });
+    expect((lines[1].missingDays as string[]).length).toBe(31);
+    expect(lines[2]).toMatchObject({
+      summary: true,
+      files: 1,
+      complete: 1,
+      failed: 0,
+      filesWithMissing: 1,
+    });
   });
 
   it('skips a completed file on the second run and writes nothing', async () => {
@@ -200,6 +233,8 @@ describe('run', () => {
     expect(stream).not.toHaveBeenCalled();
     expect(bulk).not.toHaveBeenCalled();
     expect(lines[0]).toMatchObject({ status: 'skipped' });
+    // Coverage is reported for skipped files too, from the ledger.
+    expect(lines[1]).toMatchObject({ coverage: true, period: '2024-01' });
     expect(await ArchiveFlowFile.findOne({}).lean()).toEqual(before);
     bulk.mockRestore();
   });
@@ -245,7 +280,7 @@ describe('run', () => {
       status: 'error',
       error: 'connection reset',
     });
-    expect(lines[2]).toMatchObject({ summary: true, failed: 1, complete: 1 });
+    expect(lines[lines.length - 1]).toMatchObject({ summary: true, failed: 1, complete: 1 });
 
     // The failed file is retried on the next run.
     stream.mockImplementation(okMonth);
@@ -296,5 +331,136 @@ describe('run', () => {
     expect(await run(args({ symbols: ['BTCUSDT', 'ETHUSDT'], concurrency: 2 }), log)).toBe(0);
     expect(await ArchiveFlowFile.countDocuments({ outOfOrder: 1 })).toBe(2);
     expect(lines[lines.length - 1]).toMatchObject({ summary: true, outOfOrderFiles: 2 });
+  });
+});
+
+describe('month guard', () => {
+  const MONTH = rangeOf('2024-01');
+
+  it('assertBucketsInRange passes inside [start, end) and names first and last on failure', () => {
+    expect(() =>
+      assertBucketsInRange(
+        'x',
+        [{ bucketStart: MONTH.start }, { bucketStart: MONTH.end - 300_000 }],
+        MONTH.start,
+        MONTH.end
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertBucketsInRange(
+        'x',
+        [{ bucketStart: MONTH.start }, { bucketStart: MONTH.end }],
+        MONTH.start,
+        MONTH.end
+      )
+    ).toThrow(
+      /1 of 2 buckets[\s\S]*first bucketStart 2024-01-01T00:00:00.000Z, last bucketStart 2024-02-01T00:00:00.000Z/
+    );
+  });
+
+  it('a boundary trade from the next month fails the file with no writes and no ledger row', async () => {
+    stream.mockImplementation(async (_s: unknown, onLine: (l: string) => void) => {
+      for (const row of ROWS) onLine(row);
+      onLine(`9,10,1,10,10,${Date.UTC(2024, 1, 1, 0, 0, 1)},false`);
+      return { status: 'ok', lines: 6, uncompressedBytes: 1 };
+    });
+    const { lines, log } = quiet();
+    expect(await run(args(), log)).toBe(1);
+    expect(lines[0]).toMatchObject({ status: 'error' });
+    expect(String(lines[0].error)).toMatch(
+      /first bucketStart 2024-01-10T00:00:00.000Z, last bucketStart 2024-02-01T00:00:00.000Z/
+    );
+    expect(await ArchiveFlowBar.countDocuments({})).toBe(0);
+    expect(await ArchiveFlowFile.countDocuments({})).toBe(0);
+  });
+
+  it('a microsecond timestamp is rejected by the parser, so the file fails and writes nothing', async () => {
+    stream.mockImplementation(async (_s: unknown, onLine: (l: string) => void) => {
+      for (const row of ROWS) onLine(row);
+      onLine(`9,10,1,10,10,${BASE * 1000},false`);
+      return { status: 'ok', lines: 6, uncompressedBytes: 1 };
+    });
+    expect(await run(args(), quiet().log)).toBe(1);
+    expect(await ArchiveFlowBar.countDocuments({})).toBe(0);
+    expect(await ArchiveFlowFile.countDocuments({})).toBe(0);
+  });
+});
+
+describe('coverage', () => {
+  it('missingDaysOf counts a day with 287 buckets as missing and 288 as complete', () => {
+    const { start, end } = rangeOf('2024-02');
+    const starts: number[] = [];
+    for (let day = 0; day < 29; day++) {
+      const n = day === 3 ? 287 : day === 5 ? 0 : 288;
+      for (let i = 0; i < n; i++) starts.push(start + day * 86_400_000 + i * 300_000);
+    }
+    expect(missingDaysOf(starts, start, end)).toEqual(['2024-02-04', '2024-02-06']);
+  });
+});
+
+describe('--daily-repair', () => {
+  const DAY = Date.UTC(2024, 0, 5);
+  const dayRows = [`1,10,2,1,1,${DAY + 1_000},false`, `2,10,1,2,2,${DAY + 301_000},true`];
+
+  it('parses and refuses lockbox dates, bad shapes and impossible dates', () => {
+    expect(parseRepairList('btcusdt:2024-01-05')).toEqual([
+      { symbol: 'BTCUSDT', date: '2024-01-05' },
+    ]);
+    expect(() => parseRepairList('BTCUSDT:2026-07-01')).toThrow(/Lockbox/);
+    expect(() => parseRepairList('BTCUSDT:2026-06-30')).not.toThrow();
+    expect(() => parseRepairList('BTCUSDT')).toThrow(/SYMBOL:YYYY-MM-DD/);
+    expect(() => parseRepairList('BTCUSDT:2024-02-30')).toThrow(/impossible/);
+    expect(() => parseArgs(['--daily-repair', 'BTCUSDT:2026-08-01'])).toThrow(/Lockbox/);
+  });
+
+  it('ingests the daily file, fills the month, and refreshes ledger coverage', async () => {
+    await run(args(), quiet().log);
+    const before = await ArchiveFlowFile.findOne({}).lean();
+    expect(before?.missingDays).toContain('2024-01-05');
+
+    stream.mockClear();
+    stream.mockImplementation(async (_s: unknown, onLine: (l: string) => void) => {
+      for (const row of dayRows) onLine(row);
+      return { status: 'ok', lines: 2, uncompressedBytes: 1 };
+    });
+    const { lines, log } = quiet();
+    expect(await run(args({ dailyRepair: [{ symbol: 'BTCUSDT', date: '2024-01-05' }] }), log)).toBe(
+      0
+    );
+    expect(stream.mock.calls[0][0]).toMatchObject({
+      dataset: 'aggTrades',
+      symbol: 'BTCUSDT',
+      date: '2024-01-05',
+      cadence: 'daily',
+    });
+    expect(lines[0]).toMatchObject({ repair: true, status: 'repaired', buckets: 2 });
+    expect(
+      await ArchiveFlowBar.countDocuments({ bucketStart: { $gte: DAY, $lt: DAY + 86_400_000 } })
+    ).toBe(2);
+    const after = await ArchiveFlowFile.findOne({}).lean();
+    // Still short of 288 buckets, so the day stays listed, and the month's other buckets stay.
+    expect(after?.missingDays).toContain('2024-01-05');
+    expect(await ArchiveFlowBar.countDocuments({})).toBe(5);
+  });
+
+  it('a daily file with a bucket outside its day fails with no writes', async () => {
+    stream.mockImplementation(async (_s: unknown, onLine: (l: string) => void) => {
+      for (const row of dayRows) onLine(row);
+      onLine(`3,10,1,3,3,${DAY + 86_400_000 + 5},false`);
+      return { status: 'ok', lines: 3, uncompressedBytes: 1 };
+    });
+    const { lines, log } = quiet();
+    expect(await run(args({ dailyRepair: [{ symbol: 'BTCUSDT', date: '2024-01-05' }] }), log)).toBe(
+      1
+    );
+    expect(lines[0]).toMatchObject({ repair: true, status: 'error' });
+    expect(await ArchiveFlowBar.countDocuments({})).toBe(0);
+  });
+
+  it('refuses a lockbox date in run() before any download', async () => {
+    await expect(
+      run(args({ dailyRepair: [{ symbol: 'BTCUSDT', date: '2026-07-01' }] }), quiet().log)
+    ).rejects.toThrow(/Lockbox/);
+    expect(stream).not.toHaveBeenCalled();
   });
 });

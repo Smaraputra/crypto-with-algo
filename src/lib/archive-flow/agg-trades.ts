@@ -12,6 +12,10 @@ export interface AggTrade {
   isBuyerMaker: boolean;
 }
 
+/** transact_time sanity bounds: integer epoch milliseconds, 2017-01-01 to 2100-01-01 UTC. */
+export const MIN_TRANSACT_TIME_MS = Date.UTC(2017, 0, 1);
+export const MAX_TRANSACT_TIME_MS = Date.UTC(2100, 0, 1);
+
 /**
  * Columns: agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker.
  * Null for a header row (older files have none); throws on a malformed row.
@@ -38,11 +42,19 @@ export function parseAggTradeLine(line: string): AggTrade | null {
     Number.isInteger(lastTradeId) &&
     lastTradeId >= firstTradeId &&
     Number.isInteger(transactTime) &&
-    transactTime > 0 &&
+    transactTime >= MIN_TRANSACT_TIME_MS &&
+    transactTime < MAX_TRANSACT_TIME_MS &&
     (flag === 'true' || flag === 'false') &&
     fields[1].trim() !== '' &&
     fields[2].trim() !== '';
   if (!valid) throw new Error(`Malformed aggTrades row: ${line}`);
 
-  return { price, quantity, firstTradeId, lastTradeId, transactTime, isBuyerMaker: flag === 'true' };
+  return {
+    price,
+    quantity,
+    firstTradeId,
+    lastTradeId,
+    transactTime,
+    isBuyerMaker: flag === 'true',
+  };
 }
