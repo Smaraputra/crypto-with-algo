@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: event studies phase closed, no cell passes; the volatility read meets its product criterion
+- **Result** (RESULT block in `scripts/research/event-studies.ts`, export `a93d2d26403c`, image from `ab67970`, events 2022-07-01 to 2026-06-30, ten symbols): none of the nine cells (forced deleveraging E1, funding extremes E2, volume shocks E3, at 1h, 4h and 24h) passes. No two-sided p survives Benjamini-Yekutieli (lowest 0.167), no net CI clears zero, and three sit wholly below it (E1 1h, E3 1h and 4h). Reproduced on a second machine from the hash-verified export (floats within 2.8e-15)
+- **Volatility**: the next 24 hours after an E1 or E3 event are 1.29 times as volatile as usual (CI 1.14 to 1.45, 2,550 events). The market-wide stress flag reaches a balanced accuracy of 0.640 for BTCUSDT's top-quintile volatility days, so the pre-registered product criterion (0.60 and a ratio CI above 1) is met
+- **Post-hoc context** (outside the pre-registration, no verdict): a flag that only says "yesterday was a top-quintile volatility day" reads 0.643 on the same days, and the two combined 0.658. The events predict volatility about as well as volatility persistence does, which bears on whether a stress indicator adds anything a realised-volatility percentile does not
+- **Predictions**: right that no directional cell passes, right for E2 and the balanced accuracy, wrong for E1 and E3 at 1h (both signs flipped, neither significant). Program trial ledger: 1,741
+
+### Added (research): event studies harness, built to the locked pre-registration
+- **`event-studies.ts`** (below the locked header of `fe4c99b`, which is unchanged): hourly panels from 1h perp klines, 5m metrics (last OI inside the hour) and funding settlements, trailing 180-day percentile thresholds (2,000-hour and 300-settlement floors, causal by construction and by test), E1, E2 and E3 detection, the greedy per-horizon de-overlap, signed forward returns, funding over the hold signed by the position, net returns at 0.16%, the 7-day circular day bootstrap (2,000 draws, seed 42) with the recentred p, the five gates, the reported block, E1's 1st/99th sensitivity and the volatility read (24h variance ratio and the stress flag's balanced accuracy), all in the pure core `runEventStudies`
+- **`event-studies-harness.ts`** (CLI: verifies the manifest, refuses unlisted input files, builds one panel per symbol) and `EventStudyReportSchema`
+- **`benjaminiYekutieli`** beside `benjaminiHochberg` in `ic-stats.ts`
+- Implementation notes 1 to 16 below the header record every choice the locked text left open, before any run. Nothing has been computed on real data
+- The existing export already produces the input: `export-dataset.ts --datasets perp,metrics,funding --intervals 1h --out <fresh dir>`
+
 ### Research: broad flow phase closed, no trial passes
 - **Result** (RESULT block in `scripts/research/broad-flow.ts`, the broad trend phase's export `aa62c5a1cb51`, universe and funding resolutions, image from `cb91ad9`, 2021-03-01 to 2026-06-30): the paper's cross-sectional taker-flow sort on the point-in-time top 50 Binance USDT-M perpetuals, after costs and funding. DO (daily, orthogonalised) Sharpe -2.54, its 188x yearly turnover costing about 22% a year; W (weekly) 0.53, CI [-0.19, 1.26]; WO (weekly, orthogonalised) 0.49, CI [-0.21, 1.19]; the daily raw control -2.35
 - **Gate 7** (`broad-flow-dsr.ts`, N = 3, computed once): expected maximum annual Sharpe 1.50, deflated probabilities W 0.011, WO 0.009, DO 0.000. Every trial also fails its own expectancy gate
