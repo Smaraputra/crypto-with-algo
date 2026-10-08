@@ -148,3 +148,38 @@ export const QH_FLOW_PREDICTED_SIGN = {
  * N7. Validation timing. The recorder's BTCUSDT bars start 2026-10-08 01:05 UTC; that day's daily archive file
  *     is published after UTC midnight, so the ingest waits for it, as the header requires.
  */
+
+/*
+ * AMENDMENT 1, 2026-10-09, before any archive month is ingested and before any IC cell is computed. It
+ * TIGHTENS the locked protocol; it adds no trial (the 28 hold-out IC cells and the 8-cell harness cap are
+ * unchanged, budget 36, ledger at most 1,777) and loosens nothing.
+ *
+ * Why: the branch's final review found that the locked null cannot see the pooled t's main weakness.
+ * factor-ic's pooled t is a HAC t on all symbols concatenated, which ignores the correlation between
+ * symbols at the same bar; shifting each symbol's column by an INDEPENDENT offset destroys exactly that
+ * correlation, so the null's spread comes out too small. A standalone simulation with no effect (10
+ * symbols, 3,000 bars, returns correlated 0.7 and the factor 0.4 across symbols, factor AR(1) 0.3, h 1;
+ * script kept in the session scratchpad, rerun by the controller with the same output) gives:
+ *   sd of pooled IC: true no-effect 0.01019, independent-offset null 0.00575, common-offset null 0.01000
+ *   p95 |t|:         true no-effect 3.67,    independent-offset null 1.92,    common-offset null 3.52
+ *   and |t| >= 3.15 in 8.0% of no-effect datasets against 0.16% nominal.
+ *
+ * A1-1. The null draws ONE offset per draw, shared by every symbol, applied on the common bar grid (the
+ *       intersection of the symbols' bar timestamps inside the window, after the matrix warmup); the
+ *       number of bars each symbol loses to the intersection is reported. Everything else in the locked
+ *       null (200 draws, seed 7, offsets of at least 30 days, the statistic) is unchanged.
+ * A1-2. A predicted column survives on the hold-out only if, in addition to the unchanged survivor rule and
+ *       the predicted sign, at the passing horizons its |pooled IC| is at least that cell's detection
+ *       floor, 3.15 x the A1-1 null's standard deviation of pooled IC. The floor reports are produced and
+ *       committed before the hold-out factor-ic run.
+ * A1-3. Clarification of the two-horizon requirement against the locked predictions: only horizons that
+ *       pass with the PREDICTED sign count, and raw.qhOpenImb at 1h h1 (no prediction) never counts.
+ * A1-4. The Benjamini-Hochberg family is exactly the 28 pooled cells of the two hold-out reports (1h and 4h,
+ *       --factors limited to the four columns); a verdict script asserts the count, the dataset hash, lag 1,
+ *       perp returns and the horizons before applying the rule, so the family cannot be widened by running
+ *       without --factors.
+ *
+ * Also recorded (not an amendment, a fix to match the locked text): COLUMNS says a zero denominator makes
+ * ALL FOUR columns null for that bar; the first implementation nulled only the affected column and is
+ * corrected to the locked rule.
+ */
