@@ -1,3 +1,4 @@
+import type { ExchangeInfoSymbolFilters } from '@/lib/venue-filters';
 import type {
   FundingRate,
   GlobalLongShortRatio,
@@ -150,4 +151,177 @@ export async function fetchGlobalLongShortRatio(
       timestamp: d.timestamp,
     })
   );
+}
+
+// --- Cost check market facts ---
+
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/** A non-2xx answer from the futures venue. Carries no upstream body. */
+export class BinanceHttpError extends Error {
+  readonly status: number;
+  /** The `Retry-After` header value (seconds as sent), when the venue gave one. */
+  readonly retryAfter: string | null;
+
+  constructor(path: string, status: number, retryAfter: string | null = null) {
+    super(`Binance futures ${path} failed: HTTP ${status}`);
+    this.name = 'BinanceHttpError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+async function getJson<T>(path: string, params?: Record<string, string>): Promise<T> {
+  const query = params ? `?${new URLSearchParams(params)}` : '';
+  const res = await fetch(`${getBaseUrl()}${path}${query}`, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new BinanceHttpError(path, res.status, res.headers?.get?.('Retry-After') ?? null);
+  }
+  return (await res.json()) as T;
+}
+
+/** An exchangeInfo symbol, with the fields the cost check reads. */
+export interface PerpExchangeSymbol extends ExchangeInfoSymbolFilters {
+  baseAsset: string;
+  quoteAsset: string;
+  /** `COIN` for crypto, other values for TradFi-style perpetuals. */
+  underlyingType?: string;
+  /** Listing time, epoch ms. */
+  onboardDate?: number;
+}
+
+/** `/fapi/v1/exchangeInfo` (weight 1): every futures symbol. */
+export async function fetchPerpExchangeInfo(): Promise<PerpExchangeSymbol[]> {
+  const data = await getJson<{ symbols: PerpExchangeSymbol[] }>('/fapi/v1/exchangeInfo');
+  return data.symbols;
+}
+
+export interface PerpKline {
+  openTime: number;
+  closeTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** Quote-asset (USDT) volume. */
+  quoteVolume: number;
+}
+
+function parseKline(r: unknown[]): PerpKline {
+  return {
+    openTime: Number(r[0]),
+    open: parseFloat(String(r[1])),
+    high: parseFloat(String(r[2])),
+    low: parseFloat(String(r[3])),
+    close: parseFloat(String(r[4])),
+    closeTime: Number(r[6]),
+    quoteVolume: parseFloat(String(r[7])),
+  };
+}
+
+/** `/fapi/v1/klines`. The in-progress bar, when present, is last. */
+export async function fetchPerpKlines(
+  symbol: string,
+  interval: string,
+  limit = 1000
+): Promise<PerpKline[]> {
+  const rows = await getJson<unknown[][]>('/fapi/v1/klines', {
+    symbol,
+    interval,
+    limit: String(limit),
+  });
+  return rows.map(parseKline);
+}
+
+/** Bars per `/fapi/v1/klines` request in a range fetch: the endpoint's maximum (weight 10 each). */
+export const KLINES_PAGE = 1500;
+/** A range fetch stops after this many pages, so a bad range cannot loop on the venue. */
+export const MAX_KLINE_PAGES = 10;
+
+/**
+ * `/fapi/v1/klines` for every bar opening in [startTime, endTime], paged
+ * forward. Throws when the range needs more than MAX_KLINE_PAGES requests.
+ */
+export async function fetchPerpKlinesRange(
+  symbol: string,
+  interval: string,
+  startTime: number,
+  endTime: number
+): Promise<PerpKline[]> {
+  const out: PerpKline[] = [];
+  let from = startTime;
+  for (let page = 0; page < MAX_KLINE_PAGES; page++) {
+    const rows = await getJson<unknown[][]>('/fapi/v1/klines', {
+      symbol,
+      interval,
+      startTime: String(from),
+      endTime: String(endTime),
+      limit: String(KLINES_PAGE),
+    });
+    const bars = rows.map(parseKline);
+    out.push(...bars);
+    if (bars.length < KLINES_PAGE) return out;
+    from = bars[bars.length - 1].openTime + 1;
+    if (from > endTime) return out;
+  }
+  throw new Error(`Klines range for ${symbol} ${interval} needs more than ${MAX_KLINE_PAGES} requests`);
+}
+
+export interface PremiumIndex {
+  markPrice: number;
+  lastFundingRate: number;
+  nextFundingTime: number;
+}
+
+/** `/fapi/v1/premiumIndex?symbol=`: mark price and the funding rate in force. */
+export async function fetchPremiumIndex(symbol: string): Promise<PremiumIndex> {
+  const d = await getJson<{ markPrice: string; lastFundingRate: string; nextFundingTime: number }>(
+    '/fapi/v1/premiumIndex',
+    { symbol }
+  );
+  return {
+    markPrice: parseFloat(d.markPrice),
+    lastFundingRate: parseFloat(d.lastFundingRate),
+    nextFundingTime: Number(d.nextFundingTime),
+  };
+}
+
+/** Funding settlement interval assumed for a symbol absent from `fundingInfo`. */
+export const DEFAULT_FUNDING_INTERVAL_HOURS = 8;
+
+/**
+ * `/fapi/v1/fundingInfo`: symbol to `fundingIntervalHours`. The endpoint lists
+ * ONLY symbols whose funding parameters were adjusted, so a symbol absent from
+ * the map settles every 8 hours (`DEFAULT_FUNDING_INTERVAL_HOURS`).
+ */
+export async function fetchFundingInfo(): Promise<Record<string, number>> {
+  const rows = await getJson<Array<{ symbol: string; fundingIntervalHours: number }>>(
+    '/fapi/v1/fundingInfo'
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const hours = Number(r.fundingIntervalHours);
+    // A row without a usable interval is left out, so the caller's 8-hour default applies.
+    if (Number.isFinite(hours) && hours > 0) out[r.symbol] = hours;
+  }
+  return out;
+}
+
+export interface PerpDepth {
+  /** Best (highest) first, [price, quantity in base units]. */
+  bids: [number, number][];
+  /** Best (lowest) first, [price, quantity in base units]. */
+  asks: [number, number][];
+}
+
+/** `/fapi/v1/depth`: the top `limit` levels per side. */
+export async function fetchDepth(symbol: string, limit = 20): Promise<PerpDepth> {
+  const d = await getJson<{ bids: [string, string][]; asks: [string, string][] }>(
+    '/fapi/v1/depth',
+    { symbol, limit: String(limit) }
+  );
+  const level = ([p, q]: [string, string]): [number, number] => [parseFloat(p), parseFloat(q)];
+  return { bids: d.bids.map(level), asks: d.asks.map(level) };
 }

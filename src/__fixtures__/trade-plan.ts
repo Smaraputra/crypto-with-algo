@@ -31,6 +31,10 @@ export function makeTicket(overrides: Partial<TradeTicket> = {}): TradeTicket {
       fundingRate: 0.0001,
       expectedFundingCrossings: 0.875,
       costShareOfRisk: 0.04,
+      roundTripStopUsdt: 0.3968,
+      holdMove: { holdBars: 7, medianPercent: 0.9, meanPercent: 1.1, independentWindows: 142 },
+      costShareOfMove: 0.16 / 1.1,
+      bracketBreakeven: { kind: 'possible', winRate: 4.16 / (4.16 + 7.9) },
     },
     ...overrides,
   };

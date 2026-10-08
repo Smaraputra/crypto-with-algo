@@ -1,6 +1,7 @@
 import type { SignalTier } from '@/types/signal';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { TradeSide } from '@/lib/backtest/types';
+import type { Breakeven } from '@/lib/costs/breakeven';
 
 /**
  * Shapes of the trade plan the /signals card renders.
@@ -83,6 +84,28 @@ export interface TicketCosts {
   expectedFundingCrossings: number | null;
   /** Stop-path round trip as a fraction of the stop distance: 0.2 means costs are a fifth of the risk. */
   costShareOfRisk: number;
+  /** Stop-path round trip in USDT at the ticket's notional. */
+  roundTripStopUsdt: number;
+  /**
+   * The close-to-close move over the recorded median hold, measured on the
+   * bars the stop was measured on. Null when the interval has no recorded
+   * hold. The stop floor keeps costShareOfRisk near a fifth by construction,
+   * so this is the comparison that says whether costs eat the trade.
+   */
+  holdMove: HoldMove | null;
+  /** Stop-path round trip as a fraction of the mean hold move; null without a recorded hold. */
+  costShareOfMove: number | null;
+  /** Win rate needed after fees and slippage if every trade ended at its stop or target (funding excluded). */
+  bracketBreakeven: Breakeven;
+}
+
+export interface HoldMove {
+  holdBars: number;
+  /** Median |close-to-close| return over the hold, percent. */
+  medianPercent: number;
+  /** Mean |return|, winsorised at the 99th percentile, percent. */
+  meanPercent: number;
+  independentWindows: number;
 }
 
 export interface TradeTicket {
