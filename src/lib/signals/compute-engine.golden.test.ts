@@ -16,6 +16,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OHLCV } from '@/types/market';
+import { intervalToMs } from '@/lib/intervals';
 import { DEFAULT_TEMPLATE_WEIGHTS, type TradingStyle } from '@/lib/models/signal-template';
 import { getConfirmationInterval } from '@/lib/signals/htf';
 import { LS_Z_WARMUP_MS, mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
@@ -104,27 +105,56 @@ const TASKS: Array<{ symbol: string; interval: string; tradingStyle: TradingStyl
   { symbol: 'ETHUSDT', interval: '4h', tradingStyle: 'swing_trading' },
   { symbol: 'BTCUSDT', interval: '5m', tradingStyle: 'scalping' },
   { symbol: 'BTCUSDT', interval: '1d', tradingStyle: 'position_trading' },
+  // A steady, low-noise climb: pins a non-neutral tier mapping.
+  { symbol: 'SOLUSDT', interval: '4h', tradingStyle: 'swing_trading' },
 ];
 
-// Explicit active template for swing_trading; every other style gets null
+const TRENDING_SYMBOL = 'SOLUSDT';
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Explicit active template for swing_trading (trend-heavy, so a steady climb
+// clears the buy cutoff); every other style gets null
 // (findOne returns nothing) and so falls back to DEFAULT_TEMPLATE_WEIGHTS.
 const SWING_TEMPLATE = {
   tradingStyle: 'swing_trading',
   active: true,
   weights: {
-    trend: 0.2,
+    trend: 0.5,
     momentum: 0.2,
-    volume: 0.1,
-    volatility: 0.1,
-    futures: 0.15,
-    sentiment: 0.1,
-    htf: 0.15,
+    volume: 0.05,
+    volatility: 0.05,
+    futures: 0.05,
+    sentiment: 0.05,
+    htf: 0.1,
   },
 };
 
 const START_PRICE: Record<string, number> = { BTCUSDT: 60000, ETHUSDT: 2500 };
 
+function trendingCandles(interval: string, count: number): OHLCV[] {
+  const step = intervalToMs(interval);
+  const end = lastClosedOpenTime(interval);
+  const candles: OHLCV[] = [];
+  let price = 100;
+  for (let i = 0; i < count; i++) {
+    const open = price;
+    const close = open * (1 + 0.004 + 0.0005 * Math.sin(i / 3));
+    candles.push({
+      timestamp: end - (count - 1 - i) * step,
+      open,
+      high: close * 1.001,
+      low: open * 0.999,
+      close,
+      volume: 1000 + 20 * i,
+      takerBuyVolume: (1000 + 20 * i) * 0.7,
+    });
+    price = close;
+  }
+  return candles;
+}
+
 function candlesFor(symbol: string, interval: string, count: number): OHLCV[] {
+  if (symbol === TRENDING_SYMBOL) return trendingCandles(interval, count);
   return buildCandles({
     symbol,
     interval,
@@ -179,7 +209,10 @@ describe('compute-engine golden', () => {
     // The DB path always satisfies recommendedCandles, so the REST fallback is unused.
     mockFetchKlines.mockRejectedValue(new Error('fetchKlines must not be called'));
     mockFetchFearAndGreed.mockResolvedValue(FIXTURE_FEAR_GREED);
-    mockSnapshotAggregate.mockResolvedValue(NEWS_AGGREGATE_ROWS);
+    mockSnapshotAggregate.mockResolvedValue([
+      ...NEWS_AGGREGATE_ROWS,
+      { _id: 'SOLUSDT', newsSentiment: { count: 6, avgSentiment: 0.5, topics: ['etf'] } },
+    ]);
     mockSnapshotFind.mockImplementation(
       async (filter: { symbol: string; interval: string; timestamp: { $gte: number; $lte: number } }) =>
         snapshotRowsFor(filter.symbol, filter.interval).filter(
@@ -240,7 +273,8 @@ describe('compute-engine golden', () => {
       // Futures is always fed. Sentiment is fed everywhere, but a style whose
       // weight for it is 0 (scalping) carries no weighted contribution.
       expect(byCategory.get('futures')?.signals.length).toBeGreaterThan(0);
-      expect(byCategory.get('futures')?.score).not.toBe(0);
+      // (the trending symbol's stored futures read can legitimately net to 0)
+      if (doc.symbol !== TRENDING_SYMBOL) expect(byCategory.get('futures')?.score).not.toBe(0);
       // The 30-day L/S z is defined (enough 1h history), not the abstaining path.
       const ls = byCategory.get('futures')?.signals.find((sig) => sig.name === 'Long/Short Ratio');
       expect(ls?.description).toMatch(/z [+-]\d+\.\d{2} vs 30d/);
@@ -272,6 +306,46 @@ describe('compute-engine golden', () => {
     expect(new Set(docs.map((d) => d.score)).size).toBe(TASKS.length);
   });
 
+  it('passes the pinned arguments to the snapshot reads', async () => {
+    await runEngine();
+
+    // News pipeline: one aggregate, symbols de-duplicated in task order.
+    expect(mockSnapshotAggregate).toHaveBeenCalledTimes(1);
+    const pipeline = mockSnapshotAggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(pipeline[0]).toEqual({
+      $match: {
+        symbol: { $in: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'] },
+        interval: '1h',
+        timestamp: { $gte: FIXED_NOW - 2 * 60 * 60 * 1000 },
+        'data.newsSentiment': { $ne: null },
+      },
+    });
+
+    // Stored rows: window, ordering inputs and projection per (symbol, interval).
+    const projection = { timestamp: 1, 'data.fundingRate': 1, 'data.longShortRatio': 1 };
+    const bounds = { $gte: FIXED_NOW - LS_Z_WARMUP_MS - 2 * DAY_MS, $lte: FIXED_NOW };
+    const reads = mockSnapshotFind.mock.calls.map((c: unknown[]) => c);
+    for (const t of TASKS) {
+      const snapshotInterval = mapToSnapshotInterval(t.interval);
+      for (const interval of new Set([snapshotInterval, '1h'])) {
+        expect(reads).toContainEqual([
+          { symbol: t.symbol, interval, timestamp: bounds },
+          projection,
+        ]);
+      }
+    }
+    // One read per distinct (symbol, snapshot interval), none duplicated.
+    const keys = reads.map((c) => `${(c[0] as { symbol: string }).symbol}:${(c[0] as { interval: string }).interval}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('maps a strong uptrend to a non-neutral tier', async () => {
+    const docs = (await runEngine()) as Array<{ symbol: string; tier: string; score: number }>;
+    const sol = docs.find((d) => d.symbol === TRENDING_SYMBOL)!;
+    expect(sol.tier).not.toBe('neutral');
+    expect(sol.score).toBeGreaterThan(0);
+  });
+
   it('uses the explicit template for swing_trading and defaults elsewhere', async () => {
     const docs = (await runEngine()) as Array<{
       tradingStyle: TradingStyle;
@@ -280,10 +354,12 @@ describe('compute-engine golden', () => {
     const swing = docs.find((d) => d.tradingStyle === 'swing_trading')!;
     const weightOf = (d: (typeof docs)[number], cat: string) =>
       d.components.find((c) => c.category === cat)?.weight;
-    expect(weightOf(swing, 'trend')).toBe(SWING_TEMPLATE.weights.trend);
+    expect(weightOf(swing, 'trend')).toBeCloseTo(SWING_TEMPLATE.weights.trend, 10);
     for (const doc of docs.filter((d) => d.tradingStyle !== 'swing_trading')) {
       expect(weightOf(doc, 'trend')).toBe(DEFAULT_TEMPLATE_WEIGHTS[doc.tradingStyle].trend);
     }
-    expect(mockFindOne).toHaveBeenCalledTimes(TASKS.length);
+    expect(mockFindOne).toHaveBeenCalledTimes(
+      new Set(TASKS.map((t) => t.tradingStyle)).size
+    );
   });
 });

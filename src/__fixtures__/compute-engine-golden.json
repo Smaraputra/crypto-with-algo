@@ -197,15 +197,15 @@
     "symbol": "ETHUSDT",
     "interval": "4h",
     "tradingStyle": "swing_trading",
-    "score": -16.670874270938985,
-    "tier": "neutral",
+    "score": -31.191426655691743,
+    "tier": "sell",
     "confidence": 100,
     "components": [
       {
         "category": "trend",
         "score": -56.482734589117904,
-        "weight": 0.2,
-        "weightedScore": -11.296546917823582,
+        "weight": 0.4999999999999999,
+        "weightedScore": -28.241367294558945,
         "signals": [
           {
             "name": "EMA Cross",
@@ -236,8 +236,8 @@
       {
         "category": "momentum",
         "score": -27.628956845751055,
-        "weight": 0.2,
-        "weightedScore": -5.525791369150212,
+        "weight": 0.19999999999999996,
+        "weightedScore": -5.52579136915021,
         "signals": [
           {
             "name": "RSI",
@@ -268,8 +268,8 @@
       {
         "category": "volume",
         "score": -7.485359839651907,
-        "weight": 0.1,
-        "weightedScore": -0.7485359839651907,
+        "weight": 0.04999999999999999,
+        "weightedScore": -0.37426799198259525,
         "signals": [
           {
             "name": "OBV",
@@ -294,7 +294,7 @@
       {
         "category": "volatility",
         "score": 0,
-        "weight": 0.1,
+        "weight": 0.04999999999999999,
         "weightedScore": 0,
         "signals": [
           {
@@ -314,8 +314,8 @@
       {
         "category": "futures",
         "score": -40,
-        "weight": 0.15,
-        "weightedScore": -6,
+        "weight": 0.04999999999999999,
+        "weightedScore": -1.9999999999999996,
         "signals": [
           {
             "name": "Funding Rate",
@@ -334,8 +334,8 @@
       {
         "category": "sentiment",
         "score": -21,
-        "weight": 0.1,
-        "weightedScore": -2.1,
+        "weight": 0.04999999999999999,
+        "weightedScore": -1.0499999999999998,
         "signals": [
           {
             "name": "Fear & Greed",
@@ -354,8 +354,8 @@
       {
         "category": "htf",
         "score": 60,
-        "weight": 0.15,
-        "weightedScore": 9,
+        "weight": 0.09999999999999998,
+        "weightedScore": 5.999999999999998,
         "signals": [
           {
             "name": "HTF EMA Cross",
@@ -745,5 +745,199 @@
     "candleTimestamp": 1791417600000,
     "session": null,
     "htfContext": null
+  },
+  {
+    "symbol": "SOLUSDT",
+    "interval": "4h",
+    "tradingStyle": "swing_trading",
+    "score": 35.72129908316859,
+    "tier": "buy",
+    "confidence": 100,
+    "components": [
+      {
+        "category": "trend",
+        "score": 62.10091260893495,
+        "weight": 0.4999999999999999,
+        "weightedScore": 31.050456304467467,
+        "signals": [
+          {
+            "name": "EMA Cross",
+            "direction": "bullish",
+            "strength": 33.40365043573979,
+            "description": "EMA12 above EMA26 by 6.53%, 1.0x its recent average"
+          },
+          {
+            "name": "SMA Trend",
+            "direction": "bullish",
+            "strength": 80,
+            "description": "Price above SMA50 & SMA200, golden cross"
+          },
+          {
+            "name": "Ichimoku",
+            "direction": "bullish",
+            "strength": 75,
+            "description": "Price above cloud, bullish TK cross"
+          },
+          {
+            "name": "SuperTrend",
+            "direction": "bullish",
+            "strength": 60,
+            "description": "SuperTrend bullish"
+          }
+        ]
+      },
+      {
+        "category": "momentum",
+        "score": -11.097825031424893,
+        "weight": 0.19999999999999996,
+        "weightedScore": -2.219565006284978,
+        "signals": [
+          {
+            "name": "RSI",
+            "direction": "bearish",
+            "strength": 90,
+            "description": "RSI extremely overbought at 100.0"
+          },
+          {
+            "name": "MACD",
+            "direction": "bullish",
+            "strength": 40.60869987430043,
+            "description": "MACD bullish, histogram 1.2x its recent average"
+          },
+          {
+            "name": "StochRSI",
+            "direction": "bullish",
+            "strength": 70,
+            "description": "StochRSI oversold (K: 0.0, D: 0.0)"
+          },
+          {
+            "name": "Williams %R",
+            "direction": "bearish",
+            "strength": 65,
+            "description": "Williams %R overbought at -1.7"
+          }
+        ]
+      },
+      {
+        "category": "volume",
+        "score": 12.808155699721965,
+        "weight": 0.04999999999999999,
+        "weightedScore": 0.6404077849860981,
+        "signals": [
+          {
+            "name": "OBV",
+            "direction": "bullish",
+            "strength": 95.61631139944393,
+            "description": "OBV above 20-period average by 9.6 bars of volume"
+          },
+          {
+            "name": "MFI",
+            "direction": "bearish",
+            "strength": 70,
+            "description": "MFI overbought at 100.0"
+          },
+          {
+            "name": "Volume",
+            "direction": "neutral",
+            "strength": 10,
+            "description": "Volume at 1.0x average"
+          }
+        ]
+      },
+      {
+        "category": "volatility",
+        "score": -40,
+        "weight": 0.04999999999999999,
+        "weightedScore": -1.9999999999999996,
+        "signals": [
+          {
+            "name": "Bollinger",
+            "direction": "bearish",
+            "strength": 40,
+            "description": "Price near upper band (%B: 0.93)"
+          },
+          {
+            "name": "ATR",
+            "direction": "neutral",
+            "strength": 30,
+            "description": "Low volatility (ATR: 0.58% of price)"
+          }
+        ]
+      },
+      {
+        "category": "futures",
+        "score": 0,
+        "weight": 0.04999999999999999,
+        "weightedScore": 0,
+        "signals": [
+          {
+            "name": "Funding Rate",
+            "direction": "neutral",
+            "strength": 0,
+            "description": "Funding rate: -0.0038%"
+          },
+          {
+            "name": "Long/Short Ratio",
+            "direction": "neutral",
+            "strength": 0,
+            "description": "L/S ratio: 1.62 (z +0.58 vs 30d)"
+          }
+        ]
+      },
+      {
+        "category": "sentiment",
+        "score": 45,
+        "weight": 0.04999999999999999,
+        "weightedScore": 2.2499999999999996,
+        "signals": [
+          {
+            "name": "Fear & Greed",
+            "direction": "bullish",
+            "strength": 20,
+            "description": "Fear (27)"
+          },
+          {
+            "name": "News",
+            "direction": "bullish",
+            "strength": 70,
+            "description": "6 articles, avg sentiment 0.50"
+          }
+        ]
+      },
+      {
+        "category": "htf",
+        "score": 60,
+        "weight": 0.09999999999999998,
+        "weightedScore": 5.999999999999998,
+        "signals": [
+          {
+            "name": "HTF EMA Cross",
+            "direction": "bullish",
+            "strength": 60,
+            "description": "1d EMA fast above slow"
+          },
+          {
+            "name": "HTF SMA Trend",
+            "direction": "bullish",
+            "strength": 50,
+            "description": "1d price above both SMAs"
+          },
+          {
+            "name": "HTF SuperTrend",
+            "direction": "bullish",
+            "strength": 70,
+            "description": "1d SuperTrend bullish"
+          }
+        ]
+      }
+    ],
+    "configVersion": 8,
+    "candleTimestamp": 1791518400000,
+    "session": null,
+    "htfContext": {
+      "interval": "1d",
+      "trendDirection": "bullish",
+      "candleTimestamp": 1791417600000
+    }
   }
 ]
