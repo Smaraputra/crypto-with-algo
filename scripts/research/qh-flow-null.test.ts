@@ -25,6 +25,7 @@ import {
 import {
   assertBeforeLockbox,
   buildNullReport,
+  commonGrid,
   drawOffsets,
   minShiftBarsOf,
   parseNullArgs,
@@ -66,7 +67,11 @@ function candles(seed: number, ar: number): CandleRow[] {
   return rows;
 }
 
-async function buildDataset(dir: string, ar: number): Promise<DatasetManifest> {
+async function buildDataset(
+  dir: string,
+  ar: number,
+  drop?: { symbol: string; index: number }
+): Promise<DatasetManifest> {
   const files: ManifestFile[] = [];
   const add = async (kind: ManifestFile['kind'], symbol: string, rows: { t: number }[]) => {
     const rel = `${kind}/${symbol}/1h.jsonl.gz`;
@@ -83,7 +88,8 @@ async function buildDataset(dir: string, ar: number): Promise<DatasetManifest> {
     });
   };
   for (const [i, symbol] of SYMBOLS.entries()) {
-    const rows = candles(4242 + i * 1000, ar);
+    let rows = candles(4242 + i * 1000, ar);
+    if (drop && drop.symbol === symbol) rows = rows.filter((_, j) => j !== drop.index);
     await add('candles', symbol, rows);
     await add('snapshots', symbol, []);
     await add('htf', symbol, rows.map((c): HtfRow => ({ t: c.t, context: null })));
@@ -121,6 +127,14 @@ function argv(dir: string, extra: string[] = []): string[] {
   ];
 }
 
+/** Writes a null-only floor report for the same argv and returns its path. */
+async function makeFloor(dir: string, extra: string[] = [], name = 'floor.json'): Promise<string> {
+  const report = await buildNullReport(parseNullArgs(argv(dir, extra)));
+  const path = join(dir, name);
+  writeFileSync(path, JSON.stringify(report));
+  return path;
+}
+
 describe('qh-flow-null', () => {
   let arDir: string;
   let noiseDir: string;
@@ -138,15 +152,33 @@ describe('qh-flow-null', () => {
   });
 
   describe('parseNullArgs', () => {
-    it('applies the locked defaults', () => {
+    it('applies the locked defaults: lag 1, perp, null-only, per-interval horizons', () => {
       const a = parseNullArgs(['--interval', '1h']);
       expect(a.draws).toBe(200);
       expect(a.seed).toBe(7);
       expect(a.minShiftDays).toBe(30);
-      expect(a.nullOnly).toBe(false);
-      expect(a.executionLagBars).toBe(0);
-      expect(a.returnSeries).toBe('spot');
+      expect(a.nullOnly).toBe(true);
+      expect(a.executionLagBars).toBe(1);
+      expect(a.returnSeries).toBe('perp');
+      expect(a.horizons).toEqual([1, 4, 8, 12]);
       expect(a.factors).toEqual(['raw.qhOpenImb', 'raw.fiveMinOpenImb', 'raw.largeTakerImb', 'raw.smallTakerImb']);
+      expect(parseNullArgs(['--interval', '4h']).horizons).toEqual([1, 2, 3]);
+    });
+
+    it('errors on an interval with no locked horizons unless --horizons is given', () => {
+      expect(() => parseNullArgs(['--interval', '15m'])).toThrow(/--horizons/);
+      expect(parseNullArgs(['--interval', '15m', '--horizons', '1,2']).horizons).toEqual([1, 2]);
+    });
+
+    it('--with-observed needs a floor report, and a floor report needs --with-observed', () => {
+      expect(() => parseNullArgs(['--interval', '1h', '--with-observed'])).toThrow(/--floor-report/);
+      expect(() => parseNullArgs(['--interval', '1h', '--floor-report', 'x.json'])).toThrow(/--with-observed/);
+      const a = parseNullArgs(['--interval', '1h', '--with-observed', '--floor-report', 'x.json']);
+      expect(a.nullOnly).toBe(false);
+      expect(a.floorReport).toBe('x.json');
+      expect(() =>
+        parseNullArgs(['--interval', '1h', '--null-only', '--with-observed', '--floor-report', 'x.json'])
+      ).toThrow(/contradict/);
     });
 
     it('accepts seed 0 and rejects negative seeds', () => {
@@ -162,43 +194,40 @@ describe('qh-flow-null', () => {
 
   describe('drawOffsets', () => {
     it('is deterministic for a seed and differs across seeds', () => {
-      const a = drawOffsets(7, 50, [600, 600, 600], 48);
-      const b = drawOffsets(7, 50, [600, 600, 600], 48);
-      const c = drawOffsets(8, 50, [600, 600, 600], 48);
-      expect(a).toEqual(b);
-      expect(a).not.toEqual(c);
+      const a = drawOffsets(7, 50, 600, 48);
+      expect(a).toEqual(drawOffsets(7, 50, 600, 48));
+      expect(a).not.toEqual(drawOffsets(8, 50, 600, 48));
     });
 
-    it('keeps every offset in [minShift, n - minShift] and varies per symbol', () => {
-      const lengths = [600, 900, 1200];
-      const draws = drawOffsets(7, 400, lengths, 48);
+    it('gives ONE integer offset per draw, within [minShift, G - minShift]', () => {
+      const draws = drawOffsets(7, 400, 900, 48);
       expect(draws).toHaveLength(400);
-      for (const row of draws) {
-        row.forEach((k, s) => {
-          expect(Number.isInteger(k)).toBe(true);
-          expect(k).toBeGreaterThanOrEqual(48);
-          expect(k).toBeLessThanOrEqual(lengths[s] - 48);
-        });
+      for (const k of draws) {
+        expect(Number.isInteger(k)).toBe(true);
+        expect(k).toBeGreaterThanOrEqual(48);
+        expect(k).toBeLessThanOrEqual(900 - 48);
       }
-      // Independence: the same-length symbols do not move in lockstep.
-      const same = drawOffsets(7, 400, [600, 600], 48);
-      const equal = same.filter((r) => r[0] === r[1]).length;
-      expect(equal).toBeLessThan(20);
-      const x = same.map((r) => r[0]);
-      const y = same.map((r) => r[1]);
-      const mx = x.reduce((a, v) => a + v, 0) / x.length;
-      const my = y.reduce((a, v) => a + v, 0) / y.length;
-      let sxy = 0, sxx = 0, syy = 0;
-      for (let i = 0; i < x.length; i++) {
-        sxy += (x[i] - mx) * (y[i] - my);
-        sxx += (x[i] - mx) ** 2;
-        syy += (y[i] - my) ** 2;
-      }
-      expect(Math.abs(sxy / Math.sqrt(sxx * syy))).toBeLessThan(0.15);
+      expect(new Set(draws).size).toBeGreaterThan(100);
     });
 
-    it('throws when a symbol is too short to shift', () => {
-      expect(() => drawOffsets(7, 1, [90], 48)).toThrow(/too short/);
+    it('throws when the grid is too short to shift', () => {
+      expect(() => drawOffsets(7, 1, 90, 48)).toThrow(/too short/);
+    });
+  });
+
+  describe('commonGrid', () => {
+    it('intersects the symbols after warmup and counts what each loses', () => {
+      const a = { symbol: 'A', timestamps: [0, 1, 2, 3, 4, 5], warmupBars: 1 };
+      const b = { symbol: 'B', timestamps: [0, 1, 3, 4, 5, 6], warmupBars: 1 };
+      const g = commonGrid([a, b]);
+      // A after warmup: 1..5; B after warmup: 1,3,4,5,6. Intersection: 1,3,4,5.
+      expect(g.timestamps).toEqual([1, 3, 4, 5]);
+      expect(g.indices).toEqual([[1, 3, 4, 5], [1, 2, 3, 4]]);
+      expect(g.grid.bars).toBe(4);
+      expect(g.grid.perSymbol).toEqual([
+        { symbol: 'A', barsAfterWarmup: 5, dropped: 1 },
+        { symbol: 'B', barsAfterWarmup: 5, dropped: 1 },
+      ]);
     });
   });
 
@@ -227,7 +256,8 @@ describe('qh-flow-null', () => {
     });
 
     it('observed ic and t equal factor-ic to full precision', async () => {
-      const args = parseNullArgs(argv(arDir, ['--draws', '5']));
+      const floor = await makeFloor(arDir, ['--draws', '5']);
+      const args = parseNullArgs(argv(arDir, ['--draws', '5', '--with-observed', '--floor-report', floor]));
       const report = await buildNullReport(args);
       const ref = await buildFactorIcReport(
         parseFactorIcArgs([
@@ -251,9 +281,13 @@ describe('qh-flow-null', () => {
     });
 
     it('gives a strongly predictive column the minimum empirical p', async () => {
-      const args = parseNullArgs(argv(arDir, ['--draws', '200', '--horizons', '1']));
+      const floor = await makeFloor(arDir, ['--draws', '200', '--horizons', '1']);
+      const args = parseNullArgs(
+        argv(arDir, ['--draws', '200', '--horizons', '1', '--with-observed', '--floor-report', floor])
+      );
       const report = await buildNullReport(args);
       const cell = report.cells[0];
+      expect(cell.validDraws).toBe(200);
       expect(cell.observedIc!).toBeGreaterThan(0.3);
       expect(cell.empiricalP).toBeCloseTo(1 / 201, 12);
       expect(Math.abs(cell.observedT!)).toBeGreaterThan(cell.nullP95AbsT);
@@ -261,21 +295,90 @@ describe('qh-flow-null', () => {
     });
 
     it('gives a noise column an empirical p above 0.05', async () => {
-      const args = parseNullArgs(argv(noiseDir, ['--draws', '200', '--horizons', '1']));
+      const floor = await makeFloor(noiseDir, ['--draws', '200', '--horizons', '1']);
+      const args = parseNullArgs(
+        argv(noiseDir, ['--draws', '200', '--horizons', '1', '--with-observed', '--floor-report', floor])
+      );
       const report = await buildNullReport(args);
-      expect(report.cells[0].empiricalP!).toBeGreaterThan(0.05);
+      const cell = report.cells[0];
+      expect(cell.empiricalP!).toBeGreaterThan(0.05);
+      // (1 + exceedances) / (1 + valid draws), an integer count over 1 + validDraws.
+      const exceed = cell.empiricalP! * (1 + cell.validDraws) - 1;
+      expect(Math.abs(exceed - Math.round(exceed))).toBeLessThan(1e-9);
+      expect(exceed).toBeGreaterThanOrEqual(0);
     });
 
-    it('omits every observed field with --null-only', async () => {
-      const args = parseNullArgs(argv(arDir, ['--draws', '10', '--null-only']));
+    it('is null-only by default and omits every observed field', async () => {
+      const args = parseNullArgs(argv(arDir, ['--draws', '10']));
       const report = await buildNullReport(args);
       expect(report.args.nullOnly).toBe(true);
+      expect(report.reportKind).toBe('qh-flow-null');
       for (const cell of report.cells) {
         expect(Object.keys(cell).sort()).toEqual(
-          ['detectionFloorIc', 'factor', 'horizon', 'nullMeanIc', 'nullP95AbsT', 'nullSdIc'].sort()
+          ['detectionFloorIc', 'factor', 'horizon', 'nullMeanIc', 'nullP95AbsT', 'nullSdIc', 'validDraws'].sort()
         );
       }
       expect(JSON.stringify(report)).not.toMatch(/observed|empiricalP/);
+    });
+  });
+
+  describe('common grid and shared offset', () => {
+    it('uses one offset per draw and reports the bars each symbol loses to the intersection', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'qh-null-gap-'));
+      try {
+        await buildDataset(dir, 0.8, { symbol: 'ETHUSDT', index: 400 });
+        const report = await buildNullReport(parseNullArgs(argv(dir, ['--draws', '10'])));
+        expect(report.offsets).toHaveLength(10);
+        expect(report.offsets.every((k) => Number.isInteger(k))).toBe(true);
+        const drops = Object.fromEntries(report.grid.perSymbol.map((p) => [p.symbol, p.dropped]));
+        expect(drops).toEqual({ BTCUSDT: 1, ETHUSDT: 0, SOLUSDT: 1 });
+        expect(report.barCounts).toEqual([COUNT, COUNT - 1, COUNT]);
+        expect(report.grid.bars).toBe(report.grid.perSymbol[1].barsAfterWarmup);
+        for (const k of report.offsets) {
+          expect(k).toBeGreaterThanOrEqual(report.minShiftBars);
+          expect(k).toBeLessThanOrEqual(report.grid.bars - report.minShiftBars);
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('floor report gate', () => {
+    const withObs = (dir: string, floor: string, extra: string[] = []) =>
+      parseNullArgs(argv(dir, ['--draws', '5', '--with-observed', '--floor-report', floor, ...extra]));
+
+    it('accepts a matching null-only floor report', async () => {
+      const floor = await makeFloor(arDir, ['--draws', '5']);
+      const report = await buildNullReport(withObs(arDir, floor));
+      expect(report.floorReport?.path).toBe(floor);
+      expect(report.cells[0].observedIc).not.toBeUndefined();
+    });
+
+    it('refuses a missing file, a foreign file, a with-observed report and any mismatch', async () => {
+      await expect(buildNullReport(withObs(arDir, join(arDir, 'nope.json')))).rejects.toThrow(/cannot be read/);
+
+      const foreign = join(arDir, 'foreign.json');
+      writeFileSync(foreign, JSON.stringify({ args: { nullOnly: true } }));
+      await expect(buildNullReport(withObs(arDir, foreign))).rejects.toThrow(/not a qh-flow-null report/);
+
+      const floor = await makeFloor(arDir, ['--draws', '5']);
+      const observed = join(arDir, 'observed.json');
+      writeFileSync(observed, JSON.stringify(await buildNullReport(withObs(arDir, floor))));
+      await expect(buildNullReport(withObs(arDir, observed))).rejects.toThrow(/not a null-only/);
+
+      // Horizons, lag, return series, window, seed, draws and factors.
+      await expect(buildNullReport(withObs(arDir, floor, ['--horizons', '1']))).rejects.toThrow(/horizons differ/);
+      await expect(buildNullReport(withObs(arDir, floor, ['--execution-lag', '0']))).rejects.toThrow(/lag/);
+      await expect(buildNullReport(withObs(arDir, floor, ['--return-series', 'spot']))).rejects.toThrow(/return series/);
+      await expect(buildNullReport(withObs(arDir, floor, ['--start', '2025-01-05T00:00:00Z']))).rejects.toThrow(/window/);
+      await expect(buildNullReport(withObs(arDir, floor, ['--seed', '8']))).rejects.toThrow(/seed/);
+      await expect(buildNullReport(withObs(arDir, floor, ['--factors', 'raw.rsi']))).rejects.toThrow(/factors differ/);
+    });
+
+    it('refuses a floor report from a different dataset', async () => {
+      const floor = await makeFloor(arDir, ['--draws', '5']);
+      await expect(buildNullReport(withObs(noiseDir, floor))).rejects.toThrow(/manifest hash/);
     });
   });
 
@@ -314,7 +417,10 @@ describe('qh-flow-null', () => {
     }
 
     it('marks a cell factor-ic drops (all-NaN column) with NaN stats and a reason', async () => {
-      const args = parseNullArgs(argv(arDir, ['--draws', '5', '--factors', 'raw.qhOpenImb', '--horizons', '1']));
+      const floor = await makeFloor(arDir, ['--draws', '5', '--factors', 'raw.qhOpenImb', '--horizons', '1']);
+      const args = parseNullArgs(
+        argv(arDir, ['--draws', '5', '--factors', 'raw.qhOpenImb', '--horizons', '1', '--with-observed', '--floor-report', floor])
+      );
       const report = await buildNullReport(args);
       expect(report.cells).toHaveLength(1);
       const cell = report.cells[0];
