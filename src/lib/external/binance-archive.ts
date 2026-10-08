@@ -496,7 +496,7 @@ async function streamZipBody(
   body: ReadableStream<Uint8Array>,
   onLine: LineHandler,
   label: string,
-  arm: () => void,
+  idle: { arm: () => void; pause: () => void },
   progress: { delivered: boolean }
 ): Promise<{ lines: number; uncompressedBytes: number }> {
   const reader = body.getReader();
@@ -572,8 +572,11 @@ async function streamZipBody(
 
   try {
     for (;;) {
+      // The idle timer covers the network read only. It is paused while the consumer works, so a
+      // slow consumer (a database write, say) is never mistaken for a dead connection.
+      idle.arm();
       const { done, value } = await reader.read();
-      arm();
+      idle.pause();
       if (done) break;
       let chunk: Buffer = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
 
@@ -650,8 +653,9 @@ export async function streamArchiveCsvLines(
 
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const pause = (): void => clearTimeout(timer);
     const arm = (): void => {
-      clearTimeout(timer);
+      pause();
       timer = setTimeout(() => controller.abort(), idleMs);
     };
     const progress = { delivered: false };
@@ -673,7 +677,7 @@ export async function streamArchiveCsvLines(
       }
       if (!res.body) throw new Error(`Archive fetch returned no body for ${url}`);
 
-      const result = await streamZipBody(res.body, onLine, archiveFileName(spec), arm, progress);
+      const result = await streamZipBody(res.body, onLine, archiveFileName(spec), { arm, pause }, progress);
       return { status: 'ok', ...result };
     } catch (error) {
       if (error instanceof ArchiveIntegrityError) throw error;

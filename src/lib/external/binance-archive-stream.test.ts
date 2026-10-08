@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { deflateRawSync, crc32 } from 'node:zlib';
+import { setTimeout as realSleep } from 'node:timers/promises';
 
 import { ARCHIVE_CADENCE, archiveFileName, archiveUrl, streamArchiveCsvLines } from './binance-archive';
 
@@ -203,5 +204,121 @@ describe('streamArchiveCsvLines', () => {
     await streamArchiveCsvLines(spec, (l) => void lines.push(l), { retryBaseMs: 0, onRestart: () => { restarts(); lines.length = 0; } });
     expect(restarts).toHaveBeenCalledTimes(1);
     expect(lines).toEqual(EXPECTED);
+  });
+});
+
+describe('streamArchiveCsvLines idle timeout', () => {
+  /** A body whose reads fail once `signal` aborts, like a real fetch body. Pulls only when read. */
+  function abortableBody(
+    chunks: Buffer[],
+    signal: AbortSignal,
+    stallAfter: boolean,
+    pulled?: { count: number }
+  ): ReadableStream<Uint8Array> {
+    let at = 0;
+    return new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          if (signal.aborted) throw new Error('aborted');
+          if (at < chunks.length) {
+            if (pulled) pulled.count = at + 1;
+            controller.enqueue(new Uint8Array(chunks[at++]));
+            return;
+          }
+          if (!stallAfter) return controller.close();
+          return new Promise<void>((_, reject) => {
+            signal.addEventListener('abort', () => reject(new Error('aborted')));
+          });
+        },
+      },
+      { highWaterMark: 0 }
+    );
+  }
+
+  /** Advances the fake clock in steps, yielding to real I/O (zlib) between them, until `settled` resolves. */
+  async function pump<T>(settled: Promise<T>, totalMs: number): Promise<T> {
+    let done = false;
+    void settled.then(() => {
+      done = true;
+    });
+    for (let elapsed = 0; !done && elapsed < totalMs; elapsed += 250) {
+      await vi.advanceTimersByTimeAsync(250);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    return settled;
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it('does not abort a healthy stream while the consumer is slow', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const big =
+      'agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_maker\r\n' +
+      Array.from(
+        { length: 100_000 },
+        (_, i) => `${i},${100 + (i % 97) * 0.37},0.25,${i},${i},${1_700_000_000_000 + i * 7},${i % 2 === 0}\r\n`
+      ).join('');
+    const zip = buildStreamZip(big, 'sizes');
+    const chunks: Buffer[] = [];
+    for (let i = 0; i < zip.length; i += 256) chunks.push(zip.subarray(i, i + 256));
+    const pulled = { count: 0 };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async (_url: string, init: { signal: AbortSignal }) =>
+          new Response(abortableBody(chunks, init.signal, false, pulled))
+      )
+    );
+
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let count = 0;
+    const settled = streamArchiveCsvLines(
+      spec,
+      async () => {
+        // The consumer blocks, once, until the test lets it go.
+        if (count++ === 5) await gate;
+      },
+      { retryBaseMs: 0, idleTimeoutMs: 1_000 }
+    ).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error })
+    );
+
+    // Wait (in real time) until the network reads stop because the consumer is blocked.
+    let last = -1;
+    let steady = 0;
+    while (steady < 5) {
+      await realSleep(10);
+      steady = pulled.count === last ? steady + 1 : 0;
+      last = pulled.count;
+    }
+    expect(pulled.count).toBeLessThan(chunks.length);
+
+    // Far longer than the idle timeout, with no network read pending.
+    await vi.advanceTimersByTimeAsync(10_000);
+    release();
+    const outcome = await settled;
+    expect('error' in outcome ? outcome.error : null).toBeNull();
+    expect(count).toBe(100_001);
+  });
+
+  it('still aborts a stalled network read', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const zip = buildStreamZip(CSV, 'sizes');
+    const fetchMock = vi.fn(
+      async (_url: string, init: { signal: AbortSignal }) =>
+        new Response(abortableBody([zip.subarray(0, 10)], init.signal, true))
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const settled = streamArchiveCsvLines(spec, () => undefined, { retryBaseMs: 0, idleTimeoutMs: 1_000 }).then(
+      () => 'resolved',
+      (error: unknown) => (error as Error).message
+    );
+    expect(await pump(settled, 10_000)).toBe('aborted');
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
   });
 });
