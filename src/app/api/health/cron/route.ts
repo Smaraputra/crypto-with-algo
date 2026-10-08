@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { verifyCronSecret } from '@/lib/cron-auth';
 import { connectDB } from '@/lib/mongodb';
-import { DERIVED_JOBS, HEARTBEAT_JOBS } from '@/lib/cron-jobs';
+import { DERIVED_JOBS, HEARTBEAT_JOBS, SERVICE_JOBS } from '@/lib/cron-jobs';
 import { classifyJob, isAllHealthy, summarize, type JobHealth, type JobState } from '@/lib/cron-health';
 import { JobHeartbeat, type IJobHeartbeat } from '@/lib/models/job-heartbeat';
 import { CronRun } from '@/lib/models/cron-run';
@@ -49,6 +49,12 @@ export async function GET(req: NextRequest) {
     const jobs: JobHealth[] = HEARTBEAT_JOBS.map((spec) =>
       classifyJob(spec, (byJob.get(spec.job) as JobState | undefined) ?? null, now, observedSinceMs)
     );
+
+    // Long-running services write the same heartbeat row a cron route does, so
+    // they are classified the same way: overdue once the row stops moving.
+    for (const spec of SERVICE_JOBS) {
+      jobs.push(classifyJob(spec, (byJob.get(spec.job) as JobState | undefined) ?? null, now, observedSinceMs));
+    }
 
     for (const spec of DERIVED_JOBS) {
       jobs.push(classifyJob(spec, await derivedState(spec.job), now, observedSinceMs));

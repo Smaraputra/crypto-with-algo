@@ -200,6 +200,34 @@ describe('buildTradePlan: costs', () => {
     expect(noRate.fundingPercent).toBeNull();
   });
 
+  it('prices the stop round trip in USDT and the bracket breakeven after costs', () => {
+    const ticket = buildTradePlan(input()).entry!;
+    const { costs } = ticket;
+    expect(costs.roundTripStopUsdt).toBeCloseTo((ticket.notional * 0.16) / 100, 10);
+    // 4% stop, 8% target: (4 + 0.16) / (4 + 0.16 + 8 - 0.10)
+    expect(costs.bracketBreakeven).toEqual({ kind: 'possible', winRate: expect.closeTo(4.16 / 12.06, 10) });
+  });
+
+  it('measures the move over the recorded hold on the stop window, and compares the round trip to it', () => {
+    // Closes alternate 100 / 101 / 100 ...: any odd-length hold moves 1% (or 0.99%).
+    const candles = bars(1100).map((b, i) => ({ ...b, close: i % 2 === 0 ? 100 : 101 }));
+    const { costs } = buildTradePlan(input({ candles })).entry!;
+    expect(costs.holdMove).not.toBeNull();
+    expect(costs.holdMove!.holdBars).toBe(7);
+    expect(costs.holdMove!.medianPercent).toBeGreaterThan(0.98);
+    expect(costs.holdMove!.medianPercent).toBeLessThan(1.01);
+    expect(costs.holdMove!.independentWindows).toBe(Math.floor(STOP_WINDOW_BARS / 7));
+    expect(costs.costShareOfMove).toBeCloseTo(0.16 / costs.holdMove!.meanPercent, 10);
+  });
+
+  it('has no hold move where the interval has no recorded hold', () => {
+    const { costs } = buildTradePlan(
+      input({ interval: '4h', style: 'swing_trading', candles: bars(1100).map((b, i) => ({ ...b, timestamp: i * 4 * HOUR })) })
+    ).entry!;
+    expect(costs.holdMove).toBeNull();
+    expect(costs.costShareOfMove).toBeNull();
+  });
+
   it('attaches the recorded evidence for the interval', () => {
     // The recorded row, with its status derived for today's scorer version.
     expect(buildTradePlan(input()).evidence).toEqual(evidenceFor('1h'));

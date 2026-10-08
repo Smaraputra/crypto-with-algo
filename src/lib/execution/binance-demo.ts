@@ -1,5 +1,7 @@
 import { createHmac } from 'node:crypto';
 
+import { parseVenueFilters } from '@/lib/venue-filters';
+
 /**
  * A signed client for the Binance USDⓈ-M futures DEMO venue.
  *
@@ -212,19 +214,14 @@ export class BinanceDemoClient {
     }>('GET', '/fapi/v1/exchangeInfo', {}, { signed: false });
 
     const out = new Map<string, DemoVenueFilter>();
-    for (const s of info.symbols) {
-      if (s.contractType !== 'PERPETUAL') continue;
-      const lot = s.filters.find((f) => f.filterType === 'LOT_SIZE');
-      const notional = s.filters.find((f) => f.filterType === 'MIN_NOTIONAL');
-      const price = s.filters.find((f) => f.filterType === 'PRICE_FILTER');
-      if (!lot || !notional || !price) continue;
-      out.set(s.symbol, {
-        symbol: s.symbol,
-        status: s.status,
-        stepSize: Number(lot.stepSize),
-        minQty: Number(lot.minQty),
-        minNotional: Number(notional.notional),
-        tickSize: Number(price.tickSize),
+    for (const [symbol, f] of parseVenueFilters(info.symbols)) {
+      out.set(symbol, {
+        symbol: f.symbol,
+        status: f.status,
+        stepSize: f.stepSize,
+        minQty: f.minQty,
+        minNotional: f.minNotional,
+        tickSize: f.tickSize,
       });
     }
     return out;

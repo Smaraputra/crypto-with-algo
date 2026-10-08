@@ -62,7 +62,7 @@ export default function PrivacyPage() {
             <li>Session management (authentication state)</li>
           </ul>
           <p className="mt-2">
-            User preferences (theme, chart settings) are stored locally in your browser using localStorage and are never transmitted to our servers.
+            User preferences (theme, chart settings, the inputs of the Cost Check tool) are stored locally in your browser using localStorage and are never transmitted to our servers.
           </p>
           <p className="mt-2">
             You can control cookies through your browser settings, but disabling them may affect Service functionality.

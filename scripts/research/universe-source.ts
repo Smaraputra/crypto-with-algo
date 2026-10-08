@@ -69,7 +69,8 @@ export function assetKey(folder: string): string {
 /** The class of a folder that fails the candidate shape, named for the report. */
 function shapeClass(name: string): string {
   if (/^[A-Z0-9]+USDT(SETTLED)+$/.test(name)) return 'settled-folder';
-  if (/[^\x20-\x7E]/.test(name)) return 'non-ascii';
+  // Any character outside printable ASCII, space (0x20) to tilde (0x7E).
+  if (/[^ -~]/.test(name)) return 'non-ascii';
   if (/_\d{6}$/.test(name)) return 'dated-quarterly';
   if (name.includes('_')) return 'underscore-other';
   if (/USDC$/.test(name)) return 'usdc-quoted';

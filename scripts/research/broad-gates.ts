@@ -84,20 +84,22 @@ export function listingYearCohorts(contracts: readonly CohortContract[], minShar
     byYear.set(c.listingYear, group);
   }
   const groups = [...byYear.values()].sort((a, b) => a.years[0] - b.years[0]);
-  while (groups.length > 1 && total > 0) {
-    let idx = -1;
-    for (let g = groups.length - 1; g >= 0; g--) {
-      if (groups[g].memberDays < minShare * total) {
-        idx = g;
-        break;
+  if (total > 0) {
+    while (groups.length > 1) {
+      let idx = -1;
+      for (let g = groups.length - 1; g >= 0; g--) {
+        if (groups[g].memberDays < minShare * total) {
+          idx = g;
+          break;
+        }
       }
+      if (idx === -1) break;
+      const into = groups[idx === 0 ? 1 : idx - 1];
+      into.years.push(...groups[idx].years);
+      into.contracts.push(...groups[idx].contracts);
+      into.memberDays += groups[idx].memberDays;
+      groups.splice(idx, 1);
     }
-    if (idx === -1) break;
-    const into = groups[idx === 0 ? 1 : idx - 1];
-    into.years.push(...groups[idx].years);
-    into.contracts.push(...groups[idx].contracts);
-    into.memberDays += groups[idx].memberDays;
-    groups.splice(idx, 1);
   }
   return groups.map((g) => {
     const years = [...g.years].sort((a, b) => a - b);
