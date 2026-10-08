@@ -212,37 +212,45 @@ describe('qh-flow columns at 1h', () => {
     }
   });
 
-  it('gives NaN only to the column whose denominator is zero', () => {
+  it('gives NaN to all four columns when any one denominator is zero', () => {
     const { start } = candlesFor('1h', 260);
     const T = start + BAR * HOUR;
-
-    // No quarter-hour opening flow: qh NaN, the other three finite.
-    const noQh = barBuckets(T, HOUR, (_i, isQuarter) => ({
-      buyQuoteOpen10s: isQuarter ? 0 : 4,
-      sellQuoteOpen10s: isQuarter ? 0 : 2,
+    const full = (isQuarter: boolean) => ({
+      buyQuoteOpen10s: isQuarter ? 3 : 4,
+      sellQuoteOpen10s: isQuarter ? 1 : 2,
       buyQuote: 10,
       sellQuote: 10,
       buyQuoteLarge: 6,
       sellQuoteLarge: 2,
       buyQuoteSmall: 1,
       sellQuoteSmall: 3,
-    }));
-    const [qh1, five1, large1, small1] = at(build('1h', 260, noQh).matrix, BAR);
-    expect(qh1).toBeNaN();
-    expect(five1).toBeCloseTo(1 / 3, 12);
-    expect(large1).toBeCloseTo(48 / 240, 12);
-    expect(small1).toBeCloseTo(-24 / 240, 12);
+    });
 
-    // No total taker quote: large and small NaN, the two opening columns finite.
-    const noTotal = barBuckets(T, HOUR, (_i, isQuarter) => ({
-      buyQuoteOpen10s: isQuarter ? 3 : 1,
-      sellQuoteOpen10s: isQuarter ? 1 : 3,
+    // Control: everything positive gives four finite values.
+    const ok = barBuckets(T, HOUR, (_i, isQuarter) => full(isQuarter));
+    expect(at(build('1h', 260, ok).matrix, BAR).every(Number.isFinite)).toBe(true);
+
+    // No quarter-hour opening flow.
+    const noQh = barBuckets(T, HOUR, (_i, isQuarter) => ({
+      ...full(isQuarter),
+      ...(isQuarter ? { buyQuoteOpen10s: 0, sellQuoteOpen10s: 0 } : {}),
     }));
-    const [qh2, five2, large2, small2] = at(build('1h', 260, noTotal).matrix, BAR);
-    expect(qh2).toBeCloseTo(0.5, 12);
-    expect(five2).toBeCloseTo(-0.5, 12);
-    expect(large2).toBeNaN();
-    expect(small2).toBeNaN();
+    expect(at(build('1h', 260, noQh).matrix, BAR).every(Number.isNaN)).toBe(true);
+
+    // No five-minute-mark opening flow.
+    const noFive = barBuckets(T, HOUR, (_i, isQuarter) => ({
+      ...full(isQuarter),
+      ...(isQuarter ? {} : { buyQuoteOpen10s: 0, sellQuoteOpen10s: 0 }),
+    }));
+    expect(at(build('1h', 260, noFive).matrix, BAR).every(Number.isNaN)).toBe(true);
+
+    // No total taker quote.
+    const noTotal = barBuckets(T, HOUR, (_i, isQuarter) => ({
+      ...full(isQuarter),
+      buyQuote: 0,
+      sellQuote: 0,
+    }));
+    expect(at(build('1h', 260, noTotal).matrix, BAR).every(Number.isNaN)).toBe(true);
   });
 
   it('keeps the sign convention: more taker buying is positive', () => {

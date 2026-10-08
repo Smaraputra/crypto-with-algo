@@ -1233,7 +1233,8 @@ function signedShare(signed: number, total: number): number {
 /**
  * The four qh-flow readings for the bar [openT, openT + intervalMs), in the
  * order qhOpenImb, fiveMinOpenImb, largeTakerImb, smallTakerImb. All NaN when
- * any of the bar's intervalMs / 5 minutes buckets is absent.
+ * any of the bar's intervalMs / 5 minutes buckets is absent, or when the
+ * quarter-hour, other-mark or total denominator is not positive.
  */
 function flowColumns(
   byBucket: Map<number, FlowRow>,
@@ -1268,6 +1269,10 @@ function flowColumns(
     smallDiff += row.buyQuoteSmall - row.sellQuoteSmall;
     total += row.buyQuote + row.sellQuote;
   }
+
+  // Locked COLUMNS rule: a zero denominator in ANY of the three nulls all four columns.
+  const usable = (d: number): boolean => d > 0 && Number.isFinite(d);
+  if (!usable(qhTotal) || !usable(fiveTotal) || !usable(total)) return [NaN, NaN, NaN, NaN];
 
   return [
     signedShare(qhDiff, qhTotal),
