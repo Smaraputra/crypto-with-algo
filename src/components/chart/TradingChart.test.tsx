@@ -1,3 +1,4 @@
+import type React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -41,11 +42,13 @@ const mockChart = {
   resize: mockResize,
 };
 
+const mockRegisterIndicator = vi.fn();
 const mockInit = vi.fn().mockReturnValue(mockChart);
 
 vi.mock('klinecharts', () => ({
   init: (...args: unknown[]) => mockInit(...args),
   dispose: (...args: unknown[]) => mockDispose(...args),
+  registerIndicator: (...args: unknown[]) => mockRegisterIndicator(...args),
 }));
 
 const mockSaveOverlays = vi.fn();
@@ -268,6 +271,68 @@ describe('TradingChart', () => {
       expect(mockCreateIndicator).toHaveBeenCalledWith('MA', false, { id: 'candle_pane' });
       // VOL is volume -> createIndicator('VOL', false)
       expect(mockCreateIndicator).toHaveBeenCalledWith('VOL', false);
+    });
+  });
+
+  describe('signal score overlay', () => {
+    const overlay = (over: Partial<NonNullable<React.ComponentProps<typeof TradingChart>['signalOverlay']>> = {}) => ({
+      visible: true,
+      recorded: new Map(),
+      provisional: null,
+      state: null,
+      ...over,
+    });
+    const pane = { paneId: 'signal_score_pane', name: 'SIGNAL_SCORE' };
+
+    it('creates no pane without the prop or when not visible', () => {
+      const { rerender } = render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      rerender(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ visible: false })} />);
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('SIGNAL_SCORE', expect.anything(), expect.anything());
+      expect(mockOverrideIndicator).not.toHaveBeenCalled();
+      expect(mockRemoveIndicator).not.toHaveBeenCalledWith(pane);
+    });
+
+    it('creates the pane when visible and keeps the default indicators', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay()} />);
+      expect(mockRegisterIndicator).toHaveBeenCalled();
+      expect(mockCreateIndicator).toHaveBeenCalledWith('SIGNAL_SCORE', false, { id: 'signal_score_pane', height: 90 });
+      expect(mockCreateIndicator).toHaveBeenCalledWith('MA', false, { id: 'candle_pane' });
+      expect(mockCreateIndicator).toHaveBeenCalledWith('VOL', false);
+    });
+
+    it('removes the pane when it stops being visible', () => {
+      const { rerender } = render(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay()} />);
+      rerender(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ visible: false })} />);
+      expect(mockRemoveIndicator).toHaveBeenCalledWith(pane);
+    });
+
+    it('passes a new calc to overrideIndicator on every overlay change', () => {
+      const recorded = new Map();
+      const { rerender } = render(
+        <TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ recorded })} />
+      );
+      const calls = () => mockOverrideIndicator.mock.calls.map((c) => c[0]);
+      expect(calls().at(-1)).toMatchObject({ name: 'SIGNAL_SCORE', calc: expect.any(Function) });
+      const first = calls().at(-1).calc;
+
+      rerender(
+        <TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ recorded, state: 'provisional' })} />
+      );
+      const second = calls().at(-1).calc;
+      expect(second).not.toBe(first);
+
+      rerender(
+        <TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ recorded: new Map(), state: 'provisional' })} />
+      );
+      expect(calls().at(-1).calc).not.toBe(second);
+    });
+
+    it('does not override again when nothing changed', () => {
+      const recorded = new Map();
+      const { rerender } = render(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ recorded })} />);
+      const count = mockOverrideIndicator.mock.calls.length;
+      rerender(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ recorded })} />);
+      expect(mockOverrideIndicator.mock.calls.length).toBe(count);
     });
   });
 
