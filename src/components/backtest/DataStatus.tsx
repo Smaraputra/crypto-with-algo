@@ -29,28 +29,38 @@ function formatDate(ms: number): string {
 
 export function DataStatus({ symbol, interval, compact, onBackfillComplete }: DataStatusProps) {
   const [range, setRange] = useState<CandleRangeInfo | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
 
-  const fetchStatus = useCallback(async () => {
+  // A new symbol or interval starts a new status read: flag it while rendering
+  // ("previous value in state"), so the effect below never sets state before its await.
+  const requestKey = `${symbol}:${interval}`;
+  const [loadingKey, setLoadingKey] = useState(requestKey);
+  if (loadingKey !== requestKey) {
+    setLoadingKey(requestKey);
     setLoading(true);
-    try {
-      const res = await fetch(
-        `/api/candles/range?symbol=${symbol}&interval=${interval}`
-      );
-      if (!res.ok) throw new Error('Failed to fetch status');
-      const data: CandleRangeInfo = await res.json();
-      setRange(data);
-    } catch {
-      toast.error('Failed to check data status');
-    } finally {
-      setLoading(false);
-    }
-  }, [symbol, interval]);
+  }
 
   useEffect(() => {
-    fetchStatus();
-  }, [fetchStatus]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/candles/range?symbol=${symbol}&interval=${interval}`
+        );
+        if (!res.ok) throw new Error('Failed to fetch status');
+        const data: CandleRangeInfo = await res.json();
+        if (!cancelled) setRange(data);
+      } catch {
+        if (!cancelled) toast.error('Failed to check data status');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, interval]);
 
   const handleBackfill = useCallback(async () => {
     setBackfilling(true);
