@@ -63,10 +63,22 @@ test.describe('Dashboard features (authenticated)', () => {
   });
 
   test.describe('provisional signal score strip', () => {
-    // Binance may be unreachable, so any status line is accepted. The strip text
-    // itself comes from the scheduler-only scoring display, not from Binance.
-    const STATUS =
-      /Provisional|Awaiting|awaiting|Recorded|Waiting|Not enough history|Loading signal inputs|No recorded score|No scheduler score/;
+    // Binance may be unreachable, so any real status line valid at 1h is accepted.
+    // "No scheduler score" is the unavailable line and is a bug at BTCUSDT 1h.
+    const STATUS = new RegExp(
+      [
+        '^Provisional ',
+        "^Bar closed\\. Waiting for the scheduler's recorded score\\.$",
+        '^Recorded ',
+        '^No recorded score arrived for the last bar\\.$',
+        '^Waiting for the last closed bar to sync\\.$',
+        '^Not enough history at this interval\\.$',
+        '^Waiting for the next price update\\.$',
+        '^Loading signal inputs\\.$',
+        '^Signal context could not be loaded\\.$',
+        '^The scorer was updated\\. Reload the page to see provisional scores\\.$',
+      ].join('|')
+    );
 
     test('renders heading, legend, status and evidence at 1h', async ({ page }) => {
       await page.goto('/dashboard');

@@ -72,6 +72,8 @@ function StatusLine({ symbol, interval, signal }: Pick<SignalScoreStripProps, 's
           return <>Waiting for the last closed bar to sync.</>;
         case 'insufficient-history':
           return <>Not enough history at this interval.</>;
+        case 'version-mismatch':
+          return <>The scorer was updated. Reload the page to see provisional scores.</>;
         case 'awaiting-price':
           return <>Waiting for the next price update.</>;
         default:

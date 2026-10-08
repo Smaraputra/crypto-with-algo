@@ -29,6 +29,11 @@ function strip(over: Partial<ProvisionalSignalState> = {}, interval = '1h', styl
 const status = () => screen.getByTestId('signal-score-status');
 
 describe('SignalScoreStrip', () => {
+  it('tells the user to reload on a version mismatch', () => {
+    strip({ status: 'waiting', reasonCode: 'version-mismatch', provisional: null, reason: 'x' });
+    expect(status()).toHaveTextContent('The scorer was updated. Reload the page to see provisional scores.');
+  });
+
   it('shows the heading and the legend sentence with the config version', () => {
     strip();
     expect(screen.getByRole('heading')).toHaveTextContent('Signal score · Day trading · 1h');

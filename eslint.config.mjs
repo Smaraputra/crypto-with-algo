@@ -11,6 +11,8 @@ const PROVISIONAL_BROWSER_FILES = [
   "src/hooks/useProvisionalSignal.ts",
   "src/components/chart/signal-score-indicator.ts",
   "src/components/chart/SignalScoreStrip.tsx",
+  "src/components/chart/TradingChart.tsx",
+  "src/components/chart/DashboardChart.tsx",
 ];
 const PROVISIONAL_SERVER_FILES = ["src/app/api/signals/provisional-context/route.ts"];
 const TEST_FILES = ["**/*.test.*"];

@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useGlobalSignals, type GlobalSignalRecord } from '@/hooks/useSignals';
 import { fetchJson } from '@/lib/fetch-json';
 import type { TradingStyle } from '@/lib/models/signal-template';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 import { scoreProvisional } from '@/lib/signals/provisional/score-provisional';
 import { isProvisionalEligible, STYLE_CADENCE_MS } from '@/lib/signals/provisional/styles';
 import type {
@@ -31,7 +32,8 @@ export type WaitingReasonCode =
   | 'awaiting-candle-sync'
   | 'insufficient-history'
   | 'context-unavailable'
-  | 'awaiting-price';
+  | 'awaiting-price'
+  | 'version-mismatch';
 
 export interface RecordedSignal {
   score: number;
@@ -181,7 +183,12 @@ function createEngine(deps: EngineDeps): Engine {
         const { signal } = await fetchJson<{ signal: GlobalSignalRecord | null }>(
           `/api/signals/latest?${params}`
         );
-        if (signal && signal.candleTimestamp === openTime && awaiting.has(openTime)) {
+        if (
+          signal &&
+          signal.configVersion === SCORER_CONFIG_VERSION &&
+          signal.candleTimestamp === openTime &&
+          awaiting.has(openTime)
+        ) {
           settle(openTime, 'recorded', toRecorded(signal));
         }
       } catch {
@@ -211,7 +218,15 @@ function createEngine(deps: EngineDeps): Engine {
       requestContext();
       return;
     }
-    if (bar.openTime < ctx.formingOpenTime || !ctx.ready) return;
+    if (!ctx.ready) {
+      // The 1m sync often trails the close: retry on ticks, at the request gap,
+      // instead of waiting for the 30 s refetch interval.
+      if (ctx.reason === 'awaiting-candle-sync' && bar.openTime === ctx.formingOpenTime) requestContext();
+      return;
+    }
+    if (bar.openTime < ctx.formingOpenTime) return;
+    // The server scores with a different version than this bundle: never score.
+    if (ctx.configVersion !== SCORER_CONFIG_VERSION) return;
     if (bar.openTime === closedOpenTime) return;
 
     if (event.closed) {
@@ -335,12 +350,18 @@ export function useProvisionalSignal(
 
   const recorded = useMemo(() => {
     const map = new Map<number, RecordedSignal>();
-    for (const s of history.data?.signals ?? []) map.set(s.candleTimestamp, toRecorded(s));
-    for (const [t, r] of current.extra) map.set(t, r);
+    // Only rows scored under this bundle's version are drawn as recorded scores.
+    for (const s of history.data?.signals ?? []) {
+      if (s.configVersion === SCORER_CONFIG_VERSION) map.set(s.candleTimestamp, toRecorded(s));
+    }
+    for (const [t, r] of current.extra) {
+      if (r.configVersion === SCORER_CONFIG_VERSION) map.set(t, r);
+    }
     return map;
   }, [history.data, current.extra]);
 
-  const configVersion = eligible ? (context?.configVersion ?? null) : null;
+  // Filled bars are filtered to the bundle's version, so that is the one to label.
+  const configVersion = eligible && context ? SCORER_CONFIG_VERSION : null;
   const base = { recorded, configVersion, lastComputeMs: current.lastComputeMs };
 
   if (!eligible) {
@@ -359,7 +380,20 @@ export function useProvisionalSignal(
       ? { ...base, status: 'waiting', reason: 'Signal context could not be loaded', reasonCode: 'context-unavailable', provisional: null }
       : { ...base, status: 'loading', reason: null, reasonCode: null, provisional: null };
   }
+  if (context.configVersion !== SCORER_CONFIG_VERSION) {
+    return {
+      ...base,
+      status: 'waiting',
+      reason: 'The scorer was updated. Reload the page to see provisional scores',
+      reasonCode: 'version-mismatch',
+      provisional: null,
+    };
+  }
   if (!context.ready) {
+    // A closed bar still awaiting its recorded score outranks the new bar's wait.
+    if (current.status === 'awaiting-record') {
+      return { ...base, status: 'awaiting-record', reasonCode: null, reason: null, provisional: current.provisional };
+    }
     return { ...base, status: 'waiting', reason: context.reason, reasonCode: context.reason, provisional: null };
   }
   if (current.status === null) {

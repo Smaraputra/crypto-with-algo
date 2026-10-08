@@ -10,6 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const BROWSER_HOOK = 'src/hooks/useProvisionalSignal.ts';
+const CHART_FILES = ['src/components/chart/TradingChart.tsx', 'src/components/chart/DashboardChart.tsx'];
 const ROUTE = 'src/app/api/signals/provisional-context/route.ts';
 const UNRELATED = 'src/lib/foo.ts';
 
@@ -41,6 +42,13 @@ describe('provisional import guard', () => {
       BROWSER_HOOK
     );
     expect(messages).toEqual([]);
+  });
+
+  it.each(CHART_FILES)('guards the chart file %s against server-only and write-path imports', async (file) => {
+    const redis = await restrictedMessages("import { cachedFetch } from '@/lib/redis';\nexport const x = cachedFetch;\n", file);
+    const write = await restrictedMessages("import { GlobalSignal } from '@/lib/models/global-signal';\nexport const x = GlobalSignal;\n", file);
+    expect(redis.length).toBeGreaterThan(0);
+    expect(write.length).toBeGreaterThan(0);
   });
 
   it('rejects compute-engine in the server route', async () => {

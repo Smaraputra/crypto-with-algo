@@ -82,21 +82,26 @@ const flush = (ms = 0) => act(async () => { await vi.advanceTimersByTimeAsync(ms
 interface Server {
   context: ProvisionalContext;
   latest: { candleTimestamp: number; score: number } | null;
+  latestVersion: number;
+  history: Array<{ candleTimestamp: number; score: number; configVersion: number }>;
   fetchSpy: ReturnType<typeof vi.spyOn>;
   count: (path: string) => number;
 }
 
 function startServer(context: ProvisionalContext): Server {
-  const server = { context, latest: null } as Server;
+  const server = { context, latest: null, latestVersion: 8, history: [] } as unknown as Server;
   server.fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = new URL(String(input), 'http://localhost');
     if (url.pathname === '/api/signals/provisional-context') {
       return new Response(JSON.stringify(server.context));
     }
-    if (url.pathname === '/api/signals/global') return new Response(JSON.stringify({ signals: [] }));
+    if (url.pathname === '/api/signals/global') {
+      const signals = server.history.map((h) => ({ ...h, tier: 'neutral', confidence: 40.5 }));
+      return new Response(JSON.stringify({ signals }));
+    }
     if (url.pathname === '/api/signals/latest') {
       const signal = server.latest
-        ? { ...server.latest, tier: 'neutral', confidence: 40.5, configVersion: 8 }
+        ? { ...server.latest, tier: 'neutral', confidence: 40.5, configVersion: server.latestVersion }
         : null;
       return new Response(JSON.stringify({ signal }));
     }
@@ -366,5 +371,112 @@ describe('useProvisionalSignal key changes', () => {
     await flush(15 * 60_000);
     expect(mocks.score.mock.calls.length).toBe(calls);
     expect(server.fetchSpy.mock.calls.length).toBe(fetches);
+  });
+});
+
+const NOT_READY_SYNC: ProvisionalContext = {
+  ready: false,
+  reason: 'awaiting-candle-sync',
+  configVersion: 8,
+  symbol: SYMBOL,
+  interval: INTERVAL,
+  style: STYLE,
+  formingOpenTime: NEXT,
+  generatedAt: NEXT,
+};
+
+describe('useProvisionalSignal recorded version filter', () => {
+  it('draws only rows scored under the bundle version', async () => {
+    const server = startServer(readyContext());
+    server.history = [
+      { candleTimestamp: FORMING - 3 * HOUR, score: 10, configVersion: 6 },
+      { candleTimestamp: FORMING - 2 * HOUR, score: 20, configVersion: 7 },
+      { candleTimestamp: FORMING - HOUR, score: 30, configVersion: 8 },
+    ];
+    const { result } = setup();
+    await flush();
+    expect([...result.current.recorded.keys()]).toEqual([FORMING - HOUR]);
+    expect(result.current.recorded.get(FORMING - HOUR)?.configVersion).toBe(8);
+  });
+
+  it('does not settle an awaited bar with a row of another version', async () => {
+    const server = startServer(readyContext());
+    const { result } = setup();
+    await flush();
+    tick(bar(60010), true);
+    server.latest = { candleTimestamp: FORMING, score: 33 };
+    server.latestVersion = 7;
+    await flush(30_000);
+    expect(result.current.status).toBe('awaiting-record');
+    expect(result.current.recorded.has(FORMING)).toBe(false);
+
+    server.latestVersion = 8;
+    await flush(10_000);
+    expect(result.current.status).toBe('recorded');
+    expect(result.current.recorded.get(FORMING)?.configVersion).toBe(8);
+  });
+});
+
+describe('useProvisionalSignal after a close', () => {
+  it('re-requests a not-ready context on ticks at the 5 s gap and computes once ready', async () => {
+    const server = startServer(readyContext());
+    setup();
+    await flush();
+    tick(bar(60010), true);
+    const base = server.count('/api/signals/provisional-context');
+
+    server.context = NOT_READY_SYNC;
+    tick(bar(60000, NEXT));
+    await flush();
+    expect(server.count('/api/signals/provisional-context')).toBe(base + 1);
+
+    tick(bar(60001, NEXT));
+    await flush(2_000);
+    tick(bar(60002, NEXT));
+    await flush();
+    expect(server.count('/api/signals/provisional-context')).toBe(base + 1);
+
+    await flush(3_000);
+    tick(bar(60003, NEXT));
+    await flush();
+    expect(server.count('/api/signals/provisional-context')).toBe(base + 2);
+    expect(mocks.score).toHaveBeenCalledTimes(1);
+
+    server.context = readyContext(NEXT);
+    await flush(5_000);
+    tick(bar(60004, NEXT));
+    await flush();
+    expect(server.count('/api/signals/provisional-context')).toBe(base + 3);
+    expect(mocks.score).toHaveBeenCalledTimes(2);
+    expect(mocks.score.mock.calls[1][0].formingOpenTime).toBe(NEXT);
+  });
+
+  it('keeps awaiting-record and the closed value while the new bar context is not ready', async () => {
+    const server = startServer(readyContext());
+    const { result } = setup();
+    await flush();
+    tick(bar(60010), true);
+    const closed = result.current.provisional;
+    expect(closed).not.toBeNull();
+
+    server.context = NOT_READY_SYNC;
+    tick(bar(60000, NEXT));
+    await flush();
+    expect(result.current.status).toBe('awaiting-record');
+    expect(result.current.provisional).toEqual(closed);
+  });
+});
+
+describe('useProvisionalSignal version mismatch', () => {
+  it('does not score and reports version-mismatch', async () => {
+    startServer({ ...readyContext(), configVersion: 9 });
+    const { result } = setup();
+    await flush();
+    tick(bar(60010));
+    tick(bar(60020), true);
+    expect(mocks.score).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('waiting');
+    expect(result.current.reasonCode).toBe('version-mismatch');
+    expect(result.current.provisional).toBeNull();
   });
 });
