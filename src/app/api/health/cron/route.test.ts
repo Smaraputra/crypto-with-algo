@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { GET } from './route';
-import { DERIVED_JOBS, HEARTBEAT_JOBS } from '@/lib/cron-jobs';
+import { DERIVED_JOBS, HEARTBEAT_JOBS, SERVICE_JOBS } from '@/lib/cron-jobs';
 
 vi.mock('@/lib/mongodb', () => ({ connectDB: vi.fn() }));
 
@@ -47,9 +47,9 @@ function findOneReturning(doc: unknown) {
 const now = Date.now();
 const agoSeconds = (s: number) => new Date(now - s * 1000);
 
-/** A fresh heartbeat for every wrapped job, so the baseline is all-healthy. */
+/** A fresh heartbeat for every wrapped job and service, so the baseline is all-healthy. */
 function allHealthyHeartbeats() {
-  return HEARTBEAT_JOBS.map((spec) => ({
+  return [...HEARTBEAT_JOBS, ...SERVICE_JOBS].map((spec) => ({
     job: spec.job,
     lastRunAt: new Date(now),
     lastSuccessAt: new Date(now),
@@ -88,7 +88,7 @@ describe('GET /api/health/cron', () => {
     expect(res.status).toBe(200);
     expect(body.status).toBe('ok');
     expect(body.summary).toEqual({
-      healthy: HEARTBEAT_JOBS.length + DERIVED_JOBS.length,
+      healthy: HEARTBEAT_JOBS.length + SERVICE_JOBS.length + DERIVED_JOBS.length,
       overdue: 0,
       failing: 0,
       never_ran: 0,
@@ -96,11 +96,11 @@ describe('GET /api/health/cron', () => {
     });
   });
 
-  it('reports every wrapped job plus every derived job', async () => {
+  it('reports every wrapped job, every service and every derived job', async () => {
     const body = await (await GET(request())).json();
 
-    expect(body.jobs).toHaveLength(HEARTBEAT_JOBS.length + DERIVED_JOBS.length);
-    for (const spec of HEARTBEAT_JOBS) {
+    expect(body.jobs).toHaveLength(HEARTBEAT_JOBS.length + SERVICE_JOBS.length + DERIVED_JOBS.length);
+    for (const spec of [...HEARTBEAT_JOBS, ...SERVICE_JOBS]) {
       expect(body.jobs.some((j: { job: string }) => j.job === spec.job)).toBe(true);
     }
     expect(body.jobs.some((j: { job: string }) => j.job === 'llm-panel')).toBe(true);
@@ -132,7 +132,7 @@ describe('GET /api/health/cron', () => {
 
     expect(res.status).toBe(503);
     expect(body.status).toBe('degraded');
-    expect(body.summary.never_ran).toBe(HEARTBEAT_JOBS.length);
+    expect(body.summary.never_ran).toBe(HEARTBEAT_JOBS.length + SERVICE_JOBS.length);
   });
 
   it('returns 503 when one job is failing', async () => {
@@ -146,6 +146,38 @@ describe('GET /api/health/cron', () => {
     expect(res.status).toBe(503);
     expect(body.summary.failing).toBe(1);
     expect(body.jobs.find((j: { job: string }) => j.job === beats[0].job).lastError).toBe('boom');
+  });
+
+  it('flags a market recorder whose heartbeat stopped as overdue', async () => {
+    // The recorder is a long-running container, not a crontab line. A row that
+    // stops moving means the process died, hung or lost Mongo.
+    const beats = allHealthyHeartbeats().map((b) =>
+      b.job === 'market-recorder' ? { ...b, lastRunAt: agoSeconds(600), lastSuccessAt: agoSeconds(600) } : b
+    );
+    mocks.heartbeatFind.mockReturnValue(findReturning(beats));
+
+    const res = await GET(request());
+    const body = await res.json();
+    const recorder = body.jobs.find((j: { job: string }) => j.job === 'market-recorder');
+
+    expect(res.status).toBe(503);
+    expect(recorder.state).toBe('overdue');
+    expect(recorder.schedule).toMatch(/continuous/);
+  });
+
+  it('reports a recorder that is alive but disconnected as failing', async () => {
+    const beats = allHealthyHeartbeats().map((b) =>
+      b.job === 'market-recorder'
+        ? { ...b, lastStatus: 'failure', lastError: 'disconnected for 120 s', lastFailureAt: new Date(now) }
+        : b
+    );
+    mocks.heartbeatFind.mockReturnValue(findReturning(beats));
+
+    const body = await (await GET(request())).json();
+    const recorder = body.jobs.find((j: { job: string }) => j.job === 'market-recorder');
+
+    expect(recorder.state).toBe('failing');
+    expect(recorder.lastError).toBe('disconnected for 120 s');
   });
 
   it('flags a dead LLM panel as overdue from the newest call alone', async () => {

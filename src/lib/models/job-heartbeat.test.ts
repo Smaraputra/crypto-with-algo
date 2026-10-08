@@ -118,6 +118,14 @@ describe('recordJobRun against a real collection', () => {
     expect(doc!.lastStatus).toBe('success');
   });
 
+  it('accepts the long-running market recorder, which has no crontab line', async () => {
+    await recordJobRun('market-recorder', { ok: true, durationMs: 60_000, result: { connected: true } });
+
+    const doc = await JobHeartbeat.findOne({ job: 'market-recorder' });
+    expect(doc).not.toBeNull();
+    expect(doc!.lastStatus).toBe('success');
+  });
+
   it('swallows a write for an unknown job rather than throwing at the caller', async () => {
     // recordJobRun must never be able to fail a live cron route, even when the
     // enum rejects the key.

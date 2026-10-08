@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Document } from 'mongoose';
 
-import { CRON_JOB_NAMES } from '@/lib/cron-jobs';
+import { HEARTBEAT_JOB_NAMES } from '@/lib/cron-jobs';
 
 /**
  * One row per scheduled job, holding only its latest state.
@@ -57,7 +57,7 @@ export interface IJobHeartbeat extends Document {
 
 const jobHeartbeatSchema = new Schema<IJobHeartbeat>(
   {
-    job: { type: String, required: true, unique: true, enum: CRON_JOB_NAMES },
+    job: { type: String, required: true, unique: true, enum: HEARTBEAT_JOB_NAMES },
     lastRunAt: { type: Date, required: true },
     lastDurationMs: { type: Number, required: true },
     lastStatus: { type: String, required: true, enum: ['success', 'failure'] },
