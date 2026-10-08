@@ -521,7 +521,7 @@ import {
 } from './report-schema';
 import { optionsCurrencyOf, type FlowRow, type MetricsRow, type OptionsRow, type PerpCandleRow, type SnapshotRow } from './dataset-format';
 
-const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
+export const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
 // (fewer pairs than this and those functions already return NaN).
 const MIN_PAIRS = 3;
@@ -938,7 +938,7 @@ function loadOptionsSeries(
 const SUBSAMPLE_BLOCK_COUNT = 20;
 
 /** mulberry32: same small seeded PRNG as ic-stats.ts's own (unexported) one, reimplemented locally for the subsample below. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return function next(): number {
     a = (a + 0x6d2b79f5) | 0;
@@ -1220,6 +1220,42 @@ function buildBarRollingQuarterly(
     out.push({ quarter, horizon, ic: mean, n, t });
   }
   return out;
+}
+
+/**
+ * The pooled (non-demeaned) statistic of one factor at one horizon exactly as
+ * buildFactorIcReport computes it: every symbol's factor and forward-return
+ * series concatenated in symbol order, then icWithHac. A null entry in
+ * `factorArrays` is a symbol whose matrix never carried the factor and is
+ * skipped, as the report does. Read by qh-flow-null.ts so a shuffled-label
+ * null and the real cell share one code path.
+ */
+export function pooledIcStat(
+  factorArrays: ReadonlyArray<ArrayLike<number> | null>,
+  fwdArrays: ReadonlyArray<Float64Array>,
+  horizon: number
+): { ic: number; n: number; t: number } {
+  let pooledFactor: number[] = [];
+  const chunks: Float64Array[] = [];
+  for (let s = 0; s < factorArrays.length; s++) {
+    const arr = factorArrays[s];
+    if (arr) {
+      pooledFactor = pooledFactor.concat(Array.from(arr));
+      chunks.push(fwdArrays[s]);
+    }
+  }
+  return icWithHac(pooledFactor, Array.from(concatFloat64(chunks)), horizon);
+}
+
+/** One symbol's forward returns at a horizon, as buildFactorIcReport's rawFwdFor builds them. */
+export function symbolForwardReturns(
+  data: SymbolData,
+  horizon: number,
+  executionLagBars: number,
+  returnSeries: 'spot' | 'perp'
+): Float64Array {
+  const closes = returnSeries === 'perp' ? data.matrix.perpCloses : data.matrix.closes;
+  return Float64Array.from(forwardReturns(closes, horizon, executionLagBars), (v) => v ?? NaN);
 }
 
 function resolveCommit(): string {
