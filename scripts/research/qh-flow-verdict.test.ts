@@ -172,6 +172,31 @@ describe('computeVerdict', () => {
     expect(computeVerdict(base).verdict).toBe('NULL');
   });
 
+  it('fails when any counted horizon is below the floor (A1-2 strict rule)', () => {
+    // h4, h8, h12 all pass with the predicted sign, but h12 is below its floor.
+    // Under the old code, h12 would be excluded and the column would survive with h4, h8.
+    // Under the strict rule, the column fails.
+    const base = inputs(
+      { 'raw.qhOpenImb': { 4: strong(1), 8: strong(1), 12: strong(1) } },
+      {},
+      0.01
+    );
+    base.floors['1h'].cells.find((c) => c.factor === 'raw.qhOpenImb' && c.horizon === 12)!.detectionFloorIc = 0.05;
+    const v = computeVerdict(base);
+    expect(v.verdict).toBe('NULL');
+    expect(v.columns['raw.qhOpenImb'].byInterval['1h'].survives).toBe(false);
+    const reasons = v.columns['raw.qhOpenImb'].byInterval['1h'].reasons.join(' ');
+    expect(reasons).toMatch(/h12.*below the detection floor 0\.05000/);
+  });
+
+  it('survives when all counted horizons clear the floor (A1-2 strict rule)', () => {
+    // h4, h8, h12 all pass with the predicted sign and all clear the floor.
+    const v = computeVerdict(inputs({ 'raw.qhOpenImb': { 4: strong(1), 8: strong(1), 12: strong(1) } }));
+    expect(v.verdict).toBe('SURVIVOR');
+    expect(v.columns['raw.qhOpenImb'].byInterval['1h'].survives).toBe(true);
+    expect(v.columns['raw.qhOpenImb'].byInterval['1h'].horizonsPassing).toEqual([4, 8, 12]);
+  });
+
   it('fails a predicted column whose quarters disagree with the sign', () => {
     const data = inputs({ 'raw.largeTakerImb': { 4: strong(1), 8: strong(1) } });
     for (const q of data.reports['1h'].factors.find((f) => f.name === 'raw.largeTakerImb')!.rollingQuarterly) {
@@ -256,6 +281,21 @@ describe('assertVerdictInputs', () => {
     rejects((i) => ((i.floors['1h'] as { reportKind: string }).reportKind = 'other'), /qh-flow-null/);
     rejects((i) => i.floors['4h'].cells.pop(), /detection floor/);
     rejects((i) => (i.floors['4h'].cells[0].detectionFloorIc = NaN), /detection floor/);
+  });
+
+  it('requires floor reports to have draws 200', () => {
+    rejects((i) => (i.floors['1h'].args.draws = 100), /draws is 100, need 200/);
+    rejects((i) => (i.floors['4h'].args.draws = 300), /draws is 300, need 200/);
+  });
+
+  it('requires floor reports to have seed 7', () => {
+    rejects((i) => (i.floors['1h'].args.seed = 42), /seed is 42, need 7/);
+    rejects((i) => (i.floors['4h'].args.seed = 1), /seed is 1, need 7/);
+  });
+
+  it('requires floor reports to have minShiftDays 30', () => {
+    rejects((i) => (i.floors['1h'].args.minShiftDays = 20), /minShiftDays is 20, need 30/);
+    rejects((i) => (i.floors['4h'].args.minShiftDays = 60), /minShiftDays is 60, need 30/);
   });
 
   it('refuses a swapped interval and a different bootstrap', () => {

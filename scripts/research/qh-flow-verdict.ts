@@ -160,6 +160,9 @@ export function assertVerdictInputs(inputs: VerdictInputs): void {
     if (floor.args.interval !== interval) ffail(`interval is ${floor.args.interval}`);
     if (floor.args.executionLagBars !== 1) ffail(`execution lag is ${floor.args.executionLagBars}, need 1`);
     if (floor.args.returnSeries !== 'perp') ffail(`return series is ${floor.args.returnSeries}, need perp`);
+    if (floor.args.draws !== 200) ffail(`draws is ${floor.args.draws}, need 200`);
+    if (floor.args.seed !== 7) ffail(`seed is ${floor.args.seed}, need 7`);
+    if (floor.args.minShiftDays !== 30) ffail(`minShiftDays is ${floor.args.minShiftDays}, need 30`);
     if (floor.args.start !== hold.start || floor.args.end !== hold.end) ffail('window is not the locked hold-out');
     if (!same(floor.args.horizons, horizons)) ffail(`horizons ${floor.args.horizons.join(',')} differ`);
     if (!same([...floor.args.factors].sort(), [...FACTORS].sort())) ffail('factors are not exactly the four columns');
@@ -218,8 +221,6 @@ export function computeVerdict(inputs: VerdictInputs): Verdict {
             excluded = 'no prediction at 1h h1 (A1-3)';
           } else if (Math.sign(h.ic) !== sign) {
             excluded = `sign ${Math.sign(h.ic) > 0 ? '+' : Math.sign(h.ic) < 0 ? '-' : '0'} is not the predicted ${sign > 0 ? '+' : '-'} (A1-3)`;
-          } else if (!(Math.abs(h.ic) >= floorIc)) {
-            excluded = `|ic| ${Math.abs(h.ic).toFixed(5)} is below the detection floor ${floorIc.toFixed(5)} (A1-2)`;
           }
         }
         return {
@@ -244,26 +245,55 @@ export function computeVerdict(inputs: VerdictInputs): Verdict {
         continue;
       }
 
-      // Steps 2 and 3: keep only the horizons that count, then the unchanged legs on those.
+      // Steps 2 and 3: keep only the horizons that count, then check if all pass the floor.
       const counted = new Set(diagnostics.filter((d) => d.excluded === null).map((d) => d.horizon));
-      const restricted: FactorReport = {
-        ...factorReport,
-        pooled: { horizons: factorReport.pooled.horizons.filter((h) => counted.has(h.horizon)) },
-      };
-      const row = evaluateSurvivors(
-        { ...report, factors: [restricted] },
-        (_name, horizon) => fdrRejected.has(horizon)
-      )[0];
-      const reasons = [...row.reasons];
-      for (const d of diagnostics) {
-        if (d.excluded) reasons.push(`h${d.horizon}: ${d.excluded}`);
+
+      // Check if all counted horizons that pass the basic rule also pass the floor (A1-2 strict rule).
+      // Only horizons with |ic| >= 0.02 pass the basic rule.
+      const rulePassers = diagnostics.filter((d) => counted.has(d.horizon) && d.clearsRule);
+      const floorFailures = rulePassers.filter((d) => !(Math.abs(d.ic) >= d.floorIc));
+
+      if (rulePassers.length > 0 && floorFailures.length > 0) {
+        // Column fails if any rule-passing horizon is below its floor.
+        const reasons = floorFailures.map(
+          (d) => `h${d.horizon}: |ic| ${Math.abs(d.ic).toFixed(5)} is below the detection floor ${d.floorIc.toFixed(5)} (A1-2)`
+        );
+        // Update diagnostics to mark floor failures.
+        const updated = diagnostics.map((d) => {
+          if (floorFailures.find((f) => f.horizon === d.horizon)) {
+            return {
+              ...d,
+              excluded: `|ic| ${Math.abs(d.ic).toFixed(5)} is below the detection floor ${d.floorIc.toFixed(5)} (A1-2)`,
+            };
+          }
+          return d;
+        });
+        byInterval[interval] = {
+          survives: false,
+          horizonsPassing: [],
+          reasons,
+          horizons: updated,
+        };
+      } else {
+        const restricted: FactorReport = {
+          ...factorReport,
+          pooled: { horizons: factorReport.pooled.horizons.filter((h) => counted.has(h.horizon)) },
+        };
+        const row = evaluateSurvivors(
+          { ...report, factors: [restricted] },
+          (_name, horizon) => fdrRejected.has(horizon)
+        )[0];
+        const reasons = [...row.reasons];
+        for (const d of diagnostics) {
+          if (d.excluded) reasons.push(`h${d.horizon}: ${d.excluded}`);
+        }
+        byInterval[interval] = {
+          survives: row.survivor,
+          horizonsPassing: row.survivor ? row.horizonsPassing : [],
+          reasons: row.survivor ? [] : reasons,
+          horizons: diagnostics,
+        };
       }
-      byInterval[interval] = {
-        survives: row.survivor,
-        horizonsPassing: row.survivor ? row.horizonsPassing : [],
-        reasons: row.survivor ? [] : reasons,
-        horizons: diagnostics,
-      };
     }
 
     columns[factor] = {
