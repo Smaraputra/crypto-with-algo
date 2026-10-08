@@ -1,10 +1,21 @@
-import { streamArchiveCsvLines, type ArchiveFileSpec, type StreamArchiveOptions } from '@/lib/external/binance-archive';
+import {
+  streamArchiveCsvLines,
+  type ArchiveFileSpec,
+  type StreamArchiveOptions,
+} from '@/lib/external/binance-archive';
 import { parseAggTradeLine } from './agg-trades';
 import { FlowFolder, type FlowBucket } from './fold';
 
 export type FoldFileResult =
   | { status: 'missing' }
-  | { status: 'ok'; buckets: FlowBucket[]; lines: number; rows: number; outOfOrder: number };
+  | {
+      status: 'ok';
+      buckets: FlowBucket[];
+      lines: number;
+      rows: number;
+      outOfOrder: number;
+      uncompressedBytes: number;
+    };
 
 /**
  * Streams one aggTrades archive file and folds it into 5-minute buckets. Raw
@@ -35,5 +46,12 @@ export async function foldArchiveFile(
   if (result.status === 'missing') return { status: 'missing' };
 
   buckets.push(...folder.flush());
-  return { status: 'ok', buckets, lines: result.lines, rows: folder.rows, outOfOrder: folder.outOfOrder };
+  return {
+    status: 'ok',
+    buckets,
+    lines: result.lines,
+    rows: folder.rows,
+    outOfOrder: folder.outOfOrder,
+    uncompressedBytes: result.uncompressedBytes,
+  };
 }

@@ -28,6 +28,7 @@ describe('foldArchiveFile', () => {
     if (r.status !== 'ok') return;
     expect(r.rows).toBe(2);
     expect(r.outOfOrder).toBe(0);
+    expect(r.uncompressedBytes).toBe(1);
     expect(r.buckets.map((b) => [b.bucketStart, b.buyQuote, b.sellQuote, b.trades])).toEqual([
       [BASE, 20, 0, 3],
       [BASE + 300_000, 0, 10, 1],
