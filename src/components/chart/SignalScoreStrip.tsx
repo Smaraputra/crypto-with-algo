@@ -101,9 +101,9 @@ export function SignalScoreStrip({ symbol, interval, style, signal, onStyleChang
       className="mt-2 space-y-1 rounded-sm border border-border bg-card px-3 py-2 text-xs text-muted-foreground"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-foreground">
+        <h2 className="text-sm font-medium text-foreground">
           Signal score{style ? ` · ${STRIP_STYLE_LABELS[style]}` : ''} · {interval}
-        </h3>
+        </h2>
         {showToggle && (
           <div role="group" aria-label="Trading style" className="inline-flex overflow-hidden rounded-sm border border-border">
             {styles.map((s) => (
@@ -113,7 +113,7 @@ export function SignalScoreStrip({ symbol, interval, style, signal, onStyleChang
                 aria-pressed={style === s}
                 onClick={() => onStyleChange(s)}
                 className={cn(
-                  'cursor-pointer px-2.5 py-1 text-xs transition-colors',
+                  'cursor-pointer min-h-8 px-2.5 py-1 text-xs transition-colors',
                   style === s ? 'bg-accent text-accent-foreground' : 'hover:bg-muted hover:text-foreground'
                 )}
               >

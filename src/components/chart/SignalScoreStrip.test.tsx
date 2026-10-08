@@ -36,7 +36,7 @@ describe('SignalScoreStrip', () => {
 
   it('shows the heading and the legend sentence with the config version', () => {
     strip();
-    expect(screen.getByRole('heading')).toHaveTextContent('Signal score · Day trading · 1h');
+    expect(screen.getByRole('heading', { level: 2, name: /Signal score/ })).toHaveTextContent('Signal score · Day trading · 1h');
     expect(screen.getByTestId('signal-score-strip')).toHaveTextContent(
       "Filled bars are the scheduler's recorded scores (configVersion 8). The hollow bar is provisional: it repaints until the bar closes and is never recorded."
     );
