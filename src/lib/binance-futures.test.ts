@@ -6,7 +6,10 @@ import {
   fetchFundingInfo,
   fetchPerpExchangeInfo,
   fetchPerpKlines,
+  fetchPerpKlinesRange,
   fetchPremiumIndex,
+  KLINES_PAGE,
+  MAX_KLINE_PAGES,
   fetchFundingRate,
   fetchGlobalLongShortRatio,
   fetchLongShortRatio,
@@ -250,6 +253,34 @@ describe('cost check fetchers', () => {
     expect(rows).toEqual([
       { openTime: 1000, closeTime: 1999, open: 1.5, high: 2, low: 1, close: 1.8, quoteVolume: 18.5 },
     ]);
+  });
+
+  it('pages a kline range forward from the last open time until a short page', async () => {
+    const H = 3_600_000;
+    const row = (t: number) => [t, '1', '1', '1', '1', '1', t + H - 1, '1', 1, '1', '1', '0'];
+    const page = (from: number, n: number) => Array.from({ length: n }, (_, i) => row(from + i * H));
+    mockOk(page(0, KLINES_PAGE));
+    mockOk(page(KLINES_PAGE * H, KLINES_PAGE));
+    mockOk(page(2 * KLINES_PAGE * H, 300));
+    const bars = await fetchPerpKlinesRange('BTCUSDT', '1h', 0, 4000 * H);
+    expect(bars).toHaveLength(2 * KLINES_PAGE + 300);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    const second = new URL(String(mockFetch.mock.calls[1][0]));
+    expect(second.searchParams.get('startTime')).toBe(String((KLINES_PAGE - 1) * H + 1));
+    expect(second.searchParams.get('endTime')).toBe(String(4000 * H));
+    expect(second.searchParams.get('limit')).toBe(String(KLINES_PAGE));
+  });
+
+  it('refuses a range that would need more than the page cap', async () => {
+    const H = 3_600_000;
+    for (let p = 0; p < MAX_KLINE_PAGES; p++) {
+      mockOk(Array.from({ length: KLINES_PAGE }, (_, i) => {
+        const t = (p * KLINES_PAGE + i) * H;
+        return [t, '1', '1', '1', '1', '1', t + H - 1, '1', 1, '1', '1', '0'];
+      }));
+    }
+    await expect(fetchPerpKlinesRange('BTCUSDT', '1h', 0, 1e15)).rejects.toThrow(/more than 10 requests/);
+    expect(mockFetch).toHaveBeenCalledTimes(MAX_KLINE_PAGES);
   });
 
   it('parses the premium index', async () => {
