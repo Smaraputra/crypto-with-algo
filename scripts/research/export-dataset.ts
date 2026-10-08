@@ -23,6 +23,7 @@ import {
 import { PerpCandle, PERP_SERIES, type IPerpCandle, type PerpSeries } from '@/lib/models/perp-candle';
 import { FuturesMetric, type IFuturesMetric } from '@/lib/models/futures-metric';
 import { OptionsFlowHour, type IOptionsFlowHour } from '@/lib/models/options-flow-hour';
+import { ArchiveFlowBar, type IArchiveFlowBar } from '@/lib/models/archive-flow-bar';
 import { FundingSettlement, type IFundingSettlement } from '@/lib/models/funding-settlement';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { parseContractList } from '@/lib/contract-list';
@@ -45,6 +46,7 @@ import {
   type CandleRow,
   type DatasetManifest,
   type DatasetKind,
+  type FlowRow,
   type FundingRow,
   type HtfRow,
   type ManifestFile,
@@ -57,7 +59,8 @@ import { styleForInterval } from './factors';
 
 const DEFAULT_INTERVALS = ['5m', '15m', '1h', '4h', '1d'];
 const SNAPSHOT_INTERVALS = new Set(['1h', '4h', '1d']);
-const ALL_KINDS: readonly DatasetKind[] = [
+/** The kinds an export writes when --datasets is omitted. Frozen: older export commands must keep producing the same manifest. */
+const DEFAULT_KINDS: readonly DatasetKind[] = [
   'candles',
   'snapshots',
   'htf',
@@ -66,6 +69,10 @@ const ALL_KINDS: readonly DatasetKind[] = [
   'options',
   'funding',
 ] as const;
+/** Every kind --datasets accepts. `flow` (qh-flow phase) is opt-in only. */
+const ALL_KINDS: readonly DatasetKind[] = [...DEFAULT_KINDS, 'flow'] as const;
+/** ArchiveFlowBar buckets are 5m, one file per symbol. */
+const FLOW_INTERVAL = '5m';
 /** FundingSettlement rows are one per settlement, not per bar: one file per symbol. */
 const FUNDING_FILE = 'settlements';
 /** The archive publishes one 5m grid per symbol, so metrics has a single file. */
@@ -151,7 +158,7 @@ export function parseArgs(
         }
         return kind as DatasetKind;
       })
-    : [...ALL_KINDS];
+    : [...DEFAULT_KINDS];
 
   const perpSeries = flags.has('perp-series')
     ? parseList(flags.get('perp-series')!).map((series) => {
@@ -433,6 +440,37 @@ async function fetchFuturesMetrics(
   return rows;
 }
 
+/** The 5m taker-flow buckets for one symbol, from ArchiveFlowBar, ascending by bucket open. */
+async function fetchFlowBars(symbol: string, startMs?: number, endMs?: number): Promise<FlowRow[]> {
+  const bucketStart = buildTimestampFilter(startMs, endMs);
+  const query: Record<string, unknown> = { symbol };
+  if (bucketStart) query.bucketStart = bucketStart;
+
+  const rows: FlowRow[] = [];
+  const cursor = ArchiveFlowBar.find(query).sort({ bucketStart: 1 }).lean().cursor();
+  for await (const doc of cursor as AsyncIterable<IArchiveFlowBar>) {
+    rows.push({
+      t: doc.bucketStart,
+      trades: doc.trades,
+      aggTrades: doc.aggTrades,
+      buyBase: doc.buyBase,
+      sellBase: doc.sellBase,
+      buyQuote: doc.buyQuote,
+      sellQuote: doc.sellQuote,
+      buyQuoteSmall: doc.buyQuoteSmall,
+      buyQuoteMedium: doc.buyQuoteMedium,
+      buyQuoteLarge: doc.buyQuoteLarge,
+      sellQuoteSmall: doc.sellQuoteSmall,
+      sellQuoteMedium: doc.sellQuoteMedium,
+      sellQuoteLarge: doc.sellQuoteLarge,
+      buyQuoteOpen10s: doc.buyQuoteOpen10s,
+      sellQuoteOpen10s: doc.sellQuoteOpen10s,
+      source: doc.source,
+    });
+  }
+  return rows;
+}
+
 /** The hourly Deribit DVOL and trade-flow rows for one currency. One file per currency, every symbol mapped to it reads the same file. */
 async function fetchFundingSettlements(symbol: string, startMs?: number, endMs?: number): Promise<FundingRow[]> {
   const fundingTime = buildTimestampFilter(startMs, endMs);
@@ -589,6 +627,22 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
               symbol,
               METRICS_INTERVAL,
               metricsRows,
+              (row) => row.t
+            )
+          );
+        }
+
+        // One flow file per symbol (qh-flow phase), opt-in through --datasets.
+        if (kinds.has('flow')) {
+          const flowRows = await fetchFlowBars(symbol, args.start, args.end);
+          files.push(
+            await writeDatasetFile(
+              args.out,
+              `flow/${symbol}/${FLOW_INTERVAL}.jsonl.gz`,
+              'flow',
+              symbol,
+              FLOW_INTERVAL,
+              flowRows,
               (row) => row.t
             )
           );

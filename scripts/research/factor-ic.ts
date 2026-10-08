@@ -505,6 +505,7 @@ import {
   loadCandles,
   loadHtf,
   loadManifest,
+  loadFlow,
   loadMetrics,
   loadOptions,
   loadPerp,
@@ -518,7 +519,7 @@ import {
   type FactorReport,
   type HorizonStat,
 } from './report-schema';
-import { optionsCurrencyOf, type MetricsRow, type OptionsRow, type PerpCandleRow, type SnapshotRow } from './dataset-format';
+import { optionsCurrencyOf, type FlowRow, type MetricsRow, type OptionsRow, type PerpCandleRow, type SnapshotRow } from './dataset-format';
 
 const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
@@ -776,6 +777,9 @@ function inRange(t: number, start: number | undefined, end: number | undefined):
   return true;
 }
 
+/** Symbols already reported as lacking a flow file, so the notice prints once per symbol. */
+const flowMissingLogged = new Set<string>();
+
 export function loadSymbolData(
   datasetDir: string,
   symbol: string,
@@ -850,6 +854,19 @@ export function loadSymbolData(
     console.error(`[factor-ic] ${symbol}: no futures metrics file, archive factors are NaN`);
   }
 
+  // qh-flow taker-flow buckets: absent on any dataset exported before the
+  // `flow` kind existed, in which case its four columns are NaN.
+  const flowPath = join(datasetDir, 'flow', symbol, '5m.jsonl.gz');
+  let flow: FlowRow[] | null = null;
+  if (existsSync(flowPath)) {
+    flow = loadFlow(datasetDir, symbol, { allowLockbox: opts.allowLockbox }).rows.filter((r) =>
+      inRange(r.t, opts.start, opts.end)
+    );
+  } else if (!flowMissingLogged.has(symbol)) {
+    flowMissingLogged.add(symbol);
+    console.error(`[factor-ic] ${symbol}: no flow file, flow factors are NaN`);
+  }
+
   const perp = loadPerpSeries(datasetDir, symbol, interval, 'klines', opts);
   const premiumIndex = loadPerpSeries(datasetDir, symbol, interval, 'premiumIndex', opts);
 
@@ -873,6 +890,7 @@ export function loadSymbolData(
     premiumIndex,
     options,
     marketOptions,
+    flow,
   });
 
   return { symbol, matrix, lockboxApplied: !opts.allowLockbox };

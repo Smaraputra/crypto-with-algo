@@ -161,7 +161,33 @@ export interface FundingRow {
   intervalHours: number | null;
 }
 
-export type DatasetKind = 'candles' | 'snapshots' | 'htf' | 'perp' | 'metrics' | 'options' | 'funding';
+/**
+ * One row per 5-minute taker-flow bucket (src/lib/models/archive-flow-bar.ts),
+ * folded from the Binance aggTrades archive by scripts/ops/ingest-agg-flow.ts.
+ * `t` is the bucket open (bucketStart). A bucket with no row is a gap in the
+ * archive, never zero volume. Definitions of the quote and size-class fields
+ * are on the model; the *Open10s fields cover [t, t + 10,000 ms).
+ */
+export interface FlowRow {
+  t: number;
+  trades: number;
+  aggTrades: number;
+  buyBase: number;
+  sellBase: number;
+  buyQuote: number;
+  sellQuote: number;
+  buyQuoteSmall: number;
+  buyQuoteMedium: number;
+  buyQuoteLarge: number;
+  sellQuoteSmall: number;
+  sellQuoteMedium: number;
+  sellQuoteLarge: number;
+  buyQuoteOpen10s: number;
+  sellQuoteOpen10s: number;
+  source: string;
+}
+
+export type DatasetKind = 'candles' | 'snapshots' | 'htf' | 'perp' | 'metrics' | 'options' | 'funding' | 'flow';
 
 /** The two currencies the options pipeline covers, keyed by their USDT-margined symbol. */
 export const OPTIONS_CURRENCY_OF_SYMBOL: Record<string, 'BTC' | 'ETH'> = {
