@@ -3,6 +3,7 @@ import type {
   CostCheckError,
   CostCheckErrorCode,
   CostCheckMarketResponse,
+  CostCheckRegimeResponse,
   CostCheckSymbolsResponse,
 } from '@/types/cost-check';
 
@@ -60,6 +61,16 @@ export function useCostCheckMarket(symbol: string, holdMinutes: number, notional
     staleTime: 60 * 1000,
     placeholderData: keepPreviousData,
     // A missing symbol or a bad request will not fix itself; one retry for a venue hiccup.
+    retry: (count, error) => error.status >= 500 && count < 1,
+  });
+}
+
+/** BTCUSDT's volatility regime. It changes once a UTC day, so it is fetched once a page view and kept. */
+export function useCostCheckRegime() {
+  return useQuery<CostCheckRegimeResponse, CostCheckRequestError>({
+    queryKey: ['costCheckRegime'],
+    queryFn: () => getJson('/api/cost-check/regime'),
+    staleTime: 30 * 60 * 1000,
     retry: (count, error) => error.status >= 500 && count < 1,
   });
 }

@@ -7,6 +7,7 @@ import {
   fetchFundingInfo,
   fetchPerpExchangeInfo,
   fetchPerpKlines,
+  fetchPerpKlinesRange,
   fetchPremiumIndex,
   type PerpDepth,
   type PerpExchangeSymbol,
@@ -15,9 +16,10 @@ import {
 } from '@/lib/binance-futures';
 import { closedBars, depthSlippageBps, effectiveMinNotional } from '@/lib/costs/market-facts';
 import { holdMoveStats, type Measurement } from '@/lib/costs/move';
+import { REGIME_SYMBOL, regimeHistoryStart, volatilityRegime } from '@/lib/costs/volatility-regime';
 import { cachedFetch, redis } from '@/lib/redis';
 import { parseVenueFilters } from '@/lib/venue-filters';
-import type { CostCheckError, CostCheckMarketResponse } from '@/types/cost-check';
+import type { CostCheckError, CostCheckMarketResponse, CostCheckRegimeResponse } from '@/types/cost-check';
 
 export const EXCHANGE_INFO_KEY = 'cost-check:exinfo';
 export const FUNDING_INFO_KEY = 'cost-check:fundinginfo';
@@ -131,6 +133,46 @@ export async function buildMarketFacts(
     slippage,
     onboardDate: listing?.onboardDate ?? 0,
   };
+}
+
+/** The regime changes only when a UTC day completes; the cache is keyed by that day. */
+export const REGIME_TTL = 6 * 3600;
+/** A day that could not be measured (bars missing, as around venue maintenance) is retried soon. */
+export const REGIME_NULL_TTL = 300;
+
+const DAY_MS = 86_400_000;
+
+export function regimeKey(now: number): string {
+  return `cost-check:regime:${REGIME_SYMBOL}:${Math.floor(now / DAY_MS) * DAY_MS - DAY_MS}`;
+}
+
+/**
+ * BTCUSDT's volatility regime for the last complete UTC day: 181 days of
+ * hourly perp bars (about 4,350, three requests), cached per day. Not
+ * `cachedFetch`, because an unmeasurable day must not be cached for the
+ * whole TTL. Fails open like it: without Redis every call fetches.
+ */
+export async function getVolatilityRegime(now: number): Promise<CostCheckRegimeResponse> {
+  const key = regimeKey(now);
+  if (redis) {
+    try {
+      const hit = await redis.get(key);
+      if (hit !== null) return JSON.parse(hit) as CostCheckRegimeResponse;
+    } catch {
+      // Unreadable cache: fetch.
+    }
+  }
+  const lastHourOpen = Math.floor(now / DAY_MS) * DAY_MS - 3_600_000;
+  const bars = await fetchPerpKlinesRange(REGIME_SYMBOL, '1h', regimeHistoryStart(now), lastHourOpen);
+  const body: CostCheckRegimeResponse = { symbol: REGIME_SYMBOL, asOf: now, regime: volatilityRegime(bars, now) };
+  if (redis) {
+    try {
+      await redis.set(key, JSON.stringify(body), { ex: body.regime ? REGIME_TTL : REGIME_NULL_TTL });
+    } catch {
+      // The response is still returned.
+    }
+  }
+  return body;
 }
 
 export async function readLastGood(key: string): Promise<CostCheckMarketResponse | null> {
