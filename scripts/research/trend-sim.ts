@@ -536,6 +536,17 @@ export interface SimOptions {
    * `cost.slippage` is not read; slippage comes from these tiers.
    */
   broad?: BroadCost;
+  /**
+   * Broad mode only, opt-in (broad-flow.ts header, PORTFOLIO; implementation note
+   * F7): at every close for which this returns true, after any ranking-close split
+   * at that close, the capital of the live sleeves (active and not leaving) is split
+   * equally across those whose paths are `defined` at the deciding bar (every live
+   * sleeve when the paths carry no mask); the others get 0. Cash stays cash until the
+   * next ranking close. Each sleeve holding a position or a target gets an order
+   * back to its rule's target on its new capital, which a decision at the same close
+   * replaces. Absent: re-equalisation happens at ranking closes only, unchanged.
+   */
+  reequaliseAt?: (closeAt: number) => boolean;
 }
 
 export interface TrendRun {
@@ -600,6 +611,16 @@ export interface BroadRunDetail {
   members: number[];
   delistings: DelistingExit[];
   leaves: LeaveExit[];
+  /** Net notional (long minus short, qty x mark) over equity at each day's close. */
+  net: number[];
+  /**
+   * Long and short notional held just after each day's fills, qty x the day's open,
+   * over the equity at the previous close (a sleeve on a carried day at its carried
+   * open). A book sized at one close is dollar-neutral here when opens equal the
+   * previous closes.
+   */
+  openLong: number[];
+  openShort: number[];
 }
 
 interface SleeveState {
@@ -678,6 +699,7 @@ export function runTrend(
   opts: SimOptions
 ): TrendRun {
   if (opts.broad) return runBroadTrend(inputs, paths, opts, opts.broad);
+  if (opts.reequaliseAt) throw new Error('reequaliseAt needs SimOptions.broad');
   for (const input of inputs) assertLegendsInput(input);
   const { cost, delay } = opts;
   const perUnitCost = cost.fee + cost.slippage;
@@ -989,6 +1011,33 @@ function resetBroadSleeve(s: BroadSleeve): void {
 }
 
 /**
+ * SimOptions.reequaliseAt (broad-flow.ts implementation note F7): the live sleeves'
+ * capital, split equally across those whose paths are defined at the bar of `day`
+ * (the close deciding at day + 1 day); the others get 0. Cash is not touched. With
+ * no such sleeve nothing changes. Each live sleeve holding a position or a target
+ * gets an order back to its rule's target at `fillDay`.
+ */
+function reequaliseLive(sleeves: readonly BroadSleeve[], day: number, fillDay: number): void {
+  const live = sleeves.filter((s) => s.active && !s.leaving);
+  const holders = new Set(
+    live.filter((s) => {
+      const defined = s.paths.defined;
+      if (defined === undefined) return true;
+      const i = barIndex(s.input, day);
+      return i !== -1 && defined[i] === 1;
+    })
+  );
+  if (holders.size === 0) return;
+  const pool = live.reduce((sum, s) => sum + s.capital, 0);
+  if (!(pool > 0)) throw new Error(`Live capital ${pool} cannot be re-equalised at ${new Date(day + DAY_MS).toISOString()}`);
+  const share = pool / holders.size;
+  for (const s of live) {
+    s.capital = holders.has(s) ? share : 0;
+    if (s.qty !== 0 || s.ruleTarget !== 0) s.pending.set(fillDay, s.ruleTarget);
+  }
+}
+
+/**
  * runTrend in broad mode. Per day d, for each active sleeve, as runTrend (gap,
  * fill, funding, mark), except:
  *   - a carried day books nothing: no fill (the due order waits for the next real
@@ -1005,7 +1054,9 @@ function resetBroadSleeve(s: BroadSleeve): void {
  * one gets capital 0 and an order to 0 at the next open; a member keeps (or, on
  * joining, starts from a reset) its rule state and gets an order back to its
  * rule's target weight on the new capital. A member whose contract ended before C
- * holds its share as cash. Decisions read the close of d as in runTrend.
+ * holds its share as cash. With `opts.reequaliseAt`, the closes it names also
+ * re-split the live capital (reequaliseLive). Decisions read the close of d as in
+ * runTrend.
  */
 function runBroadTrend(
   inputs: TrendSymbolInput[],
@@ -1046,6 +1097,9 @@ function runBroadTrend(
     members: new Array(n).fill(0),
     delistings: [],
     leaves: [],
+    net: new Array(n).fill(0),
+    openLong: new Array(n).fill(0),
+    openShort: new Array(n).fill(0),
   };
   const startDay: Record<string, number> = {};
   const run: TrendRun = {
@@ -1124,6 +1178,9 @@ function runBroadTrend(
         }
         // On a carried day the close repeats the last real close (assertBroadInput), so the mark does not move.
         s.mark = close;
+        // The position just after the day's fill, at the day's open (it is unchanged by funding and the mark).
+        if (s.qty > 0) detail.openLong[k] += (s.qty * open) / prevEquity;
+        else if (s.qty < 0) detail.openShort[k] -= (s.qty * open) / prevEquity;
 
         const delisted = s.input.endDay !== undefined && s.input.endDay !== null && d === s.input.endDay;
         if (delisted && s.qty !== 0) {
@@ -1184,13 +1241,16 @@ function runBroadTrend(
       if (!(equity > 0)) throw new Error(`Portfolio equity reached ${equity} on ${new Date(d).toISOString()}`);
       run.returns[k] = dayPnl / prevEquity;
       let gross = 0;
+      let net = 0;
       let members = 0;
       for (const s of sleeves) {
         if (!s.active) continue;
         gross += Math.abs(s.qty * s.mark);
+        net += s.qty * s.mark;
         if (!s.leaving) members++;
       }
       run.gross[k] = gross / equity;
+      detail.net[k] = net / equity;
       detail.cash[k] = cash / equity;
       detail.members[k] = members;
       assertCashBalance(capitalSum(), cash, equity, d);
@@ -1240,6 +1300,11 @@ function runBroadTrend(
         if (s.qty !== 0 || s.ruleTarget !== 0) s.pending.set(fillDay, s.ruleTarget);
       }
       cash = members.length > 0 ? dead * share : equity;
+      assertCashBalance(capitalSum(), cash, equity, closeAt);
+    }
+
+    if (opts.reequaliseAt && opts.reequaliseAt(closeAt)) {
+      reequaliseLive(sleeves, d, fillDay);
       assertCashBalance(capitalSum(), cash, equity, closeAt);
     }
 

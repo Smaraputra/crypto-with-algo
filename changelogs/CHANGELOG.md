@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: broad flow phase closed, no trial passes
+- **Result** (RESULT block in `scripts/research/broad-flow.ts`, the broad trend phase's export `aa62c5a1cb51`, universe and funding resolutions, image from `cb91ad9`, 2021-03-01 to 2026-06-30): the paper's cross-sectional taker-flow sort on the point-in-time top 50 Binance USDT-M perpetuals, after costs and funding. DO (daily, orthogonalised) Sharpe -2.54, its 188x yearly turnover costing about 22% a year; W (weekly) 0.53, CI [-0.19, 1.26]; WO (weekly, orthogonalised) 0.49, CI [-0.21, 1.19]; the daily raw control -2.35
+- **Gate 7** (`broad-flow-dsr.ts`, N = 3, computed once): expected maximum annual Sharpe 1.50, deflated probabilities W 0.011, WO 0.009, DO 0.000. Every trial also fails its own expectancy gate
+- **Reported**: in the paper's own window (2021-03 to 2022-06) every book loses (W Sharpe -0.70) against the paper's +1.34 to +1.79 gross. The permuted timing null's p of 0.005 for the daily books reflects their lower churn than random rankings, not information; the aligned null reads 0.65
+- **Predictions**: right that nothing passes and for W and WO; wrong for DO's size (predicted -0.5 to +0.3). Daily and weekly cross-sectional taker flow on Binance USDT-M is closed. Program trial ledger: 1,732
+- **Built** (pre-registered in the header of `scripts/research/broad-flow.ts`, `c97a3f3`, before the broad export was taken): signals, the rank book and the permuted and aligned nulls in `broad-flow.ts`; `SimOptions.reequaliseAt` in `trend-sim.ts` (opt-in, legends goldens unchanged); `broad-flow-gates.ts` (eight gates), `broad-flow-harness.ts` (with `--funding-resolutions`), `broad-flow-dsr.ts` (gate 7) and `BroadFlowReportSchema`
+
 ### Research: broad trend phase closed, no rule passes
 - **Result** (RESULT block in `scripts/research/broad-trend.ts`, export `aa62c5a1cb51`, universe `4f34816acb72`, funding resolutions `6a2a3dad`, image from `d8ee759`, 2021-03-01 to 2026-06-30): the five legends trend rules on the point-in-time top 50 USDT-M perpetuals with delisted contracts. TF1 Sharpe 0.39, alpha +6.6% CI [-5.2%, +17.4%]; TF2 0.23, +4.3%; TF3 -0.19, -6.6%; TF4 0.26, +1.7% CI [-1.8%, +5.0%]; C3 0.37, +19.4% CI [-6.0%, +43.7%]. Every rule fails gate 2 (Sharpe CI spans zero)
 - **Gate 8** (`broad-dsr.ts`, N = 16, computed once): V at the null floor, expected maximum annual Sharpe 0.78; deflated probabilities TF1 0.187, C3 0.172, TF4 0.117, TF2 0.103, TF3 0.012. Every trial fails; the lockbox stays closed
