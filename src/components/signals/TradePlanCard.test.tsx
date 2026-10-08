@@ -51,11 +51,21 @@ describe('TradePlanCard', () => {
     expect(ticket).toHaveTextContent('at or below +7.25. No time stop.');
 
     const costs = screen.getByTestId('trade-plan-costs');
-    expect(costs).toHaveTextContent('0.160% if stopped');
+    expect(costs).toHaveTextContent('0.160% (0.40 USDT) if stopped');
     expect(costs).toHaveTextContent('0.100% at the target');
     expect(costs).toHaveTextContent('Costs are 4.0% of the risk');
     expect(costs).toHaveTextContent('+0.0088% paid over the recorded 7-bar hold');
+    expect(screen.getByTestId('trade-plan-move')).toHaveTextContent(
+      'a 7-bar hold typically moves 0.90% (mean 1.10%); the stop round trip is 15% of the mean move'
+    );
+    expect(screen.getByTestId('trade-plan-breakeven')).toHaveTextContent(
+      'would need 34.5% winners after costs (33.3% before costs); exits on the score make this approximate'
+    );
     expect(screen.queryByTestId('trade-plan-not-placeable')).not.toBeInTheDocument();
+    expect(screen.getByTestId('trade-plan-cost-check-link')).toHaveAttribute(
+      'href',
+      '/cost-check?symbol=SOLUSDT&side=long&notional=248.00&holdMinutes=420'
+    );
   });
 
   it('renders a short ticket with the stop above and the target below', () => {
@@ -94,6 +104,18 @@ describe('TradePlanCard', () => {
     });
     render(<TradePlanCard data={makeTradePlanResponse({ plan })} isLoading={false} isError={false} />);
     expect(screen.getByTestId('trade-plan-costs')).toHaveTextContent('rate +0.0100% per 8h; no recorded hold');
+  });
+
+  it('says there is no recorded hold to compare costs against', () => {
+    const ticket = makeTicket({ costs: { ...makeTicket().costs, holdMove: null, costShareOfMove: null } });
+    render(<TradePlanCard data={makeTradePlanResponse({ plan: makeTradePlan({ interval: '4h', entry: ticket }) })} isLoading={false} isError={false} />);
+    expect(screen.getByTestId('trade-plan-move')).toHaveTextContent('no recorded 4h hold to compare the costs against');
+  });
+
+  it('says when no win rate covers the costs at the target', () => {
+    const ticket = makeTicket({ costs: { ...makeTicket().costs, bracketBreakeven: { kind: 'impossible' } } });
+    render(<TradePlanCard data={makeTradePlanResponse({ plan: makeTradePlan({ entry: ticket }) })} isLoading={false} isError={false} />);
+    expect(screen.getByTestId('trade-plan-breakeven')).toHaveTextContent('no win rate covers the costs at the target');
   });
 
   it('renders the flat state and what to do with an open position', () => {

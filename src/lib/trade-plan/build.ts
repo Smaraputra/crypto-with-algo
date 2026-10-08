@@ -7,6 +7,8 @@ import { computePositionSize, type OpenPosition } from '@/lib/backtest/trade-uti
 import { applySlippage, exitFillKind, exitSlippageApplies, feeRateFor } from '@/lib/backtest/cost-model';
 import { FUNDING_INTERVAL_MS } from '@/lib/backtest/funding';
 import { intervalToMs } from '@/lib/intervals';
+import { bracketBreakeven } from '@/lib/costs/breakeven';
+import { holdMoveStats } from '@/lib/costs/move';
 import { evidenceFor } from './evidence';
 import {
   DEFAULT_TICKET_EQUITY,
@@ -17,7 +19,7 @@ import {
   tradePlanConfig,
 } from './rule';
 import { decimalsOf, placeability, roundPrice, roundQty, venueFilterFor } from './venue';
-import type { ControlEvidence, TicketCosts, TradePlan, TradeTicket } from './types';
+import type { ControlEvidence, HoldMove, TicketCosts, TradePlan, TradeTicket } from './types';
 import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 
 /**
@@ -108,14 +110,37 @@ function probePosition(side: TradeSide, price: number): OpenPosition {
   };
 }
 
+/**
+ * The move over the recorded median hold, on the same window of bars the stop
+ * is measured on. These candles are SPOT closes (fetchKlinesRange in
+ * src/lib/binance.ts) while every cost here is a perp cost; the basis between
+ * the two is small next to an hours-long move, and the Cost Check page
+ * measures on perp bars.
+ */
+function holdMoveFor(history: OHLCV[], evidence: ControlEvidence): HoldMove | null {
+  if (evidence.medianHoldBars === null) return null;
+  const closes = history.slice(-(STOP_WINDOW_BARS + 1)).map((c) => c.close);
+  const stats = holdMoveStats(closes, evidence.medianHoldBars);
+  if (!stats) return null;
+  return {
+    holdBars: evidence.medianHoldBars,
+    medianPercent: stats.medianPercent,
+    meanPercent: stats.meanPercent,
+    independentWindows: stats.independentWindows,
+  };
+}
+
 function ticketCosts(
   side: TradeSide,
   config: BacktestConfig,
-  stopPercent: number,
+  stops: { stopPercent: number; targetPercent: number },
   interval: string,
   evidence: ControlEvidence,
-  fundingRate: number | null
+  fundingRate: number | null,
+  notional: number,
+  history: OHLCV[]
 ): TicketCosts {
+  const { stopPercent, targetPercent } = stops;
   const slippagePercent = (config.slippageBps ?? 0) / 100;
   const legPercent = (reason: 'stop_loss' | 'take_profit') =>
     feeRateFor(exitFillKind(reason), config) * 100 + (exitSlippageApplies(reason) ? slippagePercent : 0);
@@ -136,6 +161,8 @@ function ticketCosts(
     fundingPercent = side === 'long' ? paid : -paid;
   }
 
+  const holdMove = holdMoveFor(history, evidence);
+
   return {
     entryFeePercent,
     entrySlippagePercent,
@@ -147,6 +174,15 @@ function ticketCosts(
     fundingRate,
     expectedFundingCrossings,
     costShareOfRisk: stopPercent > 0 ? roundTripStopPercent / stopPercent : 0,
+    roundTripStopUsdt: (notional * roundTripStopPercent) / 100,
+    holdMove,
+    costShareOfMove: holdMove && holdMove.meanPercent > 0 ? roundTripStopPercent / holdMove.meanPercent : null,
+    bracketBreakeven: bracketBreakeven({
+      stopPercent,
+      targetPercent,
+      lossCostPercent: roundTripStopPercent,
+      winCostPercent: roundTripTargetPercent,
+    }),
   };
 }
 
@@ -216,7 +252,16 @@ export function buildTradePlan(input: TradePlanInput): TradePlan {
       riskAmount: quantity * Math.abs(modelEntryPrice - decision.stopPrice),
       placeable: reason === null,
       notPlaceableReason: reason,
-      costs: ticketCosts(side, config, stopPercent, interval, evidence, fundingRate),
+      costs: ticketCosts(
+        side,
+        config,
+        { stopPercent, targetPercent: stops.takeProfitPercent * 100 },
+        interval,
+        evidence,
+        fundingRate,
+        notional,
+        history
+      ),
     };
 
     const tierAgrees =
