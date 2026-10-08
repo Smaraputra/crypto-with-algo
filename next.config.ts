@@ -20,6 +20,9 @@ const cspDirectives = [
 const nextConfig: NextConfig = {
   output: 'standalone',
   productionBrowserSourceMaps: false,
+  // Next 16.4's `next dev` writes an AGENTS.md of AI-agent rules into the repo root on every run;
+  // the project keeps its agent instructions elsewhere and adds no standalone Markdown docs.
+  agentRules: false,
   async headers() {
     return [
       {
