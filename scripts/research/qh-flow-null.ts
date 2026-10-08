@@ -30,10 +30,10 @@
  * - empiricalP = (1 + #{valid draws with |t_null| >= |t_obs|}) / (1 + #valid
  *   draws), M3; validDraws is reported per cell. A draw factor-ic would drop
  *   is not valid.
- * - Observed ic and t are factor-ic's own, on every bar of every symbol (the
- *   self-check in the tests reproduces them exactly), while the null is on the
- *   grid. observedGridIc/observedGridT restate the unshifted statistic on the
- *   grid for comparison, reported only.
+ * - observedIc/observedT are factor-ic's own, on every bar of every symbol (the
+ *   self-check in the tests reproduces them exactly), reported as such. The null
+ *   is on the grid, so empiricalP uses observedGridT, the unshifted statistic
+ *   on the same grid (like with like); observedGridIc/observedGridT are its basis.
  * - A cell with fewer than 2 valid draws is emitted with NaN statistics and a
  *   reason; an observed cell factor-ic would drop gets null observed fields and
  *   a reason, logged to stderr.
@@ -107,7 +107,7 @@ export interface NullCell {
   validDraws: number;
   observedIc?: number | null;
   observedT?: number | null;
-  /** Unshifted statistic on the common grid, reported only. */
+  /** Unshifted statistic on the common grid: the basis of empiricalP. */
   observedGridIc?: number | null;
   observedGridT?: number | null;
   empiricalP?: number | null;
@@ -475,8 +475,11 @@ export async function buildNullReport(args: NullArgs): Promise<NullReport> {
         if (obs) {
           cell.observedIc = obs.ic;
           cell.observedT = obs.icT;
+          // Like with like: the grid observed t against the grid null draws.
           cell.empiricalP =
-            absT.length === 0 ? null : (1 + absT.filter((v) => v >= Math.abs(obs.icT)).length) / (1 + absT.length);
+            absT.length === 0 || !obsGrid
+              ? null
+              : (1 + absT.filter((v) => v >= Math.abs(obsGrid.icT)).length) / (1 + absT.length);
         } else {
           const reason = 'observed cell has no statistic factor-ic would keep';
           console.error(`[qh-flow-null] ${factor} h=${h}: ${reason}`);
