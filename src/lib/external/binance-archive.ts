@@ -32,12 +32,15 @@
  *
  * `bookTicker` is listed as a prefix by the bucket but serves no files for UM
  * futures (404 across 2022 to 2025, daily and monthly, checked 2026-09-20), so
- * order-book work goes through `bookDepth`. `aggTrades` is deliberately not
- * supported: it is about 408 MB per symbol-month, and the taker imbalance it
- * would provide is already carried by the kline row's taker_buy_volume.
+ * order-book work goes through `bookDepth`.
+ *
+ * `aggTrades` is supported only through `streamArchiveCsvLines`: one monthly
+ * file is about 0.7 GB compressed and several GB inflated, past what
+ * `fetchArchiveFile` can hold as a string, so it is never buffered whole.
  */
 import { createHash } from 'node:crypto';
-import { inflateRawSync } from 'node:zlib';
+import { createInflateRaw, crc32 as zlibCrc32, inflateRawSync } from 'node:zlib';
+import { StringDecoder } from 'node:string_decoder';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -54,7 +57,8 @@ export type ArchiveDataset =
   | 'premiumIndex'
   | 'markPrice'
   | 'fundingRate'
-  | 'bookDepth';
+  | 'bookDepth'
+  | 'aggTrades';
 
 /** Daily datasets are keyed by 'YYYY-MM-DD', monthly ones by 'YYYY-MM'. */
 export const ARCHIVE_CADENCE: Record<ArchiveDataset, 'daily' | 'monthly'> = {
@@ -64,6 +68,7 @@ export const ARCHIVE_CADENCE: Record<ArchiveDataset, 'daily' | 'monthly'> = {
   premiumIndex: 'monthly',
   markPrice: 'monthly',
   fundingRate: 'monthly',
+  aggTrades: 'monthly',
 };
 
 /** Datasets whose path carries an interval segment. */
@@ -77,6 +82,7 @@ const PATH_SEGMENT: Record<ArchiveDataset, string> = {
   markPrice: 'markPriceKlines',
   fundingRate: 'fundingRate',
   bookDepth: 'bookDepth',
+  aggTrades: 'aggTrades',
 };
 
 export type ArchiveCadence = 'daily' | 'monthly';
@@ -344,6 +350,347 @@ export async function fetchArchiveFile(
   throw lastError instanceof Error
     ? lastError
     : new Error(`Archive fetch failed after ${MAX_ATTEMPTS} attempts for ${url}`);
+}
+
+// ---------------------------------------------------------------------------
+// Streaming
+// ---------------------------------------------------------------------------
+
+/** Idle limit while streaming: a body that delivers nothing for this long is dead. */
+const STREAM_IDLE_TIMEOUT_MS = 60_000;
+const DESCRIPTOR_SIGNATURE = 0x08074b50;
+const FLAG_DATA_DESCRIPTOR = 0x0008;
+const ZIP64_EXTRA_ID = 0x0001;
+const MAX_UINT32 = 0xffffffff;
+/** Signature + crc + two 8-byte sizes. */
+const MAX_DESCRIPTOR_BYTES = 24;
+const LOCAL_FIXED_BYTES = 30;
+
+/** The zip's own integrity data disagrees with the bytes read. Never retried. */
+export class ArchiveIntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ArchiveIntegrityError';
+  }
+}
+
+export type StreamArchiveResult =
+  | { status: 'missing' }
+  | { status: 'ok'; lines: number; uncompressedBytes: number };
+
+export interface StreamArchiveOptions {
+  /** Base backoff in ms. Tests pass 0; nothing in production should set it. */
+  retryBaseMs?: number;
+  /** Idle timeout in ms. */
+  idleTimeoutMs?: number;
+  /**
+   * Called before a retry that follows a failure AFTER lines were already delivered.
+   * Without it such a failure is thrown, because a restart would repeat lines.
+   */
+  onRestart?: () => void;
+}
+
+interface LocalHeader {
+  flags: number;
+  method: number;
+  crc: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  zip64: boolean;
+  dataStart: number;
+}
+
+/** The local file header at the start of `buf`, or null while more bytes are needed. */
+function parseLocalHeader(buf: Buffer): LocalHeader | null {
+  if (buf.length < LOCAL_FIXED_BYTES) return null;
+  if (buf.readUInt32LE(0) !== LOCAL_SIGNATURE) {
+    throw new ArchiveIntegrityError('Corrupt zip: local file header signature not found');
+  }
+  const nameLength = buf.readUInt16LE(26);
+  const extraLength = buf.readUInt16LE(28);
+  const dataStart = LOCAL_FIXED_BYTES + nameLength + extraLength;
+  if (buf.length < dataStart) return null;
+
+  let compressedSize = buf.readUInt32LE(18);
+  let uncompressedSize = buf.readUInt32LE(22);
+  let zip64 = false;
+  let at = LOCAL_FIXED_BYTES + nameLength;
+  while (at + 4 <= dataStart) {
+    const id = buf.readUInt16LE(at);
+    const size = buf.readUInt16LE(at + 2);
+    if (id === ZIP64_EXTRA_ID) {
+      zip64 = true;
+      let field = at + 4;
+      if (uncompressedSize === MAX_UINT32 && field + 8 <= at + 4 + size) {
+        uncompressedSize = Number(buf.readBigUInt64LE(field));
+        field += 8;
+      }
+      if (compressedSize === MAX_UINT32 && field + 8 <= at + 4 + size) {
+        compressedSize = Number(buf.readBigUInt64LE(field));
+      }
+    }
+    at += 4 + size;
+  }
+
+  return {
+    flags: buf.readUInt16LE(6),
+    method: buf.readUInt16LE(8),
+    crc: buf.readUInt32LE(14),
+    compressedSize,
+    uncompressedSize,
+    zip64,
+    dataStart,
+  };
+}
+
+/** Whether the counted size equals a stored one, allowing a 4-byte field that wrapped. */
+function sizeMatches(expected: number, counted: number, width: 4 | 8): boolean {
+  return width === 8 ? expected === counted : expected === counted % 2 ** 32;
+}
+
+/**
+ * Checks the entry's crc and size against the data descriptor in `trailer`.
+ * The descriptor has an optional signature and 4 or 8 byte sizes, so every
+ * layout is tried and one must agree on the crc and the uncompressed size.
+ */
+function descriptorMatches(trailer: Buffer, crc: number, bytes: number): boolean {
+  for (const signed of [true, false]) {
+    if (signed && (trailer.length < 4 || trailer.readUInt32LE(0) !== DESCRIPTOR_SIGNATURE)) continue;
+    const base = signed ? 4 : 0;
+    for (const width of [4, 8] as const) {
+      if (trailer.length < base + 4 + 2 * width) continue;
+      if (trailer.readUInt32LE(base) !== crc) continue;
+      const uncompressed =
+        width === 8 ? Number(trailer.readBigUInt64LE(base + 4 + width)) : trailer.readUInt32LE(base + 4 + width);
+      if (sizeMatches(uncompressed, bytes, width)) return true;
+    }
+  }
+  return false;
+}
+
+function verifyIntegrity(header: LocalHeader, trailer: Buffer, crc: number, bytes: number, label: string): void {
+  if (header.flags & FLAG_DATA_DESCRIPTOR) {
+    if (!descriptorMatches(trailer, crc, bytes)) {
+      throw new ArchiveIntegrityError(
+        `${label}: crc32/size disagree with the data descriptor (computed crc ${crc.toString(16)}, ${bytes} bytes)`
+      );
+    }
+    return;
+  }
+  if (header.crc !== crc) {
+    throw new ArchiveIntegrityError(
+      `${label}: crc32 mismatch, header ${header.crc.toString(16)}, computed ${crc.toString(16)}`
+    );
+  }
+  if (!sizeMatches(header.uncompressedSize, bytes, header.zip64 ? 8 : 4)) {
+    throw new ArchiveIntegrityError(
+      `${label}: expected ${header.uncompressedSize} bytes, inflated ${bytes}`
+    );
+  }
+}
+
+type LineHandler = (line: string) => void | Promise<void>;
+
+/** One attempt: stream `body`, inflate it, hand lines to `onLine`. Verified before it returns. */
+async function streamZipBody(
+  body: ReadableStream<Uint8Array>,
+  onLine: LineHandler,
+  label: string,
+  arm: () => void,
+  progress: { delivered: boolean }
+): Promise<{ lines: number; uncompressedBytes: number }> {
+  const reader = body.getReader();
+  let header: LocalHeader | null = null;
+  let headerBuf: Buffer = Buffer.alloc(0);
+  let inflate: ReturnType<typeof createInflateRaw> | null = null;
+  let consumerP: Promise<void> | null = null;
+  let fed = 0;
+  let inflateEnded = false;
+  let trailer: Buffer = Buffer.alloc(0);
+
+  let crc = 0;
+  let bytes = 0;
+  let lines = 0;
+
+  const emit = async (raw: string): Promise<void> => {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (line === '') return;
+    lines++;
+    progress.delivered = true;
+    const result = onLine(line);
+    if (result) await result;
+  };
+
+  const startInflate = (): void => {
+    const stream = createInflateRaw();
+    inflate = stream;
+    const decoder = new StringDecoder('utf8');
+    consumerP = (async () => {
+      let carry = '';
+      for await (const chunk of stream as AsyncIterable<Buffer>) {
+        crc = zlibCrc32(chunk, crc);
+        bytes += chunk.length;
+        const parts = (carry + decoder.write(chunk)).split('\n');
+        carry = parts.pop() ?? '';
+        for (const part of parts) await emit(part);
+      }
+      carry += decoder.end();
+      if (carry !== '') await emit(carry);
+    })();
+    consumerP.catch(() => undefined);
+  };
+
+  const write = (chunk: Buffer): Promise<void> =>
+    new Promise((resolve, reject) => {
+      (inflate as NonNullable<typeof inflate>).write(chunk, (error) => (error ? reject(error) : resolve()));
+    });
+
+  /** Feed compressed bytes; returns the bytes left over after the deflate stream's end. */
+  const feed = async (chunk: Buffer): Promise<Buffer | null> => {
+    const known = !(header!.flags & FLAG_DATA_DESCRIPTOR);
+    let usable = chunk;
+    if (known) {
+      const remaining = header!.compressedSize - fed;
+      if (chunk.length > remaining) usable = chunk.subarray(0, remaining);
+    }
+    await write(usable);
+    fed += usable.length;
+    const consumed = (inflate as NonNullable<typeof inflate>).bytesWritten;
+    // zlib counts consumed input: fewer than fed means the deflate stream ended inside this chunk.
+    if (consumed < fed) {
+      const leftover = fed - consumed;
+      fed = consumed;
+      inflateEnded = true;
+      return Buffer.concat([usable.subarray(usable.length - leftover), chunk.subarray(usable.length)]);
+    }
+    if (known && fed >= header!.compressedSize) {
+      inflateEnded = true;
+      return chunk.subarray(usable.length);
+    }
+    return null;
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      arm();
+      if (done) break;
+      let chunk: Buffer = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+
+      if (!header) {
+        headerBuf = headerBuf.length ? Buffer.concat([headerBuf, chunk]) : chunk;
+        header = parseLocalHeader(headerBuf);
+        if (!header) continue;
+        if (header.method !== METHOD_DEFLATE) {
+          throw new ArchiveIntegrityError(`${label}: unsupported zip compression method ${header.method}`);
+        }
+        chunk = headerBuf.subarray(header.dataStart);
+        startInflate();
+        if (chunk.length === 0) continue;
+      }
+
+      if (!inflateEnded) {
+        const leftover = await feed(chunk);
+        if (leftover) trailer = leftover;
+      } else {
+        trailer = Buffer.concat([trailer, chunk]);
+      }
+
+      if (inflateEnded && (trailer.length >= MAX_DESCRIPTOR_BYTES || !(header.flags & FLAG_DATA_DESCRIPTOR))) {
+        await reader.cancel();
+        break;
+      }
+    }
+
+    if (!header || !inflate || !consumerP) {
+      throw new ArchiveIntegrityError(`${label}: stream ended before a zip local header was complete`);
+    }
+    (inflate as ReturnType<typeof createInflateRaw>).end();
+    await consumerP;
+  } catch (error) {
+    if (inflate) (inflate as ReturnType<typeof createInflateRaw>).destroy();
+    // A consumer failure (a throwing onLine, bad deflate data) is the root cause of a failed write.
+    if (consumerP) await consumerP;
+    reader.cancel().catch(() => undefined);
+    throw error;
+  }
+
+  verifyIntegrity(header, trailer, crc, bytes, label);
+  return { lines, uncompressedBytes: bytes };
+}
+
+/**
+ * Streams one archive file's CSV lines to `onLine` without ever holding the
+ * file: the HTTP body is read in chunks, the zip local header is parsed, the
+ * deflate data goes through `createInflateRaw`, and the output is split into
+ * lines (a `\r` is stripped, blank lines skipped, the header row passed on).
+ * Memory stays bounded because the next chunk is not read until the consumer
+ * has taken the previous one, and an async `onLine` is awaited.
+ *
+ * Integrity: the crc32 and size of what was inflated are checked against the
+ * local header, or against the data descriptor when general purpose bit 3 is
+ * set. A mismatch throws `ArchiveIntegrityError` and is not retried.
+ *
+ * A 404 resolves to `{ status: 'missing' }`. A 5xx or a network error retries
+ * with backoff. A failure after lines were delivered retries only when the
+ * caller supplied `onRestart` (to discard what it had folded), else it throws.
+ */
+export async function streamArchiveCsvLines(
+  spec: ArchiveFileSpec,
+  onLine: LineHandler,
+  options: StreamArchiveOptions = {}
+): Promise<StreamArchiveResult> {
+  const url = archiveUrl(spec);
+  const retryBaseMs = options.retryBaseMs ?? RETRY_BASE_MS;
+  const idleMs = options.idleTimeoutMs ?? STREAM_IDLE_TIMEOUT_MS;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0 && retryBaseMs > 0) await sleep(retryBaseMs * 2 ** (attempt - 1));
+
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = (): void => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), idleMs);
+    };
+    const progress = { delivered: false };
+
+    try {
+      arm();
+      const res = await fetch(url, { signal: controller.signal });
+      if (res.status === 404) {
+        await res.body?.cancel();
+        return { status: 'missing' };
+      }
+      if (!res.ok && res.status < 500) {
+        throw new Error(`Archive fetch failed: HTTP ${res.status} for ${url}`);
+      }
+      if (!res.ok) {
+        await res.body?.cancel();
+        lastError = new Error(`Archive fetch failed: HTTP ${res.status} for ${url}`);
+        continue;
+      }
+      if (!res.body) throw new Error(`Archive fetch returned no body for ${url}`);
+
+      const result = await streamZipBody(res.body, onLine, archiveFileName(spec), arm, progress);
+      return { status: 'ok', ...result };
+    } catch (error) {
+      if (error instanceof ArchiveIntegrityError) throw error;
+      if (error instanceof Error && error.message.startsWith('Archive fetch failed: HTTP 4')) throw error;
+      if (progress.delivered) {
+        if (!options.onRestart) throw error;
+        options.onRestart();
+      }
+      lastError = error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Archive stream failed after ${MAX_ATTEMPTS} attempts for ${url}`);
 }
 
 /** sha256 of a decompressed CSV, for recording what an ingest actually read. */
