@@ -19,7 +19,25 @@ const MARKET = {
   onboardDate: 0,
 };
 
+const REGIME = {
+  symbol: 'BTCUSDT',
+  asOf: Date.UTC(2026, 9, 8, 0, 30),
+  regime: {
+    symbol: 'BTCUSDT',
+    day: Date.UTC(2026, 9, 7),
+    dayVolPercent: 2.41,
+    thresholdVolPercent: 1.98,
+    percentile: 93.9,
+    high: true,
+    trailingDays: 180,
+  },
+};
+
 async function stubApi(page: Page, market: unknown = MARKET, status = 200) {
+  // The regime endpoint is answered from a fixture too, so no test depends on reaching Binance.
+  await page.route('**/api/cost-check/regime', (route) =>
+    status === 200 ? route.fulfill({ json: REGIME }) : route.fulfill({ status, json: market })
+  );
   await page.route('**/api/cost-check/symbols', (route) =>
     route.fulfill({
       json: {
@@ -89,10 +107,20 @@ test.describe('Cost Check (authenticated)', () => {
     await expect(page.getByTestId('cost-check-notional')).toHaveText('Position 248.00 USDT');
   });
 
+  test('shows the market volatility regime beside the result', async ({ page }) => {
+    await stubApi(page);
+    await page.goto('/cost-check');
+    const card = page.getByTestId('cost-check-regime');
+    await expect(card).toContainText('High.', { timeout: 15000 });
+    await expect(card).toContainText('2.41%');
+    await expect(card).toContainText('41% of the time, against 15% after other days');
+  });
+
   test('still prices the trade when the exchange is unreachable', async ({ page }) => {
     await stubApi(page, { error: 'venue_unreachable', message: 'unreachable' }, 503);
     await page.goto('/cost-check');
     await expect(page.getByTestId('cost-check-verdict')).toContainText('Market data is unavailable', { timeout: 15000 });
     await expect(page.getByTestId('cost-check-breakdown')).toContainText('flat assumption, no order book');
+    await expect(page.getByTestId('cost-check-regime')).toContainText('Not available: the exchange could not be reached.');
   });
 });

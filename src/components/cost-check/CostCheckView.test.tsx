@@ -17,6 +17,12 @@ vi.mock('@/hooks/useCostCheck', () => ({
     marketCalls.push([symbol, holdMinutes, notional]);
     return { data: marketData.current, isError: false, error: null, isFetching: false, isPlaceholderData: false };
   },
+  useCostCheckRegime: () => ({
+    data: undefined,
+    isLoading: false,
+    isError: true,
+    error: { code: 'venue_unreachable' },
+  }),
 }));
 
 import { CostCheckView } from './CostCheckView';
@@ -42,6 +48,13 @@ describe('CostCheckView', () => {
     marketData.current = market();
     window.localStorage.clear();
     window.history.replaceState(null, '', '/cost-check');
+  });
+
+  it('shows the market volatility card beside the result, with the reason when it is unavailable', () => {
+    render(<CostCheckView />);
+    expect(screen.getByTestId('cost-check-regime')).toHaveTextContent(
+      'Not available: the exchange could not be reached.'
+    );
   });
 
   it('starts from the defaults and asks for the default trade', () => {
