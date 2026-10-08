@@ -7,7 +7,8 @@
  * It compares flow sums only (total taker buy quote and total taker sell
  * quote) and reads no price, return or factor. Pass: at least 95% of the
  * compared buckets agree within 0.5% on BOTH sums, and at least 12 buckets
- * were compared. Prints one JSON line and exits 0 on pass, 2 on fail, 1 on error.
+ * were compared. Also reported, NOT part of the pass rule: the same agreement for
+ * large-class and small-class taker buy and sell quote (`classAgreement`). Prints one JSON line and exits 0 on pass, 2 on fail, 1 on error.
  *
  * Usage:
  *   npx tsx scripts/ops/validate-agg-flow.ts --symbol BTCUSDT --date 2026-10-08 [--mongo-uri <uri>]
@@ -25,10 +26,24 @@ export const PASS_FRACTION = 0.95;
 export const MIN_BUCKETS = 12;
 const DAY_MS = 86_400_000;
 
+export const CLASS_FIELDS = ['buyQuoteLarge', 'sellQuoteLarge', 'buyQuoteSmall', 'sellQuoteSmall'] as const;
+export type ClassField = (typeof CLASS_FIELDS)[number];
+
 export interface FlowSums {
   bucketStart: number;
   buyQuote: number;
   sellQuote: number;
+  buyQuoteLarge?: number;
+  sellQuoteLarge?: number;
+  buyQuoteSmall?: number;
+  sellQuoteSmall?: number;
+}
+
+/** Agreement of one size-class quantity over the buckets both sides carry it for. Reported only. */
+export interface ClassAgreement {
+  compared: number;
+  within: number;
+  fraction: number;
 }
 
 export interface WorstBucket {
@@ -46,6 +61,8 @@ export interface FlowComparison {
   passFraction: number;
   pass: boolean;
   worst: WorstBucket[];
+  /** Per size-class quantity, within the same 0.5% tolerance. Not part of the pass rule. */
+  classAgreement: Record<ClassField, ClassAgreement>;
 }
 
 /** Relative difference to the recorder value; a zero reference agrees only with zero. */
@@ -58,12 +75,23 @@ export function compareFlow(archive: readonly FlowSums[], recorder: readonly Flo
   const byStart = new Map(recorder.map((b) => [b.bucketStart, b]));
   const rows: WorstBucket[] = [];
   let within = 0;
+  const classCounts = Object.fromEntries(CLASS_FIELDS.map((f) => [f, { compared: 0, within: 0 }])) as Record<
+    ClassField,
+    { compared: number; within: number }
+  >;
 
   for (const a of archive) {
     const r = byStart.get(a.bucketStart);
     if (!r) continue;
     const worstRelDiff = Math.max(relDiff(a.buyQuote, r.buyQuote), relDiff(a.sellQuote, r.sellQuote));
     if (worstRelDiff <= TOLERANCE) within++;
+    for (const field of CLASS_FIELDS) {
+      const av = a[field];
+      const rv = r[field];
+      if (av === undefined || rv === undefined) continue;
+      classCounts[field].compared++;
+      if (relDiff(av, rv) <= TOLERANCE) classCounts[field].within++;
+    }
     rows.push({
       bucketStart: a.bucketStart,
       archiveBuy: a.buyQuote,
@@ -83,6 +111,12 @@ export function compareFlow(archive: readonly FlowSums[], recorder: readonly Flo
     passFraction,
     pass: compared >= MIN_BUCKETS && passFraction >= PASS_FRACTION,
     worst: rows.slice(0, 5),
+    classAgreement: Object.fromEntries(
+      CLASS_FIELDS.map((f) => [
+        f,
+        { ...classCounts[f], fraction: classCounts[f].compared === 0 ? 0 : classCounts[f].within / classCounts[f].compared },
+      ])
+    ) as Record<ClassField, ClassAgreement>,
   };
 }
 
@@ -148,7 +182,16 @@ export async function main(): Promise<number> {
     complete: true,
     bucketStart: { $gte: dayStart, $lt: dayStart + DAY_MS },
   })
-    .select({ bucketStart: 1, buyQuote: 1, sellQuote: 1, _id: 0 })
+    .select({
+      bucketStart: 1,
+      buyQuote: 1,
+      sellQuote: 1,
+      buyQuoteLarge: 1,
+      sellQuoteLarge: 1,
+      buyQuoteSmall: 1,
+      sellQuoteSmall: 1,
+      _id: 0,
+    })
     .lean<FlowSums[]>();
 
   const comparison = compareFlow(folded.buckets, docs);
@@ -161,6 +204,7 @@ export async function main(): Promise<number> {
       passFraction: comparison.passFraction,
       pass: comparison.pass,
       worst: comparison.worst,
+      classAgreement: comparison.classAgreement,
     })
   );
   return comparison.pass ? 0 : 2;

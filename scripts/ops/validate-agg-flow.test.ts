@@ -55,6 +55,43 @@ describe('compareFlow', () => {
   });
 });
 
+describe('compareFlow class agreement (reported only)', () => {
+  const withClasses = (n: number, large = [40, 20], small = [30, 10]) =>
+    Array.from({ length: n }, (_, i) => ({
+      bucketStart: i * 300_000,
+      buyQuote: 100,
+      sellQuote: 50,
+      buyQuoteLarge: large[0],
+      sellQuoteLarge: large[1],
+      buyQuoteSmall: small[0],
+      sellQuoteSmall: small[1],
+    }));
+
+  it('reports per-quantity agreement and leaves the pass rule untouched', () => {
+    // Total sums agree everywhere; large buy disagrees everywhere, small sell in 5 of 20 buckets.
+    const archive = withClasses(20, [60, 20]).map((b, i) => (i < 5 ? { ...b, sellQuoteSmall: 12 } : b));
+    const r = compareFlow(archive, withClasses(20));
+    expect(r.pass).toBe(true);
+    expect(r.passFraction).toBe(1);
+    expect(r.classAgreement.buyQuoteLarge).toEqual({ compared: 20, within: 0, fraction: 0 });
+    expect(r.classAgreement.sellQuoteLarge).toEqual({ compared: 20, within: 20, fraction: 1 });
+    expect(r.classAgreement.buyQuoteSmall).toEqual({ compared: 20, within: 20, fraction: 1 });
+    expect(r.classAgreement.sellQuoteSmall).toEqual({ compared: 20, within: 15, fraction: 0.75 });
+  });
+
+  it('a class disagreement never fails or passes a run on its own', () => {
+    const r = compareFlow(withClasses(20, [999, 999], [999, 999]), withClasses(20));
+    expect(r.pass).toBe(true);
+    const bad = compareFlow(mk(20), mk(20, 100, 51));
+    expect(bad.pass).toBe(false);
+  });
+
+  it('counts a quantity only where both sides carry it', () => {
+    const r = compareFlow(mk(20), withClasses(20));
+    expect(r.classAgreement.buyQuoteLarge).toEqual({ compared: 0, within: 0, fraction: 0 });
+  });
+});
+
 describe('parseArgs', () => {
   it('parses flags', () => {
     expect(parseArgs(['--symbol', 'BTCUSDT', '--date', '2026-10-08', '--mongo-uri', 'mongodb://x'])).toEqual({
