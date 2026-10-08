@@ -69,7 +69,6 @@ let registered = false;
 
 export function ensureSignalScoreIndicatorRegistered(): void {
   if (registered) return;
-  registered = true;
   registerIndicator<SignalScoreDatum>({
     name: SIGNAL_SCORE_INDICATOR,
     shortName: 'SIGNAL SCORE',
@@ -136,4 +135,5 @@ export function ensureSignalScoreIndicatorRegistered(): void {
       return false;
     },
   });
+  registered = true;
 }

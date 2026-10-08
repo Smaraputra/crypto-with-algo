@@ -95,6 +95,18 @@ describe('ensureSignalScoreIndicatorRegistered', () => {
     expect(template.figures.map((f: { key: string }) => f.key)).toEqual(['recorded', 'provisional']);
   });
 
+  it('retries after a registration that threw', async () => {
+    const mod = await load();
+    registerIndicator.mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    expect(() => mod.ensureSignalScoreIndicatorRegistered()).toThrow('boom');
+    mod.ensureSignalScoreIndicatorRegistered();
+    expect(registerIndicator).toHaveBeenCalledTimes(2);
+    mod.ensureSignalScoreIndicatorRegistered();
+    expect(registerIndicator).toHaveBeenCalledTimes(2);
+  });
+
   it('colours recorded bars by cutoff and draws provisional as a dashed amber outline', async () => {
     const mod = await load();
     mod.ensureSignalScoreIndicatorRegistered();
