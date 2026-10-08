@@ -158,6 +158,26 @@ describe('useProvisionalSignal compute floor', () => {
     expect(mocks.score).toHaveBeenCalledTimes(3);
   });
 
+  it('drops a pending trailing bar when the displayed bar arrives again', async () => {
+    startServer(readyContext());
+    const { result } = setup();
+    await flush();
+
+    tick(bar(60010));
+    const shown = result.current.provisional?.score;
+    expect(mocks.score).toHaveBeenCalledTimes(1);
+
+    await flush(500);
+    tick(bar(60500));
+    expect(mocks.score).toHaveBeenCalledTimes(1);
+    await flush(500);
+    tick(bar(60010));
+
+    await flush(5_000);
+    expect(mocks.score).toHaveBeenCalledTimes(1);
+    expect(result.current.provisional?.score).toBe(shown);
+  });
+
   it('ignores events for another symbol or interval', async () => {
     startServer(readyContext());
     setup();
@@ -316,5 +336,33 @@ describe('useProvisionalSignal availability', () => {
     await flush(15 * 60_000);
     expect(mocks.score.mock.calls.length).toBe(calls);
     expect(server.mock.calls.length).toBe(fetches);
+  });
+});
+
+describe('useProvisionalSignal key changes', () => {
+  it('tears down the old subscription and timers when the interval changes', async () => {
+    const server = startServer(readyContext());
+    let interval = INTERVAL;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = function Wrapper({ children }: { children: React.ReactNode }) {
+      return React.createElement(QueryClientProvider, { client: queryClient }, children);
+    };
+    const { result, rerender } = renderHook(() => useProvisionalSignal(SYMBOL, interval, STYLE), { wrapper });
+    await flush();
+    tick(bar(60010));
+    tick(bar(60020));
+    expect(mocks.score).toHaveBeenCalledTimes(1);
+
+    interval = '4h';
+    rerender();
+    await flush();
+    expect(result.current.status).toBe('unavailable');
+
+    const calls = mocks.score.mock.calls.length;
+    const fetches = server.fetchSpy.mock.calls.length;
+    tick(bar(60030));
+    await flush(15 * 60_000);
+    expect(mocks.score.mock.calls.length).toBe(calls);
+    expect(server.fetchSpy.mock.calls.length).toBe(fetches);
   });
 });

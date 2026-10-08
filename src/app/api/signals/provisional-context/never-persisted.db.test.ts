@@ -295,3 +295,22 @@ describe('provisional context never reaches Mongo', () => {
     for (const key of mocks.cacheKeys) expect(key.startsWith('provisional:')).toBe(true);
   }, 60_000);
 });
+
+describe('write-command monitor positive control', () => {
+  it('flags an upsert on a scratch collection', async () => {
+    const writes: string[] = [];
+    const onCommand = (ev: { commandName: string; command: Record<string, unknown> }) => {
+      if (isWriteCommand(ev.commandName, ev.command)) writes.push(ev.commandName);
+    };
+    const client = mongoose.connection.getClient();
+    client.on('commandStarted', onCommand);
+    const scratch = mongoose.connection.db!.collection('monitor_positive_control');
+    try {
+      await scratch.updateOne({ _id: 'control' as never }, { $set: { touched: true } }, { upsert: true });
+    } finally {
+      client.off('commandStarted', onCommand);
+      await scratch.drop();
+    }
+    expect(writes).toContain('update');
+  });
+});

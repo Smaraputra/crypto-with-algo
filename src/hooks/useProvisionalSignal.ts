@@ -214,6 +214,8 @@ function createEngine(deps: EngineDeps): Engine {
     }
 
     if (lastBar && sameBar(lastBar, bar)) {
+      // The newest bar is the one already shown: a pending older one is stale.
+      clearTrailing();
       return;
     }
     const wait = lastComputeAt + COMPUTE_FLOOR_MS - Date.now();
