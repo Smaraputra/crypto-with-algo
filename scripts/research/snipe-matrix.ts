@@ -54,6 +54,10 @@ export interface SnipeSymbolArrays {
   entryMs: Float64Array;
   exitMs: Float64Array;
   atrPct: Float64Array;
+  /** Entry bar open and ATR in price units of each label (NaN where none), and the data-hole flag (A1-5). */
+  entryPrice: Float64Array;
+  atrAbs: Float64Array;
+  gap: Uint8Array;
   atrQuintile: Int8Array;
   month: Int32Array;
   warmupBars: number;
@@ -182,6 +186,9 @@ export function buildSymbolArrays(datasetDir: string, symbol: string, timeframe:
     entryMs: labels.entryMs,
     exitMs: labels.exitMs,
     atrPct: labels.atrPct,
+    entryPrice: labels.entryPrice,
+    atrAbs: labels.atrAbs,
+    gap: labels.gap,
     atrQuintile,
     month,
     warmupBars,

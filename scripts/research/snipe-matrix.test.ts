@@ -31,7 +31,9 @@ describe('buildSymbolArrays intraday', { timeout: 30_000 }, () => {
     expect(a.flags).toHaveLength(38);
     expect(a.finiteShare).toHaveLength(38);
     for (const f of a.flags) expect(f.length).toBe(n);
-    for (const arr of [a.outcome, a.entryMs, a.exitMs, a.atrPct, a.atrQuintile, a.month]) expect(arr.length).toBe(n);
+    for (const arr of [a.outcome, a.entryMs, a.exitMs, a.atrPct, a.entryPrice, a.atrAbs, a.gap, a.atrQuintile, a.month]) {
+      expect(arr.length).toBe(n);
+    }
     expect(a.warmupBars).toBeGreaterThan(0);
     expect(a.month[0]).toBe(monthIndex(a.timestamps[0]));
   });
@@ -62,6 +64,10 @@ describe('buildSymbolArrays intraday', { timeout: 30_000 }, () => {
     expect(Array.from(a.exitMs)).toEqual(Array.from(direct.exitMs));
     expect(Array.from(a.entryMs)).toEqual(Array.from(direct.entryMs));
     expect(Array.from(a.atrPct)).toEqual(Array.from(direct.atrPct));
+    expect(Array.from(a.entryPrice)).toEqual(Array.from(direct.entryPrice));
+    expect(Array.from(a.atrAbs)).toEqual(Array.from(direct.atrAbs));
+    expect(Array.from(a.gap)).toEqual(Array.from(direct.gap));
+    expect(a.entryPrice.some((v) => Number.isFinite(v))).toBe(true);
     expect(a.outcome.some((o) => o === 1) && a.outcome.some((o) => o === 2)).toBe(true);
   });
 

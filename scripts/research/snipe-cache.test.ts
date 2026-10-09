@@ -36,7 +36,9 @@ describe('snipe cache', { timeout: 30_000 }, () => {
     const same = (x: ArrayLike<number>, y: ArrayLike<number>) =>
       Array.from(x).every((v, i) => Object.is(v, y[i])) && x.length === y.length;
     expect(data.timestamps.constructor).toBe(Float64Array);
-    for (const k of ['timestamps', 'outcome', 'entryMs', 'exitMs', 'atrPct', 'atrQuintile', 'month'] as const) {
+    expect(data.gap.constructor).toBe(Uint8Array);
+    expect(data.entryPrice.constructor).toBe(Float64Array);
+    for (const k of ['timestamps', 'outcome', 'entryMs', 'exitMs', 'atrPct', 'entryPrice', 'atrAbs', 'gap', 'atrQuintile', 'month'] as const) {
       expect(same(data[k], a[k])).toBe(true);
     }
     a.flags.forEach((f, i) => expect(same(data.flags[i], f)).toBe(true));

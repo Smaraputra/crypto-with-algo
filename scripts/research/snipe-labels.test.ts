@@ -184,3 +184,56 @@ describe('labelEntries', () => {
     expect(r.outcome[6]).toBe(OUTCOME_DOWN);
   });
 });
+
+describe('labelEntries sanity data (A1-5)', () => {
+  it('returns the entry price and the absolute ATR, NaN where there is no label', () => {
+    const r = labelEntries(base());
+    expect(r.entryPrice[T]).toBe(100);
+    expect(r.atrAbs[T]).toBeCloseTo(2, 12);
+    expect(r.atrPct[T]).toBeCloseTo((r.atrAbs[T] / 100) * 100, 12);
+    expect(Number.isNaN(r.entryPrice[0])).toBe(true);
+    expect(Number.isNaN(r.atrAbs[0])).toBe(true);
+    expect(Number.isNaN(r.entryPrice[5])).toBe(true);
+    expect(r.gap[0]).toBe(0);
+  });
+
+  it('flags no gap on a complete series, timed out or decided', () => {
+    expect(labelEntries(base()).gap[T]).toBe(0);
+    const up = labelEntries(base({ pathBars: withPath({ [idx(3)]: [102.5, 99.5] }) }));
+    expect(up.outcome[T]).toBe(OUTCOME_UP);
+    expect(up.gap[T]).toBe(0);
+  });
+
+  it('flags a gap when a path candle is missing before the deciding one or inside a timed out window', () => {
+    const decided = withPath({ [idx(5)]: [103, 99.5] }).filter((_, i) => i !== idx(1));
+    expect(labelEntries(base({ pathBars: decided })).gap[T]).toBe(1);
+    const timedOut = path(T0, 200).filter((_, i) => i !== idx(7));
+    const r = labelEntries(base({ pathBars: timedOut }));
+    expect(r.outcome[T]).toBe(OUTCOME_TIMEOUT);
+    expect(r.gap[T]).toBe(1);
+    // a missing candle AFTER the deciding one does not matter
+    const after = withPath({ [idx(2)]: [103, 99.5] }).filter((_, i) => i !== idx(6));
+    expect(labelEntries(base({ pathBars: after })).gap[T]).toBe(0);
+  });
+
+  it('flags a gap when the path ends inside the window and when the first path candle is late', () => {
+    const short = path(T0, idx(0) + 5);
+    const r = labelEntries(base({ pathBars: short }));
+    expect(r.outcome[T]).toBe(OUTCOME_TIMEOUT);
+    expect(r.gap[T]).toBe(1);
+    const late = path(T0, 200).filter((_, i) => i !== idx(0));
+    expect(labelEntries(base({ pathBars: late })).gap[T]).toBe(1);
+  });
+
+  it('flags a gap when a consecutive pair inside the ATR window is not one interval apart', () => {
+    const bars = entryBars(10).map((b, i) => (i >= 3 ? { ...b, timestamp: b.timestamp + M5 } : b));
+    const r = labelEntries(base({ entryBars: bars, pathBars: path(T0, 300) }));
+    // atrPeriod 2: the window of t is bars t-2..t. The hole sits between bars 2 and 3.
+    expect(r.outcome[3]).toBe(OUTCOME_TIMEOUT);
+    expect(r.gap[3]).toBe(1);
+    expect(r.gap[4]).toBe(1);
+    expect(r.outcome[5]).toBe(OUTCOME_TIMEOUT);
+    expect(r.gap[5]).toBe(0);
+    expect(r.gap[6]).toBe(0);
+  });
+});

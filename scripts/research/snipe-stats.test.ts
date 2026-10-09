@@ -54,6 +54,9 @@ function makeArrays(o: GenOpts): SnipeSymbolArrays {
   const entryMs = new Float64Array(n);
   const exitMs = new Float64Array(n);
   const atrPct = new Float64Array(n);
+  const entryPrice = new Float64Array(n).fill(100);
+  const atrAbs = new Float64Array(n).fill(1);
+  const gap = new Uint8Array(n);
   const atrQuintile = new Int8Array(n);
   const month = new Int32Array(n);
   for (let i = 0; i < n; i++) {
@@ -77,6 +80,9 @@ function makeArrays(o: GenOpts): SnipeSymbolArrays {
     entryMs,
     exitMs,
     atrPct,
+    entryPrice,
+    atrAbs,
+    gap,
     atrQuintile,
     month,
     warmupBars: 0,

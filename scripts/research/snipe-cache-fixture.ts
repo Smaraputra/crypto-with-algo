@@ -32,6 +32,9 @@ export function syntheticArrays(o: SyntheticOpts): SnipeSymbolArrays {
   const entryMs = new Float64Array(n);
   const exitMs = new Float64Array(n);
   const atrPct = new Float64Array(n);
+  const entryPrice = new Float64Array(n);
+  const atrAbs = new Float64Array(n);
+  const gap = new Uint8Array(n);
   const atrQuintile = new Int8Array(n);
   const month = new Int32Array(n);
   const flags = SNIPE_COLUMNS.map(() => new Uint8Array(n));
@@ -42,6 +45,8 @@ export function syntheticArrays(o: SyntheticOpts): SnipeSymbolArrays {
     entryMs[i] = timestamps[i] + interval;
     exitMs[i] = entryMs[i] + interval;
     atrPct[i] = 0.5 + rnd();
+    entryPrice[i] = 100;
+    atrAbs[i] = atrPct[i];
     atrQuintile[i] = Math.floor(rnd() * 5);
     month[i] = monthIndex(timestamps[i]);
     for (let c = 0; c < SNIPE_COLUMNS.length; c++) {
@@ -68,6 +73,9 @@ export function syntheticArrays(o: SyntheticOpts): SnipeSymbolArrays {
     entryMs,
     exitMs,
     atrPct,
+    entryPrice,
+    atrAbs,
+    gap,
     atrQuintile,
     month,
     warmupBars: 0,
