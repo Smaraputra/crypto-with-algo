@@ -15,8 +15,8 @@
  *     missing HTF perp file gives null contexts, with a stderr note.
  *   - The lockbox is always applied by the loaders; allowLockbox is never passed.
  *
- * Memory: the factor matrix (about 150 Float64 columns) is the peak. It is released as soon as the 38 columns are
- * reduced, and the labels are computed after that.
+ * Memory: the factor matrix (about 150 Float64 columns) is the peak. It lives only inside reduceColumns, so it is
+ * released as soon as the 38 columns are reduced, and the labels are computed after that.
  */
 
 import { existsSync } from 'fs';
@@ -137,15 +137,24 @@ function buildMatrix(datasetDir: string, symbol: string, interval: string): Buil
   return { matrix, entryBars, pathBars };
 }
 
-export function buildSymbolArrays(datasetDir: string, symbol: string, timeframe: SnipeTimeframe): SnipeSymbolArrays {
-  const { interval, maxHoldMs } = SNIPE_TIMEFRAMES[timeframe];
-  const intervalMs = intervalToMs(interval);
-  const built = buildMatrix(datasetDir, symbol, interval);
-  let matrix: FactorMatrix | null = built.matrix;
+interface Reduced {
+  columns: string[];
+  timestamps: Float64Array;
+  flags: Uint8Array[];
+  finiteShare: number[];
+  warmupBars: number;
+  entryBars: OHLCV[];
+  pathBars: OHLCV[];
+}
 
+/**
+ * Builds the factor matrix and reduces it to the tail flags INSIDE this function, so the matrix is local and
+ * unreachable as soon as it returns, and no holder object keeps it alive while the labels are computed.
+ */
+function reduceColumns(datasetDir: string, symbol: string, interval: string, intervalMs: number): Reduced {
+  const { matrix, entryBars, pathBars } = buildMatrix(datasetDir, symbol, interval);
   const n = matrix.timestamps.length;
   const timestamps = Float64Array.from(matrix.timestamps);
-  const warmupBars = matrix.warmupBars;
   const columns: string[] = [...SNIPE_COLUMNS];
   const flags: Uint8Array[] = [];
   const finiteShare: number[] = [];
@@ -160,13 +169,24 @@ export function buildSymbolArrays(datasetDir: string, symbol: string, timeframe:
     const thresholds = monthlyThresholds(timestamps, values, TAIL_PROBS, SNIPE_THRESHOLD_LOOKBACK_DAYS, intervalMs);
     flags.push(tailFlags(timestamps, values, thresholds));
   }
-  // Release the matrix before the labels are computed.
-  matrix = null;
+  return { columns, timestamps, flags, finiteShare, warmupBars: matrix.warmupBars, entryBars, pathBars };
+}
+
+export function buildSymbolArrays(datasetDir: string, symbol: string, timeframe: SnipeTimeframe): SnipeSymbolArrays {
+  const { interval, maxHoldMs } = SNIPE_TIMEFRAMES[timeframe];
+  const intervalMs = intervalToMs(interval);
+  const { columns, timestamps, flags, finiteShare, warmupBars, entryBars, pathBars } = reduceColumns(
+    datasetDir,
+    symbol,
+    interval,
+    intervalMs
+  );
+  const n = timestamps.length;
 
   const labels = labelEntries({
-    entryBars: built.entryBars,
+    entryBars,
     entryIntervalMs: intervalMs,
-    pathBars: built.pathBars,
+    pathBars,
     maxHoldMs,
     atrPeriod: SNIPE_ATR_PERIOD,
     barrierAtr: SNIPE_BARRIER_ATR,
