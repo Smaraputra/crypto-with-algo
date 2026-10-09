@@ -217,6 +217,72 @@ export const SNIPE_NULL_SD_INFLATION = 1.25;
 /** AMENDMENT 2 (A2-1): minimum finite values in a threshold window. */
 export const SNIPE_MIN_THRESHOLD_VALUES = 200;
 
+/*
+ * RESULT, 2026-10-10: EDGE BEFORE COSTS in two cells, both 5m RSI reversals; ECONOMICALLY UNUSABLE. Their win
+ * rates sit 8.5 and 7.5 points below even the maker break-even win rate. No strategy is built; the lockbox
+ * stays closed.
+ *
+ * Inputs: dataset d81edcd65a6a5c196297e49354f006a0a81b7efe3a87a06f3edad109c4860d84 (export-dataset.ts at
+ * b936b3c on the VPS: perp klines and premiumIndex 5m/1h/4h, metrics, snapshots, 2022-01-01 to 2026-06-30,
+ * every 5m series 472,896 bars), caches built and every run made LOCALLY at commit f2da209 (the 5m factor
+ * matrix peaks at about 4.5 GB, more than the VPS has free beside production), all reports binding.
+ * Reports (data/research/snipe-reports/, gitignored, sha256):
+ *   sanity-2.json      f1be69eaf63a06e33d2173c01a578be645821513829e0229025c0eee93b180f6
+ *   discovery.json     76d6abf1eecafd910a623fb2db3e889090e779a4196452aa189975ed95019d7e
+ *   confirmation.json  06c9f68f94780c679c199b09fa5c360c50035468a0684201c023bb176b30ab74
+ * Commands: snipe-build.ts --dataset-dir <export> --out <cache>; snipe-scan.ts --cache-dir <cache>
+ * --sanity-only; snipe-scan.ts --cache-dir <cache> (200 draws); snipe-confirm.ts --cache-dir <cache>
+ * --discovery <discovery.json> (1,000 draws); GIT_COMMIT set to the commit for every step.
+ *
+ * DISCOVERY (2022-04 to 2024-12 in effect, 304 cells): 71 cells skipped by the locked tie rule, which caught
+ * the ternary htfTrend and oiPriceDiv as declared (A1-9), the coarse funding, fear-greed and positioning
+ * columns, the timing columns sessionDrift, weekdayDriftDev and fundingProximity, and also continuous columns
+ * whose level drifts against their trailing 90-day thresholds (atrPct, realizedVol20, varianceRatio, one
+ * basisPct tail): the rule skips any cell whose pooled tail share exceeds twice nominal, ties or not. 34 cells
+ * BH-rejected (28 scalp, 6 intraday). The scalp ones are all REVERSALS: low RSI, heavy taker selling, perp
+ * below index, sharp 5m drops -> long; high RSI, heavy taker buying, sharp rises -> short; excess +0.6 to
+ * +3.4 points of win rate. The intraday ones are four CONTINUATIONS after large upward hourly moves and two
+ * hour-of-day drift cells (+1.8 to +2.2 points), none in the top 5. Selected (all scalp,
+ * 10% tails): basisPct bottom (z +7.96), takerBuyRatio bottom (+7.18), rsi bottom (+6.47), takerBuyRatio top
+ * (-6.13), rsi top (-5.91).
+ *
+ * CONFIRMATION (2025-01 to 2026-06, direction fixed, 1,000 draws, alpha 0.01 per cell, empirical p AND
+ * inflated-z p AND consistency):
+ *   cell (5m, 10%)       dir    resolved  win     base    excess  95% CI (day blocks)  emp p   z p      quarters symbols result
+ *   rsi bottom           long   91,989    0.5035  0.4904  +1.32   [+0.65, +2.02]       0.0010  9.5e-4   5/6      8/10    PASS
+ *   rsi top              short  86,026    0.5176  0.5094  +0.82   [+0.07, +1.55]       0.0020  8.1e-3   4/6      9/10    PASS
+ *   basisPct bottom      long   119,113   0.4944  0.4899  +0.45   [-0.08, +1.00]       0.0490  8.9e-2   5/6      7/10    FAIL
+ *   takerBuyRatio bottom long   127,072   0.4899  0.4912  -0.12   [-0.62, +0.35]       0.8811  0.84     3/6      3/10    FAIL
+ *   takerBuyRatio top    short  128,012   0.5052  0.5088  -0.37   [-0.86, +0.14]       0.9550  0.92     2/6      3/10    FAIL
+ *   (win, base, excess and CI in the cell's direction, excess and CI in points of win rate; the report
+ *   quotes a short cell's CI in long terms: rsi top [-1.55, -0.07], takerBuyRatio top [-0.14, +0.86])
+ * Break-even win rates at the two passing cells (mean over resolved trades, ATR 0.30% to 0.31% of price):
+ * maker 0.589 and 0.593, taker 0.721 and 0.732. The edge is +1.32 and +0.82 points where +9.8 and +8.3
+ * points over the baseline would be needed just to pay the maker fee in and out.
+ *
+ * Reading:
+ * - RSI(7) extremes on 5m perp candles carry a small, persistent reversal: after the bar that pushes RSI into
+ *   its trailing 10% tails, the next 1-ATR move goes against the push about 1 point more often than a matched
+ *   random entry. It is real by every test the lock set, and it is far too small to trade at 5m.
+ * - agy's caveats (2026-10-10, read before this block): with 1-ATR barriers about 0.3% wide, part of a
+ *   1-point edge can be bid-ask bounce in the entry print (the open after an extreme bar), which kline data
+ *   cannot separate; it is negligible on BTC and ETH and not on the low-priced alts. Ambiguous trades (both
+ *   barriers in one 5m candle) are 1.6% to 1.7% of the RSI cells' trades against 0.6% for all bars; they are
+ *   excluded from the win rate as locked.
+ * - The taker-flow reversals did not repeat after 2024, and the basis reversal fell short (p 0.049).
+ * - Expected outcome as stated in the lock: right (a significant gross gain at 5m, far below the taker line).
+ *
+ * Spot checks (--cell, every field identical): discovery raw.realizedVol20:bottom:many:intraday (Python
+ * random seed 20261010 over the 304 cells), 30 of 30 fields; confirmation raw.takerBuyRatio:top:many:scalp
+ * (seed 20261011 over the 5 selected), 30 of 30 fields. Labels: 40 of 40 re-derived by an independent Python
+ * implementation (AMENDMENT 2 note).
+ *
+ * Trials: 304 discovery cells plus 5 confirmation cells. Program ledger 1,769 -> 2,078.
+ */
+
+/** Program trial ledger after this phase (RESULT). */
+export const SNIPE_LEDGER_AFTER = 2_078;
+
 /** Program trial ledger before this phase (qh-flow.ts QH_FLOW_LEDGER_AFTER on research/qh-flow). */
 export const SNIPE_LEDGER_BEFORE = 1_769;
 
