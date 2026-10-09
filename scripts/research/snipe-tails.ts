@@ -6,8 +6,9 @@
  *     [M - lookbackDays, M), strictly before M, so a bar never sees its own month. A bar uses its own month's thresholds.
  *   - Quantile is linear interpolation between order statistics (type 7, the numpy default):
  *     h = (n - 1) p, x[floor h] + (h - floor h) (x[floor h + 1] - x[floor h]).
- *   - A month has NO thresholds (null) unless the window holds at least half of its expected bar count,
- *     expected = lookbackDays x 86,400,000 / intervalMs. This also covers "no thresholds before the history exists".
+ *   - A month has NO thresholds (null) unless the series starts at or before M - lookbackDays (the full lookback of
+ *     history exists, AMENDMENT 1 A1-2) AND the window holds at least half of its expected bar count,
+ *     expected = lookbackDays x 86,400,000 / intervalMs (the half rule now only covers gaps inside the history).
  *   - `timestamps` must be sorted ascending (bar open ms), parallel to `values`.
  *
  * Tail flag encoding: one Uint8Array, one byte per bar, OR of TAIL_TOP_1, TAIL_BOTTOM_1, TAIL_TOP_10, TAIL_BOTTOM_10,
@@ -74,9 +75,15 @@ export function monthlyThresholds(
   const out: MonthlyThresholds = new Map();
   const expected = (lookbackDays * DAY_MS) / intervalMs;
   const lookbackMs = lookbackDays * DAY_MS;
+  const seriesStart = timestamps.length > 0 ? timestamps[0] : Number.POSITIVE_INFINITY;
   for (let i = 0; i < timestamps.length; i++) {
     const m = monthStart(timestamps[i]);
     if (out.has(m)) continue;
+    // AMENDMENT 1 (A1-2): the full lookback of history must exist, so the series must start at or before M - lookback.
+    if (m - lookbackMs < seriesStart) {
+      out.set(m, null);
+      continue;
+    }
     const from = lowerBound(timestamps, m - lookbackMs);
     const to = lowerBound(timestamps, m);
     const window: number[] = [];

@@ -76,23 +76,52 @@ describe('monthlyThresholds', () => {
 
   it('returns null when the window holds under half of the expected bars, and accepts exactly half', () => {
     // lookback 4 days of daily bars: expected 4, need >= 2
-    const one = monthlyThresholds([FEB - DAY, FEB], Float64Array.from([1, 0]), [0.5], 4, DAY);
+    // (the series starts at FEB - 4d so the full lookback exists; the leading value is NaN)
+    const nan = Number.NaN;
+    const one = monthlyThresholds([FEB - 4 * DAY, FEB - DAY, FEB], Float64Array.from([nan, 1, 0]), [0.5], 4, DAY);
     expect(one.get(FEB)).toBeNull();
-    const two = monthlyThresholds([FEB - 2 * DAY, FEB - DAY, FEB], Float64Array.from([1, 3, 0]), [0.5], 4, DAY);
+    const two = monthlyThresholds(
+      [FEB - 4 * DAY, FEB - 2 * DAY, FEB - DAY, FEB],
+      Float64Array.from([nan, 1, 3, 0]),
+      [0.5],
+      4,
+      DAY
+    );
     expect(two.get(FEB)![0]).toBe(2);
   });
 
   it('counts only finite values toward the half rule and the quantiles', () => {
-    const ts = [FEB - 3 * DAY, FEB - 2 * DAY, FEB - DAY, FEB];
-    const th = monthlyThresholds(ts, Float64Array.from([Number.NaN, Number.NaN, 5, 0]), [0.5], 4, DAY);
+    const ts = [FEB - 4 * DAY, FEB - 3 * DAY, FEB - 2 * DAY, FEB - DAY, FEB];
+    const nan = Number.NaN;
+    const th = monthlyThresholds(ts, Float64Array.from([nan, nan, nan, 5, 0]), [0.5], 4, DAY);
     expect(th.get(FEB)).toBeNull();
-    const ok = monthlyThresholds(ts, Float64Array.from([Number.NaN, 4, 6, 0]), [0.5], 4, DAY);
+    const ok = monthlyThresholds(ts, Float64Array.from([nan, nan, 4, 6, 0]), [0.5], 4, DAY);
     expect(ok.get(FEB)![0]).toBe(5);
   });
 
   it('gives the first month no thresholds (no history)', () => {
     const th = monthlyThresholds(daily(JAN, 5), new Float64Array(5), [0.5], 31, DAY);
     expect(th.get(JAN)).toBeNull();
+  });
+
+  it('needs the full lookback of history: a series starting mid-month has none until 90 days in (A1-2)', () => {
+    // Daily bars from 2023-01-20; the first month start at least 90 days after that is 2023-05-01 (Apr 20 + 11 d).
+    const start = Date.UTC(2023, 0, 20);
+    const ts = daily(start, 200);
+    const vals = Float64Array.from(ts, (_, i) => i);
+    const th = monthlyThresholds(ts, vals, [0.5], 90, DAY);
+    for (const m of [Date.UTC(2023, 0, 1), Date.UTC(2023, 1, 1), Date.UTC(2023, 2, 1), Date.UTC(2023, 3, 1)]) {
+      expect(th.get(m)).toBeNull();
+    }
+    const may = Date.UTC(2023, 4, 1);
+    expect(may - 90 * DAY).toBeGreaterThanOrEqual(start);
+    expect(th.get(may)).not.toBeNull();
+    expect(th.get(Date.UTC(2023, 5, 1))).not.toBeNull();
+    // Exactly 90 days of history is enough, one millisecond less is not.
+    const exact = monthlyThresholds(daily(may - 90 * DAY, 100), new Float64Array(100), [0.5], 90, DAY);
+    expect(exact.get(may)).not.toBeNull();
+    const late = monthlyThresholds(daily(may - 90 * DAY + 1, 100), new Float64Array(100), [0.5], 90, DAY);
+    expect(late.get(may)).toBeNull();
   });
 });
 
@@ -151,6 +180,15 @@ describe('atrQuintiles', () => {
     const q = atrQuintiles(ts, Float64Array.from([...jan, ...feb]), 31, DAY);
     expect(Array.from(q.slice(31))).toEqual([0, 1, 1, 2, 3, 4, -1]);
     expect(Array.from(q.slice(0, 31)).every((x) => x === -1)).toBe(true);
+  });
+
+  it('inherits the full-lookback rule (A1-2)', () => {
+    const start = Date.UTC(2023, 0, 20);
+    const t = daily(start, 200);
+    const q = atrQuintiles(t, Float64Array.from(t, (_, i) => 1 + (i % 7)), 90, DAY);
+    const may = t.findIndex((x) => x >= Date.UTC(2023, 4, 1));
+    expect(Array.from(q.slice(0, may)).every((x) => x === -1)).toBe(true);
+    expect(q[may]).toBeGreaterThanOrEqual(0);
   });
 });
 
