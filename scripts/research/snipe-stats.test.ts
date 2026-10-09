@@ -302,7 +302,8 @@ describe('null', () => {
   });
 
   it('gives z NaN and p 1 for a null without spread, and a one-sided p in the direction (A1-3, A1-4)', () => {
-    for (const draws of [[2, 2, 2], [1], [], [Number.NaN, 1]]) {
+    // [0.1 + 0.2, 0.3, 0.3]: floating-point noise gives an sd of about 3e-17, which must still count as no spread
+    for (const draws of [[2, 2, 2], [1], [], [Number.NaN, 1], [0.1 + 0.2, 0.3, 0.3]]) {
       const s = summarizeNull(draws, 5);
       expect(Number.isNaN(s.z)).toBe(true);
       expect(s.pTwoSided).toBe(1);

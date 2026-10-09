@@ -366,6 +366,9 @@ export interface NullSummary {
   pTwoSided: number;
 }
 
+/** A null sd at or below this is degenerate (A1-4): z NaN, p = 1. */
+const SD_FLOOR = 1e-12;
+
 export function summarizeNull(draws: ArrayLike<number>, obsGrid: number): NullSummary {
   let n = 0;
   let sum = 0;
@@ -380,7 +383,8 @@ export function summarizeNull(draws: ArrayLike<number>, obsGrid: number): NullSu
   for (let d = 0; d < draws.length; d++) if (Number.isFinite(draws[d])) ss += (draws[d] - mean) ** 2;
   const sd = n < 2 ? Number.NaN : Math.sqrt(ss / (n - 1));
   // AMENDMENT 1 (A1-3, A1-4): the null sd is inflated before any z is formed, and a null without spread gives p = 1.
-  if (!Number.isFinite(sd) || sd <= 0) {
+  // Below 1e-12 the spread is floating-point noise (identical draws give about 1e-17), not a null.
+  if (!(sd > SD_FLOOR)) {
     return { mean, sd, validDraws: n, nonFiniteDraws: draws.length - n, z: Number.NaN, pTwoSided: 1 };
   }
   const z = (obsGrid - mean) / (SNIPE_NULL_SD_INFLATION * sd);
