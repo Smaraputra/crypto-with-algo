@@ -188,6 +188,35 @@
 /** AMENDMENT 1 (A1-3): the shift null's sd is multiplied by this before any z is formed. */
 export const SNIPE_NULL_SD_INFLATION = 1.25;
 
+/*
+ * AMENDMENT 2, 2026-10-10, after the sanity-only run and BEFORE any cell, null or discovery statistic exists.
+ * It concerns data availability only and adds no trial.
+ *
+ * Why: the sanity run (data/research/snipe-reports/sanity.json, sha256
+ * f5d7eedb766d924c17e6750e3e6870a1448a1689f0cd585bbe36a9859b6e9f15) showed that the threshold rule's
+ * half-window check counted FINITE values, so the regime-conditional columns, which are NaN by design outside
+ * their regime, never received thresholds: tail-eligible share 0 for raw.ret1NearRound, ret1InAsia,
+ * ret1InNyOverlap, ret1InTrend (0.016 at 1h), ret1InHighTaker and ret1InLowVolRatio at both timeframes, and
+ * 0.03 to 0.27 for ret1AfterDown and ret1AfterUp. The half-window check was meant for data GAPS (A1-2), not
+ * for columns that are undefined outside a regime, so these cells would have been dead without a test.
+ *
+ * A2-1. A month M has thresholds (and ATR quintiles) only if the series starts at or before M - 90 days, the
+ *       window [M - 90 days, M) holds at least half of its expected bar count as ROWS (present bars, whatever
+ *       the column's value), and the window holds at least SNIPE_MIN_THRESHOLD_VALUES finite values of the
+ *       column.
+ *
+ * Also recorded from the sanity run: in-slice bars 2,897,160 (scalp) and 241,200 (intraday), no bar lost to
+ * the common grid, no label with a kline gap, 50 strata per timeframe; pooled long win rate 0.4944 (scalp)
+ * and 0.4864 (intraday); timeout and ambiguous shares 0.026 and 0.0063 (scalp), 0.0052 and 0.0005 (intraday).
+ * The 20-label sample per timeframe was re-derived from the raw candles by an independent Python
+ * implementation (Wilder ATR over the full history, entry at the next open, the 5m first-touch walk; script
+ * in the session scratchpad): 40 of 40 identical in outcome and exit time, entry price exact, ATR within
+ * 1e-6 relative.
+ */
+
+/** AMENDMENT 2 (A2-1): minimum finite values in a threshold window. */
+export const SNIPE_MIN_THRESHOLD_VALUES = 200;
+
 /** Program trial ledger before this phase (qh-flow.ts QH_FLOW_LEDGER_AFTER on research/qh-flow). */
 export const SNIPE_LEDGER_BEFORE = 1_769;
 
