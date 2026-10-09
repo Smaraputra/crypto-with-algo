@@ -215,4 +215,26 @@ export const QH_FLOW_PREDICTED_SIGN = {
  *     28,448,315 and 34,283,867); every day of both months was re-ingested from the daily files
  *     (--daily-repair, 61 days, each 288 buckets, outOfOrder 0) and passes the naive check with relative
  *     error 0. Their archiveflowfiles rows keep the monthly outOfOrder value; coverage is refreshed.
+ * E3. Data and floors, recorded BEFORE any hold-out IC cell is computed (2026-10-09).
+ *     Ingest: 420/420 monthly files complete; archiveflowbars 3,677,680 buckets = 10 x 367,776 minus 80,
+ *     the only gaps being 2023-09-12 (3 buckets), 2024-10-28 (2) and 2025-08-29 (3), identical in all ten
+ *     symbols (exchange-wide halts, absent from the daily files too). check-agg-flow-naive.ts on its 80
+ *     default samples: 80/80 pass, relative error 0 everywhere. The extractor validation ran after all
+ *     (file published 2026-10-09 06:39 UTC): PASS, 268/268 complete buckets within 0.5%, worst 0.31%.
+ *     Dataset: export-dataset.ts --datasets candles,htf,perp,flow --intervals 1h,4h --start
+ *     2023-01-01T00:00:00Z --end 2026-06-30T23:59:59Z, image crypto-ops:qh-flow2 (c183f91), dataset hash
+ *     a15dfe0fae98f8baae36010ca6b8147c9ed8f6477173a11d96f90ea17298fc43.
+ *     Floors: qh-flow-null.ts --interval 1h|4h --dataset-dir <export> --start 2024-11-01T00:00:00Z --end
+ *     2026-06-30T23:59:59Z (defaults: lag 1, perp, locked horizons, the four columns, 200 draws, seed 7,
+ *     30 days, null-only). Common grid 14,369 bars at 1h (from 2024-11-09T07:00) and 3,443 at 4h (from
+ *     2024-12-04T04:00), no symbol drops a bar; 200/200 valid draws in every cell. Report sha256:
+ *     1h d3a207eb101b0fe7abe223755db15f654865157ab8a6e5703b7aa4cf7f111407,
+ *     4h 63b0d4ca790d0e7c518922b79259c785ea69a980a5ce9b794de5791dce2132e2.
+ *     Floor (3.15 x null sd of pooled IC), 1h h 1/4/8/12, then 4h h 1/2/3:
+ *       raw.qhOpenImb       0.0145 0.0154 0.0173 0.0182 | 0.0281 0.0334 0.0340
+ *       raw.fiveMinOpenImb  0.0134 0.0134 0.0151 0.0154 | 0.0276 0.0263 0.0277
+ *       raw.largeTakerImb   0.0107 0.0109 0.0121 0.0127 | 0.0227 0.0250 0.0245
+ *       raw.smallTakerImb   0.0121 0.0128 0.0136 0.0139 | 0.0242 0.0258 0.0252
+ *     At 1h every floor is below the unchanged rule's |ic| >= 0.02, which therefore binds; at 4h the floor
+ *     binds. Both exceed the maker breakeven ICs of kill criterion 1 (1h 0.0082, 4h 0.0034).
  */
