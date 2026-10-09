@@ -10,7 +10,8 @@
  *     expected = lookbackDays x 86,400,000 / intervalMs. This also covers "no thresholds before the history exists".
  *   - `timestamps` must be sorted ascending (bar open ms), parallel to `values`.
  *
- * Tail flag encoding: one Uint8Array, one byte per bar, OR of TAIL_TOP_1, TAIL_BOTTOM_1, TAIL_TOP_10, TAIL_BOTTOM_10.
+ * Tail flag encoding: one Uint8Array, one byte per bar, OR of TAIL_TOP_1, TAIL_BOTTOM_1, TAIL_TOP_10, TAIL_BOTTOM_10,
+ * plus TAIL_ELIGIBLE on every bar that was evaluated (finite value and thresholds for its month).
  * A bar with a non-finite value, or in a month without thresholds, has byte 0.
  */
 
@@ -20,6 +21,8 @@ export const TAIL_TOP_1 = 1;
 export const TAIL_BOTTOM_1 = 2;
 export const TAIL_TOP_10 = 4;
 export const TAIL_BOTTOM_10 = 8;
+/** Set on every bar whose value is finite and whose month has thresholds. */
+export const TAIL_ELIGIBLE = 16;
 
 /** Probabilities tailFlags expects the thresholds to hold, in this order: q01, q10, q90, q99. */
 export const TAIL_PROBS = [0.01, 0.1, 0.9, 0.99] as const;
@@ -100,7 +103,7 @@ export function tailFlags(
     if (!Number.isFinite(v)) continue;
     const q = thresholds.get(monthStart(timestamps[i]));
     if (!q) continue;
-    let f = 0;
+    let f = TAIL_ELIGIBLE;
     if (v >= q[3]) f |= TAIL_TOP_1;
     if (v <= q[0]) f |= TAIL_BOTTOM_1;
     if (v >= q[2]) f |= TAIL_TOP_10;

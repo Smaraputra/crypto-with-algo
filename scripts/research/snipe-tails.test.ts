@@ -10,6 +10,7 @@ import {
   TAIL_BOTTOM_1,
   TAIL_TOP_10,
   TAIL_BOTTOM_10,
+  TAIL_ELIGIBLE,
 } from './snipe-tails';
 
 const DAY = 86_400_000;
@@ -108,17 +109,24 @@ describe('tailFlags', () => {
     const feb = [q[1], q[2], q[0], q[3], 15, Number.NaN];
     const f = tailFlags(ts, Float64Array.from([...jan, ...feb]), th);
     const out = Array.from(f.slice(31));
-    expect(out[0]).toBe(TAIL_BOTTOM_10);
-    expect(out[1]).toBe(TAIL_TOP_10);
-    expect(out[2]).toBe(TAIL_BOTTOM_1 | TAIL_BOTTOM_10);
-    expect(out[3]).toBe(TAIL_TOP_1 | TAIL_TOP_10);
-    expect(out[4]).toBe(0);
+    expect(out[0]).toBe(TAIL_ELIGIBLE | TAIL_BOTTOM_10);
+    expect(out[1]).toBe(TAIL_ELIGIBLE | TAIL_TOP_10);
+    expect(out[2]).toBe(TAIL_ELIGIBLE | TAIL_BOTTOM_1 | TAIL_BOTTOM_10);
+    expect(out[3]).toBe(TAIL_ELIGIBLE | TAIL_TOP_1 | TAIL_TOP_10);
+    expect(out[4]).toBe(TAIL_ELIGIBLE);
     expect(out[5]).toBe(0);
   });
 
   it('gives all zero flags in a month without thresholds', () => {
     const f = tailFlags(ts, Float64Array.from([...jan, 0, 0, 0, 0, 0, 0]), th);
     expect(Array.from(f.slice(0, 31)).every((x) => x === 0)).toBe(true);
+  });
+
+  it('keeps the existing bit values and leaves NaN bars at exactly 0', () => {
+    expect([TAIL_TOP_1, TAIL_BOTTOM_1, TAIL_TOP_10, TAIL_BOTTOM_10, TAIL_ELIGIBLE]).toEqual([1, 2, 4, 8, 16]);
+    const f = tailFlags(ts, Float64Array.from([...jan, 15, Number.NaN, 15, 15, 15, 15]), th);
+    expect(f[31]).toBe(TAIL_ELIGIBLE);
+    expect(f[32]).toBe(0);
   });
 
   it('uses the bar own month thresholds', () => {
@@ -128,8 +136,8 @@ describe('tailFlags', () => {
     const th2 = monthlyThresholds(ts2, vals, TAIL_PROBS, 28, DAY);
     const f = tailFlags(ts2, vals, th2);
     // Feb 1 (101) is far above January's window; March 1 (5) is far below February's window.
-    expect(f[31]).toBe(TAIL_TOP_1 | TAIL_TOP_10);
-    expect(f[ts2.length - 1]).toBe(TAIL_BOTTOM_1 | TAIL_BOTTOM_10);
+    expect(f[31]).toBe(TAIL_ELIGIBLE | TAIL_TOP_1 | TAIL_TOP_10);
+    expect(f[ts2.length - 1]).toBe(TAIL_ELIGIBLE | TAIL_BOTTOM_1 | TAIL_BOTTOM_10);
   });
 });
 
