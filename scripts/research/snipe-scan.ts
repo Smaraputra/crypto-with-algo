@@ -4,6 +4,12 @@
  *   npx tsx scripts/research/snipe-scan.ts --cache-dir C --out report.json [--timeframes scalp,intraday]
  *       [--draws 200] [--symbols BTCUSDT,...]
  *   npx tsx scripts/research/snipe-scan.ts --cache-dir C --cell raw.ret1:top:many:intraday [--draws 200]
+ *   npx tsx scripts/research/snipe-scan.ts --cache-dir C --sanity-only --out sanity.json [--timeframes ...]
+ *
+ * The --sanity-only mode (AMENDMENT 1, A1-5) builds the DISCOVERY slice contexts and reports data checks only:
+ * bars, outcome shares, pooled long win rate, strata, grid loss, labels with a data gap, per-column tail-eligible
+ * and finite shares, and a deterministic sample of 20 labels per timeframe for hand-checking against the raw
+ * candles. It evaluates no cell, draws no null and prints no cell statistic.
  *
  * The --cell mode recomputes one cell exactly as the scan does (same slice, grid and offsets) and prints its
  * evaluateCell result as one JSON line, to be compared digit for digit with the report entry (the report entry
@@ -11,7 +17,9 @@
  * JSON.stringify serialises NaN and Infinity as null.
  */
 import { writeFileSync } from 'fs';
+import { seededRandom } from './carry-sim';
 import {
+  SNIPE_BARRIER_ATR,
   SNIPE_COLUMNS,
   SNIPE_DISCOVERY,
   SNIPE_DISCOVERY_CELLS,
@@ -25,6 +33,7 @@ import {
 import {
   discoveryBinding,
   discoverySlice,
+  sanityBinding,
   gitCommitFromEnv,
   loadTimeframe,
   maxHoldMsOf,
@@ -38,6 +47,7 @@ import {
   TIMEFRAME_ORDER,
 } from './snipe-cli';
 import { OUTCOME_AMBIGUOUS, OUTCOME_DOWN, OUTCOME_TIMEOUT, OUTCOME_UP } from './snipe-labels';
+import { TAIL_ELIGIBLE } from './snipe-tails';
 import {
   benjaminiHochberg,
   bhP,
@@ -56,6 +66,8 @@ export interface SnipeScanArgs {
   draws: number;
   symbols: string[];
   cell?: SnipeCell;
+  /** Sanity-only mode (AMENDMENT 1, A1-5): data checks, no cell. */
+  sanityOnly?: boolean;
 }
 
 export interface SanityBlock {
@@ -68,6 +80,51 @@ export interface SanityBlock {
   gridLength: number;
   minShiftBars: number;
   barsLostToGrid: Record<string, number>;
+}
+
+export const SANITY_SAMPLE_SIZE = 20;
+export const SANITY_SAMPLE_SEED = 7;
+
+export interface SanityLabelSample {
+  symbol: string;
+  conditionTime: string;
+  entryTime: string;
+  entryPrice: number;
+  atrAbs: number;
+  upper: number;
+  lower: number;
+  outcome: 'UP' | 'DOWN' | 'TIMEOUT' | 'AMBIGUOUS';
+  exitTime: string;
+}
+
+export interface SanityColumnBlock {
+  column: string;
+  /** Share of the in-slice bars (pooled over symbols) with TAIL_ELIGIBLE set. */
+  tailEligibleShare: number;
+  /** The cache's whole-span finite share, mean over symbols, and per symbol in symbol order. */
+  finiteShare: number;
+  finiteShareBySymbol: number[];
+}
+
+export interface SanityOnlyBlock extends SanityBlock {
+  /** In-slice labels with gap = 1 (a hole in the ATR window or the 5m path). */
+  gapLabels: number;
+  columns: SanityColumnBlock[];
+  sample: SanityLabelSample[];
+}
+
+export interface SnipeSanityReport {
+  reportKind: 'snipe-sanity';
+  schemaVersion: 1;
+  datasetManifestHash: string;
+  gitCommit: string;
+  binding: boolean;
+  computedAt: string;
+  slice: { start: string; end: string };
+  seed: number;
+  symbols: string[];
+  timeframes: SnipeTimeframe[];
+  blocks: SanityOnlyBlock[];
 }
 
 export interface DiscoveryCellEntry extends CellReport {
@@ -99,13 +156,18 @@ export interface SnipeDiscoveryReport {
 const FLAGS = ['cache-dir', 'out', 'timeframes', 'draws', 'cell', 'symbols'];
 
 export function parseArgs(argv: string[]): SnipeScanArgs {
-  const flags = parseFlags(argv, FLAGS);
+  // --sanity-only is the one flag without a value.
+  const sanityOnly = argv.includes('--sanity-only');
+  const flags = parseFlags(argv.filter((a) => a !== '--sanity-only'), FLAGS);
   const cacheDir = flags.get('cache-dir');
   if (!cacheDir) throw new Error('--cache-dir is required');
   const cell = flags.get('cell') ? parseCellSpec(flags.get('cell')!) : undefined;
   const out = flags.get('out');
+  if (sanityOnly && cell) throw new Error('--sanity-only cannot be combined with --cell');
+  if (sanityOnly && flags.has('draws')) throw new Error('--sanity-only draws no null, --draws does not apply');
   if (!out && !cell) throw new Error('--out is required (unless --cell is given)');
   return {
+    sanityOnly,
     cacheDir,
     out,
     timeframes: cell ? [cell.timeframe] : parseTimeframes(flags.get('timeframes')),
@@ -164,6 +226,110 @@ export function sanityOf(ctx: SliceContext, symbols: string[]): SanityBlock {
     minShiftBars: minShiftBarsOf(ctx.timeframe),
     barsLostToGrid: lost,
   };
+}
+
+const OUTCOME_NAMES: Record<number, SanityLabelSample['outcome']> = {
+  [OUTCOME_UP]: 'UP',
+  [OUTCOME_DOWN]: 'DOWN',
+  [OUTCOME_TIMEOUT]: 'TIMEOUT',
+  [OUTCOME_AMBIGUOUS]: 'AMBIGUOUS',
+};
+
+/**
+ * The sanity-only block of one timeframe: sanityOf plus the gap count, the per-column shares and the label
+ * sample. Pure over a slice context; it touches no cell and no null.
+ */
+export function sanityOnlyBlockOf(ctx: SliceContext, symbols: string[]): SanityOnlyBlock {
+  const base = sanityOf(ctx, symbols);
+  const eligible = SNIPE_COLUMNS.map(() => 0);
+  let gapLabels = 0;
+  // Pooled in-slice bars in a fixed order: symbol order, then time order.
+  const offsets: number[] = [];
+  let pooled = 0;
+  ctx.views.forEach((v) => {
+    offsets.push(pooled);
+    pooled += v.idx.length;
+    const a = v.arrays;
+    const flagsOf = SNIPE_COLUMNS.map((column) => a.flags[a.columns.indexOf(column)]);
+    for (let j = 0; j < v.idx.length; j++) {
+      const i = v.idx[j];
+      if (a.gap[i] === 1) gapLabels++;
+      for (let c = 0; c < flagsOf.length; c++) if ((flagsOf[c][i] & TAIL_ELIGIBLE) !== 0) eligible[c]++;
+    }
+  });
+  const columns: SanityColumnBlock[] = SNIPE_COLUMNS.map((column, c) => {
+    const bySymbol = ctx.views.map((v) => v.arrays.finiteShare[v.arrays.columns.indexOf(column)]);
+    return {
+      column,
+      tailEligibleShare: pooled === 0 ? Number.NaN : eligible[c] / pooled,
+      finiteShare: bySymbol.length === 0 ? Number.NaN : bySymbol.reduce((s, x) => s + x, 0) / bySymbol.length,
+      finiteShareBySymbol: bySymbol,
+    };
+  });
+
+  const sample: SanityLabelSample[] = [];
+  if (pooled > 0) {
+    const random = seededRandom(SANITY_SAMPLE_SEED);
+    const picked = new Set<number>();
+    const want = Math.min(SANITY_SAMPLE_SIZE, pooled);
+    while (picked.size < want) {
+      const p = Math.floor(random() * pooled);
+      if (picked.has(p)) continue;
+      picked.add(p);
+      let s = offsets.length - 1;
+      while (offsets[s] > p) s--;
+      const a = ctx.views[s].arrays;
+      const i = ctx.views[s].idx[p - offsets[s]];
+      const entryPrice = a.entryPrice[i];
+      const atrAbs = a.atrAbs[i];
+      sample.push({
+        symbol: symbols[s],
+        conditionTime: new Date(a.timestamps[i]).toISOString(),
+        entryTime: new Date(a.entryMs[i]).toISOString(),
+        entryPrice,
+        atrAbs,
+        upper: entryPrice + SNIPE_BARRIER_ATR * atrAbs,
+        lower: entryPrice - SNIPE_BARRIER_ATR * atrAbs,
+        outcome: OUTCOME_NAMES[a.outcome[i]],
+        exitTime: new Date(a.exitMs[i]).toISOString(),
+      });
+    }
+  }
+  return { ...base, gapLabels, columns, sample };
+}
+
+/**
+ * Sanity-only run (AMENDMENT 1, A1-5): builds the discovery slice contexts and writes the data checks. It never
+ * calls evaluateCell, nullOffsets or any statistic of a cell.
+ */
+export function runSnipeSanity(args: SnipeScanArgs, log: (line: string) => void = console.log): SnipeSanityReport {
+  const slice = discoverySlice();
+  let hash: string | undefined;
+  const cacheCommits: string[] = [];
+  const blocks: SanityOnlyBlock[] = [];
+  for (const tf of TIMEFRAME_ORDER.filter((t) => args.timeframes.includes(t))) {
+    const loaded = loadTimeframe(args.cacheDir, args.symbols, tf, hash);
+    hash = loaded.datasetManifestHash;
+    cacheCommits.push(...loaded.gitCommits);
+    blocks.push(sanityOnlyBlockOf(buildSliceContext(loaded.arrays, slice, tf, maxHoldMsOf(tf)), args.symbols));
+  }
+  const gitCommit = gitCommitFromEnv();
+  const report: SnipeSanityReport = {
+    reportKind: 'snipe-sanity',
+    schemaVersion: 1,
+    datasetManifestHash: hash ?? '',
+    gitCommit,
+    binding: sanityBinding({ timeframes: args.timeframes, symbols: args.symbols, gitCommit, cacheCommits }),
+    computedAt: new Date().toISOString(),
+    slice: { start: SNIPE_DISCOVERY.start, end: SNIPE_DISCOVERY.end },
+    seed: SANITY_SAMPLE_SEED,
+    symbols: args.symbols,
+    timeframes: args.timeframes,
+    blocks,
+  };
+  if (args.out) writeFileSync(args.out, JSON.stringify(report, null, 2));
+  log(JSON.stringify(report, null, 2));
+  return report;
 }
 
 export function runSnipeScan(args: SnipeScanArgs, log: (line: string) => void = console.log): SnipeDiscoveryReport | CellReport {
@@ -239,7 +405,9 @@ export function runSnipeScan(args: SnipeScanArgs, log: (line: string) => void = 
 
 if (require.main === module) {
   try {
-    runSnipeScan(parseArgs(process.argv.slice(2)));
+    const args = parseArgs(process.argv.slice(2));
+    if (args.sanityOnly) runSnipeSanity(args);
+    else runSnipeScan(args);
     process.exit(0);
   } catch (err) {
     console.error(err);
