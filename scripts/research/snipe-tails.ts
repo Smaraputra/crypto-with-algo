@@ -16,6 +16,8 @@
  * A bar with a non-finite value, or in a month without thresholds, has byte 0.
  */
 
+import { SNIPE_MIN_THRESHOLD_VALUES } from './snipe';
+
 const DAY_MS = 86_400_000;
 
 export const TAIL_TOP_1 = 1;
@@ -71,6 +73,7 @@ export function monthlyThresholds(
   probs: readonly number[],
   lookbackDays: number,
   intervalMs: number,
+  minValues: number = SNIPE_MIN_THRESHOLD_VALUES,
 ): MonthlyThresholds {
   const out: MonthlyThresholds = new Map();
   const expected = (lookbackDays * DAY_MS) / intervalMs;
@@ -88,7 +91,9 @@ export function monthlyThresholds(
     const to = lowerBound(timestamps, m);
     const window: number[] = [];
     for (let k = from; k < to; k++) if (Number.isFinite(values[k])) window.push(values[k]);
-    if (window.length === 0 || window.length < expected / 2) {
+    // AMENDMENT 2 (A2-1): half of the window's bars must be PRESENT as rows (a column that is NaN by design
+    // outside its regime is not a gap), and the window must hold at least minValues finite values.
+    if (to - from < expected / 2 || window.length === 0 || window.length < minValues) {
       out.set(m, null);
       continue;
     }
@@ -126,8 +131,9 @@ export function atrQuintiles(
   atrPct: ArrayLike<number>,
   lookbackDays: number,
   intervalMs: number,
+  minValues: number = SNIPE_MIN_THRESHOLD_VALUES,
 ): Int8Array {
-  const th = monthlyThresholds(timestamps, atrPct, QUINTILE_PROBS, lookbackDays, intervalMs);
+  const th = monthlyThresholds(timestamps, atrPct, QUINTILE_PROBS, lookbackDays, intervalMs, minValues);
   const out = new Int8Array(timestamps.length).fill(-1);
   for (let i = 0; i < timestamps.length; i++) {
     const v = atrPct[i];
