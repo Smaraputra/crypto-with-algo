@@ -183,3 +183,19 @@ export const QH_FLOW_PREDICTED_SIGN = {
  * ALL FOUR columns null for that bar; the first implementation nulled only the affected column and is
  * corrected to the locked rule.
  */
+
+/*
+ * EXECUTION NOTES, recorded as the run proceeds. None changes a definition, a window, a threshold or the
+ * trial budget.
+ *
+ * E1. Ingest order (2026-10-09, user-approved). EXTRACTOR VALIDATION says "before any ingest". Binance
+ *     publishes a daily file at about 07:10 to 07:30 UTC the next day (Last-Modified of the BTCUSDT
+ *     2026-10-05, -06 and -07 files), so the 2026-10-08 file was not available until about 07:15 UTC on
+ *     2026-10-09, and no older day can stand in: the recorder starts 2026-10-08 01:05 UTC. At the user's
+ *     request the ingest runs beside the wait instead of after it. The validation still gates everything
+ *     that reads the ingested data: no export, null or IC run happens before it passes, and a failure
+ *     means the extractor is fixed and every month re-ingested with --refresh before anything is read.
+ *     The ingest reads no price, return or factor. Before it, a fold that wrote nothing tested the real
+ *     zip64 path: BTCUSDT 2026-02 monthly, 84,154,791 rows, 8,064 buckets (28 x 288), outOfOrder 0,
+ *     5,591,936,940 bytes inflated, 467 s, 22 MB heap.
+ */
