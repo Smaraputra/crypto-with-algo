@@ -138,7 +138,7 @@ export function sanityOf(ctx: SliceContext, symbols: string[]): SanityBlock {
       else if (o === OUTCOME_DOWN) counts.down++;
       else if (o === OUTCOME_TIMEOUT) counts.timeout++;
       else if (o === OUTCOME_AMBIGUOUS) counts.ambiguous++;
-      strata.add(`${s}|${a.month[i]}|${a.atrQuintile[i]}`);
+      strata.add(`${s}|${a.atrQuintile[i]}`);
     }
   });
   const share = (n: number) => (bars === 0 ? Number.NaN : n / bars);

@@ -82,8 +82,9 @@ export interface SliceView {
 
 /**
  * A bar i is in the slice iff startMs <= timestamps[i] <= endMs, outcome[i] !== 0,
- * entryMs[i] + maxHoldMs - 1 <= endMs and atrQuintile[i] >= 0. The baseline is per (month, ATR quintile)
- * stratum of this symbol: #up / (#up + #down) over the in-slice bars of the stratum.
+ * entryMs[i] + maxHoldMs - 1 <= endMs and atrQuintile[i] >= 0. The baseline is per ATR quintile stratum of this
+ * symbol over the whole slice (AMENDMENT 1, A1-1: no calendar month, a month baseline absorbs the flagged move):
+ * #up / (#up + #down) over the in-slice bars of the stratum.
  */
 export function sliceView(arrays: SnipeSymbolArrays, slice: SnipeSlice, maxHoldMs: number): SliceView {
   const n = arrays.timestamps.length;
@@ -103,7 +104,7 @@ export function sliceView(arrays: SnipeSymbolArrays, slice: SnipeSlice, maxHoldM
   const stratumOf = new Int32Array(idx.length);
   for (let j = 0; j < idx.length; j++) {
     const i = idx[j];
-    const key = arrays.month[i] * 8 + arrays.atrQuintile[i];
+    const key = arrays.atrQuintile[i];
     let s = strata.get(key);
     if (s === undefined) {
       s = up.length;

@@ -124,6 +124,17 @@ describe('sliceView', () => {
     for (let i = 0; i < 5; i++) expect(v.b[i]).toBeCloseTo(2 / 3, 12);
     for (let i = 5; i < 10; i++) expect(v.b[i]).toBeCloseTo(1 / 4, 12);
   });
+
+  it('pools the baseline across calendar months (A1-1: the stratum is the ATR quintile only)', () => {
+    // 90 daily bars span Jan-Mar 2018, one quintile. Month by month the up share differs; the baseline must not.
+    const a = hand(90, {}, 1);
+    for (let i = 0; i < 90; i++) {
+      a.atrQuintile[i] = 2;
+      a.outcome[i] = i < 31 ? OUTCOME_UP : OUTCOME_DOWN;
+    }
+    const v = sliceView(a, ALL, DAY);
+    for (const j of v.idx) expect(v.b[j]).toBeCloseTo(31 / 90, 12);
+  });
 });
 
 describe('blocking walk', () => {
