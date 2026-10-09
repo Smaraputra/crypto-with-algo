@@ -138,6 +138,56 @@
  *   dependence); quarter consistency is pooled across symbols, so no threshold is lowered.
  */
 
+/*
+ * AMENDMENT 1, 2026-10-10, before any discovery or sanity run (only the export has been taken; no label,
+ * flag, cell or statistic of the real data has been computed). It removes a bias the lock built in and
+ * TIGHTENS the tests; it adds no trial (304 discovery cells, at most 5 confirmation cells, budget 309).
+ *
+ * Why: the final whole-branch review (Opus, .superpowers/sdd/snipe-precision-2026-10-10/final-review.md) ran
+ * the branch's own modules on simulated driftless prices (no edge exists) and found that the locked
+ * baseline, symbol x CALENDAR MONTH x ATR quintile, absorbs the flagged move itself: bars before an extreme
+ * move share its month and their label windows contain the move, so the month's baseline leans against it
+ * and every return-extreme cell shows a spurious reversal edge (ret20 10% tails at 1h: mean z about +/-3.6;
+ * the locked confirmation rule passed in up to 22 of 30 no-edge replications). The shift null cannot see it.
+ * The same review measured the shift null's sd at 0.76 to 0.88 of the true sampling sd for cells
+ * concentrated in stress when cross-asset correlation rises with volatility.
+ *
+ * A1-1. BASELINE: stratum = symbol x ATR quintile over the whole slice (per timeframe), no calendar month.
+ *       b = #up / (#up + #down) over the slice's in-slice bars of the stratum. A committed regression test
+ *       runs the pipeline on simulated driftless prices and requires the statistic to centre near zero.
+ * A1-2. THRESHOLDS AND QUINTILES need the full 90 days of history: a month M has none unless the series
+ *       starts at or before M - 90 days (the lock's text; the half-window rule now applies only to gaps).
+ *       Discovery therefore starts measuring at 2022-04-01.
+ * A1-3. NULL SPREAD: every z uses the null sd multiplied by 1.25 (the largest understatement the review
+ *       measured, 1.24, rounded up): z = (observed on the grid - null mean) / (1.25 x null sd). Discovery's
+ *       two-sided p comes from this z. Confirmation passes only if BOTH the empirical one-sided p (as locked)
+ *       AND the one-sided normal p of this z are below 0.05 / m.
+ * A1-4. DIRECTION AGREEMENT: a cell is selectable only if sign(excess on all in-slice bars) equals
+ *       sign(observed on the grid - null mean). A null sd of 0 (or not finite) gives p = 1.
+ * A1-5. SANITY FIRST: a sanity-only run (the scan's --sanity-only mode) is run and recorded BEFORE the
+ *       discovery run: per timeframe the in-slice bars, outcome shares, pooled long win rate, strata, grid
+ *       loss, labels with a kline gap inside the ATR window or the path, per-slice finite and tail-eligible
+ *       shares per column, and a deterministic sample of 20 labels per timeframe (seed 7) with entry,
+ *       barriers, deciding candle and outcome, hand-checked against the raw candles by the controller.
+ * A1-6. BINDING RUNS: a report is binding only with both timeframes, the ten symbols, the locked draw
+ *       counts, 304 discovery cells and a recorded git commit equal across cache, scan and confirmation;
+ *       anything else is labelled non-binding, and confirmation refuses a non-binding discovery report.
+ * A1-7. SLICE ENDS are the next slice's start minus 1 ms (2024-12-31T23:59:59.999Z and
+ *       2026-06-30T23:59:59.999Z), so the last bar's trade window is not dropped by second rounding.
+ * A1-8. Empirical p = (1 + #{draws whose signed excess is at least the observed}) / (draws + 1), non-finite
+ *       draws counting as not at least the observed (the lock's / 1,001).
+ * A1-9. Declared before discovery, so they are not read as findings: raw.htfTrend and raw.oiPriceDiv take
+ *       values in {-1, 0, 1}, so all 16 of their cells are expected to be tie-skipped; raw.fundingRate and
+ *       raw.fearGreed are coarse and may be tie-skipped; raw.longShortRatio (snapshot) largely duplicates
+ *       raw.topTraderPositionRatio (metrics). Skipped cells still count as trials with p = 1.
+ * A1-10. Implementation notes: both timeframes draw their offsets from seed 7 (one offset set per timeframe,
+ *       shared by its 152 cells); break-even win rates average over resolved taken trades with ATR(t-1) over
+ *       close(t-1).
+ */
+
+/** AMENDMENT 1 (A1-3): the shift null's sd is multiplied by this before any z is formed. */
+export const SNIPE_NULL_SD_INFLATION = 1.25;
+
 /** Program trial ledger before this phase (qh-flow.ts QH_FLOW_LEDGER_AFTER on research/qh-flow). */
 export const SNIPE_LEDGER_BEFORE = 1_769;
 
