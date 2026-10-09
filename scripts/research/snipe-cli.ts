@@ -5,6 +5,8 @@
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import {
   SNIPE_COLUMNS,
+  SNIPE_CONFIRMATION,
+  SNIPE_DISCOVERY,
   SNIPE_LOCKBOX_START,
   SNIPE_NULL,
   SNIPE_TAIL_LEVELS,
@@ -64,8 +66,16 @@ export function parseCellSpec(raw: string): SnipeCell {
   return { column, tail, level: level as SnipeCell['level'], timeframe: timeframe as SnipeTimeframe };
 }
 
-export function sliceOf(bounds: { start: string; end: string }): SnipeSlice {
-  return { startMs: Date.parse(bounds.start), endMs: Date.parse(bounds.end) };
+/**
+ * AMENDMENT 1 (A1-7): a slice ends 1 ms before the next slice starts (2024-12-31T23:59:59.999Z for discovery,
+ * 2026-06-30T23:59:59.999Z for confirmation), so the last bar's trade window is not dropped by second rounding.
+ */
+export function discoverySlice(): SnipeSlice {
+  return { startMs: Date.parse(SNIPE_DISCOVERY.start), endMs: Date.parse(SNIPE_CONFIRMATION.start) - 1 };
+}
+
+export function confirmationSlice(): SnipeSlice {
+  return { startMs: Date.parse(SNIPE_CONFIRMATION.start), endMs: Date.parse(SNIPE_LOCKBOX_START) - 1 };
 }
 
 export function maxHoldMsOf(tf: SnipeTimeframe): number {

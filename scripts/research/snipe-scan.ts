@@ -32,7 +32,7 @@ import {
   parseFlags,
   parseSymbols,
   parseTimeframes,
-  sliceOf,
+  discoverySlice,
   TIMEFRAME_ORDER,
 } from './snipe-cli';
 import { OUTCOME_AMBIGUOUS, OUTCOME_DOWN, OUTCOME_TIMEOUT, OUTCOME_UP } from './snipe-labels';
@@ -163,7 +163,7 @@ export function sanityOf(ctx: SliceContext, symbols: string[]): SanityBlock {
 }
 
 export function runSnipeScan(args: SnipeScanArgs, log: (line: string) => void = console.log): SnipeDiscoveryReport | CellReport {
-  const slice = sliceOf(SNIPE_DISCOVERY);
+  const slice = discoverySlice();
   let hash: string | undefined;
   const cells: CellReport[] = [];
   const sanity: SanityBlock[] = [];

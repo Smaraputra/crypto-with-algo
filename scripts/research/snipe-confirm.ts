@@ -25,7 +25,7 @@ import {
   parseDraws,
   parseFlags,
   parseSymbols,
-  sliceOf,
+  confirmationSlice,
   TIMEFRAME_ORDER,
 } from './snipe-cli';
 import type { SanityBlock, SnipeDiscoveryReport } from './snipe-scan';
@@ -129,7 +129,7 @@ export function runSnipeConfirm(
   // m is the number of confirmed cells of the report, also in the single-cell spot check.
   const m = discovery.selected.length;
 
-  const slice = sliceOf(SNIPE_CONFIRMATION);
+  const slice = confirmationSlice();
   const timeframes = TIMEFRAME_ORDER.filter((tf) => selected.some((c) => c.cell.timeframe === tf));
   const entries: ConfirmationEntry[] = [];
   const sanity: SanityBlock[] = [];
