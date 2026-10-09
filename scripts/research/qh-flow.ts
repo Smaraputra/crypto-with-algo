@@ -112,6 +112,9 @@ export const QH_FLOW_LEDGER_BEFORE = 1_741;
 /** Declared trial budget of this phase: 28 hold-out IC cells plus at most 8 harness cells. */
 export const QH_FLOW_TRIAL_BUDGET = 36;
 
+/** Program trial ledger after this phase: the 28 hold-out IC cells; the harness was not run (RESULT). */
+export const QH_FLOW_LEDGER_AFTER = 1_769;
+
 /** Inclusive window bounds, UTC. */
 export const QH_FLOW_REPRODUCTION = { start: '2023-01-01T00:00:00Z', end: '2024-10-31T23:59:59Z' } as const;
 export const QH_FLOW_HOLDOUT = { start: '2024-11-01T00:00:00Z', end: '2026-06-30T23:59:59Z' } as const;
@@ -237,4 +240,70 @@ export const QH_FLOW_PREDICTED_SIGN = {
  *       raw.smallTakerImb   0.0121 0.0128 0.0136 0.0139 | 0.0242 0.0258 0.0252
  *     At 1h every floor is below the unchanged rule's |ic| >= 0.02, which therefore binds; at 4h the floor
  *     binds. Both exceed the maker breakeven ICs of kill criterion 1 (1h 0.0082, 4h 0.0034).
+ */
+
+/*
+ * RESULT, 2026-10-09: NULL. The phase closes under KILL CRITERION 2; no harness run.
+ *
+ * Inputs: dataset a15dfe0fae98f8baae36010ca6b8147c9ed8f6477173a11d96f90ea17298fc43, image crypto-ops:qh-flow2
+ * (c183f91), reports on the VPS in $HOME/qh-flow-out/ (local copies in data/research/reports/qh-flow/, sha256):
+ *   ic-holdout-1h  f5148e7dd32472811ca3aa385b82ee725eee82bde8341c3f0d8ea4d3cf5aba8f
+ *   ic-holdout-4h  5672c779d93ad5de043ba6856c9a116a54854c06a7d2d9ac571fb9e7bf03c779
+ *   ic-repro-1h    c30028d3dda9b16124b39570fe06ca7e673dd83575437bfc508a171b016eb80c
+ *   ic-repro-4h    f5b6892c980d41b0569376b8aee2db7bdb6e0953912e9b7f12b56aca4771486b
+ *   verdict        4858e5de69ec9080d7dd6cb79ec66f1932b0f03dc75be1a654e712d2b0898f97
+ *   null-observed-1h 6922f4c8977924d5c296bf02d09038aa12a1adb9872ca078bf44183f82419661
+ *   null-observed-4h 0bbdb47a06034548a4c856cea63acbfe1f094e780337b7caa2d75e389b85c5aa
+ * Commands: factor-ic.ts --interval 1h --horizons 1,4,8,12 (4h: 1,2,3) --factors <the four> --execution-lag 1
+ * --return-series perp --expect-manifest-hash <hash> --start 2024-11-01T00:00:00Z --end 2026-06-30T23:59:59Z
+ * (reproduction: 2023-01-01T00:00:00Z to 2024-10-31T23:59:59Z); qh-flow-verdict.ts --report-1h --report-4h
+ * --floor-1h --floor-4h; qh-flow-null.ts --with-observed --floor-report <floor> on the hold-out.
+ *
+ * Verdict (qh-flow-verdict.ts): the control raw.fiveMinOpenImb does not survive (kill criterion 1 not
+ * triggered); none of the three predicted columns survives with its predicted sign (kill criterion 2). No cell
+ * clears |ic| >= 0.02. Benjamini-Hochberg q 0.10 over the 28 cells rejects 7 by p-value alone (`fdr.rejectedCells`);
+ * the per-cell `fdrRejected` field means rejected AND clearing |ic| and |t|, so it is false everywhere.
+ *
+ * Hold-out pooled ic / HAC t / empirical p (common-offset null, 200 draws; 0.005 is its minimum, 1/201 rounded):
+ *   1h        h1                     h4                     h8                     h12
+ *   qhOpen    -0.0001 -0.02 0.995    +0.0014 +0.52 0.741    +0.0034 +1.21 0.607    +0.0018 +0.61 0.756
+ *   fiveMin   +0.0057 +2.25 0.159    +0.0029 +1.12 0.517    +0.0018 +0.69 0.711    +0.0021 +0.79 0.662
+ *   large     -0.0103 -4.12 0.010    -0.0041 -1.57 0.209    +0.0015 +0.55 0.652    +0.0037 +1.34 0.363
+ *   small     -0.0154 -5.86 0.005    -0.0087 -3.05 0.035    -0.0044 -1.43 0.303    -0.0087 -2.69 0.050
+ *   4h        h1                     h2                     h3
+ *   qhOpen    +0.0133 +2.54 0.134    +0.0113 +2.13 0.313    +0.0050 +0.93 0.587
+ *   fiveMin   -0.0092 -1.75 0.289    -0.0036 -0.68 0.697    +0.0076 +1.43 0.433
+ *   large     -0.0073 -1.42 0.318    +0.0061 +1.17 0.478    +0.0122 +2.29 0.109
+ *   small     -0.0088 -1.63 0.244    -0.0118 -2.10 0.119    -0.0082 -1.42 0.274
+ *   n: 143,660 pooled pairs at 1h h1, 34,400 at 4h h1.
+ *
+ * Reproduction window (sign only, inside Kim and Hansen's sample), pooled ic / t:
+ *   1h qhOpen +0.0112 +4.71 | +0.0154 +5.72 | +0.0160 +5.46 | +0.0102 +3.36   (h 1, 4, 8, 12)
+ *   4h qhOpen -0.0052 -1.07 | -0.0098 -1.98 | -0.0087 -1.73                   (h 1, 2, 3)
+ *   1h large  -0.0070 -2.93 | -0.0081 -3.27 | -0.0014 -0.54 | +0.0018 +0.71
+ *   1h small  -0.0048 -1.90 | -0.0035 -1.32 | -0.0035 -1.26 | -0.0048 -1.66
+ *
+ * Reading, against the predictions:
+ * - raw.qhOpenImb: the paper's continuation sign appears at 1h in its own sample (ic +0.015 to +0.016 at h 4
+ *   and 8, still below 0.02) and is gone after it (+0.0014 and +0.0034, p 0.74 and 0.61). The 4h sign flips
+ *   between the windows. Prediction (positive at h 4 to 12) WRONG on the hold-out.
+ * - raw.fiveMinOpenImb (control): no effect, as predicted. Its 1h h1 HAC t of 2.25 has an empirical p of 0.159,
+ *   which is why the rule carries the |ic| and floor legs as well as BH.
+ * - raw.largeTakerImb: negative at 1h h1 in both windows (hold-out -0.0103, p 0.010), the OPPOSITE of the
+ *   informed-flow prediction; positive only at long horizons, where nothing is significant.
+ * - raw.smallTakerImb: negative, as predicted, and the strongest cell of the phase: 1h h1 -0.0154, t -5.86,
+ *   beyond all 200 null draws, above its floor 0.0121. It fails the unchanged rule on size (|ic| < 0.02) and
+ *   on horizons (one horizon; h4 -0.0087, t -3.05). It is a next-hour reversal after one bar of lag, below the
+ *   1h taker breakeven IC of 0.0329. Not a pass. Reopening it needs the user's consent and would be a new
+ *   trial on an already-read hold-out.
+ *
+ * Spot checks (factor-ic --cell --report, all digit for digit, ic and n): hand-picked holdout-1h
+ * raw.smallTakerImb:1 -0.015427849405436844, holdout-1h raw.largeTakerImb:1:BTCUSDT -0.016644494742907797,
+ * holdout-4h raw.qhOpenImb:1 0.013319808683161922, repro-1h raw.qhOpenImb:8 0.015974456040421473; random
+ * (Python random seed 20261009, one per report) holdout-1h raw.fiveMinOpenImb:12:ETHUSDT
+ * -0.0037303764874138997, holdout-4h raw.largeTakerImb:1:BNBUSDT -0.006431387002289601, repro-1h
+ * raw.smallTakerImb:4:BTCUSDT 0.012192789286547686, repro-4h raw.smallTakerImb:3:LINKUSDT -0.0032018736381965725.
+ *
+ * Trials: 28 hold-out IC cells; the 8 harness cells were not used. Program ledger 1,741 -> 1,769.
+ * Erratum: E3's last sentence attributes the maker breakeven ICs to kill criterion 1; they are in MEASUREMENT.
  */
