@@ -198,4 +198,21 @@ export const QH_FLOW_PREDICTED_SIGN = {
  *     The ingest reads no price, return or factor. Before it, a fold that wrote nothing tested the real
  *     zip64 path: BTCUSDT 2026-02 monthly, 84,154,791 rows, 8,064 buckets (28 x 288), outOfOrder 0,
  *     5,591,936,940 bytes inflated, 467 s, 22 MB heap.
+ * E2. Extractor validation waived as a gate (2026-10-09, user decision). The user chose not to wait for the
+ *     2026-10-08 daily file. Fold correctness is established instead by scripts/ops/check-agg-flow-naive.ts,
+ *     an independent re-sum of sample DAILY files with an exact rule (relative error <= 1e-9, counts equal,
+ *     identical bucket sets) declared before any run. What the waiver gives up is the recorder-vs-archive
+ *     agreement, which matters only for the forward-only validation of a passing candidate; the validation
+ *     still runs when the file is published and its result is reported, not gated.
+ *     Also recorded: scripts/ops/check-agg-flow-klines.ts FAILS its declared rule (BTCUSDT 2023-01..2026-02:
+ *     coverage complete both ways, invariants clean, but volume within 1e-6 in 83.5% of buckets). Cause, shown
+ *     on BTCUSDT 2025-10-01: Binance's TRADES file bucketed by each fill's own time reproduces the klines
+ *     exactly (0 of 288 buckets off), while 189,272 of 1,368,367 aggregate trades hold a fill timed up to 100
+ *     ms after the aggregate's transact_time, so 230 fills that day sit in the next 5-minute bucket of the
+ *     klines. This phase's definition is the aggregate's transact_time, as the locked header and the recorder
+ *     use; the rule is not loosened.
+ *     N4 finding: the SOLUSDT monthly files for 2023-11 and 2023-12 are not time-ordered (outOfOrder
+ *     28,448,315 and 34,283,867); every day of both months was re-ingested from the daily files
+ *     (--daily-repair, 61 days, each 288 buckets, outOfOrder 0) and passes the naive check with relative
+ *     error 0. Their archiveflowfiles rows keep the monthly outOfOrder value; coverage is refreshed.
  */
