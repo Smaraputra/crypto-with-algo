@@ -101,6 +101,15 @@ describe('snipe-confirm', () => {
     ).toThrow(/differs/);
   });
 
+  it('refuses a symbol set other than the discovery report', () => {
+    expect(() =>
+      runSnipeConfirm(
+        { cacheDir: dir, discovery: discoveryPath, draws: DRAWS, symbols: FIXTURE_SYMBOLS.slice(1), out: 'x' },
+        quiet
+      )
+    ).toThrow(/symbols .* differ from the discovery report/);
+  });
+
   it('parses flags with the confirmation default draws', () => {
     const a = parseArgs(['--cache-dir', 'c', '--discovery', 'd.json', '--out', 'o.json']);
     expect(a.draws).toBe(1000);

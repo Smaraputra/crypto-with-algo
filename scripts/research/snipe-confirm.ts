@@ -108,6 +108,13 @@ export function runSnipeConfirm(
   if (discovery.verdict === 'NULL' || discovery.selected.length === 0) {
     throw new Error('snipe-confirm: the discovery verdict is NULL, nothing to confirm');
   }
+  // Confirmation measures the discovery universe: a different symbol set would change the grid, the
+  // baselines and the consistency legs of every selected cell.
+  if (args.symbols.join(',') !== discovery.symbols.join(',')) {
+    throw new Error(
+      `snipe-confirm: symbols ${args.symbols.join(',')} differ from the discovery report's ${discovery.symbols.join(',')}`
+    );
+  }
   const selected = args.cell
     ? discovery.selected.filter(
         (c) =>
