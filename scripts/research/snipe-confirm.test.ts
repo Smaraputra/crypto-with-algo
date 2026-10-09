@@ -17,6 +17,7 @@ const quiet = () => undefined;
 
 let dir: string;
 let discoveryPath: string;
+let nonBindingPath: string;
 let discovery: SnipeDiscoveryReport;
 let confirmation: SnipeConfirmationReport;
 
@@ -28,6 +29,11 @@ beforeAll(() => {
     { cacheDir: dir, timeframes: ['scalp', 'intraday'], draws: 20, symbols: FIXTURE_SYMBOLS, out: discoveryPath },
     quiet
   ) as SnipeDiscoveryReport;
+  // The synthetic discovery run is non-binding by construction (fixture symbols, 20 draws): forge the flag in a
+  // copy so the confirmation code path can run, and keep the original for the refusal test.
+  nonBindingPath = join(dir, 'discovery-nonbinding.json');
+  writeFileSync(nonBindingPath, readFileSync(discoveryPath));
+  writeFileSync(discoveryPath, JSON.stringify({ ...discovery, binding: true }));
   confirmation = runSnipeConfirm(
     { cacheDir: dir, discovery: discoveryPath, draws: DRAWS, symbols: FIXTURE_SYMBOLS, out: join(dir, 'confirmation.json') },
     quiet
@@ -57,6 +63,7 @@ describe('snipe-confirm', () => {
         'schemaVersion',
         'datasetManifestHash',
         'gitCommit',
+        'binding',
         'computedAt',
         'slice',
         'draws',
@@ -85,9 +92,25 @@ describe('snipe-confirm', () => {
     expect(JSON.parse(lines[0])).toEqual(JSON.parse(JSON.stringify(entry.report)));
   });
 
+  it('refuses a non-binding discovery report (A1-6) and labels its own run non-binding', () => {
+    expect(discovery.binding).toBe(false);
+    expect(() =>
+      runSnipeConfirm({ cacheDir: dir, discovery: nonBindingPath, draws: DRAWS, symbols: FIXTURE_SYMBOLS, out: 'x' }, quiet)
+    ).toThrow(/not binding/);
+    const noFlag = { ...discovery } as Partial<SnipeDiscoveryReport>;
+    delete noFlag.binding;
+    const p = join(dir, 'no-flag.json');
+    writeFileSync(p, JSON.stringify(noFlag));
+    expect(() => runSnipeConfirm({ cacheDir: dir, discovery: p, draws: DRAWS, symbols: FIXTURE_SYMBOLS, out: 'x' }, quiet)).toThrow(
+      /not binding/
+    );
+    // the forged-binding run is still non-binding itself: 100 draws, fixture symbols
+    expect(confirmation.binding).toBe(false);
+  });
+
   it('refuses a NULL discovery report', () => {
     const nullPath = join(dir, 'null.json');
-    writeFileSync(nullPath, JSON.stringify({ ...discovery, selected: [], verdict: 'NULL' }));
+    writeFileSync(nullPath, JSON.stringify({ ...discovery, binding: true, selected: [], verdict: 'NULL' }));
     expect(() =>
       runSnipeConfirm({ cacheDir: dir, discovery: nullPath, draws: DRAWS, symbols: FIXTURE_SYMBOLS, out: 'x' }, quiet)
     ).toThrow(/NULL/);
@@ -95,7 +118,7 @@ describe('snipe-confirm', () => {
 
   it('refuses a discovery report with a different dataset hash', () => {
     const p = join(dir, 'other-hash.json');
-    writeFileSync(p, JSON.stringify({ ...discovery, datasetManifestHash: 'something-else' }));
+    writeFileSync(p, JSON.stringify({ ...discovery, binding: true, datasetManifestHash: 'something-else' }));
     expect(() =>
       runSnipeConfirm({ cacheDir: dir, discovery: p, draws: DRAWS, symbols: FIXTURE_SYMBOLS, out: 'x' }, quiet)
     ).toThrow(/differs/);

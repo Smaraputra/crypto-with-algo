@@ -12,6 +12,7 @@ import { buildSymbolArrays } from './snipe-matrix';
 import { writeSnipeCache } from './snipe-cache';
 import { OUTCOME_AMBIGUOUS, OUTCOME_DOWN, OUTCOME_NONE, OUTCOME_TIMEOUT, OUTCOME_UP } from './snipe-labels';
 import { SNIPE_TIMEFRAMES, type SnipeTimeframe } from './snipe';
+import { gitCommitFromEnv, isCommitSet, TIMEFRAME_ORDER } from './snipe-cli';
 
 export interface SnipeBuildArgs {
   datasetDir: string;
@@ -48,12 +49,20 @@ export async function runSnipeBuild(args: SnipeBuildArgs, log: (line: string) =>
   const verify = await verifyManifest(args.datasetDir);
   if (!verify.ok) throw new Error(`dataset manifest verification failed: ${verify.mismatches.join(', ')}`);
   const manifestHash = loadManifest(args.datasetDir).datasetHash;
+  // AMENDMENT 1 (A1-6): the commit is recorded in every cache index, and a build is binding-eligible only with the
+  // commit set, both timeframes and the ten symbols (the scan and confirmation compare the commits).
+  const gitCommit = gitCommitFromEnv();
+  const binding =
+    isCommitSet(gitCommit) &&
+    args.timeframes.length === TIMEFRAME_ORDER.length &&
+    TIMEFRAME_ORDER.every((tf) => args.timeframes.includes(tf)) &&
+    args.symbols.join(',') === SIGNAL_SYMBOLS.join(',');
 
   for (const symbol of args.symbols) {
     for (const timeframe of args.timeframes) {
       const started = Date.now();
       const data = buildSymbolArrays(args.datasetDir, symbol, timeframe);
-      writeSnipeCache(args.out, data, { datasetManifestHash: manifestHash });
+      writeSnipeCache(args.out, data, { datasetManifestHash: manifestHash, gitCommit });
       const counts = { none: 0, up: 0, down: 0, timeout: 0, ambiguous: 0 };
       for (const o of data.outcome) {
         if (o === OUTCOME_NONE) counts.none++;
@@ -66,6 +75,8 @@ export async function runSnipeBuild(args: SnipeBuildArgs, log: (line: string) =>
         JSON.stringify({
           symbol,
           timeframe,
+          gitCommit,
+          binding,
           bars: data.timestamps.length,
           warmupBars: data.warmupBars,
           outcomeCounts: counts,

@@ -7,6 +7,7 @@ import {
   SNIPE_COLUMNS,
   SNIPE_CONFIRMATION,
   SNIPE_DISCOVERY,
+  SNIPE_DISCOVERY_CELLS,
   SNIPE_LOCKBOX_START,
   SNIPE_NULL,
   SNIPE_TAIL_LEVELS,
@@ -113,6 +114,8 @@ export function assertNoLockbox(arrays: SnipeSymbolArrays): void {
 export interface LoadedTimeframe {
   arrays: SnipeSymbolArrays[];
   datasetManifestHash: string;
+  /** The gitCommit recorded in each symbol's cache index, in symbol order. */
+  gitCommits: string[];
 }
 
 /** Reads every symbol's cache (sha256 verified by the reader), one manifest hash across all, lockbox asserted. */
@@ -124,6 +127,7 @@ export function loadTimeframe(
 ): LoadedTimeframe {
   let hash = expectedHash;
   const arrays: SnipeSymbolArrays[] = [];
+  const gitCommits: string[] = [];
   for (const symbol of symbols) {
     const { index, data } = readSnipeCache(cacheDir, symbol, timeframe);
     if (hash === undefined) hash = index.datasetManifestHash;
@@ -134,6 +138,75 @@ export function loadTimeframe(
     }
     assertNoLockbox(data);
     arrays.push(data);
+    gitCommits.push(index.gitCommit);
   }
-  return { arrays, datasetManifestHash: hash ?? '' };
+  return { arrays, datasetManifestHash: hash ?? '', gitCommits };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Binding runs (AMENDMENT 1, A1-6)
+// ---------------------------------------------------------------------------------------------------------
+
+/** The commit a run records: GIT_COMMIT from the environment, 'unknown' when it is not set. */
+export function gitCommitFromEnv(): string {
+  return process.env.GIT_COMMIT ?? 'unknown';
+}
+
+export function isCommitSet(commit: string): boolean {
+  return commit !== '' && commit !== 'unknown';
+}
+
+/** The commit is set and every cache index recorded exactly that commit (and there is at least one cache). */
+export function commitsAgree(commit: string, cacheCommits: readonly string[]): boolean {
+  return isCommitSet(commit) && cacheCommits.length > 0 && cacheCommits.every((c) => c === commit);
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+export interface BindingRun {
+  timeframes: readonly SnipeTimeframe[];
+  symbols: readonly string[];
+  gitCommit: string;
+  cacheCommits: readonly string[];
+}
+
+/** Both timeframes, the ten symbols in SIGNAL_SYMBOLS order, and one recorded commit across caches and run. */
+function bindingBase(run: BindingRun): boolean {
+  return (
+    sameList(run.timeframes, TIMEFRAME_ORDER) &&
+    sameList(run.symbols, SIGNAL_SYMBOLS) &&
+    commitsAgree(run.gitCommit, run.cacheCommits)
+  );
+}
+
+/** A discovery report is binding only with the locked draw count and all 304 cells on top of bindingBase. */
+export function discoveryBinding(run: BindingRun & { draws: number; cells: number }): boolean {
+  return bindingBase(run) && run.draws === SNIPE_NULL.discoveryDraws && run.cells === SNIPE_DISCOVERY_CELLS;
+}
+
+/** The sanity-only report has no draws and no cells, so bindingBase decides. */
+export function sanityBinding(run: BindingRun): boolean {
+  return bindingBase(run);
+}
+
+/**
+ * A confirmation report is binding only with a binding discovery report, the locked draw count, the discovery's
+ * symbols, and the discovery report's commit equal to this run's and to every cache's.
+ */
+export function confirmationBinding(run: {
+  discovery: { binding?: boolean; gitCommit: string; symbols: readonly string[] };
+  symbols: readonly string[];
+  draws: number;
+  gitCommit: string;
+  cacheCommits: readonly string[];
+}): boolean {
+  return (
+    run.discovery.binding === true &&
+    run.draws === SNIPE_NULL.confirmationDraws &&
+    sameList(run.symbols, run.discovery.symbols) &&
+    run.discovery.gitCommit === run.gitCommit &&
+    commitsAgree(run.gitCommit, run.cacheCommits)
+  );
 }

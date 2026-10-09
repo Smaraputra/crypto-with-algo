@@ -73,7 +73,9 @@ describe('snipe-build', () => {
     await runSnipeBuild({ datasetDir: dir, out: o2, symbols: ['BTCUSDT'], timeframes: ['intraday'] }, (l) => lines.push(l));
     expect(lines).toHaveLength(1);
     const row = JSON.parse(lines[0]);
-    expect(row).toMatchObject({ symbol: 'BTCUSDT', timeframe: 'intraday' });
+    expect(row).toMatchObject({ symbol: 'BTCUSDT', timeframe: 'intraday', binding: false });
+    expect(row.gitCommit).toBe(process.env.GIT_COMMIT ?? 'unknown');
+    expect(readSnipeCache(o2, 'BTCUSDT', 'intraday').index.gitCommit).toBe(row.gitCommit);
     expect(Object.keys(row.outcomeCounts)).toEqual(['none', 'up', 'down', 'timeout', 'ambiguous']);
     const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
     expect(readSnipeCache(o2, 'BTCUSDT', 'intraday').index.datasetManifestHash).toBe(manifest.datasetHash);

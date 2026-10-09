@@ -18,6 +18,9 @@ import {
   type SnipeTimeframe,
 } from './snipe';
 import {
+  confirmationBinding,
+  confirmationSlice,
+  gitCommitFromEnv,
   loadTimeframe,
   maxHoldMsOf,
   offsetsFor,
@@ -25,7 +28,6 @@ import {
   parseDraws,
   parseFlags,
   parseSymbols,
-  confirmationSlice,
   TIMEFRAME_ORDER,
 } from './snipe-cli';
 import type { SanityBlock, SnipeDiscoveryReport } from './snipe-scan';
@@ -64,6 +66,8 @@ export interface SnipeConfirmationReport {
   schemaVersion: 1;
   datasetManifestHash: string;
   gitCommit: string;
+  /** True only for the run the pre-registration counts (AMENDMENT 1, A1-6, see confirmationBinding). */
+  binding: boolean;
   computedAt: string;
   slice: { start: string; end: string };
   draws: number;
@@ -106,6 +110,9 @@ export function runSnipeConfirm(
   const raw = readFileSync(args.discovery);
   const discovery = JSON.parse(raw.toString('utf8')) as SnipeDiscoveryReport;
   if (discovery.reportKind !== 'snipe-discovery') throw new Error('snipe-confirm: not a snipe-discovery report');
+  if (discovery.binding !== true) {
+    throw new Error('snipe-confirm: the discovery report is not binding (A1-6), only a binding discovery can be confirmed');
+  }
   if (discovery.verdict === 'NULL' || discovery.selected.length === 0) {
     throw new Error('snipe-confirm: the discovery verdict is NULL, nothing to confirm');
   }
@@ -134,10 +141,12 @@ export function runSnipeConfirm(
   const entries: ConfirmationEntry[] = [];
   const sanity: SanityBlock[] = [];
   let hash: string | undefined;
+  const cacheCommits: string[] = [];
 
   for (const tf of timeframes as SnipeTimeframe[]) {
     const loaded = loadTimeframe(args.cacheDir, args.symbols, tf, hash);
     hash = loaded.datasetManifestHash;
+    cacheCommits.push(...loaded.gitCommits);
     if (hash !== discovery.datasetManifestHash) {
       throw new Error(`snipe-confirm: dataset hash ${hash} differs from the discovery report ${discovery.datasetManifestHash}`);
     }
@@ -165,11 +174,14 @@ export function runSnipeConfirm(
     }
   }
 
+  const gitCommit = gitCommitFromEnv();
+  const binding = confirmationBinding({ discovery, symbols: args.symbols, draws: args.draws, gitCommit, cacheCommits });
   const report: SnipeConfirmationReport = {
     reportKind: 'snipe-confirmation',
     schemaVersion: 1,
     datasetManifestHash: hash ?? '',
-    gitCommit: process.env.GIT_COMMIT ?? 'unknown',
+    gitCommit,
+    binding,
     computedAt: new Date().toISOString(),
     slice: { start: SNIPE_CONFIRMATION.start, end: SNIPE_CONFIRMATION.end },
     draws: args.draws,
@@ -184,7 +196,7 @@ export function runSnipeConfirm(
     verdict: entries.some((e) => e.pass) ? 'EDGE_BEFORE_COSTS' : 'NULL',
   };
   if (args.out) writeFileSync(args.out, JSON.stringify(report, null, 2));
-  log(`snipe-confirmation ${report.verdict}: m ${m}, alpha per cell ${report.alphaPerCell}, draws ${args.draws}`);
+  log(`snipe-confirmation ${report.verdict} (${binding ? 'binding' : 'NON-BINDING'}): m ${m}, alpha per cell ${report.alphaPerCell}, draws ${args.draws}`);
   for (const e of entries) {
     log(
       `  ${e.cell.column}:${e.cell.tail}:${e.cell.level}:${e.cell.timeframe} dir ${e.direction} ` +

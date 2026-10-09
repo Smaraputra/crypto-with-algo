@@ -49,6 +49,7 @@ describe('snipe-scan', () => {
         'schemaVersion',
         'datasetManifestHash',
         'gitCommit',
+        'binding',
         'computedAt',
         'slice',
         'draws',
@@ -78,6 +79,13 @@ describe('snipe-scan', () => {
     expect(s.shares.up + s.shares.down + s.shares.timeout + s.shares.ambiguous).toBeCloseTo(1, 10);
     expect(s.pooledLongWinRate).toBeCloseTo(0.5, 1);
     expect(planted.cells[0]).toHaveProperty('bhRejected');
+  });
+
+  it('labels a subset run, a non-spec draw count and an unset commit as non-binding (A1-6)', () => {
+    // fixture symbols are not the ten SIGNAL_SYMBOLS, the draw count is 20 and no GIT_COMMIT is set
+    expect(planted.binding).toBe(false);
+    expect(nullReport.binding).toBe(false);
+    expect(planted.gitCommit).toBe(process.env.GIT_COMMIT ?? 'unknown');
   });
 
   it('selects a planted edge as a long edge', () => {

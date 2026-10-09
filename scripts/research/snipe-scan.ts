@@ -23,6 +23,9 @@ import {
   type SnipeTimeframe,
 } from './snipe';
 import {
+  discoveryBinding,
+  discoverySlice,
+  gitCommitFromEnv,
   loadTimeframe,
   maxHoldMsOf,
   minShiftBarsOf,
@@ -32,7 +35,6 @@ import {
   parseFlags,
   parseSymbols,
   parseTimeframes,
-  discoverySlice,
   TIMEFRAME_ORDER,
 } from './snipe-cli';
 import { OUTCOME_AMBIGUOUS, OUTCOME_DOWN, OUTCOME_TIMEOUT, OUTCOME_UP } from './snipe-labels';
@@ -77,6 +79,8 @@ export interface SnipeDiscoveryReport {
   schemaVersion: 1;
   datasetManifestHash: string;
   gitCommit: string;
+  /** True only for the run the pre-registration counts (AMENDMENT 1, A1-6, see discoveryBinding). */
+  binding: boolean;
   computedAt: string;
   slice: { start: string; end: string };
   draws: number;
@@ -165,12 +169,14 @@ export function sanityOf(ctx: SliceContext, symbols: string[]): SanityBlock {
 export function runSnipeScan(args: SnipeScanArgs, log: (line: string) => void = console.log): SnipeDiscoveryReport | CellReport {
   const slice = discoverySlice();
   let hash: string | undefined;
+  const cacheCommits: string[] = [];
   const cells: CellReport[] = [];
   const sanity: SanityBlock[] = [];
 
   for (const tf of TIMEFRAME_ORDER.filter((t) => args.timeframes.includes(t))) {
     const loaded = loadTimeframe(args.cacheDir, args.symbols, tf, hash);
     hash = loaded.datasetManifestHash;
+    cacheCommits.push(...loaded.gitCommits);
     const ctx = buildSliceContext(loaded.arrays, slice, tf, maxHoldMsOf(tf));
     const offsets = offsetsFor(tf, ctx.grid.G, args.draws);
     if (args.cell) {
@@ -185,13 +191,23 @@ export function runSnipeScan(args: SnipeScanArgs, log: (line: string) => void = 
   if (args.timeframes.length === TIMEFRAME_ORDER.length && cells.length !== SNIPE_DISCOVERY_CELLS) {
     throw new Error(`snipe-scan: expected ${SNIPE_DISCOVERY_CELLS} cells, got ${cells.length}`);
   }
+  const gitCommit = gitCommitFromEnv();
+  const binding = discoveryBinding({
+    timeframes: args.timeframes,
+    symbols: args.symbols,
+    draws: args.draws,
+    cells: cells.length,
+    gitCommit,
+    cacheCommits,
+  });
   const rejected = benjaminiHochberg(cells.map(bhP), SNIPE_FDR_Q);
   const selected = selectForConfirmation(cells, SNIPE_FDR_Q);
   const report: SnipeDiscoveryReport = {
     reportKind: 'snipe-discovery',
     schemaVersion: 1,
     datasetManifestHash: hash ?? '',
-    gitCommit: process.env.GIT_COMMIT ?? 'unknown',
+    gitCommit,
+    binding,
     computedAt: new Date().toISOString(),
     slice: { start: SNIPE_DISCOVERY.start, end: SNIPE_DISCOVERY.end },
     draws: args.draws,
@@ -208,7 +224,7 @@ export function runSnipeScan(args: SnipeScanArgs, log: (line: string) => void = 
   };
   if (args.out) writeFileSync(args.out, JSON.stringify(report, null, 2));
   log(
-    `snipe-discovery ${report.verdict}: ${cells.length} cells, ${rejected.filter(Boolean).length} BH-rejected, ` +
+    `snipe-discovery ${report.verdict} (${binding ? 'binding' : 'NON-BINDING'}): ${cells.length} cells, ${rejected.filter(Boolean).length} BH-rejected, ` +
       `${selected.length} selected (draws ${args.draws})`
   );
   for (const c of selected) {
