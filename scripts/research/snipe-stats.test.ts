@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { seededRandom } from './carry-sim';
-import { SNIPE_CONSISTENCY } from './snipe';
+import { SNIPE_CONSISTENCY, SNIPE_NULL_SD_INFLATION } from './snipe';
 import { OUTCOME_AMBIGUOUS, OUTCOME_DOWN, OUTCOME_NONE, OUTCOME_TIMEOUT, OUTCOME_UP } from './snipe-labels';
 import type { SnipeSymbolArrays } from './snipe-matrix';
 import {
@@ -10,12 +10,14 @@ import {
   buildSliceContext,
   cellBit,
   confirmCell,
+  confirmDecision,
   consistency,
   empiricalP,
   evaluateCell,
   excessOf,
   nullDraws,
   nullOffsets,
+  pOneSided,
   prepareGridCell,
   selectForConfirmation,
   shiftedExcess,
@@ -283,11 +285,28 @@ describe('null', () => {
     expect(s.sd).toBe(1);
     expect(s.validDraws).toBe(3);
     expect(s.nonFiniteDraws).toBe(1);
-    expect(s.z).toBe(3);
-    expect(s.pTwoSided).toBeCloseTo(0.0026998, 6);
-    expect(empiricalP([1, 2, 3, Number.NaN], 3, 1)).toBeCloseTo(2 / 4, 12);
+    // (5 - 2) / (1.25 x 1): the null sd is inflated (A1-3)
+    expect(s.z).toBeCloseTo(3 / SNIPE_NULL_SD_INFLATION, 12);
+    expect(s.pTwoSided).toBeCloseTo(0.0164, 3);
+    // denominator is draws.length + 1 and a non-finite draw is never at least the observed (A1-8)
+    expect(empiricalP([1, 2, 3, Number.NaN], 3, 1)).toBeCloseTo(2 / 5, 12);
+    expect(empiricalP([1, 2, Number.NaN, Number.NaN], 1, -1)).toBeCloseTo(2 / 5, 12);
     expect(empiricalP([1, 2, 3], 1, -1)).toBeCloseTo(2 / 4, 12);
     expect(Number.isNaN(empiricalP([1], 1, 0))).toBe(true);
+  });
+
+  it('gives z NaN and p 1 for a null without spread, and a one-sided p in the direction (A1-3, A1-4)', () => {
+    for (const draws of [[2, 2, 2], [1], [], [Number.NaN, 1]]) {
+      const s = summarizeNull(draws, 5);
+      expect(Number.isNaN(s.z)).toBe(true);
+      expect(s.pTwoSided).toBe(1);
+    }
+    expect(pOneSided(Number.NaN, 1)).toBe(1);
+    expect(pOneSided(2, 0)).toBe(1);
+    expect(pOneSided(1.6448536, 1)).toBeCloseTo(0.05, 5);
+    expect(pOneSided(-1.6448536, -1)).toBeCloseTo(0.05, 5);
+    expect(pOneSided(1.6448536, -1)).toBeCloseTo(0.95, 5);
+    expect(pOneSided(0, 1)).toBeCloseTo(0.5, 12);
   });
 
   it('nullDraws is deterministic and pools symbols', () => {
@@ -445,6 +464,7 @@ describe('benjamini-hochberg and selection', () => {
       pTwoSided: p,
       obsAll,
       consistency: { pass: true },
+      directionAgrees: true,
       ...over,
     }) as unknown as CellReport;
 
@@ -457,6 +477,8 @@ describe('benjamini-hochberg and selection', () => {
       stub('a', 'bottom', 'scalp', 1e-6, -0.04),
       stub('b', 'top', 'intraday', 1e-5, 0.03, { consistency: { pass: false } as CellReport['consistency'] }),
       stub('c', 'top', 'intraday', 1e-7, 0.03, { skipped: true }),
+      // the whole-slice excess and the grid excess minus the null mean disagree in sign (A1-4)
+      stub('e', 'top', 'intraday', 1e-9, 0.03, { directionAgrees: false }),
       stub('d', 'top', 'intraday', 1e-5, 0.01),
       ...filler,
     ];
@@ -491,6 +513,23 @@ describe('confirmCell', () => {
     expect(ok.empiricalP).toBeCloseTo(1 / 301, 12);
     expect(ok.threshold).toBeCloseTo(0.05, 12);
     expect(confirmCell(ctx, MANY_TOP, -1, 1, offsets).pass).toBe(false);
+    expect(ok.zP1).toBeLessThan(ok.threshold);
+    expect(ok.report.directionAgrees).toBe(true);
+  });
+
+  it('also needs the one-sided normal p of the inflated z below alpha / m (A1-3)', () => {
+    const t = 0.01;
+    const rep = (over: Partial<CellReport>) =>
+      ({ empiricalP: 0.003, zP1: 0.002, consistency: { pass: true }, ...over }) as unknown as CellReport;
+    expect(confirmDecision(rep({}), t)).toBe(true);
+    expect(confirmDecision(rep({ zP1: 0.02 }), t)).toBe(false);
+    expect(confirmDecision(rep({ zP1: 1 }), t)).toBe(false);
+    expect(confirmDecision(rep({ empiricalP: 0.02 }), t)).toBe(false);
+    expect(confirmDecision(rep({ consistency: { pass: false } as CellReport['consistency'] }), t)).toBe(false);
+    expect(confirmDecision(rep({ empiricalP: Number.NaN }), t)).toBe(false);
+    // a strict inequality on both p values
+    expect(confirmDecision(rep({ empiricalP: t }), t)).toBe(false);
+    expect(confirmDecision(rep({ zP1: t }), t)).toBe(false);
   });
 
   it('applies the Bonferroni threshold alpha / m', () => {
@@ -524,6 +563,33 @@ describe('evaluateCell report', () => {
     expect(rep.resolved).toBeLessThanOrEqual(rep.taken);
     expect(rep.ci[0]).toBeLessThan(rep.ci[1]);
     expect(rep.lostBars).toEqual([0]);
+  });
+
+  it('reports direction agreement and the one-sided p of z in the direction (A1-4)', () => {
+    const planted = evaluateCell(
+      buildSliceContext(
+        Array.from({ length: 4 }, (_, k) =>
+          makeArrays({ n: 600, seed: 70 + k, symbol: `S${k}`, flag: (_i, o, u) => (o === OUTCOME_UP && u < 0.2 ? TAIL_TOP_10 | TAIL_ELIGIBLE : TAIL_ELIGIBLE) })
+        ),
+        ALL,
+        'intraday',
+        DAY
+      ),
+      MANY_TOP,
+      nullOffsets(2000, 30, 100, 7)
+    );
+    expect(planted.directionAgrees).toBe(true);
+    expect(planted.zP1).toBeCloseTo(pOneSided(planted.z, 1), 15);
+    // random flags over a handful of seeds: the flag is exactly the sign comparison, false when a side is zero or NaN
+    for (let seed = 1; seed <= 6; seed++) {
+      const a = makeArrays({ n: 500, seed: 90 + seed, flag: (_i, _o, u) => (u < 0.1 ? TAIL_TOP_10 | TAIL_ELIGIBLE : TAIL_ELIGIBLE) });
+      const rep = evaluateCell(buildSliceContext([a], ALL, 'intraday', DAY), MANY_TOP, nullOffsets(400, 30, 60, 7));
+      const d = rep.obsGrid - rep.nullMean;
+      expect(rep.directionAgrees).toBe(rep.obsAll !== 0 && d !== 0 && Math.sign(rep.obsAll) === Math.sign(d));
+    }
+    const none = evaluateCell(buildSliceContext([makeArrays({ n: 300, seed: 2 })], ALL, 'intraday', DAY), { ...MANY_TOP, level: 'snipe' }, [60]);
+    expect(none.directionAgrees).toBe(false);
+    expect(none.zP1).toBe(1);
   });
 
   it('returns a harmless report when no trade is taken', () => {

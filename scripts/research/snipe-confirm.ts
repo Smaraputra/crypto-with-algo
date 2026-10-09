@@ -53,6 +53,7 @@ export interface ConfirmationEntry {
   direction: 1 | -1;
   pass: boolean;
   empiricalP: number;
+  zP1: number;
   threshold: number;
   consistency: ConfirmResult['consistency'];
   report: CellReport;
@@ -156,6 +157,7 @@ export function runSnipeConfirm(
         direction,
         pass: res.pass,
         empiricalP: res.empiricalP,
+        zP1: res.zP1,
         threshold: res.threshold,
         consistency: res.consistency,
         report: res.report,
@@ -186,7 +188,7 @@ export function runSnipeConfirm(
   for (const e of entries) {
     log(
       `  ${e.cell.column}:${e.cell.tail}:${e.cell.level}:${e.cell.timeframe} dir ${e.direction} ` +
-        `${e.pass ? 'PASS' : 'FAIL'} p ${e.empiricalP.toFixed(4)} < ${e.threshold.toFixed(4)} ` +
+        `${e.pass ? 'PASS' : 'FAIL'} p ${e.empiricalP.toFixed(4)} zP1 ${e.zP1.toExponential(2)} < ${e.threshold.toFixed(4)} ` +
         `excess ${e.report.obsAll.toFixed(4)} win ${e.report.winRate.toFixed(4)} base ${e.report.baseline.toFixed(4)}`
     );
   }

@@ -34,6 +34,7 @@ import {
   SNIPE_FDR_Q,
   SNIPE_FEES,
   SNIPE_MAX_CONFIRM,
+  SNIPE_NULL_SD_INFLATION,
   SNIPE_TIE_SKIP_FACTOR,
   SNIPE_TAIL_LEVELS,
   type SnipeLevel,
@@ -378,22 +379,33 @@ export function summarizeNull(draws: ArrayLike<number>, obsGrid: number): NullSu
   let ss = 0;
   for (let d = 0; d < draws.length; d++) if (Number.isFinite(draws[d])) ss += (draws[d] - mean) ** 2;
   const sd = n < 2 ? Number.NaN : Math.sqrt(ss / (n - 1));
-  const z = (obsGrid - mean) / sd;
+  // AMENDMENT 1 (A1-3, A1-4): the null sd is inflated before any z is formed, and a null without spread gives p = 1.
+  if (!Number.isFinite(sd) || sd <= 0) {
+    return { mean, sd, validDraws: n, nonFiniteDraws: draws.length - n, z: Number.NaN, pTwoSided: 1 };
+  }
+  const z = (obsGrid - mean) / (SNIPE_NULL_SD_INFLATION * sd);
   const pTwoSided = Number.isNaN(z) ? Number.NaN : 2 * normalCdf(-Math.abs(z));
   return { mean, sd, validDraws: n, nonFiniteDraws: draws.length - n, z, pTwoSided };
 }
 
-/** (1 + #{valid draws with d x excess >= d x obsGrid}) / (validDraws + 1). NaN when d is 0 or obsGrid is NaN. */
+/** One-sided normal p of z in direction d: 1 - Phi(d x z). 1 when z is NaN or d is 0. */
+export function pOneSided(z: number, d: 1 | -1 | 0): number {
+  if (d === 0 || Number.isNaN(z)) return 1;
+  return normalCdf(-d * z);
+}
+
+/**
+ * (1 + #{draws with d x excess >= d x obsGrid}) / (draws.length + 1) (AMENDMENT 1, A1-8). A non-finite draw counts as
+ * not at least the observed. NaN when d is 0 or obsGrid is not finite.
+ */
 export function empiricalP(draws: ArrayLike<number>, obsGrid: number, d: 1 | -1 | 0): number {
   if (d === 0 || !Number.isFinite(obsGrid)) return Number.NaN;
-  let valid = 0;
   let ge = 0;
   for (let i = 0; i < draws.length; i++) {
     if (!Number.isFinite(draws[i])) continue;
-    valid++;
     if (d * draws[i] >= d * obsGrid) ge++;
   }
-  return (1 + ge) / (valid + 1);
+  return (1 + ge) / (draws.length + 1);
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -563,8 +575,14 @@ export interface CellReport {
   ci: [number, number];
   nullMean: number;
   nullSd: number;
+  /** (obsGrid - nullMean) / (SNIPE_NULL_SD_INFLATION x nullSd); NaN without a usable null spread. */
   z: number;
+  /** Two-sided normal p of z (1 without a usable null spread). */
   pTwoSided: number;
+  /** One-sided normal p of z in the cell's direction (1 when z is NaN or the direction is 0). */
+  zP1: number;
+  /** sign(obsAll) equals sign(obsGrid - nullMean); false when either is 0 or NaN (AMENDMENT 1, A1-4). */
+  directionAgrees: boolean;
   /** Empirical p in the direction. */
   empiricalP: number;
   validDraws: number;
@@ -581,6 +599,12 @@ function median(values: number[]): number {
   if (values.length === 0) return Number.NaN;
   const s = Float64Array.from(values).sort();
   return percentile7(s, 0.5);
+}
+
+/** sign(a) === sign(b), false when either is 0 or NaN. */
+function signsAgree(a: number, b: number): boolean {
+  if (!(a !== 0 && b !== 0) || Number.isNaN(a) || Number.isNaN(b)) return false;
+  return Math.sign(a) === Math.sign(b);
 }
 
 const EMPTY_CONSISTENCY: ConsistencyResult = {
@@ -625,6 +649,8 @@ export function evaluateCell(
     nullSd: Number.NaN,
     z: Number.NaN,
     pTwoSided: Number.NaN,
+    zP1: 1,
+    directionAgrees: false,
     empiricalP: Number.NaN,
     validDraws: 0,
     nonFiniteDraws: 0,
@@ -683,6 +709,8 @@ export function evaluateCell(
     nullSd: nul.sd,
     z: nul.z,
     pTwoSided: nul.pTwoSided,
+    zP1: pOneSided(nul.z, direction),
+    directionAgrees: signsAgree(obsAll, obsGrid - nul.mean),
     empiricalP: empiricalP(draws, obsGrid, direction),
     validDraws: nul.validDraws,
     nonFiniteDraws: nul.nonFiniteDraws,
@@ -715,7 +743,7 @@ export function bhP(c: CellReport): number {
 }
 
 /**
- * BH-rejected cells passing consistency, at most one per (column, tail, timeframe) (smaller pTwoSided wins,
+ * BH-rejected cells passing consistency and direction agreement (A1-4), at most one per (column, tail, timeframe) (smaller pTwoSided wins,
  * ties: larger |obsAll|), then the SNIPE_MAX_CONFIRM smallest pTwoSided (ties: larger |obsAll|).
  */
 export function selectForConfirmation(cells: CellReport[], q: number = SNIPE_FDR_Q): CellReport[] {
@@ -724,7 +752,7 @@ export function selectForConfirmation(cells: CellReport[], q: number = SNIPE_FDR
     bhP(a) - bhP(b) || Math.abs(b.obsAll) - Math.abs(a.obsAll);
   const best = new Map<string, CellReport>();
   cells.forEach((c, i) => {
-    if (!rejected[i] || !c.consistency.pass) return;
+    if (!rejected[i] || !c.consistency.pass || !c.directionAgrees) return;
     const key = `${c.cell.column}|${c.cell.tail}|${c.cell.timeframe}`;
     const cur = best.get(key);
     if (!cur || better(c, cur) < 0) best.set(key, c);
@@ -735,12 +763,22 @@ export function selectForConfirmation(cells: CellReport[], q: number = SNIPE_FDR
 export interface ConfirmResult {
   pass: boolean;
   empiricalP: number;
+  /** One-sided normal p of the inflated null z, in the fixed direction (AMENDMENT 1, A1-3). */
+  zP1: number;
   threshold: number;
   consistency: ConsistencyResult;
   report: CellReport;
 }
 
-/** Pass iff the empirical p in the fixed direction is below alpha / m and consistency with s = d passes. */
+/**
+ * Pass iff the empirical p in the fixed direction is below alpha / m AND the one-sided normal p of the inflated
+ * null z is below alpha / m (AMENDMENT 1, A1-3) AND consistency with s = d passes.
+ */
+export function confirmDecision(report: CellReport, threshold: number): boolean {
+  return report.empiricalP < threshold && report.zP1 < threshold && report.consistency.pass;
+}
+
+/** Evaluates the cell in the fixed direction and applies confirmDecision at alpha / m. */
 export function confirmCell(
   ctx: SliceContext,
   cell: SnipeCell,
@@ -751,8 +789,9 @@ export function confirmCell(
   const report = evaluateCell(ctx, cell, offsets, direction);
   const threshold = SNIPE_CONFIRM_ALPHA / m;
   return {
-    pass: report.empiricalP < threshold && report.consistency.pass,
+    pass: confirmDecision(report, threshold),
     empiricalP: report.empiricalP,
+    zP1: report.zP1,
     threshold,
     consistency: report.consistency,
     report,
