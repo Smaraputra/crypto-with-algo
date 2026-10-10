@@ -212,7 +212,7 @@ function Body({ data, inView, barsLoading, barsError }: { data: Available } & Pi
       {barsError && <p className="mt-1 text-foreground">Past calls could not be loaded for part of the chart. Scroll or reload to retry.</p>}
 
       <details className="mt-3">
-        <summary className="inline-flex min-h-8 cursor-pointer items-center rounded-sm text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        <summary className="inline-flex min-h-11 cursor-pointer items-center sm:min-h-8 rounded-sm text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
           How this was measured
         </summary>
         <ul className="mt-2 list-disc space-y-1.5 pl-4">
@@ -285,7 +285,7 @@ export function TrackRecordPanel({ symbol, interval, style, eligible, barsLoadin
       <Shell title={title}>
         <div className="mt-1 flex flex-wrap items-center gap-2" role="alert">
           <p className="text-foreground">Could not load the track record. {query.error.message}</p>
-          <Button variant="outline" size="sm" className="min-h-9" onClick={() => void query.refetch()}>
+          <Button variant="outline" size="sm" className="min-h-11 sm:min-h-9" onClick={() => void query.refetch()}>
             Retry loading
           </Button>
         </div>

@@ -57,7 +57,7 @@ export function MonthBars({ months }: MonthBarsProps) {
         ))}
       </div>
       <details className="mt-2">
-        <summary className="inline-flex min-h-8 cursor-pointer items-center rounded-sm text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+        <summary className="inline-flex min-h-11 cursor-pointer items-center sm:min-h-8 rounded-sm text-xs text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
           Show the months as a table
         </summary>
         <div className="mt-2 max-w-2xl overflow-x-auto">
