@@ -73,7 +73,8 @@ export function DashboardChart() {
 
   return (
     <div>
-      <div className="h-[500px]">
+      {/* Three panes share the height (price, volume, signal score); the price pane keeps the call marks readable. */}
+      <div className="h-[560px] sm:h-[640px]">
         <TradingChart
           symbol={selectedSymbol}
           interval={selectedInterval}

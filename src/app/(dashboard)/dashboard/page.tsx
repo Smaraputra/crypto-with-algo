@@ -25,7 +25,7 @@ export default async function DashboardPage() {
       </ErrorBoundary>
       <ErrorBoundary
         fallback={
-          <div className="flex h-[500px] items-center justify-center rounded-lg border border-border">
+          <div className="flex h-[560px] items-center sm:h-[640px] justify-center rounded-lg border border-border">
             <p className="text-sm text-muted-foreground">Chart unavailable</p>
           </div>
         }
