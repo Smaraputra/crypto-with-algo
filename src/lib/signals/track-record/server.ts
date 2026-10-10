@@ -59,23 +59,27 @@ const liveMatch = (q: LiveQuery) => ({
   ...sourceMatch('composite'),
 });
 
+/** Buy and sell tiers: the scheduler also writes outcomes for neutral bars, which are not calls. */
+const CALL_TIERS = ['strong_buy', 'buy', 'sell', 'strong_sell'];
+
 /** The scheduler's own resolved calls for the symbol and cell since the live start. */
 export async function liveTrack(q: LiveQuery, since: number | null, costPercent: number): Promise<LiveTrack> {
   if (since === null) {
     return { since: null, resolved: 0, pending: 0, measures: pointMeasures([], costPercent) };
   }
+  const calls = { ...liveMatch(q), tier: { $in: CALL_TIERS }, candleTimestamp: { $gte: since } };
   const [rows, pending] = await Promise.all([
-    SignalOutcome.find(
-      { ...liveMatch(q), status: 'resolved', candleTimestamp: { $gte: since } },
-      { _id: 0, tier: 1, forwardReturnPercent: 1 }
-    ).lean<Array<{ tier: string; forwardReturnPercent: number | null }>>(),
-    SignalOutcome.countDocuments({ ...liveMatch(q), status: 'pending', candleTimestamp: { $gte: since } }),
+    SignalOutcome.find({ ...calls, status: 'resolved' }, { _id: 0, tier: 1, forwardReturnPercent: 1 }).lean<
+      Array<{ tier: string; forwardReturnPercent: number | null }>
+    >(),
+    SignalOutcome.countDocuments({ ...calls, status: 'pending' }),
   ]);
   const resolved = rows.filter(
     (r): r is { tier: string; forwardReturnPercent: number } =>
       typeof r.forwardReturnPercent === 'number' && Number.isFinite(r.forwardReturnPercent)
   );
-  return { since, resolved: resolved.length, pending, measures: pointMeasures(resolved, costPercent) };
+  const measures = pointMeasures(resolved, costPercent);
+  return { since, resolved: measures.calls, pending, measures };
 }
 
 interface BarsQuery extends LiveQuery {

@@ -289,10 +289,14 @@ describe('track-record routes with a loaded run', () => {
     expect(res.boundary).toBe(LIVE_SINCE);
     expect(res.liveConfigVersion).toBe(8);
 
+    // Neutral bars get outcomes too, but they are not calls: the counts leave them out.
+    const isCall = (r: (typeof liveRows)[number]) => r.tier !== 'neutral';
     const resolved = liveRows.filter((r) => r.status === 'resolved');
+    expect(resolved.some((r) => !isCall(r))).toBe(true);
     expect(res.live.since).toBe(LIVE_SINCE);
-    expect(res.live.resolved).toBe(resolved.length);
-    expect(res.live.pending).toBe(6);
+    expect(res.live.resolved).toBe(resolved.filter(isCall).length);
+    expect(res.live.pending).toBe(liveRows.filter((r) => r.status === 'pending' && isCall(r)).length);
+    expect(res.live.pending).toBeLessThan(6);
     expect(res.live.measures).toEqual(
       pointMeasures(resolved as Array<{ tier: string; forwardReturnPercent: number }>, 0.16)
     );
