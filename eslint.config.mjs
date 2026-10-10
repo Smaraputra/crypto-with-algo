@@ -145,6 +145,9 @@ const eslintConfig = defineConfig([
               message:
                 "Server-only or write-path module: keep it out of the client bundle (type imports are fine).",
             },
+            // Repeated: this block replaces the earlier rule options for these files,
+            // and a relative import (../../models/...) has no lib/ segment to match above.
+            RESCORE_MODEL_RULE,
           ],
         },
       ],
