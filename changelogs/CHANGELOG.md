@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: forward track record, the past year month by month (descriptive)
+- **Question** (the user's): show the three forward-test rules over the past year right away instead of waiting for the monthly cron. Only 2026-07 to 2026-10 of that year is new; earlier months were used by the snipe confirmation and the qh-flow hold-out, so every month is labelled and nothing is a pass/fail (`scripts/research/forward-track.ts`, dataset `b98b246934fa`, all on the VPS)
+- **Result**: the small-trade imbalance (1h) is negative in 11 of 13 months and all four forward months (pooled IC -0.019, t -5.62), still below the 1h taker breakeven. The RSI reversals are positive in 11 of 13 months each but most monthly intervals span zero, and their forward level moves with the baseline definition by about as much as the effect itself
+- **Corrected**: the first run matched the A baseline within each month, which inflates reversal cells (the snipe review's finding); it was superseded by a run against one span-wide baseline
+
 ### Research: forward test of the two near-misses on the opened lockbox, nothing confirmed
 - **Question** (the user's): do the program's two near-misses hold on data no test had touched? At the user's request the lockbox (2026-07-01 onward) was opened for these frozen rules only: the 5m RSI reversals from the snipe phase (oversold then long, overbought then short) and the 1h small-trade taker imbalance from the qh-flow phase (negative IC). Pre-registered (`scripts/research/forward-test.ts`, `3525df2`) before any lockbox row was read; window 2026-07-01 to 2026-10-09; Bonferroni over three cells
 - **Result** (RESULT block, dataset `10e02ba86e01`, all on the VPS): NO CELL IS CONFIRMED FORWARD. RSI overbought then short kept its edge (+1.46 points of win rate, every month and 9 of 10 symbols agreeing, shift-null p 0.006) and the small-trade imbalance kept its sign and grew (IC -0.0225, t -3.28, p 0.006, 7 of 10 symbols), but both miss the stricter inflated-z leg (0.023 and 0.031 against 0.0167). RSI oversold then long faded (+0.48 points, p 0.27). Nothing is tradable: the RSI short sits 10.7 points below its maker break-even win rate, and the imbalance's IC is below the 1h taker breakeven. Program trial ledger: 2,081
