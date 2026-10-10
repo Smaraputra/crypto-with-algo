@@ -43,8 +43,11 @@ test.describe('Signals page (authenticated)', () => {
       'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK',
     ];
 
+    // Scoped to the page: the sidebar watchlist row is also a button, and its name is exactly the symbol while
+    // its price is still loading, which made this match two elements depending on Binance's response time.
+    const main = page.locator('#main-content');
     for (const sym of expectedSymbols) {
-      await expect(page.getByRole('button', { name: sym, exact: true })).toBeVisible();
+      await expect(main.getByRole('button', { name: sym, exact: true })).toBeVisible();
     }
   });
 
