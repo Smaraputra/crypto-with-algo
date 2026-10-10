@@ -18,6 +18,10 @@ export const TRACK_RECORD_CELLS: ReadonlyArray<{ style: TradingStyle; interval: 
   { style: 'position_trading', interval: '1d', horizonBars: 20 },
 ];
 
+/** Most bars of range one bars request may span; the client asks in chunks of TRACK_BARS_CHUNK. */
+export const TRACK_BARS_MAX_SPAN = 1_500;
+export const TRACK_BARS_CHUNK = 1_000;
+
 export function trackRecordCell(style: TradingStyle | null, interval: string) {
   return TRACK_RECORD_CELLS.find((c) => c.style === style && c.interval === interval) ?? null;
 }
@@ -195,6 +199,8 @@ export type TrackRecordResponse =
 
 export interface TrackBarsResponse {
   available: boolean;
+  /** The run's scorer version; the live bars returned are at this version too. Null when unavailable. */
+  configVersion: number | null;
   boundary: number | null;
   horizonBars: number;
   costPercent: number;

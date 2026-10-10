@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { TRADING_STYLES } from '@/lib/indicators/style-configs';
 import type { TradingStyle } from '@/lib/models/signal-template';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
 /**
  * Shape of a stored re-score run. The loader parses what it is about to write
@@ -92,4 +93,13 @@ export const trackRunSchema = z.object({
   seed: z.number().int(),
   loadedAt: z.string().min(1),
   cells: z.array(cellTrackSchema),
+});
+
+/** Query of both track-record routes: a signal symbol, a style and an interval (the cell is checked after). */
+export const trackQuerySchema = z.object({
+  symbol: z.enum(SIGNAL_SYMBOLS, { error: 'symbol must be a signal symbol.' }),
+  style: z.enum(TRADING_STYLES as [TradingStyle, ...TradingStyle[]], {
+    error: 'style must be one of the four trading styles.',
+  }),
+  interval: z.string({ error: 'interval is required.' }).min(1),
 });
