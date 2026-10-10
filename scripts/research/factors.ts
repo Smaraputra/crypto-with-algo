@@ -102,6 +102,12 @@ export interface FactorMatrixInput {
    * the four qh-flow columns are NaN for the whole series.
    */
   flow?: FlowRow[] | null;
+  /**
+   * Trading style whose indicator profile and DEFAULT_TEMPLATE_WEIGHTS score
+   * the bars. Omitted, it is styleForInterval(interval), exactly as before;
+   * the v8 re-score passes it to score swing_trading at 1d.
+   */
+  style?: TradingStyle;
 }
 
 // Fixes each interval's indicator periods and DEFAULT_TEMPLATE_WEIGHTS, per the brief.
@@ -1284,7 +1290,7 @@ function flowColumns(
 
 export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
   const { candles, snapshots, htf, interval, metrics, perp, premiumIndex, options, marketOptions, flow } = input;
-  const style = styleForInterval(interval);
+  const style = input.style ?? styleForInterval(interval);
   const profile = getStyleConfig(style);
   const weights = DEFAULT_TEMPLATE_WEIGHTS[style];
 
