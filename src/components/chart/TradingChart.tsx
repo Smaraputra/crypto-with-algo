@@ -55,7 +55,14 @@ import {
   makeSignalScoreCalc,
   type OverlayState,
   type RecordedScore,
+  type RescoredScore,
 } from './signal-score-indicator';
+import {
+  SIGNAL_CALLS_INDICATOR,
+  ensureSignalCallsIndicatorRegistered,
+  makeSignalCallsCalc,
+} from './signal-calls-indicator';
+import type { CallMark } from '@/lib/signals/track-record/chart-data';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
@@ -73,6 +80,17 @@ export interface TradingChartProps {
   onChartTypeChange?: (type: CandleType) => void;
   /** Draws the signal score pane. Never persisted and not part of IndicatorSettings. */
   signalOverlay?: SignalOverlay;
+  /** Past calls and the re-score/live hand-over line on the price pane. */
+  callsOverlay?: CallsOverlay;
+  /** The loaded bars changed: first load, an older page, or a new bar. Open times, ms. */
+  onLoadedRangeChange?: (range: TimeRange) => void;
+  /** The visible window changed (debounced). Open times, ms. */
+  onVisibleRangeChange?: (range: TimeRange) => void;
+}
+
+export interface TimeRange {
+  from: number;
+  to: number;
 }
 
 export interface SignalOverlay {
@@ -80,7 +98,22 @@ export interface SignalOverlay {
   recorded: ReadonlyMap<number, RecordedScore>;
   provisional: ProvisionalScore | null;
   state: OverlayState;
+  /** Track-record bars computed after the fact; drawn only where nothing is recorded. */
+  rescored?: ReadonlyMap<number, RescoredScore>;
 }
+
+export interface CallsOverlay {
+  visible: boolean;
+  calls: ReadonlyMap<number, CallMark>;
+  boundary: number | null;
+  horizonBars: number;
+  costPercent: number;
+}
+
+/** Bars per request when paging older history in. */
+export const HISTORY_PAGE_BARS = 1000;
+const VISIBLE_RANGE_DEBOUNCE_MS = 200;
+const NO_CALLS: ReadonlyMap<number, CallMark> = new Map();
 
 export const CHART_TYPES: { value: CandleType; label: string }[] = [
   { value: 'candle_solid', label: 'Candles' },
@@ -171,7 +204,17 @@ function DrawingToolIcon({ icon }: { icon: string }) {
   }
 }
 
-export function TradingChart({ symbol, interval, chartType = 'candle_solid', onIntervalChange, onChartTypeChange, signalOverlay }: TradingChartProps) {
+export function TradingChart({
+  symbol,
+  interval,
+  chartType = 'candle_solid',
+  onIntervalChange,
+  onChartTypeChange,
+  signalOverlay,
+  callsOverlay,
+  onLoadedRangeChange,
+  onVisibleRangeChange,
+}: TradingChartProps) {
   const chartRef = useRef<Chart | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
@@ -183,6 +226,26 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
   const [magnetMode, setMagnetMode] = useState<OverlayMode>('normal');
   const wsRef = useRef<WebSocket | null>(null);
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
+  const onLoadedRangeRef = useRef(onLoadedRangeChange);
+  const onVisibleRangeRef = useRef(onVisibleRangeChange);
+  const lastLoadedToRef = useRef<number | null>(null);
+  const callsRef = useRef<ReadonlyMap<number, CallMark>>(NO_CALLS);
+  const hoverCallRef = useRef<number | null>(null);
+  const callsExtendRef = useRef({ boundary: null as number | null, horizonBars: 0 });
+
+  useEffect(() => {
+    onLoadedRangeRef.current = onLoadedRangeChange;
+    onVisibleRangeRef.current = onVisibleRangeChange;
+  }, [onLoadedRangeChange, onVisibleRangeChange]);
+
+  /** Tells the parent which bars are loaded, from the chart's own data list. */
+  const reportLoadedRange = useCallback(() => {
+    const list = chartRef.current?.getDataList() ?? [];
+    if (list.length === 0) return;
+    const range = { from: list[0].timestamp, to: list[list.length - 1].timestamp };
+    lastLoadedToRef.current = range.to;
+    onLoadedRangeRef.current?.(range);
+  }, []);
 
   const { containerRef, width, height } = useChartResize(chartRef);
   const hasValidDimensions = Boolean(width && height && width > 0 && height > 0);
@@ -191,7 +254,8 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     if (!chartRef.current) return;
 
     if (indicator.category === 'overlay') {
-      chartRef.current.createIndicator(indicator.id, false, { id: 'candle_pane' });
+      // Stacked: an unstacked create removes every other indicator on the pane.
+      chartRef.current.createIndicator(indicator.id, true, { id: 'candle_pane' });
     } else {
       const paneId = chartRef.current.createIndicator(indicator.id, false);
       setIndicators((prev) =>
@@ -352,6 +416,42 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
 
     chartRef.current!.setDataLoader({
       getBars: async (params: DataLoaderGetBarsParams) => {
+        // KlineCharts names directions by the data list: 'forward' prepends,
+        // so it is the OLDER page asked for when the user scrolls to the left
+        // edge; 'backward' would append newer bars, which do not exist.
+        if (params.type === 'forward') {
+          const firstOpen = params.timestamp;
+          if (firstOpen === null) {
+            params.callback([], { forward: false });
+            return;
+          }
+          try {
+            const query = new URLSearchParams({
+              symbol: params.symbol.ticker,
+              interval: periodToInterval(params.period),
+              limit: String(HISTORY_PAGE_BARS),
+              endTime: String(firstOpen - 1),
+            });
+            const res = await fetch(`/api/prices/history?${query}`);
+            if (!res.ok) throw new Error('Failed to fetch');
+            const data = await res.json();
+            const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
+              timestamp: d.timestamp,
+              open: d.open,
+              high: d.high,
+              low: d.low,
+              close: d.close,
+              volume: d.volume,
+            }));
+            // A short page means the symbol's history starts here.
+            params.callback(bars, { forward: bars.length === HISTORY_PAGE_BARS });
+            reportLoadedRange();
+          } catch {
+            // Leave paging on: the next scroll to the edge retries.
+            params.callback([], { forward: true });
+          }
+          return;
+        }
         if (params.type !== 'init') {
           params.callback([], false);
           return;
@@ -377,7 +477,9 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
             close: d.close,
             volume: d.volume,
           }));
-          params.callback(bars, false);
+          // Older pages load on scroll; nothing newer than the live bar exists.
+          params.callback(bars, { forward: bars.length > 0, backward: false });
+          reportLoadedRange();
         } catch {
           params.callback([], false);
         } finally {
@@ -411,6 +513,9 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
                 close: parseFloat(k.c),
                 volume: parseFloat(k.v),
               });
+              if (lastLoadedToRef.current !== null && Number(k.t) > lastLoadedToRef.current) {
+                reportLoadedRange();
+              }
             }
             if (k) {
               // Market data for the provisional-signal overlay (never a score).
@@ -454,7 +559,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     DEFAULT_INDICATORS.forEach((ind) => {
       if (ind.enabled && chartRef.current) {
         if (ind.category === 'overlay') {
-          chartRef.current.createIndicator(ind.id, false, { id: 'candle_pane' });
+          chartRef.current.createIndicator(ind.id, true, { id: 'candle_pane' });
         } else {
           chartRef.current.createIndicator(ind.id, false);
         }
@@ -491,6 +596,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
   const overlayRecorded = signalOverlay?.recorded;
   const overlayProvisional = signalOverlay?.provisional ?? null;
   const overlayState = signalOverlay?.state ?? null;
+  const overlayRescored = signalOverlay?.rescored;
 
   // The signal score pane lives and dies with the flag; it is not a saved indicator.
   useEffect(() => {
@@ -514,9 +620,65 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
         recorded: overlayRecorded ?? new Map(),
         provisional: overlayProvisional,
         state: overlayState,
+        rescored: overlayRescored,
       }),
     });
-  }, [overlayVisible, hasValidDimensions, overlayRecorded, overlayProvisional, overlayState]);
+  }, [overlayVisible, hasValidDimensions, overlayRecorded, overlayProvisional, overlayState, overlayRescored]);
+
+  const callsVisible = callsOverlay?.visible ?? false;
+  const calls = callsOverlay?.calls ?? NO_CALLS;
+  const callsBoundary = callsOverlay?.boundary ?? null;
+  const callsHorizon = callsOverlay?.horizonBars ?? 0;
+  const callsCost = callsOverlay?.costPercent ?? 0;
+
+  // Past calls stack on the price pane beside MA and the other overlays.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !callsVisible) return;
+    ensureSignalCallsIndicatorRegistered();
+    chart.createIndicator(SIGNAL_CALLS_INDICATOR, true, { id: 'candle_pane' });
+    return () => {
+      hoverCallRef.current = null;
+      chartRef.current?.removeIndicator({ paneId: 'candle_pane', name: SIGNAL_CALLS_INDICATOR });
+    };
+  }, [callsVisible, hasValidDimensions]);
+
+  useEffect(() => {
+    callsRef.current = callsVisible ? calls : NO_CALLS;
+    callsExtendRef.current = { boundary: callsBoundary, horizonBars: callsHorizon };
+    const chart = chartRef.current;
+    if (!chart || !callsVisible) return;
+    chart.overrideIndicator({
+      name: SIGNAL_CALLS_INDICATOR,
+      calc: makeSignalCallsCalc({ calls, horizonBars: callsHorizon, costPercent: callsCost }),
+      extendData: { boundary: callsBoundary, hover: hoverCallRef.current, horizonBars: callsHorizon },
+    });
+  }, [callsVisible, hasValidDimensions, calls, callsBoundary, callsHorizon, callsCost]);
+
+  // Report the visible window, debounced: scrolling fires this every frame.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const handle = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const current = chartRef.current;
+        if (!current) return;
+        const list = current.getDataList();
+        if (list.length === 0) return;
+        const { realFrom, realTo } = current.getVisibleRange();
+        const first = list[Math.max(0, Math.min(list.length - 1, Math.floor(realFrom)))];
+        const last = list[Math.max(0, Math.min(list.length - 1, Math.ceil(realTo) - 1))];
+        onVisibleRangeRef.current?.({ from: first.timestamp, to: last.timestamp });
+      }, VISIBLE_RANGE_DEBOUNCE_MS);
+    };
+    chart.subscribeAction('onVisibleRangeChange', handle);
+    return () => {
+      if (timer) clearTimeout(timer);
+      chart.unsubscribeAction('onVisibleRangeChange', handle);
+    };
+  }, [hasValidDimensions]);
 
   // Update symbol and period when props change
   useEffect(() => {
@@ -542,6 +704,18 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     const handleCrosshairChange = (data: unknown) => {
       const crosshair = data as Crosshair;
       setCrosshairData(crosshair?.kLineData ?? null);
+      // The call under the crosshair draws its judged span; a redraw, not a recalculation.
+      const ts = crosshair?.kLineData?.timestamp;
+      const hover = typeof ts === 'number' && callsRef.current.has(ts) ? ts : null;
+      if (hover !== hoverCallRef.current) {
+        hoverCallRef.current = hover;
+        if (callsRef.current.size > 0) {
+          chart.overrideIndicator({
+            name: SIGNAL_CALLS_INDICATOR,
+            extendData: { ...callsExtendRef.current, hover },
+          });
+        }
+      }
     };
 
     chart.subscribeAction('onCrosshairChange', handleCrosshairChange);

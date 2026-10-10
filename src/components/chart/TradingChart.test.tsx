@@ -1,6 +1,6 @@
 import type React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useFormingBarStore } from '@/stores/formingBarStore';
 import { periodToInterval, TradingChart, INTERVALS, PRIMARY_INTERVALS, MORE_INTERVALS, CHART_TYPES, DRAWING_TOOLS } from './TradingChart';
@@ -22,6 +22,8 @@ const mockGetOverlays = vi.fn().mockReturnValue([]);
 const mockOverrideOverlay = vi.fn();
 const mockResize = vi.fn();
 const mockDispose = vi.fn();
+const mockGetDataList = vi.fn().mockReturnValue([]);
+const mockGetVisibleRange = vi.fn().mockReturnValue({ from: 0, to: 0, realFrom: 0, realTo: 0 });
 
 const mockChart = {
   id: 'test-chart',
@@ -40,6 +42,8 @@ const mockChart = {
   unsubscribeAction: mockUnsubscribeAction,
   resetData: mockResetData,
   resize: mockResize,
+  getDataList: mockGetDataList,
+  getVisibleRange: mockGetVisibleRange,
 };
 
 const mockRegisterIndicator = vi.fn();
@@ -267,8 +271,8 @@ describe('TradingChart', () => {
     it('creates default indicators (MA and VOL)', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
-      // MA is overlay -> createIndicator('MA', false, { id: 'candle_pane' })
-      expect(mockCreateIndicator).toHaveBeenCalledWith('MA', false, { id: 'candle_pane' });
+      // MA is overlay -> stacked on the price pane, so other overlays can join it
+      expect(mockCreateIndicator).toHaveBeenCalledWith('MA', true, { id: 'candle_pane' });
       // VOL is volume -> createIndicator('VOL', false)
       expect(mockCreateIndicator).toHaveBeenCalledWith('VOL', false);
     });
@@ -296,7 +300,7 @@ describe('TradingChart', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay()} />);
       expect(mockRegisterIndicator).toHaveBeenCalled();
       expect(mockCreateIndicator).toHaveBeenCalledWith('SIGNAL_SCORE', false, { id: 'signal_score_pane', height: 140 });
-      expect(mockCreateIndicator).toHaveBeenCalledWith('MA', false, { id: 'candle_pane' });
+      expect(mockCreateIndicator).toHaveBeenCalledWith('MA', true, { id: 'candle_pane' });
       expect(mockCreateIndicator).toHaveBeenCalledWith('VOL', false);
     });
 
@@ -333,6 +337,140 @@ describe('TradingChart', () => {
       const count = mockOverrideIndicator.mock.calls.length;
       rerender(<TradingChart symbol="BTCUSDT" interval="1h" signalOverlay={overlay({ recorded })} />);
       expect(mockOverrideIndicator.mock.calls.length).toBe(count);
+    });
+  });
+
+  describe('history paging', () => {
+    const HOUR = 3_600_000;
+    const T = Date.UTC(2026, 9, 1);
+    const loader = () => mockSetDataLoader.mock.calls[0][0];
+    const apiBars = (n: number, last: number) =>
+      Array.from({ length: n }, (_, i) => ({ timestamp: last - (n - 1 - i) * HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 }));
+    const params = (type: string, timestamp: number | null) => ({
+      type,
+      timestamp,
+      symbol: { ticker: 'BTCUSDT' },
+      period: { type: 'hour', span: 1 },
+      callback: vi.fn(),
+    });
+
+    it('lets older pages load after the first page and reports the loaded range', async () => {
+      const onLoaded = vi.fn();
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(apiBars(500, T))));
+      mockGetDataList.mockReturnValue(apiBars(500, T));
+      render(<TradingChart symbol="BTCUSDT" interval="1h" onLoadedRangeChange={onLoaded} />);
+      const p = params('init', null);
+      await loader().getBars(p);
+      expect(p.callback).toHaveBeenCalledWith(expect.any(Array), { forward: true, backward: false });
+      expect(onLoaded).toHaveBeenCalledWith({ from: T - 499 * HOUR, to: T });
+    });
+
+    it("asks for the page before the first bar on a 'forward' load (KlineCharts' older direction)", async () => {
+      const onLoaded = vi.fn();
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify(apiBars(1000, T - 500 * HOUR))));
+      mockGetDataList.mockReturnValue(apiBars(1500, T));
+      render(<TradingChart symbol="BTCUSDT" interval="1h" onLoadedRangeChange={onLoaded} />);
+      const p = params('forward', T - 499 * HOUR);
+      await loader().getBars(p);
+      const url = String(fetchSpy.mock.calls[0][0]);
+      expect(url).toContain('/api/prices/history?');
+      expect(url).toContain('limit=1000');
+      expect(url).toContain(`endTime=${T - 499 * HOUR - 1}`);
+      expect(p.callback).toHaveBeenCalledWith(expect.any(Array), { forward: true });
+      expect(p.callback.mock.calls[0][0]).toHaveLength(1000);
+      expect(onLoaded).toHaveBeenLastCalledWith({ from: T - 1499 * HOUR, to: T });
+    });
+
+    it('stops paging when a short page reaches the start of the history', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(apiBars(10, T - 500 * HOUR))));
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const p = params('forward', T - 499 * HOUR);
+      await loader().getBars(p);
+      expect(p.callback).toHaveBeenCalledWith(expect.any(Array), { forward: false });
+    });
+
+    it('keeps paging on after a failed page, and never loads newer than the live bar', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 429 }));
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const older = params('forward', T);
+      await loader().getBars(older);
+      expect(older.callback).toHaveBeenCalledWith([], { forward: true });
+      const newer = params('backward', T);
+      await loader().getBars(newer);
+      expect(newer.callback).toHaveBeenCalledWith([], false);
+    });
+  });
+
+  describe('past calls overlay', () => {
+    const T = Date.UTC(2026, 9, 1);
+    const call = { t: T, dir: 1 as const, outcome: 'won' as const, source: 'rescore' as const, score: 31, tier: 'buy' as const, fwd: 0.5 };
+    const calls = new Map([[T, call]]);
+    const overlay = (over: Record<string, unknown> = {}) => ({
+      visible: true,
+      calls,
+      boundary: T + 3_600_000,
+      horizonBars: 24,
+      costPercent: 0.16,
+      ...over,
+    });
+
+    it('stacks the calls on the price pane and removes them when hidden', () => {
+      const { rerender } = render(<TradingChart symbol="BTCUSDT" interval="1h" callsOverlay={overlay()} />);
+      expect(mockCreateIndicator).toHaveBeenCalledWith('SIGNAL_CALLS', true, { id: 'candle_pane' });
+      rerender(<TradingChart symbol="BTCUSDT" interval="1h" callsOverlay={overlay({ visible: false })} />);
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ paneId: 'candle_pane', name: 'SIGNAL_CALLS' });
+    });
+
+    it('passes the calls as a new calc and the boundary and horizon as redraw data', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" callsOverlay={overlay()} />);
+      const last = mockOverrideIndicator.mock.calls.map((c) => c[0]).filter((o) => o.name === 'SIGNAL_CALLS').at(-1);
+      expect(last).toMatchObject({
+        calc: expect.any(Function),
+        extendData: { boundary: T + 3_600_000, hover: null, horizonBars: 24 },
+      });
+    });
+
+    it('creates nothing without the prop', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('SIGNAL_CALLS', expect.anything(), expect.anything());
+    });
+
+    it('marks the call under the crosshair for its span, and clears it on leaving', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" callsOverlay={overlay()} />);
+      const handler = mockSubscribeAction.mock.calls.find((c) => c[0] === 'onCrosshairChange')?.[1];
+      const callsOverrides = () => mockOverrideIndicator.mock.calls.map((c) => c[0]).filter((o) => o.name === 'SIGNAL_CALLS');
+      act(() => handler({ kLineData: { timestamp: T, open: 1, high: 1, low: 1, close: 1 } }));
+      expect(callsOverrides().at(-1)).toEqual({
+        name: 'SIGNAL_CALLS',
+        extendData: { boundary: T + 3_600_000, horizonBars: 24, hover: T },
+      });
+      const count = callsOverrides().length;
+      act(() => handler({ kLineData: { timestamp: T, open: 1, high: 1, low: 1, close: 1 } }));
+      expect(callsOverrides()).toHaveLength(count);
+      act(() => handler({ kLineData: { timestamp: T + 7_200_000, open: 1, high: 1, low: 1, close: 1 } }));
+      expect(callsOverrides().at(-1)?.extendData.hover).toBeNull();
+    });
+
+    it('reports the visible window by open time after scrolling settles', () => {
+      vi.useFakeTimers();
+      try {
+        const onVisible = vi.fn();
+        const list = [0, 1, 2, 3, 4].map((i) => ({ timestamp: T + i * 3_600_000, open: 1, high: 1, low: 1, close: 1 }));
+        mockGetDataList.mockReturnValue(list);
+        mockGetVisibleRange.mockReturnValue({ from: 1, to: 4, realFrom: 1.4, realTo: 3.6 });
+        render(<TradingChart symbol="BTCUSDT" interval="1h" onVisibleRangeChange={onVisible} />);
+        const handler = mockSubscribeAction.mock.calls.find((c) => c[0] === 'onVisibleRangeChange')?.[1];
+        handler();
+        handler();
+        expect(onVisible).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(250);
+        expect(onVisible).toHaveBeenCalledTimes(1);
+        expect(onVisible).toHaveBeenCalledWith({ from: T + 3_600_000, to: T + 3 * 3_600_000 });
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
