@@ -25,8 +25,6 @@ const BOUNDARY_TEXT = '#b7bdc6';
 
 export interface CallsSnapshot {
   calls: ReadonlyMap<number, CallMark>;
-  horizonBars: number;
-  costPercent: number;
 }
 
 /** Redraw-only state: changing it repaints without recalculating. */
@@ -40,7 +38,6 @@ export interface CallsExtend {
 
 export interface CallsDatum {
   call?: CallMark;
-  tip?: string;
 }
 
 const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
@@ -58,11 +55,11 @@ export function describeCall(call: CallMark, horizonBars: number, costPercent: n
 
 /** A NEW function every call, so overrideIndicator recalculates (see signal-score-indicator). */
 export function makeSignalCallsCalc(snapshot: CallsSnapshot) {
-  const { calls, horizonBars, costPercent } = snapshot;
+  const { calls } = snapshot;
   return (dataList: KLineData[]): CallsDatum[] =>
     dataList.map((k) => {
       const call = calls.get(k.timestamp);
-      return call ? { call, tip: describeCall(call, horizonBars, costPercent) } : {};
+      return call ? { call } : {};
     });
 }
 
@@ -87,19 +84,10 @@ export function ensureSignalCallsIndicatorRegistered(): void {
     calcParams: [],
     figures: [],
     extendData: { boundary: null, hover: null, horizonBars: 0 },
-    calc: makeSignalCallsCalc({ calls: new Map(), horizonBars: 0, costPercent: 0 }),
-    createTooltipDataSource: ({ indicator, crosshair }) => {
-      const index = crosshair.dataIndex;
-      const datum = typeof index === 'number' ? indicator.result[index] : undefined;
-      return {
-        name: '',
-        calcParamsText: '',
-        features: [],
-        legends: datum?.tip
-          ? [{ title: '', value: { text: datum.tip, color: datum.call ? CALL_COLORS[datum.call.outcome] : BOUNDARY_TEXT } }]
-          : [],
-      };
-    },
+    calc: makeSignalCallsCalc({ calls: new Map() }),
+    // No canvas tooltip: in a short price pane it drew over the candles. The
+    // chart's call strip (TradingChart) shows the hovered call as text.
+    createTooltipDataSource: () => ({ name: '', calcParamsText: '', features: [], legends: [] }),
     draw: ({ ctx, chart, indicator, bounding, xAxis, yAxis }) => {
       const dataList = chart.getDataList();
       const results = indicator.result;

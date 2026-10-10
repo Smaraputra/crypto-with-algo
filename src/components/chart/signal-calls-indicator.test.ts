@@ -53,19 +53,16 @@ describe('describeCall', () => {
 });
 
 describe('makeSignalCallsCalc', () => {
-  it('puts each call on its own bar with its tooltip and leaves the others empty', async () => {
+  it('puts each call on its own bar and leaves the others empty', async () => {
     const { makeSignalCallsCalc } = await load();
     const calls = new Map([[T0 + HOUR, call({ t: T0 + HOUR })]]);
-    const out = makeSignalCallsCalc({ calls, horizonBars: 24, costPercent: 0.16 })([kline(0), kline(1), kline(2)]);
-    expect(out[0]).toEqual({});
-    expect(out[1].call?.t).toBe(T0 + HOUR);
-    expect(out[1].tip).toContain('Buy call');
-    expect(out[2]).toEqual({});
+    const out = makeSignalCallsCalc({ calls })([kline(0), kline(1), kline(2)]);
+    expect(out).toEqual([{}, { call: calls.get(T0 + HOUR) }, {}]);
   });
 
   it('returns a new function every call, so overrideIndicator recalculates', async () => {
     const { makeSignalCallsCalc } = await load();
-    const snap = { calls: new Map(), horizonBars: 24, costPercent: 0.16 };
+    const snap = { calls: new Map() };
     expect(makeSignalCallsCalc(snap)).not.toBe(makeSignalCallsCalc(snap));
   });
 });
@@ -165,14 +162,10 @@ describe('ensureSignalCallsIndicatorRegistered', () => {
     expect(ctx.arc).not.toHaveBeenCalled();
   });
 
-  it('shows the hovered call in the tooltip in its outcome colour', async () => {
+  it('draws no canvas tooltip (the chart strip shows the call as text)', async () => {
     const mod = await load();
     mod.ensureSignalCallsIndicatorRegistered();
     const { createTooltipDataSource } = registerIndicator.mock.calls[0][0];
-    const c = call({ outcome: 'wrong', fwd: -1 });
-    const out = createTooltipDataSource({ indicator: { result: [{ call: c, tip: 'tip text' }] }, crosshair: { dataIndex: 0 } });
-    expect(out.legends).toEqual([{ title: '', value: { text: 'tip text', color: mod.CALL_COLORS.wrong } }]);
-    const none = createTooltipDataSource({ indicator: { result: [{}] }, crosshair: { dataIndex: 0 } });
-    expect(none.legends).toEqual([]);
+    expect(createTooltipDataSource({ indicator: { result: [{ call: call() }] }, crosshair: { dataIndex: 0 } }).legends).toEqual([]);
   });
 });

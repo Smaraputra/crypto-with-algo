@@ -12,6 +12,7 @@ import {
   type KLineData,
   type OverlayMode,
   type Period,
+  type Point,
 } from 'klinecharts';
 import { useChartResize } from '@/hooks/useChartResize';
 import {
@@ -58,10 +59,13 @@ import {
   type RescoredScore,
 } from './signal-score-indicator';
 import {
+  CALL_COLORS,
   SIGNAL_CALLS_INDICATOR,
+  describeCall,
   ensureSignalCallsIndicatorRegistered,
   makeSignalCallsCalc,
 } from './signal-calls-indicator';
+import { Mark } from './track-record/CallLegend';
 import type { CallMark } from '@/lib/signals/track-record/chart-data';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
@@ -108,6 +112,20 @@ export interface CallsOverlay {
   boundary: number | null;
   horizonBars: number;
   costPercent: number;
+}
+
+/**
+ * The bar under the crosshair. KlineCharts 10.0.0-beta1 hands onCrosshairChange
+ * the raw pointer ({ x, y, paneId }), not the enriched crosshair, so kLineData
+ * is never set there; resolve the bar from x instead.
+ */
+export function barAtCrosshair(chart: Chart, crosshair: Crosshair | null | undefined): KLineData | null {
+  if (crosshair?.kLineData) return crosshair.kLineData;
+  if (typeof crosshair?.x !== 'number') return null;
+  const points = chart.convertFromPixel([{ x: crosshair.x }], { paneId: 'candle_pane' }) as Array<Partial<Point>>;
+  const index = points[0]?.dataIndex;
+  const list = chart.getDataList();
+  return typeof index === 'number' && index >= 0 && index < list.length ? list[index] : null;
 }
 
 /** Bars per request when paging older history in. */
@@ -232,6 +250,7 @@ export function TradingChart({
   const callsRef = useRef<ReadonlyMap<number, CallMark>>(NO_CALLS);
   const hoverCallRef = useRef<number | null>(null);
   const callsExtendRef = useRef({ boundary: null as number | null, horizonBars: 0 });
+  const [hoverCall, setHoverCall] = useState<CallMark | null>(null);
 
   useEffect(() => {
     onLoadedRangeRef.current = onLoadedRangeChange;
@@ -639,6 +658,7 @@ export function TradingChart({
     chart.createIndicator(SIGNAL_CALLS_INDICATOR, true, { id: 'candle_pane' });
     return () => {
       hoverCallRef.current = null;
+      setHoverCall(null);
       chartRef.current?.removeIndicator({ paneId: 'candle_pane', name: SIGNAL_CALLS_INDICATOR });
     };
   }, [callsVisible, hasValidDimensions]);
@@ -650,10 +670,10 @@ export function TradingChart({
     if (!chart || !callsVisible) return;
     chart.overrideIndicator({
       name: SIGNAL_CALLS_INDICATOR,
-      calc: makeSignalCallsCalc({ calls, horizonBars: callsHorizon, costPercent: callsCost }),
+      calc: makeSignalCallsCalc({ calls }),
       extendData: { boundary: callsBoundary, hover: hoverCallRef.current, horizonBars: callsHorizon },
     });
-  }, [callsVisible, hasValidDimensions, calls, callsBoundary, callsHorizon, callsCost]);
+  }, [callsVisible, hasValidDimensions, calls, callsBoundary, callsHorizon]);
 
   // Report the visible window, debounced: scrolling fires this every frame.
   useEffect(() => {
@@ -705,10 +725,11 @@ export function TradingChart({
       const crosshair = data as Crosshair;
       setCrosshairData(crosshair?.kLineData ?? null);
       // The call under the crosshair draws its judged span; a redraw, not a recalculation.
-      const ts = crosshair?.kLineData?.timestamp;
+      const ts = barAtCrosshair(chart, crosshair)?.timestamp;
       const hover = typeof ts === 'number' && callsRef.current.has(ts) ? ts : null;
       if (hover !== hoverCallRef.current) {
         hoverCallRef.current = hover;
+        setHoverCall(hover === null ? null : (callsRef.current.get(hover) ?? null));
         if (callsRef.current.size > 0) {
           chart.overrideIndicator({
             name: SIGNAL_CALLS_INDICATOR,
@@ -1024,6 +1045,22 @@ export function TradingChart({
           </div>
         )}
       </div>
+
+      {callsVisible && (
+        <div
+          data-testid="call-detail"
+          className="flex min-h-8 items-center gap-1.5 border-t border-border bg-card px-2 py-1 text-xs text-muted-foreground"
+        >
+          {hoverCall ? (
+            <>
+              <Mark up={hoverCall.dir === 1} color={CALL_COLORS[hoverCall.outcome]} hollow={hoverCall.outcome === 'pending'} />
+              <span className="text-foreground">{describeCall(hoverCall, callsHorizon, callsCost)}</span>
+            </>
+          ) : (
+            'Hover or touch a call mark to see its score and how it ended.'
+          )}
+        </div>
+      )}
     </div>
   );
 }

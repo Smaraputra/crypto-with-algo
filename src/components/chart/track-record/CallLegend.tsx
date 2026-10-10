@@ -1,7 +1,7 @@
 import { CALL_COLORS } from '../signal-calls-indicator';
 
 /** A triangle as the price pane draws it: up under a buy bar, down over a sell bar. */
-function Mark({ up, color, hollow = false }: { up: boolean; color: string; hollow?: boolean }) {
+export function Mark({ up, color, hollow = false }: { up: boolean; color: string; hollow?: boolean }) {
   const points = up ? '5,1 9,9 1,9' : '1,1 9,1 5,9';
   return (
     <svg viewBox="0 0 10 10" className="inline-block size-2.5 shrink-0" aria-hidden="true">

@@ -24,6 +24,7 @@ const mockResize = vi.fn();
 const mockDispose = vi.fn();
 const mockGetDataList = vi.fn().mockReturnValue([]);
 const mockGetVisibleRange = vi.fn().mockReturnValue({ from: 0, to: 0, realFrom: 0, realTo: 0 });
+const mockConvertFromPixel = vi.fn().mockReturnValue([{}]);
 
 const mockChart = {
   id: 'test-chart',
@@ -44,6 +45,7 @@ const mockChart = {
   resize: mockResize,
   getDataList: mockGetDataList,
   getVisibleRange: mockGetVisibleRange,
+  convertFromPixel: mockConvertFromPixel,
 };
 
 const mockRegisterIndicator = vi.fn();
@@ -451,6 +453,33 @@ describe('TradingChart', () => {
       expect(callsOverrides()).toHaveLength(count);
       act(() => handler({ kLineData: { timestamp: T + 7_200_000, open: 1, high: 1, low: 1, close: 1 } }));
       expect(callsOverrides().at(-1)?.extendData.hover).toBeNull();
+    });
+
+    it('describes the hovered call in the strip under the chart, with a hint otherwise', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" callsOverlay={overlay()} />);
+      const strip = screen.getByTestId('call-detail');
+      expect(strip).toHaveTextContent('Hover or touch a call mark to see its score and how it ended.');
+      const handler = mockSubscribeAction.mock.calls.find((c) => c[0] === 'onCrosshairChange')?.[1];
+      act(() => handler({ kLineData: { timestamp: T, open: 1, high: 1, low: 1, close: 1 } }));
+      expect(strip).toHaveTextContent(
+        'Buy call (Long score) · re-scored, not live · score 31.0 · price +0.50% over 24 bars · +0.34% after 0.16% costs · won after costs'
+      );
+    });
+
+    it('resolves the hovered bar from the pointer x, since the action carries no kLineData', () => {
+      const list = [0, 1, 2].map((i) => ({ timestamp: T + (i - 1) * 3_600_000, open: 1, high: 1, low: 1, close: 1 }));
+      mockGetDataList.mockReturnValue(list);
+      mockConvertFromPixel.mockReturnValue([{ dataIndex: 1, timestamp: T }]);
+      render(<TradingChart symbol="BTCUSDT" interval="1h" callsOverlay={overlay()} />);
+      const handler = mockSubscribeAction.mock.calls.find((c) => c[0] === 'onCrosshairChange')?.[1];
+      act(() => handler({ x: 420, y: 80, paneId: 'candle_pane' }));
+      expect(mockConvertFromPixel).toHaveBeenCalledWith([{ x: 420 }], { paneId: 'candle_pane' });
+      expect(screen.getByTestId('call-detail')).toHaveTextContent('Buy call (Long score)');
+    });
+
+    it('has no call strip without the overlay', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      expect(screen.queryByTestId('call-detail')).toBeNull();
     });
 
     it('reports the visible window by open time after scrolling settles', () => {
