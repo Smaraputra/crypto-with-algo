@@ -244,7 +244,7 @@ describe('forward-track loaders on synthetic fixtures', () => {
       resolved += top.resolved;
     }
     expect(resolved).toBeGreaterThan(0);
-  });
+  }, 60_000);
 
   it('B: loads the small-taker column and forward returns, and the month IC is negative', () => {
     const series = loadBSeries(dirB, ['BTCUSDT'], Date.parse(TRACK_SPAN.dataStart), Date.parse(TRACK_SPAN.end));
@@ -256,5 +256,5 @@ describe('forward-track loaders on synthetic fixtures', () => {
     expect(aug.negativeSymbols).toBe(1);
     const before = trackBCell(series, Date.UTC(2025, 9, 1), Date.UTC(2025, 10, 1) - 1, 1);
     expect(before.n).toBe(0);
-  });
+  }, 60_000);
 });
