@@ -16,6 +16,7 @@ import {
   type DatasetManifest,
   type HtfRow,
   type ManifestFile,
+  type FlowRow,
   type MetricsRow,
   type OptionsRow,
   type FundingRow,
@@ -148,6 +149,19 @@ export function loadMetrics(
 ): LoadResult<MetricsRow> {
   const path = join(dir, 'metrics', symbol, '5m.jsonl.gz');
   return applyLockbox(readJsonlGz<MetricsRow>(path), opts);
+}
+
+/**
+ * The 5m taker-flow buckets for one symbol (the `flow` kind, qh-flow phase).
+ * One file per symbol, lockbox handling identical to loadMetrics.
+ */
+export function loadFlow(
+  dir: string,
+  symbol: string,
+  opts: LoadOptions = {}
+): LoadResult<FlowRow> {
+  const path = join(dir, 'flow', symbol, '5m.jsonl.gz');
+  return applyLockbox(readJsonlGz<FlowRow>(path), opts);
 }
 
 /**
