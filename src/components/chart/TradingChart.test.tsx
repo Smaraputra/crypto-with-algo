@@ -25,6 +25,8 @@ const mockDispose = vi.fn();
 const mockGetDataList = vi.fn().mockReturnValue([]);
 const mockGetVisibleRange = vi.fn().mockReturnValue({ from: 0, to: 0, realFrom: 0, realTo: 0 });
 const mockConvertFromPixel = vi.fn().mockReturnValue([{}]);
+const mockGetSymbol = vi.fn().mockReturnValue({ ticker: 'BTCUSDT' });
+const mockGetPeriod = vi.fn().mockReturnValue({ type: 'hour', span: 1 });
 
 const mockChart = {
   id: 'test-chart',
@@ -46,6 +48,8 @@ const mockChart = {
   getDataList: mockGetDataList,
   getVisibleRange: mockGetVisibleRange,
   convertFromPixel: mockConvertFromPixel,
+  getSymbol: mockGetSymbol,
+  getPeriod: mockGetPeriod,
 };
 
 const mockRegisterIndicator = vi.fn();
@@ -391,6 +395,15 @@ describe('TradingChart', () => {
       const p = params('forward', T - 499 * HOUR);
       await loader().getBars(p);
       expect(p.callback).toHaveBeenCalledWith(expect.any(Array), { forward: false });
+    });
+
+    it('drops an older page that arrives after the user switched interval', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(apiBars(1000, T - 500 * HOUR))));
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const p = params('forward', T - 499 * HOUR);
+      mockGetPeriod.mockReturnValueOnce({ type: 'minute', span: 5 });
+      await loader().getBars(p);
+      expect(p.callback).not.toHaveBeenCalled();
     });
 
     it('keeps paging on after a failed page, and never loads newer than the live bar', async () => {

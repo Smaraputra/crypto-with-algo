@@ -128,6 +128,18 @@ export function barAtCrosshair(chart: Chart, crosshair: Crosshair | null | undef
   return typeof index === 'number' && index >= 0 && index < list.length ? list[index] : null;
 }
 
+/** True when the chart no longer shows the symbol and period a load was asked for. */
+export function isStalePage(chart: Chart | null, params: Pick<DataLoaderGetBarsParams, 'symbol' | 'period'>): boolean {
+  if (!chart) return true;
+  const symbol = chart.getSymbol();
+  const period = chart.getPeriod();
+  return (
+    symbol?.ticker !== params.symbol.ticker ||
+    period?.type !== params.period.type ||
+    period?.span !== params.period.span
+  );
+}
+
 /** Bars per request when paging older history in. */
 export const HISTORY_PAGE_BARS = 1000;
 const VISIBLE_RANGE_DEBOUNCE_MS = 200;
@@ -454,6 +466,9 @@ export function TradingChart({
             const res = await fetch(`/api/prices/history?${query}`);
             if (!res.ok) throw new Error('Failed to fetch');
             const data = await res.json();
+            // The user switched symbol or interval while this page was in flight:
+            // its bars belong to the old series, and the new one is loading.
+            if (isStalePage(chartRef.current, params)) return;
             const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
               timestamp: d.timestamp,
               open: d.open,
@@ -466,6 +481,7 @@ export function TradingChart({
             params.callback(bars, { forward: bars.length === HISTORY_PAGE_BARS });
             reportLoadedRange();
           } catch {
+            if (isStalePage(chartRef.current, params)) return;
             // Leave paging on: the next scroll to the edge retries.
             params.callback([], { forward: true });
           }
