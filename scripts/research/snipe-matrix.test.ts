@@ -115,3 +115,57 @@ describe('buildSymbolArrays errors', () => {
     expect(() => buildSymbolArrays(dir, 'NOPEUSDT', 'intraday')).toThrow(/no perp 1h klines/);
   });
 });
+
+describe('buildSymbolArrays forward options (opt-in)', { timeout: 60_000 }, () => {
+  const startMs = Date.UTC(2026, 2, 20);
+  const endMs = Date.UTC(2026, 6, 2, 23, 59, 59, 999);
+  const forward = () => buildSymbolArrays(dir, SYMBOL, 'scalp', { allowLockbox: true, startMs, endMs });
+
+  it('reads past the lockbox and drops rows outside [startMs, endMs] before the matrix is built', () => {
+    const a = forward();
+    expect(a.timestamps[0]).toBe(startMs);
+    expect(a.timestamps[a.timestamps.length - 1]).toBeGreaterThanOrEqual(LOCKBOX);
+    expect(a.timestamps[a.timestamps.length - 1]).toBeLessThanOrEqual(endMs);
+    const n = a.timestamps.length;
+    for (const arr of [a.outcome, a.entryMs, a.exitMs, a.atrPct, a.gap, a.atrQuintile, a.month]) expect(arr.length).toBe(n);
+    for (const f of a.flags) expect(f.length).toBe(n);
+  });
+
+  it('uses endMs as the label slice end instead of the lockbox start', () => {
+    const a = forward();
+    let pastLockbox = 0;
+    for (let i = 0; i < a.exitMs.length; i++) {
+      if (Number.isFinite(a.exitMs[i])) {
+        expect(a.exitMs[i]).toBeLessThanOrEqual(endMs);
+        if (a.exitMs[i] >= LOCKBOX) pastLockbox++;
+      }
+    }
+    expect(pastLockbox).toBeGreaterThan(0);
+    const rows = loadPerp(dir, SYMBOL, '5m', 'klines', { allowLockbox: true }).rows.filter((r) => r.t >= startMs && r.t <= endMs);
+    const direct = labelEntries({
+      entryBars: rows.map(toOHLCV),
+      entryIntervalMs: 300_000,
+      pathBars: rows.map(toOHLCV),
+      maxHoldMs: SNIPE_TIMEFRAMES.scalp.maxHoldMs,
+      atrPeriod: 14,
+      barrierAtr: 1,
+      sliceEndMs: endMs,
+    });
+    expect(Array.from(a.outcome)).toEqual(Array.from(direct.outcome));
+    expect(Array.from(a.exitMs)).toEqual(Array.from(direct.exitMs));
+  });
+
+  it('startMs alone keeps the lockbox truncation and the default slice end', () => {
+    const a = buildSymbolArrays(dir, SYMBOL, 'scalp', { startMs });
+    expect(a.timestamps[0]).toBe(startMs);
+    expect(a.timestamps[a.timestamps.length - 1]).toBeLessThan(LOCKBOX);
+  });
+
+  it('empty options equal the original call', () => {
+    const base = buildSymbolArrays(dir, SYMBOL, 'scalp');
+    const empty = buildSymbolArrays(dir, SYMBOL, 'scalp', {});
+    expect(Array.from(empty.timestamps)).toEqual(Array.from(base.timestamps));
+    expect(Array.from(empty.outcome)).toEqual(Array.from(base.outcome));
+    expect(empty.flags.map((f) => Array.from(f))).toEqual(base.flags.map((f) => Array.from(f)));
+  });
+});
