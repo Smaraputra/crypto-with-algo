@@ -12,7 +12,12 @@ interface FearGreedApiResponse {
 const FEAR_GREED_URL = 'https://api.alternative.me/fng/?limit=1&format=json';
 const CACHE_TTL = 300; // 5 minutes
 
-async function fetchRaw(): Promise<SentimentData> {
+/**
+ * The uncached fetch. Exported for callers that must not touch the shared
+ * `sentiment:fear-greed` key the scheduler reads (the provisional-context route
+ * caches it under its own `provisional:` key).
+ */
+export async function fetchFearAndGreedUncached(): Promise<SentimentData> {
   const res = await fetch(FEAR_GREED_URL, {
     signal: AbortSignal.timeout(5000),
   });
@@ -35,7 +40,7 @@ async function fetchRaw(): Promise<SentimentData> {
 }
 
 export async function fetchFearAndGreed(): Promise<SentimentData> {
-  return cachedFetch('sentiment:fear-greed', fetchRaw, CACHE_TTL);
+  return cachedFetch('sentiment:fear-greed', fetchFearAndGreedUncached, CACHE_TTL);
 }
 
 export interface FearGreedHistoryEntry {

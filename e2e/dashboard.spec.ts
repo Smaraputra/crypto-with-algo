@@ -61,4 +61,65 @@ test.describe('Dashboard features (authenticated)', () => {
     // Dropdown should show search input
     await expect(page.getByPlaceholder('Search symbol...')).toBeVisible();
   });
+
+  test.describe('provisional signal score strip', () => {
+    // Binance may be unreachable, so any real status line valid at 1h is accepted.
+    // "No scheduler score" is the unavailable line and is a bug at BTCUSDT 1h.
+    const STATUS = new RegExp(
+      [
+        '^Provisional ',
+        "^Bar closed\\. Waiting for the scheduler's recorded score\\.$",
+        '^Recorded ',
+        '^No recorded score arrived for the last bar\\.$',
+        '^Waiting for the last closed bar to sync\\.$',
+        '^Not enough history at this interval\\.$',
+        '^Waiting for the next price update\\.$',
+        '^Loading signal inputs\\.$',
+        '^Signal context could not be loaded\\.$',
+        '^The scorer was updated\\. Reload the page to see provisional scores\\.$',
+      ].join('|')
+    );
+
+    test('renders heading, legend, status and evidence at 1h', async ({ page }) => {
+      await page.goto('/dashboard');
+      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+
+      const strip = page.getByTestId('signal-score-strip');
+      await expect(strip).toBeVisible({ timeout: 20000 });
+      await expect(strip.getByRole('heading', { name: 'Signal score · Day trading · 1h' })).toBeVisible();
+      await expect(strip.getByText(/Filled bars are the scheduler/)).toBeVisible();
+      await expect(strip.getByText(/never recorded/)).toBeVisible();
+      await expect(strip.getByText(/^Measured record at 1h:/)).toBeVisible();
+      await expect(strip.getByTestId('signal-score-status')).toHaveText(STATUS, { timeout: 20000 });
+    });
+
+    test('1d shows the Swing / Position toggle and Position changes the heading', async ({ page }) => {
+      await page.goto('/dashboard');
+      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+      await page.getByRole('tab', { name: '1D' }).click();
+
+      const strip = page.getByTestId('signal-score-strip');
+      await expect(strip.getByRole('heading', { name: /^Signal score · .* · 1d$/ })).toBeVisible({ timeout: 20000 });
+      const toggle = strip.getByRole('group', { name: 'Trading style' });
+      await expect(toggle).toBeVisible();
+      await expect(toggle.getByRole('button', { name: 'Swing' })).toBeVisible();
+
+      await toggle.getByRole('button', { name: 'Position' }).click();
+      await expect(strip.getByRole('heading', { name: 'Signal score · Position · 1d' })).toBeVisible();
+      await expect(toggle.getByRole('button', { name: 'Position' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('an unscored interval shows the no-score line and no toggle', async ({ page }) => {
+      await page.goto('/dashboard');
+      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+      await page.getByRole('button', { name: /^More$/ }).click();
+      await page.getByRole('menuitem', { name: '3m' }).click();
+
+      const strip = page.getByTestId('signal-score-strip');
+      await expect(strip.getByTestId('signal-score-status')).toHaveText('No scheduler score for BTCUSDT at 3m.', {
+        timeout: 20000,
+      });
+      await expect(strip.getByRole('group', { name: 'Trading style' })).toHaveCount(0);
+    });
+  });
 });

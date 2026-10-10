@@ -65,9 +65,14 @@ export async function GET(req: NextRequest) {
   const { symbol, interval, limit, startTime, endTime } = parsed.data;
   const ttl = TTL_MAP[interval] ?? 60;
 
+  // Never share the scheduler's `klines:*` keys. This route caches the raw REST
+  // response, which always ends with the still-forming bar; the signal scheduler
+  // (`fetchCandlesForTask` in compute-engine.ts) reads `klines:SYM:INT:500`, and
+  // the chart asks for limit=500. A shared key let the scheduler score a frozen
+  // partial bar as closed, and its duplicate guard then never re-scored it.
   const cacheKey = startTime || endTime
-    ? `klines:${symbol}:${interval}:${limit}:${startTime ?? ''}:${endTime ?? ''}`
-    : `klines:${symbol}:${interval}:${limit}`;
+    ? `prices:klines:${symbol}:${interval}:${limit}:${startTime ?? ''}:${endTime ?? ''}`
+    : `prices:klines:${symbol}:${interval}:${limit}`;
 
   try {
     const data = await cachedFetch(

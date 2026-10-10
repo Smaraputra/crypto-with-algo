@@ -47,6 +47,16 @@ import { Separator } from '@/components/ui/separator';
 import { IndicatorSettings } from './IndicatorSettings';
 import { ChartLegend } from './ChartLegend';
 import { getDefaultCalcParams } from './indicator-params';
+import { useFormingBarStore } from '@/stores/formingBarStore';
+import {
+  SIGNAL_SCORE_INDICATOR,
+  SIGNAL_SCORE_PANE_ID,
+  ensureSignalScoreIndicatorRegistered,
+  makeSignalScoreCalc,
+  type OverlayState,
+  type RecordedScore,
+} from './signal-score-indicator';
+import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
 const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
@@ -61,6 +71,15 @@ export interface TradingChartProps {
   chartType?: CandleType;
   onIntervalChange?: (interval: string) => void;
   onChartTypeChange?: (type: CandleType) => void;
+  /** Draws the signal score pane. Never persisted and not part of IndicatorSettings. */
+  signalOverlay?: SignalOverlay;
+}
+
+export interface SignalOverlay {
+  visible: boolean;
+  recorded: ReadonlyMap<number, RecordedScore>;
+  provisional: ProvisionalScore | null;
+  state: OverlayState;
 }
 
 export const CHART_TYPES: { value: CandleType; label: string }[] = [
@@ -152,7 +171,7 @@ function DrawingToolIcon({ icon }: { icon: string }) {
   }
 }
 
-export function TradingChart({ symbol, interval, chartType = 'candle_solid', onIntervalChange, onChartTypeChange }: TradingChartProps) {
+export function TradingChart({ symbol, interval, chartType = 'candle_solid', onIntervalChange, onChartTypeChange, signalOverlay }: TradingChartProps) {
   const chartRef = useRef<Chart | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
@@ -393,6 +412,27 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
                 volume: parseFloat(k.v),
               });
             }
+            if (k) {
+              // Market data for the provisional-signal overlay (never a score).
+              const bar = {
+                openTime: Number(k.t),
+                open: parseFloat(k.o),
+                high: parseFloat(k.h),
+                low: parseFloat(k.l),
+                close: parseFloat(k.c),
+                volume: parseFloat(k.v),
+                takerBuyVolume: parseFloat(k.V),
+              };
+              if (Object.values(bar).every(Number.isFinite)) {
+                useFormingBarStore.getState().push({
+                  symbol: params.symbol.ticker.toUpperCase(),
+                  interval: intv,
+                  bar,
+                  closed: k.x === true,
+                  receivedAt: Date.now(),
+                });
+              }
+            }
           } catch {
             // ignore parse errors
           }
@@ -401,6 +441,7 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
       },
       unsubscribeBar: () => {
         barCallbackRef.current = null;
+        useFormingBarStore.getState().reset();
         if (wsRef.current) {
           wsRef.current.close();
           wsRef.current = null;
@@ -445,6 +486,37 @@ export function TradingChart({ symbol, interval, chartType = 'candle_solid', onI
     // if they change before hasValidDimensions becomes true (unlikely but safe).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasValidDimensions, containerRef]);
+
+  const overlayVisible = signalOverlay?.visible ?? false;
+  const overlayRecorded = signalOverlay?.recorded;
+  const overlayProvisional = signalOverlay?.provisional ?? null;
+  const overlayState = signalOverlay?.state ?? null;
+
+  // The signal score pane lives and dies with the flag; it is not a saved indicator.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !overlayVisible) return;
+    ensureSignalScoreIndicatorRegistered();
+    chart.createIndicator(SIGNAL_SCORE_INDICATOR, false, { id: SIGNAL_SCORE_PANE_ID, height: 140 });
+    return () => {
+      // After dispose chartRef is null, and the pane went with the chart.
+      chartRef.current?.removeIndicator({ paneId: SIGNAL_SCORE_PANE_ID, name: SIGNAL_SCORE_INDICATOR });
+    };
+  }, [overlayVisible, hasValidDimensions]);
+
+  // overrideIndicator recalculates only for a NEW calc, so every change passes one.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !overlayVisible) return;
+    chart.overrideIndicator({
+      name: SIGNAL_SCORE_INDICATOR,
+      calc: makeSignalScoreCalc({
+        recorded: overlayRecorded ?? new Map(),
+        provisional: overlayProvisional,
+        state: overlayState,
+      }),
+    });
+  }, [overlayVisible, hasValidDimensions, overlayRecorded, overlayProvisional, overlayState]);
 
   // Update symbol and period when props change
   useEffect(() => {
