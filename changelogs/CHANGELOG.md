@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: v8 re-scored over the past year, its calls were right less often than chance
+- **Question** (the user's): fill signal generation at least a year back. Backfilled rows are never written to the live record (they would be hindsight rows under a live label); instead the deployed v8 scorer re-scored every closed bar from 2025-10-01 to 2026-10-09 in the research pipeline on the VPS and was judged with the live-record study's drift-free measures (`scripts/research/v8-rescore.ts`, lock `db45c00`, dataset `a964d87d8f45`, 1,553,180 rows)
+- **Parity**: on the 8.6 days where both exist, the re-score matches the real live v8 rows to within rounding (same tier 99.9% to 100%, score correlation 1.000), so the missing news input barely matters
+- **Result**: NO DETECTABLE EDGE in any cell. At 5m, 15m and 1h the balanced hit rate lies wholly below 50% (46.7%, 45.9%, 44.1%), so the calls were wrong more often than right, by about as much in size as when right; acting on every call loses about the cost (-0.20% per signal at 5m and -0.18% at 15m, intervals below zero). The score ranks weakly against the next move at every interval
+- **Built**: `v8-rescore-build.ts` (re-score rows from the research matrix, the live resolver's outcome definition) and `v8-rescore-run.ts` (live-record measures at a custom level, live parity); an optional style override in `computeFactorMatrix` (default unchanged) and a level option in the live-record bootstrap
+
 ### Research: forward track record, the past year month by month (descriptive)
 - **Question** (the user's): show the three forward-test rules over the past year right away instead of waiting for the monthly cron. Only 2026-07 to 2026-10 of that year is new; earlier months were used by the snipe confirmation and the qh-flow hold-out, so every month is labelled and nothing is a pass/fail (`scripts/research/forward-track.ts`, dataset `b98b246934fa`, all on the VPS)
 - **Result**: the small-trade imbalance (1h) is negative in 11 of 13 months and all four forward months (pooled IC -0.019, t -5.62), still below the 1h taker breakeven. The RSI reversals are positive in 11 of 13 months each but most monthly intervals span zero, and their forward level moves with the baseline definition by about as much as the effect itself
