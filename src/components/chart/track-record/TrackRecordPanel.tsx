@@ -79,7 +79,12 @@ function LiveLine({ live }: { live: LiveTrack }) {
       Live record since {since}: <Num>{count(live.resolved)}</Num> resolved calls, right{' '}
       <Num>{share(m.right)}</Num>, average after costs <Num className={signClass(m.net)}>{signed(m.net)}</Num>
       {live.pending > 0 ? <>, <Num>{count(live.pending)}</Num> still open</> : null}.
-      {!assessable(m) && ' Too few to judge yet.'}
+      {!assessable(m) && (
+        <>
+          {' '}Too few to judge yet (<Num>{count(m.buyN)}</Num> buy, <Num>{count(m.sellN)}</Num> sell, the research needs{' '}
+          <Num>{MIN_SIDE_CALLS}</Num> a side).
+        </>
+      )}
     </>
   );
 }

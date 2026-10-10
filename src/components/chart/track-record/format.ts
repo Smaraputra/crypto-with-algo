@@ -2,19 +2,19 @@ import type { PointMeasures } from '@/lib/signals/track-record/types';
 
 /** Text builders for the track-record panel. Pure, so every sentence is tested. */
 
-const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-const MONTH = new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
-const MONTH_YEAR = new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+/** Fixed three-letter names: locale data varies ("Sep" or "Sept") and would misalign the month bars. */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** UTC date as "1 Oct 2026". */
 export function formatDate(ms: number): string {
-  return DATE.format(new Date(ms));
+  const d = new Date(ms);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 /** "2026-03" -> "Mar" or "Mar 2026". */
 export function formatMonth(key: string, withYear = false): string {
   const [y, m] = key.split('-').map(Number);
-  const d = new Date(Date.UTC(y, m - 1, 1));
-  return (withYear ? MONTH_YEAR : MONTH).format(d);
+  return withYear ? `${MONTHS[m - 1]} ${y}` : MONTHS[m - 1];
 }
 
 /** A share in [0, 1] as a percent with one decimal: 0.4613 -> "46.1%". */

@@ -142,6 +142,15 @@ describe('TrackRecordPanel', () => {
     );
   });
 
+  it('says which side of the live record is too thin to judge', () => {
+    const base = available() as Extract<TrackRecordResponse, { available: true }>;
+    query.state.data = available({ live: { ...base.live, measures: { ...base.live.measures, buyN: 12, sellN: 108 } } });
+    render(<TrackRecordPanel {...props} />);
+    expect(screen.getByTestId('track-record-live')).toHaveTextContent(
+      'Too few to judge yet (12 buy, 108 sell, the research needs 30 a side).'
+    );
+  });
+
   it('tallies the visible window and warns that it is noise', () => {
     render(<TrackRecordPanel {...props} inView={{ calls: 12, right: 5, won: 3, cost: 2, wrong: 7, pending: 1 }} />);
     expect(screen.getByTestId('track-record-in-view')).toHaveTextContent(
