@@ -14,7 +14,10 @@
  * on to the next file, and the exit code is 1 at the end.
  *
  * LOCKBOX: nothing from 2026-07 onward is read. Any period at or after it is
- * refused before a download starts. (The one declared lockbox exception, the
+ * refused before a download starts. The one opt-in exception is the forward test
+ * (scripts/research/forward-test.ts): `--allow-lockbox --max-date YYYY-MM-DD` lifts the
+ * refusal for monthly periods and for --daily-repair dates, but still refuses any period
+ * starting after, or date later than, --max-date. Default off. (The one declared lockbox exception, the
  * extractor validation, is `validate-agg-flow.ts` and reads daily files.)
  *
  * Usage (from the Docker seeder stage on the VPS, like ingest-archive.ts):
@@ -28,6 +31,10 @@
  *   --concurrency 1             files processed at once
  *   --refresh                   re-ingest files already recorded (complete or missing)
  *   --dry-run                   print the job list with its status and exit
+ *   --allow-lockbox             forward test only: lift the 2026-07 refusal (monthly periods and
+ *                               --daily-repair dates). Needs --max-date. Default off.
+ *   --max-date YYYY-MM-DD       with --allow-lockbox: refuse any period starting after, or any
+ *                               date later than, this date
  *   --daily-repair BTCUSDT:2024-03-05[,...]
  *                               repair mode: ingest the DAILY aggTrades file of each
  *                               SYMBOL:date (days a monthly file omits), then refresh that
@@ -75,6 +82,16 @@ export interface Args {
   refresh: boolean;
   dryRun: boolean;
   dailyRepair: RepairJob[];
+  /** Forward test: lockbox periods and dates are allowed up to maxDate. Absent means false. */
+  allowLockbox?: boolean;
+  /** 'YYYY-MM-DD'; required with allowLockbox. */
+  maxDate?: string;
+}
+
+/** The opt-in lockbox exception (see the file header). Absent or allowLockbox false means the default refusal. */
+export interface LockboxGuard {
+  allowLockbox?: boolean;
+  maxDate?: string;
 }
 
 export interface RepairJob {
@@ -132,6 +149,27 @@ export function assertOutsideLockbox(period: string): void {
   }
 }
 
+/**
+ * assertOutsideLockbox with the forward-test exception: with allowLockbox the lockbox refusal is lifted, but a
+ * period whose first day is after maxDate is refused (and maxDate is required).
+ */
+export function assertPeriodAllowed(period: string, guard: LockboxGuard = {}): void {
+  if (!guard.allowLockbox) return assertOutsideLockbox(period);
+  if (!guard.maxDate) throw new Error('--allow-lockbox needs --max-date YYYY-MM-DD');
+  if (`${period}-01` > guard.maxDate) {
+    throw new Error(`Max date: period ${period} starts after --max-date ${guard.maxDate}`);
+  }
+}
+
+/** assertDateOutsideLockbox with the same forward-test exception: a date later than maxDate is refused. */
+export function assertDateAllowed(date: string, guard: LockboxGuard = {}): void {
+  if (!guard.allowLockbox) return assertDateOutsideLockbox(date);
+  if (!guard.maxDate) throw new Error('--allow-lockbox needs --max-date YYYY-MM-DD');
+  if (date > guard.maxDate) {
+    throw new Error(`Max date: date ${date} is after --max-date ${guard.maxDate}`);
+  }
+}
+
 /** Throws unless `date` is 'YYYY-MM-DD' and strictly before the lockbox. */
 export function assertDateOutsideLockbox(date: string): void {
   if (date >= LOCKBOX_FIRST_DATE) {
@@ -142,7 +180,7 @@ export function assertDateOutsideLockbox(date: string): void {
 }
 
 /** Parses 'SYMBOL:YYYY-MM-DD[,...]'. Refuses a bad shape, an impossible date or a lockbox date. */
-export function parseRepairList(raw: string): RepairJob[] {
+export function parseRepairList(raw: string, guard: LockboxGuard = {}): RepairJob[] {
   const jobs = raw
     .split(',')
     .map((item) => item.trim())
@@ -156,7 +194,7 @@ export function parseRepairList(raw: string): RepairJob[] {
       if (new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
         throw new Error(`--daily-repair has an impossible date: ${date}`);
       }
-      assertDateOutsideLockbox(date);
+      assertDateAllowed(date, guard);
       return { symbol: upper, date };
     });
   if (jobs.length === 0) throw new Error('--daily-repair is empty');
@@ -226,7 +264,9 @@ export function parseArgs(argv: string[]): Args {
   let concurrency = 1;
   let refresh = false;
   let dryRun = false;
-  let dailyRepair: RepairJob[] = [];
+  let dailyRepairRaw: string | undefined;
+  let allowLockbox = false;
+  let maxDate: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -259,7 +299,13 @@ export function parseArgs(argv: string[]): Args {
         dryRun = true;
         break;
       case '--daily-repair':
-        dailyRepair = parseRepairList(nextValue(argv, ++i, flag));
+        dailyRepairRaw = nextValue(argv, ++i, flag);
+        break;
+      case '--allow-lockbox':
+        allowLockbox = true;
+        break;
+      case '--max-date':
+        maxDate = nextValue(argv, ++i, flag);
         break;
       default:
         throw new Error(`Unknown flag: ${flag}`);
@@ -276,11 +322,29 @@ export function parseArgs(argv: string[]): Args {
   ] as const) {
     if (!PERIOD.test(value)) throw new Error(`${flag} must be YYYY-MM, got ${value}`);
   }
-  assertOutsideLockbox(from);
-  assertOutsideLockbox(to);
+  if (maxDate !== undefined) {
+    if (!DATE.test(maxDate) || new Date(`${maxDate}T00:00:00Z`).toISOString().slice(0, 10) !== maxDate) {
+      throw new Error(`--max-date must be a valid YYYY-MM-DD, got ${maxDate}`);
+    }
+  }
+  if (allowLockbox && maxDate === undefined) throw new Error('--allow-lockbox needs --max-date YYYY-MM-DD');
+  const guard: LockboxGuard = { allowLockbox, maxDate };
+  assertPeriodAllowed(from, guard);
+  assertPeriodAllowed(to, guard);
   if (from > to) throw new Error(`--from ${from} is after --to ${to}`);
+  const dailyRepair = dailyRepairRaw === undefined ? [] : parseRepairList(dailyRepairRaw, guard);
 
-  return { symbols, from, to, concurrency, refresh, dryRun, dailyRepair };
+  return {
+    symbols,
+    from,
+    to,
+    concurrency,
+    refresh,
+    dryRun,
+    dailyRepair,
+    ...(allowLockbox ? { allowLockbox: true } : {}),
+    ...(maxDate ? { maxDate } : {}),
+  };
 }
 
 /** Every 'YYYY-MM' from `from` to `to`, inclusive. */
@@ -301,9 +365,9 @@ export function periodsBetween(from: string, to: string): string[] {
 }
 
 /** Symbol-major, period ascending. Refuses a lockbox period outright. */
-export function buildJobs(args: Pick<Args, 'symbols' | 'from' | 'to'>): Job[] {
+export function buildJobs(args: Pick<Args, 'symbols' | 'from' | 'to'> & LockboxGuard): Job[] {
   const periods = periodsBetween(args.from, args.to);
-  for (const period of periods) assertOutsideLockbox(period);
+  for (const period of periods) assertPeriodAllowed(period, args);
   return args.symbols.flatMap((symbol) => periods.map((period) => ({ symbol, period })));
 }
 
@@ -348,7 +412,7 @@ async function writeBuckets(symbol: string, source: string, buckets: FlowBucket[
 }
 
 /** Ingest one file. Never throws: a failure is returned as status 'error' and leaves no ledger row. */
-export async function ingestFile(job: Job): Promise<FileResult> {
+export async function ingestFile(job: Job, guard: LockboxGuard = {}): Promise<FileResult> {
   const t0 = Date.now();
   const startedAt = new Date();
   const result = (r: Partial<FileResult> & { status: FileStatus }): FileResult => ({
@@ -362,7 +426,7 @@ export async function ingestFile(job: Job): Promise<FileResult> {
   });
 
   try {
-    assertOutsideLockbox(job.period);
+    assertPeriodAllowed(job.period, guard);
     const spec = { dataset: 'aggTrades', symbol: job.symbol, date: job.period } as const;
     const key = { symbol: job.symbol, period: job.period };
 
@@ -467,7 +531,7 @@ async function refreshCoverage(symbol: string, period: string): Promise<void> {
 }
 
 /** Ingest one DAILY aggTrades file with the same fold and a day-bounded guard. Never throws. */
-export async function repairDay(job: RepairJob): Promise<RepairResult> {
+export async function repairDay(job: RepairJob, guard: LockboxGuard = {}): Promise<RepairResult> {
   const t0 = Date.now();
   const result = (r: Partial<RepairResult> & { status: RepairResult['status'] }): RepairResult => ({
     repair: true,
@@ -479,7 +543,7 @@ export async function repairDay(job: RepairJob): Promise<RepairResult> {
     ...r,
   });
   try {
-    assertDateOutsideLockbox(job.date);
+    assertDateAllowed(job.date, guard);
     const spec = {
       dataset: 'aggTrades',
       symbol: job.symbol,
@@ -524,18 +588,22 @@ export async function run(
   log: (line: object) => void = (l) => console.log(JSON.stringify(l))
 ): Promise<number> {
   const t0 = Date.now();
+  const guard: LockboxGuard = { allowLockbox: args.allowLockbox, maxDate: args.maxDate };
+  if (args.allowLockbox) {
+    log({ lockbox: 'allowed', maxDate: args.maxDate, note: 'forward test: lockbox periods and dates are read up to --max-date' });
+  }
   if (args.dailyRepair.length > 0) {
-    for (const job of args.dailyRepair) assertDateOutsideLockbox(job.date);
+    for (const job of args.dailyRepair) assertDateAllowed(job.date, guard);
     let failed = 0;
     await runPool(args.dailyRepair, args.concurrency, async (job) => {
-      const result = await repairDay(job);
+      const result = await repairDay(job, guard);
       if (result.status === 'error') failed++;
       log(result);
     });
     return failed > 0 ? 1 : 0;
   }
 
-  const jobs = buildJobs(args);
+  const jobs = buildJobs({ ...args, ...guard });
   const statuses = await ledgerStatuses(jobs);
 
   if (args.dryRun) {
@@ -560,7 +628,7 @@ export async function run(
             missingDays: recorded.missingDays,
             seconds: 0,
           }
-        : await ingestFile(job);
+        : await ingestFile(job, guard);
     results.push(result);
     const { error, ...line } = result;
     log(error ? { ...line, error } : line);

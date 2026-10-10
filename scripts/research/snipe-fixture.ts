@@ -60,7 +60,12 @@ export function perpSeries5m(seed: number, count = FIXTURE_5M_BARS): PerpCandleR
 }
 
 /** Writes perp 5m/1h/4h klines and 1h snapshots per symbol plus a verifying manifest. */
-export async function writeSnipeFixture(dir: string, symbols: string[], seeds: number[]): Promise<DatasetManifest> {
+export async function writeSnipeFixture(
+  dir: string,
+  symbols: string[],
+  seeds: number[],
+  bars5m: number = FIXTURE_5M_BARS
+): Promise<DatasetManifest> {
   const files: ManifestFile[] = [];
   const put = async (rel: string, kind: ManifestFile['kind'], symbol: string, interval: string, rows: Array<{ t: number }>) => {
     const path = join(dir, rel);
@@ -78,7 +83,7 @@ export async function writeSnipeFixture(dir: string, symbols: string[], seeds: n
     });
   };
   for (const [i, symbol] of symbols.entries()) {
-    const r5 = perpSeries5m(seeds[i]);
+    const r5 = perpSeries5m(seeds[i], bars5m);
     const r1h = aggregate(r5, 12);
     const r4h = aggregate(r1h, 4);
     await put(`perp/${symbol}/5m.jsonl.gz`, 'perp', symbol, '5m', r5);

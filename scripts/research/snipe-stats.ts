@@ -27,6 +27,7 @@
 
 import { normalCdf } from '@/lib/stats/normal';
 import { seededRandom } from './carry-sim';
+import { FORWARD_CONSISTENCY } from './forward-test';
 import {
   SNIPE_BOOTSTRAP,
   SNIPE_CONFIRM_ALPHA,
@@ -468,19 +469,34 @@ export function bootstrapCi(
 }
 
 export interface ConsistencyResult {
+  /** The period leg. In 'month' mode (forward test) the entries are calendar months and `period` is set. */
   quarters: { kept: number; agree: number; share: number; pass: boolean };
+  /** Only present in 'month' mode. */
+  period?: 'month';
   symbols: { kept: number; agree: number; pass: boolean };
   pass: boolean;
 }
 
 /** Consistency of the resolved taken trades with sign s (+1 long edge, -1 short edge). A zero excess never agrees. */
-export function consistency(views: SliceView[], trades: TakenTrades, sign: number): ConsistencyResult {
+export function consistency(
+  views: SliceView[],
+  trades: TakenTrades,
+  sign: number,
+  period: 'quarter' | 'month' = 'quarter'
+): ConsistencyResult {
+  const monthly = period === 'month';
+  const minPeriodTrades = monthly ? FORWARD_CONSISTENCY.minMonthTrades : SNIPE_CONSISTENCY.minQuarterTrades;
+  const minPeriods = monthly ? FORWARD_CONSISTENCY.minMonths : SNIPE_CONSISTENCY.minQuarters;
+  const periodShare = monthly ? FORWARD_CONSISTENCY.monthShare : SNIPE_CONSISTENCY.quarterShare;
+  const minSymbolTrades = monthly ? FORWARD_CONSISTENCY.minSymbolTrades : SNIPE_CONSISTENCY.minSymbolTrades;
+  const symbolsAgree = monthly ? FORWARD_CONSISTENCY.symbolsAgree : SNIPE_CONSISTENCY.symbolsAgree;
   const q = new Map<number, [number, number]>();
   const sy = new Map<number, [number, number]>();
   for (let k = 0; k < trades.taken; k++) {
     if (trades.y[k] < 0) continue;
     const e = trades.y[k] - trades.b[k];
-    const quarter = Math.floor(views[trades.symbol[k]].arrays.month[trades.bar[k]] / 3);
+    const month = views[trades.symbol[k]].arrays.month[trades.bar[k]];
+    const quarter = monthly ? month : Math.floor(month / 3);
     const a = q.get(quarter) ?? [0, 0];
     a[0] += e;
     a[1]++;
@@ -494,25 +510,27 @@ export function consistency(views: SliceView[], trades: TakenTrades, sign: numbe
   let qKept = 0;
   let qAgree = 0;
   for (const [sum, n] of q.values()) {
-    if (n < SNIPE_CONSISTENCY.minQuarterTrades) continue;
+    if (n < minPeriodTrades) continue;
     qKept++;
     if (agrees(sum)) qAgree++;
   }
   const share = qKept === 0 ? Number.NaN : qAgree / qKept;
-  const qPass = qKept >= SNIPE_CONSISTENCY.minQuarters && share >= SNIPE_CONSISTENCY.quarterShare;
+  const qPass = qKept >= minPeriods && share >= periodShare;
   let sKept = 0;
   let sAgree = 0;
   for (const [sum, n] of sy.values()) {
-    if (n < SNIPE_CONSISTENCY.minSymbolTrades) continue;
+    if (n < minSymbolTrades) continue;
     sKept++;
     if (agrees(sum)) sAgree++;
   }
-  const sPass = sKept >= SNIPE_CONSISTENCY.symbolsAgree && sAgree >= SNIPE_CONSISTENCY.symbolsAgree;
-  return {
+  const sPass = sKept >= symbolsAgree && sAgree >= symbolsAgree;
+  const result: ConsistencyResult = {
     quarters: { kept: qKept, agree: qAgree, share, pass: qPass },
     symbols: { kept: sKept, agree: sAgree, pass: sPass },
     pass: qPass && sPass,
   };
+  if (monthly) result.period = 'month';
+  return result;
 }
 
 // ---------------------------------------------------------------------------------------------------------

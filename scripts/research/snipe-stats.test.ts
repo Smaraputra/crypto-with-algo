@@ -449,6 +449,84 @@ describe('consistency', () => {
   });
 });
 
+describe('consistency in month mode (forward test)', () => {
+  /** Hand-built trades: per (symbol, month offset from the second data month) a count of trades with excess e. */
+  function monthTrades(spec: Array<{ symbol: number; month: number; count: number; e: number }>, symbols: number) {
+    const arrays = Array.from({ length: symbols }, (_, s) => makeArrays({ n: 400, seed: 40 + s }));
+    const views = arrays.map((a) => sliceView(a, ALL, DAY));
+    const sym: number[] = [];
+    const bar: number[] = [];
+    const b: number[] = [];
+    for (const { symbol, month, count, e } of spec) {
+      const target = arrays[symbol].month[0] + 1 + month;
+      const bars: number[] = [];
+      for (let i = 0; i < 400 && bars.length < count; i++) if (arrays[symbol].month[i] === target) bars.push(i);
+      expect(bars.length).toBe(count);
+      for (const i of bars) {
+        sym.push(symbol);
+        bar.push(i);
+        b.push(1 - e);
+      }
+    }
+    const trades: TakenTrades = {
+      symbol: Int32Array.from(sym),
+      bar: Int32Array.from(bar),
+      y: new Int8Array(sym.length).fill(1),
+      b: Float64Array.from(b),
+      taken: sym.length,
+      resolved: sym.length,
+      timeouts: 0,
+      ambiguous: 0,
+    };
+    return { views, trades };
+  }
+  const grid = (e: (m: number, s: number) => number, symbols: number, months: number, count: number) => {
+    const spec: Array<{ symbol: number; month: number; count: number; e: number }> = [];
+    for (let s = 0; s < symbols; s++) for (let m = 0; m < months; m++) spec.push({ symbol: s, month: m, count, e: e(m, s) });
+    return spec;
+  };
+
+  it('uses calendar months with the forward constants and flags the period', () => {
+    // 8 symbols x 3 months x 10 trades: 80 per month pooled (>= 20), 30 per symbol (>= 20); 3 months = minMonths.
+    const { views, trades } = monthTrades(grid(() => 0.1, 8, 3, 10), 8);
+    const r = consistency(views, trades, 1, 'month');
+    expect(r.period).toBe('month');
+    expect(r.quarters).toMatchObject({ kept: 3, agree: 3, share: 1, pass: true });
+    expect(r.symbols).toMatchObject({ kept: 8, agree: 8, pass: true });
+    expect(r.pass).toBe(true);
+    // Quarter mode on the same trades is a different leg (fewer than 4 quarters) and carries no period flag.
+    const q = consistency(views, trades, 1);
+    expect(q.period).toBeUndefined();
+    expect(q.pass).toBe(false);
+  });
+
+  it('needs at least 3 months with 20 or more trades', () => {
+    const { views, trades } = monthTrades(grid(() => 0.1, 8, 2, 10), 8);
+    const r = consistency(views, trades, 1, 'month');
+    expect(r.quarters.kept).toBe(2);
+    expect(r.quarters.pass).toBe(false);
+    // A month with fewer than 20 pooled trades is not kept: 2 trades x 8 symbols = 16.
+    const thin = monthTrades([...grid(() => 0.1, 8, 3, 10), ...grid(() => 0.1, 8, 1, 2).map((x) => ({ ...x, month: 3 }))], 8);
+    expect(consistency(thin.views, thin.trades, 1, 'month').quarters.kept).toBe(3);
+  });
+
+  it('requires a 60 percent month share agreeing with the sign', () => {
+    // 5 months: 3 agree = 0.6 passes, 2 agree = 0.4 fails.
+    const ok = monthTrades(grid((m) => (m < 3 ? 0.1 : -0.1), 8, 5, 10), 8);
+    expect(consistency(ok.views, ok.trades, 1, 'month').quarters).toMatchObject({ kept: 5, agree: 3, pass: true });
+    const bad = monthTrades(grid((m) => (m < 2 ? 0.1 : -0.1), 8, 5, 10), 8);
+    expect(consistency(bad.views, bad.trades, 1, 'month').quarters).toMatchObject({ kept: 5, agree: 2, pass: false });
+    expect(consistency(ok.views, ok.trades, -1, 'month').quarters.agree).toBe(2);
+  });
+
+  it('keeps the symbols leg: 7 of the symbols with 20 or more trades must agree', () => {
+    const six = monthTrades(grid(() => 0.1, 6, 3, 10), 6);
+    expect(consistency(six.views, six.trades, 1, 'month').symbols).toMatchObject({ kept: 6, pass: false });
+    const split = monthTrades(grid((_m, s) => (s < 2 ? -0.3 : 0.1), 8, 3, 10), 8);
+    expect(consistency(split.views, split.trades, 1, 'month').symbols).toMatchObject({ kept: 8, agree: 6, pass: false });
+  });
+});
+
 describe('benjamini-hochberg and selection', () => {
   it('matches a hand example including the step-up property', () => {
     const ps = [0.205, 0.001, 0.042, 0.074, 0.008, 0.039, 0.059, 0.216, 0.041, 0.212];

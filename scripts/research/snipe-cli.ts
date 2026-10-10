@@ -210,3 +210,30 @@ export function confirmationBinding(run: {
     commitsAgree(run.gitCommit, run.cacheCommits)
   );
 }
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+export type ForwardMode = 'binding' | 'descriptive';
+
+/**
+ * Parses the optional --window-end of the forward scripts. Absent or equal to the frozen end gives the binding
+ * window; a later valid ISO instant gives a descriptive window; an earlier or invalid one throws.
+ */
+export function parseWindowEnd(
+  raw: string | undefined,
+  frozenEnd: string
+): { windowEnd: string; mode: ForwardMode } {
+  if (raw === undefined) return { windowEnd: frozenEnd, mode: 'binding' };
+  let ms = ISO_INSTANT.test(raw) ? Date.parse(raw) : Number.NaN;
+  if (!Number.isNaN(ms)) {
+    // Date.parse rolls an impossible calendar day (02-30) over instead of rejecting it.
+    const [y, m, d] = raw.slice(0, 10).split('-').map(Number);
+    const check = new Date(Date.UTC(y, m - 1, d));
+    if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) ms = Number.NaN;
+  }
+  if (Number.isNaN(ms)) throw new Error(`--window-end is not a valid ISO instant: ${raw}`);
+  const frozenMs = Date.parse(frozenEnd);
+  if (ms < frozenMs) throw new Error(`--window-end must not be earlier than the frozen window end ${frozenEnd}`);
+  if (ms === frozenMs) return { windowEnd: frozenEnd, mode: 'binding' };
+  return { windowEnd: new Date(ms).toISOString(), mode: 'descriptive' };
+}

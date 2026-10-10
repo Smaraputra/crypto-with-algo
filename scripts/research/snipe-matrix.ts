@@ -13,7 +13,9 @@
  *     the HTF interval from getConfirmationInterval, candles converted with toOHLCV. The HTF candles are perp
  *     klines at the HTF interval (the exported htf file is spot-based; the spec recomputes it from perp). A
  *     missing HTF perp file gives null contexts, with a stderr note.
- *   - The lockbox is always applied by the loaders; allowLockbox is never passed.
+ *   - The lockbox is applied by the loaders by default. The forward test (forward-test.ts) opts in per call with
+ *     BuildOptions: loaders get allowLockbox, rows outside [startMs, endMs] are dropped before the matrix is
+ *     built, and the labels' sliceEndMs is endMs. Without options the behaviour is exactly the original.
  *
  * Memory: the factor matrix (about 150 Float64 columns) is the peak. It lives only inside reduceColumns, so it is
  * released as soon as the 38 columns are reduced, and the labels are computed after that.
@@ -63,6 +65,8 @@ export interface SnipeSymbolArrays {
   warmupBars: number;
   /** Share of bars whose raw value is finite, per column. */
   finiteShare: number[];
+  /** Only with BuildOptions.captureColumn: a copy of that column's raw values, parallel to `timestamps`. */
+  captured?: { column: string; values: Float64Array };
 }
 
 function perpFileExists(datasetDir: string, symbol: string, interval: string, series: 'klines' | 'premiumIndex'): boolean {
@@ -70,11 +74,27 @@ function perpFileExists(datasetDir: string, symbol: string, interval: string, se
   return existsSync(join(datasetDir, 'perp', symbol, name));
 }
 
-function requirePerp(datasetDir: string, symbol: string, interval: string): PerpCandleRow[] {
+/** Opt-in forward mode (see the file header). All fields optional, no field set means the original behaviour. */
+export interface BuildOptions {
+  allowLockbox?: boolean;
+  startMs?: number;
+  endMs?: number;
+  /** Also return a copy of this SNIPE_COLUMNS column's raw values in `captured` (span-equality check). */
+  captureColumn?: string;
+}
+
+function inRange<T extends { t: number }>(rows: T[], opts: BuildOptions): T[] {
+  const lo = opts.startMs ?? -Infinity;
+  const hi = opts.endMs ?? Infinity;
+  if (lo === -Infinity && hi === Infinity) return rows;
+  return rows.filter((r) => r.t >= lo && r.t <= hi);
+}
+
+function requirePerp(datasetDir: string, symbol: string, interval: string, opts: BuildOptions): PerpCandleRow[] {
   if (!perpFileExists(datasetDir, symbol, interval, 'klines')) {
     throw new Error(`snipe: no perp ${interval} klines for ${symbol} in ${datasetDir}`);
   }
-  return loadPerp(datasetDir, symbol, interval, 'klines').rows;
+  return inRange(loadPerp(datasetDir, symbol, interval, 'klines', { allowLockbox: opts.allowLockbox }).rows, opts);
 }
 
 interface Built {
@@ -83,17 +103,18 @@ interface Built {
   pathBars: OHLCV[];
 }
 
-function buildMatrix(datasetDir: string, symbol: string, interval: string): Built {
-  const perpRows = requirePerp(datasetDir, symbol, interval);
+function buildMatrix(datasetDir: string, symbol: string, interval: string, opts: BuildOptions): Built {
+  const lo = { allowLockbox: opts.allowLockbox };
+  const perpRows = requirePerp(datasetDir, symbol, interval, opts);
   const entryBars = perpRows.map(toOHLCV);
-  const pathBars = interval === '5m' ? entryBars : requirePerp(datasetDir, symbol, '5m').map(toOHLCV);
+  const pathBars = interval === '5m' ? entryBars : requirePerp(datasetDir, symbol, '5m', opts).map(toOHLCV);
 
   const style = styleForInterval(interval);
   const htfInterval = getConfirmationInterval(interval, style);
   let htfCandles: OHLCV[] = [];
   if (htfInterval) {
     if (perpFileExists(datasetDir, symbol, htfInterval, 'klines')) {
-      htfCandles = loadPerp(datasetDir, symbol, htfInterval, 'klines').rows.map(toOHLCV);
+      htfCandles = inRange(loadPerp(datasetDir, symbol, htfInterval, 'klines', lo).rows, opts).map(toOHLCV);
     } else {
       console.error(`[snipe] ${symbol}: no perp ${htfInterval} klines, HTF context is null at ${interval}`);
     }
@@ -103,21 +124,21 @@ function buildMatrix(datasetDir: string, symbol: string, interval: string): Buil
   const snapshotInterval = mapToSnapshotInterval(interval);
   let snapshots: SnapshotRow[] | null = null;
   if (existsSync(join(datasetDir, 'snapshots', symbol, `${snapshotInterval}.jsonl.gz`))) {
-    snapshots = loadSnapshots(datasetDir, symbol, snapshotInterval).rows;
+    snapshots = inRange(loadSnapshots(datasetDir, symbol, snapshotInterval, lo).rows, opts);
   } else {
     console.error(`[snipe] ${symbol}: no ${snapshotInterval} snapshot file, snapshots=null`);
   }
 
   let metrics: MetricsRow[] | null = null;
   if (existsSync(join(datasetDir, 'metrics', symbol, '5m.jsonl.gz'))) {
-    metrics = loadMetrics(datasetDir, symbol).rows;
+    metrics = inRange(loadMetrics(datasetDir, symbol, lo).rows, opts);
   } else {
     console.error(`[snipe] ${symbol}: no futures metrics file, archive columns are NaN`);
   }
 
   let premiumIndex: PerpCandleRow[] | null = null;
   if (perpFileExists(datasetDir, symbol, interval, 'premiumIndex')) {
-    premiumIndex = loadPerp(datasetDir, symbol, interval, 'premiumIndex').rows;
+    premiumIndex = inRange(loadPerp(datasetDir, symbol, interval, 'premiumIndex', lo).rows, opts);
   } else {
     console.error(`[snipe] ${symbol}: no ${interval} premiumIndex file, basis columns are NaN`);
   }
@@ -145,41 +166,59 @@ interface Reduced {
   warmupBars: number;
   entryBars: OHLCV[];
   pathBars: OHLCV[];
+  captured?: { column: string; values: Float64Array };
 }
 
 /**
  * Builds the factor matrix and reduces it to the tail flags INSIDE this function, so the matrix is local and
  * unreachable as soon as it returns, and no holder object keeps it alive while the labels are computed.
  */
-function reduceColumns(datasetDir: string, symbol: string, interval: string, intervalMs: number): Reduced {
-  const { matrix, entryBars, pathBars } = buildMatrix(datasetDir, symbol, interval);
+function reduceColumns(
+  datasetDir: string,
+  symbol: string,
+  interval: string,
+  intervalMs: number,
+  opts: BuildOptions
+): Reduced {
+  const { matrix, entryBars, pathBars } = buildMatrix(datasetDir, symbol, interval, opts);
   const n = matrix.timestamps.length;
   const timestamps = Float64Array.from(matrix.timestamps);
   const columns: string[] = [...SNIPE_COLUMNS];
   const flags: Uint8Array[] = [];
   const finiteShare: number[] = [];
+  let captured: Reduced['captured'];
 
   for (const name of columns) {
     const idx = matrix.names.indexOf(name);
     if (idx === -1) throw new Error(`snipe: column ${name} missing from the factor matrix for ${symbol} ${interval}`);
     const values = matrix.values[idx];
+    if (opts.captureColumn === name) captured = { column: name, values: Float64Array.from(values) };
     let finite = 0;
     for (let i = 0; i < n; i++) if (Number.isFinite(values[i])) finite++;
     finiteShare.push(n === 0 ? 0 : finite / n);
     const thresholds = monthlyThresholds(timestamps, values, TAIL_PROBS, SNIPE_THRESHOLD_LOOKBACK_DAYS, intervalMs);
     flags.push(tailFlags(timestamps, values, thresholds));
   }
-  return { columns, timestamps, flags, finiteShare, warmupBars: matrix.warmupBars, entryBars, pathBars };
+  if (opts.captureColumn !== undefined && captured === undefined) {
+    throw new Error(`snipe: captureColumn ${opts.captureColumn} is not a SNIPE_COLUMNS column`);
+  }
+  return { columns, timestamps, flags, finiteShare, warmupBars: matrix.warmupBars, entryBars, pathBars, captured };
 }
 
-export function buildSymbolArrays(datasetDir: string, symbol: string, timeframe: SnipeTimeframe): SnipeSymbolArrays {
+export function buildSymbolArrays(
+  datasetDir: string,
+  symbol: string,
+  timeframe: SnipeTimeframe,
+  options: BuildOptions = {}
+): SnipeSymbolArrays {
   const { interval, maxHoldMs } = SNIPE_TIMEFRAMES[timeframe];
   const intervalMs = intervalToMs(interval);
-  const { columns, timestamps, flags, finiteShare, warmupBars, entryBars, pathBars } = reduceColumns(
+  const { columns, timestamps, flags, finiteShare, warmupBars, entryBars, pathBars, captured } = reduceColumns(
     datasetDir,
     symbol,
     interval,
-    intervalMs
+    intervalMs,
+    options
   );
   const n = timestamps.length;
 
@@ -190,7 +229,7 @@ export function buildSymbolArrays(datasetDir: string, symbol: string, timeframe:
     maxHoldMs,
     atrPeriod: SNIPE_ATR_PERIOD,
     barrierAtr: SNIPE_BARRIER_ATR,
-    sliceEndMs: Date.parse(SNIPE_LOCKBOX_START) - 1,
+    sliceEndMs: options.endMs ?? Date.parse(SNIPE_LOCKBOX_START) - 1,
   });
   const atrQuintile = atrQuintiles(timestamps, labels.atrPct, SNIPE_THRESHOLD_LOOKBACK_DAYS, intervalMs);
   const month = new Int32Array(n);
@@ -213,5 +252,6 @@ export function buildSymbolArrays(datasetDir: string, symbol: string, timeframe:
     month,
     warmupBars,
     finiteShare,
+    ...(captured ? { captured } : {}),
   };
 }

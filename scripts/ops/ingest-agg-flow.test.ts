@@ -464,3 +464,81 @@ describe('--daily-repair', () => {
     expect(stream).not.toHaveBeenCalled();
   });
 });
+
+describe('--allow-lockbox (forward test, opt-in)', () => {
+  const JUL = Date.UTC(2026, 6, 10);
+  const julRows = [`1,10,2,1,1,${JUL + 1_000},false`, `2,10,1,2,2,${JUL + 301_000},true`];
+  const OCT = Date.UTC(2026, 9, 5);
+  const octRows = [`1,10,2,1,1,${OCT + 1_000},false`, `2,10,1,2,2,${OCT + 301_000},true`];
+
+  it('is off by default and parseArgs output has no new keys', () => {
+    const a = parseArgs([]);
+    expect(a).not.toHaveProperty('allowLockbox');
+    expect(a).not.toHaveProperty('maxDate');
+    expect(() => parseArgs(['--to', '2026-07'])).toThrow(/Lockbox/);
+    expect(() => parseArgs(['--max-date', '2026-10-09', '--to', '2026-07'])).toThrow(/Lockbox/);
+  });
+
+  it('requires --max-date and a valid date', () => {
+    expect(() => parseArgs(['--allow-lockbox', '--to', '2026-09'])).toThrow(/--max-date/);
+    expect(() => parseArgs(['--allow-lockbox', '--max-date', '2026-10-32', '--to', '2026-09'])).toThrow(/--max-date/);
+  });
+
+  it('lifts the lockbox for periods and repair dates up to --max-date', () => {
+    const a = parseArgs([
+      '--allow-lockbox', '--max-date', '2026-10-09', '--from', '2026-07', '--to', '2026-09',
+      '--daily-repair', 'BTCUSDT:2026-10-09',
+    ]);
+    expect(a.allowLockbox).toBe(true);
+    expect(a.maxDate).toBe('2026-10-09');
+    expect(a.dailyRepair).toEqual([{ symbol: 'BTCUSDT', date: '2026-10-09' }]);
+    expect(buildJobs(a)).toHaveLength(10 * 3);
+  });
+
+  it('refuses periods and dates after --max-date', () => {
+    expect(() => parseArgs(['--allow-lockbox', '--max-date', '2026-09-30', '--from', '2026-07', '--to', '2026-10'])).toThrow(
+      /Max date/
+    );
+    expect(() =>
+      parseArgs(['--allow-lockbox', '--max-date', '2026-10-09', '--daily-repair', 'BTCUSDT:2026-10-10'])
+    ).toThrow(/Max date/);
+    expect(() => parseRepairList('BTCUSDT:2026-10-10', { allowLockbox: true, maxDate: '2026-10-09' })).toThrow(/Max date/);
+  });
+
+  it('ingests a lockbox month, logs that the lockbox is allowed, and still refuses without the flag', async () => {
+    stream.mockImplementation(async (_s: unknown, onLine: (l: string) => void) => {
+      for (const row of [HEADER, ...julRows]) onLine(row);
+      return { status: 'ok', lines: 3, uncompressedBytes: 1 };
+    });
+    const out = quiet();
+    const code = await run(
+      args({ from: '2026-07', to: '2026-07', allowLockbox: true, maxDate: '2026-10-09' }),
+      out.log
+    );
+    expect(code).toBe(0);
+    expect(out.lines[0]).toMatchObject({ lockbox: 'allowed', maxDate: '2026-10-09' });
+    expect(out.lines.some((l) => l.status === 'complete' || l.status === 'missing')).toBe(true);
+    expect(await ArchiveFlowBar.countDocuments({})).toBeGreaterThan(0);
+    await expect(run(args({ from: '2026-07', to: '2026-07' }), quiet().log)).rejects.toThrow(/Lockbox/);
+  });
+
+  it('repairs a lockbox day, and refuses one after --max-date at run time', async () => {
+    stream.mockImplementation(async (_s: unknown, onLine: (l: string) => void) => {
+      for (const row of octRows) onLine(row);
+      return { status: 'ok', lines: 2, uncompressedBytes: 1 };
+    });
+    const out = quiet();
+    const code = await run(
+      args({ allowLockbox: true, maxDate: '2026-10-09', dailyRepair: [{ symbol: 'BTCUSDT', date: '2026-10-05' }] }),
+      out.log
+    );
+    expect(code).toBe(0);
+    expect(out.lines.find((l) => l.repair)).toMatchObject({ status: 'repaired', date: '2026-10-05' });
+    await expect(
+      run(
+        args({ allowLockbox: true, maxDate: '2026-10-09', dailyRepair: [{ symbol: 'BTCUSDT', date: '2026-10-10' }] }),
+        quiet().log
+      )
+    ).rejects.toThrow(/Max date/);
+  });
+});
