@@ -122,4 +122,42 @@ test.describe('Dashboard features (authenticated)', () => {
       await expect(strip.getByRole('group', { name: 'Trading style' })).toHaveCount(0);
     });
   });
+
+  test.describe('track record panel', () => {
+    // A database with the re-score loaded shows the answer; one without (CI) says
+    // so. Both are valid here; an error line is not.
+    const STATE = /^(Right \d+\.\d% of the time\.|No buy or sell call in this year\.|The re-scored year is not loaded on this server yet)/;
+
+    test('renders the track record for BTCUSDT at 1h', async ({ page }) => {
+      await page.goto('/dashboard');
+      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+
+      const panel = page.getByTestId('track-record-panel');
+      await expect(panel.getByRole('heading', { name: 'Track record · BTCUSDT · Day trading · 1h' })).toBeVisible({
+        timeout: 20000,
+      });
+      await expect(panel.getByText(STATE).first()).toBeVisible({ timeout: 20000 });
+      await expect(panel.getByRole('alert')).toHaveCount(0);
+    });
+
+    test('says there is no track record at an interval the re-score does not cover', async ({ page }) => {
+      await page.goto('/dashboard');
+      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+      await page.getByRole('tab', { name: '1m', exact: true }).click();
+
+      const panel = page.getByTestId('track-record-panel');
+      await expect(
+        panel.getByText('No track record for BTCUSDT at 1m. The re-score covers the ten signal symbols at 5m, 15m, 1h, 4h and 1d.')
+      ).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId('call-detail')).toHaveCount(0);
+    });
+
+    test('shows the call strip under the chart at a re-scored interval', async ({ page }) => {
+      await page.goto('/dashboard');
+      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('call-detail')).toHaveText('Hover or touch a call mark to see its score and how it ended.', {
+        timeout: 20000,
+      });
+    });
+  });
 });
