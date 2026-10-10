@@ -130,6 +130,9 @@ export interface MeasureInterval {
   hi95: number;
   lo99: number;
   hi99: number;
+  /** Percentiles at the optional `level` passed to blockBootstrap, else absent. */
+  loLevel?: number;
+  hiLevel?: number;
   /** Resamples whose measure was finite. */
   finite: number;
 }
@@ -146,7 +149,8 @@ export function blockBootstrap(
   horizonBars: number,
   measureFn: (resampled: LiveRow[]) => Record<string, number>,
   resamples: number,
-  seed: number
+  seed: number,
+  level?: number
 ): Record<string, MeasureInterval> {
   const byTs = new Map<number, LiveRow[]>();
   for (const r of rows) {
@@ -190,6 +194,12 @@ export function blockBootstrap(
       lo99: percentileType7(sorted, 0.005),
       hi99: percentileType7(sorted, 0.995),
       finite: sorted.length,
+      ...(level === undefined
+        ? {}
+        : {
+            loLevel: percentileType7(sorted, (1 - level) / 2),
+            hiLevel: percentileType7(sorted, 1 - (1 - level) / 2),
+          }),
     };
   }
   return out;
@@ -227,9 +237,9 @@ export interface VerdictResult {
 const halfWidth = (i: Interval99): number => (i.hi99 - i.lo99) / 2;
 
 /** The header's verdict rules. RIGHT and PAYS can both hold; both flags are recorded, the label prefers RIGHT. */
-export function verdictOf(input: VerdictInput): VerdictResult {
+export function verdictOf(input: VerdictInput, level: number = LIVE_RECORD_VERDICT_LEVEL): VerdictResult {
   const halfWidths = { bh: halfWidth(input.bh), s: halfWidth(input.s), net: halfWidth(input.net) };
-  const base = { level: LIVE_RECORD_VERDICT_LEVEL, halfWidths };
+  const base = { level, halfWidths };
   if (
     !(input.spanHorizons >= LIVE_RECORD_MIN_HORIZONS) ||
     input.buyN < LIVE_RECORD_MIN_SIDE_ROWS ||

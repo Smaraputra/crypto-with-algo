@@ -963,3 +963,29 @@ describe('exploration calendar and diagnostic columns', () => {
     expect(Array.from(m1d.values[m1d.names.indexOf('raw.ret1InLowVolRatio')]).every(Number.isNaN)).toBe(true);
   });
 });
+
+describe('computeFactorMatrix style option', () => {
+  const ONE_DAY = 24 * 3600000;
+  const candles = generateCandles(450, 777, ONE_DAY);
+  const candleRows = candles.map(toCandleRow);
+  const htf: HtfRow[] = candles.map((c) => ({ t: c.timestamp, context: null }));
+  const run = (style?: 'swing_trading' | 'position_trading') =>
+    computeFactorMatrix({ candles: candleRows, snapshots: null, htf, interval: '1d', ...(style ? { style } : {}) });
+
+  it('default path equals the explicit mapped style exactly', () => {
+    const def = run();
+    const explicit = run('position_trading');
+    expect(explicit.names).toEqual(def.names);
+    for (let k = 0; k < def.values.length; k++) {
+      expect(Array.from(explicit.values[k])).toEqual(Array.from(def.values[k]));
+    }
+  });
+
+  it('a different style changes the composite', () => {
+    const def = run();
+    const swing = run('swing_trading');
+    const a = def.values[def.names.indexOf('composite')];
+    const b = swing.values[swing.names.indexOf('composite')];
+    expect(Array.from(b)).not.toEqual(Array.from(a));
+  }, 60_000);
+});

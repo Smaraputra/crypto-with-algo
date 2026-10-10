@@ -266,6 +266,36 @@ describe('blockBootstrap', () => {
   });
 });
 
+describe('blockBootstrap level option', () => {
+  const rows = Array.from({ length: 200 }, (_, i) => ({
+    symbol: 'X',
+    interval: '1h',
+    tradingStyle: 'day_trading',
+    tier: i % 2 === 0 ? 'buy' : 'sell',
+    score: i % 2 === 0 ? 30 : -30,
+    configVersion: 8,
+    candleTimestamp: i * 3_600_000,
+    horizonBars: 5,
+    forwardReturnPercent: ((i * 13) % 7) - 3,
+  }));
+  const fn = (rs: typeof rows) => bootstrapMeasures(rs, 0.1);
+
+  it('adds level percentiles without changing the default fields', () => {
+    const plain = blockBootstrap(rows, 5, fn, 100, 13);
+    const withLevel = blockBootstrap(rows, 5, fn, 100, 13, 0.98);
+    expect(plain.bh.loLevel).toBeUndefined();
+    expect(withLevel.bh.lo99).toBe(plain.bh.lo99);
+    expect(withLevel.bh.hi95).toBe(plain.bh.hi95);
+    expect(withLevel.bh.loLevel).toBeLessThanOrEqual(withLevel.bh.hiLevel as number);
+  });
+
+  it('level 0.99 reproduces the 99% fields', () => {
+    const r = blockBootstrap(rows, 5, fn, 100, 13, 0.99);
+    expect(r.s.loLevel).toBeCloseTo(r.s.lo99, 12);
+    expect(r.s.hiLevel).toBeCloseTo(r.s.hi99, 12);
+  });
+});
+
 describe('percentileType7', () => {
   it('interpolates linearly', () => {
     expect(percentileType7([1, 2, 3, 4, 5], 0.5)).toBe(3);
@@ -315,6 +345,16 @@ describe('verdictOf', () => {
     const none = verdictOf({ ...ok, bh: iv(0.45, 0.55), s: iv(-0.2, 0.2), net: iv(-0.5, 0.1) });
     expect(none.verdict).toBe('NO DETECTABLE EDGE');
     expect(none.halfWidths.s).toBeCloseTo(0.2, 12);
+  });
+
+  it('records a custom level, defaults to 0.99, and applies the same rules at that level', () => {
+    const level = 1 - 0.05 / 6;
+    const input = { ...ok, bh: iv(0.51, 0.55), s: iv(0.1, 0.4), net: iv(-1, -0.5) };
+    const custom = verdictOf(input, level);
+    expect(custom.level).toBe(level);
+    expect(custom.verdict).toBe('RIGHT');
+    expect(verdictOf(input).level).toBe(0.99);
+    expect(verdictOf(input)).toEqual({ ...custom, level: 0.99 });
   });
 
   it('treats NaN intervals as no edge', () => {
