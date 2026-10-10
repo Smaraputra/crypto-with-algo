@@ -126,7 +126,7 @@ describe('GET /api/prices/history', () => {
     await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1h' }));
 
     expect(cachedFetch).toHaveBeenCalledWith(
-      'klines:BTCUSDT:1h:500',
+      'prices:klines:BTCUSDT:1h:500',
       expect.any(Function),
       120
     );
@@ -138,7 +138,7 @@ describe('GET /api/prices/history', () => {
     await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1m' }));
 
     expect(cachedFetch).toHaveBeenCalledWith(
-      'klines:BTCUSDT:1m:500',
+      'prices:klines:BTCUSDT:1m:500',
       expect.any(Function),
       10
     );
@@ -150,7 +150,7 @@ describe('GET /api/prices/history', () => {
     await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1d' }));
 
     expect(cachedFetch).toHaveBeenCalledWith(
-      'klines:BTCUSDT:1d:500',
+      'prices:klines:BTCUSDT:1d:500',
       expect.any(Function),
       600
     );
@@ -162,7 +162,7 @@ describe('GET /api/prices/history', () => {
     await GET(makeRequest({ symbol: 'ETHUSDT', interval: '4h', limit: '100' }));
 
     expect(cachedFetch).toHaveBeenCalledWith(
-      'klines:ETHUSDT:4h:100',
+      'prices:klines:ETHUSDT:4h:100',
       expect.any(Function),
       300
     );
@@ -194,7 +194,7 @@ describe('GET /api/prices/history', () => {
       expect(res.status).toBe(200);
 
       expect(cachedFetch).toHaveBeenCalledWith(
-        `klines:BTCUSDT:${interval}:500`,
+        `prices:klines:BTCUSDT:${interval}:500`,
         expect.any(Function),
         expectedTtl
       );
@@ -214,7 +214,7 @@ describe('GET /api/prices/history', () => {
 
       // Cache key includes time range
       expect(cachedFetch).toHaveBeenCalledWith(
-        'klines:BTCUSDT:1h:500:1700000000000:1700100000000',
+        'prices:klines:BTCUSDT:1h:500:1700000000000:1700100000000',
         expect.any(Function),
         120
       );
@@ -230,7 +230,7 @@ describe('GET /api/prices/history', () => {
       }));
 
       expect(cachedFetch).toHaveBeenCalledWith(
-        'klines:BTCUSDT:1h:500:1700000000000:',
+        'prices:klines:BTCUSDT:1h:500:1700000000000:',
         expect.any(Function),
         120
       );
@@ -252,6 +252,20 @@ describe('GET /api/prices/history', () => {
         startTime: '-1',
       }));
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('cache key namespace isolation', () => {
+    it('uses prices:klines: namespace to avoid scheduler collision', async () => {
+      vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+      await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1h', limit: '500' }));
+
+      const calls = vi.mocked(cachedFetch).mock.calls;
+      expect(calls).toHaveLength(1);
+      const [cacheKey] = calls[0];
+      expect(cacheKey).toMatch(/^prices:klines:/);
+      expect(cacheKey).not.toMatch(/^klines:/);
     });
   });
 });

@@ -505,6 +505,7 @@ import {
   loadCandles,
   loadHtf,
   loadManifest,
+  loadFlow,
   loadMetrics,
   loadOptions,
   loadPerp,
@@ -518,9 +519,9 @@ import {
   type FactorReport,
   type HorizonStat,
 } from './report-schema';
-import { optionsCurrencyOf, type MetricsRow, type OptionsRow, type PerpCandleRow, type SnapshotRow } from './dataset-format';
+import { optionsCurrencyOf, type FlowRow, type MetricsRow, type OptionsRow, type PerpCandleRow, type SnapshotRow } from './dataset-format';
 
-const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
+export const DEFAULT_HORIZONS = [1, 2, 4, 8, 16, 32];
 // Matches icWithHac/icNonOverlapping/spearman's own minimum-pairs threshold
 // (fewer pairs than this and those functions already return NaN).
 const MIN_PAIRS = 3;
@@ -776,6 +777,9 @@ function inRange(t: number, start: number | undefined, end: number | undefined):
   return true;
 }
 
+/** Symbols already reported as lacking a flow file, so the notice prints once per symbol. */
+const flowMissingLogged = new Set<string>();
+
 export function loadSymbolData(
   datasetDir: string,
   symbol: string,
@@ -850,6 +854,19 @@ export function loadSymbolData(
     console.error(`[factor-ic] ${symbol}: no futures metrics file, archive factors are NaN`);
   }
 
+  // qh-flow taker-flow buckets: absent on any dataset exported before the
+  // `flow` kind existed, in which case its four columns are NaN.
+  const flowPath = join(datasetDir, 'flow', symbol, '5m.jsonl.gz');
+  let flow: FlowRow[] | null = null;
+  if (existsSync(flowPath)) {
+    flow = loadFlow(datasetDir, symbol, { allowLockbox: opts.allowLockbox }).rows.filter((r) =>
+      inRange(r.t, opts.start, opts.end)
+    );
+  } else if (!flowMissingLogged.has(symbol)) {
+    flowMissingLogged.add(symbol);
+    console.error(`[factor-ic] ${symbol}: no flow file, flow factors are NaN`);
+  }
+
   const perp = loadPerpSeries(datasetDir, symbol, interval, 'klines', opts);
   const premiumIndex = loadPerpSeries(datasetDir, symbol, interval, 'premiumIndex', opts);
 
@@ -873,6 +890,7 @@ export function loadSymbolData(
     premiumIndex,
     options,
     marketOptions,
+    flow,
   });
 
   return { symbol, matrix, lockboxApplied: !opts.allowLockbox };
@@ -920,7 +938,7 @@ function loadOptionsSeries(
 const SUBSAMPLE_BLOCK_COUNT = 20;
 
 /** mulberry32: same small seeded PRNG as ic-stats.ts's own (unexported) one, reimplemented locally for the subsample below. */
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return function next(): number {
     a = (a + 0x6d2b79f5) | 0;
@@ -1204,6 +1222,57 @@ function buildBarRollingQuarterly(
   return out;
 }
 
+/**
+ * Concatenates every symbol's factor and forward-return series in symbol
+ * order (the pooled series of buildFactorIcReport's non-demeaned path). A null
+ * entry in `factorArrays` is a symbol whose matrix never carried the factor
+ * and is skipped. Uses .concat, not push(...array)/Math.min(...array): a
+ * spread that large would risk exceeding the engine's call-argument limit.
+ */
+export function poolSeries(
+  factorArrays: ReadonlyArray<ArrayLike<number> | null>,
+  fwdArrays: ReadonlyArray<Float64Array>
+): { factor: number[]; fwd: Float64Array } {
+  let factor: number[] = [];
+  const chunks: Float64Array[] = [];
+  for (let s = 0; s < factorArrays.length; s++) {
+    const arr = factorArrays[s];
+    if (arr) {
+      factor = factor.concat(Array.isArray(arr) ? arr : Array.from(arr));
+      chunks.push(fwdArrays[s]);
+    }
+  }
+  return { factor, fwd: concatFloat64(chunks) };
+}
+
+/**
+ * The pooled (non-demeaned) HorizonStat of one factor at one horizon, or null
+ * when factor-ic would drop the cell. buildFactorIcReport calls this very
+ * function for its pooled block, and qh-flow-null.ts calls it for every
+ * shuffled draw, so the null shares the pooling, the statistic and every
+ * MIN_PAIRS / non-finite drop rule with the real cell.
+ */
+export function pooledHorizonStat(
+  factorArrays: ReadonlyArray<ArrayLike<number> | null>,
+  fwdArrays: ReadonlyArray<Float64Array>,
+  horizon: number,
+  bootstrap: { iterations: number; seed: number; maxPairs: number; gateAbsT: number | null } | null = null
+): HorizonStat | null {
+  const pooled = poolSeries(factorArrays, fwdArrays);
+  return buildHorizonStat(pooled.factor, pooled.fwd, horizon, bootstrap);
+}
+
+/** One symbol's forward returns at a horizon, as buildFactorIcReport's rawFwdFor builds them. */
+export function symbolForwardReturns(
+  data: SymbolData,
+  horizon: number,
+  executionLagBars: number,
+  returnSeries: 'spot' | 'perp'
+): Float64Array {
+  const closes = returnSeries === 'perp' ? data.matrix.perpCloses : data.matrix.closes;
+  return Float64Array.from(forwardReturns(closes, horizon, executionLagBars), (v) => v ?? NaN);
+}
+
 function resolveCommit(): string {
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
@@ -1437,32 +1506,24 @@ export async function buildFactorIcReport(args: FactorIcArgs): Promise<FactorIcR
         rollingQuarterly.push(...buildBarRollingQuarterly(series, h));
       }
     } else {
-      // Pooled: concatenate every symbol's factor and forward-return series in
-      // symbol order. Uses .concat, not push(...array)/Math.min(...array): a
-      // spread that large would risk exceeding the engine's call-argument limit.
-      let pooledFactor: number[] = [];
+      // Pooled: poolSeries / pooledHorizonStat (above) are the single pooling
+      // code path, shared with qh-flow-null.ts.
       let pooledTimestamps: number[] = [];
       for (let s = 0; s < perSymbolData.length; s++) {
-        const arr = symbolFactorArrays[s];
-        if (arr) {
-          pooledFactor = pooledFactor.concat(arr);
+        if (symbolFactorArrays[s]) {
           pooledTimestamps = pooledTimestamps.concat(perSymbolData[s].matrix.timestamps);
         }
       }
 
       for (const h of args.horizons) {
-        const pooledFwdChunks: Float64Array[] = [];
-        for (let s = 0; s < perSymbolData.length; s++) {
-          if (symbolFactorArrays[s]) {
-            pooledFwdChunks.push(fwdFor(s, h));
-          }
-        }
-        const pooledFwd = concatFloat64(pooledFwdChunks);
-
-        const stat = buildHorizonStat(pooledFactor, pooledFwd, h, bootstrapPooledOpt);
+        // fwdFor is only asked for symbols that carry the factor; the others
+        // are skipped by poolSeries and never read.
+        const perSymbolFwd = perSymbolData.map((_, s) => (symbolFactorArrays[s] ? fwdFor(s, h) : new Float64Array(0)));
+        const stat = pooledHorizonStat(symbolFactorArrays, perSymbolFwd, h, bootstrapPooledOpt);
+        const pooled = poolSeries(symbolFactorArrays, perSymbolFwd);
         if (stat) pooledHorizons.push(stat);
 
-        rollingQuarterly.push(...buildRollingQuarterly(pooledTimestamps, pooledFactor, pooledFwd, h));
+        rollingQuarterly.push(...buildRollingQuarterly(pooledTimestamps, pooled.factor, pooled.fwd, h));
       }
     }
 

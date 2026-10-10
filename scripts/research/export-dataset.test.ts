@@ -92,6 +92,12 @@ describe('parseArgs', () => {
     expect(args.perpSeries).toEqual(['klines']);
   });
 
+  it('does not write flow unless it is asked for, and accepts it in --datasets', () => {
+    expect(parseArgs([], {}).kinds).not.toContain('flow');
+    expect(parseArgs(['--datasets', 'flow'], {}).kinds).toEqual(['flow']);
+    expect(parseArgs(['--datasets', 'metrics,flow'], {}).kinds).toEqual(['metrics', 'flow']);
+  });
+
   it('parses a partial --datasets list, so a re-export can be cheap', () => {
     expect(parseArgs(['--datasets', 'metrics,perp'], {}).kinds).toEqual(['metrics', 'perp']);
   });

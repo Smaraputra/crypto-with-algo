@@ -32,8 +32,9 @@
  *
  * `bookTicker` is not supported: the bucket lists the prefix but serves no
  * files for UM futures (404 across 2022 to 2025, daily and monthly, checked
- * 2026-09-20). `aggTrades` is not supported either, at about 408 MB per
- * symbol-month, because the kline row already carries taker buy volume.
+ * 2026-09-20). `aggTrades` is not supported here, at about 408 MB per
+ * symbol-month: it is streamed and folded into 5-minute taker flow buckets by
+ * `scripts/ops/ingest-agg-flow.ts` instead.
  *
  * Every write is an idempotent upsert on the collection's unique key, and every
  * download is cached on disk, so a re-run costs nothing and resumes cleanly.

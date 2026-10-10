@@ -1,72 +1,23 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
-import { DEFAULT_TEMPLATE_WEIGHTS } from '@/lib/models/signal-template';
-import { SignalTemplate } from '@/lib/models/signal-template';
 import { GlobalSignal } from '@/lib/models/global-signal';
 import { getCandles, dropOpenBars } from '@/lib/candle-ingestion';
 import { fetchKlines } from '@/lib/binance';
-import { computeIndicatorsForStyle } from '@/lib/indicators/compute-for-style';
-import { computeSuperTrend } from '@/lib/indicators/supertrend';
-import { computeSignalScore } from '@/lib/signals/scorer';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
-import { computeHtfSeries, getConfirmationInterval, htfContextAtBar } from '@/lib/signals/htf';
-import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
+import { getConfirmationInterval } from '@/lib/signals/htf';
 import type { HtfContext, SignalTier } from '@/types/signal';
 import { createPendingOutcomes } from '@/lib/signals/outcome-resolver';
 import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
+import { scoreBar } from '@/lib/signals/score-bar';
 import {
-  buildSnapshotSeries,
-  LS_Z_WARMUP_MS,
-  mapToSnapshotInterval,
-  type LeanSnapshot,
-} from '@/lib/backtest/snapshot-series';
-
-const NEWS_STALENESS_MS = 2 * 60 * 60 * 1000; // snapshots ingest every 15m; 2h covers outages
-
-/**
- * Latest stored news sentiment per symbol (ingested by the snapshot cron), so
- * signal computation never calls the news API directly at compute cadence.
- */
-async function fetchNewsSentimentMap(
-  symbols: string[]
-): Promise<Map<string, { count: number; avgSentiment: number }>> {
-  const map = new Map<string, { count: number; avgSentiment: number }>();
-  if (symbols.length === 0) return map;
-
-  try {
-    const docs = await HistoricalSnapshot.aggregate([
-      {
-        $match: {
-          symbol: { $in: symbols },
-          interval: '1h',
-          timestamp: { $gte: Date.now() - NEWS_STALENESS_MS },
-          'data.newsSentiment': { $ne: null },
-        },
-      },
-      { $sort: { timestamp: -1 } },
-      {
-        $group: {
-          _id: '$symbol',
-          newsSentiment: { $first: '$data.newsSentiment' },
-        },
-      },
-    ]);
-    for (const doc of docs) {
-      if (doc.newsSentiment) {
-        map.set(doc._id, {
-          count: doc.newsSentiment.count,
-          avgSentiment: doc.newsSentiment.avgSentiment,
-        });
-      }
-    }
-  } catch {
-    // News sentiment is optional
-  }
-
-  return map;
-}
+  fetchNewsSentimentMap,
+  getWeightsForStyle,
+  htfContextFromClosed,
+  storedFuturesForCandle,
+} from '@/lib/signals/scoring-inputs';
+import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
 import { cachedFetch } from '@/lib/redis';
 import type { FuturesData } from '@/types/futures';
 import type { SentimentData, SignalWeights } from '@/types/signal';
@@ -130,88 +81,6 @@ async function fetchCandlesForTask(
     },
     60
   );
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * Stored snapshot rows for one symbol at one snapshot interval, from far enough
- * back that the L/S z has its thirty days for any candle this run scores (the
- * latest closed 1d candle opened up to two days before `now`). Only the fields
- * the futures category reads are projected: the scalping run fires every
- * minute.
- */
-async function storedSnapshotRows(symbol: string, snapshotInterval: string, now: number): Promise<LeanSnapshot[]> {
-  return HistoricalSnapshot.find(
-    { symbol, interval: snapshotInterval, timestamp: { $gte: now - LS_Z_WARMUP_MS - 2 * DAY_MS, $lte: now } },
-    { timestamp: 1, 'data.fundingRate': 1, 'data.longShortRatio': 1 }
-  )
-    .sort({ timestamp: 1 })
-    .lean<LeanSnapshot[]>();
-}
-
-/**
- * The futures input for one candle, from STORED snapshots through the same
- * `buildSnapshotSeries` research scores with (configVersion 8).
- *
- * Until v7 the live path fetched funding and the 1h top-trader ratio from
- * Binance REST at compute time while research read the stored rows, held back
- * one interval: the scoring CODE matched bar for bar, the INPUTS did not, and
- * a trailing z cannot be taken from a single REST read anyway (the endpoint
- * serves about 500 bars, less than thirty days at 1h). Now live reads what
- * research reads, under the same causal rule: the latest row whose capture
- * window closed at or before the candle's open, within three intervals. The
- * value is up to about two hours older at 1h than the REST read was; parity is
- * worth more than that hour for a thirty-day z. There is no REST fallback: a
- * missing or stale row leaves the signal absent, which the scorer handles by
- * redistributing weight, exactly as research does.
- */
-async function storedFuturesForCandle(
-  symbol: string,
-  interval: string,
-  candle: OHLCV,
-  now: number,
-  rowsCache: Map<string, Promise<LeanSnapshot[]>>
-): Promise<FuturesData | null> {
-  const rowsFor = (snapshotInterval: string) => {
-    const key = `${symbol}:${snapshotInterval}`;
-    let rows = rowsCache.get(key);
-    if (!rows) {
-      rows = storedSnapshotRows(symbol, snapshotInterval, now);
-      rowsCache.set(key, rows);
-    }
-    return rows;
-  };
-  const snapshotInterval = mapToSnapshotInterval(interval);
-  const [snapshots, lsRows1h] = await Promise.all([
-    rowsFor(snapshotInterval),
-    snapshotInterval === '1h' ? Promise.resolve(undefined) : rowsFor('1h'),
-  ]);
-  const [bar] = buildSnapshotSeries([candle], snapshots, interval, { symbol, lsRows1h });
-  return bar?.futures ?? null;
-}
-
-/**
- * Get the active template weights for a trading style, falling back to defaults.
- */
-async function getWeightsForStyle(tradingStyle: TradingStyle): Promise<SignalWeights> {
-  try {
-    const template = await SignalTemplate.findOne({
-      tradingStyle,
-      active: true,
-    }).lean();
-
-    if (template) {
-      // Templates created before the htf category lack the key; frozen at 0
-      // until the next optimization run regenerates them
-      const weights = template.weights as SignalWeights;
-      return { ...weights, htf: weights.htf ?? 0 };
-    }
-  } catch {
-    // Fall back to defaults
-  }
-
-  return DEFAULT_TEMPLATE_WEIGHTS[tradingStyle];
 }
 
 /**
@@ -369,10 +238,6 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         // Futures data is optional: the category redistributes its weight
       }
 
-      // Compute indicators with style-specific parameters
-      const indicators = computeIndicatorsForStyle(candles, symbol, interval, tradingStyle);
-      const superTrend = computeSuperTrend(candles);
-
       // Higher-timeframe confluence from the last CLOSED confirmation bar.
       // An in-progress HTF candle must not leak its close; missing HTF data
       // degrades via weight redistribution, same as futures/sentiment.
@@ -387,10 +252,7 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
             candleCache.set(htfKey, htfCandles);
           }
           const closed = dropOpenBars(htfCandles, htfInterval, now);
-          if (closed.length > 0) {
-            const series = computeHtfSeries(closed, profile.config);
-            htfContext = htfContextAtBar(series, closed.length - 1, htfInterval);
-          }
+          htfContext = htfContextFromClosed(closed, htfInterval, profile.config);
         } catch {
           // HTF data is optional
         }
@@ -402,14 +264,16 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       const taskSentiment: SentimentData | null = sentimentData
         ? { ...sentimentData, news: newsMap.get(symbol) ?? null }
         : null;
-      const signal = computeSignalScore(
-        indicators,
-        futuresData,
-        taskSentiment,
+      const signal = scoreBar({
+        candles,
+        symbol,
+        interval,
+        style: tradingStyle,
+        futures: futuresData,
+        sentiment: taskSentiment,
         weights,
-        superTrend,
-        htfContext
-      );
+        htfContext,
+      });
 
       // Build GlobalSignal document
       const expiresAt = new Date(Date.now() + profile.signalTTLSeconds * 1000);
