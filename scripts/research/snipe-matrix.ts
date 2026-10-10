@@ -65,6 +65,8 @@ export interface SnipeSymbolArrays {
   warmupBars: number;
   /** Share of bars whose raw value is finite, per column. */
   finiteShare: number[];
+  /** Only with BuildOptions.captureColumn: a copy of that column's raw values, parallel to `timestamps`. */
+  captured?: { column: string; values: Float64Array };
 }
 
 function perpFileExists(datasetDir: string, symbol: string, interval: string, series: 'klines' | 'premiumIndex'): boolean {
@@ -77,6 +79,8 @@ export interface BuildOptions {
   allowLockbox?: boolean;
   startMs?: number;
   endMs?: number;
+  /** Also return a copy of this SNIPE_COLUMNS column's raw values in `captured` (span-equality check). */
+  captureColumn?: string;
 }
 
 function inRange<T extends { t: number }>(rows: T[], opts: BuildOptions): T[] {
@@ -162,6 +166,7 @@ interface Reduced {
   warmupBars: number;
   entryBars: OHLCV[];
   pathBars: OHLCV[];
+  captured?: { column: string; values: Float64Array };
 }
 
 /**
@@ -181,18 +186,23 @@ function reduceColumns(
   const columns: string[] = [...SNIPE_COLUMNS];
   const flags: Uint8Array[] = [];
   const finiteShare: number[] = [];
+  let captured: Reduced['captured'];
 
   for (const name of columns) {
     const idx = matrix.names.indexOf(name);
     if (idx === -1) throw new Error(`snipe: column ${name} missing from the factor matrix for ${symbol} ${interval}`);
     const values = matrix.values[idx];
+    if (opts.captureColumn === name) captured = { column: name, values: Float64Array.from(values) };
     let finite = 0;
     for (let i = 0; i < n; i++) if (Number.isFinite(values[i])) finite++;
     finiteShare.push(n === 0 ? 0 : finite / n);
     const thresholds = monthlyThresholds(timestamps, values, TAIL_PROBS, SNIPE_THRESHOLD_LOOKBACK_DAYS, intervalMs);
     flags.push(tailFlags(timestamps, values, thresholds));
   }
-  return { columns, timestamps, flags, finiteShare, warmupBars: matrix.warmupBars, entryBars, pathBars };
+  if (opts.captureColumn !== undefined && captured === undefined) {
+    throw new Error(`snipe: captureColumn ${opts.captureColumn} is not a SNIPE_COLUMNS column`);
+  }
+  return { columns, timestamps, flags, finiteShare, warmupBars: matrix.warmupBars, entryBars, pathBars, captured };
 }
 
 export function buildSymbolArrays(
@@ -203,7 +213,7 @@ export function buildSymbolArrays(
 ): SnipeSymbolArrays {
   const { interval, maxHoldMs } = SNIPE_TIMEFRAMES[timeframe];
   const intervalMs = intervalToMs(interval);
-  const { columns, timestamps, flags, finiteShare, warmupBars, entryBars, pathBars } = reduceColumns(
+  const { columns, timestamps, flags, finiteShare, warmupBars, entryBars, pathBars, captured } = reduceColumns(
     datasetDir,
     symbol,
     interval,
@@ -242,5 +252,6 @@ export function buildSymbolArrays(
     month,
     warmupBars,
     finiteShare,
+    ...(captured ? { captured } : {}),
   };
 }
