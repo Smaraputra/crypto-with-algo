@@ -28,11 +28,33 @@ import {
 describe('forward-small-taker pure parts', () => {
   it('parses flags with the locked draw default', () => {
     const a = parseForwardSmallTakerArgs(['--dataset-dir', 'd', '--out', 'o.json']);
-    expect(a).toEqual({ datasetDir: 'd', out: 'o.json', draws: FORWARD_NULL.draws });
+    expect(a).toEqual({
+      datasetDir: 'd',
+      out: 'o.json',
+      draws: FORWARD_NULL.draws,
+      windowEnd: FORWARD_WINDOW.end,
+      mode: 'binding',
+    });
     expect(parseForwardSmallTakerArgs(['--dataset-dir', 'd', '--out', 'o', '--draws', '50']).draws).toBe(50);
     expect(() => parseForwardSmallTakerArgs(['--out', 'o'])).toThrow(/--dataset-dir/);
     expect(() => parseForwardSmallTakerArgs(['--dataset-dir', 'd'])).toThrow(/--out/);
     expect(() => parseForwardSmallTakerArgs(['--dataset-dir', 'd', '--out', 'o', '--bad', 'x'])).toThrow(/Unknown flag/);
+  });
+
+  it('parses --window-end: absent and equal are binding, later is descriptive, earlier and invalid are refused', () => {
+    const base = ['--dataset-dir', 'd', '--out', 'o'];
+    expect(parseForwardSmallTakerArgs(base)).toMatchObject({ mode: 'binding', windowEnd: FORWARD_WINDOW.end });
+    expect(parseForwardSmallTakerArgs([...base, '--window-end', FORWARD_WINDOW.end])).toMatchObject({
+      mode: 'binding',
+      windowEnd: FORWARD_WINDOW.end,
+    });
+    expect(parseForwardSmallTakerArgs([...base, '--window-end', '2026-11-09T23:59:59.999Z'])).toMatchObject({
+      mode: 'descriptive',
+      windowEnd: '2026-11-09T23:59:59.999Z',
+    });
+    expect(() => parseForwardSmallTakerArgs([...base, '--window-end', '2026-10-09T00:00:00Z'])).toThrow(/earlier/);
+    expect(() => parseForwardSmallTakerArgs([...base, '--window-end', 'nope'])).toThrow(/ISO/);
+    expect(() => parseForwardSmallTakerArgs([...base, '--window-end', '2026-02-30T00:00:00Z'])).toThrow(/ISO/);
   });
 
   it('negativeZ inflates the null sd by 1.25 and takes the lower tail', () => {
@@ -184,9 +206,10 @@ describe('forward-small-taker on a synthetic flow dataset', { timeout: 300_000 }
   it('reads the lockbox window, writes the floor and the report, and fails only for lack of symbols', async () => {
     const out = join(dir, 'report.json');
     const lines: string[] = [];
-    const report = await runForwardSmallTaker({ datasetDir: dir, out, draws: 100 }, (l) => lines.push(l));
+    const report = await runForwardSmallTaker({ datasetDir: dir, out, draws: 100, windowEnd: FORWARD_WINDOW.end, mode: 'binding' }, (l) => lines.push(l));
     const disk = JSON.parse(readFileSync(out, 'utf8'));
     expect(disk.reportKind).toBe('forward-small-taker');
+    expect(disk).toMatchObject({ mode: 'binding', binding: true });
     expect(disk.datasetManifestHash).toMatch(/^[0-9a-f]{64}$/);
     expect(disk.window).toEqual(FORWARD_WINDOW);
     expect(disk.factor).toBe('raw.smallTakerImb');
@@ -210,11 +233,27 @@ describe('forward-small-taker on a synthetic flow dataset', { timeout: 300_000 }
     expect(lines.join('\n')).toMatch(/forward-small-taker FAIL/);
   });
 
+  it('a descriptive run carries mode, binding false, pass null and descriptiveOnly', async () => {
+    const out = join(dir, 'rd.json');
+    const lines: string[] = [];
+    const report = await runForwardSmallTaker(
+      { datasetDir: dir, out, draws: 20, windowEnd: '2026-10-10T00:00:00.000Z', mode: 'descriptive' },
+      (l) => lines.push(l)
+    );
+    const disk = JSON.parse(readFileSync(out, 'utf8'));
+    expect(disk).toMatchObject({ mode: 'descriptive', binding: false, pass: null, descriptiveOnly: true });
+    expect(disk.window).toEqual({ start: FORWARD_WINDOW.start, end: '2026-10-10T00:00:00.000Z' });
+    expect(typeof disk.pass).not.toBe('boolean');
+    expect(report.observed.pooledN).toBeGreaterThan(0);
+    expect(lines.join('\n')).toMatch(/forward-small-taker DESCRIPTIVE/);
+    expect(lines.join('\n')).not.toMatch(/PASS|FAIL/);
+  });
+
   it('a positive relation gives a non-negative IC and no pass', async () => {
     const posDir = mkdtempSync(join(tmpdir(), 'forward-b-pos-'));
     try {
       await build(posDir, 1);
-      const report = await runForwardSmallTaker({ datasetDir: posDir, out: join(posDir, 'r.json'), draws: 50 }, () => undefined);
+      const report = await runForwardSmallTaker({ datasetDir: posDir, out: join(posDir, 'r.json'), draws: 50, windowEnd: FORWARD_WINDOW.end, mode: 'binding' }, () => undefined);
       expect(report.observed.pooledIc).toBeGreaterThan(0.1);
       expect(report.observed.negativeSymbols).toBe(0);
       expect(report.pValues.empiricalPLow).toBeGreaterThan(0.9);

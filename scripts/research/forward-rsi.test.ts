@@ -53,6 +53,24 @@ describe('forward-rsi pure parts', () => {
     expect(() => parseForwardRsiArgs(['--dataset-dir', 'd', '--out', 'o', '--allow-lockbox', 'x'])).toThrow(/Unknown flag/);
   });
 
+  it('parses --window-end: absent and equal are binding, later is descriptive, earlier and invalid are refused', () => {
+    const base = ['--dataset-dir', 'd', '--out', 'o'];
+    const absent = parseForwardRsiArgs(base);
+    expect(absent).toMatchObject({ mode: 'binding', windowEnd: FORWARD_WINDOW.end });
+    expect(parseForwardRsiArgs([...base, '--window-end', FORWARD_WINDOW.end])).toMatchObject({
+      mode: 'binding',
+      windowEnd: FORWARD_WINDOW.end,
+    });
+    expect(parseForwardRsiArgs([...base, '--window-end', '2026-10-09T23:59:59.999+00:00'])).toMatchObject({ mode: 'binding' });
+    const later = parseForwardRsiArgs([...base, '--window-end', '2026-11-09T23:59:59.999Z']);
+    expect(later).toMatchObject({ mode: 'descriptive', windowEnd: '2026-11-09T23:59:59.999Z' });
+    expect(forwardWindowMs(later.windowEnd).endMs).toBe(Date.parse('2026-11-09T23:59:59.999Z'));
+    expect(() => parseForwardRsiArgs([...base, '--window-end', '2026-10-09T23:59:59.998Z'])).toThrow(/earlier/);
+    expect(() => parseForwardRsiArgs([...base, '--window-end', 'nope'])).toThrow(/ISO/);
+    expect(() => parseForwardRsiArgs([...base, '--window-end', '2026-13-45T00:00:00Z'])).toThrow(/ISO/);
+    expect(() => parseForwardRsiArgs([...base, '--window-end', '2026-11-09'])).toThrow(/ISO/);
+  });
+
   it('pass needs the empirical p, the inflated z p and the month consistency, each strictly', () => {
     const ok = { empiricalP: 0.01, zP1: 0.01 };
     expect(forwardRsiPass(ok, { pass: true })).toBe(true);
@@ -132,6 +150,8 @@ describe('forward-rsi on a synthetic dataset', { timeout: 300_000 }, () => {
     const report = await runForwardRsi(
       {
         datasetDir: dir,
+        windowEnd: FORWARD_WINDOW.end,
+        mode: 'binding',
         out,
         draws: 20,
         symbols: ['BTCUSDT', 'ETHUSDT'],
@@ -141,6 +161,7 @@ describe('forward-rsi on a synthetic dataset', { timeout: 300_000 }, () => {
     );
     const disk = JSON.parse(readFileSync(out, 'utf8'));
     expect(disk.reportKind).toBe('forward-rsi');
+    expect(disk).toMatchObject({ mode: 'binding', binding: true });
     expect(disk.datasetManifestHash).toMatch(/^[0-9a-f]{64}$/);
     expect(disk.window).toEqual(FORWARD_WINDOW);
     expect(disk.draws).toBe(20);
@@ -161,9 +182,37 @@ describe('forward-rsi on a synthetic dataset', { timeout: 300_000 }, () => {
     expect(lines.join('\n')).toMatch(/rsiSpanCheck PASS/);
   });
 
+  it('a descriptive run carries mode, binding false and no boolean pass on any cell', async () => {
+    const out = join(dir, 'rd.json');
+    const lines: string[] = [];
+    const report = await runForwardRsi(
+      {
+        datasetDir: dir,
+        out,
+        draws: 5,
+        symbols: ['BTCUSDT', 'ETHUSDT'],
+        windowEnd: '2026-10-09T23:59:59.999Z',
+        mode: 'descriptive',
+      },
+      (l) => lines.push(l)
+    );
+    const disk = JSON.parse(readFileSync(out, 'utf8'));
+    expect(disk).toMatchObject({ mode: 'descriptive', binding: false });
+    expect(disk.cells).toHaveLength(2);
+    for (const c of disk.cells) {
+      expect(c.pass).toBeNull();
+      expect(c.descriptiveOnly).toBe(true);
+      expect(typeof c.pass).not.toBe('boolean');
+      expect(c.report.resolved).toBeGreaterThan(0);
+    }
+    expect(report.cells.every((c) => c.pass === null)).toBe(true);
+    expect(lines.join('\n')).toMatch(/A1 dir 1 DESCRIPTIVE/);
+    expect(lines.join('\n')).not.toMatch(/PASS|FAIL/);
+  });
+
   it('without --span-check-start the block says not requested', async () => {
     const report = await runForwardRsi(
-      { datasetDir: dir, out: join(dir, 'r2.json'), draws: 5, symbols: ['BTCUSDT', 'ETHUSDT'] },
+      { datasetDir: dir, windowEnd: FORWARD_WINDOW.end, mode: 'binding', out: join(dir, 'r2.json'), draws: 5, symbols: ['BTCUSDT', 'ETHUSDT'] },
       () => undefined
     );
     expect(report.rsiSpanCheck).toEqual({ requested: false });
@@ -172,7 +221,7 @@ describe('forward-rsi on a synthetic dataset', { timeout: 300_000 }, () => {
   it('refuses a span check when BTCUSDT is not among the symbols', async () => {
     await expect(
       runForwardRsi(
-        { datasetDir: dir, out: join(dir, 'r3.json'), draws: 5, symbols: ['ETHUSDT'], spanCheckStart: Date.parse('2026-02-01') },
+        { datasetDir: dir, windowEnd: FORWARD_WINDOW.end, mode: 'binding', out: join(dir, 'r3.json'), draws: 5, symbols: ['ETHUSDT'], spanCheckStart: Date.parse('2026-02-01') },
         () => undefined
       )
     ).rejects.toThrow(/BTCUSDT/);

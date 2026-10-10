@@ -4,6 +4,11 @@
  *
  *   npx tsx scripts/research/forward-rsi.ts --dataset-dir D --out report.json
  *       [--draws 1000] [--symbols BTCUSDT,...] [--span-check-start 2025-11-01T00:00:00Z]
+ *       [--window-end 2026-11-09T23:59:59.999Z]
+ *
+ * --window-end (optional): a later instant than the frozen window end runs the monthly continuation over the
+ * cumulative window [FORWARD_WINDOW.start, window-end] in DESCRIPTIVE mode (pass is null, never a verdict).
+ * Absent or equal to the frozen end is the binding read. Earlier or invalid instants are refused.
  *
  * Memory: the arrays are built ONE SYMBOL AT A TIME (the factor matrix is the peak and is released inside
  * buildSymbolArrays) and reduced to the single raw.rsi flag column before the next symbol is read.
@@ -24,7 +29,7 @@ import {
 } from './forward-test';
 import { loadManifest, verifyManifest } from './load-dataset';
 import { SNIPE_NULL_SD_INFLATION, SNIPE_TIMEFRAMES } from './snipe';
-import { gitCommitFromEnv, parseDraws, parseFlags } from './snipe-cli';
+import { gitCommitFromEnv, parseDraws, parseFlags, parseWindowEnd, type ForwardMode } from './snipe-cli';
 import { buildSymbolArrays, type SnipeSymbolArrays } from './snipe-matrix';
 import {
   buildSliceContext,
@@ -53,9 +58,12 @@ export interface ForwardRsiArgs {
   symbols: string[];
   /** Epoch ms of an earlier data start for the span-equality check, undefined when not requested. */
   spanCheckStart?: number;
+  /** ISO end of the measured window: FORWARD_WINDOW.end (binding) or a later instant (descriptive). */
+  windowEnd: string;
+  mode: ForwardMode;
 }
 
-const FLAGS = ['dataset-dir', 'out', 'draws', 'symbols', 'span-check-start'];
+const FLAGS = ['dataset-dir', 'out', 'draws', 'symbols', 'span-check-start', 'window-end'];
 
 export function parseForwardRsiArgs(argv: string[]): ForwardRsiArgs {
   const flags = parseFlags(argv, FLAGS);
@@ -74,17 +82,20 @@ export function parseForwardRsiArgs(argv: string[]): ForwardRsiArgs {
       throw new Error(`--span-check-start must be earlier than the forward data start ${FORWARD_DATA_START}`);
     }
   }
+  const { windowEnd, mode } = parseWindowEnd(flags.get('window-end'), FORWARD_WINDOW.end);
   return {
     datasetDir,
     out,
+    windowEnd,
+    mode,
     draws: parseDraws(flags.get('draws'), FORWARD_NULL.draws),
     symbols,
     ...(spanCheckStart !== undefined ? { spanCheckStart } : {}),
   };
 }
 
-export function forwardWindowMs(): { startMs: number; endMs: number } {
-  return { startMs: Date.parse(FORWARD_WINDOW.start), endMs: Date.parse(FORWARD_WINDOW.end) };
+export function forwardWindowMs(windowEnd: string = FORWARD_WINDOW.end): { startMs: number; endMs: number } {
+  return { startMs: Date.parse(FORWARD_WINDOW.start), endMs: Date.parse(windowEnd) };
 }
 
 /** 30 days in 5m bars. */
@@ -117,7 +128,10 @@ export interface ForwardCellResult {
   /** The forward consistency: calendar months (>= 20 resolved trades, >= 3 months, share >= 0.6) and symbols. */
   monthConsistency: ConsistencyResult;
   alpha: number;
-  pass: boolean;
+  /** The binding verdict, or null in descriptive mode (never a new pass/fail). */
+  pass: boolean | null;
+  /** Present (true) only in descriptive mode. */
+  descriptiveOnly?: true;
 }
 
 /**
@@ -135,7 +149,8 @@ export function forwardRsiPass(
 export function evaluateForwardCell(
   ctx: SliceContext,
   name: ForwardRsiCellName,
-  offsets: ArrayLike<number>
+  offsets: ArrayLike<number>,
+  mode: ForwardMode = 'binding'
 ): ForwardCellResult {
   const cell = forwardCell(name);
   const direction = FORWARD_CELLS[name].direction as 1 | -1;
@@ -149,7 +164,9 @@ export function evaluateForwardCell(
     report,
     monthConsistency,
     alpha: FORWARD_ALPHA,
-    pass: forwardRsiPass(report, monthConsistency),
+    ...(mode === 'binding'
+      ? { pass: forwardRsiPass(report, monthConsistency) }
+      : { pass: null, descriptiveOnly: true as const }),
   };
 }
 
@@ -269,7 +286,7 @@ export function runSpanCheck(
     symbol: main.symbol,
     mainStart: FORWARD_DATA_START,
     earlierStart: new Date(earlierStartMs).toISOString(),
-    window: { start: FORWARD_WINDOW.start, end: FORWARD_WINDOW.end },
+    window: { start: new Date(window.startMs).toISOString(), end: new Date(window.endMs).toISOString() },
     comparison,
     tolerance: SPAN_TOLERANCE,
     pass: spanCheckPass(comparison),
@@ -283,6 +300,8 @@ export function runSpanCheck(
 export interface ForwardRsiReport {
   reportKind: 'forward-rsi';
   schemaVersion: 1;
+  mode: ForwardMode;
+  binding: boolean;
   datasetManifestHash: string;
   gitCommit: string;
   computedAt: string;
@@ -312,7 +331,7 @@ export async function runForwardRsi(
   if (!verify.ok) throw new Error(`forward-rsi: dataset manifest verification failed for: ${verify.mismatches.join(', ')}`);
   const manifestHash = loadManifest(args.datasetDir).datasetHash;
 
-  const window = forwardWindowMs();
+  const window = forwardWindowMs(args.windowEnd);
   const wantSpan = args.spanCheckStart !== undefined;
   const column = FORWARD_CELLS.A1.column;
   const reduced: SnipeSymbolArrays[] = [];
@@ -332,7 +351,7 @@ export async function runForwardRsi(
 
   const ctx = buildSliceContext(reduced, window, 'scalp', SNIPE_TIMEFRAMES.scalp.maxHoldMs);
   const offsets = nullOffsets(ctx.grid.G, forwardMinShiftBars(), args.draws, FORWARD_NULL.seed);
-  const cells = (['A1', 'A2'] as const).map((name) => evaluateForwardCell(ctx, name, offsets));
+  const cells = (['A1', 'A2'] as const).map((name) => evaluateForwardCell(ctx, name, offsets, args.mode));
 
   let rsiSpanCheck: RsiSpanCheck = { requested: false };
   if (wantSpan) {
@@ -343,10 +362,12 @@ export async function runForwardRsi(
   const report: ForwardRsiReport = {
     reportKind: 'forward-rsi',
     schemaVersion: 1,
+    mode: args.mode,
+    binding: args.mode === 'binding',
     datasetManifestHash: manifestHash,
     gitCommit: gitCommitFromEnv(),
     computedAt: new Date().toISOString(),
-    window: { start: FORWARD_WINDOW.start, end: FORWARD_WINDOW.end },
+    window: { start: FORWARD_WINDOW.start, end: args.windowEnd },
     dataStart: FORWARD_DATA_START,
     draws: args.draws,
     seed: FORWARD_NULL.seed,
@@ -359,11 +380,11 @@ export async function runForwardRsi(
     rsiSpanCheck,
   };
   writeFileSync(args.out, JSON.stringify(report, null, 2));
-  log(`forward-rsi (window ${FORWARD_WINDOW.start} to ${FORWARD_WINDOW.end}, draws ${args.draws}, alpha ${FORWARD_ALPHA.toFixed(5)})`);
+  log(`forward-rsi ${args.mode} (window ${FORWARD_WINDOW.start} to ${args.windowEnd}, draws ${args.draws}, alpha ${FORWARD_ALPHA.toFixed(5)})`);
   for (const c of cells) {
     const r = c.report;
     log(
-      `  ${c.name} dir ${c.direction} ${c.pass ? 'PASS' : 'FAIL'} resolved ${r.resolved} win ${r.winRate.toFixed(4)} ` +
+      `  ${c.name} dir ${c.direction} ${c.pass === null ? 'DESCRIPTIVE' : c.pass ? 'PASS' : 'FAIL'} resolved ${r.resolved} win ${r.winRate.toFixed(4)} ` +
         `base ${r.baseline.toFixed(4)} excess ${r.obsAll.toFixed(4)} p ${r.empiricalP.toFixed(4)} zP1 ${r.zP1.toExponential(2)} ` +
         `months ${c.monthConsistency.quarters.agree}/${c.monthConsistency.quarters.kept} ` +
         `symbols ${c.monthConsistency.symbols.agree}/${c.monthConsistency.symbols.kept} ` +

@@ -3,6 +3,7 @@
  * the header of forward-test.ts; every constant here is imported from it. Nothing is re-tuned.
  *
  *   npx tsx scripts/research/forward-small-taker.ts --dataset-dir D --out report.json [--draws 1000]
+ *       [--window-end <ISO>]
  *
  * The statistic is factor-ic's own and the null is qh-flow-null's own (both called programmatically with
  * allowLockbox on, window FORWARD_WINDOW, 1h, horizon 1, execution lag 1, perp returns):
@@ -26,15 +27,18 @@ import {
 } from './forward-test';
 import { buildFactorIcReport, parseArgs as parseFactorIcArgs } from './factor-ic';
 import { buildNullReport, parseNullArgs, type NullCell } from './qh-flow-null';
-import { gitCommitFromEnv, parseDraws, parseFlags } from './snipe-cli';
+import { gitCommitFromEnv, parseDraws, parseFlags, parseWindowEnd, type ForwardMode } from './snipe-cli';
 
 export interface ForwardSmallTakerArgs {
   datasetDir: string;
   out: string;
   draws: number;
+  /** ISO end of the measured window: FORWARD_WINDOW.end (binding) or a later instant (descriptive). */
+  windowEnd: string;
+  mode: ForwardMode;
 }
 
-const FLAGS = ['dataset-dir', 'out', 'draws'];
+const FLAGS = ['dataset-dir', 'out', 'draws', 'window-end'];
 
 export function parseForwardSmallTakerArgs(argv: string[]): ForwardSmallTakerArgs {
   const flags = parseFlags(argv, FLAGS);
@@ -42,7 +46,8 @@ export function parseForwardSmallTakerArgs(argv: string[]): ForwardSmallTakerArg
   const out = flags.get('out');
   if (!datasetDir) throw new Error('--dataset-dir is required');
   if (!out) throw new Error('--out is required');
-  return { datasetDir, out, draws: parseDraws(flags.get('draws'), FORWARD_NULL.draws) };
+  const { windowEnd, mode } = parseWindowEnd(flags.get('window-end'), FORWARD_WINDOW.end);
+  return { datasetDir, out, windowEnd, mode, draws: parseDraws(flags.get('draws'), FORWARD_NULL.draws) };
 }
 
 /**
@@ -106,6 +111,8 @@ export function breakevenLine(pooledIc: number): {
 export interface ForwardSmallTakerReport {
   reportKind: 'forward-small-taker';
   schemaVersion: 1;
+  mode: ForwardMode;
+  binding: boolean;
   datasetManifestHash: string;
   gitCommit: string;
   computedAt: string;
@@ -141,7 +148,10 @@ export interface ForwardSmallTakerReport {
   z: number;
   pValues: { empiricalPLow: number; empiricalPHigh: number; zLowerTail: number };
   breakevenIc: ReturnType<typeof breakevenLine>;
-  pass: boolean;
+  /** The binding verdict, or null in descriptive mode (never a new pass/fail). */
+  pass: boolean | null;
+  /** Present (true) only in descriptive mode. */
+  descriptiveOnly?: true;
 }
 
 /** `factor` defaults to the frozen B column; it is a parameter only so a test can run the pipeline on a column its fixture carries. */
@@ -152,7 +162,7 @@ export async function runForwardSmallTaker(
 ): Promise<ForwardSmallTakerReport> {
   const cell = FORWARD_CELLS.B;
   const start = Date.parse(FORWARD_WINDOW.start);
-  const end = Date.parse(FORWARD_WINDOW.end);
+  const end = Date.parse(args.windowEnd);
 
   // Observed: factor-ic's own pooled and per-symbol ICs.
   const ic = await buildFactorIcReport(
@@ -164,7 +174,7 @@ export async function runForwardSmallTaker(
       '--execution-lag', String(cell.executionLag),
       '--return-series', cell.returnSeries,
       '--start', FORWARD_WINDOW.start,
-      '--end', FORWARD_WINDOW.end,
+      '--end', args.windowEnd,
       '--allow-lockbox',
     ])
   );
@@ -183,7 +193,7 @@ export async function runForwardSmallTaker(
     '--interval', cell.interval,
     '--dataset-dir', args.datasetDir,
     '--start', FORWARD_WINDOW.start,
-    '--end', FORWARD_WINDOW.end,
+    '--end', args.windowEnd,
     '--horizons', String(cell.horizon),
     '--factors', factor,
     '--execution-lag', String(cell.executionLag),
@@ -213,20 +223,25 @@ export async function runForwardSmallTaker(
 
   const { z, p: zLowerTail } = negativeZ(nullCell.observedGridIc, nullCell.nullMeanIc, nullCell.nullSdIc);
   const negativeSymbols = negativeSymbolCount(perSymbol.map((p) => p.ic));
-  const pass = forwardSmallTakerPass({
-    pooledIc: pooled.ic,
-    empiricalPLow: nullCell.empiricalPLow,
-    zP: zLowerTail,
-    negativeSymbols,
-  });
+  const pass: boolean | null =
+    args.mode === 'binding'
+      ? forwardSmallTakerPass({
+          pooledIc: pooled.ic,
+          empiricalPLow: nullCell.empiricalPLow,
+          zP: zLowerTail,
+          negativeSymbols,
+        })
+      : null;
 
   const report: ForwardSmallTakerReport = {
     reportKind: 'forward-small-taker',
     schemaVersion: 1,
+    mode: args.mode,
+    binding: args.mode === 'binding',
     datasetManifestHash: ic.datasetManifestHash,
     gitCommit: gitCommitFromEnv(),
     computedAt: new Date().toISOString(),
-    window: { start: FORWARD_WINDOW.start, end: FORWARD_WINDOW.end },
+    window: { start: FORWARD_WINDOW.start, end: args.windowEnd },
     interval: cell.interval,
     factor,
     horizon: cell.horizon,
@@ -259,10 +274,11 @@ export async function runForwardSmallTaker(
     pValues: { empiricalPLow: nullCell.empiricalPLow, empiricalPHigh: nullCell.empiricalPHigh, zLowerTail },
     breakevenIc: breakevenLine(pooled.ic),
     pass,
+    ...(args.mode === 'descriptive' ? { descriptiveOnly: true as const } : {}),
   };
   writeFileSync(args.out, JSON.stringify(report, null, 2));
 
-  log(`forward-small-taker ${pass ? 'PASS' : 'FAIL'} (window ${FORWARD_WINDOW.start} to ${FORWARD_WINDOW.end}, draws ${args.draws}, alpha ${FORWARD_ALPHA.toFixed(5)})`);
+  log(`forward-small-taker ${pass === null ? 'DESCRIPTIVE' : pass ? 'PASS' : 'FAIL'} (window ${FORWARD_WINDOW.start} to ${args.windowEnd}, draws ${args.draws}, alpha ${FORWARD_ALPHA.toFixed(5)})`);
   log(
     `  pooled IC ${pooled.ic.toFixed(5)} (t ${pooled.icT.toFixed(2)}, n ${pooled.n}), grid IC ${nullCell.observedGridIc.toFixed(5)}, ` +
       `null mean ${nullCell.nullMeanIc.toFixed(5)} sd ${nullCell.nullSdIc.toFixed(5)}, z ${z.toFixed(3)}`
