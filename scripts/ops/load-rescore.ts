@@ -320,7 +320,7 @@ export function buildRun(
   resamples: number,
   reportSha256: string,
   liveSince: LiveSinceMap = new Map(),
-  log: (line: Record<string, unknown>) => void = () => {}
+  log?: (line: Record<string, unknown>) => void
 ): BuiltRun {
   validateRows(rows);
   if (report.configVersion !== V8_RESCORE_CONFIG_VERSION) {
@@ -341,7 +341,7 @@ export function buildRun(
       symbols.push(symbolTrack(symbolRows, reportCell.costPercent, reportCell.horizonBars, resamples, since));
       const docs = buildBucketDocs(TRACK_RECORD_RUN_ID, symbolRows);
       buckets.push(...docs);
-      log({ cell: key, symbol, rows: symbolRows.length, buckets: docs.length, liveSince: since, ms: Date.now() - started });
+      log?.({ cell: key, symbol, rows: symbolRows.length, buckets: docs.length, liveSince: since, ms: Date.now() - started });
     }
     cells.push(cellTrackFromReport(reportCell, symbols));
   }
