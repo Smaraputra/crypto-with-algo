@@ -37,3 +37,38 @@ export const TRACK_FORWARD_FROM = '2026-07';
 export const TRACK_BOOTSTRAP = { resamples: 1_000, seed: 11 } as const;
 /** Start of the single span-wide baseline every A row is scored against (the first reported month). */
 export const TRACK_BASELINE_START = '2025-10-01T00:00:00.000Z';
+
+/*
+ * RESULT, 2026-10-10 (DESCRIPTIVE; no pass/fail, no trial). Dataset b98b246934fa174ee09dbf6b55259b2a5254d5db4f57d7540a9077b4e8550f96
+ * ($HOME/track-ds on the VPS, export-dataset.ts 2025-06-01 to 2026-10-09), image crypto-ops:forward-track from
+ * 2b765de, report $HOME/track-out/forward-track.json sha256
+ * 401561ad42e86cccd6aee5d4cc747f825c0bd8275b759d1109e2524c72ae2f80 (the superseded first run is kept beside it).
+ *
+ *   month    label        A1 RSI low -> long        A2 RSI high -> short      B small-trade IC (t)  neg sym
+ *   2025-10  used-before   0.00 [-2.64, +3.03]      +1.77 [-0.51, +4.34]      -0.0033 (-0.29)       5/10
+ *   2025-11  used-before  -0.58 [-3.11, +2.68]      +2.88 [-0.46, +6.76]      -0.0303 (-2.60)       7/10
+ *   2025-12  used-before  +0.53 [-2.10, +3.66]      +1.95 [-1.62, +5.75]      -0.0320 (-2.73)       8/10
+ *   2026-01  used-before  +2.71 [+0.07, +5.84]      +3.23 [+0.43, +6.57]      -0.0364 (-3.13)       10/10
+ *   2026-02  used-before  +2.29 [-0.06, +4.83]      +1.18 [-3.74, +6.27]      -0.0246 (-2.07)       9/10
+ *   2026-03  used-before  +2.90 [+0.46, +5.54]      +1.45 [-1.22, +4.67]      +0.0049 (+0.43)       5/10
+ *   2026-04  used-before  +2.12 [-1.18, +5.78]      +0.82 [-2.08, +3.88]      -0.0218 (-1.87)       7/10
+ *   2026-05  used-before  +0.70 [-1.42, +2.88]      -2.43 [-5.37, +0.52]      +0.0158 (+1.35)       3/10
+ *   2026-06  used-before  +3.50 [+1.21, +6.36]      +2.77 [-0.08, +5.81]      -0.0216 (-1.86)       8/10
+ *   2026-07  forward      +0.39 [-2.03, +3.07]      +0.91 [-0.52, +2.52]      -0.0322 (-2.76)       6/10
+ *   2026-08  forward      +1.03 [-1.20, +3.46]      +0.35 [-1.67, +2.49]      -0.0221 (-1.89)       7/10
+ *   2026-09  forward      +2.81 [+0.30, +5.68]      -0.04 [-2.12, +2.24]      -0.0121 (-0.99)       6/10
+ *   2026-10  forward      +0.55 [-5.64, +8.37]      +1.92 [-0.33, +4.95]      -0.0461 (-2.03)       9/10
+ *   year     mixed        +1.53 [+0.78, +2.33]      +1.19 [+0.27, +2.06]      -0.0190 (-5.62)       8/10
+ *   (A: excess win rate in points over the span-wide matched baseline, 95% day-block interval; about 4,500 to
+ *   5,600 resolved trades per month; B: about 7,200 to 7,440 pairs per month)
+ *
+ * Reading:
+ * - B, the small-trade imbalance, is the steadiest: negative in 11 of 13 months and in all four forward months;
+ *   its |IC| (about 0.02) stays below the 1h taker breakeven IC (0.0329).
+ * - A1 and A2 are positive in most months (11 of 13 each) but each month's interval spans zero in most of
+ *   them, and the forward months' level depends on the baseline: against this span-wide baseline A1 reads
+ *   +0.4 to +2.8 forward and A2 -0.04 to +1.92, against the binding read's window baseline A1 read +0.48 and A2
+ *   +1.46. An effect of about one point is the size of that baseline choice, so these monthly numbers do not
+ *   sharpen the binding verdict.
+ * - The first run matched the baseline within each month (superseded; see METHOD).
+ */
