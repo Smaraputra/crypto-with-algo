@@ -12,7 +12,7 @@ import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { loadSymbolData, symbolForwardReturns } from './factor-ic';
 import { reduceToColumn } from './forward-rsi';
 import { FORWARD_CELLS } from './forward-test';
-import { TRACK_BOOTSTRAP, TRACK_SPAN } from './forward-track';
+import { TRACK_BASELINE_START, TRACK_BOOTSTRAP, TRACK_SPAN } from './forward-track';
 import {
   directionalACell,
   trackBCell,
@@ -153,9 +153,15 @@ export async function runForwardTrack(
   const series = loadBSeries(args.datasetDir, args.symbols, startMs, endMs, log);
   const cellB = FORWARD_CELLS.B;
 
+  // One baseline for every row: symbol x ATR quintile over the whole reported span. A baseline matched within
+  // each month absorbs the flagged move and inflates reversal cells (the snipe phase's C1 finding), so each
+  // month's trades are scored against the span-wide baseline instead.
+  const baselineSlice = { startMs: Date.parse(TRACK_BASELINE_START), endMs: endMs };
+  const baselineViews = arrays.map((a) => sliceView(a, baselineSlice, maxHoldMs));
+
   const rows: ForwardTrackRow[] = [];
   for (const p of periods) {
-    const views = arrays.map((a) => sliceView(a, { startMs: p.startMs, endMs: p.endMs }, maxHoldMs));
+    const views = arrays.map((a, s) => ({ ...sliceView(a, { startMs: p.startMs, endMs: p.endMs }, maxHoldMs), b: baselineViews[s].b }));
     const a1 = directionalACell(views, column, cellBit({ tail: 'bottom', level: 'many' }), FORWARD_CELLS.A1.direction, TRACK_BOOTSTRAP);
     const a2 = directionalACell(views, column, cellBit({ tail: 'top', level: 'many' }), FORWARD_CELLS.A2.direction, TRACK_BOOTSTRAP);
     const b = trackBCell(series, p.startMs, p.endMs, cellB.horizon);
