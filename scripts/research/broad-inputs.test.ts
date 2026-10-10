@@ -399,7 +399,8 @@ describe('loadBroadInputs from an export directory', () => {
       rest: 0,
       restSettlements: 0,
     });
-  });
+    // File I/O and hashing: about a second alone, but past vitest's 5 s default on a loaded CI runner.
+  }, 30_000);
 
   it('refuses a tampered export file', async () => {
     const path = join(dir, 'export', 'perp', 'AAAUSDT', '1d.jsonl.gz');
