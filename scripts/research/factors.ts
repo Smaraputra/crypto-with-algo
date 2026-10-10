@@ -35,7 +35,7 @@ import { FUNDING_INTERVAL_MS } from '@/lib/backtest/funding';
 import { prepareBacktest } from '@/lib/backtest/optimized-engine';
 import { computeSignalScore } from '@/lib/signals/scorer';
 import type { LeanSnapshot } from '@/lib/backtest/snapshot-series';
-import type { CandleRow, HtfRow, MetricsRow, OptionsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
+import type { CandleRow, FlowRow, HtfRow, MetricsRow, OptionsRow, PerpCandleRow, SnapshotRow } from './dataset-format';
 import { OPTIONS_SLOT_MS } from '@/lib/options-flow';
 import { alignToBars, METRICS_SLOT_MS } from '@/lib/archive-ingestion';
 import { intervalToMs } from '@/lib/intervals';
@@ -96,6 +96,12 @@ export interface FactorMatrixInput {
    * construction (see MARKET_OPTIONS_NAMES below).
    */
   marketOptions?: OptionsRow[] | null;
+  /**
+   * The archive's 5-minute taker-flow buckets for this symbol, from
+   * load-dataset.ts's loadFlow. Optional: omit it (or pass an empty list) and
+   * the four qh-flow columns are NaN for the whole series.
+   */
+  flow?: FlowRow[] | null;
 }
 
 // Fixes each interval's indicator periods and DEFAULT_TEMPLATE_WEIGHTS, per the brief.
@@ -487,6 +493,17 @@ const CATEGORY_ORDER: (keyof SignalWeights)[] = [
  * multi-day horizon does not reach a tail-entry rule with an ATR stop, the
  * same IC-to-rule gap Phase 3b recorded for the positioning factor.
  *
+ * QH-FLOW COLUMNS (2026-10-09): `raw.qhOpenImb`, `raw.fiveMinOpenImb`,
+ * `raw.largeTakerImb` and `raw.smallTakerImb`, appended after every other
+ * column and fed by the `flow` input (the 5-minute taker-flow buckets in
+ * `archiveflowbars`). Their definitions are pre-registered in the COLUMNS
+ * section of the header of scripts/research/qh-flow.ts and are LOCKED there;
+ * this file implements them literally and does not restate them. The
+ * implementation notes (recorded before any IC run): a bar's buckets are the
+ * 5-minute buckets with open <= bucketStart < open + interval, and any
+ * missing bucket makes all four columns NaN for that bar; like every raw
+ * column they are NaN before warmupBars.
+ *
  * EXPLORATION COLUMNS, 2026-09-28, for the calendar and conditioning claims
  * the reading produced (Monday/Wednesday direction, OPEX-style weekday
  * effects, "short the session open", Asia is chop, round numbers are levels,
@@ -606,6 +623,12 @@ const RAW_NAMES = [
   'raw.ret1AfterUp',
   'raw.ret1InHighVolRatio',
   'raw.ret1InLowVolRatio',
+  // QH-flow columns (2026-10-09), appended last so every column above keeps
+  // its index. Definitions: scripts/research/qh-flow.ts (locked).
+  'raw.qhOpenImb',
+  'raw.fiveMinOpenImb',
+  'raw.largeTakerImb',
+  'raw.smallTakerImb',
 ] as const;
 
 /**
@@ -1199,8 +1222,68 @@ function isCategoryDataMissing(component: SignalComponent): boolean {
   return component.signals.length === 0;
 }
 
+const FLOW_BUCKET_MS = 5 * 60 * 1000;
+const QUARTER_HOUR_MS = 15 * 60 * 1000;
+
+/** Signed quote over total quote, NaN on a zero (or non-finite) denominator. */
+function signedShare(signed: number, total: number): number {
+  return total > 0 && Number.isFinite(total) ? signed / total : NaN;
+}
+
+/**
+ * The four qh-flow readings for the bar [openT, openT + intervalMs), in the
+ * order qhOpenImb, fiveMinOpenImb, largeTakerImb, smallTakerImb. All NaN when
+ * any of the bar's intervalMs / 5 minutes buckets is absent, or when the
+ * quarter-hour, other-mark or total denominator is not positive.
+ */
+function flowColumns(
+  byBucket: Map<number, FlowRow>,
+  openT: number,
+  intervalMs: number
+): [number, number, number, number] {
+  const expected = intervalMs / FLOW_BUCKET_MS;
+  if (!Number.isInteger(expected)) return [NaN, NaN, NaN, NaN];
+
+  let qhDiff = 0;
+  let qhTotal = 0;
+  let fiveDiff = 0;
+  let fiveTotal = 0;
+  let largeDiff = 0;
+  let smallDiff = 0;
+  let total = 0;
+
+  for (let i = 0; i < expected; i++) {
+    const t = openT + i * FLOW_BUCKET_MS;
+    const row = byBucket.get(t);
+    if (!row) return [NaN, NaN, NaN, NaN];
+    const diff = row.buyQuoteOpen10s - row.sellQuoteOpen10s;
+    const sum = row.buyQuoteOpen10s + row.sellQuoteOpen10s;
+    if (t % QUARTER_HOUR_MS === 0) {
+      qhDiff += diff;
+      qhTotal += sum;
+    } else {
+      fiveDiff += diff;
+      fiveTotal += sum;
+    }
+    largeDiff += row.buyQuoteLarge - row.sellQuoteLarge;
+    smallDiff += row.buyQuoteSmall - row.sellQuoteSmall;
+    total += row.buyQuote + row.sellQuote;
+  }
+
+  // Locked COLUMNS rule: a zero denominator in ANY of the three nulls all four columns.
+  const usable = (d: number): boolean => d > 0 && Number.isFinite(d);
+  if (!usable(qhTotal) || !usable(fiveTotal) || !usable(total)) return [NaN, NaN, NaN, NaN];
+
+  return [
+    signedShare(qhDiff, qhTotal),
+    signedShare(fiveDiff, fiveTotal),
+    signedShare(largeDiff, total),
+    signedShare(smallDiff, total),
+  ];
+}
+
 export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
-  const { candles, snapshots, htf, interval, metrics, perp, premiumIndex, options, marketOptions } = input;
+  const { candles, snapshots, htf, interval, metrics, perp, premiumIndex, options, marketOptions, flow } = input;
   const style = styleForInterval(interval);
   const profile = getStyleConfig(style);
   const weights = DEFAULT_TEMPLATE_WEIGHTS[style];
@@ -1313,6 +1396,10 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
   const alignedMetrics = metrics && metrics.length > 0
     ? alignToBars(barCloses, metrics.map((row) => ({ ...row, timestamp: row.t })), metricsStaleness)
     : null;
+
+  // qh-flow buckets, keyed by bucket open for the per-bar window lookup.
+  const flowByBucket = new Map<number, FlowRow>();
+  for (const row of flow ?? []) flowByBucket.set(row.t, row);
 
   // Perpetual bars share the candle grid, so they join on an exact timestamp
   // match: a missing perp bar is NaN, never the previous bar's price.
@@ -1520,6 +1607,14 @@ export function computeFactorMatrix(input: FactorMatrixInput): FactorMatrix {
     values[rawIdx.get('raw.ret5')!][bar] = simpleReturn(candles, bar, 5);
     values[rawIdx.get('raw.ret20')!][bar] = simpleReturn(candles, bar, 20);
     values[rawIdx.get('raw.realizedVol20')!][bar] = realizedVol20(candles, bar);
+
+    if (flowByBucket.size > 0) {
+      const [qh, fiveMin, large, small] = flowColumns(flowByBucket, candle.t, intervalMs);
+      values[rawIdx.get('raw.qhOpenImb')!][bar] = qh;
+      values[rawIdx.get('raw.fiveMinOpenImb')!][bar] = fiveMin;
+      values[rawIdx.get('raw.largeTakerImb')!][bar] = large;
+      values[rawIdx.get('raw.smallTakerImb')!][bar] = small;
+    }
 
     const metric = alignedMetrics?.[bar] ?? null;
     const oiChange1 = logChange(openInterestSeries, bar, 1);
