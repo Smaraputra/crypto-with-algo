@@ -40,9 +40,13 @@
  * - The pooled statistic is factor-ic's own: buildFactorIcReport and this null
  *   both call pooledHorizonStat (factor-ic.ts), so --execution-lag,
  *   --return-series and every MIN_PAIRS / non-finite drop rule are shared.
- * - Lockbox: the loaders always truncate at 2026-07-01 and --allow-lockbox is
- *   not accepted; assertBeforeLockbox additionally refuses any loaded bar at
- *   or after the lockbox start.
+ * - Lockbox: by default the loaders truncate at 2026-07-01 and assertBeforeLockbox
+ *   refuses any loaded bar at or after the lockbox start. The opt-in --allow-lockbox
+ *   (forward test, forward-test.ts only; default off) passes allowLockbox to the loaders
+ *   and skips assertBeforeLockbox.
+ * - empiricalPLow / empiricalPHigh (forward test) are the one-sided empirical p of the
+ *   observed grid IC against the null IC draws: (1 + #draws <= obs) / (1 + valid) and
+ *   (1 + #draws >= obs) / (1 + valid). They are reported with observed fields only.
  */
 
 import { readFileSync } from 'fs';
@@ -92,6 +96,8 @@ export interface NullArgs {
   minShiftDays: number;
   /** True unless --with-observed. */
   nullOnly: boolean;
+  /** Present (true) only with --allow-lockbox. */
+  allowLockbox?: boolean;
   floorReport?: string;
   out: string;
 }
@@ -111,6 +117,10 @@ export interface NullCell {
   observedGridIc?: number | null;
   observedGridT?: number | null;
   empiricalP?: number | null;
+  /** One-sided empirical p of the grid IC: (1 + #null draws with IC <= observed) / (validDraws + 1). */
+  empiricalPLow?: number | null;
+  /** Same with >=. */
+  empiricalPHigh?: number | null;
   /** Present only when the cell could not be fully computed. */
   reason?: string;
 }
@@ -137,7 +147,7 @@ export interface NullReport {
   cells: NullCell[];
 }
 
-const BOOLEAN_FLAGS = new Set(['null-only', 'with-observed']);
+const BOOLEAN_FLAGS = new Set(['null-only', 'with-observed', 'allow-lockbox']);
 const VALUE_FLAGS = new Set([
   'interval', 'dataset-dir', 'start', 'end', 'horizons', 'factors', 'execution-lag',
   'return-series', 'draws', 'seed', 'min-shift-days', 'out', 'floor-report',
@@ -236,6 +246,7 @@ export function parseNullArgs(argv: string[]): NullArgs {
     seed: parseInteger(flags.get('seed'), 'seed', NULL_SEED, 0),
     minShiftDays,
     nullOnly: !withObserved,
+    ...(booleans.has('allow-lockbox') ? { allowLockbox: true } : {}),
     ...(withObserved ? { floorReport: flags.get('floor-report') } : {}),
     out: flags.get('out') ?? `data/research/reports/qh-flow-null-${interval}.json`,
   };
@@ -311,6 +322,16 @@ function shiftColumn(col: ArrayLike<number>, k: number): number[] {
   return out;
 }
 
+/** (1 + #draws at or beyond the observed IC in the given tail) / (1 + draws). NaN when there are no draws. */
+export function empiricalIcP(draws: ArrayLike<number>, observed: number, tail: 'low' | 'high'): number {
+  if (draws.length === 0) return NaN;
+  let hits = 0;
+  for (let i = 0; i < draws.length; i++) {
+    if (tail === 'low' ? draws[i] <= observed : draws[i] >= observed) hits++;
+  }
+  return (1 + hits) / (draws.length + 1);
+}
+
 function resolveCommit(): string {
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
@@ -368,12 +389,16 @@ export async function buildNullReport(args: NullArgs): Promise<NullReport> {
 
   const data: SymbolData[] = symbols.map((symbol) =>
     loadSymbolData(args.datasetDir, symbol, args.interval, {
-      allowLockbox: false,
+      allowLockbox: args.allowLockbox === true,
       start: args.start,
       end: args.end,
     })
   );
-  for (const d of data) assertBeforeLockbox(d.matrix.timestamps);
+  if (args.allowLockbox === true) {
+    console.error('[qh-flow-null] --allow-lockbox: lockbox rows are read (forward test)');
+  } else {
+    for (const d of data) assertBeforeLockbox(d.matrix.timestamps);
+  }
   if (args.factors.some((f) => (CROSS_SYMBOL_NAMES as readonly string[]).includes(f))) {
     appendCrossSymbolFactors(data, DEFAULT_MIN_CROSS_SECTION);
   }
@@ -472,6 +497,8 @@ export async function buildNullReport(args: NullArgs): Promise<NullReport> {
         const obsGrid = pooledHorizonStat(gridColumns, gridFwd.get(h)!, h);
         cell.observedGridIc = obsGrid ? obsGrid.ic : null;
         cell.observedGridT = obsGrid ? obsGrid.icT : null;
+        cell.empiricalPLow = obsGrid ? empiricalIcP(ics, obsGrid.ic, 'low') : null;
+        cell.empiricalPHigh = obsGrid ? empiricalIcP(ics, obsGrid.ic, 'high') : null;
         if (obs) {
           cell.observedIc = obs.ic;
           cell.observedT = obs.icT;
@@ -486,6 +513,8 @@ export async function buildNullReport(args: NullArgs): Promise<NullReport> {
           cell.observedIc = null;
           cell.observedT = null;
           cell.empiricalP = null;
+          cell.empiricalPLow = null;
+          cell.empiricalPHigh = null;
           cell.reason = cell.reason ? `${cell.reason}; ${reason}` : reason;
         }
       }

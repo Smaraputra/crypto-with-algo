@@ -27,6 +27,7 @@ import {
   buildNullReport,
   commonGrid,
   drawOffsets,
+  empiricalIcP,
   minShiftBarsOf,
   parseNullArgs,
 } from './qh-flow-null';
@@ -44,7 +45,7 @@ function makeRng(seed: number): () => number {
   };
 }
 
-function candles(seed: number, ar: number): CandleRow[] {
+function candles(seed: number, ar: number, start: number = START): CandleRow[] {
   const next = makeRng(seed);
   const rows: CandleRow[] = [];
   let price = 100;
@@ -54,7 +55,7 @@ function candles(seed: number, ar: number): CandleRow[] {
     prev = ret;
     const close = price * (1 + ret);
     rows.push({
-      t: START + i * HOUR,
+      t: start + i * HOUR,
       o: price,
       h: Math.max(price, close) * 1.001,
       l: Math.min(price, close) * 0.999,
@@ -70,7 +71,8 @@ function candles(seed: number, ar: number): CandleRow[] {
 async function buildDataset(
   dir: string,
   ar: number,
-  drop?: { symbol: string; index: number }
+  drop?: { symbol: string; index: number },
+  start: number = START
 ): Promise<DatasetManifest> {
   const files: ManifestFile[] = [];
   const add = async (kind: ManifestFile['kind'], symbol: string, rows: { t: number }[]) => {
@@ -88,7 +90,7 @@ async function buildDataset(
     });
   };
   for (const [i, symbol] of SYMBOLS.entries()) {
-    let rows = candles(4242 + i * 1000, ar);
+    let rows = candles(4242 + i * 1000, ar, start);
     if (drop && drop.symbol === symbol) rows = rows.filter((_, j) => j !== drop.index);
     await add('candles', symbol, rows);
     await add('snapshots', symbol, []);
@@ -187,8 +189,9 @@ describe('qh-flow-null', () => {
       expect(() => parseNullArgs(['--interval', '1h', '--draws', '0'])).toThrow(/--draws/);
     });
 
-    it('rejects --allow-lockbox as an unknown flag', () => {
-      expect(() => parseNullArgs(['--interval', '1h', '--allow-lockbox'])).toThrow(/Unknown flag/);
+    it('accepts --allow-lockbox as an opt-in boolean, absent by default', () => {
+      expect(parseNullArgs(['--interval', '1h']).allowLockbox).toBeUndefined();
+      expect(parseNullArgs(['--interval', '1h', '--allow-lockbox']).allowLockbox).toBe(true);
     });
   });
 
@@ -319,6 +322,51 @@ describe('qh-flow-null', () => {
         );
       }
       expect(JSON.stringify(report)).not.toMatch(/observed|empiricalP/);
+    });
+  });
+
+  describe('--allow-lockbox and one-sided empirical p', () => {
+    // 600 hourly bars straddling the lockbox start (2026-07-01): 300 before, 300 after.
+    const lockStart = LOCKBOX_START - 300 * HOUR;
+    let dir: string;
+    beforeAll(async () => {
+      dir = mkdtempSync(join(tmpdir(), 'qh-null-lock-'));
+      await buildDataset(dir, 0.8, undefined, lockStart);
+    });
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+    it('truncates at the lockbox by default and reads past it with the flag', async () => {
+      const off = await buildNullReport(parseNullArgs(argv(dir, ['--draws', '5', '--min-shift-days', '1'])));
+      const on = await buildNullReport(
+        parseNullArgs(argv(dir, ['--draws', '5', '--min-shift-days', '1', '--allow-lockbox']))
+      );
+      expect(off.grid.lastT).toBeLessThan(LOCKBOX_START);
+      expect(on.grid.lastT).toBeGreaterThanOrEqual(LOCKBOX_START);
+      expect(on.grid.bars).toBeGreaterThan(off.grid.bars);
+      expect(on.args.allowLockbox).toBe(true);
+      expect(off.args.allowLockbox).toBeUndefined();
+    });
+
+    it('reports empiricalPLow and empiricalPHigh consistent with the draws', async () => {
+      const floor = await makeFloor(dir, ['--draws', '50', '--horizons', '1', '--min-shift-days', '1', '--allow-lockbox']);
+      const args = parseNullArgs(
+        argv(dir, ['--draws', '50', '--horizons', '1', '--min-shift-days', '1', '--allow-lockbox', '--with-observed', '--floor-report', floor])
+      );
+      const cell = (await buildNullReport(args)).cells[0];
+      expect(cell.empiricalPLow).toBeGreaterThan(0);
+      expect(cell.empiricalPHigh).toBeGreaterThan(0);
+      // An AR(0.8) column is predictive: observed IC is high, so the low tail is near 1 and the high tail near the minimum.
+      expect(cell.observedGridIc!).toBeGreaterThan(0);
+      expect(cell.empiricalPHigh!).toBeLessThan(0.2);
+      expect(cell.empiricalPLow!).toBeGreaterThan(0.8);
+      expect(cell.empiricalPLow! * (1 + cell.validDraws)).toBeCloseTo(Math.round(cell.empiricalPLow! * (1 + cell.validDraws)), 9);
+    });
+
+    it('empiricalIcP counts ties on both sides', () => {
+      expect(empiricalIcP([0.1, 0.2, 0.3, 0.3], 0.3, 'low')).toBeCloseTo(5 / 5, 12);
+      expect(empiricalIcP([0.1, 0.2, 0.3, 0.3], 0.3, 'high')).toBeCloseTo(3 / 5, 12);
+      expect(empiricalIcP([0.1, 0.2], 0.05, 'low')).toBeCloseTo(1 / 3, 12);
+      expect(empiricalIcP([], 0, 'low')).toBeNaN();
     });
   });
 
