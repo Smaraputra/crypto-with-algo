@@ -36,6 +36,7 @@ export const symbolTrackSchema = z.object({
   symbol: z.string().min(1),
   first: z.number().int(),
   last: z.number().int(),
+  liveSince: z.number().int().nullable(),
   measures: pointMeasuresSchema,
   intervals: z.object({ right: intervalPair, bh: intervalPair, net: intervalPair }),
   months: z.array(

@@ -100,6 +100,12 @@ export interface SymbolTrack {
   /** First and last signal bar with an outcome, epoch ms. */
   first: number;
   last: number;
+  /**
+   * First live SignalOutcome bar at the run's configVersion for this symbol and
+   * cell, read once at load time (a fixed historical fact, and too slow a scan
+   * for a request). Null when the live record had no such bar at load time.
+   */
+  liveSince: number | null;
   measures: PointMeasures;
   intervals: { right: IntervalPair | null; bh: IntervalPair | null; net: IntervalPair | null };
   months: MonthMeasures[];
@@ -179,8 +185,8 @@ export type TrackRecordResponse =
       live: LiveTrack;
       /**
        * Where the chart switches from re-scored bars to the live record: the
-       * first live bar at the re-score's configVersion, or the bar after the
-       * re-score's last when no live bar exists yet. Null when neither exists.
+       * symbol's liveSince, else the bar after its last re-scored bar. Null when
+       * the run has no rows for the symbol.
        */
       boundary: number | null;
       /** The scorer version running live now; differs from run.configVersion after a scorer bump. */

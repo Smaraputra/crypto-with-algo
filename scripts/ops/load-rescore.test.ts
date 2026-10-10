@@ -163,6 +163,7 @@ describe('symbolTrack', () => {
 
   it('is deterministic for a seed', () => {
     expect(symbolTrack(rows, 0.16, 24, 200).intervals).toEqual(track.intervals);
+    expect(track.liveSince).toBeNull();
   });
 
   it('leaves an interval null when a resample cannot compute it', () => {
@@ -199,11 +200,13 @@ describe('buildRun', () => {
       cells: [reportCell()],
     };
     const lines: Array<Record<string, unknown>> = [];
-    const { run, buckets } = buildRun(rows, report, 100, 'b'.repeat(64), (l) => lines.push(l));
+    const liveSince = new Map([['day_trading|1h', new Map([['ETHUSDT', START + 299 * HOUR]])]]);
+    const { run, buckets } = buildRun(rows, report, 100, 'b'.repeat(64), liveSince, (l) => lines.push(l));
     expect(() => trackRunSchema.parse(run)).not.toThrow();
     expect(run.runId).toBe(TRACK_RECORD_RUN_ID);
     expect(run.cutoffs).toEqual({ buy: 28, strong: 36 });
     expect(run.cells[0].symbols.map((s) => s.symbol)).toEqual(['BTCUSDT', 'ETHUSDT']);
+    expect(run.cells[0].symbols.map((s) => s.liveSince)).toEqual([null, START + 299 * HOUR]);
     expect(buckets.reduce((n, b) => n + b.t.length, 0)).toBe(rows.length);
     expect(lines).toHaveLength(2);
   });

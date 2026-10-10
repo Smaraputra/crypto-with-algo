@@ -7,7 +7,9 @@
  *   npx tsx scripts/ops/load-rescore.ts --rows <v8-rows.jsonl.gz> --report <v8-rescore-report.json>
  *     [--resamples 1000] [--dry-run]
  *
- * Refuses to load unless both files hash to the values recorded in the re-score's RESULT block,
+ * Reads SignalOutcome once (an aggregation per cell) for the first live bar of each symbol at the
+ * run's configVersion, stored as liveSince: where the chart hands over from the re-score to the live
+ * record. Refuses to load unless both files hash to the values recorded in the re-score's RESULT block,
  * every row is a configVersion 8 row of a re-score cell, and every stored tier equals the v8
  * cutoffs applied to its score. Writes nothing else: never GlobalSignal, SignalOutcome or any
  * collection the scheduler, resolver or paper desk reads. A reload of the same run id replaces it:
@@ -24,6 +26,7 @@ import { gunzipSync } from 'node:zlib';
 import { z } from 'zod';
 
 import { SignalRescoreBar } from '@/lib/models/signal-rescore-bar';
+import { SignalOutcome, sourceMatch } from '@/lib/models/signal-outcome';
 import { SignalRescoreRun } from '@/lib/models/signal-rescore-run';
 import { connectDB } from '@/lib/mongodb';
 import { TIER_BUY_CUTOFF, TIER_STRONG_CUTOFF } from '@/lib/signals/calibration';
@@ -176,6 +179,7 @@ export function symbolTrack(
   costPercent: number,
   horizonBars: number,
   resamples: number,
+  liveSince: number | null = null,
   seed: number = BOOTSTRAP_SEED
 ): SymbolTrack {
   if (rows.length === 0) throw new Error('symbolTrack needs rows');
@@ -199,6 +203,7 @@ export function symbolTrack(
     symbol: rows[0].symbol,
     first,
     last,
+    liveSince,
     measures: pointMeasures(rows, costPercent),
     intervals: {
       right: pairOf(boot.right, resamples),
@@ -300,6 +305,9 @@ export function groupRows(rows: LiveRow[]): Map<string, Map<string, LiveRow[]>> 
   return out;
 }
 
+/** "style|interval" -> symbol -> first live bar at the run's configVersion. */
+export type LiveSinceMap = Map<string, Map<string, number>>;
+
 export interface BuiltRun {
   run: TrackRun;
   buckets: BucketDoc[];
@@ -311,6 +319,7 @@ export function buildRun(
   report: RescoreReport,
   resamples: number,
   reportSha256: string,
+  liveSince: LiveSinceMap = new Map(),
   log: (line: Record<string, unknown>) => void = () => {}
 ): BuiltRun {
   validateRows(rows);
@@ -321,15 +330,18 @@ export function buildRun(
   const buckets: BucketDoc[] = [];
   const cells: CellTrack[] = [];
   for (const reportCell of report.cells) {
-    const bySymbol = groups.get(cellKey(reportCell.style, reportCell.interval)) ?? new Map<string, LiveRow[]>();
+    const key = cellKey(reportCell.style, reportCell.interval);
+    const bySymbol = groups.get(key) ?? new Map<string, LiveRow[]>();
+    const liveByCell = liveSince.get(key);
     const symbols: SymbolTrack[] = [];
     for (const symbol of [...bySymbol.keys()].sort()) {
       const symbolRows = bySymbol.get(symbol) as LiveRow[];
       const started = Date.now();
-      symbols.push(symbolTrack(symbolRows, reportCell.costPercent, reportCell.horizonBars, resamples));
+      const since = liveByCell?.get(symbol) ?? null;
+      symbols.push(symbolTrack(symbolRows, reportCell.costPercent, reportCell.horizonBars, resamples, since));
       const docs = buildBucketDocs(TRACK_RECORD_RUN_ID, symbolRows);
       buckets.push(...docs);
-      log({ cell: cellKey(reportCell.style, reportCell.interval), symbol, rows: symbolRows.length, buckets: docs.length, ms: Date.now() - started });
+      log({ cell: key, symbol, rows: symbolRows.length, buckets: docs.length, liveSince: since, ms: Date.now() - started });
     }
     cells.push(cellTrackFromReport(reportCell, symbols));
   }
@@ -348,6 +360,35 @@ export function buildRun(
     cells,
   };
   return { run: trackRunSchema.parse(run) as TrackRun, buckets };
+}
+
+interface LiveSinceGroup {
+  _id: { tradingStyle: string; interval: string; symbol: string };
+  since: number;
+}
+
+/**
+ * First live bar per symbol at the run's configVersion, per re-score cell: one aggregation per cell
+ * over SignalOutcome (read only). A scan of the cell's whole year, which is why it runs here, once,
+ * and not in a request.
+ */
+async function readLiveSince(configVersion: number): Promise<LiveSinceMap> {
+  const out: LiveSinceMap = new Map();
+  for (const cell of TRACK_RECORD_CELLS) {
+    const groups: LiveSinceGroup[] = await SignalOutcome.aggregate([
+      { $match: { tradingStyle: cell.style, interval: cell.interval, configVersion, ...sourceMatch('composite') } },
+      {
+        $group: {
+          _id: { tradingStyle: '$tradingStyle', interval: '$interval', symbol: '$symbol' },
+          since: { $min: '$candleTimestamp' },
+        },
+      },
+    ]);
+    const bySymbol = new Map<string, number>();
+    for (const g of groups) bySymbol.set(g._id.symbol, g.since);
+    out.set(cellKey(cell.style, cell.interval), bySymbol);
+  }
+  return out;
 }
 
 function errorMessage(error: unknown): string {
@@ -372,7 +413,9 @@ async function main(): Promise<void> {
     const parsed = parseExportText(gunzipSync(rowBytes).toString('utf8'));
     if (parsed.dropped > 0) throw new Error(`${parsed.dropped} rows without a finite outcome; the re-score file has none`);
 
-    const { run, buckets } = buildRun(parsed.rows, report, args.resamples, reportSha256, (line) =>
+    await connectDB();
+    const liveSince = await readLiveSince(report.configVersion);
+    const { run, buckets } = buildRun(parsed.rows, report, args.resamples, reportSha256, liveSince, (line) =>
       console.log(JSON.stringify(line))
     );
     const bars = buckets.reduce((n, b) => n + b.t.length, 0);
@@ -383,7 +426,6 @@ async function main(): Promise<void> {
       process.exit(0);
     }
 
-    await connectDB();
     await SignalRescoreBar.createIndexes();
     await SignalRescoreRun.createIndexes();
     await SignalRescoreRun.deleteOne({ runId: run.runId });
