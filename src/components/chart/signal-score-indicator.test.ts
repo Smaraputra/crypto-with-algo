@@ -64,6 +64,29 @@ describe('makeSignalScoreCalc', () => {
     expect(other.every((d) => d.provisional === undefined)).toBe(true);
   });
 
+  it('draws re-scored values only where no recorded score exists, labelled as hindsight', async () => {
+    const { makeSignalScoreCalc } = await load();
+    const rescored = new Map([
+      [T0 - 2 * HOUR, { score: 99, tier: 'strong_buy' as const }],
+      [T0, { score: -31, tier: 'sell' as const }],
+    ]);
+    const out = makeSignalScoreCalc({ recorded, provisional: null, state: null, rescored })(klines) as Array<
+      Record<string, unknown>
+    >;
+    expect(out.map((d) => d.rescored)).toEqual([undefined, undefined, -31]);
+    expect(out[0].recorded).toBe(30);
+    expect(out[2].tip).toBe('Re-scored -31.0 · Short score · computed after the fact, not the live record');
+  });
+
+  it('omits data coverage for a recorded bar that does not carry it', async () => {
+    const { makeSignalScoreCalc } = await load();
+    const live = new Map([[T0, { score: 31, tier: 'buy' as const, configVersion: 8 }]]);
+    const out = makeSignalScoreCalc({ recorded: live, provisional: null, state: null })(klines) as Array<
+      Record<string, unknown>
+    >;
+    expect(out[2].tip).toBe('Recorded 31.0 · Long score · configVersion 8');
+  });
+
   it('returns a new function on every call', async () => {
     const { makeSignalScoreCalc } = await load();
     const snap = { recorded, provisional: null, state: null } as const;
@@ -92,7 +115,7 @@ describe('ensureSignalScoreIndicatorRegistered', () => {
     expect(template.series).toBe('normal');
     expect(template.minValue).toBe(-50);
     expect(template.maxValue).toBe(50);
-    expect(template.figures.map((f: { key: string }) => f.key)).toEqual(['recorded', 'provisional']);
+    expect(template.figures.map((f: { key: string }) => f.key)).toEqual(['recorded', 'rescored', 'provisional']);
   });
 
   it('retries after a registration that threw', async () => {
@@ -110,13 +133,16 @@ describe('ensureSignalScoreIndicatorRegistered', () => {
   it('colours recorded bars by cutoff and draws provisional as a dashed amber outline', async () => {
     const mod = await load();
     mod.ensureSignalScoreIndicatorRegistered();
-    const [recordedFig, provFig] = registerIndicator.mock.calls[0][0].figures;
+    const [recordedFig, rescoredFig, provFig] = registerIndicator.mock.calls[0][0].figures;
     const style = (fig: { styles: (p: unknown) => Record<string, unknown> }, v: Record<string, number>) =>
       fig.styles({ data: { current: v } });
     expect(style(recordedFig, { recorded: 28 }).color).toBe('#0ecb81');
     expect(style(recordedFig, { recorded: -28 }).color).toBe('#f6465d');
     expect(style(recordedFig, { recorded: 27.9 }).color).not.toBe('#0ecb81');
     expect(style(recordedFig, { recorded: -3 }).color).not.toBe('#f6465d');
+    expect(style(rescoredFig, { rescored: 30 }).color).toBe('#0b8a5a');
+    expect(style(rescoredFig, { rescored: -30 }).color).toBe('#b03547');
+    expect(style(rescoredFig, { rescored: 3 }).color).toBe('#61656d');
     expect(style(provFig, { provisional: 5 })).toMatchObject({
       style: 'stroke', borderColor: '#f0b90b', borderStyle: 'dashed',
     });

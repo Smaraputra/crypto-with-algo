@@ -17,6 +17,30 @@ const PROVISIONAL_BROWSER_FILES = [
 const PROVISIONAL_SERVER_FILES = ["src/app/api/signals/provisional-context/route.ts"];
 const TEST_FILES = ["**/*.test.*"];
 
+// The track record's client files: pure helpers, the hook and the panel.
+// Its one server reader is src/lib/signals/track-record/server.ts.
+const TRACK_RECORD_BROWSER_FILES = [
+  "src/lib/signals/track-record/types.ts",
+  "src/lib/signals/track-record/measures.ts",
+  "src/lib/signals/track-record/chart-data.ts",
+  "src/lib/signals/track-record/schema.ts",
+  "src/hooks/useTrackRecord.ts",
+  "src/components/chart/signal-calls-indicator.ts",
+  "src/components/chart/track-record/**/*.{ts,tsx}",
+];
+
+// Re-scored bars are hindsight. Only the track-record server may read them, so
+// no scheduler, resolver, calibration or paper-desk code can ever pick them up.
+const RESCORE_MODEL_PATTERNS = ["models/signal-rescore-bar", "models/signal-rescore-run"].map(
+  (name) => `**/${name}`
+);
+const RESCORE_MODEL_RULE = {
+  group: RESCORE_MODEL_PATTERNS,
+  allowTypeImports: true,
+  message:
+    "Re-scored bars are hindsight: only src/lib/signals/track-record/server.ts reads them (never the live path).",
+};
+
 // Each pattern covers the alias form and the relative form of the module.
 const WRITE_PATH_PATTERNS = [
   "compute-engine",
@@ -46,6 +70,20 @@ const eslintConfig = defineConfig([
     // Git already excludes it (.git/info/exclude); ESLint did not.
     ".claude/worktrees/**",
   ]),
+  // Re-score models: only the track-record server reads them. Declared before the
+  // provisional blocks, which repeat the rule because a later block replaces it.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      ...TEST_FILES,
+      "src/lib/signals/track-record/server.ts",
+      "src/lib/models/signal-rescore-bar.ts",
+      "src/lib/models/signal-rescore-run.ts",
+    ],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [RESCORE_MODEL_RULE] }],
+    },
+  },
   // Scheduler-only scoring: the provisional overlay is display-only and must never
   // be able to reach the write path (GlobalSignal inserts, pending outcomes, the
   // paper desk), even by a careless future edit. Type imports stay allowed.
@@ -63,6 +101,7 @@ const eslintConfig = defineConfig([
               message:
                 "Scoring is scheduler-only: provisional-signal files must not import the write path (compute-engine, outcome-resolver, GlobalSignal/SignalOutcome/paper models, paper-desk).",
             },
+            RESCORE_MODEL_RULE,
           ],
         },
       ],
@@ -73,7 +112,7 @@ const eslintConfig = defineConfig([
   // Type imports are erased at build time, so they stay allowed. Declared after
   // the write-path block, so it carries both groups for the browser files.
   {
-    files: PROVISIONAL_BROWSER_FILES,
+    files: [...PROVISIONAL_BROWSER_FILES, ...TRACK_RECORD_BROWSER_FILES],
     ignores: TEST_FILES,
     rules: {
       "@typescript-eslint/no-restricted-imports": [
@@ -106,6 +145,9 @@ const eslintConfig = defineConfig([
               message:
                 "Server-only or write-path module: keep it out of the client bundle (type imports are fine).",
             },
+            // Repeated: this block replaces the earlier rule options for these files,
+            // and a relative import (../../models/...) has no lib/ segment to match above.
+            RESCORE_MODEL_RULE,
           ],
         },
       ],

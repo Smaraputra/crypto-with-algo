@@ -7,7 +7,7 @@ const DashboardChart = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[500px] rounded-lg border border-border animate-shimmer" />
+      <div className="h-[560px] rounded-lg sm:h-[640px] border border-border animate-shimmer" />
     ),
   }
 );

@@ -136,8 +136,11 @@ test.describe('Signals page (authenticated)', () => {
 
     await expect(page.getByText('Signal History')).toBeVisible();
     // No signals may exist yet in test environment, so accept empty or populated state.
-    const emptyState = page.getByText('No signal history');
-    const historyContent = page.locator('table');
+    // Scoped to the card: the trade plan's live-record table also renders once
+    // live outcomes exist, and an unscoped `table` then matches two elements.
+    const card = page.locator('[data-slot="card"]').filter({ hasText: 'Signal History' });
+    const emptyState = card.getByText('No signal history');
+    const historyContent = card.locator('table');
     await expect(emptyState.or(historyContent)).toBeVisible({ timeout: 10000 });
   });
 
