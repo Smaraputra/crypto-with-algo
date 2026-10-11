@@ -1,7 +1,7 @@
 import type { OHLCV } from '@/types/market';
 import type { IndicatorSuite } from '@/lib/indicators/types';
 import type { SuperTrendResult } from '@/lib/indicators/supertrend';
-import type { HtfContext, SignalTier } from '@/types/signal';
+import type { HtfContext, SignalComponent, SignalTier } from '@/types/signal';
 import type { MarketSession } from '@/lib/sessions';
 import type { OpenPosition } from './trade-utils';
 import type { PendingOrder } from './limit-orders';
@@ -55,6 +55,12 @@ export interface StrategyContext {
    */
   research: (ResearchBar | null)[];
   htfContext: HtfContext | null;
+  /**
+   * The scorer's per-category breakdown for this bar (the `components` of the
+   * same computeSignalScore call that produced `score`). Read only; research
+   * families use it, the score-threshold rule does not.
+   */
+  components?: SignalComponent[];
   session: MarketSession | null;
   position: OpenPosition | null;
   pendingOrder: PendingOrder | null;
