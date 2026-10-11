@@ -71,6 +71,9 @@ function makeStrategy(
 ): Strategy {
   const inner: Strategy = {
     name,
+    // E4's exit is decided at a bar's close and fills at the next bar's open (note N9). E1 to E3 never
+    // exit through decideExit, so this changes nothing for them.
+    exitFill: 'next-open',
     decideEntry(ctx): EntryDecision | null {
       const d = direction(ctx);
       if (!d) return null;
@@ -84,13 +87,14 @@ function makeStrategy(
         orderType: 'market',
         stopPrice: close - d.dir * stopDist,
         targetPrice: target,
-        timeStopBars: horizon,
+        // The next-open fill is bar i + 1, so h - 1 bars later the time stop closes at close[i + h] (note N8).
+        timeStopBars: horizon - 1,
       };
     },
     decideExit(ctx): boolean {
       if (exit !== 4 || !ctx.position) return false;
       const s = scoreOf(ctx);
-      if (s === null) return false;
+      if (s === null || !Number.isFinite(s)) return false;
       return ctx.position.side === 'long' ? s <= exitLevel : s >= -exitLevel;
     },
   };
@@ -124,7 +128,7 @@ export const DX_FAMILIES: Record<'dx-d0' | 'dx-d1' | 'dx-d2', StrategyFamily> = 
       const scoreOf = (ctx: StrategyContext) => d1FromComponents(ctx.components ?? [], fit.signs);
       const direction: Direction = (ctx) => {
         const s = scoreOf(ctx);
-        return s === null || Math.abs(s) <= fit.threshold ? null : { dir: s > 0 ? 1 : -1, score: s };
+        return s === null || !Number.isFinite(s) || Math.abs(s) <= fit.threshold ? null : { dir: s > 0 ? 1 : -1, score: s };
       };
       const level = DIRECTION_EXIT_EXIT_FRACTION * fit.threshold;
       return makeStrategy('dx-d1', direction, level, params.exit, params.k, horizonOf(interval), scoreOf);
