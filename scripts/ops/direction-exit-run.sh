@@ -9,23 +9,30 @@
 #   direction-exit-run.sh rows
 #   direction-exit-run.sh diagnosis   (commit DIRECTION_EXIT_FIT from its lag-1 fit, push, pull, build)
 #   direction-exit-run.sh develop-a   judge check-fit first, then the 40 jobs of `judge jobs develop-a`
+#                                     (develop-b and confirm run check-fit again)
 #   direction-exit-run.sh cond        saves dx-out/cond.json (commit DIRECTION_EXIT_D2_CONDITION from it, pull, build)
 #   direction-exit-run.sh develop-b   the 14 jobs of `judge jobs develop-b --cond-file cond.json`
 #   direction-exit-run.sh select      saves dx-out/select.json (commit DIRECTION_EXIT_SELECTION from it, pull, build)
 #   direction-exit-run.sh confirm     the 24 jobs of `judge jobs confirm --select-file select.json`
-#   direction-exit-run.sh verdict     the judge's verdict, the trial variance read from select.json
+#   direction-exit-run.sh verdict     the judge's verdict, the trial variance recomputed from the 54 develop reports
 #
 # No stage takes an argument: the dataset hash comes from dx-out/manifest-hash, every job list and every expected
 # report name from the judge run inside the image, so nothing is typed by hand. Every container gets the checkout's
-# commit as GIT_COMMIT, and every stage refuses an image whose label is not that clean commit. From cond on, the code
-# may differ from the develop-a code only in scripts/research/direction-exit.ts (the committed constants) or in
-# Markdown files; cond, develop-b, select, confirm and verdict check it with git diff.
+# commit as GIT_COMMIT, and every stage refuses an image whose label is not that clean commit (tracked and untracked
+# files alike). The image is resolved to its ID once per stage and every container runs by that ID. From cond on, the
+# code may differ from the develop-a code only in Markdown files and in the three committed-constant declarations of
+# scripts/research/direction-exit.ts (DIRECTION_EXIT_FIT, _D2_CONDITION, _SELECTION); every other line of that file
+# must be identical. cond, develop-b, select, confirm and verdict check it with git diff, and develop-a, develop-b
+# and confirm re-run the judge's check-fit against diagnosis.json.
 # Report directories must hold exactly the expected dx-*.json files; a missing or any other one fails the stage.
 # INT and TERM stop the containers this script started (docker stop) and exit 130 or 143.
 # Every stage appends {"stage","exit","at"} to $HOME/dx-out/stages.log and exits with the stage's code.
+# The stage_* functions are only ever called through the dispatch at the end, by name.
+# shellcheck disable=SC2329
 set -u -o pipefail
 
 IMG=crypto-ops:dx
+IMG_ID=
 LABEL=dx.gitCommit
 BUILD=$HOME/crypto-archive-build
 DS=$HOME/dx-ds
@@ -72,24 +79,27 @@ head_commit() {
   local c
   c=$(git -C "$BUILD" rev-parse HEAD 2> /dev/null)
   [[ "$c" =~ ^[0-9a-f]{40}$ ]] || die "no commit at $BUILD" || return 1
-  [[ -z "$(git -C "$BUILD" status --porcelain --untracked-files=no 2> /dev/null)" ]] ||
-    die "$BUILD has uncommitted changes: the image would not be its commit" || return 1
+  [[ -z "$(git -C "$BUILD" status --porcelain 2> /dev/null)" ]] ||
+    die "$BUILD has uncommitted or untracked files: the image would not be its commit" || return 1
   echo "$c"
 }
 
-# need_commit  sets GIT_COMMIT once for the stage (the clean HEAD, which must be the image's label) and the docker
-# arguments that pass it to every container.
+# need_commit  sets GIT_COMMIT once for the stage (the clean HEAD, which must be the image's label), resolves the image
+# to its ID once (IMG_ID, so a rebuild during the stage cannot swap the code) and sets the docker arguments that pass
+# the commit to every container.
 need_commit() {
   local label
   GIT_COMMIT=$(head_commit) || return 1
-  label=$(docker image inspect --format "{{ index .Config.Labels \"$LABEL\" }}" "$IMG" 2> /dev/null)
+  IMG_ID=$(docker image inspect --format '{{.Id}}' "$IMG" 2> /dev/null)
+  [[ -n "$IMG_ID" ]] || die "no image $IMG: run the build stage" || return 1
+  label=$(docker image inspect --format "{{ index .Config.Labels \"$LABEL\" }}" "$IMG_ID" 2> /dev/null)
   [[ "$label" == "$GIT_COMMIT" ]] ||
     die "image $IMG is labelled '$label' but $BUILD is at $GIT_COMMIT: run the build stage" || return 1
   O=(--rm --cpu-shares 256 --memory 3g -e NODE_OPTIONS=--max-old-space-size=2560 -e NPM_CONFIG_UPDATE_NOTIFIER=false
     -e "GIT_COMMIT=$GIT_COMMIT")
   R=("${O[@]}" -v "$DS:/app/ds:ro" -v "$OUT:/app/out")
-  log "stage $STAGE commit $GIT_COMMIT"
-  echo "commit $GIT_COMMIT"
+  log "stage $STAGE commit $GIT_COMMIT image $IMG_ID"
+  echo "commit $GIT_COMMIT image $IMG_ID"
 }
 
 read_hash() {
@@ -99,24 +109,61 @@ read_hash() {
   echo "dataset $MANIFEST"
 }
 
-# json_field <key> <file>  the first "key":"value" string of a compact JSON file.
-json_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" "$2" | head -1; }
+# json_field <key> <file>  the string value of "key" in a JSON file, compact or indented: the last "key": "value" on
+# the first line that has one (the match is greedy). Keys read here are unique per line.
+json_field() { sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$2" | head -1; }
+
+# strip_constants <commit>  scripts/research/direction-exit.ts at <commit> without the three committed-constant
+# declarations (DIRECTION_EXIT_FIT, _D2_CONDITION, _SELECTION), each from its `export const` line through the end of
+# its statement (bracket depth back to zero on a line ending in `;`). Fails when the file is missing, a declaration
+# does not terminate, or the three are not all found exactly once.
+strip_constants() {
+  git -C "$BUILD" show "$1:scripts/research/direction-exit.ts" 2> /dev/null | awk '
+    /^export const DIRECTION_EXIT_(FIT|D2_CONDITION|SELECTION)([^A-Za-z0-9_]|$)/ { skip = 1; depth = 0; n++ }
+    skip {
+      line = $0
+      depth += gsub(/[{(\[]/, "&", line)
+      depth -= gsub(/[})\]]/, "&", line)
+      if (depth <= 0 && $0 ~ /;[[:space:]]*$/) skip = 0
+      next
+    }
+    { print }
+    END { if (skip) exit 3; if (n != 3) exit 4 }'
+}
 
 # code_unchanged <from> <to>  the code run at <to> is the code run at <from>: every path that differs between them
-# is scripts/research/direction-exit.ts (the committed constants) or a Markdown file.
+# is a Markdown file or scripts/research/direction-exit.ts, and that file differs only in the declarations of
+# DIRECTION_EXIT_FIT, DIRECTION_EXIT_D2_CONDITION and DIRECTION_EXIT_SELECTION (any other change fails).
 code_unchanged() {
-  local from=$1 to=$2 changed f bad=()
+  local from=$1 to=$2 changed f bad=() tmp
   [[ "$from" =~ ^[0-9a-f]{40}$ && "$to" =~ ^[0-9a-f]{40}$ ]] || die "code check needs two commits, got '$from' '$to'" || return 1
   changed=$(git -C "$BUILD" diff --name-only "$from" "$to") || die "git diff $from $to failed" || return 1
   while IFS= read -r f; do
-    if [[ -n "$f" && "$f" != scripts/research/direction-exit.ts && "$f" != *.md ]]; then bad+=("$f"); fi
+    if [[ -z "$f" || "$f" == *.md ]]; then
+      continue
+    elif [[ "$f" == scripts/research/direction-exit.ts ]]; then
+      tmp=$(mktemp -d) || die "mktemp failed" || return 1
+      if strip_constants "$from" > "$tmp/from" && strip_constants "$to" > "$tmp/to"; then
+        if ! cmp -s "$tmp/from" "$tmp/to"; then bad+=("$f (outside the committed constants)"); fi
+      else
+        bad+=("$f (constants could not be stripped)")
+      fi
+      rm -rf "$tmp"
+    else
+      bad+=("$f")
+    fi
   done <<< "$changed"
   if [[ ${#bad[@]} -gt 0 ]]; then
     die "code changed between $from and $to: ${bad[*]}"
     return 1
   fi
-  echo "code check ok: $from..$to differs at most in direction-exit.ts or Markdown"
+  echo "code check ok: $from..$to differs at most in Markdown or the committed constants of direction-exit.ts"
   log "code check ok $from..$to"
+}
+
+# check_fit  the committed DIRECTION_EXIT_FIT must equal diagnosis.json's lag-1 fit (judge check-fit).
+check_fit() {
+  judge_out "$OUT/check-fit.txt" check-fit --diagnosis /app/out/diagnosis.json --expect-manifest-hash "$MANIFEST"
 }
 
 # ---- signals -----------------------------------------------------------------------------------------------------
@@ -153,7 +200,7 @@ drun() {
   wait "$pid"
   local rc=$?
   PIDS=()
-  return $rc
+  return "$rc"
 }
 
 # judge_out <outfile> <mode> <args...>  runs the judge in the image, stdout to <outfile> only when it succeeds,
@@ -164,7 +211,7 @@ judge_out() {
   name=$(cname "judge-$mode")
   if [[ "$mode" == jobs ]]; then name=$(cname "judge-jobs-$1"); fi
   CNAMES+=("$name")
-  docker run --name "$name" "${R[@]}" "$IMG" npx tsx scripts/research/direction-exit-judge.ts "$mode" "$@" \
+  docker run --name "$name" "${R[@]}" "$IMG_ID" npx tsx scripts/research/direction-exit-judge.ts "$mode" "$@" \
     > "$outfile.tmp" 2>> "$OUT/logs/$STAGE.log" &
   pid=$!
   PIDS=("$pid")
@@ -175,7 +222,7 @@ judge_out() {
     rm -f "$outfile.tmp"
     tail -n 5 "$OUT/logs/$STAGE.log" >&2
     die "judge $mode failed with exit $rc (log $OUT/logs/$STAGE.log)"
-    return $rc
+    return "$rc"
   fi
   mv "$outfile.tmp" "$outfile"
   cat "$outfile"
@@ -243,7 +290,7 @@ harness_run() {
   else
     win=(--eval-from "$CONF_START" --end "$CONF_END" --allow-lockbox)
   fi
-  docker run --name "$(cname "$name")" "${R[@]}" "$IMG" npx tsx scripts/research/strategy-harness.ts \
+  docker run --name "$(cname "$name")" "${R[@]}" "$IMG_ID" npx tsx scripts/research/strategy-harness.ts \
     --family "$family" --interval "$iv" --fixed-eval --fix-params "$params" --symbols "$SYMBOLS" \
     --start "$DS_START" "${win[@]}" --funding-settlements --windows 6 \
     --dataset-dir /app/ds --expect-manifest-hash "$MANIFEST" --out "/app/out/$phase/$name.json" \
@@ -292,7 +339,7 @@ stage_build() {
   GIT_COMMIT=$(head_commit) || return 1
   docker build --target seeder --label "$LABEL=$GIT_COMMIT" -t "$IMG" "$BUILD" 2>&1 | tee "$OUT/logs/build.log"
   local rc=$?
-  [[ $rc -eq 0 ]] || return $rc
+  [[ $rc -eq 0 ]] || return "$rc"
   echo "built $IMG at $GIT_COMMIT"
   log "build $GIT_COMMIT"
 }
@@ -303,11 +350,11 @@ stage_export() {
   need_commit || return 1
   mkdir -p "$DS"
   drun "$(cname run)" "$OUT/logs/export.log" "${O[@]}" --network crypto_crypto-internal --env-file /opt/sites/crypto/.env \
-    -v "$DS:/app/out" "$IMG" \
+    -v "$DS:/app/out" "$IMG_ID" \
     npx tsx scripts/research/export-dataset.ts --symbols "$SYMBOLS" --intervals 1h,4h,1d \
     --datasets candles,snapshots,htf,funding --start "$DS_START" --end "$DS_END" --out /app/out
   local rc=$? hash
-  [[ $rc -eq 0 ]] || return $rc
+  [[ $rc -eq 0 ]] || return "$rc"
   hash=$(sed -n 's/.*"datasetHash"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DS/manifest.json" | head -1)
   need_hash "$hash" || return 1
   printf '%s\n' "$hash" > "$HASH_FILE"
@@ -318,10 +365,10 @@ stage_export() {
 stage_repro() {
   need_commit || return 1
   read_hash || return 1
-  drun "$(cname rows)" "$OUT/logs/repro-rows.log" "${R[@]}" "$IMG" npx tsx scripts/research/direction-exit-rows.ts \
+  drun "$(cname rows)" "$OUT/logs/repro-rows.log" "${R[@]}" "$IMG_ID" npx tsx scripts/research/direction-exit-rows.ts \
     --dataset-dir /app/ds --out /app/out/repro-rows.jsonl.gz --start "$REPRO_START" --end "$CONF_END" --scores-only \
     --expect-manifest-hash "$MANIFEST" || return
-  drun "$(cname check)" "$OUT/logs/repro.log" "${R[@]}" -v "$REF:/app/ref:ro" "$IMG" npx tsx \
+  drun "$(cname check)" "$OUT/logs/repro.log" "${R[@]}" -v "$REF:/app/ref:ro" "$IMG_ID" npx tsx \
     scripts/research/direction-exit-repro.ts repro --mine /app/out/repro-rows.jsonl.gz \
     --reference /app/ref/v8-rows.jsonl.gz --expect-manifest-hash "$MANIFEST"
 }
@@ -331,20 +378,20 @@ stage_parity() {
   need_commit || return 1
   read_hash || return 1
   for iv in 1h 4h; do
-    drun "$(cname "$iv")" "$OUT/logs/parity-$iv.log" "${R[@]}" "$IMG" npx tsx scripts/research/direction-exit-repro.ts \
+    drun "$(cname "$iv")" "$OUT/logs/parity-$iv.log" "${R[@]}" "$IMG_ID" npx tsx scripts/research/direction-exit-repro.ts \
       parity --dataset-dir /app/ds --interval "$iv" --start "$PARITY_START" --end "$DEV_END" --symbols "$SYMBOLS" \
       --expect-manifest-hash "$MANIFEST"
     r=$?
     log "parity $iv exit $r"
     if [[ $r -ne 0 ]]; then rc=$r; fi
   done
-  return $rc
+  return "$rc"
 }
 
 stage_rows() {
   need_commit || return 1
   read_hash || return 1
-  drun "$(cname run)" "$OUT/logs/rows.log" "${R[@]}" "$IMG" npx tsx scripts/research/direction-exit-rows.ts \
+  drun "$(cname run)" "$OUT/logs/rows.log" "${R[@]}" "$IMG_ID" npx tsx scripts/research/direction-exit-rows.ts \
     --dataset-dir /app/ds --out /app/out/develop-rows.jsonl.gz --start "$DEV_START" --end "$DEV_END" \
     --expect-manifest-hash "$MANIFEST"
 }
@@ -352,14 +399,14 @@ stage_rows() {
 stage_diagnosis() {
   need_commit || return 1
   read_hash || return 1
-  drun "$(cname run)" "$OUT/logs/diagnosis.log" "${R[@]}" "$IMG" npx tsx scripts/research/direction-exit-diagnosis.ts \
+  drun "$(cname run)" "$OUT/logs/diagnosis.log" "${R[@]}" "$IMG_ID" npx tsx scripts/research/direction-exit-diagnosis.ts \
     --rows /app/out/develop-rows.jsonl.gz --out /app/out/diagnosis.json --expect-manifest-hash "$MANIFEST"
 }
 
 stage_develop_a() {
   need_commit || return 1
   read_hash || return 1
-  judge_out "$OUT/check-fit.txt" check-fit --diagnosis /app/out/diagnosis.json --expect-manifest-hash "$MANIFEST" || return 1
+  check_fit || return 1
   load_jobs develop-a 40 || return 1
   run_pool develop "${JOBS[@]}"
 }
@@ -372,8 +419,10 @@ stage_cond() {
   # shellcheck disable=SC2207
   names=($(job_names "${JOBS[@]}"))
   check_exact "$OUT/develop" "${names[@]}" || return 1
-  judge_out "$OUT/cond.json" cond --develop-dir /app/out/develop --expect-manifest-hash "$MANIFEST" || return 1
-  code_unchanged "$(json_field gitCommit "$OUT/cond.json")" "$GIT_COMMIT"
+  rm -f "$OUT/cond.json.pending"
+  judge_out "$OUT/cond.json.pending" cond --develop-dir /app/out/develop --expect-manifest-hash "$MANIFEST" || return 1
+  code_unchanged "$(json_field gitCommit "$OUT/cond.json.pending")" "$GIT_COMMIT" || return 1
+  mv "$OUT/cond.json.pending" "$OUT/cond.json"
 }
 
 stage_develop_b() {
@@ -381,6 +430,7 @@ stage_develop_b() {
   read_hash || return 1
   [[ -f "$OUT/cond.json" ]] || die "no $OUT/cond.json: run the cond stage first" || return 1
   code_unchanged "$(json_field gitCommit "$OUT/cond.json")" "$GIT_COMMIT" || return 1
+  check_fit || return 1
   load_jobs develop-b 14 --cond-file /app/out/cond.json || return 1
   run_pool develop "${JOBS[@]}"
 }
@@ -397,9 +447,12 @@ stage_select() {
   # shellcheck disable=SC2207
   names+=($(job_names "${JOBS[@]}"))
   check_exact "$OUT/develop" "${names[@]}" || return 1
-  judge_out "$OUT/select.json" select --develop-dir /app/out/develop --expect-manifest-hash "$MANIFEST" || return 1
-  code_unchanged "$(json_field developA "$OUT/select.json")" "$(json_field developB "$OUT/select.json")" || return 1
-  code_unchanged "$(json_field developB "$OUT/select.json")" "$GIT_COMMIT"
+  # select.json is the study's record of the picks: it is moved into place only after every check has passed.
+  rm -f "$OUT/select.json.pending"
+  judge_out "$OUT/select.json.pending" select --develop-dir /app/out/develop --expect-manifest-hash "$MANIFEST" || return 1
+  code_unchanged "$(json_field developA "$OUT/select.json.pending")" "$(json_field developB "$OUT/select.json.pending")" || return 1
+  code_unchanged "$(json_field developB "$OUT/select.json.pending")" "$GIT_COMMIT" || return 1
+  mv "$OUT/select.json.pending" "$OUT/select.json"
 }
 
 stage_confirm() {
@@ -407,25 +460,33 @@ stage_confirm() {
   read_hash || return 1
   [[ -f "$OUT/select.json" ]] || die "no $OUT/select.json: run the select stage first" || return 1
   code_unchanged "$(json_field developB "$OUT/select.json")" "$GIT_COMMIT" || return 1
+  check_fit || return 1
   load_jobs confirm 24 --select-file /app/out/select.json || return 1
   run_pool confirm "${JOBS[@]}"
 }
 
 stage_verdict() {
   local -a names
-  local confirmed
+  local developb confirmed judged
   need_commit || return 1
   read_hash || return 1
   [[ -f "$OUT/select.json" ]] || die "no $OUT/select.json: run the select stage first" || return 1
+  developb=$(json_field developB "$OUT/select.json")
+  # the verdict's own code: the judge runs at this checkout, which may differ from develop-b only in the constants
+  code_unchanged "$developb" "$GIT_COMMIT" || return 1
   load_jobs confirm 24 --select-file /app/out/select.json || return 1
   # shellcheck disable=SC2207
   names=($(job_names "${JOBS[@]}"))
   check_exact "$OUT/confirm" "${names[@]}" || return 1
-  drun "$(cname run)" "$OUT/logs/verdict.log" "${R[@]}" "$IMG" npx tsx scripts/research/direction-exit-judge.ts verdict \
-    --confirm-dir /app/out/confirm --select-file /app/out/select.json --dataset-dir /app/ds \
-    --expect-manifest-hash "$MANIFEST" || return
-  confirmed=$(sed -n 's/^confirm gitCommit \([0-9a-f]*\)$/\1/p' "$OUT/logs/verdict.log" | tail -1)
-  code_unchanged "$(json_field developB "$OUT/select.json")" "$confirmed"
+  # a stale verdict.json must not be mistaken for this run's: the commits below are read from the file the judge writes
+  rm -f "$OUT/confirm/verdict.json"
+  drun "$(cname run)" "$OUT/logs/verdict.log" "${R[@]}" "$IMG_ID" npx tsx scripts/research/direction-exit-judge.ts verdict \
+    --confirm-dir /app/out/confirm --develop-dir /app/out/develop --select-file /app/out/select.json \
+    --dataset-dir /app/ds --expect-manifest-hash "$MANIFEST" || return
+  confirmed=$(json_field gitCommit "$OUT/confirm/verdict.json")
+  judged=$(json_field judgeCommit "$OUT/confirm/verdict.json")
+  [[ "$judged" == "$GIT_COMMIT" ]] || die "verdict.json judgeCommit '$judged' is not this checkout $GIT_COMMIT" || return 1
+  code_unchanged "$developb" "$confirmed"
 }
 
 # ---- dispatch ----------------------------------------------------------------------------------------------------

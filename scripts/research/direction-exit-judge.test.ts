@@ -9,6 +9,7 @@ import {
 } from './direction-exit';
 import {
   anatolyevGerko,
+  assertTrialVariance,
   buildSelect,
   checkFit,
   commitOf,
@@ -29,6 +30,7 @@ import {
   REPORT_NAME_PATTERN,
   selectFor,
   tradesOf,
+  trialVariance,
   type DxTrade,
   type NamedReport,
 } from './direction-exit-judge';
@@ -147,6 +149,17 @@ describe('judgeConfiguration', () => {
   });
 });
 
+describe('agStat mapping (Ruling R14)', () => {
+  it('uses f = +1 long / -1 short and r = f x pnlPercent on mixed longs and shorts', () => {
+    // report() alternates long, short: pnl 3 (long), 1 (short), 1 (long), 2 (short), so f = (1, -1, 1, -1) and
+    // r = (3, -1, 1, -2). A = mean(f r) = 7/4, B = 0 * 1/4 = 0, p = 1/2, sum (r - 1/4)^2 = 14.75,
+    // V = 4/16 * 1/4 * 14.75 = 0.921875, EP = 1.75 / sqrt(0.921875). Raw pnl as r would give A = 1/4 instead.
+    const pnls: Array<[number, number]> = [[t2025, 3], [t2025 + 3_600_000, 1], [t2025 + 7_200_000, 1], [t2025 + 10_800_000, 2]];
+    const v = judgeConfiguration({ config: 'x', report: report(pnls), varianceOfTrialSharpes: 0.01, numTrials: 2135, exit: 1 });
+    expect(v.reported.agStat).toBeCloseTo(1.75 / Math.sqrt(0.921875), 12);
+  });
+});
+
 describe('neweyWestT', () => {
   const x = [0, 0, 1, 1];
   const y = [0, 1, 1, 1];
@@ -162,7 +175,7 @@ describe('neweyWestT', () => {
 });
 
 describe('anatolyevGerko', () => {
-  it('is the excess-profitability statistic EP of Ruling R12 on a hand-computed input', () => {
+  it('is the excess-profitability statistic EP of Ruling R14 on a hand-computed input', () => {
     // f = (1, -1, 1), r = (2, -1, -1): A = 2/3, B = (1/3)(0) = 0, p = 2/3, V = 4/9 * 2/9 * 6 = 16/27, EP = sqrt(3)/2.
     expect(anatolyevGerko([1, -1, 1], [2, -1, -1])).toBeCloseTo(Math.sqrt(3) / 2, 12);
   });
@@ -404,6 +417,32 @@ describe('buildSelect', () => {
     mixed[45] = { ...mixed[45], report: { ...mixed[45].report, gitCommit: 'z' } };
     expect(() => buildSelect(mixed, conds)).toThrow(/develop-b/);
     expect(() => buildSelect(all(), { '1h': 3, '4h': 4 })).toThrow(/4h/);
+  });
+});
+
+describe('trial variance', () => {
+  const conds = { '1h': 3, '4h': 2 } as const;
+  /** A report whose trades alternate around a per-report mean, so the per-period Sharpe ratios differ between reports. */
+  const varied = (r: NamedReport, i: number): NamedReport => ({
+    ...r,
+    trades: r.trades.map((t, j) => ({ ...t, pnlPercent: (r.family === 'dx-d2' && r.exit === 1 && r.cond === conds[r.interval] ? 1 : 0) + 0.2 + (i % 7) * 0.05 + (j % 2 ? 1 : -1) * (0.5 + (i % 3) * 0.1) })),
+  });
+  const reports = [
+    ...developAJobs().map((j) => named(j.family, j.interval, j.cond, j.exit, j.k, 50, 0, 'a')),
+    ...developBJobs(conds).map((j) => named(j.family, j.interval, j.cond, j.exit, j.k, 50, 0, 'b')),
+  ].map(varied);
+
+  it('is recomputed from the reports exactly as buildSelect records it', () => {
+    expect(trialVariance(reports)).toBe(buildSelect(reports, conds).varianceOfTrialSharpes);
+  });
+
+  it('accepts select.json within 1e-12 and fails on a larger difference, a missing or a non-finite value', () => {
+    const v = trialVariance(reports);
+    expect(v).toBeGreaterThan(0);
+    expect(() => assertTrialVariance(v, v + 5e-13)).not.toThrow();
+    expect(() => assertTrialVariance(v, v + 2e-12)).toThrow(/differs/);
+    expect(() => assertTrialVariance(v, undefined)).toThrow(/missing/);
+    expect(() => assertTrialVariance(v, Number.NaN)).toThrow(/missing/);
   });
 });
 

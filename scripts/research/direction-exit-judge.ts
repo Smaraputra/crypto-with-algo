@@ -9,7 +9,9 @@
  *       the committed DIRECTION_EXIT_FIT must equal the diagnosis's lag-1 fit.
  *   cond    --develop-dir <dir> --expect-manifest-hash <h>     D2's condition from the 40 develop-a reports
  *   select  --develop-dir <dir> --expect-manifest-hash <h>     the develop picks from the 54 develop reports
- *   verdict --confirm-dir <dir> --select-file <select.json> --dataset-dir <dir> --expect-manifest-hash <h>
+ *   verdict --confirm-dir <dir> --develop-dir <dir> --select-file <select.json> --dataset-dir <dir> --expect-manifest-hash <h>
+ *       the trial variance is recomputed from the 54 develop reports and cross-checked against select.json;
+ *       verdict.json records GIT_COMMIT (the judge's own commit) as judgeCommit.
  *
  * Every mode that reads reports loads exactly the job names (no stray dx-*.json), validates each against the
  * harness's report schema, and asserts its provenance: the filename's family, interval and parameters, the
@@ -455,9 +457,9 @@ export function neweyWestT(x: number[], y: number[], lag: number): number | null
 }
 
 /**
- * The Anatolyev-Gerko (2005) excess-profitability statistic, Ruling R12: EP = (A - B) / sqrt(V) with
+ * The Anatolyev-Gerko (2005) excess-profitability statistic, Ruling R14: EP = (A - B) / sqrt(V) with
  * A = mean(f r), B = mean(f) mean(r), V = 4 / T^2 p (1 - p) sum (r - rbar)^2 and p = (1 + mean(f)) / 2, for calls
- * f (+1 long, -1 short) and the asset's returns r over each call. Null under 2 calls, with one call direction
+ * f (+1 long, -1 short) and the asset's returns r over each call (the verdict passes r = side x pnlPercent). Null under 2 calls, with one call direction
  * only (V = 0) or mismatched inputs.
  */
 export function anatolyevGerko(f: number[], r: number[]): number | null {
@@ -588,7 +590,7 @@ export const DIRECTION_EXIT_REPORTED_NOTE =
   'its pnlPercent after fees, slippage and funding. balancedHitRate = mean of the long and short shares with ' +
   'pnlPercent > 0. ptT = Pesaran-Timmermann regression t of the realised up-indicator (long and pnl > 0, or short ' +
   'and pnl < 0) on the call up-indicator, Newey-West lag = the horizon counted in trades, not bars. agStat = ' +
-  'Anatolyev-Gerko EP (Ruling R12) with f = +1 long / -1 short and r = f x pnlPercent, the net asset move implied ' +
+  'Anatolyev-Gerko EP (Ruling R14) with f = +1 long / -1 short and r = f x pnlPercent, the net asset move implied ' +
   'by each trade. mfeCaptureNet = mean of pnlPercent over the trade MFE from the entry open (candles).';
 
 function reportedStats(
@@ -667,6 +669,25 @@ export function selectFor(reports: NamedReport[], interval: Interval): Direction
   return { d2Condition, e2K: kFor(2), e3K: kFor(3) };
 }
 
+/** The sample variance of the per-period Sharpe ratios over a set of develop reports (the DSR's trial variance). */
+export function trialVariance(reports: NamedReport[]): number {
+  return sampleVariance(reports.map((r) => perPeriodSharpe(r.trades.map((t) => t.pnlPercent))));
+}
+
+/** Largest allowed difference between the recomputed trial variance and select.json's. */
+export const TRIAL_VARIANCE_TOLERANCE = 1e-12;
+
+/** Throws unless the select.json variance (when present) equals the recomputed one within the tolerance. */
+export function assertTrialVariance(recomputed: number, fromSelectFile: number | undefined): void {
+  if (!Number.isFinite(recomputed) || recomputed < 0) throw new Error(`recomputed varianceOfTrialSharpes ${recomputed} is not a finite non-negative number`);
+  if (fromSelectFile === undefined || !Number.isFinite(fromSelectFile)) {
+    throw new Error('select.json: varianceOfTrialSharpes is missing or not finite, cannot cross-check');
+  }
+  if (Math.abs(recomputed - fromSelectFile) > TRIAL_VARIANCE_TOLERANCE) {
+    throw new Error(`varianceOfTrialSharpes: recomputed ${recomputed} differs from select.json ${fromSelectFile}`);
+  }
+}
+
 const isDevelopB = (r: NamedReport): boolean => r.family === 'dx-d2' && r.exit !== 1;
 
 export interface SelectOutput {
@@ -696,7 +717,7 @@ export function buildSelect(reports: NamedReport[], conds: Record<Interval, Cond
   }
   return {
     selection,
-    varianceOfTrialSharpes: sampleVariance(reports.map((r) => perPeriodSharpe(r.trades.map((t) => t.pnlPercent)))),
+    varianceOfTrialSharpes: trialVariance(reports),
     reports: reports.length,
     datasetManifestHash: hashes[0],
     gitCommit,
@@ -769,16 +790,19 @@ function runSelect(argv: string[]): void {
 }
 
 async function runVerdict(argv: string[]): Promise<void> {
-  const a = flags(argv, ['confirm-dir', 'select-file', 'dataset-dir', 'expect-manifest-hash']);
+  const a = flags(argv, ['confirm-dir', 'develop-dir', 'select-file', 'dataset-dir', 'expect-manifest-hash']);
   const hash = a['expect-manifest-hash'];
+  const judgeCommit = process.env.GIT_COMMIT ?? '';
+  if (!/^[0-9a-f]{40}$/.test(judgeCommit)) throw new Error(`GIT_COMMIT must be the 40-hex commit the judge runs at, got '${judgeCommit}'`);
   const selection = committedSelection(COMMITTED);
   const selectFile = readJson(a['select-file']);
   assertSelectFile(selection, selectFile);
-  const variance = SelectFileSchema.parse(selectFile).varianceOfTrialSharpes;
-  if (variance === undefined || !Number.isFinite(variance) || variance < 0) {
-    throw new Error(`${a['select-file']}: varianceOfTrialSharpes is missing or not a finite non-negative number`);
-  }
   await assertDatasetHash(a['dataset-dir'], hash);
+  const developNames = [...developAJobs(), ...developBJobs(committedConditions(COMMITTED.conds))].map((j) => j.name);
+  const developReports = loadReports(a['develop-dir'], developNames);
+  assertProvenance(developReports, 'develop', hash);
+  const variance = trialVariance(developReports);
+  assertTrialVariance(variance, SelectFileSchema.parse(selectFile).varianceOfTrialSharpes);
   const dir = a['confirm-dir'];
   const reports = loadReports(dir, confirmJobs(selection).map((j) => j.name));
   assertProvenance(reports, 'confirm', hash);
@@ -809,6 +833,7 @@ async function runVerdict(argv: string[]): Promise<void> {
     );
   }
   console.log(`confirm gitCommit ${gitCommit}`);
+  console.log(`judge gitCommit ${judgeCommit}`);
   writeFileSync(
     join(dir, 'verdict.json'),
     JSON.stringify(
@@ -816,6 +841,7 @@ async function runVerdict(argv: string[]): Promise<void> {
         note: DIRECTION_EXIT_REPORTED_NOTE,
         datasetManifestHash: hash,
         gitCommit,
+        judgeCommit,
         numTrials: DIRECTION_EXIT_LEDGER_AFTER,
         varianceOfTrialSharpes: variance,
         verdicts,
