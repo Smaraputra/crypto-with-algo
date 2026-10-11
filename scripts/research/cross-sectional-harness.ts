@@ -43,6 +43,7 @@ export interface AlignedBar {
   low: number;
   close: number;
   volume: number;
+  takerBuyVolume?: number;
 }
 
 export interface BarReturnRecord {
@@ -105,6 +106,8 @@ export function aggregateTo8h(candles4h: CandleRow[]): AlignedBar[] {
 
   for (const c of candles4h) {
     const bucket = Math.floor(c.t / EIGHT_HOURS_MS) * EIGHT_HOURS_MS;
+    const takerBuy = c.tbv !== null && c.tbv !== undefined ? c.tbv : c.v * 0.5;
+
     if (bucket !== bucketStart) {
       if (currentBucket) {
         bars.push(currentBucket);
@@ -117,12 +120,14 @@ export function aggregateTo8h(candles4h: CandleRow[]): AlignedBar[] {
         low: c.l,
         close: c.c,
         volume: c.v,
+        takerBuyVolume: takerBuy,
       };
     } else if (currentBucket) {
       currentBucket.high = Math.max(currentBucket.high, c.h);
       currentBucket.low = Math.min(currentBucket.low, c.l);
       currentBucket.close = c.c;
       currentBucket.volume += c.v;
+      currentBucket.takerBuyVolume = (currentBucket.takerBuyVolume ?? 0) + takerBuy;
     }
   }
 
@@ -265,7 +270,7 @@ export function runSimulation(
     legs: number;
     buffer: number;
     weights: FactorWeights;
-    lookbackBars: number;
+    flowLookbackBars?: number;
     execution?: 'open' | 'close';
     betaNeutral?: boolean;
     takerFeeRate?: number;
@@ -304,6 +309,7 @@ export function runSimulation(
   const records: BarReturnRecord[] = [];
 
   const lookback = config.lookbackBars;
+  const flowLookback = config.flowLookbackBars ?? lookback;
   const barDuration = cadence === '8h' ? 8 * 3600 * 1000 : 24 * 3600 * 1000;
 
   // Start after warmup lookback
@@ -381,6 +387,19 @@ export function runSimulation(
         }
       }
 
+      // Calculate rolling taker buy ratio over flowLookback bars
+      let rollingTbv = 0;
+      let rollingV = 0;
+      const startK = Math.max(0, idx - flowLookback + 1);
+      for (let k = startK; k <= idx; k++) {
+        const b = barLookup.get(commonTimestamps[k])?.get(sym);
+        if (b) {
+          rollingTbv += b.takerBuyVolume ?? (b.volume * 0.5);
+          rollingV += b.volume;
+        }
+      }
+      const takerBuyRatio = rollingV > 0 ? rollingTbv / rollingV : 0.5;
+
       snapshots.push({
         symbol: sym,
         close: cur.close,
@@ -389,6 +408,7 @@ export function runSimulation(
         fundingRate: lastRate,
         btcReturn14d: btcReturn,
         betaToBtc: betaMap.get(sym) ?? 1.0,
+        takerBuyRatio,
       });
     }
 
@@ -481,6 +501,11 @@ async function main() {
       'taker-fee-bps': { type: 'string', default: '5' },
       'slippage-bps': { type: 'string', default: '2' },
       'maker-fee-bps': { type: 'string', default: '1.8' },
+      'flow-weight': { type: 'string', default: '0.0' },
+      'flow-lookback-bars': { type: 'string' },
+      'mom-weight': { type: 'string' },
+      'idio-weight': { type: 'string' },
+      'carry-weight': { type: 'string' },
     },
   });
 
@@ -496,9 +521,39 @@ async function main() {
   const takerSlippageRate = parseFloat(values['slippage-bps'] ?? '2') / 10000;
   const makerFeeRate = parseFloat(values['maker-fee-bps'] ?? '1.8') / 10000;
 
+  const flowWeight = parseFloat(values['flow-weight'] ?? '0.0');
+  const flowLookbackBars = values['flow-lookback-bars']
+    ? parseInt(values['flow-lookback-bars'], 10)
+    : lookbackBars;
+  const momWeight = values['mom-weight']
+    ? parseFloat(values['mom-weight'])
+    : flowWeight > 0
+    ? 0.3
+    : 0.4;
+  const idioWeight = values['idio-weight']
+    ? parseFloat(values['idio-weight'])
+    : flowWeight > 0
+    ? 0.25
+    : 0.3;
+  const carryWeight = values['carry-weight']
+    ? parseFloat(values['carry-weight'])
+    : flowWeight > 0
+    ? 0.3
+    : 0.3;
+
+  const weights: FactorWeights = {
+    mom: momWeight,
+    idio: idioWeight,
+    carry: carryWeight,
+    flow: flowWeight,
+  };
+
   console.log(`=== Binance Futures Cross-Sectional Relative Value Harness ===`);
   console.log(`Dataset Directory: ${datasetDir}`);
   console.log(`Cadence: ${cadence} | Legs: ${legs} | Buffer: ${buffer} | Lookback: ${lookbackBars} bars`);
+  console.log(
+    `Weights: mom=${weights.mom} idio=${weights.idio} carry=${weights.carry} flow=${weights.flow} (flowLookback: ${flowLookbackBars} bars)`
+  );
   console.log(
     `Execution: ${execution} | Beta-Neutral: ${betaNeutral} | Taker Fee+Slippage: ${(takerFeeRate + takerSlippageRate) * 10000} bps | Maker Fee: ${makerFeeRate * 10000} bps`
   );
@@ -525,6 +580,7 @@ async function main() {
           low: c.l,
           close: c.c,
           volume: c.v,
+          takerBuyVolume: c.tbv !== null && c.tbv !== undefined ? c.tbv : c.v * 0.5,
         }))
       );
     }
@@ -536,8 +592,9 @@ async function main() {
   const result = runSimulation(barsBySymbol, fundingBySymbol, cadence, {
     legs,
     buffer,
-    weights: { mom: 0.4, idio: 0.3, carry: 0.3 },
+    weights,
     lookbackBars,
+    flowLookbackBars,
     execution,
     betaNeutral,
     takerFeeRate,
