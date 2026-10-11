@@ -54,6 +54,7 @@ export interface BarReturnRecord {
   fundingReturn: number;
   turnover: number;
   positions: Array<{ symbol: string; weight: number }>;
+  stoppedSymbols?: Array<{ symbol: string; side: 'long' | 'short'; fillPrice: number }>;
 }
 
 export interface PerformanceStats {
@@ -75,6 +76,9 @@ export interface PerformanceStats {
   winRateGross: number;
   winRateNetMaker: number;
   dsrProbabilityNetMaker: number | null;
+  totalStops?: number;
+  longStops?: number;
+  shortStops?: number;
 }
 
 export interface SimulationResult {
@@ -87,6 +91,9 @@ export interface SimulationResult {
     lookbackDays: number;
     execution?: 'open' | 'close';
     betaNeutral?: boolean;
+    maxLegDrawdownPct?: number;
+    stopSides?: 'all' | 'short-only';
+    stopCooldownBars?: number;
   };
   inSample: PerformanceStats;
   outOfSample: PerformanceStats;
@@ -240,6 +247,16 @@ function calculateStats(
     dsrProb = null;
   }
 
+  const totalStops = records.reduce((acc, r) => acc + (r.stoppedSymbols?.length ?? 0), 0);
+  const longStops = records.reduce(
+    (acc, r) => acc + (r.stoppedSymbols?.filter((s) => s.side === 'long').length ?? 0),
+    0
+  );
+  const shortStops = records.reduce(
+    (acc, r) => acc + (r.stoppedSymbols?.filter((s) => s.side === 'short').length ?? 0),
+    0
+  );
+
   return {
     period: periodName,
     bars: n,
@@ -259,6 +276,9 @@ function calculateStats(
     winRateGross: winGross,
     winRateNetMaker: winMaker,
     dsrProbabilityNetMaker: dsrProb,
+    totalStops,
+    longStops,
+    shortStops,
   };
 }
 
@@ -270,12 +290,16 @@ export function runSimulation(
     legs: number;
     buffer: number;
     weights: FactorWeights;
+    lookbackBars: number;
     flowLookbackBars?: number;
     execution?: 'open' | 'close';
     betaNeutral?: boolean;
     takerFeeRate?: number;
     takerSlippageRate?: number;
     makerFeeRate?: number;
+    maxLegDrawdownPct?: number;
+    stopSides?: 'all' | 'short-only';
+    stopCooldownBars?: number;
   }
 ): {
   inSample: PerformanceStats;
@@ -287,6 +311,9 @@ export function runSimulation(
   const takerFeeRate = config.takerFeeRate ?? 0.0005;
   const takerSlippageRate = config.takerSlippageRate ?? 0.0002;
   const makerFeeRate = config.makerFeeRate ?? 0.00018;
+  const maxLegDrawdownPct = config.maxLegDrawdownPct ?? 0;
+  const stopSides = config.stopSides ?? 'all';
+  const stopCooldownBars = config.stopCooldownBars ?? 0;
 
   // Find common timestamps across symbols
   const btcBars = barsBySymbol.get('BTCUSDT') ?? [];
@@ -307,6 +334,16 @@ export function runSimulation(
 
   let currentPositions = new Map<string, number>();
   const records: BarReturnRecord[] = [];
+  const activeEpisodes = new Map<
+    string,
+    {
+      symbol: string;
+      side: 'long' | 'short';
+      entryPrice: number;
+      entryBarIdx: number;
+    }
+  >();
+  const stopCooldowns = new Map<string, number>();
 
   const lookback = config.lookbackBars;
   const flowLookback = config.flowLookbackBars ?? lookback;
@@ -368,9 +405,11 @@ export function runSimulation(
       }
     }
 
-    // Build snapshot for all active symbols
+    // Build snapshot for all active symbols (excluding symbols currently in cooldown)
     const snapshots: SymbolBarSnapshot[] = [];
     for (const sym of RV_SYMBOLS) {
+      if (stopCooldowns.has(sym)) continue;
+
       const cur = currentMap.get(sym);
       const past = pastMap.get(sym);
       if (!cur || !past) continue;
@@ -422,41 +461,120 @@ export function runSimulation(
       betas: config.betaNeutral ? betaMap : undefined,
     });
 
+    // Synchronize active episodes with target positions
+    for (const [sym, weight] of target.positions.entries()) {
+      if (Math.abs(weight) < 1e-6) continue;
+      const targetSide: 'long' | 'short' = weight > 0 ? 'long' : 'short';
+      const existingEp = activeEpisodes.get(sym);
+      const cur = currentMap.get(sym);
+      const nxt = nextMap.get(sym);
+      const plannedEntry = execution === 'open' ? nxt?.open ?? 0 : cur?.close ?? 0;
+
+      if (!existingEp || existingEp.side !== targetSide) {
+        activeEpisodes.set(sym, {
+          symbol: sym,
+          side: targetSide,
+          entryPrice: plannedEntry > 0 ? plannedEntry : (cur?.close ?? 1),
+          entryBarIdx: idx,
+        });
+      }
+    }
+
+    // Clean up episodes for symbols no longer held
+    for (const sym of Array.from(activeEpisodes.keys())) {
+      if (!target.positions.has(sym) || Math.abs(target.positions.get(sym)!) < 1e-6) {
+        activeEpisodes.delete(sym);
+      }
+    }
+
     // Realize return over holding window [tNext, tNext + barDuration)
     let grossReturn = 0;
     let fundingReturn = 0;
+    let stopTurnover = 0;
+    const stoppedSymbols: Array<{ symbol: string; side: 'long' | 'short'; fillPrice: number }> = [];
+    const nextCurrentPositions = new Map<string, number>();
     const holdingStart = tNext;
     const holdingEnd = tNext + barDuration;
 
     for (const [sym, weight] of target.positions.entries()) {
+      if (Math.abs(weight) < 1e-6) continue;
       const cur = currentMap.get(sym);
       const nxt = nextMap.get(sym);
       if (!cur || !nxt) continue;
 
-      // Realize price return:
-      // 'open' fill: enters at nxt.open, exits at nxt.close (eliminates zero-latency close bias)
-      // 'close' fill: enters at cur.close, exits at nxt.close
-      const entryPrice = execution === 'open' ? nxt.open : cur.close;
-      const exitPrice = nxt.close;
-      const symbolReturn = entryPrice > 0 ? (exitPrice - entryPrice) / entryPrice : 0;
-      grossReturn += weight * symbolReturn;
+      const barOpen = execution === 'open' ? nxt.open : cur.close;
+      const barClose = nxt.close;
+      const ep = activeEpisodes.get(sym);
+      const episodeEntryPrice = ep ? ep.entryPrice : barOpen;
 
-      // Accumulate all funding settlements crossed during holding window (holdingStart, holdingEnd]
-      const fundings = fundingBySymbol.get(sym) ?? [];
-      let holdingFundingSum = 0;
-      for (const f of fundings) {
-        if (f.t > holdingStart && f.t <= holdingEnd) {
-          holdingFundingSum += f.rate;
+      let stopped = false;
+      let fillPrice = barClose;
+
+      if (maxLegDrawdownPct > 0 && (stopSides === 'all' || (stopSides === 'short-only' && weight < 0))) {
+        const stopRate = maxLegDrawdownPct / 100;
+        if (weight > 0) {
+          // Long position: adverse movement is nxt.low
+          const minPrice = nxt.low;
+          if (episodeEntryPrice > 0 && (minPrice - episodeEntryPrice) / episodeEntryPrice <= -stopRate) {
+            stopped = true;
+            const nominalStopPrice = episodeEntryPrice * (1 - stopRate);
+            fillPrice = barOpen < nominalStopPrice ? barOpen : nominalStopPrice;
+          }
+        } else {
+          // Short position: adverse movement is nxt.high
+          const maxPrice = nxt.high;
+          if (episodeEntryPrice > 0 && (maxPrice - episodeEntryPrice) / episodeEntryPrice >= stopRate) {
+            stopped = true;
+            const nominalStopPrice = episodeEntryPrice * (1 + stopRate);
+            fillPrice = barOpen > nominalStopPrice ? barOpen : nominalStopPrice;
+          }
         }
       }
-      fundingReturn += -weight * holdingFundingSum;
+
+      if (stopped) {
+        const priceRet = barOpen > 0 ? (fillPrice - barOpen) / barOpen : 0;
+        grossReturn += weight * priceRet;
+        stopTurnover += Math.abs(weight);
+        stoppedSymbols.push({
+          symbol: sym,
+          side: weight > 0 ? 'long' : 'short',
+          fillPrice,
+        });
+        activeEpisodes.delete(sym);
+        if (stopCooldownBars > 0) {
+          stopCooldowns.set(sym, stopCooldownBars);
+        }
+      } else {
+        const symbolReturn = barOpen > 0 ? (barClose - barOpen) / barOpen : 0;
+        grossReturn += weight * symbolReturn;
+        nextCurrentPositions.set(sym, weight);
+
+        // Accumulate all funding settlements crossed during holding window (holdingStart, holdingEnd]
+        const fundings = fundingBySymbol.get(sym) ?? [];
+        let holdingFundingSum = 0;
+        for (const f of fundings) {
+          if (f.t > holdingStart && f.t <= holdingEnd) {
+            holdingFundingSum += f.rate;
+          }
+        }
+        fundingReturn += -weight * holdingFundingSum;
+      }
+    }
+
+    // Decrement cooldowns at end of bar
+    for (const [sym, cd] of Array.from(stopCooldowns.entries())) {
+      if (cd <= 1) {
+        stopCooldowns.delete(sym);
+      } else {
+        stopCooldowns.set(sym, cd - 1);
+      }
     }
 
     // Cost calculations
-    // Maker: makerFeeRate per side, 0 slippage
-    const makerFee = target.turnover * makerFeeRate;
-    // Taker: takerFeeRate + takerSlippageRate per side
-    const takerFee = target.turnover * (takerFeeRate + takerSlippageRate);
+    // Maker: makerFeeRate on normal rebalance turnover, plus taker fee + slippage on emergency stops
+    const totalTurnover = target.turnover + stopTurnover;
+    const makerFee = target.turnover * makerFeeRate + stopTurnover * (takerFeeRate + takerSlippageRate);
+    const takerFee = totalTurnover * (takerFeeRate + takerSlippageRate);
 
     const netMakerReturn = grossReturn - makerFee + fundingReturn;
     const netTakerReturn = grossReturn - takerFee + fundingReturn;
@@ -467,11 +585,12 @@ export function runSimulation(
       netMakerReturn,
       netTakerReturn,
       fundingReturn,
-      turnover: target.turnover,
-      positions: Array.from(target.positions.entries()).map(([symbol, weight]) => ({ symbol, weight })),
+      turnover: totalTurnover,
+      positions: Array.from(nextCurrentPositions.entries()).map(([symbol, weight]) => ({ symbol, weight })),
+      stoppedSymbols: stoppedSymbols.length > 0 ? stoppedSymbols : undefined,
     });
 
-    currentPositions = target.positions;
+    currentPositions = nextCurrentPositions;
   }
 
   // Partition into In-Sample (before 2025-01-01) and Out-of-Sample (2025-01-01 onward)
@@ -506,6 +625,9 @@ async function main() {
       'mom-weight': { type: 'string' },
       'idio-weight': { type: 'string' },
       'carry-weight': { type: 'string' },
+      'max-leg-drawdown-pct': { type: 'string', default: '0' },
+      'stop-sides': { type: 'string', default: 'all' },
+      'stop-cooldown-bars': { type: 'string', default: '0' },
     },
   });
 
@@ -520,6 +642,9 @@ async function main() {
   const takerFeeRate = parseFloat(values['taker-fee-bps'] ?? '5') / 10000;
   const takerSlippageRate = parseFloat(values['slippage-bps'] ?? '2') / 10000;
   const makerFeeRate = parseFloat(values['maker-fee-bps'] ?? '1.8') / 10000;
+  const maxLegDrawdownPct = parseFloat(values['max-leg-drawdown-pct'] ?? '0');
+  const stopSides = (values['stop-sides'] ?? 'all') as 'all' | 'short-only';
+  const stopCooldownBars = parseInt(values['stop-cooldown-bars'] ?? '0', 10);
 
   const flowWeight = parseFloat(values['flow-weight'] ?? '0.0');
   const flowLookbackBars = values['flow-lookback-bars']
@@ -555,7 +680,11 @@ async function main() {
     `Weights: mom=${weights.mom} idio=${weights.idio} carry=${weights.carry} flow=${weights.flow} (flowLookback: ${flowLookbackBars} bars)`
   );
   console.log(
-    `Execution: ${execution} | Beta-Neutral: ${betaNeutral} | Taker Fee+Slippage: ${(takerFeeRate + takerSlippageRate) * 10000} bps | Maker Fee: ${makerFeeRate * 10000} bps`
+    `Execution: ${execution} | Beta-Neutral: ${betaNeutral} | Stop Loss: ${
+      maxLegDrawdownPct > 0
+        ? `-${maxLegDrawdownPct}% (${stopSides}, cooldown: ${stopCooldownBars}b)`
+        : 'Disabled'
+    } | Taker Fee+Slippage: ${(takerFeeRate + takerSlippageRate) * 10000} bps | Maker Fee: ${makerFeeRate * 10000} bps`
   );
 
   const manifest = loadManifest(datasetDir);
@@ -600,6 +729,9 @@ async function main() {
     takerFeeRate,
     takerSlippageRate,
     makerFeeRate,
+    maxLegDrawdownPct,
+    stopSides,
+    stopCooldownBars,
   });
 
   console.log('\n--- PERFORMANCE RESULTS (DUAL TRACK) ---');
@@ -617,6 +749,9 @@ async function main() {
     console.log(
       `  Annual Turnover:   ${s.annualTurnover.toFixed(1)}x | Win Rate (Gross/Maker): ${(s.winRateGross * 100).toFixed(1)}% / ${(s.winRateNetMaker * 100).toFixed(1)}%`
     );
+    if (s.totalStops !== undefined && s.totalStops > 0) {
+      console.log(`  Stop Triggers:     ${s.totalStops} (Long: ${s.longStops}, Short: ${s.shortStops})`);
+    }
     if (s.dsrProbabilityNetMaker !== null) {
       console.log(`  Deflated Sharpe Probability (Net Maker): ${s.dsrProbabilityNetMaker.toFixed(4)}`);
     }
@@ -633,10 +768,13 @@ async function main() {
       config: {
         legs,
         buffer,
-        weights: { mom: 0.4, idio: 0.3, carry: 0.3 },
+        weights,
         lookbackDays: (lookbackBars * (cadence === '8h' ? 8 : 24)) / 24,
         execution,
         betaNeutral,
+        maxLegDrawdownPct,
+        stopSides,
+        stopCooldownBars,
       },
       ...result,
     };

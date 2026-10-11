@@ -90,4 +90,91 @@ describe('runSimulation', () => {
     expect(Number.isFinite(result.inSample.totalNetMakerReturnPct)).toBe(true);
     expect(Number.isFinite(result.inSample.totalNetTakerReturnPct)).toBe(true);
   });
+
+  it('triggers catastrophic stop loss and caps adverse excursion on rogue intra-bar price moves', () => {
+    const barsBySymbol = new Map<string, AlignedBar[]>();
+    const fundingBySymbol = new Map<string, FundingRow[]>();
+
+    const startT = Date.parse('2024-01-01T00:00:00.000Z');
+    const EIGHT_H = 8 * 3600 * 1000;
+    const nBars = 30;
+
+    // Create price series for all 10 symbols with monotonic drift to cleanly separate top and bottom
+    for (let sIdx = 0; sIdx < RV_SYMBOLS.length; sIdx++) {
+      const sym = RV_SYMBOLS[sIdx];
+      const bars: AlignedBar[] = [];
+      let price = 100 * (sIdx + 1);
+      // Symbols 8 and 9 will drift up (Longs), symbols 0 and 1 will drift down (Shorts)
+      const drift = (sIdx - 4.5) * 0.005;
+
+      for (let i = 0; i < nBars; i++) {
+        price *= 1 + drift;
+        let openPrice = price;
+        let highPrice = price * 1.005;
+        let lowPrice = price * 0.995;
+        let closePrice = price;
+
+        // Introduce a catastrophic 15% drop on bar 11 for LINKUSDT (top long position)
+        if (sym === 'LINKUSDT' && i === 11) {
+          lowPrice = price * 0.85;
+          closePrice = price * 0.88;
+        }
+
+        // Introduce a catastrophic 20% spike on bar 12 for BTCUSDT (bottom short position)
+        if (sym === 'BTCUSDT' && i === 12) {
+          highPrice = price * 1.20;
+          closePrice = price * 1.15;
+        }
+
+        bars.push({
+          timestamp: startT + i * EIGHT_H,
+          open: openPrice,
+          high: highPrice,
+          low: lowPrice,
+          close: closePrice,
+          volume: 1000,
+        });
+      }
+      barsBySymbol.set(sym, bars);
+      fundingBySymbol.set(sym, []);
+    }
+
+    // Run without stop loss
+    const controlResult = runSimulation(barsBySymbol, fundingBySymbol, '8h', {
+      legs: 2,
+      buffer: 1,
+      weights: { mom: 0.4, idio: 0.3, carry: 0.3 },
+      lookbackBars: 10,
+      maxLegDrawdownPct: 0,
+    });
+
+    // Run with 8% stop loss on both sides
+    const stopResult = runSimulation(barsBySymbol, fundingBySymbol, '8h', {
+      legs: 2,
+      buffer: 1,
+      weights: { mom: 0.4, idio: 0.3, carry: 0.3 },
+      lookbackBars: 10,
+      maxLegDrawdownPct: 8,
+      stopSides: 'all',
+    });
+
+    // Stop loss should have triggered on both sides
+    expect(stopResult.fullSpan.totalStops).toBeDefined();
+    expect(stopResult.fullSpan.totalStops!).toBe(2);
+    expect(stopResult.fullSpan.longStops!).toBe(1);
+    expect(stopResult.fullSpan.shortStops!).toBe(1);
+
+    // Run with short-only stop loss
+    const shortOnlyResult = runSimulation(barsBySymbol, fundingBySymbol, '8h', {
+      legs: 2,
+      buffer: 1,
+      weights: { mom: 0.4, idio: 0.3, carry: 0.3 },
+      lookbackBars: 10,
+      maxLegDrawdownPct: 8,
+      stopSides: 'short-only',
+    });
+    expect(shortOnlyResult.fullSpan.totalStops!).toBe(1);
+    expect(shortOnlyResult.fullSpan.longStops!).toBe(0);
+    expect(shortOnlyResult.fullSpan.shortStops!).toBe(1);
+  });
 });

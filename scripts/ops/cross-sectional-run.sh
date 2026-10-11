@@ -120,6 +120,85 @@ stage_sweep() {
   log "Parameter sweep complete."
 }
 
+stage_sweep_stoploss() {
+  log "Running Individual Leg Stop Loss Sweep (-6%, -8%, -10%, -12%, short-only -8% vs control)..."
+  # Control: No stop loss
+  log "Running Control (No Stop Loss)..."
+  docker run --rm \
+    --cpu-shares 512 \
+    --memory 4g \
+    -v "${DS_DIR}:/app/ds:ro" \
+    -v "${BUILD_DIR}:/app" \
+    -v "${OUT_DIR}:/app/out" \
+    -w /app \
+    "${IMG}" \
+    npx tsx scripts/research/cross-sectional-harness.ts \
+      --dataset-dir /app/ds \
+      --cadence 8h \
+      --legs 2 \
+      --buffer 2 \
+      --execution open \
+      --beta-neutral \
+      --flow-weight 0.15 \
+      --flow-lookback-bars 42 \
+      --lookback-bars 42 \
+      --allow-lockbox \
+      --max-leg-drawdown-pct 0 \
+      --out /app/out/report-stop-control.json
+
+  for stopPct in 6 8 10 12; do
+    log "Running Stop Loss -${stopPct}% (Both sides)..."
+    docker run --rm \
+      --cpu-shares 512 \
+      --memory 4g \
+      -v "${DS_DIR}:/app/ds:ro" \
+      -v "${BUILD_DIR}:/app" \
+      -v "${OUT_DIR}:/app/out" \
+      -w /app \
+      "${IMG}" \
+      npx tsx scripts/research/cross-sectional-harness.ts \
+        --dataset-dir /app/ds \
+        --cadence 8h \
+        --legs 2 \
+        --buffer 2 \
+        --execution open \
+        --beta-neutral \
+        --flow-weight 0.15 \
+        --flow-lookback-bars 42 \
+        --lookback-bars 42 \
+        --allow-lockbox \
+        --max-leg-drawdown-pct "${stopPct}" \
+        --stop-sides all \
+        --out "/app/out/report-stop-${stopPct}pct.json"
+  done
+
+  log "Running Stop Loss -8% (Short-Only)..."
+  docker run --rm \
+    --cpu-shares 512 \
+    --memory 4g \
+    -v "${DS_DIR}:/app/ds:ro" \
+    -v "${BUILD_DIR}:/app" \
+    -v "${OUT_DIR}:/app/out" \
+    -w /app \
+    "${IMG}" \
+    npx tsx scripts/research/cross-sectional-harness.ts \
+      --dataset-dir /app/ds \
+      --cadence 8h \
+      --legs 2 \
+      --buffer 2 \
+      --execution open \
+      --beta-neutral \
+      --flow-weight 0.15 \
+      --flow-lookback-bars 42 \
+      --lookback-bars 42 \
+      --allow-lockbox \
+      --max-leg-drawdown-pct 8 \
+      --stop-sides short-only \
+      --out /app/out/report-stop-8pct-shortonly.json
+
+  log "Stop loss parameter sweep complete."
+}
+
 ACTION="${1:-run-8h}"
 case "${ACTION}" in
   build)
@@ -137,13 +216,16 @@ case "${ACTION}" in
   sweep)
     stage_sweep
     ;;
+  sweep-stoploss)
+    stage_sweep_stoploss
+    ;;
   all)
     stage_run_8h
     stage_run_8h_betaneutral
     stage_run_24h
     ;;
   *)
-    echo "Unknown action: ${ACTION}. Available: build, run-8h, run-8h-betaneutral, run-24h, sweep, all"
+    echo "Unknown action: ${ACTION}. Available: build, run-8h, run-8h-betaneutral, run-24h, sweep, sweep-stoploss, all"
     exit 1
     ;;
 esac
