@@ -11,19 +11,26 @@ export interface SymbolBarSnapshot {
   fundingRate: number;
   btcReturn14d: number;
   realizedVol20?: number;
+  betaToBtc?: number;
+  takerBuyRatio?: number;
+  newsSentiment?: number;
 }
 
 export interface FactorWeights {
   mom: number;
   idio: number;
   carry: number;
+  flow?: number;
+  news?: number;
   vol?: number;
 }
 
 export const DEFAULT_FACTOR_WEIGHTS: FactorWeights = {
-  mom: 0.4,
-  idio: 0.3,
-  carry: 0.3,
+  mom: 0.25,
+  idio: 0.25,
+  carry: 0.25,
+  flow: 0.15,
+  news: 0.1,
   vol: 0.0,
 };
 
@@ -32,6 +39,8 @@ export interface FactorScores {
   zMom: number;
   zIdio: number;
   zCarry: number;
+  zFlow: number;
+  zNews: number;
   zVol: number;
   compositeZ: number;
   rank: number; // 1 (strongest long candidate) to N (strongest short candidate)
@@ -48,11 +57,20 @@ function meanAndStd(values: number[]): { mean: number; std: number } {
 }
 
 /**
- * Standardizes an array of values into zero-mean, unit-variance z-scores.
+ * Clamps z-scores to [-limit, +limit] to prevent extreme rogue asset outliers
+ * from dominating cross-sectional ranking.
  */
-export function standardizeCrossSection(values: number[]): number[] {
+export function winsorizeZScores(values: number[], limit = 3.0): number[] {
+  return values.map((v) => Math.max(-limit, Math.min(limit, v)));
+}
+
+/**
+ * Standardizes an array of values into zero-mean, unit-variance z-scores with optional winsorization.
+ */
+export function standardizeCrossSection(values: number[], winsorizeLimit = 3.0): number[] {
   const { mean, std } = meanAndStd(values);
-  return values.map((v) => (v - mean) / std);
+  const z = values.map((v) => (v - mean) / std);
+  return winsorizeZScores(z, winsorizeLimit);
 }
 
 /**
@@ -71,17 +89,26 @@ export function computeCrossSectionalRanks(
 
   // Extract raw factor series
   const rawMoms = snapshots.map((s) => s.return14d);
-  const rawIdios = snapshots.map((s) => s.return14d - s.btcReturn14d);
+  // Residual momentum: return relative to asset beta-adjusted BTC return (removes collinearity)
+  const rawIdios = snapshots.map((s) => s.return14d - (s.betaToBtc ?? 1.0) * s.btcReturn14d);
   // Negative funding rate is favorable for long positions (shorts pay longs)
   const rawCarrys = snapshots.map((s) => -s.fundingRate);
+  // Taker buy ratio centered around 0.5 (neutral)
+  const rawFlows = snapshots.map((s) => (s.takerBuyRatio !== undefined ? s.takerBuyRatio - 0.5 : 0));
+  // News sentiment
+  const rawNews = snapshots.map((s) => s.newsSentiment ?? 0);
   const rawVols = snapshots.map((s) => s.realizedVol20 ?? 0);
 
   // Cross-sectional standardization across symbols
   const zMoms = standardizeCrossSection(rawMoms);
   const zIdios = standardizeCrossSection(rawIdios);
   const zCarrys = standardizeCrossSection(rawCarrys);
+  const zFlows = standardizeCrossSection(rawFlows);
+  const zNews = standardizeCrossSection(rawNews);
   const zVols = standardizeCrossSection(rawVols);
 
+  const flowWeight = weights.flow ?? 0;
+  const newsWeight = weights.news ?? 0;
   const volWeight = weights.vol ?? 0;
 
   const scored: FactorScores[] = snapshots.map((s, i) => {
@@ -89,6 +116,8 @@ export function computeCrossSectionalRanks(
       weights.mom * zMoms[i] +
       weights.idio * zIdios[i] +
       weights.carry * zCarrys[i] +
+      flowWeight * zFlows[i] +
+      newsWeight * zNews[i] +
       volWeight * zVols[i];
 
     return {
@@ -96,6 +125,8 @@ export function computeCrossSectionalRanks(
       zMom: zMoms[i],
       zIdio: zIdios[i],
       zCarry: zCarrys[i],
+      zFlow: zFlows[i],
+      zNews: zNews[i],
       zVol: zVols[i],
       compositeZ,
       rank: 0,

@@ -11,6 +11,8 @@ export interface TargetAllocation {
   netExposure: number;
   /** Gross exposure sum (sum of |weight|, should be 1.0 when fully invested). */
   grossExposure: number;
+  /** Net beta exposure sum: sum of weight * beta (0 for beta-neutral). */
+  netBetaExposure?: number;
 }
 
 export interface PortfolioConfig {
@@ -20,10 +22,12 @@ export interface PortfolioConfig {
   buffer?: number;
   /** Maximum single-side position weight cap (default 0.25). */
   weightPerLeg?: number;
+  /** Optional asset beta to BTC mapping for beta-neutral weighting. */
+  betas?: Map<string, number>;
 }
 
 /**
- * Constructs a dollar-neutral portfolio across ranked symbols with turnover buffering.
+ * Constructs a dollar-neutral or beta-neutral portfolio across ranked symbols with turnover buffering.
  *
  * An asset currently held long is kept unless its rank falls strictly worse than (legs + buffer).
  * An asset currently held short is kept unless its rank rises strictly better than (N - legs - buffer + 1).
@@ -37,7 +41,6 @@ export function constructBufferedPortfolio(
   const n = rankedScores.length;
   const legs = config.legs ?? 2;
   const buffer = config.buffer ?? 1;
-  const targetWeight = config.weightPerLeg ?? 1 / (2 * legs);
 
   if (2 * legs > n) {
     throw new Error(`Cannot assign ${legs} long and short legs from universe of size ${n}`);
@@ -45,6 +48,12 @@ export function constructBufferedPortfolio(
 
   const longExitRank = legs + buffer; // e.g. 2 + 1 = 3 -> exits if rank >= 4
   const shortExitRank = n - legs - buffer + 1; // e.g. 10 - 2 - 1 + 1 = 8 -> exits if rank <= 7
+
+  if (longExitRank >= shortExitRank) {
+    throw new Error(
+      `Deadband overlap: longExitRank (${longExitRank}) >= shortExitRank (${shortExitRank}) with legs=${legs}, buffer=${buffer}, n=${n}`
+    );
+  }
 
   const retainedLongs: string[] = [];
   const retainedShorts: string[] = [];
@@ -84,27 +93,48 @@ export function constructBufferedPortfolio(
     }
   }
 
-  // 4. Assemble target positions
+  // 4. Determine leg weights (beta-neutral if betas provided, else dollar-neutral)
   const newPositions = new Map<string, number>();
-  for (const sym of activeLongs) {
-    newPositions.set(sym, targetWeight);
-  }
-  for (const sym of activeShorts) {
-    newPositions.set(sym, -targetWeight);
+  let longWeightPerLeg = config.weightPerLeg ?? 1 / (2 * legs);
+  let shortWeightPerLeg = config.weightPerLeg ?? 1 / (2 * legs);
+
+  if (config.betas && activeLongs.length > 0 && activeShorts.length > 0) {
+    const avgLongBeta =
+      activeLongs.reduce((acc, sym) => acc + (config.betas!.get(sym) ?? 1.0), 0) / activeLongs.length;
+    const avgShortBeta =
+      activeShorts.reduce((acc, sym) => acc + (config.betas!.get(sym) ?? 1.0), 0) / activeShorts.length;
+
+    if (avgLongBeta > 0.1 && avgShortBeta > 0.1) {
+      // W_L * avgLongBeta = W_S * avgShortBeta with W_L + W_S = 1.0
+      const totalLongWeight = avgShortBeta / (avgLongBeta + avgShortBeta);
+      const totalShortWeight = avgLongBeta / (avgLongBeta + avgShortBeta);
+      longWeightPerLeg = totalLongWeight / activeLongs.length;
+      shortWeightPerLeg = totalShortWeight / activeShorts.length;
+    }
   }
 
-  // 5. Compute turnover and exposure metrics
+  for (const sym of activeLongs) {
+    newPositions.set(sym, longWeightPerLeg);
+  }
+  for (const sym of activeShorts) {
+    newPositions.set(sym, -shortWeightPerLeg);
+  }
+
+  // 5. Compute turnover, exposure, and beta exposure metrics
   const allSymbols = new Set<string>([...currentPositions.keys(), ...newPositions.keys()]);
   let turnover = 0;
   let netExposure = 0;
   let grossExposure = 0;
+  let netBetaExposure = 0;
 
   for (const sym of allSymbols) {
     const oldW = currentPositions.get(sym) ?? 0;
     const newW = newPositions.get(sym) ?? 0;
+    const beta = config.betas?.get(sym) ?? 1.0;
     turnover += Math.abs(newW - oldW);
     netExposure += newW;
     grossExposure += Math.abs(newW);
+    netBetaExposure += newW * beta;
   }
 
   return {
@@ -113,5 +143,6 @@ export function constructBufferedPortfolio(
     rebalanced: turnover > 1e-6,
     netExposure,
     grossExposure,
+    netBetaExposure,
   };
 }

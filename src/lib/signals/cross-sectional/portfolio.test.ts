@@ -9,6 +9,8 @@ describe('constructBufferedPortfolio', () => {
       zMom: 0,
       zIdio: 0,
       zCarry: 0,
+      zFlow: 0,
+      zNews: 0,
       zVol: 0,
       compositeZ: 10 - idx,
       rank: idx + 1,
@@ -85,5 +87,33 @@ describe('constructBufferedPortfolio', () => {
     expect(() => constructBufferedPortfolio(new Map(), ranks, { legs: 2 })).toThrow(
       /Cannot assign 2 long and short legs/
     );
+  });
+
+  it('throws error when buffer causes deadband overlap', () => {
+    // 10 assets, legs 3, buffer 3 -> longExit = 6, shortExit = 10 - 3 - 3 + 1 = 5 -> overlap!
+    const ranks = dummyRanks(universe);
+    expect(() => constructBufferedPortfolio(new Map(), ranks, { legs: 3, buffer: 3 })).toThrow(
+      /Deadband overlap/
+    );
+  });
+
+  it('adjusts leg weights for beta-neutrality when betas are provided', () => {
+    const ranks = dummyRanks(universe);
+    // Longs S1, S2 have beta 1.0; Shorts S9, S10 have beta 2.0
+    const betas = new Map<string, number>([
+      ['S1', 1.0],
+      ['S2', 1.0],
+      ['S9', 2.0],
+      ['S10', 2.0],
+    ]);
+
+    const result = constructBufferedPortfolio(new Map(), ranks, { legs: 2, buffer: 1, betas });
+
+    // W_L * 1.0 = W_S * 2.0 and W_L + W_S = 1.0 -> W_L = 2/3, W_S = 1/3
+    expect(result.positions.get('S1')).toBeCloseTo(1 / 3, 5); // 0.3333 each (2 legs = 0.6667)
+    expect(result.positions.get('S2')).toBeCloseTo(1 / 3, 5);
+    expect(result.positions.get('S9')).toBeCloseTo(-1 / 6, 5); // -0.1667 each (2 legs = -0.3333)
+    expect(result.positions.get('S10')).toBeCloseTo(-1 / 6, 5);
+    expect(result.netBetaExposure).toBeCloseTo(0, 5);
   });
 });

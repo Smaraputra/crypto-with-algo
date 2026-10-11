@@ -80,4 +80,20 @@ describe('computeCrossSectionalRanks', () => {
     expect(ranks.map((r) => r.symbol)).toEqual(['AAA', 'BBB', 'MMM', 'ZZZ']);
     expect(ranks.map((r) => r.rank)).toEqual([1, 2, 3, 4]);
   });
+
+  it('differentiates idiosyncratic momentum from raw momentum when betas vary', () => {
+    const snapshots: SymbolBarSnapshot[] = [
+      { symbol: 'BTCUSDT', close: 60000, return7d: 0.1, return14d: 0.1, fundingRate: 0, btcReturn14d: 0.1, betaToBtc: 1.0 },
+      { symbol: 'ETHUSDT', close: 3000, return7d: 0.12, return14d: 0.12, fundingRate: 0, btcReturn14d: 0.1, betaToBtc: 1.2 },
+      { symbol: 'SOLUSDT', close: 150, return7d: 0.15, return14d: 0.15, fundingRate: 0, btcReturn14d: 0.1, betaToBtc: 2.0 },
+      { symbol: 'DOGEUSDT', close: 0.1, return7d: 0.08, return14d: 0.08, fundingRate: 0, btcReturn14d: 0.1, betaToBtc: 0.5 },
+    ];
+
+    const ranks = computeCrossSectionalRanks(snapshots);
+    const zMoms = ranks.map((r) => r.zMom);
+    const zIdios = ranks.map((r) => r.zIdio);
+
+    // With heterogeneous betas, zIdio must not equal zMom
+    expect(zMoms).not.toEqual(zIdios);
+  });
 });

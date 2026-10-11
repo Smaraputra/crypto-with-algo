@@ -84,6 +84,8 @@ export interface SimulationResult {
     buffer: number;
     weights: FactorWeights;
     lookbackDays: number;
+    execution?: 'open' | 'close';
+    betaNeutral?: boolean;
   };
   inSample: PerformanceStats;
   outOfSample: PerformanceStats;
@@ -217,10 +219,13 @@ function calculateStats(
   let dsrProb: number | null = null;
   try {
     const { skewness, kurtosis } = moments(makerRets);
+    // Scaled trial variance: assuming annualized cross-trial variance V_ann = 0.10,
+    // scaled by barsPerYear to match perPeriodMakerSharpe.
+    const trialVariance = 0.1 / barsPerYear;
     const ds = deflatedSharpe({
       observedSharpe: perPeriodMakerSharpe,
       numTrials: trials,
-      varianceOfTrialSharpes: 0.003, // Historical trial variance established in research
+      varianceOfTrialSharpes: trialVariance,
       nObservations: n,
       skewness,
       kurtosis,
@@ -261,6 +266,11 @@ export function runSimulation(
     buffer: number;
     weights: FactorWeights;
     lookbackBars: number;
+    execution?: 'open' | 'close';
+    betaNeutral?: boolean;
+    takerFeeRate?: number;
+    takerSlippageRate?: number;
+    makerFeeRate?: number;
   }
 ): {
   inSample: PerformanceStats;
@@ -268,6 +278,10 @@ export function runSimulation(
   fullSpan: PerformanceStats;
 } {
   const barsPerYear = cadence === '8h' ? 365.25 * 3 : 365.25;
+  const execution = config.execution ?? 'open';
+  const takerFeeRate = config.takerFeeRate ?? 0.0005;
+  const takerSlippageRate = config.takerSlippageRate ?? 0.0002;
+  const makerFeeRate = config.makerFeeRate ?? 0.00018;
 
   // Find common timestamps across symbols
   const btcBars = barsBySymbol.get('BTCUSDT') ?? [];
@@ -290,6 +304,7 @@ export function runSimulation(
   const records: BarReturnRecord[] = [];
 
   const lookback = config.lookbackBars;
+  const barDuration = cadence === '8h' ? 8 * 3600 * 1000 : 24 * 3600 * 1000;
 
   // Start after warmup lookback
   for (let idx = lookback; idx < commonTimestamps.length - 1; idx++) {
@@ -306,6 +321,47 @@ export function runSimulation(
 
     const btcReturn = (btcCurrent.close - btcPast.close) / btcPast.close;
 
+    // Estimate rolling empirical beta against BTC over lookback bars
+    const betaMap = new Map<string, number>();
+    const btcRets: number[] = [];
+    for (let k = idx - lookback + 1; k <= idx; k++) {
+      const bCur = barLookup.get(commonTimestamps[k])?.get('BTCUSDT');
+      const bPrev = barLookup.get(commonTimestamps[k - 1])?.get('BTCUSDT');
+      if (bCur && bPrev && bPrev.close > 0) {
+        btcRets.push((bCur.close - bPrev.close) / bPrev.close);
+      }
+    }
+    const meanBtc = btcRets.length > 0 ? btcRets.reduce((a, b) => a + b, 0) / btcRets.length : 0;
+    const varBtc =
+      btcRets.length > 1
+        ? btcRets.reduce((s, r) => s + (r - meanBtc) ** 2, 0) / (btcRets.length - 1)
+        : 0;
+
+    for (const sym of RV_SYMBOLS) {
+      if (sym === 'BTCUSDT' || varBtc < 1e-12) {
+        betaMap.set(sym, 1.0);
+        continue;
+      }
+      const symRets: number[] = [];
+      for (let k = idx - lookback + 1; k <= idx; k++) {
+        const sCur = barLookup.get(commonTimestamps[k])?.get(sym);
+        const sPrev = barLookup.get(commonTimestamps[k - 1])?.get(sym);
+        if (sCur && sPrev && sPrev.close > 0) {
+          symRets.push((sCur.close - sPrev.close) / sPrev.close);
+        }
+      }
+      if (symRets.length === btcRets.length && symRets.length > 1) {
+        const meanSym = symRets.reduce((a, b) => a + b, 0) / symRets.length;
+        const cov =
+          symRets.reduce((s, r, i) => s + (r - meanSym) * (btcRets[i] - meanBtc), 0) /
+          (symRets.length - 1);
+        const rawBeta = cov / varBtc;
+        betaMap.set(sym, Math.max(0.1, Math.min(3.0, rawBeta)));
+      } else {
+        betaMap.set(sym, 1.0);
+      }
+    }
+
     // Build snapshot for all active symbols
     const snapshots: SymbolBarSnapshot[] = [];
     for (const sym of RV_SYMBOLS) {
@@ -315,11 +371,11 @@ export function runSimulation(
 
       const ret = (cur.close - past.close) / past.close;
 
-      // Find last settled funding rate at or before t
+      // Find last settled funding rate at or before tNext (signal bar close)
       const fundings = fundingBySymbol.get(sym) ?? [];
       let lastRate = 0;
       for (let fIdx = fundings.length - 1; fIdx >= 0; fIdx--) {
-        if (fundings[fIdx].t <= t) {
+        if (fundings[fIdx].t <= tNext) {
           lastRate = fundings[fIdx].rate;
           break;
         }
@@ -332,6 +388,7 @@ export function runSimulation(
         return14d: ret,
         fundingRate: lastRate,
         btcReturn14d: btcReturn,
+        betaToBtc: betaMap.get(sym) ?? 1.0,
       });
     }
 
@@ -342,43 +399,50 @@ export function runSimulation(
     const target = constructBufferedPortfolio(currentPositions, ranks, {
       legs: config.legs,
       buffer: config.buffer,
+      betas: config.betaNeutral ? betaMap : undefined,
     });
 
-    // Realize return over t -> tNext
+    // Realize return over holding window [tNext, tNext + barDuration)
     let grossReturn = 0;
     let fundingReturn = 0;
+    const holdingStart = tNext;
+    const holdingEnd = tNext + barDuration;
 
     for (const [sym, weight] of target.positions.entries()) {
       const cur = currentMap.get(sym);
       const nxt = nextMap.get(sym);
       if (!cur || !nxt) continue;
 
-      const symbolReturn = (nxt.close - cur.close) / cur.close;
+      // Realize price return:
+      // 'open' fill: enters at nxt.open, exits at nxt.close (eliminates zero-latency close bias)
+      // 'close' fill: enters at cur.close, exits at nxt.close
+      const entryPrice = execution === 'open' ? nxt.open : cur.close;
+      const exitPrice = nxt.close;
+      const symbolReturn = entryPrice > 0 ? (exitPrice - entryPrice) / entryPrice : 0;
       grossReturn += weight * symbolReturn;
 
-      // Funding cash flow: if long (weight > 0), pay funding rate; if short (weight < 0), receive funding rate
+      // Accumulate all funding settlements crossed during holding window (holdingStart, holdingEnd]
       const fundings = fundingBySymbol.get(sym) ?? [];
-      let rate = 0;
-      for (let fIdx = fundings.length - 1; fIdx >= 0; fIdx--) {
-        if (fundings[fIdx].t <= t) {
-          rate = fundings[fIdx].rate;
-          break;
+      let holdingFundingSum = 0;
+      for (const f of fundings) {
+        if (f.t > holdingStart && f.t <= holdingEnd) {
+          holdingFundingSum += f.rate;
         }
       }
-      fundingReturn += -weight * rate;
+      fundingReturn += -weight * holdingFundingSum;
     }
 
     // Cost calculations
-    // Maker: 0.018% fee per side (BNB discount VIP 0), 0 slippage
-    const makerFee = target.turnover * 0.00018;
-    // Taker: 0.05% fee + 2 bps slippage = 0.07% per side
-    const takerFee = target.turnover * 0.0007;
+    // Maker: makerFeeRate per side, 0 slippage
+    const makerFee = target.turnover * makerFeeRate;
+    // Taker: takerFeeRate + takerSlippageRate per side
+    const takerFee = target.turnover * (takerFeeRate + takerSlippageRate);
 
     const netMakerReturn = grossReturn - makerFee + fundingReturn;
     const netTakerReturn = grossReturn - takerFee + fundingReturn;
 
     records.push({
-      timestamp: t,
+      timestamp: tNext,
       grossReturn,
       netMakerReturn,
       netTakerReturn,
@@ -408,23 +472,36 @@ async function main() {
       'dataset-dir': { type: 'string', default: '/home/smara/dx-ds' },
       cadence: { type: 'string', default: '8h' },
       out: { type: 'string' },
-      'allow-lockbox': { type: 'boolean', default: true },
+      'allow-lockbox': { type: 'boolean', default: false },
       legs: { type: 'string', default: '2' },
       buffer: { type: 'string', default: '1' },
       'lookback-bars': { type: 'string', default: '42' }, // 42 bars * 8h = 14 days
+      execution: { type: 'string', default: 'open' },
+      'beta-neutral': { type: 'boolean', default: false },
+      'taker-fee-bps': { type: 'string', default: '5' },
+      'slippage-bps': { type: 'string', default: '2' },
+      'maker-fee-bps': { type: 'string', default: '1.8' },
     },
   });
 
   const datasetDir = values['dataset-dir']!;
   const cadence = (values.cadence ?? '8h') as '8h' | '24h';
-  const allowLockbox = values['allow-lockbox'] ?? true;
+  const allowLockbox = values['allow-lockbox'] ?? false;
   const legs = parseInt(values.legs ?? '2', 10);
   const buffer = parseInt(values.buffer ?? '1', 10);
   const lookbackBars = parseInt(values['lookback-bars'] ?? '42', 10);
+  const execution = (values.execution ?? 'open') as 'open' | 'close';
+  const betaNeutral = values['beta-neutral'] ?? false;
+  const takerFeeRate = parseFloat(values['taker-fee-bps'] ?? '5') / 10000;
+  const takerSlippageRate = parseFloat(values['slippage-bps'] ?? '2') / 10000;
+  const makerFeeRate = parseFloat(values['maker-fee-bps'] ?? '1.8') / 10000;
 
   console.log(`=== Binance Futures Cross-Sectional Relative Value Harness ===`);
   console.log(`Dataset Directory: ${datasetDir}`);
   console.log(`Cadence: ${cadence} | Legs: ${legs} | Buffer: ${buffer} | Lookback: ${lookbackBars} bars`);
+  console.log(
+    `Execution: ${execution} | Beta-Neutral: ${betaNeutral} | Taker Fee+Slippage: ${(takerFeeRate + takerSlippageRate) * 10000} bps | Maker Fee: ${makerFeeRate * 10000} bps`
+  );
 
   const manifest = loadManifest(datasetDir);
   console.log(`Manifest Dataset Hash: ${manifest.datasetHash}`);
@@ -461,15 +538,28 @@ async function main() {
     buffer,
     weights: { mom: 0.4, idio: 0.3, carry: 0.3 },
     lookbackBars,
+    execution,
+    betaNeutral,
+    takerFeeRate,
+    takerSlippageRate,
+    makerFeeRate,
   });
 
   console.log('\n--- PERFORMANCE RESULTS (DUAL TRACK) ---');
   const printRow = (title: string, s: PerformanceStats) => {
     console.log(`\n[${title}] (${s.bars} bars)`);
-    console.log(`  Gross Return:      ${s.totalGrossReturnPct.toFixed(2)}% | Ann: ${s.annualizedGrossReturnPct.toFixed(2)}% | Sharpe: ${s.annualizedGrossSharpe.toFixed(2)} | MaxDD: ${s.maxDrawdownGrossPct.toFixed(2)}%`);
-    console.log(`  Net Maker (BNB):   ${s.totalNetMakerReturnPct.toFixed(2)}% | Ann: ${s.annualizedNetMakerReturnPct.toFixed(2)}% | Sharpe: ${s.annualizedNetMakerSharpe.toFixed(2)} | MaxDD: ${s.maxDrawdownNetMakerPct.toFixed(2)}%`);
-    console.log(`  Net Taker:         ${s.totalNetTakerReturnPct.toFixed(2)}% | Ann: ${s.annualizedNetTakerReturnPct.toFixed(2)}% | Sharpe: ${s.annualizedNetTakerSharpe.toFixed(2)} | MaxDD: ${s.maxDrawdownNetTakerPct.toFixed(2)}%`);
-    console.log(`  Annual Turnover:   ${s.annualTurnover.toFixed(1)}x | Win Rate (Gross/Maker): ${(s.winRateGross * 100).toFixed(1)}% / ${(s.winRateNetMaker * 100).toFixed(1)}%`);
+    console.log(
+      `  Gross Return:      ${s.totalGrossReturnPct.toFixed(2)}% | Ann: ${s.annualizedGrossReturnPct.toFixed(2)}% | Sharpe: ${s.annualizedGrossSharpe.toFixed(2)} | MaxDD: ${s.maxDrawdownGrossPct.toFixed(2)}%`
+    );
+    console.log(
+      `  Net Maker (BNB):   ${s.totalNetMakerReturnPct.toFixed(2)}% | Ann: ${s.annualizedNetMakerReturnPct.toFixed(2)}% | Sharpe: ${s.annualizedNetMakerSharpe.toFixed(2)} | MaxDD: ${s.maxDrawdownNetMakerPct.toFixed(2)}%`
+    );
+    console.log(
+      `  Net Taker:         ${s.totalNetTakerReturnPct.toFixed(2)}% | Ann: ${s.annualizedNetTakerReturnPct.toFixed(2)}% | Sharpe: ${s.annualizedNetTakerSharpe.toFixed(2)} | MaxDD: ${s.maxDrawdownNetTakerPct.toFixed(2)}%`
+    );
+    console.log(
+      `  Annual Turnover:   ${s.annualTurnover.toFixed(1)}x | Win Rate (Gross/Maker): ${(s.winRateGross * 100).toFixed(1)}% / ${(s.winRateNetMaker * 100).toFixed(1)}%`
+    );
     if (s.dsrProbabilityNetMaker !== null) {
       console.log(`  Deflated Sharpe Probability (Net Maker): ${s.dsrProbabilityNetMaker.toFixed(4)}`);
     }
@@ -488,6 +578,8 @@ async function main() {
         buffer,
         weights: { mom: 0.4, idio: 0.3, carry: 0.3 },
         lookbackDays: (lookbackBars * (cadence === '8h' ? 8 : 24)) / 24,
+        execution,
+        betaNeutral,
       },
       ...result,
     };
