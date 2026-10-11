@@ -184,6 +184,13 @@ export interface DirectionExitSelection {
 
 export const DIRECTION_EXIT_SELECTION: Record<'1h' | '4h', DirectionExitSelection | null> = { '1h': null, '4h': null };
 
+/**
+ * D2's condition per interval (1 to 4 = C1 to C4), committed on its own between develop-a and develop-b, because
+ * develop-b's jobs are generated from it and the k values do not exist yet (note N12). The selection committed
+ * before confirm repeats it in `d2Condition`, and the judge's `jobs confirm` requires the two to agree.
+ */
+export const DIRECTION_EXIT_D2_CONDITION: Record<'1h' | '4h', 1 | 2 | 3 | 4 | null> = { '1h': null, '4h': null };
+
 export const DIRECTION_EXIT_SYMBOLS = [
   'BTCUSDT',
   'ETHUSDT',
@@ -220,6 +227,9 @@ export const DIRECTION_EXIT_PROTECTIVE_STOP_ATR = 10;
 export const DIRECTION_EXIT_MIN_D2_COVERAGE = 0.3;
 /** C4: the Asia session excluded, by the signal bar's open hour in UTC. */
 export const DIRECTION_EXIT_ASIA_HOURS_UTC = { from: 0, to: 8 } as const;
+
+/** The harness's --windows for every develop and confirm run (VERDICT rule 1). */
+export const DIRECTION_EXIT_WINDOWS = 6;
 
 export const DIRECTION_EXIT_CONFIGURATIONS = 24;
 export const DIRECTION_EXIT_VERDICT_LEVEL = 1 - 0.05 / DIRECTION_EXIT_CONFIGURATIONS;
