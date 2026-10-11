@@ -10,7 +10,7 @@
 #
 set -eu -o pipefail
 
-IMG="crypto-ops:cross-sectional"
+IMG="${IMG:-crypto-ops:dx}"
 BUILD_DIR="${HOME}/crypto-archive-build"
 DS_DIR="${HOME}/dx-ds"
 OUT_DIR="${HOME}/rv-out"
@@ -35,7 +35,9 @@ stage_run_8h() {
     --cpu-shares 512 \
     --memory 4g \
     -v "${DS_DIR}:/app/ds:ro" \
+    -v "${BUILD_DIR}:/app" \
     -v "${OUT_DIR}:/app/out" \
+    -w /app \
     "${IMG}" \
     npx tsx scripts/research/cross-sectional-harness.ts \
       --dataset-dir /app/ds \
@@ -55,7 +57,9 @@ stage_run_8h_betaneutral() {
     --cpu-shares 512 \
     --memory 4g \
     -v "${DS_DIR}:/app/ds:ro" \
+    -v "${BUILD_DIR}:/app" \
     -v "${OUT_DIR}:/app/out" \
+    -w /app \
     "${IMG}" \
     npx tsx scripts/research/cross-sectional-harness.ts \
       --dataset-dir /app/ds \
@@ -76,7 +80,9 @@ stage_run_24h() {
     --cpu-shares 512 \
     --memory 4g \
     -v "${DS_DIR}:/app/ds:ro" \
+    -v "${BUILD_DIR}:/app" \
     -v "${OUT_DIR}:/app/out" \
+    -w /app \
     "${IMG}" \
     npx tsx scripts/research/cross-sectional-harness.ts \
       --dataset-dir /app/ds \
@@ -97,7 +103,9 @@ stage_sweep() {
     log "Testing buffer=${buf}..."
     docker run --rm \
       -v "${DS_DIR}:/app/ds:ro" \
+      -v "${BUILD_DIR}:/app" \
       -v "${OUT_DIR}:/app/out" \
+      -w /app \
       "${IMG}" \
       npx tsx scripts/research/cross-sectional-harness.ts \
         --dataset-dir /app/ds \
