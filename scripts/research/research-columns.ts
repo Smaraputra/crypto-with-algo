@@ -85,6 +85,7 @@ import { intervalToMs } from '@/lib/intervals';
 import { OPTIONS_SLOT_MS } from '@/lib/options-flow';
 import { trailingZScore, FUNDING_Z_MIN_SAMPLES, OPTIONS_FLOW_WINDOW_HOURS } from './factors';
 import type { CandleRow, MetricsRow, OptionsRow } from './dataset-format';
+import { DIRECTION_EXIT_FIT } from './direction-exit';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -128,6 +129,7 @@ export const RESEARCH_COLUMNS: readonly string[] = [
   'mktOptSkew24',
   'mktOptGammaFlow24Z',
   'mktOptDeltaFlow24Z',
+  'dx.volTopThreshold',
 ];
 
 export interface ResearchColumnInput {
@@ -871,6 +873,12 @@ export function buildResearchColumns(input: ResearchColumnInput): ResearchRow[] 
     Z_MIN_SAMPLES
   );
   columns.set('btcLeadLagZ', shiftForwardOneBar(btcLeadLagZ));
+
+  // dx.volTopThreshold: the direction-exit study's per-symbol develop-period vol cutoff. A
+  // recorded constant, not derived from this series, so it needs no shift. NaN (dropped at
+  // emit) when the fit is not recorded or the symbol has no threshold.
+  const dxVolTop = DIRECTION_EXIT_FIT[interval as '1h' | '4h']?.volTopThreshold[symbol] ?? Number.NaN;
+  columns.set('dx.volTopThreshold', new Float64Array(n).fill(dxVolTop));
 
   // --- Emit, dropping non-finite entries so an absent key means no reading. ---
   const rows: ResearchRow[] = new Array(n);

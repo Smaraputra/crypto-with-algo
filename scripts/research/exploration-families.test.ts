@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { MARKET_SESSIONS } from '@/lib/sessions';
 import { ALL_FAMILIES, EXPLORATION_FAMILIES } from './exploration-families';
 import { LEGENDS_FAMILIES } from './families/legends';
+import { DX_FAMILIES } from './families/direction-exit';
 import { MAX_GRID_CELLS, STRATEGY_FAMILIES, expandGrid } from './strategy-families';
 
 describe('EXPLORATION_FAMILIES', () => {
@@ -34,7 +35,7 @@ describe('EXPLORATION_FAMILIES', () => {
     const phase4 = Object.keys(STRATEGY_FAMILIES);
     const exploration = Object.keys(EXPLORATION_FAMILIES);
     expect(phase4.filter((name) => exploration.includes(name))).toEqual([]);
-    expect(Object.keys(ALL_FAMILIES).length).toBe(phase4.length + exploration.length + Object.keys(LEGENDS_FAMILIES).length);
+    expect(Object.keys(ALL_FAMILIES).length).toBe(phase4.length + exploration.length + Object.keys(LEGENDS_FAMILIES).length + Object.keys(DX_FAMILIES).length);
     expect(ALL_FAMILIES['sweep-reclaim']).toBe(EXPLORATION_FAMILIES['sweep-reclaim']);
     expect(ALL_FAMILIES.control).toBe(STRATEGY_FAMILIES.control);
   });
