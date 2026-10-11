@@ -197,7 +197,40 @@ export interface DirectionExitFit {
   volTopThreshold: Record<string, number | null>;
 }
 
-export const DIRECTION_EXIT_FIT: Record<'1h' | '4h', DirectionExitFit | null> = { '1h': null, '4h': null };
+export const DIRECTION_EXIT_FIT: Record<'1h' | '4h', DirectionExitFit | null> = {
+  '1h': {
+    signs: { trend: -1, momentum: 1, volume: -1, volatility: 1, futures: -1, sentiment: -1, htf: -1 },
+    threshold: 24.417572349450225,
+    volTopThreshold: {
+      BTCUSDT: 0.005423659052141113,
+      ETHUSDT: 0.0066432881083381655,
+      BNBUSDT: 0.006090197492306986,
+      SOLUSDT: 0.010293917449177471,
+      XRPUSDT: 0.00745448585762286,
+      ADAUSDT: 0.008460603861811793,
+      DOGEUSDT: 0.009129179514776802,
+      AVAXUSDT: 0.010301502856810536,
+      DOTUSDT: 0.008527907575179587,
+      LINKUSDT: 0.009146030842435962,
+    },
+  },
+  '4h': {
+    signs: { trend: 1, momentum: 1, volume: -1, volatility: -1, futures: -1, sentiment: -1, htf: -1 },
+    threshold: 23.28010974666508,
+    volTopThreshold: {
+      BTCUSDT: 0.01117986653442798,
+      ETHUSDT: 0.013649585620504757,
+      BNBUSDT: 0.012474051191387434,
+      SOLUSDT: 0.02124190062923456,
+      XRPUSDT: 0.014870520840918259,
+      ADAUSDT: 0.017061062255768266,
+      DOGEUSDT: 0.018295507101869758,
+      AVAXUSDT: 0.021269078235214216,
+      DOTUSDT: 0.017019951298096695,
+      LINKUSDT: 0.018851308225119504,
+    },
+  },
+};
 
 export interface DirectionExitSelection {
   d2Condition: 1 | 2 | 3 | 4;
