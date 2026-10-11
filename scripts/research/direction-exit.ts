@@ -246,7 +246,7 @@ export const DIRECTION_EXIT_SELECTION: Record<'1h' | '4h', DirectionExitSelectio
  * develop-b's jobs are generated from it and the k values do not exist yet (note N12). The selection committed
  * before confirm repeats it in `d2Condition`, and the judge's `jobs confirm` requires the two to agree.
  */
-export const DIRECTION_EXIT_D2_CONDITION: Record<'1h' | '4h', 1 | 2 | 3 | 4 | null> = { '1h': null, '4h': null };
+export const DIRECTION_EXIT_D2_CONDITION: Record<'1h' | '4h', 1 | 2 | 3 | 4 | null> = { '1h': 2, '4h': 1 };
 
 export const DIRECTION_EXIT_SYMBOLS = [
   'BTCUSDT',
