@@ -626,7 +626,7 @@ interface SymbolInputs {
  * filtered only to t <= end, so bars before --start stay available as
  * warmup (see resolveWindowConfig/prepareBacktest's own warmup handling).
  */
-function loadSymbolInputs(
+export function loadSymbolInputs(
   datasetDir: string,
   symbol: string,
   interval: string,
