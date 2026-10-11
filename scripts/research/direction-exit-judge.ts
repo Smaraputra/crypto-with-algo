@@ -249,7 +249,7 @@ function reportedStats(
 
 const REPORT_NAME = /^(dx-d[012])-(1h|4h)-c(\d)-e(\d)-k([\d.]+)\.json$/;
 
-interface NamedReport {
+export interface NamedReport {
   file: string;
   family: string;
   interval: '1h' | '4h';
@@ -260,7 +260,7 @@ interface NamedReport {
   trades: DxTrade[];
 }
 
-function loadReports(dir: string): NamedReport[] {
+export function loadReports(dir: string): NamedReport[] {
   return readdirSync(dir)
     .sort()
     .map((file) => {
@@ -292,13 +292,19 @@ function sampleVariance(x: number[]): number {
   return x.reduce((s, v) => s + (v - m) ** 2, 0) / (x.length - 1);
 }
 
-export function selectFor(reports: NamedReport[], interval: '1h' | '4h'): DirectionExitSelection {
+/** D2's condition at an interval: the pickBest rule over the dx-d2 E1 reports, coverage against the dx-d0 E1 trades. */
+export function condFor(reports: NamedReport[], interval: '1h' | '4h'): 1 | 2 | 3 | 4 {
   const at = reports.filter((r) => r.interval === interval);
   const d0e1 = at.find((r) => r.family === 'dx-d0' && r.exit === 1);
-  if (!d0e1) throw new Error(`select: no dx-d0 E1 report at ${interval}`);
+  if (!d0e1) throw new Error(`cond: no dx-d0 E1 report at ${interval}`);
   const d2e1 = at.filter((r) => r.family === 'dx-d2' && r.exit === 1).sort((a, b) => a.cond - b.cond);
   const condRuns = d2e1.map((r) => runOf(r, String(r.cond), r.trades.length / Math.max(1, d0e1.trades.length)));
-  const d2Condition = Number(pickBest(condRuns, { minCoverage: DIRECTION_EXIT_MIN_D2_COVERAGE })) as 1 | 2 | 3 | 4;
+  return Number(pickBest(condRuns, { minCoverage: DIRECTION_EXIT_MIN_D2_COVERAGE })) as 1 | 2 | 3 | 4;
+}
+
+export function selectFor(reports: NamedReport[], interval: '1h' | '4h'): DirectionExitSelection {
+  const at = reports.filter((r) => r.interval === interval);
+  const d2Condition = condFor(reports, interval);
   const bestK = (family: string, exit: number): number => {
     const runs = at
       .filter((r) => r.family === family && r.exit === exit && (family !== 'dx-d2' || r.cond === d2Condition))
@@ -323,6 +329,12 @@ function runSelect(argv: string[]): void {
     console.log(JSON.stringify({ interval: cell.interval, selection: selectFor(reports, cell.interval) }));
   }
   console.log(JSON.stringify({ varianceOfTrialSharpes: variance, reports: reports.length }));
+}
+
+function runCond(argv: string[]): void {
+  const reports = loadReports(flag(argv, 'develop-dir'));
+  if (reports.length === 0) throw new Error('cond: no develop reports found');
+  console.log(JSON.stringify({ '1h': condFor(reports, '1h'), '4h': condFor(reports, '4h') }));
 }
 
 function runVerdict(argv: string[]): void {
@@ -376,7 +388,8 @@ function main(): void {
   const [mode, ...rest] = process.argv.slice(2);
   if (mode === 'select') runSelect(rest);
   else if (mode === 'verdict') runVerdict(rest);
-  else throw new Error('usage: direction-exit-judge.ts select|verdict ...');
+  else if (mode === 'cond') runCond(rest);
+  else throw new Error('usage: direction-exit-judge.ts select|verdict|cond ...');
 }
 
 if (require.main === module) main();

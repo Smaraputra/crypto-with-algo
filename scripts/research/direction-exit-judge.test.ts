@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { anatolyevGerko, judgeConfiguration, mfeCapture, neweyWestT, pickBest, tradesOf } from './direction-exit-judge';
+import {
+  anatolyevGerko,
+  condFor,
+  judgeConfiguration,
+  mfeCapture,
+  neweyWestT,
+  pickBest,
+  tradesOf,
+  type NamedReport,
+} from './direction-exit-judge';
 
 const DAY = 86_400_000;
 const t2025 = Date.UTC(2025, 2, 1);
@@ -97,5 +106,46 @@ describe('mfeCapture', () => {
     const flat = { ...trade, side: 'short' as const };
     // short MFE = (100 - 99) / 100 = 1%, exit move = (100 - 105) / 100 < 0
     expect(mfeCapture([flat], candles)).toBeCloseTo(-5, 10);
+  });
+});
+
+describe('condFor', () => {
+  const named = (family: string, interval: '1h' | '4h', cond: number, n: number, pnl: number): NamedReport => ({
+    file: `${family}-${interval}-c${cond}-e1-k1.json`,
+    family,
+    interval,
+    cond,
+    exit: 1,
+    k: 1,
+    report: null,
+    trades: Array.from({ length: n }, (_, i) => ({
+      symbol: 'BTCUSDT',
+      entryTime: i,
+      exitTime: i + 1,
+      side: 'long' as const,
+      pnlPercent: pnl,
+      exitReason: 'time_stop',
+    })),
+  });
+
+  it('applies the trade floor and the coverage floor against the D0 E1 trade count, per interval', () => {
+    const reports = [
+      named('dx-d0', '1h', 0, 500, 0),
+      named('dx-d2', '1h', 1, 90, 1.0), // best expectancy, but under 100 trades
+      named('dx-d2', '1h', 2, 120, 0.9), // coverage 0.24 < 0.3
+      named('dx-d2', '1h', 3, 150, 0.4), // coverage 0.30, qualifies
+      named('dx-d2', '1h', 4, 300, 0.1),
+      named('dx-d0', '4h', 0, 200, 0),
+      named('dx-d2', '4h', 1, 100, 0.2),
+      named('dx-d2', '4h', 2, 150, 0.3),
+      named('dx-d2', '4h', 3, 120, -0.1),
+      named('dx-d2', '4h', 4, 110, 0.25),
+    ];
+    expect(condFor(reports, '1h')).toBe(3);
+    expect(condFor(reports, '4h')).toBe(2);
+  });
+
+  it('throws without a D0 E1 report', () => {
+    expect(() => condFor([named('dx-d2', '1h', 1, 200, 1)], '1h')).toThrow();
   });
 });
