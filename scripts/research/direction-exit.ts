@@ -142,6 +142,48 @@
  * about twice as often as they finish there, close to the random entries' ratio.
  */
 
+/*
+ * IMPLEMENTATION NOTES (added 2026-10-11 before any data for this study existed; they fix readings the
+ * locked text leaves open and loosen nothing):
+ * N1 Lag-1 label: entry at the next bar's open, exit at the same close as the resolver's,
+ *    r1 = close[i + h] / open[i + 1] - 1. A4's IC uses r1.
+ * N2 A4 "pooled Spearman": one Spearman correlation over every (symbol, bar) pair of DEVELOP at that
+ *    interval with both values finite (scripts/research/ic-stats.ts spearman).
+ * N3 Calendar parts and windows group trades by EXIT time, as the harness's windows gate does.
+ * N4 The harness's random-entry null reuses the strategy's REALISED hold, stop and target profile and its
+ *    entry wrapper (src/lib/backtest/random-entry-benchmark.ts referenceProfile), not its exit rule; the
+ *    timing gate is read with that meaning.
+ * N5 D1's seven signs and threshold T, and C2's per-symbol volatility thresholds, come from Part A and are
+ *    committed into DIRECTION_EXIT_FIT before any develop harness run; the develop picks (D2's condition and
+ *    k) are committed into DIRECTION_EXIT_SELECTION before any confirm run. A commit hash for each is
+ *    recorded in the RESULT block.
+ * N6 Strategies read categories from StrategyContext.components (the scorer's own breakdown); a parity check
+ *    (Task 4) requires the matrix's cat.* columns to equal those component scores on a DEVELOP sample
+ *    before the diagnosis runs. "Present category" means a component with at least one signal.
+ * N7 ATR(14) is Wilder's, scripts/research/families/legends-indicators.ts atr(candles, 14), in the rows
+ *    builder and in the families alike.
+ */
+
+export interface DirectionExitFit {
+  /** s_c per category, +1 or -1, in CATEGORY order trend, momentum, volume, volatility, futures, sentiment, htf. */
+  signs: Record<'trend' | 'momentum' | 'volume' | 'volatility' | 'futures' | 'sentiment' | 'htf', 1 | -1>;
+  /** D1's call threshold T on |D1 score|. */
+  threshold: number;
+  /** C2: the develop-period two-thirds quantile of realizedVol20 per symbol; null when the symbol has none. */
+  volTopThreshold: Record<string, number | null>;
+}
+
+export const DIRECTION_EXIT_FIT: Record<'1h' | '4h', DirectionExitFit | null> = { '1h': null, '4h': null };
+
+export interface DirectionExitSelection {
+  d2Condition: 1 | 2 | 3 | 4;
+  /** k for E2 and E3, per direction variant. */
+  e2K: { d0: number; d1: number; d2: number };
+  e3K: { d0: number; d1: number; d2: number };
+}
+
+export const DIRECTION_EXIT_SELECTION: Record<'1h' | '4h', DirectionExitSelection | null> = { '1h': null, '4h': null };
+
 export const DIRECTION_EXIT_SYMBOLS = [
   'BTCUSDT',
   'ETHUSDT',
