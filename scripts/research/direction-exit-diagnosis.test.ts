@@ -83,3 +83,97 @@ describe('volTopThresholds and conditionHolds', () => {
     expect(conditionHolds('C4', { ...base, hourUtc: 8 }, 1, {})).toBe(true);
   });
 });
+
+describe('diagnose fit and lag details', () => {
+  const rnd = seededRandom(7);
+  const mk = (i: number, over: Partial<DxRow> = {}): DxRow => ({
+    symbol: 'BTCUSDT', interval: '1h', style: 'day_trading', t: i * HOUR, score: 30, tier: 'buy',
+    cats: cats(1), vol20: rnd(), hourUtc: 10, atrPct: 1, fwd: 0, fwd1: 0, up: 0, down: 0, up1: 0, down1: 0, ...over,
+  });
+
+  it('measures the D1 call share among rows with a finite d1 score only', () => {
+    const rows: DxRow[] = [];
+    for (let i = 0; i < 400; i++) {
+      const v = rnd() * 100 - 50;
+      rows.push(mk(i, { score: i % 4 === 0 ? 30 : 0, tier: i % 4 === 0 ? 'buy' : 'neutral', cats: cats(v), fwd1: v }));
+    }
+    for (let i = 400; i < 800; i++) rows.push(mk(i, { cats: cats(null), fwd1: 0 }));
+    const { fit } = diagnose(rows, '1h', 0.16, 1);
+    const finite = rows.map((r) => d1Score(r.cats, fit.signs)).filter((x): x is number => x !== null);
+    const d0Share = rows.slice(0, 400).filter((r) => r.tier !== 'neutral').length / 400;
+    const d1Share = finite.filter((x) => Math.abs(x) > fit.threshold).length / finite.length;
+    expect(d1Share).toBeCloseTo(d0Share, 2);
+  });
+
+  it('throws instead of writing an infinite threshold when no d1 score is finite', () => {
+    const rows = [0, 1, 2, 3].map((i) => mk(i, { cats: cats(null) }));
+    expect(() => diagnose(rows, '1h', 0.16, 0)).toThrow(/finite D1/);
+  });
+
+  it('skips calls whose lag-1 path or outcome is not finite', () => {
+    const good = (i: number) => mk(i, { fwd1: 2, up1: 3, down1: -1, vol20: 0.5 });
+    const rows = [good(0), good(1), mk(2, { fwd1: 2, up1: null, down1: -1, vol20: 0.5 }), mk(3, { fwd1: NaN, up1: 3, down1: -1, vol20: 0.5 })];
+    const k1 = diagnose(rows, '1h', 0.16, 1).paths.find((p) => p.k === 1)!;
+    expect(k1.callTouch).toBe(1);
+    expect(k1.callFinish).toBe(1);
+  });
+
+  it('uses the lag-1 fields at lag 1 and the lag-0 fields at lag 0', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => {
+      const buy = i % 2 === 0;
+      return mk(i, {
+        tier: buy ? 'buy' : 'sell', score: buy ? 30 : -30,
+        fwd: buy ? -2 : 2, up: 0.2, down: -0.2, fwd1: buy ? 2 : -2, up1: 3, down1: -3, vol20: 0.5,
+      });
+    });
+    const l1 = diagnose(rows, '1h', 0.16, 1);
+    const l0 = diagnose(rows, '1h', 0.16, 0);
+    expect(l1.overall.bh).toBe(1);
+    expect(l0.overall.bh).toBe(0);
+    const p1 = l1.paths.find((p) => p.k === 1)!;
+    expect(p1.callTouch).toBe(1);
+    expect(p1.callFinish).toBe(1);
+    expect(p1.randomTouch).toBe(1);
+    const p0 = l0.paths.find((p) => p.k === 1)!;
+    expect(p0.callTouch).toBe(0);
+    expect(p0.callFinish).toBe(0);
+    expect(l1.excursions.calls.mfePctMedian).toBe(3);
+    expect(l1.excursions.calls.maeAtrMedian).toBe(-3);
+    expect(l0.excursions.calls.mfePctMedian).toBeCloseTo(0.2);
+  });
+
+  it('reports MFE and MAE with the right sign per direction', () => {
+    const buy = mk(0, { up: 4, down: -1, fwd: 1, atrPct: 2, vol20: 0.5 });
+    const sell = mk(1, { tier: 'sell', score: -30, up: 4, down: -1, fwd: 1, atrPct: 2, vol20: 0.5 });
+    const { calls } = diagnose([buy], '1h', 0.16, 0).excursions;
+    expect(calls.mfePctMean).toBe(4);
+    expect(calls.maePctMean).toBe(-1);
+    expect(calls.mfeAtrMedian).toBe(2);
+    const s = diagnose([sell], '1h', 0.16, 0).excursions.calls;
+    expect(s.mfePctMean).toBe(1);
+    expect(s.maePctMean).toBe(-4);
+    expect(s.maeAtrMedian).toBe(-2);
+  });
+
+  it('keeps call and random median MFE close on a driftless walk', () => {
+    const { calls, random } = diagnose(randomWalkRows(20_000, 3), '1h', 0.16, 0).excursions;
+    expect(Math.abs(calls.mfePctMedian! / random.mfePctMedian! - 1)).toBeLessThan(0.1);
+  });
+
+  it('gives sign -1 to a category equal to minus fwd1 and +1 to one equal to fwd1', () => {
+    const rows = Array.from({ length: 200 }, (_, i) => {
+      const f = rnd() * 4 - 2;
+      return mk(i, { fwd1: f, cats: { ...cats(null), trend: -f, momentum: f } });
+    });
+    const { signs } = diagnose(rows, '1h', 0.16, 1).fit;
+    expect(signs.trend).toBe(-1);
+    expect(signs.momentum).toBe(1);
+  });
+
+  it('ignores rows of other intervals', () => {
+    const base = Array.from({ length: 30 }, (_, i) => mk(i));
+    const other = Array.from({ length: 30 }, (_, i) => mk(100 + i, { interval: '4h' }));
+    expect(diagnose([...base, ...other], '1h', 0.16, 0).calls).toBe(30);
+    expect(diagnose(base, '1h', 0.16, 0).calls).toBe(30);
+  });
+});

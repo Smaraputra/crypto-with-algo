@@ -16,9 +16,13 @@ import {
 export interface CategoryDiag { category: Category; agreeShare: number | null; bh: number | null; n: number }
 export interface ConditionDiag { id: 'C1' | 'C2' | 'C3' | 'C4'; holds: PointMeasures; fails: PointMeasures; coverage: number }
 export interface PathDiag { k: number; callTouch: number; callFinish: number; randomTouch: number; randomFinish: number }
+export interface ExcursionDiag {
+  mfePctMedian: number | null; mfePctMean: number | null; maePctMedian: number | null; maePctMean: number | null;
+  mfeAtrMedian: number | null; maeAtrMedian: number | null;
+}
 export interface DiagnosisReport {
   interval: string; calls: number; lag: 0 | 1;
-  overall: PointMeasures; categories: CategoryDiag[]; conditions: ConditionDiag[]; paths: PathDiag[];
+  overall: PointMeasures; categories: CategoryDiag[]; conditions: ConditionDiag[]; paths: PathDiag[]; excursions: { calls: ExcursionDiag; random: ExcursionDiag };
   fit: DirectionExitFit;
 }
 
@@ -86,12 +90,41 @@ function randomPools(rows: DxRow[]): (r: DxRow) => DxRow[] {
   return (r) => pool.get(keyOf(r)) ?? [];
 }
 
-function pathStats(rows: DxRow[], calls: Array<{ r: DxRow; d: 1 | -1 }>, lag: 0 | 1): PathDiag[] {
+interface ExcursionSamples { mfe: number[]; mae: number[]; mfeAtr: number[]; maeAtr: number[] }
+const median = (v: number[]): number | null => (v.length ? quantile(v, 0.5) : null);
+const mean = (v: number[]): number | null => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
+function summarise(x: ExcursionSamples): ExcursionDiag {
+  return {
+    mfePctMedian: median(x.mfe), mfePctMean: mean(x.mfe), maePctMedian: median(x.mae), maePctMean: mean(x.mae),
+    mfeAtrMedian: median(x.mfeAtr), maeAtrMedian: median(x.maeAtr),
+  };
+}
+
+function pathStats(
+  rows: DxRow[], calls: Array<{ r: DxRow; d: 1 | -1 }>, lag: 0 | 1
+): { paths: PathDiag[]; excursions: { calls: ExcursionDiag; random: ExcursionDiag } } {
   const poolOf = randomPools(rows);
   const random = seededRandom(DIRECTION_EXIT_BOOTSTRAP.seed);
   const mfe = (r: DxRow, d: 1 | -1): number =>
     lag === 0 ? (d === 1 ? r.up : -r.down) : d === 1 ? (r.up1 ?? NaN) : -(r.down1 ?? NaN);
-  return DIRECTION_EXIT_K_GRID.map((k) => {
+  const mae = (r: DxRow, d: 1 | -1): number =>
+    lag === 0 ? (d === 1 ? r.down : -r.up) : d === 1 ? (r.down1 ?? NaN) : -(r.up1 ?? NaN);
+  const callEx: ExcursionSamples = { mfe: [], mae: [], mfeAtr: [], maeAtr: [] };
+  const randEx: ExcursionSamples = { mfe: [], mae: [], mfeAtr: [], maeAtr: [] };
+  const record = (x: ExcursionSamples, r: DxRow, d: 1 | -1): void => {
+    const a = r.atrPct as number;
+    x.mfe.push(mfe(r, d));
+    x.mae.push(mae(r, d));
+    if (a > 0) {
+      x.mfeAtr.push(mfe(r, d) / a);
+      x.maeAtr.push(mae(r, d) / a);
+    }
+  };
+  const usable = (r: DxRow, d: 1 | -1): boolean => {
+    const f = outcome(r, lag);
+    return f !== null && Number.isFinite(f) && r.atrPct !== null && Number.isFinite(r.atrPct) && Number.isFinite(mfe(r, d)) && Number.isFinite(mae(r, d));
+  };
+  const paths = DIRECTION_EXIT_K_GRID.map((k, ki) => {
     let n = 0;
     let touch = 0;
     let finish = 0;
@@ -99,23 +132,28 @@ function pathStats(rows: DxRow[], calls: Array<{ r: DxRow; d: 1 | -1 }>, lag: 0 
     let rTouch = 0;
     let rFinish = 0;
     for (const { r, d } of calls) {
-      const f = outcome(r, lag);
-      if (f === null || r.atrPct === null) continue;
+      if (!usable(r, d)) continue;
+      const f = outcome(r, lag) as number;
+      const atr = r.atrPct as number;
       n++;
-      if (mfe(r, d) >= k * r.atrPct) touch++;
-      if (d * f >= k * r.atrPct) finish++;
+      if (ki === 0) record(callEx, r, d);
+      if (mfe(r, d) >= k * atr) touch++;
+      if (d * f >= k * atr) finish++;
       const pool = poolOf(r);
       for (let j = 0; j < DIRECTION_EXIT_RANDOM_DRAWS && pool.length > 0; j++) {
         const q = pool[Math.floor(random() * pool.length)];
-        const fq = outcome(q, lag);
-        if (fq === null || q.atrPct === null) continue;
+        if (!usable(q, d)) continue;
+        const fq = outcome(q, lag) as number;
+        const atrQ = q.atrPct as number;
         rn++;
-        if (mfe(q, d) >= k * q.atrPct) rTouch++;
-        if (d * fq >= k * q.atrPct) rFinish++;
+        if (ki === 0) record(randEx, q, d);
+        if (mfe(q, d) >= k * atrQ) rTouch++;
+        if (d * fq >= k * atrQ) rFinish++;
       }
     }
     return { k, callTouch: n ? touch / n : 0, callFinish: n ? finish / n : 0, randomTouch: rn ? rTouch / rn : 0, randomFinish: rn ? rFinish / rn : 0 };
   });
+  return { paths, excursions: { calls: summarise(callEx), random: summarise(randEx) } };
 }
 
 export function diagnose(rows: DxRow[], interval: string, costPercent: number, lag: 0 | 1): DiagnosisReport {
@@ -159,12 +197,18 @@ export function diagnose(rows: DxRow[], interval: string, costPercent: number, l
       return [c, !Number.isFinite(ic) || ic >= 0 ? 1 : -1];
     })
   ) as DirectionExitFit['signs'];
-  const d1 = cell.map((r) => d1Score(r.cats, signs)).filter((v): v is number => v !== null).map(Math.abs);
-  const callShare = cell.filter((r) => directionOf(r.tier) !== 0).length / Math.max(1, cell.length);
-  const threshold = d1.length > 0 ? quantile(d1, 1 - callShare) : Infinity;
+  // D1's T keeps D0's call share among rows with a finite d1 score (rows with every category null are excluded).
+  const finite = cell.flatMap((r) => {
+    const v = d1Score(r.cats, signs);
+    return v === null ? [] : [{ abs: Math.abs(v), call: directionOf(r.tier) !== 0 }];
+  });
+  if (finite.length === 0) throw new Error(`${interval}: no row has a finite D1 score, cannot fit the threshold`);
+  const callShare = finite.filter((x) => x.call).length / finite.length;
+  const threshold = quantile(finite.map((x) => x.abs), 1 - callShare);
+  const { paths, excursions } = pathStats(cell, calls, lag);
   return {
     interval, calls: calls.length, lag, overall, categories, conditions,
-    paths: pathStats(cell, calls, lag),
+    paths, excursions,
     fit: { signs, threshold, volTopThreshold: volTop },
   };
 }
