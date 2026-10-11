@@ -75,18 +75,22 @@ export function compareToReference(mine: ScoreRow[], reference: ScoreRow[], inte
 
 export function componentParity(matrixCats: Record<string, ArrayLike<number>>, componentScores: Record<string, ArrayLike<number>>) {
   let compared = 0;
+  let oneSided = 0;
   let maxAbsDiff = 0;
   for (const [cat, mineValues] of Object.entries(matrixCats)) {
     const theirs = componentScores[cat];
     if (!theirs) continue;
     const n = Math.min(mineValues.length, theirs.length);
     for (let i = 0; i < n; i++) {
-      if (!Number.isFinite(mineValues[i]) || !Number.isFinite(theirs[i])) continue;
+      const aFinite = Number.isFinite(mineValues[i]);
+      const bFinite = Number.isFinite(theirs[i]);
+      if (aFinite !== bFinite) oneSided++;
+      if (!aFinite || !bFinite) continue;
       compared++;
       maxAbsDiff = Math.max(maxAbsDiff, Math.abs(mineValues[i] - theirs[i]));
     }
   }
-  return { compared, maxAbsDiff, pass: compared >= 1_000 && maxAbsDiff <= 1e-6 };
+  return { compared, oneSided, maxAbsDiff, pass: compared >= 1_000 && maxAbsDiff <= 1e-6 && oneSided === 0 };
 }
 
 function readRows(path: string): ScoreRow[] {
