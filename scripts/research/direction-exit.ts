@@ -239,7 +239,10 @@ export interface DirectionExitSelection {
   e3K: { d0: number; d1: number; d2: number };
 }
 
-export const DIRECTION_EXIT_SELECTION: Record<'1h' | '4h', DirectionExitSelection | null> = { '1h': null, '4h': null };
+export const DIRECTION_EXIT_SELECTION: Record<'1h' | '4h', DirectionExitSelection | null> = {
+  '1h': { d2Condition: 2, e2K: { d0: 2, d1: 1, d2: 2 }, e3K: { d0: 2, d1: 1, d2: 2 } },
+  '4h': { d2Condition: 1, e2K: { d0: 1.5, d1: 2, d2: 1.5 }, e3K: { d0: 1.5, d1: 2, d2: 2 } },
+};
 
 /**
  * D2's condition per interval (1 to 4 = C1 to C4), committed on its own between develop-a and develop-b, because
