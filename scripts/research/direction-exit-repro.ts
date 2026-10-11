@@ -1,11 +1,14 @@
 /**
  * The study's two checks before any develop number (spec REPRODUCTION CHECK and note N6):
  *   repro:  npx tsx scripts/research/direction-exit-repro.ts repro --mine <scores-only rows.jsonl.gz> \
- *             --reference <v8-rows.jsonl.gz>
- *   parity: npx tsx scripts/research/direction-exit-repro.ts parity --dataset-dir <dir> --symbol BTCUSDT \
- *             --interval 1h --start 2024-11-01 --end 2024-12-31
- * Both compare scores and tiers only, never a return. Exit 0 on pass, 2 on fail.
+ *             --reference <v8-rows.jsonl.gz> --expect-manifest-hash <h>
+ *   parity: npx tsx scripts/research/direction-exit-repro.ts parity --dataset-dir <dir> --interval 1h \
+ *             --start 2024-11-01 --end 2024-12-31T23:59:59.999Z --expect-manifest-hash <h> [--symbols A,B]
+ * Both compare scores and tiers only, never a return. repro asserts the rows' sidecar (dataset hash, rows
+ * sha256, scores-only, the overlap window); parity verifies the dataset itself and runs every study symbol by
+ * default, failing if any symbol fails. Exit 0 on pass, 2 on fail, 1 on an error.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
@@ -14,9 +17,12 @@ import type { Strategy } from '@/lib/backtest/strategy';
 import { DEFAULT_BACKTEST_CONFIG } from '@/lib/backtest/types';
 import { getStyleConfig } from '@/lib/indicators/style-configs';
 import { DEFAULT_TEMPLATE_WEIGHTS } from '@/lib/models/signal-template';
-import { DIRECTION_EXIT_CELLS, DIRECTION_EXIT_REFERENCE_ROWS_SHA256, DIRECTION_EXIT_REPRODUCTION } from './direction-exit';
+import {
+  DIRECTION_EXIT_CELLS, DIRECTION_EXIT_CONFIRM, DIRECTION_EXIT_REFERENCE_ROWS_SHA256, DIRECTION_EXIT_REPRODUCTION,
+  DIRECTION_EXIT_SYMBOLS,
+} from './direction-exit';
 import { parseExportText, verifySha256 } from './live-record-run';
-import { CATEGORIES } from './direction-exit-rows';
+import { assertDatasetHash, assertRowsMeta, CATEGORIES, readRowsMeta } from './direction-exit-rows';
 import { loadCellMatrix } from './v8-rescore-build';
 import { loadSymbolInputs } from './strategy-harness';
 
@@ -93,18 +99,16 @@ export function componentParity(matrixCats: Record<string, ArrayLike<number>>, c
   return { compared, oneSided, maxAbsDiff, pass: compared >= 1_000 && maxAbsDiff <= 1e-6 && oneSided === 0 };
 }
 
-function readRows(path: string): ScoreRow[] {
-  return readFileSync(path).length > 0
-    ? (gunzipSync(readFileSync(path)).toString('utf8').split('\n').filter((l) => l !== '').map((l) => JSON.parse(l)) as ScoreRow[])
-    : [];
-}
+/** The confirmation period's overlap with the labelled year, the only window the reproduction check reads. */
+export const DIRECTION_EXIT_REPRO_WINDOW = { start: '2025-10-01T00:00:00.000Z', end: DIRECTION_EXIT_CONFIRM.end } as const;
 
-function flagValues(argv: string[], required: string[]): Record<string, string> {
+function flagValues(argv: string[], required: string[], optional: string[] = []): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const v = argv[++i];
     if (!flag.startsWith('--')) throw new Error(`Unexpected argument "${flag}"`);
+    if (![...required, ...optional].includes(flag.slice(2))) throw new Error(`Unknown flag "${flag}"`);
     if (v === undefined || v.startsWith('--')) throw new Error(`${flag} requires a value`);
     out[flag.slice(2)] = v;
   }
@@ -112,30 +116,77 @@ function flagValues(argv: string[], required: string[]): Record<string, string> 
   return out;
 }
 
+export interface ReproArgs { mine: string; reference: string; expectManifestHash: string }
+
+export function reproArgs(argv: string[]): ReproArgs {
+  const a = flagValues(argv, ['mine', 'reference', 'expect-manifest-hash']);
+  return { mine: a.mine, reference: a.reference, expectManifestHash: a['expect-manifest-hash'] };
+}
+
+export interface ParityArgs {
+  datasetDir: string;
+  interval: '1h' | '4h';
+  start: number;
+  end: number;
+  symbols: string[];
+  expectManifestHash: string;
+}
+
+export function parityArgs(argv: string[]): ParityArgs {
+  const a = flagValues(argv, ['dataset-dir', 'interval', 'start', 'end', 'expect-manifest-hash'], ['symbols']);
+  const start = Date.parse(a.start);
+  const end = Date.parse(a.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error('--start and --end must be dates');
+  if (!DIRECTION_EXIT_CELLS.some((c) => c.interval === a.interval)) throw new Error(`--interval must be 1h or 4h, got ${a.interval}`);
+  return {
+    datasetDir: a['dataset-dir'],
+    interval: a.interval as '1h' | '4h',
+    start,
+    end,
+    symbols: a.symbols ? a.symbols.split(',') : [...DIRECTION_EXIT_SYMBOLS],
+    expectManifestHash: a['expect-manifest-hash'],
+  };
+}
+
 function runRepro(argv: string[]): boolean {
-  const a = flagValues(argv, ['mine', 'reference']);
+  const a = reproArgs(argv);
   const refBytes = readFileSync(a.reference);
   verifySha256(refBytes, DIRECTION_EXIT_REFERENCE_ROWS_SHA256);
   const reference = parseExportText(gunzipSync(refBytes).toString('utf8')).rows as unknown as ScoreRow[];
-  const mine = readRows(a.mine);
-  const window = { start: Date.parse('2025-10-01T00:00:00.000Z'), end: Date.parse('2026-10-09T23:59:59.999Z') };
+  const mineBytes = readFileSync(a.mine);
+  assertRowsMeta(readRowsMeta(a.mine), {
+    datasetHash: a.expectManifestHash,
+    sha256: createHash('sha256').update(mineBytes).digest('hex'),
+    scoresOnly: true,
+    window: DIRECTION_EXIT_REPRO_WINDOW,
+  });
+  const mine = mineBytes.length > 0
+    ? (gunzipSync(mineBytes).toString('utf8').split('\n').filter((l) => l !== '').map((l) => JSON.parse(l)) as ScoreRow[])
+    : [];
+  const window = { start: Date.parse(DIRECTION_EXIT_REPRO_WINDOW.start), end: Date.parse(DIRECTION_EXIT_REPRO_WINDOW.end) };
   let ok = true;
   for (const interval of ['1h', '4h']) {
     const r = compareToReference(mine, reference, interval, window);
-    console.log(JSON.stringify(r));
+    console.log(JSON.stringify({ ...r, datasetHash: a.expectManifestHash }));
     if (!r.pass) ok = false;
   }
   return ok;
 }
 
-function runParity(argv: string[]): boolean {
-  const a = flagValues(argv, ['dataset-dir', 'symbol', 'interval', 'start', 'end']);
-  const dir = a['dataset-dir'];
-  const symbol = a.symbol;
-  const interval = a.interval;
-  const start = Date.parse(a.start);
-  const end = Date.parse(a.end);
-  if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error('--start and --end must be dates');
+async function runParity(argv: string[]): Promise<boolean> {
+  const a = parityArgs(argv);
+  const datasetHash = await assertDatasetHash(a.datasetDir, a.expectManifestHash);
+  let ok = true;
+  for (const symbol of a.symbols) {
+    const result = paritySymbol(a.datasetDir, symbol, a.interval, a.start, a.end);
+    console.log(JSON.stringify({ symbol, interval: a.interval, datasetHash, ...result }));
+    if (!result.pass) ok = false;
+  }
+  console.log(JSON.stringify({ interval: a.interval, symbols: a.symbols.length, pass: ok }));
+  return ok;
+}
+
+function paritySymbol(dir: string, symbol: string, interval: '1h' | '4h', start: number, end: number) {
   const style = DIRECTION_EXIT_CELLS.find((c) => c.interval === interval)!.style;
 
   const matrix = loadCellMatrix(dir, symbol, interval, style);
@@ -171,17 +222,15 @@ function runParity(argv: string[]): boolean {
       componentScores[cat].push(catScores.get(String(t))?.[cat] ?? NaN);
     }
   }
-  const result = componentParity(matrixCats, componentScores);
-  console.log(JSON.stringify({ symbol, interval, ...result }));
-  return result.pass;
+  return componentParity(matrixCats, componentScores);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   try {
     const [mode, ...rest] = process.argv.slice(2);
     let ok: boolean;
     if (mode === 'repro') ok = runRepro(rest);
-    else if (mode === 'parity') ok = runParity(rest);
+    else if (mode === 'parity') ok = await runParity(rest);
     else throw new Error('usage: direction-exit-repro.ts <repro|parity> ...');
     process.exit(ok ? 0 : 2);
   } catch (error) {
@@ -190,4 +239,4 @@ function main(): void {
   }
 }
 
-if (require.main === module) main();
+if (require.main === module) void main();

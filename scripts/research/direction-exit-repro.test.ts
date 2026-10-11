@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { compareToReference, componentParity } from './direction-exit-repro';
+import { DIRECTION_EXIT_SYMBOLS } from './direction-exit';
+import { compareToReference, componentParity, parityArgs, reproArgs } from './direction-exit-repro';
 
 const row = (t: number, score: number, tier = score > 28 ? 'buy' : 'neutral') => ({ symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading', candleTimestamp: t, score, tier });
 const win = { start: 0, end: 1e12 };
@@ -63,5 +64,22 @@ describe('componentParity', () => {
   it('needs at least 1,000 compared values', () => {
     const a = { trend: Float64Array.from({ length: 10 }, () => 1) };
     expect(componentParity(a, a).pass).toBe(false);
+  });
+});
+
+describe('CLI arguments', () => {
+  it('runs parity over the ten study symbols by default and requires the manifest hash', () => {
+    const base = ['--dataset-dir', 'd', '--interval', '1h', '--start', '2024-11-01', '--end', '2024-12-31T23:59:59.999Z'];
+    expect(() => parityArgs(base)).toThrow(/expect-manifest-hash/);
+    const a = parityArgs([...base, '--expect-manifest-hash', 'h']);
+    expect(a.symbols).toEqual([...DIRECTION_EXIT_SYMBOLS]);
+    expect(parityArgs([...base, '--expect-manifest-hash', 'h', '--symbols', 'BTCUSDT,ETHUSDT']).symbols).toEqual(['BTCUSDT', 'ETHUSDT']);
+    expect(() => parityArgs([...base, '--expect-manifest-hash', 'h', '--symbol', 'BTCUSDT'])).toThrow(/Unknown flag/);
+    expect(() => parityArgs([...base.slice(0, 2), '--interval', '15m', ...base.slice(4), '--expect-manifest-hash', 'h'])).toThrow(/interval/);
+  });
+
+  it('requires the manifest hash in repro mode', () => {
+    expect(() => reproArgs(['--mine', 'm', '--reference', 'r'])).toThrow(/expect-manifest-hash/);
+    expect(reproArgs(['--mine', 'm', '--reference', 'r', '--expect-manifest-hash', 'h']).expectManifestHash).toBe('h');
   });
 });

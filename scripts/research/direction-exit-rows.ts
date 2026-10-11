@@ -5,21 +5,23 @@
  * percent of the close, the resolver's outcome, the lag-1 outcome (N1) and the price path to the horizon.
  *
  *   npx tsx scripts/research/direction-exit-rows.ts --dataset-dir <dir> --out <rows.jsonl.gz>
- *     --start <ISO> --end <ISO> [--intervals 1h,4h] [--symbols A,B] [--scores-only]
+ *     --start <ISO> --end <ISO> --expect-manifest-hash <h> [--intervals 1h,4h] [--symbols A,B] [--scores-only]
  *
- * Reads only the exported dataset. Prints { rows, dropped, sha256, byCell }.
+ * Reads only the exported dataset, after verifying it against its manifest and the expected hash. Writes the
+ * rows and a sidecar <out>.meta.json (dataset hash, rows sha256, mode, window, commit) that the diagnosis and
+ * the reproduction check assert. Prints { rows, dropped, pastWindowEnd, sha256, datasetHash, byCell }.
  */
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
+import { z } from 'zod';
 import { intervalToMs } from '@/lib/intervals';
 import { getTier } from '@/lib/signals/scorer';
-import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import type { OHLCV } from '@/types/market';
 import { atr } from './families/legends-indicators';
-import { loadCandles } from './load-dataset';
+import { loadCandles, loadManifest, verifyManifest } from './load-dataset';
 import { forwardReturnAt, loadCellMatrix } from './v8-rescore-build';
-import { DIRECTION_EXIT_ATR_PERIOD, DIRECTION_EXIT_CELLS } from './direction-exit';
+import { DIRECTION_EXIT_ATR_PERIOD, DIRECTION_EXIT_CELLS, DIRECTION_EXIT_SYMBOLS } from './direction-exit';
 
 export const CATEGORIES = ['trend', 'momentum', 'volume', 'volatility', 'futures', 'sentiment', 'htf'] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -85,7 +87,7 @@ export function buildDxRows(input: {
   atr14: ArrayLike<number>;
   window: { start: string; end: string };
   scoresOnly?: boolean;
-}): { rows: DxRow[]; dropped: number } {
+}): { rows: DxRow[]; dropped: number; pastWindowEnd: number } {
   const col = (name: string): ArrayLike<number> | null => {
     const idx = input.names.indexOf(name);
     return idx >= 0 ? input.values[idx] : null;
@@ -99,6 +101,7 @@ export function buildDxRows(input: {
   const endMs = Date.parse(input.window.end);
   const rows: DxRow[] = [];
   let dropped = 0;
+  let pastWindowEnd = 0;
   for (let i = 0; i < input.path.t.length; i++) {
     const t = input.path.t[i];
     if (t < startMs || t > endMs) continue;
@@ -107,6 +110,11 @@ export function buildDxRows(input: {
     let fwd = NaN;
     let path: ReturnType<typeof pathAt> = null;
     if (!input.scoresOnly) {
+      // The whole horizon must end inside the window: bar i + h closes at t + (h + 1) bars - 1 ms (note N12).
+      if (t + (input.horizonBars + 1) * intervalMs - 1 > endMs) {
+        pastWindowEnd++;
+        continue;
+      }
       const r = forwardReturnAt(input.path.t, input.path.c, i, input.horizonBars, intervalMs);
       path = pathAt(input.path, i, input.horizonBars, intervalMs);
       if (r === null || path === null) {
@@ -138,7 +146,55 @@ export function buildDxRows(input: {
       down1: path ? path.down1 : null,
     });
   }
-  return { rows, dropped };
+  return { rows, dropped, pastWindowEnd };
+}
+
+/** Verifies every dataset file against the manifest and asserts the manifest's hash (note N12). */
+export async function assertDatasetHash(dir: string, expected: string): Promise<string> {
+  const verify = await verifyManifest(dir);
+  if (!verify.ok) throw new Error(`dataset manifest verification failed for: ${verify.mismatches.join(', ')}`);
+  const actual = loadManifest(dir).datasetHash;
+  if (actual !== expected) throw new Error(`dataset manifest hash mismatch: loaded ${actual}, expected ${expected}`);
+  return actual;
+}
+
+const RowsMetaSchema = z.object({
+  datasetHash: z.string(),
+  sha256: z.string(),
+  rows: z.number(),
+  dropped: z.number(),
+  pastWindowEnd: z.number(),
+  start: z.string(),
+  end: z.string(),
+  intervals: z.array(z.string()),
+  symbols: z.array(z.string()),
+  scoresOnly: z.boolean(),
+  gitCommit: z.string(),
+});
+export type DxRowsMeta = z.infer<typeof RowsMetaSchema>;
+
+export const rowsMetaPath = (rowsPath: string): string => `${rowsPath}.meta.json`;
+
+export function readRowsMeta(rowsPath: string): DxRowsMeta {
+  return RowsMetaSchema.parse(JSON.parse(readFileSync(rowsMetaPath(rowsPath), 'utf8')));
+}
+
+/** The rows file a consumer reads must be the one its sidecar describes, built in the expected mode and window. */
+export function assertRowsMeta(
+  meta: DxRowsMeta,
+  expected: { datasetHash: string; sha256: string; scoresOnly: boolean; window?: { start: string; end: string } }
+): void {
+  const problems: string[] = [];
+  if (meta.datasetHash !== expected.datasetHash) problems.push(`datasetHash ${meta.datasetHash}, expected ${expected.datasetHash}`);
+  if (meta.sha256 !== expected.sha256) problems.push(`rows sha256 ${meta.sha256}, file has ${expected.sha256}`);
+  if (meta.scoresOnly !== expected.scoresOnly) problems.push(`scoresOnly ${meta.scoresOnly}, expected ${expected.scoresOnly}`);
+  if (expected.window) {
+    const iso = (v: string) => new Date(v).toISOString();
+    if (iso(meta.start) !== iso(expected.window.start) || iso(meta.end) !== iso(expected.window.end)) {
+      problems.push(`window ${meta.start}..${meta.end}, expected ${expected.window.start}..${expected.window.end}`);
+    }
+  }
+  if (problems.length > 0) throw new Error(`rows meta check failed: ${problems.join('; ')}`);
 }
 
 export interface RowsArgs {
@@ -146,6 +202,7 @@ export interface RowsArgs {
   out: string;
   start: string;
   end: string;
+  expectManifestHash: string;
   intervals: string[];
   symbols: string[];
   scoresOnly: boolean;
@@ -154,7 +211,7 @@ export interface RowsArgs {
 export function parseArgs(argv: string[]): RowsArgs {
   const args: Partial<RowsArgs> & { intervals: string[]; symbols: string[]; scoresOnly: boolean } = {
     intervals: ['1h', '4h'],
-    symbols: [...SIGNAL_SYMBOLS],
+    symbols: [...DIRECTION_EXIT_SYMBOLS],
     scoresOnly: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -170,10 +227,11 @@ export function parseArgs(argv: string[]): RowsArgs {
     else if (flag === '--end') args.end = new Date(value()).toISOString();
     else if (flag === '--intervals') args.intervals = value().split(',');
     else if (flag === '--symbols') args.symbols = value().split(',');
+    else if (flag === '--expect-manifest-hash') args.expectManifestHash = value();
     else if (flag === '--scores-only') args.scoresOnly = true;
     else throw new Error(`Unknown flag "${flag}"`);
   }
-  for (const k of ['datasetDir', 'out', 'start', 'end'] as const) if (!args[k]) throw new Error(`--${k} is required`);
+  for (const k of ['datasetDir', 'out', 'start', 'end', 'expectManifestHash'] as const) if (!args[k]) throw new Error(`--${k} is required`);
   return args as RowsArgs;
 }
 
@@ -185,16 +243,18 @@ function toLine(r: DxRow, scoresOnly: boolean): string {
   return JSON.stringify(r);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   try {
     const args = parseArgs(process.argv.slice(2));
+    const datasetHash = await assertDatasetHash(args.datasetDir, args.expectManifestHash);
     const lines: string[] = [];
-    const byCell: Record<string, { rows: number; dropped: number }> = {};
+    const byCell: Record<string, { rows: number; dropped: number; pastWindowEnd: number }> = {};
     let dropped = 0;
+    let pastWindowEnd = 0;
     for (const cell of DIRECTION_EXIT_CELLS) {
       if (!args.intervals.includes(cell.interval)) continue;
       const key = `${cell.style}|${cell.interval}`;
-      byCell[key] = { rows: 0, dropped: 0 };
+      byCell[key] = { rows: 0, dropped: 0, pastWindowEnd: 0 };
       for (const symbol of args.symbols) {
         const matrix = loadCellMatrix(args.datasetDir, symbol, cell.interval, cell.style);
         const candles = loadCandles(args.datasetDir, symbol, cell.interval, { allowLockbox: true }).rows;
@@ -215,13 +275,32 @@ function main(): void {
         for (const r of built.rows) lines.push(toLine(r, args.scoresOnly));
         byCell[key].rows += built.rows.length;
         byCell[key].dropped += built.dropped;
+        byCell[key].pastWindowEnd += built.pastWindowEnd;
         dropped += built.dropped;
-        console.error(`[dx-rows] ${key} ${symbol}: ${built.rows.length} rows, ${built.dropped} dropped`);
+        pastWindowEnd += built.pastWindowEnd;
+        console.error(
+          `[dx-rows] ${key} ${symbol}: ${built.rows.length} rows, ${built.dropped} dropped, ${built.pastWindowEnd} past the window end`
+        );
       }
     }
     const gz = gzipSync(Buffer.from(lines.join('\n') + (lines.length > 0 ? '\n' : ''), 'utf8'));
+    const sha256 = createHash('sha256').update(gz).digest('hex');
     writeFileSync(args.out, gz);
-    console.log(JSON.stringify({ rows: lines.length, dropped, sha256: createHash('sha256').update(gz).digest('hex'), byCell }));
+    const meta: DxRowsMeta = {
+      datasetHash,
+      sha256,
+      rows: lines.length,
+      dropped,
+      pastWindowEnd,
+      start: args.start,
+      end: args.end,
+      intervals: args.intervals,
+      symbols: args.symbols,
+      scoresOnly: args.scoresOnly,
+      gitCommit: process.env.GIT_COMMIT ?? 'unknown',
+    };
+    writeFileSync(rowsMetaPath(args.out), JSON.stringify(meta, null, 2) + '\n');
+    console.log(JSON.stringify({ rows: lines.length, dropped, pastWindowEnd, sha256, datasetHash, byCell }));
     process.exit(0);
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Unknown error');
@@ -229,4 +308,4 @@ function main(): void {
   }
 }
 
-if (require.main === module) main();
+if (require.main === module) void main();

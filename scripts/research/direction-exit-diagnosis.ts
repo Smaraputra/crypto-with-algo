@@ -1,29 +1,46 @@
+/**
+ * Part A of the direction-exit study (spec: header of scripts/research/direction-exit.ts), on the develop rows.
+ *
+ *   npx tsx scripts/research/direction-exit-diagnosis.ts --rows <develop-rows.jsonl.gz> --out <diagnosis.json>
+ *     --expect-manifest-hash <h>
+ *
+ * Asserts the rows' sidecar (dataset hash, rows sha256, full mode, the DEVELOP window) and every row (inside
+ * DEVELOP with its whole horizon, a study cell, a finite outcome) before computing anything.
+ */
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { defaultCostPercent } from '@/lib/backtest/cost-model';
+import { intervalToMs } from '@/lib/intervals';
 import { pointMeasures, directionOf } from '@/lib/signals/track-record/measures';
 import type { PointMeasures } from '@/lib/signals/track-record/types';
 import { spearman } from './ic-stats';
 import { seededRandom } from './carry-sim';
 import { percentileType7 } from './live-record-stats';
-import { CATEGORIES, type Category, type DxRow } from './direction-exit-rows';
+import { assertRowsMeta, CATEGORIES, readRowsMeta, type Category, type DxRow } from './direction-exit-rows';
 import {
-  DIRECTION_EXIT_ASIA_HOURS_UTC, DIRECTION_EXIT_BOOTSTRAP, DIRECTION_EXIT_CUTOFFS, DIRECTION_EXIT_K_GRID,
-  DIRECTION_EXIT_RANDOM_DRAWS, type DirectionExitFit,
+  DIRECTION_EXIT_ASIA_HOURS_UTC, DIRECTION_EXIT_BOOTSTRAP, DIRECTION_EXIT_CELLS, DIRECTION_EXIT_CUTOFFS,
+  DIRECTION_EXIT_DEVELOP, DIRECTION_EXIT_K_GRID, DIRECTION_EXIT_RANDOM_DRAWS, type DirectionExitFit,
 } from './direction-exit';
 
-export interface CategoryDiag { category: Category; agreeShare: number | null; bh: number | null; n: number }
+/** A1 per category on call bars: n signed scores (agreement and bh), nZero scores of exactly 0, nNull missing. */
+export interface CategoryDiag { category: Category; agreeShare: number | null; bh: number | null; n: number; nZero: number; nNull: number }
 export interface ConditionDiag { id: 'C1' | 'C2' | 'C3' | 'C4'; holds: PointMeasures; fails: PointMeasures; coverage: number }
 export interface PathDiag { k: number; callTouch: number; callFinish: number; randomTouch: number; randomFinish: number }
 export interface ExcursionDiag {
   mfePctMedian: number | null; mfePctMean: number | null; maePctMedian: number | null; maePctMean: number | null;
   mfeAtrMedian: number | null; maeAtrMedian: number | null;
 }
+/**
+ * d0: D0's call share among the rows with a finite D1 score (T's target); d0AllRows: over every row of the cell;
+ * d1: the share D1 actually calls at T among the finite-score rows.
+ */
+export interface CallShares { d0: number; d0AllRows: number; d1: number }
 export interface DiagnosisReport {
   interval: string; calls: number; lag: 0 | 1;
   overall: PointMeasures; categories: CategoryDiag[]; conditions: ConditionDiag[]; paths: PathDiag[]; excursions: { calls: ExcursionDiag; random: ExcursionDiag };
   fit: DirectionExitFit;
+  callShares: CallShares;
 }
 
 const outcome = (r: DxRow, lag: 0 | 1): number | null => (lag === 0 ? r.fwd : r.fwd1);
@@ -170,7 +187,14 @@ export function diagnose(rows: DxRow[], interval: string, costPercent: number, l
       measured(withCat.map((x) => x.r), lag, (r) => ((r.cats[c] as number) > 0 ? 'buy' : 'sell')),
       costPercent
     );
-    return { category: c, agreeShare: withCat.length ? agree / withCat.length : null, bh: asDirection.bh, n: withCat.length };
+    return {
+      category: c,
+      agreeShare: withCat.length ? agree / withCat.length : null,
+      bh: asDirection.bh,
+      n: withCat.length,
+      nZero: calls.filter(({ r }) => r.cats[c] === 0).length,
+      nNull: calls.filter(({ r }) => r.cats[c] === null).length,
+    };
   });
   const volTop = volTopThresholds(cell);
   const conditions = (['C1', 'C2', 'C3', 'C4'] as const).map((id) => {
@@ -205,15 +229,52 @@ export function diagnose(rows: DxRow[], interval: string, costPercent: number, l
   if (finite.length === 0) throw new Error(`${interval}: no row has a finite D1 score, cannot fit the threshold`);
   const callShare = finite.filter((x) => x.call).length / finite.length;
   const threshold = quantile(finite.map((x) => x.abs), 1 - callShare);
+  const callShares: CallShares = {
+    d0: callShare,
+    d0AllRows: cell.length ? calls.length / cell.length : 0,
+    d1: finite.filter((x) => x.abs > threshold).length / finite.length,
+  };
   const { paths, excursions } = pathStats(cell, calls, lag);
   return {
     interval, calls: calls.length, lag, overall, categories, conditions,
     paths, excursions,
     fit: { signs, threshold, volTopThreshold: volTop },
+    callShares,
   };
 }
 
-interface DiagnosisArgs { rows: string; out: string }
+/**
+ * The diagnosis reads DEVELOP only (spec Part A, note N12): every row must be a full-mode row of a study cell
+ * whose bar opens inside DEVELOP and whose horizon closes by the DEVELOP end, with a finite outcome. Throws,
+ * naming the first offending rows, on anything else.
+ */
+export function validateDiagnosisRows(rows: unknown[]): DxRow[] {
+  const startMs = Date.parse(DIRECTION_EXIT_DEVELOP.start);
+  const endMs = Date.parse(DIRECTION_EXIT_DEVELOP.end);
+  const problems: string[] = [];
+  let bad = 0;
+  rows.forEach((raw, k) => {
+    const r = raw as Partial<DxRow> | null;
+    const problem = ((): string | null => {
+      if (!r || typeof r.t !== 'number' || typeof r.cats !== 'object' || r.cats === null) return 'not a full-mode row';
+      const cell = DIRECTION_EXIT_CELLS.find((c) => c.interval === r.interval);
+      if (!cell) return `interval ${String(r.interval)} is not a study cell`;
+      if (r.style !== cell.style) return `style ${String(r.style)} at ${cell.interval}, expected ${cell.style}`;
+      if (!Number.isFinite(r.t) || r.t < startMs) return `bar ${r.t} opens before DEVELOP`;
+      const horizonEnd = r.t + (cell.horizonBars + 1) * intervalToMs(cell.interval) - 1;
+      if (horizonEnd > endMs) return `horizon ends after DEVELOP (${new Date(horizonEnd).toISOString()})`;
+      if (typeof r.fwd !== 'number' || !Number.isFinite(r.fwd)) return 'fwd is not finite';
+      return null;
+    })();
+    if (problem === null) return;
+    bad++;
+    if (problems.length < 5) problems.push(`row ${k} (${String(r?.symbol)} ${String(r?.interval)} ${String(r?.t)}): ${problem}`);
+  });
+  if (bad > 0) throw new Error(`${bad} of ${rows.length} rows are not valid DEVELOP rows: ${problems.join('; ')}`);
+  return rows as DxRow[];
+}
+
+interface DiagnosisArgs { rows: string; out: string; expectManifestHash: string }
 
 export function parseArgs(argv: string[]): DiagnosisArgs {
   const args: Partial<DiagnosisArgs> = {};
@@ -223,10 +284,12 @@ export function parseArgs(argv: string[]): DiagnosisArgs {
     if (v === undefined || v.startsWith('--')) throw new Error(`${flag} requires a value`);
     if (flag === '--rows') args.rows = v;
     else if (flag === '--out') args.out = v;
+    else if (flag === '--expect-manifest-hash') args.expectManifestHash = v;
     else throw new Error(`Unknown flag "${flag}"`);
   }
   if (!args.rows) throw new Error('--rows is required');
   if (!args.out) throw new Error('--out is required');
+  if (!args.expectManifestHash) throw new Error('--expect-manifest-hash is required');
   return args as DiagnosisArgs;
 }
 
@@ -235,18 +298,41 @@ function main(): void {
     const args = parseArgs(process.argv.slice(2));
     const gz = readFileSync(args.rows);
     const rowsSha256 = createHash('sha256').update(gz).digest('hex');
-    const rows = gunzipSync(gz)
-      .toString('utf8')
-      .split('\n')
-      .filter((l) => l.length > 0)
-      .map((l) => JSON.parse(l) as DxRow);
+    assertRowsMeta(readRowsMeta(args.rows), {
+      datasetHash: args.expectManifestHash,
+      sha256: rowsSha256,
+      scoresOnly: false,
+      window: DIRECTION_EXIT_DEVELOP,
+    });
+    const rows = validateDiagnosisRows(
+      gunzipSync(gz)
+        .toString('utf8')
+        .split('\n')
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l) as unknown)
+    );
     const intervals = [...new Set(rows.map((r) => r.interval))].sort();
     const reports: DiagnosisReport[] = [];
     for (const interval of intervals) {
       for (const lag of [0, 1] as const) reports.push(diagnose(rows, interval, defaultCostPercent(interval), lag));
     }
-    writeFileSync(args.out, JSON.stringify({ reports, rowsSha256 }, null, 2));
-    for (const r of reports.filter((x) => x.lag === 1)) console.log(JSON.stringify({ interval: r.interval, fit: r.fit }));
+    const gitCommit = process.env.GIT_COMMIT ?? 'unknown';
+    writeFileSync(
+      args.out,
+      JSON.stringify({ reports, rowsSha256, datasetHash: args.expectManifestHash, gitCommit }, null, 2)
+    );
+    for (const r of reports.filter((x) => x.lag === 1)) {
+      console.log(
+        JSON.stringify({
+          interval: r.interval,
+          threshold: r.fit.threshold,
+          d1CallShare: r.callShares.d1,
+          d0CallShare: r.callShares.d0,
+          d0CallShareAllRows: r.callShares.d0AllRows,
+          fit: r.fit,
+        })
+      );
+    }
     process.exit(0);
   } catch (error) {
     console.error(error instanceof Error ? error.message : 'Unknown error');

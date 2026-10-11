@@ -2,7 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { seededRandom } from './carry-sim';
 import { CATEGORIES, type DxRow } from './direction-exit-rows';
-import { conditionHolds, d1Score, diagnose, volTopThresholds } from './direction-exit-diagnosis';
+import { DIRECTION_EXIT_DEVELOP } from './direction-exit';
+import { conditionHolds, d1Score, diagnose, parseArgs, validateDiagnosisRows, volTopThresholds } from './direction-exit-diagnosis';
 
 const HOUR = 3_600_000;
 const cats = (v: number | null) => Object.fromEntries(CATEGORIES.map((c) => [c, v])) as DxRow['cats'];
@@ -105,6 +106,32 @@ describe('diagnose fit and lag details', () => {
     expect(d1Share).toBeCloseTo(d0Share, 2);
   });
 
+  it('reports the achieved D1 call share next to D0 share, among finite-score rows and over all rows', () => {
+    const rows: DxRow[] = [];
+    for (let i = 0; i < 400; i++) {
+      const v = rnd() * 100 - 50;
+      rows.push(mk(i, { score: i % 4 === 0 ? 30 : 0, tier: i % 4 === 0 ? 'buy' : 'neutral', cats: cats(v), fwd1: v }));
+    }
+    for (let i = 400; i < 800; i++) rows.push(mk(i, { cats: cats(null), fwd1: 0 }));
+    const { callShares, fit } = diagnose(rows, '1h', 0.16, 1);
+    const finite = rows.map((r) => d1Score(r.cats, fit.signs)).filter((x): x is number => x !== null);
+    expect(callShares.d0).toBeCloseTo(0.25, 10);
+    expect(callShares.d0AllRows).toBeCloseTo(500 / 800, 10);
+    expect(callShares.d1).toBe(finite.filter((x) => Math.abs(x) > fit.threshold).length / finite.length);
+  });
+
+  it('counts zero and missing category scores on calls apart from the signed ones', () => {
+    const rows = [
+      mk(0, { cats: { ...cats(null), trend: 5 } }),
+      mk(1, { cats: { ...cats(null), trend: 0 } }),
+      mk(2, { cats: { ...cats(null), trend: null } }),
+      mk(3, { cats: { ...cats(null), trend: -2 } }),
+      mk(4, { tier: 'neutral', score: 0, cats: { ...cats(null), trend: 0 } }),
+    ];
+    const trend = diagnose(rows, '1h', 0.16, 0).categories.find((c) => c.category === 'trend')!;
+    expect(trend).toMatchObject({ n: 2, nZero: 1, nNull: 1, agreeShare: 0.5 });
+  });
+
   it('throws instead of writing an infinite threshold when no d1 score is finite', () => {
     const rows = [0, 1, 2, 3].map((i) => mk(i, { cats: cats(null) }));
     expect(() => diagnose(rows, '1h', 0.16, 0)).toThrow(/finite D1/);
@@ -175,5 +202,41 @@ describe('diagnose fit and lag details', () => {
     const other = Array.from({ length: 30 }, (_, i) => mk(100 + i, { interval: '4h' }));
     expect(diagnose([...base, ...other], '1h', 0.16, 0).calls).toBe(30);
     expect(diagnose(base, '1h', 0.16, 0).calls).toBe(30);
+  });
+});
+
+describe('validateDiagnosisRows', () => {
+  const start = Date.parse(DIRECTION_EXIT_DEVELOP.start);
+  const end = Date.parse(DIRECTION_EXIT_DEVELOP.end);
+  const row = (over: Partial<DxRow> = {}): DxRow => ({
+    symbol: 'BTCUSDT', interval: '1h', style: 'day_trading', t: start, score: 30, tier: 'buy', cats: cats(1),
+    vol20: 0.5, hourUtc: 0, atrPct: 1, fwd: 1, fwd1: 1, up: 1, down: -1, up1: 1, down1: -1, ...over,
+  });
+
+  it('accepts full rows of both cells whose horizon closes by the DEVELOP end', () => {
+    const last1h = end + 1 - 25 * HOUR; // bar i + 24 closes at the DEVELOP end
+    const last4h = end + 1 - 31 * 4 * HOUR;
+    const rows = [row(), row({ t: last1h }), row({ interval: '4h', style: 'swing_trading', t: last4h })];
+    expect(validateDiagnosisRows(rows)).toHaveLength(3);
+  });
+
+  it('fails loudly on a horizon past the DEVELOP end, a bar before its start, another interval or style', () => {
+    expect(() => validateDiagnosisRows([row({ t: end + 1 - 24 * HOUR })])).toThrow(/horizon ends after/);
+    expect(() => validateDiagnosisRows([row({ t: start - HOUR })])).toThrow(/before DEVELOP/);
+    expect(() => validateDiagnosisRows([row({ interval: '15m' })])).toThrow(/interval/);
+    expect(() => validateDiagnosisRows([row({ style: 'scalping' })])).toThrow(/style/);
+  });
+
+  it('fails on scores-only rows and on rows without a finite outcome', () => {
+    const scoresOnly = { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading', candleTimestamp: start, score: 30, tier: 'buy' };
+    expect(() => validateDiagnosisRows([scoresOnly])).toThrow(/full-mode/);
+    expect(() => validateDiagnosisRows([JSON.parse(JSON.stringify(row({ fwd: Number.NaN })))])).toThrow(/fwd/);
+  });
+});
+
+describe('parseArgs', () => {
+  it('requires the expected manifest hash', () => {
+    expect(() => parseArgs(['--rows', 'r', '--out', 'o'])).toThrow(/expect-manifest-hash/);
+    expect(parseArgs(['--rows', 'r', '--out', 'o', '--expect-manifest-hash', 'h']).expectManifestHash).toBe('h');
   });
 });
