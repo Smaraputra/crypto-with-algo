@@ -125,7 +125,7 @@ export function buildCellRows(input: CellRowsInput): { rows: LiveRow[]; dropped:
 }
 
 /** Matrix for one symbol and cell, from the dataset start (warmup), lockbox allowed. Only the inputs the composite reads. */
-function loadCellMatrix(datasetDir: string, symbol: string, interval: string, style: TradingStyle) {
+export function loadCellMatrix(datasetDir: string, symbol: string, interval: string, style: TradingStyle) {
   const opts = { allowLockbox: true };
   const candles = loadCandles(datasetDir, symbol, interval, opts).rows;
   const htf = loadHtf(datasetDir, symbol, interval, opts).rows;
