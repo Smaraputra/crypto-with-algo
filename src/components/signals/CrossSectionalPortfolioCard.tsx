@@ -47,15 +47,17 @@ export function CrossSectionalPortfolioCard() {
     );
   }
 
-  const makerEquity = book?.equityMaker ?? 10000;
-  const takerEquity = book?.equityTaker ?? 10000;
+  const makerEquity = book?.markedEquityMaker ?? book?.equityMaker ?? 10000;
+  const takerEquity = book?.markedEquityTaker ?? book?.equityTaker ?? 10000;
   const startEquity = book?.startEquity ?? 10000;
   const makerReturnPct = ((makerEquity - startEquity) / startEquity) * 100;
   const takerReturnPct = ((takerEquity - startEquity) / startEquity) * 100;
+  const unrealizedMaker = book?.unrealizedPnlMaker ?? 0;
   const activeTargets = signal.targets.filter((t) => t.side !== 'flat');
 
-  // Map latest close prices from snapshots
+  // Map latest close prices from snapshots and positions from book
   const snapshotMap = new Map(signal.snapshots.map((s) => [s.symbol, s]));
+  const positionMap = new Map((book?.positions ?? []).map((p) => [p.symbol, p]));
 
   return (
     <Card className="border-border">
@@ -86,7 +88,19 @@ export function CrossSectionalPortfolioCard() {
         {/* Equity Metrics Overview */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded border border-border p-2.5">
-            <p className="text-[11px] text-muted-foreground">Maker Track (1.8 bps)</p>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-muted-foreground">Maker Track (1.8 bps)</p>
+              {unrealizedMaker !== 0 && (
+                <span
+                  className={cn(
+                    'text-[9px] font-mono tabular-nums',
+                    unrealizedMaker >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'
+                  )}
+                >
+                  {unrealizedMaker >= 0 ? '+' : ''}${unrealizedMaker.toFixed(2)} float
+                </span>
+              )}
+            </div>
             <p className="text-sm font-semibold font-mono tabular-nums mt-0.5">
               ${makerEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
@@ -153,6 +167,7 @@ export function CrossSectionalPortfolioCard() {
                   <th className="py-2 px-3 font-medium">Symbol</th>
                   <th className="py-2 px-3 font-medium text-right">Target Weight</th>
                   <th className="py-2 px-3 font-medium text-right">Mark Price</th>
+                  <th className="py-2 px-3 font-medium text-right">Floating PnL</th>
                   <th className="py-2 px-3 font-medium text-right">Funding Rate</th>
                   <th className="py-2 px-3 font-medium text-right">Beta (BTC)</th>
                 </tr>
@@ -160,6 +175,7 @@ export function CrossSectionalPortfolioCard() {
               <tbody className="divide-y divide-border">
                 {activeTargets.map((target) => {
                   const snap = snapshotMap.get(target.symbol);
+                  const pos = positionMap.get(target.symbol);
                   const isLong = target.side === 'long';
                   return (
                     <tr key={target.symbol} className="hover:bg-muted/20">
@@ -182,6 +198,15 @@ export function CrossSectionalPortfolioCard() {
                       </td>
                       <td className="py-2 px-3 text-right font-mono tabular-nums">
                         {snap && snap.close != null ? `$${snap.close.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : '-'}
+                      </td>
+                      <td className="py-2 px-3 text-right font-mono tabular-nums">
+                        {pos?.unrealizedPnlMaker != null && pos.unrealizedPnlMaker !== 0 ? (
+                          <span className={pos.unrealizedPnlMaker >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}>
+                            {pos.unrealizedPnlMaker >= 0 ? '+' : ''}${pos.unrealizedPnlMaker.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </td>
                       <td className="py-2 px-3 text-right font-mono tabular-nums">
                         {snap && snap.fundingRate != null ? `${(snap.fundingRate * 100).toFixed(4)}%` : '-'}

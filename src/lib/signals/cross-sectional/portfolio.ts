@@ -24,6 +24,8 @@ export interface PortfolioConfig {
   weightPerLeg?: number;
   /** Optional asset beta to BTC mapping for beta-neutral weighting. */
   betas?: Map<string, number>;
+  /** Automatically clamp buffer to prevent deadband overlap when universe shrinks (default false). */
+  autoClampBuffer?: boolean;
 }
 
 /**
@@ -40,10 +42,16 @@ export function constructBufferedPortfolio(
 ): TargetAllocation {
   const n = rankedScores.length;
   const legs = config.legs ?? 2;
-  const buffer = config.buffer ?? 1;
+  const requestedBuffer = config.buffer ?? 1;
 
   if (2 * legs > n) {
     throw new Error(`Cannot assign ${legs} long and short legs from universe of size ${n}`);
+  }
+
+  let buffer = requestedBuffer;
+  if (config.autoClampBuffer) {
+    const maxSafeBuffer = Math.max(0, Math.floor((n - 2 * legs - 1) / 2));
+    buffer = Math.min(requestedBuffer, maxSafeBuffer);
   }
 
   const longExitRank = legs + buffer; // e.g. 2 + 1 = 3 -> exits if rank >= 4

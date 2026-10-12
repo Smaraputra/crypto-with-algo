@@ -116,4 +116,27 @@ describe('constructBufferedPortfolio', () => {
     expect(result.positions.get('S10')).toBeCloseTo(-1 / 6, 5);
     expect(result.netBetaExposure).toBeCloseTo(0, 5);
   });
+
+  it('safely clamps buffer when autoClampBuffer is enabled on a reduced universe', () => {
+    // 7 assets, legs 2, requested buffer 2 -> would overlap (4 >= 4) without autoClampBuffer
+    const reducedRanks = dummyRanks(['U1', 'U2', 'U3', 'U4', 'U5', 'U6', 'U7']);
+    
+    // Without autoClampBuffer, it throws
+    expect(() => constructBufferedPortfolio(new Map(), reducedRanks, { legs: 2, buffer: 2 })).toThrow(
+      /Deadband overlap/
+    );
+
+    // With autoClampBuffer, it clamps buffer to 1 and succeeds
+    const result = constructBufferedPortfolio(new Map(), reducedRanks, {
+      legs: 2,
+      buffer: 2,
+      autoClampBuffer: true,
+    });
+
+    expect(result.positions.get('U1')).toBe(0.25);
+    expect(result.positions.get('U2')).toBe(0.25);
+    expect(result.positions.get('U6')).toBe(-0.25);
+    expect(result.positions.get('U7')).toBe(-0.25);
+    expect(result.positions.size).toBe(4);
+  });
 });

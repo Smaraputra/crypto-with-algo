@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Hardening: 8-Hour Cross-Sectional Relative Value mark-to-market accounting and deadband resilience
+- **Mark-to-market accounting**: Added `markedEquityMaker`, `markedEquityTaker`, and position-level `currentPrice` and `unrealizedPnlMaker`/`unrealizedPnlTaker` to `CrossSectionalBook` and paper desk runner (`cross-sectional-runner.ts`). Retained positions now continuously reflect floating open PnL across closed bars.
+- **Dynamic deadband buffer resilience**: Added `autoClampBuffer` to `PortfolioConfig` in `portfolio.ts`. When exchange API timeouts reduce active universe size below 8 assets, buffer dynamically clamps to $B_{\text{effective}} = \min(B, \lfloor(N - 2L - 1)/2\rfloor)$, preventing fatal deadband overlap crashes.
+- **Dashboard UI card enhancements**: `CrossSectionalPortfolioCard` displays real-time marked equity with active floating PnL badges, and an Unrealized PnL column in the 4-leg active allocations table.
+- **Documentation alignment**: Corrected Section 8.4 in `docs/TECHNICAL.md` to document basket-average beta equalization matching the backtested and production implementation.
+
 ### Added: 8-Hour Cross-Sectional Relative Value live signal engine and dashboard UI
 - **Live signal engine**: Replaces single-asset directional forecasting with an 8-hour cross-sectional relative value system on the top 10 perpetual universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `BNBUSDT`, `ADAUSDT`, `XRPUSDT`, `DOGEUSDT`, `AVAXUSDT`, `LINKUSDT`, `NEARUSDT`).
 - **Composite factor scoring**: Combines 4 orthogonal factor signals:
