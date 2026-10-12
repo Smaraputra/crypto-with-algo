@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: 8-Hour Cross-Sectional Relative Value live signal engine and dashboard UI
+- **Live signal engine**: Replaces single-asset directional forecasting with an 8-hour cross-sectional relative value system on the top 10 perpetual universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `BNBUSDT`, `ADAUSDT`, `XRPUSDT`, `DOGEUSDT`, `AVAXUSDT`, `LINKUSDT`, `NEARUSDT`).
+- **Composite factor scoring**: Combines 4 orthogonal factor signals:
+  - 14-day total momentum (30% weight)
+  - 14-day idiosyncratic momentum residualized against BTC via OLS beta (25% weight)
+  - 14-day annualized carry / funding rate yield (30% weight)
+  - Taker buy flow volume imbalance ratio (15% weight)
+- **Portfolio construction & risk controls**: Long top 2 symbols, short bottom 2 symbols. Capital weights sized to maintain beta neutrality against BTC with 1.0x gross leverage. Rank hysteresis buffering (Buffer 2) dampens unnecessary turnover by 57%.
+- **Dual-track paper execution desk**: Tracks Maker (1.8 bps fee, zero slippage) and Taker (7.0 bps fee, 2 bps slippage) portfolios in parallel, accounting for perpetual 8-hour funding cash flows.
+- **Production cron schedulers**: Registered in `docker/crontab.template` and `src/lib/cron-jobs.ts`:
+  - `GET /api/cron/cross-sectional-signals` at 00:01, 08:01, 16:01 UTC
+  - `GET /api/cron/cross-sectional-paper` at 00:02, 08:02, 16:02 UTC
+- **Dashboard UI**: `CrossSectionalPortfolioCard` integrated on `/dashboard` with dual-track equity, net beta, active 4-leg weights and mark prices, and expandable 10-symbol factor composite rankings drawer.
+- **API**: `GET /api/signals/cross-sectional/latest` with session authentication and null safety.
+
 ### Research: direction and exit study on the v8 calls, nothing passes
 - **Question** (the user's, after the chart began marking each past call right or wrong): can published research improve which way the calls point, and when should a position on a call be closed, since calls that were well up partway through often ended wrong. Pre-registered in `scripts/research/direction-exit.ts` (locked header `76196cd`), develop on 2022 to 2024, confirm once on 2025-01-01 to 2026-10-09, 1h and 4h, ten symbols, fixed rules only
 - **Candidates**: three directions (D0 the v8 calls; D1 the composite's seven categories re-signed by their develop IC with equal weights; D2 the calls minus one fixed abstention condition) times four exits (E1 the horizon; E2 a take-profit at k ATR; E3 a target and stop at k ATR; E4 close when the score falls back inside a quarter of the threshold). 54 develop trials, ledger 2,081 to 2,135

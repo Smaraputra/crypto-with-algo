@@ -139,3 +139,69 @@ export function useTradePlan(
     staleTime: tradingStyle ? GLOBAL_STALE_TIMES[tradingStyle] : SIGNAL_STALE_TIME,
   });
 }
+
+export interface CrossSectionalLatestResponse {
+  success: boolean;
+  signal: {
+    timestamp: number;
+    barCloseTime: number;
+    cadence: string;
+    universe: string[];
+    targets: Array<{
+      symbol: string;
+      weight: number;
+      side: 'long' | 'short' | 'flat';
+    }>;
+    ranks: Array<{
+      symbol: string;
+      compositeZ: number;
+      zMom: number;
+      zIdio: number;
+      zCarry: number;
+      zFlow: number;
+      rank: number;
+    }>;
+    snapshots: Array<{
+      symbol: string;
+      close: number;
+      return14d: number;
+      fundingRate: number;
+      btcReturn14d: number;
+      betaToBtc: number;
+      takerBuyRatio: number;
+    }>;
+    turnover: number;
+    netBetaExposure: number;
+    grossExposure: number;
+  } | null;
+  book: {
+    bookName: string;
+    startEquity: number;
+    equityMaker: number;
+    equityTaker: number;
+    lastProcessedBarTime: number | null;
+    positions: Array<{
+      symbol: string;
+      side: 'long' | 'short';
+      weight: number;
+      entryPrice: number;
+      entryTime: number;
+      notionalMaker: number;
+      notionalTaker: number;
+      barsHeld: number;
+    }>;
+    totalTurnover: number;
+    totalFundingCollected: number;
+    peakLeverage: number;
+  } | null;
+}
+
+export function useCrossSectionalLatest() {
+  return useQuery<CrossSectionalLatestResponse>({
+    queryKey: ['crossSectional', 'latest'],
+    queryFn: () => fetchJson('/api/signals/cross-sectional/latest'),
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+}
+
