@@ -168,6 +168,7 @@ export function computeCrossSectionalSignalFromCandles(
     buffer: 2,
     betas: betaMap,
     weightPerLeg: 0.25,
+    autoClampBuffer: true,
   });
 
   const targets: ICrossSectionalTarget[] = [];

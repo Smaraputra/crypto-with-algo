@@ -179,6 +179,10 @@ export interface CrossSectionalLatestResponse {
     startEquity: number;
     equityMaker: number;
     equityTaker: number;
+    markedEquityMaker?: number;
+    markedEquityTaker?: number;
+    unrealizedPnlMaker?: number;
+    unrealizedPnlTaker?: number;
     lastProcessedBarTime: number | null;
     positions: Array<{
       symbol: string;
@@ -189,6 +193,9 @@ export interface CrossSectionalLatestResponse {
       notionalMaker: number;
       notionalTaker: number;
       barsHeld: number;
+      currentPrice?: number;
+      unrealizedPnlMaker?: number;
+      unrealizedPnlTaker?: number;
     }>;
     totalTurnover: number;
     totalFundingCollected: number;

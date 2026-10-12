@@ -23,6 +23,8 @@ async function handler(req: NextRequest) {
       openPositionsCount: report.openPositionsCount,
       equityMaker: report.equityMaker,
       equityTaker: report.equityTaker,
+      markedEquityMaker: report.markedEquityMaker ?? report.equityMaker,
+      markedEquityTaker: report.markedEquityTaker ?? report.equityTaker,
       leasedOut: report.leasedOut ?? false,
     });
   } catch (error) {

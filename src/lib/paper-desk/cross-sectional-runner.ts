@@ -19,6 +19,10 @@ export interface CrossSectionalBookState {
   startEquity: number;
   equityMaker: number;
   equityTaker: number;
+  markedEquityMaker?: number;
+  markedEquityTaker?: number;
+  unrealizedPnlMaker?: number;
+  unrealizedPnlTaker?: number;
   lastProcessedBarTime: number | null;
   positions: ICrossSectionalPosition[];
   totalTurnover: number;
@@ -88,6 +92,12 @@ export function stepCrossSectionalBookState(
     const snap = snapshotMap.get(pos.symbol);
     const exitPrice = snap ? snap.close : pos.entryPrice;
 
+    // Calculate price return from entry to current bar close
+    const priceReturn =
+      pos.side === 'long'
+        ? (exitPrice - pos.entryPrice) / pos.entryPrice
+        : (pos.entryPrice - exitPrice) / pos.entryPrice;
+
     // Check if direction flipped or target weight dropped to 0 (fell out of buffer)
     const isClosed =
       (pos.side === 'long' && targetWeight <= 1e-4) ||
@@ -95,11 +105,6 @@ export function stepCrossSectionalBookState(
 
     if (isClosed) {
       // Realize PnL
-      const priceReturn =
-        pos.side === 'long'
-          ? (exitPrice - pos.entryPrice) / pos.entryPrice
-          : (pos.entryPrice - exitPrice) / pos.entryPrice;
-
       const pnlGrossMaker = pos.notionalMaker * priceReturn;
       const pnlGrossTaker = pos.notionalTaker * priceReturn;
 
@@ -144,6 +149,9 @@ export function stepCrossSectionalBookState(
       equityMaker -= deltaMaker * MAKER_FEE_RATE;
       equityTaker -= deltaTaker * TAKER_FEE_RATE;
 
+      const unrealizedPnlMaker = pos.notionalMaker * priceReturn;
+      const unrealizedPnlTaker = pos.notionalTaker * priceReturn;
+
       remainingPositions.push({
         symbol: pos.symbol,
         side: pos.side,
@@ -153,6 +161,9 @@ export function stepCrossSectionalBookState(
         notionalMaker: newNotionalMaker,
         notionalTaker: newNotionalTaker,
         barsHeld: pos.barsHeld + 1,
+        currentPrice: exitPrice,
+        unrealizedPnlMaker,
+        unrealizedPnlTaker,
       });
     }
   }
@@ -185,14 +196,32 @@ export function stepCrossSectionalBookState(
       notionalMaker,
       notionalTaker,
       barsHeld: 0,
+      currentPrice: snap.close,
+      unrealizedPnlMaker: 0,
+      unrealizedPnlTaker: 0,
     });
   }
+
+  const totalUnrealizedMaker = remainingPositions.reduce(
+    (acc, p) => acc + (p.unrealizedPnlMaker ?? 0),
+    0
+  );
+  const totalUnrealizedTaker = remainingPositions.reduce(
+    (acc, p) => acc + (p.unrealizedPnlTaker ?? 0),
+    0
+  );
+  const markedEquityMaker = Math.max(0, equityMaker + totalUnrealizedMaker);
+  const markedEquityTaker = Math.max(0, equityTaker + totalUnrealizedTaker);
 
   const updatedBook: CrossSectionalBookState = {
     bookName: state.bookName,
     startEquity: state.startEquity,
     equityMaker: Math.max(0, equityMaker),
     equityTaker: Math.max(0, equityTaker),
+    markedEquityMaker,
+    markedEquityTaker,
+    unrealizedPnlMaker: totalUnrealizedMaker,
+    unrealizedPnlTaker: totalUnrealizedTaker,
     lastProcessedBarTime: signal.timestamp,
     positions: remainingPositions,
     totalTurnover: state.totalTurnover + signal.turnover,
@@ -214,6 +243,8 @@ export async function runCrossSectionalPaperDesk(
   openPositionsCount: number;
   equityMaker: number;
   equityTaker: number;
+  markedEquityMaker?: number;
+  markedEquityTaker?: number;
   leasedOut?: boolean;
 }> {
   await connectDB();
@@ -274,6 +305,10 @@ export async function runCrossSectionalPaperDesk(
       startEquity: book.startEquity,
       equityMaker: book.equityMaker,
       equityTaker: book.equityTaker,
+      markedEquityMaker: book.markedEquityMaker ?? book.equityMaker,
+      markedEquityTaker: book.markedEquityTaker ?? book.equityTaker,
+      unrealizedPnlMaker: book.unrealizedPnlMaker ?? 0,
+      unrealizedPnlTaker: book.unrealizedPnlTaker ?? 0,
       lastProcessedBarTime: book.lastProcessedBarTime,
       positions: book.positions,
       totalTurnover: book.totalTurnover,
@@ -294,6 +329,10 @@ export async function runCrossSectionalPaperDesk(
     // Save updated book state and clear lease
     book.equityMaker = bookState.equityMaker;
     book.equityTaker = bookState.equityTaker;
+    book.markedEquityMaker = bookState.markedEquityMaker ?? bookState.equityMaker;
+    book.markedEquityTaker = bookState.markedEquityTaker ?? bookState.equityTaker;
+    book.unrealizedPnlMaker = bookState.unrealizedPnlMaker ?? 0;
+    book.unrealizedPnlTaker = bookState.unrealizedPnlTaker ?? 0;
     book.lastProcessedBarTime = bookState.lastProcessedBarTime;
     book.positions = bookState.positions;
     book.totalTurnover = bookState.totalTurnover;
@@ -309,6 +348,8 @@ export async function runCrossSectionalPaperDesk(
       openPositionsCount: book.positions.length,
       equityMaker: book.equityMaker,
       equityTaker: book.equityTaker,
+      markedEquityMaker: book.markedEquityMaker,
+      markedEquityTaker: book.markedEquityTaker,
     };
   } catch (error) {
     // Ensure lease is cleared on error

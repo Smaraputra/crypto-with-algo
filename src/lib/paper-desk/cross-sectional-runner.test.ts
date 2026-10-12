@@ -194,4 +194,44 @@ describe('stepCrossSectionalBookState', () => {
     // ETH should no longer be in active positions
     expect(bookAfter2.positions.find((p) => p.symbol === 'ETHUSDT')).toBeUndefined();
   });
+
+  it('marks retained positions to market and tracks floating unrealized PnL', () => {
+    const signal1 = createMockSignal();
+    const initialState: CrossSectionalBookState = {
+      bookName: 'rv-8h-buffer2',
+      startEquity: 10000,
+      equityMaker: 10000,
+      equityTaker: 10000,
+      lastProcessedBarTime: null,
+      positions: [],
+      totalTurnover: 0,
+      totalFundingCollected: 0,
+      peakLeverage: 0,
+    };
+
+    const { updatedBook: bookAfter1 } = stepCrossSectionalBookState(initialState, signal1);
+
+    // Initial marked equity equals settled cash equity
+    expect(bookAfter1.unrealizedPnlMaker).toBe(0);
+    expect(bookAfter1.markedEquityMaker).toBeCloseTo(bookAfter1.equityMaker, 2);
+
+    // Signal 2: ETH is retained, price moves from 3000 to 3300 (+10% gain)
+    const signal2 = createMockSignal({
+      timestamp: signal1.timestamp + 8 * 3600 * 1000,
+      snapshots: signal1.snapshots.map((s) =>
+        s.symbol === 'ETHUSDT' ? { ...s, close: 3300 } : s
+      ),
+      turnover: 0,
+      rebalanced: false,
+    });
+
+    const { updatedBook: bookAfter2 } = stepCrossSectionalBookState(bookAfter1, signal2);
+
+    const ethPos = bookAfter2.positions.find((p) => p.symbol === 'ETHUSDT');
+    expect(ethPos).toBeDefined();
+    expect(ethPos?.currentPrice).toBe(3300);
+    expect(ethPos?.unrealizedPnlMaker).toBeGreaterThan(0);
+    expect(bookAfter2.unrealizedPnlMaker).toBeGreaterThan(0);
+    expect(bookAfter2.markedEquityMaker).toBeGreaterThan(bookAfter2.equityMaker);
+  });
 });

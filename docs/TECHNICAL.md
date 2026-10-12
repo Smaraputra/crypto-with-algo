@@ -730,9 +730,13 @@ Assets are sorted descending by $Z_{i, \text{composite}}$ and assigned ranks $r_
   - A held Short leg is retained unless its rank rises strictly better than rank 7 ($r_i \le 6$).
   - Vacant slots are filled from top/bottom available candidates.
 - **Beta-Neutral Weighting**:
-  Long and short side target weights are scaled by inverse beta:
-  $$w_{i, \text{long}} = \frac{0.5 \cdot \frac{1}{\beta_i}}{\sum_{j \in \text{Longs}} \frac{1}{\beta_j}}, \quad w_{i, \text{short}} = -\frac{0.5 \cdot \frac{1}{\beta_i}}{\sum_{j \in \text{Shorts}} \frac{1}{\beta_j}}$$
-  ensuring portfolio net beta exposure $\sum w_i \beta_i \approx 0$.
+  Long and short side target basket weights are balanced against average basket betas:
+  $$W_{\text{Long}} \cdot \bar{\beta}_{\text{Long}} = W_{\text{Short}} \cdot \bar{\beta}_{\text{Short}}, \quad W_{\text{Long}} + W_{\text{Short}} = 1.0$$
+  where $\bar{\beta}_{\text{Long}} = \frac{1}{|\text{Longs}|} \sum_{j \in \text{Longs}} \beta_j$ and $\bar{\beta}_{\text{Short}} = \frac{1}{|\text{Shorts}|} \sum_{k \in \text{Shorts}} \beta_k$. Target weights are equally allocated across legs within each basket:
+  $$w_{i, \text{long}} = \frac{W_{\text{Long}}}{|\text{Longs}|}, \quad w_{i, \text{short}} = -\frac{W_{\text{Short}}}{|\text{Shorts}|}$$
+  ensuring portfolio net beta exposure $\sum w_i \beta_i \approx 0$ with 1.0 gross exposure.
+- **Dynamic Deadband Buffer Protection**:
+  The hysteresis buffer is automatically clamped ($B_{\text{effective}} = \min(B, \lfloor(N - 2L - 1)/2\rfloor)$) if transient API dropouts temporarily reduce active universe size $N$, preventing deadband overlap exceptions.
 - **Individual Leg Stop Loss Evaluation**:
   Empirical benchmarking of intra-bar catastrophic stop losses (-6%, -8%) showed severe performance degradation (+18.81% maker net return vs +250.43% control). The whipsaw cost of re-entering stops after mean reversion offsets any protection. Consequently, individual stop-losses are omitted; beta-neutral pairing serves as structural risk mitigation.
 

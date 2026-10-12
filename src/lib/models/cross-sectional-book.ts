@@ -9,6 +9,9 @@ export interface ICrossSectionalPosition {
   notionalMaker: number;
   notionalTaker: number;
   barsHeld: number;
+  currentPrice?: number;
+  unrealizedPnlMaker?: number;
+  unrealizedPnlTaker?: number;
 }
 
 export interface ICrossSectionalBook extends Document {
@@ -16,6 +19,10 @@ export interface ICrossSectionalBook extends Document {
   startEquity: number;
   equityMaker: number;
   equityTaker: number;
+  markedEquityMaker?: number;
+  markedEquityTaker?: number;
+  unrealizedPnlMaker?: number;
+  unrealizedPnlTaker?: number;
   lastProcessedBarTime: number | null;
   positions: ICrossSectionalPosition[];
   totalTurnover: number;
@@ -37,6 +44,9 @@ const positionSchema = new Schema(
     notionalMaker: { type: Number, required: true },
     notionalTaker: { type: Number, required: true },
     barsHeld: { type: Number, required: true, default: 0 },
+    currentPrice: { type: Number },
+    unrealizedPnlMaker: { type: Number, default: 0 },
+    unrealizedPnlTaker: { type: Number, default: 0 },
   },
   { _id: false }
 );
@@ -47,6 +57,10 @@ const crossSectionalBookSchema = new Schema<ICrossSectionalBook>(
     startEquity: { type: Number, required: true, default: 10000 },
     equityMaker: { type: Number, required: true, default: 10000 },
     equityTaker: { type: Number, required: true, default: 10000 },
+    markedEquityMaker: { type: Number, default: 10000 },
+    markedEquityTaker: { type: Number, default: 10000 },
+    unrealizedPnlMaker: { type: Number, default: 0 },
+    unrealizedPnlTaker: { type: Number, default: 0 },
     lastProcessedBarTime: { type: Number, default: null },
     positions: [positionSchema],
     totalTurnover: { type: Number, required: true, default: 0 },
