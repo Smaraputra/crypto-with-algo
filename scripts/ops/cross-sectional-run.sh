@@ -199,6 +199,27 @@ stage_sweep_stoploss() {
   log "Stop loss parameter sweep complete."
 }
 
+stage_permute() {
+  local num_permutations="${2:-200}"
+  log "Running Timothy Masters Synchronous Multi-Asset Permutation Test (${num_permutations} permutations)..."
+  docker run --rm \
+    --cpu-shares 512 \
+    --memory 4g \
+    -v "${DS_DIR}:/app/ds:ro" \
+    -v "${BUILD_DIR}:/app" \
+    -v "${OUT_DIR}:/app/out" \
+    -w /app \
+    "${IMG}" \
+    npx tsx scripts/research/cross-sectional-permutation.ts \
+      --dataset-dir /app/ds \
+      --permutations "${num_permutations}" \
+      --block-size 3 \
+      --seed 42 \
+      --allow-lockbox \
+      --out /app/out/report-permutation-test.json
+  log "Permutation test complete. Report saved to ${OUT_DIR}/report-permutation-test.json."
+}
+
 ACTION="${1:-run-8h}"
 case "${ACTION}" in
   build)
@@ -219,13 +240,16 @@ case "${ACTION}" in
   sweep-stoploss)
     stage_sweep_stoploss
     ;;
+  permute)
+    stage_permute "$@"
+    ;;
   all)
     stage_run_8h
     stage_run_8h_betaneutral
     stage_run_24h
     ;;
   *)
-    echo "Unknown action: ${ACTION}. Available: build, run-8h, run-8h-betaneutral, run-24h, sweep, sweep-stoploss, all"
+    echo "Unknown action: ${ACTION}. Available: build, run-8h, run-8h-betaneutral, run-24h, sweep, sweep-stoploss, permute, all"
     exit 1
     ;;
 esac
