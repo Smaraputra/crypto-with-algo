@@ -109,7 +109,7 @@ describe('runSimulation', () => {
 
       for (let i = 0; i < nBars; i++) {
         price *= 1 + drift;
-        let openPrice = price;
+        const openPrice = price;
         let highPrice = price * 1.005;
         let lowPrice = price * 0.995;
         let closePrice = price;
@@ -147,6 +147,7 @@ describe('runSimulation', () => {
       lookbackBars: 10,
       maxLegDrawdownPct: 0,
     });
+    expect(controlResult.fullSpan.totalStops).toBe(0);
 
     // Run with 8% stop loss on both sides
     const stopResult = runSimulation(barsBySymbol, fundingBySymbol, '8h', {
