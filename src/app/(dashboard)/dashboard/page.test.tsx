@@ -29,6 +29,12 @@ vi.mock('@/components/market/SentimentGauge', () => ({
   SentimentGauge: () => <div data-testid="sentiment-gauge">SentimentGauge</div>,
 }));
 
+vi.mock('@/components/signals/CrossSectionalPortfolioCard', () => ({
+  CrossSectionalPortfolioCard: () => (
+    <div data-testid="cross-sectional-portfolio-card">CrossSectionalPortfolioCard</div>
+  ),
+}));
+
 import DashboardPage from './page';
 import { auth } from '@/lib/auth';
 
@@ -90,5 +96,14 @@ describe('DashboardPage', () => {
     render(jsx);
 
     expect(screen.getByTestId('lazy-dashboard-chart')).toBeInTheDocument();
+  });
+
+  it('renders CrossSectionalPortfolioCard', async () => {
+    mockAuth.mockResolvedValue(null as never);
+
+    const jsx = await DashboardPage();
+    render(jsx);
+
+    expect(screen.getByTestId('cross-sectional-portfolio-card')).toBeInTheDocument();
   });
 });

@@ -1,0 +1,343 @@
+/**
+ * Part A of the direction-exit study (spec: header of scripts/research/direction-exit.ts), on the develop rows.
+ *
+ *   npx tsx scripts/research/direction-exit-diagnosis.ts --rows <develop-rows.jsonl.gz> --out <diagnosis.json>
+ *     --expect-manifest-hash <h>
+ *
+ * Asserts the rows' sidecar (dataset hash, rows sha256, full mode, the DEVELOP window) and every row (inside
+ * DEVELOP with its whole horizon, a study cell, a finite outcome) before computing anything.
+ */
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { defaultCostPercent } from '@/lib/backtest/cost-model';
+import { intervalToMs } from '@/lib/intervals';
+import { pointMeasures, directionOf } from '@/lib/signals/track-record/measures';
+import type { PointMeasures } from '@/lib/signals/track-record/types';
+import { spearman } from './ic-stats';
+import { seededRandom } from './carry-sim';
+import { percentileType7 } from './live-record-stats';
+import { assertRowsMeta, CATEGORIES, readRowsMeta, type Category, type DxRow } from './direction-exit-rows';
+import {
+  DIRECTION_EXIT_ASIA_HOURS_UTC, DIRECTION_EXIT_BOOTSTRAP, DIRECTION_EXIT_CELLS, DIRECTION_EXIT_CUTOFFS,
+  DIRECTION_EXIT_DEVELOP, DIRECTION_EXIT_K_GRID, DIRECTION_EXIT_RANDOM_DRAWS, type DirectionExitFit,
+} from './direction-exit';
+
+/** A1 per category on call bars: n signed scores (agreement and bh), nZero scores of exactly 0, nNull missing. */
+export interface CategoryDiag { category: Category; agreeShare: number | null; bh: number | null; n: number; nZero: number; nNull: number }
+export interface ConditionDiag { id: 'C1' | 'C2' | 'C3' | 'C4'; holds: PointMeasures; fails: PointMeasures; coverage: number }
+export interface PathDiag { k: number; callTouch: number; callFinish: number; randomTouch: number; randomFinish: number }
+export interface ExcursionDiag {
+  mfePctMedian: number | null; mfePctMean: number | null; maePctMedian: number | null; maePctMean: number | null;
+  mfeAtrMedian: number | null; maeAtrMedian: number | null;
+}
+/**
+ * d0: D0's call share among the rows with a finite D1 score (T's target); d0AllRows: over every row of the cell;
+ * d1: the share D1 actually calls at T among the finite-score rows.
+ */
+export interface CallShares { d0: number; d0AllRows: number; d1: number }
+export interface DiagnosisReport {
+  interval: string; calls: number; lag: 0 | 1;
+  overall: PointMeasures; categories: CategoryDiag[]; conditions: ConditionDiag[]; paths: PathDiag[]; excursions: { calls: ExcursionDiag; random: ExcursionDiag };
+  fit: DirectionExitFit;
+  callShares: CallShares;
+}
+
+const outcome = (r: DxRow, lag: 0 | 1): number | null => (lag === 0 ? r.fwd : r.fwd1);
+const quantile = (values: number[], p: number): number => percentileType7([...values].sort((a, b) => a - b), p);
+function push<K, V>(m: Map<K, V[]>, k: K, v: V): void {
+  const list = m.get(k);
+  if (list) list.push(v);
+  else m.set(k, [v]);
+}
+
+export function d1Score(cats: Record<Category, number | null>, signs: DirectionExitFit['signs']): number | null {
+  let sum = 0;
+  let n = 0;
+  for (const c of CATEGORIES) {
+    const v = cats[c];
+    if (v === null) continue;
+    sum += signs[c] * v;
+    n++;
+  }
+  return n > 0 ? sum / n : null;
+}
+
+export function volTopThresholds(rows: DxRow[]): Record<string, number | null> {
+  const by = new Map<string, number[]>();
+  for (const r of rows) {
+    if (!by.has(r.symbol)) by.set(r.symbol, []);
+    if (r.vol20 !== null) by.get(r.symbol)!.push(r.vol20);
+  }
+  return Object.fromEntries([...by].map(([s, v]) => [s, v.length > 0 ? quantile(v, 2 / 3) : null]));
+}
+
+export function conditionHolds(id: 'C1' | 'C2' | 'C3' | 'C4', row: DxRow, dir: 1 | -1, volTop: Record<string, number | null>): boolean {
+  if (id === 'C1') return row.cats.htf !== null && Math.sign(row.cats.htf) === dir;
+  if (id === 'C2') {
+    const t = volTop[row.symbol] ?? null;
+    return row.vol20 !== null && t !== null && row.vol20 <= t;
+  }
+  if (id === 'C3') return Math.abs(row.score) > DIRECTION_EXIT_CUTOFFS.strong;
+  return row.hourUtc >= DIRECTION_EXIT_ASIA_HOURS_UTC.to;
+}
+
+function measured(rows: DxRow[], lag: 0 | 1, tierOf: (r: DxRow) => string) {
+  const out: Array<{ tier: string; forwardReturnPercent: number }> = [];
+  for (const r of rows) {
+    const f = outcome(r, lag);
+    if (f !== null && Number.isFinite(f)) out.push({ tier: tierOf(r), forwardReturnPercent: f });
+  }
+  return out;
+}
+
+/** Same symbol, same vol20 tercile of that symbol's whole develop span; a null vol20 is its own pool. */
+function randomPools(rows: DxRow[]): (r: DxRow) => DxRow[] {
+  const bySymbol = new Map<string, number[]>();
+  for (const r of rows) if (r.vol20 !== null) push(bySymbol, r.symbol, r.vol20);
+  const cuts = new Map<string, [number, number]>();
+  for (const [sym, v] of bySymbol) cuts.set(sym, [quantile(v, 1 / 3), quantile(v, 2 / 3)]);
+  const keyOf = (r: DxRow): string => {
+    const c = cuts.get(r.symbol);
+    if (r.vol20 === null || !c) return `${r.symbol}|na`;
+    return `${r.symbol}|${r.vol20 <= c[0] ? 0 : r.vol20 <= c[1] ? 1 : 2}`;
+  };
+  const pool = new Map<string, DxRow[]>();
+  for (const r of rows) push(pool, keyOf(r), r);
+  return (r) => pool.get(keyOf(r)) ?? [];
+}
+
+interface ExcursionSamples { mfe: number[]; mae: number[]; mfeAtr: number[]; maeAtr: number[] }
+const median = (v: number[]): number | null => (v.length ? quantile(v, 0.5) : null);
+const mean = (v: number[]): number | null => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null);
+function summarise(x: ExcursionSamples): ExcursionDiag {
+  return {
+    mfePctMedian: median(x.mfe), mfePctMean: mean(x.mfe), maePctMedian: median(x.mae), maePctMean: mean(x.mae),
+    mfeAtrMedian: median(x.mfeAtr), maeAtrMedian: median(x.maeAtr),
+  };
+}
+
+function pathStats(
+  rows: DxRow[], calls: Array<{ r: DxRow; d: 1 | -1 }>, lag: 0 | 1
+): { paths: PathDiag[]; excursions: { calls: ExcursionDiag; random: ExcursionDiag } } {
+  const poolOf = randomPools(rows);
+  const random = seededRandom(DIRECTION_EXIT_BOOTSTRAP.seed);
+  const mfe = (r: DxRow, d: 1 | -1): number =>
+    lag === 0 ? (d === 1 ? r.up : -r.down) : d === 1 ? (r.up1 ?? NaN) : -(r.down1 ?? NaN);
+  const mae = (r: DxRow, d: 1 | -1): number =>
+    lag === 0 ? (d === 1 ? r.down : -r.up) : d === 1 ? (r.down1 ?? NaN) : -(r.up1 ?? NaN);
+  const callEx: ExcursionSamples = { mfe: [], mae: [], mfeAtr: [], maeAtr: [] };
+  const randEx: ExcursionSamples = { mfe: [], mae: [], mfeAtr: [], maeAtr: [] };
+  const record = (x: ExcursionSamples, r: DxRow, d: 1 | -1): void => {
+    const a = r.atrPct as number;
+    x.mfe.push(mfe(r, d));
+    x.mae.push(mae(r, d));
+    if (a > 0) {
+      x.mfeAtr.push(mfe(r, d) / a);
+      x.maeAtr.push(mae(r, d) / a);
+    }
+  };
+  const usable = (r: DxRow, d: 1 | -1): boolean => {
+    const f = outcome(r, lag);
+    return f !== null && Number.isFinite(f) && r.atrPct !== null && Number.isFinite(r.atrPct) && Number.isFinite(mfe(r, d)) && Number.isFinite(mae(r, d));
+  };
+  const paths = DIRECTION_EXIT_K_GRID.map((k, ki) => {
+    let n = 0;
+    let touch = 0;
+    let finish = 0;
+    let rn = 0;
+    let rTouch = 0;
+    let rFinish = 0;
+    for (const { r, d } of calls) {
+      if (!usable(r, d)) continue;
+      const f = outcome(r, lag) as number;
+      const atr = r.atrPct as number;
+      n++;
+      if (ki === 0) record(callEx, r, d);
+      if (mfe(r, d) >= k * atr) touch++;
+      if (d * f >= k * atr) finish++;
+      const pool = poolOf(r);
+      for (let j = 0; j < DIRECTION_EXIT_RANDOM_DRAWS && pool.length > 0; j++) {
+        const q = pool[Math.floor(random() * pool.length)];
+        if (!usable(q, d)) continue;
+        const fq = outcome(q, lag) as number;
+        const atrQ = q.atrPct as number;
+        rn++;
+        if (ki === 0) record(randEx, q, d);
+        if (mfe(q, d) >= k * atrQ) rTouch++;
+        if (d * fq >= k * atrQ) rFinish++;
+      }
+    }
+    return { k, callTouch: n ? touch / n : 0, callFinish: n ? finish / n : 0, randomTouch: rn ? rTouch / rn : 0, randomFinish: rn ? rFinish / rn : 0 };
+  });
+  return { paths, excursions: { calls: summarise(callEx), random: summarise(randEx) } };
+}
+
+export function diagnose(rows: DxRow[], interval: string, costPercent: number, lag: 0 | 1): DiagnosisReport {
+  const cell = rows.filter((r) => r.interval === interval);
+  const calls = cell.flatMap((r) => {
+    const d = directionOf(r.tier);
+    return d === 0 ? [] : [{ r, d: d as 1 | -1 }];
+  });
+  const overall = pointMeasures(measured(calls.map((c) => c.r), lag, (r) => r.tier), costPercent);
+  const categories = CATEGORIES.map((c) => {
+    const withCat = calls.filter(({ r }) => r.cats[c] !== null && r.cats[c] !== 0);
+    const agree = withCat.filter(({ r, d }) => Math.sign(r.cats[c] as number) === d).length;
+    const asDirection = pointMeasures(
+      measured(withCat.map((x) => x.r), lag, (r) => ((r.cats[c] as number) > 0 ? 'buy' : 'sell')),
+      costPercent
+    );
+    return {
+      category: c,
+      agreeShare: withCat.length ? agree / withCat.length : null,
+      bh: asDirection.bh,
+      n: withCat.length,
+      nZero: calls.filter(({ r }) => r.cats[c] === 0).length,
+      nNull: calls.filter(({ r }) => r.cats[c] === null).length,
+    };
+  });
+  const volTop = volTopThresholds(cell);
+  const conditions = (['C1', 'C2', 'C3', 'C4'] as const).map((id) => {
+    const holds = calls.filter(({ r, d }) => conditionHolds(id, r, d, volTop)).map((x) => x.r);
+    const fails = calls.filter(({ r, d }) => !conditionHolds(id, r, d, volTop)).map((x) => x.r);
+    return {
+      id,
+      holds: pointMeasures(measured(holds, lag, (r) => r.tier), costPercent),
+      fails: pointMeasures(measured(fails, lag, (r) => r.tier), costPercent),
+      coverage: calls.length ? holds.length / calls.length : 0,
+    };
+  });
+  // A4 at lag 1 (note N1), over every row of the cell, calls or not.
+  const signs = Object.fromEntries(
+    CATEGORIES.map((c) => {
+      const x: number[] = [];
+      const y: number[] = [];
+      for (const r of cell) {
+        if (r.cats[c] === null || r.fwd1 === null) continue;
+        x.push(r.cats[c] as number);
+        y.push(r.fwd1);
+      }
+      const ic = x.length > 2 ? spearman(x, y) : 0;
+      return [c, !Number.isFinite(ic) || ic >= 0 ? 1 : -1];
+    })
+  ) as DirectionExitFit['signs'];
+  // D1's T keeps D0's call share among rows with a finite d1 score (rows with every category null are excluded).
+  const finite = cell.flatMap((r) => {
+    const v = d1Score(r.cats, signs);
+    return v === null ? [] : [{ abs: Math.abs(v), call: directionOf(r.tier) !== 0 }];
+  });
+  if (finite.length === 0) throw new Error(`${interval}: no row has a finite D1 score, cannot fit the threshold`);
+  const callShare = finite.filter((x) => x.call).length / finite.length;
+  const threshold = quantile(finite.map((x) => x.abs), 1 - callShare);
+  const callShares: CallShares = {
+    d0: callShare,
+    d0AllRows: cell.length ? calls.length / cell.length : 0,
+    d1: finite.filter((x) => x.abs > threshold).length / finite.length,
+  };
+  const { paths, excursions } = pathStats(cell, calls, lag);
+  return {
+    interval, calls: calls.length, lag, overall, categories, conditions,
+    paths, excursions,
+    fit: { signs, threshold, volTopThreshold: volTop },
+    callShares,
+  };
+}
+
+/**
+ * The diagnosis reads DEVELOP only (spec Part A, note N12): every row must be a full-mode row of a study cell
+ * whose bar opens inside DEVELOP and whose horizon closes by the DEVELOP end, with a finite outcome. Throws,
+ * naming the first offending rows, on anything else.
+ */
+export function validateDiagnosisRows(rows: unknown[]): DxRow[] {
+  const startMs = Date.parse(DIRECTION_EXIT_DEVELOP.start);
+  const endMs = Date.parse(DIRECTION_EXIT_DEVELOP.end);
+  const problems: string[] = [];
+  let bad = 0;
+  rows.forEach((raw, k) => {
+    const r = raw as Partial<DxRow> | null;
+    const problem = ((): string | null => {
+      if (!r || typeof r.t !== 'number' || typeof r.cats !== 'object' || r.cats === null) return 'not a full-mode row';
+      const cell = DIRECTION_EXIT_CELLS.find((c) => c.interval === r.interval);
+      if (!cell) return `interval ${String(r.interval)} is not a study cell`;
+      if (r.style !== cell.style) return `style ${String(r.style)} at ${cell.interval}, expected ${cell.style}`;
+      if (!Number.isFinite(r.t) || r.t < startMs) return `bar ${r.t} opens before DEVELOP`;
+      const horizonEnd = r.t + (cell.horizonBars + 1) * intervalToMs(cell.interval) - 1;
+      if (horizonEnd > endMs) return `horizon ends after DEVELOP (${new Date(horizonEnd).toISOString()})`;
+      if (typeof r.fwd !== 'number' || !Number.isFinite(r.fwd)) return 'fwd is not finite';
+      return null;
+    })();
+    if (problem === null) return;
+    bad++;
+    if (problems.length < 5) problems.push(`row ${k} (${String(r?.symbol)} ${String(r?.interval)} ${String(r?.t)}): ${problem}`);
+  });
+  if (bad > 0) throw new Error(`${bad} of ${rows.length} rows are not valid DEVELOP rows: ${problems.join('; ')}`);
+  return rows as DxRow[];
+}
+
+interface DiagnosisArgs { rows: string; out: string; expectManifestHash: string }
+
+export function parseArgs(argv: string[]): DiagnosisArgs {
+  const args: Partial<DiagnosisArgs> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i];
+    const v = argv[++i];
+    if (v === undefined || v.startsWith('--')) throw new Error(`${flag} requires a value`);
+    if (flag === '--rows') args.rows = v;
+    else if (flag === '--out') args.out = v;
+    else if (flag === '--expect-manifest-hash') args.expectManifestHash = v;
+    else throw new Error(`Unknown flag "${flag}"`);
+  }
+  if (!args.rows) throw new Error('--rows is required');
+  if (!args.out) throw new Error('--out is required');
+  if (!args.expectManifestHash) throw new Error('--expect-manifest-hash is required');
+  return args as DiagnosisArgs;
+}
+
+function main(): void {
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    const gz = readFileSync(args.rows);
+    const rowsSha256 = createHash('sha256').update(gz).digest('hex');
+    assertRowsMeta(readRowsMeta(args.rows), {
+      datasetHash: args.expectManifestHash,
+      sha256: rowsSha256,
+      scoresOnly: false,
+      window: DIRECTION_EXIT_DEVELOP,
+    });
+    const rows = validateDiagnosisRows(
+      gunzipSync(gz)
+        .toString('utf8')
+        .split('\n')
+        .filter((l) => l.length > 0)
+        .map((l) => JSON.parse(l) as unknown)
+    );
+    const intervals = [...new Set(rows.map((r) => r.interval))].sort();
+    const reports: DiagnosisReport[] = [];
+    for (const interval of intervals) {
+      for (const lag of [0, 1] as const) reports.push(diagnose(rows, interval, defaultCostPercent(interval), lag));
+    }
+    const gitCommit = process.env.GIT_COMMIT ?? 'unknown';
+    writeFileSync(
+      args.out,
+      JSON.stringify({ reports, rowsSha256, datasetHash: args.expectManifestHash, gitCommit }, null, 2)
+    );
+    for (const r of reports.filter((x) => x.lag === 1)) {
+      console.log(
+        JSON.stringify({
+          interval: r.interval,
+          threshold: r.fit.threshold,
+          d1CallShare: r.callShares.d1,
+          d0CallShare: r.callShares.d0,
+          d0CallShareAllRows: r.callShares.d0AllRows,
+          fit: r.fit,
+        })
+      );
+    }
+    process.exit(0);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : 'Unknown error');
+    process.exit(1);
+  }
+}
+
+if (require.main === module) main();

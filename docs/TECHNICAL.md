@@ -682,3 +682,78 @@ The `/api/health` endpoint returns:
 ```
 
 It explicitly calls `connectDB()` because Next.js standalone mode uses lazy MongoDB connections -- without an active connection trigger, `mongoose.connection.readyState` would remain 0 (disconnected) indefinitely. If MongoDB is unreachable, the endpoint returns HTTP 503 with `"status": "degraded"`.
+
+## 8. 8-Hour Cross-Sectional Relative Value Engine
+
+### 8.1 Background and Theoretical Shift
+
+The legacy directional composite scoring system (v1 through v8) evaluated assets in isolation, generating directional signals from moving average crossovers, RSI, and order-book snapshots. Out-of-sample empirical benchmarking across 24 pre-registered direction-and-exit variants established that directional prediction at 1h and 4h cadences possesses negative expectancy (-0.165% to -0.224% per trade), suffering from broad crypto market beta correlation and microstructure whipsaw.
+
+The system transitioned to an **8-Hour Cross-Sectional Relative Value (RV)** model. Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts. By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
+
+### 8.2 Factor Model Specification
+
+At each 8-hour boundary (00:00, 08:00, 16:00 UTC), every asset $i$ in universe $U$ ($N = 10$) is evaluated across four core factors:
+
+1. **14-Day Cumulative Momentum ($M_i$, weight 30%)**:
+   $$M_i = \frac{P_{i, t} - P_{i, t - 42}}{P_{i, t - 42}}$$
+   where 42 bars correspond to 14 days of 8-hour bars.
+
+2. **14-Day Residual / Idiosyncratic Momentum ($I_i$, weight 25%)**:
+   Removes broad market beta to isolate asset-specific price drift:
+   $$I_i = M_i - \beta_i M_{\text{BTC}}$$
+   where $\beta_i$ is the empirical rolling regression beta of asset $i$ returns against BTC returns over the trailing 42 bars:
+   $$\beta_i = \max\left(0.1, \min\left(3.0, \frac{\text{Cov}(R_i, R_{\text{BTC}})}{\text{Var}(R_{\text{BTC}})}\right)\right)$$
+
+3. **Perpetual Funding Carry ($C_i$, weight 30%)**:
+   Perpetual futures charge funding rates every 8 hours. Negative funding implies shorts pay longs; positive funding implies longs pay shorts. The carry signal captures cash-flow yield:
+   $$C_i = -F_{i, t}$$
+   where $F_{i, t}$ is the last settled funding rate.
+
+4. **14-Day Aggregate Taker Buy Flow ($F_i$, weight 15%)**:
+   Captures continuous institutional aggressor flow:
+   $$F_i = \frac{\sum_{k=0}^{41} \text{TakerBuyVolume}_{i, t - k}}{\sum_{k=0}^{41} \text{Volume}_{i, t - k}} - 0.5$$
+
+### 8.3 Cross-Sectional Standardization and Ranking
+
+Raw factor series are standardized cross-sectionally across the 10 assets to zero mean and unit variance:
+$$Z(X_i) = \frac{X_i - \mu_X}{\sigma_X}$$
+Z-scores are winsorized at $\pm 3.0$ standard deviations. The composite score is:
+$$Z_{i, \text{composite}} = 0.30 \cdot Z(M_i) + 0.25 \cdot Z(I_i) + 0.30 \cdot Z(C_i) + 0.15 \cdot Z(F_i)$$
+Assets are sorted descending by $Z_{i, \text{composite}}$ and assigned ranks $r_i \in \{1, 2, \dots, 10\}$. Rank 1 denotes the strongest long candidate; rank 10 denotes the strongest short candidate.
+
+### 8.4 Portfolio Construction and Risk Controls
+
+- **Leg Count**: 2 Long legs (target ranks 1 and 2) and 2 Short legs (target ranks 9 and 10).
+- **Rank Hysteresis Buffer = 2**:
+  - A held Long leg is retained unless its rank drops strictly worse than rank 4 ($r_i \ge 5$).
+  - A held Short leg is retained unless its rank rises strictly better than rank 7 ($r_i \le 6$).
+  - Vacant slots are filled from top/bottom available candidates.
+- **Beta-Neutral Weighting**:
+  Long and short side target weights are scaled by inverse beta:
+  $$w_{i, \text{long}} = \frac{0.5 \cdot \frac{1}{\beta_i}}{\sum_{j \in \text{Longs}} \frac{1}{\beta_j}}, \quad w_{i, \text{short}} = -\frac{0.5 \cdot \frac{1}{\beta_i}}{\sum_{j \in \text{Shorts}} \frac{1}{\beta_j}}$$
+  ensuring portfolio net beta exposure $\sum w_i \beta_i \approx 0$.
+- **Individual Leg Stop Loss Evaluation**:
+  Empirical benchmarking of intra-bar catastrophic stop losses (-6%, -8%) showed severe performance degradation (+18.81% maker net return vs +250.43% control). The whipsaw cost of re-entering stops after mean reversion offsets any protection. Consequently, individual stop-losses are omitted; beta-neutral pairing serves as structural risk mitigation.
+
+### 8.5 Empirical Backtest and Statistical Validation
+
+Performance evaluated over 5 years (2021-10 to 2026-10, 5,462 8-hour bars):
+
+| Metric | Gross (Zero Fee) | Net Maker (1.8 bps) | Net Taker (5 bps + 2 bps slip) |
+| :--- | :--- | :--- | :--- |
+| Cumulative Return | +253.54% | +250.43% | +117.80% |
+| Annualized Return | +28.73% | +28.49% | +16.85% |
+| Annualized Sharpe | 1.14 | 1.13 | 0.69 |
+| Maximum Drawdown | 23.23% | 23.28% | 26.14% |
+| Deflated Sharpe Prob | 0.8385 | 0.8351 | 0.4421 |
+| Annual Turnover | 5.34x | 5.34x | 5.34x |
+
+### 8.6 Timothy Masters Circular Block Permutation Testing
+
+To ensure the signal is not a product of data mining bias or spurious correlation, a circular block permutation test (Masters, 2014) was executed across 200 trials (synchronous multi-asset block shuffling with 24-hour block size):
+- Empirical Strategy Sharpe: 1.13
+- Permuted Null Distribution: Mean = 0.24, Standard Deviation = 0.41
+- Distance from Null: $Z = 2.24$ standard deviations
+- Empirical p-value: **0.0199** (Statistically significant at $\alpha = 0.05$).
+

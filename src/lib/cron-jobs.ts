@@ -73,6 +73,9 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'ingest-perp', path: '/api/cron/ingest-perp', params: { days: '3' }, schedule: '30 10 * * *', expectedEverySeconds: DAY, method: 'GET' },
   { job: 'snapshot-portfolios', path: '/api/cron/snapshot-portfolios', params: {}, schedule: '0 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
 
+  { job: 'cross-sectional-signals', path: '/api/cron/cross-sectional-signals', params: {}, schedule: '1 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+  { job: 'cross-sectional-paper', path: '/api/cron/cross-sectional-paper', params: {}, schedule: '2 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+
   {
     job: 'monthly-optimization',
     path: '/api/cron/monthly-optimization',

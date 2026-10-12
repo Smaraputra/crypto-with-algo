@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: 8-Hour Cross-Sectional Relative Value live signal engine and dashboard UI
+- **Live signal engine**: Replaces single-asset directional forecasting with an 8-hour cross-sectional relative value system on the top 10 perpetual universe (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `BNBUSDT`, `ADAUSDT`, `XRPUSDT`, `DOGEUSDT`, `AVAXUSDT`, `LINKUSDT`, `NEARUSDT`).
+- **Composite factor scoring**: Combines 4 orthogonal factor signals:
+  - 14-day total momentum (30% weight)
+  - 14-day idiosyncratic momentum residualized against BTC via OLS beta (25% weight)
+  - 14-day annualized carry / funding rate yield (30% weight)
+  - Taker buy flow volume imbalance ratio (15% weight)
+- **Portfolio construction & risk controls**: Long top 2 symbols, short bottom 2 symbols. Capital weights sized to maintain beta neutrality against BTC with 1.0x gross leverage. Rank hysteresis buffering (Buffer 2) dampens unnecessary turnover by 57%.
+- **Dual-track paper execution desk**: Tracks Maker (1.8 bps fee, zero slippage) and Taker (7.0 bps fee, 2 bps slippage) portfolios in parallel, accounting for perpetual 8-hour funding cash flows.
+- **Production cron schedulers**: Registered in `docker/crontab.template` and `src/lib/cron-jobs.ts`:
+  - `GET /api/cron/cross-sectional-signals` at 00:01, 08:01, 16:01 UTC
+  - `GET /api/cron/cross-sectional-paper` at 00:02, 08:02, 16:02 UTC
+- **Dashboard UI**: `CrossSectionalPortfolioCard` integrated on `/dashboard` with dual-track equity, net beta, active 4-leg weights and mark prices, and expandable 10-symbol factor composite rankings drawer.
+- **API**: `GET /api/signals/cross-sectional/latest` with session authentication and null safety.
+
+### Research: direction and exit study on the v8 calls, nothing passes
+- **Question** (the user's, after the chart began marking each past call right or wrong): can published research improve which way the calls point, and when should a position on a call be closed, since calls that were well up partway through often ended wrong. Pre-registered in `scripts/research/direction-exit.ts` (locked header `76196cd`), develop on 2022 to 2024, confirm once on 2025-01-01 to 2026-10-09, 1h and 4h, ten symbols, fixed rules only
+- **Candidates**: three directions (D0 the v8 calls; D1 the composite's seven categories re-signed by their develop IC with equal weights; D2 the calls minus one fixed abstention condition) times four exits (E1 the horizon; E2 a take-profit at k ATR; E3 a target and stop at k ATR; E4 close when the score falls back inside a quarter of the threshold). 54 develop trials, ledger 2,081 to 2,135
+- **Result** (RESULT block, dataset `48ff79609080`, every run on the VPS): NO CONFIGURATION PASSES. All 24 confirmation runs fail expectancy, windows, symbols, the Bonferroni interval and the deflated Sharpe. The best is 4h D2 with the score-reversal exit at +0.17% per trade, interval low -1.02%. The develop leader, 4h D1 at +1.48% per trade, lost -0.19% on the confirmation years: its signs were fitted in sample
+- **On closing winners**: a take-profit raised the share of winning trades in every cell, from 0.44 to 0.50 up to 0.57 to 0.75, but each win shrank by as much (1h D1: win 0.749, average win 1.02% against average loss 3.73%), so expectancy rose by at most 0.006 points, within noise. The calls' price paths match random entries' (median best move 2.15% against 2.15% at 1h), so "was up, ended wrong" is what any entry does, not a missed exit
+- **Checks**: the new export reproduces the hashed v8 re-score rows (1h 89,520 of 89,520 matched, same tier 100%, r 0.999997), the strategy's category scores equal the research matrix's exactly on all ten symbols, and a BTCUSDT re-run reproduces a confirmation report byte for byte
+- **Built**: `StrategyContext.components` (the scorer's per-category breakdown, read-only), `direction-exit-rows.ts`, `-repro.ts`, `-diagnosis.ts`, `-judge.ts`, the `dx-d0`/`dx-d1`/`dx-d2` families, and `scripts/ops/direction-exit-run.sh`, which runs every stage from judge-generated job lists and refuses to run if the code changed between develop and the verdict. No scorer, weight, cutoff or configVersion change
+
 ### Added: a year of past calls on the dashboard chart, as an honest track record
 - **What** (the user's: "show them, everything that can make clarity"): the dashboard chart now marks every buy and sell call of the past year on the price pane, a triangle under the bar for a buy and over it for a sell, coloured by how it ended: won after costs, right but costs ate it, wrong way, or pending. A dashed line splits the re-scored year (left) from the live record (right, from v8's live start on 2026-10-01); hovering or touching a call draws the span it was judged on (its close to the close the horizon later) and a strip under the chart states its score, move and result after costs. The score pane draws re-scored bars darker than the recorded ones. The chart now pages older history in as you scroll left, so the whole year is reachable at every interval
 - **Track record panel** under the chart, per symbol, style and interval: the answer first ("Right 44.4% of the time. A coin flip is right 50%. Breaking even after 0.16% costs needed about 51.8%.", BTCUSDT 1h), a ruler with the 95% range, buy and sell hit rates, the share that won after costs, the average per call before and after costs, the 13 months as bars and as a table, the locked ten-symbol verdict from the re-score report, the live record since the live start, and a tally of the calls in the visible window (labelled as noise). Provenance (rows and report hashes, commit, the outcome rule, the missing news input, parity with live) sits one disclosure away

@@ -187,7 +187,8 @@ import {
 import { evaluateStrategyGates, finiteOr, poolStrategyResults, toFinite, VALIDATION_PROTOCOL } from './strategy-gates';
 import { validateStrategyReport, type StrategyReport } from './report-schema';
 
-const MIN_IS_TRADES = 10;
+/** The in-sample minimum trade count of a selectable cell; the direction-exit judge's k picks use it too (note N11). */
+export const MIN_IS_TRADES = 10;
 
 export interface StrategyHarnessArgs {
   /** Required unless both --cell and --report are given, in which case
@@ -626,7 +627,7 @@ interface SymbolInputs {
  * filtered only to t <= end, so bars before --start stay available as
  * warmup (see resolveWindowConfig/prepareBacktest's own warmup handling).
  */
-function loadSymbolInputs(
+export function loadSymbolInputs(
   datasetDir: string,
   symbol: string,
   interval: string,

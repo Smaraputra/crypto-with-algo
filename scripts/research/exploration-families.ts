@@ -170,6 +170,7 @@ import {
 } from './families/delta-flow-continuation';
 import { gammaRegimeReversalFamily } from './families/gamma-regime-reversal';
 import { LEGENDS_FAMILIES } from './families/legends';
+import { DX_FAMILIES } from './families/direction-exit';
 
 /**
  * The families added by the exploration, keyed by their CLI name. Round 1
@@ -210,13 +211,21 @@ for (const name of Object.keys(LEGENDS_FAMILIES)) {
   }
 }
 
+for (const name of Object.keys(DX_FAMILIES)) {
+  if (name in STRATEGY_FAMILIES || name in EXPLORATION_FAMILIES || name in LEGENDS_FAMILIES) {
+    throw new Error(`direction-exit family "${name}" collides with an earlier registry entry`);
+  }
+}
+
 /**
  * Every family the harness can run: the Phase 4 registry, the exploration set,
  * and the legends phase's six pre-registered single-cell rules
- * (families/legends.ts, run in fixed-evaluation mode).
+ * (families/legends.ts, run in fixed-evaluation mode), and the direction-exit
+ * study's three families (families/direction-exit.ts).
  */
 export const ALL_FAMILIES: Record<string, StrategyFamily> = {
   ...STRATEGY_FAMILIES,
   ...EXPLORATION_FAMILIES,
   ...LEGENDS_FAMILIES,
+  ...DX_FAMILIES,
 };

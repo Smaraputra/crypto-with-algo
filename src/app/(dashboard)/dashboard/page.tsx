@@ -1,6 +1,7 @@
 import { auth } from '@/lib/auth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MarketOverview } from '@/components/market/MarketOverview';
+import { CrossSectionalPortfolioCard } from '@/components/signals/CrossSectionalPortfolioCard';
 import { LazyDashboardChart } from '@/components/chart/LazyDashboardChart';
 import { NewsFeed } from '@/components/market/NewsFeed';
 import { SentimentGauge } from '@/components/market/SentimentGauge';
@@ -22,6 +23,15 @@ export default async function DashboardPage() {
         }
       >
         <MarketOverview />
+      </ErrorBoundary>
+      <ErrorBoundary
+        fallback={
+          <p className="text-sm text-muted-foreground">
+            Relative value portfolio unavailable
+          </p>
+        }
+      >
+        <CrossSectionalPortfolioCard />
       </ErrorBoundary>
       <ErrorBoundary
         fallback={
