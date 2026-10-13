@@ -3,6 +3,9 @@ import {
   createRng,
   extractSynchronousStates,
   generatePermutedUniverse,
+  calculateEmpiricalPValue,
+  calculatePValueStdError,
+  calculateZScore,
 } from './cross-sectional-permutation';
 import { RV_SYMBOLS, type AlignedBar } from './cross-sectional-harness';
 import type { FundingRow } from './dataset-format';
@@ -82,3 +85,37 @@ describe('extractSynchronousStates and generatePermutedUniverse', () => {
     }
   });
 });
+
+describe('Statistical inference functions', () => {
+  it('calculates correct empirical Monte Carlo p-values', () => {
+    // 99 null values, real value higher than all -> (1 + 0) / (99 + 1) = 0.01
+    const nulls = Array.from({ length: 99 }, (_, i) => i * 0.01);
+    const pValHigh = calculateEmpiricalPValue(nulls, 1.5, 'greater');
+    expect(pValHigh).toBeCloseTo(0.01, 4);
+
+    // Real value lower than all null values -> (1 + 99) / (99 + 1) = 1.0
+    const pValLow = calculateEmpiricalPValue(nulls, -1.0, 'greater');
+    expect(pValLow).toBeCloseTo(1.0, 4);
+
+    // Real value at median (50 nulls >= real) -> (1 + 50) / 100 = 0.51
+    const pValMed = calculateEmpiricalPValue(nulls, 0.49, 'greater');
+    expect(pValMed).toBeCloseTo(0.51, 4);
+  });
+
+  it('calculates standard error of p-value estimates', () => {
+    const se1000 = calculatePValueStdError(0.01, 1000);
+    // sqrt(0.01 * 0.99 / 1000) = sqrt(0.0099 / 1000) = sqrt(0.0000099) ~= 0.003146
+    expect(se1000).toBeCloseTo(0.00315, 4);
+    expect(calculatePValueStdError(0.05, 0)).toBe(0);
+  });
+
+  it('calculates Z-score distances from permuted null distribution', () => {
+    // Distribution with mean = 0, std = 1
+    const stdNormal = [-1, 0, 1]; // mean 0, variance = (1 + 0 + 1) / 2 = 1, std = 1
+    const z = calculateZScore(stdNormal, 2.5);
+    expect(z).toBeCloseTo(2.5, 4);
+
+    expect(calculateZScore([1], 2)).toBe(0);
+  });
+});
+

@@ -56,6 +56,22 @@ export interface PermutationTestReport {
     netMakerReturn: number;
     netTakerReturn: number;
   };
+  pValStdErrors: {
+    grossSharpe: number;
+    netMakerSharpe: number;
+    netTakerSharpe: number;
+    grossReturn: number;
+    netMakerReturn: number;
+    netTakerReturn: number;
+  };
+  zScores: {
+    grossSharpe: number;
+    netMakerSharpe: number;
+    netTakerSharpe: number;
+    grossReturn: number;
+    netMakerReturn: number;
+    netTakerReturn: number;
+  };
   distributionStats: {
     meanGrossSharpe: number;
     stdGrossSharpe: number;
@@ -67,6 +83,45 @@ export interface PermutationTestReport {
     meanNetMakerReturnPct: number;
   };
   trials: PermutationTrialResult[];
+}
+
+/**
+ * Calculates empirical Monte Carlo p-value:
+ * p = (1 + sum(I(nullValue >= realValue))) / (M + 1)
+ */
+export function calculateEmpiricalPValue(
+  nullDistribution: number[],
+  realValue: number,
+  direction: 'greater' | 'less' = 'greater'
+): number {
+  const m = nullDistribution.length;
+  if (m === 0) return 1.0;
+  const count = nullDistribution.filter((v) =>
+    direction === 'greater' ? v >= realValue : v <= realValue
+  ).length;
+  return (1 + count) / (m + 1);
+}
+
+/**
+ * Calculates standard error of the empirical p-value estimate:
+ * SE(p) = sqrt(p * (1 - p) / M)
+ */
+export function calculatePValueStdError(pValue: number, permutations: number): number {
+  if (permutations <= 0) return 0;
+  return Math.sqrt((pValue * (1 - pValue)) / permutations);
+}
+
+/**
+ * Calculates Z-score distance of real value from permuted null distribution:
+ * Z = (realValue - mean(null)) / std(null)
+ */
+export function calculateZScore(nullDistribution: number[], realValue: number): number {
+  const n = nullDistribution.length;
+  if (n < 2) return 0;
+  const mean = nullDistribution.reduce((a, b) => a + b, 0) / n;
+  const variance = nullDistribution.reduce((acc, x) => acc + (x - mean) ** 2, 0) / (n - 1);
+  const std = Math.sqrt(variance);
+  return std > 1e-12 ? (realValue - mean) / std : 0;
 }
 
 /**
@@ -243,11 +298,11 @@ export function generatePermutedUniverse(
   const permutedBarsBySymbol = new Map<string, AlignedBar[]>();
 
   for (const sym of RV_SYMBOLS) {
-    const bars: AlignedBar[] = [];
+    const bars: AlignedBar[] = new Array(timestamps.length);
     let curPrice = initialCloses.get(sym) ?? 100;
 
     // t0 bar
-    bars.push({
+    bars[0] = {
       timestamp: timestamps[0],
       open: curPrice,
       high: curPrice,
@@ -255,7 +310,7 @@ export function generatePermutedUniverse(
       close: curPrice,
       volume: 1000,
       takerBuyVolume: 500,
-    });
+    };
 
     for (let step = 0; step < permutedIndices.length; step++) {
       const origIdx = permutedIndices[step];
@@ -263,7 +318,7 @@ export function generatePermutedUniverse(
       const metrics = state.symbols.get(sym);
 
       if (!metrics) {
-        bars.push({
+        bars[step + 1] = {
           timestamp: timestamps[step + 1],
           open: curPrice,
           high: curPrice,
@@ -271,7 +326,7 @@ export function generatePermutedUniverse(
           close: curPrice,
           volume: 1000,
           takerBuyVolume: 500,
-        });
+        };
         continue;
       }
 
@@ -280,7 +335,7 @@ export function generatePermutedUniverse(
       const barLow = curPrice * metrics.lowRatio;
       const barClose = curPrice * metrics.closeRatio;
 
-      bars.push({
+      bars[step + 1] = {
         timestamp: timestamps[step + 1],
         open: barOpen,
         high: barHigh,
@@ -288,7 +343,7 @@ export function generatePermutedUniverse(
         close: barClose,
         volume: metrics.volume,
         takerBuyVolume: metrics.takerBuyVolume,
-      });
+      };
 
       curPrice = barClose;
     }
@@ -303,7 +358,7 @@ async function main() {
   const { values } = parseArgs({
     options: {
       'dataset-dir': { type: 'string', default: '/home/smara/dx-ds' },
-      permutations: { type: 'string', default: '200' },
+      permutations: { type: 'string', default: '1000' },
       'block-size': { type: 'string', default: '3' }, // 3 bars * 8h = 24h block
       seed: { type: 'string', default: '42' },
       out: { type: 'string', default: '/home/smara/rv-out/report-permutation-test.json' },
@@ -312,7 +367,7 @@ async function main() {
   });
 
   const datasetDir = values['dataset-dir']!;
-  const permutations = parseInt(values.permutations ?? '200', 10);
+  const permutations = parseInt(values.permutations ?? '1000', 10);
   const blockSize = parseInt(values['block-size'] ?? '3', 10);
   const seed = parseInt(values.seed ?? '42', 10);
   const allowLockbox = values['allow-lockbox'] ?? false;
@@ -383,32 +438,47 @@ async function main() {
       annualTurnover: fs.annualTurnover,
     });
 
-    if (m % 25 === 0 || m === permutations) {
+    if (m % 50 === 0 || m === permutations) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`  Completed ${m}/${permutations} permutations (${elapsed}s elapsed)...`);
+      const remaining = (((Date.now() - startTime) / m) * (permutations - m) / 1000).toFixed(1);
+      console.log(`  Completed ${m}/${permutations} permutations (${elapsed}s elapsed, ~${remaining}s remaining)...`);
     }
   }
 
-  // Calculate Empirical Monte Carlo P-values
-  // p = (1 + sum(I(metric_null >= metric_real))) / (M + 1)
-  const calcP = (arr: number[], realVal: number) => {
-    const count = arr.filter((v) => v >= realVal).length;
-    return (1 + count) / (permutations + 1);
-  };
-
-  const pValues = {
-    grossSharpe: calcP(trials.map((t) => t.annualizedGrossSharpe), realStats.annualizedGrossSharpe),
-    netMakerSharpe: calcP(trials.map((t) => t.annualizedNetMakerSharpe), realStats.annualizedNetMakerSharpe),
-    netTakerSharpe: calcP(trials.map((t) => t.annualizedNetTakerSharpe), realStats.annualizedNetTakerSharpe),
-    grossReturn: calcP(trials.map((t) => t.totalGrossReturnPct), realStats.totalGrossReturnPct),
-    netMakerReturn: calcP(trials.map((t) => t.totalNetMakerReturnPct), realStats.totalNetMakerReturnPct),
-    netTakerReturn: calcP(trials.map((t) => t.totalNetTakerReturnPct), realStats.totalNetTakerReturnPct),
-  };
-
-  // Compute distribution summary
+  // Calculate Empirical Monte Carlo P-values & standard errors
   const grossSharpes = trials.map((t) => t.annualizedGrossSharpe);
   const makerSharpes = trials.map((t) => t.annualizedNetMakerSharpe);
+  const takerSharpes = trials.map((t) => t.annualizedNetTakerSharpe);
+  const grossReturns = trials.map((t) => t.totalGrossReturnPct);
   const makerReturns = trials.map((t) => t.totalNetMakerReturnPct);
+  const takerReturns = trials.map((t) => t.totalNetTakerReturnPct);
+
+  const pValues = {
+    grossSharpe: calculateEmpiricalPValue(grossSharpes, realStats.annualizedGrossSharpe),
+    netMakerSharpe: calculateEmpiricalPValue(makerSharpes, realStats.annualizedNetMakerSharpe),
+    netTakerSharpe: calculateEmpiricalPValue(takerSharpes, realStats.annualizedNetTakerSharpe),
+    grossReturn: calculateEmpiricalPValue(grossReturns, realStats.totalGrossReturnPct),
+    netMakerReturn: calculateEmpiricalPValue(makerReturns, realStats.totalNetMakerReturnPct),
+    netTakerReturn: calculateEmpiricalPValue(takerReturns, realStats.totalNetTakerReturnPct),
+  };
+
+  const pValStdErrors = {
+    grossSharpe: calculatePValueStdError(pValues.grossSharpe, permutations),
+    netMakerSharpe: calculatePValueStdError(pValues.netMakerSharpe, permutations),
+    netTakerSharpe: calculatePValueStdError(pValues.netTakerSharpe, permutations),
+    grossReturn: calculatePValueStdError(pValues.grossReturn, permutations),
+    netMakerReturn: calculatePValueStdError(pValues.netMakerReturn, permutations),
+    netTakerReturn: calculatePValueStdError(pValues.netTakerReturn, permutations),
+  };
+
+  const zScores = {
+    grossSharpe: calculateZScore(grossSharpes, realStats.annualizedGrossSharpe),
+    netMakerSharpe: calculateZScore(makerSharpes, realStats.annualizedNetMakerSharpe),
+    netTakerSharpe: calculateZScore(takerSharpes, realStats.annualizedNetTakerSharpe),
+    grossReturn: calculateZScore(grossReturns, realStats.totalGrossReturnPct),
+    netMakerReturn: calculateZScore(makerReturns, realStats.totalNetMakerReturnPct),
+    netTakerReturn: calculateZScore(takerReturns, realStats.totalNetTakerReturnPct),
+  };
 
   const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
   const std = (arr: number[], m: number) => Math.sqrt(arr.reduce((s, x) => s + (x - m) ** 2, 0) / (arr.length - 1));
@@ -420,16 +490,16 @@ async function main() {
   const meanMakerRet = mean(makerReturns);
 
   console.log('\n--- PERMUTATION TEST STATISTICAL INFERENCE ---');
-  console.log(`Real Annualized Net Maker Sharpe: ${realStats.annualizedNetMakerSharpe.toFixed(2)}`);
+  console.log(`Real Annualized Net Maker Sharpe: ${realStats.annualizedNetMakerSharpe.toFixed(2)} (Z = ${zScores.netMakerSharpe.toFixed(2)} sigma)`);
   console.log(
     `Permuted Null Distribution: Mean SR: ${meanMakerSR.toFixed(2)} | Std: ${stdMakerSR.toFixed(2)} | Max Null SR: ${Math.max(...makerSharpes).toFixed(2)}`
   );
   console.log(`Permuted Null Net Maker Return: Mean: ${meanMakerRet.toFixed(2)}% | Real: ${realStats.totalNetMakerReturnPct.toFixed(2)}%`);
-  console.log('\nEMPIRICAL MONTE CARLO P-VALUES:');
-  console.log(`  p(Gross Sharpe >= Real):     ${pValues.grossSharpe.toFixed(4)} (${pValues.grossSharpe < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
-  console.log(`  p(Net Maker Sharpe >= Real): ${pValues.netMakerSharpe.toFixed(4)} (${pValues.netMakerSharpe < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
-  console.log(`  p(Net Taker Sharpe >= Real): ${pValues.netTakerSharpe.toFixed(4)} (${pValues.netTakerSharpe < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
-  console.log(`  p(Net Maker Return >= Real): ${pValues.netMakerReturn.toFixed(4)} (${pValues.netMakerReturn < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
+  console.log('\nEMPIRICAL MONTE CARLO P-VALUES (M = ' + permutations + '):');
+  console.log(`  p(Gross Sharpe >= Real):     ${pValues.grossSharpe.toFixed(4)} +/- ${pValStdErrors.grossSharpe.toFixed(4)} (${pValues.grossSharpe < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
+  console.log(`  p(Net Maker Sharpe >= Real): ${pValues.netMakerSharpe.toFixed(4)} +/- ${pValStdErrors.netMakerSharpe.toFixed(4)} (${pValues.netMakerSharpe < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
+  console.log(`  p(Net Taker Sharpe >= Real): ${pValues.netTakerSharpe.toFixed(4)} +/- ${pValStdErrors.netTakerSharpe.toFixed(4)} (${pValues.netTakerSharpe < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
+  console.log(`  p(Net Maker Return >= Real): ${pValues.netMakerReturn.toFixed(4)} +/- ${pValStdErrors.netMakerReturn.toFixed(4)} (${pValues.netMakerReturn < 0.01 ? 'PASS (p < 0.01)' : 'FAIL'})`);
 
   const report: PermutationTestReport = {
     datasetHash: manifest.datasetHash,
@@ -439,6 +509,8 @@ async function main() {
     seed,
     realPerformance: realStats,
     pValues,
+    pValStdErrors,
+    zScores,
     distributionStats: {
       meanGrossSharpe: meanGrossSR,
       stdGrossSharpe: stdGrossSR,
