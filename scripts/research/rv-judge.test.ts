@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -39,8 +39,25 @@ import {
   verifiedRealStage,
 } from './rv-judge';
 
+/**
+ * Task 7C addendum rule 10: the real stage is passed through unchanged unless a test asks it to drop one maker fill
+ * count, which is the only way to reach the verdict with a count missing from both the file and its recomputation.
+ */
+const makerCounts = vi.hoisted(() => ({ drop: null as null | 'makerFills' | 'fallbackFills' }));
+vi.mock('./rv-stages', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./rv-stages')>();
+  return {
+    ...actual,
+    runRealStage: (inputs: Parameters<typeof actual.runRealStage>[0]) => {
+      const out = actual.runRealStage(inputs);
+      if (makerCounts.drop) delete out.maker.detail[makerCounts.drop];
+      return out;
+    },
+  };
+});
+
 const COMMIT = 'a'.repeat(40);
-const PROV: Provenance = { manifestHash: 'c'.repeat(64), panelSha256: 'e'.repeat(64), gitCommit: COMMIT };
+const PROV: Provenance ={ manifestHash: 'c'.repeat(64), panelSha256: 'e'.repeat(64), gitCommit: COMMIT };
 const GAMMA = 0.5772156649;
 
 describe('ksUniform (header CALIBRATION: Kolmogorov-Smirnov p against uniform)', () => {
@@ -362,6 +379,23 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     // a passing record over failing outputs is refused, and so is a missing output
     expect(() => judgeVerdict(real, ok, loaded, { record: calOk.record, outputs: failOuts })).toThrow(/REFUSE[\s\S]*calibration/);
     expect(() => judgeVerdict(real, ok, loaded, { ...calOk, outputs: calOk.outputs.slice(1) })).toThrow(/REFUSE[\s\S]*cal-iid-001/);
+  });
+
+  it('refuses a maker track without its fill counts, never reporting a missing count as 0 (Task 7C addendum rule 10)', () => {
+    const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
+    for (const field of ['makerFills', 'fallbackFills'] as const) {
+      makerCounts.drop = field;
+      try {
+        // the file and the verdict's recomputation both lack the count, so the real-stage comparison passes
+        const stripped = JSON.parse(JSON.stringify(runRealStage(loaded))) as RealOutput;
+        expect(stripped.maker.detail[field]).toBeUndefined();
+        expect(() => verifiedRealStage(stripped, loaded)).not.toThrow();
+        expect(() => judgeVerdict(stripped, ok, loaded, calOk)).toThrow(new RegExp(`maker track[\\s\\S]*${field}`));
+      } finally {
+        makerCounts.drop = null;
+      }
+    }
+    expect(real.maker.detail.makerFills! + real.maker.detail.fallbackFills!).toBeGreaterThan(0);
   });
 
   it('reports every item the inputs allow', () => {

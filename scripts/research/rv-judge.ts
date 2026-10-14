@@ -436,6 +436,21 @@ export function verifiedRealStage(real: RealOutput, inputs: LoadedInputs): RealO
 }
 
 /**
+ * Task 7C addendum rule 10: the maker track's fill counts, each a non-negative integer. A missing count is refused,
+ * never read as 0 (silent defaults are banned in this repo).
+ */
+function makerFillCounts(detail: StepDetail): { makerFills: number; fallbackFills: number } {
+  const count = (field: 'makerFills' | 'fallbackFills'): number => {
+    const value = detail[field];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new Error(`the real maker track carries no valid ${field} count (got ${String(value)}): a missing count is never reported as 0`);
+    }
+    return value;
+  };
+  return { makerFills: count('makerFills'), fallbackFills: count('fallbackFills') };
+}
+
+/**
  * Judge `verdict` (header VERDICT): G1 = step 2 p < 0.01 on the best of the 12 cells, G2 = step 4 p < 0.01 on the
  * stitched walk-forward objective, G3 = deflated Sharpe of cell 11 at N = 672 >= 0.95. All three must pass. It
  * refuses unless the calibration passed at this commit (review m3), and it recomputes the whole `real` stage from the
@@ -486,11 +501,7 @@ export function judgeVerdict(
     reported: {
       rvV1,
       walkForward: seriesStats(r.step3.returns, r.t, r.step3.firstStep, r.step3.detail),
-      maker: {
-        ...seriesStats(r.maker.returns, r.t, r.firstStep, r.maker.detail),
-        makerFills: r.maker.detail.makerFills ?? 0,
-        fallbackFills: r.maker.detail.fallbackFills ?? 0,
-      },
+      maker: { ...seriesStats(r.maker.returns, r.t, r.firstStep, r.maker.detail), ...makerFillCounts(r.maker.detail) },
       stress: { costs: r.stress.costs, perBar: objective(r.stress.returns), annualised: annualise(objective(r.stress.returns)) },
       neighbours: RV_CELLS.map((c) => ({ cell: c.index, buffer: c.buffer, betaNeutral: c.betaNeutral, flowOn: c.flowOn, perBar: objectives[c.index], annualised: annualise(objectives[c.index]) })),
       folds,
