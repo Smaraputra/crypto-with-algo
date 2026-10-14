@@ -121,6 +121,10 @@ const ALERT_SHORT: Record<RvAlertKind, string> = {
 
 // ------------------------------------------------------------------ parts
 
+/**
+ * Each state renders its own keyed Shell, so React mounts fresh nodes instead
+ * of moving a reused skeleton node into place, which counts as a layout shift.
+ */
 function Shell({ children }: { children: ReactNode }) {
   return (
     <Card className="gap-4 py-4 sm:gap-5 sm:py-5" data-testid="rv-desk-card">
@@ -236,7 +240,7 @@ function Flags({ data }: { data: RvLatestResponse & { book: RvBookView } }) {
 
 function MobileLabel({ children }: { children: ReactNode }) {
   return (
-    <span aria-hidden="true" className="block font-sans text-[11px] text-muted-foreground sm:hidden">
+    <span aria-hidden="true" className="block text-[11px] text-muted-foreground sm:hidden">
       {children}
     </span>
   );
@@ -283,23 +287,23 @@ function PositionsTable({ rows, headingId }: { rows: RvPositionRow[]; headingId:
                 )}
               </span>
             </td>
-            <td className={cn(cell, right, 'font-mono tabular-nums')}>
+            <td className={cn(cell, right)}>
               <MobileLabel>Weight</MobileLabel>
-              {signedPercent(row.weight)}
+              <span className="font-mono tabular-nums">{signedPercent(row.weight)}</span>
             </td>
-            <td className={cn(cell, 'font-mono tabular-nums sm:text-right')}>
+            <td className={cn(cell, 'sm:text-right')}>
               <MobileLabel>Entry</MobileLabel>
-              {price(row.entry)}
+              <span className="font-mono tabular-nums">{price(row.entry)}</span>
             </td>
-            <td className={cn(cell, right, 'font-mono tabular-nums')}>
+            <td className={cn(cell, right)}>
               <MobileLabel>Last price</MobileLabel>
-              {price(row.lastPrice)}
+              <span className="font-mono tabular-nums">{price(row.lastPrice)}</span>
             </td>
-            <td className={cn(cell, 'font-mono tabular-nums sm:text-right')}>
+            <td className={cn(cell, 'sm:text-right')}>
               <MobileLabel>Unrealized, taker</MobileLabel>
               <Change value={row.unrealizedTaker} />
             </td>
-            <td className={cn(cell, right, 'font-mono tabular-nums')}>
+            <td className={cn(cell, right)}>
               <MobileLabel>Unrealized, maker</MobileLabel>
               <Change value={row.unrealizedMaker} />
             </td>
@@ -311,8 +315,8 @@ function PositionsTable({ rows, headingId }: { rows: RvPositionRow[]; headingId:
 }
 
 function Change({ value }: { value: number | null }) {
-  if (value === null) return <span className="font-sans text-muted-foreground">Not held</span>;
-  return <span className={changeTone(value)}>{signedUsd(value)}</span>;
+  if (value === null) return <span className="text-muted-foreground">Not held</span>;
+  return <span className={cn('font-mono tabular-nums', changeTone(value))}>{signedUsd(value)}</span>;
 }
 
 function Positions({ book, completedStep }: { book: RvBookView; completedStep: RvStepView | null }) {
@@ -464,19 +468,23 @@ export function CrossSectionalPortfolioCard() {
 
   if (isLoading) {
     return (
-      <Shell>
-        <CardHeader className="px-4 sm:px-6">
+      <Shell key="loading">
+        <CardHeader className="gap-1.5 px-4 sm:px-6">
           <TitleRow status={null} />
+          <div aria-hidden="true" className="h-5 w-3/4 rounded bg-muted animate-shimmer" />
+          <div aria-hidden="true" className="h-8 w-2/3 rounded bg-muted animate-shimmer sm:h-4" />
         </CardHeader>
-        <CardContent className="space-y-3 px-4 sm:px-6">
+        {/* Blocks sized like the loaded card, so the page below does not jump when it arrives */}
+        <CardContent className="space-y-5 px-4 sm:px-6">
           <p role="status" className="sr-only">
             Loading the rv-v1 paper desk
           </p>
           <div aria-hidden="true" className="grid gap-3 sm:grid-cols-2">
-            <div className="h-24 rounded-md bg-muted animate-shimmer" />
-            <div className="h-24 rounded-md bg-muted animate-shimmer" />
+            <div className="h-32 rounded-md bg-muted animate-shimmer" />
+            <div className="h-32 rounded-md bg-muted animate-shimmer" />
           </div>
-          <div aria-hidden="true" className="h-28 rounded-md bg-muted animate-shimmer" />
+          <div aria-hidden="true" className="h-[32rem] rounded-md bg-muted animate-shimmer sm:h-64" />
+          <div aria-hidden="true" className="h-24 rounded-md bg-muted animate-shimmer" />
         </CardContent>
       </Shell>
     );
@@ -484,7 +492,7 @@ export function CrossSectionalPortfolioCard() {
 
   if (!data) {
     return (
-      <Shell>
+      <Shell key="error">
         <CardHeader className="px-4 sm:px-6">
           <TitleRow status={null} />
         </CardHeader>
@@ -515,7 +523,7 @@ export function CrossSectionalPortfolioCard() {
 
   if (!book) {
     return (
-      <Shell>
+      <Shell key="empty">
         <CardHeader className="gap-1.5 px-4 sm:px-6">
           <TitleRow status={null} />
           <p className="text-sm">Experimental. Paper only.</p>
@@ -536,7 +544,7 @@ export function CrossSectionalPortfolioCard() {
   const start = data.rule.startingEquity;
 
   return (
-    <Shell>
+    <Shell key="desk">
       <CardHeader className="gap-1.5 px-4 sm:px-6">
         <TitleRow status={book.validationStatus} asOf={asOf} />
         <p className="text-sm">{subtitle(book)}</p>
