@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
+import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
+import { createSeededRandom } from '@/lib/stats/seeded-random';
 import { RV_SYMBOLS, type RvPanel } from './rv-panel';
-import { ANNUALISATION, rvV1NetTakerReturns, syntheticPanel } from './rv-synthetic';
+import { ANNUALISATION, rvV1NetTakerReturns, rvV1TakerSteps, syntheticPanel, syntheticPanelWithScores } from './rv-synthetic';
 
 const H8 = 8 * 3_600_000;
 /** Header SEEDS: base 20261014, planted calibration universe k = 1..10 uses base + 210,000 + k. */
@@ -84,6 +86,24 @@ describe('syntheticPanel shapes and validity', () => {
 });
 
 describe('syntheticPanel driftless universes (header CALIBRATION: iid and GARCH)', () => {
+  it('iid and garch panels do not depend on the latent score at all, while planted panels do (review m8)', () => {
+    const other = (seed: number) => {
+      const random = createSeededRandom(seed);
+      return Array.from({ length: 10 }, () => Array.from({ length: 300 }, () => (random() - 0.5) * 8));
+    };
+    for (const mode of ['iid', 'garch'] as const) {
+      const opts = { bars: 300, symbols: 10, mode, strength: 0, seed: 77 };
+      expect(syntheticPanelWithScores(opts, other(1))).toEqual(syntheticPanel(opts));
+    }
+    const planted = { bars: 300, symbols: 10, mode: 'planted' as const, strength: 1, seed: 77 };
+    const replaced = syntheticPanelWithScores(planted, other(1));
+    const base = syntheticPanel(planted);
+    expect(replaced.close).not.toEqual(base.close);
+    expect(replaced.fundSum).not.toEqual(base.fundSum);
+    expect(replaced.tbv).not.toEqual(base.tbv);
+    expect(() => syntheticPanelWithScores(planted, other(1).slice(1))).toThrow(/scores/);
+  });
+
   it('iid: no lag-1 autocorrelation in any symbol, and a realistic cross-sectional correlation', () => {
     const p = syntheticPanel({ bars: 3000, symbols: 10, mode: 'iid', strength: 0, seed: BASE + 200_001 });
     const rets = p.symbols.map((_, s) => logReturns(p, s));
@@ -111,17 +131,99 @@ describe('syntheticPanel planted edge (header CALIBRATION: latent AR(1) score, k
     for (let s = 0; s < 10; s++) expect(lag1(p.fundSum[s])).toBeGreaterThan(0.5);
   });
 
-  it('gives rv-v1 an annualised net taker Sharpe in [3, 4] on at least 8 of the 10 header seeds', { timeout: 300_000 }, () => {
+  it('gives rv-v1 a ten-seed mean annualised net taker Sharpe in [3, 4], pinned at 3.504, with 8 of 10 seeds in the band', { timeout: 300_000 }, () => {
     const sharpes = Array.from({ length: 10 }, (_, j) => {
       const p = syntheticPanel({ bars: 3000, symbols: 10, mode: 'planted', strength: 1, seed: plantedSeed(j + 1) });
       return perPeriodSharpe(rvV1NetTakerReturns(p)) * ANNUALISATION;
     });
+    const mean = sharpes.reduce((a, b) => a + b, 0) / sharpes.length;
+    // AMENDMENT 1 reads "lies in [3, 4]" as the population edge, the ten-seed mean
+    expect(mean).toBeGreaterThanOrEqual(3);
+    expect(mean).toBeLessThanOrEqual(4);
+    expect(mean).toBeCloseTo(3.504, 2); // regression value recorded in AMENDMENT 1
     expect(sharpes.filter((x) => x >= 3 && x <= 4).length).toBeGreaterThanOrEqual(8);
   });
 
   it('the iid universe gives rv-v1 no positive edge (annualised net Sharpe below 1)', { timeout: 60_000 }, () => {
     const p = syntheticPanel({ bars: 3000, symbols: 10, mode: 'iid', strength: 0, seed: BASE + 200_002 });
     expect(perPeriodSharpe(rvV1NetTakerReturns(p)) * ANNUALISATION).toBeLessThan(1);
+  });
+});
+
+describe('rvV1NetTakerReturns timing (an independent oracle for the 7B parity target, review I5)', () => {
+  const base = syntheticPanel({ bars: 200, symbols: 10, mode: 'planted', strength: 1, seed: 11 });
+  const full = rvV1NetTakerReturns(base);
+  const edit = (f: (p: RvPanel) => void): RvPanel => {
+    const p = structuredClone(base);
+    f(p);
+    return p;
+  };
+  const firstDiff = (a: number[], b: number[]) => a.findIndex((x, i) => x !== b[i]);
+
+  it('is causal: the run on the panel cut after bar n equals the first n - 43 returns of the full run', () => {
+    for (const n of [60, 120, 199]) {
+      const cut = edit((p) => {
+        p.t = p.t.slice(0, n);
+        const cols = p as unknown as Record<string, unknown[][]>;
+        for (const col of ['open', 'high', 'low', 'close', 'volume', 'tbv', 'fundSum', 'fundLast']) cols[col] = cols[col].map((row) => row.slice(0, n));
+      });
+      expect(rvV1NetTakerReturns(cut)).toEqual(full.slice(0, n - 43));
+    }
+  });
+
+  it('charges bar k\'s funding in the step that fills at open k + 1, and nothing earlier', () => {
+    const k = 100;
+    const r = rvV1NetTakerReturns(edit((p) => p.fundSum.forEach((row) => (row[k] += 0.001))));
+    expect(firstDiff(r, full)).toBe(k - 42);
+  });
+
+  it('fills and marks at open k + 1: its open moves step k, while its close, high and low do not', () => {
+    const k = 100;
+    const byOpen = rvV1NetTakerReturns(edit((p) => p.open.forEach((row) => (row[k + 1] *= 1.01))));
+    expect(firstDiff(byOpen, full)).toBe(k - 42);
+    const byRest = rvV1NetTakerReturns(
+      edit((p) => {
+        p.close.forEach((row) => (row[k + 1] *= 1.01));
+        p.high.forEach((row) => (row[k + 1] *= 1.02));
+        p.low.forEach((row) => (row[k + 1] *= 0.98));
+      })
+    );
+    const d = firstDiff(byRest, full);
+    expect(d === -1 || d > k - 42).toBe(true);
+  });
+
+  it('matches a hand computation of every step: price move open k to open k + 1, bar k funding, then trade costs at open k + 1', () => {
+    const steps = rvV1TakerSteps(base);
+    expect(steps.map((x) => x.ret)).toEqual(full);
+    const slip = RV_V1.costs.takerSlippageBps / 1e4;
+    const fee = RV_V1.costs.takerFee;
+    let heldLegs = 0;
+    for (let j = 1; j < steps.length; j++) {
+      const k = steps[j].k;
+      expect(k).toBe(42 + j);
+      expect(steps[j].before).toEqual(steps[j - 1].after);
+      const eqPrev = steps[j - 1].equityAfter;
+      let equity = eqPrev;
+      const idx = (sym: string) => base.symbols.indexOf(sym);
+      for (const [sym, pos] of Object.entries(steps[j].before.positions)) {
+        const s = idx(sym);
+        expect(pos.lastMark).toBe(base.open[s][k]);
+        equity += pos.qty * (base.open[s][k + 1] - base.open[s][k]);
+        equity -= pos.qty * base.open[s][k] * base.fundSum[s][k];
+        heldLegs++;
+      }
+      for (const sym of base.symbols) {
+        const s = idx(sym);
+        const delta = (steps[j].after.positions[sym]?.qty ?? 0) - (steps[j].before.positions[sym]?.qty ?? 0);
+        if (Math.abs(delta) <= 1e-12) continue;
+        const ref = base.open[s][k + 1];
+        const price = ref * (1 + Math.sign(delta) * slip);
+        equity -= Math.abs(delta) * ref * slip + Math.abs(delta) * price * fee;
+      }
+      expect(Math.abs(steps[j].equityAfter / equity - 1)).toBeLessThan(1e-10);
+      expect(Math.abs(steps[j].ret - (equity / eqPrev - 1))).toBeLessThan(1e-10);
+    }
+    expect(heldLegs).toBeGreaterThan(4 * 100);
   });
 });
 

@@ -26,6 +26,7 @@ import {
   type RvFillBar,
   type RvSettlement,
   type RvSymbolInput,
+  type RvTrackState,
 } from '@/lib/signals/cross-sectional/engine';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
 import { RV_SYMBOLS, type RvPanel } from './rv-panel';
@@ -107,6 +108,22 @@ function garchStream(sd: number, z: () => number): () => number {
 }
 
 export function syntheticPanel(opts: SyntheticOptions): RvPanel {
+  return generate(opts, null);
+}
+
+/**
+ * The same panel with the latent score path replaced by `scores` ([symbol][bar], the score at each bar's
+ * close). Every random draw happens in the same order, so only the score's own influence changes. The
+ * driftless modes must come back unchanged, which shows they do not read the score at all.
+ */
+export function syntheticPanelWithScores(opts: SyntheticOptions, scores: readonly (readonly number[])[]): RvPanel {
+  if (scores.length !== opts.symbols || scores.some((row) => row.length !== opts.bars || !row.every(Number.isFinite))) {
+    throw new Error(`scores must be ${opts.symbols} rows of ${opts.bars} finite values`);
+  }
+  return generate(opts, scores);
+}
+
+function generate(opts: SyntheticOptions, scoreOverride: readonly (readonly number[])[] | null): RvPanel {
   const { bars: n, symbols: nSym, mode, strength, seed } = opts;
   if (!Number.isInteger(n) || n < 2) throw new Error(`bars must be an integer of at least 2, got ${n}`);
   if (!Number.isInteger(nSym) || nSym < 1 || nSym > RV_SYMBOLS.length) {
@@ -153,9 +170,10 @@ export function syntheticPanel(opts: SyntheticOptions): RvPanel {
     const m = market();
     for (let i = 0; i < nSym; i++) {
       // the score known at the previous close drives this bar's return
-      const r = beta[i] * m + idio[i]() + (k > 0 ? kappa * score[i] : 0);
+      const previous = scoreOverride ? (k > 0 ? scoreOverride[i][k - 1] : 0) : score[i];
+      const r = beta[i] * m + idio[i]() + (k > 0 ? kappa * previous : 0);
       if (k > 0) score[i] = PLANTED_AR * score[i] + innovationSd * z();
-      const s = score[i];
+      const s = scoreOverride ? scoreOverride[i][k] : score[i];
 
       const gap = k === 0 ? 0 : GAP_SD * z();
       const open = prevClose[i] * Math.exp(gap);
@@ -180,15 +198,25 @@ export function syntheticPanel(opts: SyntheticOptions): RvPanel {
   return panel;
 }
 
+/** One step of the reference run: signal bar k, fill at open k + 1, the state either side of the step. */
+export interface RvV1TakerStep {
+  k: number;
+  /** equityAfter of this step over equityAfter of the step before (the starting equity for the first), minus 1. */
+  ret: number;
+  equityAfter: number;
+  before: RvTrackState;
+  after: RvTrackState;
+}
+
 /**
  * The reference rv-v1 run (cell 11, the engine's RV_V1) on a panel, taker track: the signal at bar k's
  * close uses bars k - 42..k and the carry input fundLast of bar k stamped at bar k's close. The fill is at
- * bar k + 1's open. The funding settled over bar k is one settlement { bar close, fundSum, markPrice null }.
- * Returns equityAfter of each step over equityAfter of the step before (the starting equity for the
- * first), so each value is one open-to-open net return including funding and costs. This fixes
- * PLANTED_KAPPA, and Task 7B's runCells must reproduce it for cell 11.
+ * bar k + 1's open. The funding settled over bar k is one settlement { bar close, fundSum, markPrice null },
+ * so rvStep charges it at the previous fill price. Each step reports its open-to-open net return including
+ * funding and costs (AMENDMENT 1). This fixes PLANTED_KAPPA, and Task 7B's runCells must reproduce it for
+ * cell 11.
  */
-export function rvV1NetTakerReturns(panel: RvPanel): number[] {
+export function rvV1TakerSteps(panel: RvPanel): RvV1TakerStep[] {
   const n = panel.t.length;
   for (let k = 1; k < n; k++) {
     if (panel.t[k] - panel.t[k - 1] !== BAR_MS) throw new Error(`The panel is not contiguous at bar ${k}`);
@@ -197,7 +225,7 @@ export function rvV1NetTakerReturns(panel: RvPanel): number[] {
   let state = rvInitialState();
   let prevFillTime: number | null = null;
   let prevEquity: number = RV_V1.startingEquity;
-  const out: number[] = [];
+  const out: RvV1TakerStep[] = [];
 
   for (let k = window - 1; k + 1 < n; k++) {
     const barClose = panel.t[k] + BAR_MS;
@@ -230,10 +258,15 @@ export function rvV1NetTakerReturns(panel: RvPanel): number[] {
       settlements,
       targets: Object.fromEntries(targets),
     });
-    out.push(record.equityAfter / prevEquity - 1);
+    out.push({ k, ret: record.equityAfter / prevEquity - 1, equityAfter: record.equityAfter, before: state, after: next });
     prevEquity = record.equityAfter;
     prevFillTime = barClose;
     state = next;
   }
   return out;
+}
+
+/** The per-step net returns of rvV1TakerSteps, the series the planted calibration is measured on. */
+export function rvV1NetTakerReturns(panel: RvPanel): number[] {
+  return rvV1TakerSteps(panel).map((step) => step.ret);
 }
