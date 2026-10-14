@@ -215,11 +215,14 @@ describe('runCells (header STEP 1, AMENDMENT 1, addendum rules 2, 3 and 9)', () 
     }
   });
 
-  it('is causal: the run on a panel cut after bar n equals the first n - 43 returns of the full run, for every cell', () => {
-    const full = runCells(base);
+  it('is causal: on a panel cut after bar n the targets and returns equal the full run\'s first n - 43, for every cell', () => {
+    const full = runCells(base, { trace: true });
     for (const n of [60, 120, 199]) {
-      const cut = runCells(truncate(base, n));
-      for (let c = 0; c < 12; c++) expect(cut.runs[c].returns).toEqual(full.runs[c].returns.slice(0, n - 43));
+      const cut = runCells(truncate(base, n), { trace: true });
+      for (let c = 0; c < 12; c++) {
+        expect(cut.runs[c].returns).toEqual(full.runs[c].returns.slice(0, n - 43));
+        expect(cut.runs[c].trace!.targets).toEqual(full.runs[c].trace!.targets.slice(0, n - 43));
+      }
     }
   });
 
