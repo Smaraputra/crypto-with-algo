@@ -214,7 +214,10 @@ export interface RvV1TakerStep {
  * bar k + 1's open. The funding settled over bar k is one settlement { bar close, fundSum, markPrice null },
  * so rvStep charges it at the previous fill price. Each step reports its open-to-open net return including
  * funding and costs (AMENDMENT 1). This fixes PLANTED_KAPPA, and Task 7B's runCells must reproduce it for
- * cell 11.
+ * cell 11. A skipped symbol is not handled: the engine's throws (a held symbol unscored, BTCUSDT missing)
+ * propagate. A panel that builds has none to skip, since buildRvPanel halts on any null carry input
+ * (AMENDMENT 3) and on any taker-buy volume a flow factor could not read, and a permutation only moves
+ * existing values.
  */
 export function rvV1TakerSteps(panel: RvPanel): RvV1TakerStep[] {
   const n = panel.t.length;
