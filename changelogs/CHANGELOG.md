@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: v8 signal outcomes no longer expire
+- `SignalOutcome` no longer declares the 365-day TTL index on `createdAt`. The rows are the live record the research program measures and they hold the LLM panel's outcomes, so they are now permanent. Production's existing TTL index is removed by `scripts/ops/drop-outcome-ttl.ts` (`--dry-run` first), to be run after the deploy.
+
 ### Research: 1,000-trial permutation testing, cross-returns lead-lag harness, and Stage 4 walk-forward permutation
 - **1,000-Trial Vectorized Permutation Engine**: Upgraded `scripts/research/cross-sectional-permutation.ts` to support 1,000 permutations by default. Optimized universe reconstruction by pre-sizing typed bar arrays. Added empirical Monte Carlo p-value standard error calculation ($SE(p) = \sqrt{p(1-p)/M}$) and Z-score null distance metrics.
 - **Standalone Cross-Returns & Lead-Lag Harness**: Created `scripts/research/cross-returns-leadlag.ts` (and unit tests `cross-returns-leadlag.test.ts`), implementing dual-benchmark beta residualization ($I_{i} = M_i - \beta_{i,\text{BTC}} M_{\text{BTC}} - \beta_{i,\text{BNB}} M_{\text{BNB}}$ via ridge regression) and pairwise autoregressive distributed lags (ARDL) to test MemLabs's lead-lag and sector relative strength hypotheses with cross-sectional Rank IC evaluation.
