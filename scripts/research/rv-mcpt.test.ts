@@ -515,6 +515,18 @@ describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5)', () 
     expect(d.price[0]).not.toBe(0); // the first return holds the bar 1,095 move
   });
 
+  it('refuses steps or cell runs from another panel, a partial cell family, and irregular folds', () => {
+    const other = planted(1700, 22);
+    expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prepareSteps(other) })).toThrow(/another panel/);
+    const prep = prepareSteps(wfPanel);
+    expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prep, cells: runCells(wfPanel, { prepared: prep, cells: [11, 4] }) })).toThrow(/12 cells/);
+    const shuffled = runCells(wfPanel, { prepared: prep });
+    shuffled.runs.reverse();
+    expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prep, cells: shuffled })).toThrow(/12 cells/);
+    const folds = foldsOf(1700, RV_WF_GEOMETRY).folds;
+    expect(() => runWalkForwardBook(prep, [folds[0], { ...folds[1], testFrom: folds[1].testFrom + 1 }], [1, 2], RV_WF_GEOMETRY)).toThrow(/fold 2/);
+  });
+
   it('refuses a panel too short for one complete fold', () => {
     expect(() => walkForward(planted(1300, 2), RV_WF_GEOMETRY)).toThrow(/complete/);
   });

@@ -532,6 +532,11 @@ export function runWalkForwardBook(prep: PreparedSteps, folds: readonly Fold[], 
   if (cells.length !== folds.length) throw new Error(`${folds.length} folds but ${cells.length} cells`);
   const first = folds[0].testFrom;
   if (first !== g.train) throw new Error(`fold 1 must test from bar ${g.train}, got ${first}`);
+  folds.forEach((fold, i) => {
+    if (fold.testFrom !== first + i * g.test || fold.testTo !== fold.testFrom + g.test - 1) {
+      throw new Error(`fold ${i + 1} must test bars ${first + i * g.test}..${first + (i + 1) * g.test - 1}, got ${fold.testFrom}..${fold.testTo}`);
+    }
+  });
   const from = first - 1;
   const to = folds[folds.length - 1].testTo;
   const schedule = (k: number) => (k < first ? cells[0] : cells[Math.floor((k - first) / g.test)]);
@@ -571,7 +576,11 @@ export function walkForward(panel: RvPanel, g: WfGeometry, opts: WalkForwardOpti
   const { folds, remainder } = foldsOf(panel.t.length, g);
   if (folds.length === 0) throw new Error(`the panel of ${panel.t.length} bars holds no complete test fold for ${JSON.stringify(g)}`);
   const prep = opts.prepared ?? prepareSteps(panel);
+  if (prep.panel !== panel) throw new Error('the prepared steps belong to another panel');
   const cells = opts.cells ?? runCells(panel, { prepared: prep });
+  if (cells.runs.length !== RV_CELLS.length || cells.runs.some((r, i) => r.index !== i) || cells.firstStep !== prep.firstStep) {
+    throw new Error('walkForward selects among the 12 cells: the cell runs must be all 12 in index order from this panel');
+  }
   const purge = opts.purge ?? 0;
   const selected: WfFold[] = folds.map((fold) => {
     const [a, b] = trainingSteps(fold, cells.firstStep, purge);
