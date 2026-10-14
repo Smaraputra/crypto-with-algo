@@ -26,7 +26,7 @@ import {
 import {
   CARRY_ONLY_NOTE,
   DSR_GATE_TRIALS,
-  type CalibrationCheck,
+  type CalibrationEvidence,
   DSR_REPORTED_TRIALS,
   checkCalibration,
   jobLines,
@@ -36,6 +36,7 @@ import {
   mergeShards,
   rvDsr,
   seriesStats,
+  verifiedRealStage,
 } from './rv-judge';
 
 const COMMIT = 'a'.repeat(40);
@@ -218,7 +219,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   // not 11, and the 1-bar purge selects cells 7, 7 where the walk-forward selects 5, 7, so the two objectives differ.
   let real: RealOutput;
   let loaded: LoadedInputs;
-  let calOk: CalibrationCheck;
+  let calOk: CalibrationEvidence;
   beforeAll(() => {
     const dir = mkdtempSync(join(tmpdir(), 'rv-judge-'));
     const panel = syntheticPanel({ bars: 1700, symbols: 10, mode: 'planted', strength: 1, seed: 72 });
@@ -227,7 +228,8 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     loaded = loadInputs(dir, { manifestHash: PROV.manifestHash, gitCommit: COMMIT });
     real = runRealStage(loaded);
     rmSync(dir, { recursive: true, force: true });
-    calOk = checkCalibration(fakeCalibration((kind, k) => (kind === 'planted' || kind === 'carry' ? 1 / 200 : uniformP(k, 99))), COMMIT);
+    const outputs = fakeCalibration((kind, k) => (kind === 'planted' || kind === 'carry' ? 1 / 200 : uniformP(k, 99)));
+    calOk = { record: JSON.parse(JSON.stringify(checkCalibration(outputs, COMMIT))), outputs };
   });
   const prov = () => real.provenance;
   const merged = (stage: ShardStage, nulls: number[]) => ({ stage, M: nulls.length, provenance: prov(), nulls });
@@ -237,7 +239,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   const pAt = (x: number, a: number, b: number) => (x <= (a + b) / 2 ? 21 / 1001 : 1 / 1001);
 
   it('the fixture separates every gate statistic from its alternative', () => {
-    expect(calOk.pass).toBe(true);
+    expect(calOk.record.pass).toBe(true);
     expect(real.step1.bestCell).toBe(7);
     expect(real.step1.objectives[11]).toBeLessThan(real.step1.best);
     expect(real.purge.objective).not.toBe(real.step3.objective);
@@ -322,23 +324,44 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     if (maker.maker.returns[0] !== real.maker.returns[0]) expect(() => judgeVerdict(maker, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*maker\.returns\[0\]/);
   });
 
-  it('refuses unless a calibration record at the same commit says PASS (review m3)', () => {
+  it('takes every figure from the recomputation: a lengthened series or an extra key is refused (review n1)', () => {
+    const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
+    // three bars of +5% appended to cell 11: G3 would read them if it took the real file's series
+    const padded = structuredClone(real);
+    padded.step1.returns[11].push(0.05, 0.05, 0.05);
+    expect(() => judgeVerdict(padded, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.returns\[11\] \(length 1657 against 1660\)/);
+    expect(() => verifiedRealStage(padded, loaded)).toThrow(/REFUSE[\s\S]*length/);
+    const extra = structuredClone(real) as RealOutput & { note?: string };
+    extra.note = 'not produced by the real stage';
+    expect(() => judgeVerdict(extra, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*note \(unexpected\)/);
+    const nested = structuredClone(real);
+    (nested.step3 as unknown as Record<string, unknown>).added = 1;
+    expect(() => verifiedRealStage(nested, loaded)).toThrow(/REFUSE[\s\S]*step3\.added \(unexpected\)/);
+    // the value judged is the recomputation itself
+    expect(verifiedRealStage(real, loaded)).toEqual(JSON.parse(JSON.stringify(real)));
+  });
+
+  it('refuses unless the calibration outputs at this commit recompute to PASS and equal the record (review m3, n2)', () => {
     const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
     expect(() => judgeVerdict(real, ok, loaded, calOk)).not.toThrow();
-    const failed = checkCalibration(fakeCalibration((kind, k) => (kind === 'planted' ? 0.5 : uniformP(k, 99))), COMMIT);
-    expect(failed.pass).toBe(false);
+    const failOuts = fakeCalibration((kind, k) => (kind === 'planted' ? 0.5 : uniformP(k, 99)));
+    const failed = { record: checkCalibration(failOuts, COMMIT), outputs: failOuts };
+    expect(failed.record.pass).toBe(false);
     expect(() => judgeVerdict(real, ok, loaded, failed)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*FAIL/);
-    const other = checkCalibration(
-      fakeCalibration((kind, k) => (kind === 'planted' || kind === 'carry' ? 1 / 200 : uniformP(k, 99))).map((o) => ({ ...o, gitCommit: 'b'.repeat(40) })),
-      'b'.repeat(40)
-    );
-    expect(other.pass).toBe(true);
+    const otherOuts = calOk.outputs.map((o) => ({ ...o, gitCommit: 'b'.repeat(40) }));
+    const other = { record: checkCalibration(otherOuts, 'b'.repeat(40)), outputs: otherOuts };
+    expect(other.record.pass).toBe(true);
     expect(() => judgeVerdict(real, ok, loaded, other)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*commit/);
-    // a record's pass flag is recomputed from its own p-values, in both directions
-    expect(() => judgeVerdict(real, ok, loaded, { ...failed, pass: true })).toThrow(/REFUSE[\s\S]*calibration/);
-    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, pass: false })).toThrow(/REFUSE[\s\S]*pass flag does not recompute/);
-    // and its universes must be the header's 130
-    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, universes: calOk.universes.slice(1) })).toThrow(/130 header universes/);
+    // the record must equal the recomputation from the outputs: a flipped flag either way, edited p-values
+    expect(() => judgeVerdict(real, ok, loaded, { ...failed, record: { ...failed.record, pass: true } })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*pass/);
+    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, record: { ...calOk.record, pass: false } })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*pass/);
+    const edited = structuredClone(calOk.record);
+    edited.universes[3].isP = 0.5;
+    edited.iid.is.ps[3] = 0.5;
+    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, record: edited })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*universes\[3\]\.isP/);
+    // a passing record over failing outputs is refused, and so is a missing output
+    expect(() => judgeVerdict(real, ok, loaded, { record: calOk.record, outputs: failOuts })).toThrow(/REFUSE[\s\S]*calibration/);
+    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, outputs: calOk.outputs.slice(1) })).toThrow(/REFUSE[\s\S]*cal-iid-001/);
   });
 
   it('reports every item the inputs allow', () => {

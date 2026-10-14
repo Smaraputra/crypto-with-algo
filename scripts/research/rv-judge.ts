@@ -6,14 +6,16 @@
  *   rv-judge.ts merge --stage S --dir D --inputs-dir O --expect-manifest-hash H --out S.json
  *   rv-judge.ts dsr --real real.json --inputs-dir O --expect-manifest-hash H
  *   rv-judge.ts verdict --real real.json --is is-mcpt.json --wf wf-mcpt.json --block block.json
- *                       --calibration calibration.json --inputs-dir O --expect-manifest-hash H --out verdict.json
+ *                       --calibration calibration.json --calibration-dir C --inputs-dir O --expect-manifest-hash H --out verdict.json
  *   rv-judge.ts check-calibration --dir D --out calibration.json     (exit 2 when an acceptance rule fails)
  *
  * Every mode but `jobs` and `check-calibration` loads the recorded panel through loadInputs, which recomputes its
  * sha256 and refuses on any mismatch with the record, the expected manifest hash or GIT_COMMIT, and then requires
  * every file it reads to carry that same provenance. check-calibration reads no real data and requires every
- * calibration output to carry GIT_COMMIT. `verdict` refuses unless the calibration record at that commit says PASS,
- * and recomputes the whole `real` stage from the loaded panel before it judges (review m2, m3).
+ * calibration output to carry GIT_COMMIT. `verdict` recomputes the calibration acceptance from the per-universe
+ * outputs and refuses unless it is PASS and equals the record, and it recomputes the whole `real` stage from the
+ * loaded panel, refuses any difference from the real file, and takes every figure from the recomputation. `dsr`
+ * does the same for the real stage (review m2, m3, n1, n2).
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -395,17 +397,42 @@ function differences(a: unknown, b: unknown, path: string, out: string[], limit:
   if (!Object.is(a, b)) out.push(path);
 }
 
+/** The calibration evidence the verdict needs: the check-calibration record and the per-universe outputs it came from. */
+export interface CalibrationEvidence {
+  record: CalibrationCheck;
+  outputs: readonly CalibrationOutput[];
+}
+
 /**
- * Review m3: the header's calibration acceptance must have passed at this commit. The record's pass flag is
- * recomputed from its own per-universe p-values, so a flipped flag is refused too.
+ * Review m3 and n2: the header's calibration acceptance, recomputed from the per-universe outputs at this commit
+ * (every p-value from its nulls, every seed and scale checked by checkCalibration), must equal the record value by
+ * value and must be PASS. Returns the recomputed check.
  */
-function assertCalibrationPassed(calibration: CalibrationCheck, gitCommit: string): void {
-  if (calibration.gitCommit !== gitCommit) {
-    throw new Error(`REFUSE: the calibration record ran at commit ${calibration.gitCommit}, the verdict runs at ${gitCommit}`);
+function assertCalibrationPassed(evidence: CalibrationEvidence, gitCommit: string): CalibrationCheck {
+  let recomputed: CalibrationCheck;
+  try {
+    recomputed = JSON.parse(JSON.stringify(checkCalibration(evidence.outputs, gitCommit))) as CalibrationCheck;
+  } catch (error) {
+    throw new Error(`REFUSE: the calibration outputs do not check at commit ${gitCommit}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const recomputed = calibrationAcceptance(calibration.universes);
-  if (recomputed.pass !== calibration.pass) throw new Error('REFUSE: the calibration record\'s pass flag does not recompute from its p-values');
+  const diff: string[] = [];
+  differences(recomputed, evidence.record, '', diff, 10);
+  if (diff.length > 0) throw new Error(`REFUSE: the calibration record differs from its recomputation from the outputs at ${diff.join(', ')}`);
   if (!recomputed.pass) throw new Error('REFUSE: the calibration acceptance is FAIL, which stops the study (header CALIBRATION ACCEPTANCE)');
+  return recomputed;
+}
+
+/**
+ * Review m2 and n1: the `real` stage recomputed from the loaded panel and first-hour bars, compared with the real
+ * file value by value (bitwise, after the same JSON round trip, array lengths and unexpected keys included). Refuses
+ * any difference and returns the recomputation, which is what every caller judges and reports.
+ */
+export function verifiedRealStage(real: RealOutput, inputs: LoadedInputs): RealOutput {
+  const recomputed = JSON.parse(JSON.stringify(runRealStage(inputs))) as RealOutput;
+  const diff: string[] = [];
+  differences(recomputed, real, '', diff, 10);
+  if (diff.length > 0) throw new Error(`REFUSE: the real file differs from the loaded panel's recomputation at ${diff.join(', ')}`);
+  return recomputed;
 }
 
 /**
@@ -418,7 +445,7 @@ export function judgeVerdict(
   real: RealOutput,
   merged: { is: MergedNull; wf: MergedNull; block: MergedNull },
   inputs: LoadedInputs,
-  calibration: CalibrationCheck
+  calibration: CalibrationEvidence
 ): Verdict {
   const expect = inputs.provenance;
   if (!sameProvenance(real.provenance, expect)) throw new Error(`the real file's provenance ${JSON.stringify(real.provenance)} is not the inputs' ${JSON.stringify(expect)}`);
@@ -431,28 +458,26 @@ export function judgeVerdict(
     if (!sameProvenance(m.provenance, expect)) throw new Error(`the ${stage} null's provenance is not the inputs'`);
     if (m.M !== STAGE_M[stage] || m.nulls.length !== STAGE_M[stage]) throw new Error(`the ${stage} null holds ${m.nulls.length} values, M = ${STAGE_M[stage]} asserted`);
   }
-  assertCalibrationPassed(calibration, expect.gitCommit);
-  const recomputed = JSON.parse(JSON.stringify(runRealStage(inputs))) as RealOutput;
-  const diff: string[] = [];
-  differences(recomputed, real, '', diff, 10);
-  if (diff.length > 0) throw new Error(`REFUSE: the real file differs from the loaded panel's recomputation at ${diff.join(', ')}`);
+  const cal = assertCalibrationPassed(calibration, expect.gitCommit);
+  // every figure below comes from the recomputation, never from the real file (review n1)
+  const r = verifiedRealStage(real, inputs);
 
-  const objectives = recomputed.step1.objectives;
-  const best = recomputed.step1.best;
-  const wfObjective = recomputed.step3.objective;
+  const objectives = r.step1.objectives;
+  const best = r.step1.best;
+  const wfObjective = r.step3.objective;
   const g1 = pValue(best, merged.is.nulls);
   const g2 = pValue(wfObjective, merged.wf.nulls);
-  const dsr = rvDsr(real.step1.returns);
+  const dsr = rvDsr(r.step1.returns);
   const gates = {
     G1: { p: g1, threshold: G12_THRESHOLD, pass: g1 < G12_THRESHOLD },
     G2: { p: g2, threshold: G12_THRESHOLD, pass: g2 < G12_THRESHOLD },
     G3: { probability: dsr.gate.probability, threshold: DSR_MIN, N: DSR_GATE_TRIALS, pass: dsr.gate.pass },
   };
-  const rvV1 = seriesStats(real.rvV1.returns, real.t, real.firstStep, real.rvV1.detail);
-  const folds = real.step3.folds.map((f) => ({ f: f.f, testFrom: f.testFrom, testTo: f.testTo, cell: f.cell }));
+  const rvV1 = seriesStats(r.rvV1.returns, r.t, r.firstStep, r.rvV1.detail);
+  const folds = r.step3.folds.map((f) => ({ f: f.f, testFrom: f.testFrom, testTo: f.testTo, cell: f.cell }));
   return {
     provenance: expect,
-    calibration: { gitCommit: calibration.gitCommit, pass: calibration.pass },
+    calibration: { gitCommit: cal.gitCommit, pass: cal.pass },
     pass: gates.G1.pass && gates.G2.pass && gates.G3.pass,
     gates,
     step1: { best, bestCell: objectives.indexOf(best), bestAnnualised: annualise(best) },
@@ -460,19 +485,19 @@ export function judgeVerdict(
     dsr,
     reported: {
       rvV1,
-      walkForward: seriesStats(real.step3.returns, real.t, real.step3.firstStep, real.step3.detail),
+      walkForward: seriesStats(r.step3.returns, r.t, r.step3.firstStep, r.step3.detail),
       maker: {
-        ...seriesStats(real.maker.returns, real.t, real.firstStep, real.maker.detail),
-        makerFills: real.maker.detail.makerFills ?? 0,
-        fallbackFills: real.maker.detail.fallbackFills ?? 0,
+        ...seriesStats(r.maker.returns, r.t, r.firstStep, r.maker.detail),
+        makerFills: r.maker.detail.makerFills ?? 0,
+        fallbackFills: r.maker.detail.fallbackFills ?? 0,
       },
-      stress: { costs: real.stress.costs, perBar: objective(real.stress.returns), annualised: annualise(objective(real.stress.returns)) },
+      stress: { costs: r.stress.costs, perBar: objective(r.stress.returns), annualised: annualise(objective(r.stress.returns)) },
       neighbours: RV_CELLS.map((c) => ({ cell: c.index, buffer: c.buffer, betaNeutral: c.betaNeutral, flowOn: c.flowOn, perBar: objectives[c.index], annualised: annualise(objectives[c.index]) })),
       folds,
       distinctFoldCells: new Set(folds.map((f) => f.cell)).size,
       blockP: pValue(best, merged.block.nulls),
       dsrReported: dsr.reported,
-      purge: { objective: real.purge.objective, annualised: annualise(real.purge.objective), cells: real.purge.folds.map((f) => f.cell) },
+      purge: { objective: r.purge.objective, annualised: annualise(r.purge.objective), cells: r.purge.folds.map((f) => f.cell) },
       deskFillQuality: DESK_NOTE,
       predictions: {
         g3Fails: !gates.G3.pass,
@@ -481,7 +506,7 @@ export function judgeVerdict(
         foldsSelectDifferentCells: new Set(folds.map((f) => f.cell)).size > 1,
       },
     },
-    notes: [real.fundingMarkNote, FUNDING_MARK_NOTE, DESK_NOTE, CARRY_ONLY_NOTE].filter((x, i, all) => all.indexOf(x) === i),
+    notes: [r.fundingMarkNote, FUNDING_MARK_NOTE, DESK_NOTE, CARRY_ONLY_NOTE].filter((x, i, all) => all.indexOf(x) === i),
   };
 }
 
@@ -622,6 +647,13 @@ function flags(argv: string[], allowed: readonly string[]): Record<string, strin
 }
 
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8')) as T;
+
+/** Every calibration output in a directory (the calibrate stage's `<name>.json` files). */
+function readCalibrationOutputs(dir: string): CalibrationOutput[] {
+  return readdirSync(dir)
+    .filter((n) => n.endsWith('.json'))
+    .map((n) => readJson<CalibrationOutput>(join(dir, n)));
+}
 const fmt = (x: number) => (Number.isFinite(x) ? x.toFixed(4) : String(x));
 
 function main(): void {
@@ -644,10 +676,10 @@ function main(): void {
       console.log(`merge ${stage}: M = ${merged.M} from ${files.length} shards`);
     } else if (mode === 'dsr') {
       const a = flags(rest, ['real', 'inputs-dir', 'expect-manifest-hash']);
-      const { provenance } = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });
+      const inputs = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });
       const real = readJson<RealOutput>(a.real);
-      if (!sameProvenance(real.provenance, provenance)) throw new Error('the real file\'s provenance is not the inputs\'');
-      const d = rvDsr(real.step1.returns);
+      if (!sameProvenance(real.provenance, inputs.provenance)) throw new Error('the real file\'s provenance is not the inputs\'');
+      const d = rvDsr(verifiedRealStage(real, inputs).step1.returns);
       console.log(JSON.stringify(d));
       console.log(
         `G3: DSR ${fmt(d.gate.probability)} at N = ${d.gate.N} (${d.gate.pass ? 'pass' : 'fail'}), SR ${fmt(annualise(d.observedSharpe))} annualised, ` +
@@ -655,13 +687,13 @@ function main(): void {
           d.reported.map((r) => `N = ${r.N}: ${fmt(r.probability)}`).join(', ')
       );
     } else if (mode === 'verdict') {
-      const a = flags(rest, ['real', 'is', 'wf', 'block', 'calibration', 'inputs-dir', 'expect-manifest-hash', 'out']);
+      const a = flags(rest, ['real', 'is', 'wf', 'block', 'calibration', 'calibration-dir', 'inputs-dir', 'expect-manifest-hash', 'out']);
       const inputs = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });
       const v = judgeVerdict(
         readJson<RealOutput>(a.real),
         { is: readJson<MergedNull>(a.is), wf: readJson<MergedNull>(a.wf), block: readJson<MergedNull>(a.block) },
         inputs,
-        readJson<CalibrationCheck>(a.calibration)
+        { record: readJson<CalibrationCheck>(a.calibration), outputs: readCalibrationOutputs(a['calibration-dir']) }
       );
       writeFileSync(a.out, JSON.stringify(v, null, 2));
       const g = v.gates;
@@ -672,10 +704,7 @@ function main(): void {
       for (const note of v.notes) console.log(note);
     } else if (mode === 'check-calibration') {
       const a = flags(rest, ['dir', 'out']);
-      const outputs = readdirSync(a.dir)
-        .filter((n) => n.endsWith('.json'))
-        .map((n) => readJson<CalibrationOutput>(join(a.dir, n)));
-      const c = checkCalibration(outputs, gitCommit);
+      const c = checkCalibration(readCalibrationOutputs(a.dir), gitCommit);
       writeFileSync(a.out, JSON.stringify(c, null, 2));
       console.log(`iid step 2: KS p ${fmt(c.iid.is.ks.p)}, share p <= 0.05 ${fmt(c.iid.is.share05)}; step 4: KS p ${fmt(c.iid.wf.ks.p)}, share ${fmt(c.iid.wf.share05)} ${c.iid.pass ? 'PASS' : 'FAIL'}`);
       console.log(`planted: step 2 p <= 0.01 on ${c.planted.isAt01}/10, step 4 on ${c.planted.wfAt01}/10 ${c.planted.pass ? 'PASS' : 'FAIL'}`);
