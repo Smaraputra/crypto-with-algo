@@ -87,7 +87,7 @@ describe('syncFundingSettlements', () => {
     await syncFundingSettlements(['BTCUSDT'], NOW, deps);
     const second = await syncFundingSettlements(['BTCUSDT'], NOW, deps);
     expect(await FundingSettlement.countDocuments({ symbol: 'BTCUSDT' })).toBe(2);
-    expect(second[0].inserted).toBe(0);
+    expect(second).toEqual([{ symbol: 'BTCUSDT', inserted: 0, updated: 0 }]);
   });
 
   it('keeps an archive row intact except for a finite markPrice', async () => {

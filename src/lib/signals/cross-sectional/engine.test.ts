@@ -65,6 +65,9 @@ describe('engine purity', () => {
     for (const s of specifiers) {
       expect(['./factors', './portfolio', '@/lib/backtest/cost-model']).toContain(s);
     }
+    expect(src).not.toMatch(/^\s*import\s+['"]/m);
+    expect(src).not.toMatch(/\brequire\s*\(/);
+    expect(src).not.toMatch(/\bimport\s*\(/);
     expect(src).not.toMatch(/Date\.now\(/);
     expect(src).not.toMatch(/\bfetch\(/);
   });
@@ -178,6 +181,28 @@ describe('rvFactors', () => {
     expect(shuffled.map((b) => b.openTime)).not.toEqual(eth.bars.map((b) => b.openTime));
     const res = rvFactors(withSymbol('ETHUSDT', { bars: shuffled }), T);
     expect(res).toEqual(sorted);
+  });
+
+  it('ignores extreme values and a gap in bars older than the 43-bar window', () => {
+    const base = universe();
+    const sorted = rvFactors(base, T);
+    const older = (first: number): RvBar[] =>
+      Array.from({ length: 17 }, (_, k) => ({
+        // a one-bar gap sits in the middle of the old history
+        openTime: first - (k + 1 + (k >= 8 ? 1 : 0)) * BAR,
+        close: k % 2 ? 1e9 : Number.NaN,
+        volume: Number.NaN,
+        takerBuyVolume: null,
+      }));
+    const padded = base.map((u) => ({ ...u, bars: [...older(u.bars[0].openTime), ...u.bars] }));
+    expect(padded[0].bars).toHaveLength(60);
+    expect(rvFactors(padded, T)).toEqual(sorted);
+  });
+
+  it('throws bad_config when the momentum window does not fit in the flow window', () => {
+    expect(() => rvFactors(universe(), T, { ...RV_V1, momBars: 43 })).toThrow(
+      expect.objectContaining({ code: 'bad_config' })
+    );
   });
 
   it('accepts a settlement exactly at the bar close and rejects one at or before the previous close', () => {
@@ -351,6 +376,15 @@ describe('rvTargets', () => {
     expect(neutral.get('S10')).toBeCloseTo(-1 / 6, 12);
   });
 
+  it('throws beta_missing when beta neutrality is on and a ranked symbol has no finite beta', () => {
+    const betas = new Map(names.map((n) => [n, 1]));
+    betas.delete('S4');
+    expect(() => rvTargets(ranked, new Map(), betas)).toThrow(expect.objectContaining({ code: 'beta_missing' }));
+    betas.set('S4', Number.NaN);
+    expect(() => rvTargets(ranked, new Map(), betas)).toThrow(expect.objectContaining({ code: 'beta_missing' }));
+    expect(rvTargets(ranked, new Map(), new Map(), plain).size).toBe(4);
+  });
+
   it('defaults to the rv-v1 cell', () => {
     const betas = new Map(names.map((n) => [n, 1]));
     const out = rvTargets(ranked, new Map(), betas);
@@ -479,7 +513,7 @@ describe('rvStep taker', () => {
           { fundingTime: CLOSE + BAR + 1, rate: 0.5, markPrice: 1 },
         ],
       },
-      fillBars: { A: fb(100), B: fb(50) },
+      fillBars: { A: fb(110), B: fb(50) },
       targets: { A: 0.5, B: -0.5 },
     });
     expect(record.funding).toHaveLength(1);
@@ -594,16 +628,71 @@ describe('rvStep taker', () => {
     expect(one.state.cash).toBe(two.state.cash);
   });
 
-  it('does not clamp negative equity', () => {
+  it('halts without sizing or trading when equity is not positive', () => {
     const state: RvTrackState = { cash: -6000, positions: { A: { qty: 50, avgEntry: 100, lastMark: 100 } } };
     const { record, state: next } = step(state, {
       prevFillTime: CLOSE - BAR,
-      fillBars: { A: fb(100) },
-      targets: {},
+      fillBars: { A: fb(100), B: fb(50) },
+      targets: { A: 0.5, B: -0.5 },
     });
     expect(record.equityBefore).toBeCloseTo(-1000, 9);
-    expect(record.equityAfter).toBeLessThan(-1000);
-    expect(next.cash).toBeLessThan(0);
+    expect(record.halted).toBe('equity_non_positive');
+    expect(record.fills).toEqual([]);
+    expect(record.skippedEntries).toEqual([]);
+    expect(next.positions).toEqual(state.positions);
+    expect(next.cash).toBe(-6000);
+    expect(record.equityAfter).toBeCloseTo(-1000, 9);
+    expect(record.gross).toBeNull();
+  });
+
+  it('does not halt at positive equity', () => {
+    const { record } = first();
+    expect(record.halted).toBeNull();
+    expect(record.gross).not.toBeNull();
+  });
+
+  it('treats a non-finite settlement mark price as missing', () => {
+    const { state } = first();
+    const { record } = step(state, {
+      prevFillTime: CLOSE,
+      fillTime: CLOSE + BAR,
+      settlements: { A: [{ fundingTime: CLOSE + BAR, rate: 0.001, markPrice: Number.NaN }] },
+      fillBars: { A: fb(110), B: fb(50) },
+      targets: { A: 0.5, B: -0.5 },
+    });
+    expect(record.funding[0].markPrice).toBe(100);
+    expect(record.funding[0].amount).toBeCloseTo(-5, 9);
+  });
+
+  it('throws bad_input on a non-finite settlement rate', () => {
+    const { state } = first();
+    expect(() =>
+      step(state, {
+        prevFillTime: CLOSE,
+        fillTime: CLOSE + BAR,
+        settlements: { A: [{ fundingTime: CLOSE + BAR, rate: Number.NaN, markPrice: 100 }] },
+        fillBars: { A: fb(100), B: fb(50) },
+        targets: {},
+      })
+    ).toThrow(expect.objectContaining({ code: 'bad_input' }));
+  });
+
+  it.each([
+    ['open', { open: Number.NaN }],
+    ['high', { high: Number.POSITIVE_INFINITY }],
+    ['low', { low: 0 }],
+    ['close', { close: -1 }],
+  ])('throws bad_input on a bad fill bar %s', (_name, patch) => {
+    expect(() =>
+      step(rvInitialState(), { fillBars: { A: fb(100, patch as Partial<RvFillBar>) }, targets: { A: 0.5 } })
+    ).toThrow(expect.objectContaining({ code: 'bad_input' }));
+  });
+
+  it('throws bad_input when prevFillTime is null but positions are held', () => {
+    const state: RvTrackState = { cash: 5000, positions: { A: { qty: 50, avgEntry: 100, lastMark: 100 } } };
+    expect(() => step(state, { fillBars: { A: fb(100) }, targets: {} })).toThrow(
+      expect.objectContaining({ code: 'bad_input' })
+    );
   });
 });
 

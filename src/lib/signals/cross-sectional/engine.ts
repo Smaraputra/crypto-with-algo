@@ -86,7 +86,13 @@ export type RvSkipReason =
  */
 export class RvDataError extends Error {
   constructor(
-    public code: 'btc_missing' | 'universe_too_small' | 'held_symbol_unscored',
+    public code:
+      | 'btc_missing'
+      | 'universe_too_small'
+      | 'held_symbol_unscored'
+      | 'beta_missing'
+      | 'bad_input'
+      | 'bad_config',
     message: string
   ) {
     super(message);
@@ -187,6 +193,9 @@ function betaOf(rets: Map<number, number>, btc: Map<number, number>, cfg: RvConf
  * rather than scored on a default.
  */
 export function rvFactors(inputs: RvSymbolInput[], barTime: number, cfg: RvConfig = RV_V1): RvFactorResult {
+  if (cfg.momBars + 1 > cfg.flowBars) {
+    throw new RvDataError('bad_config', `momBars ${cfg.momBars} needs ${cfg.momBars + 1} bars but flowBars is ${cfg.flowBars}`);
+  }
   const scored: Scored[] = [];
   const skipped: RvFactorResult['skipped'] = [];
   for (const input of inputs) {
@@ -289,6 +298,14 @@ export function rvTargets(
     }
   }
 
+  if (cell.betaNeutral) {
+    for (const r of ranked) {
+      if (!Number.isFinite(betas.get(r.symbol))) {
+        throw new RvDataError('beta_missing', `${r.symbol} has no finite beta for beta-neutral sizing`);
+      }
+    }
+  }
+
   // portfolio.ts trims retained legs in insertion order, so insert best-ranked first
   const longs = [...held].filter(([, side]) => side > 0).sort(([a], [b]) => rankOf.get(a)! - rankOf.get(b)!);
   const shorts = [...held].filter(([, side]) => side < 0).sort(([a], [b]) => rankOf.get(b)! - rankOf.get(a)!);
@@ -349,7 +366,10 @@ export interface RvStepRecord {
   unrealizedPnl: number;
   stale: string[];
   skippedEntries: string[];
-  gross: number;
+  /** Set when the step sized and traded nothing because equity was not positive. */
+  halted: 'equity_non_positive' | null;
+  /** Notional over equity after the step; null when equity is not positive. */
+  gross: number | null;
 }
 
 const QTY_EPS = 1e-12;
@@ -388,8 +408,18 @@ export function rvStep(
     unrealizedPnl: 0,
     stale: [],
     skippedEntries: [],
-    gross: 0,
+    halted: null,
+    gross: null,
   };
+
+  if (input.prevFillTime === null && Object.keys(positions).length > 0) {
+    throw new RvDataError('bad_input', 'prevFillTime is null but the state holds positions');
+  }
+  for (const [sym, bar] of Object.entries(input.fillBars)) {
+    if (bar && ![bar.open, bar.high, bar.low, bar.close].every((v) => Number.isFinite(v) && v > 0)) {
+      throw new RvDataError('bad_input', `fill bar for ${sym} has a non-finite or non-positive price`);
+    }
+  }
 
   // 1. Funding on the quantity held going into the step, one entry per settlement crossed
   for (const sym of Object.keys(positions).sort()) {
@@ -398,7 +428,10 @@ export function rvStep(
       .filter((s) => (input.prevFillTime === null || s.fundingTime > input.prevFillTime) && s.fundingTime <= input.fillTime)
       .sort((a, b) => a.fundingTime - b.fundingTime);
     for (const s of crossed) {
-      const markPrice = s.markPrice ?? pos.lastMark;
+      if (!Number.isFinite(s.rate)) {
+        throw new RvDataError('bad_input', `settlement for ${sym} at ${s.fundingTime} has a non-finite rate`);
+      }
+      const markPrice = s.markPrice !== null && Number.isFinite(s.markPrice) ? s.markPrice : pos.lastMark;
       const amount = -pos.qty * markPrice * s.rate;
       cash += amount;
       record.funding.push({ symbol: sym, fundingTime: s.fundingTime, amount, markPrice });
@@ -417,11 +450,14 @@ export function rvStep(
   }
   const equityBefore = markedEquity(cash, positions);
   record.equityBefore = equityBefore;
+  // Sizing from non-positive equity would invert every target, so the step only marks
+  const halted = !(equityBefore > 0);
+  if (halted) record.halted = 'equity_non_positive';
 
   // 3-4. Size every symbol from the one snapshot, then trade the difference
   const symbols = [...new Set([...Object.keys(positions), ...Object.keys(input.targets)])].sort();
   const slip = cfg.costs.takerSlippageBps / 1e4;
-  for (const sym of symbols) {
+  for (const sym of halted ? [] : symbols) {
     const pos = positions[sym];
     const qty = pos?.qty ?? 0;
     const weight = input.targets[sym] ?? 0;
@@ -489,7 +525,7 @@ export function rvStep(
     record.unrealizedPnl += p.qty * (p.lastMark - p.avgEntry);
     notional += Math.abs(p.qty * p.lastMark);
   }
-  record.gross = notional / record.equityAfter;
+  record.gross = record.equityAfter > 0 ? notional / record.equityAfter : null;
 
   return { state: { cash, positions }, record };
 }
