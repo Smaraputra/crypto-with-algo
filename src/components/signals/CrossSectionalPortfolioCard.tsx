@@ -44,6 +44,7 @@ function utcDate(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
 
+/** Unsigned magnitude, for callers that place the sign themselves. */
 function usd(value: number): string {
   return `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -53,6 +54,12 @@ function signedUsd(value: number): string {
   const cents = Math.round(value * 100);
   if (cents === 0) return '$0.00';
   return `${cents > 0 ? '+' : '-'}${usd(cents / 100)}`;
+}
+
+/** An equity level: no plus sign, but a negative equity keeps its minus. */
+function equityUsd(value: number): string {
+  const cents = Math.round(value * 100);
+  return cents < 0 ? `-${usd(cents / 100)}` : usd(cents / 100);
 }
 
 function signedPercent(fraction: number): string {
@@ -173,7 +180,7 @@ function TrackPanel({
   return (
     <section className="rounded-md border border-border px-3 py-2.5" aria-label={name}>
       <h3 className="text-xs font-medium text-muted-foreground">{name}</h3>
-      <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{usd(equity)}</p>
+      <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{equityUsd(equity)}</p>
       <p className={cn('font-mono text-xs tabular-nums', changeTone(change))}>{signedUsd(change)} since start</p>
       <p className="mt-2 text-xs text-muted-foreground">{cost}</p>
       {children}
@@ -465,7 +472,7 @@ function LegacyNote({ legacy }: { legacy: RvLegacyBookView | null }) {
           Last signal processed <Stamp ms={legacy.lastProcessedBarTime} />
         </>
       )}
-      , taker {usd(legacy.equityTaker)}, maker {usd(legacy.equityMaker)}.
+      , taker {equityUsd(legacy.equityTaker)}, maker {equityUsd(legacy.equityMaker)}.
     </p>
   );
 }
@@ -509,7 +516,8 @@ export function CrossSectionalPortfolioCard() {
     return (
       <Shell key="error">
         <CardHeader className="px-4 sm:px-6">
-          <TitleRow status={null} />
+          {/* The book is unreadable, but rv-v1 is unvalidated by construction until a verdict says otherwise */}
+          <TitleRow status="unvalidated" />
         </CardHeader>
         <CardContent className="space-y-3 px-4 sm:px-6">
           <p role="alert" className="text-sm">
@@ -541,7 +549,7 @@ export function CrossSectionalPortfolioCard() {
       <Shell key="empty">
         <CardHeader className="gap-1.5 px-4 sm:px-6">
           <TitleRow status={null} />
-          <p className="text-sm">Experimental. Paper only.</p>
+          <p className="text-sm">Experimental. Not validated. Paper only.</p>
         </CardHeader>
         <CardContent className="space-y-3 px-4 sm:px-6">
           {refreshFailed}

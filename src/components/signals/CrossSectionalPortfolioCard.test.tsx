@@ -178,11 +178,20 @@ describe('CrossSectionalPortfolioCard states', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the not validated badge beside the title when the request fails', () => {
+    mockHook({ isError: true, error: new Error('Could not read the rv-v1 desk') });
+    render(<CrossSectionalPortfolioCard />);
+
+    expect(screen.getByText('8h Relative Value, rv-v1')).toBeInTheDocument();
+    expect(screen.getByText('Not validated')).toBeInTheDocument();
+  });
+
   it('shows an empty state when no book exists yet', () => {
     mockHook({ data: response({ book: null, step: null, completedStep: null }) });
     render(<CrossSectionalPortfolioCard />);
 
     expect(screen.getByText('8h Relative Value, rv-v1')).toBeInTheDocument();
+    expect(screen.getByText('Experimental. Not validated. Paper only.')).toBeInTheDocument();
     expect(
       screen.getByText('No rv-v1 book yet. The paper desk creates it on its first run, at 01:05, 09:05 or 17:05 UTC.')
     ).toBeInTheDocument();
@@ -313,6 +322,15 @@ describe('CrossSectionalPortfolioCard figures', () => {
     expect(screen.getByText('-$12.40 since start')).toBeInTheDocument();
   });
 
+  it('keeps the sign of a negative equity', () => {
+    mockHook({ data: response({ book: book({ equity: { taker: -1_234.56, maker: 10_180.25 } }) }) });
+    render(<CrossSectionalPortfolioCard />);
+
+    expect(screen.getByText('-$1,234.56')).toBeInTheDocument();
+    expect(screen.getByText('-$11,234.56 since start')).toBeInTheDocument();
+    expect(screen.getByText('$10,180.25')).toBeInTheDocument();
+  });
+
   it('lists positions from the book, not from the latest signal ranking', () => {
     mockHook({ data: response() });
     render(<CrossSectionalPortfolioCard />);
@@ -350,6 +368,20 @@ describe('CrossSectionalPortfolioCard figures', () => {
     expect(
       screen.getByText('Stale: no 1h perp bar at the last step, so the last price is from an earlier step.')
     ).toBeInTheDocument();
+  });
+
+  it('badges a symbol as stale when only the maker track could not price it', () => {
+    mockHook({
+      data: response({
+        completedStep: completedStep({ taker: record({ stale: [] }), maker: record({ stale: ['SOLUSDT'] }) }),
+      }),
+    });
+    render(<CrossSectionalPortfolioCard />);
+
+    const rows = within(positionsTable()).getAllByRole('row').slice(1);
+    expect(rows[2]).toHaveTextContent('SOL');
+    expect(within(rows[2]).getByText('Stale')).toBeInTheDocument();
+    expect(within(positionsTable()).getAllByText('Stale')).toHaveLength(1);
   });
 
   it('shows the maker fill rate from the book fill counts', () => {
