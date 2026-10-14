@@ -23,6 +23,7 @@ import {
   type ShardStage,
 } from './rv-stages';
 import {
+  CARRY_ONLY_NOTE,
   DSR_GATE_TRIALS,
   DSR_REPORTED_TRIALS,
   checkCalibration,
@@ -221,6 +222,8 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     expect(v.gates.G3).toEqual({ probability: dsr.gate.probability, threshold: 0.95, N: 672, pass: dsr.gate.probability >= 0.95 });
     expect(v.pass).toBe(false);
     expect(v.notes).toContain(FUNDING_MARK_NOTE);
+    expect(v.notes).toContain(CARRY_ONLY_NOTE);
+    expect(CARRY_ONLY_NOTE).toMatch(/0\.00205[\s\S]*far above real funding/);
     expect(v.provenance).toEqual(prov());
   });
 
@@ -355,6 +358,7 @@ describe('checkCalibration (header CALIBRATION ACCEPTANCE)', () => {
     expect(c.planted).toMatchObject({ isAt01: 10, wfAt01: 10, pass: true });
     expect(c.pass).toBe(true);
     expect(c.timing.isPermutationMs).toBe(320);
+    expect(c.carry.note).toBe(CARRY_ONLY_NOTE);
   });
 
   it('fails an anti-conservative driftless test: too many p <= 0.05', () => {

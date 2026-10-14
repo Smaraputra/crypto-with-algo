@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { deflatedSharpe } from '@/lib/stats/deflated-sharpe';
 import { sampleKurtosis, sampleSkewness } from '@/lib/stats/normal';
 import { gate8Variance, type Gate8Variance } from './legends-dsr';
+import { CARRY_ONLY_FUNDING_C } from './rv-synthetic';
 import {
   CALIBRATION_BARS,
   CALIBRATION_UNIVERSES,
@@ -58,6 +59,9 @@ export const DSR_REPORTED_TRIALS = [26, 2161] as const;
 const STAGE_M: Record<ShardStage, number> = { 'is-mcpt': 1000, 'wf-mcpt': 1000, block: 1000 };
 
 const SLICE_FROM = Date.UTC(2026, 6, 1);
+
+/** Accepted at the pre-review fix: the carry-only universe's loading is stated wherever it is reported. */
+export const CARRY_ONLY_NOTE = `The carry-only calibration universe (reported, never a gate) plants funding at c = ${CARRY_ONLY_FUNDING_C} per unit of score, about 0.2% per 8h, far above real funding levels: it tests the machinery's power on a carry edge, not a realistic one.`;
 const BARS_PER_YEAR = 365.25 * 3;
 
 // ------------------------------------------------------------------------------------------------ KS
@@ -434,7 +438,7 @@ export function judgeVerdict(real: RealOutput, merged: { is: MergedNull; wf: Mer
         foldsSelectDifferentCells: new Set(folds.map((f) => f.cell)).size > 1,
       },
     },
-    notes: [real.fundingMarkNote, FUNDING_MARK_NOTE, DESK_NOTE].filter((x, i, all) => all.indexOf(x) === i),
+    notes: [real.fundingMarkNote, FUNDING_MARK_NOTE, DESK_NOTE, CARRY_ONLY_NOTE].filter((x, i, all) => all.indexOf(x) === i),
   };
 }
 
@@ -452,7 +456,7 @@ export interface CalibrationCheck {
   iid: { is: StepAcceptance; wf: StepAcceptance; pass: boolean };
   planted: { isPs: number[]; wfPs: number[]; isAt01: number; wfAt01: number; pass: boolean };
   garch: { is: StepAcceptance; wf: StepAcceptance };
-  carry: { isPs: number[]; wfPs: number[]; isAt01: number; wfAt01: number };
+  carry: { isPs: number[]; wfPs: number[]; isAt01: number; wfAt01: number; note: string };
   timing: CalibrationOutput['timing'];
   pass: boolean;
 }
@@ -526,7 +530,7 @@ export function checkCalibration(outputs: readonly CalibrationOutput[], gitCommi
     iid: { is: iidIs, wf: iidWf, pass: iidPass },
     planted: { ...planted, pass: plantedPass },
     garch: { is: driftless(of('garch', 'isP')), wf: driftless(of('garch', 'wfP')) },
-    carry: { isPs: of('carry', 'isP'), wfPs: of('carry', 'wfP'), isAt01: at01(of('carry', 'isP')), wfAt01: at01(of('carry', 'wfP')) },
+    carry: { isPs: of('carry', 'isP'), wfPs: of('carry', 'wfP'), isAt01: at01(of('carry', 'isP')), wfAt01: at01(of('carry', 'wfP')), note: CARRY_ONLY_NOTE },
     timing,
     pass: iidPass && plantedPass,
   };
@@ -611,6 +615,7 @@ function main(): void {
       console.log(`planted: step 2 p <= 0.01 on ${c.planted.isAt01}/10, step 4 on ${c.planted.wfAt01}/10 ${c.planted.pass ? 'PASS' : 'FAIL'}`);
       console.log(`garch (reported): step 2 KS p ${fmt(c.garch.is.ks.p)}, step 4 KS p ${fmt(c.garch.wf.ks.p)}`);
       console.log(`carry-only (reported): step 2 p <= 0.01 on ${c.carry.isAt01}/10, step 4 on ${c.carry.wfAt01}/10`);
+      console.log(c.carry.note);
       const t = c.timing;
       console.log(`mean wall time: one cell ${t.oneCellMs.toFixed(0)} ms, 12 cells ${t.twelveCellsMs.toFixed(0)} ms, permutation step 2 ${t.isPermutationMs.toFixed(0)} ms, step 4 ${t.wfPermutationMs.toFixed(0)} ms`);
       console.log(`CALIBRATION ${c.pass ? 'PASS' : 'FAIL'}`);
