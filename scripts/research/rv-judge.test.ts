@@ -18,6 +18,7 @@ import {
   stageSeed,
   writeInputs,
   type CalibrationOutput,
+  type LoadedInputs,
   type Provenance,
   type RealOutput,
   type ShardStage,
@@ -25,6 +26,7 @@ import {
 import {
   CARRY_ONLY_NOTE,
   DSR_GATE_TRIALS,
+  type CalibrationCheck,
   DSR_REPORTED_TRIALS,
   checkCalibration,
   jobLines,
@@ -116,6 +118,17 @@ describe('rvDsr (header VERDICT G3, N = 672, V floor 1 / (T - 1))', () => {
     expect(out.gate.probability).toBeCloseTo(want.psr, 12);
   });
 
+  it('G3 deflates cell 11\'s Sharpe, not the best cell\'s', () => {
+    // the spread reversed: cell 0 leads and cell 11 trails
+    const series = make(-0.0005, 3);
+    const sharpes = series.map((x) => perPeriodSharpe(x));
+    expect(Math.max(...sharpes)).toBe(sharpes[0]);
+    const out = rvDsr(series);
+    expect(out.observedSharpe).toBe(sharpes[11]);
+    expect(out.gate.probability).toBeCloseTo(hand(series, 672).psr, 12);
+    expect(out.reported.map((r) => r.probability)).toEqual([26, 2161].map((N) => expect.closeTo(hand(series, N).psr, 12)));
+  });
+
   it('reports N = 26 and the program count 2,161, never gating on them', () => {
     expect(DSR_GATE_TRIALS).toBe(672);
     expect(DSR_REPORTED_TRIALS).toEqual([26, 2161]);
@@ -199,23 +212,40 @@ describe('mergeShards (judge merge: coverage, seeds, provenance)', () => {
 // ------------------------------------------------------------------------------------------------ verdict
 
 describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
+  // Planted seed 72 is chosen so each gate's statistic differs from its alternative: the best in-sample cell is 7,
+  // not 11, and the 1-bar purge selects cells 7, 7 where the walk-forward selects 5, 7, so the two objectives differ.
   let real: RealOutput;
-  let dir: string;
+  let loaded: LoadedInputs;
+  let calOk: CalibrationCheck;
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), 'rv-judge-'));
-    const panel = syntheticPanel({ bars: 1700, symbols: 10, mode: 'planted', strength: 1, seed: 61 });
+    const dir = mkdtempSync(join(tmpdir(), 'rv-judge-'));
+    const panel = syntheticPanel({ bars: 1700, symbols: 10, mode: 'planted', strength: 1, seed: 72 });
     const firstHour = { open: panel.open, high: panel.open.map((r) => r.map((o) => o * 1.002)), low: panel.open.map((r) => r.map((o) => o * 0.998)), close: panel.open };
     writeInputs(dir, { panel, firstHour, manifestHash: PROV.manifestHash, resolutions: { sha256: 'd'.repeat(64), entries: 0, flags: [] }, gitCommit: COMMIT, span: { from: 0, to: 1 } });
-    real = runRealStage(loadInputs(dir, { manifestHash: PROV.manifestHash, gitCommit: COMMIT }));
+    loaded = loadInputs(dir, { manifestHash: PROV.manifestHash, gitCommit: COMMIT });
+    real = runRealStage(loaded);
     rmSync(dir, { recursive: true, force: true });
+    calOk = checkCalibration(fakeCalibration((kind, k) => (kind === 'planted' || kind === 'carry' ? 1 / 200 : uniformP(k, 99))), COMMIT);
   });
   const prov = () => real.provenance;
   const merged = (stage: ShardStage, nulls: number[]) => ({ stage, M: nulls.length, provenance: prov(), nulls });
+  const below = Array(1000).fill(-1);
+  /** 20 nulls halfway between two statistics: at or above exactly one of them. */
+  const between = (a: number, b: number) => [...Array(980).fill(-1), ...Array(20).fill((a + b) / 2)];
+  const pAt = (x: number, a: number, b: number) => (x <= (a + b) / 2 ? 21 / 1001 : 1 / 1001);
+
+  it('the fixture separates every gate statistic from its alternative', () => {
+    expect(calOk.pass).toBe(true);
+    expect(real.step1.bestCell).toBe(7);
+    expect(real.step1.objectives[11]).toBeLessThan(real.step1.best);
+    expect(real.purge.objective).not.toBe(real.step3.objective);
+    expect(real.purge.folds.map((f) => f.cell)).not.toEqual(real.step3.folds.map((f) => f.cell));
+    expect(Math.max(...rvDsr(real.step1.returns).sharpes)).not.toBe(rvDsr(real.step1.returns).observedSharpe);
+  });
 
   it('G1 and G2 are the step 2 and step 4 p-values below 0.01, G3 the deflated Sharpe of cell 11 at N = 672', () => {
-    const below = Array(1000).fill(-1);
     const wf = [...Array(980).fill(-1), ...Array(20).fill(real.step3.objective)];
-    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', wf), block: merged('block', below) }, prov());
+    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', wf), block: merged('block', below) }, loaded, calOk);
     expect(v.gates.G1).toEqual({ p: 1 / 1001, threshold: 0.01, pass: true });
     expect(v.gates.G2).toEqual({ p: 21 / 1001, threshold: 0.01, pass: false });
     const dsr = rvDsr(real.step1.returns);
@@ -227,42 +257,87 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     expect(v.provenance).toEqual(prov());
   });
 
-  it('G1 tests the best in-sample objective and G2 the stitched walk-forward objective, never the other', () => {
+  it('G1 tests the best in-sample cell\'s objective, not cell 11\'s', () => {
+    const best = real.step1.best;
+    const c11 = real.step1.objectives[11];
+    const v = judgeVerdict(real, { is: merged('is-mcpt', between(best, c11)), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
+    expect(v.gates.G1.p).toBe(pAt(best, best, c11));
+    expect(v.gates.G1.p).not.toBe(pAt(c11, best, c11));
+    expect(v.step1.bestCell).toBe(7);
+  });
+
+  it('G2 tests the stitched walk-forward objective, not the purge sensitivity\'s', () => {
+    const wfObj = real.step3.objective;
+    const purge = real.purge.objective;
+    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', between(wfObj, purge)), block: merged('block', below) }, loaded, calOk);
+    expect(v.gates.G2.p).toBe(pAt(wfObj, wfObj, purge));
+    expect(v.gates.G2.p).not.toBe(pAt(purge, wfObj, purge));
+    expect(v.reported.purge.objective).toBe(purge);
+  });
+
+  it('G1 and G2 never take each other\'s statistic', () => {
     const best = real.step1.best;
     const wfObj = real.step3.objective;
     expect(best).not.toBe(wfObj);
-    // 20 nulls halfway between the two statistics: at or above exactly one of them
-    const mid = [...Array(980).fill(-1), ...Array(20).fill((best + wfObj) / 2)];
-    const v = judgeVerdict(real, { is: merged('is-mcpt', mid), wf: merged('wf-mcpt', mid), block: merged('block', mid) }, prov());
-    expect(v.gates.G1.p).toBe(best <= (best + wfObj) / 2 ? 21 / 1001 : 1 / 1001);
-    expect(v.gates.G2.p).toBe(wfObj <= (best + wfObj) / 2 ? 21 / 1001 : 1 / 1001);
+    const mid = between(best, wfObj);
+    const v = judgeVerdict(real, { is: merged('is-mcpt', mid), wf: merged('wf-mcpt', mid), block: merged('block', mid) }, loaded, calOk);
+    expect(v.gates.G1.p).toBe(pAt(best, best, wfObj));
+    expect(v.gates.G2.p).toBe(pAt(wfObj, best, wfObj));
     expect(v.gates.G1.p).not.toBe(v.gates.G2.p);
     expect(v.reported.blockP).toBe(v.gates.G1.p);
   });
 
   it('passes only when all three gates pass, with ties counted against the rule', () => {
-    const below = Array(1000).fill(-1);
-    const all = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, prov());
+    const all = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
     expect(all.pass).toBe(all.gates.G3.pass);
-    const tie = judgeVerdict(real, { is: merged('is-mcpt', [...Array(990).fill(-1), ...Array(10).fill(real.step1.best)]), wf: merged('wf-mcpt', below), block: merged('block', below) }, prov());
+    const tie = judgeVerdict(real, { is: merged('is-mcpt', [...Array(990).fill(-1), ...Array(10).fill(real.step1.best)]), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
     expect(tie.gates.G1.p).toBe(11 / 1001);
     expect(tie.gates.G1.pass).toBe(false);
   });
 
-  it('refuses inputs from another panel or commit, a wrong M, or a real file whose objectives do not recompute', () => {
-    const below = Array(1000).fill(-1);
+  it('refuses inputs from another panel or commit, and a wrong M', () => {
     const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
-    expect(() => judgeVerdict(real, { ...ok, wf: { ...ok.wf, provenance: { ...prov(), gitCommit: 'b'.repeat(40) } } }, prov())).toThrow(/provenance/);
-    expect(() => judgeVerdict(real, ok, { ...prov(), panelSha256: '0'.repeat(64) })).toThrow(/provenance/);
-    expect(() => judgeVerdict(real, { ...ok, is: merged('is-mcpt', below.slice(1)) }, prov())).toThrow(/M/);
-    const forged = structuredClone(real);
-    forged.step1.objectives[3] += 0.01;
-    expect(() => judgeVerdict(forged, ok, prov())).toThrow(/recompute/);
+    expect(() => judgeVerdict(real, { ...ok, wf: { ...ok.wf, provenance: { ...prov(), gitCommit: 'b'.repeat(40) } } }, loaded, calOk)).toThrow(/provenance/);
+    expect(() => judgeVerdict(real, ok, { ...loaded, provenance: { ...prov(), panelSha256: '0'.repeat(64) } }, calOk)).toThrow(/provenance/);
+    expect(() => judgeVerdict(real, { ...ok, is: merged('is-mcpt', below.slice(1)) }, loaded, calOk)).toThrow(/M/);
+  });
+
+  it('refuses a real file the loaded panel does not reproduce, even one edited consistently (review m2)', () => {
+    const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
+    const objective = structuredClone(real);
+    objective.step1.objectives[3] += 0.01;
+    expect(() => judgeVerdict(objective, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.objectives\[3\]/);
+    // a series and its objective edited together: the old recompute-from-series check would pass this
+    const series = structuredClone(real);
+    series.step1.returns[3][10] += 1e-9;
+    series.step1.objectives[3] = perPeriodSharpe(series.step1.returns[3]);
+    expect(() => judgeVerdict(series, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.returns\[3\]\[10\]/);
+    const purge = structuredClone(real);
+    purge.purge.objective += 1e-9;
+    expect(() => judgeVerdict(purge, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*purge\.objective/);
+    const maker = structuredClone(real);
+    maker.maker.returns[0] *= 1 + 1e-15;
+    if (maker.maker.returns[0] !== real.maker.returns[0]) expect(() => judgeVerdict(maker, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*maker\.returns\[0\]/);
+  });
+
+  it('refuses unless a calibration record at the same commit says PASS (review m3)', () => {
+    const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
+    expect(() => judgeVerdict(real, ok, loaded, calOk)).not.toThrow();
+    const failed = checkCalibration(fakeCalibration((kind, k) => (kind === 'planted' ? 0.5 : uniformP(k, 99))), COMMIT);
+    expect(failed.pass).toBe(false);
+    expect(() => judgeVerdict(real, ok, loaded, failed)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*FAIL/);
+    const other = checkCalibration(
+      fakeCalibration((kind, k) => (kind === 'planted' || kind === 'carry' ? 1 / 200 : uniformP(k, 99))).map((o) => ({ ...o, gitCommit: 'b'.repeat(40) })),
+      'b'.repeat(40)
+    );
+    expect(other.pass).toBe(true);
+    expect(() => judgeVerdict(real, ok, loaded, other)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*commit/);
+    // a record whose pass flag was flipped is recomputed from its own p-values
+    expect(() => judgeVerdict(real, ok, loaded, { ...failed, pass: true })).toThrow(/REFUSE[\s\S]*calibration/);
   });
 
   it('reports every item the inputs allow', () => {
-    const below = Array(1000).fill(-1);
-    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', [...Array(999).fill(-1), real.step1.best]) }, prov());
+    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', [...Array(999).fill(-1), real.step1.best]) }, loaded, calOk);
     const r = v.reported;
     expect(r.blockP).toBe(2 / 1001);
     expect(r.neighbours).toHaveLength(12);
@@ -276,6 +351,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     expect(r.purge.objective).toBe(real.purge.objective);
     expect(r.dsrReported.map((x) => x.N)).toEqual([26, 2161]);
     expect(r.deskFillQuality).toMatch(/forward desk/);
+    expect(v.calibration).toEqual({ gitCommit: COMMIT, pass: true });
   });
 });
 
@@ -359,6 +435,17 @@ describe('checkCalibration (header CALIBRATION ACCEPTANCE)', () => {
     expect(c.pass).toBe(true);
     expect(c.timing.isPermutationMs).toBe(320);
     expect(c.carry.note).toBe(CARRY_ONLY_NOTE);
+  });
+
+  it('planted acceptance counts p = 2/200 = 0.01 as found (p <= 0.01, header CALIBRATION)', () => {
+    // one null at or above the real statistic on every seed gives p = 2/200 exactly
+    const outs = fakeCalibration((kind, k, step) => (kind === 'planted' ? (step === 'is' ? (k <= 9 ? 2 / 200 : 0.5) : k <= 8 ? 2 / 200 : 0.5) : uniformP(k, 99)));
+    const c = checkCalibration(outs, COMMIT);
+    expect(c.planted.isPs.filter((p) => p === 0.01)).toHaveLength(9);
+    expect(c.planted.wfPs.filter((p) => p === 0.01)).toHaveLength(8);
+    expect(c.planted).toMatchObject({ isAt01: 9, wfAt01: 8, pass: true });
+    expect(c.pass).toBe(true);
+    expect(c.gitCommit).toBe(COMMIT);
   });
 
   it('fails an anti-conservative driftless test: too many p <= 0.05', () => {

@@ -6,13 +6,14 @@
  *   rv-judge.ts merge --stage S --dir D --inputs-dir O --expect-manifest-hash H --out S.json
  *   rv-judge.ts dsr --real real.json --inputs-dir O --expect-manifest-hash H
  *   rv-judge.ts verdict --real real.json --is is-mcpt.json --wf wf-mcpt.json --block block.json
- *                       --inputs-dir O --expect-manifest-hash H --out verdict.json
+ *                       --calibration calibration.json --inputs-dir O --expect-manifest-hash H --out verdict.json
  *   rv-judge.ts check-calibration --dir D --out calibration.json     (exit 2 when an acceptance rule fails)
  *
  * Every mode but `jobs` and `check-calibration` loads the recorded panel through loadInputs, which recomputes its
  * sha256 and refuses on any mismatch with the record, the expected manifest hash or GIT_COMMIT, and then requires
  * every file it reads to carry that same provenance. check-calibration reads no real data and requires every
- * calibration output to carry GIT_COMMIT.
+ * calibration output to carry GIT_COMMIT. `verdict` refuses unless the calibration record at that commit says PASS,
+ * and recomputes the whole `real` stage from the loaded panel before it judges (review m2, m3).
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -43,7 +44,9 @@ import {
   loadInputs,
   shardJobs,
   stageSeed,
+  runRealStage,
   type CalibrationOutput,
+  type LoadedInputs,
   type Provenance,
   type RealOutput,
   type ShardStage,
@@ -348,6 +351,7 @@ export interface Gate12 {
 
 export interface Verdict {
   provenance: Provenance;
+  calibration: { gitCommit: string; pass: boolean };
   pass: boolean;
   gates: { G1: Gate12; G2: Gate12; G3: { probability: number; threshold: number; N: number; pass: boolean } };
   step1: { best: number; bestCell: number; bestAnnualised: number };
@@ -373,13 +377,50 @@ export interface Verdict {
 const DESK_NOTE =
   'Desk fill quality by rebalance hour (00, 08, 16 UTC) and weekday or weekend is recorded by the forward desk and reported with the desk read, never part of this study.';
 
+/** Up to `limit` paths where two JSON values differ, in the order the first value's keys are walked. */
+function differences(a: unknown, b: unknown, path: string, out: string[], limit: number): void {
+  if (out.length >= limit) return;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) out.push(`${path} (length ${a.length} against ${b.length})`);
+    for (let i = 0; i < Math.min(a.length, b.length); i++) differences(a[i], b[i], `${path}[${i}]`, out, limit);
+    return;
+  }
+  if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    for (const k of kb) if (!ka.includes(k)) out.push(`${path ? `${path}.` : ''}${k} (unexpected)`);
+    for (const k of ka) differences((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], path ? `${path}.${k}` : k, out, limit);
+    return;
+  }
+  if (!Object.is(a, b)) out.push(path);
+}
+
+/**
+ * Review m3: the header's calibration acceptance must have passed at this commit. The record's pass flag is
+ * recomputed from its own per-universe p-values, so a flipped flag is refused too.
+ */
+function assertCalibrationPassed(calibration: CalibrationCheck, gitCommit: string): void {
+  if (calibration.gitCommit !== gitCommit) {
+    throw new Error(`REFUSE: the calibration record ran at commit ${calibration.gitCommit}, the verdict runs at ${gitCommit}`);
+  }
+  const recomputed = calibrationAcceptance(calibration.universes);
+  if (recomputed.pass !== calibration.pass) throw new Error('REFUSE: the calibration record\'s pass flag does not recompute from its p-values');
+  if (!recomputed.pass) throw new Error('REFUSE: the calibration acceptance is FAIL, which stops the study (header CALIBRATION ACCEPTANCE)');
+}
+
 /**
  * Judge `verdict` (header VERDICT): G1 = step 2 p < 0.01 on the best of the 12 cells, G2 = step 4 p < 0.01 on the
- * stitched walk-forward objective, G3 = deflated Sharpe of cell 11 at N = 672 >= 0.95. All three must pass. Every
- * statistic is recomputed from the real file's series and must equal what it records. Then every REPORTED item the
- * inputs allow.
+ * stitched walk-forward objective, G3 = deflated Sharpe of cell 11 at N = 672 >= 0.95. All three must pass. It
+ * refuses unless the calibration passed at this commit (review m3), and it recomputes the whole `real` stage from the
+ * loaded panel and refuses any difference from the real file, value by value (review m2). Then every REPORTED item.
  */
-export function judgeVerdict(real: RealOutput, merged: { is: MergedNull; wf: MergedNull; block: MergedNull }, expect: Provenance): Verdict {
+export function judgeVerdict(
+  real: RealOutput,
+  merged: { is: MergedNull; wf: MergedNull; block: MergedNull },
+  inputs: LoadedInputs,
+  calibration: CalibrationCheck
+): Verdict {
+  const expect = inputs.provenance;
   if (!sameProvenance(real.provenance, expect)) throw new Error(`the real file's provenance ${JSON.stringify(real.provenance)} is not the inputs' ${JSON.stringify(expect)}`);
   for (const [stage, m] of [
     ['is-mcpt', merged.is],
@@ -390,14 +431,15 @@ export function judgeVerdict(real: RealOutput, merged: { is: MergedNull; wf: Mer
     if (!sameProvenance(m.provenance, expect)) throw new Error(`the ${stage} null's provenance is not the inputs'`);
     if (m.M !== STAGE_M[stage] || m.nulls.length !== STAGE_M[stage]) throw new Error(`the ${stage} null holds ${m.nulls.length} values, M = ${STAGE_M[stage]} asserted`);
   }
-  const objectives = real.step1.returns.map((r) => objective(r));
-  if (objectives.length !== 12 || objectives.some((o, i) => o !== real.step1.objectives[i])) throw new Error('the real file\'s step 1 objectives do not recompute from its series');
-  const best = Math.max(...objectives);
-  if (best !== real.step1.best) throw new Error('the real file\'s best objective does not recompute');
-  const wfObjective = objective(real.step3.returns);
-  if (wfObjective !== real.step3.objective) throw new Error('the real file\'s walk-forward objective does not recompute');
-  if (real.rvV1.returns.some((r, i) => r !== real.step1.returns[RV_V1_CELL_INDEX][i])) throw new Error('the rv-v1 series is not cell 11\'s');
+  assertCalibrationPassed(calibration, expect.gitCommit);
+  const recomputed = JSON.parse(JSON.stringify(runRealStage(inputs))) as RealOutput;
+  const diff: string[] = [];
+  differences(recomputed, real, '', diff, 10);
+  if (diff.length > 0) throw new Error(`REFUSE: the real file differs from the loaded panel's recomputation at ${diff.join(', ')}`);
 
+  const objectives = recomputed.step1.objectives;
+  const best = recomputed.step1.best;
+  const wfObjective = recomputed.step3.objective;
   const g1 = pValue(best, merged.is.nulls);
   const g2 = pValue(wfObjective, merged.wf.nulls);
   const dsr = rvDsr(real.step1.returns);
@@ -410,6 +452,7 @@ export function judgeVerdict(real: RealOutput, merged: { is: MergedNull; wf: Mer
   const folds = real.step3.folds.map((f) => ({ f: f.f, testFrom: f.testFrom, testTo: f.testTo, cell: f.cell }));
   return {
     provenance: expect,
+    calibration: { gitCommit: calibration.gitCommit, pass: calibration.pass },
     pass: gates.G1.pass && gates.G2.pass && gates.G3.pass,
     gates,
     step1: { best, bestCell: objectives.indexOf(best), bestAnnualised: annualise(best) },
@@ -451,14 +494,22 @@ export interface StepAcceptance {
   pass: boolean;
 }
 
-export interface CalibrationCheck {
-  universes: { kind: UniverseKind; k: number; seed: number; isP: number; wfP: number }[];
+export type CalibrationUniverse = { kind: UniverseKind; k: number; seed: number; isP: number; wfP: number };
+
+/** The header acceptance computed from the per-universe p-values alone. */
+export interface CalibrationAcceptance {
   iid: { is: StepAcceptance; wf: StepAcceptance; pass: boolean };
   planted: { isPs: number[]; wfPs: number[]; isAt01: number; wfAt01: number; pass: boolean };
   garch: { is: StepAcceptance; wf: StepAcceptance };
   carry: { isPs: number[]; wfPs: number[]; isAt01: number; wfAt01: number; note: string };
-  timing: CalibrationOutput['timing'];
   pass: boolean;
+}
+
+export interface CalibrationCheck extends CalibrationAcceptance {
+  /** The commit every calibration output and the check ran at. */
+  gitCommit: string;
+  universes: CalibrationUniverse[];
+  timing: CalibrationOutput['timing'];
 }
 
 /** Header: a driftless step passes when KS p > 0.01 and the share of p <= 0.05 is at most 0.11. */
@@ -510,12 +561,6 @@ export function checkCalibration(outputs: readonly CalibrationOutput[], gitCommi
     universes.push({ kind: job.kind, k: job.k, seed: o.seed, isP: ps.is, wfP: ps.wf });
   }
 
-  const of = (kind: UniverseKind, step: 'isP' | 'wfP') => universes.filter((u) => u.kind === kind).map((u) => u[step]);
-  const at01 = (ps: number[]) => ps.filter((p) => p <= 0.01).length;
-  const iidIs = driftless(of('iid', 'isP'));
-  const iidWf = driftless(of('iid', 'wfP'));
-  const planted = { isPs: of('planted', 'isP'), wfPs: of('planted', 'wfP'), isAt01: at01(of('planted', 'isP')), wfAt01: at01(of('planted', 'wfP')) };
-  const plantedPass = planted.isAt01 >= 9 && planted.wfAt01 >= 8;
   const mean = (f: (o: CalibrationOutput) => number) => outputs.reduce((a, o) => a + f(o), 0) / outputs.length;
   const timing = {
     prepareMs: mean((o) => o.timing.prepareMs),
@@ -524,14 +569,30 @@ export function checkCalibration(outputs: readonly CalibrationOutput[], gitCommi
     isPermutationMs: mean((o) => o.timing.isPermutationMs),
     wfPermutationMs: mean((o) => o.timing.wfPermutationMs),
   };
+  return { gitCommit, universes, ...calibrationAcceptance(universes), timing };
+}
+
+/**
+ * The header CALIBRATION ACCEPTANCE from the per-universe p-values: iid passes when both steps pass the driftless
+ * rule, planted when at least 9 of 10 seeds have step 2 p <= 0.01 and at least 8 of 10 step 4 p <= 0.01. The
+ * universes must be exactly calibrationJobs(). The verdict recomputes a record's pass flag with this.
+ */
+export function calibrationAcceptance(universes: readonly CalibrationUniverse[]): CalibrationAcceptance {
+  const got = universes.map((u) => `${u.kind}|${u.k}`).sort();
+  const want = calibrationJobs().map((j) => `${j.kind}|${j.k}`).sort();
+  if (got.join(',') !== want.join(',')) throw new Error(`the calibration universes are not exactly the ${want.length} header universes`);
+  const of = (kind: UniverseKind, step: 'isP' | 'wfP') => universes.filter((u) => u.kind === kind).map((u) => u[step]);
+  const at01 = (ps: number[]) => ps.filter((p) => p <= 0.01).length;
+  const iidIs = driftless(of('iid', 'isP'));
+  const iidWf = driftless(of('iid', 'wfP'));
+  const planted = { isPs: of('planted', 'isP'), wfPs: of('planted', 'wfP'), isAt01: at01(of('planted', 'isP')), wfAt01: at01(of('planted', 'wfP')) };
+  const plantedPass = planted.isAt01 >= 9 && planted.wfAt01 >= 8;
   const iidPass = iidIs.pass && iidWf.pass;
   return {
-    universes,
     iid: { is: iidIs, wf: iidWf, pass: iidPass },
     planted: { ...planted, pass: plantedPass },
     garch: { is: driftless(of('garch', 'isP')), wf: driftless(of('garch', 'wfP')) },
     carry: { isPs: of('carry', 'isP'), wfPs: of('carry', 'wfP'), isAt01: at01(of('carry', 'isP')), wfAt01: at01(of('carry', 'wfP')), note: CARRY_ONLY_NOTE },
-    timing,
     pass: iidPass && plantedPass,
   };
 }
@@ -594,9 +655,14 @@ function main(): void {
           d.reported.map((r) => `N = ${r.N}: ${fmt(r.probability)}`).join(', ')
       );
     } else if (mode === 'verdict') {
-      const a = flags(rest, ['real', 'is', 'wf', 'block', 'inputs-dir', 'expect-manifest-hash', 'out']);
-      const { provenance } = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });
-      const v = judgeVerdict(readJson<RealOutput>(a.real), { is: readJson<MergedNull>(a.is), wf: readJson<MergedNull>(a.wf), block: readJson<MergedNull>(a.block) }, provenance);
+      const a = flags(rest, ['real', 'is', 'wf', 'block', 'calibration', 'inputs-dir', 'expect-manifest-hash', 'out']);
+      const inputs = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });
+      const v = judgeVerdict(
+        readJson<RealOutput>(a.real),
+        { is: readJson<MergedNull>(a.is), wf: readJson<MergedNull>(a.wf), block: readJson<MergedNull>(a.block) },
+        inputs,
+        readJson<CalibrationCheck>(a.calibration)
+      );
       writeFileSync(a.out, JSON.stringify(v, null, 2));
       const g = v.gates;
       console.log(`G1 step 2 p ${fmt(g.G1.p)} ${g.G1.pass ? 'PASS' : 'FAIL'}`);
