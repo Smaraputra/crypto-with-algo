@@ -340,6 +340,21 @@ describe('runRvSignal', () => {
     expect(await RvSignal.find().lean()).toEqual([before]);
   });
 
+  it('leaves the archived crosssectional collections untouched', async () => {
+    const db = mongoose.connection.db!;
+    await db.collection('crosssectionalbooks').insertOne({ bookName: 'rv-8h-buffer2', equityMaker: 10_123, lastProcessedBarTime: T0 - BAR });
+    await db.collection('crosssectionalsignals').insertOne({ timestamp: T0, targets: [{ symbol: 'BTCUSDT', weight: 0.25, side: 'long' }] });
+    await db.collection('crosssectionaltrades').insertOne({ bookName: 'rv-8h-buffer2', symbol: 'ETHUSDT', exitTime: T0 - BAR });
+    const snapshot = async () =>
+      Promise.all(['crosssectionalbooks', 'crosssectionalsignals', 'crosssectionaltrades'].map((c) => db.collection(c).find().toArray()));
+    const before = await snapshot();
+    await seedSettlements();
+
+    expect(await runRvSignal(NOW, OPTS)).toMatchObject({ success: true, created: true });
+
+    expect(await snapshot()).toEqual(before);
+  });
+
   it('D10: storeRvSignal only ever inserts, so a racing second writer leaves the first document', async () => {
     const base = {
       version: 'rv-v1' as const,
