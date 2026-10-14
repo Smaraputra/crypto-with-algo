@@ -596,6 +596,10 @@ describe('null machinery (header STEPS 2 and 4)', () => {
     const w = walkForward(permuteModule.permutePanel(panel, 99, createSeededRandom(RV_BASE_SEED + 100_007)), small);
     expect(wl.best).toBe(w.objective);
     expect(wl.cells).toEqual(w.folds.map((f) => f.cell));
+    const [bl] = blockShard(panel, 7, 7, RV_SEEDS.block);
+    const blocked = runCells(permutePanelBlocks(panel, 0, createSeededRandom(RV_BASE_SEED + 300_007), 9));
+    expect(bl.perCell).toEqual(blocked.objectives);
+    expect(bl.best).toBe(Math.max(...blocked.objectives));
   });
 
   it('the null has spread: sd > 0 with at least 20 distinct values over 25 permutations', () => {
