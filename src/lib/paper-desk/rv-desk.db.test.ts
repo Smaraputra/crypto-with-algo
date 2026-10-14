@@ -43,7 +43,7 @@ afterAll(async () => {
   await mongoServer.stop();
 });
 
-/** Fill-bar overrides keyed `SYMBOL@openTime`; null means Binance has no such bar. */
+/** Fill-bar overrides keyed `SYMBOL@openTime`. Null means Binance has no such bar. */
 let bars: Map<string, Partial<PerpKline> | null>;
 
 function fillBar(symbol: string, openTime: number): PerpKline[] {

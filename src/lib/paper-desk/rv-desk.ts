@@ -32,8 +32,8 @@ import {
  * - **A lease** taken with one atomic findOneAndUpdate, so two runs can never
  *   step the same signal (D09). The final book write is filtered on the
  *   owner, so a run that lost its lease cannot overwrite the book.
- * - **Forward only.** A book with no cursor steps only the newest signal;
- *   replaying history would be a backtest, and this is a forward record.
+ * - **Forward only.** A book with no cursor steps only the newest signal.
+ *   Replaying history would be a backtest, and this is a forward record.
  * - **State from the step log.** Each RvStep stores the book state after it,
  *   and a run restores from the step at the cursor. A replay after a crash or
  *   a cursor rollback therefore recomputes byte-identical steps, upserted on
@@ -220,7 +220,7 @@ async function stepSignal(
   const symbols = [...new Set([...Object.keys(targets), ...heldAny])].sort();
 
   // The first 1h perp bar opening at fillTime. Absent at the venue means null
-  // (the engine marks the leg stale or skips the entry); a failed fetch is not
+  // (the engine marks the leg stale or skips the entry). A failed fetch is not
   // absence, so it waits for the next run instead.
   const fillBars: Record<string, RvFillBar | null> = {};
   const unavailable: string[] = [];
@@ -230,7 +230,7 @@ async function stepSignal(
       const bar = klines.find((k) => k.openTime === fillTime);
       fillBars[symbol] = bar ? { open: bar.open, high: bar.high, low: bar.low, close: bar.close } : null;
     } catch {
-      // The reason carries the symbol; the step is retried next run
+      // The reason carries the symbol, and the step is retried next run
       unavailable.push(`fill_bar_unavailable:${symbol}`);
     }
   }

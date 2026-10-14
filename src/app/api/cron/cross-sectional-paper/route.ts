@@ -8,7 +8,7 @@ import { runRvDesk } from '@/lib/paper-desk/rv-desk';
 /**
  * Steps the rv-v1 paper book over every stored signal whose first fill hour
  * has closed (01:05, 09:05 and 17:05 UTC). A step that cannot be taken stays
- * pending with its reason; once one has been pending for a full cadence the
+ * pending with its reason. Once one has been pending for a full cadence the
  * route answers 500, so the heartbeat shows the stalled book.
  */
 async function handler(req: NextRequest) {

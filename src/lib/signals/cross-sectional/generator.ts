@@ -54,7 +54,7 @@ export type RvSignalRunResult =
   | {
       success: true;
       barTime: number;
-      /** False when a signal for this bar already existed; the stored one is reported. */
+      /** False when a signal for this bar already existed, and then the stored one is reported. */
       created: boolean;
       skipped: RvFactorResult['skipped'];
       ranked: RvRanked[];

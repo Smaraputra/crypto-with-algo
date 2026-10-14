@@ -1,4 +1,4 @@
-/** ARCHIVED: pre-rv-v1 records (book rv-8h-buffer2), read-only. Nothing writes here; rv-v1 uses RvBook, RvSignal and RvStep. */
+/** ARCHIVED: pre-rv-v1 records (book rv-8h-buffer2), read-only. Nothing writes here. rv-v1 uses RvBook, RvSignal and RvStep. */
 import mongoose, { Schema, type Document } from 'mongoose';
 
 export interface ICrossSectionalPosition {
