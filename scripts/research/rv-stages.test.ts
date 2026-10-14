@@ -356,9 +356,12 @@ describe('runInputsStage (pre-review Ruling 3: verify the reviewed file, then bu
     expect(existsSync(join(out, INPUTS_FILES.panel))).toBe(false);
   });
 
-  it('refuses to run twice into the same directory', async () => {
+  it('refuses to run twice into the same directory, before any REST call', async () => {
     await inputs();
-    await expect(inputs()).rejects.toThrow(/REFUSE[\s\S]*exists/);
+    const noRest: FundingFetcher = async () => {
+      throw new Error('REST must not be called');
+    };
+    await expect(inputs({ fetchFunding: noRest })).rejects.toThrow(/REFUSE[\s\S]*exists/);
   });
 });
 
