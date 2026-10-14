@@ -25,8 +25,9 @@ import {
 
 const TITLE = '8h Relative Value, rv-v1';
 
-// The shared button's half-opacity ring is 2.9:1 on the card, the full ring is 8.4:1
-const FOCUS_RING = 'focus-visible:ring-ring';
+// The shared button's half-opacity ring is 2.9:1 on the card, the full ring is 8.4:1.
+// It also has no pressed state, so a press shrinks the button slightly.
+const BUTTON_STATES = 'focus-visible:ring-ring active:scale-[0.98] motion-reduce:active:scale-100';
 
 // ---------------------------------------------------------------- formats
 
@@ -386,7 +387,7 @@ function Ranking({ signal, rule }: { signal: RvSignalView | null; rule: RvLatest
         aria-expanded={open}
         aria-controls={regionId}
         onClick={() => setOpen((prev) => !prev)}
-        className={cn('h-auto min-h-11 whitespace-normal py-1.5 text-left text-xs sm:min-h-8', FOCUS_RING)}
+        className={cn('h-auto min-h-11 whitespace-normal py-1.5 text-left text-xs sm:min-h-8', BUTTON_STATES)}
       >
         {open ? 'Hide the ranking' : `Show the ranking for the bar closing ${closing}`}
       </Button>
@@ -504,7 +505,7 @@ export function CrossSectionalPortfolioCard() {
             type="button"
             variant="outline"
             size="sm"
-            className={cn('h-11 sm:h-8', FOCUS_RING)}
+            className={cn('h-11 sm:h-8', BUTTON_STATES)}
             onClick={() => void refetch()}
           >
             Retry
