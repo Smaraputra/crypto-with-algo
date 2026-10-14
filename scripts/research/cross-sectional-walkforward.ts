@@ -1,4 +1,23 @@
 /**
+ * SUPERSEDED / VOID (2026-10-15). No result of this walk-forward test is evidence for the 8h cross-sectional relative
+ * value rule, and none may be cited. The pre-registered re-validation of the frozen rule rv-v1 replaces it:
+ * scripts/research/rv-revalidation.ts (the locked header with AMENDMENTS 1 to 3), run on the VPS by
+ * scripts/ops/rv-revalidation-run.sh. main() prints a pointer there and exits with code 2 before it reads anything.
+ *
+ * Defects, from the audit of 2026-10-14 (table D01 to D28 in the session 30 handover). The line numbers are this
+ * file's own, with this header in place.
+ * - D01 (critical): the walk-forward null is synthetic Gaussian noise around an assumed mean of 0.20 and an sd
+ *   of 0.40 (lines 424-432), not a permutation of the bars, and no fold re-selects its configuration. The
+ *   report fields are copied (lines 459-491): the taker p is the maker p, the null sd is the hard-coded 0.40,
+ *   and every fold carries the total return over the fold count and the full-span Sharpe.
+ * - D03 (high): spot prices with perp costs. loadCandles reads the spot candle files (line 375).
+ * - D05 (high): run on the full span including the lockbox (--allow-lockbox, line 348), with no
+ *   pre-registration, no ledger entry and no PR for 1da5742.
+ *
+ * The exported helpers stay in place. Nothing imports them: the test that pinned the synthetic null
+ * (cross-sectional-walkforward.test.ts) was deleted on 2026-10-15.
+ */
+/**
  * Stage 4 Walk-Forward Monte Carlo Permutation Testing Engine for Binance Futures.
  * Based on Timothy Masters (2020) and Neurotrader strategy development framework.
  *
@@ -303,7 +322,19 @@ export function evaluateWalkForward(
   };
 }
 
+/** Printed by main(), which exits with code 2 before it reads anything (see the SUPERSEDED / VOID header). */
+const VOID_NOTICE =
+  'SUPERSEDED / VOID (2026-10-15): cross-sectional-walkforward.ts is void (defects D01, D03 and D05 of the 2026-10-14 audit, listed in its header). The rv-v1 re-validation is scripts/research/rv-revalidation.ts, run by scripts/ops/rv-revalidation-run.sh.';
+
+/** Prints VOID_NOTICE and exits with code 2. Typed void, not never, so the kept body of main() still type-checks. */
+function exitQuarantined(): void {
+  console.error(VOID_NOTICE);
+  process.exit(2);
+}
+
 async function main() {
+  // Quarantined: exitQuarantined() ends the process, and the body below is kept for the record and never runs.
+  exitQuarantined();
   const { values } = parseArgs({
     options: {
       'dataset-dir': { type: 'string', default: '/home/smara/dx-ds' },
