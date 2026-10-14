@@ -139,7 +139,7 @@ export interface ResolutionEntry {
   restAfter: number;
 }
 
-/** The resolutions file as read: the sha256 of its text and its entries. verifyResolutions turns it into VerifiedResolutions. */
+/** A resolutions file as parseResolutions reads it: the sha256 of its bytes and its entries. The panel takes only VerifiedResolutions, which verifyResolutions builds from the file bytes. */
 export interface FundingResolutions {
   sha256: string;
   entries: ResolutionEntry[];

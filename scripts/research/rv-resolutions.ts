@@ -6,8 +6,9 @@
  * only by a recorded `no-event` entry: Binance's REST funding history for that symbol has no settlement
  * at that instant, with the REST settlement times either side recorded. This module drafts such entries
  * from REST, re-verifies a recorded file against REST at the `inputs` stage, and reads and writes the
- * file. The REST fetcher is injected (fetchFundingHistory in src/lib/snapshot-backfill.ts in the runner,
- * a stand-in in tests), so nothing here touches the network on its own.
+ * file. The REST fetcher is injected so nothing here touches the network on its own. The `inputs` stage
+ * must pass fetchFundingHistory from src/lib/snapshot-backfill.ts, never a stand-in: a stand-in exists only
+ * in tests, and a value verified against one proves nothing about the venue.
  */
 import { createHash } from 'crypto';
 import { z } from 'zod';
@@ -73,7 +74,7 @@ async function readRest(symbol: string, t: number, fetchFunding: FundingFetcher)
 export async function draftResolutions(
   flags: readonly FundingFlag[],
   fetchFunding: FundingFetcher
-): Promise<{ entries: ResolutionEntry[]; unresolved: { flag: FundingFlag; reason: string }[] }> {
+): Promise<{ entries: ResolutionEntry[]; unresolved: { flag: FundingFlag; reason: string }[]; content: Buffer }> {
   const entries: ResolutionEntry[] = [];
   const unresolved: { flag: FundingFlag; reason: string }[] = [];
   for (const flag of flags) {
@@ -89,18 +90,26 @@ export async function draftResolutions(
     else if (rest.after === null) unresolved.push({ flag, reason: `no REST settlement after ${iso(flag.t)} within the window` });
     else entries.push({ symbol: flag.symbol, t: flag.t, verdict: 'no-event', restBefore: rest.before, restAfter: rest.after });
   }
-  return { entries, unresolved };
+  // The canonical file bytes for the drafted entries, which verifyResolutions later reads back as bytes
+  return { entries, unresolved, content: Buffer.from(serializeResolutions(entries), 'utf8') };
 }
 
 /**
- * The `inputs` stage re-check of a recorded file (AMENDMENT 1): re-queries REST for every entry and halts
- * on a verdict other than `no-event`, if REST cannot be reached, if REST shows a settlement at the
- * instant, or if the REST settlement times either side differ from the recorded ones. Returns the only
- * value the panel accepts (AMENDMENT 3). The panel then also requires the recorded neighbours to be the
- * export's own settlements either side.
+ * The `inputs` stage re-check of a recorded file (AMENDMENT 1). It takes the file's bytes, hashes and
+ * parses them, and freezes the parsed entries before the first REST call, so the value it brands holds
+ * exactly the bytes it checked and their own sha256. It then re-queries REST for every entry and halts on
+ * a verdict other than `no-event`, if REST cannot be reached, if REST shows a settlement at the instant,
+ * or if the REST settlement times either side differ from the recorded ones. Returns the only value the
+ * panel accepts (AMENDMENT 3). The panel then also requires the recorded neighbours to be the export's own
+ * settlements either side. `fetchFunding` must be fetchFundingHistory at the `inputs` stage.
  */
-export async function verifyResolutions(resolutions: FundingResolutions, fetchFunding: FundingFetcher): Promise<VerifiedResolutions> {
-  for (const e of resolutions.entries) {
+export async function verifyResolutions(file: Buffer | string, fetchFunding: FundingFetcher): Promise<VerifiedResolutions> {
+  const parsed = parseResolutions(file);
+  const out = Object.freeze({
+    sha256: parsed.sha256,
+    entries: Object.freeze(parsed.entries.map((e) => Object.freeze({ ...e }))),
+  }) as VerifiedResolutions;
+  for (const e of out.entries) {
     const label = `${e.symbol} ${iso(e.t)}`;
     if (e.verdict !== 'no-event') throw new Error(`HALT: resolution entry ${label} has verdict "${e.verdict}", only "no-event" is accepted`);
     let rest: RestRead;
@@ -116,10 +125,6 @@ export async function verifyResolutions(resolutions: FundingResolutions, fetchFu
       );
     }
   }
-  const out = Object.freeze({
-    sha256: resolutions.sha256,
-    entries: Object.freeze(resolutions.entries.map((e) => Object.freeze({ ...e }))),
-  }) as VerifiedResolutions;
   VERIFIED.add(out);
   return out;
 }
@@ -144,14 +149,22 @@ export function serializeResolutions(entries: readonly ResolutionEntry[]): strin
   )}\n`;
 }
 
-/** Reads a recorded file: the sha256 of the text as read and its entries. A malformed file throws. */
-export function parseResolutions(text: string): FundingResolutions {
-  const parsed = FileSchema.safeParse(JSON.parse(text));
+/** Reads a recorded file: the sha256 of its bytes as read and its entries. A malformed file throws. */
+export function parseResolutions(file: Buffer | string): FundingResolutions {
+  const sha256 = createHash('sha256').update(file).digest('hex');
+  const text = typeof file === 'string' ? file : file.toString('utf8');
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`The resolutions file is malformed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const parsed = FileSchema.safeParse(json);
   if (!parsed.success) {
     throw new Error(`The resolutions file is malformed: ${parsed.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`);
   }
   return {
-    sha256: createHash('sha256').update(text).digest('hex'),
+    sha256,
     entries: parsed.data.resolutions.map((r) => ({
       symbol: r.symbol,
       t: Date.parse(r.t),

@@ -30,7 +30,7 @@ import {
   type ResolutionEntry,
   type RvSymbolSource,
 } from './rv-panel';
-import { verifyResolutions, type FundingFetcher, type VerifiedResolutions } from './rv-resolutions';
+import { serializeResolutions, verifyResolutions, type FundingFetcher, type VerifiedResolutions } from './rv-resolutions';
 
 const H = 3_600_000;
 const H4 = 4 * H;
@@ -54,10 +54,13 @@ const restAt = (bySymbol: Record<string, number[]>): FundingFetcher => async (sy
  * Resolutions as the panel accepts them (AMENDMENT 3): through verifyResolutions. By default REST settled at
  * each entry's recorded neighbours and nowhere else, so the REST re-check passes.
  */
+/** The sha256 the panel records for a resolutions file holding `entries`: the hash of its bytes. */
+const fileSha = (entries: ResolutionEntry[]) => createHash('sha256').update(serializeResolutions(entries)).digest('hex');
+
 const verified = (entries: ResolutionEntry[] = [], rest?: FundingFetcher): Promise<VerifiedResolutions> => {
   const times: Record<string, number[]> = {};
   for (const e of entries) times[e.symbol] = [...(times[e.symbol] ?? []), e.restBefore, e.restAfter];
-  return verifyResolutions({ sha256: 'f'.repeat(64), entries }, rest ?? restAt(times));
+  return verifyResolutions(serializeResolutions(entries), rest ?? restAt(times));
 };
 
 /** Eight 1h rows per 8h bucket, a seeded random walk, prices strictly positive. */
@@ -440,7 +443,7 @@ describe('assemblePanel (header DATA halts, AMENDMENTS 1 to 3)', () => {
       for (const row of col) expect(row).toHaveLength(BUCKETS - 1);
     }
     expect(panel.fundLast.flat().every((v) => v !== null)).toBe(true);
-    expect(rec).toEqual({ sha256: 'f'.repeat(64), entries: 0, flags: [] });
+    expect(rec).toEqual({ sha256: fileSha([]), entries: 0, flags: [] });
   });
 
   it('halts on any dropped bucket (AMENDMENT 2)', async () => {
@@ -491,12 +494,13 @@ describe('assemblePanel (header DATA halts, AMENDMENTS 1 to 3)', () => {
     // SOLUSDT on a 4h grid with 2022-01-02 04:00 absent: the venue made no settlement there
     src[3].funding = grid8(T0 + H4, T0 + 4 * DAY - H8, 4).filter((r) => r.t !== T0 + DAY + H4);
     const gone = T0 + DAY + H4;
-    const out = assemblePanel(src, span, await verified([noEvent('SOLUSDT', gone, T0 + DAY, T0 + DAY + H8)]));
+    const entries = [noEvent('SOLUSDT', gone, T0 + DAY, T0 + DAY + H8)];
+    const out = assemblePanel(src, span, await verified(entries));
     const k = out.panel.t.indexOf(T0 + DAY);
     const at8 = src[3].funding.find((r) => r.t === T0 + DAY + H8)!.rate;
     expect(out.panel.fundSum[3][k]).toBe(at8);
     expect(out.panel.fundLast[3][k]).toBe(at8);
-    expect(out.resolutions).toEqual({ sha256: 'f'.repeat(64), entries: 1, flags: [{ symbol: 'SOLUSDT', t: gone, reason: 'missing' }] });
+    expect(out.resolutions).toEqual({ sha256: fileSha(entries), entries: 1, flags: [{ symbol: 'SOLUSDT', t: gone, reason: 'missing' }] });
   });
 
   it('clears the A6-1 shortening switch when the export and REST agree on the settlements either side (AMENDMENT 3)', async () => {
@@ -517,6 +521,26 @@ describe('assemblePanel (header DATA halts, AMENDMENTS 1 to 3)', () => {
     const rest = restAt({ SOLUSDT: [T0 + 2 * DAY - H8, T0 + 2 * DAY, T0 + 2 * DAY + H, T0 + 2 * DAY + 3 * H, T0 + 2 * DAY + H4] });
     const passed = await verified([entry], rest);
     expect(() => assemblePanel(src, span, passed)).toThrow(/HALT[\s\S]*export[\s\S]*SOLUSDT/);
+  });
+
+  it('halts when only one recorded neighbour differs from the export, on either side (review n2)', async () => {
+    const src = sources();
+    src[3].funding = [...grid8(T0 + H8, T0 + 2 * DAY), ...grid8(T0 + 2 * DAY + H4, T0 + 4 * DAY - H8, 2)];
+    const t = T0 + 2 * DAY + 2 * H;
+    // REST agrees with each entry, the export disagrees on one side only
+    const laterWrong = await verified([noEvent('SOLUSDT', t, T0 + 2 * DAY, T0 + 2 * DAY + 3 * H)]);
+    expect(() => assemblePanel(src, span, laterWrong)).toThrow(/HALT[\s\S]*export[\s\S]*SOLUSDT/);
+    const earlierWrong = await verified([noEvent('SOLUSDT', t, T0 + 2 * DAY + H, T0 + 2 * DAY + H4)]);
+    expect(() => assemblePanel(src, span, earlierWrong)).toThrow(/HALT[\s\S]*export[\s\S]*SOLUSDT/);
+  });
+
+  it('halts on a null carry input on the last bar too (review n2)', async () => {
+    const src = sources();
+    // SOLUSDT lacks the last bar's only settlement (2022-01-04 16:00). A later row outside the window is its neighbour
+    const last = T0 + 4 * DAY - H8;
+    src[3].funding = [...src[3].funding.filter((r) => r.t !== last), { t: T0 + 4 * DAY, rate: 0.0001, intervalHours: 8 }];
+    const res = await verified([noEvent('SOLUSDT', last, last - H8, T0 + 4 * DAY)]);
+    expect(() => assemblePanel(src, span, res)).toThrow(/HALT[\s\S]*carry[\s\S]*SOLUSDT 2022-01-04T08:00:00.000Z/);
   });
 
   it('halts on a null carry input left by a cleared flag, listing it (AMENDMENT 3)', async () => {
@@ -605,7 +629,7 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
     expect(meta.manifestHash).toBe(JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')).datasetHash);
     expect(meta.panelSha256).toBe(createHash('sha256').update(stableStringify(panel)).digest('hex'));
     expect(meta.droppedBuckets).toEqual([]);
-    expect(meta.resolutions).toEqual({ sha256: 'f'.repeat(64), entries: 0, flags: [] });
+    expect(meta.resolutions).toEqual({ sha256: fileSha([]), entries: 0, flags: [] });
     const again = await buildRvPanel(dir, span, await verified());
     expect(again.meta.panelSha256).toBe(meta.panelSha256);
   });
@@ -671,6 +695,8 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
   it('refuses unverified resolutions before reading anything (AMENDMENT 3)', async () => {
     const forged = { sha256: 'f'.repeat(64), entries: [] } as unknown as VerifiedResolutions;
     await expect(buildRvPanel(dir, span, forged)).rejects.toThrow(/HALT[\s\S]*not verified/);
+    // A directory that does not exist: a file error would mean something was read first (review n2)
+    await expect(buildRvPanel(join(dir, 'no-such-export'), span, forged)).rejects.toThrow(/HALT[\s\S]*not verified/);
   });
 
   it('halts when the manifest\'s dataset hash does not match its own file list', async () => {

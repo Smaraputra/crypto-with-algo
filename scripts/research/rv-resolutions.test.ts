@@ -28,9 +28,12 @@ describe('draftResolutions (proposes no-event entries from REST, never decides a
   it('drafts a no-event entry with the REST settlement times either side when REST has none at the instant', async () => {
     // REST stamps settlements a few ms after the boundary on old rows, so times are read to the hour
     const rest = restWith({ SOLUSDT: [T - 10 * H + 3, T - 2 * H + 5, T + 2 * H + 1, T + 4 * H] });
-    const { entries, unresolved } = await draftResolutions([flag()], rest);
+    const { entries, unresolved, content } = await draftResolutions([flag()], rest);
     expect(entries).toEqual([{ symbol: 'SOLUSDT', t: T, verdict: 'no-event', restBefore: T - 2 * H, restAfter: T + 2 * H }]);
     expect(unresolved).toEqual([]);
+    // the canonical file it would write, which the inputs stage then verifies as bytes (review n3)
+    expect(content).toEqual(Buffer.from(serializeResolutions(entries), 'utf8'));
+    expect((await verifyResolutions(content, rest)).entries).toEqual(entries);
     expect(rest).toHaveBeenCalledWith('SOLUSDT', T - REST_NEIGHBOUR_WINDOW_MS, T + REST_NEIGHBOUR_WINDOW_MS);
     expect(REST_NEIGHBOUR_WINDOW_MS).toBe(24 * H);
   });
@@ -63,14 +66,44 @@ describe('draftResolutions (proposes no-event entries from REST, never decides a
 
 describe('verifyResolutions (the inputs stage re-queries REST for every entry, AMENDMENT 1)', () => {
   const entry = { symbol: 'SOLUSDT', t: T, verdict: 'no-event', restBefore: T - 2 * H, restAfter: T + 2 * H };
-  const file = (entries: ResolutionEntry[]) => ({ sha256: 'a'.repeat(64), entries });
+  /** The recorded file bytes, as the inputs stage reads them. */
+  const file = (entries: ResolutionEntry[]) => Buffer.from(serializeResolutions(entries), 'utf8');
+  const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
 
   it('passes when REST still has no settlement at the instant and the same neighbours, returning a frozen verified value', async () => {
-    const out = await verifyResolutions(file([entry]), restWith({ SOLUSDT: [T - 2 * H + 4, T + 2 * H] }));
-    expect(out).toEqual({ sha256: 'a'.repeat(64), entries: [entry] });
+    const bytes = file([entry]);
+    const out = await verifyResolutions(bytes, restWith({ SOLUSDT: [T - 2 * H + 4, T + 2 * H] }));
+    // the sha256 is computed from the bytes it was given (review n3), never taken from the caller
+    expect(out).toEqual({ sha256: sha(bytes), entries: [entry] });
+    expect(await verifyResolutions(bytes.toString('utf8'), restWith({ SOLUSDT: [T - 2 * H, T + 2 * H] }))).toEqual(out);
     expect(Object.isFrozen(out) && Object.isFrozen(out.entries) && Object.isFrozen(out.entries[0])).toBe(true);
     expect(() => assertVerified(out)).not.toThrow();
     expect(() => assertVerified({ ...out })).toThrow(/HALT[\s\S]*not verified/);
+  });
+
+  it('brands exactly the bytes it parsed: changing the caller\'s buffer during a REST await changes nothing (review n1)', async () => {
+    const second = { symbol: 'DOGEUSDT', t: T + 4 * H, verdict: 'no-event', restBefore: T, restAfter: T + 8 * H };
+    const original = serializeResolutions([entry, second]);
+    const bytes = Buffer.from(original, 'utf8');
+    const forgedText = original.replace('"no-event"', '"rest____"');
+    expect(forgedText.length).toBe(original.length);
+    const rest = vi.fn<FundingFetcher>(async (symbol, startTime, endTime) => {
+      // While the first entry is being checked, rewrite its verdict in the caller's buffer
+      bytes.write(forgedText, 0, 'utf8');
+      const times = symbol === 'SOLUSDT' ? [T - 2 * H, T + 2 * H] : [T, T + 8 * H];
+      return times.filter((t) => t >= startTime && t <= endTime).map((fundingTime) => ({ fundingTime }));
+    });
+    const out = await verifyResolutions(bytes, rest);
+    expect(bytes.toString('utf8')).toBe(forgedText);
+    expect(out.entries.map((e) => e.verdict)).toEqual(['no-event', 'no-event']);
+    expect(out.sha256).toBe(sha(original));
+    expect(Object.isFrozen(out.entries[1])).toBe(true);
+  });
+
+  it('halts on a malformed file before asking REST anything', async () => {
+    const rest = restWith({});
+    await expect(verifyResolutions('{"resolutions":[{"symbol":"X"}]}', rest)).rejects.toThrow(/malformed/);
+    expect(rest).not.toHaveBeenCalled();
   });
 
   it('checks every entry, not only the first (review m11)', async () => {
