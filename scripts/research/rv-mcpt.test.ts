@@ -378,20 +378,20 @@ describe('walk-forward geometry (header STEP 3, AMENDMENT 2)', () => {
     expect(RV_WF_GEOMETRY).toEqual({ train: 1095, test: 273 });
   });
 
-  it('lays out rolling folds and keeps only complete 273-bar test folds', () => {
-    // the real panel: 2022-01-01 00:00 to 2026-10-13 08:00 is 5,240 bars, returns run to step 5,238
+  it('lays out rolling folds and keeps only complete 273-bar test folds: fold f fills at opens T_f..T_f + 272', () => {
+    // the real panel: 2022-01-01 00:00 to 2026-10-13 08:00 is 5,240 bars, so the last fill is the open of bar 5,239
     const { folds, remainder } = foldsOf(5240, RV_WF_GEOMETRY);
     expect(folds).toHaveLength(15);
     expect(folds[0]).toEqual({ f: 1, trainFrom: 0, trainTo: 1094, testFrom: 1095, testTo: 1367 });
     expect(folds[1]).toEqual({ f: 2, trainFrom: 273, trainTo: 1367, testFrom: 1368, testTo: 1640 });
     expect(folds[14].testTo).toBe(1095 + 15 * 273 - 1);
-    expect(remainder).toBe(5238 - folds[14].testTo);
-    expect(remainder).toBe(49);
-    // a fold ending exactly on the last realisable step is complete, one bar less is not
-    expect(foldsOf(1096 + 273, RV_WF_GEOMETRY).folds).toHaveLength(1);
-    expect(foldsOf(1096 + 273, RV_WF_GEOMETRY).remainder).toBe(0);
-    expect(foldsOf(1096 + 272, RV_WF_GEOMETRY).folds).toHaveLength(0);
-    expect(foldsOf(1096 + 2 * 273 - 1, RV_WF_GEOMETRY).folds).toHaveLength(1);
+    expect(remainder).toBe(5239 - folds[14].testTo);
+    expect(remainder).toBe(50);
+    // a fold whose last fill is the panel's last open is complete, one bar less is not
+    expect(foldsOf(1368, RV_WF_GEOMETRY)).toEqual({ folds: [{ f: 1, trainFrom: 0, trainTo: 1094, testFrom: 1095, testTo: 1367 }], remainder: 0 });
+    expect(foldsOf(1367, RV_WF_GEOMETRY).folds).toHaveLength(0);
+    expect(foldsOf(1640, RV_WF_GEOMETRY).folds).toHaveLength(1);
+    expect(foldsOf(1641, RV_WF_GEOMETRY).folds).toHaveLength(2);
   });
 
   it('trains on steps with a signal whose returns are realised inside the window, and the purge drops the last', () => {
@@ -404,9 +404,12 @@ describe('walk-forward geometry (header STEP 3, AMENDMENT 2)', () => {
   });
 });
 
-describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5)', () => {
-  // 2 complete folds at the header geometry, a 58-bar remainder dropped
+describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5, pre-review Ruling 1)', () => {
+  // 2 complete folds at the header geometry (T_1 = 1,095, T_2 = 1,368), a 59-fill remainder dropped.
+  // Notation of Ruling 1: r_k = E_k / E_(k - 1) - 1 is the return ending with the rebalance at open k, the
+  // module's step k - 1 (signal at the close of k - 1). The stitched series is r_1095..r_1640, index k - 1,095.
   const wfPanel = planted(1700, 21);
+  const START = RV_V1.startingEquity as number;
   let wf: ReturnType<typeof walkForward>;
   let cells: ReturnType<typeof runCells>;
   beforeAll(() => {
@@ -423,11 +426,12 @@ describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5)', () 
       expect(fold.cell).toBe(selectCell(want));
     }
     expect(wf.returns).toHaveLength(2 * 273);
-    expect(wf.firstStep).toBe(1095);
+    expect(wf.firstStep).toBe(1094); // the signal of r_1095
+    expect(wf.remainder).toBe(59);
     expect(wf.objective).toBe(perPeriodSharpe(wf.returns));
   });
 
-  it('a fold\'s training objectives and selection ignore every bar after its window (no lookahead)', () => {
+  it('a fold\'s training objectives and selection ignore every bar at or after T_f (no lookahead)', () => {
     for (const [f, after] of [
       [0, 1095],
       [1, 1368],
@@ -457,55 +461,107 @@ describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5)', () 
     expect(inside.folds[0].objectives).not.toEqual(wf.folds[0].objectives);
   });
 
-  it('the book opens flat, signals first at the close of 1,094 and fills at open 1,095, and the first return runs from open 1,095', () => {
-    const cellsByFold = [3, 11];
-    const book = runWalkForwardBook(prepareSteps(wfPanel), wf.folds, cellsByFold, RV_WF_GEOMETRY, { trace: true });
+  it('fold f\'s first signal is at the close of T_f - 1 with fold f\'s cell and sees that close, which trains nothing (Ruling 1 boundary)', () => {
+    // the cell signalling at T_f - 1 is beta-neutral (11), so a moved close shows in its weights, and fold 1's cell
+    // before T_2 - 1 is dollar-neutral (1), so a signal with the wrong fold's cell shows too
+    for (const [f, T, byFold] of [
+      [0, 1095, [11, 1]],
+      [1, 1368, [1, 11]],
+    ] as const) {
+      const changed = clone(wfPanel, (p) => p.close.forEach((row, s) => (row[T - 1] *= 1 + 0.02 * (s - 4.5))));
+      expect(walkForward(changed, RV_WF_GEOMETRY).folds[f].objectives).toEqual(wf.folds[f].objectives);
+      const a = runWalkForwardBook(prepareSteps(wfPanel), wf.folds, byFold, RV_WF_GEOMETRY, { trace: true }).trace!;
+      const b = runWalkForwardBook(prepareSteps(changed), wf.folds, byFold, RV_WF_GEOMETRY, { trace: true }).trace!;
+      const j = T - 1 - 1094;
+      expect(b.targets.slice(0, j)).toEqual(a.targets.slice(0, j));
+      expect(b.targets[j]).not.toEqual(a.targets[j]);
+      // and that first signal is fold f's cell: an independent replay switching at T_f - 1
+      const ref = referenceBook(changed, (k) => (k < 1367 ? byFold[0] : byFold[1]), 1094, T - 1);
+      expect(b.targets[j]).toEqual(ref[j].targets);
+    }
+  });
+
+  it('the book opens flat, signals first at the close of 1,094 with fold 1\'s cell, and r_1095 is the entry cost only', () => {
+    const book = runWalkForwardBook(prepareSteps(wfPanel), wf.folds, [3, 11], RV_WF_GEOMETRY, { trace: true, detail: true });
     const tr = book.trace!;
+    const d = book.detail!;
     expect(tr.firstStep).toBe(1094);
+    expect(book.firstStep).toBe(1094);
     expect(tr.before[0]).toEqual(rvInitialState());
     // every target of the first signal is a full entry at open 1,095
     for (const [sym, w] of Object.entries(tr.targets[0])) {
       const s = wfPanel.symbols.indexOf(sym);
-      expect(tr.after[0].positions[sym].qty).toBeCloseTo((w * RV_V1.startingEquity) / wfPanel.open[s][1095], 9);
+      expect(tr.after[0].positions[sym].qty).toBeCloseTo((w * START) / wfPanel.open[s][1095], 9);
       expect(tr.after[0].positions[sym].lastMark).toBe(wfPanel.open[s][1095]);
     }
-    // the entry costs land on the first out-of-sample return, measured against the starting equity
-    expect(book.returns[0]).toBe(tr.equityAfter[1] / RV_V1.startingEquity - 1);
+    // r_1095 against the starting equity: entry friction and nothing else (AMENDMENT 1)
+    expect(book.returns[0]).toBe(tr.equityAfter[0] / START - 1);
+    expect(d.funding[0]).toBe(0);
+    expect(d.price[0]).toBe(0);
+    expect(book.returns[0]).toBeCloseTo(-d.cost[0], 14);
+    expect(d.cost[0]).toBeGreaterThan(SLIP + FEE * (1 - SLIP) - 1e-12);
+    expect(d.cost[0]).toBeLessThan(SLIP + FEE * (1 + SLIP) + 1e-12);
+    // r_1096 is the move from open 1,095 to open 1,096 (AMENDMENT 2)
+    let move = 0;
+    for (const [sym, pos] of Object.entries(tr.after[0].positions)) {
+      const s = wfPanel.symbols.indexOf(sym);
+      move += pos.qty * (wfPanel.open[s][1096] - wfPanel.open[s][1095]);
+    }
+    expect(d.price[1]).toBeCloseTo(move / tr.equityAfter[0], 14);
   });
 
-  it('the stitched series equals an independent replay: cell f from the first signal inside fold f, positions carried', () => {
+  it('the stitched series equals an independent replay with cell f from the close of T_f - 1, positions carried', () => {
     const prep = prepareSteps(wfPanel);
-    const cellsByFold = [3, 11];
-    const book = runWalkForwardBook(prep, wf.folds, cellsByFold, RV_WF_GEOMETRY, { trace: true });
-    const schedule = (k: number) => (k < 1368 ? 3 : 11);
-    const ref = referenceBook(wfPanel, schedule, 1094, 1640);
+    const book = runWalkForwardBook(prep, wf.folds, [3, 11], RV_WF_GEOMETRY, { trace: true });
+    const ref = referenceBook(wfPanel, (k) => (k < 1367 ? 3 : 11), 1094, 1639);
     const eq = ref.map((s) => s.equityAfter);
-    const want = [eq[1] / RV_V1.startingEquity - 1, ...eq.slice(2).map((e, i) => e / eq[i + 1] - 1)];
-    expect(book.returns).toEqual(want);
+    expect(book.returns).toEqual(eq.map((e, i) => e / (i === 0 ? START : eq[i - 1]) - 1));
     expect(book.returns).toHaveLength(546);
-    // positions carry across the fold boundary: the state entering the fold's first step is the one leaving the last
-    const j = 1368 - 1094;
+    // positions carry into fold 2's first signal (the close of T_2 - 1 = 1,367), which is cell 11's
+    const j = 1367 - 1094;
     expect(book.trace!.before[j]).toEqual(book.trace!.after[j - 1]);
     expect(Object.keys(book.trace!.before[j].positions)).toHaveLength(4);
-    // the new cell's rebalance is the trade of the fold's first step, inside its first return
     expect(book.trace!.targets[j]).toEqual(ref[j].targets);
     // continuity: the stitched series compounds to the book's final equity
-    const compounded = book.returns.reduce((e, r) => e * (1 + r), RV_V1.startingEquity as number);
+    const compounded = book.returns.reduce((e, r) => e * (1 + r), START);
     expect(compounded / eq[eq.length - 1]).toBeCloseTo(1, 12);
+  });
+
+  it('a new cell\'s switch cost lands in r_(T_f) and nowhere else (Ruling 1)', () => {
+    const prep = prepareSteps(wfPanel);
+    const stay = runWalkForwardBook(prep, wf.folds, [11, 11], RV_WF_GEOMETRY, { detail: true, trace: true });
+    // cell 1 is dollar-neutral and cell 11 beta-neutral, so the switch must trade
+    const swap = runWalkForwardBook(prep, wf.folds, [11, 1], RV_WF_GEOMETRY, { detail: true, trace: true });
+    const at = 1368 - 1095; // r_1368, the return ending with the rebalance at open T_2
+    expect(firstDiff(swap.returns, stay.returns)).toBe(at);
+    expect(firstDiff(swap.detail!.cost, stay.detail!.cost)).toBe(at);
+    // the cost in r_1368 is exactly the trade at open 1,368: fees and slippage on the switch
+    const tr = swap.trace!;
+    let cost = 0;
+    let traded = 0;
+    for (const sym of wfPanel.symbols) {
+      const s = wfPanel.symbols.indexOf(sym);
+      const delta = (tr.after[at].positions[sym]?.qty ?? 0) - (tr.before[at].positions[sym]?.qty ?? 0);
+      if (Math.abs(delta) <= 1e-12) continue;
+      const ref = wfPanel.open[s][1368];
+      cost += Math.abs(delta) * ref * SLIP + Math.abs(delta) * ref * (1 + Math.sign(delta) * SLIP) * FEE;
+      traded += Math.abs(delta) * ref;
+    }
+    expect(swap.detail!.cost[at]).toBeCloseTo(cost / tr.equityAfter[at - 1], 14);
+    expect(traded / tr.equityAfter[at - 1]).toBeGreaterThan(stay.detail!.turnover[at]);
   });
 
   it('the stitched series equals concatenated per-fold runs from the carried state', () => {
     const prep = prepareSteps(wfPanel);
-    const book = runWalkForwardBook(prep, wf.folds, [5, 8], RV_WF_GEOMETRY, { trace: true });
-    const ref1 = referenceBook(wfPanel, () => 5, 1094, 1367);
-    // fold 2 from the state fold 1 left, replayed with cell 8
-    const refBoth = referenceBook(wfPanel, (k) => (k < 1368 ? 5 : 8), 1094, 1640);
+    const book = runWalkForwardBook(prep, wf.folds, [5, 8], RV_WF_GEOMETRY);
+    const ref1 = referenceBook(wfPanel, () => 5, 1094, 1366);
+    // fold 2 from the state fold 1 left, replayed with cell 8 from the close of 1,367
+    const refBoth = referenceBook(wfPanel, (k) => (k < 1367 ? 5 : 8), 1094, 1639);
     expect(refBoth.slice(0, ref1.length).map((s) => s.equityAfter)).toEqual(ref1.map((s) => s.equityAfter));
-    const fold1 = book.returns.slice(0, 273);
-    const fold2 = book.returns.slice(273);
+    const eq1 = ref1.map((s) => s.equityAfter);
     const eq = refBoth.map((s) => s.equityAfter);
-    expect(fold1).toEqual([eq[1] / RV_V1.startingEquity - 1, ...eq.slice(2, 274).map((e, i) => e / eq[i + 1] - 1)]);
-    expect(fold2).toEqual(eq.slice(274).map((e, i) => e / eq[273 + i] - 1));
+    expect(book.returns.slice(0, 273)).toEqual(eq1.map((e, i) => e / (i === 0 ? START : eq1[i - 1]) - 1));
+    expect(book.returns.slice(273)).toEqual(eq.slice(273).map((e, i) => e / eq[272 + i] - 1));
   });
 
   it('walkForward runs its book with the cells it selected', () => {
@@ -524,7 +580,8 @@ describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5)', () 
   it('decomposes the stitched series (addendum 9)', () => {
     const d = wf.detail!;
     for (let j = 0; j < wf.returns.length; j++) expect(Math.abs(d.funding[j] + d.price[j] - d.cost[j] - wf.returns[j])).toBeLessThan(1e-14);
-    expect(d.price[0]).not.toBe(0); // the first return holds the bar 1,095 move
+    expect(d.price[0]).toBe(0); // r_1095 is the entry from flat
+    expect(d.price[1]).not.toBe(0); // r_1096 holds the move from open 1,095 to open 1,096
   });
 
   it('refuses steps or cell runs from another panel, a partial cell family, and irregular folds', () => {

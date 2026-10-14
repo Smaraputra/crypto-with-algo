@@ -17,12 +17,14 @@
  * to open k + 1, bar k's funding, and the costs of the trade at open k + 1. The first step is measured against
  * the starting equity, so it carries only the entry costs.
  *
- * Walk-forward book (AMENDMENT 2, addendum rule 5): it opens flat. Its first signal is at the close of bar
- * train - 1 (1,094) with fold 1's cell, filled at open train (1,095). Every later signal at bar k uses the cell
- * of the fold that holds bar k, so a newly selected cell first trades at the close of its fold's first bar and
- * the cost of that rebalance lands in the fold's first return. The out-of-sample series starts with bar train:
- * its first return is equity after step train over the starting equity, which also holds the entry costs at
- * open train. Positions carry across fold boundaries. Only complete test folds are evaluated.
+ * Walk-forward book (AMENDMENT 2, addendum rule 5, pre-review Ruling 1). Fold f fills at opens T_f..T_f + 272
+ * (T_1 = train = 1,095, T_(f+1) = T_f + test). Every signal at the close of k for T_f - 1 <= k <= T_f + 271 uses fold
+ * f's selected cell, so the cell trades exactly its own test window, and fold 1's first signal at the close of
+ * 1,094 is the same rule. In the ruling's notation r_k = E_k / E_(k - 1) - 1 ends with the rebalance at open k,
+ * which is this module's step k - 1. Fold f's out-of-sample returns are r_(T_f)..r_(T_f + 272): r_(T_f) carries the
+ * switch cost of fold f's cell and, for f >= 2, the last move of fold f - 1's legs. The book opens flat at the
+ * starting equity, so r_1095 is the entry cost only (AMENDMENT 1) and r_1096 runs from open 1,095 to open 1,096
+ * (AMENDMENT 2). Positions carry across fold boundaries. Only complete test folds are evaluated.
  */
 import {
   RV_V1,
@@ -391,22 +393,20 @@ function runBookPass(prep: PreparedSteps, schedule: (k: number) => number, from:
 }
 
 /**
- * Returns and components of a pass's steps j0..end (indices into the pass), each measured against the equity
- * after the step before. The first is measured against `base`: the starting equity, or for the walk-forward book
- * the equity before its entry step, so step j0 also carries the entry step's costs (`entryStep`).
+ * Returns and components of every step of a pass, each measured against the equity after the step before, and
+ * the first against the starting equity (AMENDMENT 1).
  */
-function seriesOf(pass: BookPass, j0: number, base: number, entryStep: number | null, detail: boolean): { returns: number[]; detail?: StepDetail } {
+function seriesOf(pass: BookPass, detail: boolean): { returns: number[]; detail?: StepDetail } {
   const returns: number[] = [];
   const out: StepDetail = { funding: [], price: [], cost: [], turnover: [] };
-  for (let j = j0; j < pass.equityAfter.length; j++) {
-    const prev = j === j0 ? base : pass.equityAfter[j - 1];
+  for (let j = 0; j < pass.equityAfter.length; j++) {
+    const prev = j === 0 ? RV_V1.startingEquity : pass.equityAfter[j - 1];
     returns.push(pass.equityAfter[j] / prev - 1);
     if (detail) {
-      const extra = j === j0 && entryStep !== null ? entryStep : null;
-      out.funding.push((pass.funding[j] + (extra === null ? 0 : pass.funding[extra])) / prev);
-      out.price.push((pass.price[j] + (extra === null ? 0 : pass.price[extra])) / prev);
-      out.cost.push((pass.cost[j] + (extra === null ? 0 : pass.cost[extra])) / prev);
-      out.turnover.push(pass.traded[j] / pass.equityBefore[j] + (extra === null ? 0 : pass.traded[extra] / pass.equityBefore[extra]));
+      out.funding.push(pass.funding[j] / prev);
+      out.price.push(pass.price[j] / prev);
+      out.cost.push(pass.cost[j] / prev);
+      out.turnover.push(pass.traded[j] / pass.equityBefore[j]);
     }
   }
   if (detail) {
@@ -448,7 +448,7 @@ export function runCells(panel: RvPanel, opts: RunCellsOptions = {}): CellsResul
   const indices = opts.cells ?? RV_CELLS.map((c) => c.index);
   const runs = indices.map((index) => {
     const pass = runBookPass(prep, () => index, prep.firstStep, prep.lastStep, opts);
-    const { returns, detail } = seriesOf(pass, 0, RV_V1.startingEquity, null, opts.detail === true);
+    const { returns, detail } = seriesOf(pass, opts.detail === true);
     const run: CellRun = { index, returns };
     if (detail) run.detail = detail;
     if (pass.trace) run.trace = pass.trace;
@@ -478,16 +478,16 @@ export interface Fold {
 }
 
 /**
- * Rolling folds over an n-bar panel: fold f trains on bars (f - 1) * test .. + train - 1 and tests on the next
- * `test` bars. A test bar needs a realised return (an open after it), so the last usable step is n - 2. Only
- * complete folds are kept, and `remainder` counts the trailing steps dropped.
+ * Rolling folds over an n-bar panel: fold f trains on bars (f - 1) * test .. + train - 1 and fills at the opens of
+ * the next `test` bars, testFrom (T_f) to testTo. Its last out-of-sample return ends with the fill at open testTo,
+ * so a fold is complete when that open exists (testTo <= n - 1). `remainder` counts the trailing opens dropped.
  */
 export function foldsOf(n: number, g: WfGeometry): { folds: Fold[]; remainder: number } {
   if (!Number.isInteger(g.train) || !Number.isInteger(g.test) || g.test < 1 || g.train <= FIRST_SIGNAL_BAR + 1) {
     throw new Error(`invalid walk-forward geometry ${JSON.stringify(g)}`);
   }
-  const lastStep = n - 2;
-  const count = Math.max(0, Math.floor((lastStep - g.train + 1) / g.test));
+  const lastFill = n - 1;
+  const count = Math.max(0, Math.floor((lastFill - g.train + 1) / g.test));
   const folds: Fold[] = [];
   for (let f = 1; f <= count; f++) {
     const trainFrom = (f - 1) * g.test;
@@ -495,13 +495,15 @@ export function foldsOf(n: number, g: WfGeometry): { folds: Fold[]; remainder: n
     folds.push({ f, trainFrom, trainTo, testFrom: trainTo + 1, testTo: trainTo + g.test });
   }
   const covered = count > 0 ? folds[count - 1].testTo : g.train - 1;
-  return { folds, remainder: Math.max(0, lastStep - covered) };
+  return { folds, remainder: Math.max(0, lastFill - covered) };
 }
 
 /**
  * The steps whose returns train fold f: a signal exists (from firstStep) and the return is realised inside the
  * window, from the window's first open to its last open, so step trainTo (which ends at the test fold's first
- * open) is excluded. `purge` drops that many more steps from the end (the 1-bar purge sensitivity).
+ * open) is excluded. In Ruling 1's notation these are r_k for T_f - 1,094 <= k <= T_f - 1 and k >= 43, all known
+ * at the close of T_f - 1 when fold f's first signal is computed. `purge` drops that many more steps from the end
+ * (the 1-bar purge sensitivity).
  */
 export function trainingSteps(fold: Fold, firstStep: number, purge: number): [number, number] {
   if (!Number.isInteger(purge) || purge < 0) throw new Error(`purge must be a non-negative integer, got ${purge}`);
@@ -514,17 +516,17 @@ export interface WfFold extends Fold {
 }
 
 export interface WfBook {
-  /** The out-of-sample series, one return per test bar of the complete folds. */
+  /** The out-of-sample series r_(T_1)..r_(T_last + test - 1), one return per fill of the complete folds. */
   returns: number[];
-  /** First out-of-sample step: the first test bar. */
+  /** The step (signal bar) of the first return, train - 1: return i is step firstStep + i, ending at open firstStep + i + 1. */
   firstStep: number;
   detail?: StepDetail;
   trace?: StepTrace;
 }
 
 /**
- * The walk-forward book with fold f trading `cells[f - 1]` (addendum rule 5). Opens flat, first signal at the
- * close of bar train - 1 with fold 1's cell, then each signal at bar k with the cell of the fold holding bar k.
+ * The walk-forward book with fold f trading `cells[f - 1]` (addendum rule 5, Ruling 1). Opens flat. The signals at
+ * the closes of T_f - 1..T_f + test - 2 use fold f's cell, so fold f's cell fills at opens T_f..T_f + test - 1.
  * Hysteresis follows the book's own held legs.
  */
 export function runWalkForwardBook(prep: PreparedSteps, folds: readonly Fold[], cells: readonly number[], g: WfGeometry, opts: BookOptions = {}): WfBook {
@@ -538,11 +540,11 @@ export function runWalkForwardBook(prep: PreparedSteps, folds: readonly Fold[], 
     }
   });
   const from = first - 1;
-  const to = folds[folds.length - 1].testTo;
-  const schedule = (k: number) => (k < first ? cells[0] : cells[Math.floor((k - first) / g.test)]);
+  const to = folds[folds.length - 1].testTo - 1;
+  const schedule = (k: number) => cells[Math.floor((k - from) / g.test)];
   const pass = runBookPass(prep, schedule, from, to, opts);
-  const { returns, detail } = seriesOf(pass, 1, RV_V1.startingEquity, 0, opts.detail === true);
-  const book: WfBook = { returns, firstStep: first };
+  const { returns, detail } = seriesOf(pass, opts.detail === true);
+  const book: WfBook = { returns, firstStep: from };
   if (detail) book.detail = detail;
   if (pass.trace) book.trace = pass.trace;
   return book;
