@@ -13,8 +13,11 @@
  *   0.95 and unit stationary variance. The next bar's return gains kappa * s(i,t), the funding settled at
  *   bar t is minus c * s(i,t) plus noise (so carry reads the score and funding persists), and volume and
  *   taker-buy share carry a weak positive loading on s(i,t).
- * `strength` scales every planted loading (kappa, c and both volume loadings), and 1 is the calibrated edge.
- * The driftless modes take strength 0 and reject anything else.
+ * - carry: the carry-only universe of AMENDMENT 2 (reported, never a gate). The same latent score, with kappa 0
+ *   and no volume or taker-buy loading, so prices, volume and taker-buy volume are the iid panel of the same seed.
+ *   Only funding reads the score, with the larger loading CARRY_ONLY_FUNDING_C, so carry alone carries the edge.
+ * `strength` scales every planted loading (kappa, c and both volume loadings), and 1 is the calibrated edge. In
+ * carry mode it scales c alone. The driftless modes take strength 0 and reject anything else.
  */
 import {
   RV_V1,
@@ -55,6 +58,16 @@ export const PLANTED_KAPPA = 0.00146;
 
 /** Funding loading: the settled rate is FUNDING_BASE - c * s + noise. */
 export const PLANTED_FUNDING_C = 0.0001;
+/**
+ * The carry-only universe's funding loading (AMENDMENT 2, reported, never a gate). The carry factor is 30% of the
+ * composite, so carry alone needs a far larger loading than PLANTED_FUNDING_C to carry an edge. Chosen on a grid of
+ * step 0.00001 as the value whose mean rv-v1 annualised net taker Sharpe over the ten carry seeds (base + 230,000
+ * + k, k = 1..10, measured with rvV1NetTakerReturns) is closest to the planted universe's 3.5, so both universes
+ * plant the same population edge. At 0.00205 the ten Sharpes are 3.75, 3.74, 3.65, 4.78, 3.65, 2.59, 4.58, 3.08,
+ * 2.16, 3.01 (mean 3.499). It is a rate of 0.2% per 8h per unit of score, far above real funding: a stress of the
+ * machinery's power on carry, not a realistic universe.
+ */
+export const CARRY_ONLY_FUNDING_C = 0.00205;
 /** Taker-buy share loading per unit of score (weak). */
 export const PLANTED_FLOW_LOADING = 0.001;
 /** Log volume loading per unit of score (weak). */
@@ -79,7 +92,7 @@ const GARCH_ALPHA = 0.1;
 const GARCH_BETA = 0.85;
 const START_PRICES = [40_000, 3_000, 400, 150, 0.8, 1.2, 0.15, 80, 25, 20];
 
-export type SyntheticMode = 'iid' | 'garch' | 'planted';
+export type SyntheticMode = 'iid' | 'garch' | 'planted' | 'carry';
 
 export interface SyntheticOptions {
   bars: number;
@@ -130,15 +143,16 @@ function generate(opts: SyntheticOptions, scoreOverride: readonly (readonly numb
     throw new Error(`symbols must be an integer in [1, ${RV_SYMBOLS.length}], got ${nSym}`);
   }
   if (!Number.isInteger(seed)) throw new Error(`seed must be an integer, got ${seed}`);
-  if (mode === 'planted' ? !(strength >= 0 && Number.isFinite(strength)) : strength !== 0) {
-    throw new Error(`strength ${strength} is invalid for mode ${mode}: planted takes a finite strength >= 0, iid and garch take 0`);
+  const loaded = mode === 'planted' || mode === 'carry';
+  if (loaded ? !(strength >= 0 && Number.isFinite(strength)) : strength !== 0) {
+    throw new Error(`strength ${strength} is invalid for mode ${mode}: planted and carry take a finite strength >= 0, iid and garch take 0`);
   }
 
   const random = createSeededRandom(seed);
   const z = gaussian(random);
   const planted = mode === 'planted';
   const kappa = planted ? strength * PLANTED_KAPPA : 0;
-  const c = planted ? strength * PLANTED_FUNDING_C : 0;
+  const c = planted ? strength * PLANTED_FUNDING_C : mode === 'carry' ? strength * CARRY_ONLY_FUNDING_C : 0;
   const flowLoading = planted ? strength * PLANTED_FLOW_LOADING : 0;
   const volumeLoading = planted ? strength * PLANTED_VOLUME_LOADING : 0;
 

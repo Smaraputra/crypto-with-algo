@@ -1,11 +1,21 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'crypto';
 
 import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
+import { stableStringify } from './broad-trend';
 import { RV_SYMBOLS, type RvPanel } from './rv-panel';
-import { ANNUALISATION, rvV1NetTakerReturns, rvV1TakerSteps, syntheticPanel, syntheticPanelWithScores } from './rv-synthetic';
+import {
+  ANNUALISATION,
+  CARRY_ONLY_FUNDING_C,
+  PLANTED_FUNDING_C,
+  rvV1NetTakerReturns,
+  rvV1TakerSteps,
+  syntheticPanel,
+  syntheticPanelWithScores,
+} from './rv-synthetic';
 
 const H8 = 8 * 3_600_000;
 /** Header SEEDS: base 20261014, planted calibration universe k = 1..10 uses base + 210,000 + k. */
@@ -245,5 +255,49 @@ describe('rvV1NetTakerReturns (the reference rv-v1 run that fixes kappa)', () =>
     const p = syntheticPanel({ bars: 100, symbols: 10, mode: 'iid', strength: 0, seed: 3 });
     const gap = { ...p, t: p.t.map((t, i) => (i >= 60 ? t + H8 : t)) };
     expect(() => rvV1NetTakerReturns(gap)).toThrow(/contiguous/);
+  });
+});
+
+describe('syntheticPanel carry-only universe (AMENDMENT 2: kappa 0, a larger c, reported never gating)', () => {
+  /** Not in the header: the carry-only universe takes the next free seed block, base + 230,000 + k. */
+  const carrySeed = (k: number) => BASE + 230_000 + k;
+  const sha = (p: RvPanel) => createHash('sha256').update(stableStringify(p)).digest('hex');
+
+  it('adding the mode left the iid, garch and planted panels byte-identical (hashes taken before the change)', () => {
+    const pinned: Record<string, string> = {
+      'iid 1': '91c3c4eb9147c990bedb49b8785bcd4038082fc95cef8fdc1f16ce5355b4c9bf',
+      'iid 20471015': 'fc24f27fd784249bbb2c62d3626067c986fe73f29dfa9ad57039031528a4e19d',
+      'garch 1': '4919577cabdecd0d58a4695fa3e7d1597506d731c0c0b8a874b7516d468918de',
+      'garch 20471015': '55d15427b71123dabf1a42b70e6804eed32c3b69618fdacd80e531f58c4f3e0a',
+      'planted 1': '576b053f79d339c509f295a6fa207268d062565bf36e82ce9e9b87c8ddf97dd6',
+      'planted 20471015': '7e0063168a97e758ce5d128391e3ae21e15482461ec69d88930c76076a28391e',
+    };
+    for (const [key, hash] of Object.entries(pinned)) {
+      const [mode, seed] = key.split(' ') as ['iid' | 'garch' | 'planted', string];
+      expect(sha(syntheticPanel({ bars: 3000, symbols: 10, mode, strength: mode === 'planted' ? 1 : 0, seed: Number(seed) })), key).toBe(hash);
+    }
+  });
+
+  it('prices, volume and taker-buy volume are the iid panel of the same seed: only funding reads the score', () => {
+    const opts = { bars: 600, symbols: 10, strength: 0, seed: carrySeed(1) };
+    const carry = syntheticPanel({ ...opts, mode: 'carry', strength: 1 });
+    const flat = syntheticPanel({ ...opts, mode: 'iid' });
+    for (const col of ['open', 'high', 'low', 'close', 'volume', 'tbv'] as const) expect(carry[col], col).toEqual(flat[col]);
+    expect(carry.fundSum).not.toEqual(flat.fundSum);
+    expect(syntheticPanel({ ...opts, mode: 'carry', strength: 0 })).toEqual(flat);
+    for (let s = 0; s < 10; s++) expect(lag1(carry.fundSum[s])).toBeGreaterThan(0.8);
+    expect(CARRY_ONLY_FUNDING_C).toBeGreaterThan(PLANTED_FUNDING_C);
+    expect(() => syntheticPanel({ ...opts, mode: 'carry', strength: -1 })).toThrow(/strength/);
+  });
+
+  it('gives rv-v1 a ten-seed mean annualised net taker Sharpe near the planted edge (pinned)', { timeout: 120_000 }, () => {
+    const sharpes = Array.from({ length: 10 }, (_, j) => {
+      const p = syntheticPanel({ bars: 3000, symbols: 10, mode: 'carry', strength: 1, seed: carrySeed(j + 1) });
+      return perPeriodSharpe(rvV1NetTakerReturns(p)) * ANNUALISATION;
+    });
+    const mean = sharpes.reduce((a, b) => a + b, 0) / sharpes.length;
+    expect(mean).toBeGreaterThanOrEqual(3);
+    expect(mean).toBeLessThanOrEqual(4);
+    expect(mean).toBeCloseTo(3.499, 2); // regression value recorded with CARRY_ONLY_FUNDING_C
   });
 });
