@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -27,6 +27,7 @@ import {
   loadFunding,
   loadPerp,
   loadSnapshots,
+  parseJsonlGz,
   verifyManifest,
 } from './load-dataset';
 
@@ -457,5 +458,28 @@ describe('loadFunding', () => {
 
   it('keeps the lockbox settlement when allowLockbox is true', () => {
     expect(loadFunding(dir, SYMBOL, { allowLockbox: true }).rows).toHaveLength(3);
+  });
+});
+
+describe('parseJsonlGz (parse the very bytes a caller hashed)', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'load-dataset-buffer-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('parses a gzipped JSON-lines buffer into the same rows the path reader returns, with no lockbox applied', async () => {
+    const path = join(dir, 'funding', SYMBOL, 'settlements.jsonl.gz');
+    const rows = [
+      { t: LOCKBOX_START - 8 * HOUR, rate: 0.0001, intervalHours: 8 },
+      { t: LOCKBOX_START, rate: 0.0002, intervalHours: null },
+    ];
+    await writeJsonlGz(path, rows);
+    expect(parseJsonlGz(readFileSync(path))).toEqual(rows);
+    expect(parseJsonlGz(readFileSync(path))).toEqual(loadFunding(dir, SYMBOL, { allowLockbox: true }).rows);
   });
 });

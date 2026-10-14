@@ -21,11 +21,13 @@ import {
   alignPanel,
   assemblePanel,
   buildRvPanel,
-  checkFunding,
   crossCheck1h,
+  fundingFlags,
   fundingPerBar,
   pairTo8h,
   panelGrid,
+  type FundingResolutions,
+  type ResolutionEntry,
   type RvSymbolSource,
 } from './rv-panel';
 
@@ -34,6 +36,16 @@ const H4 = 4 * H;
 const H8 = 8 * H;
 const DAY = 24 * H;
 const T0 = Date.UTC(2022, 0, 1);
+
+/** A resolutions record as the runner would read it: the file's sha256 and its entries. */
+const resolutions = (entries: ResolutionEntry[] = []): FundingResolutions => ({ sha256: 'f'.repeat(64), entries });
+const noEvent = (symbol: string, t: number, restBefore = t - H4, restAfter = t + H4): ResolutionEntry => ({
+  symbol,
+  t,
+  verdict: 'no-event',
+  restBefore,
+  restAfter,
+});
 
 /** Eight 1h rows per 8h bucket, a seeded random walk, prices strictly positive. */
 function hourly(buckets: number, seed: number, from = T0): PerpCandleRow[] {
@@ -127,6 +139,25 @@ describe('pairTo8h (header DATA: 4h perp klines paired into 8h bars at 00, 08 an
     expect(bars[1].tbv).not.toBeNull();
   });
 
+  it('halts on a non-finite or non-positive price and on a negative or non-finite volume or taker-buy volume (AMENDMENT 2)', () => {
+    const r4 = fourHourly(hourly(2, 7));
+    const grid = { from: T0, to: T0 + H8 };
+    const bad: Partial<PerpCandleRow>[] = [
+      { o: Number.NaN },
+      { h: Number.POSITIVE_INFINITY },
+      { l: 0 },
+      { c: -1 },
+      { v: -1 },
+      { v: Number.NaN },
+      { tbv: -0.5 },
+      { tbv: Number.POSITIVE_INFINITY },
+    ];
+    for (const patch of bad) {
+      const rows = r4.map((r, i) => (i === 2 ? { ...r, ...patch } : r));
+      expect(() => pairTo8h(rows, grid), JSON.stringify(patch)).toThrow(/HALT/);
+    }
+  });
+
   it('throws on a row off the 4h grid, a duplicate row, or a grid not on 8h boundaries', () => {
     const r4 = fourHourly(hourly(2, 6));
     expect(() => pairTo8h([...r4, { ...r4[0], t: T0 + H }], { from: T0, to: T0 + H8 })).toThrow(/4h grid/);
@@ -172,56 +203,92 @@ describe('fundingPerBar (header DATA: per-bar funding is the sum of settlements 
   });
 });
 
-describe('checkFunding (header DATA: HALT on any missing due settlement)', () => {
+describe('fundingFlags (header DATA and AMENDMENTS 1 and 2: settlements that need a REST-verified resolution)', () => {
   const window = { from: T0, to: T0 + 6 * DAY };
+  const nul = (rows: FundingRow[]) => rows.map((r) => ({ ...r, intervalHours: null }));
+  const missing = (...ts: number[]) => ts.map((t) => ({ symbol: 'X', t, reason: 'missing' }));
+  const flag = (t: number, reason: 'missing' | 'derived-switch') => ({ symbol: 'X', t, reason });
 
-  it('passes a complete 8h grid with stated intervals', () => {
-    expect(() => checkFunding('X', grid8(T0 + H8, T0 + 6 * DAY), window)).not.toThrow();
+  it('flags nothing on a complete 8h grid with stated intervals', () => {
+    expect(fundingFlags('X', grid8(T0 + H8, T0 + 6 * DAY), window)).toEqual([]);
   });
 
-  it('halts on a missing settlement inside the window, at its head and at its tail', () => {
+  it('flags a missing settlement inside the window, at its head and at its tail', () => {
     const full = grid8(T0 + H8, T0 + 6 * DAY);
-    expect(() => checkFunding('X', full.filter((r) => r.t !== T0 + 2 * DAY + H8), window)).toThrow(/missing[\s\S]*X/);
-    expect(() => checkFunding('X', full.filter((r) => r.t !== T0 + H8), window)).toThrow(/missing/);
-    expect(() => checkFunding('X', full.filter((r) => r.t !== T0 + 6 * DAY), window)).toThrow(/missing/);
+    expect(fundingFlags('X', full.filter((r) => r.t !== T0 + 2 * DAY + H8), window)).toEqual(missing(T0 + 2 * DAY + H8));
+    expect(fundingFlags('X', full.filter((r) => r.t !== T0 + H8), window)).toEqual(missing(T0 + H8));
+    expect(fundingFlags('X', full.filter((r) => r.t !== T0 + 6 * DAY), window)).toEqual(missing(T0 + 6 * DAY));
   });
 
   it('does not require a settlement at the window open or after the window close', () => {
     const rows = [{ t: T0, rate: 0.0001, intervalHours: 8 }, ...grid8(T0 + H8, T0 + 6 * DAY)];
-    expect(() => checkFunding('X', rows, window)).not.toThrow();
-    expect(() => checkFunding('X', grid8(T0 + H8, T0 + 6 * DAY), { from: T0, to: T0 + 6 * DAY - 16 * H })).not.toThrow();
+    expect(fundingFlags('X', rows, window)).toEqual([]);
+    expect(fundingFlags('X', grid8(T0 + H8, T0 + 6 * DAY), { from: T0, to: T0 + 6 * DAY - 16 * H })).toEqual([]);
   });
 
-  it('reads stated intervals: an 8h-to-4h switch is complete and a missing 4h settlement halts', () => {
+  it('reads stated intervals: an 8h-to-4h switch is complete and a missing 4h settlement is flagged', () => {
     const switched = [...grid8(T0 + H8, T0 + 3 * DAY), ...grid8(T0 + 3 * DAY + H4, T0 + 6 * DAY, 4)];
-    expect(() => checkFunding('X', switched, window)).not.toThrow();
-    expect(() => checkFunding('X', switched.filter((r) => r.t !== T0 + 4 * DAY + 12 * H), window)).toThrow(/missing/);
+    expect(fundingFlags('X', switched, window)).toEqual([]);
+    expect(fundingFlags('X', switched.filter((r) => r.t !== T0 + 4 * DAY + 12 * H), window)).toEqual(missing(T0 + 4 * DAY + 12 * H));
   });
 
-  it('derives the interval from the spacing when intervalHours is null (REST rows)', () => {
-    const nul = (rows: FundingRow[]) => rows.map((r) => ({ ...r, intervalHours: null }));
+  it('derives a null interval from the spacing and flags lone long gaps (REST rows)', () => {
     const eight = nul(grid8(T0 + H8, T0 + 6 * DAY));
-    expect(() => checkFunding('X', eight, window)).not.toThrow();
-    expect(() => checkFunding('X', eight.filter((r) => r.t !== T0 + 2 * DAY + H8), window)).toThrow(/missing/);
-    expect(() => checkFunding('X', eight.filter((r) => r.t !== T0 + 2 * DAY + H8 && r.t !== T0 + 2 * DAY + 2 * H8), window)).toThrow(/missing/);
+    expect(fundingFlags('X', eight, window)).toEqual([]);
+    expect(fundingFlags('X', eight.filter((r) => r.t !== T0 + 2 * DAY + H8), window)).toEqual(missing(T0 + 2 * DAY + H8));
+    expect(fundingFlags('X', eight.filter((r) => r.t !== T0 + 2 * DAY + H8 && r.t !== T0 + 2 * DAY + 2 * H8), window)).toEqual(
+      missing(T0 + 2 * DAY + H8, T0 + 2 * DAY + 2 * H8)
+    );
+  });
 
+  it('flags every interval switch derived from null-interval spacing, inside the longer gap at the switch (AMENDMENT 2)', () => {
+    // Shortening 8h to 4h at T0 + 3d: was 4h already in force across the last 8h gap? REST must say no at T0 + 3d - 4h
     const shortened = nul([...grid8(T0 + H8, T0 + 3 * DAY), ...grid8(T0 + 3 * DAY + H4, T0 + 6 * DAY, 4)]);
-    expect(() => checkFunding('X', shortened, window)).not.toThrow();
+    expect(fundingFlags('X', shortened, window)).toEqual([flag(T0 + 3 * DAY - H4, 'derived-switch')]);
+    // Lengthening 4h to 8h after T0 + 3d: was 4h still in force across the first 8h gap? REST must say no at T0 + 3d + 4h
     const lengthened = nul([...grid8(T0 + H4, T0 + 3 * DAY, 4), ...grid8(T0 + 3 * DAY + H8, T0 + 6 * DAY)]);
-    expect(() => checkFunding('X', lengthened, window)).not.toThrow();
-    // One missing 4h settlement leaves a lone 8h gap between 4h gaps
-    expect(() => checkFunding('X', shortened.filter((r) => r.t !== T0 + 4 * DAY + 12 * H), window)).toThrow(/missing/);
+    expect(fundingFlags('X', lengthened, window)).toEqual([flag(T0 + 3 * DAY + H4, 'derived-switch')]);
+    // A lone missing 4h settlement after the switch is a missing flag beside the switch flag
+    expect(fundingFlags('X', shortened.filter((r) => r.t !== T0 + 4 * DAY + 12 * H), window)).toEqual([
+      flag(T0 + 3 * DAY - H4, 'derived-switch'),
+      flag(T0 + 4 * DAY + 12 * H, 'missing'),
+    ]);
+    // Stated intervals: the same switches carry no switch flag
+    expect(fundingFlags('X', [...grid8(T0 + H4, T0 + 3 * DAY, 4), ...grid8(T0 + 3 * DAY + H8, T0 + 6 * DAY)], window)).toEqual([]);
   });
 
-  it('halts when the interval cannot be derived, on a duplicate settlement, and on a time off the hour', () => {
-    expect(() => checkFunding('X', [{ t: T0 + H8, rate: 0.0001, intervalHours: null }], { from: T0, to: T0 + H8 })).toThrow(/interval/);
+  it('a missing first settlement after a null-interval switch is flagged, not read as a later switch (review m1)', () => {
+    // True switch to 4h at T0 + 3d with T0 + 3d + 4h missing: gaps 8, 8, 8, 4 look like a switch one settlement later
+    const rows = nul([...grid8(T0 + H8, T0 + 3 * DAY), ...grid8(T0 + 3 * DAY + H4, T0 + 6 * DAY, 4)]).filter((r) => r.t !== T0 + 3 * DAY + H4);
+    expect(fundingFlags('X', rows, window)).toEqual([flag(T0 + 3 * DAY + H4, 'derived-switch')]);
+    // The same rows with stated intervals flag it as missing
+    const stated = [...grid8(T0 + H8, T0 + 3 * DAY), ...grid8(T0 + 3 * DAY + H4, T0 + 6 * DAY, 4)].filter((r) => r.t !== T0 + 3 * DAY + H4);
+    expect(fundingFlags('X', stated, window)).toEqual(missing(T0 + 3 * DAY + H4));
+  });
+
+  it('judges a lone long null-interval gap at its smallest Binance-interval neighbour (review m1, PA16)', () => {
+    // 4h spacing to A, one 8h gap, then 2h spacing: the 8h gap is judged at 2h, not 4h
+    const A = T0 + DAY;
+    const rows = nul([...grid8(T0 + H4, A, 4), ...grid8(A + H8, T0 + 2 * DAY, 2)]);
+    expect(fundingFlags('X', rows, { from: T0, to: T0 + 2 * DAY })).toEqual([
+      flag(A - 2 * H, 'derived-switch'),
+      flag(A + 2 * H, 'missing'),
+      flag(A + 4 * H, 'missing'),
+      flag(A + 6 * H, 'missing'),
+    ]);
+  });
+
+  it('halts when the interval cannot be derived, on a duplicate settlement, a time off the hour, or a non-finite rate', () => {
+    expect(() => fundingFlags('X', [{ t: T0 + H8, rate: 0.0001, intervalHours: null }], { from: T0, to: T0 + H8 })).toThrow(/HALT[\s\S]*interval/);
     const rows = grid8(T0 + H8, T0 + 6 * DAY);
-    expect(() => checkFunding('X', [...rows, rows[3]], window)).toThrow(/duplicate/i);
-    expect(() => checkFunding('X', [...rows.slice(0, 3), { ...rows[3], t: rows[3].t + 1 }, ...rows.slice(4)], window)).toThrow(/hour/);
+    expect(() => fundingFlags('X', [...rows, rows[3]], window)).toThrow(/HALT[\s\S]*duplicate/i);
+    expect(() => fundingFlags('X', [...rows.slice(0, 3), { ...rows[3], t: rows[3].t + 1 }, ...rows.slice(4)], window)).toThrow(/HALT[\s\S]*hour/);
+    expect(() => fundingFlags('X', rows.map((r, i) => (i === 4 ? { ...r, rate: Number.NaN } : r)), window)).toThrow(/HALT[\s\S]*rate/);
   });
 
-  it('halts when no settlement exists at all', () => {
-    expect(() => checkFunding('X', [], window)).toThrow(/no settlement/i);
+  it('halts when no settlement exists at all, or none inside the window', () => {
+    expect(() => fundingFlags('X', [], window)).toThrow(/HALT[\s\S]*no settlement/i);
+    expect(() => fundingFlags('X', grid8(T0 + 7 * DAY, T0 + 8 * DAY), window)).toThrow(/HALT[\s\S]*no settlement/i);
   });
 });
 
@@ -271,18 +338,31 @@ describe('crossCheck1h (header DATA: 8h from 4h must equal 8h from 1h)', () => {
     expect(crossCheck1h(panel, { A: src.rows1h })).toEqual([]);
   });
 
-  it('reports any OHLC difference exactly, and volume or taker-buy volume beyond a relative 1e-7', () => {
+  it('reports any OHLC difference exactly (one ulp), and volume or taker-buy volume beyond a relative 1e-7', () => {
     const src = sourceFor('A', 12, 6);
     const panel = panelOf(src, 6);
     const r1 = src.rows1h.map((r) => ({ ...r }));
-    r1[8].h = Math.max(...r1.slice(8, 16).map((r) => r.h)) * 1.000001; // bar 1's high, raised
+    const top = 8 + r1.slice(8, 16).reduce((best, r, j, all) => (r.h > all[best].h ? j : best), 0);
+    r1[top].h = r1[top].h * (1 + Number.EPSILON); // bar 1's high, raised by one ulp
+    expect(r1[top].h).not.toBe(src.rows1h[top].h);
     r1[20].v = r1[20].v + panel.volume[0][2] * 2e-7;
+    r1[28].tbv = (r1[28].tbv as number) + panel.tbv[0][3] * 2e-7; // just outside the tolerance
     r1[33].tbv = (r1[33].tbv as number) + panel.tbv[0][4] * 5e-8; // inside the tolerance
     const mm = crossCheck1h(panel, { A: r1 });
     expect(mm.map((m) => [m.t, m.field])).toEqual([
       [T0 + H8, 'high'],
       [T0 + 2 * H8, 'volume'],
+      [T0 + 3 * H8, 'tbv'],
     ]);
+  });
+
+  it('halts on a duplicate or off-hour 1h row and on an invalid 1h price or volume (AMENDMENT 2)', () => {
+    const src = sourceFor('A', 14, 6);
+    const panel = panelOf(src, 6);
+    expect(() => crossCheck1h(panel, { A: [...src.rows1h, src.rows1h[10]] })).toThrow(/HALT[\s\S]*duplicate/i);
+    expect(() => crossCheck1h(panel, { A: [...src.rows1h, { ...src.rows1h[10], t: src.rows1h[10].t + 60_000 }] })).toThrow(/HALT[\s\S]*hour/);
+    expect(() => crossCheck1h(panel, { A: src.rows1h.map((r, i) => (i === 10 ? { ...r, c: Number.NaN } : r)) })).toThrow(/HALT/);
+    expect(() => crossCheck1h(panel, { A: src.rows1h.map((r, i) => (i === 10 ? { ...r, v: -1 } : r)) })).toThrow(/HALT/);
   });
 
   it('reports a bucket the 1h series cannot rebuild, and a null 1h taker-buy volume', () => {
@@ -309,13 +389,14 @@ describe('panelGrid (the bars whose funding window lies inside the export span)'
   });
 });
 
-describe('assemblePanel (header DATA halts)', () => {
+describe('assemblePanel (header DATA halts, AMENDMENTS 1 and 2)', () => {
   const BUCKETS = 12;
   const span = { from: T0, to: T0 + 4 * DAY - 1 };
   const sources = () => RV_SYMBOLS.map((s, i) => sourceFor(s, 100 + i, BUCKETS));
+  const NONE = resolutions();
 
   it('builds a rectangular panel over the grid, the final 16:00 bar left out', () => {
-    const { panel, droppedBuckets } = assemblePanel(sources(), span);
+    const { panel, droppedBuckets, resolutions: rec, fundLastNull } = assemblePanel(sources(), span, NONE);
     expect(panel.symbols).toEqual([...RV_SYMBOLS]);
     expect(panel.t).toHaveLength(BUCKETS - 1);
     expect(panel.t[panel.t.length - 1]).toBe(T0 + 4 * DAY - 2 * H8);
@@ -325,49 +406,82 @@ describe('assemblePanel (header DATA halts)', () => {
       for (const row of col) expect(row).toHaveLength(BUCKETS - 1);
     }
     expect(panel.fundLast.flat().every((v) => v !== null)).toBe(true);
+    expect(fundLastNull).toEqual([]);
+    expect(rec).toEqual({ sha256: 'f'.repeat(64), entries: 0, flags: [] });
   });
 
-  it('counts dropped buckets across the panel and halts above 3', () => {
-    const three = sources();
-    three[1].rows4h = three[1].rows4h.filter((r) => r.t !== T0 + H8 + H4);
-    three[2].rows4h = three[2].rows4h.filter((r) => r.t !== T0 + 2 * H8 && r.t !== T0 + 5 * H8);
-    const ok = assemblePanel(three, span);
-    expect(ok.droppedBuckets.map((d) => [d.symbol, d.t])).toEqual([
-      [RV_SYMBOLS[1], T0 + H8],
-      [RV_SYMBOLS[2], T0 + 2 * H8],
-      [RV_SYMBOLS[2], T0 + 5 * H8],
-    ]);
-    expect(ok.panel.t).not.toContain(T0 + H8);
-    expect(ok.panel.t).toHaveLength(BUCKETS - 1 - 3);
-
-    const four = sources();
-    four[1].rows4h = four[1].rows4h.filter((r) => r.t !== T0 + H8 + H4);
-    four[2].rows4h = four[2].rows4h.filter((r) => r.t !== T0 + 2 * H8 && r.t !== T0 + 5 * H8);
-    four[9].rows4h = four[9].rows4h.filter((r) => r.t !== T0 + 7 * H8);
-    expect(() => assemblePanel(four, span)).toThrow(/HALT[\s\S]*4 buckets dropped/);
+  it('halts on any dropped bucket (AMENDMENT 2)', () => {
+    const one = sources();
+    one[1].rows4h = one[1].rows4h.filter((r) => r.t !== T0 + H8 + H4);
+    expect(() => assemblePanel(one, span, NONE)).toThrow(/HALT[\s\S]*1 bucket\(s\) dropped[\s\S]*ETHUSDT/);
+    // Two symbols dropping the same bucket is two symbol buckets on one timestamp, and still halts (review m4)
+    const shared = sources();
+    for (const i of [2, 5]) shared[i].rows4h = shared[i].rows4h.filter((r) => r.t !== T0 + 4 * H8);
+    expect(() => assemblePanel(shared, span, NONE)).toThrow(/HALT[\s\S]*2 bucket\(s\) dropped/);
   });
 
   it('halts on a null taker-buy volume', () => {
     const src = sources();
     src[4].rows4h[5] = { ...src[4].rows4h[5], tbv: null };
-    expect(() => assemblePanel(src, span)).toThrow(/HALT[\s\S]*taker-buy/);
+    expect(() => assemblePanel(src, span, NONE)).toThrow(/HALT[\s\S]*taker-buy/);
   });
 
-  it('halts on a missing settlement', () => {
+  it('halts on a flagged settlement with no resolution entry', () => {
     const src = sources();
     src[3].funding = src[3].funding.filter((r) => r.t !== T0 + 2 * DAY);
-    expect(() => assemblePanel(src, span)).toThrow(/HALT[\s\S]*missing/);
+    expect(() => assemblePanel(src, span, NONE)).toThrow(/HALT[\s\S]*no resolution[\s\S]*SOLUSDT/);
+  });
+
+  it('checks the funding window from the first bar\'s settlement to the last bar\'s (review m3)', () => {
+    const first = sources();
+    first[0].funding = first[0].funding.filter((r) => r.t !== T0 + H8);
+    expect(() => assemblePanel(first, span, NONE)).toThrow(/HALT[\s\S]*no resolution/);
+    const last = sources();
+    last[0].funding = last[0].funding.filter((r) => r.t !== T0 + 4 * DAY - H8);
+    expect(() => assemblePanel(last, span, NONE)).toThrow(/HALT[\s\S]*no resolution/);
+  });
+
+  it('clears a flag with an exact no-event entry: nothing is added to fundSum and the record holds the sha256 and count (AMENDMENT 1)', () => {
+    const src = sources();
+    // SOLUSDT on a 4h grid with 2022-01-02 04:00 absent: the venue made no settlement there
+    src[3].funding = grid8(T0 + H4, T0 + 4 * DAY - H8, 4).filter((r) => r.t !== T0 + DAY + H4);
+    const gone = T0 + DAY + H4;
+    const out = assemblePanel(src, span, resolutions([noEvent('SOLUSDT', gone, T0 + DAY, T0 + DAY + H8)]));
+    const k = out.panel.t.indexOf(T0 + DAY);
+    const at8 = src[3].funding.find((r) => r.t === T0 + DAY + H8)!.rate;
+    expect(out.panel.fundSum[3][k]).toBe(at8);
+    expect(out.panel.fundLast[3][k]).toBe(at8);
+    expect(out.resolutions).toEqual({ sha256: 'f'.repeat(64), entries: 1, flags: [{ symbol: 'SOLUSDT', t: gone, reason: 'missing' }] });
+  });
+
+  it('records a bar left with no settlement in its window after a resolution', () => {
+    const src = sources();
+    src[3].funding = src[3].funding.filter((r) => r.t !== T0 + 2 * DAY);
+    const out = assemblePanel(src, span, resolutions([noEvent('SOLUSDT', T0 + 2 * DAY, T0 + 2 * DAY - H8, T0 + 2 * DAY + H8)]));
+    const k = out.panel.t.indexOf(T0 + 2 * DAY - H8);
+    expect(out.panel.fundSum[3][k]).toBe(0);
+    expect(out.panel.fundLast[3][k]).toBeNull();
+    expect(out.fundLastNull).toEqual([{ symbol: 'SOLUSDT', t: T0 + 2 * DAY - H8 }]);
+  });
+
+  it('halts on an entry that matches no flag, a duplicate entry, and a verdict other than no-event', () => {
+    const src = sources();
+    src[3].funding = src[3].funding.filter((r) => r.t !== T0 + 2 * DAY);
+    const good = noEvent('SOLUSDT', T0 + 2 * DAY);
+    expect(() => assemblePanel(src, span, resolutions([good, noEvent('BTCUSDT', T0 + DAY)]))).toThrow(/HALT[\s\S]*matches no flag[\s\S]*BTCUSDT/);
+    expect(() => assemblePanel(src, span, resolutions([good, { ...good }]))).toThrow(/HALT[\s\S]*duplicate/i);
+    expect(() => assemblePanel(src, span, resolutions([{ ...good, verdict: 'rest' }]))).toThrow(/HALT[\s\S]*verdict/);
   });
 
   it('halts on a cross-check mismatch', () => {
     const src = sources();
     // Hour 26 sits in 8h bar 3, and raising its high above the bar's high breaks the 1h rebuild only
     src[6].rows1h[26] = { ...src[6].rows1h[26], h: Math.max(...src[6].rows1h.slice(24, 32).map((r) => r.h)) * 1.001 };
-    expect(() => assemblePanel(src, span)).toThrow(/HALT[\s\S]*cross-check/);
+    expect(() => assemblePanel(src, span, NONE)).toThrow(/HALT[\s\S]*cross-check/);
   });
 
   it('halts when a source symbol list differs from the header universe', () => {
-    expect(() => assemblePanel(sources().slice(1), span)).toThrow(/universe/);
+    expect(() => assemblePanel(sources().slice(1), span, NONE)).toThrow(/universe/);
   });
 });
 
@@ -409,12 +523,13 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it('returns the panel with the manifest hash and a sha256 over the canonical panel JSON', async () => {
-    const { panel, meta } = await buildRvPanel(dir, span);
+    const { panel, meta } = await buildRvPanel(dir, span, resolutions());
     expect(panel.t).toHaveLength(BUCKETS - 1);
     expect(meta.manifestHash).toBe(JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')).datasetHash);
     expect(meta.panelSha256).toBe(createHash('sha256').update(stableStringify(panel)).digest('hex'));
     expect(meta.droppedBuckets).toEqual([]);
-    const again = await buildRvPanel(dir, span);
+    expect(meta.resolutions).toEqual({ sha256: 'f'.repeat(64), entries: 0, flags: [] });
+    const again = await buildRvPanel(dir, span, resolutions());
     expect(again.meta.panelSha256).toBe(meta.panelSha256);
   });
 
@@ -437,7 +552,7 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
       }
       const manifest: DatasetManifest = { version: 1, generatedAt: '', commit: 'fixture', lockboxStart: '', symbols: [...RV_SYMBOLS], intervals: ['1h', '4h'], files, datasetHash: datasetHashOf(files) };
       writeFileSync(join(lateDir, 'manifest.json'), JSON.stringify(manifest));
-      const { panel } = await buildRvPanel(lateDir, { from: late, to: late + 2 * DAY - 1 });
+      const { panel } = await buildRvPanel(lateDir, { from: late, to: late + 2 * DAY - 1 }, resolutions());
       expect(panel.t[0]).toBe(late);
       expect(panel.t).toHaveLength(5);
     } finally {
@@ -447,6 +562,39 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
 
   it('halts when a file no longer matches the manifest', async () => {
     writeFileSync(join(dir, 'perp', 'SOLUSDT', '1h.jsonl.gz'), 'tampered');
-    await expect(buildRvPanel(dir, span)).rejects.toThrow(/HALT[\s\S]*manifest/);
+    await expect(buildRvPanel(dir, span, resolutions())).rejects.toThrow(/HALT[\s\S]*sha256[\s\S]*perp\/SOLUSDT\/1h/);
+  });
+
+  const rewriteManifest = (edit: (m: DatasetManifest) => void) => {
+    const path = join(dir, 'manifest.json');
+    const m = JSON.parse(readFileSync(path, 'utf8')) as DatasetManifest;
+    edit(m);
+    writeFileSync(path, JSON.stringify(m));
+  };
+
+  it('halts on a file the panel reads that the manifest does not list (AMENDMENT 2, review I2)', async () => {
+    rewriteManifest((m) => {
+      m.files = m.files.filter((f) => f.path !== 'perp/SOLUSDT/1h.jsonl.gz');
+      m.datasetHash = datasetHashOf(m.files);
+    });
+    await expect(buildRvPanel(dir, span, resolutions())).rejects.toThrow(/HALT[\s\S]*not listed[\s\S]*perp\/SOLUSDT\/1h/);
+  });
+
+  it('halts on a listed file whose kind, symbol or interval differs from what the panel reads', async () => {
+    for (const patch of [{ kind: 'candles' }, { symbol: 'ETHUSDT' }, { interval: '8h' }] as const) {
+      rewriteManifest((m) => {
+        m.files = m.files.map((f) => (f.path === 'funding/XRPUSDT/settlements.jsonl.gz' ? { ...f, ...patch } : f));
+        m.datasetHash = datasetHashOf(m.files);
+      });
+      await expect(buildRvPanel(dir, span, resolutions()), JSON.stringify(patch)).rejects.toThrow(/HALT[\s\S]*funding\/XRPUSDT/);
+      await writeExport(dir);
+    }
+  });
+
+  it('halts when the manifest\'s dataset hash does not match its own file list', async () => {
+    rewriteManifest((m) => {
+      m.datasetHash = '0'.repeat(64);
+    });
+    await expect(buildRvPanel(dir, span, resolutions())).rejects.toThrow(/HALT[\s\S]*dataset hash/);
   });
 });

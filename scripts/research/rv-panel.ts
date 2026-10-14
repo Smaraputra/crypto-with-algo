@@ -1,25 +1,32 @@
 /**
- * The 8h perp panel for the rv-v1 re-validation (header DATA in scripts/research/rv-revalidation.ts).
+ * The 8h perp panel for the rv-v1 re-validation (header DATA and AMENDMENTS 1 and 2 in
+ * scripts/research/rv-revalidation.ts).
  *
  * 4h perp klines are paired into 8h bars at 00, 08 and 16 UTC, each bar carries the funding settled in
- * (bar open, bar close], the ten symbols are intersected onto one rectangular grid, and the 8h bars are
- * rebuilt from the 1h klines as a cross-check. Every HALT rule of the header throws here, so a panel
+ * (bar open, bar close], the ten symbols share one rectangular grid, and the 8h bars are rebuilt from the
+ * 1h klines as a cross-check. Every HALT rule of the header and its amendments throws here, so a panel
  * that comes back is one the study may use.
  *
- * Panel end: the last bar is the last one whose funding window (open, open + 8h] closes inside the export
- * span. The export stops at 2026-10-13T23:59:59.999Z, so the settlement at 2026-10-14 00:00 is not in it
- * and the 16:00 bar of the final day has an incomplete funding sum. That bar is left out of the grid
- * rather than carried with a partial sum, which a permutation would otherwise move into the middle of
- * the panel.
+ * Panel end (AMENDMENT 1): the last bar is the last one whose funding window (open, open + 8h] closes
+ * inside the export span. The export stops at 2026-10-13T23:59:59.999Z, so the settlement at
+ * 2026-10-14 00:00 is not in it and the 16:00 bar of the final day is left out of the grid rather than
+ * carried with a partial sum, which a permutation would otherwise move into the middle of the panel.
+ *
+ * Funding flags (AMENDMENTS 1 and 2): a settlement the coverage check expects but the rows lack, and every
+ * interval switch derived from null-interval spacing, is a flag. A flag is cleared only by an exact
+ * `no-event` entry of the recorded resolutions file (Binance REST has no settlement at that instant,
+ * re-queried by rv-resolutions.ts at the `inputs` stage). A cleared flag adds nothing to fundSum.
  */
 import { createHash } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 import type { OHLCV } from '@/types/market';
 import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
 import { missingSettlements } from './broad-inputs';
 import { stableStringify } from './broad-trend';
-import type { FundingRow, PerpCandleRow } from './dataset-format';
-import { loadFunding, loadManifest, loadPerp, verifyManifest } from './load-dataset';
+import { datasetHashOf, type DatasetKind, type FundingRow, type PerpCandleRow } from './dataset-format';
+import { loadManifest, parseJsonlGz } from './load-dataset';
 import { fundingSumsFor } from './strategy-walk-forward';
 
 const HOUR_MS = 3_600_000;
@@ -44,8 +51,8 @@ export const RV_SYMBOLS = [
 /** The header's export span: start 2022-01-01T00:00:00Z, end 2026-10-13T23:59:59.999Z. */
 export const RV_SPAN: Span = { from: Date.UTC(2022, 0, 1), to: Date.UTC(2026, 9, 13, 23, 59, 59, 999) };
 
-/** Header: HALT if more than 3 buckets are dropped across the panel. */
-export const MAX_DROPPED_BUCKETS = 3;
+/** AMENDMENT 2: HALT on any dropped bucket (it replaced the header's "more than 3"). */
+export const MAX_DROPPED_BUCKETS = 0;
 
 /** Header: the 1h cross-check tolerates a relative 1e-7 in volume and taker-buy volume, nothing in OHLC. */
 export const VOLUME_REL_TOL = 1e-7;
@@ -106,7 +113,58 @@ export interface PanelMismatch {
   from1h: number | null;
 }
 
+/**
+ * A settlement instant that needs a REST-verified resolution. `missing`: the coverage check expects a
+ * settlement the rows lack. `derived-switch`: an instant on the shorter interval's grid inside the longer
+ * gap next to an interval switch derived from null-interval spacing (AMENDMENT 2).
+ */
+export interface FundingFlag {
+  symbol: string;
+  t: number;
+  reason: 'missing' | 'derived-switch';
+}
+
+/**
+ * One entry of the recorded resolutions file (AMENDMENT 1). Only `no-event` clears a flag: Binance REST has
+ * no settlement for the symbol at `t`, and its nearest settlements either side are `restBefore` and
+ * `restAfter`. Any other verdict halts.
+ */
+export interface ResolutionEntry {
+  symbol: string;
+  t: number;
+  verdict: string;
+  restBefore: number;
+  restAfter: number;
+}
+
+/** The resolutions file as read: the sha256 of its text and its entries. */
+export interface FundingResolutions {
+  sha256: string;
+  entries: ResolutionEntry[];
+}
+
+/** What the panel records about the resolutions it used (into RESULT). */
+export interface ResolutionsRecord {
+  sha256: string;
+  entries: number;
+  /** Every flag, each cleared by exactly one entry. */
+  flags: FundingFlag[];
+}
+
 const iso = (t: number) => new Date(t).toISOString();
+
+const finitePositive = (x: number) => Number.isFinite(x) && x > 0;
+const finiteNonNegative = (x: number) => Number.isFinite(x) && x >= 0;
+
+/** AMENDMENT 2 halts on a kline: non-finite or non-positive OHLC, negative or non-finite volume or taker-buy volume. */
+function assertKline(row: PerpCandleRow, label: string): void {
+  if (![row.o, row.h, row.l, row.c].every(finitePositive)) {
+    throw new Error(`HALT: ${label} row at ${iso(row.t)} has a non-finite or non-positive price`);
+  }
+  if (!finiteNonNegative(row.v) || (row.tbv !== null && !finiteNonNegative(row.tbv))) {
+    throw new Error(`HALT: ${label} row at ${iso(row.t)} has a negative or non-finite volume or taker-buy volume`);
+  }
+}
 
 /**
  * The 8h bar opens of a span: from the span start to the last bar whose close (open + 8h) is inside the
@@ -122,7 +180,7 @@ export function panelGrid(span: Span): Span {
 /**
  * Pairs 4h rows into 8h bars for every bucket open in [grid.from, grid.to]: open of the first half, max
  * high, min low, close of the second half, volume and taker-buy volume summed. A bucket missing either
- * half (or both) is dropped and listed. Rows outside the grid are ignored.
+ * half (or both) is dropped and listed. Rows outside the grid are ignored for pairing but still validated.
  */
 export function pairTo8h(rows4h: readonly PerpCandleRow[], grid: Span): { bars: Bar8h[]; dropped: number[] } {
   if (grid.from % BAR_MS !== 0 || grid.to % BAR_MS !== 0 || grid.to < grid.from) {
@@ -130,8 +188,9 @@ export function pairTo8h(rows4h: readonly PerpCandleRow[], grid: Span): { bars: 
   }
   const byOpen = new Map<number, PerpCandleRow>();
   for (const row of rows4h) {
-    if (row.t % H4_MS !== 0) throw new Error(`A 4h row at ${iso(row.t)} is off the 4h grid`);
-    if (byOpen.has(row.t)) throw new Error(`Duplicate 4h row at ${iso(row.t)}`);
+    if (row.t % H4_MS !== 0) throw new Error(`HALT: a 4h row at ${iso(row.t)} is off the 4h grid`);
+    if (byOpen.has(row.t)) throw new Error(`HALT: duplicate 4h row at ${iso(row.t)}`);
+    assertKline(row, '4h');
     byOpen.set(row.t, row);
   }
   const bars: Bar8h[] = [];
@@ -195,22 +254,23 @@ export function fundingPerBar(
 }
 
 /**
- * Fills a null intervalHours (rows written by the REST sync) from the spacing of consecutive settlements.
- * Each gap is accepted as the interval in force when it is a Binance interval (1, 2, 4 or 8 hours) and
- * equals the gap before or after it, so an interval switch in either direction is clean. Otherwise the gap
- * is judged at the smallest neighbouring gap that is a Binance interval, so a lone long gap (a missing
- * settlement) is flagged by missingSettlements. A row takes the interval of the gap that ends at it, and
- * the first row takes the first gap's. Known blind spot: settlements missing in a strictly alternating
- * pattern (4h gaps 4, 8, 8, 4) pass as a switch.
+ * Fills a null intervalHours (rows written by the REST sync) from the spacing of consecutive settlements,
+ * and reports which rows were derived. Each gap is accepted as the interval in force when it is a Binance
+ * interval (1, 2, 4 or 8 hours) and equals the gap before or after it. Otherwise the gap is judged at the
+ * smallest neighbouring gap that is a Binance interval, so a lone long gap is flagged by
+ * missingSettlements. A row takes the interval of the gap that ends at it, and the first row takes the
+ * first gap's. Every switch this produces is itself flagged by fundingFlags (AMENDMENT 2), so a missing
+ * settlement next to a switch cannot pass as the switch.
  */
-export function deriveIntervals(symbol: string, sorted: readonly FundingRow[]): FundingRow[] {
-  if (sorted.every((r) => r.intervalHours !== null)) return [...sorted];
+export function deriveIntervals(symbol: string, sorted: readonly FundingRow[]): { rows: FundingRow[]; derived: boolean[] } {
+  const derived = sorted.map((r) => r.intervalHours === null);
+  if (!derived.some(Boolean)) return { rows: [...sorted], derived };
   if (sorted.length < 2) {
     throw new Error(`HALT: ${symbol} has a settlement without intervalHours and no spacing to derive the interval from`);
   }
   const gaps: number[] = [];
   for (let k = 0; k + 1 < sorted.length; k++) gaps.push((sorted[k + 1].t - sorted[k].t) / HOUR_MS);
-  const derived = (k: number): number => {
+  const fromGap = (k: number): number => {
     const g = gaps[k];
     const neighbours = [gaps[k - 1], gaps[k + 1]].filter((x): x is number => x !== undefined);
     if (FUNDING_INTERVALS_H.has(g) && neighbours.includes(g)) return g;
@@ -221,26 +281,57 @@ export function deriveIntervals(symbol: string, sorted: readonly FundingRow[]): 
       `HALT: ${symbol}: the funding interval cannot be derived around ${iso(sorted[k + 1].t)} (gap ${g}h, neighbours ${neighbours.join(', ')}h)`
     );
   };
-  return sorted.map((row, i) => (row.intervalHours !== null ? row : { ...row, intervalHours: derived(Math.max(0, i - 1)) }));
+  return {
+    rows: sorted.map((row, i) => (row.intervalHours !== null ? row : { ...row, intervalHours: fromGap(Math.max(0, i - 1)) })),
+    derived,
+  };
 }
 
 /**
- * HALT on any settlement due in (window.from, window.to] that the rows lack. A gap is judged by its later
- * row's interval (missingSettlements, shared with the broad study), a null interval is derived from the
- * spacing first (deriveIntervals), and the grid extends from the first row back to window.from and from
- * the last row forward to window.to. Rows outside the window only serve as spacing neighbours.
+ * The instants an interval switch derived from null-interval spacing leaves unverified (AMENDMENT 2): at
+ * a switch between rows i - 1 and i where either interval was derived, every instant on the shorter
+ * interval's grid strictly inside the longer interval's gap next to the switch (the gap ending at row i - 1
+ * for a shortening, the gap ending at row i for a lengthening). If the shorter interval was already, or
+ * still, in force across that gap, a settlement is missing there, and only REST can tell.
  */
-export function checkFunding(symbol: string, rows: readonly FundingRow[], window: Span): void {
+function derivedSwitchInstants(rows: readonly FundingRow[], derived: readonly boolean[], window: Span): number[] {
+  const out: number[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    if (!derived[i] && !derived[i - 1]) continue;
+    const prev = rows[i - 1].intervalHours as number;
+    const cur = rows[i].intervalHours as number;
+    if (prev === cur) continue;
+    const step = Math.min(prev, cur) * HOUR_MS;
+    let gap: [number, number] | null = null;
+    if (cur > prev) gap = [rows[i - 1].t, rows[i].t];
+    else if (i >= 2) gap = [rows[i - 2].t, rows[i - 1].t];
+    if (!gap) continue;
+    for (let t = gap[0] + step; t < gap[1]; t += step) if (t > window.from && t <= window.to) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Every settlement instant in (window.from, window.to] that needs a REST-verified resolution: settlements
+ * the coverage check expects but the rows lack (missingSettlements, each gap judged by its later row's
+ * interval as in A6-1, the grid extended back to window.from and forward to window.to), and the instants
+ * next to every derived interval switch. HALT, with no resolution possible, on no settlement at all or none
+ * inside the window, a duplicate, a time off the hour, a non-finite rate, or an interval that cannot be
+ * derived. Rows outside the window only serve as spacing neighbours.
+ */
+export function fundingFlags(symbol: string, rows: readonly FundingRow[], window: Span): FundingFlag[] {
   if (rows.length === 0) throw new Error(`HALT: ${symbol} has no settlement at all`);
   for (const r of rows) {
     if (r.t % HOUR_MS !== 0) throw new Error(`HALT: ${symbol} settlement at ${iso(r.t)} is not on an hour boundary`);
+    if (!Number.isFinite(r.rate)) throw new Error(`HALT: ${symbol} settlement at ${iso(r.t)} has a non-finite rate`);
   }
   const sorted = [...rows].sort((a, b) => a.t - b.t);
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i].t === sorted[i - 1].t) throw new Error(`HALT: ${symbol} has a duplicate settlement at ${iso(sorted[i].t)}`);
   }
-  const withIntervals = deriveIntervals(symbol, sorted);
+  const { rows: withIntervals, derived } = deriveIntervals(symbol, sorted);
   const inWindow = withIntervals.filter((r) => r.t > window.from && r.t <= window.to);
+  if (inWindow.length === 0) throw new Error(`HALT: ${symbol} has no settlement inside ${iso(window.from)} to ${iso(window.to)}`);
 
   // missingSettlements works in days: settlements in (d, d + 1 day] are due on day d. Every day touched by
   // the window is checked, the backward extension stops at firstDay + 1 day = window.from, and its
@@ -249,19 +340,48 @@ export function checkFunding(symbol: string, rows: readonly FundingRow[], window
   const lastDayChecked = Math.floor((window.to - 1) / DAY_MS) * DAY_MS;
   const checkDays = new Set<number>();
   for (let d = firstDayChecked; d <= lastDayChecked; d += DAY_MS) checkDays.add(d);
-  const contract = {
-    id: symbol,
-    firstDay: window.from - DAY_MS,
-    lastDay: Math.floor(window.to / DAY_MS) * DAY_MS,
-    endDay: null,
-  };
-  const missing = missingSettlements(contract, inWindow, checkDays, window.to + 1);
-  if (missing.length > 0) {
-    const listed = missing.slice(0, 10).map((m) => `${iso(m.t)} (${m.reason})`);
+  const contract = { id: symbol, firstDay: window.from - DAY_MS, lastDay: Math.floor(window.to / DAY_MS) * DAY_MS, endDay: null };
+  const found = missingSettlements(contract, inWindow, checkDays, window.to + 1);
+  const unresolvable = found.filter((m) => m.reason !== 'missing');
+  if (unresolvable.length > 0) {
+    throw new Error(`HALT: ${symbol} funding cannot be checked: ${unresolvable.map((m) => `${iso(m.t)} (${m.reason})`).join(', ')}`);
+  }
+
+  const byT = new Map<number, FundingFlag>();
+  for (const m of found) byT.set(m.t, { symbol, t: m.t, reason: 'missing' });
+  for (const t of derivedSwitchInstants(withIntervals, derived, window)) {
+    if (!byT.has(t)) byT.set(t, { symbol, t, reason: 'derived-switch' });
+  }
+  return [...byT.values()].sort((a, b) => a.t - b.t);
+}
+
+/**
+ * Matches the resolutions file to the flags (AMENDMENT 1). HALT on any verdict other than `no-event`, on a
+ * duplicate entry, on a flag with no exact (symbol, t) entry, and on an entry that matches no flag.
+ */
+export function resolveFlags(flags: readonly FundingFlag[], resolutions: FundingResolutions): ResolutionsRecord {
+  const key = (symbol: string, t: number) => `${symbol}|${t}`;
+  const entries = new Map<string, ResolutionEntry>();
+  for (const e of resolutions.entries) {
+    if (e.verdict !== 'no-event') {
+      throw new Error(`HALT: resolution entry ${e.symbol} ${iso(e.t)} has verdict "${e.verdict}", only "no-event" clears a flag`);
+    }
+    if (entries.has(key(e.symbol, e.t))) throw new Error(`HALT: duplicate resolution entry ${e.symbol} ${iso(e.t)}`);
+    entries.set(key(e.symbol, e.t), e);
+  }
+  const unresolved = flags.filter((f) => !entries.has(key(f.symbol, f.t)));
+  if (unresolved.length > 0) {
+    const listed = unresolved.slice(0, 20).map((f) => `${f.symbol} ${iso(f.t)} (${f.reason})`);
     throw new Error(
-      `HALT: ${missing.length} missing due funding settlement(s) for ${symbol}: ${listed.join(', ')}${missing.length > 10 ? ', ...' : ''}`
+      `HALT: ${unresolved.length} flagged funding settlement(s) have no resolution entry (AMENDMENT 1): ${listed.join(', ')}${unresolved.length > 20 ? ', ...' : ''}`
     );
   }
+  const flagged = new Set(flags.map((f) => key(f.symbol, f.t)));
+  const unused = resolutions.entries.filter((e) => !flagged.has(key(e.symbol, e.t)));
+  if (unused.length > 0) {
+    throw new Error(`HALT: ${unused.length} resolution entr${unused.length === 1 ? 'y' : 'ies'} matches no flag: ${unused.map((e) => `${e.symbol} ${iso(e.t)}`).join(', ')}`);
+  }
+  return { sha256: resolutions.sha256, entries: resolutions.entries.length, flags: [...flags] };
 }
 
 export interface SymbolSeries {
@@ -326,13 +446,19 @@ const relDiff = (a: number, b: number) => (a === b ? 0 : Math.abs(a - b) / Math.
 /**
  * Rebuilds every panel bar from eight 1h rows and compares: open, high, low and close must be equal, volume
  * and taker-buy volume within a relative VOLUME_REL_TOL. A bar the 1h series cannot rebuild is a mismatch
- * ('missing'), as is a null 1h taker-buy volume ('tbv').
+ * ('missing'), as is a null 1h taker-buy volume ('tbv'). HALT on a duplicate or off-hour 1h row and on an
+ * invalid 1h price or volume (AMENDMENT 2).
  */
 export function crossCheck1h(panel: RvPanel, rows1h: Readonly<Record<string, readonly PerpCandleRow[]>>): PanelMismatch[] {
   const out: PanelMismatch[] = [];
   panel.symbols.forEach((symbol, si) => {
     const byOpen = new Map<number, PerpCandleRow>();
-    for (const r of rows1h[symbol] ?? []) byOpen.set(r.t, r);
+    for (const r of rows1h[symbol] ?? []) {
+      if (r.t % HOUR_MS !== 0) throw new Error(`HALT: ${symbol} 1h row at ${iso(r.t)} is not on an hour boundary`);
+      if (byOpen.has(r.t)) throw new Error(`HALT: ${symbol} has a duplicate 1h row at ${iso(r.t)}`);
+      assertKline(r, `${symbol} 1h`);
+      byOpen.set(r.t, r);
+    }
     panel.t.forEach((t, k) => {
       const hours: PerpCandleRow[] = [];
       for (let j = 0; j < 8; j++) {
@@ -375,16 +501,20 @@ export interface AssembledPanel {
   panel: RvPanel;
   grid: Span;
   droppedBuckets: DroppedBucket[];
-  /** Bar opens some symbols had and others lacked, removed by the intersection. */
+  /** Bar opens some symbols had and others lacked. Always empty, since any dropped bucket halts. */
   droppedTimestamps: number[];
+  resolutions: ResolutionsRecord;
+  /** Bars whose funding window holds no settlement after resolutions (fundSum 0, fundLast null). */
+  fundLastNull: { symbol: string; t: number }[];
 }
 
 /**
- * Builds the panel from loaded rows and applies every header HALT: null taker-buy volume, more than
- * MAX_DROPPED_BUCKETS dropped buckets across the panel, a missing due settlement, and any 1h cross-check
- * mismatch. The sources must be exactly the header universe, and the panel follows RV_SYMBOLS order.
+ * Builds the panel from loaded rows and applies every HALT of the header and its amendments: a null or
+ * invalid kline value, any dropped bucket, an unresolved funding flag or an unusable resolutions file,
+ * and any 1h cross-check mismatch. The sources must be exactly the header universe, and the panel follows
+ * RV_SYMBOLS order.
  */
-export function assemblePanel(sources: readonly RvSymbolSource[], span: Span): AssembledPanel {
+export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, resolutions: FundingResolutions): AssembledPanel {
   const bySymbol = new Map(sources.map((s) => [s.symbol, s]));
   if (bySymbol.size !== sources.length || sources.length !== RV_SYMBOLS.length || !RV_SYMBOLS.every((s) => bySymbol.has(s))) {
     throw new Error(`The sources must be exactly the header universe ${RV_SYMBOLS.join(', ')}, got ${sources.map((s) => s.symbol).join(', ')}`);
@@ -403,30 +533,38 @@ export function assemblePanel(sources: readonly RvSymbolSource[], span: Span): A
   }
 
   const droppedBuckets: DroppedBucket[] = [];
-  const series: SymbolSeries[] = [];
+  const paired = new Map<string, Bar8h[]>();
+  const flags: FundingFlag[] = [];
   for (const symbol of RV_SYMBOLS) {
     const src = bySymbol.get(symbol)!;
     const { bars, dropped } = pairTo8h(src.rows4h, grid);
     for (const t of dropped) droppedBuckets.push({ symbol, t });
-    checkFunding(symbol, src.funding, fundingWindow);
-    const { fundSum, fundLast } = fundingPerBar(bars, src.funding);
-    series.push({ symbol, bars, fundSum, fundLast });
+    paired.set(symbol, bars);
+    flags.push(...fundingFlags(symbol, src.funding, fundingWindow));
   }
   if (droppedBuckets.length > MAX_DROPPED_BUCKETS) {
     throw new Error(
-      `HALT: ${droppedBuckets.length} buckets dropped across the panel, more than ${MAX_DROPPED_BUCKETS}: ${droppedBuckets
+      `HALT: ${droppedBuckets.length} bucket(s) dropped across the panel (AMENDMENT 2 halts on any): ${droppedBuckets
         .map((d) => `${d.symbol} ${iso(d.t)}`)
         .join(', ')}`
     );
   }
+  const record = resolveFlags(flags, resolutions);
 
+  const series: SymbolSeries[] = RV_SYMBOLS.map((symbol) => {
+    const bars = paired.get(symbol)!;
+    const { fundSum, fundLast } = fundingPerBar(bars, bySymbol.get(symbol)!.funding);
+    return { symbol, bars, fundSum, fundLast };
+  });
   const { panel, droppedTimestamps } = alignPanel(series);
   const mismatches = crossCheck1h(panel, Object.fromEntries(sources.map((s) => [s.symbol, s.rows1h])));
   if (mismatches.length > 0) {
     const listed = mismatches.slice(0, 10).map((m) => `${m.symbol} ${iso(m.t)} ${m.field} (4h ${m.from4h}, 1h ${m.from1h})`);
     throw new Error(`HALT: the 1h cross-check found ${mismatches.length} mismatch(es): ${listed.join('; ')}`);
   }
-  return { panel, grid, droppedBuckets, droppedTimestamps };
+  const fundLastNull: { symbol: string; t: number }[] = [];
+  panel.symbols.forEach((symbol, si) => panel.fundLast[si].forEach((v, k) => v === null && fundLastNull.push({ symbol, t: panel.t[k] })));
+  return { panel, grid, droppedBuckets, droppedTimestamps, resolutions: record, fundLastNull };
 }
 
 export interface RvPanelMeta {
@@ -436,35 +574,77 @@ export interface RvPanelMeta {
   manifestHash: string;
   /** sha256 of the canonical JSON (sorted keys) of the panel. */
   panelSha256: string;
+  resolutions: ResolutionsRecord;
+  fundLastNull: { symbol: string; t: number }[];
 }
 
 export function panelSha256(panel: RvPanel): string {
   return createHash('sha256').update(stableStringify(panel)).digest('hex');
 }
 
+/** The files the panel reads, as the export writes them (export-dataset.ts): path, kind, symbol, interval. */
+function panelFiles(symbol: string): { path: string; kind: DatasetKind; interval: string }[] {
+  return [
+    { path: `perp/${symbol}/4h.jsonl.gz`, kind: 'perp', interval: '4h' },
+    { path: `perp/${symbol}/1h.jsonl.gz`, kind: 'perp', interval: '1h' },
+    { path: `funding/${symbol}/settlements.jsonl.gz`, kind: 'funding', interval: 'settlements' },
+  ];
+}
+
 /**
- * Loads the export (allowLockbox true, as the header declares), verifies every file against the manifest,
- * builds the panel with all HALT rules and records the manifest hash and the panel sha256.
+ * Loads the export, builds the panel with every HALT rule and records the manifest hash, the panel sha256
+ * and the resolutions used. The manifest's dataset hash must match its own file list, and each of the 30
+ * files the panel reads must be listed with its kind, symbol and interval. Each file is read once: those
+ * bytes are hashed against the manifest and the same bytes are parsed (AMENDMENT 2). Every row is kept,
+ * which is what the header's allowLockbox true means.
  */
-export async function buildRvPanel(datasetDir: string, span: Span): Promise<{ panel: RvPanel; meta: RvPanelMeta }> {
-  const verified = await verifyManifest(datasetDir);
-  if (!verified.ok) {
-    throw new Error(`HALT: the dataset no longer matches its manifest: ${verified.mismatches.join(', ')}`);
-  }
+export async function buildRvPanel(
+  datasetDir: string,
+  span: Span,
+  resolutions: FundingResolutions
+): Promise<{ panel: RvPanel; meta: RvPanelMeta }> {
   const manifest = loadManifest(datasetDir);
+  if (datasetHashOf(manifest.files) !== manifest.datasetHash) {
+    throw new Error(`HALT: the manifest's dataset hash ${manifest.datasetHash} does not match its own file list`);
+  }
   const absent = RV_SYMBOLS.filter((s) => !manifest.symbols.includes(s));
   if (absent.length > 0) throw new Error(`HALT: the manifest lacks ${absent.join(', ')}`);
 
-  const opts = { allowLockbox: true };
-  const sources: RvSymbolSource[] = RV_SYMBOLS.map((symbol) => ({
-    symbol,
-    rows4h: loadPerp(datasetDir, symbol, '4h', 'klines', opts).rows,
-    rows1h: loadPerp(datasetDir, symbol, '1h', 'klines', opts).rows,
-    funding: loadFunding(datasetDir, symbol, opts).rows,
-  }));
-  const { panel, grid, droppedBuckets, droppedTimestamps } = assemblePanel(sources, span);
+  const listed = new Map(manifest.files.map((f) => [f.path, f]));
+  const read = <T>(symbol: string, spec: { path: string; kind: DatasetKind; interval: string }): T[] => {
+    const entry = listed.get(spec.path);
+    if (!entry) throw new Error(`HALT: a file the panel reads is not listed in the manifest: ${spec.path}`);
+    if (entry.kind !== spec.kind || entry.symbol !== symbol || entry.interval !== spec.interval) {
+      throw new Error(
+        `HALT: ${spec.path} is listed as ${entry.kind}/${entry.symbol}/${entry.interval}, expected ${spec.kind}/${symbol}/${spec.interval}`
+      );
+    }
+    const bytes = readFileSync(join(datasetDir, spec.path));
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (sha256 !== entry.sha256) throw new Error(`HALT: sha256 mismatch for ${spec.path}: read ${sha256}, manifest ${entry.sha256}`);
+    return parseJsonlGz<T>(bytes);
+  };
+
+  const sources: RvSymbolSource[] = RV_SYMBOLS.map((symbol) => {
+    const [f4h, f1h, fFunding] = panelFiles(symbol);
+    return {
+      symbol,
+      rows4h: read<PerpCandleRow>(symbol, f4h),
+      rows1h: read<PerpCandleRow>(symbol, f1h),
+      funding: read<FundingRow>(symbol, fFunding),
+    };
+  });
+  const assembled = assemblePanel(sources, span, resolutions);
   return {
-    panel,
-    meta: { droppedBuckets, droppedTimestamps, grid, manifestHash: manifest.datasetHash, panelSha256: panelSha256(panel) },
+    panel: assembled.panel,
+    meta: {
+      droppedBuckets: assembled.droppedBuckets,
+      droppedTimestamps: assembled.droppedTimestamps,
+      grid: assembled.grid,
+      manifestHash: manifest.datasetHash,
+      panelSha256: panelSha256(assembled.panel),
+      resolutions: assembled.resolutions,
+      fundLastNull: assembled.fundLastNull,
+    },
   };
 }
