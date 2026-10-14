@@ -17,7 +17,9 @@
  *
  * WHAT MUST NEVER BE POOLED. Three axes, each for a different reason:
  *   - interval, because a style scores every interval in its preferredIntervals
- *     with the same horizonBars, so a scalping 1m row is a 12-minute return and
+ *     with the same horizonBars (scoring now skips retired intervals such as
+ *     scalping 1m, while calibration keeps reading the full preferredIntervals
+ *     history), so a scalping 1m row is a 12-minute return and
  *     a 5m row a 60-minute one. Pooling them was a real defect, fixed 2026-09-19.
  *   - source, because composite rows and the LLM panel's forward-only calls are
  *     different predictors that happen to share a collection.
