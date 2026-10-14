@@ -1,14 +1,16 @@
 import type { OHLCV } from '@/types/market';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
-import { fetchKlines } from '@/lib/binance';
-import { fetchFundingRate } from '@/lib/binance-futures';
+import { fetchPerpKlines } from '@/lib/binance-futures';
+import { syncFundingSettlements } from '@/lib/funding-settlement-sync';
 import { connectDB } from '@/lib/mongodb';
-import {
-  CrossSectionalSignal,
-  type ICrossSectionalSignal,
-  type ICrossSectionalSnapshot,
-  type ICrossSectionalRank,
-  type ICrossSectionalTarget,
+import { retryOnce, RETRY_ONCE_DELAY_MS } from '@/lib/retry-once';
+import { FundingSettlement, type IFundingSettlement } from '@/lib/models/funding-settlement';
+import { RvBook, RV_BOOK_NAME, type IRvBook } from '@/lib/models/rv-book';
+import { RvSignal, type IRvSignal, type RvSignalSettlementInput } from '@/lib/models/rv-signal';
+import type {
+  ICrossSectionalSnapshot,
+  ICrossSectionalRank,
+  ICrossSectionalTarget,
 } from '@/lib/models/cross-sectional-signal';
 import {
   computeCrossSectionalRanks,
@@ -17,7 +19,221 @@ import {
   type SymbolBarSnapshot,
 } from './factors';
 import { constructBufferedPortfolio, type TargetAllocation } from './portfolio';
+import {
+  RV_V1,
+  RvDataError,
+  rvComposite,
+  rvFactors,
+  type RvBar,
+  type RvFactorResult,
+  type RvRanked,
+  type RvSymbolInput,
+} from './engine';
 
+// ------------------------------------------------------------------ rv-v1 signal job
+
+/** Bars requested per symbol: 43 closed bars are needed, plus the in-progress one and a spare. */
+export const RV_SIGNAL_KLINE_LIMIT = 45;
+
+/** The open of the last 8h bar that has closed at `now`: the bar the job scores. */
+export function rvSignalBarTime(now: number): number {
+  return Math.floor(now / RV_V1.barMs) * RV_V1.barMs - RV_V1.barMs;
+}
+
+export interface RvSignalRunOptions {
+  /** Pause before the single kline retry. */
+  retryDelayMs?: number;
+}
+
+interface SymbolError {
+  symbol: string;
+  error: string;
+}
+
+export type RvSignalRunResult =
+  | {
+      success: true;
+      barTime: number;
+      /** False when a signal for this bar already existed; the stored one is reported. */
+      created: boolean;
+      skipped: RvFactorResult['skipped'];
+      ranked: RvRanked[];
+      fetchErrors: SymbolError[];
+      syncErrors: SymbolError[];
+    }
+  | {
+      success: false;
+      barTime: number;
+      code: RvDataError['code'] | 'held_symbol_skipped';
+      error: string;
+      fetchErrors: SymbolError[];
+      syncErrors: SymbolError[];
+    };
+
+export type RvSignalDraft = Pick<
+  IRvSignal,
+  'version' | 'barTime' | 'barCloseTime' | 'rows' | 'ranked' | 'skipped' | 'inputs'
+>;
+
+/**
+ * Inserts a signal only if none exists for its (version, barTime). An existing
+ * signal is never rewritten, because the desk may already have stepped it (D10).
+ */
+export async function storeRvSignal(doc: RvSignalDraft): Promise<{ created: boolean }> {
+  const res = await RvSignal.updateOne(
+    { version: doc.version, barTime: doc.barTime },
+    { $setOnInsert: doc },
+    { upsert: true }
+  );
+  return { created: res.upsertedCount === 1 };
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Symbols either rv-v1 track holds a position in. */
+function heldSymbols(book: IRvBook | null): Set<string> {
+  const held = new Set<string>();
+  if (!book?.tracks) return held;
+  for (const track of [book.tracks.taker, book.tracks.maker]) {
+    for (const [symbol, p] of Object.entries(track?.positions ?? {})) {
+      if (p.qty !== 0) held.add(symbol);
+    }
+  }
+  return held;
+}
+
+/**
+ * Scores the last closed 8h bar with the rv-v1 engine and stores it.
+ *
+ * Inputs are perp klines (closed bars only) and the stored funding settlement
+ * at or before the bar close, synced from REST first. A symbol whose klines
+ * cannot be fetched after one retry gets no bars, so the engine skips it with
+ * a reason rather than scoring it on anything else.
+ *
+ * Fails (success false, for an HTTP 500) on an engine data error, and when a
+ * symbol the book holds was skipped: storing that signal would make it
+ * permanent, and the desk could never step it (D07). Not storing lets the
+ * retry line score the bar once the data is back.
+ */
+export async function runRvSignal(now: number, opts: RvSignalRunOptions = {}): Promise<RvSignalRunResult> {
+  await connectDB();
+  const barMs = RV_V1.barMs;
+  const barTime = rvSignalBarTime(now);
+  const barClose = barTime + barMs;
+
+  const existing = await RvSignal.findOne({ version: RV_V1.version, barTime }).lean<IRvSignal | null>();
+  if (existing) {
+    return {
+      success: true,
+      barTime,
+      created: false,
+      skipped: existing.skipped,
+      ranked: existing.ranked,
+      fetchErrors: [],
+      syncErrors: [],
+    };
+  }
+
+  const delay = opts.retryDelayMs ?? RETRY_ONCE_DELAY_MS;
+  const fetchErrors: SymbolError[] = [];
+  const barsBySymbol = new Map<string, RvBar[]>();
+  await Promise.all(
+    SIGNAL_SYMBOLS.map(async (symbol) => {
+      try {
+        const klines = await retryOnce(() => fetchPerpKlines(symbol, '8h', RV_SIGNAL_KLINE_LIMIT), delay);
+        barsBySymbol.set(
+          symbol,
+          klines
+            .filter((k) => k.openTime + barMs <= now)
+            .map((k) => ({ openTime: k.openTime, close: k.close, volume: k.volume, takerBuyVolume: k.takerBuyVolume }))
+        );
+      } catch (err) {
+        fetchErrors.push({ symbol, error: errorText(err) });
+        barsBySymbol.set(symbol, []);
+      }
+    })
+  );
+  fetchErrors.sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+  const sync = await syncFundingSettlements([...SIGNAL_SYMBOLS], now);
+  const syncErrors = sync.filter((r) => r.error).map((r) => ({ symbol: r.symbol, error: r.error as string }));
+
+  const inputs: RvSymbolInput[] = [];
+  const lastBarOpenTime: Record<string, number | null> = {};
+  const settlement: Record<string, RvSignalSettlementInput | null> = {};
+  for (const symbol of SIGNAL_SYMBOLS) {
+    const bars = barsBySymbol.get(symbol) ?? [];
+    const s = await FundingSettlement.findOne({ symbol, fundingTime: { $lte: barClose } })
+      .sort({ fundingTime: -1 })
+      .lean<IFundingSettlement | null>();
+    inputs.push({
+      symbol,
+      bars,
+      // Archive rows written before markPrice existed lack the field: unknown, not zero
+      lastSettlement: s ? { fundingTime: s.fundingTime, rate: s.rate, markPrice: s.markPrice ?? null } : null,
+    });
+    lastBarOpenTime[symbol] = bars.length > 0 ? Math.max(...bars.map((b) => b.openTime)) : null;
+    settlement[symbol] = s ? { fundingTime: s.fundingTime, rate: s.rate } : null;
+  }
+
+  let factors: RvFactorResult;
+  try {
+    factors = rvFactors(inputs, barTime);
+  } catch (err) {
+    if (!(err instanceof RvDataError)) throw err;
+    return { success: false, barTime, code: err.code, error: `${err.code}: ${err.message}`, fetchErrors, syncErrors };
+  }
+
+  const held = heldSymbols(await RvBook.findOne({ bookName: RV_BOOK_NAME }).lean<IRvBook | null>());
+  const heldSkipped = factors.skipped.filter((s) => held.has(s.symbol));
+  if (heldSkipped.length > 0) {
+    const list = heldSkipped.map((s) => `${s.symbol} (${s.reason})`).join(', ');
+    return {
+      success: false,
+      barTime,
+      code: 'held_symbol_skipped',
+      error: `held_symbol_skipped: ${list} is held but could not be scored, so the signal is not stored`,
+      fetchErrors,
+      syncErrors,
+    };
+  }
+
+  const ranked = rvComposite(factors.rows, RV_V1.weights);
+  const draft: RvSignalDraft = {
+    version: RV_V1.version,
+    barTime,
+    barCloseTime: barClose,
+    rows: factors.rows,
+    ranked,
+    skipped: factors.skipped,
+    inputs: { lastBarOpenTime, settlement },
+  };
+  const { created } = await storeRvSignal(draft);
+  // Lost a race with a concurrent run: report the signal that was stored, not this one
+  const stored = created
+    ? draft
+    : await RvSignal.findOne({ version: RV_V1.version, barTime }).lean<IRvSignal | null>();
+  if (!stored) throw new Error(`rv signal for ${barTime} was neither inserted nor found`);
+
+  return {
+    success: true,
+    barTime,
+    created,
+    skipped: stored.skipped,
+    ranked: stored.ranked,
+    fetchErrors,
+    syncErrors,
+  };
+}
+
+// ------------------------------------------------- archived pre-rv-v1 computation
+
+/*
+ * ARCHIVED: the pre-rv-v1 live computation, kept pure and unchanged because
+ * the engine's golden parity test compares against it. Nothing live calls it.
+ */
 export const RV_PRODUCTION_WEIGHTS: FactorWeights = {
   mom: 0.30,
   idio: 0.25,
@@ -207,70 +423,4 @@ export function computeCrossSectionalSignalFromCandles(
     netBetaExposure: targetAlloc.netBetaExposure ?? 0,
     grossExposure: targetAlloc.grossExposure,
   };
-}
-
-/**
- * Live pipeline: fetches live 8h candles and funding rates, computes factor signal,
- * and upserts into the CrossSectionalSignal MongoDB collection.
- */
-export async function generateAndSaveCrossSectionalSignal(): Promise<ICrossSectionalSignal> {
-  await connectDB();
-
-  // 1. Fetch latest 8h candles and funding rates for all SIGNAL_SYMBOLS
-  const candlesBySymbol = new Map<string, OHLCV[]>();
-  const fundingRates = new Map<string, number>();
-
-  await Promise.all(
-    SIGNAL_SYMBOLS.map(async (sym) => {
-      try {
-        // Fetch 45 8h candles to have full 42-bar lookback after dropping in-progress candle
-        const raw = await fetchKlines(sym, '8h', 45);
-        const now = Date.now();
-        // Keep only closed 8h bars
-        const closed = raw.filter((c) => c.timestamp + BAR_MS_8H <= now);
-        candlesBySymbol.set(sym, closed);
-      } catch (err) {
-        console.error(`Failed to fetch 8h klines for ${sym}:`, err);
-      }
-
-      try {
-        const rates = await fetchFundingRate(sym, 1);
-        if (rates.length > 0) {
-          fundingRates.set(sym, rates[0].fundingRate);
-        }
-      } catch (err) {
-        console.error(`Failed to fetch funding rate for ${sym}:`, err);
-      }
-    })
-  );
-
-  // 2. Fetch the most recent CrossSectionalSignal to carry forward current positions
-  const lastSignal = await CrossSectionalSignal.findOne()
-    .sort({ timestamp: -1 })
-    .lean();
-
-  const currentPositions = new Map<string, number>();
-  if (lastSignal && Array.isArray(lastSignal.targets)) {
-    for (const t of lastSignal.targets) {
-      if (Math.abs(t.weight) > 1e-4) {
-        currentPositions.set(t.symbol, t.weight);
-      }
-    }
-  }
-
-  // 3. Compute new factor signal and target allocation
-  const computed = computeCrossSectionalSignalFromCandles(
-    candlesBySymbol,
-    fundingRates,
-    currentPositions
-  );
-
-  // 4. Upsert document by bar timestamp
-  const doc = await CrossSectionalSignal.findOneAndUpdate(
-    { timestamp: computed.timestamp },
-    { $set: computed },
-    { upsert: true, new: true }
-  );
-
-  return doc;
 }
