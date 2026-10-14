@@ -24,6 +24,36 @@
  * cross-check tolerances, permuted funding timestamps, desk bootstrap parameters and seed, and the
  * recorded G3 objection.
  *
+ * AMENDMENT 1 (2026-10-15, before the `inputs` stage and before any rv perp history was read). It
+ * comes from building the panel machinery against this header:
+ * - Panel end: the last 8h bar is the last one whose close lies inside the export span, so the panel
+ *   ends with the 2026-10-13 08:00 bar. The 16:00 bar's funding window closes on the 2026-10-14 00:00
+ *   settlement, which the export excludes, and a partial funding tuple must not enter a permutation.
+ * - Funding resolutions: the missing-settlement check judges each gap by its later row's interval, as
+ *   in broad-trend.ts note A6-1. A flagged settlement is cleared only by a `no-event` entry in a
+ *   recorded resolutions file, meaning Binance's REST funding history for that symbol has no
+ *   settlement at that instant, with the REST settlement times either side recorded. The `inputs`
+ *   stage re-queries REST for every entry and halts if REST shows a settlement there, if REST cannot
+ *   be reached, if an entry matches no flag, or if any flag has no entry. The file's sha256 and entry
+ *   count go into RESULT. Known candidates from A6-1: SOLUSDT 2022-11-10 02:00, and 2026-06-24 04:00
+ *   for any member then on a 4h grid. This is the one item here that does not only tighten: it narrows
+ *   the halt to settlements the venue actually made, which is what "due" means. It is fixed before any
+ *   rv perp history is read, on evidence an earlier study recorded.
+ * - Added halts: a duplicate settlement, a settlement time off the hour, a symbol with no settlement
+ *   in the span, and an 8h bar that the 1h series cannot rebuild (a cross-check mismatch). Every data
+ *   file's sha256 is checked against the manifest before it is read.
+ * - Planted calibration: kappa = 0.00146. "Lies in [3, 4]" is read as the population edge: the mean of
+ *   rv-v1's annualised net taker Sharpe over the ten planted seeds is 3.50 (8 of 10 seeds inside the
+ *   band, range 2.34 to 4.16). Per-seed sampling error (about 0.5 annualised) is not removable by any
+ *   fixed kappa. Synthetic data only.
+ * - Warmup: the first signal is computed at the close of bar index 42, the first full 43-close
+ *   window, and the first fill is the open of bar 43. "Signals from bar 43" means the first bar that
+ *   holds a signal-driven position.
+ * - Returns: the per-bar return is equity after step k over equity after step k - 1, minus 1, on the
+ *   open-to-open grid (the first step against the starting equity).
+ * - Seeds: createSeededRandom reduces a seed modulo 2^32, and calibration inner seeds s * 10,000 + m
+ *   exceed 2^32. The machinery asserts that the reduced seeds are distinct across every range used.
+ *
  * WHAT IS ALREADY KNOWN (disclosed, not hidden):
  * - Spot, full span 2021-10 to 2026-10-12 (5,462 8h bars), live configuration: +250.43% net maker,
  *   +117.80% net taker, about 180x annual turnover (VPS report-stop-control.json, void as validation).
