@@ -189,6 +189,15 @@ describe('runCells (header STEP 1, AMENDMENT 1, addendum rules 2, 3 and 9)', () 
     }
   });
 
+  it('reads carry from fundLast and charges fundSum, as the reference does, when a bar holds two settlements', () => {
+    // three symbols on a 4h funding grid: the bar's sum holds an earlier settlement the carry input must not see
+    const twoPerBar = clone(planted(400, 6), (p) => {
+      for (const s of [2, 5, 8]) p.fundSum[s] = p.fundSum[s].map((x, k) => x + 0.0003 * Math.cos(k * (s + 1)));
+    });
+    expect(twoPerBar.fundSum[2]).not.toEqual(twoPerBar.fundLast[2]);
+    expect(runCells(twoPerBar).runs[11].returns).toEqual(rvV1NetTakerReturns(twoPerBar));
+  });
+
   it('the first signal is at bar 42 and step 0 carries only entry friction (AMENDMENT 1, agy minor)', () => {
     const res = runCells(base, { detail: true });
     expect(FIRST_SIGNAL_BAR).toBe(42);
