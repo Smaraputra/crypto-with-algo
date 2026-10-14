@@ -159,6 +159,9 @@ describe('mergeShards (judge merge: coverage, seeds, provenance)', () => {
     expect(() => mergeShards('is-mcpt', files.slice(1), PROV)).toThrow(/missing[\s\S]*is-mcpt-01/);
     expect(() => mergeShards('is-mcpt', [...files, { name: 'stray.jsonl', text: files[0].text }], PROV)).toThrow(/stray/);
     expect(() => mergeShards('is-mcpt', [{ name: 'is-mcpt-01.jsonl', text: files[1].text }, ...files.slice(1)], PROV)).toThrow(/is-mcpt-01/);
+    // right lines, wrong header: only the header check sees it
+    const misnamed = [{ name: 'is-mcpt-01.jsonl', text: shardText('is-mcpt', 'is-mcpt-07', 1, 125) }, ...files.slice(1)];
+    expect(() => mergeShards('is-mcpt', misnamed, PROV)).toThrow(/is-mcpt-01: its header names is-mcpt is-mcpt-07/);
   });
 
   it('fails on a missing or duplicated permutation, a wrong seed, or a wrong M', () => {

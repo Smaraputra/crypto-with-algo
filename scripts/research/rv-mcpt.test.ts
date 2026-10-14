@@ -531,6 +531,8 @@ describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5)', () 
     const other = planted(1700, 22);
     expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prepareSteps(other) })).toThrow(/another panel/);
     const prep = prepareSteps(wfPanel);
+    // this panel's cell runs with another panel's steps would run the book on the other panel
+    expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prepareSteps(other), cells: runCells(wfPanel, { prepared: prep }) })).toThrow(/another panel/);
     expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prep, cells: runCells(wfPanel, { prepared: prep, cells: [11, 4] }) })).toThrow(/12 cells/);
     const shuffled = runCells(wfPanel, { prepared: prep });
     shuffled.runs.reverse();

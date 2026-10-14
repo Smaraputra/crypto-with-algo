@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { gunzipSync, gzipSync } from 'zlib';
@@ -251,6 +251,16 @@ describe('runInputsStage (addendum rule 12: draft, verify, build, write)', () =>
     const record = await runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash });
     expect(record.resolutions.entries).toBe(0);
     await expect(runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(/exists/);
+  });
+
+  it('refuses a directory that already holds a resolutions file, and leaves it untouched', async () => {
+    const hash = await writeExport(ds, true);
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, INPUTS_FILES.resolutions), 'recorded earlier');
+    await expect(runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: await restLikeExport(ds), gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(
+      /REFUSE[\s\S]*resolutions\.json exists/
+    );
+    expect(readFileSync(join(out, INPUTS_FILES.resolutions), 'utf8')).toBe('recorded earlier');
   });
 });
 
