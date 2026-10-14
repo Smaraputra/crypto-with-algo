@@ -54,6 +54,26 @@
  * - Seeds: createSeededRandom reduces a seed modulo 2^32, and calibration inner seeds s * 10,000 + m
  *   exceed 2^32. The machinery asserts that the reduced seeds are distinct across every range used.
  *
+ * AMENDMENT 2 (2026-10-15, before the `inputs` stage and before any rv perp history was read). Every
+ * item tightens or clarifies. It comes from the review of the panel machinery:
+ * - Dropped buckets: HALT on any dropped bucket. This replaces "more than 3". A dropped bucket leaves
+ *   a hole in the shared grid that the 43-bar windows, the funding attribution and the permutation
+ *   cannot carry honestly, and the 1h cross-check already halts on any missing 1h bar.
+ * - Funding rows without a stated interval: every interval switch derived from their spacing is
+ *   itself a flag that needs a REST-verified resolution entry (AMENDMENT 1), so a missing settlement
+ *   cannot pass as a switch.
+ * - Added halts: a non-finite or non-positive open, high, low or close, a negative or non-finite
+ *   volume or taker-buy volume, a non-finite funding rate, and a duplicate or off-hour 1h row.
+ * - Manifest: every file the panel reads must be listed in the manifest with its kind, symbol and
+ *   interval, and the bytes that are parsed are the bytes that were hashed.
+ * - Walk-forward start: the first test fold opens flat. The first walk-forward signal is computed at
+ *   the close of bar 1,094 and fills at the open of bar 1,095, so the first out-of-sample return runs
+ *   from open 1,095 to open 1,096 and, in step 4, comes entirely from permuted bars (as in mcpt's
+ *   walk-forward script). Positions carry across later fold boundaries as STEP 3 states.
+ * - Reported: a carry-only planted universe (kappa 0) in the calibration output, never a gate, and a
+ *   line in RESULT that funding is charged at the fill price because the panel carries no settlement
+ *   mark price.
+ *
  * WHAT IS ALREADY KNOWN (disclosed, not hidden):
  * - Spot, full span 2021-10 to 2026-10-12 (5,462 8h bars), live configuration: +250.43% net maker,
  *   +117.80% net taker, about 180x annual turnover (VPS report-stop-control.json, void as validation).
