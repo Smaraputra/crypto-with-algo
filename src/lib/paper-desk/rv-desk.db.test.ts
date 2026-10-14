@@ -9,7 +9,7 @@ import { RvSignal } from '@/lib/models/rv-signal';
 import { RvBook, RV_BOOK_NAME } from '@/lib/models/rv-book';
 import { RvStep } from '@/lib/models/rv-step';
 import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
-import { LEASE_MS, READY_DELAY_MS, runRvDesk } from './rv-desk';
+import { LEASE_MS, READY_DELAY_MS, RvLeaseLostError, runRvDesk } from './rv-desk';
 
 const mocks = vi.hoisted(() => ({
   fetchPerpKlinesRange: vi.fn(),
@@ -102,7 +102,8 @@ beforeEach(async () => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
   await mongoose.connection.db?.dropDatabase();
-  await Promise.all([RvBook.init(), RvStep.init(), RvSignal.init(), FundingSettlement.init()]);
+  // init() is memoised and would not rebuild the unique indexes after the drop
+  await Promise.all([RvBook, RvStep, RvSignal, FundingSettlement].map((m) => m.createIndexes()));
   bars = new Map();
   mocks.fetchPerpKlinesRange.mockImplementation(async (symbol: string, _i: string, start: number) => fillBar(symbol, start));
   mocks.syncFundingSettlements.mockImplementation(async (symbols: string[]) =>
@@ -125,7 +126,7 @@ describe('runRvDesk: first run and cursor', () => {
 
     const first = await run(readyAt(newest));
 
-    expect(first).toEqual({ leased: true, stepped: 1, pending: [], cursor: newest, waiting: 0, capped: false, stalePending: false });
+    expect(first).toEqual({ leased: true, stepped: 1, adopted: 0, pending: [], cursor: newest, waiting: 0, capped: false, stalePending: false });
     const stored = await steps();
     expect(stored).toHaveLength(1);
     expect(stored[0]).toMatchObject({ bookName: RV_BOOK_NAME, barTime: newest, fillTime: newest + BAR, pendingReasons: [] });
@@ -261,13 +262,89 @@ describe('runRvDesk: lease', () => {
 
     expect(await book()).toMatchObject({ leaseOwner: 'thief', lastStepBarTime: null });
   });
+
+  /** Holds run A inside its first fill fetch until `release`, so run B can take the expired lease. */
+  function stallFirstFetch(outcome: () => Promise<PerpKline[]>) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    mocks.fetchPerpKlinesRange.mockImplementationOnce(async () => {
+      entered();
+      await gate;
+      return outcome();
+    });
+    return { inside, release };
+  }
+
+  it('D09: a run that outlived its lease cannot turn the step another run completed back into pending', async () => {
+    await seedSignal(T0);
+    await run(readyAt(T0), 'setup');
+    await seedSignal(T0 + BAR);
+    const now = readyAt(T0 + BAR);
+    let venueDown = false;
+    mocks.fetchPerpKlinesRange.mockImplementation(async (symbol: string, _i: string, start: number) => {
+      if (venueDown) throw new Error('HTTP 503');
+      return fillBar(symbol, start);
+    });
+    const stall = stallFirstFetch(async () => {
+      throw new Error('timeout');
+    });
+
+    const a = run(now, 'run-a');
+    await stall.inside;
+    const b = await run(now + LEASE_MS + 1, 'run-b');
+    expect(b).toMatchObject({ leased: true, stepped: 1, cursor: T0 + BAR });
+    const completed = await RvStep.findOne({ barTime: T0 + BAR }).lean();
+
+    // A resumes, its retry fails, and it tries to record the step as pending
+    venueDown = true;
+    stall.release();
+    await expect(a).rejects.toThrow(RvLeaseLostError);
+
+    expect(await RvStep.findOne({ barTime: T0 + BAR }).lean()).toEqual(completed);
+    expect(await RvStep.countDocuments()).toBe(2);
+    expect(await book()).toMatchObject({ lastStepBarTime: T0 + BAR, leaseOwner: null, leaseUntil: null });
+
+    // The next run restores from B's step and carries on
+    venueDown = false;
+    await seedSignal(T0 + 2 * BAR);
+    expect(await run(readyAt(T0 + 2 * BAR), 'run-c')).toMatchObject({ leased: true, stepped: 1, cursor: T0 + 2 * BAR });
+  });
+
+  it('D09: a run that outlived its lease cannot rewrite the step another run completed with different data', async () => {
+    await seedSignal(T0);
+    await run(readyAt(T0), 'setup');
+    await seedSignal(T0 + BAR);
+    const now = readyAt(T0 + BAR);
+    const stall = stallFirstFetch(async () => {
+      throw new Error('timeout');
+    });
+
+    const a = run(now, 'run-a');
+    await stall.inside;
+    expect(await run(now + LEASE_MS + 1, 'run-b')).toMatchObject({ stepped: 1 });
+    const completed = await RvStep.findOne({ barTime: T0 + BAR }).lean();
+
+    // A's retry now sees a different BTC bar, so its step would differ from B's
+    bars.set(`BTCUSDT@${T0 + 2 * BAR}`, { open: 105 });
+    stall.release();
+    await expect(a).rejects.toThrow(RvLeaseLostError);
+
+    expect(await RvStep.findOne({ barTime: T0 + BAR }).lean()).toEqual(completed);
+    expect(await RvStep.countDocuments()).toBe(2);
+  });
 });
 
 describe('runRvDesk: replay', () => {
-  it('D09: a replay after a cursor rollback rewrites identical RvStep documents and adds none', async () => {
+  it('D09: after a cursor rollback the stored steps are adopted, never recomputed or rewritten', async () => {
     await seedSignal(T0);
     await run(readyAt(T0));
-    // A rotation and price moves, so the replayed steps carry real state
+    // A rotation and price moves, so the steps carry real state
     await seedSignal(T0 + BAR, ['SOLUSDT', 'BTCUSDT', ...SYMS.filter((s) => !['SOLUSDT', 'BTCUSDT'].includes(s))]);
     await seedSignal(T0 + 2 * BAR, ['SOLUSDT', 'XRPUSDT', 'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'DOTUSDT', 'LINKUSDT', 'AVAXUSDT']);
     bars.set(`BTCUSDT@${T0 + 2 * BAR}`, { open: 104 });
@@ -275,20 +352,54 @@ describe('runRvDesk: replay', () => {
     bars.set(`SOLUSDT@${T0 + 3 * BAR}`, { open: 110 });
     bars.set(`LINKUSDT@${T0 + 3 * BAR}`, { open: 93, high: 93 });
     const now = readyAt(T0 + 2 * BAR);
-    expect(await run(now)).toMatchObject({ stepped: 2, cursor: T0 + 2 * BAR });
+    expect(await run(now)).toMatchObject({ stepped: 2, adopted: 0, cursor: T0 + 2 * BAR });
     const before = await steps();
     const bookBefore = await book();
 
+    // Different market data now: a recomputation would produce different steps
+    bars.set(`BTCUSDT@${T0 + 2 * BAR}`, { open: 90 });
+    bars.set(`SOLUSDT@${T0 + 3 * BAR}`, { open: 80 });
     await RvBook.updateOne({ bookName: RV_BOOK_NAME }, { $set: { lastStepBarTime: T0 } });
+    mocks.fetchPerpKlinesRange.mockClear();
     const replay = await run(now + 60_000);
 
-    expect(replay).toMatchObject({ stepped: 2, cursor: T0 + 2 * BAR });
+    expect(replay).toMatchObject({ stepped: 0, adopted: 2, cursor: T0 + 2 * BAR });
+    expect(mocks.fetchPerpKlinesRange).not.toHaveBeenCalled();
     expect(await steps()).toEqual(before);
     expect(await RvStep.countDocuments()).toBe(3);
     const bookAfter = await book();
     for (const field of ['tracks', 'equity', 'peakEquity', 'alerts', 'fillStats', 'lastStepBarTime', 'startBarTime'] as const) {
       expect(bookAfter![field]).toEqual(bookBefore![field]);
     }
+  });
+
+  it('D09: after a crash between the step write and the book write, the rerun adopts the stored step unchanged', async () => {
+    await seedSignal(T0);
+    await run(readyAt(T0));
+    await seedSignal(T0 + BAR);
+    const original = RvBook.updateOne.bind(RvBook);
+    let crashed = false;
+    vi.spyOn(RvBook, 'updateOne').mockImplementation(((...args: Parameters<typeof RvBook.updateOne>) => {
+      const update = args[1] as { $set?: { lastStepBarTime?: number | null } } | undefined;
+      if (!crashed && update?.$set?.lastStepBarTime !== undefined) {
+        crashed = true;
+        return Promise.reject(new Error('process killed'));
+      }
+      return original(...args);
+    }) as unknown as typeof RvBook.updateOne);
+
+    await expect(run(readyAt(T0 + BAR))).rejects.toThrow('process killed');
+    const stored = await RvStep.findOne({ barTime: T0 + BAR }).lean();
+    expect(stored!.bookAfter).not.toBeNull();
+    expect(await book()).toMatchObject({ lastStepBarTime: T0, leaseOwner: null, leaseUntil: null });
+
+    vi.restoreAllMocks();
+    bars.set(`BTCUSDT@${T0 + 2 * BAR}`, { open: 120 });
+    const rerun = await run(readyAt(T0 + BAR) + 60_000);
+
+    expect(rerun).toMatchObject({ stepped: 0, adopted: 1, cursor: T0 + BAR });
+    expect(await RvStep.findOne({ barTime: T0 + BAR }).lean()).toEqual(stored);
+    expect((await book())!.tracks).toEqual(stored!.bookAfter!.tracks);
   });
 
   it('refuses to run when the cursor points at a step that was never completed', async () => {
@@ -403,7 +514,7 @@ describe('runRvDesk: data failures leave the step pending', () => {
 
     const res = await run(readyAt(T0 + BAR));
 
-    expect(res).toMatchObject({ stepped: 0, cursor: T0, pending: [{ barTime: T0 + BAR, reasons: ['fill_bar_unavailable:ETHUSDT'] }] });
+    expect(res).toMatchObject({ stepped: 0, cursor: T0, pending: [{ barTime: T0 + BAR, reasons: ['fill_bar_unavailable:ETHUSDT (HTTP 503)'] }] });
     const ethCalls = mocks.fetchPerpKlinesRange.mock.calls.filter(([s, , start]) => s === 'ETHUSDT' && start === T0 + 2 * BAR);
     expect(ethCalls).toHaveLength(2);
     expect(mocks.fetchPerpKlinesRange).toHaveBeenCalledWith('BTCUSDT', '1h', T0 + 2 * BAR, T0 + 2 * BAR);
@@ -423,6 +534,75 @@ describe('runRvDesk: data failures leave the step pending', () => {
     expect(s.taker!.stale).toEqual(['ETHUSDT']);
     expect(s.taker!.fills.map((f) => f.symbol)).not.toContain('ETHUSDT');
     expect((await book())!.tracks.taker.positions.ETHUSDT).toEqual(ethBefore);
+  });
+
+  it('caps the cause of an unavailable fill bar at 200 characters', async () => {
+    await seedSignal(T0);
+    const long = 'x'.repeat(300);
+    mocks.fetchPerpKlinesRange.mockImplementation(async (symbol: string, _i: string, start: number) => {
+      if (symbol === 'ETHUSDT') throw new Error(long);
+      return fillBar(symbol, start);
+    });
+    const res = await run(readyAt(T0));
+    expect(res.leased && res.pending[0].reasons).toEqual([`fill_bar_unavailable:ETHUSDT (${'x'.repeat(200)})`]);
+  });
+
+  it('a fetched bar that does not open at fillTime leaves the step pending instead of being used', async () => {
+    await seedSignal(T0);
+    await run(readyAt(T0));
+    await seedSignal(T0 + BAR);
+    mocks.fetchPerpKlinesRange.mockImplementation(async (symbol: string, _i: string, start: number) =>
+      symbol === 'ETHUSDT' ? fillBar(symbol, start + H) : fillBar(symbol, start)
+    );
+
+    const res = await run(readyAt(T0 + BAR));
+
+    expect(res).toMatchObject({ stepped: 0, cursor: T0 });
+    expect(res.leased && res.pending).toEqual([
+      { barTime: T0 + BAR, reasons: [expect.stringMatching(/^fill_bar_unavailable:ETHUSDT \(.*openTime/)] },
+    ]);
+  });
+
+  it('funding_missing carries the sync error for that symbol', async () => {
+    await seedSignal(T0);
+    await run(readyAt(T0));
+    await seedSignal(T0 + BAR);
+    await FundingSettlement.deleteOne({ symbol: 'ETHUSDT', fundingTime: T0 + 2 * BAR });
+    mocks.syncFundingSettlements.mockImplementation(async (symbols: string[]) =>
+      symbols.map((symbol) => (symbol === 'ETHUSDT' ? { symbol, inserted: 0, updated: 0, error: 'HTTP 418' } : { symbol, inserted: 0, updated: 0 }))
+    );
+
+    const res = await run(readyAt(T0 + BAR));
+
+    expect(res).toMatchObject({ pending: [{ barTime: T0 + BAR, reasons: ['funding_missing:ETHUSDT (HTTP 418)'] }] });
+  });
+
+  it('settlements and fill bars cover a symbol only the maker track holds', async () => {
+    await seedSignal(T0);
+    await run(readyAt(T0));
+    // The maker track alone also holds AVAX (as after a halted taker step)
+    await RvStep.updateOne(
+      { barTime: T0 },
+      { $set: { 'bookAfter.tracks.maker.positions.AVAXUSDT': { qty: 10, avgEntry: 100, lastMark: 100 } } }
+    );
+    await seedSignal(T0 + BAR);
+    await FundingSettlement.deleteOne({ symbol: 'AVAXUSDT', fundingTime: T0 + 2 * BAR });
+
+    const blocked = await run(readyAt(T0 + BAR));
+    expect(blocked).toMatchObject({ pending: [{ barTime: T0 + BAR, reasons: ['funding_missing:AVAXUSDT'] }] });
+    expect(mocks.syncFundingSettlements).toHaveBeenCalledWith(
+      ['AVAXUSDT', 'BTCUSDT', 'DOTUSDT', 'ETHUSDT', 'LINKUSDT'],
+      readyAt(T0 + BAR)
+    );
+    expect(mocks.fetchPerpKlinesRange).toHaveBeenCalledWith('AVAXUSDT', '1h', T0 + 2 * BAR, T0 + 2 * BAR);
+
+    await FundingSettlement.create({ symbol: 'AVAXUSDT', fundingTime: T0 + 2 * BAR, rawTime: T0 + 2 * BAR + 1, rate: RATE });
+    expect(await run(readyAt(T0 + BAR) + 60_000)).toMatchObject({ stepped: 1 });
+    const s = (await steps())[1];
+    expect(s.maker!.funding.filter((f) => f.symbol === 'AVAXUSDT')).toHaveLength(1);
+    expect(s.maker!.fills.find((f) => f.symbol === 'AVAXUSDT')!.deltaQty).toBeCloseTo(-10, 10);
+    expect(s.taker!.funding.some((f) => f.symbol === 'AVAXUSDT')).toBe(false);
+    expect(s.taker!.fills.some((f) => f.symbol === 'AVAXUSDT')).toBe(false);
   });
 
   it('flags a step pending for more than one cadence past its ready time as stale', async () => {
@@ -516,6 +696,21 @@ describe('runRvDesk: alerts and fill statistics', () => {
     expect(stats.weekend).toEqual({ makerFilled: 4, makerFallback: 0, steps: 1 });
     expect(stats['08']).toEqual({ makerFilled: 2, makerFallback: 2, steps: 1 });
     expect(stats.weekday).toEqual({ makerFilled: 2, makerFallback: 2, steps: 1 });
+  });
+});
+
+describe('runRvDesk: weekend classification', () => {
+  it('the Friday 16:00 bar fills Saturday 00:00 and counts as a weekend step in the 00 bucket', async () => {
+    const friday16 = T0 + 2 * DAY + 2 * BAR; // Friday 2026-09-25 16:00 UTC
+    await seedSignal(friday16);
+    await run(readyAt(friday16));
+    const [s] = await steps();
+    expect(new Date(s.fillTime).toISOString()).toBe('2026-09-26T00:00:00.000Z');
+    expect(s).toMatchObject({ rebalanceHourUtc: 0, isWeekend: true });
+    const stats = (await book())!.fillStats;
+    expect(stats['00'].steps).toBe(1);
+    expect(stats.weekend.steps).toBe(1);
+    expect(stats.weekday.steps).toBe(0);
   });
 });
 

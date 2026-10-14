@@ -20,6 +20,7 @@ function request(): NextRequest {
 const STEPPED = {
   leased: true,
   stepped: 1,
+  adopted: 0,
   pending: [],
   cursor: 1_790_121_600_000,
   waiting: 0,

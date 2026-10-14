@@ -34,10 +34,13 @@ import {
  *   owner, so a run that lost its lease cannot overwrite the book.
  * - **Forward only.** A book with no cursor steps only the newest signal.
  *   Replaying history would be a backtest, and this is a forward record.
- * - **State from the step log.** Each RvStep stores the book state after it,
- *   and a run restores from the step at the cursor. A replay after a crash or
- *   a cursor rollback therefore recomputes byte-identical steps, upserted on
- *   (bookName, barTime) so none is added twice.
+ * - **State from the step log, written once.** Each completed RvStep stores
+ *   the book state after it, and a run restores from the step at the cursor.
+ *   A completed step is never rewritten: a run that finds one for the signal
+ *   it is about to step adopts it (after a crash between the step write and
+ *   the book write, or a cursor rollback), and both step writes only match a
+ *   step that is not yet complete, so a run that outlived its lease fails
+ *   instead of overwriting the step another run completed.
  * - **A data failure never trades.** A held symbol missing from the ranking,
  *   a fill bar that cannot be fetched or a funding settlement that cannot be
  *   found leaves the step pending with its reason and stops the run there.
@@ -57,6 +60,20 @@ export const DRAWDOWN_ALERT = 0.15;
 /** Steps one run takes at most, so a long outage drains over several runs inside the lease. */
 export const MAX_STEPS_PER_RUN = 12;
 
+/** Longest cause appended to a pending reason. */
+const REASON_CAUSE_MAX = 200;
+
+/**
+ * This run no longer owns the book: another run took the lease and wrote the
+ * book or completed a step first. Nothing this run computed is kept.
+ */
+export class RvLeaseLostError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RvLeaseLostError';
+  }
+}
+
 export interface RvDeskOptions {
   /** Pause before the single fill-bar retry. */
   retryDelayMs?: number;
@@ -72,6 +89,8 @@ export type RvDeskReport =
   | {
       leased: true;
       stepped: number;
+      /** Completed steps found in the log and taken over instead of recomputed. */
+      adopted: number;
       pending: RvPendingStep[];
       /** barTime of the newest signal stepped, null before the first. */
       cursor: number | null;
@@ -161,7 +180,30 @@ function dataErrorReason(err: RvDataError): string {
   return `${err.code}: ${err.message}`;
 }
 
-/** Settlement boundaries a held leg must have crossed: every 8h boundary in (prevFillTime, fillTime]. */
+/** `prefix:SYMBOL (cause)`. The part before the space stays stable for matching. */
+function reasonWithCause(reason: string, cause: string | undefined): string {
+  return cause ? `${reason} (${cause.slice(0, REASON_CAUSE_MAX)})` : reason;
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isDuplicateKey(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 11000;
+}
+
+/** A completed step carries the book state after it and no pending reason. */
+function isCompleted(step: Pick<IRvStep, 'bookAfter' | 'pendingReasons'> | null): step is IRvStep & { bookAfter: RvBookState } {
+  return step !== null && step.bookAfter !== null && step.bookAfter !== undefined && step.pendingReasons.length === 0;
+}
+
+/**
+ * Settlement boundaries a held leg must have crossed: every 8h boundary in
+ * (prevFillTime, fillTime]. Only 8h boundaries are verified, so a missing
+ * intermediate settlement on a 4h-interval symbol is neither detected nor
+ * charged.
+ */
 function requiredBoundaries(prevFillTime: number, fillTime: number): number[] {
   const out: number[] = [];
   for (let t = fillTime; t > prevFillTime; t -= RV_V1.barMs) out.push(t);
@@ -222,16 +264,27 @@ async function stepSignal(
   // The first 1h perp bar opening at fillTime. Absent at the venue means null
   // (the engine marks the leg stale or skips the entry). A failed fetch is not
   // absence, so it waits for the next run instead.
+  // A response holding only bars at other times is the venue misbehaving, not
+  // absence, so it waits as well.
   const fillBars: Record<string, RvFillBar | null> = {};
   const unavailable: string[] = [];
   for (const symbol of symbols) {
+    let klines;
     try {
-      const klines = await retryOnce(() => fetchPerpKlinesRange(symbol, '1h', fillTime, fillTime), retryDelayMs);
-      const bar = klines.find((k) => k.openTime === fillTime);
-      fillBars[symbol] = bar ? { open: bar.open, high: bar.high, low: bar.low, close: bar.close } : null;
-    } catch {
-      // The reason carries the symbol, and the step is retried next run
-      unavailable.push(`fill_bar_unavailable:${symbol}`);
+      klines = await retryOnce(() => fetchPerpKlinesRange(symbol, '1h', fillTime, fillTime), retryDelayMs);
+    } catch (err) {
+      // The reason carries the symbol and the cause, and the step is retried next run
+      unavailable.push(reasonWithCause(`fill_bar_unavailable:${symbol}`, errorText(err)));
+      continue;
+    }
+    const bar = klines.find((k) => k.openTime === fillTime);
+    if (bar) {
+      fillBars[symbol] = { open: bar.open, high: bar.high, low: bar.low, close: bar.close };
+    } else if (klines.length === 0) {
+      fillBars[symbol] = null;
+    } else {
+      const got = klines.map((k) => k.openTime).join(', ');
+      unavailable.push(reasonWithCause(`fill_bar_unavailable:${symbol}`, `venue returned openTime ${got}, expected ${fillTime}`));
     }
   }
   if (unavailable.length > 0) return { ok: false, targets, reasons: unavailable };
@@ -240,12 +293,19 @@ async function stepSignal(
   let settlements: Record<string, RvSettlement[]> = {};
   if (prevFillTime !== null && heldAny.length > 0) {
     let loaded = await loadSettlements(heldAny, prevFillTime, fillTime);
+    const syncErrors = new Map<string, string>();
     if (loaded.missing.length > 0) {
-      await syncFundingSettlements(heldAny, now);
+      for (const r of await syncFundingSettlements(heldAny, now)) {
+        if (r.error) syncErrors.set(r.symbol, r.error);
+      }
       loaded = await loadSettlements(heldAny, prevFillTime, fillTime);
     }
     if (loaded.missing.length > 0) {
-      return { ok: false, targets, reasons: loaded.missing.map((s) => `funding_missing:${s}`) };
+      return {
+        ok: false,
+        targets,
+        reasons: loaded.missing.map((s) => reasonWithCause(`funding_missing:${s}`, syncErrors.get(s))),
+      };
     }
     settlements = loaded.bySymbol;
   }
@@ -263,6 +323,25 @@ async function stepSignal(
     };
   } catch (err) {
     if (err instanceof RvDataError) return { ok: false, targets, reasons: [dataErrorReason(err)] };
+    throw err;
+  }
+}
+
+/**
+ * Upserts a step only while it is not complete. A duplicate key means another
+ * run completed it after this run's lease expired.
+ */
+async function writeIncompleteStep(
+  key: { bookName: string; barTime: number },
+  update: { $set: Record<string, unknown> },
+  owner: string
+): Promise<void> {
+  try {
+    await RvStep.updateOne({ ...key, bookAfter: null }, update, { upsert: true });
+  } catch (err) {
+    if (isDuplicateKey(err)) {
+      throw new RvLeaseLostError(`rv desk: lease lost by ${owner}, the step at ${key.barTime} was completed by another run`);
+    }
     throw err;
   }
 }
@@ -293,7 +372,7 @@ export async function runRvDesk(now: number, owner: string, opts: RvDeskOptions 
   const leased = await RvBook.findOneAndUpdate(
     { bookName, $or: [{ leaseUntil: null }, { leaseUntil: { $lt: new Date(now) } }] },
     { $set: { leaseUntil: new Date(now + LEASE_MS), leaseOwner: owner } },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean<IRvBook | null>();
   if (!leased) return { leased: false, stepped: 0 };
 
@@ -304,7 +383,7 @@ export async function runRvDesk(now: number, owner: string, opts: RvDeskOptions 
     let prevFillTime: number | null = null;
     if (cursor !== null) {
       const atCursor = await RvStep.findOne({ bookName, barTime: cursor }).lean<IRvStep | null>();
-      if (!atCursor?.bookAfter || atCursor.pendingReasons.length > 0) {
+      if (!isCompleted(atCursor)) {
         throw new Error(`rv desk: no completed RvStep at the cursor ${cursor}`);
       }
       state = atCursor.bookAfter;
@@ -322,6 +401,7 @@ export async function runRvDesk(now: number, owner: string, opts: RvDeskOptions 
     const report = {
       leased: true as const,
       stepped: 0,
+      adopted: 0,
       pending: [] as RvPendingStep[],
       cursor,
       waiting: 0,
@@ -339,16 +419,28 @@ export async function runRvDesk(now: number, owner: string, opts: RvDeskOptions 
         report.waiting = signals.length - i;
         break;
       }
+      const key = { bookName, barTime: signal.barTime };
+
+      // A completed step is the forward record: take it over, never recompute it
+      const stored = await RvStep.findOne(key).lean<IRvStep | null>();
+      if (isCompleted(stored)) {
+        if (report.cursor === null) startBarTime = signal.barTime;
+        state = stored.bookAfter;
+        prevFillTime = stored.fillTime;
+        report.cursor = signal.barTime;
+        report.adopted += 1;
+        continue;
+      }
+
       if (report.stepped >= MAX_STEPS_PER_RUN) {
         report.capped = true;
         break;
       }
 
       const outcome = await stepSignal(signal, state, prevFillTime, now, retryDelayMs);
-      const key = { bookName, barTime: signal.barTime };
       const facts = fillTimeFacts(fillTime);
       if (!outcome.ok) {
-        await RvStep.updateOne(
+        await writeIncompleteStep(
           key,
           {
             $set: {
@@ -361,14 +453,14 @@ export async function runRvDesk(now: number, owner: string, opts: RvDeskOptions 
               pendingReasons: outcome.reasons,
             },
           },
-          { upsert: true }
+          owner
         );
         report.pending.push({ barTime: signal.barTime, reasons: outcome.reasons });
         report.stalePending = now - readyTime > STALE_PENDING_MS;
         break;
       }
 
-      await RvStep.updateOne(
+      await writeIncompleteStep(
         key,
         {
           $set: {
@@ -381,7 +473,7 @@ export async function runRvDesk(now: number, owner: string, opts: RvDeskOptions 
             pendingReasons: [],
           },
         },
-        { upsert: true }
+        owner
       );
       if (report.cursor === null) startBarTime = signal.barTime;
       state = outcome.bookAfter;
@@ -404,7 +496,7 @@ export async function runRvDesk(now: number, owner: string, opts: RvDeskOptions 
       }
     );
     if (written.matchedCount !== 1) {
-      throw new Error(`rv desk: lease lost by ${owner} before the book could be written`);
+      throw new RvLeaseLostError(`rv desk: lease lost by ${owner} before the book could be written`);
     }
     leaseHeld = false;
     return report;
