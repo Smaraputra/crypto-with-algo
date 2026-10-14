@@ -206,6 +206,23 @@ describe('positionRows', () => {
     expect(avax.unrealizedMaker).toBeCloseTo(-80, 10);
   });
 
+  it('treats a zero-quantity taker entry as not held when the maker track holds the leg', () => {
+    const zeroTaker = book({
+      tracks: {
+        taker: { cash: 10_000, positions: { AVAXUSDT: { qty: 0, avgEntry: 31, lastMark: 30 } } },
+        maker: { cash: 10_000, positions: { AVAXUSDT: { qty: 80, avgEntry: 31, lastMark: 30 } } },
+      },
+      equity: { taker: 10_000, maker: 10_100 },
+    });
+    const [avax] = positionRows(zeroTaker, null);
+    expect(avax.symbol).toBe('AVAXUSDT');
+    expect(avax.makerOnly).toBe(true);
+    expect(avax.side).toBe('long');
+    expect(avax.weight).toBeCloseTo((80 * 30) / 10_100, 10);
+    expect(avax.unrealizedTaker).toBeNull();
+    expect(avax.unrealizedMaker).toBeCloseTo(-80, 10);
+  });
+
   it('orders longs before shorts, largest absolute weight first on each side', () => {
     expect(positionRows(held, null).map((r) => r.symbol)).toEqual(['BTCUSDT', 'AVAXUSDT', 'DOGEUSDT']);
     const twoShorts = book({
