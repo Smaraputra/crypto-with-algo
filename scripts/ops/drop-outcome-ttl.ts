@@ -105,9 +105,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const dryRun = argv.includes('--dry-run');
 
   const { connectDB } = await import('@/lib/mongodb');
-  const { SignalOutcome } = await import('@/lib/models/signal-outcome');
   await connectDB();
-  await dropOutcomeTtl(SignalOutcome.collection, { dryRun });
+  // Raw collection, not the model: importing the model would let autoIndex create declared
+  // indexes on connect, which would break the dry run's promise of changing nothing.
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('No database connection');
+  await dropOutcomeTtl(db.collection('signaloutcomes'), { dryRun });
   return 0;
 }
 
