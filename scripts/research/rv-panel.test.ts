@@ -22,10 +22,13 @@ import {
   assemblePanel,
   buildRvPanel,
   crossCheck1h,
+  firstHourBars,
   fundingFlags,
   fundingPerBar,
   pairTo8h,
+  panelFundingFlags,
   panelGrid,
+  readPanelSources,
   resolveFlags,
   type ResolutionEntry,
   type RvSymbolSource,
@@ -704,5 +707,60 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
       m.datasetHash = '0'.repeat(64);
     });
     await expect(buildRvPanel(dir, span, await verified())).rejects.toThrow(/HALT[\s\S]*dataset hash/);
+  });
+
+  it('readPanelSources returns the 30 manifest-verified files per symbol and the dataset hash (Task 7B inputs stage)', async () => {
+    const { sources, manifestHash } = readPanelSources(dir);
+    expect(manifestHash).toBe(JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')).datasetHash);
+    expect(sources.map((s) => s.symbol)).toEqual([...RV_SYMBOLS]);
+    for (const [i, symbol] of RV_SYMBOLS.entries()) {
+      const want = sourceFor(symbol, 300 + i, BUCKETS);
+      expect(sources[i].rows4h).toEqual(want.rows4h);
+      expect(sources[i].rows1h).toEqual(want.rows1h);
+      expect(sources[i].funding).toEqual(want.funding.filter((r) => r.t <= span.to));
+    }
+    writeFileSync(join(dir, 'perp/BTCUSDT/4h.jsonl.gz'), 'tampered');
+    expect(() => readPanelSources(dir)).toThrow(/HALT[\s\S]*sha256[\s\S]*perp\/BTCUSDT\/4h/);
+  });
+
+  it('returns the first 1h bar of every panel bar, the maker track\'s fill bars (addendum rule 10)', async () => {
+    const { panel, firstHour } = await buildRvPanel(dir, span, await verified());
+    const { sources } = readPanelSources(dir);
+    expect(firstHour).toEqual(firstHourBars(panel, Object.fromEntries(sources.map((s) => [s.symbol, s.rows1h]))));
+    panel.symbols.forEach((symbol, s) => {
+      const rows = new Map(sources[s].rows1h.map((r) => [r.t, r]));
+      panel.t.forEach((t, k) => {
+        const r = rows.get(t)!;
+        expect([firstHour.open[s][k], firstHour.high[s][k], firstHour.low[s][k], firstHour.close[s][k]]).toEqual([r.o, r.h, r.l, r.c]);
+        expect(firstHour.open[s][k]).toBe(panel.open[s][k]);
+      });
+    });
+  });
+});
+
+describe('panel helpers for the inputs stage (Task 7B)', () => {
+  const span = { from: T0, to: T0 + 4 * DAY - 1 };
+  const sources = () => RV_SYMBOLS.map((s, i) => sourceFor(s, 100 + i, 12));
+
+  it('panelFundingFlags lists the flags assemblePanel resolves, over the same funding window', async () => {
+    expect(panelFundingFlags(sources(), span)).toEqual([]);
+    const src = sources();
+    src[3].funding = [...grid8(T0 + H8, T0 + 2 * DAY), ...grid8(T0 + 2 * DAY + H4, T0 + 4 * DAY - H8, 2)];
+    const t = T0 + 2 * DAY + 2 * H;
+    const flags = panelFundingFlags(src, span);
+    expect(flags).toEqual([{ symbol: 'SOLUSDT', t, reason: 'missing' }]);
+    const out = assemblePanel(src, span, await verified([noEvent('SOLUSDT', t, T0 + 2 * DAY, T0 + 2 * DAY + H4)]));
+    expect(out.resolutions.flags).toEqual(flags);
+    // the window runs to the last bar's close: a settlement missing there is flagged too
+    const late = sources();
+    late[6].funding = late[6].funding.filter((r) => r.t !== T0 + 4 * DAY - H8);
+    expect(panelFundingFlags(late, span)).toEqual([{ symbol: 'DOGEUSDT', t: T0 + 4 * DAY - H8, reason: 'missing' }]);
+  });
+
+  it('firstHourBars halts when a panel bar has no 1h row at its open', async () => {
+    const out = assemblePanel(sources(), span, await verified());
+    const rows = Object.fromEntries(sources().map((s) => [s.symbol, s.rows1h]));
+    rows.XRPUSDT = rows.XRPUSDT.filter((r) => r.t !== out.panel.t[3]);
+    expect(() => firstHourBars(out.panel, rows)).toThrow(/HALT[\s\S]*XRPUSDT/);
   });
 });

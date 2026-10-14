@@ -527,8 +527,58 @@ export function crossCheck1h(panel: RvPanel, rows1h: Readonly<Record<string, rea
   return out;
 }
 
+/** The first 1h bar of each panel bar ([symbol][bar]), the maker track's fill bars (Task 7B addendum rule 10). */
+export interface FirstHourBars {
+  open: number[][];
+  high: number[][];
+  low: number[][];
+  close: number[][];
+}
+
+/**
+ * The 1h row opening at each panel bar's open, per symbol. On a panel that passed crossCheck1h every row exists and
+ * its open is the bar's open. HALT if one is missing.
+ */
+export function firstHourBars(panel: RvPanel, rows1h: Readonly<Record<string, readonly PerpCandleRow[]>>): FirstHourBars {
+  const out: FirstHourBars = { open: [], high: [], low: [], close: [] };
+  for (const symbol of panel.symbols) {
+    const byOpen = new Map((rows1h[symbol] ?? []).map((r) => [r.t, r]));
+    const rows = panel.t.map((t) => {
+      const r = byOpen.get(t);
+      if (!r) throw new Error(`HALT: ${symbol} has no 1h row at the panel bar open ${iso(t)}`);
+      return r;
+    });
+    out.open.push(rows.map((r) => r.o));
+    out.high.push(rows.map((r) => r.h));
+    out.low.push(rows.map((r) => r.l));
+    out.close.push(rows.map((r) => r.c));
+  }
+  return out;
+}
+
+/** The funding window the panel checks: the grid's first open to its last bar's close. */
+function fundingWindowOf(grid: Span): Span {
+  return { from: grid.from, to: grid.to + BAR_MS };
+}
+
+/**
+ * Every funding flag of the panel, as assemblePanel computes them (RV_SYMBOLS order, the same window). The
+ * `inputs` stage drafts and verifies resolutions for exactly these before it builds the panel.
+ */
+export function panelFundingFlags(sources: readonly RvSymbolSource[], span: Span): FundingFlag[] {
+  const bySymbol = new Map(sources.map((s) => [s.symbol, s]));
+  const window = fundingWindowOf(panelGrid(span));
+  return RV_SYMBOLS.flatMap((symbol) => {
+    const src = bySymbol.get(symbol);
+    if (!src) throw new Error(`HALT: no source for ${symbol}`);
+    return fundingFlags(symbol, src.funding, window);
+  });
+}
+
 export interface AssembledPanel {
   panel: RvPanel;
+  /** The first 1h bar of every panel bar, from the rows the cross-check verified. */
+  firstHour: FirstHourBars;
   grid: Span;
   droppedBuckets: DroppedBucket[];
   /** Bar opens some symbols had and others lacked. Always empty, since any dropped bucket halts. */
@@ -549,7 +599,7 @@ export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, re
     throw new Error(`The sources must be exactly the header universe ${RV_SYMBOLS.join(', ')}, got ${sources.map((s) => s.symbol).join(', ')}`);
   }
   const grid = panelGrid(span);
-  const fundingWindow = { from: grid.from, to: grid.to + BAR_MS };
+  const fundingWindow = fundingWindowOf(grid);
 
   const nullTbv: string[] = [];
   for (const symbol of RV_SYMBOLS) {
@@ -586,7 +636,8 @@ export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, re
     return { symbol, bars, fundSum, fundLast };
   });
   const { panel, droppedTimestamps } = alignPanel(series);
-  const mismatches = crossCheck1h(panel, Object.fromEntries(sources.map((s) => [s.symbol, s.rows1h])));
+  const rows1h = Object.fromEntries(sources.map((s) => [s.symbol, s.rows1h]));
+  const mismatches = crossCheck1h(panel, rows1h);
   if (mismatches.length > 0) {
     const listed = mismatches.slice(0, 10).map((m) => `${m.symbol} ${iso(m.t)} ${m.field} (4h ${m.from4h}, 1h ${m.from1h})`);
     throw new Error(`HALT: the 1h cross-check found ${mismatches.length} mismatch(es): ${listed.join('; ')}`);
@@ -597,7 +648,7 @@ export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, re
   if (fundLastNull.length > 0) {
     throw new Error(`HALT: ${fundLastNull.length} bar(s) have no carry input (no settlement in (close - 8h, close]): ${fundLastNull.slice(0, 20).join(', ')}`);
   }
-  return { panel, grid, droppedBuckets, droppedTimestamps, resolutions: record };
+  return { panel, firstHour: firstHourBars(panel, rows1h), grid, droppedBuckets, droppedTimestamps, resolutions: record };
 }
 
 export interface RvPanelMeta {
@@ -624,19 +675,12 @@ function panelFiles(symbol: string): { path: string; kind: DatasetKind; interval
 }
 
 /**
- * Loads the export, builds the panel with every HALT rule and records the manifest hash, the panel sha256
- * and the resolutions used. The resolutions must come from verifyResolutions in this run (AMENDMENT 3),
- * checked before any file is read. The manifest's dataset hash must match its own file list, and each of the 30
- * files the panel reads must be listed with its kind, symbol and interval. Each file is read once: those
- * bytes are hashed against the manifest and the same bytes are parsed (AMENDMENT 2). Every row is kept,
- * which is what the header's allowLockbox true means.
+ * The 30 files the panel reads, checked against the manifest and read once each (AMENDMENT 2). The manifest's
+ * dataset hash must match its own file list, and each file must be listed with its kind, symbol and interval.
+ * The bytes that are hashed against the manifest are the bytes that are parsed. Every row is kept, which is
+ * what the header's allowLockbox true means.
  */
-export async function buildRvPanel(
-  datasetDir: string,
-  span: Span,
-  resolutions: VerifiedResolutions
-): Promise<{ panel: RvPanel; meta: RvPanelMeta }> {
-  assertVerified(resolutions);
+export function readPanelSources(datasetDir: string): { sources: RvSymbolSource[]; manifestHash: string } {
   const manifest = loadManifest(datasetDir);
   if (datasetHashOf(manifest.files) !== manifest.datasetHash) {
     throw new Error(`HALT: the manifest's dataset hash ${manifest.datasetHash} does not match its own file list`);
@@ -668,14 +712,31 @@ export async function buildRvPanel(
       funding: read<FundingRow>(symbol, fFunding),
     };
   });
+  return { sources, manifestHash: manifest.datasetHash };
+}
+
+/**
+ * Loads the export, builds the panel with every HALT rule and records the manifest hash, the panel sha256
+ * and the resolutions used. The resolutions must come from verifyResolutions in this run (AMENDMENT 3),
+ * checked before any file is read. The files are read by readPanelSources. Also returns the first 1h bar of
+ * every panel bar for the maker track.
+ */
+export async function buildRvPanel(
+  datasetDir: string,
+  span: Span,
+  resolutions: VerifiedResolutions
+): Promise<{ panel: RvPanel; meta: RvPanelMeta; firstHour: FirstHourBars }> {
+  assertVerified(resolutions);
+  const { sources, manifestHash } = readPanelSources(datasetDir);
   const assembled = assemblePanel(sources, span, resolutions);
   return {
     panel: assembled.panel,
+    firstHour: assembled.firstHour,
     meta: {
       droppedBuckets: assembled.droppedBuckets,
       droppedTimestamps: assembled.droppedTimestamps,
       grid: assembled.grid,
-      manifestHash: manifest.datasetHash,
+      manifestHash,
       panelSha256: panelSha256(assembled.panel),
       resolutions: assembled.resolutions,
     },

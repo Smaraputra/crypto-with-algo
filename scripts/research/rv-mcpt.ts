@@ -42,7 +42,7 @@ import {
 } from '@/lib/signals/cross-sectional/engine';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
-import type { RvPanel } from './rv-panel';
+import type { FirstHourBars, RvPanel } from './rv-panel';
 import { applyBarPermutation, permutationIndex, permutePanel } from './rv-permute';
 import { ANNUALISATION, type SyntheticMode } from './rv-synthetic';
 
@@ -272,14 +272,6 @@ export function prepareSteps(panel: RvPanel): PreparedSteps {
     prep.settlements.push(settlements);
   }
   return prep;
-}
-
-/** First 1h bar of each 8h bar ([symbol][bar]), the maker track's fill bars (addendum rule 10). */
-export interface FirstHourBars {
-  open: number[][];
-  high: number[][];
-  low: number[][];
-  close: number[][];
 }
 
 export interface BookOptions {
