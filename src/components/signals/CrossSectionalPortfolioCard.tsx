@@ -553,7 +553,8 @@ export function CrossSectionalPortfolioCard() {
     return (
       <Shell key="empty">
         <CardHeader className="gap-1.5 px-4 sm:px-6">
-          <TitleRow status={null} />
+          {/* No book yet, and rv-v1 is unvalidated by construction until a verdict says otherwise */}
+          <TitleRow status="unvalidated" />
           <p className="text-sm">Experimental. Not validated. Paper only.</p>
         </CardHeader>
         <CardContent className="space-y-3 px-4 sm:px-6">

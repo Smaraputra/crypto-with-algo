@@ -191,6 +191,7 @@ describe('CrossSectionalPortfolioCard states', () => {
     render(<CrossSectionalPortfolioCard />);
 
     expect(screen.getByText('8h Relative Value, rv-v1')).toBeInTheDocument();
+    expect(screen.getByText('Not validated')).toBeInTheDocument();
     expect(screen.getByText('Experimental. Not validated. Paper only.')).toBeInTheDocument();
     expect(
       screen.getByText('No rv-v1 book yet. The paper desk creates it on its first run, at 01:05, 09:05 or 17:05 UTC.')
