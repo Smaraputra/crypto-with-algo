@@ -425,6 +425,8 @@ export interface CellRun {
 }
 
 export interface CellsResult {
+  /** The panel the runs were computed on, the identity walkForward checks (review m1). */
+  panel: RvPanel;
   firstStep: number;
   lastStep: number;
   runs: CellRun[];
@@ -454,7 +456,7 @@ export function runCells(panel: RvPanel, opts: RunCellsOptions = {}): CellsResul
     if (pass.trace) run.trace = pass.trace;
     return run;
   });
-  return { firstStep: prep.firstStep, lastStep: prep.lastStep, runs, objectives: runs.map((r) => objective(r.returns)) };
+  return { panel: prep.panel, firstStep: prep.firstStep, lastStep: prep.lastStep, runs, objectives: runs.map((r) => objective(r.returns)) };
 }
 
 // ------------------------------------------------------------------------------------------------ walk-forward
@@ -580,6 +582,7 @@ export function walkForward(panel: RvPanel, g: WfGeometry, opts: WalkForwardOpti
   const prep = opts.prepared ?? prepareSteps(panel);
   if (prep.panel !== panel) throw new Error('the prepared steps belong to another panel');
   const cells = opts.cells ?? runCells(panel, { prepared: prep });
+  if (cells.panel !== panel) throw new Error('the cell runs belong to another panel: walkForward would select from one panel and trade another');
   if (cells.runs.length !== RV_CELLS.length || cells.runs.some((r, i) => r.index !== i) || cells.firstStep !== prep.firstStep) {
     throw new Error('walkForward selects among the 12 cells: the cell runs must be all 12 in index order from this panel');
   }

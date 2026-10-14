@@ -590,6 +590,10 @@ describe('walkForward (header STEP 3, AMENDMENT 2, addendum rules 4 and 5, pre-r
     const prep = prepareSteps(wfPanel);
     // this panel's cell runs with another panel's steps would run the book on the other panel
     expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prepareSteps(other), cells: runCells(wfPanel, { prepared: prep }) })).toThrow(/another panel/);
+    // another panel's cell runs would select from that panel while trading this one (review m1)
+    expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { cells: runCells(other) })).toThrow(/cell runs belong to another panel/);
+    expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prep, cells: runCells(other) })).toThrow(/cell runs belong to another panel/);
+    expect(runCells(wfPanel, { prepared: prep }).panel).toBe(wfPanel);
     expect(() => walkForward(wfPanel, RV_WF_GEOMETRY, { prepared: prep, cells: runCells(wfPanel, { prepared: prep, cells: [11, 4] }) })).toThrow(/12 cells/);
     const shuffled = runCells(wfPanel, { prepared: prep });
     shuffled.runs.reverse();
