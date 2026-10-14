@@ -18,6 +18,28 @@ import type { FundingFlag, FundingResolutions, ResolutionEntry } from './rv-pane
 /** How far either side of a flag REST is asked for settlements. Binance intervals are at most 8h. */
 export const REST_NEIGHBOUR_WINDOW_MS = 24 * 3_600_000;
 
+declare const verifiedBrand: unique symbol;
+
+/**
+ * A resolutions file that passed the REST re-check in this run (AMENDMENT 3). Only verifyResolutions makes
+ * one: it is frozen, and a module-private registry lets assertVerified refuse a look-alike made by a cast
+ * or a copy. The panel accepts nothing else.
+ */
+export interface VerifiedResolutions {
+  readonly sha256: string;
+  readonly entries: readonly ResolutionEntry[];
+  readonly [verifiedBrand]: true;
+}
+
+const VERIFIED = new WeakSet<object>();
+
+/** HALT unless `value` is the very object verifyResolutions returned. */
+export function assertVerified(value: VerifiedResolutions): void {
+  if (typeof value !== 'object' || value === null || !VERIFIED.has(value)) {
+    throw new Error('HALT: the resolutions were not verified against REST in this run (AMENDMENT 3): pass the value verifyResolutions returns');
+  }
+}
+
 /** Signature-compatible with fetchFundingHistory(symbol, startTime, endTime) in src/lib/snapshot-backfill.ts. */
 export type FundingFetcher = (symbol: string, startTime: number, endTime: number) => Promise<ReadonlyArray<{ fundingTime: number }>>;
 
@@ -73,10 +95,12 @@ export async function draftResolutions(
 /**
  * The `inputs` stage re-check of a recorded file (AMENDMENT 1): re-queries REST for every entry and halts
  * on a verdict other than `no-event`, if REST cannot be reached, if REST shows a settlement at the
- * instant, or if the REST settlement times either side differ from the recorded ones.
+ * instant, or if the REST settlement times either side differ from the recorded ones. Returns the only
+ * value the panel accepts (AMENDMENT 3). The panel then also requires the recorded neighbours to be the
+ * export's own settlements either side.
  */
-export async function verifyResolutions(entries: readonly ResolutionEntry[], fetchFunding: FundingFetcher): Promise<void> {
-  for (const e of entries) {
+export async function verifyResolutions(resolutions: FundingResolutions, fetchFunding: FundingFetcher): Promise<VerifiedResolutions> {
+  for (const e of resolutions.entries) {
     const label = `${e.symbol} ${iso(e.t)}`;
     if (e.verdict !== 'no-event') throw new Error(`HALT: resolution entry ${label} has verdict "${e.verdict}", only "no-event" is accepted`);
     let rest: RestRead;
@@ -92,6 +116,12 @@ export async function verifyResolutions(entries: readonly ResolutionEntry[], fet
       );
     }
   }
+  const out = Object.freeze({
+    sha256: resolutions.sha256,
+    entries: Object.freeze(resolutions.entries.map((e) => Object.freeze({ ...e }))),
+  }) as VerifiedResolutions;
+  VERIFIED.add(out);
+  return out;
 }
 
 const isoInstant = z.string().refine((s) => !Number.isNaN(Date.parse(s)) && new Date(Date.parse(s)).toISOString() === s, {

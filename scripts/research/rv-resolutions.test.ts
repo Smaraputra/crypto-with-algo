@@ -2,9 +2,10 @@
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { createHash } from 'crypto';
 
-import type { FundingFlag } from './rv-panel';
+import type { FundingFlag, ResolutionEntry } from './rv-panel';
 import {
   REST_NEIGHBOUR_WINDOW_MS,
+  assertVerified,
   draftResolutions,
   parseResolutions,
   serializeResolutions,
@@ -62,29 +63,40 @@ describe('draftResolutions (proposes no-event entries from REST, never decides a
 
 describe('verifyResolutions (the inputs stage re-queries REST for every entry, AMENDMENT 1)', () => {
   const entry = { symbol: 'SOLUSDT', t: T, verdict: 'no-event', restBefore: T - 2 * H, restAfter: T + 2 * H };
+  const file = (entries: ResolutionEntry[]) => ({ sha256: 'a'.repeat(64), entries });
 
-  it('passes when REST still has no settlement at the instant and the same neighbours', async () => {
-    await expect(verifyResolutions([entry], restWith({ SOLUSDT: [T - 2 * H + 4, T + 2 * H] }))).resolves.toBeUndefined();
+  it('passes when REST still has no settlement at the instant and the same neighbours, returning a frozen verified value', async () => {
+    const out = await verifyResolutions(file([entry]), restWith({ SOLUSDT: [T - 2 * H + 4, T + 2 * H] }));
+    expect(out).toEqual({ sha256: 'a'.repeat(64), entries: [entry] });
+    expect(Object.isFrozen(out) && Object.isFrozen(out.entries) && Object.isFrozen(out.entries[0])).toBe(true);
+    expect(() => assertVerified(out)).not.toThrow();
+    expect(() => assertVerified({ ...out })).toThrow(/HALT[\s\S]*not verified/);
+  });
+
+  it('checks every entry, not only the first (review m11)', async () => {
+    const second = { symbol: 'DOGEUSDT', t: T + 4 * H, verdict: 'no-event', restBefore: T, restAfter: T + 8 * H };
+    const rest = restWith({ SOLUSDT: [T - 2 * H, T + 2 * H], DOGEUSDT: [T, T + 4 * H, T + 8 * H] });
+    await expect(verifyResolutions(file([entry, second]), rest)).rejects.toThrow(/HALT[\s\S]*REST shows a settlement[\s\S]*DOGEUSDT/);
   });
 
   it('halts when REST shows a settlement at the instant', async () => {
-    await expect(verifyResolutions([entry], restWith({ SOLUSDT: [T - 2 * H, T, T + 2 * H] }))).rejects.toThrow(/HALT[\s\S]*REST shows a settlement[\s\S]*SOLUSDT/);
+    await expect(verifyResolutions(file([entry]), restWith({ SOLUSDT: [T - 2 * H, T, T + 2 * H] }))).rejects.toThrow(/HALT[\s\S]*REST shows a settlement[\s\S]*SOLUSDT/);
   });
 
   it('halts when REST cannot be reached', async () => {
     const failing: FundingFetcher = vi.fn(async () => {
       throw new Error('ECONNRESET');
     });
-    await expect(verifyResolutions([entry], failing)).rejects.toThrow(/HALT[\s\S]*REST cannot be reached[\s\S]*ECONNRESET/);
+    await expect(verifyResolutions(file([entry]), failing)).rejects.toThrow(/HALT[\s\S]*REST cannot be reached[\s\S]*ECONNRESET/);
   });
 
   it('halts when the recorded neighbours differ from REST', async () => {
-    await expect(verifyResolutions([entry], restWith({ SOLUSDT: [T - 4 * H, T + 2 * H] }))).rejects.toThrow(/HALT[\s\S]*neighbours/);
-    await expect(verifyResolutions([entry], restWith({ SOLUSDT: [T - 2 * H, T + 6 * H] }))).rejects.toThrow(/HALT[\s\S]*neighbours/);
+    await expect(verifyResolutions(file([entry]), restWith({ SOLUSDT: [T - 4 * H, T + 2 * H] }))).rejects.toThrow(/HALT[\s\S]*neighbours/);
+    await expect(verifyResolutions(file([entry]), restWith({ SOLUSDT: [T - 2 * H, T + 6 * H] }))).rejects.toThrow(/HALT[\s\S]*neighbours/);
   });
 
   it('halts on a verdict other than no-event', async () => {
-    await expect(verifyResolutions([{ ...entry, verdict: 'rest' }], restWith({ SOLUSDT: [T - 2 * H, T + 2 * H] }))).rejects.toThrow(/HALT[\s\S]*verdict/);
+    await expect(verifyResolutions(file([{ ...entry, verdict: 'rest' }]), restWith({ SOLUSDT: [T - 2 * H, T + 2 * H] }))).rejects.toThrow(/HALT[\s\S]*verdict/);
   });
 });
 

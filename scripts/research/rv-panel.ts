@@ -12,10 +12,11 @@
  * 2026-10-14 00:00 is not in it and the 16:00 bar of the final day is left out of the grid rather than
  * carried with a partial sum, which a permutation would otherwise move into the middle of the panel.
  *
- * Funding flags (AMENDMENTS 1 and 2): a settlement the coverage check expects but the rows lack, and every
+ * Funding flags (AMENDMENTS 1 to 3): a settlement the coverage check expects but the rows lack, and every
  * interval switch derived from null-interval spacing, is a flag. A flag is cleared only by an exact
- * `no-event` entry of the recorded resolutions file (Binance REST has no settlement at that instant,
- * re-queried by rv-resolutions.ts at the `inputs` stage). A cleared flag adds nothing to fundSum.
+ * `no-event` entry of a resolutions file that passed the REST re-check in this run (verifyResolutions in
+ * rv-resolutions.ts), and only if the entry's recorded neighbours are the export's own settlements either
+ * side. A cleared flag adds nothing to fundSum, and a bar it leaves with no carry input halts.
  */
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
@@ -27,6 +28,7 @@ import { missingSettlements } from './broad-inputs';
 import { stableStringify } from './broad-trend';
 import { datasetHashOf, type DatasetKind, type FundingRow, type PerpCandleRow } from './dataset-format';
 import { loadManifest, parseJsonlGz } from './load-dataset';
+import { assertVerified, type VerifiedResolutions } from './rv-resolutions';
 import { fundingSumsFor } from './strategy-walk-forward';
 
 const HOUR_MS = 3_600_000;
@@ -137,7 +139,7 @@ export interface ResolutionEntry {
   restAfter: number;
 }
 
-/** The resolutions file as read: the sha256 of its text and its entries. */
+/** The resolutions file as read: the sha256 of its text and its entries. verifyResolutions turns it into VerifiedResolutions. */
 export interface FundingResolutions {
   sha256: string;
   entries: ResolutionEntry[];
@@ -156,13 +158,20 @@ const iso = (t: number) => new Date(t).toISOString();
 const finitePositive = (x: number) => Number.isFinite(x) && x > 0;
 const finiteNonNegative = (x: number) => Number.isFinite(x) && x >= 0;
 
-/** AMENDMENT 2 halts on a kline: non-finite or non-positive OHLC, negative or non-finite volume or taker-buy volume. */
+/**
+ * Kline halts: a non-finite or non-positive open, high, low or close, a non-finite or non-positive volume,
+ * a negative or non-finite taker-buy volume (AMENDMENT 2), and a taker-buy volume above the volume
+ * (AMENDMENT 3). A null taker-buy volume passes here and halts in assemblePanel.
+ */
 function assertKline(row: PerpCandleRow, label: string): void {
   if (![row.o, row.h, row.l, row.c].every(finitePositive)) {
     throw new Error(`HALT: ${label} row at ${iso(row.t)} has a non-finite or non-positive price`);
   }
-  if (!finiteNonNegative(row.v) || (row.tbv !== null && !finiteNonNegative(row.tbv))) {
-    throw new Error(`HALT: ${label} row at ${iso(row.t)} has a negative or non-finite volume or taker-buy volume`);
+  if (!finitePositive(row.v) || (row.tbv !== null && !finiteNonNegative(row.tbv))) {
+    throw new Error(`HALT: ${label} row at ${iso(row.t)} has a zero, negative or non-finite volume or taker-buy volume`);
+  }
+  if (row.tbv !== null && row.tbv > row.v) {
+    throw new Error(`HALT: ${label} row at ${iso(row.t)} has a taker-buy volume ${row.tbv} above its volume ${row.v}`);
   }
 }
 
@@ -358,16 +367,22 @@ export function fundingFlags(symbol: string, rows: readonly FundingRow[], window
 }
 
 /**
- * Matches the resolutions file to the flags (AMENDMENT 1). HALT on any verdict other than `no-event`, on a
- * duplicate entry, on a flag with no exact (symbol, t) entry, and on an entry that matches no flag.
+ * Matches verified resolutions to the flags (AMENDMENTS 1 and 3). HALT on resolutions verifyResolutions did
+ * not return in this run, on a duplicate entry, on a flag with no exact (symbol, t) entry, on an entry that
+ * matches no flag, and on an entry whose recorded neighbours are not the export's own nearest settlements
+ * before and after the instant. With verifyResolutions having matched the same neighbours on REST, the
+ * export and the venue then agree on the settlements bracketing the no-event instant. Verified entries
+ * all carry the `no-event` verdict, because verifyResolutions halts on any other.
  */
-export function resolveFlags(flags: readonly FundingFlag[], resolutions: FundingResolutions): ResolutionsRecord {
+export function resolveFlags(
+  flags: readonly FundingFlag[],
+  resolutions: VerifiedResolutions,
+  funding: Readonly<Record<string, readonly { t: number }[]>>
+): ResolutionsRecord {
+  assertVerified(resolutions);
   const key = (symbol: string, t: number) => `${symbol}|${t}`;
   const entries = new Map<string, ResolutionEntry>();
   for (const e of resolutions.entries) {
-    if (e.verdict !== 'no-event') {
-      throw new Error(`HALT: resolution entry ${e.symbol} ${iso(e.t)} has verdict "${e.verdict}", only "no-event" clears a flag`);
-    }
     if (entries.has(key(e.symbol, e.t))) throw new Error(`HALT: duplicate resolution entry ${e.symbol} ${iso(e.t)}`);
     entries.set(key(e.symbol, e.t), e);
   }
@@ -382,6 +397,19 @@ export function resolveFlags(flags: readonly FundingFlag[], resolutions: Funding
   const unused = resolutions.entries.filter((e) => !flagged.has(key(e.symbol, e.t)));
   if (unused.length > 0) {
     throw new Error(`HALT: ${unused.length} resolution entr${unused.length === 1 ? 'y' : 'ies'} matches no flag: ${unused.map((e) => `${e.symbol} ${iso(e.t)}`).join(', ')}`);
+  }
+  for (const e of resolutions.entries) {
+    const times = (funding[e.symbol] ?? []).map((r) => r.t);
+    const before = times.filter((t) => t < e.t);
+    const after = times.filter((t) => t > e.t);
+    const exportBefore = before.length > 0 ? Math.max(...before) : null;
+    const exportAfter = after.length > 0 ? Math.min(...after) : null;
+    if (exportBefore !== e.restBefore || exportAfter !== e.restAfter) {
+      const at = (t: number | null) => (t === null ? 'none' : iso(t));
+      throw new Error(
+        `HALT: the export's settlements either side of ${e.symbol} ${iso(e.t)} are ${at(exportBefore)} and ${at(exportAfter)}, the entry records ${iso(e.restBefore)} and ${iso(e.restAfter)} (AMENDMENT 3)`
+      );
+    }
   }
   return { sha256: resolutions.sha256, entries: resolutions.entries.length, flags: [...flags] };
 }
@@ -506,17 +534,16 @@ export interface AssembledPanel {
   /** Bar opens some symbols had and others lacked. Always empty, since any dropped bucket halts. */
   droppedTimestamps: number[];
   resolutions: ResolutionsRecord;
-  /** Bars whose funding window holds no settlement after resolutions (fundSum 0, fundLast null). */
-  fundLastNull: { symbol: string; t: number }[];
 }
 
 /**
  * Builds the panel from loaded rows and applies every HALT of the header and its amendments: a null or
  * invalid kline value, any dropped bucket, an unresolved funding flag or an unusable resolutions file,
- * and any 1h cross-check mismatch. The sources must be exactly the header universe, and the panel follows
- * RV_SYMBOLS order.
+ * a bar left with no carry input, and any 1h cross-check mismatch. The sources must be exactly the header
+ * universe, and the panel follows RV_SYMBOLS order.
  */
-export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, resolutions: FundingResolutions): AssembledPanel {
+export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, resolutions: VerifiedResolutions): AssembledPanel {
+  assertVerified(resolutions);
   const bySymbol = new Map(sources.map((s) => [s.symbol, s]));
   if (bySymbol.size !== sources.length || sources.length !== RV_SYMBOLS.length || !RV_SYMBOLS.every((s) => bySymbol.has(s))) {
     throw new Error(`The sources must be exactly the header universe ${RV_SYMBOLS.join(', ')}, got ${sources.map((s) => s.symbol).join(', ')}`);
@@ -551,7 +578,7 @@ export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, re
         .join(', ')}`
     );
   }
-  const record = resolveFlags(flags, resolutions);
+  const record = resolveFlags(flags, resolutions, Object.fromEntries(sources.map((s) => [s.symbol, s.funding])));
 
   const series: SymbolSeries[] = RV_SYMBOLS.map((symbol) => {
     const bars = paired.get(symbol)!;
@@ -564,9 +591,13 @@ export function assemblePanel(sources: readonly RvSymbolSource[], span: Span, re
     const listed = mismatches.slice(0, 10).map((m) => `${m.symbol} ${iso(m.t)} ${m.field} (4h ${m.from4h}, 1h ${m.from1h})`);
     throw new Error(`HALT: the 1h cross-check found ${mismatches.length} mismatch(es): ${listed.join('; ')}`);
   }
-  const fundLastNull: { symbol: string; t: number }[] = [];
-  panel.symbols.forEach((symbol, si) => panel.fundLast[si].forEach((v, k) => v === null && fundLastNull.push({ symbol, t: panel.t[k] })));
-  return { panel, grid, droppedBuckets, droppedTimestamps, resolutions: record, fundLastNull };
+  // AMENDMENT 3: a bar with no settlement in its carry window can only follow a cleared flag, and halts
+  const fundLastNull: string[] = [];
+  panel.symbols.forEach((symbol, si) => panel.fundLast[si].forEach((v, k) => v === null && fundLastNull.push(`${symbol} ${iso(panel.t[k])}`)));
+  if (fundLastNull.length > 0) {
+    throw new Error(`HALT: ${fundLastNull.length} bar(s) have no carry input (no settlement in (close - 8h, close]): ${fundLastNull.slice(0, 20).join(', ')}`);
+  }
+  return { panel, grid, droppedBuckets, droppedTimestamps, resolutions: record };
 }
 
 export interface RvPanelMeta {
@@ -577,7 +608,6 @@ export interface RvPanelMeta {
   /** sha256 of the canonical JSON (sorted keys) of the panel. */
   panelSha256: string;
   resolutions: ResolutionsRecord;
-  fundLastNull: { symbol: string; t: number }[];
 }
 
 export function panelSha256(panel: RvPanel): string {
@@ -595,7 +625,8 @@ function panelFiles(symbol: string): { path: string; kind: DatasetKind; interval
 
 /**
  * Loads the export, builds the panel with every HALT rule and records the manifest hash, the panel sha256
- * and the resolutions used. The manifest's dataset hash must match its own file list, and each of the 30
+ * and the resolutions used. The resolutions must come from verifyResolutions in this run (AMENDMENT 3),
+ * checked before any file is read. The manifest's dataset hash must match its own file list, and each of the 30
  * files the panel reads must be listed with its kind, symbol and interval. Each file is read once: those
  * bytes are hashed against the manifest and the same bytes are parsed (AMENDMENT 2). Every row is kept,
  * which is what the header's allowLockbox true means.
@@ -603,8 +634,9 @@ function panelFiles(symbol: string): { path: string; kind: DatasetKind; interval
 export async function buildRvPanel(
   datasetDir: string,
   span: Span,
-  resolutions: FundingResolutions
+  resolutions: VerifiedResolutions
 ): Promise<{ panel: RvPanel; meta: RvPanelMeta }> {
+  assertVerified(resolutions);
   const manifest = loadManifest(datasetDir);
   if (datasetHashOf(manifest.files) !== manifest.datasetHash) {
     throw new Error(`HALT: the manifest's dataset hash ${manifest.datasetHash} does not match its own file list`);
@@ -646,7 +678,6 @@ export async function buildRvPanel(
       manifestHash: manifest.datasetHash,
       panelSha256: panelSha256(assembled.panel),
       resolutions: assembled.resolutions,
-      fundLastNull: assembled.fundLastNull,
     },
   };
 }
