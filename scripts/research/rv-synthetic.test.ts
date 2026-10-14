@@ -51,18 +51,23 @@ describe('syntheticPanel shapes and validity', () => {
         expect(col).toHaveLength(10);
         for (const row of col) expect(row).toHaveLength(3000);
       }
+      // One assertion over every bar keeps this cheap: the list of violations must be empty
+      const violations: string[] = [];
       for (let s = 0; s < 10; s++) {
         for (let i = 0; i < 3000; i++) {
-          expect(p.low[s][i]).toBeGreaterThan(0);
-          expect(p.low[s][i]).toBeLessThanOrEqual(Math.min(p.open[s][i], p.close[s][i]));
-          expect(p.high[s][i]).toBeGreaterThanOrEqual(Math.max(p.open[s][i], p.close[s][i]));
-          expect(p.volume[s][i]).toBeGreaterThan(0);
-          expect(p.tbv[s][i]).toBeGreaterThan(0);
-          expect(p.tbv[s][i]).toBeLessThan(p.volume[s][i]);
-          expect(Number.isFinite(p.fundSum[s][i])).toBe(true);
-          expect(p.fundLast[s][i]).toBe(p.fundSum[s][i]); // one 8h settlement per bar, at its close
+          const ok =
+            p.low[s][i] > 0 &&
+            p.low[s][i] <= Math.min(p.open[s][i], p.close[s][i]) &&
+            p.high[s][i] >= Math.max(p.open[s][i], p.close[s][i]) &&
+            p.volume[s][i] > 0 &&
+            p.tbv[s][i] > 0 &&
+            p.tbv[s][i] < p.volume[s][i] &&
+            Number.isFinite(p.fundSum[s][i]) &&
+            p.fundLast[s][i] === p.fundSum[s][i]; // one 8h settlement per bar, at its close
+          if (!ok) violations.push(`${p.symbols[s]} bar ${i}`);
         }
       }
+      expect(violations).toEqual([]);
     });
   }
 
