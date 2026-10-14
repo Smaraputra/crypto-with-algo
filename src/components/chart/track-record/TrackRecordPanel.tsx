@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
+
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { ViewTally } from '@/lib/signals/track-record/chart-data';
 import type { LiveTrack, TrackRecordResponse } from '@/lib/signals/track-record/types';
@@ -48,8 +50,16 @@ function signClass(v: number | null): string {
 }
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
+  // The panel mounts after its data loads, which is later than the browser's
+  // own attempt to scroll to a #track-record link, so do it once it is here.
+  useEffect(() => {
+    if (window.location.hash === '#track-record') ref.current?.scrollIntoView();
+  }, []);
+
   return (
     <section
+      ref={ref}
       id="track-record"
       aria-labelledby="track-record-title"
       data-testid="track-record-panel"

@@ -102,6 +102,26 @@ beforeEach(() => {
 });
 
 describe('TrackRecordPanel', () => {
+  it('scrolls itself into view when the page was opened at #track-record', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.location.hash = '#track-record';
+    try {
+      render(<TrackRecordPanel {...props} />);
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      window.location.hash = '';
+    }
+  });
+
+  it('does not scroll without the hash', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.location.hash = '';
+    render(<TrackRecordPanel {...props} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it('leads with the answer: right-rate against the coin flip and break-even, then the money', () => {
     render(<TrackRecordPanel {...props} />);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Track record · BTCUSDT · Day trading · 1h');
