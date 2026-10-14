@@ -371,7 +371,7 @@ const DESK_NOTE =
 
 /**
  * Judge `verdict` (header VERDICT): G1 = step 2 p < 0.01 on the best of the 12 cells, G2 = step 4 p < 0.01 on the
- * stitched walk-forward objective, G3 = deflated Sharpe of cell 11 at N = 672 >= 0.95; all three must pass. Every
+ * stitched walk-forward objective, G3 = deflated Sharpe of cell 11 at N = 672 >= 0.95. All three must pass. Every
  * statistic is recomputed from the real file's series and must equal what it records. Then every REPORTED item the
  * inputs allow.
  */

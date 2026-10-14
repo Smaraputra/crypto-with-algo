@@ -17,7 +17,7 @@ import {
 } from '@/lib/signals/cross-sectional/engine';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
-import type { RvPanel } from './rv-panel';
+import type { FirstHourBars, RvPanel } from './rv-panel';
 import * as permuteModule from './rv-permute';
 import { ANNUALISATION, rvV1NetTakerReturns, syntheticPanel } from './rv-synthetic';
 import {
@@ -101,7 +101,7 @@ interface RefStep {
 }
 
 /** A plain loop over the engine: a book that opens flat and signals at bars from..to with schedule(k)'s cell. */
-function referenceBook(panel: RvPanel, schedule: (k: number) => number, from: number, to: number): RefStep[] {
+function referenceBook(panel: RvPanel, schedule: (k: number) => number, from: number, to: number, maker?: FirstHourBars): RefStep[] {
   let state = rvInitialState();
   let prevFillTime: number | null = null;
   const out: RefStep[] = [];
@@ -123,10 +123,12 @@ function referenceBook(panel: RvPanel, schedule: (k: number) => number, from: nu
     const fillBars: Record<string, RvFillBar> = {};
     const settlements: Record<string, RvSettlement[]> = {};
     panel.symbols.forEach((sym, s) => {
-      fillBars[sym] = { open: panel.open[s][k + 1], high: panel.high[s][k + 1], low: panel.low[s][k + 1], close: panel.close[s][k + 1] };
+      fillBars[sym] = maker
+        ? { open: maker.open[s][k + 1], high: maker.high[s][k + 1], low: maker.low[s][k + 1], close: maker.close[s][k + 1] }
+        : { open: panel.open[s][k + 1], high: panel.high[s][k + 1], low: panel.low[s][k + 1], close: panel.close[s][k + 1] };
       settlements[sym] = [{ fundingTime: close, rate: panel.fundSum[s][k], markPrice: null }];
     });
-    const { state: next, record } = rvStep(state, { track: 'taker', prevFillTime, fillTime: close, fillBars, settlements, targets });
+    const { state: next, record } = rvStep(state, { track: maker ? 'maker' : 'taker', prevFillTime, fillTime: close, fillBars, settlements, targets });
     out.push({ k, targets, before: state, after: next, equityAfter: record.equityAfter });
     state = next;
     prevFillTime = close;
@@ -310,6 +312,32 @@ describe('runCells (header STEP 1, AMENDMENT 1, addendum rules 2, 3 and 9)', () 
     const stressed = runCells(base, { detail: true, costs });
     expect(stressed.runs[11].detail!.cost[0]).toBeGreaterThan(plain.runs[11].detail!.cost[0] * 1.6);
     expect(stressed.objectives[11]).toBeLessThan(plain.objectives[11]);
+  });
+
+  it('runs the maker track on the first-hour bars with the engine\'s fill model (addendum rule 10)', () => {
+    const through: FirstHourBars = {
+      open: base.open.map((r) => [...r]),
+      high: base.open.map((r) => r.map((o) => o * 1.003)),
+      low: base.open.map((r) => r.map((o) => o * 0.997)),
+      close: base.open.map((r) => r.map((o) => o * 1.001)),
+    };
+    const flat: FirstHourBars = { open: through.open, high: through.open, low: through.open, close: through.close };
+    for (const [bars, makerOnly] of [
+      [through, true],
+      [flat, false],
+    ] as const) {
+      const res = runCells(base, { cells: [11, 4], maker: bars, detail: true });
+      for (const run of res.runs) {
+        const ref = referenceBook(base, () => run.index, 42, 198, bars);
+        expect(run.returns).toEqual(ref.map((x, i) => x.equityAfter / (i === 0 ? RV_V1.startingEquity : ref[i - 1].equityAfter) - 1));
+        const d = run.detail!;
+        expect(makerOnly ? d.fallbackFills : d.makerFills).toBe(0);
+        expect(makerOnly ? d.makerFills : d.fallbackFills).toBeGreaterThan(100);
+      }
+    }
+    // a maker fill at the open pays the maker fee and no slippage
+    const entry = runCells(base, { cells: [11], maker: through, detail: true }).runs[0].detail!.cost[0];
+    expect(entry).toBeCloseTo(RV_V1.costs.makerFee, 12);
   });
 
   it('throws on a skipped symbol (BTCUSDT, a held symbol, or any other) instead of ranking without it (addendum 3)', () => {
