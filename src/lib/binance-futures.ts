@@ -207,6 +207,12 @@ export interface PerpKline {
   close: number;
   /** Quote-asset (USDT) volume. */
   quoteVolume: number;
+  /** Base-asset volume. */
+  volume: number;
+  /** Number of trades in the bar. */
+  trades: number;
+  /** Base-asset volume bought by takers. */
+  takerBuyVolume: number;
 }
 
 function parseKline(r: unknown[]): PerpKline {
@@ -218,6 +224,9 @@ function parseKline(r: unknown[]): PerpKline {
     close: parseFloat(String(r[4])),
     closeTime: Number(r[6]),
     quoteVolume: parseFloat(String(r[7])),
+    volume: parseFloat(String(r[5])),
+    trades: Number(r[8]),
+    takerBuyVolume: parseFloat(String(r[9])),
   };
 }
 

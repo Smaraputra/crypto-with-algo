@@ -30,6 +30,7 @@ export const STUDY_SLIPPAGE_BPS: Record<string, number> = {
   '15m': 3,
   '1h': 3,
   '4h': 2,
+  '8h': 2,
   '1d': 2,
 };
 

@@ -222,6 +222,10 @@ export function secondsBetweenRuns(expression: string): number {
   const everyNHours = /^\*\/(\d+)$/.exec(hour);
   if (everyNHours) return Number(everyNHours[1]) * HOUR;
 
+  // A fixed minute every N hours inside an offset range, e.g. `5 1-23/8`.
+  const offsetHours = /^\d+-\d+\/(\d+)$/.exec(hour);
+  if (offsetHours) return Number(offsetHours[1]) * HOUR;
+
   // A fixed minute of a fixed hour, i.e. once a day.
   if (/^\d+$/.test(hour)) return DAY;
 

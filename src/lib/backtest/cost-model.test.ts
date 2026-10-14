@@ -121,6 +121,11 @@ describe('studyCostConfig', () => {
     });
   });
 
+  it('prices the 8h cross-sectional cadence at 2 bps slippage', () => {
+    expect(STUDY_SLIPPAGE_BPS['8h']).toBe(2);
+    expect(studyCostConfig('8h').slippageBps).toBe(2);
+  });
+
   it('throws on an unknown interval', () => {
     expect(() => studyCostConfig('3m')).toThrow();
   });

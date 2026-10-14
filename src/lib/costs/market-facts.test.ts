@@ -122,6 +122,9 @@ describe('closedBars', () => {
     low: 1,
     close: 1,
     quoteVolume: 1,
+    volume: 1,
+    trades: 1,
+    takerBuyVolume: 1,
   });
   it('drops a bar that has not closed yet', () => {
     expect(closedBars([bar(999), bar(1999), bar(2999)], 2000).map((b) => b.closeTime)).toEqual([999, 1999]);
