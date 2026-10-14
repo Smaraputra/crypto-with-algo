@@ -117,7 +117,10 @@ async function guardedSymbols(barTime: number): Promise<{ symbols: Set<string> }
     return { error: `desk_state_missing: no completed RvStep at the desk cursor ${cursor}, so the held symbols are unknown` };
   }
   const symbols = new Set([...heldOn(atCursor.bookAfter.tracks.taker), ...heldOn(atCursor.bookAfter.tracks.maker)]);
-  const unstepped = await RvSignal.find({ version: RV_V1.version, barTime: { $gt: cursor, $lt: barTime } }).lean<IRvSignal[]>();
+  const unstepped = await RvSignal.find(
+    { version: RV_V1.version, barTime: { $gt: cursor, $lt: barTime } },
+    { _id: 0, ranked: 1 }
+  ).lean<Pick<IRvSignal, 'ranked'>[]>();
   for (const signal of unstepped) {
     for (const r of signal.ranked) symbols.add(r.symbol);
   }
