@@ -348,6 +348,19 @@ describe('checkCalibration (header CALIBRATION ACCEPTANCE)', () => {
     expect(c.pass).toBe(false);
   });
 
+  it('allows at most 11 of 100 driftless p-values at or below 0.05: 11 passes, 12 fails', () => {
+    // p = 0.05 on the first `bad` seeds, the rest spread evenly over (0.05, 1]
+    const spread = (bad: number) => (kind: string, k: number) =>
+      kind === 'planted' ? 1 / 200 : kind === 'iid' && k <= bad ? 0.05 : Math.ceil((0.05 + ((k - bad) / (100 - bad)) * 0.95) * 100) / 100;
+    const eleven = checkCalibration(fakeCalibration(spread(11)), COMMIT);
+    expect(eleven.iid.is.share05).toBe(0.11);
+    expect(eleven.iid.is.ks.p).toBeGreaterThan(0.01);
+    expect(eleven.iid.is.pass).toBe(true);
+    const twelve = checkCalibration(fakeCalibration(spread(12)), COMMIT);
+    expect(twelve.iid.is.share05).toBe(0.12);
+    expect(twelve.iid.is.pass).toBe(false);
+  });
+
   it('fails a KS p at or below 0.01 and a planted edge found on too few seeds', () => {
     const skewed = checkCalibration(
       fakeCalibration((kind, k) => (kind === 'iid' ? Math.min(1, 0.3 + k / 150) : 1 / 200)),

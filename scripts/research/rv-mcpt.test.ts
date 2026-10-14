@@ -592,6 +592,12 @@ describe('null machinery (header STEPS 2 and 4)', () => {
     expect([...blockShard(panel, 1, 2, RV_SEEDS.block), ...blockShard(panel, 3, 4, RV_SEEDS.block)]).toEqual(blockShard(panel, 1, 4, RV_SEEDS.block));
   });
 
+  it('each shard runner refuses seeds that collide after the >>> 0 reduction (addendum rule 6)', () => {
+    expect(() => insampleShard(panel, 1, 2, () => 5)).toThrow(/distinct/);
+    expect(() => wfShard(panel, 1, 2, (m) => 5 + (m - 1) * 2 ** 32, small)).toThrow(/distinct/);
+    expect(() => blockShard(panel, 1, 2, () => 5)).toThrow(/distinct/);
+  });
+
   it('refuses an empty or inverted shard range', () => {
     expect(() => insampleShard(panel, 3, 2, RV_SEEDS.is)).toThrow(/range/);
     expect(() => insampleShard(panel, 0, 2, RV_SEEDS.is)).toThrow(/range/);
