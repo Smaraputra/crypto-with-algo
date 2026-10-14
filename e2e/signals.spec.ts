@@ -213,11 +213,11 @@ test.describe('Signals page (authenticated)', () => {
       /at the next 15m open|No entry on this 15m bar|No 15m signal has been computed|The scored 15m bar|Trade plan unavailable/
     );
 
-    // Switching style re-asks for the plan at the new style's interval.
+    // Switching style re-asks for the plan at the new style's interval (5m for scalping).
     await page.getByTestId('style-tab-scalping').click();
     await expect(page.getByTestId('trade-plan-loading')).toHaveCount(0, { timeout: 15000 });
     await expect(card).toContainText(
-      /at the next 1m open|No entry on this 1m bar|No 1m signal has been computed|The scored 1m bar|Trade plan unavailable/
+      /at the next 5m open|No entry on this 5m bar|No 5m signal has been computed|The scored 5m bar|Trade plan unavailable/
     );
   });
 });
