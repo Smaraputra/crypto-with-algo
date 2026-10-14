@@ -302,7 +302,12 @@ function PositionsTable({ rows, headingId }: { rows: RvPositionRow[]; headingId:
             </td>
             <td className={cn(cell, right)}>
               <MobileLabel>Weight</MobileLabel>
-              <span className="font-mono tabular-nums">{signedPercent(row.weight)}</span>
+              {row.weight === null ? (
+                // The track's equity is zero or negative, so a weight has no meaning
+                <span className="text-muted-foreground">n/a</span>
+              ) : (
+                <span className="font-mono tabular-nums">{signedPercent(row.weight)}</span>
+              )}
             </td>
             <td className={cn(cell, 'md:text-right')}>
               <MobileLabel>Entry</MobileLabel>

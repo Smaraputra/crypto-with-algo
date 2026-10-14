@@ -322,6 +322,20 @@ describe('CrossSectionalPortfolioCard figures', () => {
     expect(screen.getByText('-$12.40 since start')).toBeInTheDocument();
   });
 
+  it('shows a weight as n/a in the muted colour when the track equity is not positive', () => {
+    mockHook({ data: response({ book: book({ equity: { taker: 0, maker: 10_180.25 } }) }) });
+    render(<CrossSectionalPortfolioCard />);
+
+    const rows = within(positionsTable()).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      const weight = within(row).getAllByRole('cell')[1];
+      expect(weight).not.toHaveTextContent(/%|Infinity|NaN/);
+      const na = within(weight).getByText('n/a');
+      expect(na).toHaveClass('text-muted-foreground');
+    }
+  });
+
   it('keeps the sign of a negative equity', () => {
     mockHook({ data: response({ book: book({ equity: { taker: -1_234.56, maker: 10_180.25 } }) }) });
     render(<CrossSectionalPortfolioCard />);

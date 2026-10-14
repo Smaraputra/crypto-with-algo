@@ -206,6 +206,27 @@ describe('positionRows', () => {
     expect(avax.unrealizedMaker).toBeCloseTo(-80, 10);
   });
 
+  it('has no weight when the track equity is zero or negative, never 0 or Infinity', () => {
+    for (const takerEquity of [0, -500]) {
+      const broke = book({ ...held, equity: { taker: takerEquity, maker: 10_100 } });
+      const rows = positionRows(broke, null);
+      expect(rows.find((r) => r.symbol === 'BTCUSDT')!.weight).toBeNull();
+      expect(rows.find((r) => r.symbol === 'DOGEUSDT')!.weight).toBeNull();
+      // AVAX is held by the maker track only, whose equity is positive
+      expect(rows.find((r) => r.symbol === 'AVAXUSDT')!.weight).toBeCloseTo((80 * 30) / 10_100, 10);
+    }
+    const makerBroke = book({ ...held, equity: { taker: 10_000, maker: 0 } });
+    expect(positionRows(makerBroke, null).find((r) => r.symbol === 'AVAXUSDT')!.weight).toBeNull();
+    expect(positionRows(makerBroke, null).find((r) => r.symbol === 'BTCUSDT')!.weight).toBeCloseTo(0.26, 10);
+  });
+
+  it('keeps longs before shorts when weights are missing', () => {
+    const broke = book({ ...held, equity: { taker: 0, maker: 0 } });
+    const rows = positionRows(broke, null);
+    expect(rows.map((r) => r.side)).toEqual(['long', 'long', 'short']);
+    expect(rows.every((r) => r.weight === null)).toBe(true);
+  });
+
   it('treats a zero-quantity taker entry as not held when the maker track holds the leg', () => {
     const zeroTaker = book({
       tracks: {

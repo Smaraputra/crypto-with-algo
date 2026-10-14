@@ -152,8 +152,12 @@ export function isPendingStep(
 export interface RvPositionRow {
   symbol: string;
   side: 'long' | 'short';
-  /** Notional over equity, signed, from the taker track (the maker track when only it holds the leg). */
-  weight: number;
+  /**
+   * Notional over equity, signed, from the taker track (the maker track when
+   * only it holds the leg). Null when that track's equity is zero or negative,
+   * where a ratio would be infinite or flip its sign.
+   */
+  weight: number | null;
   entry: number;
   lastPrice: number;
   unrealizedTaker: number | null;
@@ -184,7 +188,7 @@ export function positionRows(book: RvBookView, completedStep: RvStepView | null)
     rows.push({
       symbol,
       side: base.qty > 0 ? 'long' : 'short',
-      weight: (base.qty * base.lastMark) / equity,
+      weight: equity > 0 ? (base.qty * base.lastMark) / equity : null,
       entry: base.avgEntry,
       lastPrice: base.lastMark,
       unrealizedTaker: t ? t.qty * (t.lastMark - t.avgEntry) : null,
@@ -194,10 +198,9 @@ export function positionRows(book: RvBookView, completedStep: RvStepView | null)
     });
   }
   const sideOrder = { long: 0, short: 1 };
+  // A missing weight sorts after every known one on its side
+  const size = (r: RvPositionRow) => (r.weight === null ? -1 : Math.abs(r.weight));
   return rows.sort(
-    (a, b) =>
-      sideOrder[a.side] - sideOrder[b.side] ||
-      Math.abs(b.weight) - Math.abs(a.weight) ||
-      a.symbol.localeCompare(b.symbol)
+    (a, b) => sideOrder[a.side] - sideOrder[b.side] || size(b) - size(a) || a.symbol.localeCompare(b.symbol)
   );
 }
