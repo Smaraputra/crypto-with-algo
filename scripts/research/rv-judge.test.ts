@@ -170,7 +170,8 @@ describe('mergeShards (judge merge: coverage, seeds, provenance)', () => {
       return copy;
     };
     expect(() => mergeShards('wf-mcpt', edit(2, (l) => l.pop()), PROV)).toThrow(/m = 375/);
-    expect(() => mergeShards('wf-mcpt', edit(2, (l) => (l[4] = { ...l[3] })), PROV)).toThrow(/duplicate[\s\S]*m = 254|m = 255/);
+    // a repeated line with every m still present: only the duplicate check sees it
+    expect(() => mergeShards('wf-mcpt', edit(2, (l) => l.push({ ...l[3] })), PROV)).toThrow(/duplicate m = 254/);
     expect(() => mergeShards('wf-mcpt', edit(5, (l) => (l[0].seed += 1)), PROV)).toThrow(/seed/);
     expect(() => mergeShards('wf-mcpt', edit(5, (l) => (l[0].seed = RV_SEEDS.is(l[0].m))), PROV)).toThrow(/seed/);
     expect(() => mergeShards('wf-mcpt', edit(0, () => undefined, 999), PROV)).toThrow(/M/);
