@@ -7,6 +7,7 @@ import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { FundingSettlement } from '@/lib/models/funding-settlement';
 import { RvSignal } from '@/lib/models/rv-signal';
 import { RvBook, RV_BOOK_NAME } from '@/lib/models/rv-book';
+import { RvStep } from '@/lib/models/rv-step';
 import { RV_V1, rvComposite, rvFactors, rvInitialState } from './engine';
 import { buildSyntheticUniverse } from './__fixtures__/rv-synthetic';
 import { rvSignalBarTime, runRvSignal, storeRvSignal } from './generator';
@@ -41,7 +42,8 @@ afterAll(async () => {
 
 afterEach(async () => {
   await mongoose.connection.db?.dropDatabase();
-  await RvSignal.init();
+  // init() is memoised and would not rebuild the unique index after the drop
+  await RvSignal.createIndexes();
 });
 
 /** The fixture's closed 8h bars as Binance returns them, plus an absurd in-progress bar. */
@@ -87,6 +89,46 @@ async function seedSettlements(overrides: Record<string, number | null> = {}) {
       markPrice: input.lastSettlement!.markPrice,
     });
   }
+}
+
+/**
+ * A desk whose cursor step holds the given symbols. `projection` is what the
+ * RvBook's own tracks claim, which the guard must not read.
+ */
+async function seedDesk(
+  cursor: number | null,
+  held: { taker?: string[]; maker?: string[]; projection?: string[] } = {}
+) {
+  const track = (symbols: string[] = []) => {
+    const t = rvInitialState();
+    for (const symbol of symbols) t.positions[symbol] = { qty: 2, avgEntry: 100, lastMark: 100 };
+    return t;
+  };
+  const bookAfter = {
+    tracks: { taker: track(held.taker), maker: track(held.maker) },
+    equity: { taker: 10_000, maker: 10_000 },
+    peakEquity: { taker: 10_000, maker: 10_000 },
+    alerts: { drawdownTaker: false, drawdownMaker: false, negativeStreak: 0 },
+    fillStats: {},
+  };
+  await RvBook.create({
+    bookName: RV_BOOK_NAME,
+    version: 'rv-v1',
+    startedAt: new Date(T0),
+    lastStepBarTime: cursor,
+    tracks: { taker: track(held.projection), maker: track(held.projection) },
+  });
+  if (cursor === null) return;
+  await RvStep.create({
+    bookName: RV_BOOK_NAME,
+    barTime: cursor,
+    fillTime: cursor + BAR,
+    targets: {},
+    bookAfter,
+    rebalanceHourUtc: 8,
+    isWeekend: false,
+    pendingReasons: [],
+  });
 }
 
 beforeEach(() => {
@@ -278,16 +320,10 @@ describe('runRvSignal', () => {
     expect(await RvSignal.countDocuments()).toBe(0);
   });
 
-  it('D07: refuses to store a signal that skips a held symbol, so the retry can score it', async () => {
+  it('D07: refuses to store a signal that skips a symbol held at the desk cursor, so the retry can score it', async () => {
     await seedSettlements();
-    const taker = rvInitialState();
-    taker.positions.SOLUSDT = { qty: 2, avgEntry: 100, lastMark: 100 };
-    await RvBook.create({
-      bookName: RV_BOOK_NAME,
-      version: 'rv-v1',
-      startedAt: new Date(T0),
-      tracks: { taker, maker: rvInitialState() },
-    });
+    // The book projection holds nothing: the guard must read the step at the cursor
+    await seedDesk(T0 - BAR, { taker: ['SOLUSDT'], projection: [] });
     mocks.fetchPerpKlines.mockImplementation(async (symbol: string) => {
       if (symbol === 'SOLUSDT') throw new Error('HTTP 503');
       return klines(symbol);
@@ -305,22 +341,79 @@ describe('runRvSignal', () => {
     expect(retry).toMatchObject({ success: true, created: true, skipped: [] });
   });
 
+  it('guards a symbol held only on the maker track', async () => {
+    await seedSettlements();
+    await seedDesk(T0 - BAR, { maker: ['ADAUSDT'] });
+    mocks.fetchPerpKlines.mockImplementation(async (symbol: string) => {
+      if (symbol === 'ADAUSDT') throw new Error('HTTP 503');
+      return klines(symbol);
+    });
+    expect(await runRvSignal(NOW, OPTS)).toMatchObject({ success: false, code: 'held_symbol_skipped' });
+  });
+
   it('a skipped symbol that is not held does not block the signal', async () => {
     await seedSettlements();
-    const taker = rvInitialState();
-    taker.positions.SOLUSDT = { qty: 2, avgEntry: 100, lastMark: 100 };
-    await RvBook.create({
-      bookName: RV_BOOK_NAME,
-      version: 'rv-v1',
-      startedAt: new Date(T0),
-      tracks: { taker, maker: rvInitialState() },
-    });
+    await seedDesk(T0 - BAR, { taker: ['SOLUSDT'] });
     mocks.fetchPerpKlines.mockImplementation(async (symbol: string) => {
       if (symbol === 'XRPUSDT') throw new Error('HTTP 503');
       return klines(symbol);
     });
     const res = await runRvSignal(NOW, OPTS);
     expect(res).toMatchObject({ success: true, created: true, skipped: [{ symbol: 'XRPUSDT', reason: 'bars_incomplete' }] });
+  });
+
+  it('guards nothing when the desk has no cursor: it will step this signal from flat', async () => {
+    await seedSettlements();
+    await seedDesk(null, { projection: ['SOLUSDT'] });
+    mocks.fetchPerpKlines.mockImplementation(async (symbol: string) => {
+      if (symbol === 'SOLUSDT') throw new Error('HTTP 503');
+      return klines(symbol);
+    });
+    expect(await runRvSignal(NOW, OPTS)).toMatchObject({ success: true, created: true, skipped: [{ symbol: 'SOLUSDT', reason: 'bars_incomplete' }] });
+  });
+
+  it('D07: with the desk behind, guards every symbol ranked by a signal it has not stepped yet', async () => {
+    await seedSettlements();
+    // Cursor three bars back holding BTC. T0 - 2 bars ranks XRP, so stepping it may enter XRP.
+    await seedDesk(T0 - 3 * BAR, { taker: ['BTCUSDT'] });
+    await storeRvSignal({
+      version: 'rv-v1',
+      barTime: T0 - 2 * BAR,
+      barCloseTime: T0 - BAR,
+      rows: [],
+      ranked: [{ symbol: 'XRPUSDT', compositeZ: 1, rank: 1 }],
+      skipped: [],
+      inputs: { lastBarOpenTime: {}, settlement: {} },
+    });
+    mocks.fetchPerpKlines.mockImplementation(async (symbol: string) => {
+      if (symbol === 'XRPUSDT') throw new Error('HTTP 503');
+      return klines(symbol);
+    });
+
+    const res = await runRvSignal(NOW, OPTS);
+
+    expect(res).toMatchObject({ success: false, code: 'held_symbol_skipped' });
+    expect(res.success === false && res.error).toMatch(/XRPUSDT \(bars_incomplete\)/);
+    expect(await RvSignal.countDocuments({ barTime: T0 })).toBe(0);
+  });
+
+  it('returns desk_state_missing when a symbol is skipped and the desk cursor has no completed step', async () => {
+    await seedSettlements();
+    await RvBook.create({ bookName: RV_BOOK_NAME, version: 'rv-v1', startedAt: new Date(T0), lastStepBarTime: T0 - BAR });
+    mocks.fetchPerpKlines.mockImplementation(async (symbol: string) => {
+      if (symbol === 'XRPUSDT') throw new Error('HTTP 503');
+      return klines(symbol);
+    });
+
+    const res = await runRvSignal(NOW, OPTS);
+
+    expect(res).toMatchObject({ success: false, code: 'desk_state_missing' });
+    expect(res.success === false && res.error).toMatch(/no completed RvStep at the desk cursor/);
+    expect(await RvSignal.countDocuments()).toBe(0);
+
+    // With every symbol scored there is nothing to guard, so the signal stores
+    mocks.fetchPerpKlines.mockImplementation(async (symbol: string) => klines(symbol));
+    expect(await runRvSignal(NOW, OPTS)).toMatchObject({ success: true, created: true });
   });
 
   it('D10: re-running for the same bar never rewrites the stored signal, even on different data', async () => {

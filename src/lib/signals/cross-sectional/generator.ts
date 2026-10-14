@@ -7,6 +7,7 @@ import { retryOnce, RETRY_ONCE_DELAY_MS } from '@/lib/retry-once';
 import { FundingSettlement, type IFundingSettlement } from '@/lib/models/funding-settlement';
 import { RvBook, RV_BOOK_NAME, type IRvBook } from '@/lib/models/rv-book';
 import { RvSignal, type IRvSignal, type RvSignalSettlementInput } from '@/lib/models/rv-signal';
+import { RvStep, type IRvStep } from '@/lib/models/rv-step';
 import type {
   ICrossSectionalSnapshot,
   ICrossSectionalRank,
@@ -28,6 +29,7 @@ import {
   type RvFactorResult,
   type RvRanked,
   type RvSymbolInput,
+  type RvTrackState,
 } from './engine';
 
 // ------------------------------------------------------------------ rv-v1 signal job
@@ -64,7 +66,7 @@ export type RvSignalRunResult =
   | {
       success: false;
       barTime: number;
-      code: RvDataError['code'] | 'held_symbol_skipped';
+      code: RvDataError['code'] | 'held_symbol_skipped' | 'desk_state_missing';
       error: string;
       fetchErrors: SymbolError[];
       syncErrors: SymbolError[];
@@ -92,16 +94,34 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Symbols either rv-v1 track holds a position in. */
-function heldSymbols(book: IRvBook | null): Set<string> {
-  const held = new Set<string>();
-  if (!book?.tracks) return held;
-  for (const track of [book.tracks.taker, book.tracks.maker]) {
-    for (const [symbol, p] of Object.entries(track?.positions ?? {})) {
-      if (p.qty !== 0) held.add(symbol);
-    }
+function heldOn(track: RvTrackState | undefined): string[] {
+  return Object.entries(track?.positions ?? {})
+    .filter(([, p]) => p.qty !== 0)
+    .map(([symbol]) => symbol);
+}
+
+/**
+ * Symbols the desk may hold when it reaches the signal at `barTime`: those
+ * held after the step at its cursor, plus every symbol ranked by a stored
+ * signal it has not stepped yet (stepping one of those may enter it). Read
+ * from the step at the cursor, the source the desk restores from. A book with
+ * no cursor steps this signal from flat, so nothing is guarded.
+ */
+async function guardedSymbols(barTime: number): Promise<{ symbols: Set<string> } | { error: string }> {
+  const book = await RvBook.findOne({ bookName: RV_BOOK_NAME }).lean<IRvBook | null>();
+  const cursor = book?.lastStepBarTime ?? null;
+  if (cursor === null) return { symbols: new Set() };
+
+  const atCursor = await RvStep.findOne({ bookName: RV_BOOK_NAME, barTime: cursor }).lean<IRvStep | null>();
+  if (!atCursor?.bookAfter || atCursor.pendingReasons.length > 0) {
+    return { error: `desk_state_missing: no completed RvStep at the desk cursor ${cursor}, so the held symbols are unknown` };
   }
-  return held;
+  const symbols = new Set([...heldOn(atCursor.bookAfter.tracks.taker), ...heldOn(atCursor.bookAfter.tracks.maker)]);
+  const unstepped = await RvSignal.find({ version: RV_V1.version, barTime: { $gt: cursor, $lt: barTime } }).lean<IRvSignal[]>();
+  for (const signal of unstepped) {
+    for (const r of signal.ranked) symbols.add(r.symbol);
+  }
+  return { symbols };
 }
 
 /**
@@ -113,9 +133,10 @@ function heldSymbols(book: IRvBook | null): Set<string> {
  * a reason rather than scoring it on anything else.
  *
  * Fails (success false, for an HTTP 500) on an engine data error, and when a
- * symbol the book holds was skipped: storing that signal would make it
- * permanent, and the desk could never step it (D07). Not storing lets the
- * retry line score the bar once the data is back.
+ * skipped symbol is one the desk may hold when it reaches this bar: storing
+ * that signal would make it permanent, and the desk could never step it
+ * (D07). Not storing lets the retry line score the bar once the data is back.
+ * With every symbol scored there is nothing to guard.
  */
 export async function runRvSignal(now: number, opts: RvSignalRunOptions = {}): Promise<RvSignalRunResult> {
   await connectDB();
@@ -186,15 +207,18 @@ export async function runRvSignal(now: number, opts: RvSignalRunOptions = {}): P
     return { success: false, barTime, code: err.code, error: `${err.code}: ${err.message}`, fetchErrors, syncErrors };
   }
 
-  const held = heldSymbols(await RvBook.findOne({ bookName: RV_BOOK_NAME }).lean<IRvBook | null>());
-  const heldSkipped = factors.skipped.filter((s) => held.has(s.symbol));
+  const guard = factors.skipped.length > 0 ? await guardedSymbols(barTime) : { symbols: new Set<string>() };
+  if ('error' in guard) {
+    return { success: false, barTime, code: 'desk_state_missing', error: guard.error, fetchErrors, syncErrors };
+  }
+  const heldSkipped = factors.skipped.filter((s) => guard.symbols.has(s.symbol));
   if (heldSkipped.length > 0) {
     const list = heldSkipped.map((s) => `${s.symbol} (${s.reason})`).join(', ');
     return {
       success: false,
       barTime,
       code: 'held_symbol_skipped',
-      error: `held_symbol_skipped: ${list} is held but could not be scored, so the signal is not stored`,
+      error: `held_symbol_skipped: ${list} is or may be held when the desk reaches this bar but could not be scored, so the signal is not stored`,
       fetchErrors,
       syncErrors,
     };
