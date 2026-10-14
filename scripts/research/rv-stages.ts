@@ -2,17 +2,25 @@
  * The compute stages of the rv-v1 re-validation (header scripts/research/rv-revalidation.ts, Task 7B addendum
  * rules 10 to 12). The 7C runner calls each in a container, one stage per call:
  *
- *   rv-stages.ts inputs    --dataset-dir D --out-dir O --expect-manifest-hash H
+ *   rv-stages.ts resolve   --dataset-dir D --out-dir O --expect-manifest-hash H
+ *   (the controller reviews O/resolutions.json here)
+ *   rv-stages.ts inputs    --dataset-dir D --out-dir O --resolutions O/resolutions.json --expect-manifest-hash H
  *   rv-stages.ts real      --inputs-dir O --expect-manifest-hash H --out real.json
  *   rv-stages.ts shard     --stage is-mcpt|wf-mcpt|block --name N --inputs-dir O --expect-manifest-hash H --out N.jsonl
  *   rv-stages.ts calibrate --name cal-<kind>-<k> --out cal-<kind>-<k>.json
  *
- * Every stage takes the commit it runs at from GIT_COMMIT. Only `inputs` reads the export and calls Binance REST
- * (draftResolutions, then verifyResolutions on the bytes it wrote, then buildRvPanel). It writes the panel and
- * its first-hour bars as one gzipped canonical JSON file and a record of the manifest hash, panel sha256,
+ * Every stage takes the commit it runs at from GIT_COMMIT. Only `resolve` and `inputs` read the export and call
+ * Binance REST (pre-review Ruling 3). `resolve` reads only funding settlement times and stated intervals, drafts the
+ * resolutions file from REST, records its sha256 and stops, so the controller can review the file. `inputs` refuses
+ * a file whose sha256 differs from that record, verifies it against REST, builds the panel, and writes the panel
+ * and its first-hour bars as one gzipped canonical JSON file with a record of the manifest hash, panel sha256,
  * first-hour sha256, resolutions sha256 and entry count, and GIT_COMMIT. Every later stage loads that file,
  * recomputes both hashes and refuses on any mismatch with the record, the expected manifest hash or its own
  * GIT_COMMIT (loadInputs). Calibration reads no real data.
+ *
+ * Provenance is strict (pre-review Ruling 2): no commit of any kind happens between the stages of one run. Every
+ * stage from `inputs` on requires GIT_COMMIT to equal the commit `inputs` recorded, and `inputs` requires the commit
+ * `resolve` recorded. The 7C runner enforces the same rule, so its Markdown-only allowance is not used here.
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { createHash } from 'crypto';
@@ -54,8 +62,9 @@ import {
   panelFundingFlags,
   panelGrid,
   panelSha256,
-  readPanelSources,
+  readFundingTimes,
   type FirstHourBars,
+  type FundingFlag,
   type ResolutionsRecord,
   type RvPanel,
   type Span,
@@ -68,6 +77,7 @@ export const INPUTS_FILES = {
   panel: 'panel.json.gz',
   record: 'inputs.json',
   resolutions: 'resolutions.json',
+  resolveRecord: 'resolve.json',
 } as const;
 
 /** Addendum rule 9, AMENDMENT 2: one line in RESULT and in the verdict output. */
@@ -171,7 +181,7 @@ export interface LoadedInputs {
 /**
  * Addendum rule 12: loads the recorded panel and refuses to run unless the record's manifest hash is the expected
  * one, the record's commit is this stage's GIT_COMMIT, and the panel and first-hour sha256 recomputed from the file
- * equal the record's.
+ * equal the record's. The commit check is strict on purpose (Ruling 2): no commit happens between stages.
  */
 export function loadInputs(dir: string, expect: { manifestHash: string; gitCommit: string }): LoadedInputs {
   const record = RecordSchema.parse(JSON.parse(readFileSync(join(dir, INPUTS_FILES.record), 'utf8'))) as InputsRecord;
@@ -194,44 +204,117 @@ export function loadInputs(dir: string, expect: { manifestHash: string; gitCommi
   };
 }
 
-// ------------------------------------------------------------------------------------------------ inputs
+// ------------------------------------------------------------------------------------------------ resolve and inputs
+
+/** What `resolve` records next to the drafted file. */
+export interface ResolveRecord {
+  stage: 'resolve';
+  version: 1;
+  manifestHash: string;
+  gitCommit: string;
+  /** sha256 of the resolutions file bytes `resolve` wrote. */
+  sha256: string;
+  entries: number;
+  flags: FundingFlag[];
+  span: { from: string; to: string };
+}
+
+const ResolveRecordSchema = z.object({
+  stage: z.literal('resolve'),
+  version: z.literal(1),
+  manifestHash: z.string().regex(HEX64),
+  gitCommit: z.string().regex(HEX40),
+  sha256: z.string().regex(HEX64),
+  entries: z.number().int().min(0),
+  flags: z.array(z.object({ symbol: z.string(), t: z.number(), reason: z.enum(['missing', 'derived-switch']) })),
+  span: z.object({ from: z.string(), to: z.string() }),
+});
+
+/** Refuses an output directory that already holds any file of the resolve and inputs stages. */
+function refuseExisting(outDir: string, files: readonly string[]): void {
+  for (const f of files) {
+    if (existsSync(join(outDir, f))) throw new Error(`REFUSE: ${join(outDir, f)} exists: each stage writes once`);
+  }
+}
 
 /**
- * The `inputs` stage (addendum rule 12). Reads the manifest-verified export, drafts a no-event resolution for every
- * funding flag from REST and halts on any flag REST does not clear, writes the resolutions file, verifies those
- * bytes against REST (AMENDMENTS 1 and 3), builds the panel with every HALT rule and writes it with its record.
- * `fetchFunding` must be fetchFundingHistory (the CLI passes it). Nothing is written before the build passes,
- * apart from the resolutions file the verification reads back.
+ * The `resolve` stage (pre-review Ruling 3). Reads only the funding settlement times and stated intervals of the
+ * export (readFundingTimes: no rate, price or volume), computes the funding flags, drafts a no-event resolution for
+ * each from REST and halts on any flag REST does not clear. Writes the resolutions file (an empty list when nothing
+ * is flagged) and a record of its sha256, then stops: the controller reviews the file before `inputs`.
+ * `fetchFunding` must be fetchFundingHistory (the CLI passes it).
  */
-export async function runInputsStage(opts: {
+export async function runResolveStage(opts: {
   datasetDir: string;
   outDir: string;
   span: Span;
   fetchFunding: FundingFetcher;
   gitCommit: string;
   expectManifestHash: string;
-}): Promise<InputsRecord> {
+}): Promise<ResolveRecord> {
   if (!HEX40.test(opts.gitCommit)) throw new Error(`REFUSE: gitCommit must be 40 hex, got '${opts.gitCommit}'`);
   mkdirSync(opts.outDir, { recursive: true });
-  for (const f of Object.values(INPUTS_FILES)) {
-    if (existsSync(join(opts.outDir, f))) throw new Error(`REFUSE: ${join(opts.outDir, f)} exists: the inputs stage writes once`);
-  }
-  const { sources, manifestHash } = readPanelSources(opts.datasetDir);
+  refuseExisting(opts.outDir, Object.values(INPUTS_FILES));
+  const { funding, manifestHash } = readFundingTimes(opts.datasetDir);
   if (manifestHash !== opts.expectManifestHash) {
     throw new Error(`HALT: the export's manifest hash ${manifestHash} is not the expected ${opts.expectManifestHash}`);
   }
-  const flags = panelFundingFlags(sources, opts.span);
+  const flags = panelFundingFlags(funding, opts.span);
   const draft = await draftResolutions(flags, opts.fetchFunding);
   if (draft.unresolved.length > 0) {
     const listed = draft.unresolved.map((u) => `${u.flag.symbol} ${iso(u.flag.t)} (${u.flag.reason}): ${u.reason}`);
     throw new Error(`HALT: ${draft.unresolved.length} funding flag(s) are not cleared by REST: ${listed.join('; ')}`);
   }
-  const resolutionsPath = join(opts.outDir, INPUTS_FILES.resolutions);
-  writeFileSync(resolutionsPath, draft.content);
-  const verified = await verifyResolutions(readFileSync(resolutionsPath), opts.fetchFunding);
+  const record: ResolveRecord = {
+    stage: 'resolve',
+    version: 1,
+    manifestHash,
+    gitCommit: opts.gitCommit,
+    sha256: createHash('sha256').update(draft.content).digest('hex'),
+    entries: draft.entries.length,
+    flags,
+    span: { from: iso(opts.span.from), to: iso(opts.span.to) },
+  };
+  writeFileSync(join(opts.outDir, INPUTS_FILES.resolutions), draft.content);
+  writeFileSync(join(opts.outDir, INPUTS_FILES.resolveRecord), `${JSON.stringify(record, null, 2)}\n`);
+  return record;
+}
+
+/**
+ * The `inputs` stage (addendum rule 12, pre-review Ruling 3). Refuses unless `resolve` left its record in the
+ * output directory at this commit and dataset, and the reviewed file at `resolutionsPath` has exactly the sha256
+ * `resolve` recorded. Then verifies those bytes against REST (AMENDMENTS 1 and 3), builds the panel with every HALT
+ * rule and writes it with its record. `fetchFunding` must be fetchFundingHistory (the CLI passes it).
+ */
+export async function runInputsStage(opts: {
+  datasetDir: string;
+  outDir: string;
+  span: Span;
+  resolutionsPath: string;
+  fetchFunding: FundingFetcher;
+  gitCommit: string;
+  expectManifestHash: string;
+}): Promise<InputsRecord> {
+  if (!HEX40.test(opts.gitCommit)) throw new Error(`REFUSE: gitCommit must be 40 hex, got '${opts.gitCommit}'`);
+  refuseExisting(opts.outDir, [INPUTS_FILES.panel, INPUTS_FILES.record]);
+  const recordPath = join(opts.outDir, INPUTS_FILES.resolveRecord);
+  if (!existsSync(recordPath)) throw new Error(`REFUSE: no ${recordPath}: run the resolve stage first`);
+  const resolved = ResolveRecordSchema.parse(JSON.parse(readFileSync(recordPath, 'utf8'))) as ResolveRecord;
+  if (resolved.gitCommit !== opts.gitCommit) {
+    throw new Error(`REFUSE: resolve ran at commit ${resolved.gitCommit}, inputs runs at ${opts.gitCommit} (no commits between stages)`);
+  }
+  if (resolved.manifestHash !== opts.expectManifestHash) {
+    throw new Error(`REFUSE: resolve read the dataset with manifest hash ${resolved.manifestHash}, the expected one is ${opts.expectManifestHash}`);
+  }
+  const bytes = readFileSync(opts.resolutionsPath);
+  const fileSha = createHash('sha256').update(bytes).digest('hex');
+  if (fileSha !== resolved.sha256) {
+    throw new Error(`REFUSE: ${opts.resolutionsPath} has sha256 ${fileSha}, resolve recorded ${resolved.sha256}`);
+  }
+  const verified = await verifyResolutions(bytes, opts.fetchFunding);
   const built = await buildRvPanel(opts.datasetDir, opts.span, verified);
   if (built.meta.manifestHash !== opts.expectManifestHash) {
-    throw new Error(`HALT: the manifest hash changed during the stage: ${built.meta.manifestHash}`);
+    throw new Error(`HALT: the manifest hash changed since resolve: ${built.meta.manifestHash}`);
   }
   return writeInputs(opts.outDir, {
     panel: built.panel,
@@ -479,13 +562,27 @@ async function main(): Promise<void> {
   try {
     const [mode, ...rest] = process.argv.slice(2);
     const gitCommit = gitCommitFromEnv();
-    if (mode === 'inputs') {
+    if (mode === 'resolve') {
       const a = flags(rest, ['dataset-dir', 'out-dir', 'expect-manifest-hash']);
+      const { fetchFundingHistory } = await import('@/lib/snapshot-backfill');
+      const record = await runResolveStage({
+        datasetDir: a['dataset-dir'],
+        outDir: a['out-dir'],
+        span: RV_SPAN,
+        fetchFunding: fetchFundingHistory,
+        gitCommit,
+        expectManifestHash: a['expect-manifest-hash'],
+      });
+      console.log(JSON.stringify(record));
+      console.log(`resolve: ${record.flags.length} flag(s), ${record.entries} entr${record.entries === 1 ? 'y' : 'ies'} drafted: review ${join(a['out-dir'], INPUTS_FILES.resolutions)} before inputs`);
+    } else if (mode === 'inputs') {
+      const a = flags(rest, ['dataset-dir', 'out-dir', 'resolutions', 'expect-manifest-hash']);
       const { fetchFundingHistory } = await import('@/lib/snapshot-backfill');
       const record = await runInputsStage({
         datasetDir: a['dataset-dir'],
         outDir: a['out-dir'],
         span: RV_SPAN,
+        resolutionsPath: a.resolutions,
         fetchFunding: fetchFundingHistory,
         gitCommit,
         expectManifestHash: a['expect-manifest-hash'],
@@ -518,7 +615,7 @@ async function main(): Promise<void> {
           `per permutation step 2 ${t.isPermutationMs.toFixed(0)} ms, step 4 ${t.wfPermutationMs.toFixed(0)} ms`
       );
     } else {
-      throw new Error('usage: rv-stages.ts inputs|real|shard|calibrate --flags (see the header)');
+      throw new Error('usage: rv-stages.ts resolve|inputs|real|shard|calibrate --flags (see the header)');
     }
     process.exit(0);
   } catch (error) {

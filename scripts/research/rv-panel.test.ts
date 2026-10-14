@@ -28,6 +28,7 @@ import {
   pairTo8h,
   panelFundingFlags,
   panelGrid,
+  readFundingTimes,
   readPanelSources,
   resolveFlags,
   type ResolutionEntry,
@@ -723,6 +724,22 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
     expect(() => readPanelSources(dir)).toThrow(/HALT[\s\S]*sha256[\s\S]*perp\/BTCUSDT\/4h/);
   });
 
+  it('readFundingTimes reads only the funding files, as settlement times and stated intervals (pre-review Ruling 3)', () => {
+    const { funding, manifestHash } = readFundingTimes(dir);
+    expect(manifestHash).toBe(JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')).datasetHash);
+    expect(funding.map((f) => f.symbol)).toEqual([...RV_SYMBOLS]);
+    for (const [i, symbol] of RV_SYMBOLS.entries()) {
+      const want = sourceFor(symbol, 300 + i, BUCKETS).funding.filter((r) => r.t <= span.to);
+      expect(funding[i].funding).toEqual(want.map((r) => ({ t: r.t, intervalHours: r.intervalHours })));
+    }
+    // the perp files are never opened: unreadable bytes there change nothing
+    writeFileSync(join(dir, 'perp/BTCUSDT/4h.jsonl.gz'), 'tampered');
+    writeFileSync(join(dir, 'perp/ETHUSDT/1h.jsonl.gz'), 'tampered');
+    expect(readFundingTimes(dir)).toEqual({ funding, manifestHash });
+    writeFileSync(join(dir, 'funding/SOLUSDT/settlements.jsonl.gz'), 'tampered');
+    expect(() => readFundingTimes(dir)).toThrow(/HALT[\s\S]*sha256[\s\S]*funding\/SOLUSDT/);
+  });
+
   it('returns the first 1h bar of every panel bar, the maker track\'s fill bars (addendum rule 10)', async () => {
     const { panel, firstHour } = await buildRvPanel(dir, span, await verified());
     const { sources } = readPanelSources(dir);
@@ -755,6 +772,17 @@ describe('panel helpers for the inputs stage (Task 7B)', () => {
     const late = sources();
     late[6].funding = late[6].funding.filter((r) => r.t !== T0 + 4 * DAY - H8);
     expect(panelFundingFlags(late, span)).toEqual([{ symbol: 'DOGEUSDT', t: T0 + 4 * DAY - H8, reason: 'missing' }]);
+  });
+
+  it('panelFundingFlags reads settlement times and stated intervals only: NaN rates give the same flags (Ruling 3)', () => {
+    const src = sources();
+    src[3].funding = [...grid8(T0 + H8, T0 + 2 * DAY), ...grid8(T0 + 2 * DAY + H4, T0 + 4 * DAY - H8, 2)];
+    const flags = panelFundingFlags(src, span);
+    expect(flags).toHaveLength(1);
+    const nan = src.map((x) => ({ ...x, funding: x.funding.map((r) => ({ ...r, rate: NaN })) }));
+    expect(panelFundingFlags(nan, span)).toEqual(flags);
+    const timesOnly = src.map((x) => ({ symbol: x.symbol, funding: x.funding.map((r) => ({ t: r.t, intervalHours: r.intervalHours })) }));
+    expect(panelFundingFlags(timesOnly, span)).toEqual(flags);
   });
 
   it('firstHourBars halts when a panel bar has no 1h row at its open', async () => {

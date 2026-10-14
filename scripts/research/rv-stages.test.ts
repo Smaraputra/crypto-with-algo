@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { gunzipSync, gzipSync } from 'zlib';
@@ -32,6 +32,7 @@ import {
   runCalibrationJob,
   runInputsStage,
   runRealStage,
+  runResolveStage,
   runShard,
   runShardStage,
   shardJobs,
@@ -168,7 +169,7 @@ const SPAN = { from: T0, to: T0 + 3 * DAY - 1 };
 /** SOLUSDT on the A6-1 shape: stated 8h rows to day 2 00:00, then stated 2h rows from 04:00, so 02:00 is flagged. */
 const FLAG_T = T0 + 2 * DAY + 2 * H;
 
-async function writeExport(dir: string, a61: boolean): Promise<string> {
+async function writeExport(dir: string, a61: boolean, opts: { nanRates?: boolean; unreadablePerp?: boolean } = {}): Promise<string> {
   const files: ManifestFile[] = [];
   const put = async (rel: string, kind: ManifestFile['kind'], symbol: string, interval: string, rows: { t: number }[]) => {
     const path = join(dir, rel);
@@ -179,6 +180,7 @@ async function writeExport(dir: string, a61: boolean): Promise<string> {
     const rows1h = hourly(BUCKETS, 500 + i);
     let funding = grid(T0 + H8, SPAN.to, 8);
     if (a61 && symbol === 'SOLUSDT') funding = [...grid(T0 + H8, T0 + 2 * DAY, 8), ...grid(T0 + 2 * DAY + H4, SPAN.to, 2)];
+    if (opts.nanRates) funding = funding.map((r) => ({ ...r, rate: NaN }));
     await put(`perp/${symbol}/4h.jsonl.gz`, 'perp', symbol, '4h', fourHourly(rows1h));
     await put(`perp/${symbol}/1h.jsonl.gz`, 'perp', symbol, '1h', rows1h);
     await put(`funding/${symbol}/settlements.jsonl.gz`, 'funding', symbol, 'settlements', funding);
@@ -194,6 +196,8 @@ async function writeExport(dir: string, a61: boolean): Promise<string> {
     datasetHash: datasetHashOf(files),
   };
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  // bytes that are not even gzip, under the manifest's recorded hashes: any read of a price or volume fails
+  if (opts.unreadablePerp) for (const f of files.filter((x) => x.kind === 'perp')) writeFileSync(join(dir, f.path), 'not a kline file');
   return manifest.datasetHash;
 }
 
@@ -205,27 +209,120 @@ async function restLikeExport(dir: string): Promise<FundingFetcher> {
   return async (symbol, startTime, endTime) => (times[symbol] ?? []).filter((t) => t >= startTime && t <= endTime).map((fundingTime) => ({ fundingTime }));
 }
 
-describe('runInputsStage (addendum rule 12: draft, verify, build, write)', () => {
+const sha = (b: Buffer | string) => createHash('sha256').update(b).digest('hex');
+const A61_ENTRY = {
+  symbol: 'SOLUSDT',
+  t: new Date(FLAG_T).toISOString(),
+  verdict: 'no-event',
+  restBefore: new Date(T0 + 2 * DAY).toISOString(),
+  restAfter: new Date(T0 + 2 * DAY + H4).toISOString(),
+};
+
+describe('runResolveStage (pre-review Ruling 3: flags and a REST draft, then stop)', () => {
   let ds: string;
   let out: string;
   beforeEach(() => {
     ds = tmp('rv-ds-');
     out = tmp('rv-out-');
-    rmSync(out, { recursive: true, force: true });
   });
   afterEach(() => {
     rmSync(ds, { recursive: true, force: true });
     rmSync(out, { recursive: true, force: true });
   });
 
-  it('drafts and verifies the resolutions against REST, builds the panel and records every hash', async () => {
+  it('drafts the flagged settlement from REST, writes the file and a record of its sha256, and stops', async () => {
     const hash = await writeExport(ds, true);
-    const record = await runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: await restLikeExport(ds), gitCommit: COMMIT, expectManifestHash: hash });
-    const resolutionsBytes = readFileSync(join(out, INPUTS_FILES.resolutions));
-    expect(record.resolutions).toEqual({ sha256: createHash('sha256').update(resolutionsBytes).digest('hex'), entries: 1, flags: [{ symbol: 'SOLUSDT', t: FLAG_T, reason: 'missing' }] });
-    expect(JSON.parse(resolutionsBytes.toString('utf8')).resolutions).toEqual([
-      { symbol: 'SOLUSDT', t: new Date(FLAG_T).toISOString(), verdict: 'no-event', restBefore: new Date(T0 + 2 * DAY).toISOString(), restAfter: new Date(T0 + 2 * DAY + H4).toISOString() },
-    ]);
+    const record = await runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: await restLikeExport(ds), gitCommit: COMMIT, expectManifestHash: hash });
+    const bytes = readFileSync(join(out, INPUTS_FILES.resolutions));
+    expect(JSON.parse(bytes.toString('utf8')).resolutions).toEqual([A61_ENTRY]);
+    expect(record).toEqual({
+      stage: 'resolve',
+      version: 1,
+      manifestHash: hash,
+      gitCommit: COMMIT,
+      sha256: sha(bytes),
+      entries: 1,
+      flags: [{ symbol: 'SOLUSDT', t: FLAG_T, reason: 'missing' }],
+      span: { from: new Date(SPAN.from).toISOString(), to: new Date(SPAN.to).toISOString() },
+    });
+    expect(JSON.parse(readFileSync(join(out, INPUTS_FILES.resolveRecord), 'utf8'))).toEqual(record);
+    expect(existsSync(join(out, INPUTS_FILES.panel))).toBe(false);
+    expect(existsSync(join(out, INPUTS_FILES.record))).toBe(false);
+  });
+
+  it('writes an empty file when nothing is flagged', async () => {
+    const hash = await writeExport(ds, false);
+    const record = await runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: await restLikeExport(ds), gitCommit: COMMIT, expectManifestHash: hash });
+    const bytes = readFileSync(join(out, INPUTS_FILES.resolutions));
+    expect(JSON.parse(bytes.toString('utf8'))).toEqual({ resolutions: [] });
+    expect(record).toMatchObject({ entries: 0, flags: [], sha256: sha(bytes) });
+  });
+
+  it('never reads a rate, price or volume: NaN rates and unreadable perp files resolve the same', async () => {
+    const clean = await writeExport(ds, true);
+    const rest = await restLikeExport(ds);
+    const want = await runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: clean });
+    const ds2 = tmp('rv-ds-nan-');
+    const out2 = tmp('rv-out-nan-');
+    try {
+      const hash = await writeExport(ds2, true, { nanRates: true, unreadablePerp: true });
+      const got = await runResolveStage({ datasetDir: ds2, outDir: out2, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash });
+      expect({ ...got, manifestHash: '' }).toEqual({ ...want, manifestHash: '' });
+      expect(readFileSync(join(out2, INPUTS_FILES.resolutions))).toEqual(readFileSync(join(out, INPUTS_FILES.resolutions)));
+      // the fixture has teeth: the panel cannot be built from it
+      const { readPanelSources } = await import('./rv-panel');
+      expect(() => readPanelSources(ds2)).toThrow(/HALT[\s\S]*sha256[\s\S]*perp/);
+    } finally {
+      rmSync(ds2, { recursive: true, force: true });
+      rmSync(out2, { recursive: true, force: true });
+    }
+  });
+
+  it('halts when REST shows a settlement at a flagged instant, and writes nothing', async () => {
+    const hash = await writeExport(ds, true);
+    const rest = await restLikeExport(ds);
+    const settledThere: FundingFetcher = async (symbol, a, b) => [...(await rest(symbol, a, b)), ...(symbol === 'SOLUSDT' && FLAG_T >= a && FLAG_T <= b ? [{ fundingTime: FLAG_T }] : [])];
+    await expect(runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: settledThere, gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(
+      /HALT[\s\S]*SOLUSDT[\s\S]*REST shows a settlement/
+    );
+    expect(existsSync(join(out, INPUTS_FILES.resolutions))).toBe(false);
+    expect(existsSync(join(out, INPUTS_FILES.resolveRecord))).toBe(false);
+  });
+
+  it('refuses an existing file in the directory, leaving it untouched, and a manifest hash other than the expected one', async () => {
+    const hash = await writeExport(ds, true);
+    const rest = await restLikeExport(ds);
+    await expect(runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: 'f'.repeat(64) })).rejects.toThrow(/HALT[\s\S]*manifest/);
+    writeFileSync(join(out, INPUTS_FILES.resolutions), 'recorded earlier');
+    await expect(runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(/REFUSE[\s\S]*resolutions\.json exists/);
+    expect(readFileSync(join(out, INPUTS_FILES.resolutions), 'utf8')).toBe('recorded earlier');
+  });
+});
+
+describe('runInputsStage (pre-review Ruling 3: verify the reviewed file, then build)', () => {
+  let ds: string;
+  let out: string;
+  let hash: string;
+  let rest: FundingFetcher;
+  const inputs = (overrides: Partial<Parameters<typeof runInputsStage>[0]> = {}) =>
+    runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, resolutionsPath: join(out, INPUTS_FILES.resolutions), fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash, ...overrides });
+  beforeEach(async () => {
+    ds = tmp('rv-ds-');
+    out = tmp('rv-out-');
+    hash = await writeExport(ds, true);
+    rest = await restLikeExport(ds);
+    await runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash });
+  });
+  afterEach(() => {
+    rmSync(ds, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  });
+
+  it('verifies the reviewed file against REST, builds the panel and records every hash', async () => {
+    const record = await inputs();
+    const bytes = readFileSync(join(out, INPUTS_FILES.resolutions));
+    expect(record.resolutions).toEqual({ sha256: sha(bytes), entries: 1, flags: [{ symbol: 'SOLUSDT', t: FLAG_T, reason: 'missing' }] });
+    expect(record.resolutions.sha256).toBe(JSON.parse(readFileSync(join(out, INPUTS_FILES.resolveRecord), 'utf8')).sha256);
     const loaded = loadInputs(out, { manifestHash: hash, gitCommit: COMMIT });
     expect(record.manifestHash).toBe(hash);
     expect(loaded.panel.t).toHaveLength(BUCKETS - 1);
@@ -233,34 +330,35 @@ describe('runInputsStage (addendum rule 12: draft, verify, build, write)', () =>
     expect(loaded.firstHour.open).toEqual(loaded.panel.open);
   });
 
-  it('halts when REST shows a settlement at a flagged instant, and writes no panel', async () => {
-    const hash = await writeExport(ds, true);
-    const rest = await restLikeExport(ds);
-    const settledThere: FundingFetcher = async (symbol, a, b) => [...(await rest(symbol, a, b)), ...(symbol === 'SOLUSDT' && FLAG_T >= a && FLAG_T <= b ? [{ fundingTime: FLAG_T }] : [])];
-    await expect(runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: settledThere, gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(
-      /HALT[\s\S]*SOLUSDT[\s\S]*REST shows a settlement/
-    );
+  it('refuses a file whose sha256 is not the one resolve recorded, and writes no panel', async () => {
+    const path = join(out, INPUTS_FILES.resolutions);
+    writeFileSync(path, readFileSync(path, 'utf8').replace(/\n$/, '\n\n'));
+    await expect(inputs()).rejects.toThrow(/REFUSE[\s\S]*sha256/);
+    const elsewhere = join(out, 'other.json');
+    writeFileSync(elsewhere, '{"resolutions":[]}\n');
+    await expect(inputs({ resolutionsPath: elsewhere })).rejects.toThrow(/REFUSE[\s\S]*sha256/);
     expect(existsSync(join(out, INPUTS_FILES.panel))).toBe(false);
     expect(existsSync(join(out, INPUTS_FILES.record))).toBe(false);
   });
 
-  it('halts on a dataset hash other than the one the export recorded, and refuses an existing output', async () => {
-    const hash = await writeExport(ds, false);
-    const rest = await restLikeExport(ds);
-    await expect(runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: 'f'.repeat(64) })).rejects.toThrow(/HALT[\s\S]*manifest/);
-    const record = await runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash });
-    expect(record.resolutions.entries).toBe(0);
-    await expect(runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: rest, gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(/exists/);
+  it('refuses without a resolve record, or with one from another commit or dataset (Ruling 2: no commits between stages)', async () => {
+    await expect(inputs({ gitCommit: OTHER })).rejects.toThrow(/REFUSE[\s\S]*commit/);
+    const rec = JSON.parse(readFileSync(join(out, INPUTS_FILES.resolveRecord), 'utf8'));
+    writeFileSync(join(out, INPUTS_FILES.resolveRecord), JSON.stringify({ ...rec, manifestHash: 'e'.repeat(64) }));
+    await expect(inputs()).rejects.toThrow(/REFUSE[\s\S]*manifest/);
+    rmSync(join(out, INPUTS_FILES.resolveRecord));
+    await expect(inputs()).rejects.toThrow(/REFUSE[\s\S]*resolve/);
   });
 
-  it('refuses a directory that already holds a resolutions file, and leaves it untouched', async () => {
-    const hash = await writeExport(ds, true);
-    mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, INPUTS_FILES.resolutions), 'recorded earlier');
-    await expect(runInputsStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: await restLikeExport(ds), gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(
-      /REFUSE[\s\S]*resolutions\.json exists/
-    );
-    expect(readFileSync(join(out, INPUTS_FILES.resolutions), 'utf8')).toBe('recorded earlier');
+  it('halts when REST no longer agrees with the file, and writes no panel', async () => {
+    const settledThere: FundingFetcher = async (symbol, a, b) => [...(await rest(symbol, a, b)), ...(symbol === 'SOLUSDT' && FLAG_T >= a && FLAG_T <= b ? [{ fundingTime: FLAG_T }] : [])];
+    await expect(inputs({ fetchFunding: settledThere })).rejects.toThrow(/HALT[\s\S]*REST shows a settlement/);
+    expect(existsSync(join(out, INPUTS_FILES.panel))).toBe(false);
+  });
+
+  it('refuses to run twice into the same directory', async () => {
+    await inputs();
+    await expect(inputs()).rejects.toThrow(/REFUSE[\s\S]*exists/);
   });
 });
 

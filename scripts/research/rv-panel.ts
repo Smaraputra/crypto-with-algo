@@ -561,17 +561,29 @@ function fundingWindowOf(grid: Span): Span {
   return { from: grid.from, to: grid.to + BAR_MS };
 }
 
+/** A funding settlement as the flags see it: its time and its stated interval, never its rate. */
+export interface SettlementTime {
+  t: number;
+  intervalHours: number | null;
+}
+
 /**
  * Every funding flag of the panel, as assemblePanel computes them (RV_SYMBOLS order, the same window). The
- * `inputs` stage drafts and verifies resolutions for exactly these before it builds the panel.
+ * `resolve` stage drafts resolutions for exactly these. The flags depend only on settlement times and stated
+ * intervals: each row reaches fundingFlags with a placeholder rate of 0, so nothing here reads a rate. Rates are
+ * checked when assemblePanel builds the panel.
  */
-export function panelFundingFlags(sources: readonly RvSymbolSource[], span: Span): FundingFlag[] {
+export function panelFundingFlags(sources: readonly { symbol: string; funding: readonly SettlementTime[] }[], span: Span): FundingFlag[] {
   const bySymbol = new Map(sources.map((s) => [s.symbol, s]));
   const window = fundingWindowOf(panelGrid(span));
   return RV_SYMBOLS.flatMap((symbol) => {
     const src = bySymbol.get(symbol);
     if (!src) throw new Error(`HALT: no source for ${symbol}`);
-    return fundingFlags(symbol, src.funding, window);
+    return fundingFlags(
+      symbol,
+      src.funding.map((r) => ({ t: r.t, intervalHours: r.intervalHours, rate: 0 })),
+      window
+    );
   });
 }
 
@@ -674,13 +686,14 @@ function panelFiles(symbol: string): { path: string; kind: DatasetKind; interval
   ];
 }
 
+type PanelFileSpec = { path: string; kind: DatasetKind; interval: string };
+
 /**
- * The 30 files the panel reads, checked against the manifest and read once each (AMENDMENT 2). The manifest's
- * dataset hash must match its own file list, and each file must be listed with its kind, symbol and interval.
- * The bytes that are hashed against the manifest are the bytes that are parsed. Every row is kept, which is
- * what the header's allowLockbox true means.
+ * Opens an export: the manifest's dataset hash must match its own file list and list the whole universe. The
+ * returned reader requires each file to be listed with its kind, symbol and interval, reads it once, hashes those
+ * bytes against the manifest and parses the same bytes (AMENDMENT 2).
  */
-export function readPanelSources(datasetDir: string): { sources: RvSymbolSource[]; manifestHash: string } {
+function openExport(datasetDir: string): { manifestHash: string; read: <T>(symbol: string, spec: PanelFileSpec) => T[] } {
   const manifest = loadManifest(datasetDir);
   if (datasetHashOf(manifest.files) !== manifest.datasetHash) {
     throw new Error(`HALT: the manifest's dataset hash ${manifest.datasetHash} does not match its own file list`);
@@ -689,7 +702,7 @@ export function readPanelSources(datasetDir: string): { sources: RvSymbolSource[
   if (absent.length > 0) throw new Error(`HALT: the manifest lacks ${absent.join(', ')}`);
 
   const listed = new Map(manifest.files.map((f) => [f.path, f]));
-  const read = <T>(symbol: string, spec: { path: string; kind: DatasetKind; interval: string }): T[] => {
+  const read = <T>(symbol: string, spec: PanelFileSpec): T[] => {
     const entry = listed.get(spec.path);
     if (!entry) throw new Error(`HALT: a file the panel reads is not listed in the manifest: ${spec.path}`);
     if (entry.kind !== spec.kind || entry.symbol !== symbol || entry.interval !== spec.interval) {
@@ -702,7 +715,15 @@ export function readPanelSources(datasetDir: string): { sources: RvSymbolSource[
     if (sha256 !== entry.sha256) throw new Error(`HALT: sha256 mismatch for ${spec.path}: read ${sha256}, manifest ${entry.sha256}`);
     return parseJsonlGz<T>(bytes);
   };
+  return { manifestHash: manifest.datasetHash, read };
+}
 
+/**
+ * The 30 files the panel reads, checked against the manifest and read once each (openExport). Every row is kept,
+ * which is what the header's allowLockbox true means.
+ */
+export function readPanelSources(datasetDir: string): { sources: RvSymbolSource[]; manifestHash: string } {
+  const { manifestHash, read } = openExport(datasetDir);
   const sources: RvSymbolSource[] = RV_SYMBOLS.map((symbol) => {
     const [f4h, f1h, fFunding] = panelFiles(symbol);
     return {
@@ -712,7 +733,21 @@ export function readPanelSources(datasetDir: string): { sources: RvSymbolSource[
       funding: read<FundingRow>(symbol, fFunding),
     };
   });
-  return { sources, manifestHash: manifest.datasetHash };
+  return { sources, manifestHash };
+}
+
+/**
+ * The `resolve` stage's read (pre-review Ruling 3): only the ten funding files, checked against the manifest like
+ * every panel file, kept as settlement times and stated intervals. The perp files are never opened, and each rate
+ * is dropped as its row is parsed.
+ */
+export function readFundingTimes(datasetDir: string): { funding: { symbol: string; funding: SettlementTime[] }[]; manifestHash: string } {
+  const { manifestHash, read } = openExport(datasetDir);
+  const funding = RV_SYMBOLS.map((symbol) => ({
+    symbol,
+    funding: read<FundingRow>(symbol, panelFiles(symbol)[2]).map((r) => ({ t: r.t, intervalHours: r.intervalHours })),
+  }));
+  return { funding, manifestHash };
 }
 
 /**
