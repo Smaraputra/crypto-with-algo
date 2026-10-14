@@ -220,6 +220,19 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     expect(v.provenance).toEqual(prov());
   });
 
+  it('G1 tests the best in-sample objective and G2 the stitched walk-forward objective, never the other', () => {
+    const best = real.step1.best;
+    const wfObj = real.step3.objective;
+    expect(best).not.toBe(wfObj);
+    // 20 nulls halfway between the two statistics: at or above exactly one of them
+    const mid = [...Array(980).fill(-1), ...Array(20).fill((best + wfObj) / 2)];
+    const v = judgeVerdict(real, { is: merged('is-mcpt', mid), wf: merged('wf-mcpt', mid), block: merged('block', mid) }, prov());
+    expect(v.gates.G1.p).toBe(best <= (best + wfObj) / 2 ? 21 / 1001 : 1 / 1001);
+    expect(v.gates.G2.p).toBe(wfObj <= (best + wfObj) / 2 ? 21 / 1001 : 1 / 1001);
+    expect(v.gates.G1.p).not.toBe(v.gates.G2.p);
+    expect(v.reported.blockP).toBe(v.gates.G1.p);
+  });
+
   it('passes only when all three gates pass, with ties counted against the rule', () => {
     const below = Array(1000).fill(-1);
     const all = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, prov());
