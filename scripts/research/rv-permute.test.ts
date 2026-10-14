@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createSeededRandom } from '@/lib/stats/seeded-random';
 import type { RvPanel } from './rv-panel';
-import { permutationIndex, permutePanel } from './rv-permute';
+import { applyBarPermutation, drawBarPermutation, permutationIndex, permutePanel } from './rv-permute';
 
 const H8 = 8 * 3_600_000;
 const T0 = Date.UTC(2022, 0, 1);
@@ -111,6 +111,21 @@ describe('permutationIndex (Fisher-Yates over 0..n-1)', () => {
     expect(a).not.toEqual(Array.from({ length: 500 }, (_, i) => i));
   });
 
+  it('is unbiased: 6,000 draws of n = 3 give each of the six orders near 1/6 (review m9)', () => {
+    const random = createSeededRandom(20261016);
+    const counts = new Map<string, number>();
+    for (let i = 0; i < 6000; i++) {
+      const key = permutationIndex(3, random).join('');
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    expect([...counts.keys()].sort()).toEqual(['012', '021', '102', '120', '201', '210']);
+    // Expected 1,000 each, sd about 29: five sd either side
+    for (const c of counts.values()) {
+      expect(c).toBeGreaterThan(855);
+      expect(c).toBeLessThan(1145);
+    }
+  });
+
   it('handles n = 0 and n = 1, and rejects a negative or fractional n', () => {
     expect(permutationIndex(0, createSeededRandom(1))).toEqual([]);
     expect(permutationIndex(1, createSeededRandom(1))).toEqual([0]);
@@ -119,8 +134,89 @@ describe('permutationIndex (Fisher-Yates over 0..n-1)', () => {
   });
 });
 
+describe('drawBarPermutation and applyBarPermutation (the two halves of permutePanel)', () => {
+  it('draws the intrabar index first and the gap index second: golden vectors for seed 20261015, n = 10 (review m9)', () => {
+    expect(drawBarPermutation(10, createSeededRandom(20261015))).toEqual({
+      perm1: [2, 7, 6, 0, 1, 5, 3, 8, 9, 4],
+      perm2: [7, 5, 1, 0, 4, 3, 9, 2, 6, 8],
+    });
+    const p = makePanel({ n: 12, symbols: 2, seed: 21 });
+    expect(permutePanel(p, 1, createSeededRandom(20261015))).toEqual(
+      applyBarPermutation(p, 1, [2, 7, 6, 0, 1, 5, 3, 8, 9, 4], [7, 5, 1, 0, 4, 3, 9, 2, 6, 8])
+    );
+  });
+
+  it('applies explicit perm1 and perm2 exactly as a hand-written panel says, first and last permuted bars included (review I4a)', () => {
+    // Log prices of symbol A, bars 0..5. Gaps of bars 2..5: 0.005, -0.002, 0.001, -0.003.
+    // Intrabar (high, low, close over open) of bars 2..5: (0.025, -0.015, 0.005), (0.012, -0.008, 0.007),
+    // (0.024, -0.006, 0.014), (0.008, -0.007, -0.005). Symbol B has every log move doubled.
+    const logA = {
+      open: [0, 0.01, 0.035, 0.038, 0.046, 0.057],
+      high: [0.02, 0.05, 0.06, 0.05, 0.07, 0.065],
+      low: [-0.01, 0, 0.02, 0.03, 0.04, 0.05],
+      close: [0.01, 0.03, 0.04, 0.045, 0.06, 0.052],
+    };
+    const px = (logs: number[], scale: number) => logs.map((x) => 100 * Math.exp(scale * x));
+    const p: RvPanel = {
+      symbols: ['AUSDT', 'BUSDT'],
+      t: [0, 1, 2, 3, 4, 5].map((i) => T0 + i * H8),
+      open: [px(logA.open, 1), px(logA.open, 2)],
+      high: [px(logA.high, 1), px(logA.high, 2)],
+      low: [px(logA.low, 1), px(logA.low, 2)],
+      close: [px(logA.close, 1), px(logA.close, 2)],
+      volume: [[10, 11, 12, 13, 14, 15], [110, 111, 112, 113, 114, 115]],
+      tbv: [[5, 5.5, 6, 6.5, 7, 7.5], [50, 55, 60, 65, 70, 75]],
+      fundSum: [[0.1, 0.2, 0.3, 0.4, 0.5, 0.6], [1.1, 1.2, 1.3, 1.4, 1.5, 1.6]],
+      fundLast: [[0.1, 0.2, 0.3, null, 0.5, 0.6], [1.1, 1.2, 1.3, 1.4, null, 1.6]],
+    };
+    // startIndex 1: bars 0 and 1 stay real. perm1 = [3, 0, 2, 1] moves the intrabar tuples of bars 5, 2, 4, 3
+    // onto bars 2, 3, 4, 5. perm2 = [2, 3, 1, 0] moves the gaps of bars 4, 5, 3, 2 onto bars 2, 3, 4, 5.
+    const q = applyBarPermutation(p, 1, [3, 0, 2, 1], [2, 3, 1, 0]);
+    // By hand, compounding from bar 1's log close 0.03:
+    // bar 2: open 0.03 + 0.001 = 0.031, high 0.039, low 0.024, close 0.026 (tuple of bar 5)
+    // bar 3: open 0.026 - 0.003 = 0.023, high 0.048, low 0.008, close 0.028 (tuple of bar 2)
+    // bar 4: open 0.028 - 0.002 = 0.026, high 0.05, low 0.02, close 0.04 (tuple of bar 4)
+    // bar 5: open 0.04 + 0.005 = 0.045, high 0.057, low 0.037, close 0.052 (tuple of bar 3)
+    const expected = {
+      open: [0, 0.01, 0.031, 0.023, 0.026, 0.045],
+      high: [0.02, 0.05, 0.039, 0.048, 0.05, 0.057],
+      low: [-0.01, 0, 0.024, 0.008, 0.02, 0.037],
+      close: [0.01, 0.03, 0.026, 0.028, 0.04, 0.052],
+    };
+    for (const col of ['open', 'high', 'low', 'close'] as const) {
+      for (const [s, scale] of [[0, 1], [1, 2]] as const) {
+        expect(Object.is(q[col][s][0], p[col][s][0]) && Object.is(q[col][s][1], p[col][s][1])).toBe(true);
+        px(expected[col], scale).forEach((v, i) => expect(Math.abs(q[col][s][i] / v - 1), `${col} ${s} ${i}`).toBeLessThan(1e-12));
+      }
+    }
+    const moved = [0, 1, 5, 2, 4, 3];
+    for (const col of ['volume', 'tbv', 'fundSum', 'fundLast'] as const) {
+      for (const s of [0, 1]) expect(q[col][s]).toEqual(moved.map((i) => p[col][s][i]));
+    }
+    expect(q.t).toEqual(p.t);
+  });
+
+  it('rejects index arrays of the wrong length or that are not permutations', () => {
+    const p = makePanel({ n: 6, symbols: 2, seed: 22 });
+    expect(() => applyBarPermutation(p, 1, [0, 1, 2], [0, 1, 2, 3])).toThrow(/perm1/);
+    expect(() => applyBarPermutation(p, 1, [0, 1, 2, 3], [0, 1, 1, 3])).toThrow(/perm2/);
+    expect(() => applyBarPermutation(p, 1, [0, 1, 2, 4], [0, 1, 2, 3])).toThrow(/perm1/);
+  });
+});
+
 describe('permutePanel (mcpt bar_permute for several markets, header steps 2 and 4)', () => {
   const N = 600;
+  const gapValue = (i: number) => (((i * 37) % 101) - 50) * 1e-5 + i * 1e-9;
+  /** Source bar of each permuted position, recovered from the marker columns: volume = 1000 + source, gap = gapValue(source). */
+  const sources = (q: RvPanel, s: number, start: number) => {
+    const intrabar = q.volume[s].slice(start + 1).map((v) => v - 1000);
+    const gap = gapsOf(q, s, start + 1).map((g) => {
+      let best = -1;
+      for (let i = 1; i < q.t.length; i++) if (best < 0 || Math.abs(gapValue(i) - g) < Math.abs(gapValue(best) - g)) best = i;
+      return best;
+    });
+    return { intrabar, gap };
+  };
 
   it('preserves each symbol\'s multiset of gaps and of intrabar tuples after startIndex', () => {
     const p = makePanel({ n: N, symbols: 4, seed: 7 });
@@ -136,31 +232,26 @@ describe('permutePanel (mcpt bar_permute for several markets, header steps 2 and
     }
   });
 
-  it('moves every symbol with the same two row mappings (marker columns), and the two mappings differ', () => {
+  it('moves every symbol with the same two row mappings, each a non-identity bijection onto the permuted range (review I4b)', () => {
     const p = makePanel({ n: N, symbols: 5, seed: 8, markers: true });
-    const q = permutePanel(p, 0, createSeededRandom(5));
-    for (let i = 1; i < N; i++) {
-      for (let s = 1; s < 5; s++) {
-        expect(q.volume[s][i]).toBe(q.volume[0][i]);
-        expect(Math.abs(Math.log(q.open[s][i]) - Math.log(q.close[s][i - 1]) - (Math.log(q.open[0][i]) - Math.log(q.close[0][i - 1])))).toBeLessThan(1e-12);
+    for (const start of [0, 200]) {
+      const q = permutePanel(p, start, createSeededRandom(5));
+      const range = Array.from({ length: N - start - 1 }, (_, i) => start + 1 + i);
+      const ref = sources(q, 0, start);
+      for (let s = 1; s < 5; s++) expect(sources(q, s, start)).toEqual(ref);
+      for (const mapping of [ref.intrabar, ref.gap]) {
+        expect([...mapping].sort((a, b) => a - b)).toEqual(range);
+        expect(mapping).not.toEqual(range);
+        // the first and the last permuted positions both receive another bar's values for this seed
+        expect(mapping[0]).not.toBe(start + 1);
+        expect(mapping[mapping.length - 1]).not.toBe(N - 1);
       }
+      expect(ref.gap).not.toEqual(ref.intrabar);
     }
-    // Recover each mapping from its marker: volume = 1000 + source index, gap = f(source index)
-    const intrabarSource = q.volume[0].slice(1).map((v) => v - 1000);
-    const gapValue = (i: number) => (((i * 37) % 101) - 50) * 1e-5 + i * 1e-9;
-    const gapSource = gapsOf(q, 0, 1).map((g) => {
-      let best = -1;
-      for (let i = 1; i < N; i++) if (best < 0 || Math.abs(gapValue(i) - g) < Math.abs(gapValue(best) - g)) best = i;
-      return best;
-    });
-    expect(new Set(intrabarSource).size).toBe(N - 1);
-    expect(new Set(gapSource).size).toBe(N - 1);
-    expect(intrabarSource).not.toEqual(Array.from({ length: N - 1 }, (_, i) => i + 1));
-    expect(gapSource).not.toEqual(intrabarSource);
   });
 
   it('keeps bars 0..startIndex bitwise identical and permutes from startIndex + 1, that bar\'s gap included', () => {
-    const p = makePanel({ n: N, symbols: 3, seed: 9 });
+    const p = makePanel({ n: N, symbols: 3, seed: 9, markers: true });
     const start = 200;
     const q = permutePanel(p, start, createSeededRandom(3));
     for (const col of ['open', 'high', 'low', 'close', 'volume', 'tbv', 'fundSum', 'fundLast'] as const) {
@@ -170,9 +261,10 @@ describe('permutePanel (mcpt bar_permute for several markets, header steps 2 and
     }
     expect(q.t).toEqual(p.t);
     expect(q.symbols).toEqual(p.symbols);
-    // bar start + 1 compounds from the last real close with a drawn gap
-    const changed = [0, 1, 2].filter((s) => q.open[s][start + 1] !== p.open[s][start + 1]);
-    expect(changed.length).toBeGreaterThan(0);
+    // bar start + 1 takes a drawn gap and a drawn intrabar tuple, recovered from the markers (review I4c)
+    const src = sources(q, 0, start);
+    expect(src.gap[0]).not.toBe(start + 1);
+    expect(src.intrabar[0]).not.toBe(start + 1);
   });
 
   it('ends every symbol on its real final close (within 1e-9 relative) with valid OHLC', () => {

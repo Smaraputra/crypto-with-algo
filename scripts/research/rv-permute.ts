@@ -32,19 +32,38 @@ export function permutationIndex(n: number, random: () => number): number[] {
   return idx;
 }
 
+/** Throws unless `perm` is a permutation of 0..n-1. */
+function assertPermutation(perm: readonly number[], n: number, name: string): void {
+  const seen = new Uint8Array(n);
+  const ok = perm.length === n && perm.every((v) => Number.isInteger(v) && v >= 0 && v < n && seen[v]++ === 0);
+  if (!ok) throw new Error(`${name} must be a permutation of 0..${n - 1}`);
+}
+
 /**
- * One permutation of the whole panel. The returned panel is new and `panel` is not modified. Timestamps and
- * symbols are unchanged.
+ * The two shared indices of one permutation, drawn in bar_permute's order: perm1 (intrabar tuple) first,
+ * perm2 (gap) second. `permN` is the number of permuted bars, n - startIndex - 1.
  */
-export function permutePanel(panel: RvPanel, startIndex: number, random: () => number): RvPanel {
+export function drawBarPermutation(permN: number, random: () => number): { perm1: number[]; perm2: number[] } {
+  const perm1 = permutationIndex(permN, random);
+  const perm2 = permutationIndex(permN, random);
+  return { perm1, perm2 };
+}
+
+/**
+ * Applies given indices to the whole panel: permuted bar startIndex + 1 + k takes the gap of bar
+ * startIndex + 1 + perm2[k] and the intrabar tuple (high, low and close over open, volume, taker-buy
+ * volume, fundSum, fundLast) of bar startIndex + 1 + perm1[k], compounding from the real close of bar
+ * startIndex. The returned panel is new and `panel` is not modified. Timestamps and symbols are unchanged.
+ */
+export function applyBarPermutation(panel: RvPanel, startIndex: number, perm1: readonly number[], perm2: readonly number[]): RvPanel {
   const n = panel.t.length;
   if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= n) {
     throw new Error(`startIndex must be an integer in [0, ${n - 1}], got ${startIndex}`);
   }
   const permIndex = startIndex + 1;
   const permN = n - permIndex;
-  const perm1 = permutationIndex(permN, random); // intrabar tuple
-  const perm2 = permutationIndex(permN, random); // gap
+  assertPermutation(perm1, permN, 'perm1');
+  assertPermutation(perm2, permN, 'perm2');
 
   const out: RvPanel = {
     symbols: [...panel.symbols],
@@ -108,4 +127,14 @@ export function permutePanel(panel: RvPanel, startIndex: number, random: () => n
     out.fundLast.push(fundLast);
   });
   return out;
+}
+
+/** One permutation of the whole panel: drawBarPermutation, then applyBarPermutation. */
+export function permutePanel(panel: RvPanel, startIndex: number, random: () => number): RvPanel {
+  const n = panel.t.length;
+  if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= n) {
+    throw new Error(`startIndex must be an integer in [0, ${n - 1}], got ${startIndex}`);
+  }
+  const { perm1, perm2 } = drawBarPermutation(n - startIndex - 1, random);
+  return applyBarPermutation(panel, startIndex, perm1, perm2);
 }
