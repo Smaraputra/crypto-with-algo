@@ -35,6 +35,11 @@ function utcTime(ms: number): string {
   return `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 }
 
+/** A timestamp inside a sentence, kept on one line so the date never splits at its hyphens. */
+function Stamp({ ms }: { ms: number }) {
+  return <span className="whitespace-nowrap">{utcTime(ms)}</span>;
+}
+
 function utcDate(iso: string): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
@@ -194,7 +199,7 @@ function WaitingOnData({ step }: { step: RvStepView }) {
         Waiting on data
       </h3>
       <p className="text-xs text-muted-foreground">
-        The step for the bar closing {utcTime(step.fillTime)} is pending. The desk retries it on every run.
+        The step for the bar closing <Stamp ms={step.fillTime} /> is pending. The desk retries it on every run.
       </p>
       <ul className="flex flex-wrap gap-1.5" aria-label="Pending reasons">
         {labels.map((label) => (
@@ -215,7 +220,7 @@ function Flags({ data }: { data: RvLatestResponse & { book: RvBookView } }) {
     if (!lastAlert) return null;
     return (
       <p className="text-xs text-muted-foreground">
-        No flag raised now. Last flagged {utcTime(lastAlert.fillTime)} ({lastAlert.kinds.map((k) => ALERT_SHORT[k]).join(', ')}).
+        No flag raised now. Last flagged <Stamp ms={lastAlert.fillTime} /> ({lastAlert.kinds.map((k) => ALERT_SHORT[k]).join(', ')}).
       </p>
     );
   }
@@ -241,7 +246,7 @@ function Flags({ data }: { data: RvLatestResponse & { book: RvBookView } }) {
 
 function MobileLabel({ children }: { children: ReactNode }) {
   return (
-    <span aria-hidden="true" className="block text-[11px] text-muted-foreground sm:hidden">
+    <span aria-hidden="true" className="block text-[11px] text-muted-foreground md:hidden">
       {children}
     </span>
   );
@@ -249,12 +254,12 @@ function MobileLabel({ children }: { children: ReactNode }) {
 
 function PositionsTable({ rows, headingId }: { rows: RvPositionRow[]; headingId: string }) {
   const th = 'px-3 py-2 font-medium';
-  // Below sm each row reflows into a two-column block with its own labels
-  const cell = 'sm:table-cell sm:px-3 sm:py-2';
-  const right = 'text-right sm:text-right';
+  // Below md (768px) each row reflows into a two-column block with its own labels, because six numeric columns crowd a 640px card
+  const cell = 'md:table-cell md:px-3 md:py-2';
+  const right = 'text-right md:text-right';
   return (
-    <table aria-labelledby={headingId} className="block w-full text-left text-xs sm:table">
-      <thead className="sr-only border-b border-border bg-muted/50 text-muted-foreground sm:not-sr-only sm:table-header-group">
+    <table aria-labelledby={headingId} className="block w-full text-left text-xs md:table">
+      <thead className="sr-only border-b border-border bg-muted/50 text-muted-foreground md:not-sr-only md:table-header-group">
         <tr>
           <th scope="col" className={th}>Position</th>
           <th scope="col" className={cn(th, 'text-right')}>Weight</th>
@@ -264,9 +269,9 @@ function PositionsTable({ rows, headingId }: { rows: RvPositionRow[]; headingId:
           <th scope="col" className={cn(th, 'text-right')}>Unrealized, maker</th>
         </tr>
       </thead>
-      <tbody className="block divide-y divide-border sm:table-row-group">
+      <tbody className="block divide-y divide-border md:table-row-group">
         {rows.map((row) => (
-          <tr key={row.symbol} className="grid grid-cols-2 gap-x-3 gap-y-2 py-2.5 sm:table-row sm:py-0">
+          <tr key={row.symbol} className="grid grid-cols-2 gap-x-3 gap-y-2 py-2.5 md:table-row md:py-0">
             <td className={cell}>
               <span className="flex flex-wrap items-center gap-1.5">
                 <span
@@ -292,7 +297,7 @@ function PositionsTable({ rows, headingId }: { rows: RvPositionRow[]; headingId:
               <MobileLabel>Weight</MobileLabel>
               <span className="font-mono tabular-nums">{signedPercent(row.weight)}</span>
             </td>
-            <td className={cn(cell, 'sm:text-right')}>
+            <td className={cn(cell, 'md:text-right')}>
               <MobileLabel>Entry</MobileLabel>
               <span className="font-mono tabular-nums">{price(row.entry)}</span>
             </td>
@@ -300,7 +305,7 @@ function PositionsTable({ rows, headingId }: { rows: RvPositionRow[]; headingId:
               <MobileLabel>Last price</MobileLabel>
               <span className="font-mono tabular-nums">{price(row.lastPrice)}</span>
             </td>
-            <td className={cn(cell, 'sm:text-right')}>
+            <td className={cn(cell, 'md:text-right')}>
               <MobileLabel>Unrealized, taker</MobileLabel>
               <Change value={row.unrealizedTaker} />
             </td>
@@ -334,7 +339,7 @@ function Positions({ book, completedStep }: { book: RvBookView; completedStep: R
       {rows.length === 0 ? (
         <p className="text-xs text-muted-foreground">No open positions.</p>
       ) : (
-        <div className="rounded-md border border-border px-3 sm:px-0">
+        <div className="rounded-md border border-border px-3 md:px-0">
           <PositionsTable rows={rows} headingId={headingId} />
         </div>
       )}
@@ -389,7 +394,13 @@ function Ranking({ signal, rule }: { signal: RvSignalView | null; rule: RvLatest
         onClick={() => setOpen((prev) => !prev)}
         className={cn('h-auto min-h-11 whitespace-normal py-1.5 text-left text-xs sm:min-h-8', BUTTON_STATES)}
       >
-        {open ? 'Hide the ranking' : `Show the ranking for the bar closing ${closing}`}
+        {open ? (
+          'Hide the ranking'
+        ) : (
+          <span>
+            Show the ranking for the bar closing <Stamp ms={signal.barCloseTime} />
+          </span>
+        )}
       </Button>
       <div id={regionId} hidden={!open} className="space-y-1.5">
         <div
@@ -444,14 +455,17 @@ function Ranking({ signal, rule }: { signal: RvSignalView | null; rule: RvLatest
 
 function LegacyNote({ legacy }: { legacy: RvLegacyBookView | null }) {
   if (!legacy) return null;
-  const last =
-    legacy.lastProcessedBarTime === null
-      ? 'It never processed a signal'
-      : `Last signal processed ${utcTime(legacy.lastProcessedBarTime)}`;
   return (
     <p className="border-t border-border pt-3 text-[11px] text-muted-foreground">
-      Archived: book {legacy.bookName} (spot prices, pre-rv-v1 rules) is read-only and no longer stepped. {last}, taker{' '}
-      {usd(legacy.equityTaker)}, maker {usd(legacy.equityMaker)}.
+      Archived: book {legacy.bookName} (spot prices, pre-rv-v1 rules) is read-only and no longer stepped.{' '}
+      {legacy.lastProcessedBarTime === null ? (
+        'It never processed a signal'
+      ) : (
+        <>
+          Last signal processed <Stamp ms={legacy.lastProcessedBarTime} />
+        </>
+      )}
+      , taker {usd(legacy.equityTaker)}, maker {usd(legacy.equityMaker)}.
     </p>
   );
 }
@@ -484,7 +498,7 @@ export function CrossSectionalPortfolioCard() {
             <div className="h-32 rounded-md bg-muted animate-shimmer" />
             <div className="h-32 rounded-md bg-muted animate-shimmer" />
           </div>
-          <div aria-hidden="true" className="h-[32rem] rounded-md bg-muted animate-shimmer sm:h-64" />
+          <div aria-hidden="true" className="h-[32rem] rounded-md bg-muted animate-shimmer md:h-64" />
           <div aria-hidden="true" className="h-24 rounded-md bg-muted animate-shimmer" />
         </CardContent>
       </Shell>
@@ -518,7 +532,7 @@ export function CrossSectionalPortfolioCard() {
   const { book, completedStep, step } = data;
   const refreshFailed = isError && (
     <p role="alert" className="text-xs text-muted-foreground">
-      Refresh failed ({error?.message ?? 'unknown error'}). Showing data loaded at {utcTime(dataUpdatedAt)}.
+      Refresh failed ({error?.message ?? 'unknown error'}). Showing data loaded at <Stamp ms={dataUpdatedAt} />.
     </p>
   );
 
@@ -548,8 +562,8 @@ export function CrossSectionalPortfolioCard() {
     <Shell key="desk">
       <CardHeader className="gap-1.5 px-4 sm:px-6">
         <TitleRow status={book.validationStatus} asOf={asOf} />
-        <p className="text-sm">{subtitle(book)}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-pretty">{subtitle(book)}</p>
+        <p className="text-xs text-pretty text-muted-foreground">
           Binance USDT-M perp prices. Long the top {data.rule.legs}, short the bottom {data.rule.legs}, beta-neutral,
           rebalanced at the 00:00, 08:00 and 16:00 UTC bar closes.
         </p>

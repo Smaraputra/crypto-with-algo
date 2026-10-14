@@ -150,6 +150,12 @@ function response(overrides: Partial<RvLatestResponse> = {}): RvLatestResponse {
 
 const positionsTable = () => screen.getByRole('table', { name: /positions/i });
 
+/** A paragraph whose whole text is `text`, even when a timestamp inside it sits in its own span. */
+const paragraph = (text: string) =>
+  screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === text);
+
+const STAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/;
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -389,7 +395,7 @@ describe('CrossSectionalPortfolioCard flags and pending steps', () => {
     mockHook({ data: response({ lastAlert: { barTime: T0, fillTime: T0 + BAR, kinds: ['drawdown_taker', 'negative_streak'] } }) });
     render(<CrossSectionalPortfolioCard />);
     expect(
-      screen.getByText('No flag raised now. Last flagged 2026-10-14 08:00 UTC (taker drawdown, negative streak).')
+      paragraph('No flag raised now. Last flagged 2026-10-14 08:00 UTC (taker drawdown, negative streak).')
     ).toBeInTheDocument();
   });
 
@@ -461,9 +467,35 @@ describe('CrossSectionalPortfolioCard ranking and history', () => {
     });
     render(<CrossSectionalPortfolioCard />);
     expect(
-      screen.getByText(
+      paragraph(
         'Archived: book rv-8h-buffer2 (spot prices, pre-rv-v1 rules) is read-only and no longer stepped. Last signal processed 2026-10-13 16:00 UTC, taker $10,010.25, maker $10,250.75.'
       )
     ).toBeInTheDocument();
+  });
+
+  it('never breaks a timestamp inside a sentence across lines', () => {
+    const pending: RvStepView = {
+      ...completedStep({ barTime: T0 + 2 * BAR, fillTime: T0 + 3 * BAR }),
+      bookAfter: null,
+      taker: null,
+      maker: null,
+      pendingReasons: ['funding_missing:SOLUSDT'],
+    };
+    mockHook({
+      data: response({
+        step: pending,
+        lastAlert: { barTime: T0, fillTime: T0 + BAR, kinds: ['drawdown_taker'] },
+        legacy: { bookName: 'rv-8h-buffer2', equityMaker: 10_250.75, equityTaker: 10_010.25, lastProcessedBarTime: T0 - BAR },
+      }),
+      isError: true,
+      error: new Error('Request failed with status 502'),
+      dataUpdatedAt: Date.UTC(2026, 9, 14, 17, 30),
+    });
+    render(<CrossSectionalPortfolioCard />);
+
+    const stamps = screen.getAllByText(STAMP);
+    // pending step, last flagged, legacy note, refresh failure and the ranking button
+    expect(stamps).toHaveLength(5);
+    for (const stamp of stamps) expect(stamp).toHaveClass('whitespace-nowrap');
   });
 });
