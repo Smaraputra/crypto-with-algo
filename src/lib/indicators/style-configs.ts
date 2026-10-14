@@ -155,3 +155,21 @@ export function getStyleConfig(style: TradingStyle): StyleIndicatorProfile {
   return STYLE_CONFIGS[style];
 }
 
+
+/**
+ * Style and interval pairs the scheduler no longer scores, with the reason.
+ * `preferredIntervals` is left whole so calibration, live outcomes and every
+ * history reader can still address the stored records of a retired pair.
+ */
+export const RETIRED_SCORING_INTERVALS: Readonly<Record<string, string>> = {
+  'scalping:1m':
+    '2026-10-14: v8 is measured no edge (net -0.19% per call at 1m in the live record), nothing reads ' +
+    '1m scores, and the 1m paper book is already retired',
+};
+
+/** The intervals the scheduler scores for a style: `preferredIntervals` minus retired pairs. */
+export function scoredIntervals(style: TradingStyle): string[] {
+  return STYLE_CONFIGS[style].preferredIntervals.filter(
+    (interval) => !(`${style}:${interval}` in RETIRED_SCORING_INTERVALS)
+  );
+}

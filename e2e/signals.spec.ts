@@ -66,7 +66,7 @@ test.describe('Signals page (authenticated)', () => {
     await expect(select.locator('option[value="5m"]')).toHaveCount(0);
   });
 
-  test('switching to scalping tab changes intervals to 1m and 5m', async ({ page }) => {
+  test('switching to scalping tab offers 5m only (1m scoring is retired)', async ({ page }) => {
     await page.goto('/signals');
 
     // Click Scalping tab
@@ -78,8 +78,8 @@ test.describe('Signals page (authenticated)', () => {
 
     const select = page.getByTestId('interval-select');
 
-    // Scalping preferred intervals: 1m, 5m
-    await expect(select.locator('option[value="1m"]')).toHaveText('1m');
+    // Scalping scored intervals: 5m only
+    await expect(select.locator('option[value="1m"]')).toHaveCount(0);
     await expect(select.locator('option[value="5m"]')).toHaveText('5m');
 
     // Should NOT have day trading intervals
@@ -193,9 +193,10 @@ test.describe('Signals page (authenticated)', () => {
       'active'
     );
 
-    // Interval should have switched to scalping intervals (1m, 5m)
+    // Interval should have switched to the scalping interval (5m)
     const select = page.getByTestId('interval-select');
-    await expect(select.locator('option[value="1m"]')).toHaveCount(1);
+    await expect(select.locator('option[value="5m"]')).toHaveCount(1);
+    await expect(select).toHaveValue('5m');
   });
   test('shows the trade plan card for the selected style and interval', async ({ page }) => {
     await page.goto('/signals');
