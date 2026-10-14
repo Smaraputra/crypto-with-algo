@@ -758,7 +758,7 @@ Assets are sorted descending by $Z_{i, \text{composite}}$ and assigned ranks $r_
 - **Dynamic Deadband Buffer Protection**:
   The hysteresis buffer is automatically clamped ($B_{\text{effective}} = \min(B, \lfloor(N - 2L - 1)/2\rfloor)$) if transient API dropouts temporarily reduce active universe size $N$, preventing deadband overlap exceptions. With L = 2 and B = 2 the clamp engages whenever N is below 9.
 - **Individual Leg Stop Loss Evaluation**:
-  Benchmarking of intra-bar catastrophic stop losses (-6%, -8%) on spot candle data showed severe performance degradation (+18.81% maker net return vs +250.43% control). Both figures come from the unverified spot-data runs described in 8.5. The whipsaw cost of re-entering stops after mean reversion offsets any protection. Consequently, individual stop-losses are omitted; beta-neutral pairing serves as structural risk mitigation.
+  Empirical benchmarking of intra-bar catastrophic stop losses (-6%, -8%) showed severe performance degradation (+18.81% maker net return vs +250.43% control). The whipsaw cost of re-entering stops after mean reversion offsets any protection. Consequently, individual stop-losses are omitted; beta-neutral pairing serves as structural risk mitigation. Correction (2026-10-15): both figures come from the unverified spot-data runs described in 8.5, among at least 14 unregistered configurations, so the decision to omit stops is unverified.
 
 ### 8.5 Empirical Backtest and Statistical Validation (superseded by the audit)
 
