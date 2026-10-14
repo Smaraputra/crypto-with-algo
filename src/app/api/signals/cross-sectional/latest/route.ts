@@ -2,12 +2,17 @@ import { NextResponse } from 'next/server';
 
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
-import { RvBook, RV_BOOK_NAME, type RvBookState, type RvValidationStatus } from '@/lib/models/rv-book';
+import {
+  DRAWDOWN_ALERT,
+  RvBook,
+  RV_BOOK_NAME,
+  type RvBookState,
+  type RvValidationStatus,
+} from '@/lib/models/rv-book';
 import { RvSignal } from '@/lib/models/rv-signal';
 import { RvStep } from '@/lib/models/rv-step';
 import { CrossSectionalBook } from '@/lib/models/cross-sectional-book';
 import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
-import { DRAWDOWN_ALERT } from '@/lib/paper-desk/rv-desk';
 import {
   NEGATIVE_STREAK_FLAG,
   raisedAlertKinds,

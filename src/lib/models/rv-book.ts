@@ -19,6 +19,9 @@ export interface RvFillBucket {
 export type RvFillBucketKey = '00' | '08' | '16' | 'weekday' | 'weekend';
 export type RvFillStats = Record<RvFillBucketKey, RvFillBucket>;
 
+/** Drawdown from a track's peak that raises its alert flag. */
+export const DRAWDOWN_ALERT = 0.15;
+
 /** Descriptive flags only: none of them ever stops the desk trading. */
 export interface RvAlerts {
   /** The taker track's equity is 15% or more below its peak. */

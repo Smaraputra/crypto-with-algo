@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb';
 import { retryOnce, RETRY_ONCE_DELAY_MS } from '@/lib/retry-once';
 import { FundingSettlement, type IFundingSettlement } from '@/lib/models/funding-settlement';
 import {
+  DRAWDOWN_ALERT,
   RvBook,
   RV_BOOK_NAME,
   type IRvBook,
@@ -55,8 +56,6 @@ export const LEASE_MS = 10 * 60 * 1000;
 export const READY_DELAY_MS = RV_V1.makerWindowMs + 2 * 60 * 1000;
 /** A step pending longer than one cadence past its ready time fails the run. */
 export const STALE_PENDING_MS = RV_V1.barMs;
-/** Drawdown from the track's peak that raises its alert flag. */
-export const DRAWDOWN_ALERT = 0.15;
 /** Steps one run takes at most, so a long outage drains over several runs inside the lease. */
 export const MAX_STEPS_PER_RUN = 12;
 
