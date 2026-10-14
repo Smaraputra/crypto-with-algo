@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
 import {
+  useCrossSectionalLatest,
   useGlobalSignals,
   useLatestSignals,
   useLatestSignalForStyle,
@@ -264,5 +265,29 @@ describe('useTradePlan', () => {
     const { wrapper, queryClient } = createWrapper();
     renderHook(() => useTradePlan('ETHUSDT', 'scalping', '5m'), { wrapper });
     expect(queryClient.getQueryCache().find({ queryKey: ['tradePlan', 'ETHUSDT', 'scalping', '5m'] })).toBeDefined();
+  });
+});
+
+describe('useCrossSectionalLatest', () => {
+  it('reads the rv-v1 desk from the latest route', async () => {
+    const body = { success: true, signal: null, step: null, completedStep: null, book: null, lastAlert: null, legacy: null };
+    const fetchSpy = mockFetch(body);
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCrossSectionalLatest(), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchSpy).toHaveBeenCalledWith('/api/signals/cross-sectional/latest', undefined);
+    expect(result.current.data).toEqual(body);
+  });
+
+  it('surfaces the route error message when the read fails', async () => {
+    mockFetch({ success: false, error: 'Could not read the rv-v1 desk' }, 500);
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCrossSectionalLatest(), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe('Could not read the rv-v1 desk');
   });
 });

@@ -6,6 +6,7 @@ import { fetchJson } from '@/lib/fetch-json';
 import type { SignalComponent, SignalTier } from '@/types/signal';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import type { TradePlanResponse } from '@/lib/trade-plan/types';
+import type { RvLatestResponse } from '@/lib/paper-desk/rv-latest';
 
 export interface GlobalSignalRecord {
   _id: string;
@@ -140,68 +141,11 @@ export function useTradePlan(
   });
 }
 
-export interface CrossSectionalLatestResponse {
-  success: boolean;
-  signal: {
-    timestamp: number;
-    barCloseTime: number;
-    cadence: string;
-    universe: string[];
-    targets: Array<{
-      symbol: string;
-      weight: number;
-      side: 'long' | 'short' | 'flat';
-    }>;
-    ranks: Array<{
-      symbol: string;
-      compositeZ: number;
-      zMom: number;
-      zIdio: number;
-      zCarry: number;
-      zFlow: number;
-      rank: number;
-    }>;
-    snapshots: Array<{
-      symbol: string;
-      close: number;
-      return14d: number;
-      fundingRate: number;
-      btcReturn14d: number;
-      betaToBtc: number;
-      takerBuyRatio: number;
-    }>;
-    turnover: number;
-    netBetaExposure: number;
-    grossExposure: number;
-  } | null;
-  book: {
-    bookName: string;
-    startEquity: number;
-    equityMaker: number;
-    equityTaker: number;
-    markedEquityMaker?: number;
-    markedEquityTaker?: number;
-    unrealizedPnlMaker?: number;
-    unrealizedPnlTaker?: number;
-    lastProcessedBarTime: number | null;
-    positions: Array<{
-      symbol: string;
-      side: 'long' | 'short';
-      weight: number;
-      entryPrice: number;
-      entryTime: number;
-      notionalMaker: number;
-      notionalTaker: number;
-      barsHeld: number;
-      currentPrice?: number;
-      unrealizedPnlMaker?: number;
-      unrealizedPnlTaker?: number;
-    }>;
-    totalTurnover: number;
-    totalFundingCollected: number;
-    peakLeverage: number;
-  } | null;
-}
+/**
+ * The rv-v1 paper desk: newest signal, newest and newest completed step, the
+ * book, the rule's costs, the last raised flag and the archived legacy book.
+ */
+export type CrossSectionalLatestResponse = RvLatestResponse;
 
 export function useCrossSectionalLatest() {
   return useQuery<CrossSectionalLatestResponse>({
