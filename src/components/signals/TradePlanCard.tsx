@@ -434,7 +434,7 @@ export function TradePlanCard({ data, isLoading, isError }: TradePlanCardProps) 
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <V8StatusBanner />
+        <V8StatusBanner compact />
         {isLoading ? (
           <div className="space-y-2" data-testid="trade-plan-loading">
             <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />

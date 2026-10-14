@@ -7,7 +7,21 @@ import { V8_STATUS } from '@/lib/signals/v8-status';
  * language of the cards around it: the label is the one emphasised phrase,
  * the studies sit behind a native disclosure so they cost no space by default.
  */
-export function V8StatusBanner() {
+export function V8StatusBanner({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <p
+        data-testid="v8-status-banner"
+        className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted-foreground"
+      >
+        <strong className="font-semibold text-accent">{V8_STATUS.label}</strong>
+        <Link href="/dashboard#track-record" className="text-foreground underline underline-offset-2">
+          Chart track record
+        </Link>
+      </p>
+    );
+  }
+
   return (
     <section
       aria-label="v8 measurement status"

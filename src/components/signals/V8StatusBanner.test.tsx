@@ -18,6 +18,19 @@ describe('V8StatusBanner', () => {
     );
   });
 
+  it('renders a one-line compact form with the label and the link only', () => {
+    render(<V8StatusBanner compact />);
+    const note = screen.getByTestId('v8-status-banner');
+
+    expect(note).toHaveTextContent('Measured: no edge');
+    expect(within(note).getByRole('link', { name: /track record/i })).toHaveAttribute(
+      'href',
+      '/dashboard#track-record'
+    );
+    expect(within(note).queryAllByRole('listitem')).toHaveLength(0);
+    expect(note).not.toHaveTextContent('kept as a record');
+  });
+
   it('lists the four studies behind the label', () => {
     render(<V8StatusBanner />);
     expect(within(screen.getByTestId('v8-status-banner')).getAllByRole('listitem')).toHaveLength(4);
