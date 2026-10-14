@@ -75,20 +75,6 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
 
   { job: 'cross-sectional-signals', path: '/api/cron/cross-sectional-signals', params: {}, schedule: '1 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
   { job: 'cross-sectional-paper', path: '/api/cron/cross-sectional-paper', params: {}, schedule: '2 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
-
-  {
-    job: 'monthly-optimization',
-    path: '/api/cron/monthly-optimization',
-    params: {},
-    // Worst-case gap between the 1st of two consecutive months.
-    schedule: '0 0 1 * *',
-    expectedEverySeconds: 31 * DAY,
-    method: 'POST',
-    noHeartbeat:
-      'fire-and-forget: the route returns 200 immediately and runs the orchestrator in the ' +
-      'background, so a wrapper would record success at the moment the work starts. Its health ' +
-      'is derived from the newest CronRun document instead.',
-  },
 ] as const;
 
 /**
@@ -115,12 +101,6 @@ export const DERIVED_JOBS: readonly DerivedJobSpec[] = [
     schedule: '7 */2 * * *',
     expectedEverySeconds: 2 * HOUR,
     derivedFrom: 'newest LlmCall.createdAt',
-  },
-  {
-    job: 'monthly-optimization',
-    schedule: '0 0 1 * *',
-    expectedEverySeconds: 31 * DAY,
-    derivedFrom: 'newest CronRun of type monthly_optimization',
   },
 ] as const;
 
