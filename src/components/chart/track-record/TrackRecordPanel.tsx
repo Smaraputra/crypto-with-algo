@@ -50,6 +50,7 @@ function signClass(v: number | null): string {
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section
+      id="track-record"
       aria-labelledby="track-record-title"
       data-testid="track-record-panel"
       className="mt-2 rounded-sm border border-border bg-card px-3 py-3 text-xs text-muted-foreground sm:px-4"

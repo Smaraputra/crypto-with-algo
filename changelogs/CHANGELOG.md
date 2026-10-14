@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: v8 slimmed down
+- **Stopped**: scalping no longer scores 1m (`RETIRED_SCORING_INTERVALS`, `scoredIntervals` in `style-configs.ts`), so the scalping run now writes 10 tasks at 5m instead of 20. The monthly optimization schedule is removed from `docker/crontab.template`, `CRON_JOBS`, `DERIVED_JOBS` and the cron health report.
+- **Stays**: `preferredIntervals` is unchanged, so stored 1m records stay readable by calibration and live outcomes. The scalping cron line, the 5m paper desk book, the monthly optimization route and its admin trigger are untouched.
+- **Labelled**: `/signals` and the trade plan card carry a "Measured: no edge" note (`src/lib/signals/v8-status.ts`) that links to the chart track record. It states four recorded verdicts: live record, year re-score, 5m paper desk read and the direction-exit study (0 of 24 passed).
+- **Why**: 1m scoring was about 78% of v8's writes and nothing reads it. The monthly optimizer produced v8 templates that were never auto-activated. Full retirement waits for the relative value re-validation verdict. See the v8-final tag and the archive entry.
+
 ### Research: 1,000-trial permutation testing, cross-returns lead-lag harness, and Stage 4 walk-forward permutation
 - **1,000-Trial Vectorized Permutation Engine**: Upgraded `scripts/research/cross-sectional-permutation.ts` to support 1,000 permutations by default. Optimized universe reconstruction by pre-sizing typed bar arrays. Added empirical Monte Carlo p-value standard error calculation ($SE(p) = \sqrt{p(1-p)/M}$) and Z-score null distance metrics.
 - **Standalone Cross-Returns & Lead-Lag Harness**: Created `scripts/research/cross-returns-leadlag.ts` (and unit tests `cross-returns-leadlag.test.ts`), implementing dual-benchmark beta residualization ($I_{i} = M_i - \beta_{i,\text{BTC}} M_{\text{BTC}} - \beta_{i,\text{BNB}} M_{\text{BNB}}$ via ridge regression) and pairwise autoregressive distributed lags (ARDL) to test MemLabs's lead-lag and sector relative strength hypotheses with cross-sectional Rank IC evaluation.
