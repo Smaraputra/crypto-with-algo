@@ -26,6 +26,10 @@ export interface IFundingSettlement extends Document {
   rate: number;
   /** Hours between settlements as the archive states it; null when the column is empty. */
   intervalHours: number | null;
+  /** Mark price at settlement, from the REST history; null when unknown (archive rows carry none). */
+  markPrice: number | null;
+  /** Where the row came from. A REST sync never overwrites an archive row's rate or interval. */
+  source: 'archive' | 'rest';
 }
 
 const fundingSettlementSchema = new Schema<IFundingSettlement>(
@@ -35,6 +39,8 @@ const fundingSettlementSchema = new Schema<IFundingSettlement>(
     rawTime: { type: Number, required: true },
     rate: { type: Number, required: true },
     intervalHours: { type: Number, default: null },
+    markPrice: { type: Number, default: null },
+    source: { type: String, enum: ['archive', 'rest'], default: 'archive' },
   },
   { timestamps: false }
 );
