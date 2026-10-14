@@ -74,6 +74,18 @@
  *   line in RESULT that funding is charged at the fill price because the panel carries no settlement
  *   mark price.
  *
+ * AMENDMENT 3 (2026-10-15, before the `inputs` stage and before any rv perp history was read). Every
+ * item tightens. It comes from the second review of the panel machinery:
+ * - Null carry: HALT if any bar has no funding settlement in its carry window (bar close - 8h, bar
+ *   close]. This can only follow a cleared no-event flag. The real panel then carries no null carry
+ *   input, and no permutation can create one, because a permutation only moves existing values.
+ * - Resolution neighbours: the settlement times either side recorded in a no-event entry must be the
+ *   export's own nearest settlement rows on either side of the flag, as well as REST's. A cleared
+ *   flag cannot hide a real settlement missing from the export next to it.
+ * - Verified resolutions only: the panel accepts a resolutions file only after the REST re-check of
+ *   AMENDMENT 1 has passed in the same run.
+ * - Added halts: a 4h or 1h row with zero volume, or with a taker-buy volume above its volume.
+ *
  * WHAT IS ALREADY KNOWN (disclosed, not hidden):
  * - Spot, full span 2021-10 to 2026-10-12 (5,462 8h bars), live configuration: +250.43% net maker,
  *   +117.80% net taker, about 180x annual turnover (VPS report-stop-control.json, void as validation).
