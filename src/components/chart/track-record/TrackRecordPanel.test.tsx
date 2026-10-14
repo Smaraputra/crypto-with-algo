@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { pointMeasures } from '@/lib/signals/track-record/measures';
@@ -99,6 +99,14 @@ const props = { symbol: 'BTCUSDT', interval: '1h', style: 'day_trading' as const
 beforeEach(() => {
   query.refetch.mockReset();
   query.state = { isPending: false, isError: false, error: null, data: available() };
+});
+
+// jsdom has no scrollIntoView, so the scroll tests install a stub. Put back
+// whatever was there so the stub does not leak into later files in the worker.
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+afterEach(() => {
+  if (originalScrollIntoView) Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView);
+  else delete (Element.prototype as Partial<Element>).scrollIntoView;
 });
 
 describe('TrackRecordPanel', () => {
