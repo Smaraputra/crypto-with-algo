@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: shared rv-v1 engine and perp inputs (not yet wired)
+- **Pure engine**: `src/lib/signals/cross-sectional/engine.ts` holds the frozen `RV_V1` configuration, `rvFactors`, `rvComposite`, `rvTargets` and the `rvStep` accounting, with no database, network or clock access, so the live desk and later research can call the same code. Nothing calls it yet.
+- **Defects addressed in the engine**: D07 (a held symbol missing from the ranking throws `held_symbol_unscored` instead of becoming an exit), D08 (fills priced at the next bar open, sizing from one equity snapshot, entry price tracked through resizes and flips, no equity clamps), D12 (missing taker volume skips the symbol, flow window pinned at 43 bars), D13 (retained legs trimmed by rank, not map order), D14 factors side (beta paired by open time, contiguity and last-bar checks), D16 accounting side (every funding settlement crossed is charged at its mark price) and D20 constants (standard futures fees, `8h` slippage budget of 2 bps).
+- **Inputs**: perp klines now carry base volume, trade count and taker buy volume. A REST funding settlement sync (`src/lib/funding-settlement-sync.ts`) fills gaps with mark prices without overwriting archive rows. `secondsBetweenRuns` accepts the stepped hour form `5 1-23/8 * * *`.
+
 ### Research: 1,000-trial permutation testing, cross-returns lead-lag harness, and Stage 4 walk-forward permutation
 - **1,000-Trial Vectorized Permutation Engine**: Upgraded `scripts/research/cross-sectional-permutation.ts` to support 1,000 permutations by default. Optimized universe reconstruction by pre-sizing typed bar arrays. Added empirical Monte Carlo p-value standard error calculation ($SE(p) = \sqrt{p(1-p)/M}$) and Z-score null distance metrics.
 - **Standalone Cross-Returns & Lead-Lag Harness**: Created `scripts/research/cross-returns-leadlag.ts` (and unit tests `cross-returns-leadlag.test.ts`), implementing dual-benchmark beta residualization ($I_{i} = M_i - \beta_{i,\text{BTC}} M_{\text{BTC}} - \beta_{i,\text{BNB}} M_{\text{BNB}}$ via ridge regression) and pairwise autoregressive distributed lags (ARDL) to test MemLabs's lead-lag and sector relative strength hypotheses with cross-sectional Rank IC evaluation.
