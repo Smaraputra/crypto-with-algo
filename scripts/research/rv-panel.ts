@@ -260,7 +260,9 @@ export function fundingPerBar(
  * smallest neighbouring gap that is a Binance interval, so a lone long gap is flagged by
  * missingSettlements. A row takes the interval of the gap that ends at it, and the first row takes the
  * first gap's. Every switch this produces is itself flagged by fundingFlags (AMENDMENT 2), so a missing
- * settlement next to a switch cannot pass as the switch.
+ * settlement next to a switch cannot pass as the switch, and a stretch of missing settlements is caught at
+ * the switches that bound it. Remaining blind spot: a null-interval series spaced at a multiple of its true
+ * interval throughout, with no switch and no stated-interval row beside it, reads as a clean series.
  */
 export function deriveIntervals(symbol: string, sorted: readonly FundingRow[]): { rows: FundingRow[]; derived: boolean[] } {
   const derived = sorted.map((r) => r.intervalHours === null);

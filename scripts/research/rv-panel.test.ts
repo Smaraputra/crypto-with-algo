@@ -266,6 +266,14 @@ describe('fundingFlags (header DATA and AMENDMENTS 1 and 2: settlements that nee
     expect(fundingFlags('X', stated, window)).toEqual(missing(T0 + 3 * DAY + H4));
   });
 
+  it('flags both instants of the alternating pattern that 1874533 let pass (4h gaps 4, 8, 8, 4 with null intervals)', () => {
+    const rows = nul(grid8(T0 + H4, T0 + 2 * DAY + H8, 4)).filter((r) => r.t !== T0 + DAY + 12 * H && r.t !== T0 + DAY + 20 * H);
+    expect(fundingFlags('X', rows, { from: T0, to: T0 + 2 * DAY + H8 })).toEqual([
+      flag(T0 + DAY + 12 * H, 'derived-switch'),
+      flag(T0 + DAY + 20 * H, 'derived-switch'),
+    ]);
+  });
+
   it('judges a lone long null-interval gap at its smallest Binance-interval neighbour (review m1, PA16)', () => {
     // 4h spacing to A, one 8h gap, then 2h spacing: the 8h gap is judged at 2h, not 4h
     const A = T0 + DAY;
