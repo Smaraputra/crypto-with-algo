@@ -44,10 +44,17 @@ export async function syncFundingSettlements(
       const start = newest ? newest.fundingTime - OVERLAP_MS : now - INITIAL_LOOKBACK_MS;
       const events = await deps.fetchFundingHistory(symbol, start, now);
 
-      const ops = events
-        .filter((e) => Number.isFinite(e.fundingTime) && Number.isFinite(e.fundingRate))
-        .map((e) => {
-          const fundingTime = settlementTimeOf(e.fundingTime);
+      // Two prints rounding to one boundary would put the same key twice in one bulkWrite
+      const byBoundary = new Map<number, FundingRate>();
+      for (const e of events) {
+        if (!Number.isFinite(e.fundingTime) || !Number.isFinite(e.fundingRate)) continue;
+        const key = settlementTimeOf(e.fundingTime);
+        const prior = byBoundary.get(key);
+        if (!prior || e.fundingTime > prior.fundingTime) byBoundary.set(key, e);
+      }
+
+      const ops = [...byBoundary]
+        .map(([fundingTime, e]) => {
           const hasMark = Number.isFinite(e.markPrice);
           return {
             updateOne: {

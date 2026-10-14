@@ -152,7 +152,14 @@ function scoreSymbol(input: RvSymbolInput, barTime: number, cfg: RvConfig): Scor
   let buy = 0;
   let vol = 0;
   for (const b of bars) {
-    if (b.takerBuyVolume === null || !Number.isFinite(b.takerBuyVolume) || !Number.isFinite(b.volume)) {
+    if (
+      b.takerBuyVolume === null ||
+      !Number.isFinite(b.takerBuyVolume) ||
+      !Number.isFinite(b.volume) ||
+      b.volume < 0 ||
+      b.takerBuyVolume < 0 ||
+      b.takerBuyVolume > b.volume
+    ) {
       return 'flow_missing';
     }
     buy += b.takerBuyVolume;
@@ -171,11 +178,12 @@ function windowReturns(bars: RvBar[], momBars: number): Map<number, number> {
   return out;
 }
 
-function betaOf(rets: Map<number, number>, btc: Map<number, number>, cfg: RvConfig): number {
+/** Exported for tests: the aligned-pair beta used by rvFactors. */
+export function rvBeta(rets: Map<number, number>, btc: Map<number, number>, cfg: RvConfig): number {
   const pairs: [number, number][] = [];
   for (const [t, r] of rets) {
     const b = btc.get(t);
-    if (b === undefined) throw new Error(`BTC return missing at ${t} for a validated window`);
+    if (b === undefined) throw new RvDataError('bad_input', `BTC return missing at ${t}, so the beta pair cannot be aligned`);
     pairs.push([r, b]);
   }
   const n = pairs.length;
@@ -215,7 +223,7 @@ export function rvFactors(inputs: RvSymbolInput[], barTime: number, cfg: RvConfi
 
   const btcRets = windowReturns(btc.bars, cfg.momBars);
   const partial = scored.map((s) => {
-    const beta = s.symbol === 'BTCUSDT' ? 1.0 : betaOf(windowReturns(s.bars, cfg.momBars), btcRets, cfg);
+    const beta = s.symbol === 'BTCUSDT' ? 1.0 : rvBeta(windowReturns(s.bars, cfg.momBars), btcRets, cfg);
     return { ...s, beta, idio: s.mom - beta * btc.mom };
   });
 

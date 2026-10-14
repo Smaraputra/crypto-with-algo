@@ -106,6 +106,16 @@ describe('syncFundingSettlements', () => {
     expect(res[0].inserted).toBe(0);
   });
 
+  it('collapses two events rounding to one boundary into one row without error', async () => {
+    const boundary = NOW - (NOW % EIGHT);
+    const events = [event('BTCUSDT', boundary - 1, 0.0001), event('BTCUSDT', boundary + 1, 0.0002)];
+    const res = await syncFundingSettlements(['BTCUSDT'], NOW, { fetchFundingHistory: vi.fn().mockResolvedValue(events) });
+    expect(res).toEqual([{ symbol: 'BTCUSDT', inserted: 1, updated: 0 }]);
+    const rows = await FundingSettlement.find({ symbol: 'BTCUSDT' }).lean();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ fundingTime: boundary, rawTime: boundary + 1, rate: 0.0002 });
+  });
+
   it('stores null markPrice for a new row without one', async () => {
     const boundary = NOW - (NOW % EIGHT);
     await syncFundingSettlements(['BTCUSDT'], NOW, {

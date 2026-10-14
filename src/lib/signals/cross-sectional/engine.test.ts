@@ -8,6 +8,7 @@ import {
   RV_V1,
   RvDataError,
   rvComposite,
+  rvBeta,
   rvFactors,
   rvInitialState,
   rvStep,
@@ -236,6 +237,26 @@ describe('rvFactors', () => {
         { symbol: 'ETHUSDT', reason: 'flow_missing' },
       ]);
     }
+  });
+
+  it('skips with flow_missing for negative volume, negative taker volume or taker above total', () => {
+    const eth = universe().find((u) => u.symbol === 'ETHUSDT')!;
+    const patch = (p: Partial<RvBar>) => eth.bars.map((b, i) => (i === 10 ? { ...b, ...p } : b));
+    for (const bars of [
+      patch({ volume: -1, takerBuyVolume: -1 }),
+      patch({ takerBuyVolume: -5 }),
+      patch({ takerBuyVolume: 1001 }),
+    ]) {
+      expect(rvFactors(withSymbol('ETHUSDT', { bars }), T).skipped).toEqual([
+        { symbol: 'ETHUSDT', reason: 'flow_missing' },
+      ]);
+    }
+  });
+
+  it('throws bad_input when a beta pair cannot be aligned by open time', () => {
+    const rets = new Map([[1, 0.01], [2, 0.02], [3, -0.01]]);
+    const btc = new Map([[1, 0.01], [2, 0.02], [4, -0.01]]);
+    expect(() => rvBeta(rets, btc, RV_V1)).toThrow(expect.objectContaining({ code: 'bad_input' }));
   });
 
   it('skips with bars_not_contiguous for a gap inside the window', () => {
