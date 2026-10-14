@@ -290,7 +290,7 @@ describe('runRealStage (header STEPS 1 and 3, REPORTED inputs)', () => {
     const detail = runCells(panel, { cells: [11], detail: true }).runs[0];
     expect(real.rvV1.returns).toEqual(real.step1.returns[11]);
     expect(real.rvV1.detail).toEqual(detail.detail);
-    const costs = { ...RV_V1.costs, takerFee: RV_V1.costs.takerFee * 1.5, takerSlippageBps: RV_V1.costs.takerSlippageBps * 2 };
+    const costs = { takerFee: RV_V1.costs.takerFee * 1.5, makerFee: RV_V1.costs.makerFee * 1.5, takerSlippageBps: RV_V1.costs.takerSlippageBps * 2 };
     expect(real.stress.costs).toEqual(costs);
     expect(real.stress.returns).toEqual(runCells(panel, { cells: [11], costs }).runs[0].returns);
     expect(real.maker.returns).toEqual(runCells(panel, { cells: [11], maker: firstHour, detail: true }).runs[0].returns);

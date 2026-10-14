@@ -245,10 +245,10 @@ export async function runInputsStage(opts: {
 
 // ------------------------------------------------------------------------------------------------ real
 
-/** Header REPORTED: one combined stress run at 1.5x fees and 2x slippage. */
+/** Header REPORTED: one combined stress run at 1.5x fees (both, though the taker track pays only the taker fee) and 2x slippage. */
 export const STRESS_COSTS: RvConfig['costs'] = {
-  ...RV_V1.costs,
   takerFee: RV_V1.costs.takerFee * 1.5,
+  makerFee: RV_V1.costs.makerFee * 1.5,
   takerSlippageBps: RV_V1.costs.takerSlippageBps * 2,
 };
 
