@@ -74,6 +74,8 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'snapshot-portfolios', path: '/api/cron/snapshot-portfolios', params: {}, schedule: '0 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
 
   { job: 'cross-sectional-signals', path: '/api/cron/cross-sectional-signals', params: {}, schedule: '1 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+  // Same job thirty minutes later: a stored signal is never rewritten, so this only fills a bar the first line could not store.
+  { job: 'cross-sectional-signals:retry', path: '/api/cron/cross-sectional-signals', params: { attempt: 'retry' }, schedule: '31 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
   { job: 'cross-sectional-paper', path: '/api/cron/cross-sectional-paper', params: {}, schedule: '2 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
 
   {
