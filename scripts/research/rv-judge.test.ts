@@ -76,14 +76,14 @@ describe('ksUniform (header CALIBRATION: Kolmogorov-Smirnov p against uniform)',
 
 describe('rvDsr (header VERDICT G3, N = 672, V floor 1 / (T - 1))', () => {
   /** Hand computation of the deflated Sharpe, written from Bailey and Lopez de Prado (2014). */
-  function hand(series: number[][], N: number) {
+  function hand(series: number[][], N: number, cell = 11) {
     const sharpes = series.map((s) => perPeriodSharpe(s));
     const mean = sharpes.reduce((a, b) => a + b, 0) / 12;
     const cross = sharpes.reduce((a, b) => a + (b - mean) ** 2, 0) / 11;
     const T = series[11].length;
     const V = Math.max(cross, 1 / (T - 1));
     const sr0 = Math.sqrt(V) * ((1 - GAMMA) * normalQuantile(1 - 1 / N) + GAMMA * normalQuantile(1 - 1 / (N * Math.E)));
-    const sr = sharpes[11];
+    const sr = sharpes[cell];
     const g3 = sampleSkewness(series[11]);
     const g4 = sampleKurtosis(series[11]);
     return { V, cross, sr0, psr: normalCdf(((sr - sr0) * Math.sqrt(T - 1)) / Math.sqrt(1 - g3 * sr + ((g4 - 1) / 4) * sr * sr)) };
@@ -119,10 +119,12 @@ describe('rvDsr (header VERDICT G3, N = 672, V floor 1 / (T - 1))', () => {
   });
 
   it('G3 deflates cell 11\'s Sharpe, not the best cell\'s', () => {
-    // the spread reversed: cell 0 leads and cell 11 trails
-    const series = make(-0.0005, 3);
+    // a small reversed spread: cell 11 trails, and neither probability saturates, so the two readings differ
+    const series = make(-0.00002, 3);
     const sharpes = series.map((x) => perPeriodSharpe(x));
-    expect(Math.max(...sharpes)).toBe(sharpes[0]);
+    const bestCell = sharpes.indexOf(Math.max(...sharpes));
+    expect(bestCell).not.toBe(11);
+    expect(Math.abs(hand(series, 672, bestCell).psr - hand(series, 672).psr)).toBeGreaterThan(0.01);
     const out = rvDsr(series);
     expect(out.observedSharpe).toBe(sharpes[11]);
     expect(out.gate.probability).toBeCloseTo(hand(series, 672).psr, 12);
@@ -332,8 +334,11 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     );
     expect(other.pass).toBe(true);
     expect(() => judgeVerdict(real, ok, loaded, other)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*commit/);
-    // a record whose pass flag was flipped is recomputed from its own p-values
+    // a record's pass flag is recomputed from its own p-values, in both directions
     expect(() => judgeVerdict(real, ok, loaded, { ...failed, pass: true })).toThrow(/REFUSE[\s\S]*calibration/);
+    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, pass: false })).toThrow(/REFUSE[\s\S]*pass flag does not recompute/);
+    // and its universes must be the header's 130
+    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, universes: calOk.universes.slice(1) })).toThrow(/130 header universes/);
   });
 
   it('reports every item the inputs allow', () => {
