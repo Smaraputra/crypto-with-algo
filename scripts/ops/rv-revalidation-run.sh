@@ -237,6 +237,8 @@ finish() {
   log "stage $STAGE exit $1"
   printf '{"stage":"%s","exit":%d,"commit":"%s","at":"%s"}\n' "$STAGE" "$1" "$GIT_COMMIT" "$(date -u +%FT%TZ)" >> "$OUT/stages.log"
   rm -rf "$LOCK"
+  # Released: a signal between here and the exit must not log the stage a second time
+  LOCKED=0
 }
 
 # on_signal <name> <code>  set before the lock is taken (7C re-review m1). Every signal is ignored from here on, so a
