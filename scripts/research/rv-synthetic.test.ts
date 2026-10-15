@@ -1,11 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { createHash } from 'crypto';
 
 import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
-import { stableStringify } from './broad-trend';
 import { RV_SYMBOLS, type RvPanel } from './rv-panel';
 import {
   ANNUALISATION,
@@ -261,20 +259,29 @@ describe('rvV1NetTakerReturns (the reference rv-v1 run that fixes kappa)', () =>
 describe('syntheticPanel carry-only universe (AMENDMENT 2: kappa 0, a larger c, reported never gating)', () => {
   /** Not in the header: the carry-only universe takes the next free seed block, base + 230,000 + k. */
   const carrySeed = (k: number) => BASE + 230_000 + k;
-  const sha = (p: RvPanel) => createHash('sha256').update(stableStringify(p)).digest('hex');
 
-  it('adding the mode left the iid, garch and planted panels byte-identical (hashes taken before the change)', () => {
-    const pinned: Record<string, string> = {
-      'iid 1': '91c3c4eb9147c990bedb49b8785bcd4038082fc95cef8fdc1f16ce5355b4c9bf',
-      'iid 20471015': 'fc24f27fd784249bbb2c62d3626067c986fe73f29dfa9ad57039031528a4e19d',
-      'garch 1': '4919577cabdecd0d58a4695fa3e7d1597506d731c0c0b8a874b7516d468918de',
-      'garch 20471015': '55d15427b71123dabf1a42b70e6804eed32c3b69618fdacd80e531f58c4f3e0a',
-      'planted 1': '576b053f79d339c509f295a6fa207268d062565bf36e82ce9e9b87c8ddf97dd6',
-      'planted 20471015': '7e0063168a97e758ce5d128391e3ae21e15482461ec69d88930c76076a28391e',
+  it('adding the mode left the iid, garch and planted panels unchanged (fingerprints taken before the change)', () => {
+    // Fingerprints, not sha256: Math.log, exp and sqrt may differ in the last bit between Node versions (CI runs 20,
+    // the VPS image 22), so a bitwise hash only holds on the machine that took it. A relative tolerance of 1e-9 is
+    // far above that noise and far below any real change to the generator (draw order, loadings, constants).
+    const pinned: Record<string, { logClose: number; fundSum: number; volume: number; tbv: number }> = {
+      'iid 1': { logClose: 95685.46252850477, fundSum: 3.0005376749123633, volume: 27638600962.225796, tbv: 13810830826.663094 },
+      'iid 20471015': { logClose: 98413.81960818502, fundSum: 2.9998462669510118, volume: 27965301518.13426, tbv: 13980811352.399519 },
+      'garch 1': { logClose: 85414.46736441819, fundSum: 3.0005376749123633, volume: 27638600962.225796, tbv: 13810830826.663094 },
+      'garch 20471015': { logClose: 91197.61680278674, fundSum: 2.9998462669510118, volume: 27965301518.13426, tbv: 13980811352.399519 },
+      'planted 1': { logClose: 94456.88335744495, fundSum: 3.0381176278397093, volume: 27518460321.33155, tbv: 13749022798.263445 },
+      'planted 20471015': { logClose: 97043.39227684538, fundSum: 3.075568347971261, volume: 27868497799.44838, tbv: 13931057585.631691 },
     };
-    for (const [key, hash] of Object.entries(pinned)) {
+    const total = (m: number[][], f: (x: number) => number = (x) => x) => m.reduce((a, row) => a + row.reduce((b, x) => b + f(x), 0), 0);
+    const near = (got: number, want: number, label: string) =>
+      expect(Math.abs(got - want) / Math.abs(want), `${label} ${got} vs ${want}`).toBeLessThan(1e-9);
+    for (const [key, want] of Object.entries(pinned)) {
       const [mode, seed] = key.split(' ') as ['iid' | 'garch' | 'planted', string];
-      expect(sha(syntheticPanel({ bars: 3000, symbols: 10, mode, strength: mode === 'planted' ? 1 : 0, seed: Number(seed) })), key).toBe(hash);
+      const p = syntheticPanel({ bars: 3000, symbols: 10, mode, strength: mode === 'planted' ? 1 : 0, seed: Number(seed) });
+      near(total(p.close, Math.log), want.logClose, `${key} logClose`);
+      near(total(p.fundSum), want.fundSum, `${key} fundSum`);
+      near(total(p.volume), want.volume, `${key} volume`);
+      near(total(p.tbv), want.tbv, `${key} tbv`);
     }
   });
 
