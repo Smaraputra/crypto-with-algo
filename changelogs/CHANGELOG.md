@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: v8 signal outcomes no longer expire
+- `SignalOutcome` no longer declares the 365-day TTL index on `createdAt`. The rows are the live record the research program measures and they hold the LLM panel's outcomes, so they are now permanent. Production's existing TTL index is removed by `scripts/ops/drop-outcome-ttl.ts` (`--dry-run` first), to be run after the deploy.
+
 ### Changed: 8h RV paper desk restarted as rv-v1
 - **What it is**: the 8h relative value paper desk restarts as the frozen rule rv-v1 on Binance USDT-M perp prices. It is experimental, not validated and paper only. Its book is a descriptive forward record, not evidence that the rule works. The book's validation status starts as `unvalidated` and only the re-validation verdict changes it.
 - **New collections**: `rvsignals` (one signal per 8h bar, inserted with `$setOnInsert` and never rewritten), `rvbooks` (the single book `rv-v1`) and `rvsteps` (one record per rebalance, keyed on book and bar). Each model declares exactly one unique index.
