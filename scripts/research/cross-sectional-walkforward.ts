@@ -4,14 +4,16 @@
  * scripts/research/rv-revalidation.ts (the locked header with AMENDMENTS 1 to 3), run on the VPS by
  * scripts/ops/rv-revalidation-run.sh. main() prints a pointer there and exits with code 2 before it reads anything.
  *
- * Defects, from the audit of 2026-10-14 (table D01 to D28 in the session 30 handover). The line numbers are this
- * file's own, with this header in place.
- * - D01 (critical): the walk-forward null is synthetic Gaussian noise around an assumed mean of 0.20 and an sd
- *   of 0.40 (lines 424-432), not a permutation of the bars, and no fold re-selects its configuration. The
- *   report fields are copied (lines 459-491): the taker p is the maker p, the null sd is the hard-coded 0.40,
- *   and every fold carries the total return over the fold count and the full-span Sharpe.
- * - D03 (high): spot prices with perp costs. loadCandles reads the spot candle files (line 375).
- * - D05 (high): run on the full span including the lockbox (--allow-lockbox, line 348), with no
+ * Defects, from the audit of 2026-10-14 (table D01 to D28 in the session 30 handover). Each line number is this
+ * file's own, with this header in place. The number in brackets is the same code at 1da5742, the numbering that the
+ * locked header and the defect table use.
+ * - D01 (critical): the walk-forward null is synthetic Gaussian noise around an assumed mean of 0.20 and an sd of 0.40
+ *   (lines 426-434 (393-401 at 1da5742, as the locked header cites them)), not a permutation of the bars, and no fold
+ *   re-selects its configuration. The report fields are copied (lines 461-493 (428-460 at 1da5742)): the taker p is the
+ *   maker p, the null sd is the hard-coded 0.40, and every fold carries the total return over the fold count and the
+ *   full-span Sharpe.
+ * - D03 (high): spot prices with perp costs. loadCandles reads the spot candle files (line 377 (344 at 1da5742)).
+ * - D05 (high): run on the full span including the lockbox (--allow-lockbox, line 350 (317 at 1da5742)), with no
  *   pre-registration, no ledger entry and no PR for 1da5742.
  *
  * The exported helpers stay in place. Nothing imports them: the test that pinned the synthetic null

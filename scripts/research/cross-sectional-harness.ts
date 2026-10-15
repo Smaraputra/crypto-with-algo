@@ -4,22 +4,25 @@
  * scripts/research/rv-revalidation.ts (the locked header with AMENDMENTS 1 to 3), run on the VPS by
  * scripts/ops/rv-revalidation-run.sh. main() prints a pointer there and exits with code 2 before it reads anything.
  *
- * Defects, from the audit of 2026-10-14 (table D01 to D28 in the session 30 handover). The line numbers are this
- * file's own, with this header in place.
- * - D03 (high): spot prices with perp costs. loadCandles reads the spot candle files (lines 734 and 737).
- * - D04 (high): the deflated Sharpe uses trials = 54 (line 198) and an assumed cross-trial variance of
- *   0.1 / barsPerYear (line 259), not the variance of the trials that were run.
- * - D05 (high): configurations were chosen on full-span runs that included the lockbox (--allow-lockbox, line
- *   649), with no pre-registration, no ledger entry and no PR for 1da5742. The runs were not pinned to a commit:
- *   the runner mounted the working tree over /app (scripts/ops/cross-sectional-run.sh lines 38, 42-50 and 99-121 at
- *   1da5742, deleted on 2026-10-15).
- * - D24 (low): carry is the latest settled rate whatever the funding interval (lines 442-450), the portfolio
- *   never sets autoClampBuffer (lines 477-485), stopped positions skip funding and the stop cooldown is off
- *   by one (lines 557-594), and every bar resets the legs to their target weights without costing that
- *   drift rebalance (lines 571-573).
+ * Defects, from the audit of 2026-10-14 (table D01 to D28 in the session 30 handover). Each line number is this
+ * file's own, with this header in place. The number in brackets is the same code at 1da5742, the numbering that the
+ * locked header and the defect table use.
+ * - D03 (high): spot prices with perp costs. loadCandles reads the spot candle files (line 737 (699 at 1da5742) and
+ *   line 740 (702 at 1da5742)).
+ * - D04 (high): the deflated Sharpe uses trials = 54 (line 201 (175 at 1da5742, as the locked header cites it)) and an
+ *   assumed cross-trial variance of 0.1 / barsPerYear (line 262 (236 at 1da5742, as the locked header cites it)), not
+ *   the variance of the trials that were run.
+ * - D05 (high): configurations were chosen on full-span runs that included the lockbox (--allow-lockbox,
+ *   line 652 (614 at 1da5742)), with no pre-registration, no ledger entry and no PR for 1da5742. The runs were not
+ *   pinned to a commit: the runner mounted the working tree over /app (scripts/ops/cross-sectional-run.sh:38, :42-50
+ *   and :99-121 at 1da5742, deleted on 2026-10-15).
+ * - D24 (low): carry is the latest settled rate whatever the funding interval (lines 445-453 (419-427 at 1da5742)), the
+ *   portfolio never sets autoClampBuffer (lines 480-488 (454-462 at 1da5742)), stopped positions skip funding and the
+ *   stop cooldown is off by one (lines 560-597 (534-571 at 1da5742)), and every bar resets the legs to their target
+ *   weights without costing that drift rebalance (lines 574-576 (548-550 at 1da5742)).
  *
- * The exported helpers stay in place: cross-sectional-permutation.ts and cross-sectional-walkforward.ts (both void
- * as well) and the tests of this file and of the permutation file still import them.
+ * The exported helpers stay in place: cross-sectional-permutation.ts and cross-sectional-walkforward.ts (both void as
+ * well) and the tests of this file and of the permutation file still import them.
  */
 /**
  * Cross-sectional relative value research harness for Binance USDT-M perpetual futures.
