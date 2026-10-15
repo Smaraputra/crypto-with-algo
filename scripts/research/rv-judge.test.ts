@@ -471,7 +471,12 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     const keys = new Set<string>();
     const walk = (x: unknown): void => {
       if (Array.isArray(x)) x.forEach(walk);
-      else if (x !== null && typeof x === 'object') for (const [k, y] of Object.entries(x)) (keys.add(k), walk(y));
+      else if (x !== null && typeof x === 'object') {
+        for (const [k, y] of Object.entries(x)) {
+          keys.add(k);
+          walk(y);
+        }
+      }
     };
     walk(v);
     expect([...keys].filter((k) => /nnualised/.test(k)).sort()).toEqual(['annualisedSharpe', 'bestAnnualisedSharpe', 'grossAnnualisedSharpe']);
