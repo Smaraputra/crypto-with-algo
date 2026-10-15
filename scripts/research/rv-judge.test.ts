@@ -57,7 +57,7 @@ vi.mock('./rv-stages', async (importOriginal) => {
 });
 
 const COMMIT = 'a'.repeat(40);
-const PROV: Provenance ={ manifestHash: 'c'.repeat(64), panelSha256: 'e'.repeat(64), gitCommit: COMMIT };
+const PROV: Provenance = { manifestHash: 'c'.repeat(64), panelSha256: 'e'.repeat(64), gitCommit: COMMIT };
 const GAMMA = 0.5772156649;
 
 describe('ksUniform (header CALIBRATION: Kolmogorov-Smirnov p against uniform)', () => {
