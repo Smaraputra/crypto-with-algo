@@ -404,6 +404,13 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     r = stage(w, 'inputs');
     expect(r.status).not.toBe(0);
     noRun(r);
+    // a record at this commit and dataset without the reviewed file it records
+    writeFileSync(join(w.out, 'inputs/resolve.json'), `{\n  "manifestHash": "${DATASET}",\n  "gitCommit": "${w.commit}"\n}\n`);
+    rmSync(join(w.out, 'inputs/resolutions.json'));
+    r = stage(w, 'inputs');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/resolve/);
+    noRun(r);
   });
 
   it('resolve and inputs refuse when the env file cannot be read, and state a missing base URL', () => {
@@ -471,6 +478,12 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     expect(r.status).not.toBe(0);
     expect(r.out).toMatch(/is-mcpt-05/);
     expect(r.runs.filter((c) => c.cmd[3] === 'shard')).toHaveLength(0);
+    // a list that stops short of M is refused as well
+    writeFileSync(join(w.home, 'stub/jobs-is-mcpt.txt'), `${lines.slice(0, -1).join('\n')}\n`);
+    r = stage(w, 'is-mcpt');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/m = 1\.\.875, the header's M is 1000/);
+    expect(r.runs.filter((c) => c.cmd[3] === 'shard')).toHaveLength(0);
   });
 
   it('keeps a failed shard out of the stage directory and does not merge', () => {
@@ -485,6 +498,12 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     expect(r.out).toMatch(/wf-mcpt-03/);
     expect(readdirSync(join(w.out, 'shards/wf-mcpt'))).not.toContain('wf-mcpt-03.jsonl');
     expect(readdirSync(join(w.out, 'shards/wf-mcpt'))).toHaveLength(7);
+    expect(r.runs.filter((c) => c.cmd[3] === 'merge')).toHaveLength(0);
+    // a container that wrote its output and then failed is not trusted either
+    r = stage(w, 'wf-mcpt', { STUB_FAIL_AFTER: 'rv2-wf-mcpt-wf-mcpt-03' });
+    expect(r.status).not.toBe(0);
+    expect(r.runs.filter((c) => c.cmd[3] === 'shard').map((c) => c.name)).toEqual(['rv2-wf-mcpt-wf-mcpt-03']);
+    expect(readdirSync(join(w.out, 'shards/wf-mcpt'))).not.toContain('wf-mcpt-03.jsonl');
     expect(r.runs.filter((c) => c.cmd[3] === 'merge')).toHaveLength(0);
     // a rerun runs only the missing job, then merges
     r = stage(w, 'wf-mcpt');

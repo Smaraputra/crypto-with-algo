@@ -6,6 +6,7 @@
 # Container starts and ends go to $HOME/events.log, so the test can count the containers alive at once.
 #   STUB_CAL=fail      check-calibration writes a FAIL record and exits 2
 #   STUB_FAIL=<name>   the container with that --name exits 1 before writing anything
+#   STUB_FAIL_AFTER=<name>   the container with that --name writes its output, then exits 1
 #   STUB_SLEEP=<s>     shard containers sleep this long, so two of them overlap
 line=$(printf '%s\037' "$@")
 printf '%s\n' "$line" >> "$HOME/docker.log"
@@ -150,4 +151,5 @@ case "$script" in
     end 125
     ;;
 esac
+if [[ -n "${STUB_FAIL_AFTER:-}" && "$name" == "$STUB_FAIL_AFTER" ]]; then end 1; fi
 end 0
