@@ -183,19 +183,24 @@ describe('GET /api/signals/provisional-context', () => {
     }
   });
 
-  it('pins the 99-closed-bar window for scalping on 1m', async () => {
-    const minute = intervalToMs('1m');
-    const formingMinute = Math.floor(NOW / minute) * minute;
-    mocks.getCandles.mockImplementation(candlesUpTo('1m', formingMinute - minute));
+  it('pins the 99-closed-bar window for scalping on 5m', async () => {
+    const step = intervalToMs('5m');
+    const formingBar = Math.floor(NOW / step) * step;
+    mocks.getCandles.mockImplementation(candlesUpTo('5m', formingBar - step));
     const scalpRec = getStyleConfig('scalping').recommendedCandles;
     expect(scalpRec).toBe(100);
 
-    const body = await (await GET(request({ symbol: 'BTCUSDT', interval: '1m', style: 'scalping' }))).json();
+    const body = await (await GET(request({ symbol: 'BTCUSDT', interval: '5m', style: 'scalping' }))).json();
     expect(body.ready).toBe(true);
-    expect(body.formingOpenTime).toBe(formingMinute);
+    expect(body.formingOpenTime).toBe(formingBar);
     expect(body.closedCandles).toHaveLength(99);
-    expect(body.closedCandles[98].timestamp).toBe(formingMinute - minute);
-    expect(mocks.getCandles).toHaveBeenCalledWith('BTCUSDT', '1m', undefined, undefined, 100);
+    expect(body.closedCandles[98].timestamp).toBe(formingBar - step);
+    expect(mocks.getCandles).toHaveBeenCalledWith('BTCUSDT', '5m', undefined, undefined, 100);
+  });
+
+  it('rejects scalping 1m, a retired scoring interval', async () => {
+    const res = await GET(request({ symbol: 'BTCUSDT', interval: '1m', style: 'scalping' }));
+    expect(res.status).toBe(400);
   });
 
   it('only uses provisional: cache keys and never the shared fetchers', async () => {

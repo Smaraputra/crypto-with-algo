@@ -7,7 +7,7 @@ import { getCandles } from '@/lib/candle-ingestion';
 import { GlobalSignal } from '@/lib/models/global-signal';
 import { HistoricalSnapshot } from '@/lib/models/historical-snapshot';
 import type { TradingStyle } from '@/lib/models/signal-template';
-import { STYLE_CONFIGS, TRADING_STYLES } from '@/lib/indicators/style-configs';
+import { scoredIntervals, TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { getLiveTierExpectancy } from '@/lib/signals/outcome-analytics';
 import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
   if (!tradingStyle || !isTradingStyle(tradingStyle)) {
     return NextResponse.json({ error: `Invalid trading style: ${tradingStyle}` }, { status: 400 });
   }
-  if (!interval || !STYLE_CONFIGS[tradingStyle].preferredIntervals.includes(interval)) {
+  if (!interval || !scoredIntervals(tradingStyle).includes(interval)) {
     return NextResponse.json(
       { error: `Interval ${interval} is not scored for ${tradingStyle}` },
       { status: 400 }

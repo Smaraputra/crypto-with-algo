@@ -3,7 +3,7 @@ import { GlobalSignal } from '@/lib/models/global-signal';
 import { getCandles, dropOpenBars } from '@/lib/candle-ingestion';
 import { fetchKlines } from '@/lib/binance';
 import { fetchFearAndGreed } from '@/lib/external/fear-greed';
-import { getStyleConfig } from '@/lib/indicators/style-configs';
+import { getStyleConfig, scoredIntervals } from '@/lib/indicators/style-configs';
 import { isSessionMeaningful, sessionOfCandleClose } from '@/lib/sessions';
 import { intervalToMs } from '@/lib/intervals';
 import { getConfirmationInterval } from '@/lib/signals/htf';
@@ -444,11 +444,10 @@ export function buildTasksForStyle(
   tradingStyle: TradingStyle,
   symbols: string[]
 ): ComputeTask[] {
-  const profile = getStyleConfig(tradingStyle);
   const tasks: ComputeTask[] = [];
 
   for (const symbol of symbols) {
-    for (const interval of profile.preferredIntervals) {
+    for (const interval of scoredIntervals(tradingStyle)) {
       tasks.push({ symbol, interval, tradingStyle });
     }
   }

@@ -13,9 +13,9 @@ export type JobHealthState = 'healthy' | 'overdue' | 'failing' | 'never_ran' | '
 /**
  * The subset of a heartbeat the classifier needs. Loosened from
  * `IJobHeartbeat` so a DERIVED entry can be classified the same way: the LLM
- * panel runs from the VPS host crontab and never calls this app, and
- * `monthly-optimization` is fire-and-forget, so both supply a `lastSuccessAt`
- * read from their own records rather than from a heartbeat row.
+ * panel runs from the VPS host crontab and never calls this app, so it
+ * supplies a `lastSuccessAt` read from its own records rather than from a
+ * heartbeat row.
  */
 export interface JobState {
   lastRunAt?: Date | null;

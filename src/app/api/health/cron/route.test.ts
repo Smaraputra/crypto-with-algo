@@ -201,16 +201,10 @@ describe('GET /api/health/cron', () => {
     expect(body.jobs.find((j: { job: string }) => j.job === 'llm-panel').state).toBe('never_ran');
   });
 
-  it('derives a failed optimization run rather than trusting its fire-and-forget 200', async () => {
-    mocks.cronRunFindOne.mockReturnValue(
-      findOneReturning({ status: 'failed', completedAt: new Date(now), error: 'orchestrator threw' })
-    );
-
+  it('no longer lists the monthly optimization', async () => {
     const body = await (await GET(request())).json();
-    const job = body.jobs.find((j: { job: string }) => j.job === 'monthly-optimization');
 
-    expect(job.state).toBe('failing');
-    expect(job.lastError).toBe('orchestrator threw');
+    expect(body.jobs.some((j: { job: string }) => j.job === 'monthly-optimization')).toBe(false);
   });
 
   it('reports whether the cron secret is configured at all', async () => {

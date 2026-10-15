@@ -88,6 +88,10 @@ describe('GET /api/trade-plan', () => {
     expect((await GET(makeRequest({ ...VALID, symbol: 'PEPEUSDT' }))).status).toBe(400);
     expect((await GET(makeRequest({ ...VALID, tradingStyle: 'hodl' }))).status).toBe(400);
     expect((await GET(makeRequest({ ...VALID, interval: '5m' }))).status).toBe(400);
+    // scalping 1m is a preferred interval that is no longer scored
+    expect(
+      (await GET(makeRequest({ ...VALID, tradingStyle: 'scalping', interval: '1m' }))).status
+    ).toBe(400);
     expect(mockConnectDB).not.toHaveBeenCalled();
   });
 

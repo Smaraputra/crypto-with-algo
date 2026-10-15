@@ -6,6 +6,13 @@ import { makeDeskPosition, makeTicket, makeTradePlan, makeTradePlanResponse } fr
 import { TradePlanCard } from './TradePlanCard';
 
 describe('TradePlanCard', () => {
+  it('carries the Measured: no edge banner in every state', () => {
+    const { rerender } = render(<TradePlanCard data={undefined} isLoading isError={false} />);
+    expect(screen.getByTestId('v8-status-banner')).toHaveTextContent('Measured: no edge');
+    rerender(<TradePlanCard data={makeTradePlanResponse()} isLoading={false} isError={false} />);
+    expect(screen.getByTestId('v8-status-banner')).toHaveTextContent('Measured: no edge');
+  });
+
   it('shows a loading state', () => {
     render(<TradePlanCard data={undefined} isLoading isError={false} />);
     expect(screen.getByTestId('trade-plan-loading')).toBeInTheDocument();

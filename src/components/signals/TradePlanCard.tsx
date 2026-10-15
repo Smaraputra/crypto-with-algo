@@ -16,6 +16,7 @@ import type {
 import { evidenceVerdictKind, type EvidenceVerdictKind } from '@/lib/trade-plan/evidence';
 import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 import { intervalToMs } from '@/lib/intervals';
+import { V8StatusBanner } from './V8StatusBanner';
 
 interface TradePlanCardProps {
   data: TradePlanResponse | undefined;
@@ -433,6 +434,7 @@ export function TradePlanCard({ data, isLoading, isError }: TradePlanCardProps) 
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <V8StatusBanner compact />
         {isLoading ? (
           <div className="space-y-2" data-testid="trade-plan-loading">
             <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />

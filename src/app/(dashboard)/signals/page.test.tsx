@@ -132,6 +132,19 @@ describe('SignalsPage', () => {
     expect(screen.getByTestId('style-tabs')).toBeInTheDocument();
   });
 
+  it('shows the Measured: no edge banner', () => {
+    render(<SignalsPage />);
+    expect(screen.getByTestId('v8-status-banner')).toHaveTextContent('Measured: no edge');
+  });
+
+  it('offers only 5m for scalping and switches to it', () => {
+    render(<SignalsPage />);
+    fireEvent.click(screen.getByTestId('style-tab-scalping'));
+    const select = screen.getByTestId('interval-select') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['5m']);
+    expect(select.value).toBe('5m');
+  });
+
   it('renders interval selector', () => {
     render(<SignalsPage />);
     expect(screen.getByTestId('interval-select')).toBeInTheDocument();
@@ -178,7 +191,7 @@ describe('SignalsPage', () => {
     mockUseTradePlan.mockClear();
     render(<SignalsPage />);
     fireEvent.click(screen.getByTestId('style-tab-scalping'));
-    expect(mockUseTradePlan).toHaveBeenLastCalledWith('BTCUSDT', 'scalping', '1m');
+    expect(mockUseTradePlan).toHaveBeenLastCalledWith('BTCUSDT', 'scalping', '5m');
   });
 
   it('shows empty state when no signal computed', () => {

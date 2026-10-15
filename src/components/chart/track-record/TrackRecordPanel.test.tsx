@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { pointMeasures } from '@/lib/signals/track-record/measures';
@@ -101,7 +101,35 @@ beforeEach(() => {
   query.state = { isPending: false, isError: false, error: null, data: available() };
 });
 
+// jsdom has no scrollIntoView, so the scroll tests install a stub. Put back
+// whatever was there so the stub does not leak into later files in the worker.
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+afterEach(() => {
+  if (originalScrollIntoView) Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView);
+  else delete (Element.prototype as Partial<Element>).scrollIntoView;
+});
+
 describe('TrackRecordPanel', () => {
+  it('scrolls itself into view when the page was opened at #track-record', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.location.hash = '#track-record';
+    try {
+      render(<TrackRecordPanel {...props} />);
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      window.location.hash = '';
+    }
+  });
+
+  it('does not scroll without the hash', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    window.location.hash = '';
+    render(<TrackRecordPanel {...props} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it('leads with the answer: right-rate against the coin flip and break-even, then the money', () => {
     render(<TrackRecordPanel {...props} />);
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Track record · BTCUSDT · Day trading · 1h');

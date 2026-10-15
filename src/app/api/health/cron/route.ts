@@ -5,7 +5,6 @@ import { connectDB } from '@/lib/mongodb';
 import { DERIVED_JOBS, HEARTBEAT_JOBS, SERVICE_JOBS } from '@/lib/cron-jobs';
 import { classifyJob, isAllHealthy, summarize, type JobHealth, type JobState } from '@/lib/cron-health';
 import { JobHeartbeat, type IJobHeartbeat } from '@/lib/models/job-heartbeat';
-import { CronRun } from '@/lib/models/cron-run';
 import { LlmCall } from '@/lib/models/llm-call';
 
 export const dynamic = 'force-dynamic';
@@ -94,23 +93,6 @@ async function derivedState(job: string): Promise<JobState | null> {
     const latest = await LlmCall.findOne({}).sort({ createdAt: -1 }).select('createdAt').lean();
     const createdAt = (latest as { createdAt?: Date } | null)?.createdAt ?? null;
     return createdAt ? { lastRunAt: createdAt, lastSuccessAt: createdAt, lastStatus: 'success' } : null;
-  }
-
-  if (job === 'monthly-optimization') {
-    const latest = (await CronRun.findOne({ type: 'monthly_optimization' })
-      .sort({ scheduledAt: -1 })
-      .lean()) as { status?: string; completedAt?: Date; startedAt?: Date; error?: string } | null;
-    if (!latest) return null;
-
-    const ranAt = latest.completedAt ?? latest.startedAt ?? null;
-    const succeeded = latest.status === 'completed';
-    return {
-      lastRunAt: ranAt,
-      lastSuccessAt: succeeded ? ranAt : null,
-      lastFailureAt: succeeded ? null : ranAt,
-      lastStatus: succeeded ? 'success' : 'failure',
-      lastError: succeeded ? null : (latest.error ?? `status ${latest.status}`),
-    };
   }
 
   return null;

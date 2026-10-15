@@ -4,6 +4,8 @@ import {
   STYLE_CONFIGS,
   TRADING_STYLES,
   getStyleConfig,
+  RETIRED_SCORING_INTERVALS,
+  scoredIntervals,
 } from './style-configs';
 import type { TradingStyle } from '@/lib/models/signal-template';
 
@@ -247,6 +249,20 @@ describe('style-configs', () => {
         'swing_trading',
         'position_trading',
       ]);
+    });
+  });
+
+  describe('scoredIntervals', () => {
+    it('drops the retired scalping 1m but keeps preferredIntervals intact', () => {
+      expect(scoredIntervals('scalping')).toEqual(['5m']);
+      expect(STYLE_CONFIGS.scalping.preferredIntervals).toEqual(['1m', '5m']);
+      expect(RETIRED_SCORING_INTERVALS['scalping:1m']).toMatch(/\S/);
+    });
+
+    it('leaves every other style unchanged', () => {
+      for (const style of ['day_trading', 'swing_trading', 'position_trading'] as const) {
+        expect(scoredIntervals(style)).toEqual(STYLE_CONFIGS[style].preferredIntervals);
+      }
     });
   });
 });
