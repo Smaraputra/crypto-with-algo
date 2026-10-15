@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: shared rv-v1 engine and perp inputs (not yet wired)
+- **Pure engine**: `src/lib/signals/cross-sectional/engine.ts` holds the frozen `RV_V1` configuration, `rvFactors`, `rvComposite`, `rvTargets` and the `rvStep` accounting, with no database, network or clock access, so the live desk and later research can call the same code. Nothing calls it yet.
+- **Defects addressed in the engine**: D07 (a held symbol missing from the ranking throws `held_symbol_unscored` instead of becoming an exit), D08 (fills priced at the next bar open, sizing from one equity snapshot, entry price tracked through resizes and flips, no equity clamps), D12 (missing taker volume skips the symbol, flow window pinned at 43 bars), D13 (retained legs trimmed by rank, not map order), D14 factors side (beta paired by open time, contiguity and last-bar checks), D16 accounting side (every funding settlement crossed is charged at its mark price) and D20 constants (standard futures fees, `8h` slippage budget of 2 bps).
+- **Inputs**: perp klines now carry base volume, trade count and taker buy volume. A REST funding settlement sync (`src/lib/funding-settlement-sync.ts`) fills gaps with mark prices without overwriting archive rows. `secondsBetweenRuns` accepts the stepped hour form `5 1-23/8 * * *`.
+
 ### Correction: the 8h RV validation claims are void
 - **Audit outcome (2026-10-14/15)**: an audit of the 8-hour cross-sectional RV work (`c300273..1da5742`) found that its validation is void. The full defect table (D01 to D28) is in `sessions/2026-10-14-session-30-handover.md`. Corrections are appended in place to the entries below and to `docs/TECHNICAL.md` section 8, and the session 28 and 29 handovers carry a correction header
 - **Walk-forward permutation test is not a test**: its null is synthetic Gaussian noise (mean 0.20, sd 0.40) drawn in `cross-sectional-walkforward.ts:393-401`. No data is permuted and nothing is re-optimised per fold. The 11 folds carry identical numbers (4.89% each) and the "stitched out-of-sample" series is a 2025-01-01 calendar slice of one full-sample run. The reported p_WF 0.0020 and Z 3.47 measure nothing

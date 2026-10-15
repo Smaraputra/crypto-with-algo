@@ -251,7 +251,18 @@ describe('cost check fetchers', () => {
     expect(String(mockFetch.mock.calls[0][0])).toContain('interval=15m');
     expect(String(mockFetch.mock.calls[0][0])).toContain('limit=1000');
     expect(rows).toEqual([
-      { openTime: 1000, closeTime: 1999, open: 1.5, high: 2, low: 1, close: 1.8, quoteVolume: 18.5 },
+      {
+        openTime: 1000,
+        closeTime: 1999,
+        open: 1.5,
+        high: 2,
+        low: 1,
+        close: 1.8,
+        quoteVolume: 18.5,
+        volume: 10,
+        trades: 3,
+        takerBuyVolume: 5,
+      },
     ]);
   });
 
