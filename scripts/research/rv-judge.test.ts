@@ -381,6 +381,13 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     expect(() => judgeVerdict(real, ok, loaded, { ...calOk, outputs: calOk.outputs.slice(1) })).toThrow(/REFUSE[\s\S]*cal-iid-001/);
   });
 
+  it('accepts the calibration outputs in any order, as an audit on another filesystem reads them (final review m1)', () => {
+    const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
+    const outputs = variedTimings(calOk.outputs as CalibrationOutput[]);
+    const record = JSON.parse(JSON.stringify(checkCalibration(outputs, COMMIT))) as CalibrationEvidence['record'];
+    expect(() => judgeVerdict(real, ok, loaded, { record, outputs: [...outputs].reverse() })).not.toThrow();
+  });
+
   it('refuses a maker track without its fill counts, never reporting a missing count as 0 (Task 7C addendum rule 10)', () => {
     const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
     for (const field of ['makerFills', 'fallbackFills'] as const) {
@@ -487,6 +494,20 @@ function fakeCalibration(pOf: (kind: string, k: number, step: 'is' | 'wf') => nu
 }
 const uniformP = (k: number, M: number) => Math.ceil(((k - 0.5) / 100) * (M + 1)) / (M + 1);
 
+/** Wall times that differ per output, so a mean summed in another order differs in its last bits. */
+function variedTimings(outputs: CalibrationOutput[]): CalibrationOutput[] {
+  return outputs.map((o, i) => ({
+    ...o,
+    timing: {
+      prepareMs: 150 + 97.3 * Math.sin(i + 1),
+      oneCellMs: 20 + 7.1 * Math.cos(i),
+      twelveCellsMs: 300 + 41.7 * Math.sin(3 * i),
+      isPermutationMs: 320 + 13.9 * Math.cos(2 * i),
+      wfPermutationMs: 400 + 29.3 * Math.sin(5 * i),
+    },
+  }));
+}
+
 describe('checkCalibration (header CALIBRATION ACCEPTANCE)', () => {
   it('passes when the driftless p-values are uniform and the planted edge is found', () => {
     const outs = fakeCalibration((kind, k) => (kind === 'iid' || kind === 'garch' ? uniformP(k, 99) : 1 / 200));
@@ -542,6 +563,14 @@ describe('checkCalibration (header CALIBRATION ACCEPTANCE)', () => {
     expect(weak.planted).toMatchObject({ isAt01: 8, wfAt01: 8, pass: false });
     const enough = checkCalibration(fakeCalibration((kind, k, step) => (kind === 'planted' ? (step === 'is' ? (k <= 9 ? 1 / 200 : 0.5) : k <= 8 ? 1 / 200 : 0.5) : uniformP(k, 99))), COMMIT);
     expect(enough.planted).toMatchObject({ isAt01: 9, wfAt01: 8, pass: true });
+  });
+
+  it('records the same check, bit for bit, whatever order the outputs are read in (final review m1)', () => {
+    const outs = variedTimings(fakeCalibration((kind, k) => (kind === 'iid' || kind === 'garch' ? uniformP(k, 99) : 1 / 200)));
+    const forward = checkCalibration(outs, COMMIT);
+    const reversed = checkCalibration([...outs].reverse(), COMMIT);
+    expect(reversed.timing).toStrictEqual(forward.timing);
+    expect(JSON.stringify(reversed) === JSON.stringify(forward)).toBe(true);
   });
 
   it('refuses an incomplete set, a wrong seed, a wrong scale, or another commit', () => {

@@ -597,7 +597,10 @@ export function checkCalibration(outputs: readonly CalibrationOutput[], gitCommi
     universes.push({ kind: job.kind, k: job.k, seed: o.seed, isP: ps.is, wfP: ps.wf });
   }
 
-  const mean = (f: (o: CalibrationOutput) => number) => outputs.reduce((a, o) => a + f(o), 0) / outputs.length;
+  // summed in calibrationJobs() order, so the record is the same bits whatever order the outputs were read in (final
+  // review m1): the verdict compares it value by value
+  const inJobOrder = jobs.map((j) => byKey.get(key(j.kind, j.k))!);
+  const mean = (f: (o: CalibrationOutput) => number) => inJobOrder.reduce((a, o) => a + f(o), 0) / inJobOrder.length;
   const timing = {
     prepareMs: mean((o) => o.timing.prepareMs),
     oneCellMs: mean((o) => o.timing.oneCellMs),
@@ -659,10 +662,11 @@ function flags(argv: string[], allowed: readonly string[]): Record<string, strin
 
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8')) as T;
 
-/** Every calibration output in a directory (the calibrate stage's `<name>.json` files). */
+/** Every calibration output in a directory (the calibrate stage's `<name>.json` files), in sorted name order. */
 function readCalibrationOutputs(dir: string): CalibrationOutput[] {
   return readdirSync(dir)
     .filter((n) => n.endsWith('.json'))
+    .sort()
     .map((n) => readJson<CalibrationOutput>(join(dir, n)));
 }
 const fmt = (x: number) => (Number.isFinite(x) ? x.toFixed(4) : String(x));
