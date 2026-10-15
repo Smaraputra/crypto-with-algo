@@ -435,7 +435,9 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     symlinkSync(join(w.home, 'gone'), w.ds);
     r = stage(w, 'export');
     expect(r.status).not.toBe(0);
-    expect(r.out).toContain(w.ds);
+    // refused as an existing dataset, before the image is even looked at
+    expect(r.out).toContain(`${w.ds} exists: the study's dataset is exported once`);
+    expect(r.calls.filter((c) => c[0] === 'image')).toHaveLength(0);
     noRun(r);
     rmSync(w.ds);
     writeFileSync(join(w.out, 'manifest-hash'), `${DATASET}\n`);
