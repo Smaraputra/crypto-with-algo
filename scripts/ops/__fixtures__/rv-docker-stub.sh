@@ -11,6 +11,9 @@
 #   STUB_FAIL_AFTER=<name> the container with that --name writes its output, then exits 1
 #   STUB_SKIP=<name>       the container with that --name exits 0 without writing anything
 #   STUB_PS=<ids>          `docker ps` prints these container IDs
+#   STUB_PS_FAIL=1         `docker ps` fails (exit 1), as when the daemon cannot answer
+#   STUB_PS_SLEEP=<s>      `docker ps` sleeps this long first, so a signal can arrive during the lock's check
+#   STUB_STOP_SLEEP=<s>    `docker stop` sleeps this long, so a signal can arrive during the signal cleanup
 #   STUB_SLEEP=<s>         shard containers sleep this long, so two of them overlap
 # The image ID is $HOME/stub/id when that file exists, else sha256:stub.
 line=$(printf '%s\037' "$@")
@@ -25,7 +28,16 @@ case "${1:-}" in
     exit 0
     ;;
   ps)
+    if [[ -n "${STUB_PS_SLEEP:-}" ]]; then sleep "$STUB_PS_SLEEP"; fi
+    if [[ -n "${STUB_PS_FAIL:-}" ]]; then
+      echo "stub docker: cannot connect to the daemon" >&2
+      exit 1
+    fi
     if [[ -n "${STUB_PS:-}" ]]; then echo "$STUB_PS"; fi
+    exit 0
+    ;;
+  stop)
+    if [[ -n "${STUB_STOP_SLEEP:-}" ]]; then sleep "$STUB_STOP_SLEEP"; fi
     exit 0
     ;;
   run) shift ;;

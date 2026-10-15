@@ -881,3 +881,69 @@ describe('rv-revalidation-run.sh, every guard (review M1 to M5)', { timeout: 30_
     expect(existsSync(join(w.out, 'is-mcpt.json'))).toBe(false);
   });
 });
+
+/** Polls until `done` holds, or fails after 15 s. */
+async function until(done: () => boolean, what: string): Promise<void> {
+  const started = Date.now();
+  while (!done()) {
+    if (Date.now() - started > 15_000) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+describe('rv-revalidation-run.sh, the 7C re-review minors', { timeout: 30_000 }, () => {
+  const envOf = (w: World, extra: Record<string, string>) => ({ ...process.env, HOME: w.home, PATH: `${w.home}/bin:${process.env.PATH}`, RV2_ENV_FILE: w.envFile, ...extra });
+  const exitOf = (child: ReturnType<typeof spawn>) => new Promise<{ code: number | null; signal: string | null }>((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
+  const stageLines = (w: World, name: string) => read(join(w.out, 'stages.log')).trim().split('\n').map((l) => JSON.parse(l) as { stage: string; exit: number }).filter((l) => l.stage === name);
+
+  it('a TERM during the lock\'s docker ps check releases the lock and logs exit 143 (m1: traps set before the lock)', async () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    const child = spawn('bash', [RUNBOOK, 'real'], { env: envOf(w, { STUB_PS_SLEEP: '2' }), stdio: 'ignore' });
+    const exited = exitOf(child);
+    await until(() => dockerLog(w).some((c) => c[0] === 'ps'), 'the lock\'s docker ps');
+    child.kill('SIGTERM');
+    expect(await exited).toEqual({ code: 143, signal: null });
+    expect(existsSync(join(w.out, '.lock'))).toBe(false);
+    expect(lastStage(w)).toMatchObject({ stage: 'real', exit: 143 });
+    expect(containerCalls(dockerLog(w))).toHaveLength(0);
+  });
+
+  it('a hang-up during the TERM cleanup is ignored: exit 143 stands, one stages.log line (m1)', async () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    stagesDone(w, 'real');
+    const child = spawn('bash', [RUNBOOK, 'is-mcpt'], { env: envOf(w, { STUB_SLEEP: '3', STUB_STOP_SLEEP: '1' }), stdio: 'ignore' });
+    const exited = exitOf(child);
+    const events = join(w.home, 'events.log');
+    await until(() => existsSync(events) && read(events).includes('start rv2-is-mcpt-is-mcpt-01'), 'the first shard');
+    child.kill('SIGTERM');
+    await until(() => dockerLog(w).some((c) => c[0] === 'stop'), 'the first docker stop');
+    child.kill('SIGHUP');
+    expect(await exited).toEqual({ code: 143, signal: null });
+    expect(stageLines(w, 'is-mcpt')).toEqual([expect.objectContaining({ exit: 143 })]);
+    expect(existsSync(join(w.out, '.lock'))).toBe(false);
+  });
+
+  it('a signal before this run holds the lock leaves that lock alone and logs nothing (the LOCKED guard)', () => {
+    const w = world();
+    mkdirSync(join(w.out, 'logs'), { recursive: true });
+    mkdirSync(join(w.out, '.lock'));
+    writeFileSync(join(w.out, '.lock/pid'), '4242\n');
+    /** A function of the runbook, by name, as written there. */
+    const fn = (name: string) => {
+      const m = new RegExp(`^${name}\\(\\) \\{(?:.*\\}$|\\n[\\s\\S]*?\\n\\}$)`, 'm').exec(runbook());
+      if (!m) throw new Error(`no ${name} in the runbook`);
+      return m[0];
+    };
+    const script = [`OUT='${w.out}'`, 'LOCK=$OUT/.lock', 'STAGE=real', 'GIT_COMMIT=', 'LOCKED=0', 'PIDS=()', 'CNAMES=()', fn('log'), fn('finish'), fn('on_signal'), 'on_signal TERM 143'];
+    const r = spawnSync('bash', ['-c', script.join('\n')], { encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(143);
+    expect(read(join(w.out, '.lock/pid'))).toBe('4242\n');
+    expect(existsSync(join(w.out, 'stages.log'))).toBe(false);
+  });
+});

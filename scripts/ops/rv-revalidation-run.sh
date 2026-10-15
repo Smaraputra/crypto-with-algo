@@ -36,7 +36,8 @@
 # no stage starts while any rv2- container is still running (a runner killed by SIGKILL orphans its containers).
 # A pooled job writes into rv2-out/part/ and is moved into its stage directory only when its container exits 0, so a
 # rerun of a stage runs only the jobs whose output is missing.
-# INT, TERM and HUP stop the containers this script started (docker stop) and exit 130, 143 or 129.
+# INT, TERM and HUP stop the containers this script started (docker stop) and exit 130, 143 or 129. The traps are set
+# before the lock is taken, and a second signal during that cleanup is ignored, so the first one's code stands.
 # Every stage appends {"stage","exit","commit","at"} to $HOME/rv2-out/stages.log and exits with the stage's code.
 # The stage_* functions are only ever called through the dispatch at the end, by name.
 # shellcheck disable=SC2329
@@ -60,6 +61,8 @@ INPUTS=$OUT/inputs
 SHARDS=$OUT/shards
 PART=$OUT/part
 LOCK=$OUT/.lock
+# 1 once this run holds the lock: only then may a signal release it and log the stage
+LOCKED=0
 # The header's DATA export, verbatim (scripts/ops/rv-revalidation-run.test.ts pins each against the header and
 # RV_SYMBOLS and RV_SPAN of scripts/research/rv-panel.ts).
 SYMBOLS=BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT,ADAUSDT,DOGEUSDT,AVAXUSDT,DOTUSDT,LINKUSDT
@@ -236,42 +239,48 @@ finish() {
   rm -rf "$LOCK"
 }
 
+# on_signal <name> <code>  set before the lock is taken (7C re-review m1). Every signal is ignored from here on, so a
+# second one cannot restart the cleanup or replace the first one's exit code. A run that holds the lock logs the
+# stage and releases the lock (finish). One that does not hold it yet leaves the lock, which may be another run's.
 on_signal() {
   local c
-  trap '' INT TERM
+  trap '' INT TERM HUP
   echo "signal $1: stopping containers started by this run" >&2
   if [[ ${#PIDS[@]} -gt 0 ]]; then kill "${PIDS[@]}" 2> /dev/null; fi
   for c in ${CNAMES[@]+"${CNAMES[@]}"}; do
     docker stop "$c" > /dev/null 2>&1
     log "signal $1: docker stop $c"
   done
-  finish "$2"
+  if [[ $LOCKED -eq 1 ]]; then finish "$2"; fi
   exit "$2"
+}
+
+# refuse_locked <message>  a refusal after the lock was taken: signals are ignored, the lock is released, no
+# stages.log line is written (the stage never started), exit 75.
+refuse_locked() {
+  trap '' INT TERM HUP
+  rm -rf "$LOCK"
+  echo "ERROR: $*" >&2
+  exit 75
 }
 
 # lock  one stage at a time, so the run never exceeds two containers. A lock left by a killed run is removed by hand.
 # The lock alone cannot see containers a killed runner left behind, so no stage starts while any rv2- container
-# runs (or while docker cannot say). Both refusals exit 75 and leave no stages.log line.
+# runs (or while docker cannot say). Both refusals exit 75 and leave no stages.log line. A signal during the
+# docker ps check releases the lock through on_signal.
 lock() {
   local running
   if ! mkdir "$LOCK" 2> /dev/null; then
     echo "ERROR: $LOCK is held by pid $(cat "$LOCK/pid" 2> /dev/null). One stage at a time keeps the run at two containers. Remove $LOCK only if that process is gone and docker ps --filter name=^rv2- lists nothing" >&2
     exit 75
   fi
-  if ! echo "$$" > "$LOCK/pid"; then
-    rm -rf "$LOCK"
-    echo "ERROR: cannot write $LOCK/pid" >&2
-    exit 75
-  fi
+  LOCKED=1
+  echo "$$" > "$LOCK/pid" || refuse_locked "cannot write $LOCK/pid"
   if ! running=$(docker ps -q --filter name=^rv2-); then
-    rm -rf "$LOCK"
-    echo "ERROR: docker ps failed, so this stage cannot tell whether rv2- containers are still running" >&2
-    exit 75
+    refuse_locked "docker ps failed, so this stage cannot tell whether rv2- containers are still running"
   fi
   if [[ -n "$running" ]]; then
-    rm -rf "$LOCK"
-    echo "ERROR: rv2- containers are still running ($(echo "$running" | tr '\n' ' ')). A killed runner leaves its containers behind. Stop them (docker ps --filter name=^rv2-, then docker stop) before any stage starts" >&2
-    exit 75
+    refuse_locked "rv2- containers are still running ($(echo "$running" | tr '\n' ' ')). A killed runner leaves its containers behind. Stop them (docker ps --filter name=^rv2-, then docker stop) before any stage starts"
   fi
 }
 
@@ -674,10 +683,10 @@ stage_verdict() {
     echo "ERROR: cannot create $OUT/logs and $PART" >&2
     exit 1
   fi
-  lock
   trap 'on_signal INT 130' INT
   trap 'on_signal TERM 143' TERM
   trap 'on_signal HUP 129' HUP
+  lock
   log "stage $STAGE start"
   "stage_${STAGE//-/_}"
   RC=$?
