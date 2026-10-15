@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
 import { perPeriodSharpe } from '@/lib/stats/deflated-sharpe';
@@ -14,6 +14,10 @@ import {
   syntheticPanel,
   syntheticPanelWithScores,
 } from './rv-synthetic';
+
+// These tests run whole cell runs and permutations, which take several times longer on a CI runner than locally,
+// so the 5 s default is too tight for them (a shard test hit 5.7 s on CI).
+vi.setConfig({ testTimeout: 60_000 });
 
 const H8 = 8 * 3_600_000;
 /** Header SEEDS: base 20261014, planted calibration universe k = 1..10 uses base + 210,000 + k. */

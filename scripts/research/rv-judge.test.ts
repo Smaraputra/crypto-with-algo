@@ -43,6 +43,10 @@ import {
   verifiedRealStage,
 } from './rv-judge';
 
+// These tests run whole cell runs and permutations, which take several times longer on a CI runner than locally,
+// so the 5 s default is too tight for them (a shard test hit 5.7 s on CI).
+vi.setConfig({ testTimeout: 60_000 });
+
 /**
  * Task 7C addendum rule 10: the real stage is passed through unchanged unless a test asks it to drop one maker fill
  * count, which is the only way to reach the verdict with a count missing from both the file and its recomputation.

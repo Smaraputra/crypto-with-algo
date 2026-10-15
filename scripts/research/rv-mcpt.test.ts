@@ -51,6 +51,10 @@ import {
   wfShard,
 } from './rv-mcpt';
 
+// These tests run whole cell runs and permutations, which take several times longer on a CI runner than locally,
+// so the 5 s default is too tight for them (a shard test hit 5.7 s on CI).
+vi.setConfig({ testTimeout: 60_000 });
+
 vi.mock('./rv-permute', async (importOriginal) => {
   const original = await importOriginal<typeof import('./rv-permute')>();
   return { ...original, permutePanel: vi.fn(original.permutePanel) };

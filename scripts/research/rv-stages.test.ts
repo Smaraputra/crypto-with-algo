@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -38,6 +38,10 @@ import {
   shardJobs,
   writeInputs,
 } from './rv-stages';
+
+// These tests run whole cell runs and permutations, which take several times longer on a CI runner than locally,
+// so the 5 s default is too tight for them (a shard test hit 5.7 s on CI).
+vi.setConfig({ testTimeout: 60_000 });
 
 const H = 3_600_000;
 const H4 = 4 * H;
