@@ -704,6 +704,15 @@ function readCalibrationOutputs(dir: string): CalibrationOutput[] {
 }
 const fmt = (x: number) => (Number.isFinite(x) ? x.toFixed(4) : String(x));
 
+/** The line judge `dsr` prints after its JSON. */
+export function dsrLine(d: RvDsr): string {
+  return (
+    `G3: DSR ${fmt(d.gate.probability)} at N = ${d.gate.N} (${d.gate.pass ? 'pass' : 'fail'}), SR ${fmt(annualise(d.observedSharpe))} annualised, ` +
+    `benchmark ${fmt(annualise(d.gate.benchmark))}, V ${d.variance.used.toExponential(3)} (${d.variance.used === d.variance.floor ? 'floor' : 'cross-cell'}), T ${d.T}. ` +
+    `Reported: ${d.reported.map((r) => `N = ${r.N}: ${fmt(r.probability)}`).join(', ')}`
+  );
+}
+
 function main(): void {
   try {
     const [mode, ...rest] = process.argv.slice(2);
@@ -729,11 +738,7 @@ function main(): void {
       if (!sameProvenance(real.provenance, inputs.provenance)) throw new Error('the real file\'s provenance is not the inputs\'');
       const d = rvDsr(verifiedRealStage(real, inputs).step1.returns);
       console.log(JSON.stringify(d));
-      console.log(
-        `G3: DSR ${fmt(d.gate.probability)} at N = ${d.gate.N} (${d.gate.pass ? 'pass' : 'fail'}), SR ${fmt(annualise(d.observedSharpe))} annualised, ` +
-          `benchmark ${fmt(annualise(d.gate.benchmark))}, V ${d.variance.used.toExponential(3)} (${d.variance.used === d.variance.floor ? 'floor' : 'cross-cell'}), T ${d.T}; ` +
-          d.reported.map((r) => `N = ${r.N}: ${fmt(r.probability)}`).join(', ')
-      );
+      console.log(dsrLine(d));
     } else if (mode === 'verdict') {
       const a = flags(rest, ['real', 'is', 'wf', 'block', 'calibration', 'calibration-dir', 'inputs-dir', 'expect-manifest-hash', 'out']);
       const inputs = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });

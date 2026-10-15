@@ -30,6 +30,7 @@ import {
   type CalibrationEvidence,
   DSR_REPORTED_TRIALS,
   checkCalibration,
+  dsrLine,
   jobLines,
   judgeVerdict,
   kolmogorovCdf,
@@ -148,6 +149,12 @@ describe('rvDsr (header VERDICT G3, N = 672, V floor 1 / (T - 1))', () => {
     expect(out.observedSharpe).toBe(sharpes[11]);
     expect(out.gate.probability).toBeCloseTo(hand(series, 672).psr, 12);
     expect(out.reported.map((r) => r.probability)).toEqual([26, 2161].map((N) => expect.closeTo(hand(series, N).psr, 12)));
+  });
+
+  it('prints its line as sentences without a semicolon (final review m6)', () => {
+    const line = dsrLine(rvDsr(make(0.0003, 5)));
+    expect(line).not.toContain(';');
+    expect(line).toMatch(/^G3: DSR \d\.\d{4} at N = 672 \((pass|fail)\), .*, T 800\. Reported: N = 26: \d\.\d{4}, N = 2161: \d\.\d{4}$/);
   });
 
   it('reports N = 26 and the program count 2,161, never gating on them', () => {
