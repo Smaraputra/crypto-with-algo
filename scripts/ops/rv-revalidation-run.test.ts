@@ -8,6 +8,7 @@ import { BLOCK_M, IS_M, WF_M } from '../research/rv-mcpt';
 import { RV_SPAN, RV_SYMBOLS } from '../research/rv-panel';
 import { jobLines } from '../research/rv-judge';
 import { calibrationJobs, shardJobs, type ShardStage } from '../research/rv-stages';
+import { RUNNER_ARGV } from './__fixtures__/rv-runner-argv';
 
 const RUNBOOK = join(__dirname, 'rv-revalidation-run.sh');
 const STUB = join(__dirname, '__fixtures__', 'rv-docker-stub.sh');
@@ -253,14 +254,14 @@ describe('rv-revalidation-run.sh, every stage in order against a stub docker', (
     expect(read(join(w.out, 'run-image')).trim()).toBe('sha256:stub');
     const calNames = calibrationJobs().map((j) => j.name);
     const calRuns = calibration.filter((c) => c.cmd[3] === 'calibrate');
-    expect(sorted(calRuns.map((c) => c.cmd.slice(3).join(' ')))).toEqual(sorted(calNames.map((n) => `calibrate --name ${n} --out /app/out/part/${n}.json`)));
+    expect(sorted(calRuns.map((c) => c.cmd.join(' ')))).toEqual(sorted(calNames.map((n) => RUNNER_ARGV.calibrate(n).join(' '))));
     expect(sorted(readdirSync(join(w.out, 'calibration')))).toEqual(sorted(calNames.map((n) => `${n}.json`)));
     const check = calibration.filter((c) => c.cmd[3] === 'check-calibration');
-    expect(check.map((c) => c.cmd.slice(2))).toEqual([['scripts/research/rv-judge.ts', 'check-calibration', '--dir', '/app/out/calibration', '--out', '/app/out/part/calibration.json']]);
+    expect(check.map((c) => c.cmd)).toEqual([RUNNER_ARGV.checkCalibration()]);
     expect(read(join(w.out, 'calibration.pass')).trim()).toBe(w.commit);
     expect(read(join(w.out, 'calibration.json'))).toContain(`"gitCommit": "${w.commit}"`);
     expect(calibration.every((c) => c.mounts.every((m) => !m.includes(':/app/ds')))).toBe(true);
-    expect(calibration.filter((c) => c.cmd[3] === 'jobs').map((c) => c.cmd.slice(3))).toEqual([['jobs', 'calibrate']]);
+    expect(calibration.filter((c) => c.cmd[3] === 'jobs').map((c) => c.cmd)).toEqual([RUNNER_ARGV.jobs('calibrate')]);
     expect(maxAlive(w, 'rv2-calibrate-cal-')).toBeLessThanOrEqual(2);
 
     // export: the header's command, on the internal network with the env file, into a fresh $HOME/rv2-ds
@@ -287,7 +288,7 @@ describe('rv-revalidation-run.sh, every stage in order against a stub docker', (
     expect(res.env).toContain(`BINANCE_FUTURES_API_URL=${REST_URL}`);
     expect(valuesOf(res.flags, '--env-file')).toEqual([]);
     expect(res.mounts).toEqual([`${w.ds}:/app/ds:ro`, `${w.out}:/app/out`]);
-    expect(res.cmd).toEqual(['npx', 'tsx', 'scripts/research/rv-stages.ts', 'resolve', '--dataset-dir', '/app/ds', '--out-dir', '/app/out/inputs', '--expect-manifest-hash', H]);
+    expect(res.cmd).toEqual(RUNNER_ARGV.resolve(H));
     expect(r.out).toContain('"symbol":"SOLUSDT"');
     expect(r.out).toMatch(/CONTROLLER CHECKPOINT/);
     expect(r.out).not.toContain('mongodb://');
@@ -300,15 +301,12 @@ describe('rv-revalidation-run.sh, every stage in order against a stub docker', (
     const inp = r.runs[0];
     expect(inp.network).toEqual(['bridge']);
     expect(inp.env).toContain(`BINANCE_FUTURES_API_URL=${REST_URL}`);
-    expect(inp.cmd).toEqual([
-      'npx', 'tsx', 'scripts/research/rv-stages.ts', 'inputs', '--dataset-dir', '/app/ds', '--out-dir', '/app/out/inputs',
-      '--resolutions', '/app/out/inputs/resolutions.json', '--expect-manifest-hash', H,
-    ]);
+    expect(inp.cmd).toEqual(RUNNER_ARGV.inputs(H));
 
     // real
     r = stage(w, 'real');
     expect(r.status, r.out).toBe(0);
-    expect(r.runs.map((c) => c.cmd.slice(2))).toEqual([['scripts/research/rv-stages.ts', 'real', '--inputs-dir', '/app/out/inputs', '--expect-manifest-hash', H, '--out', '/app/out/part/real.json']]);
+    expect(r.runs.map((c) => c.cmd)).toEqual([RUNNER_ARGV.real(H)]);
     expect(existsSync(join(w.out, 'real.json'))).toBe(true);
 
     // the three permutation stages: the judge's jobs, two containers at once, one directory per stage, then merge
@@ -319,29 +317,20 @@ describe('rv-revalidation-run.sh, every stage in order against a stub docker', (
       const names = shardJobs(s).map((j) => j.name);
       expect(names).toHaveLength(8);
       const shards = r.runs.filter((c) => c.cmd[3] === 'shard');
-      expect(sorted(shards.map((c) => c.cmd.slice(2).join(' ')))).toEqual(
-        sorted(names.map((n) => `scripts/research/rv-stages.ts shard --stage ${s} --name ${n} --inputs-dir /app/out/inputs --expect-manifest-hash ${H} --out /app/out/part/${n}.jsonl`))
-      );
+      expect(sorted(shards.map((c) => c.cmd.join(' ')))).toEqual(sorted(names.map((n) => RUNNER_ARGV.shard(s, n, H).join(' '))));
+      expect(r.runs.filter((c) => c.cmd[3] === 'jobs').map((c) => c.cmd)).toEqual([RUNNER_ARGV.jobs(s)]);
       expect(sorted(readdirSync(join(w.out, 'shards', s)))).toEqual(names.map((n) => `${n}.jsonl`));
       expect(maxAlive(w)).toBe(2);
       const merge = r.runs.filter((c) => c.cmd[3] === 'merge');
-      expect(merge.map((c) => c.cmd.slice(2))).toEqual([
-        ['scripts/research/rv-judge.ts', 'merge', '--stage', s, '--dir', `/app/out/shards/${s}`, '--inputs-dir', '/app/out/inputs', '--expect-manifest-hash', H, '--out', `/app/out/part/${s}.json`],
-      ]);
+      expect(merge.map((c) => c.cmd)).toEqual([RUNNER_ARGV.merge(s, H)]);
       expect(existsSync(join(w.out, `${s}.json`))).toBe(true);
     }
 
     // verdict: dsr, then the verdict with the calibration record and the 130 outputs
     r = stage(w, 'verdict');
     expect(r.status, r.out).toBe(0);
-    expect(r.runs.map((c) => c.cmd.slice(2))).toEqual([
-      ['scripts/research/rv-judge.ts', 'dsr', '--real', '/app/out/real.json', '--inputs-dir', '/app/out/inputs', '--expect-manifest-hash', H],
-      [
-        'scripts/research/rv-judge.ts', 'verdict', '--real', '/app/out/real.json', '--is', '/app/out/is-mcpt.json', '--wf', '/app/out/wf-mcpt.json',
-        '--block', '/app/out/block.json', '--shards-dir', '/app/out/shards', '--calibration', '/app/out/calibration.json', '--calibration-dir', '/app/out/calibration',
-        '--inputs-dir', '/app/out/inputs', '--expect-manifest-hash', H, '--out', '/app/out/part/verdict.json',
-      ],
-    ]);
+    // every container command of the run is one rv-revalidation-cli.test.ts runs through the real CLI (final review m7)
+    expect(r.runs.map((c) => c.cmd)).toEqual([RUNNER_ARGV.dsr(H), RUNNER_ARGV.verdict(H)]);
     expect(r.out).toContain('VERDICT FAIL');
     expect(existsSync(join(w.out, 'verdict.json'))).toBe(true);
 
