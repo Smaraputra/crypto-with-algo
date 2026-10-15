@@ -276,17 +276,18 @@ export function mergeShards(stage: ShardStage, files: readonly { name: string; t
 
 // ------------------------------------------------------------------------------------------------ reported statistics
 
+/** `total` is the compounded return, `annualisedSharpe` the per-bar net Sharpe times sqrt(365.25 * 3) (final review m3). */
 export interface PeriodStats {
   n: number;
   total: number;
-  annualised: number;
+  annualisedSharpe: number;
 }
 
 export interface SeriesStats extends PeriodStats {
   perBar: number;
   maxDrawdown: number;
   profitFactor: number | null;
-  grossAnnualised: number | null;
+  grossAnnualisedSharpe: number | null;
   grossTotal: number | null;
   /** Sums of the per-bar components (arithmetic, in return units). */
   funding: number | null;
@@ -300,7 +301,7 @@ export interface SeriesStats extends PeriodStats {
 }
 
 const compound = (rs: readonly number[]) => rs.reduce((e, r) => e * (1 + r), 1) - 1;
-const periodOf = (rs: number[]): PeriodStats => ({ n: rs.length, total: compound(rs), annualised: annualise(objective(rs)) });
+const periodOf = (rs: number[]): PeriodStats => ({ n: rs.length, total: compound(rs), annualisedSharpe: annualise(objective(rs)) });
 const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
 
 /**
@@ -331,7 +332,7 @@ export function seriesStats(returns: readonly number[], t: readonly number[], fi
     perBar: objective(rs),
     maxDrawdown,
     profitFactor: losses > 0 ? gains / losses : null,
-    grossAnnualised: gross ? annualise(objective(gross)) : null,
+    grossAnnualisedSharpe: gross ? annualise(objective(gross)) : null,
     grossTotal: gross ? compound(gross) : null,
     funding,
     price: detail ? sum(detail.price) : null,
@@ -356,20 +357,20 @@ export interface Verdict {
   calibration: { gitCommit: string; pass: boolean };
   pass: boolean;
   gates: { G1: Gate12; G2: Gate12; G3: { probability: number; threshold: number; N: number; pass: boolean } };
-  step1: { best: number; bestCell: number; bestAnnualised: number };
-  step3: { objective: number; annualised: number };
+  step1: { best: number; bestCell: number; bestAnnualisedSharpe: number };
+  step3: { objective: number; annualisedSharpe: number };
   dsr: RvDsr;
   reported: {
     rvV1: SeriesStats;
     walkForward: SeriesStats;
     maker: SeriesStats & { makerFills: number; fallbackFills: number };
-    stress: { costs: RealOutput['stress']['costs']; perBar: number; annualised: number };
-    neighbours: { cell: number; buffer: number; betaNeutral: boolean; flowOn: boolean; perBar: number; annualised: number }[];
+    stress: { costs: RealOutput['stress']['costs']; perBar: number; annualisedSharpe: number };
+    neighbours: { cell: number; buffer: number; betaNeutral: boolean; flowOn: boolean; perBar: number; annualisedSharpe: number }[];
     folds: { f: number; testFrom: number; testTo: number; cell: number }[];
     distinctFoldCells: number;
     blockP: number;
     dsrReported: DsrAt[];
-    purge: { objective: number; annualised: number; cells: number[] };
+    purge: { objective: number; annualisedSharpe: number; cells: number[] };
     deskFillQuality: string;
     predictions: { g3Fails: boolean; fundingShareAbove50: boolean | null; step2Passes: boolean; foldsSelectDifferentCells: boolean };
   };
@@ -495,20 +496,20 @@ export function judgeVerdict(
     calibration: { gitCommit: cal.gitCommit, pass: cal.pass },
     pass: gates.G1.pass && gates.G2.pass && gates.G3.pass,
     gates,
-    step1: { best, bestCell: objectives.indexOf(best), bestAnnualised: annualise(best) },
-    step3: { objective: wfObjective, annualised: annualise(wfObjective) },
+    step1: { best, bestCell: objectives.indexOf(best), bestAnnualisedSharpe: annualise(best) },
+    step3: { objective: wfObjective, annualisedSharpe: annualise(wfObjective) },
     dsr,
     reported: {
       rvV1,
       walkForward: seriesStats(r.step3.returns, r.t, r.step3.firstStep, r.step3.detail),
       maker: { ...seriesStats(r.maker.returns, r.t, r.firstStep, r.maker.detail), ...makerFillCounts(r.maker.detail) },
-      stress: { costs: r.stress.costs, perBar: objective(r.stress.returns), annualised: annualise(objective(r.stress.returns)) },
-      neighbours: RV_CELLS.map((c) => ({ cell: c.index, buffer: c.buffer, betaNeutral: c.betaNeutral, flowOn: c.flowOn, perBar: objectives[c.index], annualised: annualise(objectives[c.index]) })),
+      stress: { costs: r.stress.costs, perBar: objective(r.stress.returns), annualisedSharpe: annualise(objective(r.stress.returns)) },
+      neighbours: RV_CELLS.map((c) => ({ cell: c.index, buffer: c.buffer, betaNeutral: c.betaNeutral, flowOn: c.flowOn, perBar: objectives[c.index], annualisedSharpe: annualise(objectives[c.index]) })),
       folds,
       distinctFoldCells: new Set(folds.map((f) => f.cell)).size,
       blockP: pValue(best, merged.block.nulls),
       dsrReported: dsr.reported,
-      purge: { objective: r.purge.objective, annualised: annualise(r.purge.objective), cells: r.purge.folds.map((f) => f.cell) },
+      purge: { objective: r.purge.objective, annualisedSharpe: annualise(r.purge.objective), cells: r.purge.folds.map((f) => f.cell) },
       deskFillQuality: DESK_NOTE,
       predictions: {
         g3Fails: !gates.G3.pass,

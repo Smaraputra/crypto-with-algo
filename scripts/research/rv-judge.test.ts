@@ -416,11 +416,32 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     expect(r.rvV1).toEqual(seriesStats(real.rvV1.returns, real.t, real.firstStep, real.rvV1.detail));
     expect(r.walkForward).toEqual(seriesStats(real.step3.returns, real.t, real.step3.firstStep, real.step3.detail));
     expect(r.maker.makerFills).toBe(real.maker.detail.makerFills);
-    expect(r.stress.annualised).toBeCloseTo(perPeriodSharpe(real.stress.returns) * Math.sqrt(1095.75), 12);
+    expect(r.stress.annualisedSharpe).toBeCloseTo(perPeriodSharpe(real.stress.returns) * Math.sqrt(1095.75), 12);
     expect(r.purge.objective).toBe(real.purge.objective);
     expect(r.dsrReported.map((x) => x.N)).toEqual([26, 2161]);
     expect(r.deskFillQuality).toMatch(/forward desk/);
     expect(v.calibration).toEqual({ gitCommit: COMMIT, pass: true });
+  });
+
+  it('names every annualised Sharpe as one, and keeps the compounded returns apart (final review m3)', () => {
+    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
+    const keys = new Set<string>();
+    const walk = (x: unknown): void => {
+      if (Array.isArray(x)) x.forEach(walk);
+      else if (x !== null && typeof x === 'object') for (const [k, y] of Object.entries(x)) (keys.add(k), walk(y));
+    };
+    walk(v);
+    expect([...keys].filter((k) => /nnualised/.test(k)).sort()).toEqual(['annualisedSharpe', 'bestAnnualisedSharpe', 'grossAnnualisedSharpe']);
+    const sharpe = (rs: number[]) => perPeriodSharpe(rs) * Math.sqrt(1095.75);
+    expect(v.step1.bestAnnualisedSharpe).toBeCloseTo(sharpe(real.step1.returns[real.step1.bestCell]), 12);
+    expect(v.step3.annualisedSharpe).toBeCloseTo(sharpe(real.step3.returns), 12);
+    expect(v.reported.purge.annualisedSharpe).toBeCloseTo(sharpe(real.purge.returns), 12);
+    expect(v.reported.neighbours[4].annualisedSharpe).toBeCloseTo(sharpe(real.step1.returns[4]), 12);
+    expect(v.reported.rvV1.annualisedSharpe).toBeCloseTo(sharpe(real.rvV1.returns), 12);
+    expect(v.reported.rvV1.perYear[0].annualisedSharpe).toBeCloseTo(sharpe(real.rvV1.returns.slice(0, v.reported.rvV1.perYear[0].n)), 12);
+    // compounded returns keep their names
+    expect(v.reported.rvV1.total).toBeCloseTo(real.rvV1.returns.reduce((e, r) => e * (1 + r), 1) - 1, 12);
+    expect(v.reported.rvV1.grossTotal).not.toBeNull();
   });
 });
 
@@ -438,10 +459,10 @@ describe('seriesStats (REPORTED: gross, profit factor, drawdown, turnover, per y
     const s = seriesStats(returns, t, 2, detail);
     expect(s.n).toBe(6);
     expect(s.total).toBeCloseTo(1.01 * 0.98 * 1.03 * 1.01 * 0.99 * 1.02 - 1, 12);
-    expect(s.annualised).toBeCloseTo(perPeriodSharpe(returns) * Math.sqrt(1095.75), 12);
+    expect(s.annualisedSharpe).toBeCloseTo(perPeriodSharpe(returns) * Math.sqrt(1095.75), 12);
     expect(s.profitFactor).toBeCloseTo((0.01 + 0.03 + 0.01 + 0.02) / (0.02 + 0.01), 12);
     expect(s.maxDrawdown).toBeCloseTo(0.02, 12);
-    expect(s.grossAnnualised).toBeCloseTo(perPeriodSharpe(returns.map((r, i) => r + detail.cost[i])) * Math.sqrt(1095.75), 12);
+    expect(s.grossAnnualisedSharpe).toBeCloseTo(perPeriodSharpe(returns.map((r, i) => r + detail.cost[i])) * Math.sqrt(1095.75), 12);
     expect(s.funding).toBeCloseTo(0.007, 12);
     expect(s.cost).toBeCloseTo(0.006, 12);
     expect(s.fundingShare).toBeCloseTo(0.007 / 0.04, 12);
