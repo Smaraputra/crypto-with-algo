@@ -137,7 +137,6 @@ describe('SignalOutcome model', () => {
     expect(indexKeys).toContainEqual(['signalId']);
     expect(indexKeys).toContainEqual(['status', 'resolveAt']);
     expect(indexKeys).toContainEqual(['symbol', 'tradingStyle', 'createdAt']);
-    expect(indexKeys).toContainEqual(['createdAt']);
     expect(indexKeys).toContainEqual(['tradingStyle', 'status', 'resolvedAt']);
 
     const signalIdIndex = indexes.find(
@@ -145,9 +144,6 @@ describe('SignalOutcome model', () => {
     );
     expect(signalIdIndex!.unique).toBe(true);
 
-    const ttlIndex = indexes.find(
-      (idx) => Object.keys(idx.key).join() === 'createdAt'
-    );
-    expect(ttlIndex!.expireAfterSeconds).toBe(365 * 24 * 60 * 60);
+    expect(indexes.filter((idx) => idx.expireAfterSeconds !== undefined)).toEqual([]);
   });
 });

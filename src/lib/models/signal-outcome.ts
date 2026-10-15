@@ -46,7 +46,7 @@ export interface ISignalOutcome extends Document {
   createdAt: Date;
 }
 
-const signalOutcomeSchema = new Schema<ISignalOutcome>(
+export const signalOutcomeSchema = new Schema<ISignalOutcome>(
   {
     signalId: { type: Schema.Types.ObjectId, required: true, unique: true },
     source: { type: String, enum: SIGNAL_OUTCOME_SOURCES, default: 'composite' },
@@ -95,8 +95,11 @@ signalOutcomeSchema.index({ source: 1, tradingStyle: 1, status: 1, resolvedAt: -
 // this the match falls back to the tradingStyle+status prefix and scans every
 // interval's rows to discard most of them.
 signalOutcomeSchema.index({ tradingStyle: 1, interval: 1, status: 1, candleTimestamp: 1 });
-// TTL: outcomes older than a year are no longer useful for live expectancy
-signalOutcomeSchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 });
+// No TTL: outcome rows are permanent. They are the live record the research
+// program measures and they hold the LLM panel's outcomes, so they must never
+// expire. No query filters or sorts on createdAt alone, so no standalone
+// createdAt index is declared. The TTL index that older deployments created is
+// removed from production by scripts/ops/drop-outcome-ttl.ts.
 
 export const SignalOutcome =
   mongoose.models.SignalOutcome ||
