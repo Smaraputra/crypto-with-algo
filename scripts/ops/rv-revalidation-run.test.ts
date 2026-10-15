@@ -946,4 +946,48 @@ describe('rv-revalidation-run.sh, the 7C re-review minors', { timeout: 30_000 },
     expect(read(join(w.out, '.lock/pid'))).toBe('4242\n');
     expect(existsSync(join(w.out, 'stages.log'))).toBe(false);
   });
+
+  it('refuses with exit 75 when docker ps fails, releasing the lock and running nothing (m2, X1)', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    const r = stage(w, 'real', { STUB_PS_FAIL: '1' });
+    expect(r.status).toBe(75);
+    expect(r.out).toMatch(/docker ps failed/);
+    expect(r.calls.filter((c) => c[0] === 'ps')).toHaveLength(1);
+    expect(containerCalls(r.calls)).toHaveLength(0);
+    expect(existsSync(join(w.out, '.lock'))).toBe(false);
+    expect(existsSync(join(w.out, 'stages.log'))).toBe(false);
+    expect(stage(w, 'real').status).toBe(0);
+  });
+
+  it('every stage refuses once run-image is gone, so deleting it cannot switch the image pin off (m2, X2)', () => {
+    const w = world();
+    calibrated(w);
+    rmSync(join(w.out, 'run-image'));
+    for (const s of ['export', 'resolve', 'inputs', 'real', 'is-mcpt', 'wf-mcpt', 'block', 'verdict', 'calibrate', 'build']) {
+      // each stage gets what it needs from the stage before it, so only the missing pin can stop it
+      if (s === 'resolve') exported(w);
+      if (s === 'inputs') resolved(w);
+      if (s === 'real') recordedPanel(w);
+      if (s === 'is-mcpt') stagesDone(w, 'block');
+      const r = stage(w, s);
+      expect(r.status, s).not.toBe(0);
+      expect(r.out, s).toMatch(/run-image: run the calibrate stage first/);
+      expect(r.calls.filter((c) => c[0] === 'run' || c[0] === 'build'), s).toHaveLength(0);
+    }
+  });
+
+  it('export refuses a dangling symlink at manifest-hash before the image is looked at (m2, X3)', () => {
+    const w = world();
+    calibrated(w);
+    symlinkSync(join(w.home, 'gone', 'manifest-hash'), join(w.out, 'manifest-hash'));
+    const r = stage(w, 'export');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toContain(`${join(w.out, 'manifest-hash')} exists: the study's dataset is exported once`);
+    expect(r.calls.filter((c) => c[0] === 'image')).toHaveLength(0);
+    expect(r.runs).toHaveLength(0);
+    expect(existsSync(w.ds)).toBe(false);
+  });
 });
