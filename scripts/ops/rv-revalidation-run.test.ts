@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -151,10 +151,17 @@ const sorted = (xs: string[]) => [...xs].sort();
 
 /** The state calibrate leaves after a PASS, written directly so a refusal test need not run the 130 universes. */
 function calibrated(w: World, commit = w.commit): void {
-  mkdirSync(join(w.out, 'calibration'), { recursive: true });
+  calibrationOutputs(w);
   writeFileSync(join(w.out, 'run-commit'), `${commit}\n`);
+  writeFileSync(join(w.out, 'run-image'), 'sha256:stub\n');
   writeFileSync(join(w.out, 'calibration.json'), `{\n  "gitCommit": "${commit}",\n  "pass": true\n}\n`);
   writeFileSync(join(w.out, 'calibration.pass'), `${commit}\n`);
+}
+
+/** The 130 calibration outputs, so a calibrate call keeps them all and goes straight to check-calibration. */
+function calibrationOutputs(w: World): void {
+  mkdirSync(join(w.out, 'calibration'), { recursive: true });
+  for (const j of calibrationJobs()) writeFileSync(join(w.out, 'calibration', `${j.name}.json`), '{}\n');
 }
 
 /** The state export leaves. */
@@ -164,9 +171,42 @@ function exported(w: World): void {
   writeFileSync(join(w.out, 'manifest-hash'), `${DATASET}\n`);
 }
 
+/** The state resolve leaves, at this commit unless another is given. */
+function resolved(w: World, commit = w.commit): void {
+  mkdirSync(join(w.out, 'inputs'), { recursive: true });
+  writeFileSync(join(w.out, 'inputs/resolutions.json'), '[]\n');
+  writeFileSync(join(w.out, 'inputs/resolve.json'), `{\n  "manifestHash": "${DATASET}",\n  "gitCommit": "${commit}"\n}\n`);
+}
+
+/** The state inputs leaves, at this commit unless another is given. */
+function recordedPanel(w: World, commit = w.commit): void {
+  resolved(w);
+  writeFileSync(join(w.out, 'inputs/panel.json.gz'), 'panel');
+  writeFileSync(join(w.out, 'inputs/inputs.json'), `{\n  "manifestHash": "${DATASET}",\n  "gitCommit": "${commit}"\n}\n`);
+}
+
+/** The stage outputs up to and including `upTo`, in the stage order real, is-mcpt, wf-mcpt, block. */
+function stagesDone(w: World, upTo: 'real' | ShardStage): void {
+  const order = ['real', 'is-mcpt', 'wf-mcpt', 'block'];
+  for (const s of order.slice(0, order.indexOf(upTo) + 1)) writeFileSync(join(w.out, `${s}.json`), '{}\n');
+}
+
+/** The last line of stages.log. */
+function lastStage(w: World): { stage: string; exit: number; commit: string } {
+  return JSON.parse(read(join(w.out, 'stages.log')).trim().split('\n').pop()!) as { stage: string; exit: number; commit: string };
+}
+
+/** Docker calls other than the lock's container check and the image checks. */
+const containerCalls = (calls: string[][]) => calls.filter((c) => c[0] !== 'ps' && c[0] !== 'image');
+const runsOf = (r: { runs: RunCall[] }, mode: string) => r.runs.filter((c) => c.cmd[3] === mode);
+
 describe('rv-revalidation-run.sh', () => {
   it('parses', () => {
     expect(() => execFileSync('bash', ['-n', RUNBOOK])).not.toThrow();
+  });
+
+  it('parses the whole dispatch as one block before a stage runs, so a checkout change mid-stage cannot alter it (review M5)', () => {
+    expect(runbook()).toMatch(/\n\{\n(?:.*\n)*?\s*"stage_\$\{STAGE\/\/-\/_\}"\n(?:.*\n)*?\s*exit "\$RC"\n\}\n$/);
   });
 
   it('pins the header DATA export: universe, span, kinds, series and intervals', () => {
@@ -210,6 +250,7 @@ describe('rv-revalidation-run.sh, every stage in order against a stub docker', (
     expect(r.status, r.out).toBe(0);
     const calibration = r.runs;
     expect(read(join(w.out, 'run-commit')).trim()).toBe(w.commit);
+    expect(read(join(w.out, 'run-image')).trim()).toBe('sha256:stub');
     const calNames = calibrationJobs().map((j) => j.name);
     const calRuns = calibration.filter((c) => c.cmd[3] === 'calibrate');
     expect(sorted(calRuns.map((c) => c.cmd.slice(3).join(' ')))).toEqual(sorted(calNames.map((n) => `calibrate --name ${n} --out /app/out/part/${n}.json`)));
@@ -315,15 +356,16 @@ describe('rv-revalidation-run.sh, every stage in order against a stub docker', (
       expect(valuesOf(c.flags, '--cpu-shares'), c.name).toEqual(['256']);
       expect(valuesOf(c.flags, '--memory'), c.name).toEqual(['3g']);
       expect(c.env, c.name).toContain(`GIT_COMMIT=${w.commit}`);
-      expect(c.network, c.name).toHaveLength(1);
-      // no working tree over /app: the image is the code
-      expect(c.mounts.every((m) => !/:\/app(:|$)/.test(m)), c.name).toBe(true);
       const isExport = c.cmd[2] === 'scripts/research/export-dataset.ts';
       const isRest = c.cmd[2] === 'scripts/research/rv-stages.ts' && (c.cmd[3] === 'resolve' || c.cmd[3] === 'inputs');
-      expect(c.network[0], c.name).toBe(isExport ? 'crypto_crypto-internal' : isRest ? 'bridge' : 'none');
-      expect(valuesOf(c.flags, '--env-file').length > 0, c.name).toBe(isExport);
-      expect(c.env.some((e) => e.startsWith('BINANCE_FUTURES_API_URL=')), c.name).toBe(isRest);
-      expect(c.mounts.some((m) => m.endsWith(':/app/ds:ro')), c.name).toBe(isRest);
+      // the exact network flag of every container
+      expect(valuesOf(c.flags, '--network'), c.name).toEqual([isExport ? 'crypto_crypto-internal' : isRest ? 'bridge' : 'none']);
+      expect(valuesOf(c.flags, '--env-file'), c.name).toEqual(isExport ? [w.envFile] : []);
+      expect(c.env.filter((e) => e.startsWith('BINANCE_FUTURES_API_URL=')), c.name).toEqual(isRest ? [`BINANCE_FUTURES_API_URL=${REST_URL}`] : []);
+      // the exact mounts (source, target, read-only or not): the image is the code, so nothing of the checkout is
+      // mounted, the dataset is read-only wherever it is read, and only export writes it
+      const mounts = isExport ? [`${w.ds}:/app/out`] : isRest ? [`${w.ds}:/app/ds:ro`, `${w.out}:/app/out`] : [`${w.out}:/app/out`];
+      expect(c.mounts, c.name).toEqual(mounts);
     }
     // every stage but build checked the image label first
     const labelChecks = dockerLog(w).filter((c) => c[0] === 'image' && c.join(' ').includes('Labels'));
@@ -378,15 +420,30 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     noRun(r);
   });
 
-  it('export refuses an existing $HOME/rv2-ds, even after a PASS', () => {
+  it('export refuses an existing $HOME/rv2-ds (a dangling symlink included) or manifest-hash, even after a PASS', () => {
     const w = world();
     calibrated(w);
     mkdirSync(w.ds);
-    const r = stage(w, 'export');
+    let r = stage(w, 'export');
     expect(r.status).not.toBe(0);
     expect(r.out).toContain(w.ds);
     noRun(r);
-    expect(dockerLog(w)).toHaveLength(0);
+    // nothing but the lock's container check reached docker
+    expect(dockerLog(w).filter((c) => c[0] !== 'ps')).toHaveLength(0);
+    expect(lastStage(w)).toMatchObject({ stage: 'export', exit: r.status });
+    rmSync(w.ds, { recursive: true });
+    symlinkSync(join(w.home, 'gone'), w.ds);
+    r = stage(w, 'export');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toContain(w.ds);
+    noRun(r);
+    rmSync(w.ds);
+    writeFileSync(join(w.out, 'manifest-hash'), `${DATASET}\n`);
+    r = stage(w, 'export');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toContain('manifest-hash');
+    noRun(r);
+    expect(existsSync(w.ds)).toBe(false);
   });
 
   it('inputs refuses without the record resolve writes, the controller checkpoint, and never runs resolve itself', () => {
@@ -469,9 +526,8 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     expect(r.status).not.toBe(0);
     expect(r.out).toMatch(/inputs/);
     noRun(r);
-    mkdirSync(join(w.out, 'inputs'), { recursive: true });
-    writeFileSync(join(w.out, 'inputs/panel.json.gz'), 'panel');
-    writeFileSync(join(w.out, 'inputs/inputs.json'), `{\n  "manifestHash": "${DATASET}",\n  "gitCommit": "${w.commit}"\n}\n`);
+    recordedPanel(w);
+    stagesDone(w, 'real');
     const lines = jobLines('is-mcpt');
     writeFileSync(join(w.home, 'stub/jobs-is-mcpt.txt'), `${lines.filter((_, i) => i !== 3).join('\n')}\n`);
     r = stage(w, 'is-mcpt');
@@ -490,9 +546,8 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     const w = world();
     calibrated(w);
     exported(w);
-    mkdirSync(join(w.out, 'inputs'), { recursive: true });
-    writeFileSync(join(w.out, 'inputs/panel.json.gz'), 'panel');
-    writeFileSync(join(w.out, 'inputs/inputs.json'), `{\n  "manifestHash": "${DATASET}",\n  "gitCommit": "${w.commit}"\n}\n`);
+    recordedPanel(w);
+    stagesDone(w, 'is-mcpt');
     let r = stage(w, 'wf-mcpt', { STUB_FAIL: 'rv2-wf-mcpt-wf-mcpt-03' });
     expect(r.status).not.toBe(0);
     expect(r.out).toMatch(/wf-mcpt-03/);
@@ -533,10 +588,26 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     mkdirSync(join(w.out, '.lock'), { recursive: true });
     writeFileSync(join(w.out, '.lock/pid'), '4242\n');
     const r = stage(w, 'real');
-    expect(r.status).not.toBe(0);
+    expect(r.status).toBe(75);
     expect(r.out).toMatch(/4242/);
     expect(dockerLog(w)).toHaveLength(0);
     expect(existsSync(join(w.out, '.lock/pid'))).toBe(true);
+    expect(existsSync(join(w.out, 'stages.log'))).toBe(false);
+  });
+
+  it('refuses to start while an rv2- container is still running (a killed runner orphans its containers)', () => {
+    const w = world();
+    calibrated(w);
+    recordedPanel(w);
+    exported(w);
+    const r = stage(w, 'real', { STUB_PS: '0123456789ab' });
+    expect(r.status).toBe(75);
+    expect(r.out).toContain('0123456789ab');
+    expect(r.calls.filter((c) => c[0] === 'ps')).toEqual([['ps', '-q', '--filter', 'name=^rv2-']]);
+    expect(containerCalls(r.calls)).toHaveLength(0);
+    // the lock is released, so the stage runs once the containers are gone
+    expect(existsSync(join(w.out, '.lock'))).toBe(false);
+    expect(stage(w, 'real').status).toBe(0);
   });
 
   it('refuses an unknown stage and any argument', () => {
@@ -544,5 +615,278 @@ describe('rv-revalidation-run.sh refusals', { timeout: 30_000 }, () => {
     expect(stage(w, 'all').status).toBe(64);
     const r = spawnSync('bash', [RUNBOOK, 'real', '--fast'], { env: { ...process.env, HOME: w.home }, encoding: 'utf8' });
     expect(r.status).toBe(64);
+  });
+});
+
+const noRuns = (r: { runs: RunCall[]; out: string }) => expect(r.runs, r.out).toHaveLength(0);
+
+describe('rv-revalidation-run.sh, the calibration gate (review I2)', { timeout: 30_000 }, () => {
+  it('export refuses when the record behind calibration.pass names another commit', () => {
+    const w = world();
+    calibrated(w);
+    writeFileSync(join(w.out, 'calibration.json'), `{\n  "gitCommit": "${'b'.repeat(40)}",\n  "pass": true\n}\n`);
+    const r = stage(w, 'export');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/calibration\.json is not a PASS/);
+    noRuns(r);
+    expect(existsSync(w.ds)).toBe(false);
+  });
+
+  it('calibrate records no PASS when check-calibration exits 0 with a record that is not a PASS at this commit', () => {
+    for (const mode of ['zero-fail', 'zero-other']) {
+      const w = world();
+      calibrationOutputs(w);
+      const r = stage(w, 'calibrate', { STUB_CAL: mode });
+      expect(r.status, mode).not.toBe(0);
+      expect(r.out, mode).toMatch(/check-calibration exited 0 but/);
+      expect(runsOf(r, 'calibrate'), mode).toHaveLength(0);
+      expect(runsOf(r, 'check-calibration'), mode).toHaveLength(1);
+      expect(existsSync(join(w.out, 'calibration.pass')), mode).toBe(false);
+      expect(stage(w, 'export').status, mode).not.toBe(0);
+    }
+  });
+
+  it('a calibrate rerun that fails removes the earlier PASS, and export then refuses', () => {
+    const w = world();
+    calibrationOutputs(w);
+    let r = stage(w, 'calibrate');
+    expect(r.status, r.out).toBe(0);
+    expect(read(join(w.out, 'calibration.pass')).trim()).toBe(w.commit);
+    r = stage(w, 'calibrate', { STUB_CAL: 'fail' });
+    expect(r.status).toBe(2);
+    expect(existsSync(join(w.out, 'calibration.pass'))).toBe(false);
+    r = stage(w, 'export');
+    expect(r.status).not.toBe(0);
+    noRuns(r);
+  });
+});
+
+describe('rv-revalidation-run.sh, every guard (review M1 to M5)', { timeout: 30_000 }, () => {
+  it('resolve writes once: an existing resolutions file or record is refused', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    mkdirSync(join(w.out, 'inputs'), { recursive: true });
+    for (const f of ['resolutions.json', 'resolve.json']) {
+      writeFileSync(join(w.out, 'inputs', f), '[]\n');
+      const r = stage(w, 'resolve');
+      expect(r.status, f).not.toBe(0);
+      expect(r.out, f).toMatch(/resolve writes once/);
+      noRuns(r);
+      rmSync(join(w.out, 'inputs', f));
+    }
+  });
+
+  it('inputs writes once: an existing panel or record is refused', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    resolved(w);
+    for (const f of ['inputs.json', 'panel.json.gz']) {
+      writeFileSync(join(w.out, 'inputs', f), 'x');
+      const r = stage(w, 'inputs');
+      expect(r.status, f).not.toBe(0);
+      expect(r.out, f).toMatch(/inputs writes once/);
+      noRuns(r);
+      rmSync(join(w.out, 'inputs', f));
+    }
+  });
+
+  it('real, the shard stages and verdict refuse a missing panel, or one recorded at another commit or dataset', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    stagesDone(w, 'block');
+    for (const s of ['real', 'is-mcpt', 'wf-mcpt', 'block', 'verdict']) {
+      rmSync(join(w.out, 'inputs'), { recursive: true, force: true });
+      let r = stage(w, s);
+      expect(r.status, s).not.toBe(0);
+      expect(r.out, s).toMatch(/run the inputs stage first/);
+      noRuns(r);
+      recordedPanel(w, 'b'.repeat(40));
+      r = stage(w, s);
+      expect(r.status, s).not.toBe(0);
+      expect(r.out, s).toMatch(/inputs\.json was written by inputs at commit/);
+      noRuns(r);
+      recordedPanel(w);
+      writeFileSync(join(w.out, 'inputs/inputs.json'), `{\n  "manifestHash": "${'e'.repeat(64)}",\n  "gitCommit": "${w.commit}"\n}\n`);
+      r = stage(w, s);
+      expect(r.status, s).not.toBe(0);
+      expect(r.out, s).toMatch(/from dataset/);
+      noRuns(r);
+    }
+  });
+
+  it('each stage after real refuses until the stage before it has written its output (review M2)', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    for (const [s, before] of [['is-mcpt', 'real'], ['wf-mcpt', 'is-mcpt'], ['block', 'wf-mcpt']]) {
+      const r = stage(w, s);
+      expect(r.status, s).not.toBe(0);
+      expect(r.out, s).toContain(`run the ${before} stage first`);
+      noRuns(r);
+      writeFileSync(join(w.out, `${before}.json`), '{}\n');
+    }
+    for (const f of ['real', 'is-mcpt', 'wf-mcpt', 'block']) {
+      stagesDone(w, 'block');
+      rmSync(join(w.out, `${f}.json`));
+      const r = stage(w, 'verdict');
+      expect(r.status, f).not.toBe(0);
+      expect(r.out, f).toContain(`run the ${f} stage first`);
+      noRuns(r);
+    }
+  });
+
+  it('a stray file in a shard or calibration directory fails the name check, and nothing is merged or checked', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    stagesDone(w, 'real');
+    mkdirSync(join(w.out, 'shards/is-mcpt'), { recursive: true });
+    writeFileSync(join(w.out, 'shards/is-mcpt/notes.txt'), 'x');
+    let r = stage(w, 'is-mcpt');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/name check failed[\s\S]*notes\.txt/);
+    expect(runsOf(r, 'shard')).toHaveLength(8);
+    expect(runsOf(r, 'merge')).toHaveLength(0);
+    const v = world();
+    calibrationOutputs(v);
+    writeFileSync(join(v.out, 'calibration/extra.json'), '{}\n');
+    r = stage(v, 'calibrate');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/name check failed[\s\S]*extra\.json/);
+    expect(runsOf(r, 'check-calibration')).toHaveLength(0);
+    expect(existsSync(join(v.out, 'calibration.pass'))).toBe(false);
+  });
+
+  it('the job lists are validated: universe count, repeats, and a shard line naming another stage', () => {
+    const w = world();
+    const lines = jobLines('calibrate');
+    writeFileSync(join(w.home, 'stub/jobs-calibrate.txt'), `${lines.slice(1).join('\n')}\n`);
+    let r = stage(w, 'calibrate');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/gave 129 jobs, expected 130/);
+    expect(runsOf(r, 'calibrate')).toHaveLength(0);
+    writeFileSync(join(w.home, 'stub/jobs-calibrate.txt'), `${[...lines.slice(0, -1), lines[0]].join('\n')}\n`);
+    r = stage(w, 'calibrate');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/repeats: cal-iid-001/);
+    expect(runsOf(r, 'calibrate')).toHaveLength(0);
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    stagesDone(w, 'real');
+    const shards = jobLines('is-mcpt').map((l, i) => (i === 2 ? l.replace(' is-mcpt ', ' wf-mcpt ') : l));
+    writeFileSync(join(w.home, 'stub/jobs-is-mcpt.txt'), `${shards.join('\n')}\n`);
+    r = stage(w, 'is-mcpt');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/malformed line: 'is-mcpt-03 wf-mcpt/);
+    expect(runsOf(r, 'shard')).toHaveLength(0);
+  });
+
+  it('resolve refuses a base URL that is not http(s), and fails when its container writes nothing or fails', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    writeFileSync(w.envFile, 'BINANCE_FUTURES_API_URL=fapi.binance.com\n');
+    let r = stage(w, 'resolve');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/not an http\(s\) URL/);
+    noRuns(r);
+    writeFileSync(w.envFile, `BINANCE_FUTURES_API_URL=${REST_URL}\n`);
+    r = stage(w, 'resolve', { STUB_SKIP: 'rv2-resolve-run' });
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/resolve exited 0 without writing/);
+    expect(r.out).not.toMatch(/CONTROLLER CHECKPOINT/);
+    expect(lastStage(w)).toMatchObject({ stage: 'resolve', exit: 1, commit: w.commit });
+    r = stage(w, 'resolve', { STUB_FAIL_AFTER: 'rv2-resolve-run' });
+    expect(r.status).toBe(1);
+    expect(r.out).not.toMatch(/CONTROLLER CHECKPOINT/);
+  });
+
+  it('a container that fails after writing fails its stage, and its output is not kept', () => {
+    const w = world();
+    calibrated(w);
+    let r = stage(w, 'export', { STUB_FAIL_AFTER: 'rv2-export-run' });
+    expect(r.status).toBe(1);
+    expect(existsSync(join(w.out, 'manifest-hash'))).toBe(false);
+    expect(lastStage(w)).toMatchObject({ stage: 'export', exit: 1 });
+    rmSync(w.ds, { recursive: true });
+    exported(w);
+    recordedPanel(w);
+    r = stage(w, 'real', { STUB_FAIL_AFTER: 'rv2-real-run' });
+    expect(r.status).toBe(1);
+    expect(existsSync(join(w.out, 'real.json'))).toBe(false);
+  });
+
+  it('a move, write or directory that fails fails the stage (review M4)', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    // settle cannot replace a directory that holds a directory of the same name
+    mkdirSync(join(w.out, 'real.json', 'real.json'), { recursive: true });
+    let r = stage(w, 'real');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/cannot move/);
+    expect(lastStage(w).exit).toBe(r.status);
+    // calibrate cannot write the run's image (a symlink into a directory that does not exist)
+    const v = world();
+    mkdirSync(v.out, { recursive: true });
+    symlinkSync(join(v.home, 'gone', 'run-image'), join(v.out, 'run-image'));
+    r = stage(v, 'calibrate');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/cannot write/);
+    noRuns(r);
+    // calibrate cannot make its output directory
+    const u = world();
+    mkdirSync(u.out, { recursive: true });
+    writeFileSync(join(u.out, 'calibration'), 'not a directory');
+    r = stage(u, 'calibrate');
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(/cannot create/);
+    expect(runsOf(r, 'calibrate')).toHaveLength(0);
+  });
+
+  it('every stage after calibrate refuses an image whose ID changed under the same label (review M5)', () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    stagesDone(w, 'block');
+    writeFileSync(join(w.home, 'stub/id'), 'sha256:rebuilt\n');
+    for (const s of ['calibrate', 'resolve', 'inputs', 'real', 'is-mcpt', 'wf-mcpt', 'block', 'verdict']) {
+      const r = stage(w, s);
+      expect(r.status, s).not.toBe(0);
+      expect(r.out, s).toContain('sha256:rebuilt');
+      expect(r.out, s).toContain('sha256:stub');
+      noRuns(r);
+    }
+  });
+
+  it('a hang-up stops the stage like INT and TERM: containers stopped, exit 129 logged, lock released (review M3)', async () => {
+    const w = world();
+    calibrated(w);
+    exported(w);
+    recordedPanel(w);
+    stagesDone(w, 'real');
+    const env = { ...process.env, HOME: w.home, PATH: `${w.home}/bin:${process.env.PATH}`, RV2_ENV_FILE: w.envFile, STUB_SLEEP: '3' };
+    const child = spawn('bash', [RUNBOOK, 'is-mcpt'], { env, stdio: 'ignore' });
+    const events = join(w.home, 'events.log');
+    const started = Date.now();
+    while (!(existsSync(events) && read(events).includes('start rv2-is-mcpt-is-mcpt-01'))) {
+      if (Date.now() - started > 15_000) throw new Error('the first shard never started');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));
+    child.kill('SIGHUP');
+    expect(await exited).toBe(129);
+    expect(lastStage(w)).toMatchObject({ stage: 'is-mcpt', exit: 129 });
+    expect(existsSync(join(w.out, '.lock'))).toBe(false);
+    expect(dockerLog(w).filter((c) => c[0] === 'stop').map((c) => c[1])).toContain('rv2-is-mcpt-is-mcpt-01');
+    expect(existsSync(join(w.out, 'is-mcpt.json'))).toBe(false);
   });
 });

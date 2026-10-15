@@ -4,10 +4,15 @@
 # `run` writes what the real container would write, at the host path its -v mounts map to. It refuses (exit 125) a
 # run argument it does not know and an image that is not an ID, so the runner cannot run by tag unnoticed.
 # Container starts and ends go to $HOME/events.log, so the test can count the containers alive at once.
-#   STUB_CAL=fail      check-calibration writes a FAIL record and exits 2
-#   STUB_FAIL=<name>   the container with that --name exits 1 before writing anything
-#   STUB_FAIL_AFTER=<name>   the container with that --name writes its output, then exits 1
-#   STUB_SLEEP=<s>     shard containers sleep this long, so two of them overlap
+#   STUB_CAL=fail          check-calibration writes a FAIL record and exits 2
+#   STUB_CAL=zero-fail     check-calibration writes a FAIL record and exits 0
+#   STUB_CAL=zero-other    check-calibration writes a PASS record of another commit and exits 0
+#   STUB_FAIL=<name>       the container with that --name exits 1 before writing anything
+#   STUB_FAIL_AFTER=<name> the container with that --name writes its output, then exits 1
+#   STUB_SKIP=<name>       the container with that --name exits 0 without writing anything
+#   STUB_PS=<ids>          `docker ps` prints these container IDs
+#   STUB_SLEEP=<s>         shard containers sleep this long, so two of them overlap
+# The image ID is $HOME/stub/id when that file exists, else sha256:stub.
 line=$(printf '%s\037' "$@")
 printf '%s\n' "$line" >> "$HOME/docker.log"
 
@@ -15,8 +20,12 @@ case "${1:-}" in
   image)
     case "$*" in
       *Labels*) cat "$HOME/stub/label" ;;
-      *) echo sha256:stub ;;
+      *) if [[ -f "$HOME/stub/id" ]]; then cat "$HOME/stub/id"; else echo sha256:stub; fi ;;
     esac
+    exit 0
+    ;;
+  ps)
+    if [[ -n "${STUB_PS:-}" ]]; then echo "$STUB_PS"; fi
     exit 0
     ;;
   run) shift ;;
@@ -88,6 +97,7 @@ end() {
 
 echo "start $name" >> "$HOME/events.log"
 if [[ -n "${STUB_FAIL:-}" && "$name" == "$STUB_FAIL" ]]; then end 1; fi
+if [[ -n "${STUB_SKIP:-}" && "$name" == "$STUB_SKIP" ]]; then end 0; fi
 if [[ "${1:-} ${2:-}" != "npx tsx" ]]; then
   echo "stub docker: '$*' is not an npx tsx command" >&2
   end 125
@@ -115,11 +125,15 @@ case "$script" in
       check-calibration)
         out=$(host "$(arg --out "$@")") || end 125
         pass=true
-        if [[ "${STUB_CAL:-}" == fail ]]; then pass=false; fi
+        recorded=$commit
+        case "${STUB_CAL:-}" in
+          fail | zero-fail) pass=false ;;
+          zero-other) recorded=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+        esac
         printf '{\n  "gitCommit": "%s",\n  "universes": [\n    {\n      "pass": true\n    }\n  ],\n  "pass": %s,\n  "timing": {}\n}\n' \
-          "$commit" "$pass" > "$out"
+          "$recorded" "$pass" > "$out"
         echo "CALIBRATION $pass"
-        if [[ "$pass" == false ]]; then end 2; fi
+        if [[ "${STUB_CAL:-}" == fail ]]; then end 2; fi
         ;;
       resolve)
         dir=$(host "$(arg --out-dir "$@")") || end 125
