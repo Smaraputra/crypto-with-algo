@@ -1,0 +1,19 @@
+{
+  "note": "Expected rv-v1 targets for buildSyntheticUniverse(), captured from the legacy generator (generator.ts) before it is retired.",
+  "flat": {
+    "ADAUSDT": -0.3185394160756351,
+    "AVAXUSDT": 0.18146058392436498,
+    "BTCUSDT": -0.3185394160756351,
+    "LINKUSDT": 0.18146058392436498
+  },
+  "held": {
+    "heldLong": "DOGEUSDT",
+    "heldShort": "SOLUSDT",
+    "targets": {
+      "BTCUSDT": -0.3275584973884031,
+      "DOGEUSDT": 0.1724415026115969,
+      "LINKUSDT": 0.1724415026115969,
+      "SOLUSDT": -0.3275584973884031
+    }
+  }
+}

@@ -74,7 +74,10 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'snapshot-portfolios', path: '/api/cron/snapshot-portfolios', params: {}, schedule: '0 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
 
   { job: 'cross-sectional-signals', path: '/api/cron/cross-sectional-signals', params: {}, schedule: '1 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
-  { job: 'cross-sectional-paper', path: '/api/cron/cross-sectional-paper', params: {}, schedule: '2 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+  // Same job thirty minutes later: a stored signal is never rewritten, so this only fills a bar the first line could not store.
+  { job: 'cross-sectional-signals:retry', path: '/api/cron/cross-sectional-signals', params: { attempt: 'retry' }, schedule: '31 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+  // 01:05, 09:05, 17:05 UTC: the first 1h fill bar after each 8h close has closed.
+  { job: 'cross-sectional-paper', path: '/api/cron/cross-sectional-paper', params: {}, schedule: '5 1-23/8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
 
   {
     job: 'monthly-optimization',
@@ -221,6 +224,10 @@ export function secondsBetweenRuns(expression: string): number {
   // A fixed minute every N hours.
   const everyNHours = /^\*\/(\d+)$/.exec(hour);
   if (everyNHours) return Number(everyNHours[1]) * HOUR;
+
+  // A fixed minute every N hours inside an offset range, e.g. `5 1-23/8`.
+  const offsetHours = /^\d+-\d+\/(\d+)$/.exec(hour);
+  if (offsetHours) return Number(offsetHours[1]) * HOUR;
 
   // A fixed minute of a fixed hour, i.e. once a day.
   if (/^\d+$/.test(hour)) return DAY;
