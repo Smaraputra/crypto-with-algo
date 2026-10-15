@@ -250,6 +250,80 @@
  * - Netted deltas only (M21).
  * - No embargo in a forward walk-forward (M13).
  * - Alerts not freezes on the desk (agy proposal, adjusted).
+ *
+ * RESULT (2026-10-15). VERDICT FAIL: G1 and G2 pass, G3 fails. Drafted by agy, checked by Claude
+ * against verdict.json and dsr.txt.
+ *
+ * PROVENANCE. Run commit ef4043a, image sha256:591946430356, dataset manifest bc3566f4c6c6, panel
+ * 6e75f3b93b8d (5,240 8h bars, 2022-01-01 00:00 to the 2026-10-13 08:00 bar, 10 symbols), funding
+ * resolutions bc4d30b25232 (1 entry: SOLUSDT 2022-11-10 02:00 no-event, accepted by Claude and agy at
+ * the checkpoint). Every output is archived with SHA256SUMS on the VPS in ~/archive/rv2-result-2026-10-15.
+ *
+ * CALIBRATION (PASS at 12:28 UTC, synthetic panels of 10 symbols and 3,000 8h bars):
+ * - Driftless iid: step 2 KS p 0.3706 with share of p <= 0.05 of 0.04, step 4 KS p 0.5182 with share 0.06.
+ * - Planted edge (kappa 0.00146, about 3.5 annualised): 10 of 10 seeds with p <= 0.01 in both steps.
+ * - GARCH (reported): KS p 0.389 and 0.696. Carry-only (reported, c far above real funding): 10 of 10.
+ *
+ * DISCLOSED DEVIATIONS. Both approved by the user, both decided after the inputs stage halted and before
+ * any panel or statistic existed. They are not amendments, because the lock forbids amendments after
+ * inputs runs. No rule, gate or parameter changed.
+ * 1. The AMENDMENT 3 zero-volume halt fired on Binance's own archive placeholder at the 1h bar of
+ *    2024-10-28 20:00 UTC (all 10 symbols, flat bar, zero volume and trades). Binance REST shows normal
+ *    trading in that hour. 30 rows were repaired in production: 1h 20:00 and 21:00 from REST, and the 4h
+ *    20:00 bar rebuilt from REST 1h 20:00 to 23:00, because Binance's 4h bar omits that hour. No 8h open
+ *    or close changed.
+ * 2. The DATA cross-check then halted on 13 symbol-buckets. In 11 of them Binance's own REST 4h bar
+ *    differs from the aggregate of its own REST 1h bars (2022-07-16 00:00 for all 10 symbols, volume and
+ *    taker-buy volume only, and BTCUSDT 2023-11-10 08:00, 8h close -0.07%). Those 4h bars were rebuilt
+ *    from their 1h rows, which archive and REST agree on. DOTUSDT and XRPUSDT 1h 2023-11-14 11:00 were
+ *    repaired from REST. 13 rows in total. This overrides the literal halt for 11 cases.
+ * Before and after documents, raw REST responses and hashes are kept with the archive.
+ *
+ * GATES:
+ * - G1, step 2 in-sample permutation (M = 1,000, all 12 cells re-selected): p = 0.0020. PASS.
+ * - G2, step 4 walk-forward permutation (M = 1,000, start_index 1,094): p = 0.0030. PASS.
+ * - G3, deflated Sharpe probability of rv-v1 (cell 11) at N = 672: 0.1034. FAIL (threshold 0.95).
+ *   T = 5,197 bars, per-bar Sharpe 0.02620 (0.8674 annualised), skewness 0.779, kurtosis 17.02. The
+ *   cross-cell variance (1.622e-4) is below the floor 1 / (T - 1) = 1.925e-4, so V = 1.925e-4. The
+ *   benchmark at N = 672 is 0.04357 per bar (1.4421 annualised). Reported: N = 26 gives 0.4499 and
+ *   N = 2,161 gives 0.0555.
+ * The bar permutation keeps static per-symbol premia, so passing G1 and G2 means time structure that a
+ * single-bar shuffle destroys, not an edge that survives the search.
+ *
+ * RV-V1 FULL SPAN (cell 11, net taker, 2022-01-15 00:00 to 2026-10-13 00:00, 5,197 bars):
+ * - Total +130.2%, Sharpe 0.867, max drawdown 30.7%, profit factor 1.082, annual turnover 183.4x.
+ * - Gross: total +323.3%, Sharpe 1.418. Sums of per-bar returns: price +1.440, funding +0.133,
+ *   costs -0.609. Funding share of net PnL 13.8%.
+ * - Per year: 2022 +38.9% (Sharpe 1.44), 2023 +10.8% (0.55), 2024 +42.6% (1.44), 2025 +34.5% (1.58),
+ *   2026 to 2026-10-13 -22.0% (-1.68). Since 2026-07-01 (313 bars): -14.5% (-2.60).
+ * - Maker track (reported only, fill model optimistic): total +226.2%, Sharpe 1.183, max drawdown 24.9%,
+ *   fill rate 98.8% (21,932 maker fills, 274 taker fallbacks), 2026 -16.8%, since 2026-07-01 -12.2%.
+ * - Stress (taker 7.5 bps, maker 3 bps, slippage 4 bps): Sharpe 0.514.
+ * - Funding is charged at the fill price (the previous 8h open), because the panel has no settlement mark.
+ *
+ * NEIGHBOUR TABLE (full span, net taker, annualised Sharpe, cell given as buffer, beta-neutral, flow):
+ *   cell 0 (0, no, off) 0.14     cell 1 (0, no, on) 0.02     cell 2 (0, yes, off) -0.24
+ *   cell 3 (0, yes, on) -0.36    cell 4 (1, no, off) 0.56    cell 5 (1, no, on) 0.56
+ *   cell 6 (1, yes, off) 0.25    cell 7 (1, yes, on) 0.36    cell 8 (2, no, off) 0.71
+ *   cell 9 (2, no, on) 0.97      cell 10 (2, yes, off) 0.59  cell 11 (2, yes, on) 0.87
+ * Step 1 best: cell 9 (buffer 2, not beta-neutral, flow on), 0.975 annualised.
+ *
+ * STEP 3 WALK-FORWARD (15 complete folds, returns r_1095 to r_5189, 2022-12-31 16:00 to 2026-09-26):
+ * - Stitched net taker: total +53.7%, Sharpe 0.585, max drawdown 28.9%, annual turnover 222.8x.
+ * - Per year: 2023 -0.1% (0.11), 2024 +49.4% (1.43), 2025 +29.8% (1.24), 2026 -20.7% (-1.63).
+ * - Cells selected per fold: 6, 11, 11, 11, 0, 9, 9, 9, 9, 9, 9, 9, 11, 11, 5 (five distinct cells).
+ * - The 1-bar purge sensitivity is identical (0.585, same cells).
+ * - Block permutation sensitivity of step 2 (block 9 bars, M = 1,000): p = 0.0190.
+ *
+ * PREDICTIONS: G3 fails, right. Carry dominates the PnL, wrong (funding share 13.8%, price drove it).
+ * Step 2 may pass on funding persistence, it passed (p 0.002) and the 3-day block shuffle lifts p to
+ * 0.019. The walk-forward selects different cells, right (five).
+ *
+ * TRIALS: the program ledger moves from 2,135 to 2,161. No rule in the program has passed.
+ *
+ * FAILURE ACTION (locked, now applied): the desk keeps recording rv-v1 as a descriptive forward test
+ * labelled "not validated", the docs record the failure, and the card stops presenting RV as an active
+ * strategy. The card's final form is the user's decision after the literature review of 2026-10-16.
  */
 
 export {};

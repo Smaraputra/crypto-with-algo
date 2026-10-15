@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: rv-v1 re-validation RESULT, the rule fails
+- **Verdict (2026-10-15)**: FAIL.
+  - G1 passes: the in-sample permutation with all 12 cells re-selected gives p 0.0020.
+  - G2 passes: the walk-forward permutation gives p 0.0030.
+  - G3 fails: the deflated Sharpe probability of rv-v1 at N = 672 is 0.10, against 0.95 required. The net taker Sharpe of 0.87 sits below a search-adjusted benchmark of 1.44 annualised.
+  - The ranking holds real time structure, but not enough to survive the search. The full RESULT is in `scripts/research/rv-revalidation.ts`.
+- **Figures** (rv-v1, net taker, 2022-01-15 to 2026-10-13):
+  - Total +130%, max drawdown 31%, annual turnover 183x.
+  - Gross Sharpe 1.42.
+  - Funding is only 14% of net PnL.
+  - 2026 to date -22.0%, and -14.5% since 2026-07-01.
+  - The maker track reports a Sharpe of 1.18, but its fill model is optimistic.
+  - The walk-forward picked five different cells across 15 folds and gave 0.585 out of sample.
+  - The 3-day block shuffle raises step 2's p to 0.019.
+- **Disclosed data repairs** (approved by the user, decided after the inputs stage halted and before any statistic existed):
+  - 30 production `perpcandles` rows around Binance's archive placeholder at 2024-10-28 20:00 UTC were replaced from Binance REST.
+  - 13 rows were also changed:
+    - 11 4h bars where Binance's own REST 4h and 1h disagree were rebuilt from their 1h rows: 2022-07-16 for all 10 symbols, and BTCUSDT 2023-11-10.
+    - 2 1h bars (DOTUSDT and XRPUSDT, 2023-11-14 11:00) were repaired from REST.
+  - No 8h open changed. Before and after documents and the raw REST responses are archived on the VPS (`~/archive/rv2-result-2026-10-15`).
+- **Ledger**: the program trial ledger moves from 2,135 to 2,161. No rule in the program has passed.
+- **What applies now**:
+  - The locked failure action: the rv-v1 desk keeps recording as a descriptive forward test labelled "not validated". Its card's final form waits for the user's decision.
+  - The LLM panel is retired as of 2026-10-16. The host cron line is removed and backed up, and its stored calls and outcomes are kept.
+  - Strategy research on this data is paused.
+
 ### Research: rv-v1 re-validation machinery (pre-registered, not yet run)
 - **Why**: the earlier validation of the live 8h cross-sectional relative value rule is void (audit of 2026-10-14, defects D01 to D28). This is the machinery for a pre-registered re-test of the frozen rule rv-v1 on perpetual prices with Timothy Masters' four steps. Nothing here has read the rv perp history, and there are no results.
 - **Spec**: `scripts/research/rv-revalidation.ts`, the locked header with AMENDMENTS 1 to 3, each made before any rv perp history was read.
