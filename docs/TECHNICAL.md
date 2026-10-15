@@ -653,18 +653,37 @@ docker-compose.prod.yml:
     |-- persistent volume: mongodb_prod_data
     |
   cron (Alpine + wget)
-    |-- crontab with 4 scheduled jobs
+    |-- crontab with the scheduled jobs listed in the Cron Jobs table below
     |-- depends_on: app
 ```
 
 ### Cron Jobs
 
-| Schedule | Endpoint | Purpose |
-|----------|----------|---------|
-| Every 5 minutes | `/api/cron/check-alerts` | Evaluate price alerts against current prices |
-| Every 10 minutes | `/api/cron/compute-signals` | Recompute trading signals for active strategies |
-| Every 15 minutes | `/api/cron/sync-candles` | Incrementally sync candle data for watched symbols |
-| Daily at midnight | `/api/cron/snapshot-portfolios` | Capture daily portfolio value snapshots |
+The schedule below is taken from `src/lib/cron-jobs.ts` (the source of truth, kept in step with `docker/crontab.template` by `cron-jobs.test.ts`). All expressions are UTC. The v8 single-asset composite jobs (compute-signals, resolve-outcomes, paper-desk, monthly-optimization) are still scheduled and running.
+
+| Job | Schedule | Endpoint | Purpose |
+|-----|----------|----------|---------|
+| check-alerts | `*/5 * * * *` | `/api/cron/check-alerts` | Evaluate price alerts against current prices |
+| sync-candles:standard | `*/15 * * * *` | `/api/cron/sync-candles` | Incrementally sync candle data for the standard intervals |
+| sync-candles:1m | `*/1 * * * *` | `/api/cron/sync-candles?intervals=1m` | Sync 1-minute candles |
+| sync-candles:5m | `*/5 * * * *` | `/api/cron/sync-candles?intervals=5m` | Sync 5-minute candles |
+| compute-signals:scalping | `*/1 * * * *` | `/api/cron/compute-signals?style=scalping` | Recompute v8 single-asset signals, scalping style |
+| compute-signals:day_trading | `1-59/5 * * * *` | `/api/cron/compute-signals?style=day_trading` | Recompute v8 signals, day trading style |
+| compute-signals:swing_trading | `1-59/15 * * * *` | `/api/cron/compute-signals?style=swing_trading` | Recompute v8 signals, swing trading style |
+| compute-signals:position_trading | `1 * * * *` | `/api/cron/compute-signals?style=position_trading` | Recompute v8 signals, position trading style |
+| paper-desk | `*/1 * * * *` | `/api/cron/paper-desk` | Run the v8 single-asset paper desk |
+| resolve-outcomes | `*/15 * * * *` | `/api/cron/resolve-outcomes` | Resolve the outcomes of stored v8 signals |
+| ingest-snapshots:1h | `*/15 * * * *` | `/api/cron/ingest-snapshots?interval=1h` | Ingest market snapshots at 1h |
+| ingest-snapshots:4h | `0 */4 * * *` | `/api/cron/ingest-snapshots?interval=4h` | Ingest market snapshots at 4h |
+| ingest-snapshots:1d | `0 0 * * *` | `/api/cron/ingest-snapshots?interval=1d` | Ingest market snapshots at 1d |
+| ingest-archive | `0 10 * * *` | `/api/cron/ingest-archive?days=3` | Ingest the last 3 days of Binance archive data |
+| ingest-perp | `30 10 * * *` | `/api/cron/ingest-perp?days=3` | Ingest the last 3 days of perpetual data |
+| snapshot-portfolios | `0 0 * * *` | `/api/cron/snapshot-portfolios` | Capture daily portfolio value snapshots |
+| cross-sectional-signals | `1 */8 * * *` | `/api/cron/cross-sectional-signals` | Generate the 8h cross-sectional RV signal (unvalidated) |
+| cross-sectional-paper | `2 */8 * * *` | `/api/cron/cross-sectional-paper` | Step the 8h RV paper desk (unvalidated) |
+| monthly-optimization | `0 0 1 * *` | `POST /api/cron/monthly-optimization` | Monthly optimisation orchestrator (fire-and-forget, health derived from the newest CronRun) |
+
+Two further jobs are tracked outside the crontab template. `llm-panel` runs on the VPS host crontab at `7 */2 * * *` (health derived from the newest `LlmCall`). `market-recorder` is a long-running service in `docker-compose.server.yml` that writes a heartbeat every minute.
 
 All cron requests include a `Bearer` token (`CRON_SECRET`) that the API routes validate before processing. The cron container is a minimal Alpine image with `wget` that calls the Next.js API endpoints over the internal Docker network.
 
@@ -687,9 +706,9 @@ It explicitly calls `connectDB()` because Next.js standalone mode uses lazy Mong
 
 ### 8.1 Background and Theoretical Shift
 
-The legacy directional composite scoring system (v1 through v8) evaluated assets in isolation, generating directional signals from moving average crossovers, RSI, and order-book snapshots. Out-of-sample empirical benchmarking across 24 pre-registered direction-and-exit variants established that directional prediction at 1h and 4h cadences possesses negative expectancy (-0.165% to -0.224% per trade), suffering from broad crypto market beta correlation and microstructure whipsaw.
+The legacy directional composite scoring system (v1 through v8) evaluated assets in isolation, generating directional signals from moving average crossovers, RSI, and order-book snapshots. The direction and exit study (24 pre-registered variants, confirmation period 2025-01-01 to 2026-10-09, 1h and 4h) found that no configuration passes. Confirmation-period expectancy ranged from -0.347% to +0.169% per trade, with four positive point estimates, none of which cleared the study's criteria. Its exit variants were the horizon, take-profit, target-and-stop and score reversal, and it had no trailing-stop variant. The v8 single-asset composite is not retired: its compute-signals, resolve-outcomes, paper-desk and monthly-optimization jobs all still run (`src/lib/cron-jobs.ts:59-66, 79-91`).
 
-The system transitioned to an **8-Hour Cross-Sectional Relative Value (RV)** model. Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts. By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
+An **8-Hour Cross-Sectional Relative Value (RV)** model was added alongside it. Status as of 2026-10-15: the RV system remains live but UNVALIDATED. Every validation claim previously made in this section was found void by an audit (see the corrections in 8.5 and 8.6 and the session 30 handover). Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts (the contracts are perpetuals, but the prices used were spot, see 8.5). By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
 
 ### 8.2 Factor Model Specification
 
@@ -708,17 +727,18 @@ At each 8-hour boundary (00:00, 08:00, 16:00 UTC), every asset $i$ in universe $
 3. **Perpetual Funding Carry ($C_i$, weight 30%)**:
    Perpetual futures charge funding rates every 8 hours. Negative funding implies shorts pay longs; positive funding implies longs pay shorts. The carry signal captures cash-flow yield:
    $$C_i = -F_{i, t}$$
-   where $F_{i, t}$ is the last settled funding rate.
+   where $F_{i, t}$ is the single latest settled funding print from the perpetual API. It is not a 14-day annualised yield. A failed funding fetch silently sets the carry to 0 (`generator.ts:237-243`, `generator.ts:148`, `factors.ts:95`).
 
 4. **14-Day Aggregate Taker Buy Flow ($F_i$, weight 15%)**:
    Captures continuous institutional aggressor flow:
-   $$F_i = \frac{\sum_{k=0}^{41} \text{TakerBuyVolume}_{i, t - k}}{\sum_{k=0}^{41} \text{Volume}_{i, t - k}} - 0.5$$
+   $$F_i = \frac{\sum_{k=0}^{42} \text{TakerBuyVolume}_{i, t - k}}{\sum_{k=0}^{42} \text{Volume}_{i, t - k}} - 0.5$$
+   The window is 43 spot 8h bars in the live generator (`generator.ts:141-147`), not 42, and the volumes are spot volumes. A candle with missing taker volume contributes a ratio of 0.5.
 
 ### 8.3 Cross-Sectional Standardization and Ranking
 
 Raw factor series are standardized cross-sectionally across the 10 assets to zero mean and unit variance:
 $$Z(X_i) = \frac{X_i - \mu_X}{\sigma_X}$$
-Z-scores are winsorized at $\pm 3.0$ standard deviations. The composite score is:
+Z-scores are winsorized at $\pm 3.0$ standard deviations. Correction (2026-10-15): with N of 10 or fewer the maximum possible absolute z-score is $(N-1)/\sqrt{N}$, which is 2.846 at N = 10, so this winsorisation never binds and provides no outlier protection (`factors.ts:59-74`). The rule is unchanged. The composite score is:
 $$Z_{i, \text{composite}} = 0.30 \cdot Z(M_i) + 0.25 \cdot Z(I_i) + 0.30 \cdot Z(C_i) + 0.15 \cdot Z(F_i)$$
 Assets are sorted descending by $Z_{i, \text{composite}}$ and assigned ranks $r_i \in \{1, 2, \dots, 10\}$. Rank 1 denotes the strongest long candidate; rank 10 denotes the strongest short candidate.
 
@@ -734,15 +754,25 @@ Assets are sorted descending by $Z_{i, \text{composite}}$ and assigned ranks $r_
   $$W_{\text{Long}} \cdot \bar{\beta}_{\text{Long}} = W_{\text{Short}} \cdot \bar{\beta}_{\text{Short}}, \quad W_{\text{Long}} + W_{\text{Short}} = 1.0$$
   where $\bar{\beta}_{\text{Long}} = \frac{1}{|\text{Longs}|} \sum_{j \in \text{Longs}} \beta_j$ and $\bar{\beta}_{\text{Short}} = \frac{1}{|\text{Shorts}|} \sum_{k \in \text{Shorts}} \beta_k$. Target weights are equally allocated across legs within each basket:
   $$w_{i, \text{long}} = \frac{W_{\text{Long}}}{|\text{Longs}|}, \quad w_{i, \text{short}} = -\frac{W_{\text{Short}}}{|\text{Shorts}|}$$
-  ensuring portfolio net beta exposure $\sum w_i \beta_i \approx 0$ with 1.0 gross exposure.
+  ensuring portfolio net beta exposure $\sum w_i \beta_i \approx 0$ with 1.0 gross exposure. Correction (2026-10-15): this equalises the basket-average betas with equal weights within each side (`portfolio.ts:109-121`). It is not a weighting inverse to each asset's own beta. The beta clamp floors negative betas at 0.1 rather than inverting them (`generator.ts:126`).
 - **Dynamic Deadband Buffer Protection**:
-  The hysteresis buffer is automatically clamped ($B_{\text{effective}} = \min(B, \lfloor(N - 2L - 1)/2\rfloor)$) if transient API dropouts temporarily reduce active universe size $N$, preventing deadband overlap exceptions.
+  The hysteresis buffer is automatically clamped ($B_{\text{effective}} = \min(B, \lfloor(N - 2L - 1)/2\rfloor)$) if transient API dropouts temporarily reduce active universe size $N$, preventing deadband overlap exceptions. With L = 2 and B = 2 the clamp engages whenever N is below 9.
 - **Individual Leg Stop Loss Evaluation**:
-  Empirical benchmarking of intra-bar catastrophic stop losses (-6%, -8%) showed severe performance degradation (+18.81% maker net return vs +250.43% control). The whipsaw cost of re-entering stops after mean reversion offsets any protection. Consequently, individual stop-losses are omitted; beta-neutral pairing serves as structural risk mitigation.
+  Empirical benchmarking of intra-bar catastrophic stop losses (-6%, -8%) showed severe performance degradation (+18.81% maker net return vs +250.43% control). The whipsaw cost of re-entering stops after mean reversion offsets any protection. Consequently, individual stop-losses are omitted; beta-neutral pairing serves as structural risk mitigation. Correction (2026-10-15): both figures come from the unverified spot-data runs described in 8.5, among at least 14 unregistered configurations, so the decision to omit stops is unverified.
 
-### 8.5 Empirical Backtest and Statistical Validation
+### 8.5 Empirical Backtest and Statistical Validation (superseded by the audit)
 
-Performance evaluated over 5 years (2021-10 to 2026-10, 5,462 8-hour bars):
+Correction (2026-10-15): the table below is an unverified spot-data result. It is retained for the record only and must not be cited as validation. Findings of the audit:
+
+- Every research number used SPOT candles. The dataset `dx-ds` (`48ff79609080`) was exported with `--datasets candles,snapshots,htf,funding` and contains no perpetual data, and `loadCandles` reads spot (`load-dataset.ts:97`). The live generator also fetches spot klines (`generator.ts:227`, `binance.ts:3`). Only funding comes from the perpetual API. The perpetual labels in this section and in the dashboard are therefore wrong.
+- The Deflated Sharpe values use a default trials count of 54 and an assumed variance of 0.1/barsPerYear (`cross-sectional-harness.ts:175, 236`). They do not account for the configurations tried and sit below the program's 0.95 bar in any case.
+- At least 14 configurations were run on the same history (24h, 8h buffers, beta-neutral, flow 3d and 14d, six stop variants) with no pre-registration and no trial-ledger entry. Commit `1da5742` was pushed directly to main without a PR.
+- The Annual Turnover row (5.34x) is wrong. The harness reports `annualTurnover` of about 180x a year (VPS value 180.67). Funding contributed about +0.156 log return while maker fees cost about 0.165 log, so funding offset most of the maker fees, and the result rests on 100% maker fills. No order or post-only execution code exists in the repository.
+- The 1.8 bps maker figure is the BNB-discount profile (`cost-model.ts:57-61`). The venue standard is 2 bps maker and 5 bps taker (`cost-model.ts:10-11`). The taker cost is 7 bps in total (5 bps fee plus 2 bps slippage).
+- The period label "2021-10 to 2026-10" below is hard-coded. The data stops at 2026-07-01 unless `--allow-lockbox` is passed (`cross-sectional-harness.ts:602-604`).
+- The full-span figures below include July to October 2026. The session 29 headline of +270.18% excludes that span. The excluded 303 bars imply about -5.3% net maker and -8.4% net taker for the live configuration.
+
+Performance as originally reported over 5 years (2021-10 to 2026-10, 5,462 8-hour bars):
 
 | Metric | Gross (Zero Fee) | Net Maker (1.8 bps) | Net Taker (5 bps + 2 bps slip) |
 | :--- | :--- | :--- | :--- |
@@ -750,14 +780,15 @@ Performance evaluated over 5 years (2021-10 to 2026-10, 5,462 8-hour bars):
 | Annualized Return | +28.73% | +28.49% | +16.85% |
 | Annualized Sharpe | 1.14 | 1.13 | 0.69 |
 | Maximum Drawdown | 23.23% | 23.28% | 26.14% |
-| Deflated Sharpe Prob | 0.8385 | 0.8351 | 0.4421 |
-| Annual Turnover | 5.34x | 5.34x | 5.34x |
+| Deflated Sharpe Prob | 0.8385 (void) | 0.8351 (void) | 0.4421 (void) |
+| Annual Turnover | 5.34x (wrong, about 180x) | 5.34x (wrong, about 180x) | 5.34x (wrong, about 180x) |
 
-### 8.6 Timothy Masters Circular Block Permutation Testing
+### 8.6 Permutation Testing (the original claim is void)
 
-To ensure the signal is not a product of data mining bias or spurious correlation, a circular block permutation test (Masters, 2014) was executed across 200 trials (synchronous multi-asset block shuffling with 24-hour block size):
-- Empirical Strategy Sharpe: 1.13
-- Permuted Null Distribution: Mean = 0.24, Standard Deviation = 0.41
-- Distance from Null: $Z = 2.24$ standard deviations
-- Empirical p-value: **0.0199** (Statistically significant at $\alpha = 0.05$).
+The original text of this section claimed that a circular block permutation test (Masters, 2014) over 200 trials gave an empirical Sharpe of 1.13 against a null of mean 0.24 and standard deviation 0.41, Z = 2.24, and a p-value of 0.0199 "statistically significant at $\alpha = 0.05$". Correction (2026-10-15):
 
+- The in-sample permutation test (`cross-sectional-permutation.ts`) uses fixed parameters with no re-optimisation per permutation, and does not permute funding, so the carry factor is untested. Blocks are not circular. The later 1,000-trial run gave a net maker p of 0.012, which fails the program's 1% bar, and it omitted `--allow-lockbox`, so it excluded 2026-07-01 to 2026-10-12 (5,159 bars instead of 5,462).
+- The walk-forward permutation test (`cross-sectional-walkforward.ts:393-401`) draws its null distribution from synthetic Gaussian noise (mean 0.20, standard deviation 0.40). No data is permuted and nothing is re-optimised per fold. The 11 folds carry identical numbers (4.89% each, which is 53.79% divided by 11), and the stitched out-of-sample series is a 2025-01-01 calendar slice of one full-sample run (1,638 bars, 1.5 years, hence +33.37% a year). The reported p_WF of 0.0020 and Z of 3.47 measure nothing.
+- The cross-returns lead-lag harness (`cross-returns-leadlag.ts`) fits 27 in-sample lag-1 regressions on 8h bars with no intercept, array-index alignment and plain OLS errors. Only ADA from BNB (t -3.48) and ADA from BTC (t -3.23) survive a Bonferroni correction. It has no trade rule, `outOfSampleMeanReturnPct` and `winRate` are hard-coded to 0, and `dualBenchmarkStats` is a copy of the baseline. Its Rank IC change (-0.00001 to +0.0014, t 0.26) is noise.
+
+No p-value in this section supports a claim of statistical significance. A pre-registered re-validation is planned (see the session 30 handover).
