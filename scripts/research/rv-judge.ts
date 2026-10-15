@@ -801,7 +801,7 @@ function main(): void {
       const a = flags(rest, ['dir', 'out']);
       const c = checkCalibration(readCalibrationOutputs(a.dir), gitCommit);
       writeFileSync(a.out, JSON.stringify(c, null, 2));
-      console.log(`iid step 2: KS p ${fmt(c.iid.is.ks.p)}, share p <= 0.05 ${fmt(c.iid.is.share05)}; step 4: KS p ${fmt(c.iid.wf.ks.p)}, share ${fmt(c.iid.wf.share05)} ${c.iid.pass ? 'PASS' : 'FAIL'}`);
+      console.log(`iid step 2: KS p ${fmt(c.iid.is.ks.p)}, share p <= 0.05 ${fmt(c.iid.is.share05)}, step 4: KS p ${fmt(c.iid.wf.ks.p)}, share ${fmt(c.iid.wf.share05)} ${c.iid.pass ? 'PASS' : 'FAIL'}`);
       console.log(`planted: step 2 p <= 0.01 on ${c.planted.isAt01}/10, step 4 on ${c.planted.wfAt01}/10 ${c.planted.pass ? 'PASS' : 'FAIL'}`);
       console.log(`garch (reported): step 2 KS p ${fmt(c.garch.is.ks.p)}, step 4 KS p ${fmt(c.garch.wf.ks.p)}`);
       console.log(`carry-only (reported): step 2 p <= 0.01 on ${c.carry.isAt01}/10, step 4 on ${c.carry.wfAt01}/10`);

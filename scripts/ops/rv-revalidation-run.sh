@@ -453,6 +453,8 @@ reap() {
   done
   PIDS=()
   NAMES=()
+  # Every container this run started has exited here, so a later signal has nothing of these to stop
+  CNAMES=()
 }
 
 # run_pool <phase> <job>...  job = name|..., two containers at a time. A job whose output exists is kept.

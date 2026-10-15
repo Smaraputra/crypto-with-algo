@@ -123,7 +123,7 @@ function dockerLog(w: World): string[][] {
     .map((l) => l.split('\x1f').slice(0, -1));
 }
 
-/** Runs one stage with the stub docker first on PATH; returns its status, output and the docker calls it made. */
+/** Runs one stage with the stub docker first on PATH and returns its status, output and the docker calls it made. */
 function stage(w: World, name: string, env: Record<string, string> = {}) {
   const before = dockerLog(w).length;
   const r = spawnSync('bash', [RUNBOOK, name], {
