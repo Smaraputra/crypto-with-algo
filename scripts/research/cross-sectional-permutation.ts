@@ -1,4 +1,27 @@
 /**
+ * SUPERSEDED / VOID (2026-10-15). No result of this permutation test is evidence for the 8h cross-sectional relative
+ * value rule, and none may be cited. The pre-registered re-validation of the frozen rule rv-v1 replaces it:
+ * scripts/research/rv-revalidation.ts (the locked header with AMENDMENTS 1 to 3), run on the VPS by
+ * scripts/ops/rv-revalidation-run.sh. main() prints a pointer there and exits with code 2 before it reads anything.
+ *
+ * Defects, from the audit of 2026-10-14 (table D01 to D28 in the session 30 handover). Each line number is this
+ * file's own, with this header in place. The number in brackets is the same code at 1da5742, the numbering that the
+ * locked header and the defect table use.
+ * - D02 (high): the null is not the rule's null. Every permutation re-runs one fixed configuration in-sample
+ *   (lines 428-437 (393-402 at 1da5742)) with the real funding series left unpermuted (line 460 (425 at 1da5742)),
+ *   where the selection among configurations should be re-run on permuted bars and permuted funding. Its net maker p of
+ *   0.012 fails its own 1% bar (lines 534-537 (499-502 at 1da5742)). The "circular" block shuffle is a plain shuffle of
+ *   the block order (lines 294-318 (271-295 at 1da5742)). A missing previous bar sets the previous close to 1, so the
+ *   ratio becomes the raw price, and a missing taker-buy volume becomes half the volume
+ *   (lines 244-256 (221-233 at 1da5742)). Its test fixture cannot detect a broken shuffle.
+ * - D03 (high): spot prices with perp costs. loadCandles reads the spot candle files (line 422 (387 at 1da5742)).
+ * - D05 (high): run on the full span including the lockbox (--allow-lockbox, line 400 (365 at 1da5742)), with no
+ *   pre-registration, no ledger entry and no PR for 1da5742.
+ *
+ * The exported helpers stay in place: cross-sectional-walkforward.ts (void as well) and this file's test still import
+ * them.
+ */
+/**
  * Synchronous Multi-Asset Permutation Testing Framework for Binance Futures.
  * Based on Timothy Masters (2020) and Marcos López de Prado (2018).
  *
@@ -354,7 +377,19 @@ export function generatePermutedUniverse(
   return permutedBarsBySymbol;
 }
 
+/** Printed by main(), which exits with code 2 before it reads anything (see the SUPERSEDED / VOID header). */
+const VOID_NOTICE =
+  'SUPERSEDED / VOID (2026-10-15): cross-sectional-permutation.ts is void (defects D02, D03 and D05 of the 2026-10-14 audit, listed in its header). The rv-v1 re-validation is scripts/research/rv-revalidation.ts, run by scripts/ops/rv-revalidation-run.sh.';
+
+/** Prints VOID_NOTICE and exits with code 2. Typed void, not never, so the kept body of main() still type-checks. */
+function exitQuarantined(): void {
+  console.error(VOID_NOTICE);
+  process.exit(2);
+}
+
 async function main() {
+  // Quarantined: exitQuarantined() ends the process, and the body below is kept for the record and never runs.
+  exitQuarantined();
   const { values } = parseArgs({
     options: {
       'dataset-dir': { type: 'string', default: '/home/smara/dx-ds' },

@@ -7,6 +7,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { gunzipSync } from 'zlib';
 import {
   LOCKBOX_START,
   datasetHashOf,
@@ -23,6 +24,19 @@ import {
   type PerpCandleRow,
   type SnapshotRow,
 } from './dataset-format';
+
+/**
+ * Parses gzipped JSON lines from bytes already in memory, the same format readJsonlGz reads from a path.
+ * A caller that must parse exactly the bytes it hashed reads the file once and passes the buffer here.
+ * No lockbox is applied: the caller owns that decision.
+ */
+export function parseJsonlGz<T>(compressed: Buffer): T[] {
+  return gunzipSync(compressed)
+    .toString('utf8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as T);
+}
 
 export function loadManifest(dir: string): DatasetManifest {
   const raw = readFileSync(join(dir, 'manifest.json'), 'utf8');
