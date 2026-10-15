@@ -151,10 +151,11 @@ describe('CRON_JOBS table', () => {
     expect(rvSignals.map((j) => j.job)).toEqual(['cross-sectional-signals', 'cross-sectional-signals:retry']);
   });
 
-  it('excludes the fire-and-forget optimization route from the heartbeat set', () => {
-    expect(HEARTBEAT_JOBS.some((j) => j.job === 'monthly-optimization')).toBe(false);
-    expect(cronJob('monthly-optimization')?.noHeartbeat).toBeTruthy();
-    expect(HEARTBEAT_JOBS).toHaveLength(CRON_JOBS.length - 1);
+  it('no longer schedules the monthly optimization (the route and admin trigger stay)', () => {
+    expect(CRON_JOB_NAMES).not.toContain('monthly-optimization');
+    expect(cronJob('monthly-optimization')).toBeUndefined();
+    expect(TEMPLATE).not.toContain('/api/cron/monthly-optimization');
+    expect(HEARTBEAT_JOBS).toHaveLength(CRON_JOBS.length);
   });
 
   it('looks a job up by key', () => {
@@ -173,13 +174,8 @@ describe('DERIVED_JOBS', () => {
     expect(TEMPLATE).not.toContain('llm-panel');
   });
 
-  it('derives the fire-and-forget optimization job rather than wrapping it', () => {
-    const derived = DERIVED_JOBS.find((j) => j.job === 'monthly-optimization');
-
-    expect(derived?.derivedFrom).toMatch(/CronRun/);
-    // It is in the container crontab, but excluded from the heartbeat set.
-    expect(CRON_JOB_NAMES).toContain('monthly-optimization');
-    expect(HEARTBEAT_JOBS.some((j) => j.job === 'monthly-optimization')).toBe(false);
+  it('does not derive the retired monthly optimization job', () => {
+    expect(DERIVED_JOBS.some((j) => j.job === 'monthly-optimization')).toBe(false);
   });
 
   it('says where every derived job reads its state from', () => {

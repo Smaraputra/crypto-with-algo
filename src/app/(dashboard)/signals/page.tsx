@@ -10,6 +10,7 @@ import { StyleTabs } from '@/components/signals/StyleTabs';
 import { AutoUpdateStatus } from '@/components/signals/AutoUpdateStatus';
 import { SignalTimeline } from '@/components/signals/SignalTimeline';
 import { MultiStyleOverview } from '@/components/signals/MultiStyleOverview';
+import { V8StatusBanner } from '@/components/signals/V8StatusBanner';
 import { TradePlanCard } from '@/components/signals/TradePlanCard';
 import { EnhancedJournalForm } from '@/components/journal/EnhancedJournalForm';
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,7 @@ import {
 import { useFearAndGreed } from '@/hooks/useSentiment';
 import { SentimentGauge } from '@/components/market/SentimentGauge';
 import { useUIStore } from '@/stores/uiStore';
-import { STYLE_CONFIGS } from '@/lib/indicators/style-configs';
+import { scoredIntervals } from '@/lib/indicators/style-configs';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { formatAvgPnl } from '@/components/journal/analytics/format';
@@ -40,9 +41,8 @@ export default function SignalsPage() {
   const setSelectedSymbol = useUIStore((s) => s.setSelectedSymbol);
   const [tradingStyle, setTradingStyle] = useState<TradingStyle>('day_trading');
 
-  const styleConfig = STYLE_CONFIGS[tradingStyle];
-  const preferredIntervals = styleConfig.preferredIntervals;
-  const [interval, setInterval] = useState(preferredIntervals[0]);
+  const offeredIntervals = scoredIntervals(tradingStyle);
+  const [interval, setInterval] = useState(offeredIntervals[0]);
 
   // Global signal data
   const { data: latestAllData, isLoading: latestAllLoading } = useLatestSignals(selectedSymbol);
@@ -84,7 +84,7 @@ export default function SignalsPage() {
 
   function handleStyleChange(style: TradingStyle) {
     setTradingStyle(style);
-    const newIntervals = STYLE_CONFIGS[style].preferredIntervals;
+    const newIntervals = scoredIntervals(style);
     if (!newIntervals.includes(interval)) {
       setInterval(newIntervals[0]);
     }
@@ -99,6 +99,8 @@ export default function SignalsPage() {
           lastUpdated={latestSignal?.createdAt ?? null}
         />
       </div>
+
+      <V8StatusBanner />
 
       {/* Discipline nudges (advisory only) */}
       <DisciplineBanner nudges={disciplineNudges ?? []} compact />
@@ -127,7 +129,7 @@ export default function SignalsPage() {
           onChange={(e) => setInterval(e.target.value)}
           data-testid="interval-select"
         >
-          {preferredIntervals.map((iv) => (
+          {offeredIntervals.map((iv) => (
             <option key={iv} value={iv}>
               {iv}
             </option>

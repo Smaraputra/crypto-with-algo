@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { dropOpenBars, getCandles } from '@/lib/candle-ingestion';
 import { fetchFearAndGreedUncached } from '@/lib/external/fear-greed';
-import { getStyleConfig, TRADING_STYLES } from '@/lib/indicators/style-configs';
+import { getStyleConfig, scoredIntervals, TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { intervalToMs } from '@/lib/intervals';
 import { connectDB } from '@/lib/mongodb';
 import type { TradingStyle } from '@/lib/models/signal-template';
@@ -58,7 +58,7 @@ const querySchema = z
     interval: z.string({ error: 'interval is required.' }),
   })
   .superRefine((value, ctx) => {
-    if (!getStyleConfig(value.style).preferredIntervals.includes(value.interval)) {
+    if (!scoredIntervals(value.style).includes(value.interval)) {
       ctx.addIssue({
         code: 'custom',
         path: ['interval'],

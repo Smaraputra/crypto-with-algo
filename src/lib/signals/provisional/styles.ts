@@ -1,4 +1,4 @@
-import { getStyleConfig, TRADING_STYLES } from '@/lib/indicators/style-configs';
+import { scoredIntervals, TRADING_STYLES } from '@/lib/indicators/style-configs';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 
@@ -14,9 +14,9 @@ export const STYLE_CADENCE_MS: Record<TradingStyle, number> = {
   position_trading: 3_600_000,
 };
 
-/** Styles whose scheduler run scores this interval. */
+/** Styles whose scheduler run still scores this interval (retired intervals excluded). */
 export function stylesForInterval(interval: string): TradingStyle[] {
-  return TRADING_STYLES.filter((style) => getStyleConfig(style).preferredIntervals.includes(interval));
+  return TRADING_STYLES.filter((style) => scoredIntervals(style).includes(interval));
 }
 
 export function isProvisionalEligible(

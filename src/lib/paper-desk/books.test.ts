@@ -8,6 +8,15 @@ describe('desk books', () => {
     expect(RETIRED_BOOKS['scalping:1m']).toMatch(/never researched/);
     expect(() => parseBookId('scalping:1m')).toThrow(/Unknown paper desk book/);
     expect(DESK_BOOKS).toHaveLength(6);
+    // Slimming v8 (no 1m scoring) must not change which books step.
+    expect(DESK_BOOKS.map(bookId)).toEqual([
+      'scalping:5m',
+      'day_trading:15m',
+      'day_trading:1h',
+      'swing_trading:4h',
+      'swing_trading:1d',
+      'position_trading:1d',
+    ]);
   });
 
   it('declares the read rule before any v8 trade, with its parameters fixed', () => {

@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { getStyleConfig, TRADING_STYLES } from '@/lib/indicators/style-configs';
+import { scoredIntervals, TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { isProvisionalEligible, stylesForInterval, STYLE_CADENCE_MS } from './styles';
 
 describe('provisional styles', () => {
-  it('derives styles per interval from preferredIntervals', () => {
-    expect(stylesForInterval('1m')).toEqual(['scalping']);
+  it('derives styles per interval from the scored intervals', () => {
+    // scalping 1m is a retired scoring interval, 5m is still scored
+    expect(stylesForInterval('1m')).toEqual([]);
+    expect(stylesForInterval('5m')).toEqual(['scalping']);
+    expect(isProvisionalEligible('BTCUSDT', '1m', 'scalping')).toBe(false);
+    expect(isProvisionalEligible('BTCUSDT', '5m', 'scalping')).toBe(true);
     expect(stylesForInterval('1h')).toEqual(['day_trading']);
     expect(stylesForInterval('1d')).toEqual(['swing_trading', 'position_trading']);
     expect(stylesForInterval('3m')).toEqual([]);
     for (const s of TRADING_STYLES) {
-      for (const i of getStyleConfig(s).preferredIntervals) {
+      for (const i of scoredIntervals(s)) {
         expect(stylesForInterval(i)).toContain(s);
       }
     }

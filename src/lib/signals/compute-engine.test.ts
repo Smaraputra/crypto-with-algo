@@ -743,22 +743,14 @@ describe('compute-engine', () => {
   });
 
   describe('buildTasksForStyle', () => {
-    it('builds tasks for all preferred intervals', async () => {
+    it('builds scalping tasks at 5m only, one per symbol (1m scoring is retired)', async () => {
       const { buildTasksForStyle } = await import('./compute-engine');
-      const tasks = buildTasksForStyle('scalping', ['BTCUSDT', 'ETHUSDT']);
+      const symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT'];
+      const tasks = buildTasksForStyle('scalping', symbols);
 
-      // Scalping has 2 preferred intervals (1m, 5m), 2 symbols = 4 tasks
-      expect(tasks).toHaveLength(4);
-      expect(tasks).toContainEqual({
-        symbol: 'BTCUSDT',
-        interval: '1m',
-        tradingStyle: 'scalping',
-      });
-      expect(tasks).toContainEqual({
-        symbol: 'ETHUSDT',
-        interval: '5m',
-        tradingStyle: 'scalping',
-      });
+      expect(tasks).toHaveLength(10);
+      expect(tasks.every((t) => t.interval === '5m' && t.tradingStyle === 'scalping')).toBe(true);
+      expect(new Set(tasks.map((t) => t.symbol)).size).toBe(10);
     });
 
     it('builds tasks for position_trading with single interval', async () => {
