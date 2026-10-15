@@ -523,12 +523,19 @@ export function judgeVerdict(
 
 // ------------------------------------------------------------------------------------------------ calibration acceptance
 
-export interface StepAcceptance {
+/** A driftless step's p-values, their KS test against uniform and the share at or below 0.05. */
+export interface DriftlessStats {
   ps: number[];
   ks: { n: number; d: number; p: number };
   share05: number;
+}
+
+export interface StepAcceptance extends DriftlessStats {
   pass: boolean;
 }
+
+/** Final review m2: the note on every calibration block that never gates (GARCH). */
+export const REPORTED_NOT_GATED = 'reported, never a gate';
 
 export type CalibrationUniverse = { kind: UniverseKind; k: number; seed: number; isP: number; wfP: number };
 
@@ -536,7 +543,8 @@ export type CalibrationUniverse = { kind: UniverseKind; k: number; seed: number;
 export interface CalibrationAcceptance {
   iid: { is: StepAcceptance; wf: StepAcceptance; pass: boolean };
   planted: { isPs: number[]; wfPs: number[]; isAt01: number; wfAt01: number; pass: boolean };
-  garch: { is: StepAcceptance; wf: StepAcceptance };
+  /** Reported only: the KS result and the share, with no pass flag (final review m2). */
+  garch: { is: DriftlessStats; wf: DriftlessStats; note: typeof REPORTED_NOT_GATED };
   carry: { isPs: number[]; wfPs: number[]; isAt01: number; wfAt01: number; note: string };
   pass: boolean;
 }
@@ -548,11 +556,14 @@ export interface CalibrationCheck extends CalibrationAcceptance {
   timing: CalibrationOutput['timing'];
 }
 
+function driftlessStats(ps: number[]): DriftlessStats {
+  return { ps, ks: ksUniform(ps), share05: ps.filter((p) => p <= 0.05).length / ps.length };
+}
+
 /** Header: a driftless step passes when KS p > 0.01 and the share of p <= 0.05 is at most 0.11. */
 function driftless(ps: number[]): StepAcceptance {
-  const ks = ksUniform(ps);
-  const share05 = ps.filter((p) => p <= 0.05).length / ps.length;
-  return { ps, ks, share05, pass: ks.p > 0.01 && share05 <= 0.11 };
+  const stats = driftlessStats(ps);
+  return { ...stats, pass: stats.ks.p > 0.01 && stats.share05 <= 0.11 };
 }
 
 /**
@@ -630,7 +641,7 @@ export function calibrationAcceptance(universes: readonly CalibrationUniverse[])
   return {
     iid: { is: iidIs, wf: iidWf, pass: iidPass },
     planted: { ...planted, pass: plantedPass },
-    garch: { is: driftless(of('garch', 'isP')), wf: driftless(of('garch', 'wfP')) },
+    garch: { is: driftlessStats(of('garch', 'isP')), wf: driftlessStats(of('garch', 'wfP')), note: REPORTED_NOT_GATED },
     carry: { isPs: of('carry', 'isP'), wfPs: of('carry', 'wfP'), isAt01: at01(of('carry', 'isP')), wfAt01: at01(of('carry', 'wfP')), note: CARRY_ONLY_NOTE },
     pass: iidPass && plantedPass,
   };

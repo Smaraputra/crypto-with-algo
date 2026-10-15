@@ -565,6 +565,18 @@ describe('checkCalibration (header CALIBRATION ACCEPTANCE)', () => {
     expect(enough.planted).toMatchObject({ isAt01: 9, wfAt01: 8, pass: true });
   });
 
+  it('reports GARCH and carry-only with no pass flag: they never gate (final review m2)', () => {
+    // GARCH p-values all at the floor: its KS p is near zero, and the calibration still passes
+    const c = checkCalibration(fakeCalibration((kind, k) => (kind === 'iid' ? uniformP(k, 99) : kind === 'garch' ? 0.01 : 1 / 200)), COMMIT);
+    expect(c.garch.is.ks.p).toBeLessThan(0.01);
+    for (const step of [c.garch.is, c.garch.wf]) expect(Object.keys(step).sort()).toEqual(['ks', 'ps', 'share05']);
+    expect(c.garch.note).toBe('reported, never a gate');
+    expect(Object.keys(c.garch).sort()).toEqual(['is', 'note', 'wf']);
+    expect(c.carry).not.toHaveProperty('pass');
+    expect(c.carry.note).toMatch(/reported, never a gate/);
+    expect(c.pass).toBe(true);
+  });
+
   it('records the same check, bit for bit, whatever order the outputs are read in (final review m1)', () => {
     const outs = variedTimings(fakeCalibration((kind, k) => (kind === 'iid' || kind === 'garch' ? uniformP(k, 99) : 1 / 200)));
     const forward = checkCalibration(outs, COMMIT);
