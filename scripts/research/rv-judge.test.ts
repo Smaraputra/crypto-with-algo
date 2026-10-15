@@ -37,6 +37,8 @@ import {
   ksUniform,
   mergeShards,
   rvDsr,
+  type MergedNull,
+  type ShardFile,
   seriesStats,
   verifiedRealStage,
 } from './rv-judge';
@@ -171,11 +173,17 @@ describe('rvDsr (header VERDICT G3, N = 672, V floor 1 / (T - 1))', () => {
 // ------------------------------------------------------------------------------------------------ merge
 
 /** A shard file as rv-stages writes it, with made-up statistics. */
-function shardText(stage: ShardStage, name: string, mFrom: number, mTo: number, opts: { prov?: Provenance; M?: number; mutate?: (lines: NullLine[]) => void } = {}): string {
+function shardText(
+  stage: ShardStage,
+  name: string,
+  mFrom: number,
+  mTo: number,
+  opts: { prov?: Provenance; M?: number; mutate?: (lines: NullLine[]) => void; bestOf?: (m: number) => number } = {}
+): string {
   const seedOf = stageSeed(stage);
   const lines: NullLine[] = [];
   for (let m = mFrom; m <= mTo; m++) {
-    const best = Math.sin(m) * 0.01;
+    const best = opts.bestOf ? opts.bestOf(m) : Math.sin(m) * 0.01;
     lines.push(stage === 'wf-mcpt' ? { m, seed: seedOf(m), best, cells: [m % 12] } : { m, seed: seedOf(m), best, perCell: Array.from({ length: 12 }, (_, c) => best - c * 1e-4) });
   }
   opts.mutate?.(lines);
@@ -183,6 +191,9 @@ function shardText(stage: ShardStage, name: string, mFrom: number, mTo: number, 
   return [header, ...lines].map((l) => JSON.stringify(l)).join('\n') + '\n';
 }
 const allShards = (stage: ShardStage) => shardJobs(stage).map((j) => ({ name: `${j.name}.jsonl`, text: shardText(stage, j.name, j.mFrom, j.mTo) }));
+/** The shard files of a stage whose merge is `nulls` (nulls[m - 1] for permutation m). */
+const shardFilesOf = (stage: ShardStage, nulls: readonly number[], prov: Provenance): ShardFile[] =>
+  shardJobs(stage).map((j) => ({ name: `${j.name}.jsonl`, text: shardText(stage, j.name, j.mFrom, j.mTo, { prov, bestOf: (m) => nulls[m - 1] }) }));
 
 describe('mergeShards (judge merge: coverage, seeds, provenance)', () => {
   it('merges the 8 shards of a stage into M = 1,000 nulls in m order', () => {
@@ -258,6 +269,10 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   });
   const prov = () => real.provenance;
   const merged = (stage: ShardStage, nulls: number[]) => ({ stage, M: nulls.length, provenance: prov(), nulls });
+  type Nulls = { is: MergedNull; wf: MergedNull; block: MergedNull };
+  /** The shard files the three merged nulls come from (final review Recommendation 6: the verdict re-merges them). */
+  const shardsFor = (m: Nulls) => ({ is: shardFilesOf('is-mcpt', m.is.nulls, prov()), wf: shardFilesOf('wf-mcpt', m.wf.nulls, prov()), block: shardFilesOf('block', m.block.nulls, prov()) });
+  const verdict = (r: RealOutput, m: Nulls, inputs: LoadedInputs, cal: CalibrationEvidence, shards = shardsFor(m)) => judgeVerdict(r, m, inputs, cal, shards);
   const below = Array(1000).fill(-1);
   /** 20 nulls halfway between two statistics: at or above exactly one of them. */
   const between = (a: number, b: number) => [...Array(980).fill(-1), ...Array(20).fill((a + b) / 2)];
@@ -274,7 +289,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
 
   it('G1 and G2 are the step 2 and step 4 p-values below 0.01, G3 the deflated Sharpe of cell 11 at N = 672', () => {
     const wf = [...Array(980).fill(-1), ...Array(20).fill(real.step3.objective)];
-    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', wf), block: merged('block', below) }, loaded, calOk);
+    const v = verdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', wf), block: merged('block', below) }, loaded, calOk);
     expect(v.gates.G1).toEqual({ p: 1 / 1001, threshold: 0.01, pass: true });
     expect(v.gates.G2).toEqual({ p: 21 / 1001, threshold: 0.01, pass: false });
     const dsr = rvDsr(real.step1.returns);
@@ -289,7 +304,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   it('G1 tests the best in-sample cell\'s objective, not cell 11\'s', () => {
     const best = real.step1.best;
     const c11 = real.step1.objectives[11];
-    const v = judgeVerdict(real, { is: merged('is-mcpt', between(best, c11)), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
+    const v = verdict(real, { is: merged('is-mcpt', between(best, c11)), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
     expect(v.gates.G1.p).toBe(pAt(best, best, c11));
     expect(v.gates.G1.p).not.toBe(pAt(c11, best, c11));
     expect(v.step1.bestCell).toBe(7);
@@ -298,7 +313,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   it('G2 tests the stitched walk-forward objective, not the purge sensitivity\'s', () => {
     const wfObj = real.step3.objective;
     const purge = real.purge.objective;
-    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', between(wfObj, purge)), block: merged('block', below) }, loaded, calOk);
+    const v = verdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', between(wfObj, purge)), block: merged('block', below) }, loaded, calOk);
     expect(v.gates.G2.p).toBe(pAt(wfObj, wfObj, purge));
     expect(v.gates.G2.p).not.toBe(pAt(purge, wfObj, purge));
     expect(v.reported.purge.objective).toBe(purge);
@@ -309,7 +324,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     const wfObj = real.step3.objective;
     expect(best).not.toBe(wfObj);
     const mid = between(best, wfObj);
-    const v = judgeVerdict(real, { is: merged('is-mcpt', mid), wf: merged('wf-mcpt', mid), block: merged('block', mid) }, loaded, calOk);
+    const v = verdict(real, { is: merged('is-mcpt', mid), wf: merged('wf-mcpt', mid), block: merged('block', mid) }, loaded, calOk);
     expect(v.gates.G1.p).toBe(pAt(best, best, wfObj));
     expect(v.gates.G2.p).toBe(pAt(wfObj, best, wfObj));
     expect(v.gates.G1.p).not.toBe(v.gates.G2.p);
@@ -317,36 +332,36 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   });
 
   it('passes only when all three gates pass, with ties counted against the rule', () => {
-    const all = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
+    const all = verdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
     expect(all.pass).toBe(all.gates.G3.pass);
-    const tie = judgeVerdict(real, { is: merged('is-mcpt', [...Array(990).fill(-1), ...Array(10).fill(real.step1.best)]), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
+    const tie = verdict(real, { is: merged('is-mcpt', [...Array(990).fill(-1), ...Array(10).fill(real.step1.best)]), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
     expect(tie.gates.G1.p).toBe(11 / 1001);
     expect(tie.gates.G1.pass).toBe(false);
   });
 
   it('refuses inputs from another panel or commit, and a wrong M', () => {
     const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
-    expect(() => judgeVerdict(real, { ...ok, wf: { ...ok.wf, provenance: { ...prov(), gitCommit: 'b'.repeat(40) } } }, loaded, calOk)).toThrow(/provenance/);
-    expect(() => judgeVerdict(real, ok, { ...loaded, provenance: { ...prov(), panelSha256: '0'.repeat(64) } }, calOk)).toThrow(/provenance/);
-    expect(() => judgeVerdict(real, { ...ok, is: merged('is-mcpt', below.slice(1)) }, loaded, calOk)).toThrow(/M/);
+    expect(() => verdict(real, { ...ok, wf: { ...ok.wf, provenance: { ...prov(), gitCommit: 'b'.repeat(40) } } }, loaded, calOk)).toThrow(/provenance/);
+    expect(() => verdict(real, ok, { ...loaded, provenance: { ...prov(), panelSha256: '0'.repeat(64) } }, calOk)).toThrow(/provenance/);
+    expect(() => verdict(real, { ...ok, is: merged('is-mcpt', below.slice(1)) }, loaded, calOk)).toThrow(/M/);
   });
 
   it('refuses a real file the loaded panel does not reproduce, even one edited consistently (review m2)', () => {
     const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
     const objective = structuredClone(real);
     objective.step1.objectives[3] += 0.01;
-    expect(() => judgeVerdict(objective, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.objectives\[3\]/);
+    expect(() => verdict(objective, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.objectives\[3\]/);
     // a series and its objective edited together: the old recompute-from-series check would pass this
     const series = structuredClone(real);
     series.step1.returns[3][10] += 1e-9;
     series.step1.objectives[3] = perPeriodSharpe(series.step1.returns[3]);
-    expect(() => judgeVerdict(series, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.returns\[3\]\[10\]/);
+    expect(() => verdict(series, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.returns\[3\]\[10\]/);
     const purge = structuredClone(real);
     purge.purge.objective += 1e-9;
-    expect(() => judgeVerdict(purge, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*purge\.objective/);
+    expect(() => verdict(purge, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*purge\.objective/);
     const maker = structuredClone(real);
     maker.maker.returns[0] *= 1 + 1e-15;
-    if (maker.maker.returns[0] !== real.maker.returns[0]) expect(() => judgeVerdict(maker, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*maker\.returns\[0\]/);
+    if (maker.maker.returns[0] !== real.maker.returns[0]) expect(() => verdict(maker, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*maker\.returns\[0\]/);
   });
 
   it('takes every figure from the recomputation: a lengthened series or an extra key is refused (review n1)', () => {
@@ -354,11 +369,11 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     // three bars of +5% appended to cell 11: G3 would read them if it took the real file's series
     const padded = structuredClone(real);
     padded.step1.returns[11].push(0.05, 0.05, 0.05);
-    expect(() => judgeVerdict(padded, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.returns\[11\] \(length 1657 against 1660\)/);
+    expect(() => verdict(padded, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*step1\.returns\[11\] \(length 1657 against 1660\)/);
     expect(() => verifiedRealStage(padded, loaded)).toThrow(/REFUSE[\s\S]*length/);
     const extra = structuredClone(real) as RealOutput & { note?: string };
     extra.note = 'not produced by the real stage';
-    expect(() => judgeVerdict(extra, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*note \(unexpected\)/);
+    expect(() => verdict(extra, ok, loaded, calOk)).toThrow(/REFUSE[\s\S]*note \(unexpected\)/);
     const nested = structuredClone(real);
     (nested.step3 as unknown as Record<string, unknown>).added = 1;
     expect(() => verifiedRealStage(nested, loaded)).toThrow(/REFUSE[\s\S]*step3\.added \(unexpected\)/);
@@ -368,32 +383,47 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
 
   it('refuses unless the calibration outputs at this commit recompute to PASS and equal the record (review m3, n2)', () => {
     const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
-    expect(() => judgeVerdict(real, ok, loaded, calOk)).not.toThrow();
+    expect(() => verdict(real, ok, loaded, calOk)).not.toThrow();
     const failOuts = fakeCalibration((kind, k) => (kind === 'planted' ? 0.5 : uniformP(k, 99)));
     const failed = { record: checkCalibration(failOuts, COMMIT), outputs: failOuts };
     expect(failed.record.pass).toBe(false);
-    expect(() => judgeVerdict(real, ok, loaded, failed)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*FAIL/);
+    expect(() => verdict(real, ok, loaded, failed)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*FAIL/);
     const otherOuts = calOk.outputs.map((o) => ({ ...o, gitCommit: 'b'.repeat(40) }));
     const other = { record: checkCalibration(otherOuts, 'b'.repeat(40)), outputs: otherOuts };
     expect(other.record.pass).toBe(true);
-    expect(() => judgeVerdict(real, ok, loaded, other)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*commit/);
+    expect(() => verdict(real, ok, loaded, other)).toThrow(/REFUSE[\s\S]*calibration[\s\S]*commit/);
     // the record must equal the recomputation from the outputs: a flipped flag either way, edited p-values
-    expect(() => judgeVerdict(real, ok, loaded, { ...failed, record: { ...failed.record, pass: true } })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*pass/);
-    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, record: { ...calOk.record, pass: false } })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*pass/);
+    expect(() => verdict(real, ok, loaded, { ...failed, record: { ...failed.record, pass: true } })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*pass/);
+    expect(() => verdict(real, ok, loaded, { ...calOk, record: { ...calOk.record, pass: false } })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*pass/);
     const edited = structuredClone(calOk.record);
     edited.universes[3].isP = 0.5;
     edited.iid.is.ps[3] = 0.5;
-    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, record: edited })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*universes\[3\]\.isP/);
+    expect(() => verdict(real, ok, loaded, { ...calOk, record: edited })).toThrow(/REFUSE[\s\S]*calibration record[\s\S]*universes\[3\]\.isP/);
     // a passing record over failing outputs is refused, and so is a missing output
-    expect(() => judgeVerdict(real, ok, loaded, { record: calOk.record, outputs: failOuts })).toThrow(/REFUSE[\s\S]*calibration/);
-    expect(() => judgeVerdict(real, ok, loaded, { ...calOk, outputs: calOk.outputs.slice(1) })).toThrow(/REFUSE[\s\S]*cal-iid-001/);
+    expect(() => verdict(real, ok, loaded, { record: calOk.record, outputs: failOuts })).toThrow(/REFUSE[\s\S]*calibration/);
+    expect(() => verdict(real, ok, loaded, { ...calOk, outputs: calOk.outputs.slice(1) })).toThrow(/REFUSE[\s\S]*cal-iid-001/);
   });
 
   it('accepts the calibration outputs in any order, as an audit on another filesystem reads them (final review m1)', () => {
     const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
     const outputs = variedTimings(calOk.outputs as CalibrationOutput[]);
     const record = JSON.parse(JSON.stringify(checkCalibration(outputs, COMMIT))) as CalibrationEvidence['record'];
-    expect(() => judgeVerdict(real, ok, loaded, { record, outputs: [...outputs].reverse() })).not.toThrow();
+    expect(() => verdict(real, ok, loaded, { record, outputs: [...outputs].reverse() })).not.toThrow();
+  });
+
+  it('re-merges the shards and refuses a merged file that differs from them (final review Recommendation 6)', () => {
+    const ok = { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) };
+    const shards = shardsFor(ok);
+    expect(() => verdict(real, ok, loaded, calOk, shards)).not.toThrow();
+    for (const [key, stage] of [['is', 'is-mcpt'], ['wf', 'wf-mcpt'], ['block', 'block']] as const) {
+      // one null lowered in the merged file: a G1 or G2 p-value read from it would fall
+      const tampered = { ...ok, [key]: { ...ok[key], nulls: ok[key].nulls.map((x, i) => (i === 5 ? x - 1 : x)) } };
+      expect(() => verdict(real, tampered, loaded, calOk, shards)).toThrow(new RegExp(`REFUSE: the ${stage} merged file differs from the merge of its shards at nulls\\[5\\]`));
+      const extra = { ...ok, [key]: { ...ok[key], note: 'added' } };
+      expect(() => verdict(real, extra, loaded, calOk, shards)).toThrow(/REFUSE[\s\S]*note \(unexpected\)/);
+    }
+    // a shard directory that does not merge is refused too
+    expect(() => verdict(real, ok, loaded, calOk, { ...shards, wf: shards.wf.slice(1) })).toThrow(/REFUSE: the wf-mcpt shards do not merge[\s\S]*wf-mcpt-01/);
   });
 
   it('refuses a maker track without its fill counts, never reporting a missing count as 0 (Task 7C addendum rule 10)', () => {
@@ -405,7 +435,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
         const stripped = JSON.parse(JSON.stringify(runRealStage(loaded))) as RealOutput;
         expect(stripped.maker.detail[field]).toBeUndefined();
         expect(() => verifiedRealStage(stripped, loaded)).not.toThrow();
-        expect(() => judgeVerdict(stripped, ok, loaded, calOk)).toThrow(new RegExp(`maker track[\\s\\S]*${field}`));
+        expect(() => verdict(stripped, ok, loaded, calOk)).toThrow(new RegExp(`maker track[\\s\\S]*${field}`));
       } finally {
         makerCounts.drop = null;
       }
@@ -414,7 +444,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   });
 
   it('reports every item the inputs allow', () => {
-    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', [...Array(999).fill(-1), real.step1.best]) }, loaded, calOk);
+    const v = verdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', [...Array(999).fill(-1), real.step1.best]) }, loaded, calOk);
     const r = v.reported;
     expect(r.blockP).toBe(2 / 1001);
     expect(r.neighbours).toHaveLength(12);
@@ -437,7 +467,7 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
   });
 
   it('names every annualised Sharpe as one, and keeps the compounded returns apart (final review m3)', () => {
-    const v = judgeVerdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
+    const v = verdict(real, { is: merged('is-mcpt', below), wf: merged('wf-mcpt', below), block: merged('block', below) }, loaded, calOk);
     const keys = new Set<string>();
     const walk = (x: unknown): void => {
       if (Array.isArray(x)) x.forEach(walk);

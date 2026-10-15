@@ -338,7 +338,7 @@ describe('rv-revalidation-run.sh, every stage in order against a stub docker', (
       ['scripts/research/rv-judge.ts', 'dsr', '--real', '/app/out/real.json', '--inputs-dir', '/app/out/inputs', '--expect-manifest-hash', H],
       [
         'scripts/research/rv-judge.ts', 'verdict', '--real', '/app/out/real.json', '--is', '/app/out/is-mcpt.json', '--wf', '/app/out/wf-mcpt.json',
-        '--block', '/app/out/block.json', '--calibration', '/app/out/calibration.json', '--calibration-dir', '/app/out/calibration',
+        '--block', '/app/out/block.json', '--shards-dir', '/app/out/shards', '--calibration', '/app/out/calibration.json', '--calibration-dir', '/app/out/calibration',
         '--inputs-dir', '/app/out/inputs', '--expect-manifest-hash', H, '--out', '/app/out/part/verdict.json',
       ],
     ]);

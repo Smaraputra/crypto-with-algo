@@ -20,7 +20,8 @@
 #   rv-revalidation-run.sh is-mcpt     step 2: the shard jobs of `judge jobs is-mcpt`, then judge merge
 #   rv-revalidation-run.sh wf-mcpt     step 4, the same way
 #   rv-revalidation-run.sh block       the block-permutation sensitivity of step 2 (reported only), the same way
-#   rv-revalidation-run.sh verdict     judge dsr, then judge verdict (G1, G2, G3 and every REPORTED item)
+#   rv-revalidation-run.sh verdict     judge dsr, then judge verdict (G1, G2, G3 and every REPORTED item), which
+#                                      re-merges the shard directories and refuses a merged file that differs
 #
 # Each stage refuses until the stage before it in this list has written its record or output, so the order is
 # enforced, not only advised.
@@ -642,8 +643,9 @@ stage_verdict() {
     return
   rm -f "$PART/verdict.json" || die "cannot remove $PART/verdict.json" || return 1
   judge "$OUT/verdict.txt" verdict --real /app/out/real.json --is /app/out/is-mcpt.json --wf /app/out/wf-mcpt.json \
-    --block /app/out/block.json --calibration /app/out/calibration.json --calibration-dir /app/out/calibration \
-    --inputs-dir /app/out/inputs --expect-manifest-hash "$MANIFEST" --out /app/out/part/verdict.json || return
+    --block /app/out/block.json --shards-dir /app/out/shards --calibration /app/out/calibration.json \
+    --calibration-dir /app/out/calibration --inputs-dir /app/out/inputs --expect-manifest-hash "$MANIFEST" \
+    --out /app/out/part/verdict.json || return
   settle "$PART/verdict.json" "$OUT/verdict.json"
 }
 

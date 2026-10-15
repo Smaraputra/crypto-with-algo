@@ -5,7 +5,7 @@
  *   rv-judge.ts jobs is-mcpt|wf-mcpt|block|calibrate
  *   rv-judge.ts merge --stage S --dir D --inputs-dir O --expect-manifest-hash H --out S.json
  *   rv-judge.ts dsr --real real.json --inputs-dir O --expect-manifest-hash H
- *   rv-judge.ts verdict --real real.json --is is-mcpt.json --wf wf-mcpt.json --block block.json
+ *   rv-judge.ts verdict --real real.json --is is-mcpt.json --wf wf-mcpt.json --block block.json --shards-dir S
  *                       --calibration calibration.json --calibration-dir C --inputs-dir O --expect-manifest-hash H --out verdict.json
  *   rv-judge.ts check-calibration --dir D --out calibration.json     (exit 2 when an acceptance rule fails)
  *
@@ -13,9 +13,10 @@
  * sha256 and refuses on any mismatch with the record, the expected manifest hash or GIT_COMMIT, and then requires
  * every file it reads to carry that same provenance. check-calibration reads no real data and requires every
  * calibration output to carry GIT_COMMIT. `verdict` recomputes the calibration acceptance from the per-universe
- * outputs and refuses unless it is PASS and equals the record, and it recomputes the whole `real` stage from the
- * loaded panel, refuses any difference from the real file, and takes every figure from the recomputation. `dsr`
- * does the same for the real stage (review m2, m3, n1, n2).
+ * outputs and refuses unless it is PASS and equals the record, it recomputes the whole `real` stage from the
+ * loaded panel, refuses any difference from the real file, and takes every figure from the recomputation, and it
+ * re-merges the shard directories under --shards-dir and refuses unless each equals its merged file. `dsr` does the
+ * same for the real stage (review m2, m3, n1, n2, final review Recommendation 6).
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -214,6 +215,12 @@ export interface MergedNull {
   nulls: number[];
 }
 
+/** One shard file of a stage directory: its name and its text. */
+export interface ShardFile {
+  name: string;
+  text: string;
+}
+
 const sameProvenance = (a: Provenance, b: Provenance) => a.manifestHash === b.manifestHash && a.panelSha256 === b.panelSha256 && a.gitCommit === b.gitCommit;
 
 const HeaderSchema = z.object({
@@ -238,7 +245,7 @@ const LineSchema = z.object({
  * (stage, name, range, the stage's M and the expected provenance), and together hold each m = 1..M exactly once,
  * with the header's seed for m and a finite statistic. The seeds are asserted distinct after the >>> 0 reduction.
  */
-export function mergeShards(stage: ShardStage, files: readonly { name: string; text: string }[], expect: Provenance): MergedNull {
+export function mergeShards(stage: ShardStage, files: readonly ShardFile[], expect: Provenance): MergedNull {
   const jobs = shardJobs(stage);
   const M = STAGE_M[stage];
   const byName = new Map(files.map((f) => [f.name, f]));
@@ -458,6 +465,24 @@ export function verifiedRealStage(real: RealOutput, inputs: LoadedInputs): RealO
 }
 
 /**
+ * Final review Recommendation 6: a stage's merged null must equal mergeShards re-run on its shard files at the
+ * inputs' provenance, value by value after the same JSON round trip (unexpected keys included). Refuses any
+ * difference and returns the recomputation, so G1, G2 and the block p-value never take a merged file on trust.
+ */
+export function verifiedMerge(stage: ShardStage, merged: MergedNull, files: readonly ShardFile[], expect: Provenance): MergedNull {
+  let recomputed: MergedNull;
+  try {
+    recomputed = JSON.parse(JSON.stringify(mergeShards(stage, files, expect))) as MergedNull;
+  } catch (error) {
+    throw new Error(`REFUSE: the ${stage} shards do not merge: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const diff: string[] = [];
+  differences(recomputed, merged, '', diff, 10);
+  if (diff.length > 0) throw new Error(`REFUSE: the ${stage} merged file differs from the merge of its shards at ${diff.join(', ')}`);
+  return recomputed;
+}
+
+/**
  * Task 7C addendum rule 10: the maker track's fill counts, each a non-negative integer. A missing count is refused,
  * never read as 0 (silent defaults are banned in this repo).
  */
@@ -475,14 +500,17 @@ function makerFillCounts(detail: StepDetail): { makerFills: number; fallbackFill
 /**
  * Judge `verdict` (header VERDICT): G1 = step 2 p < 0.01 on the best of the 12 cells, G2 = step 4 p < 0.01 on the
  * stitched walk-forward objective, G3 = deflated Sharpe of cell 11 at N = 672 >= 0.95. All three must pass. It
- * refuses unless the calibration passed at this commit (review m3), and it recomputes the whole `real` stage from the
- * loaded panel and refuses any difference from the real file, value by value (review m2). Then every REPORTED item.
+ * refuses unless the calibration passed at this commit (review m3), it recomputes the whole `real` stage from the
+ * loaded panel and refuses any difference from the real file, value by value (review m2), and it re-merges each
+ * stage's shard files and refuses any difference from the merged file (final review Recommendation 6). Then every
+ * REPORTED item.
  */
 export function judgeVerdict(
   real: RealOutput,
   merged: { is: MergedNull; wf: MergedNull; block: MergedNull },
   inputs: LoadedInputs,
-  calibration: CalibrationEvidence
+  calibration: CalibrationEvidence,
+  shards: { is: readonly ShardFile[]; wf: readonly ShardFile[]; block: readonly ShardFile[] }
 ): Verdict {
   const expect = inputs.provenance;
   if (!sameProvenance(real.provenance, expect)) throw new Error(`the real file's provenance ${JSON.stringify(real.provenance)} is not the inputs' ${JSON.stringify(expect)}`);
@@ -495,6 +523,12 @@ export function judgeVerdict(
     if (!sameProvenance(m.provenance, expect)) throw new Error(`the ${stage} null's provenance is not the inputs'`);
     if (m.M !== STAGE_M[stage] || m.nulls.length !== STAGE_M[stage]) throw new Error(`the ${stage} null holds ${m.nulls.length} values, M = ${STAGE_M[stage]} asserted`);
   }
+  // the nulls judged are the merge of the shards, never the merged files themselves
+  const nulls = {
+    is: verifiedMerge('is-mcpt', merged.is, shards.is, expect).nulls,
+    wf: verifiedMerge('wf-mcpt', merged.wf, shards.wf, expect).nulls,
+    block: verifiedMerge('block', merged.block, shards.block, expect).nulls,
+  };
   const cal = assertCalibrationPassed(calibration, expect.gitCommit);
   // every figure below comes from the recomputation, never from the real file (review n1)
   const r = verifiedRealStage(real, inputs);
@@ -502,8 +536,8 @@ export function judgeVerdict(
   const objectives = r.step1.objectives;
   const best = r.step1.best;
   const wfObjective = r.step3.objective;
-  const g1 = pValue(best, merged.is.nulls);
-  const g2 = pValue(wfObjective, merged.wf.nulls);
+  const g1 = pValue(best, nulls.is);
+  const g2 = pValue(wfObjective, nulls.wf);
   const dsr = rvDsr(r.step1.returns);
   const gates = {
     G1: { p: g1, threshold: G12_THRESHOLD, pass: g1 < G12_THRESHOLD },
@@ -528,7 +562,7 @@ export function judgeVerdict(
       neighbours: RV_CELLS.map((c) => ({ cell: c.index, buffer: c.buffer, betaNeutral: c.betaNeutral, flowOn: c.flowOn, perBar: objectives[c.index], annualisedSharpe: annualise(objectives[c.index]) })),
       folds,
       distinctFoldCells: new Set(folds.map((f) => f.cell)).size,
-      blockP: pValue(best, merged.block.nulls),
+      blockP: pValue(best, nulls.block),
       dsrReported: dsr.reported,
       purge: { objective: r.purge.objective, annualisedSharpe: annualise(r.purge.objective), cells: r.purge.folds.map((f) => f.cell) },
       deskFillQuality: DESK_NOTE,
@@ -702,6 +736,13 @@ function readCalibrationOutputs(dir: string): CalibrationOutput[] {
     .sort()
     .map((n) => readJson<CalibrationOutput>(join(dir, n)));
 }
+/** Every file of a shard directory, in sorted name order (merge and verdict read the same way). */
+const readShardDir = (dir: string): ShardFile[] =>
+  readdirSync(dir)
+    .sort()
+    .map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') }));
+const readShardFiles = (shardsDir: string, stage: ShardStage) => readShardDir(join(shardsDir, stage));
+
 const fmt = (x: number) => (Number.isFinite(x) ? x.toFixed(4) : String(x));
 
 /** The line judge `dsr` prints after its JSON. */
@@ -727,7 +768,7 @@ function main(): void {
       const stage = a.stage as ShardStage;
       if (!(stage in STAGE_M)) throw new Error(`--stage must be is-mcpt, wf-mcpt or block`);
       const { provenance } = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });
-      const files = readdirSync(a.dir).map((name) => ({ name, text: readFileSync(join(a.dir, name), 'utf8') }));
+      const files = readShardDir(a.dir);
       const merged = mergeShards(stage, files, provenance);
       writeFileSync(a.out, JSON.stringify(merged));
       console.log(`merge ${stage}: M = ${merged.M} from ${files.length} shards`);
@@ -740,13 +781,14 @@ function main(): void {
       console.log(JSON.stringify(d));
       console.log(dsrLine(d));
     } else if (mode === 'verdict') {
-      const a = flags(rest, ['real', 'is', 'wf', 'block', 'calibration', 'calibration-dir', 'inputs-dir', 'expect-manifest-hash', 'out']);
+      const a = flags(rest, ['real', 'is', 'wf', 'block', 'shards-dir', 'calibration', 'calibration-dir', 'inputs-dir', 'expect-manifest-hash', 'out']);
       const inputs = loadInputs(a['inputs-dir'], { manifestHash: a['expect-manifest-hash'], gitCommit });
       const v = judgeVerdict(
         readJson<RealOutput>(a.real),
         { is: readJson<MergedNull>(a.is), wf: readJson<MergedNull>(a.wf), block: readJson<MergedNull>(a.block) },
         inputs,
-        { record: readJson<CalibrationCheck>(a.calibration), outputs: readCalibrationOutputs(a['calibration-dir']) }
+        { record: readJson<CalibrationCheck>(a.calibration), outputs: readCalibrationOutputs(a['calibration-dir']) },
+        { is: readShardFiles(a['shards-dir'], 'is-mcpt'), wf: readShardFiles(a['shards-dir'], 'wf-mcpt'), block: readShardFiles(a['shards-dir'], 'block') }
       );
       writeFileSync(a.out, JSON.stringify(v, null, 2));
       const g = v.gates;
