@@ -26,7 +26,7 @@ import type { OHLCV } from '@/types/market';
 import { RV_V1 } from '@/lib/signals/cross-sectional/engine';
 import { missingSettlements } from './broad-inputs';
 import { stableStringify } from './broad-trend';
-import { datasetHashOf, type DatasetKind, type FundingRow, type PerpCandleRow } from './dataset-format';
+import { datasetHashOf, type DatasetKind, type FundingRow, type ManifestFile, type PerpCandleRow } from './dataset-format';
 import { loadManifest, parseJsonlGz } from './load-dataset';
 import { assertVerified, type VerifiedResolutions } from './rv-resolutions';
 import { fundingSumsFor } from './strategy-walk-forward';
@@ -693,7 +693,7 @@ type PanelFileSpec = { path: string; kind: DatasetKind; interval: string };
  * returned reader requires each file to be listed with its kind, symbol and interval, reads it once, hashes those
  * bytes against the manifest and parses the same bytes (AMENDMENT 2).
  */
-function openExport(datasetDir: string): { manifestHash: string; read: <T>(symbol: string, spec: PanelFileSpec) => T[] } {
+function openExport(datasetDir: string): { manifestHash: string; files: ManifestFile[]; read: <T>(symbol: string, spec: PanelFileSpec) => T[] } {
   const manifest = loadManifest(datasetDir);
   if (datasetHashOf(manifest.files) !== manifest.datasetHash) {
     throw new Error(`HALT: the manifest's dataset hash ${manifest.datasetHash} does not match its own file list`);
@@ -715,7 +715,7 @@ function openExport(datasetDir: string): { manifestHash: string; read: <T>(symbo
     if (sha256 !== entry.sha256) throw new Error(`HALT: sha256 mismatch for ${spec.path}: read ${sha256}, manifest ${entry.sha256}`);
     return parseJsonlGz<T>(bytes);
   };
-  return { manifestHash: manifest.datasetHash, read };
+  return { manifestHash: manifest.datasetHash, files: manifest.files, read };
 }
 
 /**
@@ -739,15 +739,78 @@ export function readPanelSources(datasetDir: string): { sources: RvSymbolSource[
 /**
  * The `resolve` stage's read (pre-review Ruling 3): only the ten funding files, checked against the manifest like
  * every panel file, kept as settlement times and stated intervals. The perp files are never opened, and each rate
- * is dropped as its row is parsed.
+ * is dropped as its row is parsed. Also returns the manifest's file list (metadata only) for perpGaps.
  */
-export function readFundingTimes(datasetDir: string): { funding: { symbol: string; funding: SettlementTime[] }[]; manifestHash: string } {
-  const { manifestHash, read } = openExport(datasetDir);
+export function readFundingTimes(datasetDir: string): {
+  funding: { symbol: string; funding: SettlementTime[] }[];
+  manifestHash: string;
+  files: ManifestFile[];
+} {
+  const { manifestHash, files, read } = openExport(datasetDir);
   const funding = RV_SYMBOLS.map((symbol) => ({
     symbol,
     funding: read<FundingRow>(symbol, panelFiles(symbol)[2]).map((r) => ({ t: r.t, intervalHours: r.intervalHours })),
   }));
-  return { funding, manifestHash };
+  return { funding, manifestHash, files };
+}
+
+// ------------------------------------------------------------------------------------------------ completeness
+
+const PERP_STEP_MS = { '1h': HOUR_MS, '4h': H4_MS } as const;
+export type PerpInterval = keyof typeof PERP_STEP_MS;
+
+/** Every open of an interval inside a span: from the span start, on the interval's grid, to the last open at or before the span end. */
+export function perpExpected(span: Span, interval: PerpInterval): { rows: number; startMs: number; endMs: number } {
+  const step = PERP_STEP_MS[interval];
+  if (span.from % step !== 0) throw new Error(`The span must start on the ${interval} grid, got ${iso(span.from)}`);
+  const endMs = span.from + Math.floor((span.to - span.from) / step) * step;
+  return { rows: (endMs - span.from) / step + 1, startMs: span.from, endMs };
+}
+
+export interface PerpCoverage {
+  rows: number;
+  from: string | null;
+  to: string | null;
+}
+
+/** A perp file whose manifest entry does not cover the export grid. `found` is null when no such file is listed. */
+export interface PerpGap {
+  symbol: string;
+  interval: PerpInterval;
+  expected: PerpCoverage;
+  found: PerpCoverage | null;
+}
+
+/**
+ * Final review Recommendation 4: the 1h and 4h perp file of every header symbol, compared with the export grid of
+ * the span from the manifest's rowCount, startMs and endMs alone, so `resolve` reads no row. Every file listed as
+ * perp/<symbol>/<interval> with another count or bound, and every one not listed so, is returned. Equal count and
+ * bounds mean a complete grid unless a duplicate or off-grid row stands in for a missing one, and those halt at
+ * `inputs` (AMENDMENTS 1 and 2).
+ */
+export function perpGaps(files: readonly ManifestFile[], span: Span): PerpGap[] {
+  const gaps: PerpGap[] = [];
+  for (const symbol of RV_SYMBOLS) {
+    for (const interval of ['1h', '4h'] as const) {
+      const want = perpExpected(span, interval);
+      const expected = { rows: want.rows, from: iso(want.startMs), to: iso(want.endMs) };
+      const path = `perp/${symbol}/${interval}.jsonl.gz`;
+      const f = files.find((x) => x.path === path && x.kind === 'perp' && x.symbol === symbol && x.interval === interval);
+      if (!f) {
+        gaps.push({ symbol, interval, expected, found: null });
+      } else if (f.rowCount !== want.rows || f.startMs !== want.startMs || f.endMs !== want.endMs) {
+        const at = (t: number | null) => (t === null ? null : iso(t));
+        gaps.push({ symbol, interval, expected, found: { rows: f.rowCount, from: at(f.startMs), to: at(f.endMs) } });
+      }
+    }
+  }
+  return gaps;
+}
+
+/** One gap as the HALT lists it. */
+export function formatPerpGap(g: PerpGap): string {
+  const found = g.found ? `${g.found.rows} rows ${g.found.from} to ${g.found.to}` : `no file listed as perp/${g.symbol}/${g.interval}`;
+  return `${g.symbol} ${g.interval}: expected ${g.expected.rows} rows ${g.expected.from} to ${g.expected.to}, found ${found}`;
 }
 
 /**

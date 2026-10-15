@@ -59,9 +59,11 @@ import {
   RV_SPAN,
   RV_SYMBOLS,
   buildRvPanel,
+  formatPerpGap,
   panelFundingFlags,
   panelGrid,
   panelSha256,
+  perpGaps,
   readFundingTimes,
   type FirstHourBars,
   type FundingFlag,
@@ -239,7 +241,8 @@ function refuseExisting(outDir: string, files: readonly string[]): void {
 
 /**
  * The `resolve` stage (pre-review Ruling 3). Reads only the funding settlement times and stated intervals of the
- * export (readFundingTimes: no rate, price or volume), computes the funding flags, drafts a no-event resolution for
+ * export (readFundingTimes: no rate, price or volume), halts on any perp file whose manifest entry does not cover the
+ * export grid (perpGaps, final review Recommendation 4), computes the funding flags, drafts a no-event resolution for
  * each from REST and halts on any flag REST does not clear. Writes the resolutions file (an empty list when nothing
  * is flagged) and a record of its sha256, then stops: the controller reviews the file before `inputs`.
  * `fetchFunding` must be fetchFundingHistory (the CLI passes it).
@@ -255,9 +258,14 @@ export async function runResolveStage(opts: {
   if (!HEX40.test(opts.gitCommit)) throw new Error(`REFUSE: gitCommit must be 40 hex, got '${opts.gitCommit}'`);
   mkdirSync(opts.outDir, { recursive: true });
   refuseExisting(opts.outDir, Object.values(INPUTS_FILES));
-  const { funding, manifestHash } = readFundingTimes(opts.datasetDir);
+  const { funding, manifestHash, files } = readFundingTimes(opts.datasetDir);
   if (manifestHash !== opts.expectManifestHash) {
     throw new Error(`HALT: the export's manifest hash ${manifestHash} is not the expected ${opts.expectManifestHash}`);
+  }
+  // final review Recommendation 4: a structural gap is found here, while an amendment may still land, not at inputs
+  const gaps = perpGaps(files, opts.span);
+  if (gaps.length > 0) {
+    throw new Error(`HALT: ${gaps.length} perp file(s) do not cover the export grid of the span (manifest metadata, no row read):\n${gaps.map(formatPerpGap).join('\n')}`);
   }
   const flags = panelFundingFlags(funding, opts.span);
   const draft = await draftResolutions(flags, opts.fetchFunding);

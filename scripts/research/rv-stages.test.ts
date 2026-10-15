@@ -169,7 +169,7 @@ const SPAN = { from: T0, to: T0 + 3 * DAY - 1 };
 /** SOLUSDT on the A6-1 shape: stated 8h rows to day 2 00:00, then stated 2h rows from 04:00, so 02:00 is flagged. */
 const FLAG_T = T0 + 2 * DAY + 2 * H;
 
-async function writeExport(dir: string, a61: boolean, opts: { nanRates?: boolean; unreadablePerp?: boolean } = {}): Promise<string> {
+async function writeExport(dir: string, a61: boolean, opts: { nanRates?: boolean; unreadablePerp?: boolean; drop4h?: string } = {}): Promise<string> {
   const files: ManifestFile[] = [];
   const put = async (rel: string, kind: ManifestFile['kind'], symbol: string, interval: string, rows: { t: number }[]) => {
     const path = join(dir, rel);
@@ -181,7 +181,8 @@ async function writeExport(dir: string, a61: boolean, opts: { nanRates?: boolean
     let funding = grid(T0 + H8, SPAN.to, 8);
     if (a61 && symbol === 'SOLUSDT') funding = [...grid(T0 + H8, T0 + 2 * DAY, 8), ...grid(T0 + 2 * DAY + H4, SPAN.to, 2)];
     if (opts.nanRates) funding = funding.map((r) => ({ ...r, rate: NaN }));
-    await put(`perp/${symbol}/4h.jsonl.gz`, 'perp', symbol, '4h', fourHourly(rows1h));
+    const rows4h = fourHourly(rows1h).filter((_, k) => !(symbol === opts.drop4h && k === 5));
+    await put(`perp/${symbol}/4h.jsonl.gz`, 'perp', symbol, '4h', rows4h);
     await put(`perp/${symbol}/1h.jsonl.gz`, 'perp', symbol, '1h', rows1h);
     await put(`funding/${symbol}/settlements.jsonl.gz`, 'funding', symbol, 'settlements', funding);
   }
@@ -284,6 +285,18 @@ describe('runResolveStage (pre-review Ruling 3: flags and a REST draft, then sto
     const settledThere: FundingFetcher = async (symbol, a, b) => [...(await rest(symbol, a, b)), ...(symbol === 'SOLUSDT' && FLAG_T >= a && FLAG_T <= b ? [{ fundingTime: FLAG_T }] : [])];
     await expect(runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: settledThere, gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(
       /HALT[\s\S]*SOLUSDT[\s\S]*REST shows a settlement/
+    );
+    expect(existsSync(join(out, INPUTS_FILES.resolutions))).toBe(false);
+    expect(existsSync(join(out, INPUTS_FILES.resolveRecord))).toBe(false);
+  });
+
+  it('halts on a perp file that does not cover the grid, before any REST call, and writes nothing (final review Recommendation 4)', async () => {
+    const hash = await writeExport(ds, true, { drop4h: 'SOLUSDT' });
+    const noRest: FundingFetcher = async () => {
+      throw new Error('REST must not be called');
+    };
+    await expect(runResolveStage({ datasetDir: ds, outDir: out, span: SPAN, fetchFunding: noRest, gitCommit: COMMIT, expectManifestHash: hash })).rejects.toThrow(
+      /HALT: 1 perp file[\s\S]*SOLUSDT 4h: expected 18 rows 2022-01-01T00:00:00\.000Z to 2022-01-03T20:00:00\.000Z, found 17 rows 2022-01-01T00:00:00\.000Z to 2022-01-03T20:00:00\.000Z/
     );
     expect(existsSync(join(out, INPUTS_FILES.resolutions))).toBe(false);
     expect(existsSync(join(out, INPUTS_FILES.resolveRecord))).toBe(false);

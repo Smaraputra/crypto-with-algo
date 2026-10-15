@@ -28,6 +28,8 @@ import {
   pairTo8h,
   panelFundingFlags,
   panelGrid,
+  perpExpected,
+  perpGaps,
   readFundingTimes,
   readPanelSources,
   resolveFlags,
@@ -431,6 +433,51 @@ describe('panelGrid (the bars whose funding window lies inside the export span)'
   });
 });
 
+describe('perpGaps (final review Recommendation 4: completeness from the manifest alone, while an amendment is allowed)', () => {
+  const RV = { from: Date.UTC(2022, 0, 1), to: Date.UTC(2026, 9, 13, 23, 59, 59, 999) };
+  const iso = (t: number) => new Date(t).toISOString();
+  /** The 20 perp entries of a complete export of the header span. */
+  const complete = (): ManifestFile[] =>
+    RV_SYMBOLS.flatMap((symbol) =>
+      (['1h', '4h'] as const).map((interval) => {
+        const e = perpExpected(RV, interval);
+        return { path: `perp/${symbol}/${interval}.jsonl.gz`, kind: 'perp' as const, symbol, interval, rowCount: e.rows, startMs: e.startMs, endMs: e.endMs, sha256: 'f'.repeat(64) };
+      })
+    );
+  const funding: ManifestFile = { path: 'funding/BTCUSDT/settlements.jsonl.gz', kind: 'funding', symbol: 'BTCUSDT', interval: 'settlements', rowCount: 3, startMs: RV.from, endMs: RV.from + 16 * H, sha256: 'e'.repeat(64) };
+  const entry = (files: ManifestFile[], symbol: string, interval: string) => files.find((f) => f.symbol === symbol && f.interval === interval)!;
+
+  it('expects every 1h and 4h open of the header span: 41,928 and 10,482 rows per symbol', () => {
+    expect(perpExpected(RV, '1h')).toEqual({ rows: 41_928, startMs: RV.from, endMs: Date.UTC(2026, 9, 13, 23) });
+    expect(perpExpected(RV, '4h')).toEqual({ rows: 10_482, startMs: RV.from, endMs: Date.UTC(2026, 9, 13, 20) });
+  });
+
+  it('finds no gap in a complete manifest', () => {
+    expect(perpGaps([...complete(), funding], RV)).toEqual([]);
+  });
+
+  it('lists every perp file whose row count or bounds differ from the grid, and every one not listed, reading no row', () => {
+    const files = complete();
+    entry(files, 'SOLUSDT', '4h').rowCount -= 1;
+    const dot = entry(files, 'DOTUSDT', '1h');
+    dot.rowCount -= 1;
+    dot.endMs! -= H;
+    // listed under another interval: not the 1h file
+    entry(files, 'LINKUSDT', '1h').interval = '15m';
+    const expected1h = { rows: 41_928, from: '2022-01-01T00:00:00.000Z', to: '2026-10-13T23:00:00.000Z' };
+    const expected4h = { rows: 10_482, from: '2022-01-01T00:00:00.000Z', to: '2026-10-13T20:00:00.000Z' };
+    expect(perpGaps(files, RV)).toEqual([
+      { symbol: 'SOLUSDT', interval: '4h', expected: expected4h, found: { rows: 10_481, from: expected4h.from, to: expected4h.to } },
+      { symbol: 'DOTUSDT', interval: '1h', expected: expected1h, found: { rows: 41_927, from: expected1h.from, to: iso(Date.UTC(2026, 9, 13, 22)) } },
+      { symbol: 'LINKUSDT', interval: '1h', expected: expected1h, found: null },
+    ]);
+  });
+
+  it('rejects a span that does not start on the interval grid', () => {
+    expect(() => perpExpected({ from: T0 + 30 * 60_000, to: T0 + DAY }, '1h')).toThrow(/grid/);
+  });
+});
+
 describe('assemblePanel (header DATA halts, AMENDMENTS 1 to 3)', () => {
   const BUCKETS = 12;
   const span = { from: T0, to: T0 + 4 * DAY - 1 };
@@ -725,8 +772,11 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
   });
 
   it('readFundingTimes reads only the funding files, as settlement times and stated intervals (pre-review Ruling 3)', () => {
-    const { funding, manifestHash } = readFundingTimes(dir);
-    expect(manifestHash).toBe(JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')).datasetHash);
+    const { funding, manifestHash, files } = readFundingTimes(dir);
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as DatasetManifest;
+    expect(manifestHash).toBe(manifest.datasetHash);
+    // the manifest's listing, metadata only, for the completeness check (final review Recommendation 4)
+    expect(files).toEqual(manifest.files);
     expect(funding.map((f) => f.symbol)).toEqual([...RV_SYMBOLS]);
     for (const [i, symbol] of RV_SYMBOLS.entries()) {
       const want = sourceFor(symbol, 300 + i, BUCKETS).funding.filter((r) => r.t <= span.to);
@@ -735,7 +785,7 @@ describe('buildRvPanel (loads the export, verifies the manifest, hashes the pane
     // the perp files are never opened: unreadable bytes there change nothing
     writeFileSync(join(dir, 'perp/BTCUSDT/4h.jsonl.gz'), 'tampered');
     writeFileSync(join(dir, 'perp/ETHUSDT/1h.jsonl.gz'), 'tampered');
-    expect(readFundingTimes(dir)).toEqual({ funding, manifestHash });
+    expect(readFundingTimes(dir)).toEqual({ funding, manifestHash, files });
     writeFileSync(join(dir, 'funding/SOLUSDT/settlements.jsonl.gz'), 'tampered');
     expect(() => readFundingTimes(dir)).toThrow(/HALT[\s\S]*sha256[\s\S]*funding\/SOLUSDT/);
   });
