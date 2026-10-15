@@ -659,7 +659,7 @@ docker-compose.prod.yml:
 
 ### Cron Jobs
 
-The schedule below is taken from `src/lib/cron-jobs.ts` (the source of truth, kept in step with `docker/crontab.template` by `cron-jobs.test.ts`). All expressions are UTC. The v8 single-asset composite jobs (compute-signals, resolve-outcomes, paper-desk, monthly-optimization) are still scheduled and running.
+The schedule below is taken from `src/lib/cron-jobs.ts` (the source of truth, kept in step with `docker/crontab.template` by `cron-jobs.test.ts`). All expressions are UTC. The v8 single-asset composite jobs that still run are compute-signals (scalping scores 5m only since 2026-10-15), resolve-outcomes and paper-desk. Its monthly optimisation schedule was removed on 2026-10-15.
 
 | Job | Schedule | Endpoint | Purpose |
 |-----|----------|----------|---------|
@@ -706,7 +706,7 @@ It explicitly calls `connectDB()` because Next.js standalone mode uses lazy Mong
 
 ### 8.1 Background and Theoretical Shift
 
-The legacy directional composite scoring system (v1 through v8) evaluated assets in isolation, generating directional signals from moving average crossovers, RSI, and order-book snapshots. The direction and exit study (24 pre-registered variants, confirmation period 2025-01-01 to 2026-10-09, 1h and 4h) found that no configuration passes. Confirmation-period expectancy ranged from -0.347% to +0.169% per trade, with four positive point estimates, none of which cleared the study's criteria. Its exit variants were the horizon, take-profit, target-and-stop and score reversal, and it had no trailing-stop variant. The v8 single-asset composite is not retired: its compute-signals, resolve-outcomes, paper-desk and monthly-optimization jobs all still run (`src/lib/cron-jobs.ts:59-66, 79-91`).
+The legacy directional composite scoring system (v1 through v8) evaluated assets in isolation, generating directional signals from moving average crossovers, RSI, and order-book snapshots. The direction and exit study (24 pre-registered variants, confirmation period 2025-01-01 to 2026-10-09, 1h and 4h) found that no configuration passes. Confirmation-period expectancy ranged from -0.347% to +0.169% per trade, with four positive point estimates, none of which cleared the study's criteria. Its exit variants were the horizon, take-profit, target-and-stop and score reversal, and it had no trailing-stop variant. The v8 single-asset composite is slimmed down, not retired. It is labelled "Measured: no edge", 1m scoring and the monthly optimisation schedule stopped on 2026-10-15, and its compute-signals, resolve-outcomes and paper-desk jobs still run. Its history is archived under the `v8-final` tag.
 
 An **8-Hour Cross-Sectional Relative Value (RV)** model was added alongside it. Status as of 2026-10-16: the rule, frozen as rv-v1 on perpetual prices, FAILED its pre-registered re-validation (see 8.7). Its paper desk keeps recording it as a descriptive forward test labelled not validated. Every validation claim previously made in this section was found void by an audit (see the corrections in 8.5 and 8.6 and the session 30 handover). Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts (the contracts are perpetuals, but the prices used were spot, see 8.5). By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
 
