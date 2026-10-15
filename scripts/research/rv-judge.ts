@@ -69,6 +69,10 @@ const SLICE_FROM = Date.UTC(2026, 6, 1);
 export const CARRY_ONLY_NOTE = `The carry-only calibration universe (reported, never a gate) plants funding at c = ${CARRY_ONLY_FUNDING_C} per unit of score, about 0.2% per 8h, far above real funding levels: it tests the machinery's power on a carry edge, not a realistic one.`;
 const BARS_PER_YEAR = 365.25 * 3;
 
+/** Final review m5: when the funding share of net PnL is defined, stated wherever the prediction is reported. */
+export const FUNDING_SHARE_RULE =
+  'The funding share of net PnL is the sum of the per-bar funding over the sum of the per-bar net returns, computed only when that net sum is positive. Otherwise it is null, and the funding and price sums are reported instead.';
+
 // ------------------------------------------------------------------------------------------------ KS
 
 /** Matrix product of two m x m row-major matrices. */
@@ -296,7 +300,7 @@ export interface SeriesStats extends PeriodStats {
   funding: number | null;
   price: number | null;
   cost: number | null;
-  /** Funding over the sum of net returns, the prediction's "funding share of net PnL". */
+  /** Funding over the sum of net returns, the prediction's "funding share of net PnL", null unless that sum is positive (FUNDING_SHARE_RULE). */
   fundingShare: number | null;
   annualTurnover: number | null;
   perYear: (PeriodStats & { year: number })[];
@@ -348,7 +352,7 @@ export function seriesStats(returns: readonly number[], t: readonly number[], fi
     funding,
     price: detail ? sum(detail.price) : null,
     cost: detail ? sum(detail.cost) : null,
-    fundingShare: funding !== null && sum(rs) !== 0 ? funding / sum(rs) : null,
+    fundingShare: funding !== null && sum(rs) > 0 ? funding / sum(rs) : null,
     annualTurnover: detail ? (sum(detail.turnover) / rs.length) * BARS_PER_YEAR : null,
     perYear: years.map((year) => ({ year, ...slice((s) => new Date(s).getUTCFullYear() === year) })),
     since20260701: slice((s) => s >= SLICE_FROM),
@@ -383,7 +387,13 @@ export interface Verdict {
     dsrReported: DsrAt[];
     purge: { objective: number; annualisedSharpe: number; cells: number[] };
     deskFillQuality: string;
-    predictions: { g3Fails: boolean; fundingShareAbove50: boolean | null; step2Passes: boolean; foldsSelectDifferentCells: boolean };
+    predictions: {
+      g3Fails: boolean;
+      /** null whenever rvV1.fundingShare is, which FUNDING_SHARE_RULE states */
+      fundingShareAbove50: { value: boolean | null; rule: typeof FUNDING_SHARE_RULE };
+      step2Passes: boolean;
+      foldsSelectDifferentCells: boolean;
+    };
   };
   notes: string[];
 }
@@ -524,7 +534,7 @@ export function judgeVerdict(
       deskFillQuality: DESK_NOTE,
       predictions: {
         g3Fails: !gates.G3.pass,
-        fundingShareAbove50: rvV1.fundingShare === null ? null : rvV1.fundingShare > 0.5,
+        fundingShareAbove50: { value: rvV1.fundingShare === null ? null : rvV1.fundingShare > 0.5, rule: FUNDING_SHARE_RULE },
         step2Passes: gates.G1.pass,
         foldsSelectDifferentCells: new Set(folds.map((f) => f.cell)).size > 1,
       },

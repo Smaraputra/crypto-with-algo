@@ -26,6 +26,7 @@ import {
 import {
   CARRY_ONLY_NOTE,
   DSR_GATE_TRIALS,
+  FUNDING_SHARE_RULE,
   type CalibrationEvidence,
   DSR_REPORTED_TRIALS,
   checkCalibration,
@@ -420,6 +421,11 @@ describe('judgeVerdict (header VERDICT G1 to G3 and REPORTED)', () => {
     expect(r.purge.objective).toBe(real.purge.objective);
     expect(r.dsrReported.map((x) => x.N)).toEqual([26, 2161]);
     expect(r.deskFillQuality).toMatch(/forward desk/);
+    // final review m5: the prediction carries its rule, and is null whenever the share is
+    expect(r.predictions.fundingShareAbove50).toEqual({
+      value: r.rvV1.fundingShare === null ? null : r.rvV1.fundingShare > 0.5,
+      rule: FUNDING_SHARE_RULE,
+    });
     expect(v.calibration).toEqual({ gitCommit: COMMIT, pass: true });
   });
 
@@ -474,6 +480,24 @@ describe('seriesStats (REPORTED: gross, profit factor, drawdown, turnover, per y
     ]);
     expect(s.perYear[0].total).toBeCloseTo(0.01, 12);
     expect(s.since20260701).toMatchObject({ n: 0 });
+  });
+
+  it('reports the funding share only when the net sum is positive, keeping the funding and price sums (final review m5)', () => {
+    const t = Array.from({ length: 4 }, (_, i) => Date.UTC(2025, 0, 1) + i * 8 * 3_600_000);
+    const detail = (funding: number[], price: number[]) => ({ funding, price, cost: funding.map(() => 0.001), turnover: funding.map(() => 0.1) });
+    // net negative, funding positive: a ratio here would be a negative "share"
+    const lossCarryGain = seriesStats([-0.01, -0.02, 0.005], t, 0, detail([0.002, 0.001, 0.001], [-0.011, -0.02, 0.005]));
+    expect(lossCarryGain.fundingShare).toBeNull();
+    expect(lossCarryGain.funding).toBeCloseTo(0.004, 12);
+    expect(lossCarryGain.price).toBeCloseTo(-0.026, 12);
+    // both negative: a ratio here would read as carry dominating a loss
+    const bothLoss = seriesStats([-0.01, -0.02, 0.005], t, 0, detail([-0.02, -0.01, 0.0], [0.011, -0.009, 0.006]));
+    expect(bothLoss.fundingShare).toBeNull();
+    expect(bothLoss.funding).toBeCloseTo(-0.03, 12);
+    expect(seriesStats([0.01, -0.01], t, 0, detail([0.001, 0.001], [0.01, -0.01])).fundingShare).toBeNull();
+    const gain = seriesStats([0.01, 0.02, -0.005], t, 0, detail([0.004, 0.001, 0.0], [0.007, 0.02, -0.004]));
+    expect(gain.fundingShare).toBeCloseTo(0.005 / 0.025, 12);
+    expect(FUNDING_SHARE_RULE).toMatch(/only when[\s\S]*net[\s\S]*positive[\s\S]*null/);
   });
 
   it('states the span of every period: the first and last return start, null when empty (final review m4)', () => {
