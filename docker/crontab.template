@@ -64,9 +64,15 @@
 # Portfolio snapshots
 0    0 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/snapshot-portfolios >> /var/log/cron.log 2>&1
 
-# 8-Hour Cross-Sectional Relative Value signals and paper desk
+# 8-Hour Cross-Sectional Relative Value (rv-v1) signals and paper desk. The
+# signal job scores the bar that closed a minute earlier and stores it once.
+# The retry line thirty minutes later runs the same job: a stored signal is
+# never rewritten, so it only fills a bar the first line could not store.
 1    */8 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/cross-sectional-signals >> /var/log/cron.log 2>&1
-2    */8 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/cross-sectional-paper >> /var/log/cron.log 2>&1
+31   */8 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/cross-sectional-signals?attempt=retry" >> /var/log/cron.log 2>&1
+# The desk fills at the 8h close using the first 1h bar after it (maker or
+# taker fallback), so it runs once that bar has closed: 01:05, 09:05, 17:05 UTC.
+5    1-23/8 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/cross-sectional-paper >> /var/log/cron.log 2>&1
 
 # Monthly template optimization (1st of month, midnight UTC)
 0    0 1 * * wget -qO- --post-data="" --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/monthly-optimization >> /var/log/cron.log 2>&1
