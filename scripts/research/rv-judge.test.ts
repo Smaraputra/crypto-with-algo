@@ -476,6 +476,21 @@ describe('seriesStats (REPORTED: gross, profit factor, drawdown, turnover, per y
     expect(s.since20260701).toMatchObject({ n: 0 });
   });
 
+  it('states the span of every period: the first and last return start, null when empty (final review m4)', () => {
+    const t0 = Date.UTC(2025, 11, 31, 0);
+    const t = Array.from({ length: 10 }, (_, i) => t0 + i * 8 * 3_600_000);
+    const iso = (i: number) => new Date(t[i]).toISOString();
+    const s = seriesStats([0.01, -0.02, 0.03, 0.01, -0.01, 0.02], t, 2, null);
+    expect([s.from, s.to]).toEqual([iso(2), iso(7)]);
+    expect(s.perYear.map((y) => [y.year, y.from, y.to])).toEqual([
+      [2025, iso(2), iso(2)],
+      [2026, iso(3), iso(7)],
+    ]);
+    expect(s.since20260701).toMatchObject({ n: 0, from: null, to: null });
+    const july = seriesStats([0.01, 0.02, -0.01, 0.005, 0.01, 0.0], Array.from({ length: 8 }, (_, i) => Date.UTC(2026, 5, 30, 8) + i * 8 * 3_600_000), 0, null);
+    expect(july.since20260701).toMatchObject({ n: 4, from: '2026-07-01T00:00:00.000Z', to: '2026-07-02T00:00:00.000Z' });
+  });
+
   it('slices from 2026-07-01 00:00 UTC', () => {
     const t0 = Date.UTC(2026, 5, 30, 8);
     const t = Array.from({ length: 8 }, (_, i) => t0 + i * 8 * 3_600_000);

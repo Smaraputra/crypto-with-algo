@@ -279,6 +279,9 @@ export function mergeShards(stage: ShardStage, files: readonly { name: string; t
 /** `total` is the compounded return, `annualisedSharpe` the per-bar net Sharpe times sqrt(365.25 * 3) (final review m3). */
 export interface PeriodStats {
   n: number;
+  /** The start of the first and of the last return, ISO, null when the period is empty (final review m4). */
+  from: string | null;
+  to: string | null;
   total: number;
   annualisedSharpe: number;
 }
@@ -301,7 +304,11 @@ export interface SeriesStats extends PeriodStats {
 }
 
 const compound = (rs: readonly number[]) => rs.reduce((e, r) => e * (1 + r), 1) - 1;
-const periodOf = (rs: number[]): PeriodStats => ({ n: rs.length, total: compound(rs), annualisedSharpe: annualise(objective(rs)) });
+/** One period's figures from its returns and the start time of each. */
+function periodOf(rs: readonly number[], starts: readonly number[]): PeriodStats {
+  const at = (i: number) => (rs.length > 0 ? new Date(starts[i]).toISOString() : null);
+  return { n: rs.length, from: at(0), to: at(rs.length - 1), total: compound(rs), annualisedSharpe: annualise(objective(rs)) };
+}
 const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
 
 /**
@@ -327,8 +334,12 @@ export function seriesStats(returns: readonly number[], t: readonly number[], fi
   const years = [...new Set(starts.map((s) => new Date(s).getUTCFullYear()))].sort();
   const gross = detail ? rs.map((r, i) => r + detail.cost[i]) : null;
   const funding = detail ? sum(detail.funding) : null;
+  const slice = (keep: (start: number) => boolean): PeriodStats => {
+    const at = starts.map((s, i) => (keep(s) ? i : -1)).filter((i) => i >= 0);
+    return periodOf(at.map((i) => rs[i]), at.map((i) => starts[i]));
+  };
   return {
-    ...periodOf(rs),
+    ...periodOf(rs, starts),
     perBar: objective(rs),
     maxDrawdown,
     profitFactor: losses > 0 ? gains / losses : null,
@@ -339,8 +350,8 @@ export function seriesStats(returns: readonly number[], t: readonly number[], fi
     cost: detail ? sum(detail.cost) : null,
     fundingShare: funding !== null && sum(rs) !== 0 ? funding / sum(rs) : null,
     annualTurnover: detail ? (sum(detail.turnover) / rs.length) * BARS_PER_YEAR : null,
-    perYear: years.map((year) => ({ year, ...periodOf(rs.filter((_, i) => new Date(starts[i]).getUTCFullYear() === year)) })),
-    since20260701: periodOf(rs.filter((_, i) => starts[i] >= SLICE_FROM)),
+    perYear: years.map((year) => ({ year, ...slice((s) => new Date(s).getUTCFullYear() === year) })),
+    since20260701: slice((s) => s >= SLICE_FROM),
   };
 }
 
