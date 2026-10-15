@@ -144,6 +144,11 @@ describe('CRON_JOBS table', () => {
     expect(computeSignals).toHaveLength(4);
     expect(new Set(computeSignals.map((j) => j.job)).size).toBe(4);
     expect(computeSignals.every((j) => typeof j.params.style === 'string')).toBe(true);
+
+    // The rv-v1 signal job and its retry line: a failing first attempt must
+    // stay visible even when the retry succeeds.
+    const rvSignals = CRON_JOBS.filter((j) => j.path === '/api/cron/cross-sectional-signals');
+    expect(rvSignals.map((j) => j.job)).toEqual(['cross-sectional-signals', 'cross-sectional-signals:retry']);
   });
 
   it('excludes the fire-and-forget optimization route from the heartbeat set', () => {
