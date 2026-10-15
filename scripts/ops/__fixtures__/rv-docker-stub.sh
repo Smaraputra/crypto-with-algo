@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck shell=bash
 # Stand-in for docker in scripts/ops/rv-revalidation-run.test.ts. It records every call in $HOME/docker.log (the
 # arguments joined by the unit separator, one call per line), answers `image inspect` from $HOME/stub/label, and for
 # `run` writes what the real container would write, at the host path its -v mounts map to. It refuses (exit 125) a

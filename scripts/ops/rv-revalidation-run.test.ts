@@ -222,7 +222,7 @@ describe('rv-revalidation-run.sh', () => {
   it('pins the paths: a fresh $HOME/rv2-ds, the VPS env file, and its own image and label', () => {
     expect(assigned('DS')).toBe('$HOME/rv2-ds');
     expect(assigned('OUT')).toBe('$HOME/rv2-out');
-    expect(assigned('ENV_FILE')).toBe('${RV2_ENV_FILE:-/opt/sites/crypto/.env}');
+    expect(assigned('ENV_FILE')).toBe(`\${RV2_ENV_FILE:-/opt/sites/crypto/.env}`);
     expect(assigned('IMG')).toBe('crypto-ops:rv2');
     expect(assigned('LABEL')).toBe('rv2.gitCommit');
   });

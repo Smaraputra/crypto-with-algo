@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck shell=bash
 # Runbook of the rv-v1 re-validation (spec: the locked header of scripts/research/rv-revalidation.ts with AMENDMENTS 1
 # to 3, and the Task 7C addendum). Runs on the VPS from $HOME, one stage per call, in the foreground (launch it under
 # setsid nohup). In order:
