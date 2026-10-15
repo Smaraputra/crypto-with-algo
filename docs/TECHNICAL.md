@@ -667,7 +667,7 @@ The schedule below is taken from `src/lib/cron-jobs.ts` (the source of truth, ke
 | sync-candles:standard | `*/15 * * * *` | `/api/cron/sync-candles` | Incrementally sync candle data for the standard intervals |
 | sync-candles:1m | `*/1 * * * *` | `/api/cron/sync-candles?intervals=1m` | Sync 1-minute candles |
 | sync-candles:5m | `*/5 * * * *` | `/api/cron/sync-candles?intervals=5m` | Sync 5-minute candles |
-| compute-signals:scalping | `*/1 * * * *` | `/api/cron/compute-signals?style=scalping` | Recompute v8 single-asset signals, scalping style |
+| compute-signals:scalping | `*/1 * * * *` | `/api/cron/compute-signals?style=scalping` | Recompute v8 single-asset signals, scalping style (5m only, 1m scoring stopped 2026-10-15) |
 | compute-signals:day_trading | `1-59/5 * * * *` | `/api/cron/compute-signals?style=day_trading` | Recompute v8 signals, day trading style |
 | compute-signals:swing_trading | `1-59/15 * * * *` | `/api/cron/compute-signals?style=swing_trading` | Recompute v8 signals, swing trading style |
 | compute-signals:position_trading | `1 * * * *` | `/api/cron/compute-signals?style=position_trading` | Recompute v8 signals, position trading style |
@@ -680,10 +680,10 @@ The schedule below is taken from `src/lib/cron-jobs.ts` (the source of truth, ke
 | ingest-perp | `30 10 * * *` | `/api/cron/ingest-perp?days=3` | Ingest the last 3 days of perpetual data |
 | snapshot-portfolios | `0 0 * * *` | `/api/cron/snapshot-portfolios` | Capture daily portfolio value snapshots |
 | cross-sectional-signals | `1 */8 * * *` | `/api/cron/cross-sectional-signals` | Generate the 8h cross-sectional RV signal (unvalidated) |
-| cross-sectional-paper | `2 */8 * * *` | `/api/cron/cross-sectional-paper` | Step the 8h RV paper desk (unvalidated) |
-| monthly-optimization | `0 0 1 * *` | `POST /api/cron/monthly-optimization` | Monthly optimisation orchestrator (fire-and-forget, health derived from the newest CronRun) |
+| cross-sectional-signals:retry | `31 */8 * * *` | `/api/cron/cross-sectional-signals?attempt=retry` | Retry the 8h signal once, only fills a bar the first run could not store |
+| cross-sectional-paper | `5 1-23/8 * * *` | `/api/cron/cross-sectional-paper` | Step the rv-v1 paper desk, after the first 1h fill bar has closed (failed re-validation, descriptive record) |
 
-Two further jobs are tracked outside the crontab template. `llm-panel` runs on the VPS host crontab at `7 */2 * * *` (health derived from the newest `LlmCall`). `market-recorder` is a long-running service in `docker-compose.server.yml` that writes a heartbeat every minute.
+The monthly optimisation schedule was removed on 2026-10-15 (the route and the admin trigger remain for manual runs). The `llm-panel` job that ran on the VPS host crontab at `7 */2 * * *` was retired on 2026-10-16. Its stored calls and outcomes are kept. `market-recorder` is a long-running service in `docker-compose.server.yml` that writes a heartbeat every minute.
 
 All cron requests include a `Bearer` token (`CRON_SECRET`) that the API routes validate before processing. The cron container is a minimal Alpine image with `wget` that calls the Next.js API endpoints over the internal Docker network.
 
@@ -708,7 +708,7 @@ It explicitly calls `connectDB()` because Next.js standalone mode uses lazy Mong
 
 The legacy directional composite scoring system (v1 through v8) evaluated assets in isolation, generating directional signals from moving average crossovers, RSI, and order-book snapshots. The direction and exit study (24 pre-registered variants, confirmation period 2025-01-01 to 2026-10-09, 1h and 4h) found that no configuration passes. Confirmation-period expectancy ranged from -0.347% to +0.169% per trade, with four positive point estimates, none of which cleared the study's criteria. Its exit variants were the horizon, take-profit, target-and-stop and score reversal, and it had no trailing-stop variant. The v8 single-asset composite is not retired: its compute-signals, resolve-outcomes, paper-desk and monthly-optimization jobs all still run (`src/lib/cron-jobs.ts:59-66, 79-91`).
 
-An **8-Hour Cross-Sectional Relative Value (RV)** model was added alongside it. Status as of 2026-10-15: the RV system remains live but UNVALIDATED. Every validation claim previously made in this section was found void by an audit (see the corrections in 8.5 and 8.6 and the session 30 handover). Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts (the contracts are perpetuals, but the prices used were spot, see 8.5). By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
+An **8-Hour Cross-Sectional Relative Value (RV)** model was added alongside it. Status as of 2026-10-16: the rule, frozen as rv-v1 on perpetual prices, FAILED its pre-registered re-validation (see 8.7). Its paper desk keeps recording it as a descriptive forward test labelled not validated. Every validation claim previously made in this section was found void by an audit (see the corrections in 8.5 and 8.6 and the session 30 handover). Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts (the contracts are perpetuals, but the prices used were spot, see 8.5). By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
 
 ### 8.2 Factor Model Specification
 
@@ -791,4 +791,24 @@ The original text of this section claimed that a circular block permutation test
 - The walk-forward permutation test (`cross-sectional-walkforward.ts:393-401`) draws its null distribution from synthetic Gaussian noise (mean 0.20, standard deviation 0.40). No data is permuted and nothing is re-optimised per fold. The 11 folds carry identical numbers (4.89% each, which is 53.79% divided by 11), and the stitched out-of-sample series is a 2025-01-01 calendar slice of one full-sample run (1,638 bars, 1.5 years, hence +33.37% a year). The reported p_WF of 0.0020 and Z of 3.47 measure nothing.
 - The cross-returns lead-lag harness (`cross-returns-leadlag.ts`) fits 27 in-sample lag-1 regressions on 8h bars with no intercept, array-index alignment and plain OLS errors. Only ADA from BNB (t -3.48) and ADA from BTC (t -3.23) survive a Bonferroni correction. It has no trade rule, `outOfSampleMeanReturnPct` and `winRate` are hard-coded to 0, and `dualBenchmarkStats` is a copy of the baseline. Its Rank IC change (-0.00001 to +0.0014, t 0.26) is noise.
 
-No p-value in this section supports a claim of statistical significance. A pre-registered re-validation is planned (see the session 30 handover).
+No p-value in this section supports a claim of statistical significance. The pre-registered re-validation that replaced these tests is reported in 8.7.
+
+### 8.7 Pre-registered Re-validation (2026-10-15): FAIL
+
+The frozen rule rv-v1 was tested on Binance USDT-M perpetual prices from 2022-01-01 to 2026-10-13 using Masters' four steps. The spec, AMENDMENTS 1 to 3 and the full RESULT are in `scripts/research/rv-revalidation.ts`, and the runner is `scripts/ops/rv-revalidation-run.sh`.
+
+| Gate | Result | Required |
+|------|--------|----------|
+| G1: in-sample permutation, all 12 cells re-selected, M = 1,000 | p 0.0020 | p < 0.01 |
+| G2: walk-forward permutation, M = 1,000 | p 0.0030 | p < 0.01 |
+| G3: deflated Sharpe of rv-v1 at N = 672 | 0.10 | at least 0.95 |
+
+- **rv-v1, net taker:**
+  - Sharpe 0.87 annualised, total +130%, max drawdown 31%, annual turnover 183x.
+  - Gross Sharpe 1.42.
+  - 2026 to date -22%.
+- **Funding** contributed 14% of net PnL, so carry does not dominate.
+- **Walk-forward:** five different cells were selected across 15 folds, with an out-of-sample Sharpe of 0.585.
+- **Meaning:** the permutation tests show real time structure, which a 3-day block shuffle weakens to p 0.019. The deflated Sharpe shows it is too small to survive the search.
+- **Data repairs:** two disclosed repairs were made after the inputs stage halted on Binance data defects, and before any statistic existed. They are described in the RESULT.
+- **Trial ledger:** 2,161.
