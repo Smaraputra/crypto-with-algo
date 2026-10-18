@@ -29,6 +29,10 @@ vi.mock('@/components/market/SentimentGauge', () => ({
   SentimentGauge: () => <div data-testid="sentiment-gauge">SentimentGauge</div>,
 }));
 
+vi.mock('@/components/dashboard/WhenToLookPanel', () => ({
+  WhenToLookPanel: () => <div data-testid="when-to-look-panel">WhenToLookPanel</div>,
+}));
+
 vi.mock('@/components/signals/CrossSectionalPortfolioCard', () => ({
   CrossSectionalPortfolioCard: () => (
     <div data-testid="cross-sectional-portfolio-card">CrossSectionalPortfolioCard</div>
@@ -78,6 +82,17 @@ describe('DashboardPage', () => {
     render(jsx);
 
     expect(screen.getByText('Welcome.')).toBeInTheDocument();
+  });
+
+  it('renders the when-to-look panel before MarketOverview', async () => {
+    mockAuth.mockResolvedValue(null as never);
+
+    const jsx = await DashboardPage();
+    render(jsx);
+
+    const panel = screen.getByTestId('when-to-look-panel');
+    const overview = screen.getByTestId('market-overview');
+    expect(panel.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('renders MarketOverview', async () => {

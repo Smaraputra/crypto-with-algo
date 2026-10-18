@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { WhenToLookPanel } from '@/components/dashboard/WhenToLookPanel';
 import { MarketOverview } from '@/components/market/MarketOverview';
 import { CrossSectionalPortfolioCard } from '@/components/signals/CrossSectionalPortfolioCard';
 import { LazyDashboardChart } from '@/components/chart/LazyDashboardChart';
@@ -15,6 +16,15 @@ export default async function DashboardPage() {
       <p className="text-sm text-muted-foreground">
         Welcome{session?.user?.name ? `, ${session.user.name}` : ''}.
       </p>
+      <ErrorBoundary
+        fallback={
+          <p className="text-sm text-muted-foreground">
+            Status panel unavailable
+          </p>
+        }
+      >
+        <WhenToLookPanel />
+      </ErrorBoundary>
       <ErrorBoundary
         fallback={
           <p className="text-sm text-muted-foreground">
