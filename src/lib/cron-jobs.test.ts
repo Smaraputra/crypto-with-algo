@@ -149,6 +149,9 @@ describe('CRON_JOBS table', () => {
     // stay visible even when the retry succeeds.
     const rvSignals = CRON_JOBS.filter((j) => j.path === '/api/cron/cross-sectional-signals');
     expect(rvSignals.map((j) => j.job)).toEqual(['cross-sectional-signals', 'cross-sectional-signals:retry']);
+
+    const labSignals = CRON_JOBS.filter((j) => j.path === '/api/cron/lab-signals');
+    expect(labSignals.map((j) => j.job)).toEqual(['lab-signals:8h', 'lab-signals:8h:retry', 'lab-signals:fast']);
   });
 
   it('no longer schedules the monthly optimization (the route and admin trigger stay)', () => {
