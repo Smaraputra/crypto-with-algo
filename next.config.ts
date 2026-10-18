@@ -7,7 +7,7 @@ const cspDirectives = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  "connect-src 'self' https://api.binance.com wss://stream.binance.com:9443 https://cloudflareinsights.com https://challenges.cloudflare.com",
+  "connect-src 'self' https://cloudflareinsights.com https://challenges.cloudflare.com",
   // Turnstile renders its challenge inside an iframe from this origin
   "frame-src 'self' https://challenges.cloudflare.com",
   "frame-ancestors 'none'",
