@@ -66,6 +66,8 @@ import {
   LAB_S_WINDOW,
   trailingS,
 } from '@/lib/signals/lab/hurdle';
+import { N2 } from '@/lib/signals/lab/v2/n2';
+import { N3 } from '@/lib/signals/lab/v2/n3';
 import {
   bookReturn,
   bookWeights,
@@ -303,10 +305,14 @@ export interface BookGradeInput {
 
 /** Pure: grades one lab-v2 book metric bar. Never reads anything but its input. */
 export function gradeBookBar(input: BookGradeInput): LabScoreFields {
-  const candidate =
-    input.hypothesis.candidate ??
-    (input.hypothesis.id.startsWith('N2') ? 'N2' : 'N3');
-  const scale = input.hypothesis.scale ?? (candidate === 'N2' ? 0.13 : 0.8);
+  const candidate = input.hypothesis.candidate;
+  if (candidate !== 'N2' && candidate !== 'N3') {
+    throw new Error(`Invalid or missing candidate: ${String(candidate)}`);
+  }
+  const scale = input.hypothesis.scale;
+  if (typeof scale !== 'number' || !Number.isFinite(scale) || scale <= 0) {
+    throw new Error(`Invalid or missing scale: ${String(scale)}`);
+  }
   const fundingSums = input.fundingSums ?? input.funding ?? {};
   const version = input.hypothesis.version ?? LAB_VERSION_V2;
 
@@ -329,7 +335,11 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
         start: input.prices[sym].start,
         end: input.prices[sym].end,
       };
-      funding[sym] = fundingSums[sym] ?? 0;
+      const fVal = fundingSums[sym];
+      if (typeof fVal !== 'number' || !Number.isFinite(fVal)) {
+        throw new Error(`Missing funding for priced coin: ${sym}`);
+      }
+      funding[sym] = fVal;
     }
 
     const turnover = bookTurnover(input.prev.weights, weights);
@@ -350,7 +360,7 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
         lambda: 0,
         lambda0: 0,
         bet: false,
-        noBetReason: 'cross_section',
+        noBetReason: input.prev.state.absorbed ? 'absorbed' : 'cross_section',
         weights,
         netBookReturn: null,
         prices,
@@ -362,11 +372,11 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
     let sumReturnFunding = 0;
     for (const sym of weightedCoins) {
       const r_i = input.prices[sym].end / input.prices[sym].start - 1;
-      const f_i = -(fundingSums[sym] ?? 0);
+      const f_i = -funding[sym];
       sumReturnFunding += weights[sym] * (r_i + f_i);
     }
 
-    const R = sumReturnFunding - 0.0007 * turnover;
+    const R = sumReturnFunding - N2.costRate * turnover;
     const x = Math.min(R / scale, 1);
 
     if (input.late) {
@@ -385,7 +395,7 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
         lambda: 0,
         lambda0: 0,
         bet: false,
-        noBetReason: 'late',
+        noBetReason: input.prev.state.absorbed ? 'absorbed' : 'late',
         weights,
         netBookReturn: R,
         prices,
@@ -415,7 +425,11 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
       lambda: step.lambda,
       lambda0: step.lambda0,
       bet: step.bet,
-      noBetReason: step.bet ? null : 'degenerate',
+      noBetReason: step.bet
+        ? null
+        : input.prev.state.absorbed
+        ? 'absorbed'
+        : 'degenerate',
       weights,
       netBookReturn: R,
       prices,
@@ -445,7 +459,7 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
       lambda: 0,
       lambda0: 0,
       bet: false,
-      noBetReason: 'no_position',
+      noBetReason: input.prev.state.absorbed ? 'absorbed' : 'no_position',
       weights: {},
       netBookReturn: null,
       prices: {},
@@ -468,7 +482,11 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
       start: input.prices[sym].start,
       end: input.prices[sym].end,
     };
-    funding[sym] = fundingSums[sym] ?? 0;
+    const fVal = fundingSums[sym];
+    if (typeof fVal !== 'number' || !Number.isFinite(fVal)) {
+      throw new Error(`Missing funding for priced coin: ${sym}`);
+    }
+    funding[sym] = fVal;
   }
 
   if (pricedSideCoins.length === 0) {
@@ -487,7 +505,7 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
       lambda: 0,
       lambda0: 0,
       bet: false,
-      noBetReason: 'no_position',
+      noBetReason: input.prev.state.absorbed ? 'absorbed' : 'no_position',
       weights,
       netBookReturn: null,
       prices,
@@ -500,8 +518,8 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
   for (const sym of pricedSideCoins) {
     const side_i = input.scores[sym];
     const r_i = input.prices[sym].end / input.prices[sym].start - 1;
-    const f_i = -(fundingSums[sym] ?? 0);
-    R += side_i * (r_i + f_i) - 0.0014;
+    const f_i = -funding[sym];
+    R += side_i * (r_i + f_i) - N3.costPerTrade;
   }
 
   const x = Math.min(R / scale, 1);
@@ -522,7 +540,7 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
       lambda: 0,
       lambda0: 0,
       bet: false,
-      noBetReason: 'late',
+      noBetReason: input.prev.state.absorbed ? 'absorbed' : 'late',
       weights,
       netBookReturn: R,
       prices,
@@ -552,7 +570,11 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
     lambda: step.lambda,
     lambda0: step.lambda0,
     bet: step.bet,
-    noBetReason: step.bet ? null : 'degenerate',
+    noBetReason: step.bet
+      ? null
+      : input.prev.state.absorbed
+      ? 'absorbed'
+      : 'degenerate',
     weights,
     netBookReturn: R,
     prices,
@@ -561,29 +583,58 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
   };
 }
 
+export interface FundingSumsResult {
+  sums: Record<string, number>;
+  coverage: Record<string, boolean>;
+}
+
 export async function defaultFundingSumsFor(
   symbols: string[],
   fromExclusive: number,
   toInclusive: number
-): Promise<Record<string, number>> {
+): Promise<FundingSumsResult> {
   const settlements = (await FundingSettlement.find(
     {
       symbol: { $in: symbols },
       fundingTime: { $gt: fromExclusive, $lte: toInclusive },
     },
-    { symbol: 1, rate: 1 }
-  ).lean()) as Array<{ symbol: string; rate: number }>;
+    { symbol: 1, rate: 1, fundingTime: 1 }
+  ).lean()) as Array<{ symbol: string; rate: number; fundingTime: number }>;
+
+  const eightHours = 8 * 60 * 60 * 1000;
+  const coverageStart = toInclusive - eightHours;
 
   const sums: Record<string, number> = {};
+  const coverage: Record<string, boolean> = {};
+
   for (const sym of symbols) {
-    sums[sym] = 0;
+    coverage[sym] = false;
   }
+
   for (const s of settlements) {
     if (Number.isFinite(s.rate)) {
       sums[s.symbol] = (sums[s.symbol] ?? 0) + s.rate;
     }
+    if (s.fundingTime > coverageStart && s.fundingTime <= toInclusive) {
+      coverage[s.symbol] = true;
+    }
   }
-  return sums;
+
+  return { sums, coverage };
+}
+
+export function normalizeFundingSumsResult(
+  raw: FundingSumsResult | Record<string, number>
+): FundingSumsResult {
+  if (raw && typeof raw === 'object' && 'sums' in raw && 'coverage' in raw) {
+    return raw as FundingSumsResult;
+  }
+  const plain = (raw ?? {}) as Record<string, number>;
+  const coverage: Record<string, boolean> = {};
+  for (const sym of Object.keys(plain)) {
+    coverage[sym] = Number.isFinite(plain[sym]);
+  }
+  return { sums: plain, coverage };
 }
 
 export interface LabGradeDeps {
@@ -592,7 +643,7 @@ export interface LabGradeDeps {
     symbols: string[],
     fromExclusive: number,
     toInclusive: number
-  ) => Promise<Record<string, number>>;
+  ) => Promise<FundingSumsResult | Record<string, number>>;
   syncFundingSettlements?: (symbols: string[], now: number) => Promise<unknown>;
   clock: () => number;
 }
@@ -935,14 +986,29 @@ export async function runLabGrade(
     }
   }
 
-  if (symbolsV2.length > 0 && !deps?.fundingSumsFor && d.syncFundingSettlements) {
+  const syncErrorsBySymbol = new Map<string, string>();
+  const shouldSyncFunding =
+    symbolsV2.length > 0 &&
+    (deps?.syncFundingSettlements !== undefined || !deps?.fundingSumsFor) &&
+    Boolean(d.syncFundingSettlements);
+
+  if (shouldSyncFunding && d.syncFundingSettlements) {
     try {
-      await d.syncFundingSettlements(symbolsV2, now);
+      const syncResults = await d.syncFundingSettlements(symbolsV2, now);
+      if (Array.isArray(syncResults)) {
+        for (const res of syncResults) {
+          if (res && typeof res === 'object' && 'symbol' in res && res.error) {
+            syncErrorsBySymbol.set(res.symbol, res.error);
+            report.errors.push(`Funding sync error for ${res.symbol}: ${res.error}`);
+          }
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       report.errors.push(msg);
-      report.success = false;
-      return report;
+      for (const sym of symbolsV2) {
+        syncErrorsBySymbol.set(sym, msg);
+      }
     }
   }
 
@@ -970,15 +1036,76 @@ export async function runLabGrade(
         }
       }
 
+      const candidate = hyp.candidate;
+      let relevantCoins: string[] = [];
+      let pricedCoins: string[] = [];
+
+      if (candidate === 'N2') {
+        const weights: Record<string, number> = {};
+        for (const sym of symbolsInScores) {
+          const val = sig.scores[sym];
+          if (Number.isFinite(val) && val !== 0) {
+            weights[sym] = val;
+          }
+        }
+        relevantCoins = Object.keys(weights).sort();
+        pricedCoins = relevantCoins.filter((sym) => isValidPrice(prices[sym]));
+      } else if (candidate === 'N3') {
+        relevantCoins = symbolsInScores
+          .filter((sym) => sig.scores[sym] !== 0 && Number.isFinite(sig.scores[sym]))
+          .sort();
+        pricedCoins = relevantCoins.filter((sym) => isValidPrice(prices[sym]));
+      }
+
+      const hasSyncError = relevantCoins.some((sym) => syncErrorsBySymbol.has(sym));
+      if (hasSyncError) {
+        report.pending.push({
+          hypothesis: hyp.id,
+          barClose: sig.barClose,
+          dueAt: gradeDueAt(sig.barClose, hyp.timeframe),
+        });
+        break;
+      }
+
       let fundingSums: Record<string, number> = {};
-      if (symbolsInScores.length > 0) {
+      if (pricedCoins.length > 0) {
+        let fundingRaw: FundingSumsResult | Record<string, number>;
         try {
-          fundingSums = await fundingSumsFor(symbolsInScores, start, end);
+          fundingRaw = await fundingSumsFor(pricedCoins, start, end);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           report.errors.push(msg);
-          report.success = false;
-          return report;
+          report.pending.push({
+            hypothesis: hyp.id,
+            barClose: sig.barClose,
+            dueAt: gradeDueAt(sig.barClose, hyp.timeframe),
+          });
+          break;
+        }
+
+        const norm = normalizeFundingSumsResult(fundingRaw);
+        fundingSums = norm.sums;
+
+        const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
+        let coverageMissing = false;
+        for (const sym of pricedCoins) {
+          if (!norm.coverage[sym]) {
+            coverageMissing = true;
+            if (now > end + FORTY_EIGHT_HOURS) {
+              report.errors.push(
+                `Funding coverage gap older than 48 hours for ${sym} at windowEnd ${end} in hypothesis ${hyp.id}`
+              );
+            }
+          }
+        }
+
+        if (coverageMissing) {
+          report.pending.push({
+            hypothesis: hyp.id,
+            barClose: sig.barClose,
+            dueAt: gradeDueAt(sig.barClose, hyp.timeframe),
+          });
+          break;
         }
       }
 

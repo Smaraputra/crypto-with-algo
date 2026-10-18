@@ -23,6 +23,12 @@
  *    By Ville's inequality, P(exists t >= 1: E_t >= LAB_THRESHOLD) <= 1 / LAB_THRESHOLD = alpha / K = 1 / 800.
  *    Because this uniform boundary holds across all time steps simultaneously, validation
  *    is permanent once crossedAt is recorded (it is sticky and cannot be undone).
+ *
+ * 4. Unbounded losses (lossUnbounded: true):
+ *    Since lambda <= 0.5, max(0, 1 + lambda * x) <= 1 + lambda * max(x, -2), so the
+ *    process is a non-negative supermartingale under H0': E[min(max(x, -2), 1) | past] <= 0:
+ *    a loss below -2 is counted at -2, and such a loss at the cap ends the test.
+ *    With unbounded losses, no non-negative e-process can test E[x] <= 0 itself.
  */
 
 export const LAB_ALPHA = 0.01;

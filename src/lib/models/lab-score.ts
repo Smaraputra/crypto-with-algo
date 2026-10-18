@@ -3,13 +3,20 @@ import mongoose, { Schema, type Document } from 'mongoose';
 import type { LabVersion } from '@/lib/signals/lab/candidates';
 import type { EProcessState } from '@/lib/signals/lab/e-process';
 
-export type LabNoBetReason = 'late' | 'cross_section' | 'no_hurdle' | 'degenerate' | 'no_position';
+export type LabNoBetReason =
+  | 'late'
+  | 'cross_section'
+  | 'no_hurdle'
+  | 'degenerate'
+  | 'no_position'
+  | 'absorbed';
 export const LAB_NO_BET_REASONS: readonly LabNoBetReason[] = [
   'late',
   'cross_section',
   'no_hurdle',
   'degenerate',
   'no_position',
+  'absorbed',
 ];
 
 /**

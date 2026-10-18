@@ -3,11 +3,13 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { FundingSettlement } from '@/lib/models/funding-settlement';
 import { LabScore } from '@/lib/models/lab-score';
 import { insertLabSignalOnce, LabSignal } from '@/lib/models/lab-signal';
 import { LAB_HYPOTHESES_V2 } from '@/lib/signals/lab/candidates';
 import { initialEState, type EProcessState } from '@/lib/signals/lab/e-process';
 import {
+  defaultFundingSumsFor,
   gradeBar,
   gradeBookBar,
   gradeDueAt,
@@ -17,6 +19,8 @@ import {
   type GradeInput,
   type LabGradeDeps,
 } from '@/lib/signals/lab/job-grade';
+import { N2 } from '@/lib/signals/lab/v2/n2';
+import { N3 } from '@/lib/signals/lab/v2/n3';
 import {
   bookReturn,
   kN,
@@ -739,6 +743,149 @@ describe('pure lab-v2 gradeBookBar', () => {
     expect(row.state.logE).toBeLessThan(Math.log(800));
     expect(row.state.crossedAt).toBe(T);
   });
+
+  it('computes R using imported N2.costRate constant and asserts that changing it changes R', () => {
+    const weights = { A: 0.6, B: -0.4 };
+    const wPrev = { A: 0.2, B: 0.2 };
+    const prices = {
+      A: { start: 100, end: 105 },
+      B: { start: 50, end: 45 },
+    };
+    const fundingSums = { A: 0.001, B: -0.001 };
+
+    const turnover = Math.abs(0.6 - 0.2) + Math.abs(-0.4 - 0.2); // 0.4 + 0.6 = 1.0
+    const sumReturnFunding =
+      0.6 * (0.05 - 0.001) +
+      (-0.4) * (-0.1 + 0.001);
+    const expectedR = sumReturnFunding - N2.costRate * turnover;
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[0],
+      barClose: T,
+      late: false,
+      scores: weights,
+      prices,
+      fundingSums,
+      prev: {
+        state: initialEState(),
+        weights: wPrev,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.netBookReturn).toBeCloseTo(expectedR, 12);
+    // Changing N2.costRate (e.g. if costRate were 0 or 2 * N2.costRate) would change R
+    expect(row.netBookReturn).not.toBeCloseTo(sumReturnFunding, 6);
+    expect(row.netBookReturn).not.toBeCloseTo(sumReturnFunding - 2 * N2.costRate * turnover, 6);
+  });
+
+  it('throws when hypothesis is missing scale or has invalid scale or invalid candidate', () => {
+    const validHyp = LAB_HYPOTHESES_V2[0];
+    const hypWithoutScale = {
+      id: validHyp.id,
+      candidate: validHyp.candidate,
+      timeframe: validHyp.timeframe,
+      version: validHyp.version,
+    };
+
+    expect(() =>
+      gradeBookBar({
+        hypothesis: hypWithoutScale,
+        barClose: T,
+        late: false,
+        scores: { A: 1 },
+        prices: { A: { start: 100, end: 105 } },
+        fundingSums: { A: 0 },
+        prev: {
+          state: initialEState(),
+          weights: null,
+        },
+        gradedAt: new Date(T + 60_000),
+      })
+    ).toThrow(/scale/);
+
+    expect(() =>
+      gradeBookBar({
+        hypothesis: { ...validHyp, scale: 0 },
+        barClose: T,
+        late: false,
+        scores: { A: 1 },
+        prices: { A: { start: 100, end: 105 } },
+        fundingSums: { A: 0 },
+        prev: {
+          state: initialEState(),
+          weights: null,
+        },
+        gradedAt: new Date(T + 60_000),
+      })
+    ).toThrow(/scale/);
+
+    expect(() =>
+      gradeBookBar({
+        hypothesis: { ...validHyp, scale: -0.1 },
+        barClose: T,
+        late: false,
+        scores: { A: 1 },
+        prices: { A: { start: 100, end: 105 } },
+        fundingSums: { A: 0 },
+        prev: {
+          state: initialEState(),
+          weights: null,
+        },
+        gradedAt: new Date(T + 60_000),
+      })
+    ).toThrow(/scale/);
+
+    expect(() =>
+      gradeBookBar({
+        hypothesis: { ...validHyp, candidate: 'INVALID' as unknown as 'N2' },
+        barClose: T,
+        late: false,
+        scores: { A: 1 },
+        prices: { A: { start: 100, end: 105 } },
+        fundingSums: { A: 0 },
+        prev: {
+          state: initialEState(),
+          weights: null,
+        },
+        gradedAt: new Date(T + 60_000),
+      })
+    ).toThrow(/candidate/);
+  });
+
+  it('gives noBetReason: absorbed when incoming state is already absorbed', () => {
+    const absorbedState: EProcessState = {
+      logE: -Infinity,
+      logE0: 0.1,
+      n: 40,
+      sumD: 2,
+      sumD2: 0.5,
+      sumX: 2,
+      sumX2: 0.5,
+      crossedAt: null,
+      absorbed: true,
+    };
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[0],
+      barClose: T,
+      late: false,
+      scores: { A: 1 },
+      prices: { A: { start: 100, end: 105 } },
+      fundingSums: { A: 0 },
+      prev: {
+        state: absorbedState,
+        weights: { A: 1 },
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.bet).toBe(false);
+    expect(row.noBetReason).toBe('absorbed');
+    expect(row.state.absorbed).toBe(true);
+    expect(row.lambda).toBe(0);
+    expect(row.lambda0).toBe(0);
+  });
 });
 
 describe('runLabGrade with mocked deps for v1 and v2', () => {
@@ -875,9 +1022,255 @@ describe('runLabGrade with mocked deps for v1 and v2', () => {
     expect(v2Row!.funding).toEqual({ BTCUSDT: 0.0005, ETHUSDT: -0.0002 });
 
     const expectedR_N3 =
-      (1 * (0.02 - 0.0005) - 0.0014) +
-      (-1 * (-0.02 + 0.0002) - 0.0014);
+      (1 * (0.02 - 0.0005) - N3.costPerTrade) +
+      (-1 * (-0.02 + 0.0002) - N3.costPerTrade);
     expect(v2Row!.netBookReturn).toBeCloseTo(expectedR_N3, 12);
     expect(v2Row!.x).toBeCloseTo(expectedR_N3 / 0.8, 12);
+  });
+
+  it('leaves bar ungraded with no row written on funding sync error, and grades it once sync succeeds', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    await insertLabSignalOnce({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      candidate: 'N3',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T1, '1d') + 1000;
+    const { start, end } = priceTimes(T1, '1d');
+
+    const mockFetchPerpKlinesRange = vi.fn().mockResolvedValue([
+      {
+        openTime: start,
+        closeTime: start + 300_000 - 1,
+        open: 100,
+        high: 101,
+        low: 99,
+        close: 100,
+        volume: 1000,
+        quoteVolume: 100_000,
+        trades: 50,
+        takerBuyVolume: 500,
+      },
+      {
+        openTime: end,
+        closeTime: end + 300_000 - 1,
+        open: 102,
+        high: 103,
+        low: 101,
+        close: 102,
+        volume: 1000,
+        quoteVolume: 100_000,
+        trades: 50,
+        takerBuyVolume: 500,
+      },
+    ]);
+
+    const mockSyncFundingSettlements = vi.fn();
+    const mockFundingSumsFor = vi.fn().mockResolvedValue({
+      sums: { BTCUSDT: 0.0005 },
+      coverage: { BTCUSDT: true },
+    });
+
+    // Run 1: syncFundingSettlements reports an error for BTCUSDT
+    mockSyncFundingSettlements.mockResolvedValueOnce([
+      { symbol: 'BTCUSDT', inserted: 0, updated: 0, error: 'connection reset by peer' },
+    ]);
+
+    const deps1: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      syncFundingSettlements: mockSyncFundingSettlements,
+      fundingSumsFor: mockFundingSumsFor,
+      clock: () => now,
+    };
+
+    const report1 = await runLabGrade(now, deps1);
+
+    expect(report1.graded).toHaveLength(0);
+    expect(report1.pending).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ hypothesis: 'N3-1d', barClose: T1 }),
+      ])
+    );
+    const rowAfterRun1 = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(rowAfterRun1).toBeNull();
+
+    // Run 2: syncFundingSettlements succeeds
+    mockSyncFundingSettlements.mockResolvedValueOnce([
+      { symbol: 'BTCUSDT', inserted: 3, updated: 0 },
+    ]);
+
+    const report2 = await runLabGrade(now + 3600_000, {
+      ...deps1,
+      clock: () => now + 3600_000,
+    });
+
+    expect(report2.graded).toHaveLength(1);
+    expect(report2.graded[0].hypothesis).toBe('N3-1d');
+    const rowAfterRun2 = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(rowAfterRun2).not.toBeNull();
+    expect(rowAfterRun2!.version).toBe('lab-v2');
+    expect(rowAfterRun2!.hypothesis).toBe('N3-1d');
+    expect(rowAfterRun2!.bet).toBe(true);
+  });
+
+  it('leaves bar ungraded when settlement coverage is missing, and reports coverage gap older than 48 hours', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    await insertLabSignalOnce({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      candidate: 'N3',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const { start, end } = priceTimes(T1, '1d');
+    const mockFetchPerpKlinesRange = vi.fn().mockResolvedValue([
+      {
+        openTime: start,
+        closeTime: start + 300_000 - 1,
+        open: 100,
+        high: 101,
+        low: 99,
+        close: 100,
+        volume: 1000,
+        quoteVolume: 100_000,
+        trades: 50,
+        takerBuyVolume: 500,
+      },
+      {
+        openTime: end,
+        closeTime: end + 300_000 - 1,
+        open: 102,
+        high: 103,
+        low: 101,
+        close: 102,
+        volume: 1000,
+        quoteVolume: 100_000,
+        trades: 50,
+        takerBuyVolume: 500,
+      },
+    ]);
+
+    // Coverage is missing for BTCUSDT
+    const mockFundingSumsFor = vi.fn().mockResolvedValue({
+      sums: { BTCUSDT: 0.0005 },
+      coverage: { BTCUSDT: false },
+    });
+
+    const nowFresh = gradeDueAt(T1, '1d') + 1000;
+    const depsFresh: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fundingSumsFor: mockFundingSumsFor,
+      clock: () => nowFresh,
+    };
+
+    const reportFresh = await runLabGrade(nowFresh, depsFresh);
+    expect(reportFresh.graded).toHaveLength(0);
+    expect(reportFresh.pending).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ hypothesis: 'N3-1d', barClose: T1 }),
+      ])
+    );
+    expect(reportFresh.errors).toHaveLength(0);
+    const rowFresh = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(rowFresh).toBeNull();
+
+    // Now older than 48 hours past windowEnd
+    const nowOld = end + 49 * 3600_000;
+    const depsOld: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fundingSumsFor: mockFundingSumsFor,
+      clock: () => nowOld,
+    };
+
+    const reportOld = await runLabGrade(nowOld, depsOld);
+    expect(reportOld.graded).toHaveLength(0);
+    expect(reportOld.errors.some((e) => e.includes('coverage gap older than 48 hours') && e.includes('BTCUSDT'))).toBe(true);
+    const rowOld = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(rowOld).toBeNull();
+  });
+});
+
+describe('defaultFundingSumsFor', () => {
+  let mongoServer: MongoMemoryServer;
+
+  beforeAll(async () => {
+    mongoServer = await MongoMemoryServer.create();
+    await mongoose.connect(mongoServer.getUri());
+    await FundingSettlement.init();
+  }, 30_000);
+
+  afterAll(async () => {
+    await mongoose.disconnect();
+    await mongoServer.stop();
+  });
+
+  afterEach(async () => {
+    await FundingSettlement.deleteMany({});
+  });
+
+  it('reports coverage true when settlement exists in (windowEnd - 8h, windowEnd]', async () => {
+    const windowEnd = Date.UTC(2026, 9, 19, 0); // 00:00 UTC
+    const windowStart = windowEnd - 86_400_000; // 24h prior
+
+    // Settlement within 8 hours of windowEnd (e.g. at windowEnd - 1h)
+    await FundingSettlement.create({
+      symbol: 'BTCUSDT',
+      fundingTime: windowEnd - 3600_000,
+      rate: 0.0002,
+      rawTime: windowEnd - 3600_000,
+      source: 'rest',
+    });
+    // Earlier settlement in the window
+    await FundingSettlement.create({
+      symbol: 'BTCUSDT',
+      fundingTime: windowStart + 3600_000,
+      rate: 0.0001,
+      rawTime: windowStart + 3600_000,
+      source: 'rest',
+    });
+
+    const res = await defaultFundingSumsFor(['BTCUSDT', 'ETHUSDT'], windowStart, windowEnd);
+
+    expect(res.coverage.BTCUSDT).toBe(true);
+    expect(res.sums.BTCUSDT).toBeCloseTo(0.0003, 10);
+
+    // ETHUSDT has no settlements: coverage false, not defaulted to 0
+    expect(res.coverage.ETHUSDT).toBe(false);
+    expect(res.sums.ETHUSDT).toBeUndefined();
+  });
+
+  it('reports coverage false when settlement exists only before (windowEnd - 8h, windowEnd]', async () => {
+    const windowEnd = Date.UTC(2026, 9, 19, 0);
+    const windowStart = windowEnd - 86_400_000;
+
+    // Settlement exists but is 12 hours before windowEnd (outside the 8h coverage window)
+    await FundingSettlement.create({
+      symbol: 'BTCUSDT',
+      fundingTime: windowEnd - 12 * 3600_000,
+      rate: 0.0002,
+      rawTime: windowEnd - 12 * 3600_000,
+      source: 'rest',
+    });
+
+    const res = await defaultFundingSumsFor(['BTCUSDT'], windowStart, windowEnd);
+
+    expect(res.coverage.BTCUSDT).toBe(false);
+    expect(res.sums.BTCUSDT).toBeCloseTo(0.0002, 10);
   });
 });
