@@ -85,6 +85,63 @@
  *
  * TRIALS: the program ledger moves from 2,169 to 2,189 (C1 4, C2 12, C3 4).
  */
+
+/*
+ * RESULT, 2026-10-18 (segment A read once, on the VPS).
+ *
+ * PROVENANCE. Lock commit 1713e71 (committed 14:35:53 UTC). Image crypto-ops:nv1 built at 1713e71 (the run
+ * script refused an image at any other commit; an earlier image at 95d1218 was refused and read nothing). Run
+ * start 2026-10-18T14:55:35Z, both containers --network none. Dataset 414fef1ee6cc (30 files), asserted by every
+ * stage. Outputs in $HOME/nv1-r1 on the VPS, sha256 prefixes: c1-scores-full 8bdb9a27c23b (holdout true, first bar
+ * 2017-08-17 04:00), c1-test abe65f5ebd46, c1-parity aaed2195d4f6, c2-screen 0fd440ae7943, c3-screen 77ec3889ebea.
+ *
+ * C1 (gated, holdout A): FAIL. max standardised N 1.624 against the null 95th percentile 2.112, p 0.125, argmax k 1.
+ *   net % per trade on A by k 0..3: +0.004, +0.085, -0.172, -0.280 (trades 5,254, 2,990, 1,756, 1,042; all assessable)
+ *   gross % per trade by k:         +0.164, +0.245, -0.012, -0.120 (cost 0.16)
+ *   by segment, net by k:  A1 +0.226 +0.372 +0.585 +0.911 (757 to 153 trades); A2 -0.033 +0.039 -0.298 -0.488;
+ *                          B  -0.170 -0.281 -0.205 -0.127;  C -0.034 -0.061 +0.089 +0.050
+ *   years in A at k 1: 2017 +1.87 (62 trades), 2018 +0.15, 2019 -0.30, 2020 -0.03, 2021 +0.35; 3 of 5 positive.
+ *   balanced 5-coin universe on A: +0.047, +0.009, +0.050, +0.171 (same sign at the argmax).
+ *   plateau (reported, never gating): c85 p 0.037 (would pass, argmax k 0, N +0.074), c95 p 0.081. The c85 figure
+ *   is one of the forking paths the lock fixed in advance at c90; it is not a pass and is not registered.
+ *   Reading: the only positive stretch is A1 (2017 to 2018, about 750 trades at k 0); A2, B and C are flat or
+ *   negative, so no delay k turns v8's price categories into a consistent edge. The confirmation delay helps no k.
+ *   C1 parity against the stored v8 re-score year (descriptive): 65,520 matched bars, tier agreement 0.885,
+ *   score Pearson 0.929, Spearman 0.930 (the price-only score tracks the full v8 score closely).
+ *
+ * C2 (screen, A as training only): ONE SURVIVOR, lookback 260 weeks, k 1.
+ *   cell             net/wk B   net/wk C   IC B    IC C    IC B+C  placebo p90  survives
+ *   156 k0          +0.246%    -0.203%    0.105   0.096   0.100   0.066        no (net C)
+ *   156 k1          +0.145%    -0.225%    0.108   0.109   0.109   0.102        no (net C)
+ *   156 k2          +0.202%    -0.096%    0.128   0.165   0.151   0.209        no
+ *   156 k3          +0.142%    +0.156%    0.113   0.193   0.165   0.535        no (placebo)
+ *   260 k0          +0.233%    -0.035%    0.099   0.108   0.104   0.065        no (net C)
+ *   260 k1          +0.136%    +0.025%    0.108   0.133   0.122   0.103        YES
+ *   260 k2          +0.167%    -0.001%    0.136   0.136   0.136   0.223        no
+ *   260 k3          +0.027%    -0.007%    0.076   0.128   0.112   0.652        no
+ *   all k0..k3 match 260 in B (all history reaches only 260 weeks there) and fail in C.
+ *   Expected null promotion rate 0.615: a placebo feature set yields a survivor about 6 times in 10, so this
+ *   survivor is weak evidence on its own. Placebo 90th percentiles rise with k (0.065 at k 0 to 0.65 at k 3)
+ *   because a delayed book holds fewer coin-weeks; it does not change the survivor. Turnover 0.67 (B), 0.59 (C)
+ *   per week. 71 coin-weeks dropped from training as incomplete; none in B or C.
+ *
+ * C3 (screen): ONE SURVIVOR, k 1. Net % per one-day trade after 0.14:
+ *   k0 B -0.186 C +0.101 pooled -0.019 (null p90 -0.042) no;  k1 B +0.075 C +0.045 pooled +0.056 (null p90 +0.002) YES;
+ *   k2 B +0.031 C +0.035 pooled +0.033 (null p90 +0.061) no;  k3 B -0.071 C +0.382 pooled +0.209 (null p90 +0.141) no.
+ *   k1 trades 2,390 (B) and 3,594 (C), 3,000 buys and 2,992 sells. Expected null promotion rate 0.114.
+ *   Plateau: k1 also survives at thresholds 0.15 and 0.35 (at 0.15 k2 and k3 survive too and k3 would be chosen).
+ *
+ * PREDICTIONS. C1 fails: right. C2 at most one survivor: right, but its IC is 0.12, not about 0.02, and the null
+ * promotion rate is 0.615 (predicted above 0.2). C3 no survivor: wrong, k1 survives at every threshold.
+ *
+ * GATE 2 RULING (Claude, under the owner's full autonomy of 2026-10-18; no historical pass is called an edge):
+ * - C1 is not registered. lab-v2 slot 1 stays empty; its alpha (0.0025) is spent unused.
+ * - C2 260-week k1 goes forward to lab-v2 slot 2, frozen exactly as tested, labelled weak (null promotion 0.615).
+ * - C3 k1 goes forward to lab-v2 slot 3, frozen exactly as tested.
+ * - Slot 4 stays reserved. Each filled slot is judged by its own e-process at threshold 400.
+ * - The ledger stays at 2,189: forward hypotheses are judged on new bars under their own alpha.
+ * - "Verified" needs a forward crossing. Until then both survivors are "survived a screen", nothing more.
+ */
 import { NV1_C1 } from './nv1-c1';
 import { NV1_C2 } from './nv1-c2';
 import { NV1_C3 } from './nv1-c3';
