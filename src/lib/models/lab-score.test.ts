@@ -154,12 +154,12 @@ describe('LabScore model and insertLabScoreOnce', () => {
   });
 
   it('rejects an unknown version on create', async () => {
-    const invalid = makeScoreFields({ version: 'lab-v2' as unknown as 'lab-v1' });
+    const invalid = makeScoreFields({ version: 'lab-v3' as unknown as 'lab-v1' });
     await expect(LabScore.create(invalid)).rejects.toThrow();
   });
 
   it('insertLabScoreOnce validates before its upsert and stores nothing invalid', async () => {
-    const badVersion = makeScoreFields({ version: 'lab-v2' as unknown as 'lab-v1' });
+    const badVersion = makeScoreFields({ version: 'lab-v3' as unknown as 'lab-v1' });
     await expect(insertLabScoreOnce(badVersion)).rejects.toThrow();
     const badReason = makeScoreFields({ noBetReason: 'bogus' as unknown as 'late' });
     await expect(insertLabScoreOnce(badReason)).rejects.toThrow();

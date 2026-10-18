@@ -45,7 +45,7 @@ import {
   LAB_TIMEFRAME_MS,
   LAB_VERSION,
   labDelayMs,
-  type LabTimeframe,
+  type LabTimeframeAny,
 } from '@/lib/signals/lab/candidates';
 import {
   eValue,
@@ -75,11 +75,11 @@ export const LAB_GRADE_SETTLE_MS = 5 * 60_000;
 /** Maximum time span of due bars graded in a single run per hypothesis. */
 export const LAB_GRADE_MAX_SPAN_MS = 40 * 86_400_000;
 
-export function gradeDueAt(barClose: number, tf: LabTimeframe): number {
+export function gradeDueAt(barClose: number, tf: LabTimeframeAny): number {
   return barClose + labDelayMs(tf) + LAB_TIMEFRAME_MS[tf] + LAB_GRADE_SETTLE_MS;
 }
 
-export function priceTimes(barClose: number, tf: LabTimeframe): { start: number; end: number } {
+export function priceTimes(barClose: number, tf: LabTimeframeAny): { start: number; end: number } {
   const start = barClose + labDelayMs(tf);
   const end = start + LAB_TIMEFRAME_MS[tf];
   return { start, end };

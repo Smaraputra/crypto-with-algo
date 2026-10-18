@@ -12,6 +12,7 @@ import {
   LAB_VARIANCE_EPS,
   LAB_WARMUP_BARS,
   LabBar,
+  type EProcessState,
   runEProcess,
   stepEProcess,
 } from './e-process';
@@ -220,6 +221,111 @@ describe('e-process', () => {
         }
         state = step.state;
       }
+    });
+
+    describe('options: threshold and unbounded loss', () => {
+      it('gives a result toEqual to todays for a fixed bar sequence with default options', () => {
+        const rand = createSeededRandom(98765);
+        const bars: LabBar[] = Array.from({ length: 50 }, (_, i) => ({
+          barTime: (i + 1) * 60,
+          x: 0.02 + (rand() - 0.5) * 0.8,
+          b: 0.005,
+        }));
+
+        const resWithoutOptions = runEProcess(bars);
+        const resWithExplicitDefaults = runEProcess(bars, undefined, {
+          threshold: LAB_THRESHOLD,
+          lossUnbounded: false,
+        });
+
+        expect(resWithExplicitDefaults).toEqual(resWithoutOptions);
+      });
+
+      it('sets crossedAt when logE passes threshold 400 but not 800', () => {
+        const startState: EProcessState = {
+          logE: Math.log(400) - 0.05,
+          logE0: 0,
+          n: 40,
+          sumD: 4,
+          sumD2: 1,
+          sumX: 4,
+          sumX2: 1,
+          crossedAt: null,
+        };
+        const bars: LabBar[] = [{ barTime: 50_000, x: 0.5, b: 0.01 }];
+
+        const resV2 = runEProcess(bars, startState, { threshold: 400 });
+        const resDefault = runEProcess(bars, startState);
+
+        expect(resV2[0].state.logE).toBeGreaterThanOrEqual(Math.log(400));
+        expect(resV2[0].state.logE).toBeLessThan(Math.log(800));
+        expect(resV2[0].state.crossedAt).toBe(50_000);
+        expect(isValidated(resV2[0].state)).toBe(true);
+
+        expect(resDefault[0].state.crossedAt).toBeNull();
+        expect(isValidated(resDefault[0].state)).toBe(false);
+      });
+
+      it('absorbs state on non-positive wealth when lossUnbounded is true and ceases betting on next bar', () => {
+        const warmedState: EProcessState = {
+          logE: 1.0,
+          logE0: 0.5,
+          n: 40,
+          sumD: 4,
+          sumD2: 1,
+          sumX: 4,
+          sumX2: 1,
+          crossedAt: null,
+        };
+
+        const step1 = stepEProcess(
+          warmedState,
+          { barTime: 1000, x: -3, b: 0 },
+          { lossUnbounded: true }
+        );
+
+        expect(step1.bet).toBe(true);
+        expect(step1.lambda).toBe(0.5);
+        expect(step1.state.absorbed).toBe(true);
+        expect(step1.state.logE).toBe(-Infinity);
+        expect(eValue(step1.state)).toBe(0);
+
+        const step2 = stepEProcess(
+          step1.state,
+          { barTime: 2000, x: 0.1, b: 0.01 },
+          { lossUnbounded: true }
+        );
+
+        expect(step2.bet).toBe(false);
+        expect(step2.state).toEqual(step1.state);
+        expect(step2.lambda).toBe(0);
+        expect(step2.lambda0).toBe(0);
+      });
+
+      it('gives bet: false for x = -3 when lossUnbounded is false', () => {
+        const warmedState: EProcessState = {
+          logE: 1.0,
+          logE0: 0.5,
+          n: 40,
+          sumD: 4,
+          sumD2: 1,
+          sumX: 4,
+          sumX2: 1,
+          crossedAt: null,
+        };
+
+        const stepExplicit = stepEProcess(
+          warmedState,
+          { barTime: 1000, x: -3, b: 0 },
+          { lossUnbounded: false }
+        );
+        expect(stepExplicit.bet).toBe(false);
+        expect(stepExplicit.state).toEqual(warmedState);
+
+        const stepDefault = stepEProcess(warmedState, { barTime: 1000, x: -3, b: 0 });
+        expect(stepDefault.bet).toBe(false);
+        expect(stepDefault.state).toEqual(warmedState);
+      });
     });
   });
 

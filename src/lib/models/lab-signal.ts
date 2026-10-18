@@ -1,6 +1,6 @@
 import mongoose, { Schema, type Document } from 'mongoose';
 
-import type { LabCandidateId, LabTimeframe } from '@/lib/signals/lab/candidates';
+import type { LabCandidateId, LabTimeframeAny, LabVersion } from '@/lib/signals/lab/candidates';
 import type { LabSkipReason } from '@/lib/signals/lab/factors';
 
 export const LAB_SKIP_REASONS: readonly LabSkipReason[] = [
@@ -15,16 +15,16 @@ export const LAB_SKIP_REASONS: readonly LabSkipReason[] = [
 ];
 
 /**
- * One lab-v1 score of a hypothesis's cross-section at the bar close `barClose` (T).
+ * One lab score of a hypothesis's cross-section at the bar close `barClose` (T).
  * Immutable once written (insertLabSignalOnce uses $setOnInsert). `late` is true when
  * it was written after T + D, and such a bar places no bet. `inputs` records what the
  * scores read, per candidate, so a skipped coin can be traced to its cause.
  */
 export interface ILabSignal extends Document {
-  version: 'lab-v1';
+  version: LabVersion;
   hypothesis: string; // e.g. 'L2-15m'
   candidate: LabCandidateId;
-  timeframe: LabTimeframe;
+  timeframe: LabTimeframeAny;
   barClose: number; // T, ms UTC
   writtenAt: Date;
   late: boolean;
@@ -50,10 +50,10 @@ const skippedSchema = new Schema(
 
 const labSignalSchema = new Schema<ILabSignal>(
   {
-    version: { type: String, enum: ['lab-v1'], required: true },
+    version: { type: String, enum: ['lab-v1', 'lab-v2'], required: true },
     hypothesis: { type: String, required: true },
-    candidate: { type: String, enum: ['L1', 'L2', 'L3', 'L4'], required: true },
-    timeframe: { type: String, enum: ['5m', '15m', '1h', '4h', '8h', '1d'], required: true },
+    candidate: { type: String, enum: ['L1', 'L2', 'L3', 'L4', 'N2', 'N3'], required: true },
+    timeframe: { type: String, enum: ['5m', '15m', '1h', '4h', '8h', '1d', '1w'], required: true },
     barClose: { type: Number, required: true },
     writtenAt: { type: Date, required: true },
     late: { type: Boolean, required: true },

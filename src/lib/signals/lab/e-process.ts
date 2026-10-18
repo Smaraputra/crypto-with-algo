@@ -33,6 +33,11 @@ export const LAB_WARMUP_BARS = 30;
 export const LAB_VARIANCE_EPS = 1e-6;
 export const LAB_CAP_NUMERATOR = 0.5;
 
+export interface EProcessOptions {
+  threshold?: number;
+  lossUnbounded?: boolean;
+}
+
 export interface EProcessState {
   /** log E at the bar's hurdle b. */
   logE: number;
@@ -46,6 +51,8 @@ export interface EProcessState {
   sumX2: number; // sum of x^2
   /** barTime of the first bar after which logE >= log(LAB_THRESHOLD), null before. Sticky. */
   crossedAt: number | null;
+  /** True when state hit non-positive wealth under unbounded losses and ceased betting. */
+  absorbed?: boolean;
 }
 
 export function initialEState(): EProcessState {
@@ -96,17 +103,30 @@ export function kellyLambda(
   return Math.min(Math.max(raw, 0), cap);
 }
 
-export function stepEProcess(prev: EProcessState, bar: LabBar): LabStepResult {
+export function stepEProcess(
+  prev: EProcessState,
+  bar: LabBar,
+  options?: EProcessOptions
+): LabStepResult {
+  if (prev.absorbed) {
+    return {
+      state: { ...prev },
+      bet: false,
+      lambda: 0,
+      lambda0: 0,
+    };
+  }
+
   const { x, b, barTime } = bar;
-  if (
-    x === null ||
-    !Number.isFinite(x) ||
-    x < -1 ||
-    x > 1 ||
-    b === null ||
-    !Number.isFinite(b) ||
-    b < 0
-  ) {
+  const lossUnbounded = options?.lossUnbounded ?? false;
+  const isXValid =
+    x !== null &&
+    Number.isFinite(x) &&
+    x <= 1 &&
+    (lossUnbounded || x >= -1);
+  const isBValid = b !== null && Number.isFinite(b) && b >= 0;
+
+  if (!isXValid || !isBValid) {
     return {
       state: { ...prev },
       bet: false,
@@ -120,8 +140,15 @@ export function stepEProcess(prev: EProcessState, bar: LabBar): LabStepResult {
   const lambda = kellyLambda(prev.n, prev.sumD, prev.sumD2, cap);
   const lambda0 = kellyLambda(prev.n, prev.sumX, prev.sumX2, LAB_CAP_NUMERATOR);
 
-  const logE = prev.logE + Math.log1p(lambda * d);
-  const logE0 = prev.logE0 + Math.log1p(lambda0 * x);
+  const factor = 1 + lambda * d;
+  const factor0 = 1 + lambda0 * x;
+
+  const becomesAbsorbed = lossUnbounded && factor <= 0;
+  const logE = becomesAbsorbed ? -Infinity : prev.logE + Math.log1p(lambda * d);
+  const logE0 =
+    prev.logE0 === -Infinity || (lossUnbounded && factor0 <= 0)
+      ? -Infinity
+      : prev.logE0 + Math.log1p(lambda0 * x);
 
   const n = prev.n + 1;
   const sumD = prev.sumD + d;
@@ -129,7 +156,8 @@ export function stepEProcess(prev: EProcessState, bar: LabBar): LabStepResult {
   const sumX = prev.sumX + x;
   const sumX2 = prev.sumX2 + x * x;
 
-  const thresholdLog = Math.log(LAB_THRESHOLD);
+  const threshold = options?.threshold ?? LAB_THRESHOLD;
+  const thresholdLog = Math.log(threshold);
   const crossedAt =
     prev.crossedAt !== null
       ? prev.crossedAt
@@ -137,17 +165,20 @@ export function stepEProcess(prev: EProcessState, bar: LabBar): LabStepResult {
       ? barTime
       : null;
 
+  const nextState: EProcessState = {
+    logE,
+    logE0,
+    n,
+    sumD,
+    sumD2,
+    sumX,
+    sumX2,
+    crossedAt,
+    ...(becomesAbsorbed ? { absorbed: true } : {}),
+  };
+
   return {
-    state: {
-      logE,
-      logE0,
-      n,
-      sumD,
-      sumD2,
-      sumX,
-      sumX2,
-      crossedAt,
-    },
+    state: nextState,
     bet: true,
     lambda,
     lambda0,
@@ -157,12 +188,13 @@ export function stepEProcess(prev: EProcessState, bar: LabBar): LabStepResult {
 /** Folds stepEProcess over bars in the given order and returns every step. */
 export function runEProcess(
   bars: readonly LabBar[],
-  start?: EProcessState
+  start?: EProcessState,
+  options?: EProcessOptions
 ): LabStepResult[] {
   const results: LabStepResult[] = [];
   let currentState = start ? { ...start } : initialEState();
   for (const bar of bars) {
-    const step = stepEProcess(currentState, bar);
+    const step = stepEProcess(currentState, bar, options);
     results.push(step);
     currentState = step.state;
   }
@@ -174,6 +206,9 @@ export function isValidated(state: EProcessState): boolean {
 }
 
 export function eValue(state: EProcessState): number {
+  if (state.absorbed) {
+    return 0;
+  }
   return Math.exp(state.logE);
 }
 

@@ -174,8 +174,22 @@ export function secondsBetweenRuns(expression: string): number {
   }
   const [minute, hour, dayOfMonth, month, dayOfWeek] = fields;
 
-  if (month !== '*' || dayOfWeek !== '*') {
-    throw new Error(`Unsupported cron expression (month/weekday restrictions): ${expression}`);
+  if (dayOfWeek !== '*') {
+    const isWeekly =
+      month === '*' &&
+      dayOfMonth === '*' &&
+      /^\d+$/.test(minute) &&
+      /^\d+$/.test(hour) &&
+      /^[0-6]$/.test(dayOfWeek);
+
+    if (isWeekly) {
+      return 7 * DAY;
+    }
+    throw new Error(`Unsupported cron expression (weekday restrictions): ${expression}`);
+  }
+
+  if (month !== '*') {
+    throw new Error(`Unsupported cron expression (month restrictions): ${expression}`);
   }
 
   // Monthly: a fixed day of the month. The gap is a month, taken at its longest.

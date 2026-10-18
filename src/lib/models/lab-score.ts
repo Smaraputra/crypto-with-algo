@@ -1,17 +1,18 @@
 import mongoose, { Schema, type Document } from 'mongoose';
 
+import type { LabVersion } from '@/lib/signals/lab/candidates';
 import type { EProcessState } from '@/lib/signals/lab/e-process';
 
 export type LabNoBetReason = 'late' | 'cross_section' | 'no_hurdle' | 'degenerate';
 export const LAB_NO_BET_REASONS: readonly LabNoBetReason[] = ['late', 'cross_section', 'no_hurdle', 'degenerate'];
 
 /**
- * The graded lab-v1 bar: the metric, the hurdle, the bet and the e-process state after it.
+ * The graded lab bar: the metric, the hurdle, the bet and the e-process state after it.
  * Immutable once written (insertLabScoreOnce). Graded strictly in barClose order per hypothesis,
  * each row's `state` is the next bar's starting state.
  */
 export interface ILabScore extends Document {
-  version: 'lab-v1';
+  version: LabVersion;
   hypothesis: string;
   barClose: number;
   gradedAt: Date;
@@ -50,13 +51,14 @@ const stateSchema = new Schema(
     sumX: { type: Number, required: true },
     sumX2: { type: Number, required: true },
     crossedAt: { type: Number, default: null },
+    absorbed: { type: Boolean },
   },
   { _id: false }
 );
 
 const labScoreSchema = new Schema<ILabScore>(
   {
-    version: { type: String, enum: ['lab-v1'], required: true },
+    version: { type: String, enum: ['lab-v1', 'lab-v2'], required: true },
     hypothesis: { type: String, required: true },
     barClose: { type: Number, required: true },
     gradedAt: { type: Date, required: true },

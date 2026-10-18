@@ -1,20 +1,28 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
 
+export type LabVersion = 'lab-v1' | 'lab-v2';
 export const LAB_VERSION = 'lab-v1' as const;
-export type LabCandidateId = 'L1' | 'L2' | 'L3' | 'L4';
-export type LabTimeframe = '5m' | '15m' | '1h' | '4h' | '8h' | '1d';
+export const LAB_VERSION_V2 = 'lab-v2' as const;
 
-export const LAB_TIMEFRAME_MS: Record<LabTimeframe, number> = {
+/** Four slots at alpha 0.01 / 4. */
+export const LAB_V2_THRESHOLD = 400;
+
+export type LabCandidateId = 'L1' | 'L2' | 'L3' | 'L4' | 'N2' | 'N3';
+export type LabTimeframe = '5m' | '15m' | '1h' | '4h' | '8h' | '1d';
+export type LabTimeframeAny = LabTimeframe | '1w';
+
+export const LAB_TIMEFRAME_MS: Record<LabTimeframeAny, number> = {
   '5m': 5 * 60_000,
   '15m': 15 * 60_000,
   '1h': 3_600_000,
   '4h': 4 * 3_600_000,
   '8h': 8 * 3_600_000,
   '1d': 86_400_000,
+  '1w': 7 * 86_400_000,
 };
 
 /** Fixed execution delay D between bar close T and the start of the graded return window. */
-export function labDelayMs(tf: LabTimeframe): number {
+export function labDelayMs(tf: LabTimeframeAny): number {
   return tf === '5m' ? 5 * 60_000 : 10 * 60_000;
 }
 
@@ -25,8 +33,10 @@ export interface LabHypothesis {
   /** `${candidate}-${timeframe}`, e.g. 'L2-15m'. */
   id: string;
   candidate: LabCandidateId;
-  timeframe: LabTimeframe;
-  version: typeof LAB_VERSION;
+  timeframe: LabTimeframeAny;
+  version: LabVersion;
+  metric?: 'ic' | 'book';
+  scale?: number;
 }
 
 /** The 8 hypotheses of lab-v1, frozen. Order is part of the record. */

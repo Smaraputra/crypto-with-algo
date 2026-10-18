@@ -227,6 +227,7 @@ describe('secondsBetweenRuns', () => {
     ['0 0 * * *', 86400],
     ['30 5 * * *', 86400],
     ['0 0 1 * *', 31 * 86400],
+    ['3 0 * * 1', 7 * 86400],
   ])('reads %s as %i seconds', (expression, seconds) => {
     expect(secondsBetweenRuns(expression)).toBe(seconds);
   });
@@ -238,7 +239,7 @@ describe('secondsBetweenRuns', () => {
 
   it.each([
     ['* * * * *'],
-    ['0 0 * * 1'],
+    ['3 0 * 1 1'],
     ['0 0 1 6 *'],
     ['*/5 9-17 * * *'],
     ['0,30 * * * *'],

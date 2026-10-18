@@ -1,3 +1,5 @@
+import type { LabCandidateId, LabTimeframeAny } from './candidates';
+
 export type LabStatus = 'not_started' | 'under_test' | 'validated' | 'not_shown';
 
 export interface LabCoinView {
@@ -11,8 +13,8 @@ export interface LabCoinView {
 
 export interface LabHypothesisView {
   id: string;
-  candidate: 'L1' | 'L2' | 'L3' | 'L4';
-  timeframe: '5m' | '15m' | '1h' | '4h' | '8h' | '1d';
+  candidate: LabCandidateId;
+  timeframe: LabTimeframeAny;
   status: LabStatus;
   /** ISO time of the first graded bar, null before one exists. */
   underTestSince: string | null;
