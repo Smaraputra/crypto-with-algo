@@ -260,8 +260,11 @@ export function TradingChart({
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
   const [indicators, setIndicators] = useState<IndicatorConfig[]>(DEFAULT_INDICATORS);
   const [isLoading, setIsLoading] = useState(true);
+  const [historyError, setHistoryError] = useState(false);
   const [crosshairData, setCrosshairData] = useState<KLineData | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [cssFullscreen, setCssFullscreen] = useState(false);
+  const isFullscreen = nativeFullscreen || cssFullscreen;
   const [magnetMode, setMagnetMode] = useState<OverlayMode>('normal');
   const klineUnsubRef = useRef<(() => void) | null>(null);
   const { status: streamStatus, lastMessageAt, retry: retryStream } = useMarketStreamStatus();
@@ -525,7 +528,9 @@ export function TradingChart({
           // Older pages load on scroll; nothing newer than the live bar exists.
           params.callback(bars, { forward: bars.length > 0, backward: false });
           reportLoadedRange();
+          setHistoryError(false);
         } catch {
+          setHistoryError(true);
           params.callback([], false);
         } finally {
           setIsLoading(false);
@@ -775,27 +780,48 @@ export function TradingChart({
   // Track fullscreen changes (e.g. Escape key exits natively)
   useEffect(() => {
     function handleFullscreenChange() {
-      setIsFullscreen(!!document.fullscreenElement);
+      setNativeFullscreen(document.fullscreenElement === wrapperRef.current);
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  const toggleFullscreen = useCallback(() => {
-    if (!wrapperRef.current) return;
+  useEffect(() => {
+    if (!cssFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setCssFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cssFullscreen]);
 
+  const toggleFullscreen = useCallback(async () => {
+    const el = wrapperRef.current;
+    if (!el) return;
     if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else if (document.fullscreenEnabled) {
-      wrapperRef.current.requestFullscreen();
-    } else {
-      // CSS fallback when Fullscreen API is not available
-      setIsFullscreen((prev) => !prev);
+      await document.exitFullscreen().catch(() => {});
+      return;
     }
-  }, []);
+    if (cssFullscreen) {
+      setCssFullscreen(false);
+      return;
+    }
+    if (document.fullscreenEnabled && typeof el.requestFullscreen === 'function') {
+      try {
+        await el.requestFullscreen();
+        return;
+      } catch {
+        // rejected (policy, iPad Safari): fall back to the CSS overlay
+      }
+    }
+    setCssFullscreen(true);
+  }, [cssFullscreen]);
 
   const handleRefresh = () => {
     if (!chartRef.current) return;
+    setHistoryError(false);
     setIsLoading(true);
     chartRef.current.resetData();
   };
@@ -808,13 +834,13 @@ export function TradingChart({
     <div
       ref={wrapperRef}
       className={`flex h-full flex-col overflow-hidden rounded-sm border border-border bg-card shadow-sm ${
-        isFullscreen && !document.fullscreenElement ? 'fixed inset-0 z-50 bg-background' : ''
+        cssFullscreen ? 'fixed inset-0 z-50 bg-background' : ''
       }`}
     >
       {/* Top Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card p-2">
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
-          <Tabs defaultValue={interval} onValueChange={(val) => onIntervalChange?.(val)}>
+          <Tabs value={PRIMARY_INTERVALS.includes(interval) ? interval : ''} onValueChange={(val) => onIntervalChange?.(val)}>
             <TabsList className="h-8 bg-muted/50">
               {INTERVALS.filter((int) => PRIMARY_INTERVALS.includes(int.value)).map((int) => (
                 <TabsTrigger
@@ -1025,6 +1051,20 @@ export function TradingChart({
       <div className="relative min-h-0 flex-1 bg-background">
         <div ref={containerRef} className="absolute inset-0 h-full w-full" />
         <ChartLegend symbol={symbol} kLineData={crosshairData} />
+
+        {historyError && !isLoading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center">
+            <div
+              role="alert"
+              className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-4 shadow-sm"
+            >
+              <span className="text-sm text-muted-foreground">Could not load price history.</span>
+              <Button variant="outline" size="sm" onClick={handleRefresh}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
 
         {isLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">

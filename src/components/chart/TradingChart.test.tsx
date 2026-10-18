@@ -139,8 +139,33 @@ beforeEach(() => {
   });
 });
 
+const origFullscreenEnabled = Object.getOwnPropertyDescriptor(document, 'fullscreenEnabled');
+const origFullscreenElement = Object.getOwnPropertyDescriptor(document, 'fullscreenElement');
+const origRequestFullscreen = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'requestFullscreen');
+const origExitFullscreen = Object.getOwnPropertyDescriptor(document, 'exitFullscreen');
+
 afterEach(() => {
   vi.restoreAllMocks();
+  if (origFullscreenEnabled) {
+    Object.defineProperty(document, 'fullscreenEnabled', origFullscreenEnabled);
+  } else {
+    delete (document as unknown as Record<string, unknown>).fullscreenEnabled;
+  }
+  if (origFullscreenElement) {
+    Object.defineProperty(document, 'fullscreenElement', origFullscreenElement);
+  } else {
+    delete (document as unknown as Record<string, unknown>).fullscreenElement;
+  }
+  if (origRequestFullscreen) {
+    Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', origRequestFullscreen);
+  } else {
+    delete (HTMLElement.prototype as unknown as Record<string, unknown>).requestFullscreen;
+  }
+  if (origExitFullscreen) {
+    Object.defineProperty(document, 'exitFullscreen', origExitFullscreen);
+  } else {
+    delete (document as unknown as Record<string, unknown>).exitFullscreen;
+  }
 });
 
 describe('periodToInterval', () => {
@@ -439,6 +464,58 @@ describe('TradingChart', () => {
     });
   });
 
+  describe('history error', () => {
+    const HOUR = 3_600_000;
+    const T = Date.UTC(2026, 9, 1);
+    const loader = () => mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+    const apiBars = (n: number, last: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        timestamp: last - (n - 1 - i) * HOUR,
+        open: 1,
+        high: 2,
+        low: 0.5,
+        close: 1.5,
+        volume: 3,
+      }));
+    const params = (type: string, timestamp: number | null) => ({
+      type,
+      timestamp,
+      symbol: { ticker: 'BTCUSDT' },
+      period: { type: 'hour', span: 1 },
+      callback: vi.fn(),
+    });
+
+    it('shows alert when init load fails and clicking retry resets data and clears alert', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const p = params('init', null);
+      await act(async () => {
+        await loader().getBars(p);
+      });
+      expect(p.callback).toHaveBeenCalledWith([], false);
+      const alert = screen.getByRole('alert');
+      expect(alert).toHaveTextContent('Could not load price history.');
+
+      const retryButton = screen.getByRole('button', { name: 'Retry' });
+      act(() => {
+        fireEvent.click(retryButton);
+      });
+      expect(mockResetData).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('shows no alert on a successful init load', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(apiBars(500, T))));
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const p = params('init', null);
+      await act(async () => {
+        await loader().getBars(p);
+      });
+      expect(p.callback).toHaveBeenCalledWith(expect.any(Array), { forward: true, backward: false });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
+
   describe('past calls overlay', () => {
     const T = Date.UTC(2026, 9, 1);
     const call = { t: T, dir: 1 as const, outcome: 'won' as const, source: 'rescore' as const, score: 31, tier: 'buy' as const, fwd: 0.5 };
@@ -649,6 +726,18 @@ describe('TradingChart', () => {
 
       expect(onIntervalChange).toHaveBeenCalledWith('5m');
     });
+
+    it('controls active tab state and leaves no primary tab active when More interval is selected', () => {
+      const { rerender } = render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      expect(screen.getByRole('tab', { name: '1H' })).toHaveAttribute('data-state', 'active');
+
+      rerender(<TradingChart symbol="BTCUSDT" interval="1w" />);
+      const activeTabs = screen.getAllByRole('tab').filter((t) => t.getAttribute('data-state') === 'active');
+      expect(activeTabs).toHaveLength(0);
+
+      rerender(<TradingChart symbol="BTCUSDT" interval="4h" />);
+      expect(screen.getByRole('tab', { name: '4H' })).toHaveAttribute('data-state', 'active');
+    });
   });
 
   describe('loading state', () => {
@@ -749,37 +838,90 @@ describe('TradingChart', () => {
       expect(screen.getByLabelText('Enter fullscreen')).toBeInTheDocument();
     });
 
-    it('calls requestFullscreen when clicking fullscreen button', () => {
+    it('calls requestFullscreen when clicking fullscreen button', async () => {
       const mockRequestFullscreen = vi.fn().mockResolvedValue(undefined);
-      Object.defineProperty(document, 'fullscreenEnabled', { value: true, writable: true });
-      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true });
+      Object.defineProperty(document, 'fullscreenEnabled', { value: true, writable: true, configurable: true });
+      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true, configurable: true });
+      Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+        value: mockRequestFullscreen,
+        writable: true,
+        configurable: true,
+      });
 
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
-      // Get the wrapper div and add requestFullscreen mock
-      const wrapperDiv = screen.getByLabelText('Enter fullscreen').closest('.flex.h-full');
-      if (wrapperDiv) {
-        (wrapperDiv as HTMLElement).requestFullscreen = mockRequestFullscreen;
-      }
-
-      fireEvent.click(screen.getByLabelText('Enter fullscreen'));
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Enter fullscreen'));
+      });
       expect(mockRequestFullscreen).toHaveBeenCalled();
     });
 
     it('updates aria-label based on fullscreen state', () => {
-      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const { container } = render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const wrapperDiv = container.firstChild as HTMLElement;
 
       // Initially not fullscreen
       expect(screen.getByLabelText('Enter fullscreen')).toBeInTheDocument();
 
       // Simulate fullscreenchange event
-      Object.defineProperty(document, 'fullscreenElement', { value: document.body, writable: true });
+      Object.defineProperty(document, 'fullscreenElement', { value: wrapperDiv, writable: true, configurable: true });
       fireEvent(document, new Event('fullscreenchange'));
 
       expect(screen.getByLabelText('Exit fullscreen')).toBeInTheDocument();
 
       // Reset
-      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true });
+      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true, configurable: true });
+      fireEvent(document, new Event('fullscreenchange'));
+      expect(screen.getByLabelText('Enter fullscreen')).toBeInTheDocument();
+    });
+
+    it('falls back to CSS overlay when requestFullscreen rejects, and Escape removes it', async () => {
+      Object.defineProperty(document, 'fullscreenEnabled', { value: true, writable: true, configurable: true });
+      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true, configurable: true });
+      const mockReject = vi.fn().mockRejectedValue(new Error('Permission denied'));
+      Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+        value: mockReject,
+        writable: true,
+        configurable: true,
+      });
+
+      const { container } = render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const wrapper = container.firstChild as HTMLElement;
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Enter fullscreen'));
+      });
+
+      expect(wrapper.className).toContain('fixed inset-0');
+      expect(screen.getByLabelText('Exit fullscreen')).toBeInTheDocument();
+
+      act(() => {
+        fireEvent.keyDown(window, { key: 'Escape' });
+      });
+
+      expect(wrapper.className).not.toContain('fixed inset-0');
+      expect(screen.getByLabelText('Enter fullscreen')).toBeInTheDocument();
+    });
+
+    it('keeps wrapper class off when requestFullscreen resolves in native mode', async () => {
+      Object.defineProperty(document, 'fullscreenEnabled', { value: true, writable: true, configurable: true });
+      Object.defineProperty(document, 'fullscreenElement', { value: null, writable: true, configurable: true });
+      const mockResolve = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', {
+        value: mockResolve,
+        writable: true,
+        configurable: true,
+      });
+
+      const { container } = render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const wrapper = container.firstChild as HTMLElement;
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Enter fullscreen'));
+      });
+
+      expect(mockResolve).toHaveBeenCalled();
+      expect(wrapper.className).not.toContain('fixed inset-0');
     });
   });
 

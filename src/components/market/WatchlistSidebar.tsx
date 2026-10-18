@@ -26,6 +26,12 @@ export function WatchlistSidebar() {
   const { tickers } = useBinanceTicker(symbols);
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
   const setSelectedSymbol = useUIStore((s) => s.setSelectedSymbol);
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+
+  const selectSymbol = (symbol: string) => {
+    setSelectedSymbol(symbol);
+    setMobileSidebarOpen(false);
+  };
   const [search, setSearch] = useState('');
 
   const filteredAdd = POPULAR_SYMBOLS.filter(
@@ -101,11 +107,11 @@ export function WatchlistSidebar() {
             key={symbol}
             role="button"
             tabIndex={0}
-            onClick={() => setSelectedSymbol(symbol)}
+            onClick={() => selectSymbol(symbol)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                setSelectedSymbol(symbol);
+                selectSymbol(symbol);
               }
             }}
             className={cn(

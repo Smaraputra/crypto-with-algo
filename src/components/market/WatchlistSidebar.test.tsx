@@ -21,12 +21,14 @@ vi.mock('@/hooks/useBinanceStream', () => ({
 
 let mockSelectedSymbol = 'BTCUSDT';
 const mockSetSelectedSymbol = vi.fn();
+const mockSetMobileSidebarOpen = vi.fn();
 
 vi.mock('@/stores/uiStore', () => ({
   useUIStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
       selectedSymbol: mockSelectedSymbol,
       setSelectedSymbol: mockSetSelectedSymbol,
+      setMobileSidebarOpen: mockSetMobileSidebarOpen,
     }),
 }));
 
@@ -92,11 +94,20 @@ describe('WatchlistSidebar', () => {
     expect(ethRow?.className).not.toMatch(/(?<!\S)bg-sidebar-accent(?!\S|\/)/);
   });
 
-  it('calls setSelectedSymbol on symbol click', () => {
+  it('calls setSelectedSymbol and sets mobileSidebarOpen to false on symbol click', () => {
     render(<WatchlistSidebar />);
     const ethRow = screen.getByText('ETH').closest('[role="button"]');
     fireEvent.click(ethRow!);
     expect(mockSetSelectedSymbol).toHaveBeenCalledWith('ETHUSDT');
+    expect(mockSetMobileSidebarOpen).toHaveBeenCalledWith(false);
+  });
+
+  it('calls setSelectedSymbol and sets mobileSidebarOpen to false on Enter key', () => {
+    render(<WatchlistSidebar />);
+    const ethRow = screen.getByText('ETH').closest('[role="button"]');
+    fireEvent.keyDown(ethRow!, { key: 'Enter' });
+    expect(mockSetSelectedSymbol).toHaveBeenCalledWith('ETHUSDT');
+    expect(mockSetMobileSidebarOpen).toHaveBeenCalledWith(false);
   });
 
   it('calls removeSymbol on remove button click', () => {
