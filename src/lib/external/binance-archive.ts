@@ -19,6 +19,7 @@
  *   klines        both    the twelve-column futures kline row
  *   premiumIndex  both    kline-shaped, close is the perp-to-index premium
  *   markPrice     both    kline-shaped, close is the mark price
+ *   spotKlines    both    spot klines, same twelve columns, microsecond timestamps from 2025
  *   fundingRate   monthly calc_time, funding_interval_hours, last_funding_rate
  *   bookDepth     daily   cumulative depth and notional at +/-1..5% of mid,
  *                         about one snapshot every 30 seconds
@@ -58,7 +59,8 @@ export type ArchiveDataset =
   | 'markPrice'
   | 'fundingRate'
   | 'bookDepth'
-  | 'aggTrades';
+  | 'aggTrades'
+  | 'spotKlines';
 
 /** Daily datasets are keyed by 'YYYY-MM-DD', monthly ones by 'YYYY-MM'. */
 export const ARCHIVE_CADENCE: Record<ArchiveDataset, 'daily' | 'monthly'> = {
@@ -69,10 +71,11 @@ export const ARCHIVE_CADENCE: Record<ArchiveDataset, 'daily' | 'monthly'> = {
   markPrice: 'monthly',
   fundingRate: 'monthly',
   aggTrades: 'monthly',
+  spotKlines: 'monthly',
 };
 
 /** Datasets whose path carries an interval segment. */
-const INTERVAL_DATASETS = new Set<ArchiveDataset>(['klines', 'premiumIndex', 'markPrice']);
+const INTERVAL_DATASETS = new Set<ArchiveDataset>(['klines', 'premiumIndex', 'markPrice', 'spotKlines']);
 
 /** The path segment Binance uses, where it differs from our dataset name. */
 const PATH_SEGMENT: Record<ArchiveDataset, string> = {
@@ -83,6 +86,19 @@ const PATH_SEGMENT: Record<ArchiveDataset, string> = {
   fundingRate: 'fundingRate',
   bookDepth: 'bookDepth',
   aggTrades: 'aggTrades',
+  spotKlines: 'klines',
+};
+
+/** Path segments between 'data' and the cadence: USDT-M futures or spot. */
+const MARKET_SEGMENTS: Record<ArchiveDataset, readonly string[]> = {
+  metrics: ['futures', 'um'],
+  klines: ['futures', 'um'],
+  premiumIndex: ['futures', 'um'],
+  markPrice: ['futures', 'um'],
+  fundingRate: ['futures', 'um'],
+  bookDepth: ['futures', 'um'],
+  aggTrades: ['futures', 'um'],
+  spotKlines: ['spot'],
 };
 
 export type ArchiveCadence = 'daily' | 'monthly';
@@ -90,7 +106,7 @@ export type ArchiveCadence = 'daily' | 'monthly';
 export interface ArchiveFileSpec {
   dataset: ArchiveDataset;
   symbol: string;
-  /** Required for klines, premiumIndex and markPrice; rejected for the rest. */
+  /** Required for klines, premiumIndex, markPrice and spotKlines; rejected for the rest. */
   interval?: string;
   /** 'YYYY-MM-DD' when the cadence is daily, 'YYYY-MM' when it is monthly. */
   date: string;
@@ -153,8 +169,7 @@ export function archiveUrl(spec: ArchiveFileSpec): string {
   assertSpec(spec);
   const segments = [
     'data',
-    'futures',
-    'um',
+    ...MARKET_SEGMENTS[spec.dataset],
     cadenceOf(spec),
     PATH_SEGMENT[spec.dataset],
     spec.symbol,
@@ -723,20 +738,20 @@ export function looksLikeHeader(line: string): boolean {
 }
 
 /**
- * Archive timestamps come in two shapes: epoch milliseconds on the kline and
- * funding files, and 'YYYY-MM-DD HH:MM:SS' in UTC on metrics and bookDepth.
- * Returns NaN for anything else, so a malformed row is dropped rather than
- * silently landing at the epoch.
+ * Archive timestamps come in three shapes: epoch milliseconds on the kline
+ * and funding files, microseconds on spot files from 2025 (16 digits), and
+ * 'YYYY-MM-DD HH:MM:SS' in UTC on metrics and bookDepth. Returns NaN for
+ * anything else, so a malformed row is dropped rather than silently landing
+ * at the epoch.
  */
 export function parseArchiveTimestamp(value: string): number {
   const trimmed = value.trim();
   if (trimmed === '') return Number.NaN;
 
   if (/^\d+$/.test(trimmed)) {
-    const ms = Number(trimmed);
-    // Some funding rows carry microsecond-ish precision (calc_time 1635724800009);
-    // anything with more than 13 digits is not milliseconds.
-    return trimmed.length <= 13 ? ms : Number.NaN;
+    if (trimmed.length <= 13) return Number(trimmed);
+    if (trimmed.length === 16) return Math.floor(Number(trimmed) / 1000);
+    return Number.NaN;
   }
 
   const iso = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})$/.exec(trimmed);

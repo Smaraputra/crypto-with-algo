@@ -813,4 +813,4 @@ The frozen rule rv-v1 was tested on Binance USDT-M perpetual prices from 2022-01
 - **Walk-forward:** five different cells were selected across 15 folds, with an out-of-sample Sharpe of 0.585.
 - **Meaning:** the permutation tests show real time structure, which a 3-day block shuffle weakens to p 0.019. The deflated Sharpe shows it is too small to survive the search.
 - **Data repairs:** two disclosed repairs were made after the inputs stage halted on Binance data defects, and before any statistic existed. They are described in the RESULT.
-- **Trial ledger:** 2,161.
+- **Trial ledger:** 2,161 at this RESULT. The running count lives in `scripts/research/ledger.ts` (2,169 after lab-v1).

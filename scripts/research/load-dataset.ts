@@ -11,6 +11,7 @@ import { gunzipSync } from 'zlib';
 import {
   LOCKBOX_START,
   datasetHashOf,
+  holdoutAEnd,
   readJsonlGz,
   sha256File,
   type CandleRow,
@@ -76,6 +77,8 @@ export async function verifyManifest(dir: string): Promise<VerifyResult> {
 export interface LoadOptions {
   /** Pass true to read data from the lockbox window (2026-07-01 onward). */
   allowLockbox?: boolean;
+  /** Pass true to read data from holdout segment A. */
+  allowHoldoutA?: boolean;
 }
 
 export interface LoadResult<T> {
@@ -83,6 +86,32 @@ export interface LoadResult<T> {
   lockboxApplied: boolean;
   lockboxStart: number;
   droppedRows: number;
+  holdoutAApplied: boolean;
+  holdoutAEnd: number | null;
+  holdoutDroppedRows: number;
+}
+
+function applyHoldoutA<T extends { t: number }>(
+  rows: T[],
+  end: number,
+  opts: LoadOptions
+): { rows: T[]; holdoutAApplied: boolean; holdoutAEnd: number; holdoutDroppedRows: number } {
+  if (opts.allowHoldoutA) {
+    return {
+      rows,
+      holdoutAApplied: false,
+      holdoutAEnd: end,
+      holdoutDroppedRows: 0,
+    };
+  }
+
+  const kept = rows.filter((row) => row.t >= end);
+  return {
+    rows: kept,
+    holdoutAApplied: true,
+    holdoutAEnd: end,
+    holdoutDroppedRows: rows.length - kept.length,
+  };
 }
 
 function applyLockbox<T extends { t: number }>(
@@ -90,7 +119,15 @@ function applyLockbox<T extends { t: number }>(
   opts: LoadOptions
 ): LoadResult<T> {
   if (opts.allowLockbox) {
-    return { rows, lockboxApplied: false, lockboxStart: LOCKBOX_START, droppedRows: 0 };
+    return {
+      rows,
+      lockboxApplied: false,
+      lockboxStart: LOCKBOX_START,
+      droppedRows: 0,
+      holdoutAApplied: false,
+      holdoutAEnd: null,
+      holdoutDroppedRows: 0,
+    };
   }
 
   const kept = rows.filter((row) => row.t < LOCKBOX_START);
@@ -99,6 +136,9 @@ function applyLockbox<T extends { t: number }>(
     lockboxApplied: true,
     lockboxStart: LOCKBOX_START,
     droppedRows: rows.length - kept.length,
+    holdoutAApplied: false,
+    holdoutAEnd: null,
+    holdoutDroppedRows: 0,
   };
 }
 
@@ -109,7 +149,16 @@ export function loadCandles(
   opts: LoadOptions = {}
 ): LoadResult<CandleRow> {
   const path = join(dir, 'candles', symbol, `${interval}.jsonl.gz`);
-  return applyLockbox(readJsonlGz<CandleRow>(path), opts);
+  const raw = readJsonlGz<CandleRow>(path);
+  const end = holdoutAEnd('spot', interval);
+  const holdout = applyHoldoutA(raw, end, opts);
+  const locked = applyLockbox(holdout.rows, opts);
+  return {
+    ...locked,
+    holdoutAApplied: holdout.holdoutAApplied,
+    holdoutAEnd: holdout.holdoutAEnd,
+    holdoutDroppedRows: holdout.holdoutDroppedRows,
+  };
 }
 
 export function loadSnapshots(
@@ -129,7 +178,16 @@ export function loadHtf(
   opts: LoadOptions = {}
 ): LoadResult<HtfRow> {
   const path = join(dir, 'htf', symbol, `${interval}.jsonl.gz`);
-  return applyLockbox(readJsonlGz<HtfRow>(path), opts);
+  const raw = readJsonlGz<HtfRow>(path);
+  const end = holdoutAEnd('spot', interval);
+  const holdout = applyHoldoutA(raw, end, opts);
+  const locked = applyLockbox(holdout.rows, opts);
+  return {
+    ...locked,
+    holdoutAApplied: holdout.holdoutAApplied,
+    holdoutAEnd: holdout.holdoutAEnd,
+    holdoutDroppedRows: holdout.holdoutDroppedRows,
+  };
 }
 
 /**
@@ -148,7 +206,16 @@ export function loadPerp(
 ): LoadResult<PerpCandleRow> {
   const suffix = series === 'klines' ? interval : `${interval}.${series}`;
   const path = join(dir, 'perp', symbol, `${suffix}.jsonl.gz`);
-  return applyLockbox(readJsonlGz<PerpCandleRow>(path), opts);
+  const raw = readJsonlGz<PerpCandleRow>(path);
+  const end = holdoutAEnd('perp', interval);
+  const holdout = applyHoldoutA(raw, end, opts);
+  const locked = applyLockbox(holdout.rows, opts);
+  return {
+    ...locked,
+    holdoutAApplied: holdout.holdoutAApplied,
+    holdoutAEnd: holdout.holdoutAEnd,
+    holdoutDroppedRows: holdout.holdoutDroppedRows,
+  };
 }
 
 /**
