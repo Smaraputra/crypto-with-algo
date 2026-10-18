@@ -78,6 +78,15 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'cross-sectional-signals:retry', path: '/api/cron/cross-sectional-signals', params: { attempt: 'retry' }, schedule: '31 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
   // 01:05, 09:05, 17:05 UTC: the first 1h fill bar after each 8h close has closed.
   { job: 'cross-sectional-paper', path: '/api/cron/cross-sectional-paper', params: {}, schedule: '5 1-23/8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+
+  // Minute 3 is two minutes after the rv-v1 signal at minute 1.
+  { job: 'lab-signals:8h', path: '/api/cron/lab-signals', params: { cadence: '8h' }, schedule: '3 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+  // Minute 8 is the final attempt before T + 10 minutes.
+  { job: 'lab-signals:8h:retry', path: '/api/cron/lab-signals', params: { cadence: '8h', attempt: 'retry' }, schedule: '8 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
+  // Scores L2 within D of each 5m to 1d close.
+  { job: 'lab-signals:fast', path: '/api/cron/lab-signals', params: { cadence: 'fast' }, schedule: '*/1 * * * *', expectedEverySeconds: MINUTE, method: 'GET' },
+  // Grades every bar whose return window has closed.
+  { job: 'lab-grade', path: '/api/cron/lab-grade', params: {}, schedule: '20 * * * *', expectedEverySeconds: HOUR, method: 'GET' },
 ] as const;
 
 /**

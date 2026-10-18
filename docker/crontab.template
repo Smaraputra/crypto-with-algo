@@ -74,6 +74,17 @@
 # taker fallback), so it runs once that bar has closed: 01:05, 09:05, 17:05 UTC.
 5    1-23/8 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/cross-sectional-paper >> /var/log/cron.log 2>&1
 
+# Forward signal lab (lab-v1, lock scripts/research/lab-forward-v1.ts).
+# The 8h job scores L1, L3 and L4 at minutes 3 and 8 after each 8h close
+# (the first attempt writes nothing for a hypothesis whose REST fetch failed,
+# the final one writes what it has), the fast job scores L2 every minute
+# within D of each close, the grade job runs hourly, and every stored lab row
+# is write-once.
+3    */8 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/lab-signals?cadence=8h" >> /var/log/cron.log 2>&1
+8    */8 * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/lab-signals?cadence=8h&attempt=retry" >> /var/log/cron.log 2>&1
+*/1  * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" "http://app:3000/api/cron/lab-signals?cadence=fast" >> /var/log/cron.log 2>&1
+20   * * * * wget -qO- --header="Authorization: Bearer ${CRON_SECRET}" http://app:3000/api/cron/lab-grade >> /var/log/cron.log 2>&1
+
 # Log rotation. The log lives in the container's writable layer with no logrotate
 # available, and had grown to 60MB in production. Truncating in place keeps the
 # entrypoint's `tail -f` attached to the same file.
