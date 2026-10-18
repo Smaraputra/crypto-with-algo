@@ -4,8 +4,8 @@ import { LAB_FORWARD_V1_LOCK } from './lab-forward-v1';
 import { LEDGER, ledgerTotal } from './ledger';
 
 describe('ledger', () => {
-  it('returns 2169 for ledgerTotal()', () => {
-    expect(ledgerTotal()).toBe(2169);
+  it('returns the running total, 2189 after next-version Round 1', () => {
+    expect(ledgerTotal()).toBe(2189);
   });
 
   it('matches baseline trials to LAB_FORWARD_V1_LOCK.ledgerAfter', () => {

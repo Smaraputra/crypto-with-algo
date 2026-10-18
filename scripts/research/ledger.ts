@@ -30,6 +30,12 @@ export const LEDGER: readonly LedgerEntry[] = [
     trials: 2169,
     source: 'scripts/research/lab-forward-v1.ts LAB_FORWARD_V1_LOCK.ledgerAfter (all trials through lab-v1)',
   },
+  {
+    id: 'next-version-r1',
+    date: '2026-10-18',
+    trials: 20,
+    source: 'scripts/research/next-version-v1.ts NV1_LOCK (C1 4, C2 12, C3 4)',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */
