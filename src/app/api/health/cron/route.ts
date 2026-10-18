@@ -5,7 +5,6 @@ import { connectDB } from '@/lib/mongodb';
 import { DERIVED_JOBS, HEARTBEAT_JOBS, SERVICE_JOBS } from '@/lib/cron-jobs';
 import { classifyJob, isAllHealthy, summarize, type JobHealth, type JobState } from '@/lib/cron-health';
 import { JobHeartbeat, type IJobHeartbeat } from '@/lib/models/job-heartbeat';
-import { LlmCall } from '@/lib/models/llm-call';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,17 +82,11 @@ export async function GET(req: NextRequest) {
 
 /**
  * State for a job with no heartbeat row, read from whatever record it does
- * leave behind. See `DERIVED_JOBS` for why each one is here.
+ * leave behind. See `DERIVED_JOBS` for why each one is here. No derived job
+ * exists since the LLM panel was retired, so a new entry reads as never_ran
+ * until it gets a reader here.
  */
 async function derivedState(job: string): Promise<JobState | null> {
-  if (job === 'llm-panel') {
-    // The panel posts calls from the VPS; a call landing IS the run succeeding.
-    // This is the outage that motivated the whole heartbeat layer, and it needs
-    // no write path at all.
-    const latest = await LlmCall.findOne({}).sort({ createdAt: -1 }).select('createdAt').lean();
-    const createdAt = (latest as { createdAt?: Date } | null)?.createdAt ?? null;
-    return createdAt ? { lastRunAt: createdAt, lastSuccessAt: createdAt, lastStatus: 'success' } : null;
-  }
-
+  console.warn(`cron health: no state reader for derived job ${job}`);
   return null;
 }

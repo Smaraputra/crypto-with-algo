@@ -168,11 +168,10 @@ describe('CRON_JOBS table', () => {
 });
 
 describe('DERIVED_JOBS', () => {
-  it('keeps the host-scheduled panel out of the container crontab table', () => {
-    // The panel runs from the VPS host crontab, so it must NOT be expected in
-    // docker/crontab.template -- otherwise the bijection test would demand a
-    // line that can never exist there.
-    expect(DERIVED_JOBS.some((j) => j.job === 'llm-panel')).toBe(true);
+  it('no longer expects the retired LLM panel anywhere', () => {
+    // Retired 2026-10-16 with its VPS host crontab line. Kept as a derived job,
+    // it read the newest stored call, went overdue and held /api/health/cron at 503.
+    expect(DERIVED_JOBS.some((j) => j.job === 'llm-panel')).toBe(false);
     expect(CRON_JOB_NAMES).not.toContain('llm-panel');
     expect(TEMPLATE).not.toContain('llm-panel');
   });

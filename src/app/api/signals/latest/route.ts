@@ -4,6 +4,7 @@ import { auth } from '@/lib/auth';
 import { GlobalSignal } from '@/lib/models/global-signal';
 import { TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { connectDB } from '@/lib/mongodb';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 import type { TradingStyle } from '@/lib/models/signal-template';
 
 function isValidTradingStyle(style: string): style is TradingStyle {
@@ -38,9 +39,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const query: Record<string, string> = {
+    const query: Record<string, string | number> = {
       symbol,
       tradingStyle: tradingStyleParam,
+      configVersion: SCORER_CONFIG_VERSION,
     };
     if (intervalParam) query.interval = intervalParam;
 
@@ -57,9 +59,10 @@ export async function GET(req: NextRequest) {
 
   await Promise.all(
     styles.map(async (style) => {
-      const query: Record<string, string> = {
+      const query: Record<string, string | number> = {
         symbol,
         tradingStyle: style,
+        configVersion: SCORER_CONFIG_VERSION,
       };
       if (intervalParam) query.interval = intervalParam;
 
