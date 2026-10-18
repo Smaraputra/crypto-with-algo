@@ -88,6 +88,10 @@ vi.mock('@/components/signals/MultiStyleOverview', () => ({
   MultiStyleOverview: () => <div data-testid="multi-style-overview" />,
 }));
 
+vi.mock('@/components/signals/SignalBoard', () => ({
+  SignalBoard: () => <div data-testid="signal-lab-board" />,
+}));
+
 vi.mock('@/components/journal/EnhancedJournalForm', () => ({
   EnhancedJournalForm: () => <div data-testid="enhanced-journal-form" />,
 }));
@@ -197,5 +201,10 @@ describe('SignalsPage', () => {
   it('shows empty state when no signal computed', () => {
     render(<SignalsPage />);
     expect(screen.getByText(/No signal computed yet/)).toBeInTheDocument();
+  });
+
+  it('renders signal lab board', () => {
+    render(<SignalsPage />);
+    expect(screen.getByTestId('signal-lab-board')).toBeInTheDocument();
   });
 });

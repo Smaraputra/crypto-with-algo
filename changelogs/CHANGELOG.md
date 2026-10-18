@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: forward signal lab board on /signals
+- **Read route** `GET /api/signals/lab` (signed in): every lab-v1 hypothesis's status (`Not started`, `Under test since <date>`, `Validated (forward, <date>)`, `Not shown`), e-value against 800, bets, mean X against mean b, the current b, and the latest scored bar with each coin's rank. L2 coins carry their parts (the v8 score and the rv-v1 rank). Hook `useSignalLab()`.
+- **Board** (`SignalBoard`, between the main grid and Signal History):
+  - The combined score at 5m, 15m, 1h, 4h and 1d for all ten coins, with each part and both standing labels (v8 "Measured: no edge", rv-v1 "Failed re-validation"). Below the `sm` breakpoint the table becomes a five-button timeframe control with a single list.
+  - Each hypothesis's test status, with a log-scale e-value meter, because the e-process accumulates evidence multiplicatively.
+  - The 8h rankings of L1, L3 and L4.
+  - It claims relative order only, with no buy or sell tiers, and has loading, error with retry, and nothing-recorded-yet states.
+- **Checked in a browser** on local synthetic rows (removed afterwards): no horizontal scroll at 1280 px or at an emulated 375 px. Timeframe buttons are 49 x 44 px, the keyboard focus ring is visible, and the timeframe control updates. Text contrast against the card is 5.81:1 at the lowest (bearish red).
+
 ### Added: forward signal lab jobs and storage (lab-v1 starts recording after deploy)
 - **Storage**: write-once collections `labsignals` (one score per hypothesis and bar close, with the inputs read and a `late` flag for scores written after T + D) and `labscores` (X, the hurdle b, the bet, the realised net book return, the prices used and the e-process state after the bar). Both insert with `$setOnInsert` behind a unique key and validate the row first, because an upsert skips Mongoose validation. `L2_V8_CONFIG_VERSION = 8` keeps L2 on v8 whatever the live scorer becomes, and the lock test asserts it.
 - **Signal jobs** (`src/lib/signals/lab/job-signals.ts`, route `/api/cron/lab-signals`):
