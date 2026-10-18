@@ -2,9 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   clip,
   groupTradesByDay,
+  initialBookEState,
   roundUpTo2SigFigs,
+  runC2NullSimulation,
   runEProcessOnXSeries,
+  stepBookE,
+  toX,
+  type BookEState,
 } from './lab-v2-preview';
+import type { PreparedDataset, WalkForwardWeekResult } from './nv1-c2';
 import type { Trade } from './nv1-core';
 
 describe('lab-v2-preview', () => {
@@ -29,6 +35,13 @@ describe('lab-v2-preview', () => {
     });
   });
 
+  describe('toX (gains-only clip)', () => {
+    it('clips gains at 1 and keeps losses unclipped', () => {
+      expect(toX(0.5, 0.25)).toBe(1);
+      expect(toX(-0.75, 0.25)).toBe(-3);
+    });
+  });
+
   describe('clip', () => {
     it('clips values into [-1, 1]', () => {
       expect(clip(0.5, -1, 1)).toBe(0.5);
@@ -37,6 +50,62 @@ describe('lab-v2-preview', () => {
       expect(clip(-1, -1, 1)).toBe(-1);
       expect(clip(1, -1, 1)).toBe(1);
       expect(clip(0, -1, 1)).toBe(0);
+    });
+  });
+
+  describe('stepBookE', () => {
+    it('absorbs when factor <= 0 and leaves subsequent steps unchanged', () => {
+      // State with n = 30, mean 0.1 and variance 0.01 (lambda capped at 0.5)
+      // mean = 0.1 -> sum = 30 * 0.1 = 3
+      // variance = 0.01 -> sum2 / 30 - 0.01 = 0.01 -> sum2 = 0.6
+      const state0: BookEState = {
+        n: 30,
+        sum: 3,
+        sum2: 0.6,
+        logE: 0,
+        absorbed: false,
+        crossedAtBar: null,
+      };
+
+      // x = -3 gives factor = 1 + 0.5 * (-3) = -0.5 <= 0
+      const state1 = stepBookE(state0, -3, 31, 400);
+      expect(state1.absorbed).toBe(true);
+      expect(state1.logE).toBe(Number.NEGATIVE_INFINITY);
+      expect(state1.crossedAtBar).toBeNull();
+      expect(state1.n).toBe(31);
+      expect(state1.sum).toBe(0);
+      expect(state1.sum2).toBe(9.6);
+
+      // A following x = 1 leaves it absorbed with crossedAtBar null
+      const state2 = stepBookE(state1, 1, 32, 400);
+      expect(state2.absorbed).toBe(true);
+      expect(state2.logE).toBe(Number.NEGATIVE_INFINITY);
+      expect(state2.crossedAtBar).toBeNull();
+      expect(state2).toEqual(state1);
+    });
+
+    it('crosses threshold 400 for constant x = 0.3 once warm-up ends', () => {
+      const xSeries = new Array(100).fill(0.3);
+      let state = initialBookEState();
+      for (let bar = 1; bar <= xSeries.length; bar++) {
+        state = stepBookE(state, xSeries[bar - 1], bar, 400);
+      }
+      expect(state.crossedAtBar).not.toBeNull();
+      expect(state.crossedAtBar!).toBeGreaterThan(30);
+      expect(state.crossedAtBar!).toBeLessThanOrEqual(100);
+      expect(state.logE).toBeGreaterThanOrEqual(Math.log(400));
+      expect(state.absorbed).toBe(false);
+    });
+
+    it('never crosses for constant x = 0', () => {
+      const xSeries = new Array(100).fill(0);
+      let state = initialBookEState();
+      for (let bar = 1; bar <= xSeries.length; bar++) {
+        state = stepBookE(state, xSeries[bar - 1], bar, 400);
+      }
+      expect(state.crossedAtBar).toBeNull();
+      expect(state.logE).toBeLessThan(Math.log(400));
+      expect(state.absorbed).toBe(false);
     });
   });
 
@@ -120,6 +189,35 @@ describe('lab-v2-preview', () => {
       expect(res.crossed).toBe(false);
       expect(res.crossedBar).toBeNull();
       expect(res.maxLogE).toBeLessThan(Math.log(400));
+    });
+  });
+
+  describe('runC2NullSimulation incomplete week handling', () => {
+    it('treats missing rawForwardReturn as incomplete week with book return 0 and turnover cost to flat', () => {
+      const M1 = 1600000000000;
+      const weeks: WalkForwardWeekResult[] = [
+        { M: M1, ic: 0, net: 0, eligible: 2, cash: false, incomplete: false, turnover: 0 },
+      ];
+      const prepared = {
+        weeks: [],
+        byM: new Map([
+          [
+            M1,
+            {
+              M: M1,
+              coinData: new Map([
+                ['BTCUSDT', { rawForwardReturn: null }],
+                ['ETHUSDT', { rawForwardReturn: 0.05 }],
+              ]),
+            },
+          ],
+        ]),
+        droppedCoinWeeks: { training: 0, B: 0, C: 0 },
+      } as unknown as PreparedDataset;
+      const heldCoinsMap = new Map([[M1, ['BTCUSDT', 'ETHUSDT']]]);
+      const res = runC2NullSimulation(weeks, prepared, heldCoinsMap, 0.04, 10, 12345);
+      expect(res.nullCrossings).toBe(0);
+      expect(res.absorbedShare).toBe(0);
     });
   });
 });

@@ -17,11 +17,7 @@ import {
 } from './nv1-c2';
 import { coinDailySeries, computeDailyValueAreas } from './nv1-c3';
 import { NV1_SEGMENTS, buildTrades, quantile7, type Trade } from './nv1-core';
-import {
-  initialEState,
-  stepEProcess,
-  type EProcessState,
-} from '../../src/lib/signals/lab/e-process';
+import { kellyLambda } from '../../src/lib/signals/lab/e-process';
 import { bookWeights, centredRanks } from '../../src/lib/stats/rank-ic';
 import { createSeededRandom } from '../../src/lib/stats/seeded-random';
 
@@ -83,9 +79,76 @@ export interface SeriesStats {
   kurtosis: number;
 }
 
+export interface BookEState {
+  n: number;
+  sum: number;
+  sum2: number;
+  logE: number;
+  absorbed: boolean;
+  crossedAtBar: number | null;
+}
+
+export function initialBookEState(): BookEState {
+  return {
+    n: 0,
+    sum: 0,
+    sum2: 0,
+    logE: 0,
+    absorbed: false,
+    crossedAtBar: null,
+  };
+}
+
+export function stepBookE(
+  prev: BookEState,
+  x: number,
+  bar: number,
+  threshold: number
+): BookEState {
+  if (prev.absorbed) {
+    return prev;
+  }
+
+  const lambda = kellyLambda(prev.n, prev.sum, prev.sum2, 0.5);
+  const factor = 1 + lambda * x;
+
+  if (factor <= 0) {
+    return {
+      ...prev,
+      n: prev.n + 1,
+      sum: prev.sum + x,
+      sum2: prev.sum2 + x * x,
+      logE: Number.NEGATIVE_INFINITY,
+      absorbed: true,
+    };
+  }
+
+  const logE = prev.logE + Math.log(factor);
+  const crossedAtBar =
+    prev.crossedAtBar !== null
+      ? prev.crossedAtBar
+      : logE >= Math.log(threshold)
+      ? bar
+      : null;
+
+  return {
+    n: prev.n + 1,
+    sum: prev.sum + x,
+    sum2: prev.sum2 + x * x,
+    logE,
+    absorbed: false,
+    crossedAtBar,
+  };
+}
+
+export function toX(R: number, scale: number): number {
+  return Math.min(R / scale, 1);
+}
+
 export interface PowerCaseResult {
   crossingShare: number;
   medianCrossingBar: number | null;
+  absorbedShare: number;
 }
 
 export interface HypothesisPower {
@@ -117,10 +180,12 @@ export interface HypothesisResult<TSeriesItem> {
     BC: SeriesStats;
   };
   scale: number;
-  clipShare: number;
+  gainClipShare: number;
+  lossBeyondOneShare: number;
   power: HypothesisPower;
   nullCrossings: number;
   nullMaxLogE: number;
+  nullAbsorbedShare: number;
 }
 
 export interface LabV2PreviewOutput {
@@ -290,36 +355,32 @@ export function groupTradesByDay(trades: Trade[]): {
 export function runEProcessOnXSeries(
   xSeries: number[],
   b: number = 0,
-  thresholdLog: number = LOG_CROSSING_THRESHOLD
+  threshold: number = CROSSING_THRESHOLD
 ): {
   crossed: boolean;
   crossedBar: number | null;
-  finalState: EProcessState;
+  finalState: BookEState;
   maxLogE: number;
 } {
-  let state = initialEState();
-  let crossed = false;
-  let crossedBar: number | null = null;
+  let state = initialBookEState();
+  const effectiveThreshold =
+    b > 0 && threshold === CROSSING_THRESHOLD ? b : threshold || CROSSING_THRESHOLD;
   let maxLogE = Number.NEGATIVE_INFINITY;
 
   for (let i = 0; i < xSeries.length; i++) {
     const x = xSeries[i];
-    const step = stepEProcess(state, {
-      barTime: i + 1,
-      x,
-      b,
-    });
-    state = step.state;
+    state = stepBookE(state, x, i + 1, effectiveThreshold);
     if (state.logE > maxLogE) {
       maxLogE = state.logE;
     }
-    if (!crossed && state.logE >= thresholdLog) {
-      crossed = true;
-      crossedBar = i + 1;
-    }
   }
 
-  return { crossed, crossedBar, finalState: state, maxLogE };
+  return {
+    crossed: state.crossedAtBar !== null,
+    crossedBar: state.crossedAtBar,
+    finalState: state,
+    maxLogE,
+  };
 }
 
 /**
@@ -332,43 +393,41 @@ export function runPowerCase(
   horizon: number,
   runs: number,
   seed: number,
-  thresholdLog: number = LOG_CROSSING_THRESHOLD
+  threshold: number = CROSSING_THRESHOLD
 ): PowerCaseResult {
   const random = createSeededRandom(seed);
   const nPool = xPool.length;
   let crossedCount = 0;
+  let absorbedCount = 0;
   const crossingBars: number[] = [];
 
   for (let r = 0; r < runs; r++) {
-    let state = initialEState();
-    let crossed = false;
-    let crossedBar: number | null = null;
+    let state = initialBookEState();
 
     for (let bar = 1; bar <= horizon; bar++) {
       const idx = Math.floor(random() * nPool);
       const x = xPool[idx];
-      const step = stepEProcess(state, { barTime: bar, x, b: 0 });
-      state = step.state;
-      if (!crossed && state.logE >= thresholdLog) {
-        crossed = true;
-        crossedBar = bar;
-      }
+      state = stepBookE(state, x, bar, threshold);
     }
 
-    if (crossed && crossedBar !== null) {
+    if (state.absorbed) {
+      absorbedCount++;
+    }
+    if (state.crossedAtBar !== null) {
       crossedCount++;
-      crossingBars.push(crossedBar);
+      crossingBars.push(state.crossedAtBar);
     }
   }
 
   const crossingShare = runs > 0 ? crossedCount / runs : 0;
+  const absorbedShare = runs > 0 ? absorbedCount / runs : 0;
   let medianCrossingBar: number | null = null;
   if (crossingBars.length > 0) {
     crossingBars.sort((a, b) => a - b);
     medianCrossingBar = quantile7(crossingBars, 0.5);
   }
 
-  return { crossingShare, medianCrossingBar };
+  return { crossingShare, medianCrossingBar, absorbedShare };
 }
 
 /**
@@ -399,7 +458,7 @@ export function runHypothesisPower(
 
   const makeShifted = (targetSharpe: number): number[] => {
     const shift = (targetSharpe * sdX) / Math.sqrt(barsPerYear);
-    return demeaned.map((dx) => clip(dx + shift, -1, 1));
+    return demeaned.map((dx) => Math.min(dx + shift, 1));
   };
 
   const poolS1 = makeShifted(1.0);
@@ -651,18 +710,19 @@ export function runC2NullSimulation(
   scale: number,
   runs: number = 1000,
   seed: number = NULL_SEEDS.c2,
-  thresholdLog: number = LOG_CROSSING_THRESHOLD
-): { nullCrossings: number; nullMaxLogE: number } {
+  threshold: number = CROSSING_THRESHOLD
+): { nullCrossings: number; nullMaxLogE: number; absorbedShare: number } {
   const random = createSeededRandom(seed);
   let nullCrossings = 0;
+  let absorbedCount = 0;
   let nullMaxLogE = Number.NEGATIVE_INFINITY;
 
   for (let r = 0; r < runs; r++) {
     let prevWeights = new Map<string, number>();
-    let state = initialEState();
-    let runCrossed = false;
+    let state = initialBookEState();
 
-    for (const w of weeks) {
+    for (let bar = 1; bar <= weeks.length; bar++) {
+      const w = weeks[bar - 1];
       const M = w.M;
       const heldCoins = heldCoinsMap.get(M) ?? [];
 
@@ -674,42 +734,59 @@ export function runC2NullSimulation(
         net = -cost;
         prevWeights = new Map();
       } else {
-        const randomScores = heldCoins.map(() => random());
-        const weights = bookWeights(randomScores);
-        const currentWeights = new Map<string, number>();
-        let gross = 0;
-
+        let returnsComplete = true;
         for (let i = 0; i < heldCoins.length; i++) {
           const sym = heldCoins[i];
-          currentWeights.set(sym, weights[i]);
-          const rawFwd = prepared.byM.get(M)?.coinData.get(sym)?.rawForwardReturn ?? 0;
-          gross += weights[i] * rawFwd;
+          const rawFwd = prepared.byM.get(M)?.coinData.get(sym)?.rawForwardReturn;
+          if (rawFwd === null || rawFwd === undefined || !Number.isFinite(rawFwd)) {
+            returnsComplete = false;
+            break;
+          }
         }
 
-        const turnover = computeTurnover(prevWeights, currentWeights);
-        const cost = NV1_C2.costRate * turnover;
-        net = gross - cost;
-        prevWeights = currentWeights;
+        if (!returnsComplete) {
+          const turnover = computeTurnover(prevWeights, new Map());
+          const cost = NV1_C2.costRate * turnover;
+          net = -cost;
+          prevWeights = new Map();
+        } else {
+          const randomScores = heldCoins.map(() => random());
+          const weights = bookWeights(randomScores);
+          const currentWeights = new Map<string, number>();
+          let gross = 0;
+
+          for (let i = 0; i < heldCoins.length; i++) {
+            const sym = heldCoins[i];
+            currentWeights.set(sym, weights[i]);
+            const rawFwd = prepared.byM.get(M)!.coinData.get(sym)!.rawForwardReturn!;
+            gross += weights[i] * rawFwd;
+          }
+
+          const turnover = computeTurnover(prevWeights, currentWeights);
+          const cost = NV1_C2.costRate * turnover;
+          net = gross - cost;
+          prevWeights = currentWeights;
+        }
       }
 
-      const x = clip(net / scale, -1, 1);
-      const step = stepEProcess(state, { barTime: M, x, b: 0 });
-      state = step.state;
+      const x = toX(net, scale);
+      state = stepBookE(state, x, bar, threshold);
 
       if (state.logE > nullMaxLogE) {
         nullMaxLogE = state.logE;
       }
-      if (!runCrossed && state.logE >= thresholdLog) {
-        runCrossed = true;
-      }
     }
 
-    if (runCrossed) {
+    if (state.absorbed) {
+      absorbedCount++;
+    }
+    if (state.crossedAtBar !== null) {
       nullCrossings++;
     }
   }
 
-  return { nullCrossings, nullMaxLogE };
+  const absorbedShare = runs > 0 ? absorbedCount / runs : 0;
+  return { nullCrossings, nullMaxLogE, absorbedShare };
 }
 
 /**
@@ -725,18 +802,19 @@ export function runC3NullSimulation(
   scale: number,
   runs: number = 1000,
   seed: number = NULL_SEEDS.c3,
-  thresholdLog: number = LOG_CROSSING_THRESHOLD
-): { nullCrossings: number; nullMaxLogE: number } {
+  threshold: number = CROSSING_THRESHOLD
+): { nullCrossings: number; nullMaxLogE: number; absorbedShare: number } {
   const random = createSeededRandom(seed);
   let nullCrossings = 0;
+  let absorbedCount = 0;
   let nullMaxLogE = Number.NEGATIVE_INFINITY;
 
   for (let r = 0; r < runs; r++) {
-    let state = initialEState();
-    let runCrossed = false;
+    let state = initialBookEState();
 
-    for (const bar of bars) {
-      const dayTrades = tradesByDay.get(bar.t) ?? [];
+    for (let bar = 1; bar <= bars.length; bar++) {
+      const item = bars[bar - 1];
+      const dayTrades = tradesByDay.get(item.t) ?? [];
       let sumNetPct = 0;
 
       for (const tr of dayTrades) {
@@ -748,24 +826,24 @@ export function runC3NullSimulation(
 
       const meanNetPct = dayTrades.length > 0 ? sumNetPct / dayTrades.length : 0;
       const R = meanNetPct / 100;
-      const x = clip(R / scale, -1, 1);
-      const step = stepEProcess(state, { barTime: bar.t, x, b: 0 });
-      state = step.state;
+      const x = toX(R, scale);
+      state = stepBookE(state, x, bar, threshold);
 
       if (state.logE > nullMaxLogE) {
         nullMaxLogE = state.logE;
       }
-      if (!runCrossed && state.logE >= thresholdLog) {
-        runCrossed = true;
-      }
     }
 
-    if (runCrossed) {
+    if (state.absorbed) {
+      absorbedCount++;
+    }
+    if (state.crossedAtBar !== null) {
       nullCrossings++;
     }
   }
 
-  return { nullCrossings, nullMaxLogE };
+  const absorbedShare = runs > 0 ? absorbedCount / runs : 0;
+  return { nullCrossings, nullMaxLogE, absorbedShare };
 }
 
 export interface CliArgs {
@@ -844,9 +922,12 @@ export async function generateLabV2Preview(datasetDir: string): Promise<LabV2Pre
   );
 
   const c2Scale = roundUpTo2SigFigs(4 * statsC2BC.sd);
-  const c2ClipCount = c2Series.filter((w) => Math.abs(w.R / c2Scale) > 1).length;
-  const c2ClipShare = c2Series.length > 0 ? c2ClipCount / c2Series.length : 0;
-  const c2XSeries = c2Series.map((w) => clip(w.R / c2Scale, -1, 1));
+  const c2GainClipCount = c2Series.filter((w) => w.R / c2Scale > 1).length;
+  const c2GainClipShare = c2Series.length > 0 ? c2GainClipCount / c2Series.length : 0;
+  const c2LossBeyondOneCount = c2Series.filter((w) => w.R / c2Scale < -1).length;
+  const c2LossBeyondOneShare =
+    c2Series.length > 0 ? c2LossBeyondOneCount / c2Series.length : 0;
+  const c2XSeries = c2Series.map((w) => toX(w.R, c2Scale));
 
   const c2Power = runHypothesisPower(
     c2XSeries,
@@ -901,9 +982,12 @@ export async function generateLabV2Preview(datasetDir: string): Promise<LabV2Pre
   );
 
   const c3Scale = roundUpTo2SigFigs(4 * statsC3BC.sd);
-  const c3ClipCount = c3Series.filter((b) => Math.abs(b.R / c3Scale) > 1).length;
-  const c3ClipShare = c3Series.length > 0 ? c3ClipCount / c3Series.length : 0;
-  const c3XSeries = c3Series.map((b) => clip(b.R / c3Scale, -1, 1));
+  const c3GainClipCount = c3Series.filter((b) => b.R / c3Scale > 1).length;
+  const c3GainClipShare = c3Series.length > 0 ? c3GainClipCount / c3Series.length : 0;
+  const c3LossBeyondOneCount = c3Series.filter((b) => b.R / c3Scale < -1).length;
+  const c3LossBeyondOneShare =
+    c3Series.length > 0 ? c3LossBeyondOneCount / c3Series.length : 0;
+  const c3XSeries = c3Series.map((b) => toX(b.R, c3Scale));
 
   const c3Power = runHypothesisPower(
     c3XSeries,
@@ -925,10 +1009,12 @@ export async function generateLabV2Preview(datasetDir: string): Promise<LabV2Pre
         BC: statsC2BC,
       },
       scale: c2Scale,
-      clipShare: c2ClipShare,
+      gainClipShare: c2GainClipShare,
+      lossBeyondOneShare: c2LossBeyondOneShare,
       power: c2Power,
       nullCrossings: c2Null.nullCrossings,
       nullMaxLogE: c2Null.nullMaxLogE,
+      nullAbsorbedShare: c2Null.absorbedShare,
     },
     c3: {
       series: c3Series,
@@ -938,10 +1024,12 @@ export async function generateLabV2Preview(datasetDir: string): Promise<LabV2Pre
         BC: statsC3BC,
       },
       scale: c3Scale,
-      clipShare: c3ClipShare,
+      gainClipShare: c3GainClipShare,
+      lossBeyondOneShare: c3LossBeyondOneShare,
       power: c3Power,
       nullCrossings: c3Null.nullCrossings,
       nullMaxLogE: c3Null.nullMaxLogE,
+      nullAbsorbedShare: c3Null.absorbedShare,
     },
   };
 }
