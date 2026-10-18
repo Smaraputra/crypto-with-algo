@@ -36,6 +36,8 @@ describe('holdout guard', () => {
       'dataset-format.ts',
       'lab-preview.ts',
       'load-dataset.ts',
+      // Reads the v8 re-score rows (a study output, 2025-10 onward, no segment A) for the parity report.
+      'nv1-c1.ts',
       'rv-panel.ts',
     ]);
   });
