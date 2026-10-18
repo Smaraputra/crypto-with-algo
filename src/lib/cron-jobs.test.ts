@@ -151,7 +151,32 @@ describe('CRON_JOBS table', () => {
     expect(rvSignals.map((j) => j.job)).toEqual(['cross-sectional-signals', 'cross-sectional-signals:retry']);
 
     const labSignals = CRON_JOBS.filter((j) => j.path === '/api/cron/lab-signals');
-    expect(labSignals.map((j) => j.job)).toEqual(['lab-signals:8h', 'lab-signals:8h:retry', 'lab-signals:fast']);
+    expect(labSignals.map((j) => j.job)).toEqual([
+      'lab-signals:8h',
+      'lab-signals:8h:retry',
+      'lab-signals:fast',
+      'lab-v2-signals:1w',
+      'lab-v2-signals:1w:retry',
+      'lab-v2-signals:1d',
+      'lab-v2-signals:1d:retry',
+    ]);
+  });
+
+  it('defines the four lab-v2 cron entries and secondsBetweenRuns gives 7 days weekly and 1 day daily', () => {
+    const weekly = cronJob('lab-v2-signals:1w');
+    const weeklyRetry = cronJob('lab-v2-signals:1w:retry');
+    const daily = cronJob('lab-v2-signals:1d');
+    const dailyRetry = cronJob('lab-v2-signals:1d:retry');
+
+    expect(weekly).toBeDefined();
+    expect(weeklyRetry).toBeDefined();
+    expect(daily).toBeDefined();
+    expect(dailyRetry).toBeDefined();
+
+    expect(secondsBetweenRuns(weekly!.schedule)).toBe(7 * 86400);
+    expect(secondsBetweenRuns(weeklyRetry!.schedule)).toBe(7 * 86400);
+    expect(secondsBetweenRuns(daily!.schedule)).toBe(86400);
+    expect(secondsBetweenRuns(dailyRetry!.schedule)).toBe(86400);
   });
 
   it('no longer schedules the monthly optimization (the route and admin trigger stay)', () => {

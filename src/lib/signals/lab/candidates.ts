@@ -51,6 +51,11 @@ export const LAB_HYPOTHESES_V1: readonly LabHypothesis[] = Object.freeze([
   Object.freeze({ id: 'L4-8h', candidate: 'L4', timeframe: '8h', version: LAB_VERSION }),
 ]);
 
+export const LAB_HYPOTHESES_V2: readonly LabHypothesis[] = Object.freeze([
+  Object.freeze({ id: 'N2-1w', candidate: 'N2', timeframe: '1w', version: LAB_VERSION_V2, metric: 'book', scale: 0.13 }),
+  Object.freeze({ id: 'N3-1d', candidate: 'N3', timeframe: '1d', version: LAB_VERSION_V2, metric: 'book', scale: 0.8 }),
+]);
+
 /** v8 GlobalSignal source per L2 timeframe, frozen. */
 export const L2_V8_STYLE: Record<'5m' | '15m' | '1h' | '4h' | '1d', TradingStyle> = Object.freeze({
   '5m': 'scalping',

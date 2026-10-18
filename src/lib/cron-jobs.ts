@@ -85,6 +85,14 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'lab-signals:8h:retry', path: '/api/cron/lab-signals', params: { cadence: '8h', attempt: 'retry' }, schedule: '8 */8 * * *', expectedEverySeconds: 8 * HOUR, method: 'GET' },
   // Scores L2 within D of each 5m to 1d close.
   { job: 'lab-signals:fast', path: '/api/cron/lab-signals', params: { cadence: 'fast' }, schedule: '*/1 * * * *', expectedEverySeconds: MINUTE, method: 'GET' },
+  // Weekly lab-v2 signals (N2) at Monday 00:03 UTC.
+  { job: 'lab-v2-signals:1w', path: '/api/cron/lab-signals', params: { cadence: 'v2-1w' }, schedule: '3 0 * * 1', expectedEverySeconds: 7 * DAY, method: 'GET' },
+  // Weekly lab-v2 signals retry at Monday 00:08 UTC.
+  { job: 'lab-v2-signals:1w:retry', path: '/api/cron/lab-signals', params: { cadence: 'v2-1w', attempt: 'retry' }, schedule: '8 0 * * 1', expectedEverySeconds: 7 * DAY, method: 'GET' },
+  // Daily lab-v2 signals (N3) at 00:03 UTC.
+  { job: 'lab-v2-signals:1d', path: '/api/cron/lab-signals', params: { cadence: 'v2-1d' }, schedule: '3 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
+  // Daily lab-v2 signals retry at 00:08 UTC.
+  { job: 'lab-v2-signals:1d:retry', path: '/api/cron/lab-signals', params: { cadence: 'v2-1d', attempt: 'retry' }, schedule: '8 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
   // Grades every bar whose return window has closed.
   { job: 'lab-grade', path: '/api/cron/lab-grade', params: {}, schedule: '20 * * * *', expectedEverySeconds: HOUR, method: 'GET' },
 ] as const;
