@@ -1,18 +1,31 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { MockWebSocket } from '@/test/mock-websocket';
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
+import { useBinanceTicker } from './useBinanceStream';
+import { MockEventSource } from '@/test/mock-event-source';
+import type { MarketStreamClient } from '@/lib/market-stream/client';
 
-vi.stubGlobal('WebSocket', MockWebSocket);
+const { clientHolder } = vi.hoisted(() => ({
+  clientHolder: { current: null as MarketStreamClient | null },
+}));
 
-// Mock requestAnimationFrame/cancelAnimationFrame for batching tests
-let rafCallbacks: Array<FrameRequestCallback> = [];
-let rafId = 0;
+vi.mock('@/lib/market-stream/client', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/market-stream/client')>(
+    '@/lib/market-stream/client'
+  );
+  return {
+    ...actual,
+    getMarketStreamClient: () => clientHolder.current!,
+  };
+});
 
 describe('useBinanceTicker', () => {
-  beforeEach(() => {
+  let rafCallbacks: Array<FrameRequestCallback> = [];
+  let rafId = 0;
+
+  beforeEach(async () => {
     vi.useFakeTimers();
-    MockWebSocket.resetMock();
-    vi.stubEnv('NEXT_PUBLIC_BINANCE_WS_URL', 'wss://test-ws.example.com');
+    MockEventSource.resetMock();
     rafCallbacks = [];
     rafId = 0;
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -20,332 +33,315 @@ describe('useBinanceTicker', () => {
       return ++rafId;
     });
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    const actual = await vi.importActual<typeof import('@/lib/market-stream/client')>(
+      '@/lib/market-stream/client'
+    );
+    clientHolder.current = actual.createMarketStreamClient({
+      EventSourceImpl: MockEventSource as unknown as typeof EventSource,
+      random: () => 1,
+    });
   });
 
   afterEach(() => {
+    clientHolder.current?.dispose();
+    MockEventSource.resetMock();
     vi.useRealTimers();
-    vi.unstubAllEnvs();
   });
 
-  async function importModule() {
-    // Dynamic import to pick up env stubs
-    const mod = await import('./useBinanceStream');
-    return mod;
+  function flushRaf() {
+    act(() => {
+      for (const cb of rafCallbacks) cb(0);
+      rafCallbacks = [];
+    });
   }
 
-  it('builds correct combined stream URL', async () => {
-    const { useBinanceTicker } = await importModule();
+  it('subscribes with correct combined stream URL', () => {
     renderHook(() => useBinanceTicker(['BTCUSDT', 'ETHUSDT']));
 
-    expect(MockWebSocket.lastInstance!.url).toBe(
-      'wss://test-ws.example.com/stream?streams=btcusdt@ticker/ethusdt@ticker'
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(MockEventSource.lastInstance?.url).toBe(
+      '/api/stream?streams=btcusdt@ticker/ethusdt@ticker'
     );
   });
 
-  it('returns no connection for empty symbols array', async () => {
-    const { useBinanceTicker } = await importModule();
+  it('opens nothing and isConnected is false for empty symbols array', () => {
     const { result } = renderHook(() => useBinanceTicker([]));
 
-    expect(MockWebSocket.instances).toHaveLength(0);
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(MockEventSource.instances).toHaveLength(0);
     expect(result.current.isConnected).toBe(false);
   });
 
-  it('updates tickers from messages after rAF flush', async () => {
-    const { useBinanceTicker } = await importModule();
+  it('updates tickers from message after rAF flush', () => {
     const { result } = renderHook(() => useBinanceTicker(['BTCUSDT']));
 
-    const ws = MockWebSocket.lastInstance!;
     act(() => {
-      ws.simulateOpen();
+      vi.advanceTimersByTime(250);
+    });
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
     });
 
     act(() => {
-      ws.simulateMessage({
+      MockEventSource.lastInstance?.simulateMessage({
         stream: 'btcusdt@ticker',
         data: {
           e: '24hrTicker',
           s: 'BTCUSDT',
-          p: '500.00',
+          c: '100',
+          p: '1',
+          P: '1',
+          o: '99',
+          h: '101',
+          l: '98',
+          v: '10',
+          q: '1000',
+          n: 5,
+        },
+      });
+    });
+
+    expect(result.current.tickers['BTCUSDT']).toBeUndefined();
+
+    flushRaf();
+
+    expect(result.current.tickers['BTCUSDT']).toEqual({
+      symbol: 'BTCUSDT',
+      lastPrice: '100',
+      priceChange: '1',
+      priceChangePercent: '1',
+      openPrice: '99',
+      highPrice: '101',
+      lowPrice: '98',
+      volume: '10',
+      quoteVolume: '1000',
+      count: 5,
+    });
+  });
+
+  it('handles multiple symbols updating independently', () => {
+    const { result } = renderHook(() => useBinanceTicker(['BTCUSDT', 'ETHUSDT']));
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
+    });
+
+    act(() => {
+      MockEventSource.lastInstance?.simulateMessage({
+        stream: 'btcusdt@ticker',
+        data: {
+          e: '24hrTicker',
+          s: 'BTCUSDT',
+          c: '40500',
+          p: '500',
           P: '1.25',
-          c: '40500.00',
-          o: '40000.00',
-          h: '41000.00',
-          l: '39500.00',
-          v: '1000.50',
-          q: '40500000.00',
+          o: '40000',
+          h: '41000',
+          l: '39500',
+          v: '1000',
+          q: '40500000',
           n: 50000,
         },
       });
     });
 
-    // Flush rAF
-    act(() => {
-      for (const cb of rafCallbacks) cb(0);
-      rafCallbacks = [];
-    });
-
-    expect(result.current.tickers).toHaveProperty('BTCUSDT');
-    const ticker = result.current.tickers['BTCUSDT'];
-    expect(ticker.symbol).toBe('BTCUSDT');
-    expect(ticker.lastPrice).toBe('40500.00');
-    expect(ticker.priceChange).toBe('500.00');
-    expect(ticker.priceChangePercent).toBe('1.25');
-    expect(ticker.highPrice).toBe('41000.00');
-    expect(ticker.lowPrice).toBe('39500.00');
-    expect(ticker.volume).toBe('1000.50');
-    expect(ticker.quoteVolume).toBe('40500000.00');
-    expect(ticker.openPrice).toBe('40000.00');
-    expect(ticker.count).toBe(50000);
-  });
-
-  it('handles multiple symbols updating independently', async () => {
-    const { useBinanceTicker } = await importModule();
-    const { result } = renderHook(() =>
-      useBinanceTicker(['BTCUSDT', 'ETHUSDT'])
-    );
-
-    const ws = MockWebSocket.lastInstance!;
-    act(() => {
-      ws.simulateOpen();
-    });
+    flushRaf();
+    expect(result.current.tickers['BTCUSDT'].lastPrice).toBe('40500');
+    expect(result.current.tickers['ETHUSDT']).toBeUndefined();
 
     act(() => {
-      ws.simulateMessage({
-        stream: 'btcusdt@ticker',
-        data: {
-          e: '24hrTicker', s: 'BTCUSDT', p: '500', P: '1.25',
-          c: '40500', o: '40000', h: '41000', l: '39500',
-          v: '1000', q: '40500000', n: 50000,
-        },
-      });
-    });
-
-    act(() => {
-      ws.simulateMessage({
+      MockEventSource.lastInstance?.simulateMessage({
         stream: 'ethusdt@ticker',
         data: {
-          e: '24hrTicker', s: 'ETHUSDT', p: '50', P: '2.00',
-          c: '2550', o: '2500', h: '2600', l: '2450',
-          v: '5000', q: '12750000', n: 30000,
+          e: '24hrTicker',
+          s: 'ETHUSDT',
+          c: '2550',
+          p: '50',
+          P: '2.00',
+          o: '2500',
+          h: '2600',
+          l: '2450',
+          v: '5000',
+          q: '12750000',
+          n: 30000,
         },
       });
     });
 
-    // Flush rAF
-    act(() => {
-      for (const cb of rafCallbacks) cb(0);
-      rafCallbacks = [];
-    });
-
+    flushRaf();
     expect(result.current.tickers['BTCUSDT'].lastPrice).toBe('40500');
     expect(result.current.tickers['ETHUSDT'].lastPrice).toBe('2550');
   });
 
-  it('batches multiple rapid messages into single state update', async () => {
-    const { useBinanceTicker } = await importModule();
-    const { result } = renderHook(() =>
-      useBinanceTicker(['BTCUSDT', 'ETHUSDT'])
-    );
+  it('batches several rapid frames into one state update', () => {
+    const { result } = renderHook(() => useBinanceTicker(['BTCUSDT', 'ETHUSDT']));
 
-    const ws = MockWebSocket.lastInstance!;
     act(() => {
-      ws.simulateOpen();
+      vi.advanceTimersByTime(250);
+    });
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
     });
 
-    // Send multiple messages without flushing rAF in between
     act(() => {
-      ws.simulateMessage({
+      MockEventSource.lastInstance?.simulateMessage({
         stream: 'btcusdt@ticker',
         data: {
-          e: '24hrTicker', s: 'BTCUSDT', p: '500', P: '1.25',
-          c: '40500', o: '40000', h: '41000', l: '39500',
-          v: '1000', q: '40500000', n: 50000,
+          e: '24hrTicker',
+          s: 'BTCUSDT',
+          c: '40500',
+          p: '500',
+          P: '1.25',
+          o: '40000',
+          h: '41000',
+          l: '39500',
+          v: '1000',
+          q: '40500000',
+          n: 50000,
         },
       });
-      ws.simulateMessage({
+      MockEventSource.lastInstance?.simulateMessage({
         stream: 'ethusdt@ticker',
         data: {
-          e: '24hrTicker', s: 'ETHUSDT', p: '50', P: '2.00',
-          c: '2550', o: '2500', h: '2600', l: '2450',
-          v: '5000', q: '12750000', n: 30000,
+          e: '24hrTicker',
+          s: 'ETHUSDT',
+          c: '2550',
+          p: '50',
+          P: '2.00',
+          o: '2500',
+          h: '2600',
+          l: '2450',
+          v: '5000',
+          q: '12750000',
+          n: 30000,
         },
       });
     });
 
-    // Only one rAF should have been scheduled for both messages
     expect(rafCallbacks).toHaveLength(1);
 
-    // Flush the single rAF -- both updates arrive in one batch
-    act(() => {
-      for (const cb of rafCallbacks) cb(0);
-      rafCallbacks = [];
-    });
+    flushRaf();
 
     expect(result.current.tickers['BTCUSDT'].lastPrice).toBe('40500');
     expect(result.current.tickers['ETHUSDT'].lastPrice).toBe('2550');
   });
 
-  it('falls back to default URL when env var unset', async () => {
-    vi.unstubAllEnvs();
-    // Re-import to pick up the cleared env
-    vi.resetModules();
-    MockWebSocket.resetMock();
-
-    const { useBinanceTicker } = await import('./useBinanceStream');
-    renderHook(() => useBinanceTicker(['BTCUSDT']));
-
-    expect(MockWebSocket.lastInstance!.url).toBe(
-      'wss://stream.binance.com:9443/stream?streams=btcusdt@ticker'
-    );
-  });
-
-  it('isConnected reflects WebSocket state', async () => {
-    const { useBinanceTicker } = await importModule();
+  it('tracks isConnected with client status and returns status, lastMessageAt, retry', () => {
     const { result } = renderHook(() => useBinanceTicker(['BTCUSDT']));
 
+    expect(result.current.status).toBe('connecting');
     expect(result.current.isConnected).toBe(false);
+    expect(result.current.lastMessageAt).toBeNull();
+    expect(typeof result.current.retry).toBe('function');
 
-    const ws = MockWebSocket.lastInstance!;
     act(() => {
-      ws.simulateOpen();
+      vi.advanceTimersByTime(250);
+    });
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
     });
 
+    expect(result.current.status).toBe('live');
     expect(result.current.isConnected).toBe(true);
-  });
-});
-
-describe('useBinanceKline', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    MockWebSocket.resetMock();
-    vi.stubEnv('NEXT_PUBLIC_BINANCE_WS_URL', 'wss://test-ws.example.com');
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllEnvs();
-  });
-
-  async function importModule() {
-    const mod = await import('./useBinanceStream');
-    return mod;
-  }
-
-  it('builds correct kline stream URL', async () => {
-    const { useBinanceKline } = await importModule();
-    renderHook(() => useBinanceKline('BTCUSDT', '1h'));
-
-    expect(MockWebSocket.lastInstance!.url).toBe(
-      'wss://test-ws.example.com/ws/btcusdt@kline_1h'
-    );
-  });
-
-  it('no connection when symbol is null', async () => {
-    const { useBinanceKline } = await importModule();
-    const { result } = renderHook(() => useBinanceKline(null, '1h'));
-
-    expect(MockWebSocket.instances).toHaveLength(0);
-    expect(result.current.isConnected).toBe(false);
-    expect(result.current.latestCandle).toBeNull();
-  });
-
-  it('transforms kline message to OHLCV', async () => {
-    const { useBinanceKline } = await importModule();
-    const { result } = renderHook(() => useBinanceKline('BTCUSDT', '1h'));
-
-    const ws = MockWebSocket.lastInstance!;
-    act(() => {
-      ws.simulateOpen();
-    });
 
     act(() => {
-      ws.simulateMessage({
-        e: 'kline',
-        s: 'BTCUSDT',
-        k: {
-          t: 1700000000000,
-          o: '40000.50',
-          h: '41000.75',
-          l: '39500.25',
-          c: '40500.00',
-          v: '1234.567',
-          x: false,
+      MockEventSource.lastInstance?.simulateMessage({
+        stream: 'btcusdt@ticker',
+        data: {
+          e: '24hrTicker',
+          s: 'BTCUSDT',
+          c: '100',
+          p: '1',
+          P: '1',
+          o: '99',
+          h: '101',
+          l: '98',
+          v: '10',
+          q: '1000',
+          n: 5,
         },
       });
     });
 
-    const candle = result.current.latestCandle!;
-    expect(candle.timestamp).toBe(1700000000000);
-    expect(candle.open).toBe(40000.5);
-    expect(candle.high).toBe(41000.75);
-    expect(candle.low).toBe(39500.25);
-    expect(candle.close).toBe(40500.0);
-    expect(candle.volume).toBe(1234.567);
-    expect(result.current.isClosed).toBe(false);
+    flushRaf();
+
+    expect(result.current.lastMessageAt).not.toBeNull();
+
+    const prevCount = MockEventSource.instances.length;
+    act(() => {
+      result.current.retry();
+    });
+    expect(MockEventSource.instances).toHaveLength(prevCount + 1);
   });
 
-  it('tracks isClosed from kline x field', async () => {
-    const { useBinanceKline } = await importModule();
-    const { result } = renderHook(() => useBinanceKline('BTCUSDT', '1h'));
+  it('ignores frame whose data has no string s', () => {
+    const { result } = renderHook(() => useBinanceTicker(['BTCUSDT']));
 
-    const ws = MockWebSocket.lastInstance!;
     act(() => {
-      ws.simulateOpen();
+      vi.advanceTimersByTime(250);
+    });
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
     });
 
     act(() => {
-      ws.simulateMessage({
-        e: 'kline', s: 'BTCUSDT',
-        k: { t: 1700000000000, o: '40000', h: '41000', l: '39500', c: '40500', v: '1000', x: true },
+      MockEventSource.lastInstance?.simulateMessage({
+        stream: 'btcusdt@ticker',
+        data: {
+          e: '24hrTicker',
+          c: '100',
+        },
       });
     });
 
-    expect(result.current.isClosed).toBe(true);
+    flushRaf();
+    expect(result.current.tickers).toEqual({});
   });
 
-  it('isConnected reflects WebSocket state', async () => {
-    const { useBinanceKline } = await importModule();
-    const { result } = renderHook(() => useBinanceKline('BTCUSDT', '1h'));
+  it('cancels pending animation frame on unmount', () => {
+    const cancelSpy = vi.fn();
+    vi.stubGlobal('cancelAnimationFrame', cancelSpy);
 
-    expect(result.current.isConnected).toBe(false);
+    const { unmount } = renderHook(() => useBinanceTicker(['BTCUSDT']));
 
-    const ws = MockWebSocket.lastInstance!;
     act(() => {
-      ws.simulateOpen();
+      vi.advanceTimersByTime(250);
+    });
+    act(() => {
+      MockEventSource.lastInstance?.simulateOpen();
     });
 
-    expect(result.current.isConnected).toBe(true);
-  });
+    act(() => {
+      MockEventSource.lastInstance?.simulateMessage({
+        stream: 'btcusdt@ticker',
+        data: {
+          e: '24hrTicker',
+          s: 'BTCUSDT',
+          c: '100',
+          p: '1',
+          P: '1',
+          o: '99',
+          h: '101',
+          l: '98',
+          v: '10',
+          q: '1000',
+          n: 5,
+        },
+      });
+    });
 
-  it('reconnects when symbol changes', async () => {
-    const { useBinanceKline } = await importModule();
-    const { rerender } = renderHook(
-      ({ symbol, interval }) => useBinanceKline(symbol, interval),
-      { initialProps: { symbol: 'BTCUSDT' as string | null, interval: '1h' } }
-    );
-
-    expect(MockWebSocket.lastInstance!.url).toContain('btcusdt@kline_1h');
-    const firstCount = MockWebSocket.instances.length;
-
-    rerender({ symbol: 'ETHUSDT', interval: '1h' });
-
-    expect(MockWebSocket.instances.length).toBeGreaterThan(firstCount);
-    expect(MockWebSocket.lastInstance!.url).toContain('ethusdt@kline_1h');
-  });
-
-  it('reconnects when interval changes', async () => {
-    const { useBinanceKline } = await importModule();
-    const { rerender } = renderHook(
-      ({ symbol, interval }) => useBinanceKline(symbol, interval),
-      { initialProps: { symbol: 'BTCUSDT' as string | null, interval: '1h' } }
-    );
-
-    expect(MockWebSocket.lastInstance!.url).toContain('kline_1h');
-    const firstCount = MockWebSocket.instances.length;
-
-    rerender({ symbol: 'BTCUSDT', interval: '4h' });
-
-    expect(MockWebSocket.instances.length).toBeGreaterThan(firstCount);
-    expect(MockWebSocket.lastInstance!.url).toContain('kline_4h');
+    expect(rafCallbacks).toHaveLength(1);
+    unmount();
+    expect(cancelSpy).toHaveBeenCalled();
   });
 });

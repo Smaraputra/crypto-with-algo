@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: live market data through a same-origin relay
+- **Why**: the browser connected straight to `wss://stream.binance.com`, which the owner's ISP blocks, so prices and the live chart never arrived without a VPN. The chart socket also never reconnected, nothing marked stale data, and history-load errors were silent.
+- **Relay** `GET /api/stream?streams=a/b` (signed in): one Node 22 `WebSocket` to Binance per browser connection, relayed as Server-Sent Events from the app's own origin, with `retry: 3000`, a 15 s ping comment, and an `upstream-closed` event. Stream names keep the kline interval's case (`1M` is monthly, `1m` is one minute). Up to 100 streams. Server variable `BINANCE_WS_URL`; `NEXT_PUBLIC_BINANCE_WS_URL` is gone from code, builds, CI and docs.
+- **Shared client** `src/lib/market-stream/client.ts`: one `EventSource` per page with ref-counted subscriptions, statuses `connecting`, `live`, `stale` (no frame for 15 s), `reconnecting` and `offline`, manual backoff after an HTTP error, and retries on `online` and when the tab becomes visible. Hooks `useMarketStream` and `useMarketStreamStatus`. `useBinanceTicker` moved onto it with the same return shape plus `status`, `lastMessageAt` and `retry`. `useWebSocket` and the unused `useBinanceKline` are removed.
+- **Chart**: live bars come through the client; a status badge (Live, Stale, Connecting, Reconnecting, Offline, with a one-sentence tooltip and a Retry button) replaces the WebSocket pill; a failed history load shows "Could not load price history." with Retry; interval tabs are controlled, so a "More" interval clears the primary tab; fullscreen awaits the browser and falls back to a CSS overlay (Escape exits) when it is refused, as on iPad.
+- **Watchlist**: choosing a symbol closes the mobile and tablet sheet.
+- **CSP** `connect-src` no longer lists any Binance host.
+- **Tests**: unit tests for the relay, stream names, client (including exact backoff timings), hooks, chart and badge. New Playwright specs mock `/api/stream` and `/api/prices/history`, and cover the live badge, reconnect, interval and monthly switch, symbol switch, indicator toggle, drawing tool, fullscreen (overlay and native), the history error, offline, and two tablet projects (768 x 1024 and 1024 x 768).
+
 ### Research: lab-v1 is live, AMENDMENT 1 records the start
 - `scripts/research/lab-forward-v1.ts` AMENDMENT 1, written before the first bar was graded: the cron container that runs the lab jobs was recreated at 2026-10-18 09:33:59 UTC, and the first stored row is L2-15m for the 09:30 UTC bar, written at 09:35:00. No rule changes.
 - The rv-v1 desk book now records its verdict: `validationStatus: rejected`, ref "rv-revalidation RESULT 2026-10-15 (PR #95)", written on production with `set-rv-validation.ts` after a dry run.

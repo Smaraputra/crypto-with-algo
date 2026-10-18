@@ -54,7 +54,7 @@ Create `/var/www/crypto-tracker/.env.production`:
 
 | |
 |---|
-| `# Server Configuration`<br>`NODE_ENV=production`<br>`PORT=3002`<br><br>`# Application URL`<br>`NEXTAUTH_URL=https://crypto.yourdomain.com`<br>`NEXTAUTH_SECRET=generate-with-openssl-rand-base64-32`<br><br>`# Database`<br>`MONGODB_URI=mongodb://localhost:27017/crypto_prod`<br><br>`# Redis (Upstash)`<br>`UPSTASH_REDIS_REST_URL=your-redis-url`<br>`UPSTASH_REDIS_REST_TOKEN=your-redis-token`<br><br>`# Binance API`<br>`BINANCE_API_URL=https://api.binance.com`<br>`NEXT_PUBLIC_BINANCE_WS_URL=wss://stream.binance.com:9443`<br><br>`# OAuth Providers`<br>`GOOGLE_CLIENT_ID=your-google-client-id`<br>`GOOGLE_CLIENT_SECRET=your-google-client-secret`<br>`GITHUB_CLIENT_ID=your-github-client-id`<br>`GITHUB_CLIENT_SECRET=your-github-client-secret`<br><br>`# Cron Security`<br>`CRON_SECRET=generate-another-secret` |
+| `# Server Configuration`<br>`NODE_ENV=production`<br>`PORT=3002`<br><br>`# Application URL`<br>`NEXTAUTH_URL=https://crypto.yourdomain.com`<br>`NEXTAUTH_SECRET=generate-with-openssl-rand-base64-32`<br><br>`# Database`<br>`MONGODB_URI=mongodb://localhost:27017/crypto_prod`<br><br>`# Redis (Upstash)`<br>`UPSTASH_REDIS_REST_URL=your-redis-url`<br>`UPSTASH_REDIS_REST_TOKEN=your-redis-token`<br><br>`# Binance API`<br>`BINANCE_API_URL=https://api.binance.com`<br>`BINANCE_WS_URL=wss://stream.binance.com:9443`<br><br>`# OAuth Providers`<br>`GOOGLE_CLIENT_ID=your-google-client-id`<br>`GOOGLE_CLIENT_SECRET=your-google-client-secret`<br>`GITHUB_CLIENT_ID=your-github-client-id`<br>`GITHUB_CLIENT_SECRET=your-github-client-secret`<br><br>`# Cron Security`<br>`CRON_SECRET=generate-another-secret` |
 
 Generate secrets:
 

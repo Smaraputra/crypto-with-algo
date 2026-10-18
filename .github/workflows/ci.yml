@@ -55,7 +55,6 @@ jobs:
       NEXTAUTH_SECRET: ci-test-secret-key-for-e2e
       NEXTAUTH_URL: http://localhost:3000
       BINANCE_API_URL: https://api.binance.com/api/v3
-      NEXT_PUBLIC_BINANCE_WS_URL: wss://stream.binance.com:9443
       CRON_SECRET: ci-cron-secret
     steps:
       - uses: actions/checkout@v4

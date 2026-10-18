@@ -57,7 +57,33 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: /auth\.(spec|setup)\.ts|landing\.spec\.ts|landing-mobile\.spec\.ts|marketing-pages\.spec\.ts|email-auth\.spec\.ts/,
+      testIgnore: /auth\.(spec|setup)\.ts|landing\.spec\.ts|landing-mobile\.spec\.ts|marketing-pages\.spec\.ts|email-auth\.spec\.ts|live-data-tablet\.spec\.ts/,
+    },
+
+    // Tablet portrait tests
+    {
+      name: 'tablet-portrait',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 768, height: 1024 },
+        hasTouch: true,
+        storageState: 'e2e/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testMatch: /live-data-tablet\.spec\.ts/,
+    },
+
+    // Tablet landscape tests
+    {
+      name: 'tablet-landscape',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1024, height: 768 },
+        hasTouch: true,
+        storageState: 'e2e/.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testMatch: /live-data-tablet\.spec\.ts/,
     },
   ],
   webServer: {

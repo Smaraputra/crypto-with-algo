@@ -136,7 +136,7 @@ and fill in the values. The most important variables are listed below.
 | `NEXTAUTH_SECRET` | Yes | NextAuth session and JWT secret |
 | `NEXTAUTH_URL` | Yes | Base URL of the app (for example `http://localhost:3000`) |
 | `BINANCE_API_URL` | Yes | Binance REST endpoint (configurable for proxy or geo-restrictions) |
-| `NEXT_PUBLIC_BINANCE_WS_URL` | Yes | Binance WebSocket endpoint (client-side) |
+| `BINANCE_WS_URL` | No | Server-side Binance WebSocket base for the `/api/stream` relay (default `wss://stream.binance.com:9443`). The browser never connects to Binance directly |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | No | Google OAuth |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | No | GitHub OAuth |
 | `CRYPTOPANIC_API_TOKEN` | No | News feed source |

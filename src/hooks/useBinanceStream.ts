@@ -1,14 +1,10 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { useWebSocket } from './useWebSocket';
-import type { Ticker24h, OHLCV } from '@/types/market';
-
-const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
-
-function getBinanceWsBase(): string {
-  return process.env.NEXT_PUBLIC_BINANCE_WS_URL || DEFAULT_WS_BASE;
-}
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMarketStream, useMarketStreamStatus } from './useMarketStream';
+import { tickerStream } from '@/lib/market-stream/streams';
+import type { CombinedFrame } from '@/lib/market-stream/client';
+import type { Ticker24h } from '@/types/market';
 
 interface BinanceTickerMsg {
   e: string;
@@ -24,52 +20,18 @@ interface BinanceTickerMsg {
   n: number;
 }
 
-interface BinanceKlineMsg {
-  e: string;
-  s: string;
-  k: {
-    t: number;
-    o: string;
-    h: string;
-    l: string;
-    c: string;
-    v: string;
-    x: boolean;
-  };
-}
-
-function buildTickerStreamUrl(symbols: string[]): string | null {
-  if (symbols.length === 0) return null;
-  const streams = symbols.map((s) => `${s.toLowerCase()}@ticker`).join('/');
-  return `${getBinanceWsBase()}/stream?streams=${streams}`;
-}
-
-function buildKlineStreamUrl(
-  symbol: string | null,
-  interval: string
-): string | null {
-  if (!symbol) return null;
-  return `${getBinanceWsBase()}/ws/${symbol.toLowerCase()}@kline_${interval}`;
-}
-
 export function useBinanceTicker(symbols: string[]) {
   const [tickers, setTickers] = useState<Record<string, Ticker24h>>({});
   const pendingUpdatesRef = useRef<Record<string, Ticker24h>>({});
   const rafIdRef = useRef<number | null>(null);
 
-  // Stabilize URL: only recompute when the actual symbol list changes,
-  // not when the caller passes a new array reference with the same values.
   const symbolsKey = symbols.join(',');
-  const url = useMemo(
-    () => buildTickerStreamUrl(symbols),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [symbolsKey]
-  );
-
-  const { isConnected, subscribe } = useWebSocket<{
-    stream: string;
-    data: BinanceTickerMsg;
-  }>(url, { reconnect: true, maxReconnectAttempts: 10 });
+  const streamNames = useMemo(() => {
+    if (!symbolsKey) {
+      return [];
+    }
+    return symbolsKey.split(',').map(tickerStream);
+  }, [symbolsKey]);
 
   const flushUpdates = useCallback(() => {
     const updates = pendingUpdatesRef.current;
@@ -79,8 +41,23 @@ export function useBinanceTicker(symbols: string[]) {
   }, []);
 
   useEffect(() => {
-    const unsub = subscribe((msg) => {
-      const d = msg.data;
+    return () => {
+      if (rafIdRef.current !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(rafIdRef.current);
+        }
+        rafIdRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleFrame = useCallback(
+    (frame: CombinedFrame) => {
+      const d = frame.data as BinanceTickerMsg | null | undefined;
+      if (!d || typeof d !== 'object' || typeof d.s !== 'string') {
+        return;
+      }
+
       pendingUpdatesRef.current[d.s] = {
         symbol: d.s,
         lastPrice: d.c,
@@ -95,50 +72,19 @@ export function useBinanceTicker(symbols: string[]) {
       };
 
       if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(flushUpdates);
+        if (typeof requestAnimationFrame !== 'undefined') {
+          rafIdRef.current = requestAnimationFrame(flushUpdates);
+        } else {
+          flushUpdates();
+        }
       }
-    });
-    return () => {
-      unsub();
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-    };
-  }, [subscribe, flushUpdates]);
-
-  return { tickers, isConnected };
-}
-
-export function useBinanceKline(symbol: string | null, interval: string) {
-  const [latestCandle, setLatestCandle] = useState<OHLCV | null>(null);
-  const [isClosed, setIsClosed] = useState(false);
-
-  const url = useMemo(
-    () => buildKlineStreamUrl(symbol, interval),
-    [symbol, interval]
+    },
+    [flushUpdates]
   );
 
-  const { isConnected, subscribe } = useWebSocket<BinanceKlineMsg>(url, {
-    reconnect: true,
-    maxReconnectAttempts: 10,
-  });
+  useMarketStream(streamNames, handleFrame);
 
-  useEffect(() => {
-    const unsub = subscribe((msg) => {
-      const k = msg.k;
-      setLatestCandle({
-        timestamp: k.t,
-        open: parseFloat(k.o),
-        high: parseFloat(k.h),
-        low: parseFloat(k.l),
-        close: parseFloat(k.c),
-        volume: parseFloat(k.v),
-      });
-      setIsClosed(k.x);
-    });
-    return unsub;
-  }, [subscribe]);
+  const { isConnected, status, lastMessageAt, retry } = useMarketStreamStatus();
 
-  return { latestCandle, isClosed, isConnected };
+  return { tickers, isConnected, status, lastMessageAt, retry };
 }

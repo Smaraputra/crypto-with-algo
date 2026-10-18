@@ -70,10 +70,20 @@ import type { CallMark } from '@/lib/signals/track-record/chart-data';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
-const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
+import { getMarketStreamClient } from '@/lib/market-stream/client';
+import { klineStream } from '@/lib/market-stream/streams';
+import { useMarketStreamStatus } from '@/hooks/useMarketStream';
+import { StreamStatusBadge } from '@/components/market/StreamStatusBadge';
 
-function getBinanceWsBase(): string {
-  return process.env.NEXT_PUBLIC_BINANCE_WS_URL || DEFAULT_WS_BASE;
+interface BinanceKline {
+  t: number;
+  o: string;
+  h: string;
+  l: string;
+  c: string;
+  v: string;
+  V: string;
+  x: boolean;
 }
 
 export interface TradingChartProps {
@@ -250,11 +260,14 @@ export function TradingChart({
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
   const [indicators, setIndicators] = useState<IndicatorConfig[]>(DEFAULT_INDICATORS);
   const [isLoading, setIsLoading] = useState(true);
-  const [wsConnected, setWsConnected] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
   const [crosshairData, setCrosshairData] = useState<KLineData | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [cssFullscreen, setCssFullscreen] = useState(false);
+  const isFullscreen = nativeFullscreen || cssFullscreen;
   const [magnetMode, setMagnetMode] = useState<OverlayMode>('normal');
-  const wsRef = useRef<WebSocket | null>(null);
+  const klineUnsubRef = useRef<(() => void) | null>(null);
+  const { status: streamStatus, lastMessageAt, retry: retryStream } = useMarketStreamStatus();
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
   const onLoadedRangeRef = useRef(onLoadedRangeChange);
   const onVisibleRangeRef = useRef(onVisibleRangeChange);
@@ -515,7 +528,9 @@ export function TradingChart({
           // Older pages load on scroll; nothing newer than the live bar exists.
           params.callback(bars, { forward: bars.length > 0, backward: false });
           reportLoadedRange();
+          setHistoryError(false);
         } catch {
+          setHistoryError(true);
           params.callback([], false);
         } finally {
           setIsLoading(false);
@@ -523,23 +538,15 @@ export function TradingChart({
       },
       subscribeBar: (params: DataLoaderSubscribeBarParams) => {
         barCallbackRef.current = params.callback;
-        const sym = params.symbol.ticker.toLowerCase();
         const intv = periodToInterval(params.period);
-        const wsBase = getBinanceWsBase();
-        const url = `${wsBase}/ws/${sym}@kline_${intv}`;
-
-        if (wsRef.current) {
-          wsRef.current.close();
-        }
-
-        const ws = new WebSocket(url);
-        ws.onopen = () => setWsConnected(true);
-        ws.onclose = () => setWsConnected(false);
-        ws.onmessage = (event) => {
+        const stream = klineStream(params.symbol.ticker, intv);
+        klineUnsubRef.current?.();
+        klineUnsubRef.current = getMarketStreamClient().subscribe([stream], (frame) => {
           try {
-            const msg = JSON.parse(event.data);
-            const k = msg.k;
-            if (k && barCallbackRef.current) {
+            if (frame.stream !== stream) return;
+            const k = (frame.data as { k?: BinanceKline } | null)?.k;
+            if (!k) return;
+            if (barCallbackRef.current) {
               barCallbackRef.current({
                 timestamp: k.t,
                 open: parseFloat(k.o),
@@ -552,41 +559,35 @@ export function TradingChart({
                 reportLoadedRange();
               }
             }
-            if (k) {
-              // Market data for the provisional-signal overlay (never a score).
-              const bar = {
-                openTime: Number(k.t),
-                open: parseFloat(k.o),
-                high: parseFloat(k.h),
-                low: parseFloat(k.l),
-                close: parseFloat(k.c),
-                volume: parseFloat(k.v),
-                takerBuyVolume: parseFloat(k.V),
-              };
-              if (Object.values(bar).every(Number.isFinite)) {
-                useFormingBarStore.getState().push({
-                  symbol: params.symbol.ticker.toUpperCase(),
-                  interval: intv,
-                  bar,
-                  closed: k.x === true,
-                  receivedAt: Date.now(),
-                });
-              }
+            // Market data for the provisional-signal overlay (never a score).
+            const bar = {
+              openTime: Number(k.t),
+              open: parseFloat(k.o),
+              high: parseFloat(k.h),
+              low: parseFloat(k.l),
+              close: parseFloat(k.c),
+              volume: parseFloat(k.v),
+              takerBuyVolume: parseFloat(k.V),
+            };
+            if (Object.values(bar).every(Number.isFinite)) {
+              useFormingBarStore.getState().push({
+                symbol: params.symbol.ticker.toUpperCase(),
+                interval: intv,
+                bar,
+                closed: k.x === true,
+                receivedAt: Date.now(),
+              });
             }
           } catch {
-            // ignore parse errors
+            // ignore frame errors
           }
-        };
-        wsRef.current = ws;
+        });
       },
       unsubscribeBar: () => {
         barCallbackRef.current = null;
         useFormingBarStore.getState().reset();
-        if (wsRef.current) {
-          wsRef.current.close();
-          wsRef.current = null;
-        }
-        setWsConnected(false);
+        klineUnsubRef.current?.();
+        klineUnsubRef.current = null;
       },
     });
 
@@ -613,10 +614,8 @@ export function TradingChart({
     }
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      klineUnsubRef.current?.();
+      klineUnsubRef.current = null;
       if (container && chartRef.current) {
         dispose(container);
         chartRef.current = null;
@@ -781,27 +780,48 @@ export function TradingChart({
   // Track fullscreen changes (e.g. Escape key exits natively)
   useEffect(() => {
     function handleFullscreenChange() {
-      setIsFullscreen(!!document.fullscreenElement);
+      setNativeFullscreen(document.fullscreenElement === wrapperRef.current);
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  const toggleFullscreen = useCallback(() => {
-    if (!wrapperRef.current) return;
+  useEffect(() => {
+    if (!cssFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setCssFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cssFullscreen]);
 
+  const toggleFullscreen = useCallback(async () => {
+    const el = wrapperRef.current;
+    if (!el) return;
     if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else if (document.fullscreenEnabled) {
-      wrapperRef.current.requestFullscreen();
-    } else {
-      // CSS fallback when Fullscreen API is not available
-      setIsFullscreen((prev) => !prev);
+      await document.exitFullscreen().catch(() => {});
+      return;
     }
-  }, []);
+    if (cssFullscreen) {
+      setCssFullscreen(false);
+      return;
+    }
+    if (document.fullscreenEnabled && typeof el.requestFullscreen === 'function') {
+      try {
+        await el.requestFullscreen();
+        return;
+      } catch {
+        // rejected (policy, iPad Safari): fall back to the CSS overlay
+      }
+    }
+    setCssFullscreen(true);
+  }, [cssFullscreen]);
 
   const handleRefresh = () => {
     if (!chartRef.current) return;
+    setHistoryError(false);
     setIsLoading(true);
     chartRef.current.resetData();
   };
@@ -814,13 +834,13 @@ export function TradingChart({
     <div
       ref={wrapperRef}
       className={`flex h-full flex-col overflow-hidden rounded-sm border border-border bg-card shadow-sm ${
-        isFullscreen && !document.fullscreenElement ? 'fixed inset-0 z-50 bg-background' : ''
+        cssFullscreen ? 'fixed inset-0 z-50 bg-background' : ''
       }`}
     >
       {/* Top Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card p-2">
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
-          <Tabs defaultValue={interval} onValueChange={(val) => onIntervalChange?.(val)}>
+          <Tabs value={PRIMARY_INTERVALS.includes(interval) ? interval : ''} onValueChange={(val) => onIntervalChange?.(val)}>
             <TabsList className="h-8 bg-muted/50">
               {INTERVALS.filter((int) => PRIMARY_INTERVALS.includes(int.value)).map((int) => (
                 <TabsTrigger
@@ -945,29 +965,11 @@ export function TradingChart({
         </div>
 
         <div className="flex items-center gap-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs border ${
-                    wsConnected
-                      ? 'border-bullish/30 bg-bullish/10 text-bullish'
-                      : 'border-accent/30 bg-accent/10 text-accent'
-                  }`}
-                >
-                  <div
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      wsConnected ? 'bg-bullish animate-pulse' : 'bg-accent'
-                    }`}
-                  />
-                  <span className="hidden font-medium sm:inline">
-                    {wsConnected ? 'Live' : 'Connecting'}
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">WebSocket connection status</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <StreamStatusBadge
+            status={streamStatus}
+            lastMessageAt={lastMessageAt}
+            onRetry={retryStream}
+          />
 
           <Button
             variant="ghost"
@@ -1049,6 +1051,20 @@ export function TradingChart({
       <div className="relative min-h-0 flex-1 bg-background">
         <div ref={containerRef} className="absolute inset-0 h-full w-full" />
         <ChartLegend symbol={symbol} kLineData={crosshairData} />
+
+        {historyError && !isLoading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center">
+            <div
+              role="alert"
+              className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-4 shadow-sm"
+            >
+              <span className="text-sm text-muted-foreground">Could not load price history.</span>
+              <Button variant="outline" size="sm" onClick={handleRefresh}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
 
         {isLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80">
