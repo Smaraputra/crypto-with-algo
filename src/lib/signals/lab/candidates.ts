@@ -56,3 +56,5 @@ export const L3_BARS = 169;
 export const L4_PERIOD = '4h' as const;
 export const L4_PERIOD_MS = 4 * 3_600_000;
 export const L4_POINTS = 180;
+/** L4 reads the ratio point stamped exactly T - L4_LAG_MS as its latest, the newest one always published by T. */
+export const L4_LAG_MS = L4_PERIOD_MS;

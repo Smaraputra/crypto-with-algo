@@ -7,6 +7,7 @@ import {
   LAB_VERSION,
   L2_V8_STYLE,
   L3_BARS,
+  L4_LAG_MS,
   L4_PERIOD,
   L4_PERIOD_MS,
   L4_POINTS,
@@ -71,6 +72,7 @@ describe('candidates registry', () => {
     expect(L4_PERIOD).toBe('4h');
     expect(L4_PERIOD_MS).toBe(4 * 3_600_000);
     expect(L4_POINTS).toBe(180);
+    expect(L4_LAG_MS).toBe(4 * 3_600_000);
     expect(LAB_TIMEFRAME_MS['5m']).toBe(300_000);
     expect(LAB_TIMEFRAME_MS['15m']).toBe(900_000);
     expect(LAB_TIMEFRAME_MS['1h']).toBe(3_600_000);

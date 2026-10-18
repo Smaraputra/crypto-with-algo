@@ -3,12 +3,12 @@
  *
  * Look-ahead rules:
  * - L3 realised variance uses closed 1h bars only, rejecting any forming bar with closeTime >= T.
- * - L4 positioning z-score uses points stamped at or before T only.
+ * - L4 positioning z-score reads the point stamped exactly T - 4h as its latest (always published by T), never a later one.
  *
  * Every function here is pure and frozen as part of lab-v1. Any logic changes require a new version.
  */
 
-import { L3_BARS, L4_PERIOD_MS, L4_POINTS } from './candidates';
+import { L3_BARS, L4_LAG_MS, L4_PERIOD_MS, L4_POINTS } from './candidates';
 
 export type LabSkipReason =
   | 'rv_skipped'          // L1, L2: the rv-v1 signal has no rank for the symbol
@@ -17,7 +17,7 @@ export type LabSkipReason =
   | 'bars_not_contiguous' // L3: consecutive bars are not exactly 1h apart
   | 'forming_bar'         // L3: a bar closes at or after T (look-ahead guard)
   | 'ratio_incomplete'    // L4: fewer than L4_POINTS points, a non-finite or non-positive ratio, or points not exactly L4_PERIOD_MS apart
-  | 'ratio_stale'         // L4: the latest point stamped at or before T is older than T - L4_PERIOD_MS
+  | 'ratio_stale'         // L4: no point stamped exactly T - L4_LAG_MS
   | 'ratio_no_spread';    // L4: the window's sample SD is 0 or not finite
 
 export interface LabScores {
@@ -186,9 +186,10 @@ export function positioningZ(
   points: readonly RatioPoint[],
   barClose: number
 ): L4Input | LabSkipReason {
+  const cutoff = barClose - L4_LAG_MS;
   const pointMap = new Map<number, RatioPoint>();
   for (const p of points) {
-    if (p.timestamp <= barClose) {
+    if (p.timestamp <= cutoff) {
       pointMap.set(p.timestamp, p);
     }
   }
@@ -200,7 +201,7 @@ export function positioningZ(
   }
 
   const latestKept = kept[kept.length - 1];
-  if (latestKept.timestamp < barClose - L4_PERIOD_MS) {
+  if (latestKept.timestamp !== cutoff) {
     return 'ratio_stale';
   }
 

@@ -201,7 +201,7 @@ describe('factor scoring functions', () => {
 
   describe('L4: positioning fade', () => {
     const basePoints: RatioPoint[] = Array.from({ length: 180 }, (_, k) => ({
-      timestamp: T - (179 - k) * L4_PERIOD_MS,
+      timestamp: T - (180 - k) * L4_PERIOD_MS,
       longShortRatio: 1 + 0.001 * k,
     }));
 
@@ -212,25 +212,39 @@ describe('factor scoring functions', () => {
     const sd = Math.sqrt(variance);
     const expectedZ = (1.179 - mean) / sd;
 
-    it('calculates expected z-score, minus z score, and latestTimestamp === T', () => {
+    it('calculates expected z-score, minus z score, and latestTimestamp === T - L4_PERIOD_MS', () => {
       const pointRes = positioningZ(basePoints, T);
       expect(typeof pointRes).toBe('object');
       if (typeof pointRes === 'object') {
         expect(pointRes.z).toBeCloseTo(expectedZ, 10);
-        expect(pointRes.latestTimestamp).toBe(T);
+        expect(pointRes.latestTimestamp).toBe(T - L4_PERIOD_MS);
       }
 
       const l4Res = l4Scores(symbols, { AAA: basePoints }, T);
       expect(l4Res.result.scores.AAA).toBeCloseTo(-expectedZ, 10);
       expect(l4Res.inputs.AAA.z).toBeCloseTo(expectedZ, 10);
-      expect(l4Res.inputs.AAA.latestTimestamp).toBe(T);
+      expect(l4Res.inputs.AAA.latestTimestamp).toBe(T - L4_PERIOD_MS);
       expect(l4Res.result.skipped).toEqual([
         { symbol: 'BBB', reason: 'ratio_stale' },
         { symbol: 'CCC', reason: 'ratio_stale' },
       ]);
     });
 
-    it('ignores points stamped after barClose', () => {
+    it('ignores a point stamped exactly T (published early)', () => {
+      const earlyPoint: RatioPoint = {
+        timestamp: T,
+        longShortRatio: 2.0,
+      };
+      const withEarly = [...basePoints, earlyPoint];
+      const res = positioningZ(withEarly, T);
+      expect(typeof res).toBe('object');
+      if (typeof res === 'object') {
+        expect(res.z).toBeCloseTo(expectedZ, 10);
+        expect(res.latestTimestamp).toBe(T - L4_PERIOD_MS);
+      }
+    });
+
+    it('ignores a point stamped T + L4_PERIOD_MS', () => {
       const futurePoint: RatioPoint = {
         timestamp: T + L4_PERIOD_MS,
         longShortRatio: 2.0,
@@ -240,16 +254,24 @@ describe('factor scoring functions', () => {
       expect(typeof res).toBe('object');
       if (typeof res === 'object') {
         expect(res.z).toBeCloseTo(expectedZ, 10);
-        expect(res.latestTimestamp).toBe(T);
+        expect(res.latestTimestamp).toBe(T - L4_PERIOD_MS);
       }
     });
 
-    it('returns ratio_stale when all points are shifted to end at T - L4_PERIOD_MS - 1', () => {
-      const shiftedStale = basePoints.map((p) => ({
-        timestamp: p.timestamp - L4_PERIOD_MS - 1,
+    it('returns ratio_stale when points end at T - 2 * L4_PERIOD_MS', () => {
+      const missingCutoff = basePoints.map((p) => ({
+        timestamp: p.timestamp - L4_PERIOD_MS,
         longShortRatio: p.longShortRatio,
       }));
-      expect(positioningZ(shiftedStale, T)).toBe('ratio_stale');
+      expect(positioningZ(missingCutoff, T)).toBe('ratio_stale');
+    });
+
+    it('returns ratio_stale when points end at T - L4_PERIOD_MS - 1', () => {
+      const offGrid = basePoints.map((p) => ({
+        timestamp: p.timestamp - 1,
+        longShortRatio: p.longShortRatio,
+      }));
+      expect(positioningZ(offGrid, T)).toBe('ratio_stale');
     });
 
     it('returns ratio_incomplete when fewer than 180 points are available', () => {
@@ -290,30 +312,17 @@ describe('factor scoring functions', () => {
       expect(positioningZ(flatPoints, T)).toBe('ratio_no_spread');
     });
 
-    it('accepts points ending at T - L4_PERIOD_MS with latestTimestamp === T - L4_PERIOD_MS', () => {
-      const shiftedOnePeriod = basePoints.map((p) => ({
-        timestamp: p.timestamp - L4_PERIOD_MS,
-        longShortRatio: p.longShortRatio,
-      }));
-      const res = positioningZ(shiftedOnePeriod, T);
-      expect(typeof res).toBe('object');
-      if (typeof res === 'object') {
-        expect(res.z).toBeCloseTo(expectedZ, 10);
-        expect(res.latestTimestamp).toBe(T - L4_PERIOD_MS);
-      }
-    });
-
     it('de-duplicates points with duplicate timestamps by keeping the last occurrence', () => {
       const withDuplicate = [
         ...basePoints.slice(0, 179),
-        { timestamp: T, longShortRatio: 999 },
-        { timestamp: T, longShortRatio: 1.179 },
+        { timestamp: T - L4_PERIOD_MS, longShortRatio: 999 },
+        { timestamp: T - L4_PERIOD_MS, longShortRatio: 1.179 },
       ];
       const res = positioningZ(withDuplicate, T);
       expect(typeof res).toBe('object');
       if (typeof res === 'object') {
         expect(res.z).toBeCloseTo(expectedZ, 10);
-        expect(res.latestTimestamp).toBe(T);
+        expect(res.latestTimestamp).toBe(T - L4_PERIOD_MS);
       }
     });
   });
