@@ -10,10 +10,12 @@
  *    Similarly, lambda0 * x >= 0.5 * (-1) = -0.5, so 1 + lambda0 * x >= 0.5 > 0.
  *
  * 2. Predictability:
- *    The bet fractions lambda and lambda0 for the current bar depend only on the historical
+ *    The bet fractions lambda and lambda0 for the current bar depend on the historical
  *    summary statistics (prev.n, prev.sumD, prev.sumD2, prev.sumX, prev.sumX2) accumulated
- *    from strictly earlier betting bars. The current bar inputs x and b do not influence
- *    the bet placed on the current bar.
+ *    from strictly earlier betting bars, and lambda's cap also depends on the current bar's b.
+ *    That keeps the bet predictable because b is fixed before x can be observed (the lab's
+ *    b uses only the scores at the bar close and earlier bars). The current bar's x never
+ *    influences its own bet.
  *
  * 3. Finality of crossing under Ville's inequality:
  *    Under the null hypothesis H0: E[X_t - b_t | past] <= 0, the wealth process E_t is a
