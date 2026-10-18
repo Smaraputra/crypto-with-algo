@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: "When to look" panel and prior-day level distances
+- **Why**: the owner asked for a dashboard that helps them trade and explains clearly but briefly. No rule is validated, so the panel says when to LOOK, never when to trade.
+- **Panel** (`src/components/dashboard/WhenToLookPanel.tsx`, top of /dashboard). One headline: "Nothing needs a look right now." or "Worth a look: ..." (prices not live, a watchlist coin within 0.5 daily ATR of yesterday's high, low or close, or a lab hypothesis that crossed its threshold). Then one line each for:
+  - **Prices**: stream status, data age and Retry;
+  - **Bar arrival**: how late the last closed 1-minute BTC bar arrived, measured on the device clock;
+  - **Levels**;
+  - **Signals**: nothing validated, v8 measured as no edge, rv-v1 rejected, and the forward lab's strongest e-value against its threshold;
+  - **Next update**: the next 8-hour lab bar in UTC and local time.
+
+  The panel has loading, error-with-retry and empty states. A screen-reader live region announces only the change of state, not every tick.
+- **Levels** `GET /api/market/levels?symbols=` (signed in, 30 requests a minute, up to 20 symbols). It computes the prior UTC day's high, low and close and Wilder ATR(14) from daily klines, cached for 10 minutes under its own `levels:` keys. Hook `useDailyLevels`.
+- **Watchlist**:
+  - each row shows its nearest prior-day level and distance in ATR, greyed when more than 0.5 ATR away, with a tooltip saying it is descriptive only;
+  - the remove button now has an accessible name and is visible on touch screens and keyboard focus. It was hover-only, so invisible on a tablet.
+- **Status badge**: the Live dot no longer pulses endlessly.
+- **Tests**: unit tests for the levels maths, route, hook, watchlist row, panel, bar-arrival parsing and next-bar times. New Playwright spec `e2e/when-to-look.spec.ts` runs on desktop and both tablet projects.
+
 ### Changed: live market data through a same-origin relay
 - **Why**: the browser connected straight to `wss://stream.binance.com`, which the owner's ISP blocks, so prices and the live chart never arrived without a VPN. The chart socket also never reconnected, nothing marked stale data, and history-load errors were silent.
 - **Relay** `GET /api/stream?streams=a/b` (signed in): one Node 22 `WebSocket` to Binance per browser connection, relayed as Server-Sent Events from the app's own origin, with `retry: 3000`, a 15 s ping comment, and an `upstream-closed` event. Stream names keep the kline interval's case (`1M` is monthly, `1m` is one minute). Up to 100 streams. Server variable `BINANCE_WS_URL`; `NEXT_PUBLIC_BINANCE_WS_URL` is gone from code, builds, CI and docs.
