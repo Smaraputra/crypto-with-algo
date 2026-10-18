@@ -23,6 +23,7 @@
  *   klines        PerpCandle, series 'klines'
  *   premiumIndex  PerpCandle, series 'premiumIndex'
  *   markPrice     PerpCandle, series 'markPrice'
+ *   spotKlines    Candle (spot), insert-only, never overwrites live rows
  *   fundingRate   HistoricalSnapshot.data.fundingRate (default), and/or
  *                 FundingSettlement, one document per settlement, with
  *                 --funding-target settlements|both
@@ -42,6 +43,8 @@
  * Usage (from the Docker seeder stage on the VPS, like backfill-history.ts):
  *   docker run --rm --network crypto_crypto-internal --env-file .env \
  *     crypto-ops:history npx tsx scripts/ops/ingest-archive.ts [flags]
+ *
+ *   npx tsx scripts/ops/ingest-archive.ts --datasets spotKlines --intervals 1h,4h,1d --from 2017-08-01 --to 2026-09-30
  *
  * Flags:
  *   --datasets metrics,snapshots                comma list (default shown)
@@ -116,6 +119,7 @@ import {
 import { bulkUpsertSnapshots } from '@/lib/historical-snapshots';
 import { FuturesMetric } from '@/lib/models/futures-metric';
 import { bulkUpsertPerpCandles } from '@/lib/perp-candles';
+import { bulkInsertSpotCandles, spotCandleInserts } from '@/lib/spot-candles';
 import { VALID_INTERVALS } from '@/lib/models/candle';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { alignTimestamp } from '@/lib/historical-snapshots';
@@ -138,12 +142,13 @@ export const DATASET_KINDS: readonly JobKind[] = [
   'klines',
   'premiumIndex',
   'markPrice',
+  'spotKlines',
   'fundingRate',
   'snapshots',
 ] as const;
 
 /** Datasets whose archive path carries an interval segment. */
-const INTERVAL_KINDS = new Set<JobKind>(['klines', 'premiumIndex', 'markPrice']);
+const INTERVAL_KINDS = new Set<JobKind>(['klines', 'premiumIndex', 'markPrice', 'spotKlines']);
 
 export interface ParsedArgs {
   datasets: JobKind[];
@@ -319,7 +324,7 @@ export function parseArgs(
   if (cadence !== null) {
     const other = datasets.filter((d) => !INTERVAL_KINDS.has(d));
     if (other.length > 0) {
-      throw new Error(`--cadence applies only to klines, premiumIndex and markPrice, not ${other.join(', ')}`);
+      throw new Error(`--cadence applies only to klines, premiumIndex, markPrice and spotKlines, not ${other.join(', ')}`);
     }
   }
 
@@ -657,6 +662,12 @@ async function ingestCsv(
       const parsed = parseKlineCsv(csv);
       const ops = perpCandleUpserts(job.symbol, job.interval, pair.series, parsed);
       return { rows: parsed.length, written: await bulkUpsertPerpCandles(ops) };
+    }
+    case 'spotKlines': {
+      if (!job.interval) throw new Error('Internal error: spotKlines job has no interval');
+      const parsed = parseKlineCsv(csv);
+      const ops = spotCandleInserts(job.symbol, job.interval, parsed);
+      return { rows: parsed.length, written: await bulkInsertSpotCandles(ops) };
     }
     case 'fundingRate': {
       const parsed = parseFundingCsv(csv);

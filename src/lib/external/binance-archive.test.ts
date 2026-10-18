@@ -128,6 +128,33 @@ describe('archiveUrl and friends', () => {
     );
   });
 
+  it('builds spot kline urls for monthly and daily cadence', () => {
+    expect(
+      archiveUrl({ dataset: 'spotKlines', symbol: 'BTCUSDT', interval: '1h', date: '2017-08' })
+    ).toBe(
+      'https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2017-08.zip'
+    );
+    expect(
+      archiveUrl({
+        dataset: 'spotKlines',
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        date: '2025-01-02',
+        cadence: 'daily',
+      })
+    ).toBe(
+      'https://data.binance.vision/data/spot/daily/klines/BTCUSDT/1h/BTCUSDT-1h-2025-01-02.zip'
+    );
+  });
+
+  it('leaves futures klines urls unchanged', () => {
+    expect(
+      archiveUrl({ dataset: 'klines', symbol: 'BTCUSDT', interval: '1h', date: '2024-01' })
+    ).toBe(
+      'https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2024-01.zip'
+    );
+  });
+
   it('maps premiumIndex and markPrice onto their Binance path segments', () => {
     expect(
       archiveUrl({ dataset: 'premiumIndex', symbol: 'BTCUSDT', interval: '5m', date: '2025-06' })
@@ -165,6 +192,9 @@ describe('archiveUrl and friends', () => {
     expect(() => archiveUrl({ dataset: 'klines', symbol: 'BTCUSDT', date: '2025-06' })).toThrow(
       /needs an interval/
     );
+    expect(() => archiveUrl({ dataset: 'spotKlines', symbol: 'BTCUSDT', date: '2025-06' })).toThrow(
+      /spotKlines needs an interval/
+    );
     expect(() =>
       archiveUrl({ dataset: 'metrics', symbol: 'BTCUSDT', interval: '5m', date: '2025-06-01' })
     ).toThrow(/takes no interval/);
@@ -174,10 +204,16 @@ describe('archiveUrl and friends', () => {
     expect(ARCHIVE_CADENCE.metrics).toBe('daily');
     expect(ARCHIVE_CADENCE.bookDepth).toBe('daily');
     expect(ARCHIVE_CADENCE.klines).toBe('monthly');
+    expect(ARCHIVE_CADENCE.spotKlines).toBe('monthly');
     expect(ARCHIVE_CADENCE.fundingRate).toBe('monthly');
   });
 
   it('names cache paths by dataset, symbol and interval', () => {
+    expect(
+      archiveCachePath('/c', { dataset: 'spotKlines', symbol: 'BTCUSDT', interval: '1h', date: '2017-08' }).startsWith(
+        '/c/spotKlines/BTCUSDT/1h/'
+      )
+    ).toBe(true);
     expect(
       archiveCachePath('/cache', { dataset: 'klines', symbol: 'BTCUSDT', interval: '5m', date: '2024-01' })
     ).toBe('/cache/klines/BTCUSDT/5m/BTCUSDT-5m-2024-01.zip');
@@ -291,6 +327,13 @@ describe('parseArchiveTimestamp', () => {
     // More digits than milliseconds: microseconds would silently land in 57000 AD.
     expect(parseArchiveTimestamp('17487360000000000')).toBeNaN();
   });
+
+  it('parses 16-digit microseconds from 2025 spot files into milliseconds', () => {
+    expect(parseArchiveTimestamp('1735689600000000')).toBe(1735689600000);
+    expect(parseArchiveTimestamp('1735689600000')).toBe(1735689600000);
+    expect(parseArchiveTimestamp('17356896000000')).toBeNaN();
+    expect(parseArchiveTimestamp('173568960000000')).toBeNaN();
+  });
 });
 
 describe('looksLikeHeader', () => {
@@ -391,6 +434,29 @@ describe('parseKlineCsv', () => {
     const rows = parseKlineCsv(premium);
     expect(rows[0].close).toBeCloseTo(-0.00055034, 10);
     expect(rows[0].volume).toBe(0);
+  });
+
+  it('parses spot klines with microsecond open times into millisecond timestamps and taker-buy volume', () => {
+    const csv = [
+      'open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore',
+      '1735689600000000,93000,94000,92000,93500,10.5,1735693199999999,980000,1234,5.2,485000,0',
+      '1735693200000000,93500,95000,93000,94500,12.0,1735696799999999,1130000,1500,6.1,575000,0',
+    ].join('\n');
+    const rows = parseKlineCsv(csv);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({
+      timestamp: 1735689600000,
+      open: 93000,
+      high: 94000,
+      low: 92000,
+      close: 93500,
+      volume: 10.5,
+      quoteVolume: 980000,
+      trades: 1234,
+      takerBuyVolume: 5.2,
+    });
+    expect(rows[1].timestamp).toBe(1735693200000);
+    expect(rows[1].takerBuyVolume).toBe(6.1);
   });
 });
 

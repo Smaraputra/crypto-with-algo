@@ -9,6 +9,7 @@ const {
   mockFetchArchiveFile,
   mockMetricBulkWrite,
   mockPerpBulkWrite,
+  mockCandleBulkWrite,
   mockMetricFind,
   mockBulkUpsertSnapshots,
 } = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const {
   mockFetchArchiveFile: vi.fn(),
   mockMetricBulkWrite: vi.fn(),
   mockPerpBulkWrite: vi.fn(),
+  mockCandleBulkWrite: vi.fn(),
   mockMetricFind: vi.fn(),
   mockBulkUpsertSnapshots: vi.fn(),
 }));
@@ -33,6 +35,16 @@ vi.mock('@/lib/models/perp-candle', () => ({
   PerpCandle: { bulkWrite: (...args: unknown[]) => mockPerpBulkWrite(...args) },
   PERP_SERIES: ['klines', 'premiumIndex', 'markPrice'],
 }));
+
+vi.mock('@/lib/models/candle', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/models/candle')>(
+    '@/lib/models/candle'
+  );
+  return {
+    ...actual,
+    Candle: { bulkWrite: (...args: unknown[]) => mockCandleBulkWrite(...args) },
+  };
+});
 
 vi.mock('@/lib/historical-snapshots', async () => {
   const actual = await vi.importActual<typeof import('@/lib/historical-snapshots')>(
@@ -81,12 +93,38 @@ describe('parseArgs', () => {
   it('parses --cadence for the kline-shaped datasets only, default none', () => {
     expect(parseArgs([], NOW).cadence).toBeNull();
     expect(parseArgs(['--datasets', 'klines,premiumIndex', '--cadence', 'daily'], NOW).cadence).toBe('daily');
+    expect(parseArgs(['--datasets', 'spotKlines', '--cadence', 'daily'], NOW).cadence).toBe('daily');
+    expect(() => parseArgs(['--datasets', 'metrics', '--cadence', 'daily'], NOW)).toThrow(
+      /--cadence applies only to klines, premiumIndex, markPrice and spotKlines, not metrics/
+    );
     expect(() => parseArgs(['--datasets', 'klines', '--cadence', 'weekly'], NOW)).toThrow(/--cadence must be daily or monthly/);
     // metrics exists only daily and fundingRate only monthly: an override there asks for files that do not exist.
     expect(() => parseArgs(['--datasets', 'klines,metrics', '--cadence', 'daily'], NOW)).toThrow(
-      /--cadence applies only to klines, premiumIndex and markPrice, not metrics/
+      /--cadence applies only to klines, premiumIndex, markPrice and spotKlines, not metrics/
     );
     expect(() => parseArgs(['--cadence', 'monthly'], NOW)).toThrow(/not metrics, snapshots/);
+  });
+
+  it('accepts spotKlines with intervals and date range, planning jobs for each symbol and interval', () => {
+    const args = parseArgs(
+      ['--datasets', 'spotKlines', '--intervals', '1h,4h,1d', '--from', '2017-08-01', '--to', '2017-12-31'],
+      NOW
+    );
+    expect(args.datasets).toEqual(['spotKlines']);
+    expect(args.intervals).toEqual(['1h', '4h', '1d']);
+    expect(new Date(args.fromMs).toISOString().slice(0, 10)).toBe('2017-08-01');
+    expect(new Date(args.toMs).toISOString().slice(0, 10)).toBe('2017-12-31');
+
+    const jobs = buildJobs(args);
+    expect(jobs).toHaveLength(args.symbols.length * 3);
+    expect(jobs.every((j) => j.kind === 'spotKlines')).toBe(true);
+    expect(jobs[0]).toMatchObject({
+      kind: 'spotKlines',
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      fromMs: Date.UTC(2017, 7, 1),
+      toMs: Date.UTC(2017, 11, 31),
+    });
   });
 
   it('defaults --from to the archive floor and --to to yesterday', () => {
@@ -248,6 +286,7 @@ describe('main', () => {
     });
     mockMetricBulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 0 });
     mockPerpBulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 0 });
+    mockCandleBulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 0 });
   });
 
   afterEach(() => {
@@ -318,6 +357,52 @@ describe('main', () => {
       symbol: 'BTCUSDT', interval: '5m', series: 'klines', timestamp: 1704067200000,
     });
     expect(ops[0].updateOne.update.$set.close).toBe(42437.1);
+  });
+
+  it('writes spot klines into Candle via insert-only writes', async () => {
+    mockFetchArchiveFile.mockResolvedValue(
+      'open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,taker_buy_quote_volume,ignore\n' +
+        '1502942400000,4261.48,4261.48,4261.48,4261.48,1.77518300,1502945999999,7564.90685084,3,0.07518300,320.39050884,0\n'
+    );
+    mockCandleBulkWrite.mockResolvedValue({ upsertedCount: 1, modifiedCount: 0 });
+    const code = await run([
+      '--datasets', 'spotKlines', '--symbols', 'BTCUSDT', '--intervals', '1h',
+      '--from', '2017-08-01', '--to', '2017-08-31',
+    ]);
+    expect(code).toBe(0);
+    const ops = mockCandleBulkWrite.mock.calls[0][0];
+    expect(ops[0].updateOne.filter).toEqual({
+      symbol: 'BTCUSDT', interval: '1h', timestamp: 1502942400000,
+    });
+    expect(ops[0].updateOne.update.$setOnInsert).toMatchObject({
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      timestamp: 1502942400000,
+      open: 4261.48,
+      close: 4261.48,
+      volume: 1.775183,
+      takerBuyVolume: 0.075183,
+    });
+    expect(ops[0].updateOne.update.$set).toBeUndefined();
+    expect(ops[0].updateOne.upsert).toBe(true);
+  });
+
+  it('counts a 404 month before spot listing as missing without failing the run', async () => {
+    mockFetchArchiveFile.mockResolvedValue(null);
+    const code = await run([
+      '--datasets', 'spotKlines', '--symbols', 'BTCUSDT', '--intervals', '1h',
+      '--from', '2017-07-01', '--to', '2017-07-31',
+    ]);
+    expect(code).toBe(0);
+    expect(JSON.parse(logged[0])).toMatchObject({
+      kind: 'spotKlines',
+      symbol: 'BTCUSDT',
+      files: 1,
+      missing: 1,
+      rows: 0,
+      written: 0,
+    });
+    expect(mockCandleBulkWrite).not.toHaveBeenCalled();
   });
 
   it('reads daily kline files under --cadence daily and carries the cadence onto every job', async () => {
@@ -522,6 +607,9 @@ describe('--symbols-file mode', () => {
     const argv = [...BASE];
     argv[argv.indexOf('--datasets') + 1] = 'metrics';
     expect(() => parseArgs(argv, NOW, read(LIST))).toThrow(/supports only klines, fundingRate and snapshots/);
+    const argvSpot = [...BASE];
+    argvSpot[argvSpot.indexOf('--datasets') + 1] = 'spotKlines';
+    expect(() => parseArgs(argvSpot, NOW, read(LIST))).toThrow(/supports only klines, fundingRate and snapshots/);
   });
 
   it('refuses a bad symbol, because it ends up in cache paths', () => {
