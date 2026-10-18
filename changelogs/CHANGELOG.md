@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: forward lab lab-v2 (the Round 1 survivors)
+- **Lock** `scripts/research/lab-forward-v2.ts` (`a8b3eb7`), committed before any lab-v2 bar exists. Two hypotheses:
+  - N2-1w, the weekly ridge (260 weeks, k 1, labelled weak);
+  - N3-1d, value-area drift (k 1).
+
+  Both are frozen exactly as Round 1 tested them. Threshold 400 per slot: four slots at alpha 0.01, e-Bonferroni.
+- **Statistic**: the net book return after costs and perp funding, not lab-v1's rank correlation. C2's IC did not turn into money, so an IC test could have validated a book that barely pays.
+  - X = min(R / c, 1), with c 0.13 (N2) and 0.8 (N3).
+  - Losses beyond 2c count at 2c, and such a loss at full bet ends the test.
+  - The null tested is stated exactly in the lock.
+- **Code**:
+  - live scorers `src/lib/signals/lab/v2/n2.ts` and `n3.ts`, equal to the Round 1 screen code on synthetic data and on the real B and C history (245 of 245 weeks; 17,208 of 17,210 coin-days, the other 2 being the dataset's last day);
+  - weekly (Monday 00:03) and daily (00:03) signal jobs with retries;
+  - grading in the hourly lab run. Funding is never assumed: a bar waits until its settlements are synced;
+  - the e-process gains a threshold option and an unbounded-loss mode, with lab-v1's defaults unchanged;
+  - read route `GET /api/signals/lab-v2` and a lab-v2 section on /signals.
+- **Honest power**: over B and C the books' annual Sharpe is 0.17 (N2) and 0.23 (N3). Neither is likely to cross within 24 months unless its forward effect is about ten times larger.
+- **Checks before the lock**:
+  - REST spot candles equal the stored candles on 19 of 20 series. One stored BTC 15m bar was saved before it closed; the live jobs read REST.
+  - Two independent reviews (agy and a Claude Opus reviewer). Their findings are applied, including the corrected null.
+
 ### Added: "When to look" panel and prior-day level distances
 - **Why**: the owner asked for a dashboard that helps them trade and explains clearly but briefly. No rule is validated, so the panel says when to LOOK, never when to trade.
 - **Panel** (`src/components/dashboard/WhenToLookPanel.tsx`, top of /dashboard). One headline: "Nothing needs a look right now." or "Worth a look: ..." (prices not live, a watchlist coin within 0.5 daily ATR of yesterday's high, low or close, or a lab hypothesis that crossed its threshold). Then one line each for:
