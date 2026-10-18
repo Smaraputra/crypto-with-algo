@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { OHLCV } from '@/types/market';
 import type { TradePlanResponse } from '@/lib/trade-plan/types';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 
 const mockAuth = vi.fn();
 const mockConnectDB = vi.fn();
@@ -124,7 +125,12 @@ describe('GET /api/trade-plan', () => {
     const body = (await res.json()) as TradePlanResponse;
 
     expect(res.status).toBe(200);
-    expect(mockSignalFindOne).toHaveBeenCalledWith({ symbol: 'SOLUSDT', tradingStyle: 'day_trading', interval: '1h' });
+    expect(mockSignalFindOne).toHaveBeenCalledWith({
+      symbol: 'SOLUSDT',
+      tradingStyle: 'day_trading',
+      interval: '1h',
+      configVersion: SCORER_CONFIG_VERSION,
+    });
     // Candles end at the scored bar: nothing after it is fetched.
     expect(mockGetCandles).toHaveBeenCalledWith('SOLUSDT', '1h', undefined, last.timestamp, 1001);
     // Funding comes from the snapshot interval the engine maps 1h to.
@@ -278,5 +284,18 @@ describe('GET /api/trade-plan', () => {
     expect(body.plan).toBeNull();
     expect(body.unavailableReason).toContain('is not in the candle history');
     expect(body.liveRecord).not.toBeNull();
+  });
+
+  it('reads the latest signal of the live scorer configVersion only', async () => {
+    mockSignalFindOne.mockReturnValue(chain(null));
+
+    const { GET } = await import('./route');
+    await GET(makeRequest(VALID));
+
+    expect(mockSignalFindOne.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        configVersion: SCORER_CONFIG_VERSION,
+      })
+    );
   });
 });

@@ -7,10 +7,11 @@ import type { RvBookState } from './rv-book';
  * One rebalance of an rv book: the signal at `barTime` traded at `fillTime`
  * (its bar close) on both cost tracks.
  *
- * Upserted on (bookName, barTime), so a replay after a crash or a cursor
- * rollback rewrites the same document rather than adding one (D09). A step
- * the desk could not take yet is stored with `pendingReasons` and null
- * records, and is overwritten in place once it completes.
+ * Unique on (bookName, barTime). The desk upserts a step only while it is
+ * incomplete (`bookAfter: null`): a step it could not take yet is stored with
+ * `pendingReasons` and null records and is overwritten in place until it
+ * completes. A completed step is never rewritten. An upsert that meets one
+ * raises a duplicate key, which the desk reads as a lost lease.
  *
  * `bookAfter` is the book state after this step. The next run restores from
  * it, which is what makes a replay of later steps byte-identical.

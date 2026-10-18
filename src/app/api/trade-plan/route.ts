@@ -11,6 +11,7 @@ import { scoredIntervals, TRADING_STYLES } from '@/lib/indicators/style-configs'
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { getLiveTierExpectancy } from '@/lib/signals/outcome-analytics';
 import { OUTCOME_HORIZON_BARS } from '@/lib/signals/outcome-horizons';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 import { mapToSnapshotInterval } from '@/lib/backtest/snapshot-series';
 import { defaultCostPercent } from '@/lib/backtest/cost-model';
 import { PaperLedger } from '@/lib/models/paper-ledger';
@@ -89,7 +90,7 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const signal = await GlobalSignal.findOne({ symbol, tradingStyle, interval })
+  const signal = await GlobalSignal.findOne({ symbol, tradingStyle, interval, configVersion: SCORER_CONFIG_VERSION })
     .sort({ createdAt: -1 })
     .lean();
 

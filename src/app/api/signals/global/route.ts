@@ -5,6 +5,7 @@ import { GlobalSignal } from '@/lib/models/global-signal';
 import { TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { connectDB } from '@/lib/mongodb';
 import { SIGNAL_TIERS } from '@/types/signal';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 import type { TradingStyle } from '@/lib/models/signal-template';
 
 function isValidTradingStyle(style: string): style is TradingStyle {
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const query: Record<string, unknown> = { symbol };
+  const query: Record<string, unknown> = { symbol, configVersion: SCORER_CONFIG_VERSION };
 
   if (tradingStyle) {
     if (!isValidTradingStyle(tradingStyle)) {
