@@ -77,6 +77,11 @@ export interface SeriesStats {
   sharePositive: number;
   skewness: number;
   kurtosis: number;
+  perTradeMean?: number;
+}
+
+export interface C3SeriesStats extends SeriesStats {
+  perTradeMean: number;
 }
 
 export interface BookEState {
@@ -172,12 +177,12 @@ export interface C3SeriesItem {
   trades: number;
 }
 
-export interface HypothesisResult<TSeriesItem> {
+export interface HypothesisResult<TSeriesItem, TStats extends SeriesStats = SeriesStats> {
   series: TSeriesItem[];
   stats: {
-    B: SeriesStats;
-    C: SeriesStats;
-    BC: SeriesStats;
+    B: TStats;
+    C: TStats;
+    BC: TStats;
   };
   scale: number;
   gainClipShare: number;
@@ -192,7 +197,7 @@ export interface LabV2PreviewOutput {
   datasetHash: string;
   generatedAt: string;
   c2: HypothesisResult<C2SeriesItem>;
-  c3: HypothesisResult<C3SeriesItem>;
+  c3: HypothesisResult<C3SeriesItem, C3SeriesStats>;
 }
 
 export function clip(value: number, min: number, max: number): number {
@@ -310,8 +315,30 @@ export function sampleSd(values: number[]): number {
 }
 
 /**
+ * Computes descriptive stats and per-trade mean return for C3 daily bars.
+ * perTradeMean is the sum of daily R over the bars divided by total trades.
+ */
+export function computeC3Stats(bars: C3SeriesItem[], barsPerYear: number): C3SeriesStats {
+  const base = computeStats(
+    bars.map((b) => b.R),
+    barsPerYear
+  );
+  let totalTrades = 0;
+  let sumR = 0;
+  for (const b of bars) {
+    totalTrades += b.trades;
+    sumR += b.R;
+  }
+  const perTradeMean = totalTrades > 0 ? sumR / totalTrades : Number.NaN;
+  return {
+    ...base,
+    perTradeMean,
+  };
+}
+
+/**
  * Groups trades across all coins by openT.
- * R for that day is mean(netPct) / 100 over trades opened that day.
+ * R for that day is sum(netPct) / 100 over trades opened that day.
  * Days with no trades are not included.
  */
 export function groupTradesByDay(trades: Trade[]): {
@@ -337,10 +364,9 @@ export function groupTradesByDay(trades: Trade[]): {
     for (const tr of dayTrades) {
       sumNetPct += tr.netPct;
     }
-    const meanNetPct = sumNetPct / dayTrades.length;
     bars.push({
       t,
-      R: meanNetPct / 100,
+      R: sumNetPct / 100,
       trades: dayTrades.length,
     });
   }
@@ -794,7 +820,7 @@ export function runC2NullSimulation(
  * 1,000 runs on B+C daily bars.
  * For every real trade, a random side (+1 or -1, probability 1/2).
  * Net = randomSide * (grossPct / d) - 0.14.
- * Daily R = mean(net) / 100 over trades opened that day.
+ * Daily R = sum(net) / 100 over trades opened that day.
  */
 export function runC3NullSimulation(
   bars: C3SeriesItem[],
@@ -824,8 +850,7 @@ export function runC3NullSimulation(
         sumNetPct += netPct;
       }
 
-      const meanNetPct = dayTrades.length > 0 ? sumNetPct / dayTrades.length : 0;
-      const R = meanNetPct / 100;
+      const R = sumNetPct / 100;
       const x = toX(R, scale);
       state = stepBookE(state, x, bar, threshold);
 
@@ -968,18 +993,9 @@ export async function generateLabV2Preview(datasetDir: string): Promise<LabV2Pre
   const c3BarsB = c3Series.filter((b) => b.t < NV1_SEGMENTS.C.start);
   const c3BarsC = c3Series.filter((b) => b.t >= NV1_SEGMENTS.C.start);
 
-  const statsC3B = computeStats(
-    c3BarsB.map((b) => b.R),
-    BARS_PER_YEAR.c3
-  );
-  const statsC3C = computeStats(
-    c3BarsC.map((b) => b.R),
-    BARS_PER_YEAR.c3
-  );
-  const statsC3BC = computeStats(
-    c3Series.map((b) => b.R),
-    BARS_PER_YEAR.c3
-  );
+  const statsC3B = computeC3Stats(c3BarsB, BARS_PER_YEAR.c3);
+  const statsC3C = computeC3Stats(c3BarsC, BARS_PER_YEAR.c3);
+  const statsC3BC = computeC3Stats(c3Series, BARS_PER_YEAR.c3);
 
   const c3Scale = roundUpTo2SigFigs(4 * statsC3BC.sd);
   const c3GainClipCount = c3Series.filter((b) => b.R / c3Scale > 1).length;

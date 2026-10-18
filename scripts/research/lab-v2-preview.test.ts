@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   clip,
+  computeC3Stats,
   groupTradesByDay,
   initialBookEState,
   roundUpTo2SigFigs,
@@ -109,8 +110,8 @@ describe('lab-v2-preview', () => {
     });
   });
 
-  describe('day grouping of trades into mean R', () => {
-    it('groups trades by openT and calculates R = mean(netPct) / 100', () => {
+  describe('day grouping of trades into summed R', () => {
+    it('groups trades by openT and calculates R = sum(netPct) / 100', () => {
       const day1 = 1631577600000;
       const day2 = day1 + 86_400_000;
 
@@ -120,16 +121,16 @@ describe('lab-v2-preview', () => {
           openT: day1,
           closeT: day1 + 86_400_000,
           d: 1,
-          grossPct: 1.14,
-          netPct: 1.0,
+          grossPct: 0.34,
+          netPct: 0.2,
         },
         {
           symbol: 'ETHUSDT',
           openT: day1,
           closeT: day1 + 86_400_000,
           d: -1,
-          grossPct: 2.14,
-          netPct: 2.0,
+          grossPct: 0.04,
+          netPct: -0.1,
         },
         {
           symbol: 'SOLUSDT',
@@ -144,18 +145,15 @@ describe('lab-v2-preview', () => {
       const { bars, tradesByDay } = groupTradesByDay(trades);
 
       expect(bars).toHaveLength(2);
-      // Day 1: mean(1.0, 2.0) = 1.5% -> R = 0.015, trades = 2
-      expect(bars[0]).toEqual({
-        t: day1,
-        R: 0.015,
-        trades: 2,
-      });
-      // Day 2: mean(-1.0) = -1.0% -> R = -0.01, trades = 1
-      expect(bars[1]).toEqual({
-        t: day2,
-        R: -0.01,
-        trades: 1,
-      });
+      // Day 1: sum(0.2, -0.1) = 0.1% -> R = 0.001, trades = 2
+      expect(bars[0].t).toBe(day1);
+      expect(bars[0].R).toBeCloseTo(0.001, 10);
+      expect(bars[0].trades).toBe(2);
+
+      // Day 2: sum(-1.0) = -1.0% -> R = -0.01, trades = 1
+      expect(bars[1].t).toBe(day2);
+      expect(bars[1].R).toBeCloseTo(-0.01, 10);
+      expect(bars[1].trades).toBe(1);
 
       expect(tradesByDay.get(day1)).toHaveLength(2);
       expect(tradesByDay.get(day2)).toHaveLength(1);
@@ -165,6 +163,62 @@ describe('lab-v2-preview', () => {
       const { bars, tradesByDay } = groupTradesByDay([]);
       expect(bars).toEqual([]);
       expect(tradesByDay.size).toBe(0);
+    });
+
+    it('calculates perTradeMean equal to the pooled mean of netPct / 100', () => {
+      const day1 = 1631577600000;
+      const day2 = day1 + 86_400_000;
+      const day3 = day2 + 86_400_000;
+
+      const trades: Trade[] = [
+        {
+          symbol: 'BTCUSDT',
+          openT: day1,
+          closeT: day1 + 86_400_000,
+          d: 1,
+          grossPct: 0.34,
+          netPct: 0.2,
+        },
+        {
+          symbol: 'ETHUSDT',
+          openT: day1,
+          closeT: day1 + 86_400_000,
+          d: -1,
+          grossPct: 0.04,
+          netPct: -0.1,
+        },
+        {
+          symbol: 'SOLUSDT',
+          openT: day2,
+          closeT: day2 + 86_400_000,
+          d: 1,
+          grossPct: 0.64,
+          netPct: 0.5,
+        },
+        {
+          symbol: 'AVAXUSDT',
+          openT: day3,
+          closeT: day3 + 86_400_000,
+          d: -1,
+          grossPct: -0.16,
+          netPct: -0.3,
+        },
+        {
+          symbol: 'BNBUSDT',
+          openT: day3,
+          closeT: day3 + 86_400_000,
+          d: 1,
+          grossPct: 0.84,
+          netPct: 0.7,
+        },
+      ];
+
+      const { bars } = groupTradesByDay(trades);
+      const stats = computeC3Stats(bars, 365);
+
+      const pooledMean = trades.reduce((sum, tr) => sum + tr.netPct / 100, 0) / trades.length;
+      expect(stats.perTradeMean).toBeCloseTo(pooledMean, 10);
+      expect(stats.perTradeMean).toBeCloseTo(0.002, 10);
     });
   });
 
