@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: forward signal lab engine and the lab-v1 lock (pre-registered, not yet live)
+- **Why**: no rule in the program has passed (ledger 2,161), and every span of history that could test a new one has been read. Only bars no study has seen can confirm a signal, so the lab scores four frozen candidates live and judges them with an anytime-valid test. Nothing here runs live yet. The jobs, storage and board follow in later PRs.
+- **The lock**: `scripts/research/lab-forward-v1.ts`, eight hypotheses: L1 rv-v1 composite (8h), L2 the combined v8 and rv-v1 score (5m, 15m, 1h, 4h, 1d), L3 a 7-day variance fade (8h), L4 a cross-sectional positioning fade (8h). Each is judged on the per-bar Pearson correlation X between its centred score ranks and the next perp returns, against a hurdle b that prices that book's taker turnover. A hypothesis is validated when its e-value reaches 800 (e-Bonferroni over 8 at alpha 0.01). The test ends at 24 months. `lab-forward-v1.test.ts` asserts that the code runs exactly the locked values. The ledger moves to 2,169.
+- **Engine** (pure, no I/O):
+  - `src/lib/stats/rank-ic.ts`: `rankWeightedCorrelation`, `bookWeights`, `kN`, `bookReturn` and helpers. `rank` and `pearson` moved here from `scripts/research/ic-stats.ts`, which re-exports `rank`, so research numbers are unchanged.
+  - `src/lib/signals/lab/e-process.ts` and `hurdle.ts`: the betting e-process with a predictable Kelly bet and the cost hurdle. The calibration suite crosses 800 in none of 300 null runs (at b 0 and at b 0.02) and in 200 of 200 runs with a planted edge of 0.07 over b (median bar 320).
+  - `src/lib/signals/lab/candidates.ts` and `factors.ts`: the frozen registry and the L1 to L4 score functions. A missing input skips the coin with a reason, never a default. L3 refuses any 1h bar closing at or after T. L4 reads the ratio point stamped exactly T - 4h as its latest, because the point stamped T is published minutes after T and would make the input depend on when the job ran.
+- **Lock review** (agy on Gemini, before the lock, seven findings checked against the code): six accepted (the L4 pin above, the turnover reference and the uncharged entry bar, the identity's exact and approximate cases, the POWER sources, the e-process predictability comment, the L3 wording), and one rejected (a short rv-v1 ranking shifts every L2 score by the same constant, so ranks are unchanged).
+- **Pre-lock preview** (`scripts/research/lab-preview.ts`, run on the VPS, descriptive only, never gating): the median hurdle b is 0.023 for L1, 0.053 for L2 at 5m, 0 to 0.025 for L2 at 15m to 1d (ranks often unchanged), and 0.004 for L3. L4 has no stored history to preview. With random scores against the real 8h perp returns, the e-process crossed in at most 1 of 1,000 runs. Real scores fed turnover only and were never set against a return.
+
 ### Research: rv-v1 re-validation RESULT, the rule fails
 - **Verdict (2026-10-15)**: FAIL.
   - G1 passes: the in-sample permutation with all 12 cells re-selected gives p 0.0020.
