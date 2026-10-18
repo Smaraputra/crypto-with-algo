@@ -23,7 +23,9 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  await mongoose.connection.db?.dropDatabase();
+  // Delete documents, not the database: dropping it also drops the unique index that init() built once,
+  // and the write-once tests would then race without it.
+  await LabSignal.deleteMany({});
 });
 
 function makeSignalFields(overrides: Partial<LabSignalFields> = {}): LabSignalFields {
