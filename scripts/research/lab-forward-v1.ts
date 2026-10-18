@@ -160,6 +160,20 @@
  * bar, none late. L1, L3 and L4 start at the 16:00 UTC close, and L2-4h and L2-1d at their next closes. No
  * earlier bar was scored.
  *
+ * AMENDMENT 2 (2026-10-18, written before any L4-8h bar placed a bet). It repairs how L4's inputs are gathered
+ * and changes no rule. L4's first bar (16:00 UTC) skipped all 10 coins with ratio_incomplete. Binance's
+ * topLongShortPositionRatio endpoint keeps only 30 days, which is at most 180 points at the 4h period (checked
+ * live, also at limit 500). By the time the job runs (T + 3 and T + 8 minutes), the point stamped T is already
+ * published. So the newest 180 points end at T, only 179 are stamped at or before T - 4h, and the 180-point
+ * window this lock requires could never be assembled from one REST call. From this amendment on, the job stores
+ * every point it fetches from that same endpoint (insert-only, collection labratiopoints). It assembles the
+ * window from the stored points plus the fresh ones. The values are the endpoint's own and are never edited or
+ * interpolated. The store was seeded from a full 180-point fetch of all 10 coins taken at 2026-10-18 16:11 UTC
+ * (topratio-4h-20261018T1611.json on the VPS). The rule is unchanged: minus the z of the latest of the 180 points
+ * at the 4h period ending at the point stamped exactly T - 4h, and a coin still skips on a short or gapped
+ * window. The 16:00 bar stays as stored (no coins, no bet). Skipped coins now record their window size in
+ * inputs, which is how this went unseen until the first bar.
+ *
  * TRIALS: the program ledger moves from 2,161 to 2,169 (eight hypotheses).
  */
 import { LAB_HYPOTHESES_V1, LAB_VERSION } from '@/lib/signals/lab/candidates';

@@ -26,6 +26,10 @@
 
 import { fetchLongShortRatio, fetchPerpKlinesRange } from '@/lib/binance-futures';
 import { GlobalSignal } from '@/lib/models/global-signal';
+import {
+  loadRatioPoints,
+  storeRatioPoints,
+} from '@/lib/models/lab-ratio-point';
 import { insertLabSignalOnce, LabSignal } from '@/lib/models/lab-signal';
 import { RvSignal } from '@/lib/models/rv-signal';
 import { connectDB } from '@/lib/mongodb';
@@ -33,7 +37,9 @@ import {
   L2_V8_CONFIG_VERSION,
   L2_V8_STYLE,
   L3_BARS,
+  L4_LAG_MS,
   L4_PERIOD,
+  L4_PERIOD_MS,
   L4_POINTS,
   LAB_TIMEFRAME_MS,
   LAB_VERSION,
@@ -53,6 +59,8 @@ import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 export interface LabJobDeps {
   fetchPerpKlinesRange: typeof fetchPerpKlinesRange;
   fetchLongShortRatio: typeof fetchLongShortRatio;
+  storeRatioPoints?: typeof storeRatioPoints;
+  loadRatioPoints?: typeof loadRatioPoints;
   /** Wall clock in ms, read immediately before each write. */
   clock: () => number;
 }
@@ -60,6 +68,8 @@ export interface LabJobDeps {
 export const defaultLabJobDeps: LabJobDeps = {
   fetchPerpKlinesRange,
   fetchLongShortRatio,
+  storeRatioPoints,
+  loadRatioPoints,
   clock: () => Date.now(),
 };
 
@@ -95,9 +105,11 @@ export async function runLabSignals8h(
 ): Promise<LabSignalsReport> {
   await connectDB();
   const isFinal = opts?.final ?? false;
-  const d: LabJobDeps = {
+  const d = {
     fetchPerpKlinesRange: deps?.fetchPerpKlinesRange ?? defaultLabJobDeps.fetchPerpKlinesRange,
     fetchLongShortRatio: deps?.fetchLongShortRatio ?? defaultLabJobDeps.fetchLongShortRatio,
+    storeRatioPoints: deps?.storeRatioPoints ?? defaultLabJobDeps.storeRatioPoints ?? storeRatioPoints,
+    loadRatioPoints: deps?.loadRatioPoints ?? defaultLabJobDeps.loadRatioPoints ?? loadRatioPoints,
     clock: deps?.clock ?? defaultLabJobDeps.clock,
   };
 
@@ -213,6 +225,9 @@ export async function runLabSignals8h(
   if (l4Exists) {
     report.waiting.push({ hypothesis: 'L4-8h', barClose: T, reason: 'exists' });
   } else {
+    const cutoff = T - L4_LAG_MS;
+    const fromTs = cutoff - (L4_POINTS + 1) * L4_PERIOD_MS;
+
     const l4Settled = await Promise.allSettled(
       SIGNAL_SYMBOLS.map((symbol) =>
         d.fetchLongShortRatio(symbol, L4_PERIOD, L4_POINTS + 2)
@@ -220,24 +235,46 @@ export async function runLabSignals8h(
     );
 
     const pointsBySymbol: Record<string, RatioPoint[] | undefined> = {};
+    const fetchedBySymbol: Record<string, RatioPoint[]> = {};
     const l4Errors: Record<string, string> = {};
 
     for (let i = 0; i < SIGNAL_SYMBOLS.length; i++) {
       const symbol = SIGNAL_SYMBOLS[i];
       const res = l4Settled[i];
       if (res.status === 'fulfilled') {
-        const points: RatioPoint[] = res.value.map((p) => ({
+        fetchedBySymbol[symbol] = res.value.map((p) => ({
           timestamp: p.timestamp,
           longShortRatio: p.longShortRatio,
         }));
-        pointsBySymbol[symbol] = points;
       } else {
-        pointsBySymbol[symbol] = undefined;
         const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
         l4Errors[symbol] = msg;
         report.errors.push(msg);
       }
     }
+
+    await Promise.all(
+      SIGNAL_SYMBOLS.map(async (symbol) => {
+        const fetched = fetchedBySymbol[symbol];
+        if (fetched !== undefined) {
+          await d.storeRatioPoints(symbol, L4_PERIOD, fetched, new Date(d.clock()));
+          const stored = await d.loadRatioPoints(symbol, L4_PERIOD, fromTs, cutoff);
+          const pointMap = new Map<number, RatioPoint>();
+          for (const p of stored) {
+            pointMap.set(p.timestamp, p);
+          }
+          for (const p of fetched) {
+            pointMap.set(p.timestamp, p);
+          }
+          pointsBySymbol[symbol] = Array.from(pointMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+        } else if (isFinal) {
+          const stored = await d.loadRatioPoints(symbol, L4_PERIOD, fromTs, cutoff);
+          pointsBySymbol[symbol] = stored.length > 0 ? stored : undefined;
+        } else {
+          pointsBySymbol[symbol] = undefined;
+        }
+      })
+    );
 
     const hasL4Errors = Object.keys(l4Errors).length > 0;
     if (hasL4Errors && !isFinal) {
@@ -249,7 +286,42 @@ export async function runLabSignals8h(
       } else {
         const w = d.clock();
         const late = w > T + D;
-        const inputs = { points: l4ScoreInputs, errors: l4Errors };
+
+        const pointsInputs: Record<string, { z: number; latestTimestamp: number; storedPoints: number }> = {};
+        for (const [symbol, l4Input] of Object.entries(l4ScoreInputs)) {
+          const points = pointsBySymbol[symbol] ?? [];
+          const kept = points.filter((p) => p.timestamp <= cutoff);
+          const window = kept.slice(-L4_POINTS);
+          const fetchedSet = new Set((fetchedBySymbol[symbol] ?? []).map((p) => p.timestamp));
+          const storedPoints = window.filter((p) => !fetchedSet.has(p.timestamp)).length;
+          pointsInputs[symbol] = {
+            ...l4Input,
+            storedPoints,
+          };
+        }
+
+        const windowSizes: Record<string, number> = {};
+        for (const skip of result.skipped) {
+          const points = pointsBySymbol[skip.symbol];
+          if (!points) {
+            windowSizes[skip.symbol] = 0;
+          } else {
+            const pointMap = new Map<number, RatioPoint>();
+            for (const p of points) {
+              if (p.timestamp <= cutoff) {
+                pointMap.set(p.timestamp, p);
+              }
+            }
+            windowSizes[skip.symbol] = pointMap.size;
+          }
+        }
+
+        const inputs = {
+          points: pointsInputs,
+          windowSizes,
+          errors: l4Errors,
+        };
+
         const res = await insertLabSignalOnce({
           version: LAB_VERSION,
           hypothesis: 'L4-8h',
@@ -286,9 +358,11 @@ export async function runLabSignalsFast(
   deps: LabJobDeps = defaultLabJobDeps
 ): Promise<LabSignalsReport> {
   await connectDB();
-  const d: LabJobDeps = {
+  const d = {
     fetchPerpKlinesRange: deps?.fetchPerpKlinesRange ?? defaultLabJobDeps.fetchPerpKlinesRange,
     fetchLongShortRatio: deps?.fetchLongShortRatio ?? defaultLabJobDeps.fetchLongShortRatio,
+    storeRatioPoints: deps?.storeRatioPoints ?? defaultLabJobDeps.storeRatioPoints ?? storeRatioPoints,
+    loadRatioPoints: deps?.loadRatioPoints ?? defaultLabJobDeps.loadRatioPoints ?? loadRatioPoints,
     clock: deps?.clock ?? defaultLabJobDeps.clock,
   };
 
