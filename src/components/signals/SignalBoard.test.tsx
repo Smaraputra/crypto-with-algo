@@ -2,12 +2,17 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SignalBoard } from './SignalBoard';
-import type { LabResponse } from '@/lib/signals/lab/view';
+import type { LabResponse, LabV2Response } from '@/lib/signals/lab/view';
 
 const mockUseSignalLab = vi.fn();
+const mockUseSignalLabV2 = vi.fn();
 
 vi.mock('@/hooks/useSignalLab', () => ({
   useSignalLab: () => mockUseSignalLab(),
+}));
+
+vi.mock('@/hooks/useSignalLabV2', () => ({
+  useSignalLabV2: () => mockUseSignalLabV2(),
 }));
 
 function createFixture(): LabResponse {
@@ -224,9 +229,71 @@ function createFixture(): LabResponse {
   };
 }
 
+function createV2Fixture(): LabV2Response {
+  return {
+    version: 'lab-v2',
+    threshold: 400,
+    hypotheses: [
+      {
+        id: 'N2-1w',
+        candidate: 'N2',
+        timeframe: '1w',
+        status: 'under_test',
+        underTestSince: '2026-10-19T00:00:00.000Z',
+        testEndsAt: '2028-10-19T00:00:00.000Z',
+        validatedAt: null,
+        gradedBars: 20,
+        betBars: 18,
+        e: 2.45,
+        threshold: 400,
+        absorbed: false,
+        meanNetReturn: 0.005,
+        lastNetReturn: 0.006,
+        scale: 0.13,
+        latestBar: {
+          barClose: '2026-10-19T00:00:00.000Z',
+          late: false,
+          positions: [{ symbol: 'BTCUSDT', weight: 0.32 }],
+          cash: false,
+        },
+      },
+      {
+        id: 'N3-1d',
+        candidate: 'N3',
+        timeframe: '1d',
+        status: 'under_test',
+        underTestSince: '2026-10-19T00:00:00.000Z',
+        testEndsAt: '2028-10-19T00:00:00.000Z',
+        validatedAt: null,
+        gradedBars: 60,
+        betBars: 50,
+        e: 3.12,
+        threshold: 400,
+        absorbed: false,
+        meanNetReturn: 0.01,
+        lastNetReturn: 0.012,
+        scale: 0.8,
+        latestBar: {
+          barClose: '2026-10-19T00:00:00.000Z',
+          late: false,
+          positions: [{ symbol: 'BTCUSDT', weight: 1 }],
+          cash: false,
+        },
+      },
+    ],
+  };
+}
+
 describe('SignalBoard', () => {
   beforeEach(() => {
     mockUseSignalLab.mockReset();
+    mockUseSignalLabV2.mockReset();
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createV2Fixture(),
+    });
   });
 
   it('renders loading state with status role', () => {
@@ -437,5 +504,25 @@ describe('SignalBoard', () => {
 
     const board = screen.getByTestId('signal-lab-board');
     expect(board.textContent).not.toMatch(/[;–—]/);
+  });
+
+  it('renders the lab-v2 section', () => {
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createFixture(),
+    });
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createV2Fixture(),
+    });
+    render(<SignalBoard />);
+
+    expect(screen.getByText('Forward lab, lab-v2 (Round 1 survivors)')).toBeInTheDocument();
+    expect(screen.getByText('N2 weekly ridge')).toBeInTheDocument();
+    expect(screen.getByText('N3 value-area drift')).toBeInTheDocument();
   });
 });

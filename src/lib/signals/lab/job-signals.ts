@@ -44,7 +44,7 @@ import {
   LAB_TIMEFRAME_MS,
   LAB_VERSION,
   labDelayMs,
-  type LabTimeframe,
+  type LabTimeframeAny,
 } from '@/lib/signals/lab/candidates';
 import {
   type HourBar,
@@ -91,8 +91,13 @@ export interface LabSignalsReport {
   errors: string[];
 }
 
-/** The latest bar close at or before `now`: Math.floor(now / Δ) * Δ. 1d closes fall on 00:00 UTC. */
-export function latestClose(now: number, tf: LabTimeframe): number {
+/** The latest bar close at or before `now`: Math.floor(now / Δ) * Δ. 1d closes fall on 00:00 UTC, 1w closes on Monday 00:00 UTC. */
+export function latestClose(now: number, tf: LabTimeframeAny): number {
+  if (tf === '1w') {
+    const WEEK = LAB_TIMEFRAME_MS['1w'];
+    const MONDAY_OFFSET = 4 * 86_400_000;
+    return Math.floor((now - MONDAY_OFFSET) / WEEK) * WEEK + MONDAY_OFFSET;
+  }
   const delta = LAB_TIMEFRAME_MS[tf];
   return Math.floor(now / delta) * delta;
 }

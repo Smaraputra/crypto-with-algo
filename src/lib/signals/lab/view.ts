@@ -1,3 +1,5 @@
+import type { LabCandidateId, LabTimeframeAny } from './candidates';
+
 export type LabStatus = 'not_started' | 'under_test' | 'validated' | 'not_shown';
 
 export interface LabCoinView {
@@ -11,8 +13,8 @@ export interface LabCoinView {
 
 export interface LabHypothesisView {
   id: string;
-  candidate: 'L1' | 'L2' | 'L3' | 'L4';
-  timeframe: '5m' | '15m' | '1h' | '4h' | '8h' | '1d';
+  candidate: LabCandidateId;
+  timeframe: LabTimeframeAny;
   status: LabStatus;
   /** ISO time of the first graded bar, null before one exists. */
   underTestSince: string | null;
@@ -39,6 +41,36 @@ export interface LabResponse {
   version: 'lab-v1';
   threshold: number;
   hypotheses: LabHypothesisView[];
+}
+
+export interface LabV2HypothesisView {
+  id: string;
+  candidate: 'N2' | 'N3';
+  timeframe: '1w' | '1d';
+  status: LabStatus;
+  underTestSince: string | null;
+  testEndsAt: string | null;
+  validatedAt: string | null;
+  gradedBars: number;
+  betBars: number;
+  e: number;
+  threshold: number;
+  absorbed: boolean;
+  meanNetReturn: number | null;
+  lastNetReturn: number | null;
+  scale: number;
+  latestBar: {
+    barClose: string;
+    late: boolean;
+    positions: { symbol: string; weight: number }[];
+    cash: boolean;
+  } | null;
+}
+
+export interface LabV2Response {
+  version: 'lab-v2';
+  threshold: number;
+  hypotheses: LabV2HypothesisView[];
 }
 
 /** 'validated' when crossedAt is set, 'not_shown' when now is past testEndsAt, 'under_test' with a graded bar, else 'not_started'. */

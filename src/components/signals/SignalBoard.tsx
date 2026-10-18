@@ -13,6 +13,7 @@ import {
   type LabTimeframe,
 } from '@/lib/signals/lab/candidates';
 import type { LabHypothesisView, LabStatus } from '@/lib/signals/lab/view';
+import { LabV2Section } from './LabV2Section';
 
 const L2_TIMEFRAMES: readonly LabTimeframe[] = ['5m', '15m', '1h', '4h', '1d'];
 
@@ -22,12 +23,12 @@ const SECTION3_HYPOTHESES: readonly { candidate: LabCandidateId; timeframe: LabT
   { candidate: 'L4', timeframe: '8h' },
 ];
 
-function formatDate(iso: string | null): string {
+export function formatDate(iso: string | null): string {
   if (!iso) return '';
   return new Date(iso).toISOString().slice(0, 10);
 }
 
-function formatUtc(iso: string | null | undefined): string {
+export function formatUtc(iso: string | null | undefined): string {
   if (!iso) return 'n/a';
   try {
     return `${new Date(iso).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
@@ -36,7 +37,12 @@ function formatUtc(iso: string | null | undefined): string {
   }
 }
 
-function getStatusText(hyp: LabHypothesisView): string {
+export function getStatusText(hyp: {
+  status: LabStatus;
+  underTestSince: string | null;
+  validatedAt: string | null;
+  testEndsAt: string | null;
+}): string {
   switch (hyp.status) {
     case 'not_started':
       return 'Not started';
@@ -95,7 +101,7 @@ function getScoreTone(rank: number, totalCoins: number): string {
   return 'text-foreground';
 }
 
-function formatE(e: number | null | undefined): string {
+export function formatE(e: number | null | undefined): string {
   if (e === null || e === undefined || Number.isNaN(e)) return 'n/a';
   if (e < 10) return e.toFixed(2);
   if (e < 100) return e.toFixed(1);
@@ -114,7 +120,7 @@ function format3(val: number | null | undefined): string {
 }
 
 // The meter is the board's one accent, and the log scale is how the e-process accumulates evidence, so equal widths mean equal evidence.
-function meterFillPercent(e: number, threshold: number, status: LabStatus): number {
+export function meterFillPercent(e: number, threshold: number, status: LabStatus): number {
   if (status === 'not_started' || e <= 1) {
     return 0;
   }
@@ -122,6 +128,43 @@ function meterFillPercent(e: number, threshold: number, status: LabStatus): numb
   const ratio = Math.log(e) / Math.log(maxThreshold);
   const clamped = Math.min(1, Math.max(0, ratio));
   return clamped * 100;
+}
+
+export function LabMeter({
+  name,
+  e,
+  threshold,
+  status,
+}: {
+  name: string;
+  e: number;
+  threshold: number;
+  status: LabStatus;
+}) {
+  const fillWidth = meterFillPercent(e, threshold, status);
+  return (
+    <div
+      role="meter"
+      aria-valuemin={0}
+      aria-valuemax={threshold}
+      aria-valuenow={Number(e.toFixed(2))}
+      aria-valuetext={`E ${formatE(e)} of ${threshold}`}
+      aria-label={`e-value of ${name}`}
+      className="mt-2.5 h-1 w-full rounded-full bg-muted overflow-hidden"
+    >
+      <div
+        className={cn(
+          'h-full',
+          status === 'validated'
+            ? 'bg-bullish'
+            : status === 'under_test'
+              ? 'bg-accent'
+              : ''
+        )}
+        style={{ width: `${fillWidth}%` }}
+      />
+    </div>
+  );
 }
 
 function BoardHeader({ titleId }: { titleId: string }) {
@@ -193,40 +236,46 @@ export function SignalBoard() {
 
   if (isLoading) {
     return (
-      <Card
-        data-testid="signal-lab-board"
-        aria-labelledby={titleId}
-        className="gap-4 py-4 sm:gap-5 sm:py-5"
-      >
-        <CardContent className="space-y-4 px-4 sm:space-y-5 sm:px-6">
-          <BoardHeader titleId={titleId} />
-          <p role="status" className="text-sm text-muted-foreground">
-            Loading the lab record.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Card
+          data-testid="signal-lab-board"
+          aria-labelledby={titleId}
+          className="gap-4 py-4 sm:gap-5 sm:py-5"
+        >
+          <CardContent className="space-y-4 px-4 sm:space-y-5 sm:px-6">
+            <BoardHeader titleId={titleId} />
+            <p role="status" className="text-sm text-muted-foreground">
+              Loading the lab record.
+            </p>
+          </CardContent>
+        </Card>
+        <LabV2Section />
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Card
-        data-testid="signal-lab-board"
-        aria-labelledby={titleId}
-        className="gap-4 py-4 sm:gap-5 sm:py-5"
-      >
-        <CardContent className="space-y-4 px-4 sm:space-y-5 sm:px-6">
-          <BoardHeader titleId={titleId} />
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm text-destructive">
-              Could not load the lab record: {error.message}.
-            </p>
-            <Button variant="outline" size="xs" onClick={() => void refetch()}>
-              Retry
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Card
+          data-testid="signal-lab-board"
+          aria-labelledby={titleId}
+          className="gap-4 py-4 sm:gap-5 sm:py-5"
+        >
+          <CardContent className="space-y-4 px-4 sm:space-y-5 sm:px-6">
+            <BoardHeader titleId={titleId} />
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-destructive">
+                Could not load the lab record: {error.message}.
+              </p>
+              <Button variant="outline" size="xs" onClick={() => void refetch()}>
+                Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        <LabV2Section />
+      </div>
     );
   }
 
@@ -237,18 +286,21 @@ export function SignalBoard() {
 
   if (isNothingRecorded) {
     return (
-      <Card
-        data-testid="signal-lab-board"
-        aria-labelledby={titleId}
-        className="gap-4 py-4 sm:gap-5 sm:py-5"
-      >
-        <CardContent className="space-y-4 px-4 sm:space-y-5 sm:px-6">
-          <BoardHeader titleId={titleId} />
-          <p className="text-sm text-muted-foreground">
-            No lab bar has been recorded yet. The jobs write L2 within minutes of each 5m to 1d close, and L1, L3 and L4 at 00:03, 08:03 and 16:03 UTC.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        <Card
+          data-testid="signal-lab-board"
+          aria-labelledby={titleId}
+          className="gap-4 py-4 sm:gap-5 sm:py-5"
+        >
+          <CardContent className="space-y-4 px-4 sm:space-y-5 sm:px-6">
+            <BoardHeader titleId={titleId} />
+            <p className="text-sm text-muted-foreground">
+              No lab bar has been recorded yet. The jobs write L2 within minutes of each 5m to 1d close, and L1, L3 and L4 at 00:03, 08:03 and 16:03 UTC.
+            </p>
+          </CardContent>
+        </Card>
+        <LabV2Section />
+      </div>
     );
   }
 
@@ -281,11 +333,12 @@ export function SignalBoard() {
   const orderedHypotheses = [...mappedHypotheses, ...otherHypotheses];
 
   return (
-    <Card
-      data-testid="signal-lab-board"
-      aria-labelledby={titleId}
-      className="gap-4 py-4 sm:gap-5 sm:py-5"
-    >
+    <div className="space-y-6">
+      <Card
+        data-testid="signal-lab-board"
+        aria-labelledby={titleId}
+        className="gap-4 py-4 sm:gap-5 sm:py-5"
+      >
       <CardContent className="space-y-5 px-4 sm:px-6">
         <BoardHeader titleId={titleId} />
 
@@ -456,7 +509,6 @@ export function SignalBoard() {
           <ul className="space-y-2">
             {orderedHypotheses.map((hyp) => {
               const name = hypothesisName(hyp.candidate, hyp.timeframe);
-              const fillWidth = meterFillPercent(hyp.e, hyp.threshold ?? 800, hyp.status);
               const thresholdVal = hyp.threshold ?? 800;
 
               return (
@@ -491,27 +543,12 @@ export function SignalBoard() {
                       </span>
                     </div>
                   </div>
-                  <div
-                    role="meter"
-                    aria-valuemin={0}
-                    aria-valuemax={thresholdVal}
-                    aria-valuenow={Number(hyp.e.toFixed(2))}
-                    aria-valuetext={`E ${formatE(hyp.e)} of ${thresholdVal}`}
-                    aria-label={`e-value of ${name}`}
-                    className="mt-2.5 h-1 w-full rounded-full bg-muted overflow-hidden"
-                  >
-                    <div
-                      className={cn(
-                        'h-full',
-                        hyp.status === 'validated'
-                          ? 'bg-bullish'
-                          : hyp.status === 'under_test'
-                            ? 'bg-accent'
-                            : ''
-                      )}
-                      style={{ width: `${fillWidth}%` }}
-                    />
-                  </div>
+                  <LabMeter
+                    name={name}
+                    e={hyp.e}
+                    threshold={thresholdVal}
+                    status={hyp.status}
+                  />
                 </li>
               );
             })}
@@ -569,5 +606,7 @@ export function SignalBoard() {
         </section>
       </CardContent>
     </Card>
+    <LabV2Section />
+  </div>
   );
 }
