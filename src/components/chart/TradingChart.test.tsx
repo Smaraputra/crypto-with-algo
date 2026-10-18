@@ -90,31 +90,41 @@ class MockResizeObserver {
 }
 vi.stubGlobal('ResizeObserver', MockResizeObserver);
 
-// Mock WebSocket
-class MockWebSocket {
-  static instances: MockWebSocket[] = [];
-  url: string;
-  onopen: ((e: Event) => void) | null = null;
-  onclose: ((e: Event) => void) | null = null;
-  onmessage: ((e: MessageEvent) => void) | null = null;
-  readyState = 0;
+const { mockUnsub, captured, mockStreamClient, mockStreamStatus } = vi.hoisted(() => {
+  const unsub = vi.fn();
+  const captured: Array<{ streams: readonly string[]; onFrame: (frame: unknown) => void }> = [];
+  const mockStreamClient = {
+    subscribe: vi.fn((streams: readonly string[], onFrame: (frame: unknown) => void) => {
+      captured.push({ streams, onFrame });
+      return unsub;
+    }),
+  };
+  const mockStreamStatus = {
+    status: 'connecting' as 'connecting' | 'live' | 'stale' | 'reconnecting' | 'offline',
+    lastMessageAt: null as number | null,
+    isConnected: false,
+    retry: vi.fn(),
+  };
+  return { mockUnsub: unsub, captured, mockStreamClient, mockStreamStatus };
+});
 
-  constructor(url: string) {
-    this.url = url;
-    MockWebSocket.instances.push(this);
-  }
+vi.mock('@/lib/market-stream/client', () => ({
+  getMarketStreamClient: () => mockStreamClient,
+}));
 
-  close = vi.fn();
-
-  static resetMock() {
-    MockWebSocket.instances = [];
-  }
-}
-vi.stubGlobal('WebSocket', MockWebSocket);
+vi.mock('@/hooks/useMarketStream', () => ({
+  useMarketStreamStatus: () => mockStreamStatus,
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  MockWebSocket.resetMock();
+  mockUnsub.mockClear();
+  mockStreamClient.subscribe.mockClear();
+  captured.length = 0;
+  mockStreamStatus.status = 'connecting';
+  mockStreamStatus.lastMessageAt = null;
+  mockStreamStatus.isConnected = false;
+  mockStreamStatus.retry = vi.fn();
   // Mock getBoundingClientRect to return valid dimensions
   Element.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
     width: 800,
@@ -246,6 +256,17 @@ describe('TradingChart', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
       expect(screen.getByText('Connecting')).toBeInTheDocument();
+    });
+
+    it('shows Stale and Retry live data button when status is stale, clicking calls retry', () => {
+      mockStreamStatus.status = 'stale';
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(screen.getByText('Stale')).toBeInTheDocument();
+      const retryButton = screen.getByRole('button', { name: 'Retry live data' });
+      expect(retryButton).toBeInTheDocument();
+      fireEvent.click(retryButton);
+      expect(mockStreamStatus.retry).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -647,15 +668,17 @@ describe('TradingChart', () => {
       expect(mockDispose).toHaveBeenCalled();
     });
 
-    it('closes WebSocket on unmount', () => {
-      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
-
-      // If subscribeBar was called by the DataLoader, a WS would have been created
-      // The cleanup should close it
+    it('unsubscribes the live stream on unmount', () => {
       const { unmount } = render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const loader = mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: vi.fn(),
+      });
+      expect(mockUnsub).not.toHaveBeenCalled();
       unmount();
-
-      expect(mockDispose).toHaveBeenCalled();
+      expect(mockUnsub).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -780,23 +803,36 @@ describe('TradingChart', () => {
         period: { type: 'hour', span: 1 },
         callback,
       });
-      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
-      return { loader, callback, ws };
+      const subscription = captured[captured.length - 1];
+      const onFrame = subscription?.onFrame;
+      return { loader, callback, onFrame, subscription };
     }
 
-    const kline = (over: Record<string, unknown> = {}) =>
-      JSON.stringify({
-        k: { t: 1000, o: '1', h: '2', l: '0.5', c: '1.5', v: '10', V: '4', x: false, ...over },
-      });
+    const kline = (over: Record<string, unknown> = {}) => ({
+      t: 1000,
+      o: '1',
+      h: '2',
+      l: '0.5',
+      c: '1.5',
+      v: '10',
+      V: '4',
+      x: false,
+      ...over,
+    });
 
     beforeEach(() => useFormingBarStore.getState().reset());
 
     it('pushes a matching event and keeps the chart callback unchanged', () => {
-      const { callback, ws } = openStream();
-      ws.onmessage?.({ data: kline() } as MessageEvent);
+      const { callback, onFrame } = openStream();
+      onFrame?.({ stream: 'btcusdt@kline_1h', data: { k: kline() } });
 
       expect(callback).toHaveBeenCalledWith({
-        timestamp: 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10,
+        timestamp: 1000,
+        open: 1,
+        high: 2,
+        low: 0.5,
+        close: 1.5,
+        volume: 10,
       });
       const event = useFormingBarStore.getState().latest;
       expect(event).toMatchObject({
@@ -806,28 +842,69 @@ describe('TradingChart', () => {
         bar: { openTime: 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10, takerBuyVolume: 4 },
       });
       expect(event?.receivedAt).toBeTypeOf('number');
-      expect(MockWebSocket.instances).toHaveLength(1);
     });
 
     it('flags the final message as closed', () => {
-      const { ws } = openStream();
-      ws.onmessage?.({ data: kline({ x: true }) } as MessageEvent);
+      const { onFrame } = openStream();
+      onFrame?.({ stream: 'btcusdt@kline_1h', data: { k: kline({ x: true }) } });
       expect(useFormingBarStore.getState().latest?.closed).toBe(true);
     });
 
     it('does not push when a number is not finite, but still feeds the chart', () => {
-      const { callback, ws } = openStream();
-      ws.onmessage?.({ data: kline({ V: 'abc' }) } as MessageEvent);
+      const { callback, onFrame } = openStream();
+      onFrame?.({ stream: 'btcusdt@kline_1h', data: { k: kline({ V: 'abc' }) } });
       expect(callback).toHaveBeenCalledTimes(1);
       expect(useFormingBarStore.getState().latest).toBeNull();
     });
 
     it('resets the store on unsubscribeBar', () => {
-      const { loader, ws } = openStream();
-      ws.onmessage?.({ data: kline() } as MessageEvent);
+      const { loader, onFrame } = openStream();
+      onFrame?.({ stream: 'btcusdt@kline_1h', data: { k: kline() } });
       expect(useFormingBarStore.getState().latest).not.toBeNull();
       loader.unsubscribeBar();
       expect(useFormingBarStore.getState().latest).toBeNull();
+    });
+
+    it('the subscribed stream list is exactly [btcusdt@kline_1h]', () => {
+      const { subscription } = openStream();
+      expect(subscription.streams).toEqual(['btcusdt@kline_1h']);
+    });
+
+    it('a frame for ethusdt@kline_1h reaches neither the chart callback nor the store', () => {
+      const { callback, onFrame } = openStream();
+      onFrame?.({ stream: 'ethusdt@kline_1h', data: { k: kline() } });
+      expect(callback).not.toHaveBeenCalled();
+      expect(useFormingBarStore.getState().latest).toBeNull();
+    });
+
+    it('a second subscribeBar call unsubscribes the first before subscribing again', () => {
+      const { loader } = openStream();
+      expect(mockUnsub).not.toHaveBeenCalled();
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'minute', span: 5 },
+        callback: vi.fn(),
+      });
+      expect(mockUnsub).toHaveBeenCalledTimes(1);
+      expect(captured.at(-1)?.streams).toEqual(['btcusdt@kline_5m']);
+    });
+
+    it('subscribeBar with period: { type: "month", span: 1 } subscribes to btcusdt@kline_1M', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1M" />);
+      const loader = mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'month', span: 1 },
+        callback: vi.fn(),
+      });
+      expect(captured.at(-1)?.streams).toEqual(['btcusdt@kline_1M']);
+    });
+
+    it('unsubscribeBar calls unsub', () => {
+      const { loader } = openStream();
+      expect(mockUnsub).not.toHaveBeenCalled();
+      loader.unsubscribeBar();
+      expect(mockUnsub).toHaveBeenCalledTimes(1);
     });
   });
 });

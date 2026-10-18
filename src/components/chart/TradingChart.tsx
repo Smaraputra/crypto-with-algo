@@ -70,10 +70,20 @@ import type { CallMark } from '@/lib/signals/track-record/chart-data';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
-const DEFAULT_WS_BASE = 'wss://stream.binance.com:9443';
+import { getMarketStreamClient } from '@/lib/market-stream/client';
+import { klineStream } from '@/lib/market-stream/streams';
+import { useMarketStreamStatus } from '@/hooks/useMarketStream';
+import { StreamStatusBadge } from '@/components/market/StreamStatusBadge';
 
-function getBinanceWsBase(): string {
-  return process.env.NEXT_PUBLIC_BINANCE_WS_URL || DEFAULT_WS_BASE;
+interface BinanceKline {
+  t: number;
+  o: string;
+  h: string;
+  l: string;
+  c: string;
+  v: string;
+  V: string;
+  x: boolean;
 }
 
 export interface TradingChartProps {
@@ -250,11 +260,11 @@ export function TradingChart({
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
   const [indicators, setIndicators] = useState<IndicatorConfig[]>(DEFAULT_INDICATORS);
   const [isLoading, setIsLoading] = useState(true);
-  const [wsConnected, setWsConnected] = useState(false);
   const [crosshairData, setCrosshairData] = useState<KLineData | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [magnetMode, setMagnetMode] = useState<OverlayMode>('normal');
-  const wsRef = useRef<WebSocket | null>(null);
+  const klineUnsubRef = useRef<(() => void) | null>(null);
+  const { status: streamStatus, lastMessageAt, retry: retryStream } = useMarketStreamStatus();
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
   const onLoadedRangeRef = useRef(onLoadedRangeChange);
   const onVisibleRangeRef = useRef(onVisibleRangeChange);
@@ -523,23 +533,15 @@ export function TradingChart({
       },
       subscribeBar: (params: DataLoaderSubscribeBarParams) => {
         barCallbackRef.current = params.callback;
-        const sym = params.symbol.ticker.toLowerCase();
         const intv = periodToInterval(params.period);
-        const wsBase = getBinanceWsBase();
-        const url = `${wsBase}/ws/${sym}@kline_${intv}`;
-
-        if (wsRef.current) {
-          wsRef.current.close();
-        }
-
-        const ws = new WebSocket(url);
-        ws.onopen = () => setWsConnected(true);
-        ws.onclose = () => setWsConnected(false);
-        ws.onmessage = (event) => {
+        const stream = klineStream(params.symbol.ticker, intv);
+        klineUnsubRef.current?.();
+        klineUnsubRef.current = getMarketStreamClient().subscribe([stream], (frame) => {
           try {
-            const msg = JSON.parse(event.data);
-            const k = msg.k;
-            if (k && barCallbackRef.current) {
+            if (frame.stream !== stream) return;
+            const k = (frame.data as { k?: BinanceKline } | null)?.k;
+            if (!k) return;
+            if (barCallbackRef.current) {
               barCallbackRef.current({
                 timestamp: k.t,
                 open: parseFloat(k.o),
@@ -552,41 +554,35 @@ export function TradingChart({
                 reportLoadedRange();
               }
             }
-            if (k) {
-              // Market data for the provisional-signal overlay (never a score).
-              const bar = {
-                openTime: Number(k.t),
-                open: parseFloat(k.o),
-                high: parseFloat(k.h),
-                low: parseFloat(k.l),
-                close: parseFloat(k.c),
-                volume: parseFloat(k.v),
-                takerBuyVolume: parseFloat(k.V),
-              };
-              if (Object.values(bar).every(Number.isFinite)) {
-                useFormingBarStore.getState().push({
-                  symbol: params.symbol.ticker.toUpperCase(),
-                  interval: intv,
-                  bar,
-                  closed: k.x === true,
-                  receivedAt: Date.now(),
-                });
-              }
+            // Market data for the provisional-signal overlay (never a score).
+            const bar = {
+              openTime: Number(k.t),
+              open: parseFloat(k.o),
+              high: parseFloat(k.h),
+              low: parseFloat(k.l),
+              close: parseFloat(k.c),
+              volume: parseFloat(k.v),
+              takerBuyVolume: parseFloat(k.V),
+            };
+            if (Object.values(bar).every(Number.isFinite)) {
+              useFormingBarStore.getState().push({
+                symbol: params.symbol.ticker.toUpperCase(),
+                interval: intv,
+                bar,
+                closed: k.x === true,
+                receivedAt: Date.now(),
+              });
             }
           } catch {
-            // ignore parse errors
+            // ignore frame errors
           }
-        };
-        wsRef.current = ws;
+        });
       },
       unsubscribeBar: () => {
         barCallbackRef.current = null;
         useFormingBarStore.getState().reset();
-        if (wsRef.current) {
-          wsRef.current.close();
-          wsRef.current = null;
-        }
-        setWsConnected(false);
+        klineUnsubRef.current?.();
+        klineUnsubRef.current = null;
       },
     });
 
@@ -613,10 +609,8 @@ export function TradingChart({
     }
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      klineUnsubRef.current?.();
+      klineUnsubRef.current = null;
       if (container && chartRef.current) {
         dispose(container);
         chartRef.current = null;
@@ -945,29 +939,11 @@ export function TradingChart({
         </div>
 
         <div className="flex items-center gap-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div
-                  className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs border ${
-                    wsConnected
-                      ? 'border-bullish/30 bg-bullish/10 text-bullish'
-                      : 'border-accent/30 bg-accent/10 text-accent'
-                  }`}
-                >
-                  <div
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      wsConnected ? 'bg-bullish animate-pulse' : 'bg-accent'
-                    }`}
-                  />
-                  <span className="hidden font-medium sm:inline">
-                    {wsConnected ? 'Live' : 'Connecting'}
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">WebSocket connection status</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <StreamStatusBadge
+            status={streamStatus}
+            lastMessageAt={lastMessageAt}
+            onRetry={retryStream}
+          />
 
           <Button
             variant="ghost"
