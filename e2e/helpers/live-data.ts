@@ -266,3 +266,90 @@ export async function installFakeEventSource(
 export async function fakeEventSourceUrls(page: Page): Promise<string[]> {
   return page.evaluate(() => (window.__esUrls ? [...window.__esUrls] : []));
 }
+
+export function closedKlineFrame(
+  symbol: string,
+  interval: string,
+  closeTime: number,
+  close: number | string
+) {
+  const closeStr = typeof close === 'number' ? close.toFixed(2) : close;
+  const symbolUpper = symbol.toUpperCase();
+  const symbolLower = symbol.toLowerCase();
+  return {
+    stream: `${symbolLower}@kline_${interval}`,
+    data: {
+      e: 'kline',
+      s: symbolUpper,
+      k: {
+        t: closeTime - 59_999,
+        T: closeTime,
+        o: closeStr,
+        h: closeStr,
+        l: closeStr,
+        c: closeStr,
+        v: '100',
+        V: '50',
+        x: true,
+      },
+    },
+  };
+}
+
+export async function mockLevels(
+  page: Page,
+  levels: Record<
+    string,
+    {
+      high: number;
+      low: number;
+      close: number;
+      atr: number;
+      dayStart: number;
+    } | null
+  >,
+  opts?: { fail?: boolean }
+): Promise<void> {
+  await page.route('**/api/market/levels**', async (route) => {
+    if (opts?.fail) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Failed' }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        asOf: new Date().toISOString(),
+        levels,
+      }),
+    });
+  });
+}
+
+export async function mockLab(
+  page: Page,
+  body: unknown,
+  opts?: { fail?: boolean }
+): Promise<void> {
+  await page.route('**/api/signals/lab', async (route) => {
+    if (opts?.fail) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Failed' }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+  });
+}

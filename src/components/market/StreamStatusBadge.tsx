@@ -48,7 +48,7 @@ const STATUS_CONFIG: Record<
   live: {
     label: 'Live',
     colorClasses: 'border-bullish/30 bg-bullish/10 text-bullish',
-    dot: 'bg-bullish animate-pulse',
+    dot: 'bg-bullish',
   },
   stale: {
     label: 'Stale',

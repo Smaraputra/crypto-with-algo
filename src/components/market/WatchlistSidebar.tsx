@@ -13,7 +13,25 @@ import {
 import { cn } from '@/lib/utils';
 import { useWatchlist } from '@/hooks/useWatchlist';
 import { useBinanceTicker } from '@/hooks/useBinanceStream';
+import { useDailyLevels } from '@/hooks/useDailyLevels';
+import {
+  levelLabel,
+  levelProximity,
+  type LevelProximity,
+  type PriorDayLevels,
+} from '@/lib/market/levels';
 import { useUIStore } from '@/stores/uiStore';
+
+function levelTitle(proximity: LevelProximity, levels: PriorDayLevels): string {
+  const levelPrice = levels[proximity.level];
+  const formattedPrice = levelPrice.toLocaleString(undefined, { maximumFractionDigits: 8 });
+  if (proximity.distanceAtr === 0) {
+    return `At the prior UTC day's ${proximity.level} (${formattedPrice}). Descriptive only, not a signal.`;
+  }
+  const direction = proximity.distanceAtr < 0 ? 'below' : 'above';
+  const atrDistance = Math.abs(proximity.distanceAtr).toFixed(1);
+  return `${atrDistance} daily ATR ${direction} the prior UTC day's ${proximity.level} (${formattedPrice}). Descriptive only, not a signal.`;
+}
 
 const POPULAR_SYMBOLS = [
   'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
@@ -24,6 +42,7 @@ const POPULAR_SYMBOLS = [
 export function WatchlistSidebar() {
   const { symbols, isLoading, addSymbol, removeSymbol } = useWatchlist();
   const { tickers } = useBinanceTicker(symbols);
+  const { data: levelsData } = useDailyLevels(symbols);
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
   const setSelectedSymbol = useUIStore((s) => s.setSelectedSymbol);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
@@ -101,6 +120,9 @@ export function WatchlistSidebar() {
         const ticker = tickers[symbol];
         const changePercent = ticker ? parseFloat(ticker.priceChangePercent) : 0;
         const isBullish = changePercent >= 0;
+        const levels = levelsData?.levels[symbol] ?? null;
+        const proximity =
+          ticker && levels ? levelProximity(parseFloat(ticker.lastPrice), levels) : null;
 
         return (
           <div
@@ -115,7 +137,7 @@ export function WatchlistSidebar() {
               }
             }}
             className={cn(
-              'group flex w-full cursor-pointer items-center justify-between rounded-sm px-2 py-1.5 text-left transition-colors',
+              'group flex min-h-[2.75rem] w-full cursor-pointer items-center justify-between rounded-sm px-2 py-1.5 text-left transition-colors',
               'hover:bg-sidebar-accent',
               selectedSymbol === symbol && 'bg-sidebar-accent'
             )}
@@ -125,6 +147,20 @@ export function WatchlistSidebar() {
               {ticker && (
                 <span className="price-sm text-xs text-muted-foreground">
                   ${parseFloat(ticker.lastPrice).toLocaleString()}
+                </span>
+              )}
+              {proximity && levels && (
+                <span
+                  data-testid={`level-${symbol}`}
+                  className={cn(
+                    'font-mono tabular-nums text-[10px] leading-tight',
+                    proximity.near ? 'text-foreground' : 'text-muted-foreground/70'
+                  )}
+                  title={levelTitle(proximity, levels)}
+                >
+                  {proximity.distanceAtr === 0
+                    ? `${levelLabel(proximity.level)} at`
+                    : `${levelLabel(proximity.level)} ${Math.abs(proximity.distanceAtr).toFixed(1)} ATR ${proximity.distanceAtr < 0 ? 'below' : 'above'}`}
                 </span>
               )}
             </div>
@@ -142,7 +178,8 @@ export function WatchlistSidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                aria-label={`Remove ${symbol.replace('USDT', '')} from watchlist`}
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
                   removeSymbol(symbol);

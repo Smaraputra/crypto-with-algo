@@ -19,6 +19,17 @@ vi.mock('@/hooks/useBinanceStream', () => ({
   useBinanceTicker: () => ({ tickers: mockTickers }),
 }));
 
+let mockLevelsData:
+  | {
+      asOf: string;
+      levels: Record<string, import('@/lib/market/levels').PriorDayLevels | null>;
+    }
+  | undefined = undefined;
+
+vi.mock('@/hooks/useDailyLevels', () => ({
+  useDailyLevels: () => ({ data: mockLevelsData }),
+}));
+
 let mockSelectedSymbol = 'BTCUSDT';
 const mockSetSelectedSymbol = vi.fn();
 const mockSetMobileSidebarOpen = vi.fn();
@@ -38,6 +49,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockWatchlistData = { symbols: ['BTCUSDT', 'ETHUSDT'], isLoading: false };
   mockTickers = {};
+  mockLevelsData = undefined;
   mockSelectedSymbol = 'BTCUSDT';
 });
 
@@ -138,5 +150,106 @@ describe('WatchlistSidebar', () => {
       btn.className.includes('h-6') && btn.className.includes('w-6')
     );
     expect(addButton).toBeDefined();
+  });
+
+  it('renders level proximity with text-foreground when near level', () => {
+    mockTickers = {
+      BTCUSDT: { lastPrice: '108', priceChangePercent: '1.0' },
+    };
+    mockLevelsData = {
+      asOf: '2026-10-18T00:00:00.000Z',
+      levels: {
+        BTCUSDT: {
+          high: 110,
+          low: 90,
+          close: 100,
+          atr: 20,
+          dayStart: 1776470400000,
+        },
+      },
+    };
+    render(<WatchlistSidebar />);
+    const levelEl = screen.getByTestId('level-BTCUSDT');
+    expect(levelEl).toHaveTextContent('Prev high 0.1 ATR below');
+    expect(levelEl.className).toContain('text-foreground');
+    expect(levelEl).toHaveAttribute(
+      'title',
+      "0.1 daily ATR below the prior UTC day's high (110). Descriptive only, not a signal."
+    );
+  });
+
+  it('renders level proximity with text-muted-foreground/70 when far from level', () => {
+    mockTickers = {
+      BTCUSDT: { lastPrice: '300', priceChangePercent: '1.0' },
+    };
+    mockLevelsData = {
+      asOf: '2026-10-18T00:00:00.000Z',
+      levels: {
+        BTCUSDT: {
+          high: 110,
+          low: 90,
+          close: 100,
+          atr: 20,
+          dayStart: 1776470400000,
+        },
+      },
+    };
+    render(<WatchlistSidebar />);
+    const levelEl = screen.getByTestId('level-BTCUSDT');
+    expect(levelEl).toHaveTextContent('Prev high 9.5 ATR above');
+    expect(levelEl.className).toContain('text-muted-foreground/70');
+    expect(levelEl).toHaveAttribute(
+      'title',
+      "9.5 daily ATR above the prior UTC day's high (110). Descriptive only, not a signal."
+    );
+  });
+
+  it('renders no level element when levels are null for the symbol', () => {
+    mockTickers = {
+      BTCUSDT: { lastPrice: '108', priceChangePercent: '1.0' },
+    };
+    mockLevelsData = {
+      asOf: '2026-10-18T00:00:00.000Z',
+      levels: {
+        BTCUSDT: null,
+      },
+    };
+    render(<WatchlistSidebar />);
+    expect(screen.queryByTestId('level-BTCUSDT')).toBeNull();
+  });
+
+  it('renders at text when distanceAtr is exactly 0', () => {
+    mockTickers = {
+      BTCUSDT: { lastPrice: '100', priceChangePercent: '0.0' },
+    };
+    mockLevelsData = {
+      asOf: '2026-10-18T00:00:00.000Z',
+      levels: {
+        BTCUSDT: {
+          high: 110,
+          low: 90,
+          close: 100,
+          atr: 20,
+          dayStart: 1776470400000,
+        },
+      },
+    };
+    render(<WatchlistSidebar />);
+    const levelEl = screen.getByTestId('level-BTCUSDT');
+    expect(levelEl).toHaveTextContent('Prev close at');
+    expect(levelEl.className).toContain('text-foreground');
+    expect(levelEl).toHaveAttribute(
+      'title',
+      "At the prior UTC day's close (100). Descriptive only, not a signal."
+    );
+  });
+
+  it('has accessible name for remove button and clicking it calls removeSymbol without selecting symbol', () => {
+    render(<WatchlistSidebar />);
+    const removeBtn = screen.getByRole('button', { name: 'Remove BTC from watchlist' });
+    expect(removeBtn).toBeInTheDocument();
+    fireEvent.click(removeBtn);
+    expect(mockRemoveSymbol).toHaveBeenCalledWith('BTCUSDT');
+    expect(mockSetSelectedSymbol).not.toHaveBeenCalled();
   });
 });
