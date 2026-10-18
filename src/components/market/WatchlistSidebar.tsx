@@ -26,7 +26,7 @@ function levelTitle(proximity: LevelProximity, levels: PriorDayLevels): string {
   const levelPrice = levels[proximity.level];
   const formattedPrice = levelPrice.toLocaleString(undefined, { maximumFractionDigits: 8 });
   if (proximity.distanceAtr === 0) {
-    return `at the prior UTC day's ${proximity.level} (${formattedPrice}). Descriptive only, not a signal.`;
+    return `At the prior UTC day's ${proximity.level} (${formattedPrice}). Descriptive only, not a signal.`;
   }
   const direction = proximity.distanceAtr < 0 ? 'below' : 'above';
   const atrDistance = Math.abs(proximity.distanceAtr).toFixed(1);

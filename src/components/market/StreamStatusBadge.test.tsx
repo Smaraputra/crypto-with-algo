@@ -184,4 +184,19 @@ describe('StreamStatusBadge', () => {
     const sentence = statusSentence('live', timestamp);
     expect(sentence).toContain('12:01:05 UTC');
   });
+
+  it('renders live dot without animate-pulse', () => {
+    render(
+      <StreamStatusBadge
+        status="live"
+        lastMessageAt={null}
+        onRetry={vi.fn()}
+      />
+    );
+    const pill = screen.getByRole('status');
+    const dot = pill.querySelector('.rounded-full');
+    expect(dot).toBeInTheDocument();
+    expect(dot).toHaveClass('bg-bullish');
+    expect(dot).not.toHaveClass('animate-pulse');
+  });
 });

@@ -240,7 +240,7 @@ describe('WatchlistSidebar', () => {
     expect(levelEl.className).toContain('text-foreground');
     expect(levelEl).toHaveAttribute(
       'title',
-      "at the prior UTC day's close (100). Descriptive only, not a signal."
+      "At the prior UTC day's close (100). Descriptive only, not a signal."
     );
   });
 
