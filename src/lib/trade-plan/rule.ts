@@ -16,11 +16,12 @@ import { deriveVolatilityStops, type VolatilityStops } from '@/lib/optimization/
  * The rule is the composite's own: `createScoreThresholdStrategy`, the research
  * `control` family, on the research configuration
  * (scripts/research/strategy-walk-forward.ts): shorts allowed, 1% risk per
- * trade, the calibrated 29 / 7.25 levels (the same constants the live tiers
- * use; an active SignalTemplate changes only live weights, never the cutoffs),
- * study fees and slippage, and funding. Every recorded number in
- * `evidence.ts` came through this rule, so the ticket and the evidence
- * describe the same thing.
+ * trade, the calibrated 28 / 7 levels (`TIER_BUY_CUTOFF` and
+ * `STRATEGY_EXIT_LEVEL` in `src/lib/signals/calibration.ts`, the same constants
+ * the live tiers use, and an active SignalTemplate changes only live weights,
+ * never the cutoffs), study fees and slippage, and funding. Every recorded
+ * number in `evidence.ts` came through this rule, so the ticket and the
+ * evidence describe the same thing.
  *
  * One deliberate deviation. Research derives the stop from each walk-forward
  * window's own training bars; a live ticket has no training window, so it uses
