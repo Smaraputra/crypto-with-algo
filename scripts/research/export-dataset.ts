@@ -38,6 +38,7 @@ import { getStyleConfig } from '@/lib/indicators/style-configs';
 import type { IndicatorConfig } from '@/lib/indicators/types';
 import type { OHLCV } from '@/types/market';
 import {
+  HOLDOUT_A_ISO,
   LOCKBOX_START_ISO,
   datasetHashOf,
   optionsCurrencyOf,
@@ -800,6 +801,7 @@ export async function runExport(args: ExportArgs): Promise<DatasetManifest> {
       generatedAt: new Date().toISOString(),
       commit: resolveCommit(),
       lockboxStart: LOCKBOX_START_ISO,
+      holdoutA: HOLDOUT_A_ISO,
       symbols: unionSorted(merged.map((f) => f.symbol)),
       intervals: unionSorted(merged.map((f) => f.interval)),
       files: merged,

@@ -216,6 +216,12 @@ export interface DatasetManifest {
   generatedAt: string;
   commit: string;
   lockboxStart: string;
+  holdoutA?: {
+    spotIntradayEnd: string;
+    spotDailyEnd: string;
+    perpIntradayEnd: string;
+    perpDailyEnd: string;
+  };
   symbols: string[];
   intervals: string[];
   files: ManifestFile[];
@@ -225,6 +231,53 @@ export interface DatasetManifest {
 /** Data from this instant onward is held out until the final evaluation. */
 export const LOCKBOX_START = Date.UTC(2026, 6, 1);
 export const LOCKBOX_START_ISO = new Date(LOCKBOX_START).toISOString();
+
+/**
+ * Holdout segment A (next-version research, Gate 1 amendment 1, 2026-10-18): history no
+ * earlier study read at that cadence. Rows strictly BEFORE these instants are held out
+ * until the one pre-registered read. Boundaries come from the read-history map
+ * (.superpowers/research/reports/agy/r1a-read-history-map.md): spot 1h and 15m history
+ * was first read from 2021-10-14, spot 4h and 1d from 2018-10-31, perp intraday from
+ * 2022-01-01, perp 1d from 2020-01-01 (the broad-universe studies).
+ */
+export const HOLDOUT_A = {
+  spotIntradayEnd: Date.UTC(2021, 9, 14),
+  spotDailyEnd: Date.UTC(2018, 9, 31),
+  perpIntradayEnd: Date.UTC(2022, 0, 1),
+  perpDailyEnd: Date.UTC(2020, 0, 1),
+} as const;
+
+export const HOLDOUT_A_ISO = {
+  spotIntradayEnd: new Date(HOLDOUT_A.spotIntradayEnd).toISOString(),
+  spotDailyEnd: new Date(HOLDOUT_A.spotDailyEnd).toISOString(),
+  perpIntradayEnd: new Date(HOLDOUT_A.perpIntradayEnd).toISOString(),
+  perpDailyEnd: new Date(HOLDOUT_A.perpDailyEnd).toISOString(),
+} as const;
+
+const SPOT_INTRADAY_INTERVALS = new Set(['1m', '3m', '5m', '15m', '30m', '1h', '2h']);
+const SPOT_DAILY_INTERVALS = new Set(['4h', '6h', '8h', '12h', '1d', '3d', '1w']);
+const PERP_DAILY_INTERVALS = new Set(['1d', '3d', '1w']);
+const KNOWN_INTERVALS = new Set([...SPOT_INTRADAY_INTERVALS, ...SPOT_DAILY_INTERVALS]);
+
+/** Intervals counted as daily for HOLDOUT_A: 4h and longer for spot, 1d and longer for perp. */
+export function holdoutAEnd(market: 'spot' | 'perp', interval: string): number {
+  if (!KNOWN_INTERVALS.has(interval)) {
+    throw new Error(`holdoutAEnd: unknown interval ${interval}`);
+  }
+  if (market === 'spot') {
+    if (SPOT_INTRADAY_INTERVALS.has(interval)) {
+      return HOLDOUT_A.spotIntradayEnd;
+    }
+    return HOLDOUT_A.spotDailyEnd;
+  }
+  if (market === 'perp') {
+    if (PERP_DAILY_INTERVALS.has(interval)) {
+      return HOLDOUT_A.perpDailyEnd;
+    }
+    return HOLDOUT_A.perpIntradayEnd;
+  }
+  throw new Error(`holdoutAEnd: unknown market ${market}`);
+}
 
 /**
  * Sha256 over every file's own sha256, sorted lexicographically and joined
