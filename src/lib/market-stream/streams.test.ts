@@ -5,6 +5,8 @@ import {
   sseData,
   SSE_PING,
   STREAM_INTERVALS,
+  tickerStream,
+  klineStream,
 } from './streams';
 
 describe('streams parsing and formatting', () => {
@@ -55,12 +57,21 @@ describe('streams parsing and formatting', () => {
       });
     });
 
-    it('returns error when more than 20 streams provided', () => {
-      const streamList = Array.from({ length: 21 }, (_, i) => `s${i + 10}@ticker`).join('/');
+    it('returns error when more than 100 streams provided', () => {
+      const streamList = Array.from({ length: 101 }, (_, i) => `s${i + 10}@ticker`).join('/');
       expect(parseStreams(streamList)).toEqual({
         ok: false,
-        error: 'at most 20 streams',
+        error: 'at most 100 streams',
       });
+    });
+
+    it('accepts 100 distinct streams', () => {
+      const streamList = Array.from({ length: 100 }, (_, i) => `s${i + 10}@ticker`).join('/');
+      const result = parseStreams(streamList);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.streams).toHaveLength(100);
+      }
     });
 
     it('returns error for unsupported stream type', () => {
@@ -145,6 +156,17 @@ describe('streams parsing and formatting', () => {
   describe('SSE_PING', () => {
     it('is a ping comment frame', () => {
       expect(SSE_PING).toBe(': ping\n\n');
+    });
+  });
+
+  describe('stream helpers', () => {
+    it('formats ticker stream', () => {
+      expect(tickerStream('BTCUSDT')).toBe('btcusdt@ticker');
+    });
+
+    it('formats kline stream preserving interval case', () => {
+      expect(klineStream('BTCUSDT', '1M')).toBe('btcusdt@kline_1M');
+      expect(klineStream('ethUSDT', '1h')).toBe('ethusdt@kline_1h');
     });
   });
 });

@@ -18,7 +18,7 @@ export const STREAM_INTERVALS = [
 ] as const;
 
 /** At most this many streams per relay connection. */
-export const MAX_STREAMS = 20;
+export const MAX_STREAMS = 100;
 
 export type StreamName = string;
 
@@ -83,7 +83,7 @@ export function parseStreams(
   }
 
   if (streams.length > MAX_STREAMS) {
-    return { ok: false, error: 'at most 20 streams' };
+    return { ok: false, error: 'at most 100 streams' };
   }
 
   for (const stream of streams) {
@@ -93,6 +93,16 @@ export function parseStreams(
   }
 
   return { ok: true, streams };
+}
+
+/** `btcusdt@ticker` from any symbol case. */
+export function tickerStream(symbol: string): StreamName {
+  return `${symbol.toLowerCase()}@ticker`;
+}
+
+/** `btcusdt@kline_1M`: the symbol is lowercased, the interval keeps its case (`1M` monthly vs `1m`). */
+export function klineStream(symbol: string, interval: string): StreamName {
+  return `${symbol.toLowerCase()}@kline_${interval}`;
 }
 
 /** `${base}/stream?streams=${streams.join('/')}` with a trailing slash on base removed. */
