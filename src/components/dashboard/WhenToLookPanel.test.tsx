@@ -198,7 +198,7 @@ describe('WhenToLookPanel rendering', () => {
     expect(headline).toHaveClass('text-muted-foreground');
   });
 
-  it('stale: the headline has the class text-accent and contains prices are stale, and a Retry live data button calls retry', () => {
+  it('stale: the headline has the class text-accent and contains prices are stale, and a Reconnect live prices button calls retry', () => {
     mockMarketStatus = {
       ...mockMarketStatus,
       status: 'stale',
@@ -208,7 +208,7 @@ describe('WhenToLookPanel rendering', () => {
     expect(headline).toHaveClass('text-accent');
     expect(headline).toHaveTextContent('prices are stale');
 
-    const retryBtn = screen.getByRole('button', { name: 'Retry live data' });
+    const retryBtn = screen.getByRole('button', { name: 'Reconnect live prices' });
     expect(retryBtn).toBeInTheDocument();
     fireEvent.click(retryBtn);
     expect(mockRetry).toHaveBeenCalledTimes(1);

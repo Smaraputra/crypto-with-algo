@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   mockHistory,
   installFakeEventSource,
+  fakeEventSourceUrls,
   tickerFrame,
   closedKlineFrame,
   mockLevels,
@@ -109,7 +110,7 @@ test.describe('When to look panel and watchlist level line', () => {
     const headline = panel.getByTestId('look-headline');
     await expect(headline).toContainText('prices are', { timeout: 10000 });
 
-    const retryBtn = panel.getByRole('button', { name: 'Retry live data' });
+    const retryBtn = panel.getByRole('button', { name: 'Reconnect live prices' });
     await expect(retryBtn).toBeVisible();
 
     await retryBtn.click();
@@ -131,6 +132,16 @@ test.describe('When to look panel and watchlist level line', () => {
 
     const panel = page.getByRole('region', { name: 'When to look' });
     await expect(panel).toBeVisible();
+
+    await expect
+      .poll(
+        async () =>
+          (await fakeEventSourceUrls(page)).some((u) =>
+            decodeURIComponent(u).includes('btcusdt@kline_1m')
+          ),
+        { timeout: 10000 }
+      )
+      .toBe(true);
 
     await page.evaluate((frame) => {
       window.__esPush?.(frame);
@@ -213,6 +224,7 @@ test.describe('When to look panel and watchlist level line', () => {
 
     const removeBtn = watchlistContainer.getByRole('button', {
       name: 'Remove BTC from watchlist',
+      exact: true,
     });
 
     const isTablet = testInfo.project.name.startsWith('tablet');

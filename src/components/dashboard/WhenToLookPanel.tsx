@@ -214,7 +214,7 @@ export function WhenToLookPanel() {
               size="sm"
               className="ml-2 h-7"
               onClick={retry}
-              aria-label="Retry live data"
+              aria-label="Reconnect live prices"
             >
               Retry
             </Button>
