@@ -19,47 +19,9 @@
  */
 
 import { normalCdf } from '@/lib/stats/normal';
+import { pearson, rank } from '@/lib/stats/rank-ic';
 
-/** Average ranks (1-based), ties resolved to the mean rank of the tied group. */
-export function rank(values: number[]): number[] {
-  const n = values.length;
-  const indexed = values.map((v, i) => ({ v, i }));
-  indexed.sort((a, b) => a.v - b.v);
-
-  const ranks = new Array<number>(n);
-  let i = 0;
-  while (i < n) {
-    let j = i;
-    while (j + 1 < n && indexed[j + 1].v === indexed[i].v) j++;
-    const averageRank = (i + j) / 2 + 1;
-    for (let k = i; k <= j; k++) {
-      ranks[indexed[k].i] = averageRank;
-    }
-    i = j + 1;
-  }
-  return ranks;
-}
-
-/** Pearson correlation; the n/(n-1) normalization cancels, so ddof is irrelevant. */
-function pearson(a: number[], b: number[]): number {
-  const n = a.length;
-  const meanA = a.reduce((s, v) => s + v, 0) / n;
-  const meanB = b.reduce((s, v) => s + v, 0) / n;
-
-  let covariance = 0;
-  let varianceA = 0;
-  let varianceB = 0;
-  for (let i = 0; i < n; i++) {
-    const da = a[i] - meanA;
-    const db = b[i] - meanB;
-    covariance += da * db;
-    varianceA += da * da;
-    varianceB += db * db;
-  }
-
-  if (varianceA === 0 || varianceB === 0) return NaN;
-  return covariance / Math.sqrt(varianceA * varianceB);
-}
+export { rank } from '@/lib/stats/rank-ic';
 
 function finitePairs(x: number[], y: number[]): { xs: number[]; ys: number[] } {
   const len = Math.min(x.length, y.length);
