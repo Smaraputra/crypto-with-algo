@@ -14,31 +14,27 @@ import { V8_STATUS } from '@/lib/signals/v8-status';
 import { statusSentence } from '@/components/market/StreamStatusBadge';
 import type { StreamStatus } from '@/lib/market-stream/client';
 
-export type NearCoinInput =
-  | string
-  | {
-      symbol?: string;
-      base?: string;
-      distanceAtr: number;
-      level: LevelName | string;
-    };
+export type NearCoinInput = {
+  symbol: string;
+  distanceAtr: number;
+  level: LevelName;
+};
 
 export interface LookReasonsInput {
   status: StreamStatus;
-  nearCoins?: readonly NearCoinInput[];
-  nearList?: readonly NearCoinInput[];
-  validatedHypothesisIds?: readonly string[];
-  validatedIds?: readonly string[];
+  nearCoins: readonly {
+    symbol: string;
+    distanceAtr: number;
+    level: LevelName;
+  }[];
+  validatedHypothesisIds: readonly string[];
 }
 
 export function formatNearCoinSentence(coin: NearCoinInput): string {
-  if (typeof coin === 'string') {
-    return coin;
-  }
-  const base = coin.base ?? (coin.symbol ? coin.symbol.replace(/USDT$/, '') : '');
+  const base = coin.symbol.replace(/USDT$/, '');
   const abs = Math.abs(coin.distanceAtr).toFixed(1);
   const dir = coin.distanceAtr < 0 ? 'below' : 'above';
-  const lvl = coin.level.startsWith('prev ') ? coin.level : `prev ${coin.level}`;
+  const lvl = `prev ${coin.level}`;
   return `${base} is ${abs} ATR ${dir} the ${lvl}`;
 }
 
@@ -48,13 +44,11 @@ export function lookReasons(input: LookReasonsInput): string[] {
     reasons.push(`prices are ${input.status}`);
   }
 
-  const nearCoins = input.nearCoins ?? input.nearList ?? [];
-  for (const coin of nearCoins) {
+  for (const coin of input.nearCoins) {
     reasons.push(formatNearCoinSentence(coin));
   }
 
-  const validated = input.validatedHypothesisIds ?? input.validatedIds ?? [];
-  for (const id of validated) {
+  for (const id of input.validatedHypothesisIds) {
     reasons.push(`${id} crossed its evidence threshold`);
   }
 
@@ -91,7 +85,7 @@ export function WhenToLookPanel() {
 
   const { status, lastMessageAt, retry } = useMarketStreamStatus();
   const arrival = useBarArrivalLag();
-  const { symbols } = useWatchlist();
+  const { symbols, isLoading: watchlistLoading } = useWatchlist();
   const { tickers } = useBinanceTicker(symbols);
   const {
     data: levelsData,
@@ -186,7 +180,6 @@ export function WhenToLookPanel() {
 
       <p
         data-testid="look-headline"
-        aria-live="polite"
         className={
           reasons.length > 0
             ? 'text-sm font-medium text-accent'
@@ -197,6 +190,9 @@ export function WhenToLookPanel() {
           ? `Worth a look: ${reasons.join('; ')}`
           : 'Nothing needs a look right now.'}
       </p>
+      <p className="sr-only" aria-live="polite">
+        {reasons.length > 0 ? 'Worth a look.' : 'Nothing needs a look right now.'}
+      </p>
 
       <dl className="mt-3 grid grid-cols-[7.5rem_1fr] gap-x-3 gap-y-2 text-xs">
         <dt className="text-muted-foreground">Prices</dt>
@@ -206,7 +202,7 @@ export function WhenToLookPanel() {
             <>
               {' '}
               Data age{' '}
-              <span className="font-mono tabular-nums">
+              <span className="font-mono tabular-nums" suppressHydrationWarning>
                 {Math.max(0, Math.round((now - lastMessageAt) / 1000))}
               </span>{' '}
               s.
@@ -246,7 +242,9 @@ export function WhenToLookPanel() {
 
         <dt className="text-muted-foreground">Levels</dt>
         <dd>
-          {symbols.length === 0 ? (
+          {watchlistLoading ? (
+            'Loading the watchlist.'
+          ) : symbols.length === 0 ? (
             "Add coins to the watchlist to see their distance to yesterday's levels."
           ) : levelsLoading ? (
             "Loading yesterday's levels."
@@ -327,8 +325,8 @@ export function WhenToLookPanel() {
             {localTimeStr}
           </span>{' '}
           your time), in{' '}
-          <span className="font-mono tabular-nums">{diffHours}</span> h{' '}
-          <span className="font-mono tabular-nums">{diffMinutes}</span> min.{' '}
+          <span className="font-mono tabular-nums" suppressHydrationWarning>{diffHours}</span> h{' '}
+          <span className="font-mono tabular-nums" suppressHydrationWarning>{diffMinutes}</span> min.{' '}
           Faster lab timeframes update as their bars close; grading runs hourly
           at <span className="font-mono tabular-nums">:20</span> UTC.
         </dd>

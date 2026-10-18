@@ -250,4 +250,10 @@ describe('WhenToLookPanel rendering', () => {
       )
     ).toBeInTheDocument();
   });
+
+  it('watchlist loading: the loading sentence', () => {
+    mockWatchlistData = { symbols: [], isLoading: true };
+    render(<WhenToLookPanel />);
+    expect(screen.getByText('Loading the watchlist.')).toBeInTheDocument();
+  });
 });

@@ -70,7 +70,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testMatch: /live-data-tablet\.spec\.ts/,
+      testMatch: /live-data-tablet\.spec\.ts|when-to-look\.spec\.ts/,
     },
 
     // Tablet landscape tests
@@ -83,7 +83,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testMatch: /live-data-tablet\.spec\.ts/,
+      testMatch: /live-data-tablet\.spec\.ts|when-to-look\.spec\.ts/,
     },
   ],
   webServer: {
