@@ -10,7 +10,6 @@ vi.mock('@/lib/mongodb', () => ({ connectDB: vi.fn() }));
 const mocks = vi.hoisted(() => ({
   heartbeatFind: vi.fn(),
   cronRunFindOne: vi.fn(),
-  llmCallFindOne: vi.fn(),
 }));
 
 vi.mock('@/lib/models/job-heartbeat', () => ({
@@ -18,9 +17,6 @@ vi.mock('@/lib/models/job-heartbeat', () => ({
 }));
 vi.mock('@/lib/models/cron-run', () => ({
   CronRun: { findOne: mocks.cronRunFindOne },
-}));
-vi.mock('@/lib/models/llm-call', () => ({
-  LlmCall: { findOne: mocks.llmCallFindOne },
 }));
 
 const SECRET = 'test-secret';
@@ -67,7 +63,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.CRON_SECRET = SECRET;
   mocks.heartbeatFind.mockReturnValue(findReturning(allHealthyHeartbeats()));
-  mocks.llmCallFindOne.mockReturnValue(findOneReturning({ createdAt: new Date(now) }));
   mocks.cronRunFindOne.mockReturnValue(
     findOneReturning({ status: 'completed', completedAt: new Date(now), scheduledAt: new Date(now) })
   );
@@ -103,7 +98,7 @@ describe('GET /api/health/cron', () => {
     for (const spec of [...HEARTBEAT_JOBS, ...SERVICE_JOBS]) {
       expect(body.jobs.some((j: { job: string }) => j.job === spec.job)).toBe(true);
     }
-    expect(body.jobs.some((j: { job: string }) => j.job === 'llm-panel')).toBe(true);
+    expect(body.jobs.some((j: { job: string }) => j.job === 'llm-panel')).toBe(false);
   });
 
   it('stays 200 when a daily job has no heartbeat but recording only just began', async () => {
@@ -180,25 +175,13 @@ describe('GET /api/health/cron', () => {
     expect(recorder.lastError).toBe('disconnected for 120 s');
   });
 
-  it('flags a dead LLM panel as overdue from the newest call alone', async () => {
-    // The incident this whole layer was built after: the panel stopped for
-    // three days and nothing noticed. It writes no heartbeat -- it runs from
-    // the VPS host crontab -- so its state is read from the record it leaves.
-    mocks.llmCallFindOne.mockReturnValue(findOneReturning({ createdAt: agoSeconds(3 * 86400) }));
+  it('stays healthy with no LLM panel record, since the panel is retired', async () => {
+    const res = await GET(request());
+    const body = await res.json();
 
-    const body = await (await GET(request())).json();
-    const panel = body.jobs.find((j: { job: string }) => j.job === 'llm-panel');
-
-    expect(panel.state).toBe('overdue');
-    expect(panel.sinceSuccessSeconds).toBeGreaterThan(86400);
-  });
-
-  it('reports the panel as never_ran when no call exists at all', async () => {
-    mocks.llmCallFindOne.mockReturnValue(findOneReturning(null));
-
-    const body = await (await GET(request())).json();
-
-    expect(body.jobs.find((j: { job: string }) => j.job === 'llm-panel').state).toBe('never_ran');
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('ok');
+    expect(body.jobs.some((j: { job: string }) => j.job === 'llm-panel')).toBe(false);
   });
 
   it('no longer lists the monthly optimization', async () => {

@@ -708,9 +708,11 @@ It explicitly calls `connectDB()` because Next.js standalone mode uses lazy Mong
 
 The legacy directional composite scoring system (v1 through v8) evaluated assets in isolation, generating directional signals from moving average crossovers, RSI, and order-book snapshots. The direction and exit study (24 pre-registered variants, confirmation period 2025-01-01 to 2026-10-09, 1h and 4h) found that no configuration passes. Confirmation-period expectancy ranged from -0.347% to +0.169% per trade, with four positive point estimates, none of which cleared the study's criteria. Its exit variants were the horizon, take-profit, target-and-stop and score reversal, and it had no trailing-stop variant. The v8 single-asset composite is slimmed down, not retired. It is labelled "Measured: no edge", 1m scoring and the monthly optimisation schedule stopped on 2026-10-15, and its compute-signals, resolve-outcomes and paper-desk jobs still run. Its history is archived under the `v8-final` tag.
 
-An **8-Hour Cross-Sectional Relative Value (RV)** model was added alongside it. Status as of 2026-10-16: the rule, frozen as rv-v1 on perpetual prices, FAILED its pre-registered re-validation (see 8.7). Its paper desk keeps recording it as a descriptive forward test labelled not validated. Every validation claim previously made in this section was found void by an audit (see the corrections in 8.5 and 8.6 and the session 30 handover). Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts (the contracts are perpetuals, but the prices used were spot, see 8.5). By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
+An **8-Hour Cross-Sectional Relative Value (RV)** model was added alongside it. Status as of 2026-10-16: the rule, frozen as rv-v1 on perpetual prices, FAILED its pre-registered re-validation (see 8.7). Its paper desk keeps recording it as a descriptive forward test labelled not validated. Every validation claim previously made in this section was found void by an audit (see the corrections in 8.5 and 8.6 and the session 30 handover). Rather than predicting absolute price directions, the RV engine evaluates the relative cross-sectional distribution of returns, carry, and taker order flow across the top 10 Binance USDT-M perpetual contracts (the research and the archived legacy desk used spot prices, see 8.5, and the live rule rv-v1 has used perpetual prices since 2026-10-15). By taking simultaneous long positions in expected outperformers and short positions in expected underperformers, the strategy hedges systemic market beta.
 
 ### 8.2 Factor Model Specification
+
+Since 2026-10-15 (PR #93) every factor is computed by the shared engine `src/lib/signals/cross-sectional/engine.ts` from Binance USDT-M perpetual 8h klines, which the live generator fetches with `fetchPerpKlines`. The live desk and the research replay call the same functions, and a missing input skips the symbol with a reason instead of taking a default.
 
 At each 8-hour boundary (00:00, 08:00, 16:00 UTC), every asset $i$ in universe $U$ ($N = 10$) is evaluated across four core factors:
 
@@ -727,12 +729,12 @@ At each 8-hour boundary (00:00, 08:00, 16:00 UTC), every asset $i$ in universe $
 3. **Perpetual Funding Carry ($C_i$, weight 30%)**:
    Perpetual futures charge funding rates every 8 hours. Negative funding implies shorts pay longs; positive funding implies longs pay shorts. The carry signal captures cash-flow yield:
    $$C_i = -F_{i, t}$$
-   where $F_{i, t}$ is the single latest settled funding print from the perpetual API. It is not a 14-day annualised yield. A failed funding fetch silently sets the carry to 0 (`generator.ts:237-243`, `generator.ts:148`, `factors.ts:95`).
+   where $F_{i, t}$ is the single latest settled funding print from the perpetual API. It is the print settled in (bar close - 8h, bar close], read from the stored funding settlements, which are synced from Binance REST before each signal. It is not a 14-day annualised yield. A missing print skips the symbol as `carry_missing`, and a print outside that window as `carry_stale` (`scoreSymbol` in `engine.ts`). The archived legacy desk set a failed fetch to 0.
 
 4. **14-Day Aggregate Taker Buy Flow ($F_i$, weight 15%)**:
    Captures continuous institutional aggressor flow:
    $$F_i = \frac{\sum_{k=0}^{42} \text{TakerBuyVolume}_{i, t - k}}{\sum_{k=0}^{42} \text{Volume}_{i, t - k}} - 0.5$$
-   The window is 43 spot 8h bars in the live generator (`generator.ts:141-147`), not 42, and the volumes are spot volumes. A candle with missing taker volume contributes a ratio of 0.5.
+   The window is 43 perpetual 8h bars, not 42 (`RV_V1.flowBars` in `engine.ts`). A bar whose taker volume is missing, negative or above its volume skips the symbol as `flow_missing`. The archived legacy desk used 43 spot bars and gave a missing taker volume a ratio of 0.5.
 
 ### 8.3 Cross-Sectional Standardization and Ranking
 
@@ -754,7 +756,7 @@ Assets are sorted descending by $Z_{i, \text{composite}}$ and assigned ranks $r_
   $$W_{\text{Long}} \cdot \bar{\beta}_{\text{Long}} = W_{\text{Short}} \cdot \bar{\beta}_{\text{Short}}, \quad W_{\text{Long}} + W_{\text{Short}} = 1.0$$
   where $\bar{\beta}_{\text{Long}} = \frac{1}{|\text{Longs}|} \sum_{j \in \text{Longs}} \beta_j$ and $\bar{\beta}_{\text{Short}} = \frac{1}{|\text{Shorts}|} \sum_{k \in \text{Shorts}} \beta_k$. Target weights are equally allocated across legs within each basket:
   $$w_{i, \text{long}} = \frac{W_{\text{Long}}}{|\text{Longs}|}, \quad w_{i, \text{short}} = -\frac{W_{\text{Short}}}{|\text{Shorts}|}$$
-  ensuring portfolio net beta exposure $\sum w_i \beta_i \approx 0$ with 1.0 gross exposure. Correction (2026-10-15): this equalises the basket-average betas with equal weights within each side (`portfolio.ts:109-121`). It is not a weighting inverse to each asset's own beta. The beta clamp floors negative betas at 0.1 rather than inverting them (`generator.ts:126`).
+  ensuring portfolio net beta exposure $\sum w_i \beta_i \approx 0$ with 1.0 gross exposure. Correction (2026-10-15): this equalises the basket-average betas with equal weights within each side (`portfolio.ts:109-121`). It is not a weighting inverse to each asset's own beta. The beta clamp floors negative betas at 0.1 rather than inverting them (`RV_V1.betaClamp` in `engine.ts`).
 - **Dynamic Deadband Buffer Protection**:
   The hysteresis buffer is automatically clamped ($B_{\text{effective}} = \min(B, \lfloor(N - 2L - 1)/2\rfloor)$) if transient API dropouts temporarily reduce active universe size $N$, preventing deadband overlap exceptions. With L = 2 and B = 2 the clamp engages whenever N is below 9.
 - **Individual Leg Stop Loss Evaluation**:
@@ -764,7 +766,7 @@ Assets are sorted descending by $Z_{i, \text{composite}}$ and assigned ranks $r_
 
 Correction (2026-10-15): the table below is an unverified spot-data result. It is retained for the record only and must not be cited as validation. Findings of the audit:
 
-- Every research number used SPOT candles. The dataset `dx-ds` (`48ff79609080`) was exported with `--datasets candles,snapshots,htf,funding` and contains no perpetual data, and `loadCandles` reads spot (`load-dataset.ts:97`). The live generator also fetches spot klines (`generator.ts:227`, `binance.ts:3`). Only funding comes from the perpetual API. The perpetual labels in this section and in the dashboard are therefore wrong.
+- Every research number used SPOT candles. The dataset `dx-ds` (`48ff79609080`) was exported with `--datasets candles,snapshots,htf,funding` and contains no perpetual data, and `loadCandles` reads spot (`load-dataset.ts:97`). The legacy desk also traded on spot klines and took only its funding from the perpetual API, so the perpetual labels on these results were wrong. Since 2026-10-15 the live rule rv-v1 uses perpetual prices (see 8.2).
 - The Deflated Sharpe values use a default trials count of 54 and an assumed variance of 0.1/barsPerYear (`cross-sectional-harness.ts:175, 236`). They do not account for the configurations tried and sit below the program's 0.95 bar in any case.
 - At least 14 configurations were run on the same history (24h, 8h buffers, beta-neutral, flow 3d and 14d, six stop variants) with no pre-registration and no trial-ledger entry. Commit `1da5742` was pushed directly to main without a PR.
 - The Annual Turnover row (5.34x) is wrong. The harness reports `annualTurnover` of about 180x a year (VPS value 180.67). Funding contributed about +0.156 log return while maker fees cost about 0.165 log, so funding offset most of the maker fees, and the result rests on 100% maker fills. No order or post-only execution code exists in the repository.

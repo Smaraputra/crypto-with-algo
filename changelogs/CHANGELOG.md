@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: signal record integrity before the forward signal lab
+- **Signal reads use the live scorer version only.** `GET /api/signals/latest`, `GET /api/signals/global` and `GET /api/trade-plan` now filter `GlobalSignal` on `SCORER_CONFIG_VERSION`, so a row from a retired scorer version can no longer surface as the latest signal.
+- **rv-v1 verdict script.** `scripts/ops/set-rv-validation.ts` sets `validationStatus` and `validationRef` on the rv-v1 book, with `--dry-run`. It refuses unknown arguments, so a mistyped `--dry-run` cannot fall through to a write, and it never upserts. Recording the 2026-10-15 FAIL on production is a separate, owner-approved step (`--status rejected --ref "rv-revalidation RESULT 2026-10-15 (PR #95)"`). The card already renders a rejected book.
+- **Card shows the change since start as a percent too**, for example `+$125.50 (+1.26%) since start` on each track.
+- **Cron health no longer expects the retired LLM panel.** `DERIVED_JOBS` is empty, so `/api/health/cron` stops reporting `llm-panel` as overdue. Checked on production on 2026-10-18: the panel's newest stored call was about 11.6 days old (around 2026-10-06), and it was the only one of 21 jobs not healthy, so the endpoint had answered `degraded` with HTTP 503 since then.
+- **Stale text corrected:** `docs/TECHNICAL.md` sections 8.1, 8.2, 8.4 and 8.5 now describe the perp engine that rv-v1 has used since 2026-10-15 (skip reasons `carry_missing`, `carry_stale` and `flow_missing` instead of the legacy silent defaults). The `rv-step.ts` comment now says a completed step is never rewritten, and `trade-plan/rule.ts` cites the live 28 / 7 levels.
+
 ### Research: rv-v1 re-validation RESULT, the rule fails
 - **Verdict (2026-10-15)**: FAIL.
   - G1 passes: the in-sample permutation with all 12 cells re-selected gives p 0.0020.
