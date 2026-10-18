@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
 
 const mockAuth = vi.fn();
 const mockFind = vi.fn();
@@ -70,7 +71,7 @@ describe('GET /api/signals/global', () => {
 
     expect(res.status).toBe(200);
     expect(data.signals).toEqual(mockSignals);
-    expect(mockFind).toHaveBeenCalledWith({ symbol: 'BTCUSDT' });
+    expect(mockFind).toHaveBeenCalledWith({ symbol: 'BTCUSDT', configVersion: SCORER_CONFIG_VERSION });
   });
 
   it('filters by tradingStyle when provided', async () => {
@@ -88,6 +89,7 @@ describe('GET /api/signals/global', () => {
     expect(mockFind).toHaveBeenCalledWith({
       symbol: 'BTCUSDT',
       tradingStyle: 'scalping',
+      configVersion: SCORER_CONFIG_VERSION,
     });
   });
 
@@ -106,6 +108,7 @@ describe('GET /api/signals/global', () => {
     expect(mockFind).toHaveBeenCalledWith({
       symbol: 'BTCUSDT',
       interval: '1h',
+      configVersion: SCORER_CONFIG_VERSION,
     });
   });
 
@@ -122,5 +125,25 @@ describe('GET /api/signals/global', () => {
 
     const limitCall = mockSort.mock.results[0].value.limit;
     expect(limitCall).toHaveBeenCalledWith(200);
+  });
+
+  it('filters on the live scorer configVersion', async () => {
+    mockFind.mockReturnValue({
+      sort: () => ({
+        limit: () => ({
+          lean: () => Promise.resolve([]),
+        }),
+      }),
+    });
+
+    const { GET } = await import('./route');
+    await GET(makeRequest({ symbol: 'BTCUSDT' }));
+
+    expect(mockFind.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        symbol: 'BTCUSDT',
+        configVersion: SCORER_CONFIG_VERSION,
+      })
+    );
   });
 });
