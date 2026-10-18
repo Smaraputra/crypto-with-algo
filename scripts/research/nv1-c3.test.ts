@@ -4,6 +4,7 @@ import type { CandleRow } from './dataset-format';
 import {
   DAY_MS,
   NUM_BINS,
+  NV1_C3,
   coinDailySeries,
   dailySignals,
   parseArgs,
@@ -349,5 +350,23 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['run', '--dataset-dir', '/data'])).toThrow(/--out is required/);
     expect(() => parseArgs(['run', '--out', '/tmp/out.json'])).toThrow(/--dataset-dir is required/);
     expect(() => parseArgs(['run', '--dataset-dir', '/data', '--out', '/tmp/out.json', '--unknown'])).toThrow(/Unknown flag/);
+  });
+});
+
+describe('NV1_C3 constants', () => {
+  it('asserts each NV1_C3 constant value', () => {
+    expect(NV1_C3.ks).toEqual([0, 1, 2, 3]);
+    expect(NV1_C3.bins).toBe(200);
+    expect(NUM_BINS).toBe(NV1_C3.bins);
+    expect(NV1_C3.valueAreaShare).toBe(0.7);
+    expect(NV1_C3.minBarsPerDay).toBe(90);
+    expect(NV1_C3.threshold).toBe(0.25);
+    expect(NV1_C3.plateauThresholds).toEqual([0.15, 0.35]);
+    expect(NV1_C3.hold).toBe(1);
+    expect(NV1_C3.costPct).toBe(0.14);
+    expect(NV1_C3.nullDraws).toBe(1000);
+    expect(NV1_C3.nullSeed).toBe(20261300);
+    expect(NV1_C3.minShiftBars).toBe(30);
+    expect(NV1_C3.nullQuantile).toBe(0.9);
   });
 });

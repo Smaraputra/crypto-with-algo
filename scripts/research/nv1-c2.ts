@@ -22,9 +22,22 @@ export const NV1_SYMBOLS = [
 export const C2_GUARD_MESSAGE =
   'nv1: C2 trains on segment A and runs only after the Round 1 lock is committed';
 
+export const NV1_C2 = {
+  ks: [0, 1, 2, 3],
+  lookbackWeeks: [156, 260, 'all'] as const,
+  lambda: 1.0,
+  costRate: 0.0007,          // keep COST_RATE as an alias equal to this
+  minCoins: 6,
+  betaDays: 90,
+  embargoWeeks: 1,
+  placeboPermutations: 200,
+  placeboSeedBase: 20261200,
+  placeboQuantile: 0.9,
+} as const;
+
 export const DAY_MS = 86_400_000;
 export const WEEK_MS = 7 * DAY_MS;
-export const COST_RATE = 0.0007;
+export const COST_RATE = NV1_C2.costRate;
 
 export function assertC2Allowed(scriptDir: string): void {
   const lockPath = join(scriptDir, 'next-version-v1.ts');
@@ -174,13 +187,13 @@ export function featuresAt(
   }
 
   // 90 daily returns ending Sunday before M
-  // Day k (0..89): open timestamp = M - (90 - k) * DAY_MS
-  const coinReturns = new Array<number>(90);
-  const btcReturns = new Array<number>(90);
+  // Day k (0..89): open timestamp = M - (NV1_C2.betaDays - k) * DAY_MS
+  const coinReturns = new Array<number>(NV1_C2.betaDays);
+  const btcReturns = new Array<number>(NV1_C2.betaDays);
 
   let returnsValid = true;
-  for (let k = 0; k < 90; k++) {
-    const tCurr = M - (90 - k) * DAY_MS;
+  for (let k = 0; k < NV1_C2.betaDays; k++) {
+    const tCurr = M - (NV1_C2.betaDays - k) * DAY_MS;
     const tPrev = tCurr - DAY_MS;
 
     const coinCurr = coinMap.get(tCurr);
@@ -211,16 +224,16 @@ export function featuresAt(
   } else if (returnsValid) {
     let meanX = 0;
     let meanY = 0;
-    for (let k = 0; k < 90; k++) {
+    for (let k = 0; k < NV1_C2.betaDays; k++) {
       meanX += btcReturns[k];
       meanY += coinReturns[k];
     }
-    meanX /= 90;
-    meanY /= 90;
+    meanX /= NV1_C2.betaDays;
+    meanY /= NV1_C2.betaDays;
 
     let cov = 0;
     let varX = 0;
-    for (let k = 0; k < 90; k++) {
+    for (let k = 0; k < NV1_C2.betaDays; k++) {
       const dx = btcReturns[k] - meanX;
       const dy = coinReturns[k] - meanY;
       cov += dx * dy;
@@ -232,13 +245,13 @@ export function featuresAt(
       beta = Math.max(0.1, Math.min(3.0, slope));
 
       let sum1w = 0;
-      for (let k = 83; k < 90; k++) {
+      for (let k = NV1_C2.betaDays - 7; k < NV1_C2.betaDays; k++) {
         sum1w += coinReturns[k] - beta * btcReturns[k];
       }
       res1w = sum1w;
 
       let sum4w = 0;
-      for (let k = 62; k < 90; k++) {
+      for (let k = NV1_C2.betaDays - 28; k < NV1_C2.betaDays; k++) {
         sum4w += coinReturns[k] - beta * btcReturns[k];
       }
       res4w = sum4w;
@@ -249,13 +262,13 @@ export function featuresAt(
   let vol4w = Number.NaN;
   if (returnsValid) {
     let mean28 = 0;
-    for (let k = 62; k < 90; k++) {
+    for (let k = NV1_C2.betaDays - 28; k < NV1_C2.betaDays; k++) {
       mean28 += coinReturns[k];
     }
     mean28 /= 28;
 
     let sumSq = 0;
-    for (let k = 62; k < 90; k++) {
+    for (let k = NV1_C2.betaDays - 28; k < NV1_C2.betaDays; k++) {
       const d = coinReturns[k] - mean28;
       sumSq += d * d;
     }
@@ -267,8 +280,8 @@ export function featuresAt(
   let sumTbv = 0;
   let sumV = 0;
   let tbsDaysValid = true;
-  for (let k = 83; k < 90; k++) {
-    const tCurr = M - (90 - k) * DAY_MS;
+  for (let k = NV1_C2.betaDays - 7; k < NV1_C2.betaDays; k++) {
+    const tCurr = M - (NV1_C2.betaDays - k) * DAY_MS;
     const c = coinMap.get(tCurr);
     if (!c) {
       tbsDaysValid = false;
@@ -292,15 +305,15 @@ export function featuresAt(
   let sumV28 = 0;
   let sumV84 = 0;
   let vtrendValid = true;
-  for (let k = 6; k < 90; k++) {
-    const tCurr = M - (90 - k) * DAY_MS;
+  for (let k = NV1_C2.betaDays - 84; k < NV1_C2.betaDays; k++) {
+    const tCurr = M - (NV1_C2.betaDays - k) * DAY_MS;
     const c = coinMap.get(tCurr);
     if (!c) {
       vtrendValid = false;
       break;
     }
     sumV84 += c.v;
-    if (k >= 62) {
+    if (k >= NV1_C2.betaDays - 28) {
       sumV28 += c.v;
     }
   }
@@ -406,7 +419,7 @@ export function solveLinearSystem(A: number[][], b: number[]): number[] {
  * Penalty is on slopes only (intercept is not penalised).
  * features: matrix of raw feature columns (without intercept). An intercept column is always added internally.
  */
-export function ridgeFit(features: number[][], y: number[], lambda = 1.0): RidgeModel {
+export function ridgeFit(features: number[][], y: number[], lambda: number = NV1_C2.lambda): RidgeModel {
   const N = features.length;
   if (N === 0) {
     return { intercept: 0, slopes: [] };
@@ -611,7 +624,7 @@ export function prepareDataset(candlesBySymbol: Record<string, CandleRow[]>): Pr
   }
 
   const btcMap = candleMaps.get('BTCUSDT') ?? new Map<number, CandleRow>();
-  const rebalances = weeklyRebalances(minT + 91 * DAY_MS, maxT);
+  const rebalances = weeklyRebalances(minT + (NV1_C2.betaDays + 1) * DAY_MS, maxT);
   const weeks: PreparedWeek[] = [];
   const byM = new Map<number, PreparedWeek>();
   const droppedCoinWeeks: DroppedCoinWeeks = {
@@ -738,7 +751,7 @@ export function walkForward(
 
   const testStart = opts?.testStart ?? NV1_SEGMENTS.B.start;
   const testEnd = opts?.testEnd ?? NV1_SEGMENTS.C.end - WEEK_MS;
-  const minCoins = opts?.minCoins ?? 6;
+  const minCoins = opts?.minCoins ?? NV1_C2.minCoins;
 
   // Pre-process weekly training rows and kept features for all weeks
   interface WeekPreprocessed {
@@ -841,7 +854,7 @@ export function walkForward(
 
     for (const pastWeek of prepared.weeks) {
       const W = pastWeek.M;
-      if (W + WEEK_MS <= M && W >= M - lookbackMs) {
+      if (W + NV1_C2.embargoWeeks * WEEK_MS <= M && W >= M - lookbackMs) {
         const pastPp = preprocessed.get(W);
         if (pastPp && pastPp.trainingRows.length >= minCoins) {
           trainingWeeks.push(W);
@@ -869,7 +882,7 @@ export function walkForward(
 
     let model: RidgeModel;
     try {
-      model = ridgeFit(pooledX, pooledY, 1.0);
+      model = ridgeFit(pooledX, pooledY, NV1_C2.lambda);
     } catch {
       continue;
     }
@@ -911,7 +924,7 @@ export function walkForward(
     if (!preds || !pp || pp.keptCoins.length < minCoins) {
       // Cash week
       const turnover = computeTurnover(prevWeights, new Map());
-      const cost = COST_RATE * turnover;
+      const cost = NV1_C2.costRate * turnover;
       prevWeights = new Map();
       results.push({
         M,
@@ -930,7 +943,7 @@ export function walkForward(
 
     if (eligibleCoins.length < minCoins) {
       const turnover = computeTurnover(prevWeights, new Map());
-      const cost = COST_RATE * turnover;
+      const cost = NV1_C2.costRate * turnover;
       prevWeights = new Map();
       results.push({
         M,
@@ -957,7 +970,7 @@ export function walkForward(
 
     if (!hasLong || !hasShort) {
       const turnover = computeTurnover(prevWeights, new Map());
-      const cost = COST_RATE * turnover;
+      const cost = NV1_C2.costRate * turnover;
       prevWeights = new Map();
       results.push({
         M,
@@ -989,7 +1002,7 @@ export function walkForward(
 
     if (!returnsComplete) {
       const turnover = computeTurnover(prevWeights, new Map());
-      const cost = COST_RATE * turnover;
+      const cost = NV1_C2.costRate * turnover;
       prevWeights = new Map();
       results.push({
         M,
@@ -1009,7 +1022,7 @@ export function walkForward(
     }
 
     const turnover = computeTurnover(prevWeights, currentWeights);
-    const cost = COST_RATE * turnover;
+    const cost = NV1_C2.costRate * turnover;
     const net = gross - cost;
     const ic = rankWeightedCorrelation(eligiblePreds, eligibleRawReturns);
 
@@ -1117,7 +1130,10 @@ export function screenCells(
 
     const finitePlaceboIcs = placeboIcs.filter(Number.isFinite);
     const placeboMeanIc = meanOfFinite(placeboIcs);
-    const placeboP90Ic = finitePlaceboIcs.length > 0 ? quantile7(finitePlaceboIcs, 0.9) : Number.NaN;
+    const placeboP90Ic =
+      finitePlaceboIcs.length > 0
+        ? quantile7(finitePlaceboIcs, NV1_C2.placeboQuantile)
+        : Number.NaN;
 
     const survives =
       Number.isFinite(meanNetB) &&
@@ -1160,8 +1176,8 @@ export function screenCells(
 
   if (survivors.length > 0) {
     const lookbackRank = (lb: number | 'all'): number => {
-      if (lb === 156) return 1;
-      if (lb === 260) return 2;
+      if (lb === NV1_C2.lookbackWeeks[0]) return 1;
+      if (lb === NV1_C2.lookbackWeeks[1]) return 2;
       return 3;
     };
 
@@ -1189,13 +1205,13 @@ export function screenCells(
  */
 export function runScreenAndPlacebo(
   data: Record<string, CandleRow[]> | PreparedDataset,
-  placeboCount = 200,
+  placeboCount: number = NV1_C2.placeboPermutations,
   opts?: WalkForwardOptions
 ): ScreenResult {
   const prepared: PreparedDataset =
     'byM' in data ? (data as PreparedDataset) : prepareDataset(data as Record<string, CandleRow[]>);
-  const lookbacks: Array<number | 'all'> = [156, 260, 'all'];
-  const ks = [0, 1, 2, 3];
+  const lookbacks = NV1_C2.lookbackWeeks;
+  const ks = NV1_C2.ks;
 
   // 1. Run actual walk-forward across all 12 cells
   const actualResults: Array<{
@@ -1222,7 +1238,7 @@ export function runScreenAndPlacebo(
   let passedFirstFourCount = 0;
 
   for (let p = 0; p < placeboCount; p++) {
-    const seed = 20261200 + p;
+    const seed = NV1_C2.placeboSeedBase + p;
     const rand = createSeededRandom(seed);
 
     // Deep clone and permute feature rows per coin across weeks where coin was kept
@@ -1338,7 +1354,7 @@ export function parseArgs(argv: string[]): CliArgs {
 
   let datasetDir: string | null = null;
   let out: string | null = null;
-  let placebo = 200;
+  let placebo: number = NV1_C2.placeboPermutations;
 
   for (let i = 1; i < argv.length; i++) {
     const flag = argv[i];

@@ -15,7 +15,23 @@ import {
 import { createSeededRandom } from '../../src/lib/stats/seeded-random';
 
 export const DAY_MS = 86_400_000;
-export const NUM_BINS = 200;
+
+export const NV1_C3 = {
+  ks: [0, 1, 2, 3],
+  bins: 200,                 // keep NUM_BINS as an alias equal to this
+  valueAreaShare: 0.7,
+  minBarsPerDay: 90,
+  threshold: 0.25,
+  plateauThresholds: [0.15, 0.35],
+  hold: 1,
+  costPct: 0.14,
+  nullDraws: 1000,
+  nullSeed: 20261300,
+  minShiftBars: 30,
+  nullQuantile: 0.9,
+} as const;
+
+export const NUM_BINS = NV1_C3.bins;
 
 export interface ValueArea {
   poc: number;
@@ -41,7 +57,7 @@ export interface ValueArea {
 export function valueArea(
   bars15m: Array<{ l: number; h: number; c: number; v: number }>
 ): ValueArea | null {
-  if (bars15m.length < 90) {
+  if (bars15m.length < NV1_C3.minBarsPerDay) {
     return null;
   }
 
@@ -114,7 +130,7 @@ export function valueArea(
   }
 
   // Value area expansion from POC
-  const targetVolume = 0.7 * totalVolume;
+  const targetVolume = NV1_C3.valueAreaShare * totalVolume;
   let lowBin = pocBin;
   let highBin = pocBin;
   let includedVolume = binVolume[pocBin];
@@ -168,7 +184,7 @@ export type ValueAreaInput =
  */
 export function dailySignals(
   valueAreas: ValueAreaInput,
-  threshold = 0.25
+  threshold: number = NV1_C3.threshold
 ): number[] {
   if (valueAreas instanceof Map) {
     const sortedKeys = Array.from(valueAreas.keys()).sort((a, b) => a - b);
@@ -299,7 +315,7 @@ export function coinDailySeries(
   symbol: string,
   candles15mOrValueAreas: CandleRow[] | Map<number, ValueArea | null>,
   candles1d: CandleRow[],
-  threshold = 0.25,
+  threshold: number = NV1_C3.threshold,
   range?: { from?: number; to?: number }
 ): CoinSeries {
   const vaMap =
@@ -385,12 +401,12 @@ export interface ScreenOptions {
  * Judged against the persistence-preserving null distribution with nullN.
  */
 export function screen(coins: CoinSeries[], opts: ScreenOptions = {}): ScreenResult {
-  const threshold = opts.threshold ?? 0.25;
-  const draws = opts.draws ?? 1000;
-  const seed = opts.seed ?? 20261300;
-  const minShiftBars = opts.minShiftBars ?? 30;
-  const costPct = opts.costPct ?? 0.14;
-  const hold = opts.hold ?? 1;
+  const threshold = opts.threshold ?? NV1_C3.threshold;
+  const draws = opts.draws ?? NV1_C3.nullDraws;
+  const seed = opts.seed ?? NV1_C3.nullSeed;
+  const minShiftBars = opts.minShiftBars ?? NV1_C3.minShiftBars;
+  const costPct = opts.costPct ?? NV1_C3.costPct;
+  const hold = opts.hold ?? NV1_C3.hold;
   const stepMs = opts.stepMs ?? DAY_MS;
 
   const fromB = opts.fromB ?? NV1_SEGMENTS.B.start;
@@ -398,7 +414,7 @@ export function screen(coins: CoinSeries[], opts: ScreenOptions = {}): ScreenRes
   const fromC = opts.fromC ?? NV1_SEGMENTS.C.start;
   const toC = opts.toC ?? NV1_SEGMENTS.C.end;
 
-  const ks = [0, 1, 2, 3];
+  const ks = [...NV1_C3.ks];
 
   const basePooled: Omit<TradeOptions, 'k' | 'blocked'> = {
     hold,
@@ -410,7 +426,12 @@ export function screen(coins: CoinSeries[], opts: ScreenOptions = {}): ScreenRes
 
   // 1. Run null simulation for pooled B and C
   const nullMatrix = nullN(coins, ks, basePooled, draws, minShiftBars, seed);
-  const nullP90: number[] = ks.map((_, ki) => quantile7(nullMatrix.map((row) => row[ki]), 0.9));
+  const nullP90: number[] = ks.map((_, ki) =>
+    quantile7(
+      nullMatrix.map((row) => row[ki]),
+      NV1_C3.nullQuantile
+    )
+  );
 
   // 2. Compute expected null promotion rate from the null draws split into B and C
   const random = createSeededRandom(seed);
@@ -662,7 +683,7 @@ export function parseArgs(argv: string[]): CliArgs {
 
   let datasetDir: string | null = null;
   let out: string | null = null;
-  let threshold = 0.25;
+  let threshold: number = NV1_C3.threshold;
 
   for (let i = 1; i < argv.length; i++) {
     const flag = argv[i];
@@ -734,36 +755,25 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   );
   const primaryResult = screen(primaryCoins, { threshold: args.threshold });
 
-  // Plateau screen: threshold 0.15
-  const coins015 = NV1_SYMBOLS.map((sym) =>
-    coinDailySeries(
-      sym,
-      vaMapBySymbol.get(sym)!,
-      candles1dBySymbol.get(sym)!,
-      0.15
-    )
-  );
-  const plateau015 = screen(coins015, { threshold: 0.15 });
-
-  // Plateau screen: threshold 0.35
-  const coins035 = NV1_SYMBOLS.map((sym) =>
-    coinDailySeries(
-      sym,
-      vaMapBySymbol.get(sym)!,
-      candles1dBySymbol.get(sym)!,
-      0.35
-    )
-  );
-  const plateau035 = screen(coins035, { threshold: 0.35 });
+  // Plateau screens from NV1_C3.plateauThresholds
+  const plateau: Record<string, ScreenResult> = {};
+  for (const th of NV1_C3.plateauThresholds) {
+    const coinsPlateau = NV1_SYMBOLS.map((sym) =>
+      coinDailySeries(
+        sym,
+        vaMapBySymbol.get(sym)!,
+        candles1dBySymbol.get(sym)!,
+        th
+      )
+    );
+    plateau[String(th)] = screen(coinsPlateau, { threshold: th });
+  }
 
   const finalOutput = {
     datasetHash: manifest.datasetHash,
     threshold: args.threshold,
     screen: primaryResult,
-    plateau: {
-      '0.15': plateau015,
-      '0.35': plateau035,
-    },
+    plateau,
   };
 
   writeFileSync(args.out, JSON.stringify(finalOutput, null, 2), 'utf8');
@@ -781,8 +791,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         nullP90: c.nullP90,
         survives: c.survives,
       })),
-      plateau015Survivor: plateau015.survivor,
-      plateau035Survivor: plateau035.survivor,
+      plateau015Survivor: plateau[String(NV1_C3.plateauThresholds[0])]?.survivor,
+      plateau035Survivor: plateau[String(NV1_C3.plateauThresholds[1])]?.survivor,
     })
   );
 }

@@ -8,6 +8,7 @@ import {
   C2_GUARD_MESSAGE,
   COST_RATE,
   DAY_MS,
+  NV1_C2,
   WEEK_MS,
   areFeaturesFinite,
   assertC2Allowed,
@@ -811,5 +812,21 @@ describe('Brief requirements', () => {
     const f = featuresAt('TESTCOIN', M, candles, btcCandles);
     expect(Number.isNaN(f.tbs1w)).toBe(true);
     expect(areFeaturesFinite(f)).toBe(false);
+  });
+});
+
+describe('NV1_C2 constants', () => {
+  it('asserts each NV1_C2 constant value', () => {
+    expect(NV1_C2.ks).toEqual([0, 1, 2, 3]);
+    expect(NV1_C2.lookbackWeeks).toEqual([156, 260, 'all']);
+    expect(NV1_C2.lambda).toBe(1.0);
+    expect(NV1_C2.costRate).toBe(0.0007);
+    expect(COST_RATE).toBe(NV1_C2.costRate);
+    expect(NV1_C2.minCoins).toBe(6);
+    expect(NV1_C2.betaDays).toBe(90);
+    expect(NV1_C2.embargoWeeks).toBe(1);
+    expect(NV1_C2.placeboPermutations).toBe(200);
+    expect(NV1_C2.placeboSeedBase).toBe(20261200);
+    expect(NV1_C2.placeboQuantile).toBe(0.9);
   });
 });
