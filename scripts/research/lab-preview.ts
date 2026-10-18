@@ -14,15 +14,21 @@
  * and the null only.
  */
 
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { bookWeights, kN, populationSd, rankWeightedCorrelation } from '@/lib/stats/rank-ic';
 import { bookTurnover, hurdle, LAB_S_WINDOW, trailingS } from '@/lib/signals/lab/hurdle';
 import { initialEState, isValidated, type LabBar, runEProcess } from '@/lib/signals/lab/e-process';
-import { LAB_MIN_CROSS_SECTION } from '@/lib/signals/lab/candidates';
+import { LAB_MIN_CROSS_SECTION, LAB_TIMEFRAME_MS, L2_V8_STYLE } from '@/lib/signals/lab/candidates';
 import { type HourBar, l2Scores, l3Scores } from '@/lib/signals/lab/factors';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { createSeededRandom } from '@/lib/stats/seeded-random';
 import { prepareSteps } from './rv-mcpt';
 import { rvComposite, RV_V1 } from '@/lib/signals/cross-sectional/engine';
 import type { RvPanel } from './rv-panel';
+import { loadManifest, loadPerp, parseJsonlGz } from './load-dataset';
+import type { PerpCandleRow } from './dataset-format';
 
 /** Scores known at bar close t (ms). Higher = more long. */
 export interface ScoreBar {
@@ -469,4 +475,271 @@ export function returnBarsFromRows(
   }
 
   return out;
+}
+
+export interface PreviewArgs {
+  panel: string;
+  rescoreRows: string;
+  rescoreDs: string;
+  rvDs: string;
+  out: string;
+  runs: number; // default 1000
+  seed: number; // default 20261018
+}
+
+export function parseArgs(argv: string[]): PreviewArgs {
+  let panel: string | null = null;
+  let rescoreRows: string | null = null;
+  let rescoreDs: string | null = null;
+  let rvDs: string | null = null;
+  let out: string | null = null;
+  let runs = 1000;
+  let seed = 20261018;
+
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i];
+    const value = (): string => {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith('--')) {
+        throw new Error(`${flag} requires a value`);
+      }
+      return v;
+    };
+
+    if (flag === '--panel') {
+      panel = value();
+    } else if (flag === '--rescore-rows') {
+      rescoreRows = value();
+    } else if (flag === '--rescore-ds') {
+      rescoreDs = value();
+    } else if (flag === '--rv-ds') {
+      rvDs = value();
+    } else if (flag === '--out') {
+      out = value();
+    } else if (flag === '--runs') {
+      const raw = value();
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n <= 0 || !/^\d+$/.test(raw)) {
+        throw new Error(`${flag} must be a positive integer`);
+      }
+      runs = n;
+    } else if (flag === '--seed') {
+      const raw = value();
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n <= 0 || !/^\d+$/.test(raw)) {
+        throw new Error(`${flag} must be a positive integer`);
+      }
+      seed = n;
+    } else {
+      throw new Error(`Unknown flag "${flag}"`);
+    }
+  }
+
+  if (!panel) throw new Error('--panel is required');
+  if (!rescoreRows) throw new Error('--rescore-rows is required');
+  if (!rescoreDs) throw new Error('--rescore-ds is required');
+  if (!rvDs) throw new Error('--rv-ds is required');
+  if (!out) throw new Error('--out is required');
+
+  return { panel, rescoreRows, rescoreDs, rvDs, out, runs, seed };
+}
+
+export interface HypothesisPreview {
+  bars: number; // HurdlePoints with n >= LAB_MIN_CROSS_SECTION
+  from: string | null; // ISO time of the first such point
+  to: string | null; // ISO time of the last such point
+  turnover: Summary;
+  s: Summary;
+  b: Summary;
+}
+
+export interface PreviewReport {
+  kind: 'lab-preview';
+  version: 'lab-v1';
+  generatedAt: string;
+  provenance: Record<string, string>;
+  hypotheses: Record<string, HypothesisPreview | { previewed: false; reason: string }>;
+  nullCalibration: Record<string, { runs: number; bars: number; crossings: number; crossingsB0: number }>;
+}
+
+export interface PreviewInputs {
+  l1Bars: ScoreBar[];
+  panelReturns: ReturnBar[];
+  l3Bars: ScoreBar[];
+  /** Keyed by L2 timeframe: '5m' | '15m' | '1h' | '4h' | '1d'. */
+  l2: Record<string, { scoreBars: ScoreBar[]; returnBars: ReturnBar[] }>;
+}
+
+function hurdlePointsToPreview(points: readonly HurdlePoint[]): HypothesisPreview {
+  const eligible = points.filter((p) => p.n >= LAB_MIN_CROSS_SECTION);
+  return {
+    bars: eligible.length,
+    from: eligible.length > 0 ? new Date(eligible[0].t).toISOString() : null,
+    to: eligible.length > 0 ? new Date(eligible[eligible.length - 1].t).toISOString() : null,
+    turnover: summarise(eligible.map((p) => p.turnover)),
+    s: summarise(eligible.map((p) => p.s)),
+    b: summarise(eligible.map((p) => p.b)),
+  };
+}
+
+export function buildReport(
+  inputs: PreviewInputs,
+  opts: {
+    runs: number;
+    seed: number;
+    provenance: Record<string, string>;
+    now: Date;
+  }
+): PreviewReport {
+  const hypotheses: Record<string, HypothesisPreview | { previewed: false; reason: string }> = {};
+
+  const l1Points = hurdleSeries(inputs.l1Bars, inputs.panelReturns);
+  hypotheses['L1-8h'] = hurdlePointsToPreview(l1Points);
+
+  const l2Tfs = ['5m', '15m', '1h', '4h', '1d'] as const;
+  for (const tf of l2Tfs) {
+    const l2Entry = inputs.l2[tf];
+    if (l2Entry) {
+      const l2Points = hurdleSeries(l2Entry.scoreBars, l2Entry.returnBars);
+      hypotheses[`L2-${tf}`] = hurdlePointsToPreview(l2Points);
+    }
+  }
+
+  const l3Points = hurdleSeries(inputs.l3Bars, inputs.panelReturns);
+  hypotheses['L3-8h'] = hurdlePointsToPreview(l3Points);
+
+  hypotheses['L4-8h'] = {
+    previewed: false,
+    reason: 'No stored 4h top-trader position ratio history. Binance REST serves only the last 30 days.',
+  };
+
+  const l1HurdleMap = new Map<number, number | null>();
+  for (const p of l1Points) {
+    l1HurdleMap.set(p.t, p.b);
+  }
+  const l1Null = nullCalibration(inputs.panelReturns, l1HurdleMap, {
+    runs: opts.runs,
+    seed: opts.seed,
+  });
+
+  const l3HurdleMap = new Map<number, number | null>();
+  for (const p of l3Points) {
+    l3HurdleMap.set(p.t, p.b);
+  }
+  const l3Null = nullCalibration(inputs.panelReturns, l3HurdleMap, {
+    runs: opts.runs,
+    seed: opts.seed + 1,
+  });
+
+  return {
+    kind: 'lab-preview',
+    version: 'lab-v1',
+    generatedAt: opts.now.toISOString(),
+    provenance: opts.provenance,
+    hypotheses,
+    nullCalibration: {
+      'L1-8h': l1Null,
+      'L3-8h': l3Null,
+    },
+  };
+}
+
+export async function main(argv?: string[]): Promise<number> {
+  const args = parseArgs(argv ?? process.argv.slice(2));
+
+  const panelBytes = readFileSync(args.panel);
+  const panelSha256 = createHash('sha256').update(panelBytes).digest('hex');
+  const parsedPanelJson = JSON.parse(gunzipSync(panelBytes).toString('utf8')) as { panel: RvPanel };
+  const panel = parsedPanelJson.panel;
+
+  const rowsBytes = readFileSync(args.rescoreRows);
+  const rescoreRowsSha256 = createHash('sha256').update(rowsBytes).digest('hex');
+  const rawRows = parseJsonlGz<Record<string, unknown>>(rowsBytes);
+
+  const rows: {
+    symbol: string;
+    interval: string;
+    tradingStyle: string;
+    score: number;
+    candleTimestamp: number;
+    configVersion: number;
+  }[] = [];
+
+  for (const r of rawRows) {
+    const configVersion = r.configVersion;
+    if (configVersion !== 8) {
+      throw new Error(`rescore row with configVersion ${configVersion}, expected 8`);
+    }
+    rows.push({
+      symbol: String(r.symbol),
+      interval: String(r.interval),
+      tradingStyle: String(r.tradingStyle),
+      score: Number(r.score),
+      candleTimestamp: Number(r.candleTimestamp),
+      configVersion: 8,
+    });
+  }
+
+  const symbols = SIGNAL_SYMBOLS;
+  const l1Bars = l1ScoreBars(panel);
+  const panelReturns = returnBarsFromPanel(panel);
+
+  const barsBySymbol: Record<string, HourBar[]> = {};
+  for (const sym of symbols) {
+    const loaded = loadPerp(args.rvDs, sym, '1h', 'klines', { allowLockbox: true });
+    barsBySymbol[sym] = loaded.rows.map((r) => ({
+      openTime: r.t,
+      closeTime: r.t + 3_600_000 - 1,
+      close: r.c,
+    }));
+  }
+  const l3Bars = l3ScoreBars(barsBySymbol, l1Bars.map((b) => b.t), symbols);
+
+  const l2: Record<string, { scoreBars: ScoreBar[]; returnBars: ReturnBar[] }> = {};
+  for (const tf of ['5m', '15m', '1h', '4h', '1d'] as const) {
+    const tfRows = rows.filter(
+      (r) => r.interval === tf && r.tradingStyle === L2_V8_STYLE[tf]
+    );
+    const intervalMs = LAB_TIMEFRAME_MS[tf];
+    const scoreBars = l2ScoreBars(tfRows, intervalMs, symbols, l1Bars);
+
+    const rowsBySymbolPerp: Record<string, PerpCandleRow[]> = {};
+    for (const sym of symbols) {
+      rowsBySymbolPerp[sym] = loadPerp(args.rescoreDs, sym, tf, 'klines', { allowLockbox: true }).rows;
+    }
+    const returnBars = returnBarsFromRows(rowsBySymbolPerp);
+    l2[tf] = { scoreBars, returnBars };
+  }
+
+  const provenance: Record<string, string> = {
+    panelSha256,
+    rescoreRowsSha256,
+    rescoreDsHash: loadManifest(args.rescoreDs).datasetHash,
+    rvDsHash: loadManifest(args.rvDs).datasetHash,
+  };
+
+  const report = buildReport(
+    { l1Bars, panelReturns, l3Bars, l2 },
+    { runs: args.runs, seed: args.seed, provenance, now: new Date() }
+  );
+
+  writeFileSync(args.out, JSON.stringify(report, null, 2) + '\n', 'utf8');
+
+  for (const [id, hyp] of Object.entries(report.hypotheses)) {
+    if ('previewed' in hyp && !hyp.previewed) {
+      console.log(`${id} bars 0 b p50 n/a`);
+    } else {
+      const p = hyp as HypothesisPreview;
+      console.log(`${id} bars ${p.bars} b p50 ${p.b.p50}`);
+    }
+  }
+
+  return 0;
+}
+
+if (require.main === module) {
+  main().then((c) => process.exit(c)).catch((e) => {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(1);
+  });
 }

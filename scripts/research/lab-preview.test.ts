@@ -2,14 +2,18 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildReport,
   hurdleSeries,
   l1RanksAt,
   l1ScoreBars,
   l2ScoreBars,
   l3ScoreBars,
   nullCalibration,
+  parseArgs,
   returnBarsFromPanel,
   returnBarsFromRows,
+  type HypothesisPreview,
+  type PreviewInputs,
   type ReturnBar,
   type ScoreBar,
   summarise,
@@ -495,6 +499,176 @@ describe('lab-preview', () => {
       for (const sym of symbols) {
         expect(Number.isFinite(scoreBars[0].scores[sym])).toBe(true);
       }
+    });
+  });
+
+  describe('parseArgs', () => {
+    const validBase = [
+      '--panel', 'rv2-out/panel.json.gz',
+      '--rescore-rows', 'rescore-out/v8-rows.jsonl.gz',
+      '--rescore-ds', 'data/rescore-ds',
+      '--rv-ds', 'data/rv-ds',
+      '--out', 'preview-report.json',
+    ];
+
+    it('parses valid argv with defaults for runs and seed', () => {
+      const parsed = parseArgs(validBase);
+      expect(parsed).toEqual({
+        panel: 'rv2-out/panel.json.gz',
+        rescoreRows: 'rescore-out/v8-rows.jsonl.gz',
+        rescoreDs: 'data/rescore-ds',
+        rvDs: 'data/rv-ds',
+        out: 'preview-report.json',
+        runs: 1000,
+        seed: 20261018,
+      });
+    });
+
+    it('parses custom --runs and --seed', () => {
+      const parsed = parseArgs([...validBase, '--runs', '50', '--seed', '7']);
+      expect(parsed.runs).toBe(50);
+      expect(parsed.seed).toBe(7);
+    });
+
+    it('throws when required flags are missing', () => {
+      expect(() => parseArgs(validBase.filter((_, i) => i !== 0 && i !== 1))).toThrow('--panel is required');
+      expect(() => parseArgs(validBase.filter((_, i) => i !== 2 && i !== 3))).toThrow('--rescore-rows is required');
+      expect(() => parseArgs(validBase.filter((_, i) => i !== 4 && i !== 5))).toThrow('--rescore-ds is required');
+      expect(() => parseArgs(validBase.filter((_, i) => i !== 6 && i !== 7))).toThrow('--rv-ds is required');
+      expect(() => parseArgs(validBase.filter((_, i) => i !== 8 && i !== 9))).toThrow('--out is required');
+    });
+
+    it('throws when a flag is missing its value or followed by another flag', () => {
+      expect(() => parseArgs(['--panel'])).toThrow('--panel requires a value');
+      expect(() => parseArgs(['--panel', '--rescore-rows'])).toThrow('--panel requires a value');
+      expect(() => parseArgs([...validBase, '--runs'])).toThrow('--runs requires a value');
+      expect(() => parseArgs([...validBase, '--runs', '--seed', '7'])).toThrow('--runs requires a value');
+      expect(() => parseArgs([...validBase, '--seed'])).toThrow('--seed requires a value');
+    });
+
+    it('throws on unknown argument', () => {
+      expect(() => parseArgs([...validBase, '--unknown'])).toThrow('Unknown flag "--unknown"');
+      expect(() => parseArgs([...validBase, 'positional'])).toThrow('Unknown flag "positional"');
+    });
+
+    it('throws when --runs or --seed is not a positive integer', () => {
+      expect(() => parseArgs([...validBase, '--runs', '0'])).toThrow('--runs must be a positive integer');
+      expect(() => parseArgs([...validBase, '--runs', '-5'])).toThrow('--runs must be a positive integer');
+      expect(() => parseArgs([...validBase, '--runs', '1.5'])).toThrow('--runs must be a positive integer');
+      expect(() => parseArgs([...validBase, '--runs', 'abc'])).toThrow('--runs must be a positive integer');
+      expect(() => parseArgs([...validBase, '--seed', '0'])).toThrow('--seed must be a positive integer');
+      expect(() => parseArgs([...validBase, '--seed', '-10'])).toThrow('--seed must be a positive integer');
+      expect(() => parseArgs([...validBase, '--seed', '3.14'])).toThrow('--seed must be a positive integer');
+      expect(() => parseArgs([...validBase, '--seed', 'xyz'])).toThrow('--seed must be a positive integer');
+    });
+  });
+
+  describe('buildReport', () => {
+    it('builds a report on synthetic inputs without reading files', () => {
+      const rand = createSeededRandom(12345);
+      const sampleNormal = (): number => {
+        let u1 = rand();
+        while (u1 <= 0 || u1 >= 1) {
+          u1 = rand();
+        }
+        const u2 = rand();
+        return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      };
+
+      const H8 = 8 * 3_600_000;
+      const l1Bars: ScoreBar[] = [];
+      const panelReturns: ReturnBar[] = [];
+      const l3Bars: ScoreBar[] = [];
+
+      for (let i = 0; i < 200; i++) {
+        const t = 1_700_000_000_000 + i * H8;
+        const scores: Record<string, number> = {};
+        const returns: Record<string, number> = {};
+        for (let s = 0; s < 10; s++) {
+          const sym = SYMBOLS_10[s];
+          scores[sym] = sampleNormal();
+          returns[sym] = 0.01 * sampleNormal();
+        }
+        l1Bars.push({ t, scores });
+        panelReturns.push({ t, returns });
+
+        const shuffledScores: Record<string, number> = {};
+        const symbolsShuffled = [...SYMBOLS_10].reverse();
+        for (let s = 0; s < 10; s++) {
+          shuffledScores[symbolsShuffled[s]] = scores[SYMBOLS_10[s]];
+        }
+        l3Bars.push({ t, scores: shuffledScores });
+      }
+
+      const H1 = 3_600_000;
+      const l2ScoreBars1h: ScoreBar[] = [];
+      const l2ReturnBars1h: ReturnBar[] = [];
+      for (let i = 0; i < 300; i++) {
+        const t = 1_700_000_000_000 + i * H1;
+        const scores: Record<string, number> = {};
+        const returns: Record<string, number> = {};
+        for (let s = 0; s < 10; s++) {
+          const sym = SYMBOLS_10[s];
+          scores[sym] = sampleNormal();
+          returns[sym] = 0.005 * sampleNormal();
+        }
+        l2ScoreBars1h.push({ t, scores });
+        l2ReturnBars1h.push({ t, returns });
+      }
+
+      const inputs: PreviewInputs = {
+        l1Bars,
+        panelReturns,
+        l3Bars,
+        l2: {
+          '1h': {
+            scoreBars: l2ScoreBars1h,
+            returnBars: l2ReturnBars1h,
+          },
+        },
+      };
+
+      const now = new Date('2026-10-18T10:00:00.000Z');
+      const provenance = {
+        panelSha256: 'abc1',
+        rescoreRowsSha256: 'abc2',
+        rescoreDsHash: 'ds1',
+        rvDsHash: 'ds2',
+      };
+
+      const report = buildReport(inputs, {
+        runs: 20,
+        seed: 42,
+        provenance,
+        now,
+      });
+
+      // 1. Key order exactly as specified, minus absent L2 timeframes
+      expect(Object.keys(report.hypotheses)).toEqual([
+        'L1-8h',
+        'L2-1h',
+        'L3-8h',
+        'L4-8h',
+      ]);
+
+      // 2. L4-8h is the not-previewed object with exact reason
+      expect(report.hypotheses['L4-8h']).toEqual({
+        previewed: false,
+        reason: 'No stored 4h top-trader position ratio history. Binance REST serves only the last 30 days.',
+      });
+
+      // 3. L1-8h bars is 200, and b.p50 is a finite positive number
+      const l1 = report.hypotheses['L1-8h'] as HypothesisPreview;
+      expect(l1.bars).toBe(200);
+      expect(Number.isFinite(l1.b.p50)).toBe(true);
+      expect(l1.b.p50!).toBeGreaterThan(0);
+
+      // 4. nullCalibration['L1-8h'].runs equals runs passed (20) and crossings is 0
+      expect(report.nullCalibration['L1-8h'].runs).toBe(20);
+      expect(report.nullCalibration['L1-8h'].crossings).toBe(0);
+
+      // 5. generatedAt equals ISO string of now
+      expect(report.generatedAt).toBe(now.toISOString());
     });
   });
 });
