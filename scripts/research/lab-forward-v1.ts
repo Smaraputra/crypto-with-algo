@@ -152,6 +152,14 @@
  * hypothesis is its first bar closing after the deploy that starts them. Nothing earlier is scored.
  * AMENDMENT 1 records the deploy time.
  *
+ * AMENDMENT 1 (2026-10-18, written before the first bar was graded). It records the start and changes no
+ * rule. The jobs shipped in PR #98 (main 386eb95) and were deployed with PR #99 (main 8388c57). The cron
+ * container that runs them was recreated at 2026-10-18 09:33:59 UTC. The first stored row is L2-15m for the
+ * bar closing 09:30 UTC, written 09:35:00 UTC. That bar closed before the restart but was still inside its
+ * T + D window, which is the rule the jobs apply. L2-5m started with the 09:35 bar and L2-1h with the 10:00
+ * bar, none late. L1, L3 and L4 start at the 16:00 UTC close, and L2-4h and L2-1d at their next closes. No
+ * earlier bar was scored.
+ *
  * TRIALS: the program ledger moves from 2,161 to 2,169 (eight hypotheses).
  */
 import { LAB_HYPOTHESES_V1, LAB_VERSION } from '@/lib/signals/lab/candidates';

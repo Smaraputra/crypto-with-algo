@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: lab-v1 is live, AMENDMENT 1 records the start
+- `scripts/research/lab-forward-v1.ts` AMENDMENT 1, written before the first bar was graded: the cron container that runs the lab jobs was recreated at 2026-10-18 09:33:59 UTC, and the first stored row is L2-15m for the 09:30 UTC bar, written at 09:35:00. No rule changes.
+- The rv-v1 desk book now records its verdict: `validationStatus: rejected`, ref "rv-revalidation RESULT 2026-10-15 (PR #95)", written on production with `set-rv-validation.ts` after a dry run.
+
 ### Added: forward signal lab board on /signals
 - **Read route** `GET /api/signals/lab` (signed in): every lab-v1 hypothesis's status (`Not started`, `Under test since <date>`, `Validated (forward, <date>)`, `Not shown`), e-value against 800, bets, mean X against mean b, the current b, and the latest scored bar with each coin's rank. L2 coins carry their parts (the v8 score and the rv-v1 rank). Hook `useSignalLab()`.
 - **Board** (`SignalBoard`, between the main grid and Signal History):
