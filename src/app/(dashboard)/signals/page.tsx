@@ -10,6 +10,7 @@ import { StyleTabs } from '@/components/signals/StyleTabs';
 import { AutoUpdateStatus } from '@/components/signals/AutoUpdateStatus';
 import { SignalTimeline } from '@/components/signals/SignalTimeline';
 import { MultiStyleOverview } from '@/components/signals/MultiStyleOverview';
+import { SignalBoard } from '@/components/signals/SignalBoard';
 import { V8StatusBanner } from '@/components/signals/V8StatusBanner';
 import { TradePlanCard } from '@/components/signals/TradePlanCard';
 import { EnhancedJournalForm } from '@/components/journal/EnhancedJournalForm';
@@ -322,6 +323,10 @@ export default function SignalsPage() {
           </Card>
         </div>
       </div>
+
+      <ErrorBoundary fallback={<p className="text-sm text-muted-foreground">Lab board unavailable</p>}>
+        <SignalBoard />
+      </ErrorBoundary>
 
       {/* Signal history timeline */}
       <Card>
