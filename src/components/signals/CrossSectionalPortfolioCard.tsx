@@ -68,6 +68,14 @@ function signedPercent(fraction: number): string {
   return `${fraction > 0 ? '+' : '-'}${text}%`;
 }
 
+/** Change over start as a signed percent with two decimals, null without a positive start. A change that rounds to zero reads 0.00%. */
+function percentOfStart(change: number, start: number): string | null {
+  if (!(start > 0)) return null;
+  const hundredths = Math.round((change * 10_000) / start);
+  if (hundredths === 0) return '0.00%';
+  return `${hundredths > 0 ? '+' : '-'}${(Math.abs(hundredths) / 100).toFixed(2)}%`;
+}
+
 function signed(value: number): string {
   const text = value.toFixed(2);
   return value > 0 && text !== '0.00' ? `+${text}` : text;
@@ -169,19 +177,24 @@ function TrackPanel({
   equity,
   change,
   cost,
+  start,
   children,
 }: {
   name: string;
   equity: number;
   change: number;
   cost: string;
+  start: number;
   children?: ReactNode;
 }) {
+  const pct = percentOfStart(change, start);
   return (
     <section className="rounded-md border border-border px-3 py-2.5" aria-label={name}>
       <h3 className="text-xs font-medium text-muted-foreground">{name}</h3>
       <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{equityUsd(equity)}</p>
-      <p className={cn('font-mono text-xs tabular-nums', changeTone(change))}>{signedUsd(change)} since start</p>
+      <p className={cn('font-mono text-xs tabular-nums', changeTone(change))}>
+        {pct ? `${signedUsd(change)} (${pct}) since start` : `${signedUsd(change)} since start`}
+      </p>
       <p className="mt-2 text-xs text-muted-foreground">{cost}</p>
       {children}
     </section>
@@ -592,12 +605,14 @@ export function CrossSectionalPortfolioCard() {
             equity={book.equity.taker}
             change={book.equity.taker - start}
             cost={`Taker ${bps(data.costs.takerFee)} bps + ${data.costs.takerSlippageBps} bps slippage`}
+            start={start}
           />
           <TrackPanel
             name="Maker track"
             equity={book.equity.maker}
             change={book.equity.maker - start}
             cost={`Maker ${bps(data.costs.makerFee)} bps (fills only if the first hour trades through the open, else taker)`}
+            start={start}
           >
             <MakerFillLine book={book} />
           </TrackPanel>
