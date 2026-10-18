@@ -1,12 +1,21 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment node
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import mongoose from 'mongoose';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { initialEState } from '@/lib/signals/lab/e-process';
+import { LabScore } from '@/lib/models/lab-score';
+import { insertLabSignalOnce, LabSignal } from '@/lib/models/lab-signal';
+import { LAB_HYPOTHESES_V2 } from '@/lib/signals/lab/candidates';
+import { initialEState, type EProcessState } from '@/lib/signals/lab/e-process';
 import {
   gradeBar,
+  gradeBookBar,
   gradeDueAt,
   LAB_GRADE_SETTLE_MS,
   priceTimes,
+  runLabGrade,
   type GradeInput,
+  type LabGradeDeps,
 } from '@/lib/signals/lab/job-grade';
 import {
   bookReturn,
@@ -15,6 +24,8 @@ import {
   populationSd,
   rankWeightedCorrelation,
 } from '@/lib/stats/rank-ic';
+
+vi.mock('@/lib/mongodb', () => ({ connectDB: vi.fn() }));
 
 describe('pure lab grading', () => {
   const symbols = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9'];
@@ -509,5 +520,364 @@ describe('pure lab grading', () => {
       expect(row.noBetReason).toBe('degenerate');
       expect(row.x).toBeNull();
     }
+  });
+});
+
+describe('pure lab-v2 gradeBookBar', () => {
+  const T = 1_700_000_000_000;
+
+  it('grades N2 hand-computed bar with funding and turnover', () => {
+    const weights = { A: 0.5, B: -0.5 };
+    const wPrev = { A: 0.25, C: -0.25 };
+    const prices = {
+      A: { start: 100, end: 102 },
+      B: { start: 100, end: 99 },
+    };
+    const fundingSums = { A: 0.001, B: -0.002 };
+
+    const expectedR =
+      0.5 * (0.02 - 0.001) -
+      0.5 * (-0.01 + 0.002) -
+      0.0007 * (0.25 + 0.5 + 0.25);
+    const expectedX = Math.min(expectedR / 0.13, 1);
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[0],
+      barClose: T,
+      late: false,
+      scores: weights,
+      prices,
+      fundingSums,
+      prev: {
+        state: initialEState(),
+        weights: wPrev,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(Math.abs(row.netBookReturn! - expectedR)).toBeLessThan(1e-12);
+    expect(Math.abs(row.x! - expectedX)).toBeLessThan(1e-12);
+    expect(row.b).toBe(0);
+    expect(row.bet).toBe(true);
+    expect(row.noBetReason).toBeNull();
+    expect(row.weights).toEqual(weights);
+    expect(row.funding).toEqual({ A: 0.001, B: -0.002 });
+  });
+
+  it('grades a cash week with R = -0.0007 * turnover', () => {
+    const wPrev = { A: 0.3, B: -0.4, C: 0.1 };
+    const turnover = 0.3 + 0.4 + 0.1;
+    const expectedR = -0.0007 * turnover;
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[0],
+      barClose: T,
+      late: false,
+      scores: {},
+      prices: {},
+      fundingSums: {},
+      prev: {
+        state: initialEState(),
+        weights: wPrev,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.bet).toBe(true);
+    expect(row.noBetReason).toBeNull();
+    expect(row.turnover).toBeCloseTo(turnover, 12);
+    expect(row.netBookReturn).toBeCloseTo(expectedR, 12);
+    expect(row.x).toBeCloseTo(expectedR / 0.13, 12);
+    expect(row.b).toBe(0);
+    expect(row.weights).toEqual({});
+    expect(row.n).toBe(0);
+  });
+
+  it('grades N3 hand-computed bar with two longs and a short with funding', () => {
+    const scores = { A: 1, B: 1, C: -1 };
+    const prices = {
+      A: { start: 100, end: 102 },
+      B: { start: 200, end: 204 },
+      C: { start: 50, end: 49 },
+    };
+    const fundingSums = {
+      A: 0.0005,
+      B: -0.0003,
+      C: 0.0002,
+    };
+
+    const expectedR =
+      (1 * (0.02 - 0.0005) - 0.0014) +
+      (1 * (0.02 + 0.0003) - 0.0014) +
+      (-1 * (-0.02 - 0.0002) - 0.0014);
+    const expectedX = Math.min(expectedR / 0.8, 1);
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[1],
+      barClose: T,
+      late: false,
+      scores,
+      prices,
+      fundingSums,
+      prev: {
+        state: initialEState(),
+        weights: null,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(Math.abs(row.netBookReturn! - expectedR)).toBeLessThan(1e-12);
+    expect(Math.abs(row.x! - expectedX)).toBeLessThan(1e-12);
+    expect(row.b).toBe(0);
+    expect(row.bet).toBe(true);
+    expect(row.noBetReason).toBeNull();
+    expect(row.weights).toEqual(scores);
+    expect(row.funding).toEqual(fundingSums);
+    expect(row.n).toBe(3);
+  });
+
+  it('sets no_position and places no bet when scores has no side', () => {
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[1],
+      barClose: T,
+      late: false,
+      scores: {},
+      prices: {},
+      fundingSums: {},
+      prev: {
+        state: initialEState(),
+        weights: null,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.noBetReason).toBe('no_position');
+    expect(row.bet).toBe(false);
+    expect(row.x).toBeNull();
+    expect(row.b).toBeNull();
+    expect(row.netBookReturn).toBeNull();
+    expect(row.lambda).toBe(0);
+    expect(row.lambda0).toBe(0);
+  });
+
+  it('absorbs state on loss larger than 2 x scale with lambda at cap and later bars do not bet', () => {
+    const warmState: EProcessState = {
+      logE: 0.5,
+      logE0: 0.5,
+      n: 40,
+      sumD: 40 * 0.1,
+      sumD2: 40 * (0.01 + 0.0001),
+      sumX: 40 * 0.1,
+      sumX2: 40 * (0.01 + 0.0001),
+      crossedAt: null,
+    };
+
+    const rowAbsorbed = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[0],
+      barClose: T,
+      late: false,
+      scores: { A: 1 },
+      prices: { A: { start: 100, end: 70 } },
+      fundingSums: { A: 0 },
+      prev: {
+        state: warmState,
+        weights: { A: 1 },
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(rowAbsorbed.state.absorbed).toBe(true);
+    expect(rowAbsorbed.state.logE).toBe(-Infinity);
+
+    const rowLater = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[0],
+      barClose: T + 86_400_000,
+      late: false,
+      scores: { A: 1 },
+      prices: { A: { start: 100, end: 110 } },
+      fundingSums: { A: 0 },
+      prev: {
+        state: rowAbsorbed.state,
+        weights: rowAbsorbed.weights,
+      },
+      gradedAt: new Date(T + 86_400_000 + 60_000),
+    });
+
+    expect(rowLater.bet).toBe(false);
+    expect(rowLater.lambda).toBe(0);
+    expect(rowLater.lambda0).toBe(0);
+    expect(rowLater.state.absorbed).toBe(true);
+  });
+
+  it('uses threshold 400 to set crossedAt when crossing log 400 but not log 800', () => {
+    const warmState: EProcessState = {
+      logE: 5.98,
+      logE0: 5.98,
+      n: 40,
+      sumD: 40 * 0.1,
+      sumD2: 40 * (0.01 + 0.0001),
+      sumX: 40 * 0.1,
+      sumX2: 40 * (0.01 + 0.0001),
+      crossedAt: null,
+    };
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V2[0],
+      barClose: T,
+      late: false,
+      scores: { A: 1 },
+      prices: { A: { start: 100, end: 105 } },
+      fundingSums: { A: 0 },
+      prev: {
+        state: warmState,
+        weights: { A: 1 },
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.state.logE).toBeGreaterThan(Math.log(400));
+    expect(row.state.logE).toBeLessThan(Math.log(800));
+    expect(row.state.crossedAt).toBe(T);
+  });
+});
+
+describe('runLabGrade with mocked deps for v1 and v2', () => {
+  let mongoServer: MongoMemoryServer;
+
+  beforeAll(async () => {
+    mongoServer = await MongoMemoryServer.create();
+    await mongoose.connect(mongoServer.getUri());
+    await LabSignal.init();
+    await LabScore.init();
+  }, 30_000);
+
+  afterAll(async () => {
+    await mongoose.disconnect();
+    await mongoServer.stop();
+  });
+
+  afterEach(async () => {
+    await LabSignal.deleteMany({});
+    await LabScore.deleteMany({});
+  });
+
+  it('grades lab-v1 rows exactly as before and grades lab-v2 N3 row through gradeBookBar', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    const v1Symbols = [
+      'BTCUSDT',
+      'ETHUSDT',
+      'SOLUSDT',
+      'BNBUSDT',
+      'XRPUSDT',
+      'DOGEUSDT',
+      'ADAUSDT',
+      'AVAXUSDT',
+      'LINKUSDT',
+      'DOTUSDT',
+    ];
+    const v1Scores: Record<string, number> = {};
+    for (let i = 0; i < v1Symbols.length; i++) {
+      v1Scores[v1Symbols[i]] = i;
+    }
+
+    await insertLabSignalOnce({
+      version: 'lab-v1',
+      hypothesis: 'L1-8h',
+      candidate: 'L1',
+      timeframe: '8h',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: v1Scores,
+      skipped: [],
+      inputs: {},
+    });
+
+    await insertLabSignalOnce({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      candidate: 'N3',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1, ETHUSDT: -1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = Math.max(gradeDueAt(T1, '8h'), gradeDueAt(T1, '1d')) + 1000;
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(
+      async (symbol: string, _interval: string, startTime: number, endTime: number) => {
+        const klines = [];
+        for (let t = startTime; t <= endTime; t += 300_000) {
+          let open = 100;
+          if (symbol === 'BTCUSDT') {
+            open = t === startTime ? 100 : 102;
+          } else if (symbol === 'ETHUSDT') {
+            open = t === startTime ? 200 : 196;
+          } else {
+            const idx = v1Symbols.indexOf(symbol);
+            open = 100 + (t === startTime ? 0 : (idx + 1) * 0.1);
+          }
+          klines.push({
+            openTime: t,
+            closeTime: t + 300_000 - 1,
+            open,
+            high: open * 1.01,
+            low: open * 0.99,
+            close: open,
+            volume: 1000,
+            quoteVolume: 100_000,
+            trades: 50,
+            takerBuyVolume: 500,
+          });
+        }
+        return klines;
+      }
+    );
+
+    const mockFundingSumsFor = vi.fn().mockResolvedValue({
+      BTCUSDT: 0.0005,
+      ETHUSDT: -0.0002,
+    });
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fundingSumsFor: mockFundingSumsFor,
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+
+    expect(report.success).toBe(true);
+    expect(report.graded).toHaveLength(2);
+
+    const v1Row = await LabScore.findOne({ hypothesis: 'L1-8h', barClose: T1 }).lean();
+    expect(v1Row).not.toBeNull();
+    expect(v1Row!.version).toBe('lab-v1');
+    expect(v1Row!.hypothesis).toBe('L1-8h');
+    expect(v1Row!.noBetReason).toBe('no_hurdle');
+    expect(v1Row!.bet).toBe(false);
+    expect(v1Row!.funding).toBeNull();
+
+    const v2Row = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(v2Row).not.toBeNull();
+    expect(v2Row!.version).toBe('lab-v2');
+    expect(v2Row!.hypothesis).toBe('N3-1d');
+    expect(v2Row!.b).toBe(0);
+    expect(v2Row!.bet).toBe(true);
+    expect(v2Row!.noBetReason).toBeNull();
+    expect(v2Row!.turnover).toBeNull();
+    expect(v2Row!.weights).toEqual({ BTCUSDT: 1, ETHUSDT: -1 });
+    expect(v2Row!.funding).toEqual({ BTCUSDT: 0.0005, ETHUSDT: -0.0002 });
+
+    const expectedR_N3 =
+      (1 * (0.02 - 0.0005) - 0.0014) +
+      (-1 * (-0.02 + 0.0002) - 0.0014);
+    expect(v2Row!.netBookReturn).toBeCloseTo(expectedR_N3, 12);
+    expect(v2Row!.x).toBeCloseTo(expectedR_N3 / 0.8, 12);
   });
 });

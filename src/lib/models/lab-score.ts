@@ -3,8 +3,14 @@ import mongoose, { Schema, type Document } from 'mongoose';
 import type { LabVersion } from '@/lib/signals/lab/candidates';
 import type { EProcessState } from '@/lib/signals/lab/e-process';
 
-export type LabNoBetReason = 'late' | 'cross_section' | 'no_hurdle' | 'degenerate';
-export const LAB_NO_BET_REASONS: readonly LabNoBetReason[] = ['late', 'cross_section', 'no_hurdle', 'degenerate'];
+export type LabNoBetReason = 'late' | 'cross_section' | 'no_hurdle' | 'degenerate' | 'no_position';
+export const LAB_NO_BET_REASONS: readonly LabNoBetReason[] = [
+  'late',
+  'cross_section',
+  'no_hurdle',
+  'degenerate',
+  'no_position',
+];
 
 /**
  * The graded lab bar: the metric, the hurdle, the bet and the e-process state after it.
@@ -35,6 +41,7 @@ export interface ILabScore extends Document {
   netBookReturn: number | null;
   /** Open of the perp 5m kline at T + D (start) and at T + D + Δ (end), per priced coin. */
   prices: Record<string, { start: number; end: number }>;
+  funding?: Record<string, number> | null;
   state: EProcessState;
   createdAt: Date;
 }
@@ -76,6 +83,7 @@ const labScoreSchema = new Schema<ILabScore>(
     weights: { type: Schema.Types.Mixed, default: null },
     netBookReturn: { type: Number, default: null },
     prices: { type: Schema.Types.Mixed, required: true },
+    funding: { type: Schema.Types.Mixed, default: null },
     state: { type: stateSchema, required: true },
   },
   { timestamps: { createdAt: true, updatedAt: false }, minimize: false }
