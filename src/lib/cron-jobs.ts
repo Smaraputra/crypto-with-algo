@@ -93,9 +93,10 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
  * A job whose health is read from its own records rather than from a heartbeat.
  *
  * Two reasons a job lands here. Either it does not run in the cron container at
- * all -- the LLM panel is on the VPS HOST crontab and never calls this app, so
- * `docker/crontab.template` cannot see it and neither can `withJobRun` -- or it
- * is fire-and-forget, so the moment its route returns tells you nothing.
+ * all, so `docker/crontab.template` cannot see it and neither can
+ * `withJobRun`, or it is fire-and-forget, so the moment its route returns tells
+ * you nothing. The table is empty since the LLM panel, its only entry, was
+ * retired on 2026-10-16.
  */
 export interface DerivedJobSpec {
   job: string;
@@ -105,16 +106,7 @@ export interface DerivedJobSpec {
   derivedFrom: string;
 }
 
-export const DERIVED_JOBS: readonly DerivedJobSpec[] = [
-  {
-    job: 'llm-panel',
-    // VPS host crontab, under CRON_TZ=UTC. Deliberately absent from
-    // docker/crontab.template, so the drift test must not look for it.
-    schedule: '7 */2 * * *',
-    expectedEverySeconds: 2 * HOUR,
-    derivedFrom: 'newest LlmCall.createdAt',
-  },
-] as const;
+export const DERIVED_JOBS: readonly DerivedJobSpec[] = [] as const;
 
 /**
  * A long-running process, not a crontab line, that writes its own heartbeat

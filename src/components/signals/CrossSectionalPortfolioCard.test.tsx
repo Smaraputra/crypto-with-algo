@@ -212,7 +212,7 @@ describe('CrossSectionalPortfolioCard states', () => {
 
     expect(screen.getByText('No completed step yet')).toBeInTheDocument();
     expect(screen.getAllByText('$10,000.00')).toHaveLength(2);
-    expect(screen.getAllByText('$0.00 since start')).toHaveLength(2);
+    expect(screen.getAllByText('$0.00 (0.00%) since start')).toHaveLength(2);
     expect(screen.getByText('No open positions.')).toBeInTheDocument();
   });
 
@@ -275,7 +275,8 @@ describe('CrossSectionalPortfolioCard copy (D21)', () => {
       screen.getByText('Maker 2 bps (fills only if the first hour trades through the open, else taker)')
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /show the ranking/i }));
-    expect(container.textContent).not.toContain('1.8');
+    // The bps figure, not any "1.8": the maker track's +1.80% change since start is legitimate
+    expect(container.textContent).not.toMatch(/1\.80*\s*bps/);
   });
 
   it('names the price source and the carry definition, with no mark price label', () => {
@@ -310,8 +311,8 @@ describe('CrossSectionalPortfolioCard figures', () => {
     expect(screen.getByText('Maker track')).toBeInTheDocument();
     expect(screen.getByText('$10,125.50')).toBeInTheDocument();
     expect(screen.getByText('$10,180.25')).toBeInTheDocument();
-    expect(screen.getByText('+$125.50 since start')).toBeInTheDocument();
-    expect(screen.getByText('+$180.25 since start')).toBeInTheDocument();
+    expect(screen.getByText('+$125.50 (+1.26%) since start')).toBeInTheDocument();
+    expect(screen.getByText('+$180.25 (+1.80%) since start')).toBeInTheDocument();
     expect(screen.getByText('As of 2026-10-14 16:00 UTC')).toBeInTheDocument();
   });
 
@@ -319,8 +320,20 @@ describe('CrossSectionalPortfolioCard figures', () => {
     mockHook({ data: response({ book: book({ equity: { taker: 9_987.6, maker: 10_000 } }) }) });
     render(<CrossSectionalPortfolioCard />);
 
-    expect(screen.getByText('$0.00 since start')).toBeInTheDocument();
-    expect(screen.getByText('-$12.40 since start')).toBeInTheDocument();
+    expect(screen.getByText('$0.00 (0.00%) since start')).toBeInTheDocument();
+    expect(screen.getByText('-$12.40 (-0.12%) since start')).toBeInTheDocument();
+  });
+
+  it('drops the percent when the starting equity is not positive', () => {
+    mockHook({
+      data: response({
+        rule: { ...response().rule, startingEquity: 0 },
+      }),
+    });
+    const { container } = render(<CrossSectionalPortfolioCard />);
+
+    expect(screen.getByText('+$10,125.50 since start')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/%\) since start/);
   });
 
   it('shows a weight as n/a in the muted colour when the track equity is not positive', () => {
@@ -342,7 +355,7 @@ describe('CrossSectionalPortfolioCard figures', () => {
     render(<CrossSectionalPortfolioCard />);
 
     expect(screen.getByText('-$1,234.56')).toBeInTheDocument();
-    expect(screen.getByText('-$11,234.56 since start')).toBeInTheDocument();
+    expect(screen.getByText('-$11,234.56 (-112.35%) since start')).toBeInTheDocument();
     expect(screen.getByText('$10,180.25')).toBeInTheDocument();
   });
 

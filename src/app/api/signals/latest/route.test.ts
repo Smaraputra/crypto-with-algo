@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { SCORER_CONFIG_VERSION } from '@/lib/signals/config-version';
+import { TRADING_STYLES } from '@/lib/indicators/style-configs';
 
 const mockAuth = vi.fn();
 const mockFindOne = vi.fn();
@@ -88,6 +90,7 @@ describe('GET /api/signals/latest', () => {
       symbol: 'BTCUSDT',
       tradingStyle: 'day_trading',
       interval: '1h',
+      configVersion: SCORER_CONFIG_VERSION,
     });
   });
 
@@ -129,5 +132,32 @@ describe('GET /api/signals/latest', () => {
 
     expect(data.signals.scalping).toBeNull();
     expect(data.signals.day_trading).toBeNull();
+  });
+
+  it('filters every query on the live scorer configVersion', async () => {
+    mockFindOne.mockReturnValue({
+      sort: () => ({
+        lean: () => Promise.resolve(null),
+      }),
+    });
+
+    const { GET } = await import('./route');
+
+    await GET(makeRequest({ symbol: 'BTCUSDT', tradingStyle: 'scalping' }));
+    expect(mockFindOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        symbol: 'BTCUSDT',
+        tradingStyle: 'scalping',
+        configVersion: SCORER_CONFIG_VERSION,
+      })
+    );
+
+    mockFindOne.mockClear();
+
+    await GET(makeRequest({ symbol: 'BTCUSDT' }));
+    expect(mockFindOne).toHaveBeenCalledTimes(TRADING_STYLES.length);
+    for (const call of mockFindOne.mock.calls) {
+      expect((call[0] as Record<string, unknown>).configVersion).toBe(SCORER_CONFIG_VERSION);
+    }
   });
 });
