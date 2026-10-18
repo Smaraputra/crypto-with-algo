@@ -50,6 +50,9 @@ export const L2_V8_STYLE: Record<'5m' | '15m' | '1h' | '4h' | '1d', TradingStyle
   '1d': 'swing_trading',
 });
 
+/** L2 reads v8 GlobalSignal rows of this configVersion only, so a later scorer can never enter lab-v1. */
+export const L2_V8_CONFIG_VERSION = 8;
+
 /** L3: 1h bars in the variance window (168 log returns need 169 closes). */
 export const L3_BARS = 169;
 /** L4: top-trader position ratio period and window (30 days of 4h points). */

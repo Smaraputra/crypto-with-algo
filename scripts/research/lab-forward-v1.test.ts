@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  L2_V8_CONFIG_VERSION,
   L2_V8_STYLE,
   L3_BARS,
   L4_LAG_MS,
@@ -53,6 +54,7 @@ describe('lab-forward-v1 lock', () => {
 
   it('freezes the candidates', () => {
     expect(L2_WEIGHTS).toEqual(LOCK.l2Weights);
+    expect(L2_V8_CONFIG_VERSION).toBe(LOCK.l2V8ConfigVersion);
     expect(L2_V8_STYLE).toEqual(LOCK.l2V8Style);
     expect(L3_BARS).toBe(LOCK.l3Bars);
     expect(L4_PERIOD).toBe(LOCK.l4.period);
