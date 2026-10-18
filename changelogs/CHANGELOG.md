@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: lab-v1 L4 could never score (AMENDMENT 2)
+- **Defect**: the first L4-8h bar (2026-10-18 16:00 UTC) skipped all 10 coins with `ratio_incomplete`.
+  - Binance keeps only 30 days of the top-trader position ratio, which is at most 180 points at 4h.
+  - When the job runs, the point stamped T is already published, so only 179 points end at T - 4h, against the 180 the rule needs.
+  - L4 could therefore never place a bet.
+- **Repair** (rule unchanged, recorded as AMENDMENT 2 in `scripts/research/lab-forward-v1.ts`):
+  - every point fetched from that same endpoint is stored insert-only (`labratiopoints`), and the window is assembled from stored plus fresh points;
+  - `scripts/ops/seed-lab-ratio-points.ts` seeds the store from the full 180-point fetch saved at 16:11 UTC;
+  - skipped coins now record their window size in the stored inputs, which is why the defect stayed hidden until the first bar.
+- **Tests**: the lab model tests deleted the whole database after each test, which also dropped the unique index the write-once tests rely on. That made the concurrent-insert test flaky in CI. They now delete documents only. Production indexes were checked: both lab collections have the unique index and no duplicate keys.
+
 ### Changed: live market data through a same-origin relay
 - **Why**: the browser connected straight to `wss://stream.binance.com`, which the owner's ISP blocks, so prices and the live chart never arrived without a VPN. The chart socket also never reconnected, nothing marked stale data, and history-load errors were silent.
 - **Relay** `GET /api/stream?streams=a/b` (signed in): one Node 22 `WebSocket` to Binance per browser connection, relayed as Server-Sent Events from the app's own origin, with `retry: 3000`, a 15 s ping comment, and an `upstream-closed` event. Stream names keep the kline interval's case (`1M` is monthly, `1m` is one minute). Up to 100 streams. Server variable `BINANCE_WS_URL`; `NEXT_PUBLIC_BINANCE_WS_URL` is gone from code, builds, CI and docs.
