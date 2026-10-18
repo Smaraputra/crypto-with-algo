@@ -1,10 +1,17 @@
 import { test, expect } from '@playwright/test';
-import { mockHistory, mockStream, tickerFrame, klineFrame } from './helpers/live-data';
+import {
+  mockHistory,
+  mockStream,
+  installFakeEventSource,
+  fakeEventSourceUrls,
+  tickerFrame,
+  klineFrame,
+} from './helpers/live-data';
 
 test.describe('Live data and chart controls (authenticated)', () => {
   test('stream status badge reaches Live and watchlist displays streamed price', async ({ page }) => {
     await mockHistory(page);
-    await mockStream(page, [
+    await installFakeEventSource(page, [
       tickerFrame('BTCUSDT', 12345.67),
       klineFrame('BTCUSDT', '1h', 12345.67),
     ]);
@@ -18,16 +25,26 @@ test.describe('Live data and chart controls (authenticated)', () => {
 
   test('stream reconnects within 10 s and returns to Live badge', async ({ page }) => {
     await mockHistory(page);
-    const streamUrls = await mockStream(page, [
+    await installFakeEventSource(page, [
       tickerFrame('BTCUSDT', 50000),
       klineFrame('BTCUSDT', '1h', 50000),
     ]);
 
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-
-    await expect.poll(() => streamUrls.length, { timeout: 10000 }).toBeGreaterThanOrEqual(2);
     await expect(page.getByRole('status', { name: 'Live' })).toBeVisible({ timeout: 10000 });
+
+    const initialUrls = await fakeEventSourceUrls(page);
+
+    await page.evaluate(() => {
+      window.__esFail?.({ closed: true });
+    });
+
+    await expect(page.getByRole('status', { name: 'Reconnecting' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('status', { name: 'Live' })).toBeVisible({ timeout: 10000 });
+
+    const finalUrls = await fakeEventSourceUrls(page);
+    expect(finalUrls.length).toBeGreaterThanOrEqual(initialUrls.length + 1);
   });
 
   test('interval switch to 4H activates tab and streams 4h klines', async ({ page }) => {
@@ -174,7 +191,7 @@ test.describe('Live data and chart controls (authenticated)', () => {
     context,
   }) => {
     await mockHistory(page);
-    await mockStream(page);
+    await installFakeEventSource(page);
 
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });

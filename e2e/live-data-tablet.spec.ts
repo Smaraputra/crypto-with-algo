@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockHistory, mockStream } from './helpers/live-data';
+import { mockHistory, mockStream, installFakeEventSource } from './helpers/live-data';
 
 test.describe('Live data tablet layout and interactions', () => {
   test('navigation sheet closes on symbol selection or asserts selection on desktop sidebar', async ({
@@ -34,7 +34,7 @@ test.describe('Live data tablet layout and interactions', () => {
 
   test('status badge is visible and reaches Live', async ({ page }) => {
     await mockHistory(page);
-    await mockStream(page);
+    await installFakeEventSource(page);
 
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
