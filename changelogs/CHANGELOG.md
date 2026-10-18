@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: next-version Round 1 (locked, segment A read once, RESULT recorded)
+- **Data**:
+  - spot klines from the Binance archive (`spotKlines` in `ingest-archive.ts`, insert-only writes, microsecond timestamps in 2025 files handled);
+  - 252,441 spot 1h, 4h and 1d candles from 2017-08 ingested in production;
+  - a load-time guard for holdout segment A (`HOLDOUT_A`, `allowHoldoutA` in `load-dataset.ts`), plus a structural test on raw readers.
+- **Ledger**: `scripts/research/ledger.ts` is the single trial ledger (2,169 before, 2,189 after Round 1).
+- **Lock** `scripts/research/next-version-v1.ts` (commit `1713e71`), committed before segment A was read. Its RESULT block (2026-10-18):
+  - C1, the v8 price score at 1h with a confirmation delay, FAILS on holdout A (p 0.125).
+  - C2, a weekly ridge scorer, has one screen survivor (260 weeks, k 1). It is weak: a placebo feature set yields a survivor 6 times in 10.
+  - C3, value-area drift, has one survivor (k 1, +0.056% per one-day trade after 0.14%).
+  - C2 and C3 go to lab-v2 forward. No historical pass is called an edge.
+- **Preview** `scripts/research/lab-v2-preview.ts` (descriptive, before the lab-v2 lock):
+  - annual Sharpe over B and C: 0.17 (C2, weekly book) and 0.23 (C3, one unit per trade);
+  - with the lab's betting rule, neither has a measurable chance to cross threshold 400 within 24 months;
+  - 0 of 1,000 real-returns null runs crossed for either.
+- **Blind recomputes** (agy, from specifications only): the v8 re-score is exact, rv-v1 step 1 is within 0.003 per-bar Sharpe, and the direction-exit confirmation matches on 67,658 of 67,661 trades. The other 3 are one zero-size trade the engine booked at 0% when a protective stop fell below zero (`fixedFractional`). Nothing reopens a past verdict.
+
 ### Changed: live market data through a same-origin relay
 - **Why**: the browser connected straight to `wss://stream.binance.com`, which the owner's ISP blocks, so prices and the live chart never arrived without a VPN. The chart socket also never reconnected, nothing marked stale data, and history-load errors were silent.
 - **Relay** `GET /api/stream?streams=a/b` (signed in): one Node 22 `WebSocket` to Binance per browser connection, relayed as Server-Sent Events from the app's own origin, with `retry: 3000`, a 15 s ping comment, and an `upstream-closed` event. Stream names keep the kline interval's case (`1M` is monthly, `1m` is one minute). Up to 100 streams. Server variable `BINANCE_WS_URL`; `NEXT_PUBLIC_BINANCE_WS_URL` is gone from code, builds, CI and docs.
