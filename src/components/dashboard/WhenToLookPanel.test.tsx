@@ -1,9 +1,10 @@
 import { render, screen, fireEvent } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamStatus } from '@/lib/market-stream/client';
 import type { BarArrival } from '@/hooks/useBarArrivalLag';
 import type { PriorDayLevels } from '@/lib/market/levels';
-import type { LabResponse } from '@/lib/signals/lab/view';
+import type { LabResponse, LabV2Response } from '@/lib/signals/lab/view';
 import type { CrossSectionalLatestResponse } from '@/hooks/useSignals';
 import {
   WhenToLookPanel,
@@ -77,6 +78,20 @@ vi.mock('@/hooks/useSignalLab', () => ({
   }),
 }));
 
+const mockRefetchLabV2 = vi.fn();
+let mockLabV2Data: LabV2Response | undefined = undefined;
+let mockLabV2Loading = false;
+let mockLabV2Error = false;
+
+vi.mock('@/hooks/useSignalLabV2', () => ({
+  useSignalLabV2: () => ({
+    data: mockLabV2Data,
+    isLoading: mockLabV2Loading,
+    isError: mockLabV2Error,
+    refetch: mockRefetchLabV2,
+  }),
+}));
+
 let mockCrossData: CrossSectionalLatestResponse | undefined = undefined;
 let mockCrossLoading = false;
 let mockCrossError = false;
@@ -129,6 +144,14 @@ beforeEach(() => {
   };
   mockLabLoading = false;
   mockLabError = false;
+  mockRefetchLabV2.mockClear();
+  mockLabV2Data = {
+    version: 'lab-v2',
+    threshold: 400,
+    hypotheses: [],
+  };
+  mockLabV2Loading = false;
+  mockLabV2Error = false;
   mockCrossData = undefined;
   mockCrossLoading = false;
   mockCrossError = false;
@@ -255,5 +278,118 @@ describe('WhenToLookPanel rendering', () => {
     mockWatchlistData = { symbols: [], isLoading: true };
     render(<WhenToLookPanel />);
     expect(screen.getByText('Loading the watchlist.')).toBeInTheDocument();
+  });
+
+  it('renderToString contains no your time text', () => {
+    const html = renderToString(<WhenToLookPanel />);
+    expect(html).not.toContain('your time');
+  });
+
+  it('client render shows your time with the formatted local time', () => {
+    const now = Date.now();
+    render(<WhenToLookPanel />);
+    const expectedTime = new Date(nextLabBarAt(now)).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    expect(screen.getByText(expectedTime)).toBeInTheDocument();
+    expect(screen.getByText(/your time/)).toBeInTheDocument();
+  });
+
+  it('shows lab-v2 summary when hypotheses are under test', () => {
+    mockLabV2Data = {
+      version: 'lab-v2',
+      threshold: 400,
+      hypotheses: [
+        {
+          id: 'N2-1d',
+          candidate: 'N2',
+          timeframe: '1d',
+          status: 'under_test',
+          underTestSince: '2026-01-01T00:00:00Z',
+          testEndsAt: '2028-01-01T00:00:00Z',
+          validatedAt: null,
+          gradedBars: 50,
+          betBars: 10,
+          e: 1.2,
+          threshold: 400,
+          absorbed: false,
+          meanNetReturn: 0.01,
+          lastNetReturn: 0.005,
+          scale: 1,
+          latestBar: null,
+        },
+        {
+          id: 'N3-1w',
+          candidate: 'N3',
+          timeframe: '1w',
+          status: 'under_test',
+          underTestSince: '2026-01-01T00:00:00Z',
+          testEndsAt: '2028-01-01T00:00:00Z',
+          validatedAt: null,
+          gradedBars: 20,
+          betBars: 5,
+          e: 1.0,
+          threshold: 400,
+          absorbed: false,
+          meanNetReturn: 0.02,
+          lastNetReturn: 0.01,
+          scale: 1,
+          latestBar: null,
+        },
+      ],
+    };
+    render(<WhenToLookPanel />);
+    expect(
+      screen.getByText(
+        'Forward lab lab-v2: 2 of 2 hypotheses under test; strongest evidence e = 1.20 of 400 needed.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('lab-v2 loading shows Loading the forward lab lab-v2.', () => {
+    mockLabV2Loading = true;
+    render(<WhenToLookPanel />);
+    expect(screen.getByText('Loading the forward lab lab-v2.')).toBeInTheDocument();
+  });
+
+  it('lab-v2 error shows its Retry button which calls refetch', () => {
+    mockLabV2Error = true;
+    render(<WhenToLookPanel />);
+    expect(screen.getByText('Could not load the forward lab lab-v2.')).toBeInTheDocument();
+    const retryBtn = screen.getByRole('button', { name: 'Retry lab-v2' });
+    expect(retryBtn).toBeInTheDocument();
+    fireEvent.click(retryBtn);
+    expect(mockRefetchLabV2).toHaveBeenCalledTimes(1);
+  });
+
+  it('a validated lab-v2 hypothesis N3-1d puts N3-1d crossed its evidence threshold in the headline', () => {
+    mockLabV2Data = {
+      version: 'lab-v2',
+      threshold: 400,
+      hypotheses: [
+        {
+          id: 'N3-1d',
+          candidate: 'N3',
+          timeframe: '1d',
+          status: 'validated',
+          underTestSince: '2026-01-01T00:00:00Z',
+          testEndsAt: '2028-01-01T00:00:00Z',
+          validatedAt: '2026-06-01T00:00:00Z',
+          gradedBars: 100,
+          betBars: 20,
+          e: 450,
+          threshold: 400,
+          absorbed: false,
+          meanNetReturn: 0.05,
+          lastNetReturn: 0.02,
+          scale: 1,
+          latestBar: null,
+        },
+      ],
+    };
+    render(<WhenToLookPanel />);
+    const headline = screen.getByTestId('look-headline');
+    expect(headline).toHaveTextContent('N3-1d crossed its evidence threshold');
   });
 });
