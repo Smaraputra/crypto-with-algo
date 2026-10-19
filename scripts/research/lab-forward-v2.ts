@@ -133,6 +133,16 @@
  * after the deploy that starts the jobs. The first N2 bar is the first Monday 00:00 UTC after it. AMENDMENT 1 will
  * record the deploy time.
  *
+ * AMENDMENT 1 (2026-10-19, written after the first rows were stored and before either was graded). It records the
+ * start and changes no rule.
+ * - The code merged with PR #105 (main 518c0ef). The app restarted on it at 2026-10-18 18:44:04 UTC.
+ * - The cron container was recreated at about 18:45 UTC. Its crontab carries the four lab-v2 lines (00:03 and 00:08
+ *   daily; 00:03 and 00:08 on Mondays).
+ * - No lab-v2 job ran by hand, so no earlier bar exists.
+ * - First rows, both for the bar closing 2026-10-19 00:00 UTC (a Monday), neither late:
+ *   - N3-1d written 00:03:03 UTC, 7 positions, all short;
+ *   - N2-1w written 00:03:05 UTC, an 8-coin book, +0.5 long and -0.5 short, reason ok.
+ *
  * TRIALS: none added. The two hypotheses were counted in Round 1 (ledger 2,189) and are judged here under their own
  * alpha.
  */
