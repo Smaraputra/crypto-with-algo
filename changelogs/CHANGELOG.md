@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: lab-v2 is live, AMENDMENT 1 records the start
+- `scripts/research/lab-forward-v2.ts` AMENDMENT 1, written before the first rows were graded. The app restarted on PR #105 at 2026-10-18 18:44:04 UTC, and cron was recreated at about 18:45 UTC.
+- The first rows are N3-1d (7 shorts) and N2-1w (an 8-coin book) for the bar closing 2026-10-19 00:00 UTC. Neither was late. No rule changes.
+- The same bar was lab-v1 L4's first scored bar since AMENDMENT 2: all 10 coins scored on time.
+
 ### Added: forward lab lab-v2 (the Round 1 survivors)
 - **Lock** `scripts/research/lab-forward-v2.ts` (`a8b3eb7`), committed before any lab-v2 bar exists. Two hypotheses:
   - N2-1w, the weekly ridge (260 weeks, k 1, labelled weak);
