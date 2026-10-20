@@ -629,6 +629,22 @@ describe('TradingChart', () => {
       expect(mockCreateIndicator).toHaveBeenCalledWith('RSI', false);
     });
 
+    it('enabling RSI, then disabling it, calls removeIndicator({ name: "RSI" })', async () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      const trigger = screen.getByRole('button', { name: /indicators/i });
+      fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' });
+
+      const rsiItem = await screen.findByRole('menuitemcheckbox', { name: 'RSI' });
+      fireEvent.click(rsiItem);
+      expect(mockCreateIndicator).toHaveBeenCalledWith('RSI', false);
+
+      fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' });
+      const rsiItemAgain = await screen.findByRole('menuitemcheckbox', { name: 'RSI' });
+      fireEvent.click(rsiItemAgain);
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ name: 'RSI' });
+    });
+
     it('calls removeIndicator when disabling an indicator via dropdown', async () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
@@ -639,6 +655,18 @@ describe('TradingChart', () => {
       fireEvent.click(maItem);
 
       expect(mockRemoveIndicator).toHaveBeenCalledWith({ paneId: 'candle_pane', name: 'MA' });
+    });
+
+    it('calls removeIndicator when disabling the default Volume indicator', async () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      const trigger = screen.getByRole('button', { name: /indicators/i });
+      fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' });
+
+      const volItem = await screen.findByRole('menuitemcheckbox', { name: 'Volume' });
+      fireEvent.click(volItem);
+
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ name: 'VOL' });
     });
   });
 

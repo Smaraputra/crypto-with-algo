@@ -43,7 +43,7 @@ export function HitRateRuler({ right, interval, breakEven }: HitRateRulerProps) 
   }.`;
 
   return (
-    <figure className="mt-4" data-testid="hit-rate-ruler">
+    <figure className="relative mt-4" data-testid="hit-rate-ruler">
       <figcaption className="sr-only">{summary}</figcaption>
       <div className="relative h-[4.75rem] px-9" aria-hidden="true">
         <span className="absolute left-0 top-[1.3rem] font-mono text-[11px] tabular-nums text-muted-foreground">

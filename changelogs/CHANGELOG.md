@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: four defects found in the production browser check (2026-10-19)
+- **Indicator panes**: turning an oscillator off (RSI, MACD, KDJ, OBV, Volume) left its pane on the chart, and turning it on again added a second one.
+  - In KlineCharts 10.0.0-beta1, `createIndicator` returns the indicator's id, not its pane's, so removal by pane id matched nothing.
+  - Oscillators are now removed by name.
+- **Page shift**: hidden screen-reader captions anchored to the page body and stretched it to about 2,000 px, so focus moves could scroll the header and sidebar off screen. The main content area and the track-record figure now contain them.
+- **"Your time"**: the "When to look" panel showed the server's UTC time as the viewer's local time (04:03 PM instead of 12:03 AM in UTC+8). Local time is now rendered only in the browser.
+- **lab-v2 in the panel**: the Signals line now reports lab-v2 beside lab-v1, and a validated lab-v2 hypothesis enters the headline.
+- **Checked in production** (desktop, browser full screen): every page loads without console errors; chart intervals including monthly, indicators, drawing, refresh, maximize with Escape, symbol switch, watchlist add and remove, and both lab boards all work.
+
 ### Research: lab-v2 is live, AMENDMENT 1 records the start
 - `scripts/research/lab-forward-v2.ts` AMENDMENT 1, written before the first rows were graded. The app restarted on PR #105 at 2026-10-18 18:44:04 UTC, and cron was recreated at about 18:45 UTC.
 - The first rows are N3-1d (7 shorts) and N2-1w (an 8-coin book) for the bar closing 2026-10-19 00:00 UTC. Neither was late. No rule changes.

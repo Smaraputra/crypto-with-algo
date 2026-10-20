@@ -167,7 +167,6 @@ export interface IndicatorConfig {
   name: string;
   category: 'overlay' | 'oscillator' | 'volume';
   enabled: boolean;
-  paneId?: string;
   calcParams: number[];
 }
 
@@ -301,12 +300,7 @@ export function TradingChart({
       // Stacked: an unstacked create removes every other indicator on the pane.
       chartRef.current.createIndicator(indicator.id, true, { id: 'candle_pane' });
     } else {
-      const paneId = chartRef.current.createIndicator(indicator.id, false);
-      setIndicators((prev) =>
-        prev.map((ind) =>
-          ind.id === indicator.id ? { ...ind, paneId: paneId || undefined } : ind
-        )
-      );
+      chartRef.current.createIndicator(indicator.id, false);
     }
   }, []);
 
@@ -315,8 +309,8 @@ export function TradingChart({
 
     if (indicator.category === 'overlay') {
       chartRef.current.removeIndicator({ paneId: 'candle_pane', name: indicator.id });
-    } else if (indicator.paneId) {
-      chartRef.current.removeIndicator({ paneId: indicator.paneId, name: indicator.id });
+    } else {
+      chartRef.current.removeIndicator({ name: indicator.id });
     }
   }, []);
 
