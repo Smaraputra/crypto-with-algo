@@ -36,6 +36,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     trials: 20,
     source: 'scripts/research/next-version-v1.ts NV1_LOCK (C1 4, C2 12, C3 4)',
   },
+  {
+    id: 'next-version-r2',
+    date: '2026-10-20',
+    trials: 10,
+    source:
+      'scripts/research/nv2-preview.ts SIGNALS x HOLDS (5 x 2), run on the VPS 2026-10-20 at 55ded39; lab-v3 F1-1d is the fund7 h7 cell and adds none',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */
