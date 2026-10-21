@@ -38,12 +38,14 @@ export function barWinner(candle: OHLCV): BarWinner | null {
 export interface CvdPoint {
   timestamp: number;
   cvd: number | null;
+  /** True when cvdSeries restarted the running sum at this point (resetDaily and a UTC midnight bar, excluding the first point). */
+  reset: boolean;
 }
 
 /**
  * Running sum of barDelta. With resetDaily, the sum restarts at every bar whose timestamp is a UTC midnight
- * (timestamp % 86_400_000 === 0), so that bar's CVD equals its own delta. A null delta makes that point's cvd null
- * and the running sum carries on unchanged from the last non-null point.
+ * (timestamp % 86_400_000 === 0), so that bar's CVD equals its own delta and reset is marked true (false for the first point).
+ * A null delta makes that point's cvd null and the running sum carries on unchanged from the last non-null point.
  */
 export function cvdSeries(
   candles: readonly OHLCV[],
@@ -55,23 +57,24 @@ export function cvdSeries(
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i];
     const isMidnight = opts.resetDaily && candle.timestamp % DAY_MS === 0;
+    const isReset = i > 0 && isMidnight;
     if (isMidnight) {
       runningSum = 0;
     }
 
     const delta = barDelta(candle);
     if (delta === null) {
-      points.push({ timestamp: candle.timestamp, cvd: null });
+      points.push({ timestamp: candle.timestamp, cvd: null, reset: isReset });
     } else {
       runningSum += delta;
-      points.push({ timestamp: candle.timestamp, cvd: runningSum });
+      points.push({ timestamp: candle.timestamp, cvd: runningSum, reset: isReset });
     }
   }
 
   return points;
 }
 
-/** 'rising' if cvd[last] > cvd[last - bars], 'falling' if <, 'flat' if equal; null if either point is null, missing, or a daily reset lies between them. */
+/** 'rising' if cvd[last] > cvd[last - bars], 'falling' if <, 'flat' if equal; null if either point is null, missing, or a reset occurs in (last - bars, last]. */
 export function cvdSlope(
   points: readonly CvdPoint[],
   bars?: number
@@ -97,16 +100,8 @@ export function cvdSlope(
     return null;
   }
 
-  // A daily reset lies between first and last if midnight occurs in (firstIdx, lastIdx]
-  // or if first and last fall on different UTC days.
-  const firstDay = Math.floor(firstPoint.timestamp / DAY_MS);
-  const lastDay = Math.floor(lastPoint.timestamp / DAY_MS);
-  if (firstDay !== lastDay) {
-    return null;
-  }
-
   for (let i = firstIdx + 1; i <= lastIdx; i++) {
-    if (points[i].timestamp % DAY_MS === 0) {
+    if (points[i].reset) {
       return null;
     }
   }

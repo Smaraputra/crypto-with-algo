@@ -82,10 +82,10 @@ describe('delta', () => {
 
       const points = cvdSeries(candles, { resetDaily: true });
       expect(points).toEqual([
-        { timestamp: dayMs - 2 * 3_600_000, cvd: 4 },
-        { timestamp: dayMs - 1 * 3_600_000, cvd: 10 },
-        { timestamp: dayMs, cvd: 2 },
-        { timestamp: dayMs + 1 * 3_600_000, cvd: 6 },
+        { timestamp: dayMs - 2 * 3_600_000, cvd: 4, reset: false },
+        { timestamp: dayMs - 1 * 3_600_000, cvd: 10, reset: false },
+        { timestamp: dayMs, cvd: 2, reset: true },
+        { timestamp: dayMs + 1 * 3_600_000, cvd: 6, reset: false },
       ]);
     });
 
@@ -100,10 +100,10 @@ describe('delta', () => {
 
       const points = cvdSeries(candles, { resetDaily: false });
       expect(points).toEqual([
-        { timestamp: dayMs - 2 * 3_600_000, cvd: 4 },
-        { timestamp: dayMs - 1 * 3_600_000, cvd: 10 },
-        { timestamp: dayMs, cvd: 12 },
-        { timestamp: dayMs + 1 * 3_600_000, cvd: 16 },
+        { timestamp: dayMs - 2 * 3_600_000, cvd: 4, reset: false },
+        { timestamp: dayMs - 1 * 3_600_000, cvd: 10, reset: false },
+        { timestamp: dayMs, cvd: 12, reset: false },
+        { timestamp: dayMs + 1 * 3_600_000, cvd: 16, reset: false },
       ]);
     });
 
@@ -117,11 +117,33 @@ describe('delta', () => {
 
       const points = cvdSeries(candles, { resetDaily: false });
       expect(points).toEqual([
-        { timestamp: 3_600_000, cvd: 4 },
-        { timestamp: 2 * 3_600_000, cvd: null },
-        { timestamp: 3 * 3_600_000, cvd: 10 },
-        { timestamp: 4 * 3_600_000, cvd: 8 },
+        { timestamp: 3_600_000, cvd: 4, reset: false },
+        { timestamp: 2 * 3_600_000, cvd: null, reset: false },
+        { timestamp: 3 * 3_600_000, cvd: 10, reset: false },
+        { timestamp: 4 * 3_600_000, cvd: 8, reset: false },
       ]);
+    });
+
+    it('marks reset: true only on midnight bars with resetDaily, and never on the first point', () => {
+      const dayMs = 86_400_000;
+      const candles: OHLCV[] = [
+        makeCandle({ timestamp: 0, volume: 10, takerBuyVolume: 6 }), // 00:00 midnight (first point) -> reset false
+        makeCandle({ timestamp: 3_600_000, volume: 10, takerBuyVolume: 6 }), // 01:00 -> reset false
+        makeCandle({ timestamp: dayMs, volume: 10, takerBuyVolume: 6 }), // 00:00 next midnight -> reset true
+        makeCandle({ timestamp: dayMs + 3_600_000, volume: 10, takerBuyVolume: 6 }), // 01:00 -> reset false
+      ];
+
+      const withReset = cvdSeries(candles, { resetDaily: true });
+      expect(withReset[0].reset).toBe(false);
+      expect(withReset[1].reset).toBe(false);
+      expect(withReset[2].reset).toBe(true);
+      expect(withReset[3].reset).toBe(false);
+
+      const withoutReset = cvdSeries(candles, { resetDaily: false });
+      expect(withoutReset[0].reset).toBe(false);
+      expect(withoutReset[1].reset).toBe(false);
+      expect(withoutReset[2].reset).toBe(false);
+      expect(withoutReset[3].reset).toBe(false);
     });
   });
 
@@ -132,6 +154,7 @@ describe('delta', () => {
         return deltas.map((cvd, i) => ({
           timestamp: (i + 1) * 3_600_000,
           cvd,
+          reset: false,
         }));
       };
 
@@ -162,10 +185,54 @@ describe('delta', () => {
       expect(cvdSlope(points, 20)).toBeNull();
     });
 
+    it('a resetDaily: false series of 1h bars spanning 3 UTC days gives a non-null slope over 20 bars, rising for positive deltas', () => {
+      const dayMs = 86_400_000;
+      // 72 1h bars spanning 3 full days (from 12:00 Day 1 to 11:00 Day 4)
+      const startMs = dayMs + 12 * 3_600_000;
+      const candles: OHLCV[] = Array.from({ length: 72 }, (_, i) =>
+        makeCandle({
+          timestamp: startMs + i * 3_600_000,
+          volume: 10,
+          takerBuyVolume: 7, // positive delta: 2 * 7 - 10 = +4 each bar
+        })
+      );
+
+      const points = cvdSeries(candles, { resetDaily: false });
+      // The last 20 bars start at 15:00 Day 3 and end at 11:00 Day 4, crossing midnight Day 4 (00:00)
+      const slope = cvdSlope(points, 20);
+      expect(slope).toBe('rising');
+    });
+
+    it('a resetDaily: true series with a midnight bar inside the window gives null, while the same series with the window entirely after the midnight bar gives a slope', () => {
+      const dayMs = 86_400_000;
+      // Start 5 hours before midnight: Day 0 19:00 to Day 1 21:00 (27 bars)
+      // Index 5 is 00:00 midnight (Day 1)
+      const startMs = dayMs - 5 * 3_600_000;
+      const candles: OHLCV[] = Array.from({ length: 27 }, (_, i) =>
+        makeCandle({
+          timestamp: startMs + i * 3_600_000,
+          volume: 10,
+          takerBuyVolume: 6, // positive delta = 2
+        })
+      );
+
+      const points = cvdSeries(candles, { resetDaily: true });
+      expect(points[5].timestamp).toBe(dayMs);
+      expect(points[5].reset).toBe(true);
+
+      // Window of 20 bars covering indices 0 to 20: includes index 5 (midnight bar with reset: true)
+      const windowAcrossReset = points.slice(0, 21);
+      expect(cvdSlope(windowAcrossReset, 20)).toBeNull();
+
+      // Window of 20 bars covering indices 6 to 26: entirely after index 5
+      // With period 20 on full series of 27 bars (lastIdx = 26, firstIdx = 6), index 5 is before firstIdx
+      expect(cvdSlope(points, 20)).toBe('rising');
+    });
+
     it('returns null with too few points', () => {
       const points: CvdPoint[] = [
-        { timestamp: 3_600_000, cvd: 10 },
-        { timestamp: 2 * 3_600_000, cvd: 20 },
+        { timestamp: 3_600_000, cvd: 10, reset: false },
+        { timestamp: 2 * 3_600_000, cvd: 20, reset: false },
       ];
       expect(cvdSlope(points, 20)).toBeNull();
       expect(cvdSlope(points, 2)).toBeNull(); // 2 points is < 2 + 1
@@ -173,16 +240,16 @@ describe('delta', () => {
 
     it('returns null if either endpoint has null cvd', () => {
       const points: CvdPoint[] = [
-        { timestamp: 3_600_000, cvd: null },
-        { timestamp: 2 * 3_600_000, cvd: 10 },
-        { timestamp: 3 * 3_600_000, cvd: 20 },
+        { timestamp: 3_600_000, cvd: null, reset: false },
+        { timestamp: 2 * 3_600_000, cvd: 10, reset: false },
+        { timestamp: 3 * 3_600_000, cvd: 20, reset: false },
       ];
       expect(cvdSlope(points, 2)).toBeNull();
 
       const points2: CvdPoint[] = [
-        { timestamp: 3_600_000, cvd: 10 },
-        { timestamp: 2 * 3_600_000, cvd: 20 },
-        { timestamp: 3 * 3_600_000, cvd: null },
+        { timestamp: 3_600_000, cvd: 10, reset: false },
+        { timestamp: 2 * 3_600_000, cvd: 20, reset: false },
+        { timestamp: 3 * 3_600_000, cvd: null, reset: false },
       ];
       expect(cvdSlope(points2, 2)).toBeNull();
     });
