@@ -103,6 +103,23 @@ export const LAB_V3_UNIVERSE = Object.freeze([
 
 export const LAB_V3_UNIVERSE_SHA256 = 'e1035a116d5432568c798dfb5213e0e06ba90d6c899fcef607521db2fb957dfc' as const;
 
+/** Taker fee per side for lab-v3, as nv2-preview TAKER_FEE_RATE. */
+export const LAB_V3_TAKER_FEE = 0.0005;
+/** Return haircut for a held coin that stops trading inside the window, as nv2-preview DELISTING_HAIRCUT. */
+export const LAB_V3_DELISTING_HAIRCUT = 0.02;
+/** Slippage per side by frozen manifest rank, as nv2-preview slippageOfRank. */
+export function labV3SlippageOfRank(rank: number): number {
+  if (rank >= 1 && rank <= 10) return 0.0002;
+  if (rank >= 11 && rank <= 25) return 0.0005;
+  return 0.001;
+}
+/** Per-side cost for a symbol outside the frozen universe (nv2-preview: undefined rank). */
+export const LAB_V3_COST_UNRANKED = LAB_V3_TAKER_FEE + 0.001;
+/** Per-side cost by symbol: taker fee plus slippage at the symbol's frozen manifest rank. */
+export const LAB_V3_COST_PER_SIDE: Readonly<Record<string, number>> = Object.freeze(
+  Object.fromEntries(LAB_V3_UNIVERSE.map((sym, i) => [sym, LAB_V3_TAKER_FEE + labV3SlippageOfRank(i + 1)]))
+);
+
 /** v8 GlobalSignal source per L2 timeframe, frozen. */
 export const L2_V8_STYLE: Record<'5m' | '15m' | '1h' | '4h' | '1d', TradingStyle> = Object.freeze({
   '5m': 'scalping',

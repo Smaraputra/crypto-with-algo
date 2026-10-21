@@ -3,10 +3,16 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { BinanceHttpError } from '@/lib/binance-futures';
 import { FundingSettlement } from '@/lib/models/funding-settlement';
 import { LabScore } from '@/lib/models/lab-score';
 import { insertLabSignalOnce, LabSignal } from '@/lib/models/lab-signal';
-import { LAB_HYPOTHESES_V2, LAB_HYPOTHESES_V3 } from '@/lib/signals/lab/candidates';
+import {
+  LAB_HYPOTHESES_V2,
+  LAB_HYPOTHESES_V3,
+  LAB_V3_COST_PER_SIDE,
+  LAB_V3_COST_UNRANKED,
+} from '@/lib/signals/lab/candidates';
 import { initialEState, type EProcessState } from '@/lib/signals/lab/e-process';
 import {
   defaultFundingSumsFor,
@@ -568,20 +574,26 @@ describe('pure lab-v2 gradeBookBar', () => {
     expect(row.funding).toEqual({ A: 0.001, B: -0.002 });
   });
 
-  it('grades F1 hand-computed bar with funding, turnover, and threshold 200', () => {
-    const weights = { BTCUSDT: 0.5, ETHUSDT: -0.5 };
-    const wPrev = { BTCUSDT: 0.25, SOLUSDT: -0.25 };
+  it('F1 charges tiered cost by frozen rank', () => {
+    const weights = { BTCUSDT: 0.5, UNIUSDT: -0.25, PENGUUSDT: -0.25 };
+    const wPrev = { BTCUSDT: 0.25, PENGUUSDT: -0.25 };
     const prices = {
       BTCUSDT: { start: 100, end: 102 },
-      ETHUSDT: { start: 100, end: 99 },
+      UNIUSDT: { start: 10, end: 11 },
+      PENGUUSDT: { start: 1, end: 0.9 },
     };
-    const fundingSums = { BTCUSDT: 0.001, ETHUSDT: -0.002 };
+    const fundingSums = {
+      BTCUSDT: 0.001,
+      UNIUSDT: 0.0005,
+      PENGUUSDT: -0.001,
+    };
 
-    const turnover = 0.25 + 0.5 + 0.25;
-    const expectedR =
-      0.5 * (0.02 - 0.001) -
-      0.5 * (-0.01 + 0.002) -
-      0.0007 * turnover;
+    const expectedCost = 0.25 * 0.0007 + 0.25 * 0.0010 + 0 * 0.0015;
+    const grossReturnFunding =
+      0.5 * (102 / 100 - 1 - 0.001) +
+      (-0.25) * (11 / 10 - 1 - 0.0005) +
+      (-0.25) * (0.9 / 1 - 1 - (-0.001));
+    const expectedR = grossReturnFunding - expectedCost;
     const scale = 0.1;
     const expectedX = Math.min(expectedR / scale, 1);
 
@@ -599,14 +611,137 @@ describe('pure lab-v2 gradeBookBar', () => {
       gradedAt: new Date(T + 60_000),
     });
 
-    expect(row.version).toBe('lab-v3');
-    expect(row.hypothesis).toBe('F1-1d');
+    expect(row.turnover).toBe(0.5);
     expect(Math.abs(row.netBookReturn! - expectedR)).toBeLessThan(1e-12);
     expect(Math.abs(row.x! - expectedX)).toBeLessThan(1e-12);
-    expect(row.b).toBe(0);
     expect(row.bet).toBe(true);
     expect(row.noBetReason).toBeNull();
-    expect(row.weights).toEqual(weights);
+  });
+
+  it('F1 unpriced held coin contributes 0 and the bar still bets', () => {
+    const weights = { BTCUSDT: 0.5, UNIUSDT: -0.25, PENGUUSDT: -0.25 };
+    const wPrev = { BTCUSDT: 0.25, PENGUUSDT: -0.25 };
+    // PENGUUSDT has no price
+    const prices = {
+      BTCUSDT: { start: 100, end: 102 },
+      UNIUSDT: { start: 10, end: 11 },
+    };
+    const fundingSums = {
+      BTCUSDT: 0.001,
+      UNIUSDT: 0.0005,
+    };
+
+    const cost = 0.25 * 0.0007 + 0.25 * 0.0010 + 0 * 0.0015;
+    // PENGUUSDT contributes 0
+    const grossReturnFunding =
+      0.5 * (102 / 100 - 1 - 0.001) +
+      (-0.25) * (11 / 10 - 1 - 0.0005);
+    const expectedR = grossReturnFunding - cost;
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V3[0],
+      barClose: T,
+      late: false,
+      scores: weights,
+      prices,
+      fundingSums,
+      prev: {
+        state: initialEState(),
+        weights: wPrev,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.bet).toBe(true);
+    expect(row.noBetReason).toBeNull();
+    expect(row.n).toBe(2);
+    expect(Math.abs(row.netBookReturn! - expectedR)).toBeLessThan(1e-12);
+  });
+
+  it('F1 delisted coin takes the 2% haircut', () => {
+    const weights = { BTCUSDT: 0.5, PENGUUSDT: -0.5 };
+    const prices = {
+      BTCUSDT: { start: 100, end: 102 },
+      PENGUUSDT: { start: 1, end: 0.9 },
+    };
+    const fundingSums = {
+      BTCUSDT: 0.001,
+      PENGUUSDT: 0,
+    };
+
+    const cost = 0.5 * 0.0007 + 0.5 * 0.0015;
+    const rBTC = 102 / 100 - 1;
+    const rPENGU = 0.9 / 1 - 1 - 0.02; // -0.10 - 0.02 = -0.12
+    const expectedR =
+      0.5 * (rBTC - 0.001) +
+      (-0.5) * (rPENGU - 0) -
+      cost;
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V3[0],
+      barClose: T,
+      late: false,
+      scores: weights,
+      prices,
+      fundingSums,
+      delisted: ['PENGUUSDT'],
+      prev: {
+        state: initialEState(),
+        weights: null,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.n).toBe(2);
+    expect(row.bet).toBe(true);
+    expect(Math.abs(row.netBookReturn! - expectedR)).toBeLessThan(1e-12);
+  });
+
+  it('F1 first bar charges full book', () => {
+    const weights = { BTCUSDT: 0.5, UNIUSDT: -0.25, PENGUUSDT: -0.25 };
+    const prices = {
+      BTCUSDT: { start: 100, end: 102 },
+      UNIUSDT: { start: 10, end: 11 },
+      PENGUUSDT: { start: 1, end: 0.9 },
+    };
+    const fundingSums = {
+      BTCUSDT: 0.001,
+      UNIUSDT: 0.0005,
+      PENGUUSDT: -0.001,
+    };
+
+    const expectedCost = 0.5 * 0.0007 + 0.25 * 0.0010 + 0.25 * 0.0015;
+    const grossReturnFunding =
+      0.5 * (102 / 100 - 1 - 0.001) +
+      (-0.25) * (11 / 10 - 1 - 0.0005) +
+      (-0.25) * (0.9 / 1 - 1 - (-0.001));
+    const expectedR = grossReturnFunding - expectedCost;
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V3[0],
+      barClose: T,
+      late: false,
+      scores: weights,
+      prices,
+      fundingSums,
+      prev: {
+        state: initialEState(),
+        weights: null,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.turnover).toBe(1.0);
+    expect(Math.abs(row.netBookReturn! - expectedR)).toBeLessThan(1e-12);
+  });
+
+  it('LAB_V3_COST_PER_SIDE matches frozen tiers', () => {
+    expect(Object.keys(LAB_V3_COST_PER_SIDE)).toHaveLength(30);
+    expect(LAB_V3_COST_PER_SIDE['BTCUSDT']).toBeCloseTo(0.0007, 12);
+    expect(LAB_V3_COST_PER_SIDE['UNIUSDT']).toBeCloseTo(0.001, 12);
+    expect(LAB_V3_COST_PER_SIDE['LTCUSDT']).toBeCloseTo(0.001, 12);
+    expect(LAB_V3_COST_PER_SIDE['TRUMPUSDT']).toBeCloseTo(0.0015, 12);
+    expect(LAB_V3_COST_PER_SIDE['PENGUUSDT']).toBeCloseTo(0.0015, 12);
   });
 
   it('grades a cash week with R = -0.0007 * turnover', () => {
@@ -1244,6 +1379,302 @@ describe('runLabGrade with mocked deps for v1 and v2', () => {
     expect(reportOld.errors.some((e) => e.includes('coverage gap older than 48 hours') && e.includes('BTCUSDT'))).toBe(true);
     const rowOld = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
     expect(rowOld).toBeNull();
+  });
+
+  it('runLabGrade: a v3 kline fetch that rejects with a plain Error: lab-v2 rows are graded, report.success is false, no lab-v3 row is written', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    await insertLabSignalOnce({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      candidate: 'N3',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    await insertLabSignalOnce({
+      version: 'lab-v3',
+      hypothesis: 'F1-1d',
+      candidate: 'F1',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { SOLUSDT: 0.5 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T1, '1d') + 1000;
+    const { start, end } = priceTimes(T1, '1d');
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(async (sym: string) => {
+      if (sym === 'SOLUSDT') {
+        throw new Error('v3 kline fetch plain error');
+      }
+      return [
+        { openTime: start, open: 100, close: 100, high: 100, low: 100, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 299_999 },
+        { openTime: end, open: 105, close: 105, high: 105, low: 105, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: end + 299_999 },
+      ];
+    });
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fetchPerpExchangeInfo: vi.fn().mockResolvedValue([
+        { symbol: 'SOLUSDT', status: 'TRADING' },
+      ]),
+      sleep: async () => {},
+      fundingSumsFor: vi.fn().mockResolvedValue({ BTCUSDT: 0.0001 }),
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+
+    expect(report.success).toBe(false);
+    expect(report.errors).toContain('v3 kline fetch plain error');
+
+    const v2Row = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(v2Row).not.toBeNull();
+    expect(report.graded.some((g) => g.hypothesis === 'N3-1d')).toBe(true);
+
+    const v3Row = await LabScore.findOne({ hypothesis: 'F1-1d', barClose: T1 }).lean();
+    expect(v3Row).toBeNull();
+    expect(report.graded.some((g) => g.hypothesis === 'F1-1d')).toBe(false);
+  });
+
+  it('runLabGrade: a v2 kline fetch that rejects: the lab-v3 bar is still graded', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    await insertLabSignalOnce({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      candidate: 'N3',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    await insertLabSignalOnce({
+      version: 'lab-v3',
+      hypothesis: 'F1-1d',
+      candidate: 'F1',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { SOLUSDT: 0.5 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T1, '1d') + 1000;
+    const { start, end } = priceTimes(T1, '1d');
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(async (sym: string) => {
+      if (sym === 'BTCUSDT') {
+        throw new Error('v2 kline fetch plain error');
+      }
+      return [
+        { openTime: start, open: 100, close: 100, high: 100, low: 100, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 299_999 },
+        { openTime: end, open: 105, close: 105, high: 105, low: 105, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: end + 299_999 },
+      ];
+    });
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fetchPerpExchangeInfo: vi.fn().mockResolvedValue([
+        { symbol: 'SOLUSDT', status: 'TRADING' },
+      ]),
+      sleep: async () => {},
+      fundingSumsFor: vi.fn().mockResolvedValue({ SOLUSDT: 0.0001 }),
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+
+    expect(report.success).toBe(false);
+    expect(report.errors).toContain('v2 kline fetch plain error');
+
+    const v2Row = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(v2Row).toBeNull();
+
+    const v3Row = await LabScore.findOne({ hypothesis: 'F1-1d', barClose: T1 }).lean();
+    expect(v3Row).not.toBeNull();
+    expect(report.graded.some((g) => g.hypothesis === 'F1-1d')).toBe(true);
+  });
+
+  it('runLabGrade: one F1 symbol rejects with BinanceHttpError 400: lab-v3 bar is graded, coin not in prices, error in report.errors', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    await insertLabSignalOnce({
+      version: 'lab-v3',
+      hypothesis: 'F1-1d',
+      candidate: 'F1',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 0.5, UNKNOWNUSDT: -0.5 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T1, '1d') + 1000;
+    const { start, end } = priceTimes(T1, '1d');
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(async (sym: string) => {
+      if (sym === 'UNKNOWNUSDT') {
+        throw new BinanceHttpError('/fapi/v1/klines', 400);
+      }
+      return [
+        { openTime: start, open: 100, close: 100, high: 100, low: 100, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 299_999 },
+        { openTime: end, open: 105, close: 105, high: 105, low: 105, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: end + 299_999 },
+      ];
+    });
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fetchPerpExchangeInfo: vi.fn().mockResolvedValue([
+        { symbol: 'BTCUSDT', status: 'TRADING' },
+      ]),
+      sleep: async () => {},
+      fundingSumsFor: vi.fn().mockResolvedValue({ BTCUSDT: 0.0001 }),
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+
+    expect(report.errors.some((e) => e.includes('HTTP 400'))).toBe(true);
+    expect(report.graded.some((g) => g.hypothesis === 'F1-1d')).toBe(true);
+
+    const v3Row = await LabScore.findOne({ hypothesis: 'F1-1d', barClose: T1 }).lean();
+    expect(v3Row).not.toBeNull();
+    expect(v3Row!.prices['UNKNOWNUSDT']).toBeUndefined();
+    expect(v3Row!.prices['BTCUSDT']).toBeDefined();
+    expect(v3Row!.n).toBe(1);
+  });
+
+  it('runLabGrade: F1 coin whose klines stop before end and exchangeInfo lists as SETTLING takes haircut; coin missing end kline in TRADING is unpriced', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+    const { start, end } = priceTimes(T1, '1d');
+
+    await insertLabSignalOnce({
+      version: 'lab-v3',
+      hypothesis: 'F1-1d',
+      candidate: 'F1',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { SETTLING_COIN: 0.5, TRADING_COIN: -0.5 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T1, '1d') + 1000;
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(async (sym: string) => {
+      if (sym === 'SETTLING_COIN') {
+        return [
+          { openTime: start, open: 100, close: 98, high: 101, low: 97, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 299_999 },
+          { openTime: start + 300_000, open: 98, close: 85, high: 99, low: 84, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 599_999 },
+        ];
+      }
+      if (sym === 'TRADING_COIN') {
+        return [
+          { openTime: start, open: 50, close: 51, high: 52, low: 49, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 299_999 },
+        ];
+      }
+      return [];
+    });
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fetchPerpExchangeInfo: vi.fn().mockResolvedValue([
+        { symbol: 'SETTLING_COIN', status: 'SETTLING' },
+        { symbol: 'TRADING_COIN', status: 'TRADING' },
+      ]),
+      sleep: async () => {},
+      fundingSumsFor: vi.fn().mockResolvedValue({ SETTLING_COIN: 0.0002 }),
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+    expect(report.graded.some((g) => g.hypothesis === 'F1-1d')).toBe(true);
+
+    const v3Row = await LabScore.findOne({ hypothesis: 'F1-1d', barClose: T1 }).lean();
+    expect(v3Row).not.toBeNull();
+    expect(v3Row!.prices['TRADING_COIN']).toBeUndefined();
+    expect(v3Row!.prices['SETTLING_COIN']).toEqual({ start: 100, end: 85 });
+    expect(v3Row!.n).toBe(1);
+
+    const cost = 1.0 * LAB_V3_COST_UNRANKED;
+    const expectedR = 0.5 * (-0.17 - 0.0002) - cost;
+    expect(v3Row!.netBookReturn).toBeCloseTo(expectedR, 12);
+  });
+
+  it('runLabGrade: fetch is sequential with sleep called between symbols and concurrency <= 1', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    await insertLabSignalOnce({
+      version: 'lab-v3',
+      hypothesis: 'F1-1d',
+      candidate: 'F1',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 0.3, ETHUSDT: 0.3, SOLUSDT: 0.4 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T1, '1d') + 1000;
+    const { start, end } = priceTimes(T1, '1d');
+
+    let currentConcurrency = 0;
+    let maxConcurrency = 0;
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(async () => {
+      currentConcurrency++;
+      maxConcurrency = Math.max(maxConcurrency, currentConcurrency);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      currentConcurrency--;
+      return [
+        { openTime: start, open: 100, close: 100, high: 100, low: 100, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 299_999 },
+        { openTime: end, open: 100, close: 100, high: 100, low: 100, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: end + 299_999 },
+      ];
+    });
+
+    const mockSleep = vi.fn().mockImplementation(async () => {});
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fetchPerpExchangeInfo: vi.fn().mockResolvedValue([
+        { symbol: 'BTCUSDT', status: 'TRADING' },
+        { symbol: 'ETHUSDT', status: 'TRADING' },
+        { symbol: 'SOLUSDT', status: 'TRADING' },
+      ]),
+      sleep: mockSleep,
+      fundingSumsFor: vi.fn().mockResolvedValue({ BTCUSDT: 0, ETHUSDT: 0, SOLUSDT: 0 }),
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+    expect(report.graded.some((g) => g.hypothesis === 'F1-1d')).toBe(true);
+
+    expect(maxConcurrency).toBe(1);
+    expect(mockSleep).toHaveBeenCalledWith(250);
+    expect(mockSleep).toHaveBeenCalledTimes(2);
   });
 });
 
