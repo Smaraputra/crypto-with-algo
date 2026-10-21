@@ -90,13 +90,30 @@ class MockResizeObserver {
 }
 vi.stubGlobal('ResizeObserver', MockResizeObserver);
 
-const { mockUnsub, captured, mockStreamClient, mockStreamStatus } = vi.hoisted(() => {
-  const unsub = vi.fn();
-  const captured: Array<{ streams: readonly string[]; onFrame: (frame: unknown) => void }> = [];
-  const mockStreamClient = {
+const {
+  mockUnsubSpot,
+  mockUnsubPerp,
+  capturedSpot,
+  capturedPerp,
+  mockSpotClient,
+  mockPerpClient,
+  mockStreamStatus,
+  mockUseMarketStreamStatus,
+} = vi.hoisted(() => {
+  const unsubSpot = vi.fn();
+  const unsubPerp = vi.fn();
+  const capturedSpot: Array<{ streams: readonly string[]; onFrame: (frame: unknown) => void }> = [];
+  const capturedPerp: Array<{ streams: readonly string[]; onFrame: (frame: unknown) => void }> = [];
+  const mockSpotClient = {
     subscribe: vi.fn((streams: readonly string[], onFrame: (frame: unknown) => void) => {
-      captured.push({ streams, onFrame });
-      return unsub;
+      capturedSpot.push({ streams, onFrame });
+      return unsubSpot;
+    }),
+  };
+  const mockPerpClient = {
+    subscribe: vi.fn((streams: readonly string[], onFrame: (frame: unknown) => void) => {
+      capturedPerp.push({ streams, onFrame });
+      return unsubPerp;
     }),
   };
   const mockStreamStatus = {
@@ -105,22 +122,43 @@ const { mockUnsub, captured, mockStreamClient, mockStreamStatus } = vi.hoisted((
     isConnected: false,
     retry: vi.fn(),
   };
-  return { mockUnsub: unsub, captured, mockStreamClient, mockStreamStatus };
+  const mockUseMarketStreamStatus = vi.fn((_market?: string) => mockStreamStatus);
+  return {
+    mockUnsubSpot: unsubSpot,
+    mockUnsubPerp: unsubPerp,
+    capturedSpot,
+    capturedPerp,
+    mockSpotClient,
+    mockPerpClient,
+    mockStreamStatus,
+    mockUseMarketStreamStatus,
+  };
 });
 
+const mockUnsub = mockUnsubSpot;
+const captured = capturedSpot;
+const mockStreamClient = mockSpotClient;
+
 vi.mock('@/lib/market-stream/client', () => ({
-  getMarketStreamClient: () => mockStreamClient,
+  getMarketStreamClient: () => mockSpotClient,
+  getPerpMarketStreamClient: () => mockPerpClient,
+  getStreamClient: (market: 'spot' | 'perp' = 'spot') =>
+    market === 'perp' ? mockPerpClient : mockSpotClient,
 }));
 
 vi.mock('@/hooks/useMarketStream', () => ({
-  useMarketStreamStatus: () => mockStreamStatus,
+  useMarketStreamStatus: (market?: string) => mockUseMarketStreamStatus(market),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUnsub.mockClear();
-  mockStreamClient.subscribe.mockClear();
-  captured.length = 0;
+  mockUnsubSpot.mockClear();
+  mockUnsubPerp.mockClear();
+  mockSpotClient.subscribe.mockClear();
+  mockPerpClient.subscribe.mockClear();
+  capturedSpot.length = 0;
+  capturedPerp.length = 0;
+  mockUseMarketStreamStatus.mockClear();
   mockStreamStatus.status = 'connecting';
   mockStreamStatus.lastMessageAt = null;
   mockStreamStatus.isConnected = false;
@@ -1003,6 +1041,7 @@ describe('TradingChart', () => {
         low: 0.5,
         close: 1.5,
         volume: 10,
+        takerBuyVolume: 4,
       });
       const event = useFormingBarStore.getState().latest;
       expect(event).toMatchObject({
@@ -1077,4 +1116,252 @@ describe('TradingChart', () => {
       expect(mockUnsub).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('market prop and taker-buy volume', () => {
+    const T = Date.UTC(2026, 9, 1);
+
+    it('with market="perp", the history fetch URL contains market=perp, and the kline subscription goes through the perp client', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify([{ timestamp: T, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }]))
+      );
+      render(<TradingChart symbol="BTCUSDT" interval="1h" market="perp" />);
+
+      expect(mockUseMarketStreamStatus).toHaveBeenCalledWith('perp');
+
+      const loader = mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+      const pInit = {
+        type: 'init',
+        timestamp: null,
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: vi.fn(),
+      };
+      await act(async () => {
+        await loader.getBars(pInit);
+      });
+
+      expect(fetchSpy).toHaveBeenCalled();
+      const initUrl = String(fetchSpy.mock.calls[0][0]);
+      expect(initUrl).toContain('market=perp');
+
+      const pForward = {
+        type: 'forward',
+        timestamp: T,
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: vi.fn(),
+      };
+      await act(async () => {
+        await loader.getBars(pForward);
+      });
+      const forwardUrl = String(fetchSpy.mock.calls[1][0]);
+      expect(forwardUrl).toContain('market=perp');
+
+      const barCallback = vi.fn();
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: barCallback,
+      });
+
+      expect(mockPerpClient.subscribe).toHaveBeenCalledTimes(1);
+      expect(mockSpotClient.subscribe).not.toHaveBeenCalled();
+      expect(capturedPerp.at(-1)?.streams).toEqual(['btcusdt@kline_1h']);
+    });
+
+    it('without the prop, the URL has no market param, and the spot client is used', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify([{ timestamp: T, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }]))
+      );
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(mockUseMarketStreamStatus).toHaveBeenCalledWith('spot');
+
+      const loader = mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+      const pInit = {
+        type: 'init',
+        timestamp: null,
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: vi.fn(),
+      };
+      await act(async () => {
+        await loader.getBars(pInit);
+      });
+
+      expect(fetchSpy).toHaveBeenCalled();
+      const initUrl = String(fetchSpy.mock.calls[0][0]);
+      expect(initUrl).not.toContain('market=');
+
+      const pForward = {
+        type: 'forward',
+        timestamp: T,
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: vi.fn(),
+      };
+      await act(async () => {
+        await loader.getBars(pForward);
+      });
+      const forwardUrl = String(fetchSpy.mock.calls[1][0]);
+      expect(forwardUrl).not.toContain('market=');
+
+      const barCallback = vi.fn();
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: barCallback,
+      });
+
+      expect(mockSpotClient.subscribe).toHaveBeenCalledTimes(1);
+      expect(mockPerpClient.subscribe).not.toHaveBeenCalled();
+      expect(capturedSpot.at(-1)?.streams).toEqual(['btcusdt@kline_1h']);
+    });
+
+    it('a history row with takerBuyVolume: 4.5 reaches the chart data with takerBuyVolume 4.5, and a live frame with V: 2.5 produces a bar with takerBuyVolume 2.5', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            { timestamp: T, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10, takerBuyVolume: 4.5 },
+          ])
+        )
+      );
+      render(<TradingChart symbol="BTCUSDT" interval="1h" market="perp" />);
+      const loader = mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+
+      const pInit = {
+        type: 'init',
+        timestamp: null,
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: vi.fn(),
+      };
+      await act(async () => {
+        await loader.getBars(pInit);
+      });
+
+      expect(pInit.callback).toHaveBeenCalledWith(
+        [
+          {
+            timestamp: T,
+            open: 1,
+            high: 2,
+            low: 0.5,
+            close: 1.5,
+            volume: 10,
+            takerBuyVolume: 4.5,
+          },
+        ],
+        { forward: true, backward: false }
+      );
+
+      const barCallback = vi.fn();
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: barCallback,
+      });
+
+      const onFrame = capturedPerp.at(-1)?.onFrame;
+      act(() => {
+        onFrame?.({
+          stream: 'btcusdt@kline_1h',
+          data: {
+            k: {
+              t: 2000,
+              o: '10',
+              h: '20',
+              l: '5',
+              c: '15',
+              v: '100',
+              V: '2.5',
+              x: false,
+            },
+          },
+        });
+      });
+
+      expect(barCallback).toHaveBeenCalledWith({
+        timestamp: 2000,
+        open: 10,
+        high: 20,
+        low: 5,
+        close: 15,
+        volume: 100,
+        takerBuyVolume: 2.5,
+      });
+    });
+
+    it('a row without the field produces a bar without it', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            { timestamp: T, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 },
+          ])
+        )
+      );
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+      const loader = mockSetDataLoader.mock.calls[mockSetDataLoader.mock.calls.length - 1][0];
+
+      const pInit = {
+        type: 'init',
+        timestamp: null,
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: vi.fn(),
+      };
+      await act(async () => {
+        await loader.getBars(pInit);
+      });
+
+      const receivedBars = pInit.callback.mock.calls[0][0];
+      expect(receivedBars[0]).toEqual({
+        timestamp: T,
+        open: 1,
+        high: 2,
+        low: 0.5,
+        close: 1.5,
+        volume: 10,
+      });
+      expect(Object.prototype.hasOwnProperty.call(receivedBars[0], 'takerBuyVolume')).toBe(false);
+
+      const barCallback = vi.fn();
+      loader.subscribeBar({
+        symbol: { ticker: 'BTCUSDT' },
+        period: { type: 'hour', span: 1 },
+        callback: barCallback,
+      });
+
+      const onFrame = capturedSpot.at(-1)?.onFrame;
+      act(() => {
+        onFrame?.({
+          stream: 'btcusdt@kline_1h',
+          data: {
+            k: {
+              t: 3000,
+              o: '10',
+              h: '20',
+              l: '5',
+              c: '15',
+              v: '100',
+              V: 'not-a-number',
+              x: false,
+            },
+          },
+        });
+      });
+
+      expect(barCallback).toHaveBeenCalledWith({
+        timestamp: 3000,
+        open: 10,
+        high: 20,
+        low: 5,
+        close: 15,
+        volume: 100,
+      });
+      const receivedLiveBar = barCallback.mock.calls[0][0];
+      expect(Object.prototype.hasOwnProperty.call(receivedLiveBar, 'takerBuyVolume')).toBe(false);
+    });
+  });
 });
+

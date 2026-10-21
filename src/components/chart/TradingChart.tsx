@@ -70,7 +70,7 @@ import type { CallMark } from '@/lib/signals/track-record/chart-data';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
-import { getMarketStreamClient } from '@/lib/market-stream/client';
+import { getStreamClient, type StreamMarket } from '@/lib/market-stream/client';
 import { klineStream } from '@/lib/market-stream/streams';
 import { useMarketStreamStatus } from '@/hooks/useMarketStream';
 import { StreamStatusBadge } from '@/components/market/StreamStatusBadge';
@@ -89,6 +89,8 @@ interface BinanceKline {
 export interface TradingChartProps {
   symbol: string;
   interval: string;
+  /** Candle source: spot (default) or USDT-M perpetuals. */
+  market?: StreamMarket;
   chartType?: CandleType;
   onIntervalChange?: (interval: string) => void;
   onChartTypeChange?: (type: CandleType) => void;
@@ -246,6 +248,7 @@ function DrawingToolIcon({ icon }: { icon: string }) {
 export function TradingChart({
   symbol,
   interval,
+  market = 'spot',
   chartType = 'candle_solid',
   onIntervalChange,
   onChartTypeChange,
@@ -266,7 +269,8 @@ export function TradingChart({
   const isFullscreen = nativeFullscreen || cssFullscreen;
   const [magnetMode, setMagnetMode] = useState<OverlayMode>('normal');
   const klineUnsubRef = useRef<(() => void) | null>(null);
-  const { status: streamStatus, lastMessageAt, retry: retryStream } = useMarketStreamStatus();
+  const { status: streamStatus, lastMessageAt, retry: retryStream } = useMarketStreamStatus(market);
+  const marketRef = useRef(market);
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
   const onLoadedRangeRef = useRef(onLoadedRangeChange);
   const onVisibleRangeRef = useRef(onVisibleRangeChange);
@@ -277,9 +281,10 @@ export function TradingChart({
   const [hoverCall, setHoverCall] = useState<CallMark | null>(null);
 
   useEffect(() => {
+    marketRef.current = market;
     onLoadedRangeRef.current = onLoadedRangeChange;
     onVisibleRangeRef.current = onVisibleRangeChange;
-  }, [onLoadedRangeChange, onVisibleRangeChange]);
+  }, [market, onLoadedRangeChange, onVisibleRangeChange]);
 
   /** Tells the parent which bars are loaded, from the chart's own data list. */
   const reportLoadedRange = useCallback(() => {
@@ -470,19 +475,25 @@ export function TradingChart({
               limit: String(HISTORY_PAGE_BARS),
               endTime: String(firstOpen - 1),
             });
+            if (marketRef.current === 'perp') {
+              query.set('market', 'perp');
+            }
             const res = await fetch(`/api/prices/history?${query}`);
             if (!res.ok) throw new Error('Failed to fetch');
             const data = await res.json();
             // The user switched symbol or interval while this page was in flight:
             // its bars belong to the old series, and the new one is loading.
             if (isStalePage(chartRef.current, params)) return;
-            const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
+            const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number; takerBuyVolume?: number }) => ({
               timestamp: d.timestamp,
               open: d.open,
               high: d.high,
               low: d.low,
               close: d.close,
               volume: d.volume,
+              ...(typeof d.takerBuyVolume === 'number' && Number.isFinite(d.takerBuyVolume)
+                ? { takerBuyVolume: d.takerBuyVolume }
+                : {}),
             }));
             // A short page means the symbol's history starts here.
             params.callback(bars, { forward: bars.length === HISTORY_PAGE_BARS });
@@ -508,16 +519,22 @@ export function TradingChart({
             interval: intv,
             limit: '500',
           });
+          if (marketRef.current === 'perp') {
+            queryParams.set('market', 'perp');
+          }
           const res = await fetch(`/api/prices/history?${queryParams}`);
           if (!res.ok) throw new Error('Failed to fetch');
           const data = await res.json();
-          const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
+          const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number; takerBuyVolume?: number }) => ({
             timestamp: d.timestamp,
             open: d.open,
             high: d.high,
             low: d.low,
             close: d.close,
             volume: d.volume,
+            ...(typeof d.takerBuyVolume === 'number' && Number.isFinite(d.takerBuyVolume)
+              ? { takerBuyVolume: d.takerBuyVolume }
+              : {}),
           }));
           // Older pages load on scroll; nothing newer than the live bar exists.
           params.callback(bars, { forward: bars.length > 0, backward: false });
@@ -535,12 +552,13 @@ export function TradingChart({
         const intv = periodToInterval(params.period);
         const stream = klineStream(params.symbol.ticker, intv);
         klineUnsubRef.current?.();
-        klineUnsubRef.current = getMarketStreamClient().subscribe([stream], (frame) => {
+        klineUnsubRef.current = getStreamClient(marketRef.current).subscribe([stream], (frame) => {
           try {
             if (frame.stream !== stream) return;
             const k = (frame.data as { k?: BinanceKline } | null)?.k;
             if (!k) return;
             if (barCallbackRef.current) {
+              const liveTakerBuyVolume = parseFloat(k.V);
               barCallbackRef.current({
                 timestamp: k.t,
                 open: parseFloat(k.o),
@@ -548,6 +566,9 @@ export function TradingChart({
                 low: parseFloat(k.l),
                 close: parseFloat(k.c),
                 volume: parseFloat(k.v),
+                ...(Number.isFinite(liveTakerBuyVolume)
+                  ? { takerBuyVolume: liveTakerBuyVolume }
+                  : {}),
               });
               if (lastLoadedToRef.current !== null && Number(k.t) > lastLoadedToRef.current) {
                 reportLoadedRange();
@@ -711,13 +732,14 @@ export function TradingChart({
 
   // Update symbol and period when props change
   useEffect(() => {
+    marketRef.current = market;
     if (!chartRef.current) return;
     const intv = INTERVALS.find((i) => i.value === interval);
     chartRef.current.setSymbol({ ticker: symbol, pricePrecision: 2, volumePrecision: 2 });
     if (intv) {
       chartRef.current.setPeriod(intv.period);
     }
-  }, [symbol, interval]);
+  }, [symbol, interval, market]);
 
   // Update chart type when prop changes
   useEffect(() => {

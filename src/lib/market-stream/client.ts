@@ -404,3 +404,10 @@ export function getPerpMarketStreamClient(): MarketStreamClient {
   }
   return perpClient;
 }
+
+export type StreamMarket = 'spot' | 'perp';
+
+export function getStreamClient(market: StreamMarket): MarketStreamClient {
+  return market === 'perp' ? getPerpMarketStreamClient() : getMarketStreamClient();
+}
+

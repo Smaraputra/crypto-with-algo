@@ -5,9 +5,11 @@ import { useMarketStream, useMarketStreamStatus } from './useMarketStream';
 import { MockEventSource } from '@/test/mock-event-source';
 import type { MarketStreamClient } from '@/lib/market-stream/client';
 
-const { clientHolder } = vi.hoisted(() => ({
-  clientHolder: { current: null as MarketStreamClient | null },
+const { spotClientHolder, perpClientHolder } = vi.hoisted(() => ({
+  spotClientHolder: { current: null as MarketStreamClient | null },
+  perpClientHolder: { current: null as MarketStreamClient | null },
 }));
+const clientHolder = spotClientHolder;
 
 vi.mock('@/lib/market-stream/client', async () => {
   const actual = await vi.importActual<typeof import('@/lib/market-stream/client')>(
@@ -15,7 +17,10 @@ vi.mock('@/lib/market-stream/client', async () => {
   );
   return {
     ...actual,
-    getMarketStreamClient: () => clientHolder.current!,
+    getMarketStreamClient: () => spotClientHolder.current!,
+    getPerpMarketStreamClient: () => perpClientHolder.current!,
+    getStreamClient: (market: 'spot' | 'perp') =>
+      market === 'perp' ? perpClientHolder.current! : spotClientHolder.current!,
   };
 });
 
@@ -26,14 +31,21 @@ describe('useMarketStream hooks', () => {
     const actual = await vi.importActual<typeof import('@/lib/market-stream/client')>(
       '@/lib/market-stream/client'
     );
-    clientHolder.current = actual.createMarketStreamClient({
+    spotClientHolder.current = actual.createMarketStreamClient({
+      url: '/api/stream',
+      EventSourceImpl: MockEventSource as unknown as typeof EventSource,
+      random: () => 1,
+    });
+    perpClientHolder.current = actual.createMarketStreamClient({
+      url: '/api/stream/perp',
       EventSourceImpl: MockEventSource as unknown as typeof EventSource,
       random: () => 1,
     });
   });
 
   afterEach(() => {
-    clientHolder.current?.dispose();
+    spotClientHolder.current?.dispose();
+    perpClientHolder.current?.dispose();
     MockEventSource.resetMock();
     vi.useRealTimers();
   });
@@ -95,9 +107,74 @@ describe('useMarketStream hooks', () => {
       expect(MockEventSource.instances).toHaveLength(2);
       expect(MockEventSource.instances[0].closed).toBe(true);
     });
+
+    it("reflects the perp client's snapshot with useMarketStreamStatus('perp') and retry calls perp client retry", () => {
+      const { result } = renderHook(() => useMarketStreamStatus('perp'));
+
+      expect(result.current.status).toBe('connecting');
+      expect(result.current.isConnected).toBe(false);
+      expect(result.current.lastMessageAt).toBeNull();
+
+      act(() => {
+        perpClientHolder.current!.subscribe(['btcusdt@ticker'], vi.fn());
+      });
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+
+      expect(MockEventSource.instances).toHaveLength(1);
+      expect(MockEventSource.lastInstance?.url).toContain('/api/stream/perp');
+
+      act(() => {
+        MockEventSource.lastInstance?.simulateOpen();
+      });
+
+      expect(result.current.status).toBe('live');
+      expect(result.current.isConnected).toBe(true);
+
+      act(() => {
+        result.current.retry();
+      });
+
+      expect(MockEventSource.instances).toHaveLength(2);
+      expect(MockEventSource.instances[0].closed).toBe(true);
+      expect(MockEventSource.instances[1].url).toContain('/api/stream/perp');
+    });
+
+    it('isolates spot and perp market streams from each other', () => {
+      const spotHook = renderHook(() => useMarketStreamStatus());
+      const perpHook = renderHook(() => useMarketStreamStatus('perp'));
+
+      expect(spotHook.result.current.status).toBe('connecting');
+      expect(perpHook.result.current.status).toBe('connecting');
+
+      act(() => {
+        perpClientHolder.current!.subscribe(['btcusdt@ticker'], vi.fn());
+      });
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+      act(() => {
+        MockEventSource.lastInstance?.simulateOpen();
+      });
+
+      expect(perpHook.result.current.status).toBe('live');
+      expect(spotHook.result.current.status).toBe('connecting');
+    });
   });
 
   describe('useMarketStream', () => {
+    it('subscribes on the perp client when market is perp', () => {
+      const onFrame = vi.fn();
+      renderHook(() => useMarketStream(['btcusdt@ticker'], onFrame, 'perp'));
+
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+
+      expect(MockEventSource.instances).toHaveLength(1);
+      expect(MockEventSource.lastInstance?.url).toBe('/api/stream/perp?streams=btcusdt@ticker');
+    });
     it('calls onFrame with frame and does not open new source when re-rendered with new array of same names', () => {
       const onFrame = vi.fn();
       const { rerender } = renderHook(
