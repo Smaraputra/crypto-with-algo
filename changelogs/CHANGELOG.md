@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Focus page, one coin on perps with structure, delta and the best we have
+- **Why**: the owner day-trades by hand on 15m to 1h and asked for one screen with the best techniques, auto drawing, several timeframes, concise news, and the signal score with its parts moving. No rule here is validated. The page is a decision aid, and every section says what stands behind it ("Untested", "Measured: no edge", or the lab status).
+- **Research before building** (cited, checked against our records): MACD and moving-average crossovers showed in-sample edge in crypto that decayed out of sample and was eaten by costs. BOS, CHoCH and volume profile have no rigorous study. Order-flow imbalance predicts only at sub-second to 1-minute horizons. Taker-flow, value-area and MA families have already failed here.
+- **Page** `/focus` (sidebar, and "Open in Focus" on the dashboard chart), drawn from USDT-M perps:
+  - Price pane: confirmed swing labels (HH, HL, LH, LL), swing BOS (solid) and CHoCH (dashed) lines, with the latest event in the accent colour, and prior-day high, low and close from perp daily bars. Internal structure, a 50 SMA and MACD sit behind toggles, all off by default.
+  - Lower panes: volume coloured by who won the bar (taker buy versus sell, from kline taker-buy volume) with the delta in the tooltip, and a CVD line that resets at 00:00 UTC.
+  - Side rail:
+    - timeframes (15m, 1h, 4h, 1d: structure trend, last event, CVD rising or falling, price against the 50 SMA, closed bars only);
+    - "Best we have on this coin" (lab-v3 F1, lab-v2 N2 and N3 positions, lab-v1 ranks with e against threshold, sorted closest to proof first);
+    - the v8 score with an arrow per category against the previous stored row;
+    - five headlines for the coin.
+  - Structure marks never repaint. A swing confirms a fixed number of bars after it forms, and the page says so.
+- **Shared analytics** (pure and tested, also used by Round 3): `src/lib/market/structure.ts` (confirmed pivots, swing labels, BOS and CHoCH), `delta.ts` (bar delta, CVD, delta divergence at pivots) and `mtf.ts` (timeframe state).
+- **Perp data**:
+  - `/api/prices/history?market=perp` (new `fetchPerpKlinesOhlcv`, so the lab-frozen fetchers are untouched);
+  - a perp kline relay `/api/stream/perp` (`BINANCE_FUTURES_WS_URL`, default `wss://fstream.binance.com/market`, because the plain `/ws` path opens but sends nothing);
+  - `GET /api/focus/mtf`.
+  - `TradingChart` gains `market`, `focusOverlay` and `intervalOptions`, and now carries taker-buy volume on every bar.
+- **Phone layout**: the rail stacks under the chart. The chart's interval tabs, drawing tools and buttons, and the coin search trigger, are 44px targets on phones (the dashboard chart included).
+
 ### Added: forward lab lab-v3 (the Round 2 hypothesis F1-1d)
 - **Lock** `scripts/research/lab-forward-v3.ts`, committed before any lab-v3 bar exists. One hypothesis, F1-1d: weekly staggered funding-level carry on 30 Binance USDT-M perpetuals frozen on 2026-10-20 (`scripts/research/top30-perps-2026-10-20.json`).
   - At each 00:00 UTC close: minus the 7-day funding sum per coin (at least 18 settlements), a centred-rank, dollar-neutral, gross-1 target book (cash below 10 coins), held as one seventh of the last seven targets.
