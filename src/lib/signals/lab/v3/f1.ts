@@ -6,7 +6,7 @@ export interface FundingSettlement {
 }
 
 export const MIN_SETTLEMENTS_7D = 18;
-export const MIN_SCORED_COINS = 8;
+export const MIN_SCORED_COINS = 10;
 export const STAGGER_DAYS = 7;
 export const DAY_MS = 86_400_000;
 
@@ -40,7 +40,7 @@ export function computeFund7(
 
 /**
  * Forms the dollar-neutral, gross-1 rank-weighted target book at day T across scored coins.
- * Returns an empty map if fewer than MIN_SCORED_COINS (8) are scored.
+ * Returns an empty map if fewer than MIN_SCORED_COINS (10) are scored.
  */
 export function targetBook(
   scores: Array<{ symbol: string; score: number }>

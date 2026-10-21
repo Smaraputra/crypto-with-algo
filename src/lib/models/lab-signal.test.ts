@@ -6,6 +6,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import {
   LabSignal,
   insertLabSignalOnce,
+  LAB_SKIP_REASONS,
   type LabSignalFields,
 } from './lab-signal';
 
@@ -149,5 +150,21 @@ describe('LabSignal model and insertLabSignalOnce', () => {
     const badVersion = makeSignalFields({ version: 'lab-v99' as unknown as 'lab-v1' });
     await expect(insertLabSignalOnce(badVersion)).rejects.toThrow();
     expect(await LabSignal.countDocuments({})).toBe(0);
+  });
+
+  it('includes delisted in LAB_SKIP_REASONS and accepts it on insert', async () => {
+    expect(LAB_SKIP_REASONS).toContain('delisted');
+    const fields = makeSignalFields({
+      skipped: [{ symbol: 'BTCUSDT', reason: 'delisted' }],
+    });
+    const res = await insertLabSignalOnce(fields);
+    expect(res.inserted).toBe(true);
+
+    const stored = await LabSignal.findOne({
+      version: fields.version,
+      hypothesis: fields.hypothesis,
+      barClose: fields.barClose,
+    }).lean();
+    expect(stored?.skipped).toEqual([{ symbol: 'BTCUSDT', reason: 'delisted' }]);
   });
 });

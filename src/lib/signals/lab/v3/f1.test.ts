@@ -51,9 +51,16 @@ describe('computeFund7', () => {
   });
 });
 
+describe('constants', () => {
+  it('has expected constant values matching candidate preview', () => {
+    expect(MIN_SCORED_COINS).toBe(10);
+    expect(MIN_SETTLEMENTS_7D).toBe(18);
+  });
+});
+
 describe('targetBook', () => {
-  it('returns empty map if fewer than MIN_SCORED_COINS are present', () => {
-    const scores = Array.from({ length: 7 }, (_, i) => ({
+  it('returns empty map for 9 scored coins', () => {
+    const scores = Array.from({ length: 9 }, (_, i) => ({
       symbol: `COIN${i}`,
       score: i,
     }));
@@ -61,7 +68,7 @@ describe('targetBook', () => {
     expect(book.size).toBe(0);
   });
 
-  it('forms dollar-neutral, gross-1 weights across eligible coins', () => {
+  it('returns a gross-1, zero-sum map for 10 scored coins', () => {
     const scores = Array.from({ length: 10 }, (_, i) => ({
       symbol: `COIN${String.fromCharCode(65 + i)}`,
       score: i * 0.01,

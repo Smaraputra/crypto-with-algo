@@ -3,7 +3,7 @@ import mongoose, { Schema, type Document } from 'mongoose';
 import type { LabCandidateId, LabTimeframeAny, LabVersion } from '@/lib/signals/lab/candidates';
 import type { LabSkipReason as LabV1SkipReason } from '@/lib/signals/lab/factors';
 
-export type LabSkipReason = LabV1SkipReason | 'va_incomplete' | 'funding_incomplete';
+export type LabSkipReason = LabV1SkipReason | 'va_incomplete' | 'funding_incomplete' | 'delisted';
 
 export const LAB_SKIP_REASONS: readonly LabSkipReason[] = [
   'rv_skipped',
@@ -16,6 +16,7 @@ export const LAB_SKIP_REASONS: readonly LabSkipReason[] = [
   'ratio_no_spread',
   'va_incomplete',
   'funding_incomplete',
+  'delisted',
 ];
 
 /**

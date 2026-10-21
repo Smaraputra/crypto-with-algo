@@ -5,12 +5,17 @@
  * - runLabV3Daily: scores hypothesis F1-1d at each 1d close (00:00 UTC) across the
  *   frozen top-30 perpetual universe (LAB_V3_UNIVERSE).
  *
+ * It sleeps 100 ms between funding fetches, rounds settlement times to the
+ * boundary, and skips symbols that exchangeInfo does not list as TRADING ('delisted').
+ *
  * Scored at most once per bar close T using insertLabSignalOnce.
  * If a row already exists, the bar is recorded as waiting with reason 'exists' and skipped.
  * A first attempt that encounters any fetch error writes nothing and reports reason 'fetch_failed'.
  * A retry (final) attempt proceeds with whatever funding settlements were fetched.
  */
 
+import { fetchPerpExchangeInfo } from '@/lib/binance-futures';
+import { settlementTimeOf } from '@/lib/funding-settlements';
 import { insertLabSignalOnce, LabSignal, type LabSkipReason } from '@/lib/models/lab-signal';
 import { connectDB } from '@/lib/mongodb';
 import { LAB_V3_UNIVERSE, labDelayMs } from '@/lib/signals/lab/candidates';
@@ -20,12 +25,14 @@ import { fetchFundingHistory } from '@/lib/snapshot-backfill';
 
 export interface LabV3JobDeps {
   fetchFundingHistory: (symbol: string, startTime: number, endTime: number) => Promise<Array<{ fundingTime: number; fundingRate: number }>>;
+  fetchExchangeInfo: () => Promise<Array<{ symbol: string; status: string }>>;
   clock: () => number;
   sleep: (ms: number) => Promise<void>;
 }
 
 export const defaultLabV3JobDeps: LabV3JobDeps = {
   fetchFundingHistory,
+  fetchExchangeInfo: fetchPerpExchangeInfo,
   clock: () => Date.now(),
   sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
@@ -41,6 +48,7 @@ export async function runLabV3Daily(
   const isFinal = opts?.final ?? false;
   const d: LabV3JobDeps = {
     fetchFundingHistory: deps?.fetchFundingHistory ?? defaultLabV3JobDeps.fetchFundingHistory,
+    fetchExchangeInfo: deps?.fetchExchangeInfo ?? defaultLabV3JobDeps.fetchExchangeInfo,
     clock: deps?.clock ?? defaultLabV3JobDeps.clock,
     sleep: deps?.sleep ?? defaultLabV3JobDeps.sleep,
   };
@@ -61,25 +69,58 @@ export async function runLabV3Daily(
     return report;
   }
 
+  let trading: Set<string> | null = null;
+  try {
+    const exchangeInfo = await d.fetchExchangeInfo();
+    trading = new Set(
+      exchangeInfo.filter((s) => s.status === 'TRADING').map((s) => s.symbol)
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    report.errors.push(`exchangeInfo: ${msg}`);
+    if (!isFinal) {
+      report.waiting.push({ hypothesis: 'F1-1d', barClose: T, reason: 'fetch_failed' });
+      return report;
+    }
+  }
+
   // Trailing 14 days of funding settlements to calculate fund7 at T
   const startTime = T - 14 * DAY_MS;
-  const endTime = T;
+  const endTime = T + 60_000;
 
   const rawScores: Array<{ symbol: string; score: number }> = [];
   const skipped: { symbol: string; reason: LabSkipReason }[] = [];
   const settlementsCountBySymbol: Record<string, number> = {};
   let hasErrors = false;
+  let fetchedCount = 0;
 
   for (let i = 0; i < LAB_V3_UNIVERSE.length; i++) {
     const symbol = LAB_V3_UNIVERSE[i];
-    if (i > 0) {
+
+    if (trading && !trading.has(symbol)) {
+      skipped.push({ symbol, reason: 'delisted' });
+      continue;
+    }
+
+    if (fetchedCount > 0) {
       await d.sleep(100);
     }
+    fetchedCount++;
 
     try {
       const history = await d.fetchFundingHistory(symbol, startTime, endTime);
-      const settlements: FundingSettlement[] = history.map((h) => ({
-        t: h.fundingTime,
+      const byBoundary = new Map<number, { fundingTime: number; fundingRate: number }>();
+      for (const h of history) {
+        if (!Number.isFinite(h.fundingTime) || !Number.isFinite(h.fundingRate)) continue;
+        const key = settlementTimeOf(h.fundingTime);
+        const prior = byBoundary.get(key);
+        if (!prior || h.fundingTime > prior.fundingTime) {
+          byBoundary.set(key, h);
+        }
+      }
+
+      const settlements: FundingSettlement[] = Array.from(byBoundary.entries()).map(([t, h]) => ({
+        t,
         rate: h.fundingRate,
       }));
 
