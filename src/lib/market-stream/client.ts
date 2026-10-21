@@ -394,3 +394,13 @@ export function getMarketStreamClient(): MarketStreamClient {
   }
   return defaultClient;
 }
+
+let perpClient: MarketStreamClient | null = null;
+
+/** Lazy browser singleton for USDT-M perpetual streams, relayed by /api/stream/perp. */
+export function getPerpMarketStreamClient(): MarketStreamClient {
+  if (!perpClient) {
+    perpClient = createMarketStreamClient({ url: '/api/stream/perp' });
+  }
+  return perpClient;
+}
