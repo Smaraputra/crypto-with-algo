@@ -56,6 +56,16 @@ vi.mock('./ScoreDirection', () => ({
   ScoreDirection: () => <div data-testid="mock-score-direction" />,
 }));
 
+vi.mock('./LazyTradeCost', () => ({
+  LazyTradeCost: (props: Record<string, unknown>) => (
+    <div
+      data-testid="mock-trade-cost"
+      data-symbol={props.symbol as string}
+      data-interval={props.interval as string}
+    />
+  ),
+}));
+
 vi.mock('./CoinHeadlines', () => ({
   CoinHeadlines: () => <div data-testid="mock-coin-headlines" />,
 }));
@@ -220,5 +230,17 @@ describe('FocusView', () => {
       priorDay: { high: number; low: number; close: number } | null;
     };
     expect(overlay.priorDay).toEqual(mockPriorDay);
+  });
+
+  it('renders the cost section with the symbol and chart interval', () => {
+    render(<FocusView />);
+
+    const cost = screen.getByTestId('mock-trade-cost');
+    expect(cost).toHaveAttribute('data-symbol', 'BTCUSDT');
+    expect(cost).toHaveAttribute('data-interval', '1h');
+
+    fireEvent.click(screen.getByTestId('chart-interval-15m'));
+    const updatedCost = screen.getByTestId('mock-trade-cost');
+    expect(updatedCost).toHaveAttribute('data-interval', '15m');
   });
 });

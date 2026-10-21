@@ -13,6 +13,7 @@ import { LazyFocusChart } from './LazyFocusChart';
 import { MtfStrip } from './MtfStrip';
 import { BestWeHave } from './BestWeHave';
 import { ScoreDirection } from './ScoreDirection';
+import { LazyTradeCost } from './LazyTradeCost';
 import { CoinHeadlines } from './CoinHeadlines';
 
 export function FocusView() {
@@ -130,6 +131,9 @@ export function FocusView() {
             </ErrorBoundary>
             <ErrorBoundary fallback={<p className="p-4 text-xs text-muted-foreground">Signal score unavailable</p>}>
               <ScoreDirection symbol={symbol} interval={focusInterval} />
+            </ErrorBoundary>
+            <ErrorBoundary fallback={<p className="p-4 text-xs text-muted-foreground">Costs unavailable</p>}>
+              <LazyTradeCost key={focusInterval} symbol={symbol} interval={focusInterval} />
             </ErrorBoundary>
             <ErrorBoundary fallback={<p className="p-4 text-xs text-muted-foreground">Headlines unavailable</p>}>
               <CoinHeadlines symbol={symbol} />

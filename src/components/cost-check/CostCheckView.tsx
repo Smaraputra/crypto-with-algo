@@ -16,6 +16,7 @@ import { pickMeasurementInterval } from '@/lib/costs/move';
 import { CostCheckForm } from './CostCheckForm';
 import { CostCheckResult } from './CostCheckResult';
 import { CostCheckSummaryBar } from './CostCheckSummaryBar';
+import { marketProblemText } from './market-problem';
 import { VolatilityRegimeCard } from './VolatilityRegimeCard';
 
 /** Saved inputs, then URL parameters on top. Runs in the browser only (the page loads this view without SSR). */
@@ -27,21 +28,6 @@ function initialInputs(): CostCheckInputs {
     // Storage blocked (private mode, disabled site data): start from the defaults.
   }
   return applyUrlParams(parseStoredInputs(raw), new URLSearchParams(window.location.search));
-}
-
-function marketProblemText(code: string | undefined): string {
-  switch (code) {
-    case 'venue_unreachable':
-      return 'the exchange could not be reached';
-    case 'venue_rate_limited':
-      return 'the exchange is rate limiting requests';
-    case 'unknown_symbol':
-      return 'this perpetual is not trading';
-    case 'rate_limited':
-      return 'too many checks in a minute, try again shortly';
-    default:
-      return 'the request failed';
-  }
 }
 
 export function CostCheckView() {
