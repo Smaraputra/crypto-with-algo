@@ -7,23 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added: forward lab lab-v3 (Round 2 Funding Level Carry) and top-30 perps universe
-- **Lock** `scripts/research/lab-forward-v3.ts`:
-  - One hypothesis: `F1-1d`, the weekly staggered funding level carry (Round 2 survivor from screening across 2023-10 to 2026-10).
-  - Pre-registered threshold 200 (alpha 0.005) per the plan.
-  - Frozen top-30 Binance USD-M perpetual futures universe manifest at `scripts/research/top30-perps-2026-10-20.json` (SHA256: `e1035a116d5432568c798dfb5213e0e06ba90d6c899fcef607521db2fb957dfc`).
-- **Scorer & Job**:
-  - Live scorer `src/lib/signals/lab/v3/f1.ts`: Computes net funding rate over 7 rolling days (21 settlements), builds daily gross-1 dollar-neutral target book, and reconstructs 7-day staggered book across the past 7 days.
-  - Daily signal job `src/lib/signals/lab/job-signals-v3.ts` scheduled at 00:04 UTC daily with retry at 00:09 UTC.
-- **Grading Engine**:
-  - `src/lib/signals/lab/job-grade.ts` supports candidate `F1`, using 7 bps/side turnover costs and threshold 200.
-  - Runs in the hourly lab cron. Funding settlement completeness is verified across all active universe assets before grading.
-- **UI & API**:
-  - Read route `GET /api/signals/lab-v3` returns JSON with hypothesis status, e-value, threshold, mean net return, and active staggered book positions.
-  - Hook `useSignalLabV3` and component `LabV3Section.tsx` mounted on `/signals` board below `LabV2Section`.
-- **Universe Freezer Rate-Limit Fix**:
-  - `scripts/research/nv2-universe.ts`: Added age prefiltering (`onboardDate <= asOfMs - 366d`), single-threaded sequential fetching with configurable `--delay-ms 400`, immediate abort on HTTP 418/429/-1003 to prevent IP bans, and single retry on transient errors.
-
+### Added: forward lab lab-v3 (the Round 2 hypothesis F1-1d)
+- **Lock** `scripts/research/lab-forward-v3.ts`, committed before any lab-v3 bar exists. One hypothesis, F1-1d: weekly staggered funding-level carry on 30 Binance USDT-M perpetuals frozen on 2026-10-20 (`scripts/research/top30-perps-2026-10-20.json`).
+  - At each 00:00 UTC close: minus the 7-day funding sum per coin (at least 18 settlements), a centred-rank, dollar-neutral, gross-1 target book (cash below 10 coins), held as one seventh of the last seven targets.
+  - Threshold 200: the whole Round 2 budget (alpha 0.005) on one slot. The forward labs now carry 0.025 in all.
+- **Why F1**: the Round 2 preview (`scripts/research/nv2-preview.ts`, `55ded39`, now merged) measured five signals at two holds on the point-in-time top 30 from 2021-03 to 2026-06. fund7 at the 7-day hold had the best net annual Sharpe, 0.82, and three others were mildly positive. Picked as the best of ten, so the 0.82 overstates what to expect.
+- **Grading matches the preview**:
+  - cost by liquidity rank, 5 bps taker plus 2, 5 or 10 bps slippage (7 to 15 bps a side), not a flat 7 bps;
+  - a coin without a price adds nothing, and a delisted coin takes the preview's 2% haircut;
+  - settlement times from REST are rounded to the hour, because 1,624 of 3,214 REST prints sit off the exact hour;
+  - x = min(R / c, 1) with c = 0.036, the preview's value and the 4 x SD rule (the owner's choice over 0.1, which would have left almost no power).
+- **Isolation**: lab-v3 grades in its own pass with sequential venue calls, so a lab-v3 failure (for example a delisted coin) cannot stop lab-v1 or lab-v2 grading. Their rules and values are unchanged.
+- **Parity on real data** (`scripts/research/lab-v3-parity.ts`, VPS, the preview's dataset): live books equal the preview's on 1,947 of 1,947 days, costs on 1,946 of 1,946 changes, and REST funding equals the archive on all 3,214 settlements.
+- **Honest power** (`scripts/research/lab-v3-power.ts`): about 2 to 3% chance of crossing within 24 months at the measured edge, about 25% at an annual Sharpe of 2.
+- **Code**: scorer `src/lib/signals/lab/v3/f1.ts`, daily job `job-signals-v3.ts` at 00:04 UTC (retry 00:09) with a delisting skip from exchangeInfo, read route `GET /api/signals/lab-v3`, and a lab-v3 section on /signals.
+- **Universe freezer** `scripts/research/nv2-universe.ts`: sequential requests 400 ms apart, coins under 366 days old filtered out before fetching, and an immediate stop on HTTP 418, 429 or -1003, after a 10-minute Binance IP ban on 2026-10-20.
 
 ### Fixed: four defects found in the production browser check (2026-10-19)
 - **Indicator panes**: turning an oscillator off (RSI, MACD, KDJ, OBV, Volume) left its pane on the chart, and turning it on again added a second one.
