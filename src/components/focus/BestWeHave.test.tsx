@@ -530,4 +530,196 @@ describe('BestWeHave', () => {
     expect(rowN2).toHaveTextContent('No bar yet');
     expect(rowN2).toHaveTextContent('as of n/a');
   });
+
+  it('with 11 rows, renders 4 rows and "Show all 11" button; clicking shows all 11 and "Show fewer"', () => {
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v3',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'F1-1d',
+            candidate: 'F1',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 50.0,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+        ],
+      },
+      refetch: refetchV3,
+    });
+
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v2',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'N2-1d',
+            candidate: 'N2',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 40.0,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+          {
+            id: 'N3-1d',
+            candidate: 'N3',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 30.0,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+        ],
+      },
+      refetch: refetchV2,
+    });
+
+    const lab1Hypotheses = Array.from({ length: 8 }, (_, i) => ({
+      id: `L${i + 1}-8h`,
+      candidate: `L${i + 1}`,
+      timeframe: '8h',
+      status: 'not_started',
+      e: 10.0 - i,
+      threshold: 800,
+      latestBar: {
+        barClose: oneHourAgo,
+        coins: [{ symbol: 'BTCUSDT', score: 80 - i, rank: i + 1 }],
+      },
+    }));
+
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v1',
+        threshold: 800,
+        hypotheses: lab1Hypotheses,
+      },
+      refetch: refetchV1,
+    });
+
+    render(<BestWeHave symbol="BTCUSDT" />);
+
+    // Initially with 11 rows, only 4 render and the button reads "Show all 11"
+    expect(screen.getAllByRole('listitem')).toHaveLength(4);
+    const toggleButton = screen.getByRole('button', { name: 'Show all 11' });
+    expect(toggleButton).toBeInTheDocument();
+    expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
+    expect(toggleButton).toHaveClass('min-h-11');
+
+    // Clicking reveals all 11 with aria-expanded true and reads "Show fewer"
+    fireEvent.click(toggleButton);
+    expect(screen.getAllByRole('listitem')).toHaveLength(11);
+    expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
+    expect(toggleButton).toHaveTextContent('Show fewer');
+
+    // Clicking again collapses back to 4
+    fireEvent.click(toggleButton);
+    expect(screen.getAllByRole('listitem')).toHaveLength(4);
+    expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
+    expect(toggleButton).toHaveTextContent('Show all 11');
+  });
+
+  it('with 3 rows, there is no button', () => {
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v3',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'F1-1d',
+            candidate: 'F1',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 50.0,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+        ],
+      },
+      refetch: refetchV3,
+    });
+
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v2',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'N2-1d',
+            candidate: 'N2',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 40.0,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+          {
+            id: 'N3-1d',
+            candidate: 'N3',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 30.0,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+        ],
+      },
+      refetch: refetchV2,
+    });
+
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v1',
+        threshold: 800,
+        hypotheses: [],
+      },
+      refetch: refetchV1,
+    });
+
+    render(<BestWeHave symbol="BTCUSDT" />);
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: /show all/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /show fewer/i })).not.toBeInTheDocument();
+  });
 });

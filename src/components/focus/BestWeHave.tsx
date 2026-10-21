@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSignalLab } from '@/hooks/useSignalLab';
 import { useSignalLabV2 } from '@/hooks/useSignalLabV2';
@@ -29,6 +29,7 @@ interface BestWeHaveRowItem {
 
 export function BestWeHave({ symbol, className }: BestWeHaveProps) {
   const headingId = useId();
+  const [expanded, setExpanded] = useState(false);
   const labV3 = useSignalLabV3();
   const labV2 = useSignalLabV2();
   const labV1 = useSignalLab();
@@ -146,6 +147,8 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
     return ratioB - ratioA;
   });
 
+  const visibleRows = expanded ? rows : rows.slice(0, 4);
+
   const allQueriesLoaded =
     !labV3.isLoading && !labV2.isLoading && !labV1.isLoading;
   const noDataAtAll =
@@ -236,7 +239,7 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
 
       {rows.length > 0 && (
         <ul className="space-y-2 text-xs">
-          {rows.map((row) => (
+          {visibleRows.map((row) => (
             <li
               key={row.id}
               data-testid={`best-row-${row.id}`}
@@ -260,6 +263,18 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
             </li>
           ))}
         </ul>
+      )}
+
+      {rows.length > 4 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-h-11 min-w-11 sm:min-h-8 sm:min-w-0 text-xs"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Show fewer' : `Show all ${rows.length}`}
+        </Button>
       )}
 
       {notInLab1 && (

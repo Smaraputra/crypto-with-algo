@@ -41,7 +41,7 @@ export function SymbolSearch() {
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-2 text-xs text-muted-foreground"
+        className="h-8 min-h-11 min-w-11 gap-2 text-xs text-muted-foreground sm:min-h-0 sm:min-w-0"
         onClick={() => setOpen(true)}
         aria-label="Search trading pairs"
       >

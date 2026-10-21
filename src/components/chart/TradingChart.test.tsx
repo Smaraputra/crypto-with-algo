@@ -272,6 +272,14 @@ describe('TradingChart', () => {
       expect(screen.getByRole('tab', { name: '1D' })).toBeInTheDocument();
     });
 
+    it('carries min-h-11 touch targets on chart type, refresh, and fullscreen buttons', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(screen.getByRole('button', { name: /candles/i })).toHaveClass('min-h-11');
+      expect(screen.getByRole('button', { name: 'Refresh chart' })).toHaveClass('min-h-11');
+      expect(screen.getByLabelText('Enter fullscreen')).toHaveClass('min-h-11');
+    });
+
     it('renders "More" dropdown for additional intervals', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 
