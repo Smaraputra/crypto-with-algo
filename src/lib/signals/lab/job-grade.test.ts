@@ -594,7 +594,7 @@ describe('pure lab-v2 gradeBookBar', () => {
       (-0.25) * (11 / 10 - 1 - 0.0005) +
       (-0.25) * (0.9 / 1 - 1 - (-0.001));
     const expectedR = grossReturnFunding - expectedCost;
-    const scale = 0.1;
+    const scale = LAB_HYPOTHESES_V3[0].scale!;
     const expectedX = Math.min(expectedR / scale, 1);
 
     const row = gradeBookBar({
@@ -1565,7 +1565,7 @@ describe('runLabGrade with mocked deps for v1 and v2', () => {
 
   it('runLabGrade: F1 coin whose klines stop before end and exchangeInfo lists as SETTLING takes haircut; coin missing end kline in TRADING is unpriced', async () => {
     const T1 = Date.UTC(2026, 9, 18, 0);
-    const { start, end } = priceTimes(T1, '1d');
+    const { start } = priceTimes(T1, '1d');
 
     await insertLabSignalOnce({
       version: 'lab-v3',

@@ -38,7 +38,7 @@ function LabV3Header({ titleId }: { titleId: string }) {
         Forward lab, lab-v3 (Round 2 Funding Level Carry)
       </h2>
       <p className="text-sm">
-        One rule pre-registered across the top-30 perpetual universe: long low-funding coins, short high-funding coins, held in a 7-day staggered book. Judged on live bars by net return after 7 bps/side turnover costs and perp funding.
+        One rule pre-registered across the top-30 perpetual universe: long low-funding coins, short high-funding coins, held in a 7-day staggered book. Judged on live bars by net return after perp funding and turnover costs of 7 to 15 bps a side, set by each coin&apos;s liquidity rank.
       </p>
     </div>
   );

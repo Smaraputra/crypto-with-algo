@@ -126,6 +126,11 @@ describe('LabV3Section', () => {
     render(<LabV3Section />);
 
     expect(screen.getByText('Forward lab, lab-v3 (Round 2 Funding Level Carry)')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Judged on live bars by net return after perp funding and turnover costs of 7 to 15 bps a side, set by each coin's liquidity rank\./
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText('F1 weekly staggered funding level carry')).toBeInTheDocument();
 
     expect(screen.getByText('E 2.15 of 200')).toBeInTheDocument();

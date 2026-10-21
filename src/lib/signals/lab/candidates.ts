@@ -61,7 +61,7 @@ export const LAB_HYPOTHESES_V2: readonly LabHypothesis[] = Object.freeze([
 ]);
 
 export const LAB_HYPOTHESES_V3: readonly LabHypothesis[] = Object.freeze([
-  Object.freeze({ id: 'F1-1d', candidate: 'F1', timeframe: '1d', version: LAB_VERSION_V3, metric: 'book', scale: 0.1 }),
+  Object.freeze({ id: 'F1-1d', candidate: 'F1', timeframe: '1d', version: LAB_VERSION_V3, metric: 'book', scale: 0.036 }),
 ]);
 
 /**

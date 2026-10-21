@@ -205,6 +205,12 @@ export async function buildUniverse(input: BuildUniverseInput): Promise<Universe
   };
 }
 
+export function hashUniverseManifest(manifest: Record<string, unknown>): string {
+  const rest = { ...manifest };
+  delete rest.sha256;
+  return createHash('sha256').update(stableStringify(rest)).digest('hex');
+}
+
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
   const args = parseArgs(argv);
   const rawExchangeInfo = readFileSync(args.exchangeInfo);
@@ -225,7 +231,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     ...universe,
     exchangeInfoSha256,
   };
-  const sha256 = createHash('sha256').update(stableStringify(rest)).digest('hex');
+  const sha256 = hashUniverseManifest(rest);
   const output = {
     ...rest,
     sha256,

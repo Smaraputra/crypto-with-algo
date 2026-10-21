@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET } from './route';
+import { LAB_HYPOTHESES_V3 } from '@/lib/signals/lab/candidates';
 
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -75,7 +76,7 @@ describe('GET /api/signals/lab-v3', () => {
       timeframe: '1d',
       status: 'not_started',
       threshold: 200,
-      scale: 0.1,
+      scale: LAB_HYPOTHESES_V3[0].scale,
     });
   });
 
