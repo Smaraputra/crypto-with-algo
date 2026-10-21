@@ -355,6 +355,8 @@ describe('SignalBoard', () => {
     const statusEl = screen.getByRole('status');
     expect(statusEl).toHaveTextContent('Loading the lab record.');
     expect(screen.getByText('Forward signal lab, lab-v1')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
   });
 
   it('renders error state and retries on click', () => {
@@ -372,8 +374,12 @@ describe('SignalBoard', () => {
     ).toBeInTheDocument();
 
     const retryButton = screen.getByRole('button', { name: 'Retry' });
+    expect(retryButton).toHaveClass('min-h-11');
     fireEvent.click(retryButton);
     expect(refetch).toHaveBeenCalledTimes(1);
+
+    expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
   });
 
   it('renders empty state text when nothing is recorded yet', () => {
@@ -413,6 +419,8 @@ describe('SignalBoard', () => {
         'No lab bar has been recorded yet. The jobs write L2 within minutes of each 5m to 1d close, and L1, L3 and L4 at 00:03, 08:03 and 16:03 UTC.'
       )
     ).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
   });
 
   it('renders table with 10 row headers and 5 column headers, showing known cell and skipped coin', () => {

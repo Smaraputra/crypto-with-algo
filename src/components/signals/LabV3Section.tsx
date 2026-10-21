@@ -105,7 +105,12 @@ export function LabV3Section() {
             <p className="text-sm text-destructive">
               Could not load the lab record: {error.message}.
             </p>
-            <Button variant="outline" size="xs" onClick={() => void refetch()}>
+            <Button
+              variant="outline"
+              size="xs"
+              className="min-h-11 sm:min-h-6"
+              onClick={() => void refetch()}
+            >
               Retry
             </Button>
           </div>

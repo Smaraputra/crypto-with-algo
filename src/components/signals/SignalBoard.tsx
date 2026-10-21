@@ -251,6 +251,7 @@ export function SignalBoard() {
           </CardContent>
         </Card>
         <LabV2Section />
+        <LabV3Section />
       </div>
     );
   }
@@ -269,13 +270,19 @@ export function SignalBoard() {
               <p className="text-sm text-destructive">
                 Could not load the lab record: {error.message}.
               </p>
-              <Button variant="outline" size="xs" onClick={() => void refetch()}>
+              <Button
+                variant="outline"
+                size="xs"
+                className="min-h-11 sm:min-h-6"
+                onClick={() => void refetch()}
+              >
                 Retry
               </Button>
             </div>
           </CardContent>
         </Card>
         <LabV2Section />
+        <LabV3Section />
       </div>
     );
   }
@@ -301,6 +308,7 @@ export function SignalBoard() {
           </CardContent>
         </Card>
         <LabV2Section />
+        <LabV3Section />
       </div>
     );
   }
