@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: forward lab lab-v3 (Round 2 Funding Level Carry) and top-30 perps universe
+- **Lock** `scripts/research/lab-forward-v3.ts`:
+  - One hypothesis: `F1-1d`, the weekly staggered funding level carry (Round 2 survivor from screening across 2023-10 to 2026-10).
+  - Pre-registered threshold 200 (alpha 0.005) per the plan.
+  - Frozen top-30 Binance USD-M perpetual futures universe manifest at `scripts/research/top30-perps-2026-10-20.json` (SHA256: `e1035a116d5432568c798dfb5213e0e06ba90d6c899fcef607521db2fb957dfc`).
+- **Scorer & Job**:
+  - Live scorer `src/lib/signals/lab/v3/f1.ts`: Computes net funding rate over 7 rolling days (21 settlements), builds daily gross-1 dollar-neutral target book, and reconstructs 7-day staggered book across the past 7 days.
+  - Daily signal job `src/lib/signals/lab/job-signals-v3.ts` scheduled at 00:04 UTC daily with retry at 00:09 UTC.
+- **Grading Engine**:
+  - `src/lib/signals/lab/job-grade.ts` supports candidate `F1`, using 7 bps/side turnover costs and threshold 200.
+  - Runs in the hourly lab cron. Funding settlement completeness is verified across all active universe assets before grading.
+- **UI & API**:
+  - Read route `GET /api/signals/lab-v3` returns JSON with hypothesis status, e-value, threshold, mean net return, and active staggered book positions.
+  - Hook `useSignalLabV3` and component `LabV3Section.tsx` mounted on `/signals` board below `LabV2Section`.
+- **Universe Freezer Rate-Limit Fix**:
+  - `scripts/research/nv2-universe.ts`: Added age prefiltering (`onboardDate <= asOfMs - 366d`), single-threaded sequential fetching with configurable `--delay-ms 400`, immediate abort on HTTP 418/429/-1003 to prevent IP bans, and single retry on transient errors.
+
+
 ### Fixed: four defects found in the production browser check (2026-10-19)
 - **Indicator panes**: turning an oscillator off (RSI, MACD, KDJ, OBV, Volume) left its pane on the chart, and turning it on again added a second one.
   - In KlineCharts 10.0.0-beta1, `createIndicator` returns the indicator's id, not its pane's, so removal by pane id matched nothing.
