@@ -340,8 +340,194 @@ describe('BestWeHave', () => {
     // Cash precedence
     const rowF1 = screen.getByTestId('best-row-F1-1d');
     expect(rowF1).toHaveTextContent('Cash');
+  });
 
-    // Not in lab-v1 line
+  it('BTCUSDT with no lab rows shows lab-v1 rows reading "No bar yet", and no "Not in lab-v1" line', () => {
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { version: 'lab-v3', threshold: 200, hypotheses: [] },
+      refetch: refetchV3,
+    });
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { version: 'lab-v2', threshold: 200, hypotheses: [] },
+      refetch: refetchV2,
+    });
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v1',
+        threshold: 800,
+        hypotheses: [
+          {
+            id: 'L1-8h',
+            candidate: 'L1',
+            timeframe: '8h',
+            status: 'not_started',
+            e: 1.0,
+            threshold: 800,
+            latestBar: null,
+          },
+        ],
+      },
+      refetch: refetchV1,
+    });
+
+    render(<BestWeHave symbol="BTCUSDT" />);
+
+    const rowL1 = screen.getByTestId('best-row-L1-8h');
+    expect(rowL1).toHaveTextContent('L1-8h');
+    expect(rowL1).toHaveTextContent('No bar yet');
+    expect(rowL1).toHaveTextContent('as of n/a');
+    expect(screen.queryByText("Not in lab-v1's 10 coins")).not.toBeInTheDocument();
+  });
+
+  it('PEPEUSDT (not in the 10) shows the not-in-lab-1 line and "Not in this lab\'s coins" for lab-v2 and lab-v3', () => {
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v3',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'F1-1d',
+            candidate: 'F1',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 2.5,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+        ],
+      },
+      refetch: refetchV3,
+    });
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v2',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'N2-1d',
+            candidate: 'N2',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 5.0,
+            threshold: 200,
+            latestBar: {
+              barClose: oneHourAgo,
+              positions: [{ symbol: 'BTCUSDT', weight: 0.05 }],
+              cash: false,
+            },
+          },
+        ],
+      },
+      refetch: refetchV2,
+    });
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v1',
+        threshold: 800,
+        hypotheses: [
+          {
+            id: 'L1-8h',
+            candidate: 'L1',
+            timeframe: '8h',
+            status: 'not_started',
+            e: 1.0,
+            threshold: 800,
+            latestBar: {
+              barClose: oneHourAgo,
+              coins: [{ symbol: 'BTCUSDT', score: 90, rank: 1 }],
+            },
+          },
+        ],
+      },
+      refetch: refetchV1,
+    });
+
+    render(<BestWeHave symbol="PEPEUSDT" />);
+
+    // Lab-v1 shows the line, and no L1 row
     expect(screen.getByText("Not in lab-v1's 10 coins")).toBeInTheDocument();
+    expect(screen.queryByTestId('best-row-L1-8h')).not.toBeInTheDocument();
+
+    // Lab-v2 and Lab-v3 show "Not in this lab's coins"
+    const rowN2 = screen.getByTestId('best-row-N2-1d');
+    expect(rowN2).toHaveTextContent("Not in this lab's coins");
+
+    const rowF1 = screen.getByTestId('best-row-F1-1d');
+    expect(rowF1).toHaveTextContent("Not in this lab's coins");
+  });
+
+  it('renders "No bar yet" rather than "No position" when a hypothesis has no latest bar', () => {
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v3',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'F1-1d',
+            candidate: 'F1',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 2.5,
+            threshold: 200,
+            latestBar: null,
+          },
+        ],
+      },
+      refetch: refetchV3,
+    });
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v2',
+        threshold: 200,
+        hypotheses: [
+          {
+            id: 'N2-1d',
+            candidate: 'N2',
+            timeframe: '1d',
+            status: 'under_test',
+            e: 5.0,
+            threshold: 200,
+            latestBar: null,
+          },
+        ],
+      },
+      refetch: refetchV2,
+    });
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { version: 'lab-v1', threshold: 800, hypotheses: [] },
+      refetch: refetchV1,
+    });
+
+    render(<BestWeHave symbol="BTCUSDT" />);
+
+    const rowF1 = screen.getByTestId('best-row-F1-1d');
+    expect(rowF1).toHaveTextContent('No bar yet');
+    expect(rowF1).toHaveTextContent('as of n/a');
+
+    const rowN2 = screen.getByTestId('best-row-N2-1d');
+    expect(rowN2).toHaveTextContent('No bar yet');
+    expect(rowN2).toHaveTextContent('as of n/a');
   });
 });

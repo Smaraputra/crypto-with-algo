@@ -44,16 +44,16 @@ export function FocusView() {
     }
   }, [storeSymbol, router]);
 
-  const [interval, setInterval] = useState<'15m' | '1h'>('1h');
+  const [focusInterval, setFocusInterval] = useState<'15m' | '1h'>('1h');
   const [showInternal, setShowInternal] = useState(false);
   const [showSma, setShowSma] = useState(false);
   const [showMacd, setShowMacd] = useState(false);
 
   const mtf = useFocusMtf(symbol);
-  const intervalMs = intervalToMs(interval);
+  const intervalMs = intervalToMs(focusInterval);
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4">
       {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -68,7 +68,7 @@ export function FocusView() {
             size="sm"
             aria-pressed={showInternal}
             onClick={() => setShowInternal((prev) => !prev)}
-            className="h-8 text-xs"
+            className="min-h-11 text-xs sm:min-h-8"
           >
             Internal structure
           </Button>
@@ -77,7 +77,7 @@ export function FocusView() {
             size="sm"
             aria-pressed={showSma}
             onClick={() => setShowSma((prev) => !prev)}
-            className="h-8 text-xs"
+            className="min-h-11 text-xs sm:min-h-8"
           >
             50 SMA
           </Button>
@@ -86,7 +86,7 @@ export function FocusView() {
             size="sm"
             aria-pressed={showMacd}
             onClick={() => setShowMacd((prev) => !prev)}
-            className="h-8 text-xs"
+            className="min-h-11 text-xs sm:min-h-8"
           >
             MACD
           </Button>
@@ -103,12 +103,12 @@ export function FocusView() {
         <div className="h-[560px] sm:h-[640px]">
           <LazyFocusChart
             symbol={symbol}
-            interval={interval}
+            interval={focusInterval}
             market="perp"
             intervalOptions={['15m', '1h']}
             onIntervalChange={(val) => {
               if (val === '15m' || val === '1h') {
-                setInterval(val);
+                setFocusInterval(val);
               }
             }}
             focusOverlay={{
@@ -129,7 +129,7 @@ export function FocusView() {
               <BestWeHave symbol={symbol} />
             </ErrorBoundary>
             <ErrorBoundary fallback={<p className="p-4 text-xs text-muted-foreground">Signal score unavailable</p>}>
-              <ScoreDirection symbol={symbol} interval={interval} />
+              <ScoreDirection symbol={symbol} interval={focusInterval} />
             </ErrorBoundary>
             <ErrorBoundary fallback={<p className="p-4 text-xs text-muted-foreground">Headlines unavailable</p>}>
               <CoinHeadlines symbol={symbol} />

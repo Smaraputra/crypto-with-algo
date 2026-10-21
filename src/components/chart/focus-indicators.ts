@@ -77,6 +77,30 @@ export interface CvdDatum {
   cvd: number | null;
 }
 
+export interface FormatFlowOptions {
+  signed?: boolean;
+}
+
+/**
+ * Formats a flow or volume quantity:
+ * - |value| >= 1000: no decimals, thousands separators (en-US)
+ * - |value| >= 1: 2 decimals
+ * - smaller: 4 decimals
+ * - leading '+' for positive numbers when signed option is true
+ */
+export function formatFlow(value: number, options?: FormatFlowOptions): string {
+  const abs = Math.abs(value);
+  const fractionDigits = abs >= 1000 ? 0 : abs >= 1 ? 2 : 4;
+  const formatted = value.toLocaleString('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  });
+  if (options?.signed && value > 0) {
+    return `+${formatted}`;
+  }
+  return formatted;
+}
+
 /**
  * Creates a calculation function for market structure indicators on price pane.
  * Drops forming bars (timestamp + intervalMs > now()), then identifies swing pivots/events
@@ -374,13 +398,11 @@ export function ensureFocusIndicatorsRegistered(): void {
       if (!d) {
         return { name: '', calcParamsText: '', features: [], legends: [] };
       }
-      const volStr = `${d.volume}`;
+      const volStr = formatFlow(d.volume);
       const deltaStr =
         d.delta === null || d.delta === undefined
           ? 'n/a'
-          : d.delta > 0
-            ? `+${d.delta}`
-            : `${d.delta}`;
+          : formatFlow(d.delta, { signed: true });
       const deltaColor =
         d.winner === 'buy'
           ? FOCUS_COLORS.bullish
@@ -422,7 +444,8 @@ export function ensureFocusIndicatorsRegistered(): void {
       if (!d) {
         return { name: '', calcParamsText: '', features: [], legends: [] };
       }
-      const valStr = d.cvd === null || d.cvd === undefined ? 'n/a' : `${d.cvd}`;
+      const valStr =
+        d.cvd === null || d.cvd === undefined ? 'n/a' : formatFlow(d.cvd);
       return {
         name: '',
         calcParamsText: '',

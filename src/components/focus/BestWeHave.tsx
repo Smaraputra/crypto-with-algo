@@ -7,6 +7,8 @@ import { useSignalLabV2 } from '@/hooks/useSignalLabV2';
 import { useSignalLabV3 } from '@/hooks/useSignalLabV3';
 import { formatE } from '@/components/signals/SignalBoard';
 import type { LabStatus } from '@/lib/signals/lab/view';
+import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
+import { LAB_V3_UNIVERSE } from '@/lib/signals/lab/candidates';
 import { cn } from '@/lib/utils';
 import { EvidenceTag, labStatusKind } from './EvidenceTag';
 import { formatAge } from './format';
@@ -31,22 +33,33 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
   const labV2 = useSignalLabV2();
   const labV1 = useSignalLab();
 
+  const inSignalSymbols = (SIGNAL_SYMBOLS as readonly string[]).includes(symbol);
+  const inLabV3Universe = (LAB_V3_UNIVERSE as readonly string[]).includes(symbol);
+
   const rows: BestWeHaveRowItem[] = [];
 
   // Lab-v3 (F1)
   if (labV3.data?.hypotheses) {
     for (const hyp of labV3.data.hypotheses) {
-      let opinion = 'No position';
-      if (hyp.latestBar?.cash) {
+      let opinion: string;
+      if (!inLabV3Universe) {
+        opinion = "Not in this lab's coins";
+      } else if (!hyp.latestBar) {
+        opinion = 'No bar yet';
+      } else if (hyp.latestBar.cash) {
         opinion = 'Cash';
-      } else if (hyp.latestBar?.positions) {
+      } else if (hyp.latestBar.positions) {
         const pos = hyp.latestBar.positions.find((p) => p.symbol === symbol);
         if (pos && Math.abs(pos.weight) >= 0.0005) {
           opinion =
             pos.weight > 0
               ? `Long ${pos.weight.toFixed(3)}`
               : `Short ${Math.abs(pos.weight).toFixed(3)}`;
+        } else {
+          opinion = 'No position';
         }
+      } else {
+        opinion = 'No position';
       }
       rows.push({
         id: hyp.id,
@@ -62,17 +75,25 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
   // Lab-v2 (N2, N3)
   if (labV2.data?.hypotheses) {
     for (const hyp of labV2.data.hypotheses) {
-      let opinion = 'No position';
-      if (hyp.latestBar?.cash) {
+      let opinion: string;
+      if (!inSignalSymbols) {
+        opinion = "Not in this lab's coins";
+      } else if (!hyp.latestBar) {
+        opinion = 'No bar yet';
+      } else if (hyp.latestBar.cash) {
         opinion = 'Cash';
-      } else if (hyp.latestBar?.positions) {
+      } else if (hyp.latestBar.positions) {
         const pos = hyp.latestBar.positions.find((p) => p.symbol === symbol);
         if (pos && Math.abs(pos.weight) >= 0.0005) {
           opinion =
             pos.weight > 0
               ? `Long ${pos.weight.toFixed(3)}`
               : `Short ${Math.abs(pos.weight).toFixed(3)}`;
+        } else {
+          opinion = 'No position';
         }
+      } else {
+        opinion = 'No position';
       }
       rows.push({
         id: hyp.id,
@@ -88,11 +109,9 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
   // Lab-v1
   let notInLab1 = false;
   if (labV1.data?.hypotheses && labV1.data.hypotheses.length > 0) {
-    const hasCoin = labV1.data.hypotheses.some((hyp) =>
-      hyp.latestBar?.coins?.some((c) => c.symbol === symbol)
-    );
-
-    if (hasCoin) {
+    if (!inSignalSymbols) {
+      notInLab1 = true;
+    } else {
       for (const hyp of labV1.data.hypotheses) {
         const coin = hyp.latestBar?.coins?.find((c) => c.symbol === symbol);
         if (coin && hyp.latestBar) {
@@ -103,13 +122,20 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
             e: hyp.e,
             threshold: hyp.threshold,
             status: hyp.status,
-            barClose: hyp.latestBar.barClose,
+            barClose: hyp.latestBar.barClose ?? null,
             opinion,
+          });
+        } else {
+          rows.push({
+            id: hyp.id,
+            e: hyp.e,
+            threshold: hyp.threshold,
+            status: hyp.status,
+            barClose: null,
+            opinion: 'No bar yet',
           });
         }
       }
-    } else {
-      notInLab1 = true;
     }
   }
 

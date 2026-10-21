@@ -3,6 +3,7 @@ import type { KLineData } from 'klinecharts';
 import {
   MAX_EVENTS,
   MAX_PIVOT_LABELS,
+  formatFlow,
   makeCvdCalc,
   makeDeltaVolCalc,
   makeStructureCalc,
@@ -297,19 +298,27 @@ describe('ensureFocusIndicatorsRegistered', () => {
     const { createTooltipDataSource } = deltaVolRegistration;
 
     const buyResult = createTooltipDataSource({
-      indicator: { result: [{ volume: 100, delta: 25, winner: 'buy' }] },
+      indicator: { result: [{ volume: 3474, delta: -299.38300000000027, winner: 'sell' }] },
       crosshair: { dataIndex: 0 },
     });
     expect(buyResult.legends).toHaveLength(2);
-    expect(buyResult.legends[0].value.text).toBe('Vol 100');
-    expect(buyResult.legends[1].value.text).toBe('Delta +25');
-    expect(buyResult.legends[1].value.color).toBe(mod.FOCUS_COLORS.bullish);
+    expect(buyResult.legends[0].value.text).toBe('Vol 3,474');
+    expect(buyResult.legends[1].value.text).toBe('Delta -299.38');
+    expect(buyResult.legends[1].value.color).toBe(mod.FOCUS_COLORS.bearish);
+
+    const posResult = createTooltipDataSource({
+      indicator: { result: [{ volume: 100, delta: 25, winner: 'buy' }] },
+      crosshair: { dataIndex: 0 },
+    });
+    expect(posResult.legends[0].value.text).toBe('Vol 100.00');
+    expect(posResult.legends[1].value.text).toBe('Delta +25.00');
+    expect(posResult.legends[1].value.color).toBe(mod.FOCUS_COLORS.bullish);
 
     const nullResult = createTooltipDataSource({
       indicator: { result: [{ volume: 100, delta: null, winner: null }] },
       crosshair: { dataIndex: 0 },
     });
-    expect(nullResult.legends[0].value.text).toBe('Vol 100');
+    expect(nullResult.legends[0].value.text).toBe('Vol 100.00');
     expect(nullResult.legends[1].value.text).toBe('Delta n/a');
     expect(nullResult.legends[1].value.color).toBe(mod.FOCUS_COLORS.muted);
   });
@@ -323,11 +332,11 @@ describe('ensureFocusIndicatorsRegistered', () => {
     const { createTooltipDataSource } = cvdRegistration;
 
     const valResult = createTooltipDataSource({
-      indicator: { result: [{ cvd: 150 }] },
+      indicator: { result: [{ cvd: 6146.844000000001 }] },
       crosshair: { dataIndex: 0 },
     });
     expect(valResult.legends).toHaveLength(1);
-    expect(valResult.legends[0].value.text).toBe('CVD (resets 00:00 UTC) 150');
+    expect(valResult.legends[0].value.text).toBe('CVD (resets 00:00 UTC) 6,147');
 
     const nullResult = createTooltipDataSource({
       indicator: { result: [{ cvd: null }] },
@@ -398,5 +407,39 @@ describe('ensureFocusIndicatorsRegistered', () => {
     expect(ctx.fillText).toHaveBeenCalledWith('BOS', 50, expect.any(Number));
     // Internal event setLineDash [2, 2]
     expect(ctx.setLineDash).toHaveBeenCalledWith([2, 2]);
+  });
+});
+
+describe('formatFlow', () => {
+  it('formats |value| >= 1000 with no decimals and thousands separators (en-US)', () => {
+    expect(formatFlow(6146.844000000001)).toBe('6,147');
+    expect(formatFlow(1000)).toBe('1,000');
+    expect(formatFlow(-1000)).toBe('-1,000');
+    expect(formatFlow(-6146.844000000001)).toBe('-6,147');
+  });
+
+  it('formats |value| >= 1 with 2 decimals', () => {
+    expect(formatFlow(-299.38300000000027)).toBe('-299.38');
+    expect(formatFlow(1)).toBe('1.00');
+    expect(formatFlow(2.5)).toBe('2.50');
+    expect(formatFlow(-2.5)).toBe('-2.50');
+    expect(formatFlow(999.99)).toBe('999.99');
+  });
+
+  it('formats |value| < 1 with 4 decimals', () => {
+    expect(formatFlow(0.000123)).toBe('0.0001');
+    expect(formatFlow(0.00005)).toBe('0.0001');
+    expect(formatFlow(0.5)).toBe('0.5000');
+    expect(formatFlow(-0.000123)).toBe('-0.0001');
+    expect(formatFlow(0)).toBe('0.0000');
+  });
+
+  it('keeps sign and adds leading + for positive numbers when signed option is true', () => {
+    expect(formatFlow(2.5, { signed: true })).toBe('+2.50');
+    expect(formatFlow(-2.5, { signed: true })).toBe('-2.50');
+    expect(formatFlow(6146.8, { signed: true })).toBe('+6,147');
+    expect(formatFlow(-299.38300000000027, { signed: true })).toBe('-299.38');
+    expect(formatFlow(0.000123, { signed: true })).toBe('+0.0001');
+    expect(formatFlow(0, { signed: true })).toBe('0.0000');
   });
 });

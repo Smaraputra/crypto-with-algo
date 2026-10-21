@@ -102,10 +102,11 @@ describe('CoinHeadlines', () => {
     expect(items).toHaveLength(5);
 
     // Verify first link attributes
-    const firstLink = screen.getByRole('link', { name: 'Headline 1' });
+    const firstLink = screen.getByRole('link', { name: /Headline 1/ });
     expect(firstLink).toHaveAttribute('href', 'https://example.com/news/1');
     expect(firstLink).toHaveAttribute('target', '_blank');
     expect(firstLink).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(firstLink).toHaveClass('min-h-11');
 
     // Verify source and age
     expect(screen.getByText('Source 1')).toBeInTheDocument();

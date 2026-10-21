@@ -101,24 +101,24 @@ export function CoinHeadlines({ symbol, className }: CoinHeadlinesProps) {
           <li
             key={article.id || article.url || article.title}
             data-testid="headline-item"
-            className="space-y-0.5 py-1.5 border-b border-border/50 last:border-b-0"
+            className="border-b border-border/50 last:border-b-0"
           >
-            <div>
-              <a
-                href={article.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="line-clamp-2 font-medium text-foreground hover:underline"
-              >
+            <a
+              href={article.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block min-h-11 py-2 space-y-0.5 hover:underline"
+            >
+              <div className="line-clamp-2 font-medium text-foreground">
                 {article.title}
-              </a>
-            </div>
-            <div className="flex items-center gap-2 text-muted-foreground">
-              {article.source && <span>{article.source}</span>}
-              <span className="font-mono tabular-nums">
-                {formatAge(article.publishedOn)}
-              </span>
-            </div>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                {article.source && <span>{article.source}</span>}
+                <span className="font-mono tabular-nums">
+                  {formatAge(article.publishedOn)}
+                </span>
+              </div>
+            </a>
           </li>
         ))}
       </ul>

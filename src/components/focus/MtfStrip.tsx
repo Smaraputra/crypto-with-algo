@@ -152,7 +152,7 @@ export function MtfStrip({ symbol, className }: MtfStripProps) {
                   {trendText}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center gap-x-2.5 font-mono tabular-nums text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-2.5 tabular-nums text-muted-foreground">
                 <span>{eventText}</span>
                 <span>{cvdText}</span>
                 <span>{smaText}</span>

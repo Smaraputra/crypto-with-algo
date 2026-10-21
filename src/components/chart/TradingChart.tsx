@@ -935,15 +935,15 @@ export function TradingChart({
     >
       {/* Top Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card p-2">
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 overflow-x-auto scrollbar-hide">
           {primaryList.length > 0 && (
             <Tabs value={primaryList.includes(interval) ? interval : ''} onValueChange={(val) => onIntervalChange?.(val)}>
-              <TabsList className="h-8 bg-muted/50">
+              <TabsList className="h-auto bg-muted/50 sm:h-8">
                 {INTERVALS.filter((int) => primaryList.includes(int.value)).map((int) => (
                   <TabsTrigger
                     key={int.value}
                     value={int.value}
-                    className="h-7 px-2 text-xs data-[state=active]:bg-background data-[state=active]:text-primary"
+                    className="min-h-11 min-w-11 px-2 text-xs sm:h-7 sm:min-h-7 sm:min-w-0 data-[state=active]:bg-background data-[state=active]:text-primary"
                   >
                     {int.label}
                   </TabsTrigger>
@@ -1098,7 +1098,7 @@ export function TradingChart({
       </div>
 
       {/* Drawing Toolbar */}
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-muted/20 p-1">
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 overflow-x-auto border-b border-border bg-muted/20 p-1">
         <TooltipProvider>
           {DRAWING_TOOLS.map((tool) => (
             <Tooltip key={tool.id}>
@@ -1106,7 +1106,7 @@ export function TradingChart({
                 <Button
                   variant={activeDrawingTool === tool.id ? 'secondary' : 'ghost'}
                   size="sm"
-                  className="h-7 w-7 p-0"
+                  className="min-h-11 min-w-11 p-0 sm:h-7 sm:w-7 sm:min-h-7 sm:min-w-7"
                   onClick={() => activateDrawingTool(tool.id)}
                   aria-label={tool.label}
                 >
@@ -1124,7 +1124,7 @@ export function TradingChart({
               <Button
                 variant={magnetMode === 'weak_magnet' ? 'secondary' : 'ghost'}
                 size="sm"
-                className="h-7 w-7 p-0"
+                className="min-h-11 min-w-11 p-0 sm:h-7 sm:w-7 sm:min-h-7 sm:min-w-7"
                 onClick={toggleMagnetMode}
                 aria-label={magnetMode === 'weak_magnet' ? 'Disable magnet mode' : 'Enable magnet mode'}
               >
@@ -1139,7 +1139,7 @@ export function TradingChart({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                className="min-h-11 min-w-11 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-7 sm:w-7 sm:min-h-7 sm:min-w-7"
                 onClick={clearDrawings}
                 aria-label="Clear drawings"
               >
