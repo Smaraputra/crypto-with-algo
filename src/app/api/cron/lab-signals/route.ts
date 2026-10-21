@@ -4,6 +4,7 @@ import { verifyCronSecret } from '@/lib/cron-auth';
 import { withJobRun } from '@/lib/job-run';
 import { runLabSignals8h, runLabSignalsFast } from '@/lib/signals/lab/job-signals';
 import { runLabV2Daily, runLabV2Weekly } from '@/lib/signals/lab/job-signals-v2';
+import { runLabV3Daily } from '@/lib/signals/lab/job-signals-v3';
 
 /**
  * Live signal generator for the forward signal lab (lab-v1 and lab-v2).
@@ -26,8 +27,14 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const cadence = url.searchParams.get('cadence');
   const attempt = url.searchParams.get('attempt');
 
-  if (cadence !== '8h' && cadence !== 'fast' && cadence !== 'v2-1w' && cadence !== 'v2-1d') {
-    return NextResponse.json({ error: 'cadence must be 8h, fast, v2-1w or v2-1d' }, { status: 400 });
+  if (
+    cadence !== '8h' &&
+    cadence !== 'fast' &&
+    cadence !== 'v2-1w' &&
+    cadence !== 'v2-1d' &&
+    cadence !== 'v3-1d'
+  ) {
+    return NextResponse.json({ error: 'cadence must be 8h, fast, v2-1w, v2-1d or v3-1d' }, { status: 400 });
   }
 
   try {
@@ -40,7 +47,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         ? await runLabSignalsFast(now)
         : cadence === 'v2-1w'
         ? await runLabV2Weekly(now, undefined, { final: isRetry })
-        : await runLabV2Daily(now, undefined, { final: isRetry });
+        : cadence === 'v2-1d'
+        ? await runLabV2Daily(now, undefined, { final: isRetry })
+        : await runLabV3Daily(now, undefined, { final: isRetry });
     return NextResponse.json(result, { status: result.success ? 200 : 500 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -64,6 +73,9 @@ export const GET = withJobRun((req) => {
   }
   if (cadence === 'v2-1d') {
     return attempt === 'retry' ? 'lab-v2-signals:1d:retry' : 'lab-v2-signals:1d';
+  }
+  if (cadence === 'v3-1d') {
+    return attempt === 'retry' ? 'lab-v3-signals:1d:retry' : 'lab-v3-signals:1d';
   }
   return 'lab-signals:invalid';
 }, handler);

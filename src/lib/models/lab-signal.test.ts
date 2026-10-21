@@ -6,6 +6,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import {
   LabSignal,
   insertLabSignalOnce,
+  LAB_SKIP_REASONS,
   type LabSignalFields,
 } from './lab-signal';
 
@@ -130,7 +131,7 @@ describe('LabSignal model and insertLabSignalOnce', () => {
   });
 
   it('rejects an unknown version on create', async () => {
-    const invalid = makeSignalFields({ version: 'lab-v3' as unknown as 'lab-v1' });
+    const invalid = makeSignalFields({ version: 'lab-v99' as unknown as 'lab-v1' });
     await expect(LabSignal.create(invalid)).rejects.toThrow();
   });
 
@@ -146,8 +147,24 @@ describe('LabSignal model and insertLabSignalOnce', () => {
       skipped: [{ symbol: 'BTCUSDT', reason: 'unknown_reason' as unknown as 'rv_skipped' }],
     });
     await expect(insertLabSignalOnce(badReason)).rejects.toThrow();
-    const badVersion = makeSignalFields({ version: 'lab-v3' as unknown as 'lab-v1' });
+    const badVersion = makeSignalFields({ version: 'lab-v99' as unknown as 'lab-v1' });
     await expect(insertLabSignalOnce(badVersion)).rejects.toThrow();
     expect(await LabSignal.countDocuments({})).toBe(0);
+  });
+
+  it('includes delisted in LAB_SKIP_REASONS and accepts it on insert', async () => {
+    expect(LAB_SKIP_REASONS).toContain('delisted');
+    const fields = makeSignalFields({
+      skipped: [{ symbol: 'BTCUSDT', reason: 'delisted' }],
+    });
+    const res = await insertLabSignalOnce(fields);
+    expect(res.inserted).toBe(true);
+
+    const stored = await LabSignal.findOne({
+      version: fields.version,
+      hypothesis: fields.hypothesis,
+      barClose: fields.barClose,
+    }).lean();
+    expect(stored?.skipped).toEqual([{ symbol: 'BTCUSDT', reason: 'delisted' }]);
   });
 });

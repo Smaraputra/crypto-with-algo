@@ -2,10 +2,11 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SignalBoard } from './SignalBoard';
-import type { LabResponse, LabV2Response } from '@/lib/signals/lab/view';
+import type { LabResponse, LabV2Response, LabV3Response } from '@/lib/signals/lab/view';
 
 const mockUseSignalLab = vi.fn();
 const mockUseSignalLabV2 = vi.fn();
+const mockUseSignalLabV3 = vi.fn();
 
 vi.mock('@/hooks/useSignalLab', () => ({
   useSignalLab: () => mockUseSignalLab(),
@@ -13,6 +14,10 @@ vi.mock('@/hooks/useSignalLab', () => ({
 
 vi.mock('@/hooks/useSignalLabV2', () => ({
   useSignalLabV2: () => mockUseSignalLabV2(),
+}));
+
+vi.mock('@/hooks/useSignalLabV3', () => ({
+  useSignalLabV3: () => mockUseSignalLabV3(),
 }));
 
 function createFixture(): LabResponse {
@@ -284,6 +289,41 @@ function createV2Fixture(): LabV2Response {
   };
 }
 
+function createV3Fixture(): LabV3Response {
+  return {
+    version: 'lab-v3',
+    threshold: 200,
+    hypotheses: [
+      {
+        id: 'F1-1d',
+        candidate: 'F1',
+        timeframe: '1d',
+        status: 'under_test',
+        underTestSince: '2026-10-21T00:00:00.000Z',
+        testEndsAt: '2028-10-21T00:00:00.000Z',
+        validatedAt: null,
+        gradedBars: 14,
+        betBars: 14,
+        e: 2.15,
+        threshold: 200,
+        absorbed: false,
+        meanNetReturn: 0.0045,
+        lastNetReturn: 0.005,
+        scale: 0.02,
+        latestBar: {
+          barClose: '2026-10-21T00:00:00.000Z',
+          late: false,
+          positions: [
+            { symbol: 'ETHUSDT', weight: 0.14 },
+            { symbol: 'SOLUSDT', weight: -0.14 },
+          ],
+          cash: false,
+        },
+      },
+    ],
+  };
+}
+
 describe('SignalBoard', () => {
   beforeEach(() => {
     mockUseSignalLab.mockReset();
@@ -293,6 +333,13 @@ describe('SignalBoard', () => {
       error: null,
       refetch: vi.fn(),
       data: createV2Fixture(),
+    });
+    mockUseSignalLabV3.mockReset();
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createV3Fixture(),
     });
   });
 
@@ -308,6 +355,8 @@ describe('SignalBoard', () => {
     const statusEl = screen.getByRole('status');
     expect(statusEl).toHaveTextContent('Loading the lab record.');
     expect(screen.getByText('Forward signal lab, lab-v1')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
   });
 
   it('renders error state and retries on click', () => {
@@ -325,8 +374,12 @@ describe('SignalBoard', () => {
     ).toBeInTheDocument();
 
     const retryButton = screen.getByRole('button', { name: 'Retry' });
+    expect(retryButton).toHaveClass('min-h-11');
     fireEvent.click(retryButton);
     expect(refetch).toHaveBeenCalledTimes(1);
+
+    expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
   });
 
   it('renders empty state text when nothing is recorded yet', () => {
@@ -366,6 +419,8 @@ describe('SignalBoard', () => {
         'No lab bar has been recorded yet. The jobs write L2 within minutes of each 5m to 1d close, and L1, L3 and L4 at 00:03, 08:03 and 16:03 UTC.'
       )
     ).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
   });
 
   it('renders table with 10 row headers and 5 column headers, showing known cell and skipped coin', () => {
@@ -524,5 +579,26 @@ describe('SignalBoard', () => {
     expect(screen.getByText('Forward lab, lab-v2 (Round 1 survivors)')).toBeInTheDocument();
     expect(screen.getByText('N2 weekly ridge')).toBeInTheDocument();
     expect(screen.getByText('N3 value-area drift')).toBeInTheDocument();
+  });
+
+  it('renders the lab-v3 section', () => {
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createFixture(),
+    });
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createV3Fixture(),
+    });
+    render(<SignalBoard />);
+
+    expect(screen.getByText('Forward lab, lab-v3 (Round 2 Funding Level Carry)')).toBeInTheDocument();
+    expect(screen.getByText('F1 weekly staggered funding level carry')).toBeInTheDocument();
+    expect(screen.getByText('ETH +0.140')).toBeInTheDocument();
+    expect(screen.getByText('SOL -0.140')).toBeInTheDocument();
   });
 });

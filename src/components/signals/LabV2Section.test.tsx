@@ -97,6 +97,7 @@ describe('LabV2Section', () => {
     expect(screen.getByText('Could not load the lab record: Network timeout.')).toBeInTheDocument();
 
     const retryButton = screen.getByRole('button', { name: 'Retry' });
+    expect(retryButton).toHaveClass('min-h-11');
     fireEvent.click(retryButton);
     expect(refetch).toHaveBeenCalledTimes(1);
   });
