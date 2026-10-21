@@ -122,7 +122,10 @@ const {
     isConnected: false,
     retry: vi.fn(),
   };
-  const mockUseMarketStreamStatus = vi.fn((_market?: string) => mockStreamStatus);
+  const mockUseMarketStreamStatus = vi.fn((_market?: string) => {
+    void _market;
+    return mockStreamStatus;
+  });
   return {
     mockUnsubSpot: unsubSpot,
     mockUnsubPerp: unsubPerp,
@@ -137,7 +140,6 @@ const {
 
 const mockUnsub = mockUnsubSpot;
 const captured = capturedSpot;
-const mockStreamClient = mockSpotClient;
 
 vi.mock('@/lib/market-stream/client', () => ({
   getMarketStreamClient: () => mockSpotClient,
@@ -1361,6 +1363,101 @@ describe('TradingChart', () => {
       });
       const receivedLiveBar = barCallback.mock.calls[0][0];
       expect(Object.prototype.hasOwnProperty.call(receivedLiveBar, 'takerBuyVolume')).toBe(false);
+    });
+  });
+
+  describe('focusOverlay', () => {
+    const focusProp = (over: Partial<NonNullable<React.ComponentProps<typeof TradingChart>['focusOverlay']>> = {}) => ({
+      intervalMs: 3_600_000,
+      showInternal: false,
+      showSma: false,
+      showMacd: false,
+      priorDay: null,
+      ...over,
+    });
+
+    it('creates STRUCTURE, DELTA_VOL and CVD, and not the default VOL/MACD/RSI set', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" focusOverlay={focusProp()} />);
+
+      expect(mockCreateIndicator).toHaveBeenCalledWith('STRUCTURE', true, { id: 'candle_pane' });
+      expect(mockCreateIndicator).toHaveBeenCalledWith('DELTA_VOL', false, { id: 'delta_vol_pane', height: 90 });
+      expect(mockCreateIndicator).toHaveBeenCalledWith('CVD', false, { id: 'cvd_pane', height: 80 });
+
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('VOL', false);
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('MACD', false);
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('RSI', false);
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('MA', true, { id: 'candle_pane' });
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith({ name: 'MA', calcParams: [50] }, true, { id: 'candle_pane' });
+    });
+
+    it('creates MACD when showMacd: true and creates MA with [50] when showSma: true', () => {
+      render(
+        <TradingChart
+          symbol="BTCUSDT"
+          interval="1h"
+          focusOverlay={focusProp({ showMacd: true, showSma: true })}
+        />
+      );
+
+      expect(mockCreateIndicator).toHaveBeenCalledWith('MACD', false);
+      expect(mockCreateIndicator).toHaveBeenCalledWith({ name: 'MA', calcParams: [50] }, true, { id: 'candle_pane' });
+    });
+
+    it('creates default indicators when focusOverlay is omitted', () => {
+      render(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(mockCreateIndicator).toHaveBeenCalledWith('MA', true, { id: 'candle_pane' });
+      expect(mockCreateIndicator).toHaveBeenCalledWith('VOL', false);
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('STRUCTURE', expect.anything(), expect.anything());
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('DELTA_VOL', expect.anything(), expect.anything());
+      expect(mockCreateIndicator).not.toHaveBeenCalledWith('CVD', expect.anything(), expect.anything());
+    });
+
+    it('calls overrideIndicator for STRUCTURE with fresh calc and priorDay on update', () => {
+      const priorDay = { high: 100, low: 50, close: 75 };
+      const { rerender } = render(
+        <TradingChart symbol="BTCUSDT" interval="1h" focusOverlay={focusProp({ priorDay: null })} />
+      );
+
+      const structureOverrides = () =>
+        mockOverrideIndicator.mock.calls
+          .map((c) => c[0])
+          .filter((o) => o.name === 'STRUCTURE');
+
+      expect(structureOverrides().length).toBeGreaterThan(0);
+      expect(structureOverrides().at(-1)).toMatchObject({
+        name: 'STRUCTURE',
+        calc: expect.any(Function),
+        extendData: { priorDay: null },
+      });
+
+      rerender(
+        <TradingChart symbol="BTCUSDT" interval="1h" focusOverlay={focusProp({ priorDay, showInternal: true })} />
+      );
+
+      expect(structureOverrides().at(-1)).toMatchObject({
+        name: 'STRUCTURE',
+        calc: expect.any(Function),
+        extendData: { priorDay },
+      });
+    });
+
+    it('removes focus indicators on cleanup', () => {
+      const { rerender } = render(
+        <TradingChart
+          symbol="BTCUSDT"
+          interval="1h"
+          focusOverlay={focusProp({ showMacd: true, showSma: true })}
+        />
+      );
+
+      rerender(<TradingChart symbol="BTCUSDT" interval="1h" />);
+
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ paneId: 'candle_pane', name: 'STRUCTURE' });
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ paneId: 'delta_vol_pane', name: 'DELTA_VOL' });
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ paneId: 'cvd_pane', name: 'CVD' });
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ paneId: 'candle_pane', name: 'MA' });
+      expect(mockRemoveIndicator).toHaveBeenCalledWith({ name: 'MACD' });
     });
   });
 });

@@ -65,6 +65,17 @@ import {
   ensureSignalCallsIndicatorRegistered,
   makeSignalCallsCalc,
 } from './signal-calls-indicator';
+import {
+  CVD_INDICATOR,
+  CVD_PANE_HEIGHT,
+  CVD_PANE_ID,
+  DELTA_VOL_INDICATOR,
+  DELTA_VOL_PANE_HEIGHT,
+  DELTA_VOL_PANE_ID,
+  STRUCTURE_INDICATOR,
+  ensureFocusIndicatorsRegistered,
+  makeStructureCalc,
+} from './focus-indicators';
 import { Mark } from './track-record/CallLegend';
 import type { CallMark } from '@/lib/signals/track-record/chart-data';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
@@ -98,6 +109,8 @@ export interface TradingChartProps {
   signalOverlay?: SignalOverlay;
   /** Past calls and the re-score/live hand-over line on the price pane. */
   callsOverlay?: CallsOverlay;
+  /** Focus page preset: no default indicators; structure, delta volume and CVD instead. */
+  focusOverlay?: { intervalMs: number; showInternal: boolean; showSma: boolean; showMacd: boolean; priorDay: { high: number; low: number; close: number } | null };
   /** The loaded bars changed: first load, an older page, or a new bar. Open times, ms. */
   onLoadedRangeChange?: (range: TimeRange) => void;
   /** The visible window changed (debounced). Open times, ms. */
@@ -254,6 +267,7 @@ export function TradingChart({
   onChartTypeChange,
   signalOverlay,
   callsOverlay,
+  focusOverlay,
   onLoadedRangeChange,
   onVisibleRangeChange,
 }: TradingChartProps) {
@@ -607,15 +621,17 @@ export function TradingChart({
     });
 
     // Initialize default indicators inline (avoids external callback dependency)
-    DEFAULT_INDICATORS.forEach((ind) => {
-      if (ind.enabled && chartRef.current) {
-        if (ind.category === 'overlay') {
-          chartRef.current.createIndicator(ind.id, true, { id: 'candle_pane' });
-        } else {
-          chartRef.current.createIndicator(ind.id, false);
+    if (!focusOverlay) {
+      DEFAULT_INDICATORS.forEach((ind) => {
+        if (ind.enabled && chartRef.current) {
+          if (ind.category === 'overlay') {
+            chartRef.current.createIndicator(ind.id, true, { id: 'candle_pane' });
+          } else {
+            chartRef.current.createIndicator(ind.id, false);
+          }
         }
-      }
-    });
+      });
+    }
 
     // Set initial symbol/period so getBars fires immediately.
     // The init effect may run after the symbol effect (when hasValidDimensions
@@ -704,6 +720,62 @@ export function TradingChart({
       extendData: { boundary: callsBoundary, hover: hoverCallRef.current, horizonBars: callsHorizon },
     });
   }, [callsVisible, hasValidDimensions, calls, callsBoundary, callsHorizon]);
+
+  const focusActive = Boolean(focusOverlay);
+  const focusIntervalMs = focusOverlay?.intervalMs;
+  const focusShowInternal = focusOverlay?.showInternal ?? false;
+  const focusShowSma = focusOverlay?.showSma ?? false;
+  const focusShowMacd = focusOverlay?.showMacd ?? false;
+  const focusPriorDay = focusOverlay?.priorDay ?? null;
+
+  // Focus preset indicators: STRUCTURE on candle_pane (stacked), DELTA_VOL and CVD in their own panes
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive) return;
+    ensureFocusIndicatorsRegistered();
+    chart.createIndicator(STRUCTURE_INDICATOR, true, { id: 'candle_pane' });
+    chart.createIndicator(DELTA_VOL_INDICATOR, false, { id: DELTA_VOL_PANE_ID, height: DELTA_VOL_PANE_HEIGHT });
+    chart.createIndicator(CVD_INDICATOR, false, { id: CVD_PANE_ID, height: CVD_PANE_HEIGHT });
+    return () => {
+      chartRef.current?.removeIndicator({ paneId: 'candle_pane', name: STRUCTURE_INDICATOR });
+      chartRef.current?.removeIndicator({ paneId: DELTA_VOL_PANE_ID, name: DELTA_VOL_INDICATOR });
+      chartRef.current?.removeIndicator({ paneId: CVD_PANE_ID, name: CVD_INDICATOR });
+    };
+  }, [focusActive, hasValidDimensions]);
+
+  // Recalculate structure when interval, internal toggle, or prior-day levels change
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive || focusIntervalMs === undefined) return;
+    chart.overrideIndicator({
+      name: STRUCTURE_INDICATOR,
+      calc: makeStructureCalc({
+        intervalMs: focusIntervalMs,
+        showInternal: focusShowInternal,
+      }),
+      extendData: { priorDay: focusPriorDay },
+    });
+  }, [focusActive, hasValidDimensions, focusIntervalMs, focusShowInternal, focusPriorDay]);
+
+  // SMA toggle for focus preset: 50 MA stacked on candle_pane
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive || !focusShowSma) return;
+    chart.createIndicator({ name: 'MA', calcParams: [50] }, true, { id: 'candle_pane' });
+    return () => {
+      chartRef.current?.removeIndicator({ paneId: 'candle_pane', name: 'MA' });
+    };
+  }, [focusActive, hasValidDimensions, focusShowSma]);
+
+  // MACD toggle for focus preset: MACD in its own pane
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive || !focusShowMacd) return;
+    chart.createIndicator('MACD', false);
+    return () => {
+      chartRef.current?.removeIndicator({ name: 'MACD' });
+    };
+  }, [focusActive, hasValidDimensions, focusShowMacd]);
 
   // Report the visible window, debounced: scrolling fires this every frame.
   useEffect(() => {
@@ -919,65 +991,69 @@ export function TradingChart({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Separator orientation="vertical" className="h-6" />
+          {!focusOverlay && (
+            <>
+              <Separator orientation="vertical" className="h-6" />
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs">
-                <Activity className="h-3.5 w-3.5" />
-                Indicators
-                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>Overlays</DropdownMenuLabel>
-              {overlayIndicators.map((ind) => (
-                <DropdownMenuCheckboxItem
-                  key={ind.id}
-                  checked={ind.enabled}
-                  onCheckedChange={() => toggleIndicator(ind.id)}
-                >
-                  {ind.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Oscillators</DropdownMenuLabel>
-              {oscillatorIndicators.map((ind) => (
-                <DropdownMenuCheckboxItem
-                  key={ind.id}
-                  checked={ind.enabled}
-                  onCheckedChange={() => toggleIndicator(ind.id)}
-                >
-                  {ind.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Volume</DropdownMenuLabel>
-              {volumeIndicators.map((ind) => (
-                <DropdownMenuCheckboxItem
-                  key={ind.id}
-                  checked={ind.enabled}
-                  onCheckedChange={() => toggleIndicator(ind.id)}
-                >
-                  {ind.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs">
+                    <Activity className="h-3.5 w-3.5" />
+                    Indicators
+                    <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel>Overlays</DropdownMenuLabel>
+                  {overlayIndicators.map((ind) => (
+                    <DropdownMenuCheckboxItem
+                      key={ind.id}
+                      checked={ind.enabled}
+                      onCheckedChange={() => toggleIndicator(ind.id)}
+                    >
+                      {ind.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Oscillators</DropdownMenuLabel>
+                  {oscillatorIndicators.map((ind) => (
+                    <DropdownMenuCheckboxItem
+                      key={ind.id}
+                      checked={ind.enabled}
+                      onCheckedChange={() => toggleIndicator(ind.id)}
+                    >
+                      {ind.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Volume</DropdownMenuLabel>
+                  {volumeIndicators.map((ind) => (
+                    <DropdownMenuCheckboxItem
+                      key={ind.id}
+                      checked={ind.enabled}
+                      onCheckedChange={() => toggleIndicator(ind.id)}
+                    >
+                      {ind.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-          {indicators.filter((ind) => ind.enabled).map((ind) => (
-            <div key={ind.id} className="flex items-center gap-0.5">
-              <span className="text-xs text-muted-foreground">
-                {ind.id}({ind.calcParams.join(',')})
-              </span>
-              <IndicatorSettings
-                indicatorId={ind.id}
-                indicatorName={ind.name}
-                calcParams={ind.calcParams}
-                onParamsChange={updateIndicatorParams}
-              />
-            </div>
-          ))}
+              {indicators.filter((ind) => ind.enabled).map((ind) => (
+                <div key={ind.id} className="flex items-center gap-0.5">
+                  <span className="text-xs text-muted-foreground">
+                    {ind.id}({ind.calcParams.join(',')})
+                  </span>
+                  <IndicatorSettings
+                    indicatorId={ind.id}
+                    indicatorName={ind.name}
+                    calcParams={ind.calcParams}
+                    onParamsChange={updateIndicatorParams}
+                  />
+                </div>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
