@@ -58,7 +58,7 @@ function renderPositions(hyp: LabV3HypothesisView) {
 
   return nonZero.map((pos) => {
     const coin = pos.symbol.replace('USDT', '');
-    const formattedWeight = pos.weight > 0 ? `+${pos.weight.toFixed(2)}` : pos.weight.toFixed(2);
+    const formattedWeight = pos.weight > 0 ? `+${pos.weight.toFixed(3)}` : pos.weight.toFixed(3);
     const label = `${coin} ${formattedWeight}`;
     return (
       <span

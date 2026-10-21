@@ -32,9 +32,9 @@ afterEach(async () => {
 });
 
 function mockFundingHistoryFor(symbolIndex: number, barClose: number) {
-  // 21 settlements spaced 8h apart
+  // 21 settlements spaced 8h apart ending at barClose (including barClose at T)
   return Array.from({ length: 21 }, (_, i) => ({
-    fundingTime: barClose - (i + 0.5) * (8 * 3600_000),
+    fundingTime: barClose - i * (8 * 3600_000),
     fundingRate: (symbolIndex - 15) * 0.0001,
   }));
 }
@@ -334,5 +334,65 @@ describe('runLabV3Daily', () => {
       expect(call[1]).toBe(T_DAY - 14 * DAY_MS);
       expect(call[2]).toBe(T_DAY + 60_000);
     }
+  });
+
+  it('a coin whose settlements stop at T - 8h makes a non-final attempt write nothing, with waiting reason fetch_failed and error in report.errors', async () => {
+    const missingSymbol = LAB_V3_UNIVERSE[0];
+    const deps: LabV3JobDeps = {
+      fetchExchangeInfo: mockExchangeInfo,
+      fetchFundingHistory: async (symbol) => {
+        if (symbol === missingSymbol) {
+          // 20 settlements in (T - 7d, T], stopping at T - 8h (none at T)
+          return Array.from({ length: 20 }, (_, i) => ({
+            fundingTime: T_DAY - (i + 1) * (8 * 3600_000),
+            fundingRate: 0.0001,
+          }));
+        }
+        const idx = LAB_V3_UNIVERSE.indexOf(symbol as (typeof LAB_V3_UNIVERSE)[number]);
+        return mockFundingHistoryFor(idx >= 0 ? idx : 0, T_DAY);
+      },
+      clock: () => T_DAY + 4 * 60_000,
+      sleep: noopSleep,
+    };
+
+    const res = await runLabV3Daily(T_DAY + 4 * 60_000, deps, { final: false });
+    expect(res.written).toHaveLength(0);
+    expect(res.waiting).toEqual([{ hypothesis: 'F1-1d', barClose: T_DAY, reason: 'fetch_failed' }]);
+    expect(res.errors).toContain(`${missingSymbol}: no settlement at T`);
+    expect(await LabSignal.countDocuments()).toBe(0);
+  });
+
+  it('the same input on a final attempt writes the row, with that coin skipped as funding_incomplete and not in the scores', async () => {
+    const missingSymbol = LAB_V3_UNIVERSE[0];
+    const deps: LabV3JobDeps = {
+      fetchExchangeInfo: mockExchangeInfo,
+      fetchFundingHistory: async (symbol) => {
+        if (symbol === missingSymbol) {
+          // 20 settlements in (T - 7d, T], stopping at T - 8h (none at T)
+          return Array.from({ length: 20 }, (_, i) => ({
+            fundingTime: T_DAY - (i + 1) * (8 * 3600_000),
+            fundingRate: 0.0001,
+          }));
+        }
+        const idx = LAB_V3_UNIVERSE.indexOf(symbol as (typeof LAB_V3_UNIVERSE)[number]);
+        return mockFundingHistoryFor(idx >= 0 ? idx : 0, T_DAY);
+      },
+      clock: () => T_DAY + 4 * 60_000,
+      sleep: noopSleep,
+    };
+
+    const res = await runLabV3Daily(T_DAY + 4 * 60_000, deps, { final: true });
+    expect(res.written).toHaveLength(1);
+    expect(res.waiting).toHaveLength(0);
+
+    const doc = await LabSignal.findOne({ version: 'lab-v3', hypothesis: 'F1-1d', barClose: T_DAY }).lean();
+    expect(doc).not.toBeNull();
+    expect(doc?.skipped).toContainEqual({ symbol: missingSymbol, reason: 'funding_incomplete' });
+
+    const rawScores = (doc?.inputs as { rawScores?: Record<string, number> })?.rawScores ?? {};
+    expect(rawScores[missingSymbol]).toBeUndefined();
+
+    const scores = doc?.scores as Record<string, number>;
+    expect(scores[missingSymbol]).toBeUndefined();
   });
 });

@@ -1512,6 +1512,72 @@ describe('runLabGrade with mocked deps for v1 and v2', () => {
     expect(report.graded.some((g) => g.hypothesis === 'F1-1d')).toBe(true);
   });
 
+  it('runLabGrade: when gradeLabV1AndV2 throws (e.g. Missing funding in v2), runLabGrade resolves, returns success false with error, and still grades lab-v3 bar', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    await insertLabSignalOnce({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      candidate: 'N3',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    await insertLabSignalOnce({
+      version: 'lab-v3',
+      hypothesis: 'F1-1d',
+      candidate: 'F1',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { SOLUSDT: 0.5 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T1, '1d') + 1000;
+    const { start, end } = priceTimes(T1, '1d');
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(async () => [
+      { openTime: start, open: 100, close: 100, high: 100, low: 100, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: start + 299_999 },
+      { openTime: end, open: 105, close: 105, high: 105, low: 105, volume: 1, quoteVolume: 1, trades: 1, takerBuyVolume: 1, closeTime: end + 299_999 },
+    ]);
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fetchPerpExchangeInfo: vi.fn().mockResolvedValue([
+        { symbol: 'SOLUSDT', status: 'TRADING' },
+        { symbol: 'BTCUSDT', status: 'TRADING' },
+      ]),
+      sleep: async () => {},
+      fundingSumsFor: vi.fn().mockImplementation(async (symbols: string[]) => {
+        if (symbols.includes('BTCUSDT')) {
+          return { sums: {}, coverage: { BTCUSDT: true } };
+        }
+        return { sums: { SOLUSDT: 0.0001 }, coverage: { SOLUSDT: true } };
+      }),
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+
+    expect(report.success).toBe(false);
+    expect(report.errors.some((e) => e.includes('Missing funding for priced coin: BTCUSDT'))).toBe(true);
+
+    const v2Row = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(v2Row).toBeNull();
+
+    const v3Row = await LabScore.findOne({ hypothesis: 'F1-1d', barClose: T1 }).lean();
+    expect(v3Row).not.toBeNull();
+    expect(report.graded.some((g) => g.hypothesis === 'F1-1d')).toBe(true);
+  });
+
   it('runLabGrade: one F1 symbol rejects with BinanceHttpError 400: lab-v3 bar is graded, coin not in prices, error in report.errors', async () => {
     const T1 = Date.UTC(2026, 9, 18, 0);
 

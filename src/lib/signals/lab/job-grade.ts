@@ -1591,8 +1591,17 @@ export async function runLabGrade(
     errors: [],
   };
 
-  await gradeLabV1AndV2(now, d, deps, report);
-  await gradeLabV3(now, d, deps, report);
-
+  try {
+    await gradeLabV1AndV2(now, d, deps, report);
+  } catch (err) {
+    report.errors.push(err instanceof Error ? err.message : String(err));
+    report.success = false;
+  }
+  try {
+    await gradeLabV3(now, d, deps, report);
+  } catch (err) {
+    report.errors.push(err instanceof Error ? err.message : String(err));
+    report.success = false;
+  }
   return report;
 }

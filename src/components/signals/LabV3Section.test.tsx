@@ -35,8 +35,8 @@ function createFixture(): LabV3Response {
           barClose: '2026-10-21T00:00:00.000Z',
           late: false,
           positions: [
-            { symbol: 'ETHUSDT', weight: 0.14 },
-            { symbol: 'SOLUSDT', weight: -0.14 },
+            { symbol: 'ETHUSDT', weight: 0.0022 },
+            { symbol: 'SOLUSDT', weight: -0.064 },
           ],
           cash: false,
         },
@@ -138,8 +138,8 @@ describe('LabV3Section', () => {
     expect(screen.getByText('bets 14')).toBeInTheDocument();
     expect(screen.getByText('mean net return +0.450%')).toBeInTheDocument();
 
-    expect(screen.getByText('ETH +0.14')).toBeInTheDocument();
-    expect(screen.getByText('SOL -0.14')).toBeInTheDocument();
+    expect(screen.getByText('ETH +0.002')).toBeInTheDocument();
+    expect(screen.getByText('SOL -0.064')).toBeInTheDocument();
   });
 
   it('renders Cash chip when hypothesis has cash true or no positions', () => {

@@ -598,7 +598,7 @@ describe('SignalBoard', () => {
 
     expect(screen.getByText('Forward lab, lab-v3 (Round 2 Funding Level Carry)')).toBeInTheDocument();
     expect(screen.getByText('F1 weekly staggered funding level carry')).toBeInTheDocument();
-    expect(screen.getByText('ETH +0.14')).toBeInTheDocument();
-    expect(screen.getByText('SOL -0.14')).toBeInTheDocument();
+    expect(screen.getByText('ETH +0.140')).toBeInTheDocument();
+    expect(screen.getByText('SOL -0.140')).toBeInTheDocument();
   });
 });

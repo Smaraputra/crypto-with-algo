@@ -44,7 +44,12 @@
  *   - For each listed coin it fetches funding settlements by REST over [T - 14 days, T + 1 minute] and rounds each
  *     settlement time to the hour (settlementTimeOf), as the stored settlements are.
  *   - fund7 = minus the sum of the rates with rounded time in (T - 7 days, T]. A coin needs at least 18 such
- *     settlements, else it is skipped as 'funding_incomplete'.
+ *     settlements, including the settlement at T itself, else it is skipped as 'funding_incomplete'.
+ *   - On the first attempt, any failed fetch, or a coin still missing the settlement at T, makes the attempt write
+ *     nothing, so the retry decides. On the retry the row is always written. A coin whose fetch failed or that lacks
+ *     the settlement at T is skipped as 'funding_incomplete', and if exchangeInfo fails no coin is skipped as
+ *     'delisted'. A smaller cross-section changes every rank that day, and below 10 scored coins the day's target is
+ *     cash. The preview never had a cross-section cut down this way.
  *   - The target book at T is the centred-rank, dollar-neutral, gross-1 book over the scored coins (bookWeights),
  *     long low funding and short high funding. Below 10 scored coins the target is cash.
  *   - The active book is one seventh of the sum of the stored target books at T, T - 1 day, ..., T - 6 days. A day
@@ -67,7 +72,10 @@
  *   - The cost is still charged on the whole book change.
  * - Funding is never assumed. For a coin priced normally, the bar is graded only after the funding sync succeeded for
  *   it and it has a stored settlement within 8 hours before the window's end. Otherwise the bar waits for a later
- *   grade run.
+ *   grade run. A waiting bar holds back every later F1 bar. If a settlement is missing for good, only an amendment
+ *   can release it.
+ * - A row written after T + D (10 minutes) is late: it places no bet, but its book still becomes w_prev and its
+ *   target stays in the staggered book for seven days.
  * - X_t = min(R_t / c, 1), with b_t = 0 and c = 0.036. That is 4 x the preview's SD of R (0.88%), rounded up to 2
  *   significant figures, as in lab-v2.
  * - Declared differences from the preview:
@@ -115,11 +123,17 @@
  * REST CHECK (same run): funding settlements for the 30 coins from 2026-06-01 to 2026-06-29, fetched by REST as the
  * live job does and rounded to the hour, against the archive. All 3,214 settlements are present on both sides with
  * equal rates. 1,624 of the REST prints carry a time off the exact hour, which is why the live job rounds them.
+ * The live scorer's targetBook and staggeredBook are copies of the preview's and share bookWeights, so the book check
+ * catches drift between the copies, not a defect they share. Parity does not cover the live job's exchangeInfo
+ * filter, its round trip of stored targets, or the grader's price, funding and delisting rules. Unit tests cover
+ * those, and AMENDMENT 1 checks the first live rows.
  *
  * READ RULE, FAILURE ACTION: as lab-v1. Trading the rule is a separate owner decision outside this lock.
- * OPERATIONS: lab-v3 is graded in the hourly lab run in its own pass, after lab-v1 and lab-v2. Its venue calls are
- * sequential (250 ms apart for klines, 100 ms for funding). A lab-v3 failure cannot stop or change lab-v1 or lab-v2
- * grading, and a lab-v1 or lab-v2 failure does not stop lab-v3.
+ * OPERATIONS: lab-v3 is graded in the hourly lab run in its own pass, after lab-v1 and lab-v2. Its kline fetches
+ * are sequential, 250 ms apart. The signal job's funding fetches are 100 ms apart, and the grader's funding sync is
+ * sequential without pauses, as lab-v2's is. A thrown error or a failed fetch in one pass is caught and reported, so
+ * it cannot stop the other pass. A lab-v3 failure marks that run's lab-grade heartbeat failed, as a lab-v2 failure
+ * does. None of this changes any stored value.
  *
  * LOCK START: the live job scores only the bar that has just closed. The first F1-1d bar is the first 00:00 UTC close
  * after the deploy that starts the job. AMENDMENT 1 will record the deploy time.

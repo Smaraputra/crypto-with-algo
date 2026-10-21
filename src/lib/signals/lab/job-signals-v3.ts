@@ -7,11 +7,14 @@
  *
  * It sleeps 100 ms between funding fetches, rounds settlement times to the
  * boundary, and skips symbols that exchangeInfo does not list as TRADING ('delisted').
+ * A coin needs at least 18 settlements in (T - 7d, T], including the settlement at T itself.
  *
  * Scored at most once per bar close T using insertLabSignalOnce.
  * If a row already exists, the bar is recorded as waiting with reason 'exists' and skipped.
- * A first attempt that encounters any fetch error writes nothing and reports reason 'fetch_failed'.
- * A retry (final) attempt proceeds with whatever funding settlements were fetched.
+ * A first attempt that encounters any fetch error or a coin missing the settlement at T
+ * writes nothing and reports reason 'fetch_failed'.
+ * A retry (final) attempt proceeds, skipping coins with fetch errors or missing settlement
+ * at T as 'funding_incomplete'.
  */
 
 import { fetchPerpExchangeInfo } from '@/lib/binance-futures';
@@ -124,13 +127,22 @@ export async function runLabV3Daily(
         rate: h.fundingRate,
       }));
 
-      const { fund7, count } = computeFund7(settlements, T);
-      settlementsCountBySymbol[symbol] = count;
-
-      if (fund7 === null) {
-        skipped.push({ symbol, reason: 'funding_incomplete' });
+      if (!settlements.some((s) => s.t === T)) {
+        if (!isFinal) {
+          report.errors.push(`${symbol}: no settlement at T`);
+          hasErrors = true;
+        } else {
+          skipped.push({ symbol, reason: 'funding_incomplete' });
+        }
       } else {
-        rawScores.push({ symbol, score: fund7 });
+        const { fund7, count } = computeFund7(settlements, T);
+        settlementsCountBySymbol[symbol] = count;
+
+        if (fund7 === null) {
+          skipped.push({ symbol, reason: 'funding_incomplete' });
+        } else {
+          rawScores.push({ symbol, score: fund7 });
+        }
       }
     } catch (err: unknown) {
       hasErrors = true;
