@@ -14,6 +14,7 @@ import {
 } from '@/lib/signals/lab/candidates';
 import type { LabHypothesisView, LabStatus } from '@/lib/signals/lab/view';
 import { LabV2Section } from './LabV2Section';
+import { LabV3Section } from './LabV3Section';
 
 const L2_TIMEFRAMES: readonly LabTimeframe[] = ['5m', '15m', '1h', '4h', '1d'];
 
@@ -607,6 +608,7 @@ export function SignalBoard() {
       </CardContent>
     </Card>
     <LabV2Section />
+    <LabV3Section />
   </div>
   );
 }
