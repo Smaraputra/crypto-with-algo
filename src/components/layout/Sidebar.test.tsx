@@ -63,6 +63,13 @@ describe('Sidebar', () => {
     expect(dashboardLink?.closest('a')).toHaveAttribute('href', '/dashboard');
   });
 
+  it('renders Focus item linking to /focus', () => {
+    render(<Sidebar />);
+    const focusLinks = screen.getAllByText('Focus');
+    const link = focusLinks.find((el) => el.closest('a'))?.closest('a');
+    expect(link).toHaveAttribute('href', '/focus');
+  });
+
   it('renders Portfolio item linking to /portfolio', () => {
     render(<Sidebar />);
     const portfolioLinks = screen.getAllByText('Portfolio');

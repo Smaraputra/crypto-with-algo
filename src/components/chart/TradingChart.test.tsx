@@ -301,6 +301,47 @@ describe('TradingChart', () => {
       expect(await screen.findByRole('menuitem', { name: '1M' })).toBeInTheDocument();
     });
 
+    it('restricts tabs and menu options when intervalOptions is provided', async () => {
+      render(
+        <TradingChart
+          symbol="BTCUSDT"
+          interval="1h"
+          intervalOptions={['15m', '1h', '30m']}
+        />
+      );
+
+      // Only the specified primary intervals should be in the tabs
+      expect(screen.getByRole('tab', { name: '15m' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: '1H' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: '1m' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: '5m' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: '4H' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: '1D' })).not.toBeInTheDocument();
+
+      // "More" button should be present since 30m is in moreList
+      const moreButton = screen.getByRole('button', { name: /more/i });
+      expect(moreButton).toBeInTheDocument();
+      fireEvent.pointerDown(moreButton, { button: 0, pointerType: 'mouse' });
+
+      expect(await screen.findByRole('menuitem', { name: '30m' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: '3m' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: '2H' })).not.toBeInTheDocument();
+    });
+
+    it('does not render "More" dropdown when intervalOptions contains no secondary intervals', () => {
+      render(
+        <TradingChart
+          symbol="BTCUSDT"
+          interval="1h"
+          intervalOptions={['15m', '1h']}
+        />
+      );
+
+      expect(screen.getByRole('tab', { name: '15m' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: '1H' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /more/i })).not.toBeInTheDocument();
+    });
+
     it('renders the indicators dropdown button', () => {
       render(<TradingChart symbol="BTCUSDT" interval="1h" />);
 

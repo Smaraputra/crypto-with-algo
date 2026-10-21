@@ -1,12 +1,13 @@
 'use client';
 
-import { Card, CardContent } from '@/components/ui/card';
+import { useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSignalLab } from '@/hooks/useSignalLab';
 import { useSignalLabV2 } from '@/hooks/useSignalLabV2';
 import { useSignalLabV3 } from '@/hooks/useSignalLabV3';
 import { formatE } from '@/components/signals/SignalBoard';
 import type { LabStatus } from '@/lib/signals/lab/view';
+import { cn } from '@/lib/utils';
 import { EvidenceTag, labStatusKind } from './EvidenceTag';
 import { formatAge } from './format';
 
@@ -25,6 +26,7 @@ interface BestWeHaveRowItem {
 }
 
 export function BestWeHave({ symbol, className }: BestWeHaveProps) {
+  const headingId = useId();
   const labV3 = useSignalLabV3();
   const labV2 = useSignalLabV2();
   const labV1 = useSignalLab();
@@ -129,114 +131,116 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
     !notInLab1;
 
   return (
-    <Card data-testid="best-we-have" className={className}>
-      <CardContent className="space-y-3 p-4">
-        <h3 className="text-sm font-semibold">Best we have on this coin</h3>
+    <section
+      aria-labelledby={headingId}
+      data-testid="best-we-have"
+      className={cn('space-y-3 p-4', className)}
+    >
+      <h3 id={headingId} className="text-sm font-semibold">Best we have on this coin</h3>
 
-        {/* Individual query loading/error status lines */}
-        {labV3.isLoading && (
-          <p role="status" className="text-xs text-muted-foreground">
-            Loading lab-v3...
+      {/* Individual query loading/error status lines */}
+      {labV3.isLoading && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Loading lab-v3...
+        </p>
+      )}
+      {labV3.error && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-destructive">
+            Could not load lab-v3: {labV3.error.message}.
           </p>
-        )}
-        {labV3.error && (
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs text-destructive">
-              Could not load lab-v3: {labV3.error.message}.
-            </p>
-            <Button
-              variant="outline"
-              size="xs"
-              className="min-h-11 sm:min-h-6"
-              onClick={() => void labV3.refetch()}
+          <Button
+            variant="outline"
+            size="xs"
+            className="min-h-11 sm:min-h-6"
+            onClick={() => void labV3.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {labV2.isLoading && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Loading lab-v2...
+        </p>
+      )}
+      {labV2.error && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-destructive">
+            Could not load lab-v2: {labV2.error.message}.
+          </p>
+          <Button
+            variant="outline"
+            size="xs"
+            className="min-h-11 sm:min-h-6"
+            onClick={() => void labV2.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {labV1.isLoading && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Loading lab-v1...
+        </p>
+      )}
+      {labV1.error && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-destructive">
+            Could not load lab-v1: {labV1.error.message}.
+          </p>
+          <Button
+            variant="outline"
+            size="xs"
+            className="min-h-11 sm:min-h-6"
+            onClick={() => void labV1.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {noDataAtAll && (
+        <p className="text-sm text-muted-foreground">
+          No lab hypotheses recorded yet.
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <ul className="space-y-2 text-xs">
+          {rows.map((row) => (
+            <li
+              key={row.id}
+              data-testid={`best-row-${row.id}`}
+              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1.5 border-b border-border/50 last:border-b-0"
             >
-              Retry
-            </Button>
-          </div>
-        )}
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-medium">{row.id}</span>
+                <EvidenceTag kind={labStatusKind(row.status)} />
+                <span className="font-mono tabular-nums">{row.opinion}</span>
+              </div>
+              <div className="flex items-center gap-2.5 font-mono tabular-nums text-muted-foreground">
+                <span>
+                  E {formatE(row.e)} of {row.threshold}
+                </span>
+                <span>
+                  {row.barClose
+                    ? `as of ${formatAge(row.barClose)}`
+                    : 'as of n/a'}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
-        {labV2.isLoading && (
-          <p role="status" className="text-xs text-muted-foreground">
-            Loading lab-v2...
-          </p>
-        )}
-        {labV2.error && (
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs text-destructive">
-              Could not load lab-v2: {labV2.error.message}.
-            </p>
-            <Button
-              variant="outline"
-              size="xs"
-              className="min-h-11 sm:min-h-6"
-              onClick={() => void labV2.refetch()}
-            >
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {labV1.isLoading && (
-          <p role="status" className="text-xs text-muted-foreground">
-            Loading lab-v1...
-          </p>
-        )}
-        {labV1.error && (
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs text-destructive">
-              Could not load lab-v1: {labV1.error.message}.
-            </p>
-            <Button
-              variant="outline"
-              size="xs"
-              className="min-h-11 sm:min-h-6"
-              onClick={() => void labV1.refetch()}
-            >
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {noDataAtAll && (
-          <p className="text-sm text-muted-foreground">
-            No lab hypotheses recorded yet.
-          </p>
-        )}
-
-        {rows.length > 0 && (
-          <ul className="space-y-2 text-xs">
-            {rows.map((row) => (
-              <li
-                key={row.id}
-                data-testid={`best-row-${row.id}`}
-                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1.5 border-b border-border/50 last:border-b-0"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-medium">{row.id}</span>
-                  <EvidenceTag kind={labStatusKind(row.status)} />
-                  <span className="font-mono tabular-nums">{row.opinion}</span>
-                </div>
-                <div className="flex items-center gap-2.5 font-mono tabular-nums text-muted-foreground">
-                  <span>
-                    E {formatE(row.e)} of {row.threshold}
-                  </span>
-                  <span>
-                    {row.barClose
-                      ? `as of ${formatAge(row.barClose)}`
-                      : 'as of n/a'}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {notInLab1 && (
-          <p className="text-xs text-muted-foreground">
-            Not in lab-v1&apos;s 10 coins
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      {notInLab1 && (
+        <p className="text-xs text-muted-foreground">
+          Not in lab-v1&apos;s 10 coins
+        </p>
+      )}
+    </section>
   );
 }

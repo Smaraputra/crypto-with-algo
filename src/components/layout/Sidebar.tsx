@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, FileText, Zap, Target, Receipt, Calculator } from 'lucide-react';
+import { LayoutDashboard, Crosshair, Briefcase, Bell, BarChart3, Activity, FlaskConical, BookOpen, FileText, Zap, Target, Receipt, Calculator } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -13,6 +13,7 @@ import { WatchlistSidebar } from '@/components/market/WatchlistSidebar';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, disabled: false },
+  { href: '/focus', label: 'Focus', icon: Crosshair, disabled: false },
   { href: '/portfolio', label: 'Portfolio', icon: Briefcase, disabled: false },
   { href: '/alerts', label: 'Alerts', icon: Bell, disabled: false },
   { href: '/analytics', label: 'Analytics', icon: BarChart3, disabled: false },

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useShallow } from 'zustand/react/shallow';
 import { useUIStore } from '@/stores/uiStore';
 import { useProvisionalSignal } from '@/hooks/useProvisionalSignal';
@@ -72,7 +73,15 @@ export function DashboardChart() {
     signal.status === 'provisional' || signal.status === 'awaiting-record' ? signal.status : null;
 
   return (
-    <div>
+    <div className="space-y-1">
+      <div className="flex items-center justify-end px-1">
+        <Link
+          href={`/focus?symbol=${selectedSymbol}`}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Open in Focus
+        </Link>
+      </div>
       {/* Three panes share the height (price, volume, signal score); the price pane keeps the call marks readable. */}
       <div className="h-[560px] sm:h-[640px]">
         <TradingChart

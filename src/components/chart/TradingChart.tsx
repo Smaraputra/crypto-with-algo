@@ -103,6 +103,7 @@ export interface TradingChartProps {
   /** Candle source: spot (default) or USDT-M perpetuals. */
   market?: StreamMarket;
   chartType?: CandleType;
+  intervalOptions?: string[];
   onIntervalChange?: (interval: string) => void;
   onChartTypeChange?: (type: CandleType) => void;
   /** Draws the signal score pane. Never persisted and not part of IndicatorSettings. */
@@ -263,6 +264,7 @@ export function TradingChart({
   interval,
   market = 'spot',
   chartType = 'candle_solid',
+  intervalOptions,
   onIntervalChange,
   onChartTypeChange,
   signalOverlay,
@@ -271,6 +273,12 @@ export function TradingChart({
   onLoadedRangeChange,
   onVisibleRangeChange,
 }: TradingChartProps) {
+  const primaryList = intervalOptions
+    ? PRIMARY_INTERVALS.filter((int) => intervalOptions.includes(int))
+    : PRIMARY_INTERVALS;
+  const moreList = intervalOptions
+    ? MORE_INTERVALS.filter((int) => intervalOptions.includes(int))
+    : MORE_INTERVALS;
   const chartRef = useRef<Chart | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
@@ -928,45 +936,49 @@ export function TradingChart({
       {/* Top Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card p-2">
         <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
-          <Tabs value={PRIMARY_INTERVALS.includes(interval) ? interval : ''} onValueChange={(val) => onIntervalChange?.(val)}>
-            <TabsList className="h-8 bg-muted/50">
-              {INTERVALS.filter((int) => PRIMARY_INTERVALS.includes(int.value)).map((int) => (
-                <TabsTrigger
-                  key={int.value}
-                  value={int.value}
-                  className="h-7 px-2 text-xs data-[state=active]:bg-background data-[state=active]:text-primary"
-                >
-                  {int.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+          {primaryList.length > 0 && (
+            <Tabs value={primaryList.includes(interval) ? interval : ''} onValueChange={(val) => onIntervalChange?.(val)}>
+              <TabsList className="h-8 bg-muted/50">
+                {INTERVALS.filter((int) => primaryList.includes(int.value)).map((int) => (
+                  <TabsTrigger
+                    key={int.value}
+                    value={int.value}
+                    className="h-7 px-2 text-xs data-[state=active]:bg-background data-[state=active]:text-primary"
+                  >
+                    {int.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant={MORE_INTERVALS.includes(interval) ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-8 gap-1 text-xs"
-              >
-                {MORE_INTERVALS.includes(interval)
-                  ? INTERVALS.find((i) => i.value === interval)?.label
-                  : 'More'}
-                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-24">
-              {INTERVALS.filter((int) => MORE_INTERVALS.includes(int.value)).map((int) => (
-                <DropdownMenuItem
-                  key={int.value}
-                  className={interval === int.value ? 'bg-accent' : ''}
-                  onSelect={() => onIntervalChange?.(int.value)}
+          {moreList.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={moreList.includes(interval) ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 gap-1 text-xs"
                 >
-                  {int.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  {moreList.includes(interval)
+                    ? INTERVALS.find((i) => i.value === interval)?.label
+                    : 'More'}
+                  <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-24">
+                {INTERVALS.filter((int) => moreList.includes(int.value)).map((int) => (
+                  <DropdownMenuItem
+                    key={int.value}
+                    className={interval === int.value ? 'bg-accent' : ''}
+                    onSelect={() => onIntervalChange?.(int.value)}
+                  >
+                    {int.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <Separator orientation="vertical" className="h-6" />
 
