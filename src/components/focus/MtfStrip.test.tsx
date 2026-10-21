@@ -82,7 +82,7 @@ describe('MtfStrip', () => {
             level: 50000,
             pivotIndex: 10,
             breakIndex: 15,
-            breakTimestamp: now - 3600_000, // 1h ago
+            breakTimestamp: now - 3600_000 - 900_000, // closed 1h ago
           },
           cvdSlope: 'rising',
           priceVsSma: 'above',
@@ -97,7 +97,7 @@ describe('MtfStrip', () => {
             level: 51000,
             pivotIndex: 5,
             breakIndex: 12,
-            breakTimestamp: now - 7200_000, // 2h ago
+            breakTimestamp: now - 7200_000 - 3600_000, // closed 2h ago
           },
           cvdSlope: 'falling',
           priceVsSma: 'below',
@@ -162,5 +162,73 @@ describe('MtfStrip', () => {
     expect(
       screen.getByText('Closed bars only. A swing confirms 20 bars after it forms.')
     ).toBeInTheDocument();
+  });
+
+  it('computes event age from the break bar close timestamp for a 1d row', () => {
+    const fixture: FocusMtfResponse = {
+      symbol: 'BTCUSDT',
+      priorDay: null,
+      states: [
+        {
+          interval: '1d',
+          asOf: now,
+          trend: 1,
+          lastEvent: {
+            type: 'BOS',
+            direction: 'bull',
+            level: 65000,
+            pivotIndex: 10,
+            breakIndex: 15,
+            breakTimestamp: now - 86_400_000 - 2 * 3600_000, // break bar opened 26h ago, closed 2h ago
+          },
+          cvdSlope: 'rising',
+          priceVsSma: 'above',
+        },
+      ],
+    };
+
+    mockUseFocusMtf.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: fixture,
+      refetch,
+    });
+
+    render(<MtfStrip symbol="BTCUSDT" />);
+
+    const row1d = screen.getByTestId('mtf-row-1d');
+    expect(row1d).toHaveTextContent('BOS up, 2h ago');
+  });
+
+  it('renders perpetual contract warning and retry button when every row has error: true', () => {
+    mockUseFocusMtf.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        symbol: 'NONPERP',
+        priorDay: null,
+        states: [
+          { interval: '15m', error: true },
+          { interval: '1h', error: true },
+          { interval: '4h', error: true },
+          { interval: '1d', error: true },
+        ],
+      },
+      refetch,
+    });
+
+    render(<MtfStrip symbol="NONPERP" />);
+
+    expect(
+      screen.getByText(
+        'No USDT-M perpetual data for this coin. It may not have a perp contract.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('mtf-row-15m')).not.toBeInTheDocument();
+
+    const retryButton = screen.getByRole('button', { name: 'Retry' });
+    expect(retryButton).toBeInTheDocument();
+    fireEvent.click(retryButton);
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

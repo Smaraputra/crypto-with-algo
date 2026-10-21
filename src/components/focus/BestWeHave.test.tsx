@@ -385,6 +385,54 @@ describe('BestWeHave', () => {
     expect(screen.queryByText("Not in lab-v1's 10 coins")).not.toBeInTheDocument();
   });
 
+  it('shows "Not scored this bar" and bar age when lab-v1 latest bar exists but does not list the coin', () => {
+    mockUseSignalLabV3.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { version: 'lab-v3', threshold: 200, hypotheses: [] },
+      refetch: refetchV3,
+    });
+    mockUseSignalLabV2.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { version: 'lab-v2', threshold: 200, hypotheses: [] },
+      refetch: refetchV2,
+    });
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        version: 'lab-v1',
+        threshold: 800,
+        hypotheses: [
+          {
+            id: 'L1-8h',
+            candidate: 'L1',
+            timeframe: '8h',
+            status: 'not_started',
+            e: 1.0,
+            threshold: 800,
+            latestBar: {
+              barClose: oneHourAgo,
+              coins: [
+                { symbol: 'ETHUSDT', score: 90, rank: 1 },
+                { symbol: 'SOLUSDT', score: 80, rank: 2 },
+              ],
+            },
+          },
+        ],
+      },
+      refetch: refetchV1,
+    });
+
+    render(<BestWeHave symbol="BTCUSDT" />);
+
+    const rowL1 = screen.getByTestId('best-row-L1-8h');
+    expect(rowL1).toHaveTextContent('L1-8h');
+    expect(rowL1).toHaveTextContent('Not scored this bar');
+    expect(rowL1).toHaveTextContent('as of 1h ago');
+  });
+
   it('PEPEUSDT (not in the 10) shows the not-in-lab-1 line and "Not in this lab\'s coins" for lab-v2 and lab-v3', () => {
     mockUseSignalLabV3.mockReturnValue({
       isLoading: false,

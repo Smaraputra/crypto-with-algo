@@ -114,19 +114,7 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
       notInLab1 = true;
     } else {
       for (const hyp of labV1.data.hypotheses) {
-        const coin = hyp.latestBar?.coins?.find((c) => c.symbol === symbol);
-        if (coin && hyp.latestBar) {
-          const totalCoins = hyp.latestBar.coins.length;
-          const opinion = `Rank ${coin.rank} of ${totalCoins}, not a direction`;
-          rows.push({
-            id: hyp.id,
-            e: hyp.e,
-            threshold: hyp.threshold,
-            status: hyp.status,
-            barClose: hyp.latestBar.barClose ?? null,
-            opinion,
-          });
-        } else {
+        if (!hyp.latestBar) {
           rows.push({
             id: hyp.id,
             e: hyp.e,
@@ -135,6 +123,29 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
             barClose: null,
             opinion: 'No bar yet',
           });
+        } else {
+          const coin = hyp.latestBar.coins?.find((c) => c.symbol === symbol);
+          if (coin) {
+            const totalCoins = hyp.latestBar.coins?.length ?? 0;
+            const opinion = `Rank ${coin.rank} of ${totalCoins}, not a direction`;
+            rows.push({
+              id: hyp.id,
+              e: hyp.e,
+              threshold: hyp.threshold,
+              status: hyp.status,
+              barClose: hyp.latestBar.barClose ?? null,
+              opinion,
+            });
+          } else {
+            rows.push({
+              id: hyp.id,
+              e: hyp.e,
+              threshold: hyp.threshold,
+              status: hyp.status,
+              barClose: hyp.latestBar.barClose ?? null,
+              opinion: 'Not scored this bar',
+            });
+          }
         }
       }
     }

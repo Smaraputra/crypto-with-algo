@@ -240,10 +240,10 @@ describe('makeDeltaVolCalc', () => {
 });
 
 describe('makeCvdCalc', () => {
-  it('resets at a UTC midnight bar and gives null for a bar without takerBuyVolume', () => {
+  it('blanks bars before the first UTC midnight bar and resets at midnight', () => {
     const midnight = Date.UTC(2026, 9, 2, 0, 0, 0, 0);
     const candles: KLineData[] = [
-      { timestamp: midnight - HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 60 }, // delta = +20, cvd = 20
+      { timestamp: midnight - HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 60 }, // partial oldest day -> cvd: null
       { timestamp: midnight, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 70 }, // midnight reset! delta = +40, cvd = 40
       { timestamp: midnight + HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100 }, // missing takerBuyVolume -> delta null, cvd null
       { timestamp: midnight + 2 * HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 60 }, // delta = +20, cvd = 40 + 20 = 60
@@ -253,10 +253,42 @@ describe('makeCvdCalc', () => {
     const results = calc(candles);
 
     expect(results).toEqual([
-      { cvd: 20 },
+      { cvd: null },
       { cvd: 40 },
       { cvd: null },
       { cvd: 60 },
+    ]);
+  });
+
+  it('does not blank the first bar when the very first bar is at a UTC midnight', () => {
+    const midnight = Date.UTC(2026, 9, 2, 0, 0, 0, 0);
+    const candles: KLineData[] = [
+      { timestamp: midnight, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 70 }, // first bar is at midnight: delta = 40, cvd = 40
+      { timestamp: midnight + HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 60 }, // delta = +20, cvd = 60
+    ];
+
+    const calc = makeCvdCalc();
+    const results = calc(candles);
+
+    expect(results).toEqual([
+      { cvd: 40 },
+      { cvd: 60 },
+    ]);
+  });
+
+  it('blanks all bars when no bar in the dataset is at a UTC midnight', () => {
+    const midnight = Date.UTC(2026, 9, 2, 0, 0, 0, 0);
+    const candles: KLineData[] = [
+      { timestamp: midnight + HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 70 },
+      { timestamp: midnight + 2 * HOUR, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, takerBuyVolume: 60 },
+    ];
+
+    const calc = makeCvdCalc();
+    const results = calc(candles);
+
+    expect(results).toEqual([
+      { cvd: null },
+      { cvd: null },
     ]);
   });
 });

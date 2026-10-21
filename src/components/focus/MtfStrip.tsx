@@ -3,7 +3,7 @@
 import { useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { useFocusMtf } from '@/hooks/useFocusMtf';
-import { MTF_INTERVALS, type MtfInterval } from '@/lib/market/mtf';
+import { MTF_INTERVALS, MTF_INTERVAL_MS, type MtfInterval } from '@/lib/market/mtf';
 import { cn } from '@/lib/utils';
 import { EvidenceTag } from './EvidenceTag';
 import { formatAge } from './format';
@@ -81,6 +81,38 @@ export function MtfStrip({ symbol, className }: MtfStripProps) {
     );
   }
 
+  const allErrors =
+    data.states.length > 0 &&
+    data.states.every((s) => 'error' in s && s.error);
+
+  if (allErrors) {
+    return (
+      <section
+        aria-labelledby={headingId}
+        data-testid="mtf-strip"
+        className={cn('space-y-3 p-4', className)}
+      >
+        <div className="flex items-center justify-between">
+          <h3 id={headingId} className="text-sm font-semibold">Timeframes</h3>
+          <EvidenceTag kind="untested" />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm text-muted-foreground">
+            No USDT-M perpetual data for this coin. It may not have a perp contract.
+          </p>
+          <Button
+            variant="outline"
+            size="xs"
+            className="min-h-11 sm:min-h-6"
+            onClick={() => void refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       aria-labelledby={headingId}
@@ -121,7 +153,7 @@ export function MtfStrip({ symbol, className }: MtfStripProps) {
           const eventText = row.lastEvent
             ? `${row.lastEvent.type} ${
                 row.lastEvent.direction === 'bull' ? 'up' : 'down'
-              }, ${formatAge(row.lastEvent.breakTimestamp)}`
+              }, ${formatAge(row.lastEvent.breakTimestamp + MTF_INTERVAL_MS[row.interval])}`
             : 'None yet';
 
           const cvdText =

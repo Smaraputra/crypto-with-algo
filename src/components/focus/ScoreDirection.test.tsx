@@ -170,4 +170,93 @@ describe('ScoreDirection', () => {
     expect(volumeRow).toHaveTextContent('=');
     expect(within(volumeRow).getByLabelText('equal to the previous bar')).toBeInTheDocument();
   });
+
+  it('handles missing categories: latest missing shows n/a with no arrow, previous missing shows score with no arrow', () => {
+    const latestSignal: Partial<GlobalSignalRecord> = {
+      score: 35,
+      tier: 'buy',
+      components: [
+        { category: 'trend', score: 25, weight: 0.225, weightedScore: 5.625, signals: [] }, // missing in previous
+        // momentum missing in latest
+        { category: 'volume', score: 10, weight: 0.135, weightedScore: 1.35, signals: [] }, // present in both (10 > 5 -> ▲)
+      ],
+    };
+
+    const previousSignal: Partial<GlobalSignalRecord> = {
+      score: 25,
+      tier: 'neutral',
+      components: [
+        // trend missing in previous
+        { category: 'momentum', score: 15, weight: 0.225, weightedScore: 3.375, signals: [] }, // present only in previous
+        { category: 'volume', score: 5, weight: 0.135, weightedScore: 0.675, signals: [] },
+      ],
+    };
+
+    mockUseGlobalSignals.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { signals: [latestSignal, previousSignal] },
+      refetch,
+    });
+
+    render(<ScoreDirection symbol="BTCUSDT" interval="15m" />);
+
+    // Trend: present in latest, missing in previous -> shows score, no arrow
+    const trendRow = screen.getByTestId('score-category-trend');
+    expect(trendRow).toHaveTextContent('+25');
+    expect(within(trendRow).queryByLabelText(/previous bar/)).not.toBeInTheDocument();
+
+    // Momentum: missing in latest -> shows n/a, no arrow
+    const momentumRow = screen.getByTestId('score-category-momentum');
+    expect(momentumRow).toHaveTextContent('n/a');
+    expect(within(momentumRow).queryByLabelText(/previous bar/)).not.toBeInTheDocument();
+
+    // Volume: present in both -> shows score and arrow
+    const volumeRow = screen.getByTestId('score-category-volume');
+    expect(volumeRow).toHaveTextContent('+10');
+    expect(volumeRow).toHaveTextContent('▲');
+    expect(within(volumeRow).getByLabelText('higher than the previous bar')).toBeInTheDocument();
+  });
+
+  it('renders "as of <age>" from candleTimestamp', () => {
+    const oneHourAgoMs = Date.now() - 3600_000;
+    const latestSignal: Partial<GlobalSignalRecord> = {
+      score: 20,
+      tier: 'neutral',
+      candleTimestamp: oneHourAgoMs,
+      components: [],
+    };
+
+    mockUseGlobalSignals.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { signals: [latestSignal] },
+      refetch,
+    });
+
+    render(<ScoreDirection symbol="BTCUSDT" interval="15m" />);
+
+    expect(screen.getByText('as of 1h ago')).toBeInTheDocument();
+  });
+
+  it('renders "as of <age>" falling back to createdAt when candleTimestamp is missing', () => {
+    const twoHoursAgoIso = new Date(Date.now() - 7200_000).toISOString();
+    const latestSignal: Partial<GlobalSignalRecord> = {
+      score: 20,
+      tier: 'neutral',
+      createdAt: twoHoursAgoIso,
+      components: [],
+    };
+
+    mockUseGlobalSignals.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: { signals: [latestSignal] },
+      refetch,
+    });
+
+    render(<ScoreDirection symbol="BTCUSDT" interval="15m" />);
+
+    expect(screen.getByText('as of 2h ago')).toBeInTheDocument();
+  });
 });

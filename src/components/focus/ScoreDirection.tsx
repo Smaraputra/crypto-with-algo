@@ -6,6 +6,7 @@ import { useGlobalSignals } from '@/hooks/useSignals';
 import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 import { cn } from '@/lib/utils';
 import { EvidenceTag } from './EvidenceTag';
+import { formatAge } from './format';
 
 export interface ScoreDirectionProps {
   symbol: string;
@@ -130,17 +131,21 @@ export function ScoreDirection({
         <EvidenceTag kind="no-edge" />
       </div>
 
-      <div className="flex items-center justify-between border-b border-border/50 pb-2">
-        <span className="font-mono tabular-nums text-base font-semibold">
-          {totalScoreFormatted}
-        </span>
-        <span className="text-xs text-muted-foreground">{tierText}</span>
+      <div className="border-b border-border/50 pb-2 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="font-mono tabular-nums text-base font-semibold">
+            {totalScoreFormatted}
+          </span>
+          <span className="text-xs text-muted-foreground">{tierText}</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          as of {formatAge(latest.candleTimestamp ?? latest.createdAt)}
+        </p>
       </div>
 
       <ul className="space-y-1 text-xs">
         {CATEGORIES.map((cat) => {
           const currComp = latest.components?.find((c) => c.category === cat);
-          const currScore = currComp ? currComp.score : 0;
           const prevComp = previous?.components?.find(
             (c) => c.category === cat
           );
@@ -148,11 +153,11 @@ export function ScoreDirection({
           let arrowGlyph: string | null = null;
           let arrowLabel: string | undefined = undefined;
 
-          if (previous && prevComp !== undefined) {
-            if (currScore > prevComp.score) {
+          if (currComp !== undefined && prevComp !== undefined) {
+            if (currComp.score > prevComp.score) {
               arrowGlyph = '▲';
               arrowLabel = 'higher than the previous bar';
-            } else if (currScore < prevComp.score) {
+            } else if (currComp.score < prevComp.score) {
               arrowGlyph = '▼';
               arrowLabel = 'lower than the previous bar';
             } else {
@@ -162,9 +167,11 @@ export function ScoreDirection({
           }
 
           const formattedScore =
-            currScore > 0
-              ? `+${Math.round(currScore)}`
-              : `${Math.round(currScore)}`;
+            currComp !== undefined
+              ? currComp.score > 0
+                ? `+${Math.round(currComp.score)}`
+                : `${Math.round(currComp.score)}`
+              : 'n/a';
 
           return (
             <li

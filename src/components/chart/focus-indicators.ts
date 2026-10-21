@@ -222,6 +222,8 @@ export function makeDeltaVolCalc() {
     });
 }
 
+const DAY_MS = 86_400_000;
+
 /**
  * Creates calculation function for cumulative volume delta with daily reset at 00:00 UTC.
  */
@@ -237,7 +239,12 @@ export function makeCvdCalc() {
       takerBuyVolume: (k as { takerBuyVolume?: number }).takerBuyVolume,
     }));
     const series = cvdSeries(candles, { resetDaily: true });
-    return series.map((p) => ({ cvd: p.cvd }));
+    const firstMidnightIdx = series.findIndex((p) => p.timestamp % DAY_MS === 0);
+    const cutoff = firstMidnightIdx === -1 ? series.length : firstMidnightIdx;
+
+    return series.map((p, i) => ({
+      cvd: i < cutoff ? null : p.cvd,
+    }));
   };
 }
 
