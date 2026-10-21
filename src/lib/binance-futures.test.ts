@@ -6,6 +6,7 @@ import {
   fetchFundingInfo,
   fetchPerpExchangeInfo,
   fetchPerpKlines,
+  fetchPerpKlinesOhlcv,
   fetchPerpKlinesRange,
   fetchPremiumIndex,
   KLINES_PAGE,
@@ -322,3 +323,49 @@ describe('cost check fetchers', () => {
     expect(await fetchDepth('BTCUSDT')).toEqual({ bids: [[99, 2]], asks: [[101, 3]] });
   });
 });
+
+describe('fetchPerpKlinesOhlcv', () => {
+  it('maps a raw row to OHLCV with takerBuyVolume and omits time bounds when undefined', async () => {
+    mockOk([[1000, '1.5', '2', '1', '1.8', '10', 1999, '18.5', 3, '5', '9', '0']]);
+    const ohlcv = await fetchPerpKlinesOhlcv('BTCUSDT', '15m', 500);
+    expect(ohlcv).toEqual([
+      {
+        timestamp: 1000,
+        open: 1.5,
+        high: 2,
+        low: 1,
+        close: 1.8,
+        volume: 10,
+        takerBuyVolume: 5,
+      },
+    ]);
+    const url = new URL(String(mockFetch.mock.calls[0][0]));
+    expect(url.pathname).toBe('/fapi/v1/klines');
+    expect(url.searchParams.get('symbol')).toBe('BTCUSDT');
+    expect(url.searchParams.get('interval')).toBe('15m');
+    expect(url.searchParams.get('limit')).toBe('500');
+    expect(url.searchParams.has('startTime')).toBe(false);
+    expect(url.searchParams.has('endTime')).toBe(false);
+  });
+
+  it('sends startTime and endTime only when given', async () => {
+    mockOk([]);
+    await fetchPerpKlinesOhlcv('BTCUSDT', '1h', 100, 1700000000000, 1700100000000);
+    const url1 = new URL(String(mockFetch.mock.calls[0][0]));
+    expect(url1.searchParams.get('startTime')).toBe('1700000000000');
+    expect(url1.searchParams.get('endTime')).toBe('1700100000000');
+
+    mockOk([]);
+    await fetchPerpKlinesOhlcv('BTCUSDT', '1h', 100, 1700000000000);
+    const url2 = new URL(String(mockFetch.mock.calls[1][0]));
+    expect(url2.searchParams.get('startTime')).toBe('1700000000000');
+    expect(url2.searchParams.has('endTime')).toBe(false);
+
+    mockOk([]);
+    await fetchPerpKlinesOhlcv('BTCUSDT', '1h', 100, undefined, 1700100000000);
+    const url3 = new URL(String(mockFetch.mock.calls[2][0]));
+    expect(url3.searchParams.has('startTime')).toBe(false);
+    expect(url3.searchParams.get('endTime')).toBe('1700100000000');
+  });
+});
+

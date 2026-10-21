@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { fetchKlines } from '@/lib/binance';
+import { fetchPerpKlinesOhlcv } from '@/lib/binance-futures';
 import { cachedFetch } from '@/lib/redis';
 import { createRateLimiter, rateLimit } from '@/lib/rate-limit';
 
@@ -17,6 +18,7 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(500),
   startTime: z.coerce.number().int().positive().optional(),
   endTime: z.coerce.number().int().positive().optional(),
+  market: z.enum(['spot', 'perp']).default('spot'),
 });
 
 const TTL_MAP: Record<string, number> = {
@@ -53,6 +55,7 @@ export async function GET(req: NextRequest) {
     limit: searchParams.get('limit') ?? undefined,
     startTime: searchParams.get('startTime') ?? undefined,
     endTime: searchParams.get('endTime') ?? undefined,
+    market: searchParams.get('market') ?? undefined,
   });
 
   if (!parsed.success) {
@@ -62,7 +65,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { symbol, interval, limit, startTime, endTime } = parsed.data;
+  const { symbol, interval, limit, startTime, endTime, market } = parsed.data;
   const ttl = TTL_MAP[interval] ?? 60;
 
   // Never share the scheduler's `klines:*` keys. This route caches the raw REST
@@ -70,14 +73,20 @@ export async function GET(req: NextRequest) {
   // (`fetchCandlesForTask` in compute-engine.ts) reads `klines:SYM:INT:500`, and
   // the chart asks for limit=500. A shared key let the scheduler score a frozen
   // partial bar as closed, and its duplicate guard then never re-scored it.
+  // The perp cache key (`prices:perp-klines:*`) is kept separate too.
+  const prefix = market === 'perp' ? 'prices:perp-klines:' : 'prices:klines:';
   const cacheKey = startTime || endTime
-    ? `prices:klines:${symbol}:${interval}:${limit}:${startTime ?? ''}:${endTime ?? ''}`
-    : `prices:klines:${symbol}:${interval}:${limit}`;
+    ? `${prefix}${symbol}:${interval}:${limit}:${startTime ?? ''}:${endTime ?? ''}`
+    : `${prefix}${symbol}:${interval}:${limit}`;
+
+  const fetcher = market === 'perp'
+    ? () => fetchPerpKlinesOhlcv(symbol, interval, limit, startTime, endTime)
+    : () => fetchKlines(symbol, interval, limit, startTime, endTime);
 
   try {
     const data = await cachedFetch(
       cacheKey,
-      () => fetchKlines(symbol, interval, limit, startTime, endTime),
+      fetcher,
       ttl
     );
 

@@ -6,6 +6,7 @@ import type {
   OpenInterest,
   OpenInterestHist,
 } from '@/types/futures';
+import type { OHLCV } from '@/types/market';
 
 const DEFAULT_FUTURES_URL = 'https://fapi.binance.com';
 
@@ -276,6 +277,34 @@ export async function fetchPerpKlinesRange(
     if (from > endTime) return out;
   }
   throw new Error(`Klines range for ${symbol} ${interval} needs more than ${MAX_KLINE_PAGES} requests`);
+}
+
+/** `/fapi/v1/klines` as OHLCV for the price chart: one page, optional startTime/endTime. The forming bar, when present, is last. */
+export async function fetchPerpKlinesOhlcv(
+  symbol: string,
+  interval: string,
+  limit: number,
+  startTime?: number,
+  endTime?: number
+): Promise<OHLCV[]> {
+  const params: Record<string, string> = {
+    symbol,
+    interval,
+    limit: String(limit),
+  };
+  if (startTime !== undefined) params.startTime = String(startTime);
+  if (endTime !== undefined) params.endTime = String(endTime);
+
+  const rows = await getJson<unknown[][]>('/fapi/v1/klines', params);
+  return rows.map(parseKline).map((k) => ({
+    timestamp: k.openTime,
+    open: k.open,
+    high: k.high,
+    low: k.low,
+    close: k.close,
+    volume: k.volume,
+    takerBuyVolume: k.takerBuyVolume,
+  }));
 }
 
 export interface PremiumIndex {
