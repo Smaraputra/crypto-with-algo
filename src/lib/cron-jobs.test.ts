@@ -159,6 +159,8 @@ describe('CRON_JOBS table', () => {
       'lab-v2-signals:1w:retry',
       'lab-v2-signals:1d',
       'lab-v2-signals:1d:retry',
+      'lab-v3-signals:1d',
+      'lab-v3-signals:1d:retry',
     ]);
   });
 

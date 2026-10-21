@@ -72,7 +72,7 @@ const stateSchema = new Schema(
 
 const labScoreSchema = new Schema<ILabScore>(
   {
-    version: { type: String, enum: ['lab-v1', 'lab-v2'], required: true },
+    version: { type: String, enum: ['lab-v1', 'lab-v2', 'lab-v3'], required: true },
     hypothesis: { type: String, required: true },
     barClose: { type: Number, required: true },
     gradedAt: { type: Date, required: true },

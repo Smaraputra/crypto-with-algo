@@ -3,7 +3,7 @@ import mongoose, { Schema, type Document } from 'mongoose';
 import type { LabCandidateId, LabTimeframeAny, LabVersion } from '@/lib/signals/lab/candidates';
 import type { LabSkipReason as LabV1SkipReason } from '@/lib/signals/lab/factors';
 
-export type LabSkipReason = LabV1SkipReason | 'va_incomplete';
+export type LabSkipReason = LabV1SkipReason | 'va_incomplete' | 'funding_incomplete';
 
 export const LAB_SKIP_REASONS: readonly LabSkipReason[] = [
   'rv_skipped',
@@ -15,6 +15,7 @@ export const LAB_SKIP_REASONS: readonly LabSkipReason[] = [
   'ratio_stale',
   'ratio_no_spread',
   'va_incomplete',
+  'funding_incomplete',
 ];
 
 /**
@@ -53,9 +54,9 @@ const skippedSchema = new Schema(
 
 const labSignalSchema = new Schema<ILabSignal>(
   {
-    version: { type: String, enum: ['lab-v1', 'lab-v2'], required: true },
+    version: { type: String, enum: ['lab-v1', 'lab-v2', 'lab-v3'], required: true },
     hypothesis: { type: String, required: true },
-    candidate: { type: String, enum: ['L1', 'L2', 'L3', 'L4', 'N2', 'N3'], required: true },
+    candidate: { type: String, enum: ['L1', 'L2', 'L3', 'L4', 'N2', 'N3', 'F1'], required: true },
     timeframe: { type: String, enum: ['5m', '15m', '1h', '4h', '8h', '1d', '1w'], required: true },
     barClose: { type: Number, required: true },
     writtenAt: { type: Date, required: true },

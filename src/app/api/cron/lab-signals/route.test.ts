@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   runLabSignalsFast: vi.fn(),
   runLabV2Weekly: vi.fn(),
   runLabV2Daily: vi.fn(),
+  runLabV3Daily: vi.fn(),
   jobKeys: [] as string[],
 }));
 
@@ -19,6 +20,9 @@ vi.mock('@/lib/signals/lab/job-signals', () => ({
 vi.mock('@/lib/signals/lab/job-signals-v2', () => ({
   runLabV2Weekly: (...a: unknown[]) => mocks.runLabV2Weekly(...a),
   runLabV2Daily: (...a: unknown[]) => mocks.runLabV2Daily(...a),
+}));
+vi.mock('@/lib/signals/lab/job-signals-v3', () => ({
+  runLabV3Daily: (...a: unknown[]) => mocks.runLabV3Daily(...a),
 }));
 // Pass the handler through, but record the heartbeat key the route asks for
 vi.mock('@/lib/job-run', () => ({
@@ -62,6 +66,13 @@ const OK_V2_1D = {
   errors: [],
 };
 
+const OK_V3_1D = {
+  success: true,
+  written: [{ hypothesis: 'F1-1d', barClose: 1_790_121_600_000, late: false }],
+  waiting: [],
+  errors: [],
+};
+
 describe('GET /api/cron/lab-signals', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -71,6 +82,7 @@ describe('GET /api/cron/lab-signals', () => {
     mocks.runLabSignalsFast.mockResolvedValue(OK_FAST);
     mocks.runLabV2Weekly.mockResolvedValue(OK_V2_1W);
     mocks.runLabV2Daily.mockResolvedValue(OK_V2_1D);
+    mocks.runLabV3Daily.mockResolvedValue(OK_V3_1D);
   });
 
   it('returns 401 and never runs a job without the cron secret', async () => {
@@ -197,6 +209,36 @@ describe('GET /api/cron/lab-signals', () => {
     expect(mocks.jobKeys).toEqual(['lab-v2-signals:1d:retry']);
   });
 
+  it('calls runLabV3Daily with timestamp, undefined deps and { final: false } on ?cadence=v3-1d', async () => {
+    const before = Date.now();
+    const { GET } = await import('./route');
+    const res = await GET(request('?cadence=v3-1d'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(OK_V3_1D);
+    expect(mocks.runLabV3Daily).toHaveBeenCalledTimes(1);
+    const [now, deps, opts] = mocks.runLabV3Daily.mock.calls[0];
+    expect(now).toBeGreaterThanOrEqual(before);
+    expect(now).toBeLessThanOrEqual(Date.now());
+    expect(deps).toBeUndefined();
+    expect(opts).toEqual({ final: false });
+    expect(mocks.jobKeys).toEqual(['lab-v3-signals:1d']);
+  });
+
+  it('passes { final: true } and records lab-v3-signals:1d:retry on ?cadence=v3-1d&attempt=retry', async () => {
+    const before = Date.now();
+    const { GET } = await import('./route');
+    const res = await GET(request('?cadence=v3-1d&attempt=retry'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(OK_V3_1D);
+    expect(mocks.runLabV3Daily).toHaveBeenCalledTimes(1);
+    const [now, deps, opts] = mocks.runLabV3Daily.mock.calls[0];
+    expect(now).toBeGreaterThanOrEqual(before);
+    expect(now).toBeLessThanOrEqual(Date.now());
+    expect(deps).toBeUndefined();
+    expect(opts).toEqual({ final: true });
+    expect(mocks.jobKeys).toEqual(['lab-v3-signals:1d:retry']);
+  });
+
   it('returns 500 when the report has success: false', async () => {
     const failure = {
       success: false,
@@ -223,20 +265,21 @@ describe('GET /api/cron/lab-signals', () => {
     const { GET } = await import('./route');
     const resMissing = await GET(request());
     expect(resMissing.status).toBe(400);
-    expect(await resMissing.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w or v2-1d' });
+    expect(await resMissing.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w, v2-1d or v3-1d' });
 
     const resBad = await GET(request('?cadence=1h'));
     expect(resBad.status).toBe(400);
-    expect(await resBad.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w or v2-1d' });
+    expect(await resBad.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w, v2-1d or v3-1d' });
 
     expect(mocks.runLabSignals8h).not.toHaveBeenCalled();
     expect(mocks.runLabSignalsFast).not.toHaveBeenCalled();
     expect(mocks.runLabV2Weekly).not.toHaveBeenCalled();
     expect(mocks.runLabV2Daily).not.toHaveBeenCalled();
+    expect(mocks.runLabV3Daily).not.toHaveBeenCalled();
     expect(mocks.jobKeys).toEqual(['lab-signals:invalid', 'lab-signals:invalid']);
   });
 
-  it('matches the seven CRON_JOBS entries for /api/cron/lab-signals', async () => {
+  it('matches the nine CRON_JOBS entries for /api/cron/lab-signals', async () => {
     const { CRON_JOBS } = await import('@/lib/cron-jobs');
     expect(CRON_JOBS.find((j) => j.job === 'lab-signals:8h')).toMatchObject({
       path: '/api/cron/lab-signals',
@@ -284,6 +327,20 @@ describe('GET /api/cron/lab-signals', () => {
       path: '/api/cron/lab-signals',
       params: { cadence: 'v2-1d', attempt: 'retry' },
       schedule: '8 0 * * *',
+      expectedEverySeconds: 86400,
+      method: 'GET',
+    });
+    expect(CRON_JOBS.find((j) => j.job === 'lab-v3-signals:1d')).toMatchObject({
+      path: '/api/cron/lab-signals',
+      params: { cadence: 'v3-1d' },
+      schedule: '4 0 * * *',
+      expectedEverySeconds: 86400,
+      method: 'GET',
+    });
+    expect(CRON_JOBS.find((j) => j.job === 'lab-v3-signals:1d:retry')).toMatchObject({
+      path: '/api/cron/lab-signals',
+      params: { cadence: 'v3-1d', attempt: 'retry' },
+      schedule: '9 0 * * *',
       expectedEverySeconds: 86400,
       method: 'GET',
     });

@@ -1,13 +1,17 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
 
-export type LabVersion = 'lab-v1' | 'lab-v2';
+export type LabVersion = 'lab-v1' | 'lab-v2' | 'lab-v3';
 export const LAB_VERSION = 'lab-v1' as const;
 export const LAB_VERSION_V2 = 'lab-v2' as const;
+export const LAB_VERSION_V3 = 'lab-v3' as const;
 
 /** Four slots at alpha 0.01 / 4. */
 export const LAB_V2_THRESHOLD = 400;
 
-export type LabCandidateId = 'L1' | 'L2' | 'L3' | 'L4' | 'N2' | 'N3';
+/** One slot at alpha 0.005. */
+export const LAB_V3_THRESHOLD = 200;
+
+export type LabCandidateId = 'L1' | 'L2' | 'L3' | 'L4' | 'N2' | 'N3' | 'F1';
 export type LabTimeframe = '5m' | '15m' | '1h' | '4h' | '8h' | '1d';
 export type LabTimeframeAny = LabTimeframe | '1w';
 
@@ -55,6 +59,49 @@ export const LAB_HYPOTHESES_V2: readonly LabHypothesis[] = Object.freeze([
   Object.freeze({ id: 'N2-1w', candidate: 'N2', timeframe: '1w', version: LAB_VERSION_V2, metric: 'book', scale: 0.13 }),
   Object.freeze({ id: 'N3-1d', candidate: 'N3', timeframe: '1d', version: LAB_VERSION_V2, metric: 'book', scale: 0.8 }),
 ]);
+
+export const LAB_HYPOTHESES_V3: readonly LabHypothesis[] = Object.freeze([
+  Object.freeze({ id: 'F1-1d', candidate: 'F1', timeframe: '1d', version: LAB_VERSION_V3, metric: 'book', scale: 0.1 }),
+]);
+
+/**
+ * Top 30 Binance perpetual contracts frozen at 2026-10-20 by median quote volume.
+ * Hash: e1035a116d5432568c798dfb5213e0e06ba90d6c899fcef607521db2fb957dfc
+ */
+export const LAB_V3_UNIVERSE = Object.freeze([
+  'BTCUSDT',
+  'ETHUSDT',
+  'SOLUSDT',
+  'ZECUSDT',
+  'NEARUSDT',
+  'XRPUSDT',
+  'HYPEUSDT',
+  'DOGEUSDT',
+  'SUIUSDT',
+  'BNBUSDT',
+  'UNIUSDT',
+  'ENAUSDT',
+  'WLDUSDT',
+  'PUMPUSDT',
+  '1000PEPEUSDT',
+  'ADAUSDT',
+  'QNTUSDT',
+  'AVAXUSDT',
+  'LINKUSDT',
+  'TAOUSDT',
+  'FILUSDT',
+  'ONDOUSDT',
+  'AAVEUSDT',
+  'ARBUSDT',
+  'LTCUSDT',
+  'TRUMPUSDT',
+  'BCHUSDT',
+  'INJUSDT',
+  'STRKUSDT',
+  'PENGUUSDT',
+] as const);
+
+export const LAB_V3_UNIVERSE_SHA256 = 'e1035a116d5432568c798dfb5213e0e06ba90d6c899fcef607521db2fb957dfc' as const;
 
 /** v8 GlobalSignal source per L2 timeframe, frozen. */
 export const L2_V8_STYLE: Record<'5m' | '15m' | '1h' | '4h' | '1d', TradingStyle> = Object.freeze({

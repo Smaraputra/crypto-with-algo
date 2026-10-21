@@ -44,11 +44,14 @@ import { connectDB } from '@/lib/mongodb';
 import {
   LAB_HYPOTHESES_V1,
   LAB_HYPOTHESES_V2,
+  LAB_HYPOTHESES_V3,
   LAB_MIN_CROSS_SECTION,
   LAB_TIMEFRAME_MS,
   LAB_V2_THRESHOLD,
+  LAB_V3_THRESHOLD,
   LAB_VERSION,
   LAB_VERSION_V2,
+  LAB_VERSION_V3,
   labDelayMs,
   type LabHypothesis,
   type LabTimeframeAny,
@@ -303,10 +306,10 @@ export interface BookGradeInput {
   gradedAt: Date;
 }
 
-/** Pure: grades one lab-v2 book metric bar. Never reads anything but its input. */
+/** Pure: grades one lab-v2 / lab-v3 book metric bar. Never reads anything but its input. */
 export function gradeBookBar(input: BookGradeInput): LabScoreFields {
   const candidate = input.hypothesis.candidate;
-  if (candidate !== 'N2' && candidate !== 'N3') {
+  if (candidate !== 'N2' && candidate !== 'N3' && candidate !== 'F1') {
     throw new Error(`Invalid or missing candidate: ${String(candidate)}`);
   }
   const scale = input.hypothesis.scale;
@@ -314,9 +317,11 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
     throw new Error(`Invalid or missing scale: ${String(scale)}`);
   }
   const fundingSums = input.fundingSums ?? input.funding ?? {};
-  const version = input.hypothesis.version ?? LAB_VERSION_V2;
+  const version = input.hypothesis.version ?? (candidate === 'F1' ? LAB_VERSION_V3 : LAB_VERSION_V2);
 
-  if (candidate === 'N2') {
+  if (candidate === 'N2' || candidate === 'F1') {
+    const costRate = candidate === 'F1' ? LAB_COST_PER_SIDE : N2.costRate;
+    const threshold = candidate === 'F1' ? LAB_V3_THRESHOLD : LAB_V2_THRESHOLD;
     const weights: Record<string, number> = {};
     for (const sym of Object.keys(input.scores).sort()) {
       const val = input.scores[sym];
@@ -376,7 +381,7 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
       sumReturnFunding += weights[sym] * (r_i + f_i);
     }
 
-    const R = sumReturnFunding - N2.costRate * turnover;
+    const R = sumReturnFunding - costRate * turnover;
     const x = Math.min(R / scale, 1);
 
     if (input.late) {
@@ -407,7 +412,7 @@ export function gradeBookBar(input: BookGradeInput): LabScoreFields {
     const step = stepEProcess(
       input.prev.state,
       { barTime: input.barClose, x, b: 0 },
-      { threshold: LAB_V2_THRESHOLD, lossUnbounded: true }
+      { threshold, lossUnbounded: true }
     );
 
     return {
@@ -879,16 +884,17 @@ export async function runLabGrade(
     }
   }
 
-  // Lab-v2 grading
+  // Lab-v2 and lab-v3 book grading
   interface DueV2HypothesisInfo {
-    hyp: (typeof LAB_HYPOTHESES_V2)[number];
+    hyp: (typeof LAB_HYPOTHESES_V2)[number] | (typeof LAB_HYPOTHESES_V3)[number];
     dueSignals: ILabSignal[];
     last: LabScoreFields | null;
   }
 
   const dueV2ByHypothesis: DueV2HypothesisInfo[] = [];
+  const allBookHypotheses = [...LAB_HYPOTHESES_V2, ...LAB_HYPOTHESES_V3];
 
-  for (const hyp of LAB_HYPOTHESES_V2) {
+  for (const hyp of allBookHypotheses) {
     const last = (await LabScore.findOne({
       version: hyp.version,
       hypothesis: hyp.id,
@@ -1040,7 +1046,7 @@ export async function runLabGrade(
       let relevantCoins: string[] = [];
       let pricedCoins: string[] = [];
 
-      if (candidate === 'N2') {
+      if (candidate === 'N2' || candidate === 'F1') {
         const weights: Record<string, number> = {};
         for (const sym of symbolsInScores) {
           const val = sig.scores[sym];

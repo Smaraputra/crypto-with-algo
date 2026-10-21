@@ -130,7 +130,7 @@ describe('LabSignal model and insertLabSignalOnce', () => {
   });
 
   it('rejects an unknown version on create', async () => {
-    const invalid = makeSignalFields({ version: 'lab-v3' as unknown as 'lab-v1' });
+    const invalid = makeSignalFields({ version: 'lab-v99' as unknown as 'lab-v1' });
     await expect(LabSignal.create(invalid)).rejects.toThrow();
   });
 
@@ -146,7 +146,7 @@ describe('LabSignal model and insertLabSignalOnce', () => {
       skipped: [{ symbol: 'BTCUSDT', reason: 'unknown_reason' as unknown as 'rv_skipped' }],
     });
     await expect(insertLabSignalOnce(badReason)).rejects.toThrow();
-    const badVersion = makeSignalFields({ version: 'lab-v3' as unknown as 'lab-v1' });
+    const badVersion = makeSignalFields({ version: 'lab-v99' as unknown as 'lab-v1' });
     await expect(insertLabSignalOnce(badVersion)).rejects.toThrow();
     expect(await LabSignal.countDocuments({})).toBe(0);
   });

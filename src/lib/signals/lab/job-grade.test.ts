@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { FundingSettlement } from '@/lib/models/funding-settlement';
 import { LabScore } from '@/lib/models/lab-score';
 import { insertLabSignalOnce, LabSignal } from '@/lib/models/lab-signal';
-import { LAB_HYPOTHESES_V2 } from '@/lib/signals/lab/candidates';
+import { LAB_HYPOTHESES_V2, LAB_HYPOTHESES_V3 } from '@/lib/signals/lab/candidates';
 import { initialEState, type EProcessState } from '@/lib/signals/lab/e-process';
 import {
   defaultFundingSumsFor,
@@ -566,6 +566,47 @@ describe('pure lab-v2 gradeBookBar', () => {
     expect(row.noBetReason).toBeNull();
     expect(row.weights).toEqual(weights);
     expect(row.funding).toEqual({ A: 0.001, B: -0.002 });
+  });
+
+  it('grades F1 hand-computed bar with funding, turnover, and threshold 200', () => {
+    const weights = { BTCUSDT: 0.5, ETHUSDT: -0.5 };
+    const wPrev = { BTCUSDT: 0.25, SOLUSDT: -0.25 };
+    const prices = {
+      BTCUSDT: { start: 100, end: 102 },
+      ETHUSDT: { start: 100, end: 99 },
+    };
+    const fundingSums = { BTCUSDT: 0.001, ETHUSDT: -0.002 };
+
+    const turnover = 0.25 + 0.5 + 0.25;
+    const expectedR =
+      0.5 * (0.02 - 0.001) -
+      0.5 * (-0.01 + 0.002) -
+      0.0007 * turnover;
+    const scale = 0.1;
+    const expectedX = Math.min(expectedR / scale, 1);
+
+    const row = gradeBookBar({
+      hypothesis: LAB_HYPOTHESES_V3[0],
+      barClose: T,
+      late: false,
+      scores: weights,
+      prices,
+      fundingSums,
+      prev: {
+        state: initialEState(),
+        weights: wPrev,
+      },
+      gradedAt: new Date(T + 60_000),
+    });
+
+    expect(row.version).toBe('lab-v3');
+    expect(row.hypothesis).toBe('F1-1d');
+    expect(Math.abs(row.netBookReturn! - expectedR)).toBeLessThan(1e-12);
+    expect(Math.abs(row.x! - expectedX)).toBeLessThan(1e-12);
+    expect(row.b).toBe(0);
+    expect(row.bet).toBe(true);
+    expect(row.noBetReason).toBeNull();
+    expect(row.weights).toEqual(weights);
   });
 
   it('grades a cash week with R = -0.0007 * turnover', () => {
