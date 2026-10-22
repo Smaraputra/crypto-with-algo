@@ -137,6 +137,22 @@
  *
  * LOCK START: the live job scores only the bar that has just closed. The first F1-1d bar is the first 00:00 UTC close
  * after the deploy that starts the job. AMENDMENT 1 will record the deploy time.
+ *
+ * AMENDMENT 1 (2026-10-22, written after the first row was stored and before it was graded). It records the start
+ * and changes no rule.
+ * - The code merged with PR #108 (main 6404273). The app restarted on it at 2026-10-21 15:05:33 UTC.
+ * - The cron container was recreated at 2026-10-21 15:07:09 UTC. Its crontab carries the two lab-v3 lines (00:04 and
+ *   00:09 UTC). No lab-v3 job ran by hand, so no earlier bar exists.
+ * - First row: F1-1d for the bar closing 2026-10-22 00:00 UTC, written 00:04:12 UTC, not late. The 00:09 retry found
+ *   it stored. The hourly lab run holds it as pending, due 2026-10-23 00:15 UTC.
+ * - First-row check (read-only query of the production row, 2026-10-22):
+ *   - all 30 frozen coins scored and none skipped (no delisted coin, no incomplete funding);
+ *   - funding settlements counted in (T - 7d, T]: 21 to 42 per coin, so at least 18 for every coin;
+ *   - the target book has gross 1 and net 0 (to 1e-16), with 15 coins long and 15 short;
+ *   - no earlier target exists (priorDaysFound 0), so the active book is the target divided by 7 exactly (gross 1/7);
+ *   - the coin with the lowest score (PENGUUSDT, the most funding paid) holds the largest short and the coin with
+ *     the highest (QNTUSDT) the largest long, as the rule states.
+ * - PR #110 (main 70510b2), deployed 2026-10-22 00:51 UTC, changed no lab, model, cron route or crontab file.
  */
 
 import {

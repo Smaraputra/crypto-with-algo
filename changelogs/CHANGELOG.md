@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: lab-v3 is live, AMENDMENT 1 records the start
+- `scripts/research/lab-forward-v3.ts` AMENDMENT 1, written before the first row was graded. The app restarted on PR #108 at 2026-10-21 15:05:33 UTC, and cron was recreated at 15:07:09 UTC.
+- The first row is F1-1d for the bar closing 2026-10-22 00:00 UTC, written 00:04:12 UTC, not late. All 30 coins scored and none was skipped. The target is dollar-neutral with gross 1 (15 long, 15 short), and the active book is exactly 1/7 of it. No rule changes.
+
 ### Research: Round 3 (lab-v4) closes with nothing registered
 - **Why**: the owner overrode the stop rule on 2026-10-22 and asked for new edge from outside sources, trading bots, and how trades are opened and closed. New ideas competed with C1 and C2 for Round 3's two slots (alpha 0.0025).
 - **Scout** (agy research, checked in two passes):
