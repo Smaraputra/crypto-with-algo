@@ -440,6 +440,63 @@ describe('ensureFocusIndicatorsRegistered', () => {
     // Internal event setLineDash [2, 2]
     expect(ctx.setLineDash).toHaveBeenCalledWith([2, 2]);
   });
+
+  it('draws labMarks from extendData and ignores marks outside data range without throwing', async () => {
+    const mod = await load();
+    mod.ensureFocusIndicatorsRegistered();
+    const structureRegistration = registerIndicator.mock.calls.find(
+      (c) => c[0].name === mod.STRUCTURE_INDICATOR
+    )?.[0];
+    const { draw } = structureRegistration;
+
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      closePath: vi.fn(),
+      stroke: vi.fn(),
+      fillText: vi.fn(),
+      setLineDash: vi.fn(),
+      strokeStyle: '',
+      fillStyle: '',
+      lineWidth: 0,
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+    };
+
+    const dataList = [
+      { timestamp: 1000, open: 100, high: 110, low: 90, close: 105, volume: 100 },
+      { timestamp: 2000, open: 105, high: 120, low: 100, close: 115, volume: 100 },
+    ];
+
+    expect(() =>
+      draw({
+        ctx,
+        chart: { getDataList: () => dataList },
+        indicator: {
+          result: [],
+          extendData: {
+            priorDay: null,
+            labMarks: [
+              { time: 1000, side: 1, label: 'S1' },
+              { time: 2000, side: -1, label: 'S2' },
+              { time: 999999, side: 1, label: 'S1' }, // out of range
+            ],
+          },
+        },
+        bounding: { width: 800, height: 400 },
+        xAxis: { convertToPixel: (i: number) => i * 100 },
+        yAxis: { convertToPixel: (v: number) => 500 - v },
+      })
+    ).not.toThrow();
+
+    expect(ctx.fillText).toHaveBeenCalledWith('S1', expect.any(Number), expect.any(Number));
+    expect(ctx.fillText).toHaveBeenCalledWith('S2', expect.any(Number), expect.any(Number));
+    expect(ctx.strokeStyle).toBe(mod.FOCUS_COLORS.accent);
+  });
 });
 
 describe('formatFlow', () => {

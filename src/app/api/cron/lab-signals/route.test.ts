@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   runLabV2Weekly: vi.fn(),
   runLabV2Daily: vi.fn(),
   runLabV3Daily: vi.fn(),
+  runLabV4Hourly: vi.fn(),
   jobKeys: [] as string[],
 }));
 
@@ -23,6 +24,9 @@ vi.mock('@/lib/signals/lab/job-signals-v2', () => ({
 }));
 vi.mock('@/lib/signals/lab/job-signals-v3', () => ({
   runLabV3Daily: (...a: unknown[]) => mocks.runLabV3Daily(...a),
+}));
+vi.mock('@/lib/signals/lab/job-signals-v4', () => ({
+  runLabV4Hourly: (...a: unknown[]) => mocks.runLabV4Hourly(...a),
 }));
 // Pass the handler through, but record the heartbeat key the route asks for
 vi.mock('@/lib/job-run', () => ({
@@ -73,6 +77,16 @@ const OK_V3_1D = {
   errors: [],
 };
 
+const OK_V4_1H = {
+  success: true,
+  written: [
+    { hypothesis: 'S1-1h', barClose: 1_790_121_600_000, late: false },
+    { hypothesis: 'S2-1h', barClose: 1_790_121_600_000, late: false },
+  ],
+  waiting: [],
+  errors: [],
+};
+
 describe('GET /api/cron/lab-signals', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,6 +97,7 @@ describe('GET /api/cron/lab-signals', () => {
     mocks.runLabV2Weekly.mockResolvedValue(OK_V2_1W);
     mocks.runLabV2Daily.mockResolvedValue(OK_V2_1D);
     mocks.runLabV3Daily.mockResolvedValue(OK_V3_1D);
+    mocks.runLabV4Hourly.mockResolvedValue(OK_V4_1H);
   });
 
   it('returns 401 and never runs a job without the cron secret', async () => {
@@ -100,10 +115,16 @@ describe('GET /api/cron/lab-signals', () => {
     expect(resDaily.status).toBe(401);
     expect(await resDaily.json()).toEqual({ error: 'Unauthorized' });
 
+    const resHourly = await GET(request('?cadence=v4-1h'));
+    expect(resHourly.status).toBe(401);
+    expect(await resHourly.json()).toEqual({ error: 'Unauthorized' });
+
     expect(mocks.runLabSignals8h).not.toHaveBeenCalled();
     expect(mocks.runLabSignalsFast).not.toHaveBeenCalled();
     expect(mocks.runLabV2Weekly).not.toHaveBeenCalled();
     expect(mocks.runLabV2Daily).not.toHaveBeenCalled();
+    expect(mocks.runLabV3Daily).not.toHaveBeenCalled();
+    expect(mocks.runLabV4Hourly).not.toHaveBeenCalled();
   });
 
   it('calls runLabSignals8h with timestamp, undefined deps and { final: false } on ?cadence=8h', async () => {
@@ -239,6 +260,36 @@ describe('GET /api/cron/lab-signals', () => {
     expect(mocks.jobKeys).toEqual(['lab-v3-signals:1d:retry']);
   });
 
+  it('calls runLabV4Hourly with timestamp, undefined deps and { final: false } on ?cadence=v4-1h', async () => {
+    const before = Date.now();
+    const { GET } = await import('./route');
+    const res = await GET(request('?cadence=v4-1h'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(OK_V4_1H);
+    expect(mocks.runLabV4Hourly).toHaveBeenCalledTimes(1);
+    const [now, deps, opts] = mocks.runLabV4Hourly.mock.calls[0];
+    expect(now).toBeGreaterThanOrEqual(before);
+    expect(now).toBeLessThanOrEqual(Date.now());
+    expect(deps).toBeUndefined();
+    expect(opts).toEqual({ final: false });
+    expect(mocks.jobKeys).toEqual(['lab-v4-signals:1h']);
+  });
+
+  it('passes { final: true } and records lab-v4-signals:1h:retry on ?cadence=v4-1h&attempt=retry', async () => {
+    const before = Date.now();
+    const { GET } = await import('./route');
+    const res = await GET(request('?cadence=v4-1h&attempt=retry'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(OK_V4_1H);
+    expect(mocks.runLabV4Hourly).toHaveBeenCalledTimes(1);
+    const [now, deps, opts] = mocks.runLabV4Hourly.mock.calls[0];
+    expect(now).toBeGreaterThanOrEqual(before);
+    expect(now).toBeLessThanOrEqual(Date.now());
+    expect(deps).toBeUndefined();
+    expect(opts).toEqual({ final: true });
+    expect(mocks.jobKeys).toEqual(['lab-v4-signals:1h:retry']);
+  });
+
   it('returns 500 when the report has success: false', async () => {
     const failure = {
       success: false,
@@ -265,21 +316,22 @@ describe('GET /api/cron/lab-signals', () => {
     const { GET } = await import('./route');
     const resMissing = await GET(request());
     expect(resMissing.status).toBe(400);
-    expect(await resMissing.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w, v2-1d or v3-1d' });
+    expect(await resMissing.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w, v2-1d, v3-1d or v4-1h' });
 
     const resBad = await GET(request('?cadence=1h'));
     expect(resBad.status).toBe(400);
-    expect(await resBad.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w, v2-1d or v3-1d' });
+    expect(await resBad.json()).toEqual({ error: 'cadence must be 8h, fast, v2-1w, v2-1d, v3-1d or v4-1h' });
 
     expect(mocks.runLabSignals8h).not.toHaveBeenCalled();
     expect(mocks.runLabSignalsFast).not.toHaveBeenCalled();
     expect(mocks.runLabV2Weekly).not.toHaveBeenCalled();
     expect(mocks.runLabV2Daily).not.toHaveBeenCalled();
     expect(mocks.runLabV3Daily).not.toHaveBeenCalled();
+    expect(mocks.runLabV4Hourly).not.toHaveBeenCalled();
     expect(mocks.jobKeys).toEqual(['lab-signals:invalid', 'lab-signals:invalid']);
   });
 
-  it('matches the nine CRON_JOBS entries for /api/cron/lab-signals', async () => {
+  it('matches the eleven CRON_JOBS entries for /api/cron/lab-signals', async () => {
     const { CRON_JOBS } = await import('@/lib/cron-jobs');
     expect(CRON_JOBS.find((j) => j.job === 'lab-signals:8h')).toMatchObject({
       path: '/api/cron/lab-signals',
@@ -342,6 +394,20 @@ describe('GET /api/cron/lab-signals', () => {
       params: { cadence: 'v3-1d', attempt: 'retry' },
       schedule: '9 0 * * *',
       expectedEverySeconds: 86400,
+      method: 'GET',
+    });
+    expect(CRON_JOBS.find((j) => j.job === 'lab-v4-signals:1h')).toMatchObject({
+      path: '/api/cron/lab-signals',
+      params: { cadence: 'v4-1h' },
+      schedule: '3 * * * *',
+      expectedEverySeconds: 3600,
+      method: 'GET',
+    });
+    expect(CRON_JOBS.find((j) => j.job === 'lab-v4-signals:1h:retry')).toMatchObject({
+      path: '/api/cron/lab-signals',
+      params: { cadence: 'v4-1h', attempt: 'retry' },
+      schedule: '8 * * * *',
+      expectedEverySeconds: 3600,
       method: 'GET',
     });
   });

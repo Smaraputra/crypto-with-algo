@@ -1,9 +1,10 @@
 import type { TradingStyle } from '@/lib/models/signal-template';
 
-export type LabVersion = 'lab-v1' | 'lab-v2' | 'lab-v3';
+export type LabVersion = 'lab-v1' | 'lab-v2' | 'lab-v3' | 'lab-v4';
 export const LAB_VERSION = 'lab-v1' as const;
 export const LAB_VERSION_V2 = 'lab-v2' as const;
 export const LAB_VERSION_V3 = 'lab-v3' as const;
+export const LAB_VERSION_V4 = 'lab-v4' as const;
 
 /** Four slots at alpha 0.01 / 4. */
 export const LAB_V2_THRESHOLD = 400;
@@ -11,7 +12,10 @@ export const LAB_V2_THRESHOLD = 400;
 /** One slot at alpha 0.005. */
 export const LAB_V3_THRESHOLD = 200;
 
-export type LabCandidateId = 'L1' | 'L2' | 'L3' | 'L4' | 'N2' | 'N3' | 'F1';
+/** Two slots at alpha 0.0025 / 2 (Round 3). */
+export const LAB_V4_THRESHOLD = 800;
+
+export type LabCandidateId = 'L1' | 'L2' | 'L3' | 'L4' | 'N2' | 'N3' | 'F1' | 'S1' | 'S2';
 export type LabTimeframe = '5m' | '15m' | '1h' | '4h' | '8h' | '1d';
 export type LabTimeframeAny = LabTimeframe | '1w';
 
@@ -39,7 +43,7 @@ export interface LabHypothesis {
   candidate: LabCandidateId;
   timeframe: LabTimeframeAny;
   version: LabVersion;
-  metric?: 'ic' | 'book';
+  metric?: 'ic' | 'book' | 'trade';
   scale?: number;
 }
 
@@ -63,6 +67,15 @@ export const LAB_HYPOTHESES_V2: readonly LabHypothesis[] = Object.freeze([
 export const LAB_HYPOTHESES_V3: readonly LabHypothesis[] = Object.freeze([
   Object.freeze({ id: 'F1-1d', candidate: 'F1', timeframe: '1d', version: LAB_VERSION_V3, metric: 'book', scale: 0.036 }),
 ]);
+
+export const LAB_HYPOTHESES_V4: readonly LabHypothesis[] = Object.freeze([
+  Object.freeze({ id: 'S1-1h', candidate: 'S1', timeframe: '1h', version: LAB_VERSION_V4, metric: 'trade', scale: 0.15 }),
+  Object.freeze({ id: 'S2-1h', candidate: 'S2', timeframe: '1h', version: LAB_VERSION_V4, metric: 'trade', scale: 0.14 }),
+]);
+/** Round trip per trade: 7 bps a side taker, twice (Round 3 preview ROUND_TRIP_COST). */
+export const LAB_V4_ROUND_TRIP = 0.0014;
+/** Each trade is held this long from T + D. */
+export const LAB_V4_HOLD_MS = 8 * 3_600_000;
 
 /**
  * Top 30 Binance perpetual contracts frozen at 2026-10-20 by median quote volume.

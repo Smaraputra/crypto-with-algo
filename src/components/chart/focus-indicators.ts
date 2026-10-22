@@ -59,6 +59,7 @@ export interface PriorDayLevels {
 
 export interface StructureExtend {
   priorDay: PriorDayLevels | null;
+  labMarks?: { time: number; side: 1 | -1; label: 'S1' | 'S2' }[];
 }
 
 export interface StructureCalcOptions {
@@ -367,6 +368,43 @@ export function ensureFocusIndicatorsRegistered(): void {
               ctx.fillText(ev.type, midX, y - 2);
             }
           }
+        }
+      }
+
+      // Draw lab-v4 marks: small hollow triangles at entry bars with S1 or S2 text
+      const labMarks = extend?.labMarks;
+      if (labMarks && Array.isArray(labMarks)) {
+        const size = 6;
+        const h = size * 0.9;
+        const gap = 3;
+
+        for (const mark of labMarks) {
+          const idx = dataList.findIndex((k) => k.timestamp === mark.time);
+          if (idx < 0 || idx >= dataList.length) continue;
+          const k = dataList[idx];
+          if (!k) continue;
+
+          const x = xAxis.convertToPixel(idx);
+          const isLong = mark.side === 1;
+          const tipY = isLong
+            ? yAxis.convertToPixel(k.low) + gap
+            : yAxis.convertToPixel(k.high) - gap;
+          const baseY = isLong ? tipY + h : tipY - h;
+
+          ctx.strokeStyle = FOCUS_COLORS.accent;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x, tipY);
+          ctx.lineTo(x - size / 2, baseY);
+          ctx.lineTo(x + size / 2, baseY);
+          ctx.closePath();
+          ctx.stroke();
+
+          ctx.font = '9px sans-serif';
+          ctx.fillStyle = FOCUS_COLORS.accent;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(mark.label, x + size / 2 + 2, (tipY + baseY) / 2);
         }
       }
 

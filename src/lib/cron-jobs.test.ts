@@ -161,6 +161,8 @@ describe('CRON_JOBS table', () => {
       'lab-v2-signals:1d:retry',
       'lab-v3-signals:1d',
       'lab-v3-signals:1d:retry',
+      'lab-v4-signals:1h',
+      'lab-v4-signals:1h:retry',
     ]);
   });
 
@@ -179,6 +181,17 @@ describe('CRON_JOBS table', () => {
     expect(secondsBetweenRuns(weeklyRetry!.schedule)).toBe(7 * 86400);
     expect(secondsBetweenRuns(daily!.schedule)).toBe(86400);
     expect(secondsBetweenRuns(dailyRetry!.schedule)).toBe(86400);
+  });
+
+  it('defines the two lab-v4 cron entries and secondsBetweenRuns gives 1 hour', () => {
+    const hourly = cronJob('lab-v4-signals:1h');
+    const hourlyRetry = cronJob('lab-v4-signals:1h:retry');
+
+    expect(hourly).toBeDefined();
+    expect(hourlyRetry).toBeDefined();
+
+    expect(secondsBetweenRuns(hourly!.schedule)).toBe(3600);
+    expect(secondsBetweenRuns(hourlyRetry!.schedule)).toBe(3600);
   });
 
   it('no longer schedules the monthly optimization (the route and admin trigger stay)', () => {

@@ -103,6 +103,38 @@ export interface LabV3Response {
   hypotheses: LabV3HypothesisView[];
 }
 
+export interface LabV4HypothesisView {
+  id: string;
+  candidate: 'S1' | 'S2';
+  timeframe: '1h';
+  status: LabStatus;
+  underTestSince: string | null;
+  testEndsAt: string | null;
+  validatedAt: string | null;
+  gradedBars: number;
+  betBars: number;
+  e: number;
+  threshold: number;
+  absorbed: boolean;
+  meanNetReturn: number | null;
+  meanNetPerTrade?: number | null;
+  lastNetReturn: number | null;
+  scale: number;
+  openTrades: { symbol: string; side: 1 | -1; enteredAt: string; exitsAt: string }[];
+  latestBar: {
+    barClose: string;
+    late: boolean;
+    entries: { symbol: string; side: 1 | -1 }[];
+  } | null;
+}
+
+export interface LabV4Response {
+  version: 'lab-v4';
+  threshold: number;
+  hypotheses: LabV4HypothesisView[];
+  entries?: { hypothesis: string; barClose: string; symbol: string; side: 1 | -1 }[];
+}
+
 /** 'validated' when crossedAt is set, 'not_shown' when now is past testEndsAt, 'under_test' with a graded bar, else 'not_started'. */
 export function labStatus(input: { firstGradedAt: number | null; crossedAt: number | null; now: number }): LabStatus {
   if (input.crossedAt !== null) {

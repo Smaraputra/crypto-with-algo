@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useSignalLab } from '@/hooks/useSignalLab';
 import { useSignalLabV2 } from '@/hooks/useSignalLabV2';
 import { useSignalLabV3 } from '@/hooks/useSignalLabV3';
+import { useSignalLabV4 } from '@/hooks/useSignalLabV4';
 import { formatE } from '@/components/signals/SignalBoard';
 import type { LabStatus } from '@/lib/signals/lab/view';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
@@ -30,6 +31,7 @@ interface BestWeHaveRowItem {
 export function BestWeHave({ symbol, className }: BestWeHaveProps) {
   const headingId = useId();
   const [expanded, setExpanded] = useState(false);
+  const labV4 = useSignalLabV4();
   const labV3 = useSignalLabV3();
   const labV2 = useSignalLabV2();
   const labV1 = useSignalLab();
@@ -38,6 +40,40 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
   const inLabV3Universe = (LAB_V3_UNIVERSE as readonly string[]).includes(symbol);
 
   const rows: BestWeHaveRowItem[] = [];
+
+  // Lab-v4 (S1, S2)
+  if (labV4.data?.hypotheses) {
+    for (const hyp of labV4.data.hypotheses) {
+      let opinion: string;
+      if (!inSignalSymbols) {
+        opinion = "Not in this lab's coins";
+      } else if (!hyp.latestBar) {
+        opinion = 'No bar yet';
+      } else {
+        const trade = hyp.openTrades?.find((t) => t.symbol === symbol);
+        if (trade) {
+          const sideStr = trade.side === 1 ? 'Long' : 'Short';
+          let timeStr = 'n/a';
+          try {
+            timeStr = `${new Date(trade.exitsAt).toISOString().slice(11, 16)} UTC`;
+          } catch {
+            timeStr = 'n/a';
+          }
+          opinion = `${sideStr}, open until ${timeStr}`;
+        } else {
+          opinion = 'No position';
+        }
+      }
+      rows.push({
+        id: hyp.id,
+        e: hyp.e,
+        threshold: hyp.threshold,
+        status: hyp.status,
+        barClose: hyp.latestBar?.barClose ?? null,
+        opinion,
+      });
+    }
+  }
 
   // Lab-v3 (F1)
   if (labV3.data?.hypotheses) {
@@ -161,9 +197,10 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
   const visibleRows = expanded ? rows : rows.slice(0, 4);
 
   const allQueriesLoaded =
-    !labV3.isLoading && !labV2.isLoading && !labV1.isLoading;
+    !labV4.isLoading && !labV3.isLoading && !labV2.isLoading && !labV1.isLoading;
   const noDataAtAll =
     allQueriesLoaded &&
+    !labV4.error &&
     !labV3.error &&
     !labV2.error &&
     !labV1.error &&
@@ -179,6 +216,26 @@ export function BestWeHave({ symbol, className }: BestWeHaveProps) {
       <h3 id={headingId} className="text-sm font-semibold">Best we have on this coin</h3>
 
       {/* Individual query loading/error status lines */}
+      {labV4.isLoading && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Loading lab-v4...
+        </p>
+      )}
+      {labV4.error && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-destructive">
+            Could not load lab-v4: {labV4.error.message}.
+          </p>
+          <Button
+            variant="outline"
+            size="xs"
+            className="min-h-11 sm:min-h-6"
+            onClick={() => void labV4.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
       {labV3.isLoading && (
         <p role="status" className="text-xs text-muted-foreground">
           Loading lab-v3...

@@ -208,4 +208,16 @@ describe('LabScore model and insertLabScoreOnce', () => {
     });
     await expect(LabScore.create(invalid)).rejects.toThrow();
   });
+
+  it('accepts lab-v4 on insert', async () => {
+    const fields = makeScoreFields({
+      version: 'lab-v4',
+      hypothesis: 'S1-1h',
+    });
+    const res = await insertLabScoreOnce(fields);
+    expect(res.inserted).toBe(true);
+
+    const doc = await LabScore.findOne({ version: 'lab-v4', hypothesis: 'S1-1h' }).lean();
+    expect(doc?.version).toBe('lab-v4');
+  });
 });

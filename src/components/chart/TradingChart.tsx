@@ -111,7 +111,14 @@ export interface TradingChartProps {
   /** Past calls and the re-score/live hand-over line on the price pane. */
   callsOverlay?: CallsOverlay;
   /** Focus page preset: no default indicators; structure, delta volume and CVD instead. */
-  focusOverlay?: { intervalMs: number; showInternal: boolean; showSma: boolean; showMacd: boolean; priorDay: { high: number; low: number; close: number } | null };
+  focusOverlay?: {
+    intervalMs: number;
+    showInternal: boolean;
+    showSma: boolean;
+    showMacd: boolean;
+    priorDay: { high: number; low: number; close: number } | null;
+    labMarks?: { time: number; side: 1 | -1; label: 'S1' | 'S2' }[];
+  };
   /** The loaded bars changed: first load, an older page, or a new bar. Open times, ms. */
   onLoadedRangeChange?: (range: TimeRange) => void;
   /** The visible window changed (debounced). Open times, ms. */
@@ -735,6 +742,7 @@ export function TradingChart({
   const focusShowSma = focusOverlay?.showSma ?? false;
   const focusShowMacd = focusOverlay?.showMacd ?? false;
   const focusPriorDay = focusOverlay?.priorDay ?? null;
+  const focusLabMarks = focusOverlay?.labMarks;
 
   // Focus preset indicators: STRUCTURE on candle_pane (stacked), DELTA_VOL and CVD in their own panes
   useEffect(() => {
@@ -761,9 +769,9 @@ export function TradingChart({
         intervalMs: focusIntervalMs,
         showInternal: focusShowInternal,
       }),
-      extendData: { priorDay: focusPriorDay },
+      extendData: { priorDay: focusPriorDay, labMarks: focusLabMarks },
     });
-  }, [focusActive, hasValidDimensions, focusIntervalMs, focusShowInternal, focusPriorDay]);
+  }, [focusActive, hasValidDimensions, focusIntervalMs, focusShowInternal, focusPriorDay, focusLabMarks]);
 
   // SMA toggle for focus preset: 50 MA stacked on candle_pane
   useEffect(() => {
