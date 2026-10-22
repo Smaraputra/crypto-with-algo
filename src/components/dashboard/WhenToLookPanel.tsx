@@ -117,6 +117,10 @@ export function WhenToLookPanel() {
   } = useCrossSectionalLatest();
 
   const nearCoins = useMemo(() => {
+    // The server and the hydration pass must render the same branch even when the layout's queries have already filled the cache.
+    if (!isClient) {
+      return [];
+    }
     if (symbols.length === 0 || !levelsData?.levels) {
       return [];
     }
@@ -137,7 +141,7 @@ export function WhenToLookPanel() {
       }
     }
     return result;
-  }, [symbols, tickers, levelsData]);
+  }, [isClient, symbols, tickers, levelsData]);
 
   const validatedHypothesisIds = useMemo(() => {
     const v1 = (labData?.hypotheses ?? [])
@@ -260,7 +264,7 @@ export function WhenToLookPanel() {
 
         <dt className="text-muted-foreground">Levels</dt>
         <dd>
-          {watchlistLoading ? (
+          {!isClient || watchlistLoading ? (
             'Loading the watchlist.'
           ) : symbols.length === 0 ? (
             "Add coins to the watchlist to see their distance to yesterday's levels."

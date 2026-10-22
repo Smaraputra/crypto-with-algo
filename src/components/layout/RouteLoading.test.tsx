@@ -1,10 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import DashboardLoading from './loading';
+import { RouteLoading } from './RouteLoading';
 
-describe('DashboardLoading', () => {
+describe('RouteLoading', () => {
   it('renders a polite status region labelled Loading', () => {
-    render(<DashboardLoading />);
+    render(<RouteLoading />);
     const status = screen.getByRole('status');
     expect(status).toHaveAttribute('aria-busy', 'true');
     expect(status).toHaveAttribute('aria-live', 'polite');
@@ -12,7 +12,7 @@ describe('DashboardLoading', () => {
   });
 
   it('renders three hidden skeleton blocks', () => {
-    const { container } = render(<DashboardLoading />);
+    const { container } = render(<RouteLoading />);
     const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons).toHaveLength(3);
     skeletons.forEach((skeleton) => {
