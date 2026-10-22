@@ -1491,6 +1491,28 @@ describe('TradingChart', () => {
       });
     });
 
+    it('passes labMarks through to STRUCTURE extendData alongside priorDay', () => {
+      const labMarks = [{ time: 1000, side: 1 as const, label: 'S1' as const }];
+      render(
+        <TradingChart
+          symbol="BTCUSDT"
+          interval="1h"
+          focusOverlay={focusProp({ labMarks })}
+        />
+      );
+
+      const structureOverrides = () =>
+        mockOverrideIndicator.mock.calls
+          .map((c) => c[0])
+          .filter((o) => o.name === 'STRUCTURE');
+
+      expect(structureOverrides().at(-1)).toMatchObject({
+        name: 'STRUCTURE',
+        calc: expect.any(Function),
+        extendData: { priorDay: null, labMarks },
+      });
+    });
+
     it('removes focus indicators on cleanup', () => {
       const { rerender } = render(
         <TradingChart

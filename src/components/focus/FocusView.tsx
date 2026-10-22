@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useUIStore } from '@/stores/uiStore';
 import { useFocusMtf } from '@/hooks/useFocusMtf';
+import { useSignalLabV4 } from '@/hooks/useSignalLabV4';
 import { intervalToMs } from '@/lib/intervals';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -51,6 +52,12 @@ export function FocusView() {
   const [showMacd, setShowMacd] = useState(false);
 
   const mtf = useFocusMtf(symbol);
+  const labV4 = useSignalLabV4(symbol);
+  const labMarks = labV4.data?.entries?.map((entry) => ({
+    time: new Date(entry.barClose).getTime(),
+    side: entry.side,
+    label: entry.hypothesis.startsWith('S1') ? ('S1' as const) : ('S2' as const),
+  }));
   const intervalMs = intervalToMs(focusInterval);
 
   return (
@@ -101,25 +108,33 @@ export function FocusView() {
 
       {/* Body: Chart and side rail */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="h-[560px] sm:h-[640px]">
-          <LazyFocusChart
-            symbol={symbol}
-            interval={focusInterval}
-            market="perp"
-            intervalOptions={['15m', '1h']}
-            onIntervalChange={(val) => {
-              if (val === '15m' || val === '1h') {
-                setFocusInterval(val);
-              }
-            }}
-            focusOverlay={{
-              intervalMs,
-              showInternal,
-              showSma,
-              showMacd,
-              priorDay: mtf.data?.priorDay ?? null,
-            }}
-          />
+        <div className="space-y-1">
+          <div className="h-[560px] sm:h-[640px]">
+            <LazyFocusChart
+              symbol={symbol}
+              interval={focusInterval}
+              market="perp"
+              intervalOptions={['15m', '1h']}
+              onIntervalChange={(val) => {
+                if (val === '15m' || val === '1h') {
+                  setFocusInterval(val);
+                }
+              }}
+              focusOverlay={{
+                intervalMs,
+                showInternal,
+                showSma,
+                showMacd,
+                priorDay: mtf.data?.priorDay ?? null,
+                labMarks,
+              }}
+            />
+          </div>
+          {labMarks && labMarks.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Triangles: lab-v4 entries (under test, lost on history).
+            </p>
+          )}
         </div>
         <div>
           <Card className="divide-y divide-border">

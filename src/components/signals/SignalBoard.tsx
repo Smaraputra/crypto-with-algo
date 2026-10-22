@@ -15,6 +15,7 @@ import {
 import type { LabHypothesisView, LabStatus } from '@/lib/signals/lab/view';
 import { LabV2Section } from './LabV2Section';
 import { LabV3Section } from './LabV3Section';
+import { LabV4Section } from './LabV4Section';
 
 const L2_TIMEFRAMES: readonly LabTimeframe[] = ['5m', '15m', '1h', '4h', '1d'];
 
@@ -252,6 +253,7 @@ export function SignalBoard() {
         </Card>
         <LabV2Section />
         <LabV3Section />
+        <LabV4Section />
       </div>
     );
   }
@@ -283,6 +285,7 @@ export function SignalBoard() {
         </Card>
         <LabV2Section />
         <LabV3Section />
+        <LabV4Section />
       </div>
     );
   }
@@ -309,6 +312,7 @@ export function SignalBoard() {
         </Card>
         <LabV2Section />
         <LabV3Section />
+        <LabV4Section />
       </div>
     );
   }
@@ -617,6 +621,7 @@ export function SignalBoard() {
     </Card>
     <LabV2Section />
     <LabV3Section />
+    <LabV4Section />
   </div>
   );
 }

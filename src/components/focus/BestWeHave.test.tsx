@@ -3,13 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BestWeHave } from './BestWeHave';
 
 const {
+  mockUseSignalLabV4,
   mockUseSignalLabV3,
   mockUseSignalLabV2,
   mockUseSignalLab,
 } = vi.hoisted(() => ({
+  mockUseSignalLabV4: vi.fn(),
   mockUseSignalLabV3: vi.fn(),
   mockUseSignalLabV2: vi.fn(),
   mockUseSignalLab: vi.fn(),
+}));
+
+vi.mock('@/hooks/useSignalLabV4', () => ({
+  useSignalLabV4: () => mockUseSignalLabV4(),
 }));
 
 vi.mock('@/hooks/useSignalLabV3', () => ({
@@ -25,6 +31,7 @@ vi.mock('@/hooks/useSignalLab', () => ({
 }));
 
 describe('BestWeHave', () => {
+  const refetchV4 = vi.fn();
   const refetchV3 = vi.fn();
   const refetchV2 = vi.fn();
   const refetchV1 = vi.fn();
@@ -33,6 +40,12 @@ describe('BestWeHave', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseSignalLabV4.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: undefined,
+      refetch: refetchV4,
+    });
   });
 
   it('renders loading states for each lab independently', () => {
@@ -769,5 +782,155 @@ describe('BestWeHave', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
     expect(screen.queryByRole('button', { name: /show all/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /show fewer/i })).not.toBeInTheDocument();
+  });
+
+  describe('lab-v4 cases', () => {
+    it('case 1: reads "Not in this lab\'s coins" when coin is not in SIGNAL_SYMBOLS', () => {
+      mockUseSignalLabV4.mockReturnValue({
+        isLoading: false,
+        error: null,
+        data: {
+          version: 'lab-v4',
+          threshold: 800,
+          hypotheses: [
+            {
+              id: 'S1-1h',
+              candidate: 'S1',
+              timeframe: '1h',
+              status: 'under_test',
+              e: 1.5,
+              threshold: 800,
+              latestBar: { barClose: oneHourAgo, late: false, entries: [] },
+              openTrades: [],
+            },
+          ],
+        },
+        refetch: refetchV4,
+      });
+
+      render(<BestWeHave symbol="NOTINUNIVERSEUSDT" />);
+
+      const row = screen.getByTestId('best-row-S1-1h');
+      expect(row).toHaveTextContent("Not in this lab's coins");
+    });
+
+    it('case 2: reads "Long, open until 14:10 UTC" or Short when coin is in open trade', () => {
+      mockUseSignalLabV4.mockReturnValue({
+        isLoading: false,
+        error: null,
+        data: {
+          version: 'lab-v4',
+          threshold: 800,
+          hypotheses: [
+            {
+              id: 'S1-1h',
+              candidate: 'S1',
+              timeframe: '1h',
+              status: 'under_test',
+              e: 2.0,
+              threshold: 800,
+              latestBar: { barClose: oneHourAgo, late: false, entries: [{ symbol: 'BTCUSDT', side: 1 }] },
+              openTrades: [
+                {
+                  symbol: 'BTCUSDT',
+                  side: 1,
+                  enteredAt: '2026-10-22T06:10:00.000Z',
+                  exitsAt: '2026-10-22T14:10:00.000Z',
+                },
+              ],
+            },
+            {
+              id: 'S2-1h',
+              candidate: 'S2',
+              timeframe: '1h',
+              status: 'under_test',
+              e: 1.8,
+              threshold: 800,
+              latestBar: { barClose: oneHourAgo, late: false, entries: [{ symbol: 'BTCUSDT', side: -1 }] },
+              openTrades: [
+                {
+                  symbol: 'BTCUSDT',
+                  side: -1,
+                  enteredAt: '2026-10-22T06:10:00.000Z',
+                  exitsAt: '2026-10-22T14:10:00.000Z',
+                },
+              ],
+            },
+          ],
+        },
+        refetch: refetchV4,
+      });
+
+      render(<BestWeHave symbol="BTCUSDT" />);
+
+      const showAllBtn = screen.queryByRole('button', { name: /show all/i });
+      if (showAllBtn) {
+        fireEvent.click(showAllBtn);
+      }
+
+      const s1Row = screen.getByTestId('best-row-S1-1h');
+      expect(s1Row).toHaveTextContent('Long, open until 14:10 UTC');
+
+      const s2Row = screen.getByTestId('best-row-S2-1h');
+      expect(s2Row).toHaveTextContent('Short, open until 14:10 UTC');
+    });
+
+    it('case 3: reads "No position" when coin is in universe with bar but no open trade', () => {
+      mockUseSignalLabV4.mockReturnValue({
+        isLoading: false,
+        error: null,
+        data: {
+          version: 'lab-v4',
+          threshold: 800,
+          hypotheses: [
+            {
+              id: 'S1-1h',
+              candidate: 'S1',
+              timeframe: '1h',
+              status: 'under_test',
+              e: 1.0,
+              threshold: 800,
+              latestBar: { barClose: oneHourAgo, late: false, entries: [] },
+              openTrades: [],
+            },
+          ],
+        },
+        refetch: refetchV4,
+      });
+
+      render(<BestWeHave symbol="BTCUSDT" />);
+
+      const row = screen.getByTestId('best-row-S1-1h');
+      expect(row).toHaveTextContent('No position');
+    });
+
+    it('case 4: reads "No bar yet" when hypothesis has no rows', () => {
+      mockUseSignalLabV4.mockReturnValue({
+        isLoading: false,
+        error: null,
+        data: {
+          version: 'lab-v4',
+          threshold: 800,
+          hypotheses: [
+            {
+              id: 'S1-1h',
+              candidate: 'S1',
+              timeframe: '1h',
+              status: 'not_started',
+              e: 1.0,
+              threshold: 800,
+              latestBar: null,
+              openTrades: [],
+            },
+          ],
+        },
+        refetch: refetchV4,
+      });
+
+      render(<BestWeHave symbol="BTCUSDT" />);
+
+      const row = screen.getByTestId('best-row-S1-1h');
+      expect(row).toHaveTextContent('No bar yet');
+    });
   });
 });

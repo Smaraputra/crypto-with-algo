@@ -2,11 +2,12 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SignalBoard } from './SignalBoard';
-import type { LabResponse, LabV2Response, LabV3Response } from '@/lib/signals/lab/view';
+import type { LabResponse, LabV2Response, LabV3Response, LabV4Response } from '@/lib/signals/lab/view';
 
 const mockUseSignalLab = vi.fn();
 const mockUseSignalLabV2 = vi.fn();
 const mockUseSignalLabV3 = vi.fn();
+const mockUseSignalLabV4 = vi.fn();
 
 vi.mock('@/hooks/useSignalLab', () => ({
   useSignalLab: () => mockUseSignalLab(),
@@ -18,6 +19,10 @@ vi.mock('@/hooks/useSignalLabV2', () => ({
 
 vi.mock('@/hooks/useSignalLabV3', () => ({
   useSignalLabV3: () => mockUseSignalLabV3(),
+}));
+
+vi.mock('@/hooks/useSignalLabV4', () => ({
+  useSignalLabV4: () => mockUseSignalLabV4(),
 }));
 
 function createFixture(): LabResponse {
@@ -324,6 +329,68 @@ function createV3Fixture(): LabV3Response {
   };
 }
 
+function createV4Fixture(): LabV4Response {
+  return {
+    version: 'lab-v4',
+    threshold: 800,
+    hypotheses: [
+      {
+        id: 'S1-1h',
+        candidate: 'S1',
+        timeframe: '1h',
+        status: 'under_test',
+        underTestSince: '2026-10-21T00:00:00.000Z',
+        testEndsAt: '2028-10-21T00:00:00.000Z',
+        validatedAt: null,
+        gradedBars: 10,
+        betBars: 5,
+        e: 1.25,
+        threshold: 800,
+        absorbed: false,
+        meanNetReturn: -0.001,
+        lastNetReturn: -0.0005,
+        scale: 0.15,
+        openTrades: [
+          {
+            symbol: 'BTCUSDT',
+            side: 1,
+            enteredAt: '2026-10-22T06:10:00.000Z',
+            exitsAt: '2026-10-22T14:10:00.000Z',
+          },
+        ],
+        latestBar: {
+          barClose: '2026-10-22T06:00:00.000Z',
+          late: false,
+          entries: [{ symbol: 'BTCUSDT', side: 1 }],
+        },
+      },
+      {
+        id: 'S2-1h',
+        candidate: 'S2',
+        timeframe: '1h',
+        status: 'under_test',
+        underTestSince: '2026-10-21T00:00:00.000Z',
+        testEndsAt: '2028-10-21T00:00:00.000Z',
+        validatedAt: null,
+        gradedBars: 10,
+        betBars: 4,
+        e: 0.9,
+        threshold: 800,
+        absorbed: false,
+        meanNetReturn: -0.0008,
+        lastNetReturn: 0.0001,
+        scale: 0.14,
+        openTrades: [],
+        latestBar: {
+          barClose: '2026-10-22T06:00:00.000Z',
+          late: false,
+          entries: [],
+        },
+      },
+    ],
+  };
+}
+
 describe('SignalBoard', () => {
   beforeEach(() => {
     mockUseSignalLab.mockReset();
@@ -341,6 +408,13 @@ describe('SignalBoard', () => {
       refetch: vi.fn(),
       data: createV3Fixture(),
     });
+    mockUseSignalLabV4.mockReset();
+    mockUseSignalLabV4.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createV4Fixture(),
+    });
   });
 
   it('renders loading state with status role', () => {
@@ -357,6 +431,7 @@ describe('SignalBoard', () => {
     expect(screen.getByText('Forward signal lab, lab-v1')).toBeInTheDocument();
     expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
     expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v4-section')).toBeInTheDocument();
   });
 
   it('renders error state and retries on click', () => {
@@ -380,6 +455,7 @@ describe('SignalBoard', () => {
 
     expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
     expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v4-section')).toBeInTheDocument();
   });
 
   it('renders empty state text when nothing is recorded yet', () => {
@@ -421,6 +497,7 @@ describe('SignalBoard', () => {
     ).toBeInTheDocument();
     expect(screen.getByTestId('signal-lab-v2-section')).toBeInTheDocument();
     expect(screen.getByTestId('signal-lab-v3-section')).toBeInTheDocument();
+    expect(screen.getByTestId('signal-lab-v4-section')).toBeInTheDocument();
   });
 
   it('renders table with 10 row headers and 5 column headers, showing known cell and skipped coin', () => {
@@ -600,5 +677,27 @@ describe('SignalBoard', () => {
     expect(screen.getByText('F1 weekly staggered funding level carry')).toBeInTheDocument();
     expect(screen.getByText('ETH +0.140')).toBeInTheDocument();
     expect(screen.getByText('SOL -0.140')).toBeInTheDocument();
+  });
+
+  it('renders the lab-v4 section in main board state', () => {
+    mockUseSignalLab.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createFixture(),
+    });
+    mockUseSignalLabV4.mockReturnValue({
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+      data: createV4Fixture(),
+    });
+    render(<SignalBoard />);
+
+    expect(screen.getByTestId('signal-lab-v4-section')).toBeInTheDocument();
+    expect(screen.getByText('Forward lab, lab-v4 (Round 3 structure and flow)')).toBeInTheDocument();
+    expect(screen.getByText('S1 swing CHoCH flow confirm')).toBeInTheDocument();
+    expect(screen.getByText('S2 delta divergence fade')).toBeInTheDocument();
+    expect(screen.getByText('BTC Long, exits at 14:10 UTC')).toBeInTheDocument();
   });
 });

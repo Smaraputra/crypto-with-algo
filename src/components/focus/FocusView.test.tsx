@@ -44,6 +44,11 @@ vi.mock('@/hooks/useFocusMtf', () => ({
   useFocusMtf: (sym: string) => mockMtf(sym),
 }));
 
+const mockUseSignalLabV4 = vi.fn();
+vi.mock('@/hooks/useSignalLabV4', () => ({
+  useSignalLabV4: (sym: string) => mockUseSignalLabV4(sym),
+}));
+
 vi.mock('./MtfStrip', () => ({
   MtfStrip: () => <div data-testid="mock-mtf-strip" />,
 }));
@@ -84,6 +89,11 @@ describe('FocusView', () => {
     });
     mockMtf.mockReturnValue({
       data: { priorDay: null },
+      isLoading: false,
+      error: null,
+    });
+    mockUseSignalLabV4.mockReturnValue({
+      data: undefined,
       isLoading: false,
       error: null,
     });
@@ -242,5 +252,64 @@ describe('FocusView', () => {
     fireEvent.click(screen.getByTestId('chart-interval-15m'));
     const updatedCost = screen.getByTestId('mock-trade-cost');
     expect(updatedCost).toHaveAttribute('data-interval', '15m');
+  });
+
+  it('labMarks are built from entries with time = barClose and legend is shown when marks exist', () => {
+    mockUseSignalLabV4.mockReturnValue({
+      data: {
+        entries: [
+          {
+            hypothesis: 'S1-1h',
+            barClose: '2026-10-22T06:00:00.000Z',
+            symbol: 'BTCUSDT',
+            side: 1,
+          },
+          {
+            hypothesis: 'S2-1h',
+            barClose: '2026-10-22T08:00:00.000Z',
+            symbol: 'BTCUSDT',
+            side: -1,
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<FocusView />);
+
+    const overlay = capturedChartProps.focusOverlay as {
+      labMarks?: { time: number; side: 1 | -1; label: 'S1' | 'S2' }[];
+    };
+    expect(overlay.labMarks).toEqual([
+      {
+        time: new Date('2026-10-22T06:00:00.000Z').getTime(),
+        side: 1,
+        label: 'S1',
+      },
+      {
+        time: new Date('2026-10-22T08:00:00.000Z').getTime(),
+        side: -1,
+        label: 'S2',
+      },
+    ]);
+
+    expect(
+      screen.getByText('Triangles: lab-v4 entries (under test, lost on history).')
+    ).toBeInTheDocument();
+  });
+
+  it('legend is not shown when there are no marks', () => {
+    mockUseSignalLabV4.mockReturnValue({
+      data: { entries: [] },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<FocusView />);
+
+    expect(
+      screen.queryByText('Triangles: lab-v4 entries (under test, lost on history).')
+    ).not.toBeInTheDocument();
   });
 });
