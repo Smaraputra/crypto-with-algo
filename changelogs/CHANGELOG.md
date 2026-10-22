@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: forward lab lab-v4, Round 3's S1 and S2 registered by owner override
+- **Owner override, recorded as such**: Round 3's pre-committed decision table registered nothing, because every candidate lost on history. On 2026-10-22, after seeing that, the owner chose to register C1 and C2 anyway as a forward record. The lock (`scripts/research/lab-forward-v4.ts`) states the override, the history and the prediction that both lose.
+- **Rules** (named S1 and S2 so they are not confused with Round 1's C1 and C2), on the 10 signal coins, perp 1h:
+  - S1 trades a swing change of character (pivot length 20, close-break) confirmed by the break bar's taker delta.
+  - S2 fades a taker-delta divergence between the two latest swing pivots (at most 72 bars apart).
+  - Each trade enters at T + 10 minutes and is held 8 hours, one trade per coin per rule at a time.
+- **On history** (Round 3 preview, net of a 14 bps round trip and funding): S1 -0.126% a trade (t -2.53), S2 -0.093% (t -1.55). Power to pass within 24 months is 0 at that edge, and under 0.2 even at a true net Sharpe of 2.
+- **Statistic**: the per-trade net return summed per entry bar, x = min(R / c, 1) with c 0.15 and 0.14, threshold 800 per slot (alpha 0.0025 over two slots). The forward labs now carry 0.0275 in all. No ledger trials are added.
+- **Parity on real data** (the Round 3 dataset): the live rules over a rolling 720-bar window equal the preview on all 386,890 coin-bars. Trades match 2,430 of 2,459 (S1) and 1,576 of 1,594 (S2), and the rest are exactly the trades inside each coin's first 720 bars. REST perp bars equal the archive.
+- **Code**:
+  - rules `src/lib/signals/lab/v4/rules.ts`;
+  - the hourly job `job-signals-v4.ts` (minute 3, retry 8);
+  - grading in its own pass (`v4/grade.ts`, `job-grade-v4.ts`, run by the lab-grade route after lab-v1 to v3, which are unchanged);
+  - read route `GET /api/signals/lab-v4`;
+  - a lab-v4 section on /signals;
+  - S1 and S2 rows in the Focus page's "Best we have", and small chart marks only where lab-v4 actually entered.
+
 ### Research: lab-v3 is live, AMENDMENT 1 records the start
 - `scripts/research/lab-forward-v3.ts` AMENDMENT 1, written before the first row was graded. The app restarted on PR #108 at 2026-10-21 15:05:33 UTC, and cron was recreated at 15:07:09 UTC.
 - The first row is F1-1d for the bar closing 2026-10-22 00:00 UTC, written 00:04:12 UTC, not late. All 30 coins scored and none was skipped. The target is dollar-neutral with gross 1 (15 long, 15 short), and the active book is exactly 1/7 of it. No rule changes.
