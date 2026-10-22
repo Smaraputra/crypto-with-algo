@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/uiStore';
 import { WatchlistSidebar } from '@/components/market/WatchlistSidebar';
+import { NavPendingIndicator } from '@/components/layout/NavPendingIndicator';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, disabled: false },
@@ -73,6 +74,7 @@ function SidebarContent() {
                 Soon
               </span>
             )}
+            {!item.disabled && <NavPendingIndicator />}
           </Link>
         ))}
       </nav>
@@ -105,6 +107,7 @@ function SidebarContent() {
                     Soon
                   </span>
                 )}
+                {!item.disabled && <NavPendingIndicator />}
               </Link>
             ))}
           </nav>
