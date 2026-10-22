@@ -1,6 +1,33 @@
 /**
- * Round 3 (lab-v4) pre-lock preview script for C1 and C2.
- * Computes descriptive preview on history to set scale c and estimate power/null crossing rates.
+ * Round 3 (lab-v4) pre-lock preview for C1, C2 and C7.
+ *
+ * PRE-RUN DECLARATION (committed before any run of this script on data; owner decisions 2026-10-22)
+ * - Cells, each one a ledger trial (3 in all): one rule per candidate, one management spec, the 10 signal symbols,
+ *   USDT-M perp 1h klines with taker-buy volume, funding settlements and the 5-minute metrics grid, window 2022-01-01 to
+ *   2026-06-30. The lockbox from 2026-07-01 is never read.
+ *   - C1: a 1h swing CHoCH (swing length 20, close-break) whose break bar's delta has the same sign. Trade with the break.
+ *   - C2: a regular delta divergence between the two most recent confirmed swing pivots of one type, at most 72 bars
+ *     apart. Fade it.
+ *   - C7: open interest with funding crowding, judged at each funding settlement T. Short when the settled rate is above
+ *     0.0001 (Binance's interest component per 8h, venue-given) and open interest read at T - 5 min exceeds open interest
+ *     read 24 h earlier (the 24 h lookback is our choice). Long when the settled rate is below 0 and open interest is
+ *     rising the same way. Source: session 19 rows C7 and X2 (negative funding with rising open interest marks a short
+ *     squeeze, funding spikes mark crowding).
+ * - Management, the same for all three: the signal bar is a closed 1h bar, entry at the next 1h open, exit at the open
+ *   8 bars later, one trade per coin at a time, 14 bps round trip, and funding settled in (entry, exit] charged by side.
+ * - C1 is a variant of the failed bos-continuation family (2-bar fractal breaks at 15m, 1h and 4h). The owner kept it on
+ *   2026-10-22. C3, also a break-of-structure variant, is not previewed.
+ * - Any earlier run of the C1/C2 preview by the session focus-chart-round-3, once known, adds its cells to the ledger.
+ * - Decision table, applied mechanically to this run's output:
+ *   - A candidate's figure at a threshold is the smaller of its iid and block bootstrap crossing shares within 24 months,
+ *     with its R series shifted to HALF its preview mean R (against the winner's curse). A non-positive preview mean R
+ *     fails at every threshold.
+ *   - Two slots at threshold 800, only if two candidates each reach 0.20 at threshold 800. The two highest figures at 800
+ *     take them.
+ *   - Otherwise one slot at threshold 400, for the candidate with the highest figure at 400 if it reaches 0.20.
+ *   - Otherwise nothing is registered.
+ *   - Ties go to the higher preview trade t-statistic. Unspent alpha is never reallocated without a new pre-stated rule.
+ *   - A rerun, or any change to a candidate or to this declaration after the first run, adds new ledger trials.
  */
 
 import { mkdirSync, writeFileSync } from 'fs';
@@ -11,7 +38,8 @@ import { initialEState, stepEProcess, type EProcessState } from '../../src/lib/s
 import { SIGNAL_SYMBOLS } from '../../src/lib/signals/signal-symbols';
 import { createSeededRandom } from '../../src/lib/stats/seeded-random';
 import type { OHLCV } from '../../src/types/market';
-import { loadFunding, loadManifest, loadPerp, verifyManifest } from './load-dataset';
+import type { MetricsRow } from './dataset-format';
+import { loadFunding, loadManifest, loadMetrics, loadPerp, verifyManifest } from './load-dataset';
 import { roundUp2SigFigs } from './nv2-preview';
 
 export const HOUR_MS = 3_600_000;
@@ -84,6 +112,7 @@ export interface PowerSimOptions {
   tradesCount?: number;
   trades?: readonly Trade[];
   meanBlockLength?: number;
+  threshold?: number;
 }
 
 export interface PowerSimResult {
@@ -91,12 +120,15 @@ export interface PowerSimResult {
   plus05bps: PowerCaseResult;
   plus10bps: PowerCaseResult;
   plus20bps: PowerCaseResult;
+  halfMean: PowerCaseResult;
+  sharpe2: PowerCaseResult;
   [key: string]: PowerCaseResult;
 }
 
 export interface NullSimOptions {
   seed?: number;
   runsCount?: number;
+  threshold?: number;
 }
 
 export interface NullSimResult {
@@ -150,6 +182,77 @@ export function c2Signals(bars: readonly OHLCV[]): Signal[] {
     signals.push({ index: div.confirmedIndex, side });
   }
 
+  return signals;
+}
+
+/** Binance's interest component per 8h settlement. Funding above it means longs pay a premium. Venue-given. */
+export const C7_FUNDING_BASELINE = 0.0001;
+/** Open interest is compared with its value this long before. Our choice: one day, three 8h settlements. */
+export const C7_OI_LOOKBACK_MS = 24 * HOUR_MS;
+/** Open interest is read from metrics rows at or before T - 5 min, never later (publication lag). */
+export const C7_OI_LAG_MS = 5 * 60_000;
+/** A metrics row older than this before its read time is treated as missing. */
+export const C7_OI_MAX_STALENESS_MS = 15 * 60_000;
+
+/**
+ * C7, open interest with funding crowding:
+ * Evaluated at each funding settlement T. Short (-1) when settled rate > 0.0001 and open interest is rising over 24h.
+ * Long (+1) when settled rate < 0 and open interest is rising over 24h.
+ */
+export function c7Signals(
+  bars: readonly OHLCV[],
+  settlements: readonly { t: number; rate: number }[],
+  metrics: readonly MetricsRow[]
+): Signal[] {
+  const barIndexByTimestamp = new Map<number, number>();
+  for (let i = 0; i < bars.length; i++) {
+    barIndexByTimestamp.set(bars[i].timestamp, i);
+  }
+  const sortedMetrics = [...metrics].sort((a, b) => a.t - b.t);
+
+  const oiAt = (readTime: number): number | null => {
+    let low = 0;
+    let high = sortedMetrics.length - 1;
+    let lastIdx = -1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (sortedMetrics[mid].t <= readTime) {
+        lastIdx = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    if (lastIdx === -1) return null;
+    const row = sortedMetrics[lastIdx];
+    if (row.t < readTime - C7_OI_MAX_STALENESS_MS) return null;
+    const oi = row.openInterest;
+    if (typeof oi !== 'number' || !Number.isFinite(oi) || oi <= 0) return null;
+    return oi;
+  };
+
+  const signals: Signal[] = [];
+  for (const s of settlements) {
+    const T = Math.round(s.t / HOUR_MS) * HOUR_MS;
+    const barIndex = barIndexByTimestamp.get(T - HOUR_MS);
+    if (barIndex === undefined) {
+      continue;
+    }
+
+    const oiNow = oiAt(T - C7_OI_LAG_MS);
+    const oiPrev = oiAt(T - C7_OI_LOOKBACK_MS - C7_OI_LAG_MS);
+    if (oiNow === null || oiPrev === null || oiNow <= oiPrev) {
+      continue;
+    }
+
+    if (s.rate > C7_FUNDING_BASELINE) {
+      signals.push({ index: barIndex, side: -1 });
+    } else if (s.rate < 0) {
+      signals.push({ index: barIndex, side: 1 });
+    }
+  }
+
+  signals.sort((a, b) => a.index - b.index);
   return signals;
 }
 
@@ -448,7 +551,7 @@ export function medianOf(arr: number[]): number | null {
 /**
  * 300 runs each of iid and stationary block bootstrap (mean block 10),
  * with round(betBarsPerYear * 2) bars per run (24 months).
- * Evaluates e-process crossing log(800) at measured mean and shifted mean trade nets.
+ * Evaluates e-process crossing log(threshold) (default 800) at measured mean and shifted mean trade nets.
  */
 export function powerSim(
   series: readonly (BetSeriesItem | number)[],
@@ -463,6 +566,7 @@ export function powerSim(
   const baseSeed = opts.seed ?? 42;
   const meanBlockLength = opts.meanBlockLength ?? 10;
   const pBlock = 1 / meanBlockLength;
+  const threshold = opts.threshold ?? 800;
 
   if (n === 0 || scale <= 0) {
     const emptyResult: PowerCaseResult = {
@@ -474,6 +578,8 @@ export function powerSim(
       plus05bps: emptyResult,
       plus10bps: emptyResult,
       plus20bps: emptyResult,
+      halfMean: emptyResult,
+      sharpe2: emptyResult,
       '+0.05%': emptyResult,
       '+0.10%': emptyResult,
       '+0.20%': emptyResult,
@@ -495,7 +601,7 @@ export function powerSim(
         const step = stepEProcess(
           state,
           { barTime: bar, x, b: 0 },
-          { threshold: 800, lossUnbounded: true }
+          { threshold, lossUnbounded: true }
         );
         state = step.state;
         if (state.crossedAt !== null) {
@@ -552,6 +658,33 @@ export function powerSim(
 
   const measured = runSimulationForR(rValues);
 
+  const zeroPowerCase: PowerCaseResult = {
+    iid: { share: 0, medianBar: null },
+    block: { share: 0, medianBar: null },
+  };
+
+  const halfMean =
+    measuredMeanR <= 0
+      ? zeroPowerCase
+      : runSimulationForR(rValues.map((v) => v + (0.5 * measuredMeanR - measuredMeanR)));
+
+  let sdR = 0;
+  if (n > 1) {
+    let sumSq = 0;
+    for (let i = 0; i < n; i++) {
+      const d = rValues[i] - measuredMeanR;
+      sumSq += d * d;
+    }
+    sdR = Math.sqrt(sumSq / (n - 1));
+  }
+
+  const sharpe2 =
+    sdR === 0 || betBarsPerYear <= 0
+      ? zeroPowerCase
+      : runSimulationForR(
+          rValues.map((v) => v + ((2 * sdR) / Math.sqrt(betBarsPerYear) - measuredMeanR))
+        );
+
   const shiftSeries = (targetTradeNet: number): number[] => {
     const targetMeanR = kTradesPerBar * targetTradeNet;
     const shift = targetMeanR - measuredMeanR;
@@ -567,6 +700,8 @@ export function powerSim(
     plus05bps,
     plus10bps,
     plus20bps,
+    halfMean,
+    sharpe2,
     '+0.05%': plus05bps,
     '+0.10%': plus10bps,
     '+0.20%': plus20bps,
@@ -575,7 +710,7 @@ export function powerSim(
 
 /**
  * 300 runs where each trade's side is flipped with probability 0.5 before rebuilding R_t,
- * giving the crossing share under the null hypothesis.
+ * giving the crossing share under the null hypothesis (default threshold 800).
  */
 export function nullSim(
   tradesInput:
@@ -595,6 +730,7 @@ export function nullSim(
   const runsCount = opts.runsCount ?? 300;
   const seed = opts.seed ?? 42;
   const rng = createSeededRandom(seed);
+  const threshold = opts.threshold ?? 800;
 
   if (tradeList.length === 0 || scale <= 0) {
     return {
@@ -631,7 +767,7 @@ export function nullSim(
       const step = stepEProcess(
         state,
         { barTime: bar, x, b: 0 },
-        { threshold: 800, lossUnbounded: true }
+        { threshold, lossUnbounded: true }
       );
       state = step.state;
       if (state.logE > maxLogE) {
@@ -705,6 +841,199 @@ export function parseBound(dateStr: string, isStart: boolean): number {
   return Date.parse(`${dateStr}${suffix}`);
 }
 
+export interface CandidateDecisionInput {
+  id: string;
+  meanR: number;
+  tradeTStat: number;
+  /** min(iid, block) halfMean share at threshold 400 and at threshold 800. */
+  figure400: number;
+  figure800: number;
+}
+
+export interface SlotDecision {
+  slots: { id: string; threshold: 400 | 800 }[];
+  reason: string;
+}
+
+export const DECISION_FLOOR = 0.2;
+
+export function figureOf(power: PowerSimResult): number {
+  return Math.min(power.halfMean.iid.share, power.halfMean.block.share);
+}
+
+export function decideSlots(candidates: readonly CandidateDecisionInput[]): SlotDecision {
+  const eligible = candidates.filter((c) => c.meanR > 0);
+
+  const sorted800 = [...eligible].sort((a, b) => {
+    if (b.figure800 !== a.figure800) {
+      return b.figure800 - a.figure800;
+    }
+    return b.tradeTStat - a.tradeTStat;
+  });
+
+  if (
+    sorted800.length >= 2 &&
+    sorted800[0].figure800 >= DECISION_FLOOR &&
+    sorted800[1].figure800 >= DECISION_FLOOR
+  ) {
+    return {
+      slots: [
+        { id: sorted800[0].id, threshold: 800 },
+        { id: sorted800[1].id, threshold: 800 },
+      ],
+      reason: 'two slots at 800',
+    };
+  }
+
+  const sorted400 = [...eligible].sort((a, b) => {
+    if (b.figure400 !== a.figure400) {
+      return b.figure400 - a.figure400;
+    }
+    return b.tradeTStat - a.tradeTStat;
+  });
+
+  if (sorted400.length >= 1 && sorted400[0].figure400 >= DECISION_FLOOR) {
+    return {
+      slots: [{ id: sorted400[0].id, threshold: 400 }],
+      reason: 'one slot at 400',
+    };
+  }
+
+  return { slots: [], reason: 'nothing registered' };
+}
+
+export interface SymbolData {
+  bars: readonly OHLCV[];
+  settlements: readonly { t: number; rate: number }[];
+  metrics: readonly MetricsRow[];
+}
+
+export interface CandidateSpec {
+  id: 'C1' | 'C2' | 'C7';
+  signals: (data: SymbolData) => Signal[];
+}
+
+export const CANDIDATES: readonly CandidateSpec[] = [
+  { id: 'C1', signals: (d) => c1Signals(d.bars) },
+  { id: 'C2', signals: (d) => c2Signals(d.bars) },
+  { id: 'C7', signals: (d) => c7Signals(d.bars, d.settlements, d.metrics) },
+];
+
+export interface CandidatePreviewResult {
+  scale: number;
+  gapSkips: number;
+  stats: StatsResult;
+  trades: readonly Trade[];
+  power: {
+    t400: PowerSimResult;
+    t800: PowerSimResult;
+  };
+  null: {
+    t400: NullSimResult;
+    t800: NullSimResult;
+  };
+  figure400: number;
+  figure800: number;
+}
+
+export interface PreviewCandidatesResult {
+  candidates: Record<string, CandidatePreviewResult>;
+  decision: SlotDecision;
+}
+
+export function previewCandidates(
+  dataBySymbol: Record<string, SymbolData>,
+  fromMs: number,
+  toMs: number,
+  candidates: readonly CandidateSpec[] = CANDIDATES,
+  simOpts: { runsCount?: number; seed?: number } = {}
+): PreviewCandidatesResult {
+  const filteredDataBySymbol: Record<string, SymbolData> = {};
+  for (const [symbol, data] of Object.entries(dataBySymbol)) {
+    filteredDataBySymbol[symbol] = {
+      bars: data.bars.filter((b) => b.timestamp >= fromMs && b.timestamp <= toMs),
+      settlements: data.settlements.filter((s) => s.t >= fromMs && s.t <= toMs),
+      metrics: data.metrics.filter((m) => m.t >= fromMs && m.t <= toMs),
+    };
+  }
+
+  const candidateResults: Record<string, CandidatePreviewResult> = {};
+
+  for (const cand of candidates) {
+    const tradesBySymbol: Record<string, Trade[]> = {};
+    let gapSkips = 0;
+
+    for (const [symbol, data] of Object.entries(filteredDataBySymbol)) {
+      const sigs = cand.signals(data);
+      tradesBySymbol[symbol] = tradesFor(data.bars, data.settlements, sigs);
+      gapSkips += countGapSkips(data.bars, sigs);
+    }
+
+    const series = betSeries(tradesBySymbol);
+    const allTrades = Object.values(tradesBySymbol).flat();
+    const candidateStats = stats(series, allTrades);
+    const betBarsPerYear =
+      candidateStats.yearsSpanned > 0 ? series.length / candidateStats.yearsSpanned : 0;
+
+    const power400 = powerSim(series, candidateStats.scale, betBarsPerYear, {
+      ...simOpts,
+      threshold: 400,
+      trades: allTrades,
+      tradesCount: allTrades.length,
+    });
+    const power800 = powerSim(series, candidateStats.scale, betBarsPerYear, {
+      ...simOpts,
+      threshold: 800,
+      trades: allTrades,
+      tradesCount: allTrades.length,
+    });
+
+    const null400 = nullSim(allTrades, candidateStats.scale, {
+      ...simOpts,
+      threshold: 400,
+    });
+    const null800 = nullSim(allTrades, candidateStats.scale, {
+      ...simOpts,
+      threshold: 800,
+    });
+
+    const figure400 = figureOf(power400);
+    const figure800 = figureOf(power800);
+
+    candidateResults[cand.id] = {
+      scale: candidateStats.scale,
+      gapSkips,
+      stats: candidateStats,
+      trades: allTrades,
+      power: {
+        t400: power400,
+        t800: power800,
+      },
+      null: {
+        t400: null400,
+        t800: null800,
+      },
+      figure400,
+      figure800,
+    };
+  }
+
+  const decisionInputs: CandidateDecisionInput[] = candidates.map((c) => ({
+    id: c.id,
+    meanR: candidateResults[c.id].stats.meanR,
+    tradeTStat: candidateResults[c.id].stats.tradeTStat,
+    figure400: candidateResults[c.id].figure400,
+    figure800: candidateResults[c.id].figure800,
+  }));
+
+  const decision = decideSlots(decisionInputs);
+
+  return {
+    candidates: candidateResults,
+    decision,
+  };
+}
+
 export async function runPreview(args: CliArgs): Promise<void> {
   const verifyResult = await verifyManifest(args.datasetDir);
   if (!verifyResult.ok) {
@@ -716,90 +1045,55 @@ export async function runPreview(args: CliArgs): Promise<void> {
   const fromMs = parseBound(args.from, true);
   const toMs = parseBound(args.to, false);
 
-  const c1TradesBySymbol: Record<string, Trade[]> = {};
-  const c2TradesBySymbol: Record<string, Trade[]> = {};
-  let c1GapSkips = 0;
-  let c2GapSkips = 0;
+  const dataBySymbol: Record<string, SymbolData> = {};
 
   for (const symbol of SIGNAL_SYMBOLS) {
     const perpResult = loadPerp(args.datasetDir, symbol, '1h', 'klines');
     const fundingResult = loadFunding(args.datasetDir, symbol);
+    const metricsResult = loadMetrics(args.datasetDir, symbol);
 
-    const bars: OHLCV[] = perpResult.rows
-      .filter((row) => row.t >= fromMs && row.t <= toMs)
-      .map((row) => ({
-        timestamp: row.t,
-        open: row.o,
-        high: row.h,
-        low: row.l,
-        close: row.c,
-        volume: row.v,
-        takerBuyVolume: row.tbv ?? undefined,
-      }));
+    const bars: OHLCV[] = perpResult.rows.map((row) => ({
+      timestamp: row.t,
+      open: row.o,
+      high: row.h,
+      low: row.l,
+      close: row.c,
+      volume: row.v,
+      takerBuyVolume: row.tbv ?? undefined,
+    }));
 
-    const settlements = fundingResult.rows;
-
-    const c1Sigs = c1Signals(bars);
-    c1TradesBySymbol[symbol] = tradesFor(bars, settlements, c1Sigs);
-    c1GapSkips += countGapSkips(bars, c1Sigs);
-
-    const c2Sigs = c2Signals(bars);
-    c2TradesBySymbol[symbol] = tradesFor(bars, settlements, c2Sigs);
-    c2GapSkips += countGapSkips(bars, c2Sigs);
+    dataBySymbol[symbol] = {
+      bars,
+      settlements: fundingResult.rows,
+      metrics: metricsResult.rows,
+    };
   }
 
-  // C1
-  const c1Series = betSeries(c1TradesBySymbol);
-  const c1AllTrades = Object.values(c1TradesBySymbol).flat();
-  const c1Stats = stats(c1Series, c1AllTrades);
-  const c1BetBarsPerYear = c1Stats.yearsSpanned > 0 ? c1Series.length / c1Stats.yearsSpanned : 0;
-  const c1Power = powerSim(c1Series, c1Stats.scale, c1BetBarsPerYear, {
-    trades: c1AllTrades,
-    tradesCount: c1AllTrades.length,
-  });
-  const c1Null = nullSim(c1AllTrades, c1Stats.scale);
-
-  // C2
-  const c2Series = betSeries(c2TradesBySymbol);
-  const c2AllTrades = Object.values(c2TradesBySymbol).flat();
-  const c2Stats = stats(c2Series, c2AllTrades);
-  const c2BetBarsPerYear = c2Stats.yearsSpanned > 0 ? c2Series.length / c2Stats.yearsSpanned : 0;
-  const c2Power = powerSim(c2Series, c2Stats.scale, c2BetBarsPerYear, {
-    trades: c2AllTrades,
-    tradesCount: c2AllTrades.length,
-  });
-  const c2Null = nullSim(c2AllTrades, c2Stats.scale);
+  const result = previewCandidates(dataBySymbol, fromMs, toMs);
 
   const output = {
     datasetHash,
     from: args.from,
     to: args.to,
-    candidates: {
-      C1: {
-        scale: c1Stats.scale,
-        gapSkips: c1GapSkips,
-        stats: c1Stats,
-        power: c1Power,
-        null: c1Null,
-      },
-      C2: {
-        scale: c2Stats.scale,
-        gapSkips: c2GapSkips,
-        stats: c2Stats,
-        power: c2Power,
-        null: c2Null,
-      },
-    },
+    ...result,
   };
 
   mkdirSync(dirname(args.out), { recursive: true });
   writeFileSync(args.out, JSON.stringify(output, null, 2), 'utf8');
 
   console.log(`Preview written to ${args.out}`);
-  console.log(`C1: ${c1AllTrades.length} trades, ${c1Series.length} bet bars, scale ${c1Stats.scale}, gap skips: ${c1GapSkips}`);
-  console.log(`C1 mean net: ${(c1Stats.tradeMean * 100).toFixed(3)}%, t-stat: ${c1Stats.tradeTStat.toFixed(2)}`);
-  console.log(`C2: ${c2AllTrades.length} trades, ${c2Series.length} bet bars, scale ${c2Stats.scale}, gap skips: ${c2GapSkips}`);
-  console.log(`C2 mean net: ${(c2Stats.tradeMean * 100).toFixed(3)}%, t-stat: ${c2Stats.tradeTStat.toFixed(2)}`);
+  for (const [id, c] of Object.entries(result.candidates)) {
+    console.log(
+      `${id}: ${c.stats.trades} trades, ${c.stats.betBars} bet bars, ` +
+        `mean net: ${(c.stats.tradeMean * 100).toFixed(3)}%, t-stat: ${c.stats.tradeTStat.toFixed(2)}, ` +
+        `scale: ${c.scale}, figure400: ${c.figure400.toFixed(3)}, figure800: ${c.figure800.toFixed(3)}`
+    );
+  }
+  console.log(
+    `Decision: ${result.decision.reason} (${
+      result.decision.slots.map((s) => `${s.id}@${s.threshold}`).join(', ') || 'none'
+    })`
+  );
 }
 
 export function main(argv: string[] = process.argv.slice(2)): void {
