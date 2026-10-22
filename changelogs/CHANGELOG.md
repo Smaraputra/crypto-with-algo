@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A revisit takes 410 to 490 ms from click until the URL changes, about one round trip (the RSC request takes about 390 ms, `/api/health` about 385 ms).
   - A first visit takes 1.5 to 2.5 s, because the route's JavaScript loads after that round trip.
 - **Fix**:
-  - `src/app/(dashboard)/loading.tsx` adds a route-group loading fallback (a polite status region with skeleton blocks). Prefetch now covers it, so the fallback shows on click while the page streams in.
+  - `src/components/layout/RouteLoading.tsx` is a shared loading fallback (a polite status region with skeleton blocks). Each of the 10 non-admin app routes re-exports it as its `loading.tsx`. Prefetch now covers the fallback, so it shows on click while the page streams in.
+  - The admin pages deliberately get no loading boundary. Their `requireAdmin()` redirect must stay an HTTP redirect. Under a streamed boundary it became a late client-side redirect, which failed the 20 admin E2E tests. `route-loading.test.ts` guards both rules.
+  - `WhenToLookPanel` now renders its watchlist and levels branches only after hydration. Once a page hydrates after the sidebar, the shared query cache can already hold the watchlist, and that caused 53 hydration mismatches on `/dashboard`.
   - `src/components/layout/NavPendingIndicator.tsx` uses `useLinkStatus` to show a fixed-size dot inside each sidebar link while its navigation is pending. It covers clicks made before prefetch completes. It changes only opacity, with a 100 ms delay, so there is no layout shift and fast navigations do not flash.
 - **Tests**: unit tests for the fallback, the indicator and the sidebar wiring. A new E2E spec (`e2e/nav-feedback.spec.ts`) holds the destination's RSC response for 1.5 s and asserts that the link's indicator turns on within 1 s, then clears after the URL changes.
 - This is PR 1 of the UI redesign. The visuals are neutral placeholders that the redesign will restyle.
