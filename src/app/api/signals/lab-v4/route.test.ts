@@ -98,6 +98,8 @@ describe('GET /api/signals/lab-v4', () => {
       status: 'not_started',
       threshold: LAB_V4_THRESHOLD,
       scale: LAB_HYPOTHESES_V4[0].scale,
+      meanNetReturn: null,
+      meanNetPerTrade: null,
       openTrades: [],
       latestBar: null,
     });
@@ -109,6 +111,8 @@ describe('GET /api/signals/lab-v4', () => {
       status: 'not_started',
       threshold: LAB_V4_THRESHOLD,
       scale: LAB_HYPOTHESES_V4[1].scale,
+      meanNetReturn: null,
+      meanNetPerTrade: null,
       openTrades: [],
       latestBar: null,
     });
@@ -215,5 +219,35 @@ describe('GET /api/signals/lab-v4', () => {
         side: -1,
       },
     ]);
+  });
+
+  it('calculates meanNetReturn per bar and meanNetPerTrade per trade across betting bars', async () => {
+    mocks.labScoreFind.mockImplementation((query: { bet?: boolean; hypothesis?: string }) => {
+      if (query?.bet === true && query?.hypothesis === 'S1-1h') {
+        return {
+          sort: () => ({
+            lean: async () => [
+              { barClose: 1000, bet: true, netBookReturn: -0.002, n: 2 },
+              { barClose: 2000, bet: true, netBookReturn: -0.001, n: 1 },
+            ],
+          }),
+        };
+      }
+      return {
+        sort: () => ({
+          lean: async () => [],
+        }),
+      };
+    });
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const s1 = json.hypotheses.find((h: { id: string }) => h.id === 'S1-1h');
+
+    // meanNetReturn = (-0.002 + -0.001) / 2 = -0.0015
+    expect(s1.meanNetReturn).toBeCloseTo(-0.0015, 6);
+    // meanNetPerTrade = (-0.002 + -0.001) / (2 + 1) = -0.003 / 3 = -0.001
+    expect(s1.meanNetPerTrade).toBeCloseTo(-0.001, 6);
   });
 });

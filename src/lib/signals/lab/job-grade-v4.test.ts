@@ -495,4 +495,176 @@ describe('runLabGradeV4', () => {
     expect(mockSleep).toHaveBeenCalledTimes(2);
     expect(mockSleep).toHaveBeenCalledWith(250);
   });
+
+  it("a fetch error while fetching S1's symbols still grades a due S2 bar", async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+    const { start, end } = priceTimesV4(T1);
+
+    await insertLabSignalOnce({
+      version: 'lab-v4',
+      hypothesis: 'S1-1h',
+      candidate: 'S1',
+      timeframe: '1h',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    await insertLabSignalOnce({
+      version: 'lab-v4',
+      hypothesis: 'S2-1h',
+      candidate: 'S2',
+      timeframe: '1h',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { ETHUSDT: -1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAtV4(T1) + 1000;
+    const deps: LabGradeV4Deps = {
+      fetchPerpKlinesRange: vi.fn().mockImplementation(async (sym: string) => {
+        if (sym === 'BTCUSDT') {
+          throw new Error('S1 network error');
+        }
+        return [
+          {
+            openTime: start,
+            open: 100,
+            close: 100,
+            high: 100,
+            low: 100,
+            volume: 1,
+            quoteVolume: 1,
+            trades: 1,
+            takerBuyVolume: 1,
+            closeTime: start + 299_999,
+          },
+          {
+            openTime: end,
+            open: 102,
+            close: 102,
+            high: 102,
+            low: 102,
+            volume: 1,
+            quoteVolume: 1,
+            trades: 1,
+            takerBuyVolume: 1,
+            closeTime: end + 299_999,
+          },
+        ];
+      }),
+      fundingSumsFor: vi.fn().mockResolvedValue({
+        sums: { ETHUSDT: 0.0001 },
+        coverage: { ETHUSDT: true },
+      }),
+      sleep: async () => {},
+      clock: () => now,
+    };
+
+    const report = await runLabGradeV4(now, deps);
+
+    expect(report.success).toBe(false);
+    expect(report.errors).toContain('S1 network error');
+    expect(report.graded).toHaveLength(1);
+    expect(report.graded[0]).toMatchObject({
+      hypothesis: 'S2-1h',
+      barClose: T1,
+      bet: true,
+    });
+
+    const s1Row = await LabScore.findOne({ version: 'lab-v4', hypothesis: 'S1-1h', barClose: T1 }).lean();
+    const s2Row = await LabScore.findOne({ version: 'lab-v4', hypothesis: 'S2-1h', barClose: T1 }).lean();
+
+    expect(s1Row).toBeNull();
+    expect(s2Row).not.toBeNull();
+  });
+
+  it("each hypothesis's fetch range covers only its own due bars (assert the requested start and end per call)", async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+    const T2 = Date.UTC(2026, 9, 18, 4);
+    const { start: start1, end: end1 } = priceTimesV4(T1);
+    const { start: start2, end: end2 } = priceTimesV4(T2);
+
+    await insertLabSignalOnce({
+      version: 'lab-v4',
+      hypothesis: 'S1-1h',
+      candidate: 'S1',
+      timeframe: '1h',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    await insertLabSignalOnce({
+      version: 'lab-v4',
+      hypothesis: 'S2-1h',
+      candidate: 'S2',
+      timeframe: '1h',
+      barClose: T2,
+      writtenAt: new Date(T2 + 60_000),
+      late: false,
+      scores: { BTCUSDT: -1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAtV4(T2) + 1000;
+    const fetchCalls: { sym: string; interval: string; start: number; end: number }[] = [];
+
+    const deps: LabGradeV4Deps = {
+      fetchPerpKlinesRange: vi.fn().mockImplementation(async (sym: string, interval: string, start: number, end: number) => {
+        fetchCalls.push({ sym, interval, start, end });
+        return [
+          {
+            openTime: start,
+            open: 100,
+            close: 100,
+            high: 100,
+            low: 100,
+            volume: 1,
+            quoteVolume: 1,
+            trades: 1,
+            takerBuyVolume: 1,
+            closeTime: start + 299_999,
+          },
+          {
+            openTime: end,
+            open: 102,
+            close: 102,
+            high: 102,
+            low: 102,
+            volume: 1,
+            quoteVolume: 1,
+            trades: 1,
+            takerBuyVolume: 1,
+            closeTime: end + 299_999,
+          },
+        ];
+      }),
+      fundingSumsFor: vi.fn().mockResolvedValue({
+        sums: { BTCUSDT: 0.0001 },
+        coverage: { BTCUSDT: true },
+      }),
+      sleep: async () => {},
+      clock: () => now,
+    };
+
+    const report = await runLabGradeV4(now, deps);
+
+    expect(report.success).toBe(true);
+    expect(report.graded).toHaveLength(2);
+    expect(fetchCalls).toEqual([
+      { sym: 'BTCUSDT', interval: '5m', start: start1, end: end1 },
+      { sym: 'BTCUSDT', interval: '5m', start: start2, end: end2 },
+    ]);
+  });
 });

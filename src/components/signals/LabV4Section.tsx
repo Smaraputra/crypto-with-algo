@@ -201,7 +201,10 @@ export function LabV4Section() {
                       bets {hyp.betBars !== null && hyp.betBars !== undefined ? hyp.betBars : 'n/a'}
                     </span>
                     <span>
-                      mean net return {formatPercent3(hyp.meanNetReturn)}
+                      mean net per bar {formatPercent3(hyp.meanNetReturn)}
+                    </span>
+                    <span>
+                      mean net per trade {formatPercent3(hyp.meanNetPerTrade)}
                     </span>
                   </div>
                 </div>

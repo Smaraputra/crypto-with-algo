@@ -117,6 +117,7 @@ export interface LabV4HypothesisView {
   threshold: number;
   absorbed: boolean;
   meanNetReturn: number | null;
+  meanNetPerTrade?: number | null;
   lastNetReturn: number | null;
   scale: number;
   openTrades: { symbol: string; side: 1 | -1; enteredAt: string; exitsAt: string }[];

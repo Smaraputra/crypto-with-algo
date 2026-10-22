@@ -84,6 +84,7 @@ export async function GET(request?: Request) {
           firstGradedAt !== null ? new Date(addMonthsUtc(firstGradedAt, 24)).toISOString() : null;
 
         let meanNetReturn: number | null = null;
+        let meanNetPerTrade: number | null = null;
         let lastNetReturn: number | null = null;
         if (bettingScores.length > 0) {
           const returns = bettingScores
@@ -92,6 +93,21 @@ export async function GET(request?: Request) {
           if (returns.length > 0) {
             meanNetReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
           }
+
+          let sumNet = 0;
+          let sumN = 0;
+          for (const r of bettingScores) {
+            if (typeof r.netBookReturn === 'number' && Number.isFinite(r.netBookReturn)) {
+              sumNet += r.netBookReturn;
+            }
+            if (typeof r.n === 'number' && Number.isFinite(r.n)) {
+              sumN += r.n;
+            }
+          }
+          if (sumN > 0) {
+            meanNetPerTrade = sumNet / sumN;
+          }
+
           const lastBettingRow = bettingScores[bettingScores.length - 1];
           lastNetReturn =
             typeof lastBettingRow.netBookReturn === 'number' &&
@@ -147,6 +163,7 @@ export async function GET(request?: Request) {
           threshold: LAB_V4_THRESHOLD,
           absorbed,
           meanNetReturn,
+          meanNetPerTrade,
           lastNetReturn,
           scale: hyp.scale ?? 1,
           openTrades,

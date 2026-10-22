@@ -299,7 +299,7 @@ describe('FocusView', () => {
     ).toBeInTheDocument();
   });
 
-  it('legend is not shown when there are no marks', () => {
+  it('legend is not shown and labMarks is undefined when there are no marks', () => {
     mockUseSignalLabV4.mockReturnValue({
       data: { entries: [] },
       isLoading: false,
@@ -308,8 +308,43 @@ describe('FocusView', () => {
 
     render(<FocusView />);
 
+    const overlay = capturedChartProps.focusOverlay as {
+      labMarks?: unknown;
+    };
+    expect(overlay.labMarks).toBeUndefined();
     expect(
       screen.queryByText('Triangles: lab-v4 entries (under test, lost on history).')
     ).not.toBeInTheDocument();
+  });
+
+  it('a re-render with the same data passes the same labMarks reference', () => {
+    const entries = [
+      {
+        hypothesis: 'S1-1h',
+        barClose: '2026-10-22T06:00:00.000Z',
+        symbol: 'BTCUSDT',
+        side: 1 as const,
+      },
+    ];
+    mockUseSignalLabV4.mockReturnValue({
+      data: { entries },
+      isLoading: false,
+      error: null,
+    });
+
+    const { rerender } = render(<FocusView />);
+    const firstOverlay = capturedChartProps.focusOverlay as {
+      labMarks?: unknown;
+    };
+    const firstMarks = firstOverlay.labMarks;
+    expect(firstMarks).toBeDefined();
+
+    rerender(<FocusView />);
+    const secondOverlay = capturedChartProps.focusOverlay as {
+      labMarks?: unknown;
+    };
+    const secondMarks = secondOverlay.labMarks;
+
+    expect(secondMarks).toBe(firstMarks);
   });
 });

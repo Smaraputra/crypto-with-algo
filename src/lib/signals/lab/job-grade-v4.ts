@@ -64,13 +64,8 @@ export async function runLabGradeV4(
     errors: [],
   };
 
-  interface DueV4HypothesisInfo {
-    hyp: (typeof LAB_HYPOTHESES_V4)[number];
-    dueSignals: ILabSignal[];
-    last: LabScoreFields | null;
-  }
-
-  const dueV4ByHypothesis: DueV4HypothesisInfo[] = [];
+  const sleep = d.sleep ?? defaultLabGradeDeps.sleep!;
+  const fundingSumsFor = d.fundingSumsFor ?? defaultFundingSumsFor;
 
   for (const hyp of LAB_HYPOTHESES_V4) {
     const last = (await LabScore.findOne({
@@ -109,17 +104,11 @@ export async function runLabGradeV4(
       dueSignals.push(sig);
     }
 
-    if (dueSignals.length > 0) {
-      dueV4ByHypothesis.push({ hyp, dueSignals, last });
+    if (dueSignals.length === 0) {
+      continue;
     }
-  }
 
-  if (dueV4ByHypothesis.length === 0) {
-    return report;
-  }
-
-  const neededTimesBySymbol = new Map<string, Set<number>>();
-  for (const { dueSignals } of dueV4ByHypothesis) {
+    const neededTimesBySymbol = new Map<string, Set<number>>();
     for (const sig of dueSignals) {
       const { start, end } = priceTimesV4(sig.barClose);
       for (const [sym, side] of Object.entries(sig.scores)) {
@@ -134,72 +123,73 @@ export async function runLabGradeV4(
         }
       }
     }
-  }
 
-  const symbolsV4 = Array.from(neededTimesBySymbol.keys()).sort();
-  const priceMapBySymbol = new Map<string, Map<number, number>>();
-  const sleep = d.sleep ?? defaultLabGradeDeps.sleep!;
+    const symbolsV4 = Array.from(neededTimesBySymbol.keys()).sort();
+    const priceMapBySymbol = new Map<string, Map<number, number>>();
+    let fetchErrorOccurred = false;
 
-  for (let i = 0; i < symbolsV4.length; i++) {
-    if (i > 0) {
-      await sleep(250);
-    }
-    const sym = symbolsV4[i];
-    const times = Array.from(neededTimesBySymbol.get(sym)!);
-    const minNeeded = Math.min(...times);
-    const maxNeeded = Math.max(...times);
-
-    let klines: PerpKline[];
-    try {
-      klines = await d.fetchPerpKlinesRange(sym, '5m', minNeeded, maxNeeded);
-    } catch (err) {
-      if (err instanceof BinanceHttpError && err.status === 400) {
-        report.errors.push(err.message);
-        klines = [];
-      } else {
-        const msg = err instanceof Error ? err.message : String(err);
-        report.errors.push(msg);
-        report.success = false;
-        return report;
+    for (let i = 0; i < symbolsV4.length; i++) {
+      if (i > 0) {
+        await sleep(250);
       }
-    }
+      const sym = symbolsV4[i];
+      const times = Array.from(neededTimesBySymbol.get(sym)!);
+      const minNeeded = Math.min(...times);
+      const maxNeeded = Math.max(...times);
 
-    const klineMap = new Map<number, number>();
-    for (const k of klines) {
-      klineMap.set(k.openTime, k.open);
-    }
-    priceMapBySymbol.set(sym, klineMap);
-  }
-
-  const syncErrorsBySymbol = new Map<string, string>();
-  const shouldSyncFunding =
-    symbolsV4.length > 0 &&
-    (deps?.syncFundingSettlements !== undefined || !deps?.fundingSumsFor) &&
-    Boolean(d.syncFundingSettlements);
-
-  if (shouldSyncFunding && d.syncFundingSettlements) {
-    try {
-      const syncResults = await d.syncFundingSettlements(symbolsV4, now);
-      if (Array.isArray(syncResults)) {
-        for (const res of syncResults) {
-          if (res && typeof res === 'object' && 'symbol' in res && res.error) {
-            syncErrorsBySymbol.set(res.symbol, res.error);
-            report.errors.push(`Funding sync error for ${res.symbol}: ${res.error}`);
-          }
+      let klines: PerpKline[];
+      try {
+        klines = await d.fetchPerpKlinesRange(sym, '5m', minNeeded, maxNeeded);
+      } catch (err) {
+        if (err instanceof BinanceHttpError && err.status === 400) {
+          report.errors.push(err.message);
+          klines = [];
+        } else {
+          const msg = err instanceof Error ? err.message : String(err);
+          report.errors.push(msg);
+          report.success = false;
+          fetchErrorOccurred = true;
+          break;
         }
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      report.errors.push(msg);
-      for (const sym of symbolsV4) {
-        syncErrorsBySymbol.set(sym, msg);
+
+      const klineMap = new Map<number, number>();
+      for (const k of klines) {
+        klineMap.set(k.openTime, k.open);
+      }
+      priceMapBySymbol.set(sym, klineMap);
+    }
+
+    if (fetchErrorOccurred) {
+      continue;
+    }
+
+    const syncErrorsBySymbol = new Map<string, string>();
+    const shouldSyncFunding =
+      symbolsV4.length > 0 &&
+      (deps?.syncFundingSettlements !== undefined || !deps?.fundingSumsFor) &&
+      Boolean(d.syncFundingSettlements);
+
+    if (shouldSyncFunding && d.syncFundingSettlements) {
+      try {
+        const syncResults = await d.syncFundingSettlements(symbolsV4, now);
+        if (Array.isArray(syncResults)) {
+          for (const res of syncResults) {
+            if (res && typeof res === 'object' && 'symbol' in res && res.error) {
+              syncErrorsBySymbol.set(res.symbol, res.error);
+              report.errors.push(`Funding sync error for ${res.symbol}: ${res.error}`);
+            }
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        report.errors.push(msg);
+        for (const sym of symbolsV4) {
+          syncErrorsBySymbol.set(sym, msg);
+        }
       }
     }
-  }
 
-  const fundingSumsFor = d.fundingSumsFor ?? defaultFundingSumsFor;
-
-  for (const { hyp, dueSignals, last } of dueV4ByHypothesis) {
     let currentState = last?.state ? { ...last.state } : initialEState();
 
     for (const sig of dueSignals) {

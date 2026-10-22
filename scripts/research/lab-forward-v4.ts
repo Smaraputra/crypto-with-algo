@@ -60,7 +60,11 @@
  * - Declared differences from the preview:
  *   - entry at T + 10 minutes from 5m klines (the preview used the 1h open at T);
  *   - structure is built over the last 720 closed bars, not the whole history (agreement measured under PARITY);
- *   - a coin is skipped when its 720-bar window has a gap (the preview skipped a trade with a gap at entry or exit).
+ *   - a coin is skipped when its 720-bar window has a gap (the preview skipped a trade with a gap at entry or exit), so
+ *     one missing perp bar skips that coin until its window is contiguous again (up to 720 hours);
+ *   - the live in-trade rule blocks a coin for 8 hours after any stored entry, even one that later has no price or was
+ *     written late. The preview blocked only after a trade it actually priced;
+ *   - an hour the job misses (both attempts fail) records no entry, so nothing blocks that coin for the next 8 hours.
  *
  * GATES: lab-v1's e-process rule (Kelly plug-in from past bets only, 30-bet warm-up, cap 0.5 / (1 + b), variance
  * floor 1e-6), run with threshold 800 and lossUnbounded.
@@ -82,19 +86,22 @@
  * 14e4b2f, the Round 3 dataset 1b910017b868, output $HOME/labv4-parity/parity.json):
  * - Signals: on 386,890 of 386,890 coin-bars (every bar from each coin's 720th bar to 2026-06-30), the live
  *   s1SideAtLast and s2SideAtLast over a rolling 720-bar window equal the preview's c1Signals and c2Signals.
- * - Trades: the live in-trade rule reproduces 2,430 of 2,459 S1 and 1,576 of 1,594 S2 preview trades, and adds none.
- *   The other 29 and 18 are exactly the preview trades that enter within each coin's first 720 bars, before a live
- *   window could be full (counted per coin with tradesFor on the same data).
+ * - Trades: on that complete, gap-free history with every hour run, the overlap rule (re-implemented in the parity script
+ *   as the preview states it) reproduces 2,430 of 2,459 S1 and 1,576 of 1,594 S2 preview trades, and adds none. The
+ *   other 29 and 18 are exactly the preview trades that enter within each coin's first 720 bars, before a live window
+ *   could be full (counted per coin with tradesFor on the same data). The live-only differences declared under
+ *   STATISTIC are not exercised by this check.
  * REST CHECK (same run): perp 1h bars for the 10 coins from 2026-06-01 to 2026-06-29, fetched by REST as the live job
  * does, equal the archive on every bar (0 time and 0 field mismatches, taker buy volume included).
  *
  * READ RULE, FAILURE ACTION: as lab-v1. Trading either rule is a separate owner decision outside this lock.
  * OPERATIONS: lab-v4 is graded in the hourly lab run in its own pass (job-grade-v4.ts), after the lab-v1 to v3 pass,
- * with sequential kline fetches 250 ms apart. Either pass failing or throwing is caught and reported, and cannot stop
- * the other. A failure marks that run's lab-grade heartbeat failed. None of this changes any stored value.
+ * with sequential kline fetches 250 ms apart, made separately for each rule, so one rule waiting cannot stop the other
+ * rule's grading. Either pass failing or throwing is caught and reported, and cannot stop the other. A failure marks that run's lab-grade heartbeat failed. None of this changes any stored value.
  *
  * LOCK START: the live job scores only the bar that has just closed. The first lab-v4 bar is the first 1h close after
- * the deploy that starts the job. AMENDMENT 1 will record the deploy time.
+ * the cron container is recreated with the two lab-v4 lines (the app deploy alone does not start the job). AMENDMENT 1
+ * will record that time.
  */
 
 import {

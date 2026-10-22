@@ -29,6 +29,7 @@ function createFixture(): LabV4Response {
         threshold: 800,
         absorbed: false,
         meanNetReturn: -0.0012,
+        meanNetPerTrade: -0.0010,
         lastNetReturn: -0.0005,
         scale: 0.15,
         openTrades: [
@@ -59,6 +60,7 @@ function createFixture(): LabV4Response {
         threshold: 800,
         absorbed: false,
         meanNetReturn: -0.0009,
+        meanNetPerTrade: -0.0008,
         lastNetReturn: 0.0002,
         scale: 0.14,
         openTrades: [],
@@ -136,6 +138,7 @@ describe('LabV4Section', () => {
             threshold: 800,
             absorbed: false,
             meanNetReturn: null,
+            meanNetPerTrade: null,
             lastNetReturn: null,
             scale: 0.15,
             openTrades: [],
@@ -174,7 +177,8 @@ describe('LabV4Section', () => {
 
     expect(screen.getByText('E 1.45 of 800')).toBeInTheDocument();
     expect(screen.getByText('bets 10')).toBeInTheDocument();
-    expect(screen.getByText('mean net return -0.120%')).toBeInTheDocument();
+    expect(screen.getByText('mean net per bar -0.120%')).toBeInTheDocument();
+    expect(screen.getByText('mean net per trade -0.100%')).toBeInTheDocument();
 
     expect(screen.getByText('BTC Long, exits at 14:10 UTC')).toBeInTheDocument();
     expect(screen.getByText('No open trades')).toBeInTheDocument();

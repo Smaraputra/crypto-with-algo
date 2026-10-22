@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useUIStore } from '@/stores/uiStore';
 import { useFocusMtf } from '@/hooks/useFocusMtf';
@@ -53,11 +53,15 @@ export function FocusView() {
 
   const mtf = useFocusMtf(symbol);
   const labV4 = useSignalLabV4(symbol);
-  const labMarks = labV4.data?.entries?.map((entry) => ({
-    time: new Date(entry.barClose).getTime(),
-    side: entry.side,
-    label: entry.hypothesis.startsWith('S1') ? ('S1' as const) : ('S2' as const),
-  }));
+  const labMarks = useMemo(() => {
+    const entries = labV4.data?.entries;
+    if (!entries || entries.length === 0) return undefined;
+    return entries.map((entry) => ({
+      time: new Date(entry.barClose).getTime(),
+      side: entry.side,
+      label: entry.hypothesis.startsWith('S1') ? ('S1' as const) : ('S2' as const),
+    }));
+  }, [labV4.data?.entries]);
   const intervalMs = intervalToMs(focusInterval);
 
   return (
