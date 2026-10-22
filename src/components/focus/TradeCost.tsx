@@ -188,15 +188,15 @@ export function TradeCost({ symbol, interval, className }: TradeCostProps) {
                 </th>
                 <th
                   scope="col"
-                  className="text-right font-normal text-muted-foreground"
+                  className="pl-3 text-right font-normal text-muted-foreground"
                 >
                   Cost
                 </th>
                 <th
                   scope="col"
-                  className="text-right font-normal text-muted-foreground"
+                  className="pl-3 text-right font-normal text-muted-foreground"
                 >
-                  Win rate to break even
+                  Break-even win rate
                 </th>
               </tr>
             </thead>
@@ -213,10 +213,10 @@ export function TradeCost({ symbol, interval, className }: TradeCostProps) {
 
                 return (
                   <tr key={row.label} data-testid="trade-cost-row">
-                    <th scope="row" className="py-1 text-left font-normal">
+                    <th scope="row" className="py-1 pr-2 text-left font-normal">
                       {row.label}
                     </th>
-                    <td className="py-1 text-right font-mono tabular-nums">
+                    <td className="py-1 pl-3 text-right font-mono tabular-nums">
                       {row.costPercent.toFixed(3)}%
                       <span className="block text-muted-foreground">
                         {row.costUsdt.toFixed(2)} USDT
@@ -224,7 +224,7 @@ export function TradeCost({ symbol, interval, className }: TradeCostProps) {
                     </td>
                     <td
                       className={cn(
-                        'py-1 text-right font-mono tabular-nums',
+                        'py-1 pl-3 text-right font-mono tabular-nums',
                         index === 0 && 'font-semibold text-foreground'
                       )}
                     >
@@ -249,9 +249,11 @@ export function TradeCost({ symbol, interval, className }: TradeCostProps) {
           )}
 
           <p className="text-xs text-muted-foreground">
-            Slippage {cost.slippageBps.toFixed(1)} bps per taker leg,{' '}
-            {slippageSourceText}. Maker rows assume your resting order fills. It
-            fills most often when price moves against you.
+            {cost.slippageBps < 0.05
+              ? `Slippage under 0.1 bps per taker leg, ${slippageSourceText}.`
+              : `Slippage ${cost.slippageBps.toFixed(1)} bps per taker leg, ${slippageSourceText}.`}{' '}
+            Maker rows assume your resting order fills. It fills most often when
+            price moves against you.
           </p>
 
           {cost.belowMinNotional && (

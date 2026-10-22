@@ -146,6 +146,9 @@ describe('TradeCost', () => {
     expect(
       screen.getByText('1,000 USDT, standard fees, held 1h.')
     ).toBeInTheDocument();
+    expect(
+      screen.getByText('Break-even win rate')
+    ).toBeInTheDocument();
   });
 
   it('takes size from the saved Cost Check settings', () => {
@@ -275,5 +278,31 @@ describe('TradeCost', () => {
       'href',
       '/cost-check?symbol=BTCUSDT&holdMinutes=60'
     );
+  });
+
+  it('shows a sub-0.1 bps slippage as under 0.1 bps', () => {
+    const { rerender } = render(<TradeCost symbol="BTCUSDT" interval="1h" />);
+    expect(
+      screen.getByText(/Slippage 1\.0 bps per taker leg, from the order book\./)
+    ).toBeInTheDocument();
+
+    mockMarket.mockReturnValue(
+      queryResult(
+        marketFor(60, {
+          slippage: {
+            bps: 0.01,
+            source: 'depth',
+            halfSpreadBps: 0.005,
+            exceedsTopOfBook: false,
+          },
+        })
+      )
+    );
+    rerender(<TradeCost symbol="BTCUSDT" interval="1h" />);
+    expect(
+      screen.getByText(
+        /Slippage under 0\.1 bps per taker leg, from the order book\./
+      )
+    ).toBeInTheDocument();
   });
 });
