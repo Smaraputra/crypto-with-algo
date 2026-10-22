@@ -102,6 +102,15 @@
  * LOCK START: the live job scores only the bar that has just closed. The first lab-v4 bar is the first 1h close after
  * the cron container is recreated with the two lab-v4 lines (the app deploy alone does not start the job). AMENDMENT 1
  * will record that time.
+ *
+ * AMENDMENT 1 (2026-10-22, written after the first rows were stored and before any was graded). It records the start
+ * and changes no rule.
+ * - The code merged with PR #112 (main e816020). The app restarted on it at 2026-10-22 05:08:15 UTC.
+ * - The cron container was recreated at 05:10:26 UTC. Its crontab carries the two lab-v4 lines (minutes 3 and 8).
+ * - The first rows, S1-1h and S2-1h for the bar closing 2026-10-22 06:00 UTC, were written by the 06:03 run, not late,
+ *   with no fetch error. The 06:08 retry found both stored. The first bar that can be graded is due at 14:15 UTC.
+ * - Every other lab signal run since the recreate succeeded (62 runs), and the 05:20 grade run, now running lab-v1 to
+ *   v3 and then lab-v4 in separate passes, finished without error.
  */
 
 import {
