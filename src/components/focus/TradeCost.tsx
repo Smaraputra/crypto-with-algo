@@ -216,7 +216,7 @@ export function TradeCost({ symbol, interval, className }: TradeCostProps) {
                     <th scope="row" className="py-1 pr-2 text-left font-normal">
                       {row.label}
                     </th>
-                    <td className="py-1 pl-3 text-right font-mono tabular-nums">
+                    <td className="py-1 pl-3 text-right font-mono tabular-nums whitespace-nowrap">
                       {row.costPercent.toFixed(3)}%
                       <span className="block text-muted-foreground">
                         {row.costUsdt.toFixed(2)} USDT
