@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: page clicks in the app gave no feedback until the server answered
+- **Cause**: `src/app/(dashboard)/layout.tsx` reads the session cookie, which makes every app route dynamic. Without Cache Components, Next.js 16 does not prefetch a dynamic route unless it has a `loading.js`, and none existed. Each click therefore waited for a full server round trip with the old page frozen.
+- **Measured on production before the fix** (2026-10-22, from the owner's browser):
+  - A revisit takes 410 to 490 ms from click until the URL changes, about one round trip (the RSC request takes about 390 ms, `/api/health` about 385 ms).
+  - A first visit takes 1.5 to 2.5 s, because the route's JavaScript loads after that round trip.
+- **Fix**:
+  - `src/app/(dashboard)/loading.tsx` adds a route-group loading fallback (a polite status region with skeleton blocks). Prefetch now covers it, so the fallback shows on click while the page streams in.
+  - `src/components/layout/NavPendingIndicator.tsx` uses `useLinkStatus` to show a fixed-size dot inside each sidebar link while its navigation is pending. It covers clicks made before prefetch completes. It changes only opacity, with a 100 ms delay, so there is no layout shift and fast navigations do not flash.
+- **Tests**: unit tests for the fallback, the indicator and the sidebar wiring. A new E2E spec (`e2e/nav-feedback.spec.ts`) holds the destination's RSC response for 1.5 s and asserts that the link's indicator turns on within 1 s, then clears after the URL changes.
+- This is PR 1 of the UI redesign. The visuals are neutral placeholders that the redesign will restyle.
+
 ### Added: forward lab lab-v4, Round 3's S1 and S2 registered by owner override
 - **Owner override, recorded as such**: Round 3's pre-committed decision table registered nothing, because every candidate lost on history. On 2026-10-22, after seeing that, the owner chose to register C1 and C2 anyway as a forward record. The lock (`scripts/research/lab-forward-v4.ts`) states the override, the history and the prediction that both lose.
 - **Rules** (named S1 and S2 so they are not confused with Round 1's C1 and C2), on the 10 signal coins, perp 1h:
