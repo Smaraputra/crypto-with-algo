@@ -15,6 +15,10 @@ vi.mock('@/lib/binance', () => ({
   fetchKlines: vi.fn(),
 }));
 
+vi.mock('@/lib/binance-futures', () => ({
+  fetchPerpKlinesOhlcv: vi.fn(),
+}));
+
 vi.mock('@/lib/rate-limit', () => ({
   createRateLimiter: vi.fn(() => 'mock-limiter'),
   rateLimit: vi.fn(() => null),
@@ -22,6 +26,8 @@ vi.mock('@/lib/rate-limit', () => ({
 
 import { GET } from './route';
 import { auth } from '@/lib/auth';
+import { fetchKlines } from '@/lib/binance';
+import { fetchPerpKlinesOhlcv } from '@/lib/binance-futures';
 import { cachedFetch } from '@/lib/redis';
 
 const mockKlines: OHLCV[] = [
@@ -266,6 +272,93 @@ describe('GET /api/prices/history', () => {
       const [cacheKey] = calls[0];
       expect(cacheKey).toMatch(/^prices:klines:/);
       expect(cacheKey).not.toMatch(/^klines:/);
+    });
+  });
+
+  describe('market parameter', () => {
+    it('calls fetchPerpKlinesOhlcv with symbol, interval, limit, startTime, and endTime and never calls fetchKlines when market=perp', async () => {
+      vi.mocked(cachedFetch).mockImplementation(async (_key, fetcher) => {
+        return (fetcher as () => Promise<unknown>)();
+      });
+      vi.mocked(fetchPerpKlinesOhlcv).mockResolvedValue(mockKlines);
+
+      const res = await GET(
+        makeRequest({
+          symbol: 'BTCUSDT',
+          interval: '1h',
+          market: 'perp',
+          limit: '200',
+          startTime: '1700000000000',
+          endTime: '1700100000000',
+        })
+      );
+
+      expect(res.status).toBe(200);
+      expect(fetchPerpKlinesOhlcv).toHaveBeenCalledWith(
+        'BTCUSDT',
+        '1h',
+        200,
+        1700000000000,
+        1700100000000
+      );
+      expect(fetchKlines).not.toHaveBeenCalled();
+    });
+
+    it('uses prices:perp-klines: cache key prefix for perp market', async () => {
+      vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+      await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1h', market: 'perp' }));
+
+      const calls = vi.mocked(cachedFetch).mock.calls;
+      expect(calls).toHaveLength(1);
+      const [cacheKey] = calls[0];
+      expect(cacheKey).toMatch(/^prices:perp-klines:/);
+      expect(cacheKey).toBe('prices:perp-klines:BTCUSDT:1h:500');
+    });
+
+    it('includes time range in prices:perp-klines: cache key', async () => {
+      vi.mocked(cachedFetch).mockResolvedValue(mockKlines);
+
+      await GET(
+        makeRequest({
+          symbol: 'BTCUSDT',
+          interval: '1h',
+          market: 'perp',
+          startTime: '1700000000000',
+          endTime: '1700100000000',
+        })
+      );
+
+      expect(cachedFetch).toHaveBeenCalledWith(
+        'prices:perp-klines:BTCUSDT:1h:500:1700000000000:1700100000000',
+        expect.any(Function),
+        120
+      );
+    });
+
+    it('keeps calling fetchKlines with old cache key when market is omitted', async () => {
+      vi.mocked(cachedFetch).mockImplementation(async (_key, fetcher) => {
+        return (fetcher as () => Promise<unknown>)();
+      });
+      vi.mocked(fetchKlines).mockResolvedValue(mockKlines);
+
+      await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1h' }));
+
+      expect(cachedFetch).toHaveBeenCalledWith(
+        'prices:klines:BTCUSDT:1h:500',
+        expect.any(Function),
+        120
+      );
+      expect(fetchKlines).toHaveBeenCalledWith('BTCUSDT', '1h', 500, undefined, undefined);
+      expect(fetchPerpKlinesOhlcv).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 for market=bogus', async () => {
+      const res = await GET(makeRequest({ symbol: 'BTCUSDT', interval: '1h', market: 'bogus' }));
+      expect(res.status).toBe(400);
+
+      const data = await res.json();
+      expect(data.error).toBeDefined();
     });
   });
 });

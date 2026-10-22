@@ -117,6 +117,12 @@ describe('DashboardChart', () => {
     expect(chart).toHaveAttribute('data-chart-type', 'candle_solid');
   });
 
+  it('renders Open in Focus link pointing to /focus?symbol=BTCUSDT for default symbol', () => {
+    render(<DashboardChart />);
+    const link = screen.getByRole('link', { name: 'Open in Focus' });
+    expect(link).toHaveAttribute('href', '/focus?symbol=BTCUSDT');
+  });
+
   it('passes interval change to store', () => {
     render(<DashboardChart />);
 

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createMarketStreamClient,
   getMarketStreamClient,
+  getPerpMarketStreamClient,
   type MarketStreamClient,
 } from './client';
 import { MockEventSource } from '@/test/mock-event-source';
@@ -24,6 +25,7 @@ describe('MarketStreamClient', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     MockEventSource.resetMock();
+    vi.stubGlobal('EventSource', MockEventSource);
     win = new EventTarget();
     doc = Object.assign(new EventTarget(), {
       visibilityState: 'visible' as DocumentVisibilityState,
@@ -44,6 +46,7 @@ describe('MarketStreamClient', () => {
     client.dispose();
     MockEventSource.resetMock();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it('opens exactly one source with sorted streams when multiple subscribers join within debounce window', () => {
@@ -355,5 +358,20 @@ describe('MarketStreamClient', () => {
     const c1 = getMarketStreamClient();
     const c2 = getMarketStreamClient();
     expect(c1).toBe(c2);
+  });
+
+  it('returns singleton instance from getPerpMarketStreamClient different from getMarketStreamClient and connects to /api/stream/perp', () => {
+    const p1 = getPerpMarketStreamClient();
+    const p2 = getPerpMarketStreamClient();
+    const spot = getMarketStreamClient();
+    expect(p1).toBe(p2);
+    expect(p1).not.toBe(spot);
+
+    const unsub = p1.subscribe(['btcusdt@kline_1h'], vi.fn());
+    vi.advanceTimersByTime(250);
+
+    expect(MockEventSource.lastInstance?.url.startsWith('/api/stream/perp?streams=')).toBe(true);
+    unsub();
+    vi.advanceTimersByTime(250);
   });
 });

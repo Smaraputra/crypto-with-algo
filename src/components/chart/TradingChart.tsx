@@ -65,12 +65,23 @@ import {
   ensureSignalCallsIndicatorRegistered,
   makeSignalCallsCalc,
 } from './signal-calls-indicator';
+import {
+  CVD_INDICATOR,
+  CVD_PANE_HEIGHT,
+  CVD_PANE_ID,
+  DELTA_VOL_INDICATOR,
+  DELTA_VOL_PANE_HEIGHT,
+  DELTA_VOL_PANE_ID,
+  STRUCTURE_INDICATOR,
+  ensureFocusIndicatorsRegistered,
+  makeStructureCalc,
+} from './focus-indicators';
 import { Mark } from './track-record/CallLegend';
 import type { CallMark } from '@/lib/signals/track-record/chart-data';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import { saveOverlays, loadOverlays, clearOverlays, type SerializedOverlay } from '@/lib/chart-storage';
 
-import { getMarketStreamClient } from '@/lib/market-stream/client';
+import { getStreamClient, type StreamMarket } from '@/lib/market-stream/client';
 import { klineStream } from '@/lib/market-stream/streams';
 import { useMarketStreamStatus } from '@/hooks/useMarketStream';
 import { StreamStatusBadge } from '@/components/market/StreamStatusBadge';
@@ -89,13 +100,18 @@ interface BinanceKline {
 export interface TradingChartProps {
   symbol: string;
   interval: string;
+  /** Candle source: spot (default) or USDT-M perpetuals. */
+  market?: StreamMarket;
   chartType?: CandleType;
+  intervalOptions?: string[];
   onIntervalChange?: (interval: string) => void;
   onChartTypeChange?: (type: CandleType) => void;
   /** Draws the signal score pane. Never persisted and not part of IndicatorSettings. */
   signalOverlay?: SignalOverlay;
   /** Past calls and the re-score/live hand-over line on the price pane. */
   callsOverlay?: CallsOverlay;
+  /** Focus page preset: no default indicators; structure, delta volume and CVD instead. */
+  focusOverlay?: { intervalMs: number; showInternal: boolean; showSma: boolean; showMacd: boolean; priorDay: { high: number; low: number; close: number } | null };
   /** The loaded bars changed: first load, an older page, or a new bar. Open times, ms. */
   onLoadedRangeChange?: (range: TimeRange) => void;
   /** The visible window changed (debounced). Open times, ms. */
@@ -246,14 +262,23 @@ function DrawingToolIcon({ icon }: { icon: string }) {
 export function TradingChart({
   symbol,
   interval,
+  market = 'spot',
   chartType = 'candle_solid',
+  intervalOptions,
   onIntervalChange,
   onChartTypeChange,
   signalOverlay,
   callsOverlay,
+  focusOverlay,
   onLoadedRangeChange,
   onVisibleRangeChange,
 }: TradingChartProps) {
+  const primaryList = intervalOptions
+    ? PRIMARY_INTERVALS.filter((int) => intervalOptions.includes(int))
+    : PRIMARY_INTERVALS;
+  const moreList = intervalOptions
+    ? MORE_INTERVALS.filter((int) => intervalOptions.includes(int))
+    : MORE_INTERVALS;
   const chartRef = useRef<Chart | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
@@ -266,7 +291,8 @@ export function TradingChart({
   const isFullscreen = nativeFullscreen || cssFullscreen;
   const [magnetMode, setMagnetMode] = useState<OverlayMode>('normal');
   const klineUnsubRef = useRef<(() => void) | null>(null);
-  const { status: streamStatus, lastMessageAt, retry: retryStream } = useMarketStreamStatus();
+  const { status: streamStatus, lastMessageAt, retry: retryStream } = useMarketStreamStatus(market);
+  const marketRef = useRef(market);
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
   const onLoadedRangeRef = useRef(onLoadedRangeChange);
   const onVisibleRangeRef = useRef(onVisibleRangeChange);
@@ -277,9 +303,10 @@ export function TradingChart({
   const [hoverCall, setHoverCall] = useState<CallMark | null>(null);
 
   useEffect(() => {
+    marketRef.current = market;
     onLoadedRangeRef.current = onLoadedRangeChange;
     onVisibleRangeRef.current = onVisibleRangeChange;
-  }, [onLoadedRangeChange, onVisibleRangeChange]);
+  }, [market, onLoadedRangeChange, onVisibleRangeChange]);
 
   /** Tells the parent which bars are loaded, from the chart's own data list. */
   const reportLoadedRange = useCallback(() => {
@@ -470,19 +497,25 @@ export function TradingChart({
               limit: String(HISTORY_PAGE_BARS),
               endTime: String(firstOpen - 1),
             });
+            if (marketRef.current === 'perp') {
+              query.set('market', 'perp');
+            }
             const res = await fetch(`/api/prices/history?${query}`);
             if (!res.ok) throw new Error('Failed to fetch');
             const data = await res.json();
             // The user switched symbol or interval while this page was in flight:
             // its bars belong to the old series, and the new one is loading.
             if (isStalePage(chartRef.current, params)) return;
-            const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
+            const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number; takerBuyVolume?: number }) => ({
               timestamp: d.timestamp,
               open: d.open,
               high: d.high,
               low: d.low,
               close: d.close,
               volume: d.volume,
+              ...(typeof d.takerBuyVolume === 'number' && Number.isFinite(d.takerBuyVolume)
+                ? { takerBuyVolume: d.takerBuyVolume }
+                : {}),
             }));
             // A short page means the symbol's history starts here.
             params.callback(bars, { forward: bars.length === HISTORY_PAGE_BARS });
@@ -508,16 +541,22 @@ export function TradingChart({
             interval: intv,
             limit: '500',
           });
+          if (marketRef.current === 'perp') {
+            queryParams.set('market', 'perp');
+          }
           const res = await fetch(`/api/prices/history?${queryParams}`);
           if (!res.ok) throw new Error('Failed to fetch');
           const data = await res.json();
-          const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
+          const bars: KLineData[] = data.map((d: { timestamp: number; open: number; high: number; low: number; close: number; volume: number; takerBuyVolume?: number }) => ({
             timestamp: d.timestamp,
             open: d.open,
             high: d.high,
             low: d.low,
             close: d.close,
             volume: d.volume,
+            ...(typeof d.takerBuyVolume === 'number' && Number.isFinite(d.takerBuyVolume)
+              ? { takerBuyVolume: d.takerBuyVolume }
+              : {}),
           }));
           // Older pages load on scroll; nothing newer than the live bar exists.
           params.callback(bars, { forward: bars.length > 0, backward: false });
@@ -535,12 +574,13 @@ export function TradingChart({
         const intv = periodToInterval(params.period);
         const stream = klineStream(params.symbol.ticker, intv);
         klineUnsubRef.current?.();
-        klineUnsubRef.current = getMarketStreamClient().subscribe([stream], (frame) => {
+        klineUnsubRef.current = getStreamClient(marketRef.current).subscribe([stream], (frame) => {
           try {
             if (frame.stream !== stream) return;
             const k = (frame.data as { k?: BinanceKline } | null)?.k;
             if (!k) return;
             if (barCallbackRef.current) {
+              const liveTakerBuyVolume = parseFloat(k.V);
               barCallbackRef.current({
                 timestamp: k.t,
                 open: parseFloat(k.o),
@@ -548,6 +588,9 @@ export function TradingChart({
                 low: parseFloat(k.l),
                 close: parseFloat(k.c),
                 volume: parseFloat(k.v),
+                ...(Number.isFinite(liveTakerBuyVolume)
+                  ? { takerBuyVolume: liveTakerBuyVolume }
+                  : {}),
               });
               if (lastLoadedToRef.current !== null && Number(k.t) > lastLoadedToRef.current) {
                 reportLoadedRange();
@@ -586,15 +629,17 @@ export function TradingChart({
     });
 
     // Initialize default indicators inline (avoids external callback dependency)
-    DEFAULT_INDICATORS.forEach((ind) => {
-      if (ind.enabled && chartRef.current) {
-        if (ind.category === 'overlay') {
-          chartRef.current.createIndicator(ind.id, true, { id: 'candle_pane' });
-        } else {
-          chartRef.current.createIndicator(ind.id, false);
+    if (!focusOverlay) {
+      DEFAULT_INDICATORS.forEach((ind) => {
+        if (ind.enabled && chartRef.current) {
+          if (ind.category === 'overlay') {
+            chartRef.current.createIndicator(ind.id, true, { id: 'candle_pane' });
+          } else {
+            chartRef.current.createIndicator(ind.id, false);
+          }
         }
-      }
-    });
+      });
+    }
 
     // Set initial symbol/period so getBars fires immediately.
     // The init effect may run after the symbol effect (when hasValidDimensions
@@ -684,6 +729,62 @@ export function TradingChart({
     });
   }, [callsVisible, hasValidDimensions, calls, callsBoundary, callsHorizon]);
 
+  const focusActive = Boolean(focusOverlay);
+  const focusIntervalMs = focusOverlay?.intervalMs;
+  const focusShowInternal = focusOverlay?.showInternal ?? false;
+  const focusShowSma = focusOverlay?.showSma ?? false;
+  const focusShowMacd = focusOverlay?.showMacd ?? false;
+  const focusPriorDay = focusOverlay?.priorDay ?? null;
+
+  // Focus preset indicators: STRUCTURE on candle_pane (stacked), DELTA_VOL and CVD in their own panes
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive) return;
+    ensureFocusIndicatorsRegistered();
+    chart.createIndicator(STRUCTURE_INDICATOR, true, { id: 'candle_pane' });
+    chart.createIndicator(DELTA_VOL_INDICATOR, false, { id: DELTA_VOL_PANE_ID, height: DELTA_VOL_PANE_HEIGHT });
+    chart.createIndicator(CVD_INDICATOR, false, { id: CVD_PANE_ID, height: CVD_PANE_HEIGHT });
+    return () => {
+      chartRef.current?.removeIndicator({ paneId: 'candle_pane', name: STRUCTURE_INDICATOR });
+      chartRef.current?.removeIndicator({ paneId: DELTA_VOL_PANE_ID, name: DELTA_VOL_INDICATOR });
+      chartRef.current?.removeIndicator({ paneId: CVD_PANE_ID, name: CVD_INDICATOR });
+    };
+  }, [focusActive, hasValidDimensions]);
+
+  // Recalculate structure when interval, internal toggle, or prior-day levels change
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive || focusIntervalMs === undefined) return;
+    chart.overrideIndicator({
+      name: STRUCTURE_INDICATOR,
+      calc: makeStructureCalc({
+        intervalMs: focusIntervalMs,
+        showInternal: focusShowInternal,
+      }),
+      extendData: { priorDay: focusPriorDay },
+    });
+  }, [focusActive, hasValidDimensions, focusIntervalMs, focusShowInternal, focusPriorDay]);
+
+  // SMA toggle for focus preset: 50 MA stacked on candle_pane
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive || !focusShowSma) return;
+    chart.createIndicator({ name: 'MA', calcParams: [50] }, true, { id: 'candle_pane' });
+    return () => {
+      chartRef.current?.removeIndicator({ paneId: 'candle_pane', name: 'MA' });
+    };
+  }, [focusActive, hasValidDimensions, focusShowSma]);
+
+  // MACD toggle for focus preset: MACD in its own pane
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !focusActive || !focusShowMacd) return;
+    chart.createIndicator('MACD', false);
+    return () => {
+      chartRef.current?.removeIndicator({ name: 'MACD' });
+    };
+  }, [focusActive, hasValidDimensions, focusShowMacd]);
+
   // Report the visible window, debounced: scrolling fires this every frame.
   useEffect(() => {
     const chart = chartRef.current;
@@ -711,13 +812,14 @@ export function TradingChart({
 
   // Update symbol and period when props change
   useEffect(() => {
+    marketRef.current = market;
     if (!chartRef.current) return;
     const intv = INTERVALS.find((i) => i.value === interval);
     chartRef.current.setSymbol({ ticker: symbol, pricePrecision: 2, volumePrecision: 2 });
     if (intv) {
       chartRef.current.setPeriod(intv.period);
     }
-  }, [symbol, interval]);
+  }, [symbol, interval, market]);
 
   // Update chart type when prop changes
   useEffect(() => {
@@ -833,52 +935,60 @@ export function TradingChart({
     >
       {/* Top Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card p-2">
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
-          <Tabs value={PRIMARY_INTERVALS.includes(interval) ? interval : ''} onValueChange={(val) => onIntervalChange?.(val)}>
-            <TabsList className="h-8 bg-muted/50">
-              {INTERVALS.filter((int) => PRIMARY_INTERVALS.includes(int.value)).map((int) => (
-                <TabsTrigger
-                  key={int.value}
-                  value={int.value}
-                  className="h-7 px-2 text-xs data-[state=active]:bg-background data-[state=active]:text-primary"
-                >
-                  {int.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 overflow-x-auto scrollbar-hide">
+          {primaryList.length > 0 && (
+            <Tabs value={primaryList.includes(interval) ? interval : ''} onValueChange={(val) => onIntervalChange?.(val)}>
+              <TabsList className="h-auto bg-muted/50 sm:h-8">
+                {INTERVALS.filter((int) => primaryList.includes(int.value)).map((int) => (
+                  <TabsTrigger
+                    key={int.value}
+                    value={int.value}
+                    className="min-h-11 min-w-11 px-2 text-xs sm:h-7 sm:min-h-7 sm:min-w-0 data-[state=active]:bg-background data-[state=active]:text-primary"
+                  >
+                    {int.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant={MORE_INTERVALS.includes(interval) ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-8 gap-1 text-xs"
-              >
-                {MORE_INTERVALS.includes(interval)
-                  ? INTERVALS.find((i) => i.value === interval)?.label
-                  : 'More'}
-                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-24">
-              {INTERVALS.filter((int) => MORE_INTERVALS.includes(int.value)).map((int) => (
-                <DropdownMenuItem
-                  key={int.value}
-                  className={interval === int.value ? 'bg-accent' : ''}
-                  onSelect={() => onIntervalChange?.(int.value)}
+          {moreList.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={moreList.includes(interval) ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 gap-1 text-xs"
                 >
-                  {int.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  {moreList.includes(interval)
+                    ? INTERVALS.find((i) => i.value === interval)?.label
+                    : 'More'}
+                  <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-24">
+                {INTERVALS.filter((int) => moreList.includes(int.value)).map((int) => (
+                  <DropdownMenuItem
+                    key={int.value}
+                    className={interval === int.value ? 'bg-accent' : ''}
+                    onSelect={() => onIntervalChange?.(int.value)}
+                  >
+                    {int.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <Separator orientation="vertical" className="h-6" />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 min-h-11 min-w-11 gap-1 text-xs sm:min-h-0 sm:min-w-0"
+              >
                 <BarChart2 className="h-3.5 w-3.5" />
                 {CHART_TYPES.find((t) => t.value === chartType)?.label ?? 'Candles'}
                 <ChevronDown className="h-3.5 w-3.5 opacity-50" />
@@ -897,65 +1007,69 @@ export function TradingChart({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Separator orientation="vertical" className="h-6" />
+          {!focusOverlay && (
+            <>
+              <Separator orientation="vertical" className="h-6" />
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs">
-                <Activity className="h-3.5 w-3.5" />
-                Indicators
-                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>Overlays</DropdownMenuLabel>
-              {overlayIndicators.map((ind) => (
-                <DropdownMenuCheckboxItem
-                  key={ind.id}
-                  checked={ind.enabled}
-                  onCheckedChange={() => toggleIndicator(ind.id)}
-                >
-                  {ind.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Oscillators</DropdownMenuLabel>
-              {oscillatorIndicators.map((ind) => (
-                <DropdownMenuCheckboxItem
-                  key={ind.id}
-                  checked={ind.enabled}
-                  onCheckedChange={() => toggleIndicator(ind.id)}
-                >
-                  {ind.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Volume</DropdownMenuLabel>
-              {volumeIndicators.map((ind) => (
-                <DropdownMenuCheckboxItem
-                  key={ind.id}
-                  checked={ind.enabled}
-                  onCheckedChange={() => toggleIndicator(ind.id)}
-                >
-                  {ind.name}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs">
+                    <Activity className="h-3.5 w-3.5" />
+                    Indicators
+                    <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel>Overlays</DropdownMenuLabel>
+                  {overlayIndicators.map((ind) => (
+                    <DropdownMenuCheckboxItem
+                      key={ind.id}
+                      checked={ind.enabled}
+                      onCheckedChange={() => toggleIndicator(ind.id)}
+                    >
+                      {ind.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Oscillators</DropdownMenuLabel>
+                  {oscillatorIndicators.map((ind) => (
+                    <DropdownMenuCheckboxItem
+                      key={ind.id}
+                      checked={ind.enabled}
+                      onCheckedChange={() => toggleIndicator(ind.id)}
+                    >
+                      {ind.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Volume</DropdownMenuLabel>
+                  {volumeIndicators.map((ind) => (
+                    <DropdownMenuCheckboxItem
+                      key={ind.id}
+                      checked={ind.enabled}
+                      onCheckedChange={() => toggleIndicator(ind.id)}
+                    >
+                      {ind.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-          {indicators.filter((ind) => ind.enabled).map((ind) => (
-            <div key={ind.id} className="flex items-center gap-0.5">
-              <span className="text-xs text-muted-foreground">
-                {ind.id}({ind.calcParams.join(',')})
-              </span>
-              <IndicatorSettings
-                indicatorId={ind.id}
-                indicatorName={ind.name}
-                calcParams={ind.calcParams}
-                onParamsChange={updateIndicatorParams}
-              />
-            </div>
-          ))}
+              {indicators.filter((ind) => ind.enabled).map((ind) => (
+                <div key={ind.id} className="flex items-center gap-0.5">
+                  <span className="text-xs text-muted-foreground">
+                    {ind.id}({ind.calcParams.join(',')})
+                  </span>
+                  <IndicatorSettings
+                    indicatorId={ind.id}
+                    indicatorName={ind.name}
+                    calcParams={ind.calcParams}
+                    onParamsChange={updateIndicatorParams}
+                  />
+                </div>
+              ))}
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -968,9 +1082,10 @@ export function TradingChart({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
             onClick={handleRefresh}
             disabled={isLoading}
+            aria-label="Refresh chart"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
@@ -978,7 +1093,7 @@ export function TradingChart({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
             onClick={toggleFullscreen}
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
@@ -988,7 +1103,7 @@ export function TradingChart({
       </div>
 
       {/* Drawing Toolbar */}
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-border bg-muted/20 p-1">
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 overflow-x-auto border-b border-border bg-muted/20 p-1">
         <TooltipProvider>
           {DRAWING_TOOLS.map((tool) => (
             <Tooltip key={tool.id}>
@@ -996,7 +1111,7 @@ export function TradingChart({
                 <Button
                   variant={activeDrawingTool === tool.id ? 'secondary' : 'ghost'}
                   size="sm"
-                  className="h-7 w-7 p-0"
+                  className="min-h-11 min-w-11 p-0 sm:h-7 sm:w-7 sm:min-h-7 sm:min-w-7"
                   onClick={() => activateDrawingTool(tool.id)}
                   aria-label={tool.label}
                 >
@@ -1014,7 +1129,7 @@ export function TradingChart({
               <Button
                 variant={magnetMode === 'weak_magnet' ? 'secondary' : 'ghost'}
                 size="sm"
-                className="h-7 w-7 p-0"
+                className="min-h-11 min-w-11 p-0 sm:h-7 sm:w-7 sm:min-h-7 sm:min-w-7"
                 onClick={toggleMagnetMode}
                 aria-label={magnetMode === 'weak_magnet' ? 'Disable magnet mode' : 'Enable magnet mode'}
               >
@@ -1029,7 +1144,7 @@ export function TradingChart({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                className="min-h-11 min-w-11 p-0 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-7 sm:w-7 sm:min-h-7 sm:min-w-7"
                 onClick={clearDrawings}
                 aria-label="Clear drawings"
               >

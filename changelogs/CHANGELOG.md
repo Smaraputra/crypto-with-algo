@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Research: Round 3 (lab-v4) closes with nothing registered
+- **Why**: the owner overrode the stop rule on 2026-10-22 and asked for new edge from outside sources, trading bots, and how trades are opened and closed. New ideas competed with C1 and C2 for Round 3's two slots (alpha 0.0025).
+- **Scout** (agy research, checked in two passes):
+  - Bot frameworks (Freqtrade, Hummingbot, Passivbot, Jesse, OctoBot, exchange grid and DCA bots) publish no out-of-sample or live record net of fees. Their strategies are families that already failed here, need a venue or market-making setup we lack, or are martingale grids.
+  - Emerging edges: the one new idea with a real paper, US spot ETF flows (Fabus et al., SSRN 7545019), shows no positive association once the flows are public. The same report carried a fabricated arXiv citation and misquoted two papers, which are logged against the agy run.
+- **Preview** (`scripts/research/lab-v4-preview.ts`, decision table committed in `05d427f` before the run, dataset `1b910017b868`): C1 (CHoCH with same-sign delta), C2 (regular delta divergence, faded) and C7 (funding above the 0.01% baseline or below zero with rising open interest, faded) all lose after costs: -0.126%, -0.093% and -0.105% per trade (t -2.53, -1.55 and -3.37) on near-zero gross. Nothing registers. Even a true net Sharpe of 2 would cross 400 or 800 within 24 months only 11% to 24% of the time.
+- **Ledger**: `next-version-r2` (Round 2's 10 preview cells, lab-v3 adds none) and `round3-lab-v4-preview` (5 cells) bring the total to 2,204.
+
+### Added: Focus page, one coin on perps with structure, delta and the best we have
+- **Why**: the owner day-trades by hand on 15m to 1h and asked for one screen with the best techniques, auto drawing, several timeframes, concise news, and the signal score with its parts moving. No rule here is validated. The page is a decision aid, and every section says what stands behind it ("Untested", "Measured: no edge", or the lab status).
+- **Research before building** (cited, checked against our records): MACD and moving-average crossovers showed in-sample edge in crypto that decayed out of sample and was eaten by costs. BOS, CHoCH and volume profile have no rigorous study. Order-flow imbalance predicts only at sub-second to 1-minute horizons. Taker-flow, value-area and MA families have already failed here.
+- **Page** `/focus` (sidebar, and "Open in Focus" on the dashboard chart), drawn from USDT-M perps:
+  - Price pane: confirmed swing labels (HH, HL, LH, LL), swing BOS (solid) and CHoCH (dashed) lines, with the latest event in the accent colour, and prior-day high, low and close from perp daily bars. Internal structure, a 50 SMA and MACD sit behind toggles, all off by default.
+  - Lower panes: volume coloured by who won the bar (taker buy versus sell, from kline taker-buy volume) with the delta in the tooltip, and a CVD line that resets at 00:00 UTC.
+  - Side rail:
+    - timeframes (15m, 1h, 4h, 1d: structure trend, last event, CVD rising or falling, price against the 50 SMA, closed bars only);
+    - "Best we have on this coin" (lab-v3 F1, lab-v2 N2 and N3 positions, lab-v1 ranks with e against threshold, sorted closest to proof first);
+    - the v8 score with an arrow per category against the previous stored row;
+    - five headlines for the coin.
+  - Structure marks never repaint. A swing confirms a fixed number of bars after it forms, and the page says so.
+- **Shared analytics** (pure and tested, also used by Round 3): `src/lib/market/structure.ts` (confirmed pivots, swing labels, BOS and CHoCH), `delta.ts` (bar delta, CVD, delta divergence at pivots) and `mtf.ts` (timeframe state).
+- **Perp data**:
+  - `/api/prices/history?market=perp` (new `fetchPerpKlinesOhlcv`, so the lab-frozen fetchers are untouched);
+  - a perp kline relay `/api/stream/perp` (`BINANCE_FUTURES_WS_URL`, default `wss://fstream.binance.com/market`, because the plain `/ws` path opens but sends nothing);
+  - `GET /api/focus/mtf`.
+  - `TradingChart` gains `market`, `focusOverlay` and `intervalOptions`, and now carries taker-buy volume on every bar.
+- **Round-trip cost** (rail, below the signal score): for the coin in view and a 15m, 1h, 4h or 1d hold, the cost of a round trip with taker/taker, maker/taker and maker/maker fills in % and USDT, and the win rate needed to break even against the coin's typical move over that hold (the mean absolute close-to-close move, withheld below 100 independent windows). Size and fee tier come from the saved Cost Check settings. Funding is shown on its own line and never added. The maker rows say that a resting order fills most often when price moves against it. Live example on 2026-10-22: BTCUSDT, 1,000 USDT, 1h hold, a taker round trip of 0.100% against a typical move of 0.24%, so a 70.4% win rate just to break even (58.2% with maker fills both ways). The pure model is `src/lib/costs/focus-cost.ts` over `computeCostCheck`, rendered client-only because the settings live in localStorage.
+- **Phone layout**: the rail stacks under the chart. The chart's interval tabs, drawing tools and buttons, and the coin search trigger, are 44px targets on phones (the dashboard chart included).
+
 ### Added: forward lab lab-v3 (the Round 2 hypothesis F1-1d)
 - **Lock** `scripts/research/lab-forward-v3.ts`, committed before any lab-v3 bar exists. One hypothesis, F1-1d: weekly staggered funding-level carry on 30 Binance USDT-M perpetuals frozen on 2026-10-20 (`scripts/research/top30-perps-2026-10-20.json`).
   - At each 00:00 UTC close: minus the 7-day funding sum per coin (at least 18 settlements), a centred-rank, dollar-neutral, gross-1 target book (cash below 10 coins), held as one seventh of the last seven targets.

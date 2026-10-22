@@ -43,9 +43,11 @@ beforeEach(() => {
 });
 
 describe('SymbolSearch', () => {
-  it('renders search button with label', () => {
+  it('renders search button with label and min-h-11 touch target', () => {
     render(<SymbolSearch />);
-    expect(screen.getByLabelText('Search trading pairs')).toBeInTheDocument();
+    const trigger = screen.getByLabelText('Search trading pairs');
+    expect(trigger).toBeInTheDocument();
+    expect(trigger).toHaveClass('min-h-11');
   });
 
   it('renders keyboard shortcut hint', () => {

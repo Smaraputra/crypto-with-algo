@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import {
   getMarketStreamClient,
+  getPerpMarketStreamClient,
   type CombinedFrame,
+  type StreamMarket,
   type StreamSnapshot,
   type StreamStatus,
 } from '@/lib/market-stream/client';
@@ -21,27 +23,30 @@ const SERVER_SNAPSHOT: StreamSnapshot = {
   lastMessageAt: null,
 };
 
-function subscribeToStatus(listener: () => void): () => void {
-  return getMarketStreamClient().onChange(listener);
-}
-
-function getStatusSnapshot(): StreamSnapshot {
-  return getMarketStreamClient().getSnapshot();
-}
-
 function getServerStatusSnapshot(): StreamSnapshot {
   return SERVER_SNAPSHOT;
 }
 
-function retryConnection(): void {
-  getMarketStreamClient().retry();
-}
+const SUBSCRIBERS: Record<StreamMarket, (listener: () => void) => () => void> = {
+  spot: (listener) => getMarketStreamClient().onChange(listener),
+  perp: (listener) => getPerpMarketStreamClient().onChange(listener),
+};
+
+const SNAPSHOT_GETTERS: Record<StreamMarket, () => StreamSnapshot> = {
+  spot: () => getMarketStreamClient().getSnapshot(),
+  perp: () => getPerpMarketStreamClient().getSnapshot(),
+};
+
+const RETRY_ACTIONS: Record<StreamMarket, () => void> = {
+  spot: () => getMarketStreamClient().retry(),
+  perp: () => getPerpMarketStreamClient().retry(),
+};
 
 /** The shared stream's status for this page (useSyncExternalStore over the client). */
-export function useMarketStreamStatus(): MarketStreamStatus {
+export function useMarketStreamStatus(market: StreamMarket = 'spot'): MarketStreamStatus {
   const snapshot = useSyncExternalStore(
-    subscribeToStatus,
-    getStatusSnapshot,
+    SUBSCRIBERS[market],
+    SNAPSHOT_GETTERS[market],
     getServerStatusSnapshot
   );
 
@@ -49,7 +54,7 @@ export function useMarketStreamStatus(): MarketStreamStatus {
     status: snapshot.status,
     lastMessageAt: snapshot.lastMessageAt,
     isConnected: snapshot.status === 'live' || snapshot.status === 'stale',
-    retry: retryConnection,
+    retry: RETRY_ACTIONS[market],
   };
 }
 
@@ -61,7 +66,8 @@ export function useMarketStreamStatus(): MarketStreamStatus {
  */
 export function useMarketStream(
   streams: readonly string[],
-  onFrame: (frame: CombinedFrame) => void
+  onFrame: (frame: CombinedFrame) => void,
+  market: StreamMarket = 'spot'
 ): void {
   const onFrameRef = useRef(onFrame);
 
@@ -81,8 +87,9 @@ export function useMarketStream(
       return;
     }
     const names = sortedKey.split('/');
-    return getMarketStreamClient().subscribe(names, (frame) => {
+    const client = market === 'perp' ? getPerpMarketStreamClient() : getMarketStreamClient();
+    return client.subscribe(names, (frame) => {
       onFrameRef.current(frame);
     });
-  }, [sortedKey]);
+  }, [sortedKey, market]);
 }
