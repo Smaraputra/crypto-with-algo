@@ -26,6 +26,7 @@ vi.mock('next/link', () => ({
       {children}
     </a>
   ),
+  useLinkStatus: () => ({ pending: false }),
 }));
 
 let mockSidebarOpen = true;
@@ -149,5 +150,18 @@ describe('Sidebar', () => {
     const researchLinks = screen.getAllByText('Research');
     const link = researchLinks.find((el) => el.closest('a'))?.closest('a');
     expect(link).toHaveAttribute('href', '/research');
+  });
+
+  it('renders a pending indicator inside every main nav link', () => {
+    render(<Sidebar />);
+    const desktopSidebar = screen.getByTestId('desktop-sidebar');
+    const firstNav = desktopSidebar.querySelector('nav');
+    expect(firstNav).not.toBeNull();
+    const links = firstNav?.querySelectorAll('a') ?? [];
+    expect(links).toHaveLength(10);
+    links.forEach((link) => {
+      const indicators = link.querySelectorAll('[data-testid="nav-pending-indicator"]');
+      expect(indicators).toHaveLength(1);
+    });
   });
 });

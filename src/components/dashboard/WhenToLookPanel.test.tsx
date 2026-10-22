@@ -285,6 +285,14 @@ describe('WhenToLookPanel rendering', () => {
     expect(html).not.toContain('your time');
   });
 
+  it('server render shows the watchlist-loading state even when the watchlist is already cached', () => {
+    mockWatchlistData = { symbols: ['BTCUSDT'], isLoading: false };
+    mockLevelsLoading = true;
+    const html = renderToString(<WhenToLookPanel />);
+    expect(html).toContain('Loading the watchlist.');
+    expect(html).not.toContain('Loading yesterday');
+  });
+
   it('client render shows your time with the formatted local time', () => {
     const now = Date.now();
     render(<WhenToLookPanel />);
