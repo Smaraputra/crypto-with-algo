@@ -640,6 +640,28 @@ describe('lab-v4-preview', () => {
       expect(res.sharpe2.block.share).toBeGreaterThanOrEqual(0);
       expect(res.sharpe2.block.share).toBeLessThanOrEqual(1);
     });
+
+    it('halfMean equals the measured case of the series shifted to half its mean', () => {
+      const base = Array.from({ length: 400 }, (_, i) => 0.002 + 0.01 * Math.sin(i));
+      const mean = base.reduce((a, v) => a + v, 0) / base.length;
+      const shifted = base.map((v) => v - 0.5 * mean);
+      const opts = { seed: 7, runsCount: 50 };
+      expect(powerSim(base, 0.05, 300, opts).halfMean).toEqual(
+        powerSim(shifted, 0.05, 300, opts).measured
+      );
+    });
+
+    it('sharpe2 equals the measured case of the series shifted to an annual Sharpe of 2', () => {
+      const base = Array.from({ length: 400 }, (_, i) => 0.002 + 0.01 * Math.sin(i));
+      const mean = base.reduce((a, v) => a + v, 0) / base.length;
+      const sd = Math.sqrt(base.reduce((a, v) => a + (v - mean) ** 2, 0) / (base.length - 1));
+      const target = (2 * sd) / Math.sqrt(300);
+      const atSharpe2 = base.map((v) => v + (target - mean));
+      const opts = { seed: 7, runsCount: 50 };
+      expect(powerSim(base, 0.05, 300, opts).sharpe2).toEqual(
+        powerSim(atSharpe2, 0.05, 300, opts).measured
+      );
+    });
   });
 
   describe('decideSlots', () => {
@@ -676,6 +698,16 @@ describe('lab-v4-preview', () => {
       expect(decideSlots(candidates)).toEqual({
         slots: [{ id: 'C2', threshold: 400 }],
         reason: 'one slot at 400',
+      });
+    });
+
+    it('rejects a candidate whose meanR is exactly 0', () => {
+      const candidates = [
+        { id: 'C1', meanR: 0, tradeTStat: 3, figure400: 0.9, figure800: 0.9 },
+      ];
+      expect(decideSlots(candidates)).toEqual({
+        slots: [],
+        reason: 'nothing registered',
       });
     });
 

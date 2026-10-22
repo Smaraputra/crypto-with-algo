@@ -256,6 +256,15 @@ describe('TradeCost', () => {
     expect(screen.queryAllByTestId('trade-cost-row')).toHaveLength(0);
   });
 
+  it('never shows facts measured for another hold', () => {
+    mockMarket.mockReturnValue(queryResult(marketFor(240)));
+    render(<TradeCost symbol="BTCUSDT" interval="1h" />);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Loading costs for BTCUSDT...'
+    );
+    expect(screen.queryAllByTestId('trade-cost-row')).toHaveLength(0);
+  });
+
   it('flags a size below the venue minimum', () => {
     window.localStorage.setItem(
       STORAGE_KEY,
