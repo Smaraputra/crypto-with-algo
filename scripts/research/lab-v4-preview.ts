@@ -28,6 +28,28 @@
  *   - Otherwise nothing is registered.
  *   - Ties go to the higher preview trade t-statistic. Unspent alpha is never reallocated without a new pre-stated rule.
  *   - A rerun, or any change to a candidate or to this declaration after the first run, adds new ledger trials.
+ *
+ * RESULT (run 2026-10-22 on the VPS at 05d427f, image crypto-ops:labv4-preview2, dataset 1b910017b868: perp 1h, funding
+ * and 5m metrics for the 10 signal symbols, 2022-01-01 to 2026-06-30, output $HOME/labv4-run/preview.json)
+ * - Decision: nothing registered. Every candidate's preview mean R is negative, so each fails at both thresholds.
+ *
+ *   | Cell | Trades | Mean net per trade | t     | Gross (side x r) | Funding by side | figure400 | figure800 |
+ *   | C1   | 2,459  | -0.126%            | -2.53 | +0.017%          | -0.004%         | 0         | 0         |
+ *   | C2   | 1,594  | -0.093%            | -1.55 | +0.042%          | +0.005%         | 0         | 0         |
+ *   | C7   | 7,961  | -0.105%            | -3.37 | +0.018%          | +0.016%         | 0         | 0         |
+ *
+ * - All three are cost-bound: gross per trade is near zero against a 0.14% round trip. C7 is mostly long (6,107 of
+ *   7,961 trades: negative funding with rising open interest). By year only C1 2025 (+0.094%), C2 2022 (+0.092%),
+ *   C2 2024 (+0.026%), C2 2026 (+0.105%) and C7 2023 (+0.030%) are positive.
+ * - Power at a true net Sharpe of 2 (crossing share within 24 months, iid / block): C1 0.20 / 0.24 at 400 and
+ *   0.15 / 0.19 at 800, C2 0.21 / 0.21 and 0.12 / 0.14, C7 0.14 / 0.15 and 0.11 / 0.14. Even a Sharpe-2 rule rarely
+ *   crosses these thresholds within 24 months.
+ * - Null crossing share (trade sides flipped at random): 0 for every candidate at both thresholds.
+ * - The earlier C1 and C2 run by the session focus-chart-round-3 (2026-10-21 at a0474ae, dataset bc3566f4c6c6,
+ *   $HOME/labv4-check/preview.json) gave identical C1 and C2 trades, means and t-statistics.
+ * - Ledger: 5 trials (C1 and C2 in the earlier run, C1, C2 and C7 in this run), entry round3-lab-v4-preview, running
+ *   total 2,204.
+ * - No lab-v4 lock, job or route is built. Round 3 closes with no registration.
  */
 
 import { mkdirSync, writeFileSync } from 'fs';

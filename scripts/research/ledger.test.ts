@@ -4,13 +4,14 @@ import { LAB_FORWARD_V1_LOCK } from './lab-forward-v1';
 import { LEDGER, ledgerTotal } from './ledger';
 
 describe('ledger', () => {
-  it('returns the running total, 2199 after next-version Round 2', () => {
-    expect(ledgerTotal()).toBe(2199);
+  it('returns the running total, 2204 after the Round 3 preview', () => {
+    expect(ledgerTotal()).toBe(2204);
   });
 
   it('counts Round 1 and Round 2 separately', () => {
     expect(ledgerTotal('next-version-r1')).toBe(2189);
     expect(ledgerTotal('next-version-r2')).toBe(2199);
+    expect(ledgerTotal('round3-lab-v4-preview')).toBe(2204);
   });
 
   it('matches baseline trials to LAB_FORWARD_V1_LOCK.ledgerAfter', () => {
