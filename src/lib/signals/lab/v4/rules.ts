@@ -41,6 +41,7 @@ export function s1SideAtLast(closed: readonly OHLCV[]): Side {
 
 /** S2 (Round 3 C2): -1 for a regular bear divergence and +1 for a regular bull divergence (deltaDivergences over
  *  findPivots(closed, SWING_LENGTH), DIVERGENCE_MAX_BARS) whose confirmedIndex is the LAST bar of `closed`; else 0.
+ *  When both a regular bear and a regular bull divergence confirm at the last bar, return -1 (bear).
  *  Produces the same signal as the preview's c2Signals, apart from the window start: structure state is built from the window's first bar. */
 export function s2SideAtLast(closed: readonly OHLCV[]): Side {
   if (closed.length === 0) {
@@ -64,14 +65,11 @@ export function s2SideAtLast(closed: readonly OHLCV[]): Side {
     }
   }
 
-  if (hasBull && hasBear) {
-    return 0;
+  if (hasBear) {
+    return -1;
   }
   if (hasBull) {
     return 1;
-  }
-  if (hasBear) {
-    return -1;
   }
   return 0;
 }

@@ -5,9 +5,10 @@ import { withJobRun } from '@/lib/job-run';
 import { runLabSignals8h, runLabSignalsFast } from '@/lib/signals/lab/job-signals';
 import { runLabV2Daily, runLabV2Weekly } from '@/lib/signals/lab/job-signals-v2';
 import { runLabV3Daily } from '@/lib/signals/lab/job-signals-v3';
+import { runLabV4Hourly } from '@/lib/signals/lab/job-signals-v4';
 
 /**
- * Live signal generator for the forward signal lab (lab-v1 and lab-v2).
+ * Live signal generator for the forward signal lab (lab-v1, lab-v2, lab-v3 and lab-v4).
  *
  * The 8h cadence scores hypotheses L1, L3 and L4 at minute 3 after each 8h close
  * (00:03, 08:03, 16:03 UTC) and retries at minute 8 with attempt=retry (the final
@@ -15,6 +16,8 @@ import { runLabV3Daily } from '@/lib/signals/lab/job-signals-v3';
  * across fast timeframes every minute within each timeframe's delay window.
  * The v2-1w cadence scores N2 at Monday 00:03 UTC (retry 00:08 UTC).
  * The v2-1d cadence scores N3 at 00:03 UTC (retry 00:08 UTC).
+ * The v3-1d cadence scores F1 at 00:04 UTC (retry 00:09 UTC).
+ * The v4-1h cadence scores S1 and S2 hourly at minute 3 (retry at minute 8).
  * A stored lab signal is never rewritten. A job that fails answers 500 so its
  * heartbeat shows the failure.
  */
@@ -32,9 +35,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     cadence !== 'fast' &&
     cadence !== 'v2-1w' &&
     cadence !== 'v2-1d' &&
-    cadence !== 'v3-1d'
+    cadence !== 'v3-1d' &&
+    cadence !== 'v4-1h'
   ) {
-    return NextResponse.json({ error: 'cadence must be 8h, fast, v2-1w, v2-1d or v3-1d' }, { status: 400 });
+    return NextResponse.json({ error: 'cadence must be 8h, fast, v2-1w, v2-1d, v3-1d or v4-1h' }, { status: 400 });
   }
 
   try {
@@ -49,7 +53,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         ? await runLabV2Weekly(now, undefined, { final: isRetry })
         : cadence === 'v2-1d'
         ? await runLabV2Daily(now, undefined, { final: isRetry })
-        : await runLabV3Daily(now, undefined, { final: isRetry });
+        : cadence === 'v3-1d'
+        ? await runLabV3Daily(now, undefined, { final: isRetry })
+        : await runLabV4Hourly(now, undefined, { final: isRetry });
     return NextResponse.json(result, { status: result.success ? 200 : 500 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -76,6 +82,9 @@ export const GET = withJobRun((req) => {
   }
   if (cadence === 'v3-1d') {
     return attempt === 'retry' ? 'lab-v3-signals:1d:retry' : 'lab-v3-signals:1d';
+  }
+  if (cadence === 'v4-1h') {
+    return attempt === 'retry' ? 'lab-v4-signals:1h:retry' : 'lab-v4-signals:1h';
   }
   return 'lab-signals:invalid';
 }, handler);

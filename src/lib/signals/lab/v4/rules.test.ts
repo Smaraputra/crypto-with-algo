@@ -180,6 +180,51 @@ function generateRandomWalkWithTaker(numBars: number, seed: number): OHLCV[] {
   return candles;
 }
 
+function buildBothDivergencesSeries(): OHLCV[] {
+  const bars: OHLCV[] = [];
+  const baseTime = 1_700_000_000_000;
+
+  for (let i = 0; i <= 70; i++) {
+    const timestamp = baseTime + i * HOUR_MS;
+    let high = 100;
+    let low = 80;
+    const open = 90;
+    const close = 90;
+    let volume = 100;
+    let takerBuyVolume = 50;
+
+    if (i === 25) {
+      high = 150;
+    } else if (i === 26) {
+      low = 50;
+      volume = 1000;
+      takerBuyVolume = 0;
+    } else if (i === 50) {
+      high = 180;
+      low = 30;
+      volume = 100;
+      takerBuyVolume = 60;
+    } else if (i > 26 && i < 50) {
+      volume = 100;
+      takerBuyVolume = 60;
+    }
+
+    bars.push(
+      makeCandle({
+        timestamp,
+        open,
+        high,
+        low,
+        close,
+        volume,
+        takerBuyVolume,
+      })
+    );
+  }
+
+  return bars;
+}
+
 describe('lab-v4 rules', () => {
   it('exports expected constants', () => {
     expect(LAB_V4_WINDOW_BARS).toBe(720);
@@ -213,6 +258,11 @@ describe('lab-v4 rules', () => {
       const emptySeries: OHLCV[] = [];
       expect(s2SideAtLast(emptySeries)).toBe(0);
     });
+
+    it('returns -1 when both a regular bear and regular bull divergence confirm at the last bar', () => {
+      const bothSeries = buildBothDivergencesSeries();
+      expect(s2SideAtLast(bothSeries)).toBe(-1);
+    });
   });
 
   describe('agreement with preview code', () => {
@@ -229,11 +279,8 @@ describe('lab-v4 rules', () => {
 
       const c2ByBar = new Map<number, number>();
       for (const sig of c2Full) {
-        const existing = c2ByBar.get(sig.index);
-        if (existing === undefined) {
+        if (!c2ByBar.has(sig.index)) {
           c2ByBar.set(sig.index, sig.side);
-        } else if (existing !== sig.side) {
-          c2ByBar.set(sig.index, 0);
         }
       }
 

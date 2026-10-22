@@ -97,6 +97,10 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
   { job: 'lab-v3-signals:1d', path: '/api/cron/lab-signals', params: { cadence: 'v3-1d' }, schedule: '4 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
   // Daily lab-v3 signals retry at 00:09 UTC.
   { job: 'lab-v3-signals:1d:retry', path: '/api/cron/lab-signals', params: { cadence: 'v3-1d', attempt: 'retry' }, schedule: '9 0 * * *', expectedEverySeconds: DAY, method: 'GET' },
+  // Hourly lab-v4 signals (S1, S2) at minute 3 after each 1h close.
+  { job: 'lab-v4-signals:1h', path: '/api/cron/lab-signals', params: { cadence: 'v4-1h' }, schedule: '3 * * * *', expectedEverySeconds: HOUR, method: 'GET' },
+  // Hourly lab-v4 signals retry at minute 8 after each 1h close.
+  { job: 'lab-v4-signals:1h:retry', path: '/api/cron/lab-signals', params: { cadence: 'v4-1h', attempt: 'retry' }, schedule: '8 * * * *', expectedEverySeconds: HOUR, method: 'GET' },
   // Grades every bar whose return window has closed.
   { job: 'lab-grade', path: '/api/cron/lab-grade', params: {}, schedule: '20 * * * *', expectedEverySeconds: HOUR, method: 'GET' },
 ] as const;

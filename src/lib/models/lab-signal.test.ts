@@ -167,4 +167,43 @@ describe('LabSignal model and insertLabSignalOnce', () => {
     }).lean();
     expect(stored?.skipped).toEqual([{ symbol: 'BTCUSDT', reason: 'delisted' }]);
   });
+
+  it('accepts lab-v4, candidates S1 and S2, and skip reasons in_trade and bars_incomplete_v4', async () => {
+    expect(LAB_SKIP_REASONS).toContain('in_trade');
+    expect(LAB_SKIP_REASONS).toContain('bars_incomplete_v4');
+
+    const s1Fields = makeSignalFields({
+      version: 'lab-v4',
+      hypothesis: 'S1-1h',
+      candidate: 'S1',
+      timeframe: '1h',
+      barClose: 1_700_000_000_000,
+      scores: { BTCUSDT: 1 },
+      skipped: [{ symbol: 'ETHUSDT', reason: 'in_trade' }],
+    });
+    const res1 = await insertLabSignalOnce(s1Fields);
+    expect(res1.inserted).toBe(true);
+
+    const s2Fields = makeSignalFields({
+      version: 'lab-v4',
+      hypothesis: 'S2-1h',
+      candidate: 'S2',
+      timeframe: '1h',
+      barClose: 1_700_000_000_000,
+      scores: { BTCUSDT: -1 },
+      skipped: [{ symbol: 'SOLUSDT', reason: 'bars_incomplete_v4' }],
+    });
+    const res2 = await insertLabSignalOnce(s2Fields);
+    expect(res2.inserted).toBe(true);
+
+    const doc1 = await LabSignal.findOne({ version: 'lab-v4', hypothesis: 'S1-1h' }).lean();
+    expect(doc1?.candidate).toBe('S1');
+    expect(doc1?.scores).toEqual({ BTCUSDT: 1 });
+    expect(doc1?.skipped).toEqual([{ symbol: 'ETHUSDT', reason: 'in_trade' }]);
+
+    const doc2 = await LabSignal.findOne({ version: 'lab-v4', hypothesis: 'S2-1h' }).lean();
+    expect(doc2?.candidate).toBe('S2');
+    expect(doc2?.scores).toEqual({ BTCUSDT: -1 });
+    expect(doc2?.skipped).toEqual([{ symbol: 'SOLUSDT', reason: 'bars_incomplete_v4' }]);
+  });
 });
