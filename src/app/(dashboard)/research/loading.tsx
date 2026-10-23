@@ -1,1 +1,1 @@
-export { RouteLoading as default } from '@/components/layout/RouteLoading';
+export { RouteLoading as default } from '@/components/shell/RouteLoading';

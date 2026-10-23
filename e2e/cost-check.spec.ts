@@ -74,11 +74,12 @@ test.describe('Cost Check (authenticated)', () => {
     await page.addInitScript(() => window.localStorage.removeItem('cost-check:v1'));
   });
 
-  test('is reachable from the sidebar', async ({ page }) => {
+  test('is reachable from the Tools menu', async ({ page }) => {
     await stubApi(page);
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-    await page.locator('[data-testid="desktop-sidebar"]').getByRole('link', { name: 'Cost Check' }).click();
+    await page.getByRole('navigation', { name: 'Desktop primary' }).getByRole('button', { name: 'Tools' }).click();
+    await page.getByRole('menuitem', { name: 'Cost Check' }).click();
     await expect(page).toHaveURL('/cost-check', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Cost Check' })).toBeVisible();
   });

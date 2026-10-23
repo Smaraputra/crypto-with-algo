@@ -13,6 +13,7 @@ const NON_ADMIN_ROUTES = [
   'signals',
   'backtest',
   'cost-check',
+  'lab',
 ] as const;
 
 describe('route loading guards', () => {

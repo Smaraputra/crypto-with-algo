@@ -67,6 +67,7 @@
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
   --radius-panel: 22px;
+  --animate-nav-fill: nav-fill 700ms ease-out forwards;
 }
 
 /* Direction B tokens (Light in :root, Dark in .dark) */
@@ -342,6 +343,11 @@
   0% { box-shadow: 0 0 0 0 oklch(0.72 0.18 160 / 0.4); }
   70% { box-shadow: 0 0 0 8px oklch(0.72 0.18 160 / 0); }
   100% { box-shadow: 0 0 0 0 oklch(0.72 0.18 160 / 0); }
+}
+
+@keyframes nav-fill {
+  from { width: 0%; }
+  to { width: 100%; }
 }
 
 .animate-flash-up { animation: flash-bullish 400ms ease-out; }
