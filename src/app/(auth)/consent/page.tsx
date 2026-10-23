@@ -1,100 +1,16 @@
-'use client';
+import React from 'react';
+import type { Metadata } from 'next';
+import { AuthShell, ConsentForm } from '@/components/auth-v2';
 
-import { useState } from 'react';
-import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
-import { recordConsent } from '@/lib/auth-forms/flows';
+export const metadata: Metadata = {
+  title: 'Terms | CryptoWithAlgo',
+  description: 'Review and accept terms to continue to CryptoWithAlgo.',
+};
 
 export default function ConsentPage() {
-  const router = useRouter();
-  const { update } = useSession();
-  const [accepted, setAccepted] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  async function handleConsent() {
-    if (!accepted) return;
-    setLoading(true);
-    setError('');
-
-    const res = await recordConsent();
-    if (!res.ok) {
-      setError(res.message);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      // Trigger JWT refresh -- must pass data to force a POST request,
-      // otherwise useSession().update() sends a GET which doesn't set
-      // trigger='update' in the JWT callback.
-      await update({ tosAccepted: true });
-      router.push('/dashboard');
-    } catch {
-      setError('Network error. Please try again.');
-      setLoading(false);
-    }
-  }
-
   return (
-    <Card className="border-border/50">
-      <CardHeader className="text-center">
-        <CardTitle className="text-2xl font-bold">Terms & Privacy</CardTitle>
-        <CardDescription>
-          Please review and accept our terms before continuing
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <div role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
-
-        <p className="text-sm text-muted-foreground">
-          To use CryptoWithAlgo, you must agree to our{' '}
-          <Link href="/terms" className="text-primary hover:underline" target="_blank">
-            Terms of Service
-          </Link>{' '}
-          and{' '}
-          <Link href="/privacy" className="text-primary hover:underline" target="_blank">
-            Privacy Policy
-          </Link>
-          .
-        </p>
-
-        <div className="flex items-start gap-3 rounded-md border border-border p-4">
-          <Checkbox
-            id="accept-tos"
-            checked={accepted}
-            onCheckedChange={(checked) => setAccepted(checked === true)}
-          />
-          <Label htmlFor="accept-tos" className="text-sm leading-relaxed cursor-pointer">
-            I have read and agree to the Terms of Service and Privacy Policy
-          </Label>
-        </div>
-      </CardContent>
-      <CardFooter>
-        <Button
-          className="w-full"
-          disabled={!accepted || loading}
-          onClick={handleConsent}
-        >
-          {loading ? 'Continuing...' : 'Continue'}
-        </Button>
-      </CardFooter>
-    </Card>
+    <AuthShell title="Terms">
+      <ConsentForm />
+    </AuthShell>
   );
 }
