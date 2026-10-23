@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockSymbols } from './helpers/live-data';
 
 test.describe('Portfolio (authenticated)', () => {
   test('top bar portfolio link navigates to /portfolio and shows heading and View control', async ({ page }) => {
@@ -36,6 +37,8 @@ test.describe('Portfolio (authenticated)', () => {
   });
 
   test('create portfolio, add holding, record trade, remove holding, and delete portfolio', async ({ page }) => {
+    // The coin picker lists /api/symbols, which Binance blocks from CI runners.
+    await mockSymbols(page);
     await page.goto('/portfolio');
     await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible({ timeout: 15000 });
 
