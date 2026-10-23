@@ -8,11 +8,11 @@ const NON_ADMIN_ROUTES = [
   'portfolio',
   'alerts',
   'journal',
-  'research',
   'signals',
   'backtest',
   'cost-check',
   'lab',
+  'notes',
 ] as const;
 
 describe('route loading guards', () => {

@@ -7,10 +7,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { isNavActive, TOOLS_NAV_ITEMS, TOOLS_INTERIM_ITEMS } from './nav-items';
+import { isNavActive, TOOLS_NAV_ITEMS } from './nav-items';
 import { cn } from '@/lib/utils';
 
 export function ToolsMenu() {
@@ -48,21 +47,6 @@ export function ToolsMenu() {
                 href={item.href}
                 aria-current={itemActive ? 'page' : undefined}
                 className="flex min-h-[44px] cursor-pointer items-center px-3 py-2 font-medium"
-              >
-                {item.label}
-              </Link>
-            </DropdownMenuItem>
-          );
-        })}
-        <DropdownMenuSeparator className="my-1 border-line" />
-        {TOOLS_INTERIM_ITEMS.map((item) => {
-          const itemActive = isNavActive(pathname, item);
-          return (
-            <DropdownMenuItem key={item.href} asChild>
-              <Link
-                href={item.href}
-                aria-current={itemActive ? 'page' : undefined}
-                className="flex min-h-[44px] cursor-pointer items-center px-3 py-2 font-medium text-ink-2"
               >
                 {item.label}
               </Link>

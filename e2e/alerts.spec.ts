@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockSymbols } from './helpers/live-data';
 
 test.describe('Alerts page (authenticated)', () => {
   test('navigates to alerts page via top bar', async ({ page }) => {
@@ -6,176 +7,135 @@ test.describe('Alerts page (authenticated)', () => {
     await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     const topBar = page.getByRole('navigation', { name: 'Desktop primary' });
-    await topBar.getByRole('link', { name: 'Alerts' }).click();
+    await topBar.getByRole('link', { name: 'Alerts', exact: true }).click();
 
     await expect(page).toHaveURL('/alerts', { timeout: 10000 });
-    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Alerts', exact: true })).toBeVisible();
   });
 
-  test('alerts page renders heading and create button', async ({ page }) => {
+  test('heading is Alerts and Show control works', async ({ page }) => {
     await page.goto('/alerts');
 
-    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: /create alert/i })
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Alerts', exact: true })).toBeVisible({
+      timeout: 15000,
+    });
+
+    const showGroup = page.getByRole('group', { name: 'Show', exact: true });
+    await expect(showGroup).toBeVisible();
+    await expect(showGroup.getByRole('radio', { name: 'All', exact: true })).toBeVisible();
+    await expect(showGroup.getByRole('radio', { name: 'Active', exact: true })).toBeVisible();
+    await expect(showGroup.getByRole('radio', { name: 'Triggered', exact: true })).toBeVisible();
+    await expect(showGroup.getByRole('radio', { name: 'Paused', exact: true })).toBeVisible();
+
+    // The radios are visually hidden; the visible labels take the clicks
+    await showGroup.getByText('Active', { exact: true }).click();
+    await expect(showGroup.getByRole('radio', { name: 'Active', exact: true })).toBeChecked();
+
+    await showGroup.getByText('All', { exact: true }).click();
+    await expect(showGroup.getByRole('radio', { name: 'All', exact: true })).toBeChecked();
   });
 
-  test('filter tabs are visible', async ({ page }) => {
+  test('creates a BNB price alert, pauses, resumes, and deletes it with confirmation', async ({
+    page,
+  }) => {
+    await mockSymbols(page);
+
     await page.goto('/alerts');
+    await expect(page.getByRole('heading', { name: 'Alerts', exact: true })).toBeVisible({
+      timeout: 15000,
+    });
 
-    await expect(page.getByRole('tab', { name: 'All' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Active' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Triggered' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Paused' })).toBeVisible();
-  });
-
-  test('shows empty state or alert list', async ({ page }) => {
-    await page.goto('/alerts');
-
-    // Depending on test execution order, the user may have alerts from other tests.
-    // Accept either the empty state or a populated alert list.
-    const emptyState = page.getByText('No alerts yet');
-    const alertList = page.getByTestId('alert-list');
-
-    await expect(emptyState.or(alertList)).toBeVisible({ timeout: 10000 });
-  });
-
-  test('opens create alert dialog', async ({ page }) => {
-    await page.goto('/alerts');
-
-    await page.getByRole('button', { name: /create alert/i }).click();
-
-    await expect(
-      page.getByRole('heading', { name: 'Create Alert' })
-    ).toBeVisible();
-    await expect(
-      page.getByRole('tab', { name: 'Price Alert' })
-    ).toBeVisible();
-    await expect(
-      page.getByRole('tab', { name: 'Portfolio Alert' })
-    ).toBeVisible();
-  });
-
-  test('creates a price alert and verifies it appears', async ({ page }) => {
-    await page.goto('/alerts');
-
-    // Open create dialog
-    await page.getByRole('button', { name: /create alert/i }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Create Alert' })
-    ).toBeVisible();
-
-    // Fill in price alert fields
-    await page.getByLabel('Symbol').fill('BTCUSDT');
-    await page.getByLabel('Target Price').fill('999999');
-
-    // Submit
-    await page.getByRole('button', { name: 'Create Alert' }).click();
-
-    // Dialog should close and alert should appear in list
-    await expect(page.getByText(/BTCUSDT price above/)).toBeVisible({
+    // "New alert" opens the sheet
+    await page.getByRole('button', { name: 'New alert', exact: true }).first().click();
+    await expect(page.getByRole('heading', { name: 'New alert', exact: true })).toBeVisible({
       timeout: 10000,
     });
-    // Verify this alert's item has an active badge. Scoped by its own text:
-    // the authenticated project runs three workers against one user, so
-    // sibling tests create, pause, and delete other alerts concurrently and
-    // "the first item" is not stable.
-    const alertItem = page
-      .locator('[data-testid^="alert-item-"]')
-      .filter({ hasText: 'BTCUSDT price above $999,999' })
-      .first();
-    await expect(alertItem.getByText('active')).toBeVisible();
-  });
 
-  test('pauses and resumes an alert', async ({ page, baseURL }) => {
-    // Create alert via API for reliable setup (no dialog timing issues)
-    const createRes = await page.request.post(`${baseURL}/api/alerts`, {
-      data: {
-        type: 'price_above',
-        symbol: 'ETHUSDT',
-        targetPrice: 888888,
-      },
+    // Pick BNB via searchable combobox
+    await page.getByRole('combobox', { name: 'Coin', exact: true }).click();
+    await page.getByPlaceholder('Search coin...').fill('BNB');
+    await page.getByRole('option', { name: 'BNB', exact: true }).click();
+
+    // Fill target price
+    await page.getByLabel('Target price', { exact: true }).fill('999999');
+
+    // Create alert
+    await page.getByRole('button', { name: 'Create alert', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'New alert', exact: true })).not.toBeVisible({
+      timeout: 10000,
     });
-    expect(createRes.ok()).toBe(true);
-    const { alert } = await createRes.json();
 
-    await page.goto('/alerts');
-    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible({ timeout: 15000 });
+    await page.mouse.move(0, 0);
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15000 });
 
-    // Scope every interaction to this test's own alert: sibling tests in
-    // other workers create and delete alerts on the same user concurrently,
-    // so "the first item" can change between the click and the assertion.
-    const alertItem = page.getByTestId(`alert-item-${alert._id}`);
-    await expect(alertItem).toBeVisible({ timeout: 15000 });
+    const conditionText = 'BNB at or above $999,999';
+    const table = page.getByRole('table');
+    const alertRow = table.locator('tr').filter({ hasText: conditionText });
 
-    // Pause this alert
-    await alertItem.getByTitle('Pause').click();
+    try {
+      // Appears in list with plain-language condition and active status
+      await expect(alertRow).toBeVisible({ timeout: 10000 });
+      await expect(alertRow.getByText('Active', { exact: true })).toBeVisible();
 
-    // Wait for UI to reflect paused state (PATCH + refetch + re-render)
-    await expect(alertItem.getByTitle('Resume')).toBeVisible({ timeout: 15000 });
+      // Pause changes its status to Paused
+      await alertRow.getByRole('button', { name: 'Pause', exact: true }).click();
+      await expect(alertRow.getByText('Paused', { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(alertRow.getByRole('button', { name: 'Resume', exact: true })).toBeVisible({
+        timeout: 10000,
+      });
 
-    // Resume the alert
-    await alertItem.getByTitle('Resume').click();
+      // Resume changes its status back to Active
+      await alertRow.getByRole('button', { name: 'Resume', exact: true }).click();
+      await expect(alertRow.getByText('Active', { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(alertRow.getByRole('button', { name: 'Pause', exact: true })).toBeVisible({
+        timeout: 10000,
+      });
 
-    // Wait for UI to reflect active state again
-    await expect(alertItem.getByTitle('Pause')).toBeVisible({ timeout: 15000 });
-  });
+      // Delete removes it after confirmation, leaving the test user as found
+      await alertRow.getByRole('button', { name: 'Delete', exact: true }).click();
+      const deleteDialog = page.getByRole('dialog', { name: 'Delete alert' });
+      await expect(deleteDialog).toBeVisible({ timeout: 10000 });
 
-  test('deletes an alert', async ({ page, baseURL }) => {
-    // Create the alert this test deletes via API, so it never removes an
-    // alert a sibling test in another worker is acting on
-    const createRes = await page.request.post(`${baseURL}/api/alerts`, {
-      data: {
-        type: 'price_above',
-        symbol: 'SOLUSDT',
-        targetPrice: 777777,
-      },
-    });
-    expect(createRes.ok()).toBe(true);
-    const { alert } = await createRes.json();
+      await deleteDialog.getByRole('button', { name: 'Delete', exact: true }).click();
+      await expect(deleteDialog).not.toBeVisible({ timeout: 10000 });
 
-    await page.goto('/alerts');
-    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible({ timeout: 15000 });
-
-    const alertItem = page.getByTestId(`alert-item-${alert._id}`);
-    await expect(alertItem).toBeVisible({ timeout: 15000 });
-
-    // Click delete button on this alert
-    await alertItem.getByTitle('Delete').click();
-
-    // Confirm deletion in the visible dialog
-    await expect(page.getByText('Are you sure you want to delete')).toBeVisible();
-    // The AlertDialogAction is the only "Delete" button inside the visible dialog content
-    await page
-      .locator('[role="alertdialog"]')
-      .filter({ hasText: 'Are you sure' })
-      .getByRole('button', { name: 'Delete' })
-      .click();
-
-    // Wait for this alert item to be removed after React Query refetch
-    await expect(alertItem).toHaveCount(0, { timeout: 15000 });
+      await expect(alertRow).toHaveCount(0, { timeout: 10000 });
+    } catch (err) {
+      // Fallback cleanup
+      try {
+        if (await alertRow.isVisible()) {
+          await alertRow.getByRole('button', { name: 'Delete', exact: true }).click();
+          const deleteDialog = page.getByRole('dialog', { name: 'Delete alert' });
+          if (await deleteDialog.isVisible()) {
+            await deleteDialog.getByRole('button', { name: 'Delete', exact: true }).click();
+          }
+        }
+      } catch {
+        // Safe cleanup fallback
+      }
+      throw err;
+    }
   });
 
   test('notification bell is visible in header', async ({ page }) => {
     await page.goto('/dashboard');
 
-    await expect(
-      page.getByRole('button', { name: 'Alerts' })
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Alerts', exact: true })).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test('notification bell opens popover', async ({ page }) => {
     await page.goto('/dashboard');
 
-    await page.getByRole('button', { name: 'Alerts' }).click();
+    await page.getByRole('button', { name: 'Alerts', exact: true }).click();
 
     // Popover should show triggered alerts section and All alerts link
     await expect(
       page.getByRole('dialog').getByText('Triggered alerts', { exact: true }).first()
     ).toBeVisible({ timeout: 10000 });
-    await expect(
-      page.getByRole('link', { name: 'All alerts' })
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('link', { name: 'All alerts', exact: true })).toBeVisible({
+      timeout: 10000,
+    });
   });
 });

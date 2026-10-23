@@ -23,10 +23,14 @@ const nextConfig: NextConfig = {
   // Next 16.4's `next dev` writes an AGENTS.md of AI-agent rules into the repo root on every run;
   // the project keeps its agent instructions elsewhere and adds no standalone Markdown docs.
   agentRules: false,
-  // Analytics now lives in Portfolio's Performance tab. A config redirect stays an HTTP redirect;
-  // a page-level redirect() under the dashboard's loading boundaries would become a late client one.
+  // Analytics now lives in Portfolio's Performance tab and Research was renamed Notes. A config
+  // redirect stays an HTTP redirect; a page-level redirect() under the dashboard's loading
+  // boundaries would become a late client one.
   async redirects() {
-    return [{ source: '/analytics', destination: '/portfolio?tab=performance', permanent: false }];
+    return [
+      { source: '/analytics', destination: '/portfolio?tab=performance', permanent: false },
+      { source: '/research', destination: '/notes', permanent: false },
+    ];
   },
   async headers() {
     return [

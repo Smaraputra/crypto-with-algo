@@ -1,44 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import AlertsPage, { metadata } from './page';
 
-vi.mock('@/hooks/useAlerts', () => ({
-  useAlerts: () => ({
-    data: { alerts: [] },
-    isLoading: false,
-  }),
-  useCreateAlert: () => ({ mutate: vi.fn(), isPending: false }),
-  useUpdateAlert: () => ({ mutate: vi.fn() }),
-  useDeleteAlert: () => ({ mutate: vi.fn() }),
-  useAcknowledgeAlert: () => ({ mutate: vi.fn() }),
+vi.mock('@/components/alerts-v2', () => ({
+  AlertsScreen: () => <div data-testid="alerts-screen">Alerts Screen Mock</div>,
 }));
-
-vi.mock('@/hooks/usePortfolio', () => ({
-  usePortfolios: () => ({ data: { portfolios: [] } }),
-  usePortfolio: () => ({ data: undefined }),
-}));
-
-import AlertsPage from './page';
 
 describe('AlertsPage', () => {
-  it('renders heading and create button', () => {
-    render(<AlertsPage />);
-
-    expect(screen.getByText('Alerts')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create alert/i })).toBeInTheDocument();
+  it('has the correct metadata title', () => {
+    expect(metadata.title).toBe('Alerts | CryptoWithAlgo');
   });
 
-  it('renders filter tabs', () => {
+  it('renders AlertsScreen', () => {
     render(<AlertsPage />);
-
-    expect(screen.getByRole('tab', { name: 'All' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Active' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Triggered' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Paused' })).toBeInTheDocument();
-  });
-
-  it('renders empty alert list', () => {
-    render(<AlertsPage />);
-
-    expect(screen.getByTestId('alert-list-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('alerts-screen')).toBeInTheDocument();
   });
 });
