@@ -260,6 +260,7 @@ export const CostInputs: React.FC<CostInputsProps> = ({
           options={SIDE_OPTIONS}
           value={inputs.side}
           onChange={(val) => updateInputs({ side: val as 'long' | 'short' })}
+          className="self-start max-w-full"
         />
       </div>
 
@@ -313,12 +314,15 @@ export const CostInputs: React.FC<CostInputsProps> = ({
             Presets or custom
           </span>
         </div>
-        <SegmentedControl
-          legend="Hold duration presets"
-          options={HOLD_OPTIONS}
-          value={String(inputs.holdMinutes)}
-          onChange={(val) => updateInputs({ holdMinutes: Number(val) })}
-        />
+        <div className="overflow-x-auto max-w-full">
+          <SegmentedControl
+            legend="Hold duration presets"
+            options={HOLD_OPTIONS}
+            value={String(inputs.holdMinutes)}
+            onChange={(val) => updateInputs({ holdMinutes: Number(val) })}
+            className="self-start max-w-full"
+          />
+        </div>
 
         <NumberField
           id="cost-hold-custom-input"
@@ -355,6 +359,7 @@ export const CostInputs: React.FC<CostInputsProps> = ({
             options={ORDER_KIND_OPTIONS}
             value={inputs.entry}
             onChange={(val) => updateInputs({ entry: val as FillKind })}
+            className="self-start max-w-full"
           />
         </div>
 
@@ -366,6 +371,7 @@ export const CostInputs: React.FC<CostInputsProps> = ({
             options={ORDER_KIND_OPTIONS}
             value={inputs.exit}
             onChange={(val) => updateInputs({ exit: val as FillKind })}
+            className="self-start max-w-full"
           />
         </div>
 
@@ -377,6 +383,7 @@ export const CostInputs: React.FC<CostInputsProps> = ({
             options={FEE_TIER_OPTIONS}
             value={inputs.feeTier}
             onChange={(val) => updateInputs({ feeTier: val as CostFeeTier })}
+            className="self-start max-w-full"
           />
         </div>
 

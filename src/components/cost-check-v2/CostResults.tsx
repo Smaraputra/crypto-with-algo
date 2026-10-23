@@ -22,6 +22,35 @@ export interface CostResultsProps {
   className?: string;
 }
 
+function formatBps(v: number): string {
+  if (v > 0 && v < 0.01) {
+    return 'under 0.01 bps';
+  }
+  return `${v.toFixed(2)} bps`;
+}
+
+function formatUsd(v: number): string {
+  if (v === 0) {
+    return '$0.00';
+  }
+  const abs = Math.abs(v);
+  if (abs > 0 && abs < 0.005) {
+    return 'under $0.01';
+  }
+  return `$${abs.toFixed(2)}`;
+}
+
+function formatPct(v: number): string {
+  if (v === 0) {
+    return '0.00%';
+  }
+  const abs = Math.abs(v);
+  if (abs > 0 && abs < 0.005) {
+    return 'under 0.01%';
+  }
+  return `${abs.toFixed(2)}%`;
+}
+
 export const CostResults: React.FC<CostResultsProps> = ({
   model,
   marketData,
@@ -54,18 +83,18 @@ export const CostResults: React.FC<CostResultsProps> = ({
   const spreadBps =
     marketData?.slippage.halfSpreadBps !== null &&
     marketData?.slippage.halfSpreadBps !== undefined
-      ? (marketData.slippage.halfSpreadBps * 2).toFixed(1)
+      ? formatBps(marketData.slippage.halfSpreadBps * 2)
       : 'n/a';
 
   let slippageLabel = 'Fallback estimate';
   if (model.slippageForOtherSize) {
     slippageLabel = 'Measured for previous size';
   } else if (model.slippageSource === 'depth') {
-    slippageLabel = `Order book depth (${model.slippageBps} bps)`;
+    slippageLabel = `Order book depth (${formatBps(model.slippageBps)})`;
   } else if (model.slippageSource === 'fallback') {
-    slippageLabel = `Fallback estimate (${model.slippageBps} bps)`;
+    slippageLabel = `Fallback estimate (${formatBps(model.slippageBps)})`;
   } else if (model.slippageSource === 'override') {
-    slippageLabel = `User override (${model.slippageBps} bps)`;
+    slippageLabel = `User override (${formatBps(model.slippageBps)})`;
   }
 
   return (
@@ -108,10 +137,10 @@ export const CostResults: React.FC<CostResultsProps> = ({
             data-testid="focal-round-trip-cost"
             className="text-[56px] font-semibold font-sans tabular-nums leading-none text-foreground tracking-[-0.02em]"
           >
-            ${model.verdictCostUsdt.toFixed(2)}
+            {formatUsd(model.verdictCostUsdt)}
           </span>
           <span className="text-[18px] font-semibold text-muted-foreground font-sans tabular-nums">
-            ({model.verdictCostPercent.toFixed(2)}%)
+            ({formatPct(model.verdictCostPercent)})
           </span>
         </div>
 
@@ -197,9 +226,9 @@ export const CostResults: React.FC<CostResultsProps> = ({
               <>
                 <span className="text-[15px] text-foreground font-semibold">
                   {roundTrip.fundingUsdt > 0
-                    ? `You pay $${roundTrip.fundingUsdt.toFixed(2)}`
+                    ? `You pay ${formatUsd(roundTrip.fundingUsdt)}`
                     : roundTrip.fundingUsdt < 0
-                      ? `You receive $${Math.abs(roundTrip.fundingUsdt).toFixed(2)}, not counted in the cost`
+                      ? `You receive ${formatUsd(roundTrip.fundingUsdt)}, not counted in the cost`
                       : '$0.00'}
                 </span>
                 <span className="text-[13px] text-muted-foreground font-normal">
@@ -215,10 +244,10 @@ export const CostResults: React.FC<CostResultsProps> = ({
           <span className="text-[14px] text-muted-foreground">Trading fees</span>
           <div className="flex items-baseline gap-2 font-sans tabular-nums font-semibold text-right">
             <span className="text-[15px] text-foreground">
-              ${roundTrip.feeUsdt.toFixed(2)}
+              {formatUsd(roundTrip.feeUsdt)}
             </span>
             <span className="text-[13px] text-muted-foreground font-normal">
-              ({roundTrip.feePercent.toFixed(2)}%)
+              ({formatPct(roundTrip.feePercent)})
             </span>
           </div>
         </div>
@@ -234,10 +263,10 @@ export const CostResults: React.FC<CostResultsProps> = ({
           </div>
           <div className="flex items-baseline gap-2 font-sans tabular-nums font-semibold text-right">
             <span className="text-[15px] text-foreground">
-              ${roundTrip.slippageUsdt.toFixed(2)}
+              {formatUsd(roundTrip.slippageUsdt)}
             </span>
             <span className="text-[13px] text-muted-foreground font-normal">
-              ({roundTrip.slippagePercent.toFixed(2)}%)
+              ({formatPct(roundTrip.slippagePercent)})
             </span>
           </div>
         </div>
@@ -247,7 +276,7 @@ export const CostResults: React.FC<CostResultsProps> = ({
           <span className="text-[14px] text-muted-foreground">Market spread</span>
           <span className="text-[15px] font-semibold text-foreground font-sans tabular-nums">
             {spreadBps !== 'n/a' ? (
-              `${spreadBps} bps`
+              spreadBps
             ) : (
               <span className="text-muted-foreground font-normal">n/a</span>
             )}

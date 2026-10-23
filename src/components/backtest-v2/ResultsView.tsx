@@ -33,6 +33,32 @@ const EXIT_REASON_LABELS: Record<ExitReason, string> = {
   epoch_end: 'Epoch end',
 };
 
+const INTERVAL_WORDS: Record<string, string> = {
+  '15m': '15 minutes',
+  '1h': '1 hour',
+  '4h': '4 hours',
+  '1d': '1 day',
+};
+
+function formatChartTick(timeMs: number): string {
+  const d = new Date(timeMs);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function formatChartTooltipLabel(timeMs: number): string {
+  const d = new Date(timeMs);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 function formatCurrency(val: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -161,6 +187,27 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const equityChange = endEquity - startEquity;
   const lineColor = equityChange >= 0 ? chartTheme.up : chartTheme.down;
 
+  const equities = equityCurve.map((p) => p.equity);
+  let yMin = 0;
+  let yMax = 0;
+  if (equities.length > 0) {
+    const minEquity = Math.min(...equities);
+    const maxEquity = Math.max(...equities);
+    if (maxEquity === minEquity) {
+      const pad = (startEquity || minEquity || 10000) * 0.01;
+      yMin = Math.floor(minEquity - pad);
+      yMax = Math.ceil(maxEquity + pad);
+    } else {
+      const range = maxEquity - minEquity;
+      const pad = range * 0.05;
+      yMin = Math.floor(minEquity - pad);
+      yMax = Math.ceil(maxEquity + pad);
+    }
+  }
+
+  const baseAsset = symbol.replace(/USDT$/, '');
+  const intervalLabel = INTERVAL_WORDS[interval] || interval;
+
   // Pagination for trades
   const pageSize = 50;
   const totalPages = Math.max(1, Math.ceil(trades.length / pageSize));
@@ -181,7 +228,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             Results
           </h2>
           <p className="text-[13px] text-muted-foreground font-sans tabular-nums mt-0.5">
-            {symbol} on {interval} • {metrics.totalTrades} trades
+            {baseAsset}, {intervalLabel}, {metrics.totalTrades} trades
           </p>
           {isZeroTrades && (
             <p className="text-[13px] text-muted-foreground mt-1">
@@ -303,7 +350,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             {isZeroTrades ? 'n/a' : metrics.sharpeRatio.toFixed(2)}
           </span>
           <span className="text-[12px] text-muted-foreground">
-            Risk-adjusted return relative to risk-free rate
+            Return per unit of volatility, annualised. No risk-free rate is subtracted.
           </span>
         </div>
 
@@ -388,16 +435,19 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                     </linearGradient>
                   </defs>
                   <XAxis
-                    dataKey="bar"
+                    dataKey="time"
                     tick={{ fill: chartTheme.mutedText, fontSize: 12 }}
                     stroke={chartTheme.grid}
+                    tickFormatter={(v) => formatChartTick(Number(v))}
                   />
                   <YAxis
+                    domain={[yMin, yMax]}
                     tick={{ fill: chartTheme.mutedText, fontSize: 12 }}
                     stroke={chartTheme.grid}
                     tickFormatter={(v) => `$${v.toLocaleString()}`}
                   />
                   <Tooltip
+                    labelFormatter={(label) => formatChartTooltipLabel(Number(label))}
                     contentStyle={{
                       backgroundColor: 'var(--card)',
                       borderColor: 'var(--line)',
@@ -552,8 +602,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                       <td className="py-2.5 px-3 text-foreground whitespace-nowrap">
                         {formatTradeTimestamp(t.exitTime)}
                       </td>
-                      <td className="py-2.5 px-3 font-semibold text-foreground uppercase">
-                        {t.side}
+                      <td className="py-2.5 px-3 font-semibold text-foreground">
+                        {t.side === 'long' ? 'Long' : 'Short'}
                       </td>
                       <td className="py-2.5 px-3 text-right font-sans tabular-nums text-foreground">
                         {formatCurrency(t.entryPrice)}

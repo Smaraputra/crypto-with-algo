@@ -67,7 +67,7 @@ describe('SavedResults', () => {
 
     render(<SavedResults onSelectResult={mockOnSelectResult} />);
 
-    expect(screen.getByText('SOLUSDT 1h')).toBeInTheDocument();
+    expect(screen.getByText('SOL, 1 hour')).toBeInTheDocument();
     expect(screen.getByText('Jan 15, 2026')).toBeInTheDocument();
     expect(screen.getByText('+$450.00 (+4.50%)')).toBeInTheDocument();
     expect(screen.getByText('60.0%')).toBeInTheDocument();
@@ -143,5 +143,21 @@ describe('SavedResults', () => {
     });
 
     global.fetch = originalFetch;
+  });
+
+  it('a saved BTCUSDT 1h row reads "BTC, 1 hour"', () => {
+    const btcFixture: BacktestResultSummary = {
+      ...mockSummaryFixture,
+      symbol: 'BTCUSDT',
+      interval: '1h',
+    };
+    vi.mocked(useBacktestResults).mockReturnValue({
+      data: { results: [btcFixture] },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useBacktestResults>);
+
+    render(<SavedResults onSelectResult={mockOnSelectResult} />);
+    expect(screen.getByText('BTC, 1 hour')).toBeInTheDocument();
   });
 });

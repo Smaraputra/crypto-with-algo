@@ -141,7 +141,10 @@ describe('ResultsView', () => {
     expect(screen.getByText('Gross profits divided by gross losses')).toBeInTheDocument();
 
     expect(screen.getByTestId('metric-sharpe')).toHaveTextContent('1.35');
-    expect(screen.getByText('Risk-adjusted return relative to risk-free rate')).toBeInTheDocument();
+    expect(
+      screen.getByText('Return per unit of volatility, annualised. No risk-free rate is subtracted.')
+    ).toBeInTheDocument();
+    expect(screen.getByText(/No risk-free rate is subtracted/)).toBeInTheDocument();
 
     // Expectancy
     const expectancyElement = screen.getByTestId('metric-expectancy');
@@ -165,6 +168,7 @@ describe('ResultsView', () => {
     // Trades table
     expect(screen.getByText('Take profit')).toBeInTheDocument();
     expect(screen.getByText('+$300.00 (+2.86%)')).toBeInTheDocument();
+    expect(screen.getByText('Long')).toBeInTheDocument();
   });
 
   it('Saving a result sends a schema-valid payload', () => {
@@ -253,5 +257,20 @@ describe('ResultsView', () => {
 
     expect(screen.queryByRole('button', { name: 'Save this result' })).not.toBeInTheDocument();
     expect(screen.getByText('Saved result')).toBeInTheDocument();
+  });
+
+  it('renders summary "BTC, 1 hour, 16 trades" for a 16-trade BTCUSDT 1h fixture', () => {
+    const fixture16: BacktestResult = {
+      ...mockResultFixture,
+      symbol: 'BTCUSDT',
+      interval: '1h',
+      metrics: {
+        ...mockResultFixture.metrics,
+        totalTrades: 16,
+      },
+    };
+
+    render(<ResultsView result={fixture16} />);
+    expect(screen.getByText('BTC, 1 hour, 16 trades')).toBeInTheDocument();
   });
 });

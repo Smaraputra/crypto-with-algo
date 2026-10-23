@@ -28,7 +28,7 @@ test.describe('Notes page (authenticated)', () => {
     });
 
     await page.getByLabel('Title', { exact: true }).fill(initialTitle);
-    await page.getByLabel('Category', { exact: true }).selectOption('strategy');
+    await page.getByTestId('note-editor').getByLabel('Category', { exact: true }).selectOption('strategy');
     await page.getByLabel('Body', { exact: true }).fill('Initial note content for E2E verification.');
 
     await page.getByRole('button', { name: 'Save note', exact: true }).click();

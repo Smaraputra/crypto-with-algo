@@ -13,6 +13,13 @@ export interface SavedResultsProps {
   className?: string;
 }
 
+const INTERVAL_WORDS: Record<string, string> = {
+  '15m': '15 minutes',
+  '1h': '1 hour',
+  '4h': '4 hours',
+  '1d': '1 day',
+};
+
 function formatCurrency(val: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -153,7 +160,7 @@ export const SavedResults: React.FC<SavedResultsProps> = ({
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                   <div>
                     <span className="font-semibold text-[15px] text-foreground">
-                      {item.symbol} {item.interval}
+                      {item.symbol.replace(/USDT$/, '')}, {INTERVAL_WORDS[item.interval] || item.interval}
                     </span>
                     <span className="text-[13px] text-muted-foreground ml-2 font-sans tabular-nums">
                       {createdDate}

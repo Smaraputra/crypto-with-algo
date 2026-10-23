@@ -52,7 +52,7 @@ describe('CostResults', () => {
     expect(screen.getByTestId('cost-verdict-label')).toHaveTextContent('Costs dominate');
     expect(screen.getByText('0.12%')).toBeInTheDocument();
     expect(screen.getByText(/65\.0% win rate needed/)).toBeInTheDocument();
-    expect(screen.getByText('0.2 bps')).toBeInTheDocument();
+    expect(screen.getByText('0.20 bps')).toBeInTheDocument();
 
     expect(container.textContent).not.toMatch(/\bbuy\b|\bsell\b|safe|recommend/i);
   });
@@ -254,5 +254,64 @@ describe('CostResults', () => {
     );
 
     expect(screen.getAllByText('Measured for previous size').length).toBeGreaterThan(0);
+  });
+
+  it('renders "under 0.01 bps" when model slippageBps is 0.0061', () => {
+    const market = createMarketFixture({
+      slippage: { bps: 0.0061, source: 'depth', halfSpreadBps: 0.1, exceedsTopOfBook: false },
+    });
+    const model = computeCostCheck(DEFAULT_INPUTS, market, NOW);
+    render(
+      <CostResults
+        model={model}
+        marketData={market}
+        marketProblem={null}
+        marketLoading={false}
+        marketFetching={false}
+        retryMarket={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/under 0\.01 bps/)).toBeInTheDocument();
+  });
+
+  it('renders "1.20 bps" when spread halfSpreadBps is 0.6', () => {
+    const market = createMarketFixture({
+      slippage: { bps: 1, source: 'depth', halfSpreadBps: 0.6, exceedsTopOfBook: false },
+    });
+    const model = computeCostCheck(DEFAULT_INPUTS, market, NOW);
+    render(
+      <CostResults
+        model={model}
+        marketData={market}
+        marketProblem={null}
+        marketLoading={false}
+        marketFetching={false}
+        retryMarket={vi.fn()}
+      />
+    );
+    expect(screen.getByText('1.20 bps')).toBeInTheDocument();
+  });
+
+  it('renders "under $0.01" when slippage is $0.003', () => {
+    const market = createMarketFixture();
+    const model = computeCostCheck(DEFAULT_INPUTS, market, NOW);
+    const customModel = {
+      ...model,
+      roundTrip: {
+        ...model.roundTrip,
+        slippageUsdt: 0.003,
+      },
+    };
+    render(
+      <CostResults
+        model={customModel}
+        marketData={market}
+        marketProblem={null}
+        marketLoading={false}
+        marketFetching={false}
+        retryMarket={vi.fn()}
+      />
+    );
+    expect(screen.getByText('under $0.01')).toBeInTheDocument();
   });
 });
