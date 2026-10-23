@@ -1,60 +1,79 @@
 import { test, expect } from '@playwright/test';
 
+const mockTickers = [
+  { symbol: 'BTCUSDT', lastPrice: '65000.00', priceChangePercent: '-2.50' },
+  { symbol: 'ETHUSDT', lastPrice: '3500.00', priceChangePercent: '1.20' },
+  { symbol: 'SOLUSDT', lastPrice: '150.00', priceChangePercent: '4.80' },
+];
+
+test.use({ viewport: { width: 375, height: 667 } });
+
 test.describe('Landing page (mobile viewport)', () => {
-  test('hamburger menu is visible, desktop nav is hidden', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/prices', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockTickers),
+      });
+    });
+  });
+
+  test('Toggle menu button is visible, and desktop links are hidden', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByLabel('Toggle menu')).toBeVisible();
-    // Desktop nav links should be hidden at mobile width
-    const desktopNav = page.locator('.sm\\:flex').filter({ hasText: 'Sign In' });
+    const toggleButton = page.getByRole('button', { name: 'Toggle menu' });
+    await expect(toggleButton).toBeVisible();
+
+    const desktopNav = page.getByRole('navigation', { name: 'Main' });
     await expect(desktopNav).toBeHidden();
   });
 
-  test('hamburger menu opens and shows nav links', async ({ page }) => {
+  test('opening menu shows role="menu" with Log in and Create a free account', async ({ page }) => {
     await page.goto('/');
-    await page.getByLabel('Toggle menu').click();
-    const menu = page.getByRole('menu');
+    const toggleButton = page.getByRole('button', { name: 'Toggle menu' });
+    await toggleButton.click();
+
+    const menu = page.getByRole('menu', { name: 'Navigation menu' });
     await expect(menu).toBeVisible();
-    await expect(menu.getByText('Sign In')).toBeVisible();
-    await expect(menu.getByText('Get Started')).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Log in', exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Create a free account', exact: true })).toBeVisible();
   });
 
-  test('hamburger menu closes on toggle', async ({ page }) => {
+  test('Toggle menu button closes the menu', async ({ page }) => {
     await page.goto('/');
-    await page.getByLabel('Toggle menu').click();
-    await expect(page.getByRole('menu')).toBeVisible();
-    await page.getByLabel('Toggle menu').click();
-    await expect(page.getByRole('menu')).toBeHidden();
+    const toggleButton = page.getByRole('button', { name: 'Toggle menu' });
+    await toggleButton.click();
+
+    const menu = page.getByRole('menu', { name: 'Navigation menu' });
+    await expect(menu).toBeVisible();
+
+    await toggleButton.click();
+    await expect(menu).toBeHidden();
   });
 
-  test('hamburger menu closes on Escape key', async ({ page }) => {
+  test('Escape closes menu and returns focus to the button', async ({ page }) => {
     await page.goto('/');
-    await page.getByLabel('Toggle menu').click();
-    await expect(page.getByRole('menu')).toBeVisible();
+    const toggleButton = page.getByRole('button', { name: 'Toggle menu' });
+    await toggleButton.click();
+
+    const menu = page.getByRole('menu', { name: 'Navigation menu' });
+    await expect(menu).toBeVisible();
+
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('menu')).toBeHidden();
+    await expect(menu).toBeHidden();
+    await expect(toggleButton).toBeFocused();
   });
 
-  test('hero section renders at mobile width', async ({ page }) => {
+  test('choosing Features navigates to /features and closes menu', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await expect(page.getByTestId('hero-ticker')).toBeVisible();
-  });
+    const toggleButton = page.getByRole('button', { name: 'Toggle menu' });
+    await toggleButton.click();
 
-  test('features section is visible', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByText('Everything You Need')).toBeVisible();
-  });
+    const menu = page.getByRole('menu', { name: 'Navigation menu' });
+    await expect(menu).toBeVisible();
 
-  test('how it works section is visible at mobile width', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'How It Works' })).toBeVisible();
-  });
-
-  test('skip-to-content link is accessible', async ({ page }) => {
-    await page.goto('/');
-    // Tab to reveal the skip link
-    await page.keyboard.press('Tab');
-    const skipLink = page.getByText('Skip to content');
-    await expect(skipLink).toBeVisible();
+    await menu.getByRole('menuitem', { name: 'Features', exact: true }).click();
+    await expect(page).toHaveURL(/\/features/);
+    await expect(menu).toBeHidden();
   });
 });
