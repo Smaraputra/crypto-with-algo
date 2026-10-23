@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import type { Symbol } from '@/types/market';
 
 export interface MockHistoryOptions {
   fail?: boolean;
@@ -353,3 +354,24 @@ export async function mockLab(
     });
   });
 }
+
+export const DEFAULT_MOCK_SYMBOLS: Symbol[] = [
+  { symbol: 'BTCUSDT', baseAsset: 'BTC', quoteAsset: 'USDT' },
+  { symbol: 'ETHUSDT', baseAsset: 'ETH', quoteAsset: 'USDT' },
+  { symbol: 'SOLUSDT', baseAsset: 'SOL', quoteAsset: 'USDT' },
+  { symbol: 'BNBUSDT', baseAsset: 'BNB', quoteAsset: 'USDT' },
+];
+
+export async function mockSymbols(
+  page: Page,
+  symbols: Symbol[] = DEFAULT_MOCK_SYMBOLS
+): Promise<void> {
+  await page.route('**/api/symbols*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(symbols),
+    });
+  });
+}
+

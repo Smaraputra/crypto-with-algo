@@ -6,6 +6,7 @@ import {
   fakeEventSourceUrls,
   tickerFrame,
   klineFrame,
+  mockSymbols,
 } from './helpers/live-data';
 
 test.describe('Live data and chart controls (authenticated)', () => {
@@ -81,13 +82,18 @@ test.describe('Live data and chart controls (authenticated)', () => {
 
   test('symbol switch to ETH in watchlist streams ethusdt klines', async ({ page }) => {
     await mockHistory(page);
+    await mockSymbols(page);
     const streamUrls = await mockStream(page);
 
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    const ethButton = page.getByRole('button').filter({ hasText: /^ETH/ }).first();
-    await ethButton.click();
+    await page.getByRole('button', { name: 'Search coins' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Search coins' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByText('ETH', { exact: true }).click();
+
+    await expect(page).toHaveURL('/focus?symbol=ETHUSDT', { timeout: 10000 });
 
     await expect
       .poll(() => streamUrls.some((url) => url.includes('ethusdt@kline_')), { timeout: 10000 })

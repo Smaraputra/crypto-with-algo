@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { mockSymbols } from './helpers/live-data';
 
 test.describe('Focus page (authenticated)', () => {
   test('navigates to focus page via coin search palette', async ({ page }) => {
+    await mockSymbols(page);
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 

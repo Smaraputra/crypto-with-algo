@@ -24,7 +24,7 @@ export function ToolsMenu() {
           type="button"
           data-active={active ? 'true' : undefined}
           className={cn(
-            'relative inline-flex min-h-[44px] items-center px-3.5 font-semibold transition-colors duration-120 select-none rounded-[10px]',
+            'relative inline-flex min-h-[44px] items-center px-3 xl:px-3.5 font-semibold whitespace-nowrap transition-colors duration-120 select-none rounded-[10px]',
             'active:scale-[0.98] motion-reduce:active:scale-100',
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
             'text-ink-2 hover:bg-muted hover:text-foreground data-[active]:text-foreground'
@@ -34,7 +34,7 @@ export function ToolsMenu() {
           {active && (
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-3.5 bottom-1 h-[3px] rounded-xs bg-brand-line"
+              className="pointer-events-none absolute inset-x-3 xl:inset-x-3.5 bottom-1 h-[3px] rounded-xs bg-brand-line"
             />
           )}
         </button>

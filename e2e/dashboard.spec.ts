@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockSymbols } from './helpers/live-data';
 
 test.describe('Dashboard features (authenticated)', () => {
   test('market overview section renders price cards or loading state', async ({ page }) => {
@@ -37,17 +38,23 @@ test.describe('Dashboard features (authenticated)', () => {
     await expect(page.getByRole('tab', { name: '1D' })).toBeVisible();
   });
 
-  test('watchlist shows default symbols', async ({ page }) => {
+  test('the default watchlist shows in the palette', async ({ page }) => {
+    await mockSymbols(page);
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    // Default watchlist symbols are BTC, ETH, SOL (from Watchlist model defaults)
-    // They display as "BTC", "ETH", "SOL" (with USDT stripped in the UI)
-    await expect(page.getByText('BTC').first()).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('ETH').first()).toBeVisible();
-    await expect(page.getByText('SOL').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Search coins' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Search coins' });
+    await expect(dialog).toBeVisible();
+
+    for (const asset of ['BTC', 'ETH', 'SOL']) {
+      const row = dialog.getByRole('option').filter({ hasText: asset });
+      await expect(row.getByRole('button', { name: 'Remove from watchlist' })).toBeVisible();
+    }
   });
 
   test('coin search palette toggle adds and removes symbol from watchlist', async ({ page }) => {
+    await mockSymbols(page);
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 

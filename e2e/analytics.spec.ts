@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Analytics page (authenticated)', () => {
   test('Tools menu shows Analytics nav link', async ({ page }) => {
     await page.goto('/dashboard');
-    await page.getByRole('button', { name: 'Tools' }).click();
+    await page.getByRole('navigation', { name: 'Desktop primary' }).getByRole('button', { name: 'Tools' }).click();
     await expect(page.getByRole('menuitem', { name: 'Analytics' })).toBeVisible();
   });
 
@@ -11,7 +11,7 @@ test.describe('Analytics page (authenticated)', () => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    await page.getByRole('button', { name: 'Tools' }).click();
+    await page.getByRole('navigation', { name: 'Desktop primary' }).getByRole('button', { name: 'Tools' }).click();
     await page.getByRole('menuitem', { name: 'Analytics' }).click();
 
     await expect(page).toHaveURL('/analytics', { timeout: 10000 });

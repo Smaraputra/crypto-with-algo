@@ -17,7 +17,7 @@ export function NavPendingIndicator({ active }: { active: boolean }) {
       data-testid="nav-pending-indicator"
       aria-hidden="true"
       className={cn(
-        'pointer-events-none absolute inset-x-3.5 bottom-1 h-[3px] rounded-xs transition-colors duration-120',
+        'pointer-events-none absolute inset-x-3 xl:inset-x-3.5 bottom-1 h-[3px] rounded-xs transition-colors duration-120',
         active && !pending && 'bg-brand-line',
         pending && 'bg-muted overflow-hidden motion-reduce:bg-transparent',
         !active && !pending && 'bg-transparent'
@@ -58,7 +58,7 @@ export function NavLink({
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
       className={cn(
-        'relative inline-flex min-h-[44px] items-center px-3.5 font-semibold transition-colors duration-120 select-none rounded-[10px]',
+        'relative inline-flex min-h-[44px] items-center px-3 xl:px-3.5 font-semibold whitespace-nowrap transition-colors duration-120 select-none rounded-[10px]',
         'active:scale-[0.98] motion-reduce:active:scale-100',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
         active ? 'text-foreground' : 'text-ink-2 hover:bg-muted hover:text-foreground',

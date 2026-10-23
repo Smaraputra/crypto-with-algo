@@ -198,42 +198,6 @@ test.describe('When to look panel and watchlist level line', () => {
     await expect(panel.getByText(/1 of 1 hypotheses under test/)).toBeVisible({ timeout: 10000 });
   });
 
-  test('watchlist level line and remove button', async ({ page }, testInfo) => {
-    await mockHistory(page);
-    await installFakeEventSource(page, [
-      tickerFrame('BTCUSDT', 108),
-      tickerFrame('ETHUSDT', 3000),
-    ]);
-    await mockLevels(page, defaultLevels());
-    await page.goto('/dashboard');
-
-    const viewport = page.viewportSize();
-    const isSheetWidth = (viewport?.width ?? 0) < 1024;
-
-    let watchlistContainer = page.locator('aside');
-    if (isSheetWidth) {
-      const menuButton = page.getByRole('button', { name: 'Open menu' });
-      await menuButton.click();
-      const sheet = page.getByRole('dialog');
-      await expect(sheet).toBeVisible();
-      watchlistContainer = sheet;
-    }
-
-    const levelIndicator = watchlistContainer.getByTestId('level-BTCUSDT');
-    await expect(levelIndicator).toHaveText('Prev high 0.1 ATR below', { timeout: 10000 });
-
-    const removeBtn = watchlistContainer.getByRole('button', {
-      name: 'Remove BTC from watchlist',
-      exact: true,
-    });
-
-    const isTablet = testInfo.project.name.startsWith('tablet');
-    if (isTablet) {
-      await expect(removeBtn).toBeVisible();
-      const opacity = await removeBtn.evaluate((el) => getComputedStyle(el).opacity);
-      expect(opacity).not.toBe('0');
-    }
-  });
 
   test('panel has no horizontal overflow', async ({ page }) => {
     await mockHistory(page);

@@ -18,7 +18,7 @@ test.describe('Research page (authenticated)', () => {
 
   test('Tools menu has Notes link', async ({ page }) => {
     await page.goto('/dashboard');
-    await page.getByRole('button', { name: 'Tools' }).click();
+    await page.getByRole('navigation', { name: 'Desktop primary' }).getByRole('button', { name: 'Tools' }).click();
     await expect(page.getByRole('menuitem', { name: 'Notes' })).toBeVisible({ timeout: 10000 });
   });
 });

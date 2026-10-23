@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { mockHistory, mockStream, installFakeEventSource } from './helpers/live-data';
+import { mockHistory, mockStream, installFakeEventSource, mockSymbols } from './helpers/live-data';
 
 test.describe('Live data tablet layout and interactions', () => {
   test('More sheet opens and closes on Escape, or coin search palette toggles watchlist', async ({
     page,
   }) => {
     await mockHistory(page);
+    await mockSymbols(page);
     await mockStream(page);
 
     await page.goto('/dashboard');

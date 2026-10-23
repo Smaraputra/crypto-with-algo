@@ -88,8 +88,10 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
         <button
           type="button"
           onClick={() => setOpen(true)}
+          aria-label="Search coins"
           className={cn(
-            'inline-flex min-h-[44px] items-center gap-3 rounded-[10px] border border-edge px-3.5 text-sm font-medium text-ink-2 select-none',
+            'inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-0 rounded-[10px] border border-edge px-0 text-sm font-medium text-ink-2 select-none',
+            'xl:justify-start xl:gap-3 xl:px-3.5',
             'transition-colors duration-120 hover:bg-muted hover:text-foreground',
             'active:scale-[0.98] motion-reduce:active:scale-100',
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
@@ -97,8 +99,8 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
           )}
         >
           <Search className="size-4 shrink-0 text-ink-2" />
-          <span>Search coins</span>
-          <kbd className="pointer-events-none rounded border border-edge bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-ink-2">
+          <span className="hidden xl:inline">Search coins</span>
+          <kbd className="pointer-events-none hidden rounded border border-edge bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-ink-2 xl:inline-block">
             {isMac ? '⌘K' : 'Ctrl K'}
           </kbd>
         </button>

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockSymbols } from './helpers/live-data';
 
 test.describe('Dashboard layout (authenticated)', () => {
   test('top bar shows product name link to /dashboard', async ({ page }) => {
@@ -26,6 +27,7 @@ test.describe('Dashboard layout (authenticated)', () => {
   });
 
   test('coin search palette toggle changes watchlist state for a coin', async ({ page }) => {
+    await mockSymbols(page);
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
