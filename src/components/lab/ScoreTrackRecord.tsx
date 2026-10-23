@@ -241,7 +241,7 @@ export const ScoreTrackRecord: React.FC<ScoreTrackRecordProps> = ({ className })
               </p>
 
               <p className="text-[14px] text-muted-foreground leading-relaxed font-sans tabular-nums">
-                {`All ten coins, same timeframe: ${data.cell.pooled.verdict}. Right ${formatPercent(
+                {`All ten coins, same timeframe: ${data.cell.pooled.verdict.toLowerCase()}. Right ${formatPercent(
                   data.cell.pooled.bh
                 )} (${formatPercent(data.cell.pooled.bhLo)} to ${formatPercent(
                   data.cell.pooled.bhHi

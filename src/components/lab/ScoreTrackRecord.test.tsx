@@ -305,7 +305,7 @@ describe('ScoreTrackRecord', () => {
     render(<ScoreTrackRecord />);
     expect(screen.getByText(/1,520 calls from 1 Oct 2024 to 1 Oct 2025\./)).toBeInTheDocument();
     expect(
-      screen.getByText(/All ten coins, same timeframe: No edge after costs\. Right 48\.5% \(46\.1% to 50\.9%\)\./)
+      screen.getByText(/All ten coins, same timeframe: no edge after costs\. Right 48\.5% \(46\.1% to 50\.9%\)\./)
     ).toBeInTheDocument();
   });
 
