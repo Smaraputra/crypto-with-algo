@@ -207,7 +207,13 @@ describe('PortfolioSummary', () => {
     render(<PortfolioSummary holdings={mockHoldings} />);
 
     const pnlEl = screen.getByTestId('unrealized-pnl');
-    expect(pnlEl).toHaveTextContent('+$0.00 (+0.00%)');
+    expect(pnlEl).toHaveTextContent('$0.00 (0.00%)');
     expect(pnlEl).toHaveClass('text-muted-foreground');
+  });
+
+  it('does not render summary block when holdings is empty', () => {
+    const { container } = render(<PortfolioSummary holdings={[]} />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByTestId('portfolio-summary')).not.toBeInTheDocument();
   });
 });

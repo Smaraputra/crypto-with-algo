@@ -1,105 +1,118 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Portfolio (authenticated)', () => {
-  test('top bar portfolio link navigates to /portfolio', async ({ page }) => {
+  test('top bar portfolio link navigates to /portfolio and shows heading and View control', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market', exact: true })).toBeVisible({ timeout: 15000 });
 
-    const topBar = page.getByRole('navigation', { name: 'Desktop primary' });
-    await topBar.getByRole('link', { name: 'Portfolio' }).click();
+    const topBar = page.getByRole('navigation', { name: 'Desktop primary', exact: true });
+    await topBar.getByRole('link', { name: 'Portfolio', exact: true }).click();
 
     await expect(page).toHaveURL('/portfolio', { timeout: 10000 });
-    await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible();
+
+    // View control offers Holdings and Performance
+    await expect(page.getByRole('radio', { name: 'Holdings', exact: true })).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Performance', exact: true })).toBeVisible();
   });
 
-  test('portfolio page renders heading and selector', async ({ page }) => {
-    await page.goto('/portfolio');
-    await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible({ timeout: 10000 });
+  test('empty state offers "New portfolio" when user has no portfolios', async ({ page }) => {
+    await page.route('**/api/portfolio', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ portfolios: [] }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
 
-    // Portfolio selector trigger should be present
-    const selectorTrigger = page.getByTestId('portfolio-selector-trigger');
-    await expect(selectorTrigger).toBeVisible();
+    await page.goto('/portfolio');
+    await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Create your first portfolio to track holdings.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'New portfolio', exact: true })).toBeVisible();
   });
 
-  test('default portfolio "My Portfolio" is auto-created', async ({ page }) => {
+  test('create portfolio, add holding, record trade, remove holding, and delete portfolio', async ({ page }) => {
     await page.goto('/portfolio');
-    await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Portfolio', exact: true })).toBeVisible({ timeout: 15000 });
 
-    // The selector trigger should show "My Portfolio"
-    const selectorTrigger = page.getByTestId('portfolio-selector-trigger');
-    await expect(selectorTrigger).toContainText('My Portfolio');
-  });
+    const testPortfolioName = `E2E ${Date.now()}`;
 
-  test('add holding button opens form dialog', async ({ page }) => {
-    await page.goto('/portfolio');
-    await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible({ timeout: 10000 });
+    // Open "New portfolio" dialog
+    const emptyNewBtn = page.getByRole('button', { name: 'New portfolio', exact: true });
+    if (await emptyNewBtn.isVisible()) {
+      await emptyNewBtn.click();
+    } else {
+      await page.getByRole('button', { name: 'Manage', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'New portfolio', exact: true }).click();
+    }
 
-    const addBtn = page.getByTestId('add-holding-btn');
-    await expect(addBtn).toBeVisible();
-    await addBtn.click();
+    // Create portfolio dialog
+    await expect(page.getByRole('heading', { name: 'New portfolio', exact: true })).toBeVisible();
+    await page.getByLabel('Portfolio name', { exact: true }).fill(testPortfolioName);
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'New portfolio', exact: true })).not.toBeVisible({ timeout: 10000 });
 
-    // Dialog should show "Add Holding" title (use heading role to avoid matching the button text)
-    await expect(page.getByRole('heading', { name: 'Add Holding' })).toBeVisible();
-    // Form fields should be visible
-    await expect(page.getByLabel('Symbol')).toBeVisible();
-    await expect(page.getByLabel('Quantity')).toBeVisible();
-    await expect(page.getByLabel('Price')).toBeVisible();
-  });
+    const portfolioSelect = page.getByLabel('Portfolio', { exact: true });
+    await expect(portfolioSelect.locator('option:checked')).toHaveText(testPortfolioName, { timeout: 10000 });
 
-  test('submit add holding form creates holding', async ({ page }) => {
-    await page.goto('/portfolio');
-    await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible({ timeout: 10000 });
+    try {
+      // Add a holding through the "Add a holding" sheet (BNB, quantity 1, price 100)
+      await page.getByRole('button', { name: 'Add a holding', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Add a holding', exact: true })).toBeVisible();
 
-    // Open the form
-    await page.getByTestId('add-holding-btn').click();
-    await expect(page.getByRole('heading', { name: 'Add Holding' })).toBeVisible();
+      // Searchable combobox: pick BNB by typing "BNB"
+      await page.getByRole('combobox', { name: 'Coin', exact: true }).click();
+      await page.getByPlaceholder('Search coin...').fill('BNB');
+      await page.getByRole('option', { name: 'BNB', exact: true }).click();
 
-    // Fill in the form
-    await page.getByLabel('Symbol').fill('BTCUSDT');
-    await page.getByLabel('Base').fill('BTC');
-    await page.getByLabel('Quantity').fill('0.1');
-    await page.getByLabel('Price').fill('40000');
+      // Fill quantity and buy price
+      await page.getByLabel('Quantity', { exact: true }).fill('1');
+      await page.getByLabel('Buy price', { exact: true }).fill('100');
 
-    // Submit -- use the dialog's submit button specifically
-    const dialog = page.locator('[data-slot="dialog-content"]');
-    await dialog.getByRole('button', { name: 'Add' }).click();
+      await page.getByRole('button', { name: 'Save trade', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Add a holding', exact: true })).not.toBeVisible({ timeout: 10000 });
 
-    // Wait for dialog to close and holding to appear in the table or cards
-    await expect(page.getByRole('heading', { name: 'Add Holding' })).not.toBeVisible({ timeout: 10000 });
+      // Confirm holding appears in table
+      const bnbLink = page.getByRole('link', { name: 'BNB', exact: true }).first();
+      await expect(bnbLink).toBeVisible({ timeout: 10000 });
 
-    // The holding should appear (either in table or card depending on viewport)
-    await expect(page.getByText('BTC').first()).toBeVisible({ timeout: 10000 });
-  });
+      // "Record a trade" opens the sheet
+      await page.getByRole('button', { name: 'Actions for BNB', exact: true }).first().click();
+      await page.getByRole('menuitem', { name: 'Record a trade', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Record a trade', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Record a trade', exact: true })).not.toBeVisible();
 
-  test('portfolio selector allows creating second portfolio', async ({ page }) => {
-    await page.goto('/portfolio');
-    await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible({ timeout: 10000 });
+      // Removing the holding asks for confirmation and removes it
+      await page.getByRole('button', { name: 'Actions for BNB', exact: true }).first().click();
+      await page.getByRole('menuitem', { name: 'Remove holding', exact: true }).click();
 
-    // Open the selector dropdown
-    await page.getByTestId('portfolio-selector-trigger').click();
+      const removeDialog = page.getByRole('dialog', { name: 'Remove holding' });
+      await expect(removeDialog).toBeVisible();
+      await expect(page.getByText('Are you sure you want to remove BNB from this portfolio?')).toBeVisible();
 
-    // Click "Create New Portfolio"
-    const createOption = page.getByText('Create New Portfolio');
-    await expect(createOption).toBeVisible();
-    await createOption.click();
-
-    // Fill in the name and submit
-    const nameInput = page.getByLabel('New portfolio name');
-    await expect(nameInput).toBeVisible();
-    await nameInput.fill('Trading');
-    await page.getByRole('button', { name: 'Add' }).click();
-
-    // Wait for the create form to disappear (mutation succeeded, onSuccess fired)
-    await expect(page.getByLabel('New portfolio name')).not.toBeVisible({ timeout: 10000 });
-
-    // Close the dropdown with Escape since the Radix overlay keeps intercepting clicks
-    await page.keyboard.press('Escape');
-
-    // Wait for dropdown to fully close
-    await expect(page.getByText('Create New Portfolio')).not.toBeVisible({ timeout: 5000 });
-
-    // Reopen to verify the new portfolio appears
-    await page.getByTestId('portfolio-selector-trigger').click();
-    await expect(page.getByText('Trading')).toBeVisible({ timeout: 5000 });
+      await removeDialog.getByRole('button', { name: 'Remove', exact: true }).click();
+      await expect(removeDialog).not.toBeVisible({ timeout: 10000 });
+      await expect(bnbLink).not.toBeVisible();
+    } finally {
+      // Delete the test's own portfolio at the end, so the shared test user is left as found
+      try {
+        const isCurrent = await portfolioSelect.locator('option:checked').textContent().catch(() => null);
+        if (isCurrent === testPortfolioName) {
+          await page.getByRole('button', { name: 'Manage', exact: true }).click();
+          await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+          const deleteDialog = page.getByRole('dialog', { name: 'Delete portfolio' });
+          await expect(deleteDialog).toBeVisible({ timeout: 5000 });
+          await deleteDialog.getByRole('button', { name: 'Delete', exact: true }).click();
+          await expect(deleteDialog).not.toBeVisible({ timeout: 10000 });
+        }
+      } catch {
+        // Safe cleanup fallback
+      }
+    }
   });
 });

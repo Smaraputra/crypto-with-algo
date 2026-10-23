@@ -36,7 +36,7 @@ describe('ToolsMenu', () => {
     expect(trigger).not.toHaveAttribute('aria-current');
   });
 
-  it('opening it shows Cost Check and Backtest with the right hrefs, then the interim Notes (/research) and Analytics items', () => {
+  it('opening it shows Cost Check and Backtest with the right hrefs, then the interim Notes (/research) item and no Analytics item', () => {
     render(<ToolsMenu />);
     const trigger = screen.getByRole('button', { name: /tools/i });
     fireEvent.pointerDown(trigger, { button: 0 });
@@ -56,9 +56,7 @@ describe('ToolsMenu', () => {
     expect(notes).toBeInTheDocument();
     expect(notes).toHaveAttribute('href', '/research');
 
-    const analytics = screen.getByRole('menuitem', { name: 'Analytics' });
-    expect(analytics).toBeInTheDocument();
-    expect(analytics).toHaveAttribute('href', '/analytics');
+    expect(screen.queryByRole('menuitem', { name: 'Analytics' })).not.toBeInTheDocument();
   });
 
   it('menu item link for current page has aria-current="page"', () => {

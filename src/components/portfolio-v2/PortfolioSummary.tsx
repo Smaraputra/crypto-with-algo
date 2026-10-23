@@ -79,6 +79,10 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
   const formattedValue = formatCurrency(totalValue);
   const formattedCost = formatCurrency(totalCost);
 
+  if (holdings.length === 0) {
+    return null;
+  }
+
   let formattedPnl: string;
   let formattedPercent: string;
   if (pnlDirection === 'up') {
@@ -88,8 +92,8 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
     formattedPnl = `-${formatCurrency(Math.abs(unrealizedPnl))}`;
     formattedPercent = `-${Math.abs(unrealizedPnlPercent).toFixed(2)}%`;
   } else {
-    formattedPnl = `+${formatCurrency(0)}`;
-    formattedPercent = '+0.00%';
+    formattedPnl = formatCurrency(0);
+    formattedPercent = '0.00%';
   }
 
   return (

@@ -14,6 +14,21 @@ import { Button } from '@/components/ui/button';
 import { SegmentedControl } from '@/components/kit/SegmentedControl';
 import { useSymbols } from '@/hooks/useSymbols';
 import { useAddHolding, useRecordTransaction } from '@/hooks/usePortfolio';
+import { ChevronsUpDown } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import { cn } from '@/lib/utils';
 import type { Holding } from '@/types/portfolio';
 import type { Symbol as MarketSymbol } from '@/types/market';
 
@@ -63,6 +78,10 @@ const TradeForm: React.FC<TradeFormProps> = ({
   );
 
   const [selectedSymbol, setSelectedSymbol] = useState(initialHolding?.symbol || '');
+  const [openCoinPopover, setOpenCoinPopover] = useState(false);
+  const selectedBaseAsset =
+    symbolsData?.find((s) => s.symbol === selectedSymbol)?.baseAsset ||
+    (selectedSymbol ? selectedSymbol.replace(/(USDT|USDC|BUSD)$/, '') : '');
   const [txType, setTxType] = useState<'buy' | 'sell'>('buy');
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState(
@@ -177,27 +196,53 @@ const TradeForm: React.FC<TradeFormProps> = ({
       {mode === 'add' ? (
         <div className="flex flex-col gap-1.5">
           <label
-            htmlFor="trade-symbol"
+            id="trade-symbol-label"
+            htmlFor="trade-symbol-trigger"
             className="text-[14px] font-medium text-foreground"
           >
             Coin
           </label>
-          <select
-            id="trade-symbol"
-            value={selectedSymbol}
-            onChange={(e) => {
-              setSelectedSymbol(e.target.value);
-              if (errors.symbol) setErrors((prev) => ({ ...prev, symbol: '' }));
-            }}
-            className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-semibold text-[14px] focus-visible:outline-3 focus-visible:outline-ring cursor-pointer"
-          >
-            <option value="">Select coin</option>
-            {symbolsData?.map((s) => (
-              <option key={s.symbol} value={s.symbol}>
-                {s.baseAsset} ({s.quoteAsset})
-              </option>
-            ))}
-          </select>
+          <Popover open={openCoinPopover} onOpenChange={setOpenCoinPopover}>
+            <PopoverTrigger asChild>
+              <Button
+                id="trade-symbol-trigger"
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={openCoinPopover}
+                aria-labelledby="trade-symbol-label"
+                className="flex min-h-[44px] w-full items-center justify-between px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-semibold text-[14px] focus-visible:outline-3 focus-visible:outline-ring cursor-pointer hover:bg-card"
+              >
+                <span className={cn(!selectedBaseAsset && 'text-muted-foreground font-normal')}>
+                  {selectedBaseAsset || 'Select coin'}
+                </span>
+                <ChevronsUpDown className="size-4 shrink-0 opacity-50" aria-hidden="true" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[--radix-popover-trigger-width] min-w-56 p-0" align="start">
+              <Command>
+                <CommandInput placeholder="Search coin..." />
+                <CommandList>
+                  <CommandEmpty>No coin found.</CommandEmpty>
+                  <CommandGroup>
+                    {symbolsData?.map((s) => (
+                      <CommandItem
+                        key={s.symbol}
+                        value={s.baseAsset}
+                        onSelect={() => {
+                          setSelectedSymbol(s.symbol);
+                          setOpenCoinPopover(false);
+                          if (errors.symbol) setErrors((prev) => ({ ...prev, symbol: '' }));
+                        }}
+                      >
+                        {s.baseAsset}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
           {errors.symbol && (
             <p role="alert" className="text-[13px] text-down">
               {errors.symbol}

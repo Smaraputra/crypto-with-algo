@@ -27,13 +27,6 @@ export const TOOLS_INTERIM_ITEMS: NavItem[] = [
     interim: true,
     removalReason: "the Journal screen's Notes switcher",
   },
-  // Analytics: the Portfolio screen's tabs and redirect
-  {
-    label: 'Analytics',
-    href: '/analytics',
-    interim: true,
-    removalReason: "the Portfolio screen's tabs and redirect",
-  },
 ];
 
 export const TOOLS_MATCH_PATHS = ['/cost-check', '/backtest'];
@@ -52,13 +45,6 @@ export const MORE_SHEET_ITEMS: NavItem[] = [
   // Notes, which links to /research until the Notes page exists
   { label: 'Notes', href: '/research' },
   { label: 'Signals', href: '/signals' },
-  // Analytics: the Portfolio screen's tabs and redirect
-  {
-    label: 'Analytics',
-    href: '/analytics',
-    interim: true,
-    removalReason: "the Portfolio screen's tabs and redirect",
-  },
 ];
 
 export const ADMIN_NAV_ITEMS: NavItem[] = [

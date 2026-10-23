@@ -116,10 +116,14 @@ describe('HoldingsTable', () => {
     const btcLinks = screen.getAllByRole('link', { name: 'BTC' });
     expect(btcLinks.length).toBeGreaterThanOrEqual(1);
     expect(btcLinks[0]).toHaveAttribute('href', '/focus?symbol=BTCUSDT');
+    expect(btcLinks[0]).toHaveClass('hover:underline');
+    expect(btcLinks[0]).toHaveClass('focus-visible:outline-ring');
 
     const ethLinks = screen.getAllByRole('link', { name: 'ETH' });
     expect(ethLinks.length).toBeGreaterThanOrEqual(1);
     expect(ethLinks[0]).toHaveAttribute('href', '/focus?symbol=ETHUSDT');
+    expect(ethLinks[0]).toHaveClass('hover:underline');
+    expect(ethLinks[0]).toHaveClass('focus-visible:outline-ring');
   });
 
   it('opens actions menu and calls remove holding after confirmation dialog', async () => {

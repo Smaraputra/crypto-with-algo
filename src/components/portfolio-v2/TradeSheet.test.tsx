@@ -22,17 +22,27 @@ vi.mock('sonner', () => ({
   },
 }));
 
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+vi.stubGlobal('ResizeObserver', MockResizeObserver);
+
 describe('TradeSheet', () => {
   const mutateAddHoldingAsync = vi.fn();
   const mutateRecordTxAsync = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
     vi.mocked(useSymbols).mockReturnValue({
       data: [
         { symbol: 'BTCUSDT', baseAsset: 'BTC', quoteAsset: 'USDT' },
         { symbol: 'ETHUSDT', baseAsset: 'ETH', quoteAsset: 'USDT' },
+        { symbol: 'BNBUSDT', baseAsset: 'BNB', quoteAsset: 'USDT' },
       ],
       isLoading: false,
     } as unknown as ReturnType<typeof useSymbols>);
@@ -79,7 +89,9 @@ describe('TradeSheet', () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText('Coin'), 'BTCUSDT');
+    await user.click(screen.getByRole('combobox', { name: 'Coin' }));
+    await user.type(screen.getByPlaceholderText('Search coin...'), 'BNB');
+    await user.click(screen.getByRole('option', { name: 'BNB' }));
     await user.type(screen.getByLabelText('Quantity'), '1.5');
     await user.type(screen.getByLabelText('Buy price'), '60000');
 
@@ -144,7 +156,9 @@ describe('TradeSheet', () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText('Coin'), 'BTCUSDT');
+    await user.click(screen.getByRole('combobox', { name: 'Coin' }));
+    await user.type(screen.getByPlaceholderText('Search coin...'), 'BNB');
+    await user.click(screen.getByRole('option', { name: 'BNB' }));
     await user.type(screen.getByLabelText('Quantity'), '2');
     await user.type(screen.getByLabelText('Buy price'), '55000');
     await user.type(screen.getByLabelText('Fee'), '10');
@@ -155,8 +169,8 @@ describe('TradeSheet', () => {
     await waitFor(() => {
       expect(mutateAddHoldingAsync).toHaveBeenCalledWith(
         expect.objectContaining({
-          symbol: 'BTCUSDT',
-          baseAsset: 'BTC',
+          symbol: 'BNBUSDT',
+          baseAsset: 'BNB',
           quoteAsset: 'USDT',
           type: 'buy',
           quantity: 2,
@@ -232,7 +246,9 @@ describe('TradeSheet', () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText('Coin'), 'BTCUSDT');
+    await user.click(screen.getByRole('combobox', { name: 'Coin' }));
+    await user.type(screen.getByPlaceholderText('Search coin...'), 'BNB');
+    await user.click(screen.getByRole('option', { name: 'BNB' }));
     await user.type(screen.getByLabelText('Quantity'), '1');
     await user.type(screen.getByLabelText('Buy price'), '50000');
 
@@ -242,6 +258,32 @@ describe('TradeSheet', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(
         'Symbol already exists in portfolio'
       );
+    });
+  });
+
+  it('combobox supports typing to filter base asset and Escape to close', async () => {
+    const user = userEvent.setup();
+    render(
+      <TradeSheet
+        open={true}
+        onOpenChange={vi.fn()}
+        portfolioId="port-1"
+        mode="add"
+      />
+    );
+
+    const combobox = screen.getByRole('combobox', { name: 'Coin' });
+    expect(combobox).toHaveTextContent('Select coin');
+
+    await user.click(combobox);
+    expect(screen.getByPlaceholderText('Search coin...')).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText('Search coin...'), 'ETH');
+    expect(screen.getByRole('option', { name: 'ETH' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Search coin...')).not.toBeInTheDocument();
     });
   });
 });
