@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useUIStore } from '@/stores/uiStore';
-import { useTradingChartEngine } from '@/components/chart/useTradingChartEngine';
+import { useTradingChartEngine, type IndicatorConfig } from '@/components/chart/useTradingChartEngine';
 import { SegmentedControl, type SegmentedControlOption } from '@/components/kit/SegmentedControl';
 import { StateNotice } from '@/components/kit/StateNotice';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 export interface MarketChartProps {
   className?: string;
 }
+
+const EMPTY_INDICATORS: IndicatorConfig[] = [];
 
 const VALID_INTERVALS = ['1h', '4h', '1d', '1w', '1M'] as const;
 type ValidInterval = (typeof VALID_INTERVALS)[number];
@@ -42,6 +44,8 @@ export const MarketChart: React.FC<MarketChartProps> = ({ className }) => {
     symbol: selectedSymbol,
     interval: currentInterval,
     chartType: 'candle_solid',
+    initialIndicators: EMPTY_INDICATORS,
+    showCandleTooltip: false,
   });
 
   return (

@@ -179,4 +179,49 @@ describe('useTradingChartEngine', () => {
     expect(result.current.oscillatorIndicators.every((i) => i.category === 'oscillator')).toBe(true);
     expect(result.current.volumeIndicators.every((i) => i.category === 'volume')).toBe(true);
   });
+
+  it('creates default indicators at init when initialIndicators is omitted', () => {
+    renderHook(() =>
+      useTradingChartEngine({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+      })
+    );
+
+    expect(mockCreateIndicator).toHaveBeenCalledWith('MA', true, { id: 'candle_pane' });
+    expect(mockCreateIndicator).toHaveBeenCalledWith('VOL', false);
+  });
+
+  it('creates no indicators at init when initialIndicators is empty', () => {
+    const { result } = renderHook(() =>
+      useTradingChartEngine({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        initialIndicators: [],
+      })
+    );
+
+    expect(mockCreateIndicator).not.toHaveBeenCalled();
+    expect(result.current.indicators).toEqual([]);
+  });
+
+  it('applies showCandleTooltip false to init styles and subsequent setStyles', () => {
+    renderHook(() =>
+      useTradingChartEngine({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        showCandleTooltip: false,
+      })
+    );
+
+    const initArgs = mockInit.mock.calls[0];
+    expect(initArgs[1].styles?.candle?.tooltip?.showRule).toBe('none');
+    expect(mockSetStyles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candle: expect.objectContaining({
+          tooltip: { showRule: 'none' },
+        }),
+      })
+    );
+  });
 });

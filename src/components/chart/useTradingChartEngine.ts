@@ -99,6 +99,10 @@ export interface TradingChartEngineOptions {
   /** Candle source: spot (default) or USDT-M perpetuals. */
   market?: StreamMarket;
   chartType?: CandleType;
+  /** Indicators configured on chart; defaults to DEFAULT_INDICATORS. */
+  initialIndicators?: IndicatorConfig[];
+  /** Whether candle tooltip is shown; defaults to true. */
+  showCandleTooltip?: boolean;
   /** Draws the signal score pane. Never persisted and not part of IndicatorSettings. */
   signalOverlay?: SignalOverlay;
   /** Past calls and the re-score/live hand-over line on the price pane. */
@@ -232,6 +236,8 @@ export function useTradingChartEngine({
   interval,
   market = 'spot',
   chartType = 'candle_solid',
+  initialIndicators = DEFAULT_INDICATORS,
+  showCandleTooltip = true,
   signalOverlay,
   callsOverlay,
   focusOverlay,
@@ -241,7 +247,8 @@ export function useTradingChartEngine({
   const chartRef = useRef<Chart | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [activeDrawingTool, setActiveDrawingTool] = useState<string | null>(null);
-  const [indicators, setIndicators] = useState<IndicatorConfig[]>(DEFAULT_INDICATORS);
+  const [indicators, setIndicators] = useState<IndicatorConfig[]>(initialIndicators);
+  const initialIndicatorsRef = useRef(initialIndicators);
   const [isLoading, setIsLoading] = useState(true);
   const [historyError, setHistoryError] = useState(false);
   const [crosshairData, setCrosshairData] = useState<KLineData | null>(null);
@@ -395,7 +402,7 @@ export function useTradingChartEngine({
     const container = containerRef.current;
     setIndicatorTheme(theme);
     chartRef.current = init(container, {
-      styles: buildChartStyles(theme),
+      styles: buildChartStyles(theme, { showCandleTooltip }),
       locale: 'en-US',
       timezone: 'Etc/UTC',
     });
@@ -571,7 +578,7 @@ export function useTradingChartEngine({
 
     // Initialize default indicators inline (avoids external callback dependency)
     if (!focusOverlay) {
-      DEFAULT_INDICATORS.forEach((ind) => {
+      initialIndicatorsRef.current.forEach((ind) => {
         if (ind.enabled && chartRef.current) {
           if (ind.category === 'overlay') {
             chartRef.current.createIndicator(ind.id, true, { id: 'candle_pane' });
@@ -607,12 +614,12 @@ export function useTradingChartEngine({
   useEffect(() => {
     if (!chartRef.current) return;
     setIndicatorTheme(theme);
-    chartRef.current.setStyles(buildChartStyles(theme));
+    chartRef.current.setStyles(buildChartStyles(theme, { showCandleTooltip }));
     if (chartType) {
       chartRef.current.setStyles({ candle: { type: chartType } });
     }
     chartRef.current.resize();
-  }, [theme, chartType]);
+  }, [theme, chartType, showCandleTooltip]);
 
   const overlayVisible = signalOverlay?.visible ?? false;
   const overlayRecorded = signalOverlay?.recorded;

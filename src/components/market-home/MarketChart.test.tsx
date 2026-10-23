@@ -77,4 +77,15 @@ describe('MarketChart', () => {
 
     expect(setSelectedIntervalMock).toHaveBeenCalledWith('1w');
   });
+
+  it('passes initialIndicators: [] and showCandleTooltip: false to useTradingChartEngine', () => {
+    render(<MarketChart />);
+
+    expect(useTradingChartEngine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialIndicators: [],
+        showCandleTooltip: false,
+      })
+    );
+  });
 });

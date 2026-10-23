@@ -169,4 +169,12 @@ describe('MarketHome', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Price score' })).toBeInTheDocument();
     expect(screen.getByRole('contentinfo', { name: 'Market footer' })).toBeInTheDocument();
   });
+
+  it('does not set double gutters or max-width classes, delegating to layout', () => {
+    const { container } = render(<MarketHome />);
+    const root = container.firstElementChild;
+    expect(root).toHaveClass('flex', 'flex-col', 'gap-6');
+    expect(root).not.toHaveClass('max-w-7xl');
+    expect(root).not.toHaveClass('px-4');
+  });
 });

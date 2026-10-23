@@ -37,7 +37,11 @@ describe('PriceHero', () => {
     expect(screen.getByTestId('price-placeholder')).toBeInTheDocument();
     expect(screen.queryByText('$0')).not.toBeInTheDocument();
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
-    expect(screen.getByText('ETH / USDT')).toBeInTheDocument();
+    const pairLabel = screen.getByText('ETH / USDT');
+    expect(pairLabel).toBeInTheDocument();
+    expect(pairLabel).toHaveClass('text-[13px]', 'font-medium', 'text-muted-foreground');
+    expect(pairLabel).not.toHaveClass('uppercase');
+    expect(pairLabel).not.toHaveClass('tracking-wider');
 
     const link = screen.getByRole('link', { name: 'Study this coin' });
     expect(link).toHaveAttribute('href', '/focus?symbol=ETHUSDT');

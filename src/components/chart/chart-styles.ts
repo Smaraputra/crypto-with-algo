@@ -1,7 +1,15 @@
 import type { DeepPartial, Styles } from 'klinecharts';
 import type { ChartTheme } from '@/lib/chart-theme';
 
-export function buildChartStyles(theme: ChartTheme): DeepPartial<Styles> {
+export interface BuildChartStylesOptions {
+  showCandleTooltip?: boolean;
+}
+
+export function buildChartStyles(
+  theme: ChartTheme,
+  options?: BuildChartStylesOptions
+): DeepPartial<Styles> {
+  const showCandleTooltip = options?.showCandleTooltip ?? true;
   return {
     grid: {
       show: true,
@@ -10,6 +18,9 @@ export function buildChartStyles(theme: ChartTheme): DeepPartial<Styles> {
     },
     candle: {
       type: 'candle_solid',
+      tooltip: {
+        showRule: showCandleTooltip ? 'always' : 'none',
+      },
       priceMark: {
         show: true,
         high: { show: true, color: theme.up },

@@ -51,7 +51,7 @@ export const PriceHero: React.FC<PriceHeroProps> = ({
       )}
     >
       <div className="flex flex-col">
-        <span className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider">
+        <span className="text-[13px] font-medium text-muted-foreground">
           {base} / {quote}
         </span>
         {formattedPrice ? (

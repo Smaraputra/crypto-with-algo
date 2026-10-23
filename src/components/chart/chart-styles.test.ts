@@ -75,4 +75,20 @@ describe('buildChartStyles', () => {
     expect(styles.candle?.priceMark?.last?.show).toBe(true);
     expect(styles.indicator?.lastValueMark?.show).toBe(true);
   });
+
+  it('turns the candle tooltip off when showCandleTooltip is false', () => {
+    const styles = buildChartStyles(sampleTheme, { showCandleTooltip: false });
+    expect(styles.candle?.tooltip?.showRule).toBe('none');
+    expect(styles.candle?.priceMark?.high?.show).toBe(true);
+    expect(styles.candle?.priceMark?.low?.show).toBe(true);
+    expect(styles.candle?.priceMark?.last?.show).toBe(true);
+  });
+
+  it('keeps candle tooltip on when showCandleTooltip is omitted or true', () => {
+    const defaultStyles = buildChartStyles(sampleTheme);
+    expect(defaultStyles.candle?.tooltip?.showRule).toBe('always');
+
+    const explicitStyles = buildChartStyles(sampleTheme, { showCandleTooltip: true });
+    expect(explicitStyles.candle?.tooltip?.showRule).toBe('always');
+  });
 });
