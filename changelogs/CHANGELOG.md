@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Auth screens (UI redesign PR 10)
+- **Every auth page** is rebuilt in the new direction: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email` and `/consent` (`src/components/auth-v2/`).
+  - **Shell:** the product name and a "Back to home" link only, then one form with one green action.
+  - **Fields:** visible labels, autocomplete hints, and inline errors announced as alerts.
+  - **Sign in:** has Google and GitHub buttons.
+  - **Register:** shows the password rule up front and keeps the single terms checkbox.
+  - **Verify:** shows verifying, verified and failed states, with a resend form.
+  - **Consent:** keeps Continue disabled until the terms are accepted.
+- **Form logic extracted:** the schemas and every request (sign in, register, forgot, reset, verify, resend, consent) now live in `src/lib/auth-forms/`, with tests for each branch and the same messages as before.
+- **Fixed: open redirect after sign in.** The login page followed any `callbackUrl` query value, so a crafted link such as `/login?callbackUrl=https://evil.example` sent a user off-site after signing in. Only same-site paths are accepted now (`safeCallbackUrl`); anything else goes to `/dashboard`. This applies to the credential sign-in and to the Google and GitHub buttons.
+- **The Cloudflare challenge** follows the visitor's theme (`theme: 'auto'`) instead of always rendering dark.
+
 ### Changed: Admin Calibration and Paper desk, Optimization retired (UI redesign PR 9)
 - **Shared tab strip:** both admin pages share a Calibration | Paper desk tab strip (`src/components/admin-v2/AdminTabs.tsx`). Admin access is unchanged: each page awaits `requireAdmin()` and redirects non-admins with an HTTP redirect.
 - **/admin/calibration** (`src/components/admin-v2/`): a record of live price score outcomes after costs, labelled "Not a backtest".
