@@ -6,7 +6,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-outfit);
   --font-mono: var(--font-jetbrains-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -51,6 +51,14 @@
   --color-signal-neutral: var(--signal-neutral);
   --color-signal-sell: var(--signal-sell);
   --color-signal-strong-sell: var(--signal-strong-sell);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-line: var(--brand-line);
+  --color-ink-2: var(--ink-2);
+  --color-edge: var(--edge);
+  --color-line: var(--line);
+  --color-up: var(--up);
+  --color-down: var(--down);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -58,137 +66,199 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  --radius-panel: 22px;
 }
 
-/* Binance Pro Dark - always dark */
+/* Direction B tokens (Light in :root, Dark in .dark) */
 :root {
-  --radius: 0.5rem;
+  color-scheme: light;
+  --radius: 12px;
 
-  /* Background layers (darkest to lightest) */
-  --background: oklch(0.13 0.01 250);
-  --foreground: oklch(0.98 0 0);
+  /* Background layers */
+  --background: #FFFFFF;
+  --foreground: #0F1114;
 
   /* Card surfaces */
-  --card: oklch(0.17 0.01 250);
-  --card-foreground: oklch(0.98 0 0);
-  --card-hover: oklch(0.21 0.01 250);
+  --card: #F1F3F5;
+  --card-foreground: #0F1114;
+  --card-hover: #E4E7EB;
 
   /* Popover */
-  --popover: oklch(0.19 0.01 250);
-  --popover-foreground: oklch(0.98 0 0);
+  --popover: #FFFFFF;
+  --popover-foreground: #0F1114;
 
-  /* Primary - Binance Green */
-  --primary: oklch(0.72 0.18 160);
-  --primary-foreground: oklch(0.13 0.01 250);
+  /* Primary */
+  --primary: #FF6F0F;
+  --primary-foreground: #12100D;
 
   /* Secondary */
-  --secondary: oklch(0.22 0.01 250);
-  --secondary-foreground: oklch(0.98 0 0);
+  --secondary: #E4E7EB;
+  --secondary-foreground: #0F1114;
 
   /* Muted */
-  --muted: oklch(0.22 0.01 250);
-  --muted-foreground: oklch(0.65 0.02 250);
+  --muted: #E4E7EB;
+  --muted-foreground: #59606B;
 
-  /* Accent - Binance Yellow */
-  --accent: oklch(0.82 0.17 85);
-  --accent-foreground: oklch(0.13 0.01 250);
+  /* Accent */
+  --accent: #E4E7EB;
+  --accent-foreground: #0F1114;
 
-  /* Destructive - Red */
-  --destructive: oklch(0.68 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
+  /* Destructive */
+  --destructive: #C21F36;
+  --destructive-foreground: #FFFFFF;
 
-  /* Borders */
-  --border: oklch(0.22 0.01 250);
-  --border-strong: oklch(0.28 0.01 250);
-  --input: oklch(0.22 0.01 250);
-  --ring: oklch(0.72 0.18 160);
+  /* Borders and controls */
+  --border: #E2E5E9;
+  --border-strong: #7C8490;
+  --input: #7C8490;
+  --ring: #0F1114;
 
   /* Trading colors */
-  --bullish: oklch(0.72 0.18 160);
-  --bullish-muted: oklch(0.25 0.06 160);
-  --bearish: oklch(0.68 0.22 25);
-  --bearish-muted: oklch(0.22 0.08 25);
+  --bullish: #067346;
+  --bullish-muted: color-mix(in oklab, #067346 14%, transparent);
+  --bearish: #C21F36;
+  --bearish-muted: color-mix(in oklab, #C21F36 14%, transparent);
 
   /* Chart colors */
-  --chart-1: oklch(0.72 0.18 160);
-  --chart-2: oklch(0.62 0.22 25);
-  --chart-3: oklch(0.82 0.17 85);
-  --chart-4: oklch(0.6 0.15 260);
-  --chart-5: oklch(0.65 0.2 310);
+  --chart-1: #0F1114;
+  --chart-2: #B03E00;
+  --chart-3: #067346;
+  --chart-4: #C21F36;
+  --chart-5: #59606B;
 
-  /* configVersion ramp: an ORDERED scale, so lightness carries the order and
-     the three steps are one hue. Validated against the dark surface for CVD
-     separation and 3:1 contrast; the darkest step is deliberately not darker,
-     which is what a fourth version would need instead of a new hue. */
-  --config-version-1: oklch(0.50 0.12 85);
-  --config-version-2: oklch(0.69 0.15 85);
-  --config-version-3: oklch(0.90 0.15 85);
+  /* Config version ramp */
+  --config-version-1: #0F1114;
+  --config-version-2: #454B55;
+  --config-version-3: #7C8490;
 
   /* Sidebar */
-  --sidebar: oklch(0.15 0.01 250);
-  --sidebar-foreground: oklch(0.98 0 0);
-  --sidebar-primary: oklch(0.72 0.18 160);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.22 0.01 250);
-  --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(0.22 0.01 250);
-  --sidebar-ring: oklch(0.72 0.18 160);
+  --sidebar: #F1F3F5;
+  --sidebar-foreground: #0F1114;
+  --sidebar-primary: #FF6F0F;
+  --sidebar-primary-foreground: #12100D;
+  --sidebar-accent: #E4E7EB;
+  --sidebar-accent-foreground: #0F1114;
+  --sidebar-border: #E2E5E9;
+  --sidebar-ring: #0F1114;
 
   /* Signal tier colors */
-  --signal-strong-buy: oklch(0.82 0.16 160);
-  --signal-buy: oklch(0.62 0.14 160);
-  --signal-neutral: oklch(0.68 0.02 250);
-  --signal-sell: oklch(0.62 0.19 25);
-  --signal-strong-sell: oklch(0.80 0.17 25);
+  --signal-strong-buy: #067346;
+  --signal-buy: #067346;
+  --signal-neutral: #59606B;
+  --signal-sell: #C21F36;
+  --signal-strong-sell: #C21F36;
 
   /* Chart-specific hex (for KlineCharts) */
-  --chart-grid-hex: #1e2329;
-  --chart-crosshair-hex: #848e9c;
-  --chart-up-hex: #0ecb81;
-  --chart-down-hex: #f6465d;
-  --chart-volume-hex: #2a3139;
+  --chart-grid-hex: #E2E5E9;
+  --chart-crosshair-hex: #7C8490;
+  --chart-up-hex: #067346;
+  --chart-down-hex: #C21F36;
+  --chart-volume-hex: #E4E7EB;
+
+  /* Direction B token additions */
+  --brand: #FF6F0F;
+  --brand-foreground: #12100D;
+  --brand-line: #B03E00;
+  --ink-2: #454B55;
+  --edge: #7C8490;
+  --line: #E2E5E9;
+  --up: #067346;
+  --down: #C21F36;
 }
 
-/* Also apply for .dark class for components that check */
 .dark {
-  --background: oklch(0.13 0.01 250);
-  --foreground: oklch(0.98 0 0);
-  --card: oklch(0.17 0.01 250);
-  --card-foreground: oklch(0.98 0 0);
-  --card-hover: oklch(0.21 0.01 250);
-  --popover: oklch(0.19 0.01 250);
-  --popover-foreground: oklch(0.98 0 0);
-  --primary: oklch(0.72 0.18 160);
-  --primary-foreground: oklch(0.13 0.01 250);
-  --secondary: oklch(0.22 0.01 250);
-  --secondary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.22 0.01 250);
-  --muted-foreground: oklch(0.65 0.02 250);
-  --accent: oklch(0.82 0.17 85);
-  --accent-foreground: oklch(0.13 0.01 250);
-  --destructive: oklch(0.68 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.22 0.01 250);
-  --border-strong: oklch(0.28 0.01 250);
-  --input: oklch(0.22 0.01 250);
-  --ring: oklch(0.72 0.18 160);
-  --bullish: oklch(0.72 0.18 160);
-  --bullish-muted: oklch(0.25 0.06 160);
-  --bearish: oklch(0.68 0.22 25);
-  --bearish-muted: oklch(0.22 0.08 25);
-  --signal-strong-buy: oklch(0.82 0.16 160);
-  --signal-buy: oklch(0.62 0.14 160);
-  --signal-neutral: oklch(0.68 0.02 250);
-  --signal-sell: oklch(0.62 0.19 25);
-  --signal-strong-sell: oklch(0.80 0.17 25);
-  --sidebar: oklch(0.15 0.01 250);
-  --sidebar-foreground: oklch(0.98 0 0);
-  --sidebar-primary: oklch(0.72 0.18 160);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.22 0.01 250);
-  --sidebar-accent-foreground: oklch(0.98 0 0);
-  --sidebar-border: oklch(0.22 0.01 250);
-  --sidebar-ring: oklch(0.72 0.18 160);
+  color-scheme: dark;
+
+  /* Background layers */
+  --background: #0A0B0D;
+  --foreground: #F4F5F7;
+
+  /* Card surfaces */
+  --card: #15171B;
+  --card-foreground: #F4F5F7;
+  --card-hover: #1F2227;
+
+  /* Popover */
+  --popover: #15171B;
+  --popover-foreground: #F4F5F7;
+
+  /* Primary */
+  --primary: #FF7A1F;
+  --primary-foreground: #12100D;
+
+  /* Secondary */
+  --secondary: #1F2227;
+  --secondary-foreground: #F4F5F7;
+
+  /* Muted */
+  --muted: #1F2227;
+  --muted-foreground: #9CA3AE;
+
+  /* Accent */
+  --accent: #1F2227;
+  --accent-foreground: #F4F5F7;
+
+  /* Destructive */
+  --destructive: #FF6B7A;
+  --destructive-foreground: #12100D;
+
+  /* Borders and controls */
+  --border: #24272D;
+  --border-strong: #6B727D;
+  --input: #6B727D;
+  --ring: #F4F5F7;
+
+  /* Trading colors */
+  --bullish: #2FD38F;
+  --bullish-muted: color-mix(in oklab, #2FD38F 16%, transparent);
+  --bearish: #FF6B7A;
+  --bearish-muted: color-mix(in oklab, #FF6B7A 16%, transparent);
+
+  /* Chart colors */
+  --chart-1: #F4F5F7;
+  --chart-2: #FF9A52;
+  --chart-3: #2FD38F;
+  --chart-4: #FF6B7A;
+  --chart-5: #9CA3AE;
+
+  /* Config version ramp */
+  --config-version-1: #F4F5F7;
+  --config-version-2: #B8BDC6;
+  --config-version-3: #6B727D;
+
+  /* Sidebar */
+  --sidebar: #15171B;
+  --sidebar-foreground: #F4F5F7;
+  --sidebar-primary: #FF7A1F;
+  --sidebar-primary-foreground: #12100D;
+  --sidebar-accent: #1F2227;
+  --sidebar-accent-foreground: #F4F5F7;
+  --sidebar-border: #24272D;
+  --sidebar-ring: #F4F5F7;
+
+  /* Signal tier colors */
+  --signal-strong-buy: #2FD38F;
+  --signal-buy: #2FD38F;
+  --signal-neutral: #9CA3AE;
+  --signal-sell: #FF6B7A;
+  --signal-strong-sell: #FF6B7A;
+
+  /* Chart-specific hex (for KlineCharts) */
+  --chart-grid-hex: #24272D;
+  --chart-crosshair-hex: #6B727D;
+  --chart-up-hex: #2FD38F;
+  --chart-down-hex: #FF6B7A;
+  --chart-volume-hex: #1F2227;
+
+  /* Direction B token additions */
+  --brand: #FF7A1F;
+  --brand-foreground: #12100D;
+  --brand-line: #FF9A52;
+  --ink-2: #B8BDC6;
+  --edge: #6B727D;
+  --line: #24272D;
+  --up: #2FD38F;
+  --down: #FF6B7A;
 }
 
 @layer base {
