@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LabRecord } from './LabRecord';
 import * as useSignalLabModule from '@/hooks/useSignalLab';
@@ -439,5 +439,13 @@ describe('LabRecord', () => {
     for (const study of V8_STATUS.studies) {
       expect(screen.getByText(study.name)).toBeInTheDocument();
     }
+  });
+
+  it('shows "Not started" exactly once inside its group, as the heading', () => {
+    render(<LabRecord />);
+    const heading = screen.getByRole('heading', { level: 2, name: 'Not started' });
+    const group = heading.closest('section') as HTMLElement;
+    expect(group).not.toBeNull();
+    expect(within(group).getAllByText('Not started')).toHaveLength(1);
   });
 });

@@ -19,8 +19,22 @@ export const PriceScoreRecord: React.FC<PriceScoreRecordProps> = ({ className })
         Measured on years of history and found no edge after costs. Shown elsewhere as context only.
       </p>
 
-      <details className="mt-3 text-[13px] text-muted-foreground">
-        <summary className="cursor-pointer font-medium hover:text-foreground inline-flex items-center min-h-[44px] py-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+      <details className="group mt-3 text-[13px] text-muted-foreground">
+        <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer font-medium hover:text-foreground inline-flex items-center min-h-[44px] py-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 12 12"
+            width="12"
+            height="12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="mr-1.5 shrink-0 transition-transform duration-120 group-open:rotate-90 motion-reduce:transition-none"
+          >
+            <path d="M4 2l4 4-4 4" />
+          </svg>
           What was measured
         </summary>
         <div className="space-y-3 pt-2 mt-1 border-t border-line">

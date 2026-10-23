@@ -25,6 +25,7 @@ export interface HypothesisViewLike {
 export interface HypothesisRowProps {
   hypothesis: HypothesisViewLike;
   className?: string;
+  showChip?: boolean;
 }
 
 export const HYPOTHESIS_NAMES: Record<string, string> = {
@@ -96,6 +97,7 @@ function formatRelativeTime(iso: string): string {
 export const HypothesisRow: React.FC<HypothesisRowProps> = ({
   hypothesis,
   className,
+  showChip = true,
 }) => {
   const displayName = getHypothesisDisplayName(hypothesis.candidate, hypothesis.timeframe, hypothesis.id);
   const chipConfig = getChipConfig(hypothesis.status);
@@ -116,7 +118,7 @@ export const HypothesisRow: React.FC<HypothesisRowProps> = ({
           <h3 className="font-semibold text-foreground text-[15px]">{displayName}</h3>
           <span className="text-[13px] text-muted-foreground font-sans tabular-nums">{hypothesis.id}</span>
         </div>
-        <EvidenceChip kind={chipConfig.kind} label={chipConfig.label} />
+        {showChip && <EvidenceChip kind={chipConfig.kind} label={chipConfig.label} />}
       </div>
 
       <Tape
@@ -145,8 +147,22 @@ export const HypothesisRow: React.FC<HypothesisRowProps> = ({
         <p className="text-[13px] text-muted-foreground mt-1">{hypothesis.note}</p>
       )}
 
-      <details className="mt-2 text-[13px] text-muted-foreground">
-        <summary className="cursor-pointer font-medium hover:text-foreground inline-flex items-center min-h-[44px] py-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+      <details className="group mt-2 text-[13px] text-muted-foreground">
+        <summary className="list-none [&::-webkit-details-marker]:hidden cursor-pointer font-medium hover:text-foreground inline-flex items-center min-h-[44px] py-1 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 12 12"
+            width="12"
+            height="12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="mr-1.5 shrink-0 transition-transform duration-120 group-open:rotate-90 motion-reduce:transition-none"
+          >
+            <path d="M4 2l4 4-4 4" />
+          </svg>
           Record details
         </summary>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 pb-1 border-t border-line mt-1">

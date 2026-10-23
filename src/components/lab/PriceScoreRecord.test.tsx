@@ -22,4 +22,10 @@ describe('PriceScoreRecord', () => {
       expect(screen.getByText(study.verdict)).toBeInTheDocument();
     }
   });
+
+  it('gives the What was measured summary an aria-hidden chevron svg', () => {
+    render(<PriceScoreRecord />);
+    const summary = screen.getByText('What was measured').closest('summary');
+    expect(summary?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  });
 });

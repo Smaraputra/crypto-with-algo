@@ -87,4 +87,20 @@ describe('HypothesisRow', () => {
     expect(notYetElements.length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText('None')).not.toBeInTheDocument();
   });
+
+  it('renders no chip text when showChip is false', () => {
+    render(<HypothesisRow hypothesis={sampleHypothesis} showChip={false} />);
+    expect(screen.queryByText('Under test')).not.toBeInTheDocument();
+  });
+
+  it('renders the chip by default', () => {
+    render(<HypothesisRow hypothesis={sampleHypothesis} />);
+    expect(screen.getAllByText('Under test')).toHaveLength(1);
+  });
+
+  it('gives the Record details summary an aria-hidden chevron svg', () => {
+    render(<HypothesisRow hypothesis={sampleHypothesis} />);
+    const summary = screen.getByText('Record details').closest('summary');
+    expect(summary?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  });
 });

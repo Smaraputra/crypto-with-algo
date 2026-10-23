@@ -158,7 +158,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
                 </h2>
               </div>
               {validatedHypotheses.map((h) => (
-                <HypothesisRow key={h.id} hypothesis={h} />
+                <HypothesisRow key={h.id} hypothesis={h} showChip={false} />
               ))}
             </Panel>
           )}
@@ -171,7 +171,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
                 </h2>
               </div>
               {underTestHypotheses.map((h) => (
-                <HypothesisRow key={h.id} hypothesis={h} />
+                <HypothesisRow key={h.id} hypothesis={h} showChip={false} />
               ))}
             </Panel>
           )}
@@ -184,7 +184,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
                 </h2>
               </div>
               {notStartedHypotheses.map((h) => (
-                <HypothesisRow key={h.id} hypothesis={h} />
+                <HypothesisRow key={h.id} hypothesis={h} showChip={false} />
               ))}
             </Panel>
           )}
@@ -197,7 +197,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
                 </h2>
               </div>
               {notShownHypotheses.map((h) => (
-                <HypothesisRow key={h.id} hypothesis={h} />
+                <HypothesisRow key={h.id} hypothesis={h} showChip={false} />
               ))}
             </Panel>
           )}
