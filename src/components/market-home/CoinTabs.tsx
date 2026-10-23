@@ -100,8 +100,14 @@ export const CoinTabs: React.FC<CoinTabsProps> = ({ className }) => {
         const isSelected = symbol === selectedSymbol;
         const ticker = tickers[symbol] ?? fallbackMap.get(symbol);
         const base = getBaseAsset(symbol);
-        const formattedPrice = formatCoinPrice(ticker?.lastPrice);
-        const change = formatSignedPercent(ticker?.priceChangePercent);
+        const hasTicker = Boolean(
+          ticker &&
+            ticker.lastPrice !== undefined &&
+            ticker.lastPrice !== null &&
+            ticker.lastPrice !== ''
+        );
+        const formattedPrice = hasTicker ? formatCoinPrice(ticker.lastPrice) : '';
+        const change = hasTicker ? formatSignedPercent(ticker.priceChangePercent) : null;
 
         return (
           <button
@@ -124,21 +130,31 @@ export const CoinTabs: React.FC<CoinTabsProps> = ({ className }) => {
             )}
           >
             <span className="font-semibold">{base}</span>
-            {formattedPrice && (
-              <span className="tabular-nums text-[13px]">{formattedPrice}</span>
+            {hasTicker && change ? (
+              <>
+                {formattedPrice && (
+                  <span className="tabular-nums text-[13px]">{formattedPrice}</span>
+                )}
+                <span
+                  className={cn(
+                    'tabular-nums text-[13px] font-medium',
+                    isSelected
+                      ? 'text-background'
+                      : change.direction === 'down'
+                        ? 'text-down'
+                        : 'text-up'
+                  )}
+                >
+                  {change.formatted}
+                </span>
+              </>
+            ) : (
+              <span
+                aria-hidden="true"
+                data-testid="coin-tab-ticker-placeholder"
+                className="inline-block w-12 h-3.5 bg-muted rounded shrink-0"
+              />
             )}
-            <span
-              className={cn(
-                'tabular-nums text-[13px] font-medium',
-                isSelected
-                  ? 'text-background'
-                  : change.direction === 'down'
-                    ? 'text-down'
-                    : 'text-up'
-              )}
-            >
-              {change.formatted}
-            </span>
           </button>
         );
       })}

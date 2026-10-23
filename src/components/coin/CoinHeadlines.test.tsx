@@ -58,4 +58,28 @@ describe('CoinHeadlines', () => {
     render(<CoinHeadlines symbol="BTCUSDT" />);
     expect(screen.getByText('Headlines did not load.')).toBeInTheDocument();
   });
+
+  it('decodes HTML entities in headline title and source', () => {
+    mockUseLatestNews.mockReturnValue({
+      data: {
+        articles: [
+          {
+            id: 'art-encoded',
+            title: 'Bitcoin in &#39;Wait&#39; &amp; see',
+            url: 'https://example.com/news/encoded',
+            source: 'CoinDesk &amp; Partners',
+            body: '',
+            categories: 'BTC',
+            publishedOn: Math.floor(Date.now() / 1000),
+            imageUrl: null,
+          },
+        ],
+      },
+      isError: false,
+    });
+
+    render(<CoinHeadlines symbol="BTCUSDT" />);
+    expect(screen.getByText("Bitcoin in 'Wait' & see")).toBeInTheDocument();
+    expect(screen.getByText('CoinDesk & Partners')).toBeInTheDocument();
+  });
 });

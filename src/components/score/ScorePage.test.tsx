@@ -50,6 +50,8 @@ describe('ScorePage', () => {
 
     const coinSelect = screen.getByLabelText('Coin');
     expect(coinSelect).toHaveValue('BTCUSDT');
+    expect(screen.getByRole('option', { name: 'BTC' })).toHaveValue('BTCUSDT');
+    expect(screen.getByRole('option', { name: 'ETH' })).toHaveValue('ETHUSDT');
 
     fireEvent.change(coinSelect, { target: { value: 'ETHUSDT' } });
 

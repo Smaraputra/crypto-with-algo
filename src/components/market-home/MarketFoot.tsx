@@ -4,6 +4,7 @@ import React from 'react';
 import { useFearAndGreed } from '@/hooks/useSentiment';
 import { useLatestNews } from '@/hooks/useNews';
 import { cn } from '@/lib/utils';
+import { decodeHtmlEntities } from '@/lib/text/decode-entities';
 import { formatRelativeTime } from './formatters';
 
 export interface MarketFootProps {
@@ -46,10 +47,10 @@ export const MarketFoot: React.FC<MarketFootProps> = ({ className }) => {
                 )}
               >
                 <span className="text-[14px] font-medium text-foreground group-hover:underline">
-                  {article.title}
+                  {decodeHtmlEntities(article.title)}
                 </span>
                 <span className="text-[12px] text-muted-foreground mt-0.5 font-sans tabular-nums">
-                  {article.source}, {formatRelativeTime(article.publishedOn)}
+                  {decodeHtmlEntities(article.source)}, {formatRelativeTime(article.publishedOn)}
                 </span>
               </a>
             ))}

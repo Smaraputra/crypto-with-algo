@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useTradingChartEngine } from './useTradingChartEngine';
+import { loadOverlays, saveOverlays, clearOverlays } from '@/lib/chart-storage';
 
 const mockCreateIndicator = vi.fn().mockReturnValue('pane_1');
 const mockRemoveIndicator = vi.fn().mockReturnValue(true);
@@ -223,5 +224,86 @@ describe('useTradingChartEngine', () => {
         }),
       })
     );
+  });
+
+  it('restores overlays by default (restoreOverlays: true) and saves drawings', () => {
+    vi.mocked(loadOverlays).mockReturnValue([
+      { name: 'segment', points: [{ timestamp: 1000, value: 50000 }] },
+    ]);
+    mockGetOverlays.mockReturnValue([
+      { name: 'segment', points: [{ timestamp: 1000, value: 50000 }] },
+    ]);
+
+    const { result } = renderHook(() =>
+      useTradingChartEngine({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+      })
+    );
+
+    expect(loadOverlays).toHaveBeenCalledWith('BTCUSDT');
+    expect(mockCreateOverlay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'segment',
+        points: [{ timestamp: 1000, value: 50000 }],
+      })
+    );
+
+    act(() => {
+      result.current.activateDrawingTool('horizontalStraightLine');
+    });
+
+    const createCall = mockCreateOverlay.mock.calls.find(
+      (call) => call[0]?.name === 'horizontalStraightLine'
+    );
+    expect(createCall).toBeDefined();
+
+    act(() => {
+      createCall![0].onDrawEnd();
+    });
+    expect(saveOverlays).toHaveBeenCalledWith('BTCUSDT', expect.any(Array));
+
+    act(() => {
+      result.current.clearDrawings();
+    });
+    expect(clearOverlays).toHaveBeenCalledWith('BTCUSDT');
+  });
+
+  it('does not load or save overlays when restoreOverlays is false', () => {
+    vi.mocked(loadOverlays).mockReturnValue([
+      { name: 'segment', points: [{ timestamp: 1000, value: 50000 }] },
+    ]);
+    mockGetOverlays.mockReturnValue([
+      { name: 'segment', points: [{ timestamp: 1000, value: 50000 }] },
+    ]);
+
+    const { result } = renderHook(() =>
+      useTradingChartEngine({
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        restoreOverlays: false,
+      })
+    );
+
+    expect(loadOverlays).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.activateDrawingTool('horizontalStraightLine');
+    });
+
+    const createCall = mockCreateOverlay.mock.calls.find(
+      (call) => call[0]?.name === 'horizontalStraightLine'
+    );
+    expect(createCall).toBeDefined();
+
+    act(() => {
+      createCall![0].onDrawEnd();
+    });
+    expect(saveOverlays).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.clearDrawings();
+    });
+    expect(clearOverlays).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { PageHeader } from '@/components/kit/PageHeader';
 import { useUIStore } from '@/stores/uiStore';
 import { getBaseAsset } from '@/components/market-home/formatters';
-import { StreamHealth } from './StreamHealth';
+import { StreamHealth } from '@/components/market-home/StreamHealth';
 import { CoinChart } from './CoinChart';
 import { TimeframesPanel } from './TimeframesPanel';
 import { CoinEvidencePanel } from './CoinEvidencePanel';
@@ -70,6 +70,7 @@ export const CoinStudy: React.FC<CoinStudyProps> = ({ symbol: propSymbol, classN
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-6 items-start">
         <div className="space-y-6 min-w-0">
           <CoinChart symbol={coin} />
+          <CoinHeadlines symbol={coin} className="hidden lg:block" />
         </div>
 
         <div className="space-y-6 min-w-0">
@@ -79,7 +80,7 @@ export const CoinStudy: React.FC<CoinStudyProps> = ({ symbol: propSymbol, classN
         </div>
       </div>
 
-      <CoinHeadlines symbol={coin} />
+      <CoinHeadlines symbol={coin} className="lg:hidden" />
     </div>
   );
 };

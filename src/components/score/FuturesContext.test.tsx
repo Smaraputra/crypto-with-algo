@@ -88,10 +88,43 @@ describe('FuturesContext', () => {
       'Latest funding rate: +0.0100%.'
     );
     expect(screen.getByTestId('futures-oi')).toHaveTextContent(
-      'Open interest: 150,000 (+7.14%).'
+      'Open interest: 150,000 BTC (+7.14%).'
     );
     expect(screen.getByTestId('futures-ls')).toHaveTextContent(
-      'Long and short accounts: 1.45.'
+      'Long to short account ratio: 1.45.'
+    );
+  });
+
+  it('renders open interest rounded to whole number with base asset unit for float values', () => {
+    vi.mocked(useFundingRate).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    } as unknown as ReturnType<typeof useFundingRate>);
+
+    vi.mocked(useOpenInterest).mockReturnValue({
+      data: {
+        openInterest: {
+          symbol: 'BTCUSDT',
+          openInterest: 95035.309,
+          time: 1700000000,
+        },
+        history: null,
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useOpenInterest>);
+
+    vi.mocked(useLongShortRatio).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    } as unknown as ReturnType<typeof useLongShortRatio>);
+
+    render(<FuturesContext symbol="BTCUSDT" />);
+
+    expect(screen.getByTestId('futures-oi')).toHaveTextContent(
+      'Open interest: 95,035 BTC.'
     );
   });
 
@@ -138,10 +171,10 @@ describe('FuturesContext', () => {
         'Latest funding rate: Did not load.'
       );
       expect(screen.getByTestId('futures-oi')).toHaveTextContent(
-        'Open interest: 100,000.'
+        'Open interest: 100,000 BTC.'
       );
       expect(screen.getByTestId('futures-ls')).toHaveTextContent(
-        'Long and short accounts: 1.20.'
+        'Long to short account ratio: 1.20.'
       );
     });
 
@@ -192,7 +225,7 @@ describe('FuturesContext', () => {
         'Open interest: Did not load.'
       );
       expect(screen.getByTestId('futures-ls')).toHaveTextContent(
-        'Long and short accounts: 1.50.'
+        'Long to short account ratio: 1.50.'
       );
     });
 
@@ -237,10 +270,10 @@ describe('FuturesContext', () => {
         'Latest funding rate: -0.0100%.'
       );
       expect(screen.getByTestId('futures-oi')).toHaveTextContent(
-        'Open interest: 80,000.'
+        'Open interest: 80,000 BTC.'
       );
       expect(screen.getByTestId('futures-ls')).toHaveTextContent(
-        'Long and short accounts: Did not load.'
+        'Long to short account ratio: Did not load.'
       );
     });
   });

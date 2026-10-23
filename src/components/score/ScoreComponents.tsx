@@ -53,11 +53,7 @@ export const ScoreComponents: React.FC<ScoreComponentsProps> = ({
   const components = propComponents ?? query.data?.signal?.components ?? [];
 
   if (components.length === 0) {
-    return (
-      <Panel title="What moved the score" className={className}>
-        <p className="text-[14px] text-muted-foreground">No component details available.</p>
-      </Panel>
-    );
+    return null;
   }
 
   const maxExtent = Math.max(

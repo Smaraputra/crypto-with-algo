@@ -120,6 +120,8 @@ export interface TradingChartEngineOptions {
   onLoadedRangeChange?: (range: TimeRange) => void;
   /** The visible window changed (debounced). Open times, ms. */
   onVisibleRangeChange?: (range: TimeRange) => void;
+  /** Whether saved drawings are loaded from and written to storage; defaults to true. */
+  restoreOverlays?: boolean;
 }
 
 /**
@@ -243,6 +245,7 @@ export function useTradingChartEngine({
   focusOverlay,
   onLoadedRangeChange,
   onVisibleRangeChange,
+  restoreOverlays = true,
 }: TradingChartEngineOptions) {
   const chartRef = useRef<Chart | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -343,6 +346,7 @@ export function useTradingChartEngine({
   );
 
   const persistOverlays = useCallback(() => {
+    if (!restoreOverlays) return;
     if (!chartRef.current) return;
     const allOverlays = chartRef.current.getOverlays();
     const serialized: SerializedOverlay[] = allOverlays
@@ -356,7 +360,7 @@ export function useTradingChartEngine({
         })),
       }));
     saveOverlays(symbol, serialized);
-  }, [symbol]);
+  }, [symbol, restoreOverlays]);
 
   const activateDrawingTool = useCallback(
     (tool: string) => {
@@ -385,8 +389,10 @@ export function useTradingChartEngine({
   const clearDrawings = useCallback(() => {
     chartRef.current?.removeOverlay();
     setActiveDrawingTool(null);
-    clearOverlays(symbol);
-  }, [symbol]);
+    if (restoreOverlays) {
+      clearOverlays(symbol);
+    }
+  }, [symbol, restoreOverlays]);
 
   const toggleMagnetMode = useCallback(() => {
     setMagnetMode((prev) => (prev === 'normal' ? 'weak_magnet' : 'normal'));
@@ -815,6 +821,7 @@ export function useTradingChartEngine({
 
   // Load saved overlays when symbol changes
   useEffect(() => {
+    if (!restoreOverlays) return;
     if (!chartRef.current) return;
     const chart = chartRef.current;
     const saved = loadOverlays(symbol);
@@ -834,7 +841,7 @@ export function useTradingChartEngine({
         },
       });
     }
-  }, [symbol, hasValidDimensions, magnetMode, persistOverlays]);
+  }, [symbol, hasValidDimensions, magnetMode, persistOverlays, restoreOverlays]);
 
   // Track fullscreen changes (e.g. Escape key exits natively)
   useEffect(() => {

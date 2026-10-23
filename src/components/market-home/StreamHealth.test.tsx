@@ -25,6 +25,20 @@ describe('StreamHealth', () => {
 
     const { container } = render(<StreamHealth />);
     expect(container).toBeEmptyDOMElement();
+    expect(useMarketStreamStatus).toHaveBeenCalledWith('spot');
+  });
+
+  it('reads perp status when market="perp"', () => {
+    vi.mocked(useMarketStreamStatus).mockReturnValue({
+      status: 'live',
+      lastMessageAt: Date.now(),
+      isConnected: true,
+      retry: retryMock,
+    });
+
+    const { container } = render(<StreamHealth market="perp" />);
+    expect(container).toBeEmptyDOMElement();
+    expect(useMarketStreamStatus).toHaveBeenCalledWith('perp');
   });
 
   it('renders "Connecting to live prices." when connecting', () => {

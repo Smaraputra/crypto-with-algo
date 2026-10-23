@@ -52,7 +52,7 @@ export const ScorePage: React.FC<ScorePageProps> = ({ className }) => {
   }));
 
   return (
-    <div className={cn('space-y-6 max-w-6xl mx-auto py-6 px-4 sm:px-6', className)}>
+    <div className={cn('space-y-6', className)}>
       <PageHeader
         title="Price score"
         description={`The composite score as context for ${base}. Measured on years of history: no edge after costs.`}
@@ -74,7 +74,7 @@ export const ScorePage: React.FC<ScorePageProps> = ({ className }) => {
           >
             {SIGNAL_SYMBOLS.map((sym) => (
               <option key={sym} value={sym}>
-                {sym}
+                {getBaseAsset(sym)}
               </option>
             ))}
           </select>

@@ -15,6 +15,3 @@ export type { CostPanelProps } from './CostPanel';
 
 export { CoinHeadlines } from './CoinHeadlines';
 export type { CoinHeadlinesProps } from './CoinHeadlines';
-
-export { StreamHealth } from './StreamHealth';
-export type { StreamHealthProps } from './StreamHealth';

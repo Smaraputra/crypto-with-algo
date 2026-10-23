@@ -4,13 +4,18 @@ import React from 'react';
 import { useMarketStreamStatus } from '@/hooks/useMarketStream';
 import { StateNotice } from '@/components/kit/StateNotice';
 import { cn } from '@/lib/utils';
+import type { StreamMarket } from '@/lib/market-stream/client';
 
 export interface StreamHealthProps {
+  market?: StreamMarket;
   className?: string;
 }
 
-export const StreamHealth: React.FC<StreamHealthProps> = ({ className }) => {
-  const { status, retry } = useMarketStreamStatus('spot');
+export const StreamHealth: React.FC<StreamHealthProps> = ({
+  market = 'spot',
+  className,
+}) => {
+  const { status, retry } = useMarketStreamStatus(market);
 
   if (status === 'live') {
     return null;

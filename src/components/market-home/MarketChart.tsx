@@ -46,6 +46,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({ className }) => {
     chartType: 'candle_solid',
     initialIndicators: EMPTY_INDICATORS,
     showCandleTooltip: false,
+    restoreOverlays: false,
   });
 
   return (

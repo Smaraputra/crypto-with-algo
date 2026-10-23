@@ -78,13 +78,14 @@ describe('MarketChart', () => {
     expect(setSelectedIntervalMock).toHaveBeenCalledWith('1w');
   });
 
-  it('passes initialIndicators: [] and showCandleTooltip: false to useTradingChartEngine', () => {
+  it('passes initialIndicators: [], showCandleTooltip: false, and restoreOverlays: false to useTradingChartEngine', () => {
     render(<MarketChart />);
 
     expect(useTradingChartEngine).toHaveBeenCalledWith(
       expect.objectContaining({
         initialIndicators: [],
         showCandleTooltip: false,
+        restoreOverlays: false,
       })
     );
   });

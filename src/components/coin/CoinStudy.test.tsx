@@ -28,10 +28,12 @@ vi.mock('./CostPanel', () => ({
 }));
 
 vi.mock('./CoinHeadlines', () => ({
-  CoinHeadlines: () => <div data-testid="mock-headlines" />,
+  CoinHeadlines: ({ className }: { className?: string }) => (
+    <div data-testid="mock-headlines" className={className} />
+  ),
 }));
 
-vi.mock('./StreamHealth', () => ({
+vi.mock('@/components/market-home/StreamHealth', () => ({
   StreamHealth: () => null,
 }));
 
@@ -101,5 +103,14 @@ describe('CoinStudy', () => {
       'href',
       '/cost-check?symbol=AVAXUSDT&holdMinutes=60'
     );
+  });
+
+  it('renders CoinHeadlines under the chart for desktop and at the foot for phone', () => {
+    render(<CoinStudy symbol="BTCUSDT" />);
+
+    const headlines = screen.getAllByTestId('mock-headlines');
+    expect(headlines).toHaveLength(2);
+    expect(headlines[0]).toHaveClass('hidden lg:block');
+    expect(headlines[1]).toHaveClass('lg:hidden');
   });
 });

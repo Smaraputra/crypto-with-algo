@@ -91,8 +91,17 @@ describe('ScoreComponents', () => {
     expect(screen.getByText('Moving averages')).toBeInTheDocument();
   });
 
-  it('renders empty notice when no components are available', () => {
-    render(<ScoreComponents components={[]} />);
-    expect(screen.getByText('No component details available.')).toBeInTheDocument();
+  it('renders nothing when no components are available', () => {
+    const { container } = render(<ScoreComponents components={[]} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText('What moved the score')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing when there is no signal for chosen coin, style and interval', () => {
+    const { container } = render(
+      <ScoreComponents symbol="BTCUSDT" style="day_trading" interval="1h" />
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText('What moved the score')).not.toBeInTheDocument();
   });
 });

@@ -7,6 +7,7 @@ import {
   useOpenInterest,
   useLongShortRatio,
 } from '@/hooks/useFutures';
+import { getBaseAsset } from '@/components/market-home/formatters';
 
 export function formatSignedPercentRate(rate: number): string {
   const pct = rate * 100;
@@ -69,7 +70,11 @@ export const FuturesContext: React.FC<FuturesContextProps> = ({
   } else if (oiLoading) {
     oiContent = 'Loading...';
   } else if (hasOi) {
-    const formattedVal = new Intl.NumberFormat('en-US').format(rawOi);
+    const baseAsset = getBaseAsset(symbol);
+    const roundedOi = Math.round(rawOi);
+    const formattedVal = new Intl.NumberFormat('en-US', {
+      maximumFractionDigits: 0,
+    }).format(roundedOi);
     const history = oiData?.history;
     let changeSuffix = '';
     if (history && history.length >= 2) {
@@ -80,7 +85,7 @@ export const FuturesContext: React.FC<FuturesContextProps> = ({
         changeSuffix = ` (${sign}${Math.abs(pctChange).toFixed(2)}%)`;
       }
     }
-    oiContent = `${formattedVal}${changeSuffix}.`;
+    oiContent = `${formattedVal} ${baseAsset}${changeSuffix}.`;
   } else {
     oiContent = 'Did not load.';
   }
@@ -114,7 +119,7 @@ export const FuturesContext: React.FC<FuturesContextProps> = ({
           <span className="font-medium text-foreground">Open interest:</span> {oiContent}
         </p>
         <p data-testid="futures-ls" className="text-muted-foreground font-sans tabular-nums">
-          <span className="font-medium text-foreground">Long and short accounts:</span>{' '}
+          <span className="font-medium text-foreground">Long to short account ratio:</span>{' '}
           {lsContent}
         </p>
       </div>
