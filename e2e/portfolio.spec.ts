@@ -79,6 +79,11 @@ test.describe('Portfolio (authenticated)', () => {
       await page.getByRole('button', { name: 'Save trade', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Add a holding', exact: true })).not.toBeVisible({ timeout: 10000 });
 
+      // The "Trade saved" toast opens bottom-right under the pointer, and sonner pauses a hovered
+      // toast, so it would cover the row's actions button forever. Move away and let it clear.
+      await page.mouse.move(0, 0);
+      await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15000 });
+
       // Confirm holding appears in table
       const bnbLink = page.getByRole('table').getByRole('link', { name: 'BNB', exact: true });
       await expect(bnbLink).toBeVisible({ timeout: 10000 });
