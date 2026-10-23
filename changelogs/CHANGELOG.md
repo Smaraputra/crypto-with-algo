@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: the lab record page and the new app shell (UI redesign PR 3)
+- **/lab, "The lab record"**: one plain-language page for the whole research record, built from the kit.
+  - The headline is the validated count ("0 validated" and "No idea has been validated yet." while none has passed).
+  - The forward hypotheses from lab-v1 to lab-v4 are grouped by status chip, each with a plain name (for example "Volatility fade, 8 hours"), its id, a tape of bets against its threshold, and the line "{n} bets. Evidence {e} of {threshold} needed.". Its record (under test since, test ends, graded bars, latest bar) opens in place.
+  - A hypothesis whose 24 months end without crossing stays listed under "Not shown", as the lab-v1 read rule says, instead of disappearing.
+  - The rejected rv-v1 rule, the price score's measured studies (`V8_STATUS`, chip "No edge (measured)") and a short method section complete the page.
+  - Copy uses the locks' word "validated", never "proven". The lab-v2 and lab-v4 rows carry their honest notes: too small to confirm in 24 months, and lost money on history but recorded anyway.
+- **Tape**: renders only the visible window (at most 160 ticks) with stable keys and has a count-only mode, because a 5-minute hypothesis already has about 1,500 bets.
+- **App shell** (`src/components/shell/`) replaces the old sidebar and header:
+  - Desktop has a top bar with Market, Lab, Portfolio, Journal, Alerts and a Tools menu (Cost Check, Backtest), plus the coin search palette (Ctrl or Cmd K), the alerts bell and an Account menu with the theme switch and admin links.
+  - Phone has a top strip with search and the bell, and a bottom bar with Market, Lab, Portfolio, Journal and More. More holds the remaining destinations, the theme switch and Log out.
+  - The active item is marked with `aria-current="page"` and a green rule. A pending navigation fills that rule once (`useLinkStatus`).
+  - The coin palette lists every symbol, adds or removes it from the watchlist, and opens the coin in /focus.
+  - Signals, Notes (/research) and Analytics sit in the Tools menu (and Analytics in More) as interim entries. They keep those old pages reachable until their redesigned screens add the approved in-page links.
+- **Removed**: the old `Sidebar`, `Header`, `NotificationBell`, `NavPendingIndicator`, `RouteLoading` and `WatchlistSidebar`. The route fallback and the dashboard error page are rebuilt from the kit.
+- **Interim**: the sidebar watchlist is gone until the Market screen's coin tabs land in the next PR. The watchlist is edited from the coin palette meanwhile.
+- **Tests**: unit tests for every shell and lab component. The E2E specs that navigated through the sidebar now use the top bar, the Tools menu (`menuitem` role) or the palette. New `e2e/shell.spec.ts` covers the desktop bar, the phone bar and More sheet, and the palette hotkey. New `e2e/lab.spec.ts` covers /lab.
+
 ### Changed: UI redesign foundation (direction B tokens, Outfit, light and dark themes, kit primitives)
 - This is PR 2 of the UI redesign. It changes token values and adds building blocks. Page structure is unchanged until each screen's own PR.
 - **Tokens** (`src/app/globals.css`): the existing custom-property names keep compiling with new values. `:root` is the light palette and `.dark` the dark one, with the logo green (`#00C57C`) as the brand in place of the Binance yellow. Text on the green fill is ink (8.35:1), and on light grounds green text and lines use `#067346`, because the logo green fails as text on white. Brand and price-up share one green family, and selected states (segmented control, theme switch) use an ink fill so a selected control never reads as a rising price. New tokens split roles that were shared: `--brand`, `--brand-foreground`, `--brand-line`, `--ink-2`, `--edge`, `--line`, `--up`, `--down` and `--radius-panel`. Up and down keep green and red with new values that pass contrast on both grounds.
