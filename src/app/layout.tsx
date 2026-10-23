@@ -1,12 +1,14 @@
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
-import { Toaster } from 'sonner';
+import { Outfit, JetBrains_Mono } from 'next/font/google';
 import { Providers } from './providers';
+import { ThemedToaster } from '@/components/theme/ThemedToaster';
+import { THEME_INIT_SCRIPT } from '@/lib/theme';
 import './globals.css';
 
-const inter = Inter({
-  variable: '--font-inter',
+const outfit = Outfit({
+  variable: '--font-outfit',
   subsets: ['latin'],
+  display: 'swap',
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -21,20 +23,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
-        <Providers>{children}</Providers>
-        <Toaster
-          theme="dark"
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: 'var(--card)',
-              border: '1px solid var(--border)',
-              color: 'var(--foreground)',
-            },
-          }}
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} // skipcq: JS-0440 static theme script from src/lib/theme.ts, must run before first paint
         />
+      </head>
+      <body className={`${outfit.variable} ${jetbrainsMono.variable} antialiased`}>
+        <Providers>{children}</Providers>
+        <ThemedToaster />
       </body>
     </html>
   );

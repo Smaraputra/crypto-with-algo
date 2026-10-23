@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: UI redesign foundation (direction B tokens, Outfit, light and dark themes, kit primitives)
+- This is PR 2 of the UI redesign. It changes token values and adds building blocks. Page structure is unchanged until each screen's own PR.
+- **Tokens** (`src/app/globals.css`): the existing custom-property names keep compiling with new values. `:root` is the light palette and `.dark` the dark one, with the logo green (`#00C57C`) as the brand in place of the Binance yellow. Text on the green fill is ink (8.35:1), and on light grounds green text and lines use `#067346`, because the logo green fails as text on white. Brand and price-up share one green family, and selected states (segmented control, theme switch) use an ink fill so a selected control never reads as a rising price. New tokens split roles that were shared: `--brand`, `--brand-foreground`, `--brand-line`, `--ink-2`, `--edge`, `--line`, `--up`, `--down` and `--radius-panel`. Up and down keep green and red with new values that pass contrast on both grounds.
+- **Interim accent**: unrebuilt screens use `accent` mostly as a caution colour ("Failed re-validation", "Not validated", stale stream badges), so `--accent` is an amber caution tone (`#8A5300` light, `#E8A93A` dark, both AA) rather than the brand green, which would make those warnings read as fine. The last redesign PR returns it to the hover role.
+- **Type**: Outfit is the main face through `--font-sans`. JetBrains Mono stays loaded for the old screens until the final PR moves prices to Outfit with tabular digits.
+- **Theme switching** (`src/lib/theme.ts`, `src/components/theme/`): built in-house instead of adopting next-themes. An inline head script applies the stored choice before first paint, so there is no flash. The choice is light, dark or system, stored under `cwa-theme`. The default stays dark during the migration. `ThemeToggle` is a labelled switch, mounted when the new shell lands, and `ThemedToaster` follows the theme.
+- **Chart theme** (`src/lib/chart-theme.ts`): reads the chart tokens for KlineCharts, lightweight-charts and recharts and re-reads them when the theme changes. The charts adopt it in their screens' PRs.
+- **Kit** (`src/components/kit/`): `EvidenceChip`, `Tape` (evidence drawn to scale against its threshold, rendering only the visible window of at most 160 ticks with stable keys, plus a count-only neutral mode), `IdeaCells`, `PriceFigure`, `Panel` (forwards HTML attributes to its element), `PageHeader`, `SegmentedControl` (native radios, 44px targets) and `StateNotice`, each with unit tests.
+
 ### Security: Next.js 16.4.0 to 16.4.2
 - Next.js 16.4.0 is in the affected range (16.0.0 to 16.4.0) of three advisories, confirmed with `npm audit` on 2026-10-23:
   - GHSA-2464-fhr4-w9xw (critical): unauthenticated remote code execution in the Image Optimization API when SVG files are used.
