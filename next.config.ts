@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
     return [
       { source: '/analytics', destination: '/portfolio?tab=performance', permanent: false },
       { source: '/research', destination: '/notes', permanent: false },
+      { source: '/admin/optimization', destination: '/admin/calibration', permanent: false },
     ];
   },
   async headers() {

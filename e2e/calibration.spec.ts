@@ -29,10 +29,10 @@ test.describe('Signal Calibration', () => {
     await page.waitForURL(/\/(dashboard|admin\/calibration)/);
 
     if (page.url().includes('/admin/calibration')) {
-      await expect(page.getByRole('heading', { name: /Signal Calibration/i })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Calibration', exact: true })).toBeVisible();
     } else {
       expect(page.url()).toContain('/dashboard');
-      await expect(page.getByRole('heading', { name: /Signal Calibration/i })).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: 'Calibration', exact: true })).toHaveCount(0);
     }
   });
 
@@ -75,3 +75,14 @@ test.describe('Signal Calibration', () => {
     await expect(page.getByTestId('coverage-header')).toBeVisible({ timeout: 30000 });
   });
 });
+
+test.describe('Admin Optimization redirect', () => {
+  test('GET /admin/optimization with maxRedirects: 0 answers 307 to /admin/calibration', async ({
+    request,
+  }) => {
+    const response = await request.get('/admin/optimization', { maxRedirects: 0 });
+    expect(response.status()).toBe(307);
+    expect(response.headers()['location']).toBe('/admin/calibration');
+  });
+});
+
