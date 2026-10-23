@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/kit/PageHeader';
-import { SegmentedControl } from '@/components/kit/SegmentedControl';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -92,17 +91,6 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({ className }) => {
     }
   };
 
-  const categoryOptions = useMemo(
-    () => [
-      { value: 'all', label: 'All' },
-      ...RESEARCH_NOTE_CATEGORIES.map((cat) => ({
-        value: cat,
-        label: cat.charAt(0).toUpperCase() + cat.slice(1),
-      })),
-    ],
-    []
-  );
-
   return (
     <div className={cn('space-y-6', className)}>
       <PageHeader
@@ -164,18 +152,27 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({ className }) => {
               />
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[13px] font-medium text-foreground">
+            <div className="flex flex-col gap-1 min-w-[130px]">
+              <label
+                htmlFor="notes-filter-category"
+                className="text-[13px] font-medium text-muted-foreground"
+              >
                 Category
-              </span>
-              <div className="overflow-x-auto max-w-full pb-1">
-                <SegmentedControl
-                  legend="Category"
-                  value={category}
-                  onChange={setCategory}
-                  options={categoryOptions}
-                />
-              </div>
+              </label>
+              <select
+                id="notes-filter-category"
+                aria-label="Category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground text-[14px] cursor-pointer focus-visible:outline-3 focus-visible:outline-ring"
+              >
+                <option value="all">All categories</option>
+                {RESEARCH_NOTE_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

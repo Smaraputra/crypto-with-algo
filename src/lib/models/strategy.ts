@@ -13,6 +13,7 @@ export interface IStrategy extends Document {
     volatility: number;
     futures: number;
     sentiment: number;
+    htf?: number;
   };
   tradingStyle: TradingStyle;
   templateId: mongoose.Types.ObjectId | null;
@@ -42,6 +43,7 @@ const strategySchema = new Schema<IStrategy>(
         volatility: { type: Number, default: 0.10 },
         futures: { type: Number, default: 0.15 },
         sentiment: { type: Number, default: 0.10 },
+        htf: { type: Number, default: 0 },
       },
       default: () => ({
         trend: 0.25,

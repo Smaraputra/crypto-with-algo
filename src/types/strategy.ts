@@ -15,8 +15,19 @@ const weightsSchema = z.object({
   volatility: z.number().min(0).max(1),
   futures: z.number().min(0).max(1),
   sentiment: z.number().min(0).max(1),
+  htf: z.number().min(0).max(1).optional(),
 }).refine(
-  (w) => Math.abs(w.trend + w.momentum + w.volume + w.volatility + w.futures + w.sentiment - 1.0) < 0.01,
+  (w) =>
+    Math.abs(
+      w.trend +
+        w.momentum +
+        w.volume +
+        w.volatility +
+        w.futures +
+        w.sentiment +
+        (w.htf ?? 0) -
+        1.0
+    ) < 0.01,
   { message: 'Weights must sum to 1.0' }
 );
 

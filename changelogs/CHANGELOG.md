@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Cost Check and Backtest screens (UI redesign PR 8)
+- **/cost-check** (`src/components/cost-check-v2/`):
+  - **Layout:** inputs on the left and results on the right. On phone, a sticky summary (round trip and move needed) sits above the bottom bar.
+  - **Focal number:** the round-trip cost the verdict is judged on. A funding receipt is shown but not counted, because the rate can turn before the hold ends.
+  - **Results:** the move needed to break even with the win rate it implies, funding worded as paid or received, fees, slippage with its source, spread, cost share of margin, distance to liquidation and monthly cost burn.
+  - **Verdict:** the model's own tone label in ink. Green and red stay for prices only.
+  - **When the exchange is unreachable**, the trade is still priced with the flat slippage assumption, and the screen says so.
+  - **Inputs** the schema rejects show inline errors and are not priced. Number fields can be cleared and retyped.
+- **Page state extracted:** `useCostCheckState` (`src/hooks/`) holds what the old view did outside the model:
+  - storage and URL inputs;
+  - the 60-second clock and the debounces;
+  - the guard that never prices with data measured for another coin or hold;
+  - the flag for slippage measured at another size.
+
+  `marketProblemText` moves to `src/lib/costs/`.
+- **/backtest** (`src/components/backtest-v2/`):
+  - **Header:** one "No edge (measured)" chip, and the line that rules built on the price score lost after costs.
+  - **Layout:** configuration on the left. Run, with progress and Stop, sits at the top of the right column, above the results and the saved runs.
+  - **Strategies:** create, rename, save weights and delete (with confirmation). One line states that a strategy stores only coins, intervals and weights.
+  - **Settings:** thresholds with an "Allow shorts" switch, risk, fee, sessions, capital and the seven weights.
+  - **Data:** stored history status with "Download 24 months of history", also offered inline when a run has too few bars.
+  - **Results:** metrics with plain meanings (Sharpe states that no risk-free rate is subtracted), an equity curve on dates with a padded axis, a session breakdown and a paged trade log. A run with no trades shows "n/a" rather than zeros. Saved runs can be opened and deleted.
+- **Backtest loading extracted:** `loadBacktestInputs` (`src/lib/backtest/load-inputs.ts`) holds the candle, snapshot and higher-timeframe loading that lived in the old page, unchanged in behaviour.
+- **Fixed: a strategy with the default weights could not be saved.** The default weights include `htf` (0.10), but the strategy schema and model knew only six weights. Zod stripped `htf`, and the remaining six summed to 0.9, so creation failed with "Weights must sum to 1.0". Strategies now accept an optional `htf` (default 0). Stored six-weight strategies are unchanged and read back with `htf` 0, which the scorer already assumed.
+- **Notes:** the category filter is now a select, because the segmented control overflowed its column.
+- **Deleted:** the old cost-check and backtest components. `EquityCurveChart` stays until the admin paper desk is rebuilt.
+- **Tests:** unit tests for every new component, the state hook, the loader and the strategy schema. The E2E specs move to the new screens, including a strategy saved with the default weights.
+
 ### Changed: Journal, Notes and Alerts screens (UI redesign PR 7)
 - **/journal** (`src/components/journal-v2/`):
   - **Layout:** a Trades | Stats | Notes switcher (`?view=stats`) and "Log a trade" as the one green button.

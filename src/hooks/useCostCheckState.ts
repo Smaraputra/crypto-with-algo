@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useCostCheckMarket, useCostCheckRegime, useCostCheckSymbols } from '@/hooks/useCostCheck';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -11,13 +11,29 @@ import {
   notionalOf,
   parseStoredInputs,
   type CostCheckInputs,
+  type CostCheckModel,
 } from '@/lib/costs/cost-check-model';
+import { marketProblemText } from '@/lib/costs/market-problem';
 import { pickMeasurementInterval } from '@/lib/costs/move';
-import { CostCheckForm } from './CostCheckForm';
-import { CostCheckResult } from './CostCheckResult';
-import { CostCheckSummaryBar } from './CostCheckSummaryBar';
-import { marketProblemText } from './market-problem';
-import { VolatilityRegimeCard } from './VolatilityRegimeCard';
+import type {
+  CostCheckMarketResponse,
+  CostCheckRegimeResponse,
+  CostCheckSymbolsResponse,
+} from '@/types/cost-check';
+
+export interface CostCheckState {
+  inputs: CostCheckInputs;
+  updateInputs: (patch: Partial<CostCheckInputs>) => void;
+  model: CostCheckModel;
+  marketData: CostCheckMarketResponse | null;
+  marketProblem: string | null;
+  marketLoading: boolean;
+  marketFetching: boolean;
+  retryMarket: () => void;
+  measuredSlippageBps: number | null;
+  symbols: { list: CostCheckSymbolsResponse['symbols'] | undefined; isLoading: boolean; isError: boolean };
+  regime: { data: CostCheckRegimeResponse['regime'] | undefined; isLoading: boolean; problem: string | null; retry: () => void };
+}
 
 /** Saved inputs, then URL parameters on top. Runs in the browser only (the page loads this view without SSR). */
 function initialInputs(): CostCheckInputs {
@@ -30,7 +46,7 @@ function initialInputs(): CostCheckInputs {
   return applyUrlParams(parseStoredInputs(raw), new URLSearchParams(window.location.search));
 }
 
-export function CostCheckView() {
+export function useCostCheckState(): CostCheckState {
   const [inputs, setInputs] = useState<CostCheckInputs>(initialInputs);
   const [now, setNow] = useState(() => Date.now());
 
@@ -55,6 +71,7 @@ export function CostCheckView() {
   const symbols = useCostCheckSymbols();
   const market = useCostCheckMarket(inputs.symbol, holdMinutes, notional);
   const regime = useCostCheckRegime();
+
   // The query keeps the previous response while the next one loads. Never price a trade with a move
   // measured for another symbol or hold; a depth measured for another size is used but labelled.
   const expected = pickMeasurementInterval(inputs.holdMinutes * 60_000);
@@ -77,36 +94,35 @@ export function CostCheckView() {
   const marketProblem =
     market.isError && !marketData ? marketProblemText(market.error?.code) : null;
 
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
-        <CostCheckForm
-          inputs={inputs}
-          onChange={(patch) => setInputs((prev) => ({ ...prev, ...patch }))}
-          symbols={symbols.data?.symbols}
-          symbolsLoading={symbols.isLoading}
-          symbolsError={symbols.isError}
-          measuredSlippageBps={
-            marketData?.slippage.source === 'depth' ? marketData.slippage.bps : null
-          }
-        />
-        <div className="space-y-4">
-          <CostCheckResult
-            inputs={inputs}
-            model={model}
-            market={marketData}
-            marketProblem={marketProblem}
-            isFetching={market.isFetching}
-            isLoading={!marketData && !market.isError}
-          />
-          <VolatilityRegimeCard
-            regime={regime.data?.regime}
-            isLoading={regime.isLoading}
-            problem={regime.isError ? marketProblemText(regime.error?.code) : null}
-          />
-        </div>
-      </div>
-      <CostCheckSummaryBar model={model} />
-    </div>
-  );
+  const updateInputs = useCallback((patch: Partial<CostCheckInputs>) => {
+    setInputs((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  return {
+    inputs,
+    updateInputs,
+    model,
+    marketData,
+    marketProblem,
+    marketLoading: !marketData && !market.isError,
+    marketFetching: market.isFetching,
+    retryMarket: () => {
+      void market.refetch();
+    },
+    measuredSlippageBps:
+      marketData?.slippage.source === 'depth' ? marketData.slippage.bps : null,
+    symbols: {
+      list: symbols.data?.symbols,
+      isLoading: symbols.isLoading,
+      isError: symbols.isError,
+    },
+    regime: {
+      data: regime.data?.regime,
+      isLoading: regime.isLoading,
+      problem: regime.isError ? marketProblemText(regime.error?.code) : null,
+      retry: () => {
+        void regime.refetch();
+      },
+    },
+  };
 }

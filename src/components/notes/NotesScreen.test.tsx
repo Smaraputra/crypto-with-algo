@@ -98,9 +98,9 @@ describe('NotesScreen', () => {
       expect.objectContaining({ search: 'breakout' })
     );
 
-    // Click Category radio option for "strategy"
-    const strategyRadio = screen.getByLabelText('Strategy');
-    fireEvent.click(strategyRadio);
+    // Select Category option for "strategy"
+    const categorySelect = screen.getByLabelText('Category');
+    fireEvent.change(categorySelect, { target: { value: 'strategy' } });
 
     rerender(<NotesScreen />);
 
