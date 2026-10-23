@@ -80,18 +80,18 @@ test.describe('Portfolio (authenticated)', () => {
       await expect(page.getByRole('heading', { name: 'Add a holding', exact: true })).not.toBeVisible({ timeout: 10000 });
 
       // Confirm holding appears in table
-      const bnbLink = page.getByRole('link', { name: 'BNB', exact: true }).first();
+      const bnbLink = page.getByRole('table').getByRole('link', { name: 'BNB', exact: true });
       await expect(bnbLink).toBeVisible({ timeout: 10000 });
 
       // "Record a trade" opens the sheet
-      await page.getByRole('button', { name: 'Actions for BNB', exact: true }).first().click();
+      await page.getByRole('table').getByRole('button', { name: 'Actions for BNB', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Record a trade', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Record a trade', exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Record a trade', exact: true })).not.toBeVisible();
 
       // Removing the holding asks for confirmation and removes it
-      await page.getByRole('button', { name: 'Actions for BNB', exact: true }).first().click();
+      await page.getByRole('table').getByRole('button', { name: 'Actions for BNB', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Remove holding', exact: true }).click();
 
       const removeDialog = page.getByRole('dialog', { name: 'Remove holding' });
