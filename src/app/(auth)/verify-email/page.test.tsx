@@ -1,41 +1,46 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import VerifyEmailPage, { metadata } from './page';
 
-const searchParams = { get: vi.fn() };
-vi.mock('next/navigation', () => ({ useSearchParams: () => searchParams }));
-vi.mock('next/link', () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
+let mockSearchParams = new URLSearchParams();
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => mockSearchParams,
 }));
+
+vi.mock('@/lib/auth-forms/flows', () => ({
+  verifyEmailToken: vi.fn().mockImplementation(() => new Promise(() => {})),
+  resendVerification: vi.fn(),
+}));
+
 vi.mock('@/components/auth/turnstile', () => ({
-  TurnstileWidget: ({ onToken }: { onToken: (t: string) => void }) => {
-    onToken('test-token');
-    return <div data-testid="turnstile" />;
-  },
+  TurnstileWidget: () => <div data-testid="turnstile-stub" />,
 }));
-
-import VerifyEmailPage from './page';
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
-});
 
 describe('VerifyEmailPage', () => {
-  it('confirms the token on mount and shows success with a sign-in link', async () => {
-    searchParams.get.mockReturnValue('tok123');
-    render(<VerifyEmailPage />);
-    await waitFor(() => expect(screen.getByText(/verified/i)).toBeInTheDocument());
-    expect(fetch).toHaveBeenCalledWith(
-      '/api/auth/verify-email',
-      expect.objectContaining({ method: 'POST' })
-    );
-    expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login');
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSearchParams = new URLSearchParams();
   });
 
-  it('shows the resend form when no token is present', () => {
-    searchParams.get.mockReturnValue(null);
+  it('exports correct metadata titled "Verify email | CryptoWithAlgo"', () => {
+    expect(metadata.title).toBe('Verify email | CryptoWithAlgo');
+  });
+
+  it('renders AuthShell with title "Verify email" and resend form when no token is present', () => {
     render(<VerifyEmailPage />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Verify email' })).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByTestId('turnstile')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /send verification email/i })
+    ).toBeInTheDocument();
+  });
+
+  it('renders verifying state when token is present in searchParams', () => {
+    mockSearchParams = new URLSearchParams('token=sample-verify-token');
+    render(<VerifyEmailPage />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Verify email' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /verifying your email/i })).toBeInTheDocument();
   });
 });

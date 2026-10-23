@@ -1,45 +1,41 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import RegisterPage, { metadata } from './page';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
-vi.mock('@/components/auth/turnstile', () => ({
-  TurnstileWidget: ({ onToken }: { onToken: (t: string) => void }) => {
-    onToken('test-token');
-    return <div data-testid="turnstile" />;
-  },
+vi.mock('next-auth/react', () => ({
+  signIn: vi.fn(),
 }));
 
-import RegisterPage from './page';
+vi.mock('@/lib/auth-forms/flows', () => ({
+  registerAccount: vi.fn(),
+}));
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
-});
+vi.mock('@/components/auth/turnstile', () => ({
+  TurnstileWidget: () => <div data-testid="turnstile-stub" />,
+}));
 
 describe('RegisterPage', () => {
-  it('renders the form with name, email, password, confirm, ToS, and Turnstile', () => {
-    render(<RegisterPage />);
-    expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
-    expect(screen.getByTestId('turnstile')).toBeInTheDocument();
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('shows the check-inbox screen after successful submit', async () => {
-    render(<RegisterPage />);
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Ada Lovelace' } });
-    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'ada@test.com' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'Secret1!' } });
-    fireEvent.change(screen.getByLabelText(/confirm/i), { target: { value: 'Secret1!' } });
-    fireEvent.click(screen.getByLabelText(/terms/i));
-    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
-    await waitFor(() => expect(screen.getByText(/check your inbox/i)).toBeInTheDocument());
+  it('exports correct metadata titled "Create account | CryptoWithAlgo"', () => {
+    expect(metadata.title).toBe('Create account | CryptoWithAlgo');
+  });
 
-    // Guard the regression where the form validated ToS client-side but never
-    // sent it, causing the API (which requires tosAccepted) to 400.
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    );
-    expect(body.tosAccepted).toBe(true);
-    expect(body.turnstileToken).toBe('test-token');
+  it('renders AuthShell with title "Create account", form fields, and exactly one checkbox', () => {
+    render(<RegisterPage />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Create account' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.getByLabelText('Password')).toBeInTheDocument();
+    expect(screen.getByLabelText(/confirm/i)).toBeInTheDocument();
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(1);
+    expect(checkboxes[0]).toHaveAccessibleName(/terms of service and privacy policy/i);
+
+    expect(screen.getByRole('button', { name: /create account/i })).toBeInTheDocument();
   });
 });

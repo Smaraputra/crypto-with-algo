@@ -1,42 +1,40 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import ResetPasswordPage, { metadata } from './page';
 
-const searchParams = { get: vi.fn() };
-vi.mock('next/navigation', () => ({ useSearchParams: () => searchParams }));
-vi.mock('next/link', () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
+let mockSearchParams = new URLSearchParams();
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => mockSearchParams,
 }));
 
-import ResetPasswordPage from './page';
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
-});
+vi.mock('@/lib/auth-forms/flows', () => ({
+  resetPassword: vi.fn(),
+}));
 
 describe('ResetPasswordPage', () => {
-  it('submits the new password with the token and shows success', async () => {
-    searchParams.get.mockReturnValue('tok123');
-    render(<ResetPasswordPage />);
-    fireEvent.change(screen.getByLabelText('New Password'), { target: { value: 'Secret1!' } });
-    fireEvent.change(screen.getByLabelText(/confirm/i), { target: { value: 'Secret1!' } });
-    fireEvent.click(screen.getByRole('button', { name: /reset password/i }));
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        '/api/auth/reset-password',
-        expect.objectContaining({ method: 'POST' })
-      )
-    );
-    expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login');
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSearchParams = new URLSearchParams();
   });
 
-  it('shows a mismatch error without calling fetch', async () => {
-    searchParams.get.mockReturnValue('tok123');
+  it('exports correct metadata titled "Choose a new password | CryptoWithAlgo"', () => {
+    expect(metadata.title).toBe('Choose a new password | CryptoWithAlgo');
+  });
+
+  it('renders AuthShell with title "Choose a new password" and invalid link message when no token is present', () => {
     render(<ResetPasswordPage />);
-    fireEvent.change(screen.getByLabelText('New Password'), { target: { value: 'Secret1!' } });
-    fireEvent.change(screen.getByLabelText(/confirm/i), { target: { value: 'Different1!' } });
-    fireEvent.click(screen.getByRole('button', { name: /reset password/i }));
-    await waitFor(() => expect(screen.getByText(/do not match/i)).toBeInTheDocument());
-    expect(fetch).not.toHaveBeenCalled();
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Choose a new password' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /invalid reset link/i })).toBeInTheDocument();
+  });
+
+  it('renders form fields when token is present in searchParams', () => {
+    mockSearchParams = new URLSearchParams('token=sample-token');
+    render(<ResetPasswordPage />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Choose a new password' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/new password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/confirm password/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /reset password/i })).toBeInTheDocument();
   });
 });

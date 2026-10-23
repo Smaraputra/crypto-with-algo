@@ -34,7 +34,7 @@ export function TurnstileWidget({ onToken }: TurnstileWidgetProps) {
       onSuccess={onToken}
       onExpire={() => onToken('')}
       onError={() => onToken('')}
-      options={{ theme: 'dark' }}
+      options={{ theme: 'auto' }}
     />
   );
 }
