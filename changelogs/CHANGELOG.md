@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The API now fills a missing reference price from the current price, and refuses to create the alert with a 422 if no price can be read.
   - Percent alerts already stored without a starting price are labelled in the list as unable to fire. Delete and recreate them; their stored data is unchanged.
 - **Navigation:** the interim Notes entry leaves the Tools menu, and the More sheet's Notes item points to /notes. No interim entries remain.
+- **Visual fixes:** filter and table labels used the panel fill colour as text and were nearly invisible, sheets gain inner padding, and tracked capitals are removed from badges and labels.
 - **Deleted:** the old journal, research and alerts components and the Research page.
 - **Tests:** unit tests for every new component and for the alerts API reference price. The E2E specs move to the new screens and clean up the entries, notes and alerts they create.
 
