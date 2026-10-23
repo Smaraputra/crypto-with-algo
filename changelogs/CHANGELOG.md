@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security: Next.js 16.4.0 to 16.4.2
+- Next.js 16.4.0 is in the affected range (16.0.0 to 16.4.0) of three advisories, confirmed with `npm audit` on 2026-10-23:
+  - GHSA-2464-fhr4-w9xw (critical): unauthenticated remote code execution in the Image Optimization API when SVG files are used.
+  - GHSA-673q-mjm6-r5xr (critical): unauthenticated remote code execution in `use cache` functions returning typed arrays.
+  - GHSA-p3m5-59mp-jv5r (high): denial of service in App Router Server Actions.
+- `next` and `eslint-config-next` are pinned to 16.4.2, a patch release. Only the Next.js packages (`next`, `@next/env`, the SWC binaries, `eslint-config-next`, `@next/eslint-plugin-next`) change in the lockfile. Installed with `--legacy-peer-deps`, the same flag CI and the Dockerfile use, because of the existing `@auth/mongodb-adapter` peer range.
+- After the upgrade, `npm audit` reports no Next.js advisory and zero criticals.
+
 ### Fixed: page clicks in the app gave no feedback until the server answered
 - **Cause**: `src/app/(dashboard)/layout.tsx` reads the session cookie, which makes every app route dynamic. Without Cache Components, Next.js 16 does not prefetch a dynamic route unless it has a `loading.js`, and none existed. Each click therefore waited for a full server round trip with the old page frozen.
 - **Measured on production before the fix** (2026-10-22, from the owner's browser):
