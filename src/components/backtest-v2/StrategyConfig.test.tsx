@@ -189,6 +189,23 @@ describe('StrategyConfig', () => {
     expect(callPayload.weights).toEqual(DEFAULT_WEIGHTS);
   });
 
+  it('opens New strategy as a labelled dialog with named checkbox groups and closes on Escape', async () => {
+    render(<WrapperComponent />);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'New strategy' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'New strategy' });
+    expect(dialog).toHaveTextContent('A strategy saves its coins, intervals and weights.');
+    expect(screen.getByRole('group', { name: 'Coins (1 to 5)' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Intervals (at least one)' })).toBeInTheDocument();
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
   it('the coin select option text is "BTC" with value "BTCUSDT"', () => {
     render(<WrapperComponent />);
 

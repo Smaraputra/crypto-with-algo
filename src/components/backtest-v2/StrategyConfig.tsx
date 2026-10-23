@@ -22,6 +22,13 @@ import {
 } from '@/lib/sessions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 export function formatDataStatusDate(timestampMs: number): string {
@@ -1112,18 +1119,13 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
       </div>
 
       {/* New Strategy Modal */}
-      {isNewOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={`${idPrefix}-new-title`}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs"
-        >
-          <div className="w-full max-w-lg bg-card border border-edge rounded-panel p-6 space-y-5 shadow-none max-h-[90vh] overflow-y-auto">
-            <h3 id={`${idPrefix}-new-title`} className="text-[18px] font-semibold text-foreground">
-              New strategy
-            </h3>
-
+      <Dialog open={isNewOpen} onOpenChange={setIsNewOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[18px] font-semibold text-foreground">New strategy</DialogTitle>
+            <DialogDescription>A strategy saves its coins, intervals and weights.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5">
             <form onSubmit={handleCreateStrategySubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label
@@ -1145,10 +1147,10 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
               </div>
 
               {/* Coins multi-select (1 to 5) */}
-              <div className="space-y-1.5">
-                <span className="block text-[13px] font-semibold text-foreground">
+              <fieldset className="m-0 min-w-0 space-y-1.5 border-0 p-0">
+                <legend className="mb-1.5 block p-0 text-[13px] font-semibold text-foreground">
                   Coins (1 to 5)
-                </span>
+                </legend>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {VALID_SYMBOLS.map((sym) => {
                     const isChecked = newSymbols.includes(sym);
@@ -1178,13 +1180,13 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                     );
                   })}
                 </div>
-              </div>
+              </fieldset>
 
               {/* Intervals multi-select (at least 1) */}
-              <div className="space-y-1.5">
-                <span className="block text-[13px] font-semibold text-foreground">
+              <fieldset className="m-0 min-w-0 space-y-1.5 border-0 p-0">
+                <legend className="mb-1.5 block p-0 text-[13px] font-semibold text-foreground">
                   Intervals (at least one)
-                </span>
+                </legend>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {VALID_INTERVALS.map((iv) => {
                     const isChecked = newIntervals.includes(iv);
@@ -1213,7 +1215,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                     );
                   })}
                 </div>
-              </div>
+              </fieldset>
 
               {/* Weights review */}
               <div className="p-3 bg-muted/40 rounded-[12px] space-y-1">
@@ -1255,21 +1257,17 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
               </div>
             </form>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Rename Modal */}
-      {isRenameOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={`${idPrefix}-rename-title`}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-xs"
-        >
-          <div className="w-full max-w-md bg-card border border-edge rounded-panel p-6 space-y-4 shadow-none">
-            <h3 id={`${idPrefix}-rename-title`} className="text-[18px] font-semibold text-foreground">
-              Rename strategy
-            </h3>
+      <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[18px] font-semibold text-foreground">Rename strategy</DialogTitle>
+            <DialogDescription>Choose a new name for this strategy.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
             <form onSubmit={handleRenameSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <label
@@ -1314,8 +1312,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
               </div>
             </form>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
