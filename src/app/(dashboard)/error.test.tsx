@@ -9,29 +9,33 @@ describe('DashboardError', () => {
     reset: vi.fn(),
   };
 
-  it('renders error message and description', () => {
+  it('renders error notice with title and description', () => {
     render(<DashboardError {...defaultProps} />);
 
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText('This page did not load.')).toBeInTheDocument();
     expect(
-      screen.getByText('An unexpected error occurred. Please try again.')
+      screen.getByText('Something went wrong on our side. Try again, or go back to the market.')
     ).toBeInTheDocument();
   });
 
-  it('renders Try Again button', () => {
+  it('renders Try again button and Back to market link', () => {
     render(<DashboardError {...defaultProps} />);
 
     expect(
-      screen.getByRole('button', { name: /try again/i })
+      screen.getByRole('button', { name: 'Try again' })
     ).toBeInTheDocument();
+
+    const backLink = screen.getByRole('link', { name: 'Back to market' });
+    expect(backLink).toBeInTheDocument();
+    expect(backLink).toHaveAttribute('href', '/dashboard');
   });
 
-  it('calls reset on button click', async () => {
+  it('calls reset on Try again button click', async () => {
     const user = userEvent.setup();
     const reset = vi.fn();
 
     render(<DashboardError {...{ ...defaultProps, reset }} />);
-    await user.click(screen.getByRole('button', { name: /try again/i }));
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
 
     expect(reset).toHaveBeenCalledOnce();
   });

@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Signals page (authenticated)', () => {
-  test('navigates to signals page via sidebar', async ({ page }) => {
+  test('navigates to signals page via Tools menu', async ({ page }) => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    const sidebar = page.locator('[data-testid="desktop-sidebar"]');
-    await sidebar.getByRole('link', { name: 'Signals' }).click();
+    await page.getByRole('button', { name: 'Tools' }).click();
+    await page.getByRole('menuitem', { name: 'Signals' }).click();
 
     await expect(page).toHaveURL('/signals', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Signals' })).toBeVisible();

@@ -1,18 +1,18 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Analytics page (authenticated)', () => {
-  test('sidebar shows Analytics nav link', async ({ page }) => {
+  test('Tools menu shows Analytics nav link', async ({ page }) => {
     await page.goto('/dashboard');
-    const sidebar = page.locator('[data-testid="desktop-sidebar"]');
-    await expect(sidebar.getByText('Analytics')).toBeVisible();
+    await page.getByRole('button', { name: 'Tools' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Analytics' })).toBeVisible();
   });
 
-  test('navigates to analytics page via sidebar', async ({ page }) => {
+  test('navigates to analytics page via Tools menu', async ({ page }) => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    const sidebar = page.locator('[data-testid="desktop-sidebar"]');
-    await sidebar.getByRole('link', { name: 'Analytics' }).click();
+    await page.getByRole('button', { name: 'Tools' }).click();
+    await page.getByRole('menuitem', { name: 'Analytics' }).click();
 
     await expect(page).toHaveURL('/analytics', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Analytics' })).toBeVisible();

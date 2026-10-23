@@ -77,10 +77,10 @@ test.describe('Journal page (authenticated)', () => {
     ).toBeVisible({ timeout: 10000 });
   });
 
-  test('sidebar has journal link', async ({ page }) => {
+  test('top bar has journal link', async ({ page }) => {
     await page.goto('/dashboard');
 
-    const journalLinks = page.getByRole('link', { name: /journal/i });
-    await expect(journalLinks.first()).toBeVisible({ timeout: 10000 });
+    const nav = page.getByRole('navigation', { name: 'Desktop primary' });
+    await expect(nav.getByRole('link', { name: 'Journal' })).toBeVisible({ timeout: 10000 });
   });
 });

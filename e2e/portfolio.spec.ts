@@ -1,13 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Portfolio (authenticated)', () => {
-  test('sidebar portfolio link navigates to /portfolio', async ({ page }) => {
+  test('top bar portfolio link navigates to /portfolio', async ({ page }) => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    // Click Portfolio in the desktop sidebar nav
-    const sidebar = page.locator('[data-testid="desktop-sidebar"]');
-    await sidebar.getByRole('link', { name: 'Portfolio' }).click();
+    const topBar = page.getByRole('navigation', { name: 'Desktop primary' });
+    await topBar.getByRole('link', { name: 'Portfolio' }).click();
 
     await expect(page).toHaveURL('/portfolio', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Portfolio' })).toBeVisible();

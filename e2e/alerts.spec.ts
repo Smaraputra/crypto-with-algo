@@ -1,13 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Alerts page (authenticated)', () => {
-  test('navigates to alerts page via sidebar', async ({ page }) => {
+  test('navigates to alerts page via top bar', async ({ page }) => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    // Click Alerts in the sidebar navigation
-    const sidebar = page.locator('[data-testid="desktop-sidebar"]');
-    await sidebar.getByRole('link', { name: 'Alerts' }).click();
+    const topBar = page.getByRole('navigation', { name: 'Desktop primary' });
+    await topBar.getByRole('link', { name: 'Alerts' }).click();
 
     await expect(page).toHaveURL('/alerts', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible();
@@ -162,21 +161,21 @@ test.describe('Alerts page (authenticated)', () => {
     await page.goto('/dashboard');
 
     await expect(
-      page.getByRole('button', { name: 'Notifications' })
+      page.getByRole('button', { name: 'Alerts' })
     ).toBeVisible({ timeout: 10000 });
   });
 
   test('notification bell opens popover', async ({ page }) => {
     await page.goto('/dashboard');
 
-    await page.getByRole('button', { name: 'Notifications' }).click();
+    await page.getByRole('button', { name: 'Alerts' }).click();
 
-    // Popover should show either notifications or empty state
-    const hasNotifications =
-      (await page.getByText('No new notifications').count()) > 0;
-    const hasAlertItems =
-      (await page.getByText('View All Alerts').count()) > 0;
-
-    expect(hasNotifications || hasAlertItems).toBe(true);
+    // Popover should show triggered alerts section and All alerts link
+    await expect(
+      page.getByText('Triggered alerts')
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole('link', { name: 'All alerts' })
+    ).toBeVisible({ timeout: 10000 });
   });
 });

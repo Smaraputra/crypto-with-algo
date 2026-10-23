@@ -16,10 +16,9 @@ test.describe('Research page (authenticated)', () => {
     await expect(view.or(loading)).toBeVisible({ timeout: 10000 });
   });
 
-  test('sidebar has research link', async ({ page }) => {
+  test('Tools menu has Notes link', async ({ page }) => {
     await page.goto('/dashboard');
-
-    const researchLinks = page.getByRole('link', { name: /research/i });
-    await expect(researchLinks.first()).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Tools' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Notes' })).toBeVisible({ timeout: 10000 });
   });
 });

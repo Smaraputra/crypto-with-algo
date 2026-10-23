@@ -47,19 +47,24 @@ test.describe('Dashboard features (authenticated)', () => {
     await expect(page.getByText('SOL').first()).toBeVisible();
   });
 
-  test('watchlist add button opens dropdown', async ({ page }) => {
+  test('coin search palette toggle adds and removes symbol from watchlist', async ({ page }) => {
     await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
 
-    // Wait for watchlist to load
-    await expect(page.getByText('Watchlist').first()).toBeVisible({ timeout: 10000 });
+    // Open coin search palette
+    await page.getByRole('button', { name: 'Search coins' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Search coins' });
+    await expect(dialog).toBeVisible();
 
-    // Click the add button (Plus icon button near Watchlist header)
-    const watchlistSection = page.locator('div').filter({ hasText: /^Watchlist$/ }).first();
-    const addButton = watchlistSection.locator('button').first();
-    await expect(addButton).toBeVisible({ timeout: 5000 });
-    await addButton.click();
-    // Dropdown should show search input
-    await expect(page.getByPlaceholder('Search symbol...')).toBeVisible();
+    // Toggle button changes state
+    const toggleButton = dialog.getByRole('button', { name: /watchlist/i }).first();
+    await expect(toggleButton).toBeVisible();
+    const initialText = await toggleButton.innerText();
+    await toggleButton.click();
+    const expectedText = initialText.includes('Add')
+      ? 'Remove from watchlist'
+      : 'Add to watchlist';
+    await expect(toggleButton).toHaveText(expectedText);
   });
 
   test.describe('provisional signal score strip', () => {

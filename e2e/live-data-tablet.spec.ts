@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mockHistory, mockStream, installFakeEventSource } from './helpers/live-data';
 
 test.describe('Live data tablet layout and interactions', () => {
-  test('navigation sheet closes on symbol selection or asserts selection on desktop sidebar', async ({
+  test('More sheet opens and closes on Escape, or coin search palette toggles watchlist', async ({
     page,
   }) => {
     await mockHistory(page);
@@ -15,20 +15,28 @@ test.describe('Live data tablet layout and interactions', () => {
     const isSheetWidth = (viewport?.width ?? 0) < 1024;
 
     if (isSheetWidth) {
-      const menuButton = page.getByRole('button', { name: 'Open menu' });
-      await menuButton.click();
+      const moreButton = page.getByRole('button', { name: 'More' });
+      await moreButton.click();
 
       const sheet = page.getByRole('dialog');
       await expect(sheet).toBeVisible();
+      await expect(sheet.getByRole('heading', { name: 'More' })).toBeVisible();
 
-      const ethButton = sheet.getByRole('button').filter({ hasText: /^ETH/ }).first();
-      await ethButton.click();
-
+      await page.keyboard.press('Escape');
       await expect(sheet).not.toBeVisible();
     } else {
-      const ethButton = page.locator('aside').getByRole('button').filter({ hasText: /^ETH/ }).first();
-      await ethButton.click();
-      await expect(ethButton).toHaveClass(/bg-sidebar-accent/);
+      await page.getByRole('button', { name: 'Search coins' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Search coins' });
+      await expect(dialog).toBeVisible();
+
+      const toggleButton = dialog.getByRole('button', { name: /watchlist/i }).first();
+      await expect(toggleButton).toBeVisible();
+      const initialText = await toggleButton.innerText();
+      await toggleButton.click();
+      const expectedText = initialText.includes('Add')
+        ? 'Remove from watchlist'
+        : 'Add to watchlist';
+      await expect(toggleButton).toHaveText(expectedText);
     }
   });
 

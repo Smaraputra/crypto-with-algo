@@ -7,4 +7,5 @@ export * from './BottomNav';
 export * from './MoreSheet';
 export * from './AlertsBell';
 export * from './CoinSearch';
+export * from './RouteLoading';
 export * from './nav-items';
