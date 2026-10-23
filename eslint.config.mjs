@@ -69,6 +69,8 @@ const eslintConfig = defineConfig([
     // the real ones and makes the "zero lint errors" step rule unsatisfiable.
     // Git already excludes it (.git/info/exclude); ESLint did not.
     ".claude/worktrees/**",
+    // Same for manual worktrees under .worktrees/<name>.
+    ".worktrees/**",
   ]),
   // Re-score models: only the track-record server reads them. Declared before the
   // provisional blocks, which repeat the rule because a later block replaces it.
