@@ -24,10 +24,12 @@ import {
 import { SegmentedControl } from '@/components/kit/SegmentedControl';
 import { useCreateJournalEntry } from '@/hooks/useJournal';
 import { useDiscipline } from '@/hooks/useDiscipline';
-import { useSymbols } from '@/hooks/useSymbols';
+import { useLatestSignalForStyle } from '@/hooks/useSignals';
 import { useUIStore } from '@/stores/uiStore';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
-import { MARKET_SESSIONS, SESSION_LABELS, type MarketSession } from '@/lib/sessions';
+import { scoredIntervals } from '@/lib/indicators/style-configs';
+import { tierDisplayLabel } from '@/lib/signals/tier-labels';
+import type { TradingStyle } from '@/lib/models/signal-template';
 import { cn } from '@/lib/utils';
 import {
   JOURNAL_ACTIONS,
@@ -50,6 +52,44 @@ function getBaseAsset(sym: string): string {
   return sym.replace(/(USDT|USDC|BUSD)$/, '') || sym;
 }
 
+const CANDIDATE_STYLES: TradingStyle[] = ['scalping', 'day_trading', 'swing_trading'];
+
+export interface ScoredPair {
+  style: TradingStyle;
+  interval: string;
+}
+
+function getScoredPairs(): ScoredPair[] {
+  const pairs: ScoredPair[] = [];
+  const seenIntervals = new Set<string>();
+
+  for (const style of CANDIDATE_STYLES) {
+    const intervals = scoredIntervals(style);
+    for (const interval of intervals) {
+      if (!seenIntervals.has(interval)) {
+        seenIntervals.add(interval);
+        pairs.push({ style, interval });
+      }
+    }
+  }
+  return pairs;
+}
+
+export const SCORED_PAIRS = getScoredPairs();
+
+const SIGNAL_COINS = SIGNAL_SYMBOLS.map((s) => ({
+  symbol: s,
+  baseAsset: getBaseAsset(s),
+}));
+
+const CONVICTION_OPTIONS = [
+  { value: '1', label: '1' },
+  { value: '2', label: '2' },
+  { value: '3', label: '3' },
+  { value: '4', label: '4' },
+  { value: '5', label: '5' },
+];
+
 interface LogTradeFormContentProps {
   initialSymbol?: string;
   onClose: () => void;
@@ -60,18 +100,22 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
   onClose,
 }) => {
   const storeSymbol = useUIStore((s) => s.selectedSymbol);
-  const defaultSymbol = initialSymbol || storeSymbol || 'BTCUSDT';
+  const isSignalSymbol = (s?: string | null): s is (typeof SIGNAL_SYMBOLS)[number] =>
+    !!s && (SIGNAL_SYMBOLS as readonly string[]).includes(s);
+
+  const defaultSymbol =
+    (initialSymbol && isSignalSymbol(initialSymbol) && initialSymbol) ||
+    (isSignalSymbol(storeSymbol) ? storeSymbol : 'BTCUSDT');
 
   const [selectedSymbol, setSelectedSymbol] = useState(defaultSymbol);
+  const [selectedInterval, setSelectedInterval] = useState('1h');
   const [openCoinPopover, setOpenCoinPopover] = useState(false);
   const [action, setAction] = useState<JournalAction>('buy');
   const [entryPrice, setEntryPrice] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [plannedStop, setPlannedStop] = useState('');
-  const [plannedTarget, setPlannedTarget] = useState('');
+  const [plannedRiskReward, setPlannedRiskReward] = useState('');
+  const [conviction, setConviction] = useState('');
   const [setupType, setSetupType] = useState('');
   const [marketCondition, setMarketCondition] = useState<MarketCondition | ''>('');
-  const [session, setSession] = useState<MarketSession | ''>('');
   const [emotion, setEmotion] = useState<TradeEmotion | ''>('');
   const [tagsInput, setTagsInput] = useState('');
   const [notes, setNotes] = useState('');
@@ -79,27 +123,32 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const { data: symbolsData } = useSymbols();
   const { data: nudges } = useDiscipline(selectedSymbol, true);
   const createMutation = useCreateJournalEntry();
 
-  const selectedBaseAsset =
-    symbolsData?.find((s) => s.symbol === selectedSymbol)?.baseAsset ||
-    getBaseAsset(selectedSymbol);
+  const currentPair =
+    SCORED_PAIRS.find((p) => p.interval === selectedInterval) ??
+    SCORED_PAIRS.find((p) => p.interval === '1h')!;
+  const currentStyle = currentPair.style;
 
-  const coinsList =
-    symbolsData && symbolsData.length > 0
-      ? symbolsData.map((s) => ({
-          symbol: s.symbol,
-          baseAsset: s.baseAsset || getBaseAsset(s.symbol),
-        }))
-      : SIGNAL_SYMBOLS.map((s) => ({
-          symbol: s,
-          baseAsset: getBaseAsset(s),
-        }));
+  const {
+    data: signalData,
+    isLoading: isSignalLoading,
+    isError: isSignalError,
+  } = useLatestSignalForStyle(selectedSymbol, currentStyle, selectedInterval);
+  const signal = signalData?.signal;
+
+  const isSaveDisabled =
+    createMutation.isPending || isSignalLoading || isSignalError || !signal;
+
+  const selectedBaseAsset = getBaseAsset(selectedSymbol);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaveDisabled || !signal) {
+      return;
+    }
+
     const newErrors: Record<string, string> = {};
 
     if (!selectedSymbol) {
@@ -115,19 +164,13 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
       newErrors.entryPrice = 'Entry price must be greater than 0.';
     }
 
-    const qtyNum = quantity ? parseFloat(quantity) : undefined;
-    if (quantity && (qtyNum === undefined || isNaN(qtyNum) || qtyNum <= 0)) {
-      newErrors.quantity = 'Quantity must be greater than 0.';
-    }
-
-    const stopNum = plannedStop ? parseFloat(plannedStop) : undefined;
-    if (plannedStop && (stopNum === undefined || isNaN(stopNum) || stopNum <= 0)) {
-      newErrors.plannedStop = 'Planned stop must be greater than 0.';
-    }
-
-    const targetNum = plannedTarget ? parseFloat(plannedTarget) : undefined;
-    if (plannedTarget && (targetNum === undefined || isNaN(targetNum) || targetNum <= 0)) {
-      newErrors.plannedTarget = 'Planned target must be greater than 0.';
+    const riskRewardNum = plannedRiskReward ? parseFloat(plannedRiskReward) : undefined;
+    if (
+      plannedRiskReward &&
+      (riskRewardNum === undefined || isNaN(riskRewardNum) || riskRewardNum <= 0 || riskRewardNum > 100)
+    ) {
+      newErrors.plannedRiskReward =
+        'Planned risk to reward must be greater than 0 and at most 100.';
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -138,39 +181,24 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
     setErrors({});
     setServerError(null);
 
-    // Compute planned risk/reward if both stop and target are specified and valid
-    let plannedRiskReward: number | undefined = undefined;
-    if (priceNum && stopNum && targetNum) {
-      if (action === 'buy' && priceNum > stopNum && targetNum > priceNum) {
-        const risk = priceNum - stopNum;
-        const reward = targetNum - priceNum;
-        plannedRiskReward = Number((reward / risk).toFixed(2));
-      } else if (action === 'sell' && stopNum > priceNum && priceNum > targetNum) {
-        const risk = stopNum - priceNum;
-        const reward = priceNum - targetNum;
-        plannedRiskReward = Number((reward / risk).toFixed(2));
-      }
-    }
+    const convictionNum = conviction ? parseInt(conviction, 10) : undefined;
 
     const tags = tagsInput
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const payload: CreateJournalEntryInput & Record<string, unknown> = {
+    const payload: CreateJournalEntryInput = {
       symbol: selectedSymbol,
-      interval: '1h',
-      signalScore: 0,
-      signalTier: 'neutral',
+      interval: selectedInterval,
+      signalScore: signal.score,
+      signalTier: signal.tier,
       action,
       ...(priceNum !== undefined ? { entryPrice: priceNum } : {}),
-      ...(qtyNum !== undefined ? { quantity: qtyNum } : {}),
-      ...(stopNum !== undefined ? { plannedStop: stopNum } : {}),
-      ...(targetNum !== undefined ? { plannedTarget: targetNum } : {}),
-      ...(plannedRiskReward !== undefined ? { plannedRiskReward } : {}),
+      ...(riskRewardNum !== undefined ? { plannedRiskReward: riskRewardNum } : {}),
+      ...(convictionNum !== undefined ? { convictionLevel: convictionNum } : {}),
       ...(setupType.trim() ? { setupType: setupType.trim() } : {}),
       ...(marketCondition ? { marketCondition } : {}),
-      ...(session ? { session } : {}),
       ...(emotion ? { emotion } : {}),
       ...(tags.length > 0 ? { tags } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -250,7 +278,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
                 <CommandList>
                   <CommandEmpty>No coin found.</CommandEmpty>
                   <CommandGroup>
-                    {coinsList.map((c) => (
+                    {SIGNAL_COINS.map((c) => (
                       <CommandItem
                         key={c.symbol}
                         value={c.baseAsset}
@@ -268,9 +296,39 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
               </Command>
             </PopoverContent>
           </Popover>
+          <p className="text-[13px] text-muted-foreground">
+            Trades are linked to the price score at the time you log them, which covers these ten coins.
+          </p>
           {errors.symbol && (
             <p role="alert" className="text-[13px] text-down">
               {errors.symbol}
+            </p>
+          )}
+        </div>
+
+        {/* Score interval */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[14px] font-medium text-foreground">Score interval</span>
+          <SegmentedControl
+            legend="Score interval"
+            value={selectedInterval}
+            onChange={setSelectedInterval}
+            options={SCORED_PAIRS.map((p) => ({
+              value: p.interval,
+              label: p.interval,
+            }))}
+          />
+          {isSignalLoading && (
+            <p className="text-[13px] text-muted-foreground">Loading the price score.</p>
+          )}
+          {!isSignalLoading && (isSignalError || !signal) && (
+            <p role="alert" className="text-[13px] text-down">
+              No price score is available for this coin and interval yet, so the trade cannot be linked to one. Choose another interval or try again shortly.
+            </p>
+          )}
+          {!isSignalLoading && !isSignalError && signal && (
+            <p className="text-[13px] text-muted-foreground">
+              Price score now: {tierDisplayLabel(signal.tier)}, {signal.score.toFixed(1)}.
             </p>
           )}
         </div>
@@ -294,7 +352,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
           )}
         </div>
 
-        {/* Entry Price & Quantity */}
+        {/* Entry Price & Planned risk to reward */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <label
@@ -324,84 +382,42 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
 
           <div className="flex flex-col gap-1.5">
             <label
-              htmlFor="log-trade-quantity"
+              htmlFor="log-trade-risk-reward"
               className="text-[14px] font-medium text-foreground"
             >
-              Quantity
+              Planned risk to reward
             </label>
             <input
-              id="log-trade-quantity"
+              id="log-trade-risk-reward"
               type="number"
               step="any"
-              placeholder="0.00"
-              value={quantity}
+              placeholder="e.g. 2.0"
+              value={plannedRiskReward}
               onChange={(e) => {
-                setQuantity(e.target.value);
-                if (errors.quantity) setErrors((prev) => ({ ...prev, quantity: '' }));
+                setPlannedRiskReward(e.target.value);
+                if (errors.plannedRiskReward) {
+                  setErrors((prev) => ({ ...prev, plannedRiskReward: '' }));
+                }
               }}
               className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
             />
-            {errors.quantity && (
+            {errors.plannedRiskReward && (
               <p role="alert" className="text-[13px] text-down">
-                {errors.quantity}
+                {errors.plannedRiskReward}
               </p>
             )}
           </div>
         </div>
 
-        {/* Planned Stop & Planned Target */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="log-trade-stop"
-              className="text-[14px] font-medium text-foreground"
-            >
-              Your planned stop
-            </label>
-            <input
-              id="log-trade-stop"
-              type="number"
-              step="any"
-              placeholder="0.00"
-              value={plannedStop}
-              onChange={(e) => {
-                setPlannedStop(e.target.value);
-                if (errors.plannedStop) setErrors((prev) => ({ ...prev, plannedStop: '' }));
-              }}
-              className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
-            />
-            {errors.plannedStop && (
-              <p role="alert" className="text-[13px] text-down">
-                {errors.plannedStop}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="log-trade-target"
-              className="text-[14px] font-medium text-foreground"
-            >
-              Your planned target
-            </label>
-            <input
-              id="log-trade-target"
-              type="number"
-              step="any"
-              placeholder="0.00"
-              value={plannedTarget}
-              onChange={(e) => {
-                setPlannedTarget(e.target.value);
-                if (errors.plannedTarget) setErrors((prev) => ({ ...prev, plannedTarget: '' }));
-              }}
-              className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
-            />
-            {errors.plannedTarget && (
-              <p role="alert" className="text-[13px] text-down">
-                {errors.plannedTarget}
-              </p>
-            )}
-          </div>
+        {/* Conviction */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[14px] font-medium text-foreground">Conviction</span>
+          <SegmentedControl
+            legend="Conviction"
+            value={conviction}
+            onChange={setConviction}
+            options={CONVICTION_OPTIONS}
+          />
         </div>
 
         {/* Setup & Market condition */}
@@ -440,45 +456,24 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
           </div>
         </div>
 
-        {/* Session & Emotion before */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="log-trade-session" className="text-[14px] font-medium text-foreground">
-              Session
-            </label>
-            <select
-              id="log-trade-session"
-              value={session}
-              onChange={(e) => setSession(e.target.value as MarketSession | '')}
-              className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground text-[14px] cursor-pointer focus-visible:outline-3 focus-visible:outline-ring"
-            >
-              <option value="">Select session</option>
-              {MARKET_SESSIONS.map((sess) => (
-                <option key={sess} value={sess}>
-                  {SESSION_LABELS[sess]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="log-trade-emotion" className="text-[14px] font-medium text-foreground">
-              Emotion before
-            </label>
-            <select
-              id="log-trade-emotion"
-              value={emotion}
-              onChange={(e) => setEmotion(e.target.value as TradeEmotion | '')}
-              className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground text-[14px] cursor-pointer focus-visible:outline-3 focus-visible:outline-ring"
-            >
-              <option value="">Select emotion</option>
-              {TRADE_EMOTIONS.map((emo) => (
-                <option key={emo} value={emo}>
-                  {TRADE_EMOTION_LABELS[emo]}
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Emotion before */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="log-trade-emotion" className="text-[14px] font-medium text-foreground">
+            Emotion before
+          </label>
+          <select
+            id="log-trade-emotion"
+            value={emotion}
+            onChange={(e) => setEmotion(e.target.value as TradeEmotion | '')}
+            className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground text-[14px] cursor-pointer focus-visible:outline-3 focus-visible:outline-ring"
+          >
+            <option value="">Select emotion</option>
+            {TRADE_EMOTIONS.map((emo) => (
+              <option key={emo} value={emo}>
+                {TRADE_EMOTION_LABELS[emo]}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Tags */}
@@ -522,7 +517,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
           </Button>
           <Button
             type="submit"
-            disabled={createMutation.isPending}
+            disabled={isSaveDisabled}
             className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90 font-semibold min-h-[44px] px-6"
           >
             {createMutation.isPending ? 'Saving...' : 'Save trade'}
