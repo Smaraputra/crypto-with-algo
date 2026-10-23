@@ -100,7 +100,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
       pnlNum !== null && costNum > 0 ? (pnlNum / costNum) * 100 : 0;
 
     let pnlClass = 'text-muted-foreground';
-    let pnlFormatted = '—';
+    let pnlFormatted = 'n/a';
     if (pnlNum !== null) {
       if (pnlNum > 0.0001) {
         pnlClass = 'text-up';
@@ -205,10 +205,10 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                     {formatCurrency(h.avgBuyPrice)}
                   </td>
                   <td className="py-3.5 px-4 text-right font-sans tabular-nums text-foreground">
-                    {priceNum !== null ? formatCurrency(priceNum) : '—'}
+                    {priceNum !== null ? formatCurrency(priceNum) : 'n/a'}
                   </td>
                   <td className="py-3.5 px-4 text-right font-sans tabular-nums text-foreground">
-                    {valueNum !== null ? formatCurrency(valueNum) : '—'}
+                    {valueNum !== null ? formatCurrency(valueNum) : 'n/a'}
                   </td>
                   <td
                     className={cn(
@@ -311,13 +311,13 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                 <div>
                   <dt className="text-muted-foreground text-[12px]">Price</dt>
                   <dd className="font-sans tabular-nums font-medium text-foreground">
-                    {priceNum !== null ? formatCurrency(priceNum) : '—'}
+                    {priceNum !== null ? formatCurrency(priceNum) : 'n/a'}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground text-[12px]">Value</dt>
                   <dd className="font-sans tabular-nums font-medium text-foreground">
-                    {valueNum !== null ? formatCurrency(valueNum) : '—'}
+                    {valueNum !== null ? formatCurrency(valueNum) : 'n/a'}
                   </dd>
                 </div>
                 <div className="col-span-2">

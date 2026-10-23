@@ -251,23 +251,24 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                       Coin
                     </th>
                     <th scope="col" className="py-3 px-4 text-right">
+                      Quantity
+                    </th>
+                    <th scope="col" className="py-3 px-4 text-right">
+                      Average cost
+                    </th>
+                    <th scope="col" className="py-3 px-4 text-right">
                       Cost basis
                     </th>
                     <th scope="col" className="py-3 px-4 text-right">
                       Realised P&L
                     </th>
-                    <th scope="col" className="py-3 px-4 text-right">
-                      Unrealised P&L
-                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line text-[14px]">
                   {costBasisData.costBasis.holdings.map((h) => {
-                    const record = h as unknown as Record<string, unknown>;
                     const realized = h.totalRealizedGain ?? 0;
-                    const unrealized = record.unrealizedPnl ?? record.unrealizedGain;
 
-                    let realizedFormatted = `+$0.00`;
+                    let realizedFormatted = formatCurrency(0);
                     let realizedClass = 'text-muted-foreground';
                     if (realized > 0.0001) {
                       realizedFormatted = `+${formatCurrency(realized)}`;
@@ -277,24 +278,16 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                       realizedClass = 'text-down';
                     }
 
-                    let unrealizedFormatted = '—';
-                    let unrealizedClass = 'text-muted-foreground';
-                    if (typeof unrealized === 'number') {
-                      if (unrealized > 0.0001) {
-                        unrealizedFormatted = `+${formatCurrency(unrealized)}`;
-                        unrealizedClass = 'text-up';
-                      } else if (unrealized < -0.0001) {
-                        unrealizedFormatted = `-${formatCurrency(Math.abs(unrealized))}`;
-                        unrealizedClass = 'text-down';
-                      } else {
-                        unrealizedFormatted = `+$0.00`;
-                      }
-                    }
-
                     return (
                       <tr key={h.symbol} className="hover:bg-muted/30">
                         <td className="py-3 px-4 font-semibold text-foreground">
-                          {h.symbol}
+                          {h.symbol.replace(/USDT$/, '')}
+                        </td>
+                        <td className="py-3 px-4 text-right font-sans tabular-nums text-foreground">
+                          {h.totalQuantity.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                        </td>
+                        <td className="py-3 px-4 text-right font-sans tabular-nums text-foreground">
+                          {formatCurrency(h.averageCost)}
                         </td>
                         <td className="py-3 px-4 text-right font-sans tabular-nums text-foreground">
                           {formatCurrency(h.totalCost)}
@@ -306,14 +299,6 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                           )}
                         >
                           {realizedFormatted}
-                        </td>
-                        <td
-                          className={cn(
-                            'py-3 px-4 text-right font-sans tabular-nums font-medium',
-                            unrealizedClass
-                          )}
-                        >
-                          {unrealizedFormatted}
                         </td>
                       </tr>
                     );
@@ -362,7 +347,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.maxDrawdown !== null
                   ? `${(riskData.metrics.maxDrawdown * 100).toFixed(2)}%`
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 The largest fall from a peak in the period
@@ -376,7 +361,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.sharpeRatio !== null
                   ? riskData.metrics.sharpeRatio.toFixed(2)
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 Risk-adjusted return relative to risk-free rate
@@ -390,7 +375,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.sortinoRatio !== null
                   ? riskData.metrics.sortinoRatio.toFixed(2)
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 Return adjusted for downside risk only
@@ -404,7 +389,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.annualizedVolatility !== null
                   ? `${(riskData.metrics.annualizedVolatility * 100).toFixed(2)}%`
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 Yearly variation of portfolio returns
@@ -418,7 +403,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.annualizedReturn !== null
                   ? `${(riskData.metrics.annualizedReturn * 100).toFixed(2)}%`
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 Geometric average return per year
@@ -432,7 +417,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.totalReturn !== null
                   ? `${(riskData.metrics.totalReturn * 100).toFixed(2)}%`
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 Overall portfolio return across the period
@@ -446,7 +431,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.bestDay
                   ? `${(riskData.metrics.bestDay.return * 100).toFixed(2)}%`
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 Largest single-day gain in the period
@@ -460,7 +445,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
               <span className="font-sans font-semibold text-[22px] tabular-nums text-foreground">
                 {riskData.metrics.worstDay
                   ? `${(riskData.metrics.worstDay.return * 100).toFixed(2)}%`
-                  : '—'}
+                  : 'n/a'}
               </span>
               <p className="text-[12px] text-muted-foreground leading-normal">
                 Largest single-day drop in the period
@@ -474,7 +459,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
       <Panel title="Export">
         <div className="space-y-4">
           <p className="text-[14px] text-muted-foreground max-w-xl leading-relaxed">
-            Export tax and transaction reports in your accounting format of choice.
+            Download your transactions as a CSV file that accounting and tax tools can import.
           </p>
 
           <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
