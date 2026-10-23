@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: the Market screen replaces the old dashboard (UI redesign PR 4)
+- **/dashboard is now "Market"** (`src/components/market-home/`), with one focal point: the selected coin's price.
+  - **Coin tabs** come from the watchlist: base asset, live price and signed 24h change. The selected tab uses an ink fill, never the green, so selection never reads as a rising price.
+  - **Price** is 80px on desktop and 56px on phone, signed and coloured up or down, with "Study this coin" linking to /focus.
+  - **Chart**: a candles-only chart with a 1H, 4H, 1D, 1W and 1M interval control, through the chart engine below. No indicators, legend or drawing tools on the home screen.
+  - **Lab panel**: one cell per idea, "{n} under test, {m} validated", the hourly update time and a link to /lab.
+  - **Price score panel**: the selected coin's 1 hour score as a plain label ("Long score", "Neutral"), the "No edge (measured)" chip, one context line, and "Score detail" to /signals. No stops, targets or sizes.
+  - **Stream health** shows only when the live price stream is not live, with Reconnect when it is stale or offline.
+  - **Foot**: the Fear and Greed line, five headlines and the Binance attribution.
+- **Removed from home**: the welcome line, the "When to look" panel, the rejected rv-v1 card (its record is on /lab), the eight ticker cards, the old chart toolbar, the signal score strip and the track record under the chart.
+- **Chart engine** (`src/components/chart/useTradingChartEngine.ts`): the KlineCharts engine (init, data loader, live bars, indicators, drawings, overlays) moved out of `TradingChart.tsx` into a hook, with TradingChart's markup unchanged.
+  - Chart colours now come from the theme tokens (`chart-styles.ts`, `indicator-theme.ts`) instead of hardcoded hex, so charts follow light and dark.
+  - New options `initialIndicators` and `showCandleTooltip` let the home chart start clean while /focus keeps its defaults.
+- **/lab gains "Price score track record"**: per coin and timeframe, how often the score's calls were right against a coin flip and break-even after costs (with the 95% range on a true-scale ruler), the average result per call after costs, the pooled verdict across all ten coins, and the live record.
+  - It says "Too few to judge yet" until there are 30 live calls on each side.
+  - It moved here from under the old dashboard chart so the evidence stays visible.
+- **Tape**: count-only ticks are now short, low-contrast activity marks. On production, 1,392 equal bright ticks running up to the threshold read like a full progress bar while the evidence was 1.0 of 800. The evidence segment stays exactly true to scale.
+- **Navigation**: the interim Signals entry leaves the Tools menu, because the Market screen's "Score detail" links to /signals (the phone More sheet keeps it, as approved). Notes and Analytics stay as interim entries until their screens land.
+- **Deleted**:
+  - `WhenToLookPanel`
+  - `MarketOverview`
+  - `NewsFeed`
+  - `CrossSectionalPortfolioCard`
+  - `LazyDashboardChart`
+  - `DashboardChart`
+  - `SignalScoreStrip`
+  - the old chart track-record panel and its helpers
+- **Tests**: unit tests for every new component and the engine. The E2E specs move to the Market screen, and `when-to-look.spec.ts` is removed with its panel.
+
 ### Added: the lab record page and the new app shell (UI redesign PR 3)
 - **/lab, "The lab record"**: one plain-language page for the whole research record, built from the kit.
   - The headline is the validated count ("0 validated" and "No idea has been validated yet." while none has passed).
