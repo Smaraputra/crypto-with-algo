@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Portfolio with Holdings and Performance, Analytics merged (UI redesign PR 6)
+- **/portfolio** (`src/components/portfolio-v2/`) has a Holdings | Performance switcher (`?tab=performance`). /analytics now redirects there with an HTTP 307 from `next.config.ts`, and its page is removed.
+  - **Holdings:**
+    - the total value as the focal number, with the total cost and the unrealised P&L (signed and coloured);
+    - a holdings table where each coin links to its Coin study and has a row menu for "Record a trade" and "Remove holding" (with confirmation);
+    - "Add a holding" opens a trade sheet with a searchable coin picker and inline validation (a sell larger than the holding is blocked).
+    - An empty portfolio shows only the empty state, without a zero summary.
+  - **Performance:**
+    - value over time (7D to 1Y, colours from the theme);
+    - cost basis by FIFO, LIFO or HIFO with quantity, average cost, cost basis and realised P&L;
+    - risk metrics in plain words;
+    - a CSV download in Generic, Koinly or CoinTracker format.
+  - The export copy says what it is: a transaction CSV that accounting and tax tools can import. The old "tax reports" wording overstated it.
+- **Navigation:** the interim Analytics entries leave the Tools menu and the More sheet.
+- **Placeholders:** missing values across the new screens read "n/a" instead of an em dash, and zero P&L carries no sign.
+- **Deleted:** the old portfolio and analytics components and the Analytics page.
+- **Tests:**
+  - unit tests for every new component;
+  - E2E creates a portfolio, adds and removes a BNB holding, and cleans up after itself;
+  - `/analytics` is asserted to land on the Performance tab.
+
 ### Changed: Coin study and Price score screens (UI redesign PR 5)
 - **/focus is now "Coin study"** (`src/components/coin/`): study one coin with the evidence and costs beside the chart.
   - **Chart:** the perpetual chart through the chart engine, with these controls:
