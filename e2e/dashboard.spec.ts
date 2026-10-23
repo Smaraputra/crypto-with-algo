@@ -53,27 +53,6 @@ test.describe('Dashboard features (authenticated)', () => {
     }
   });
 
-  test('coin search palette toggle adds and removes symbol from watchlist', async ({ page }) => {
-    await mockSymbols(page);
-    await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-
-    // Open coin search palette
-    await page.getByRole('button', { name: 'Search coins' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Search coins' });
-    await expect(dialog).toBeVisible();
-
-    // Toggle button changes state
-    const toggleButton = dialog.getByRole('button', { name: /watchlist/i }).first();
-    await expect(toggleButton).toBeVisible();
-    const initialText = await toggleButton.innerText();
-    await toggleButton.click();
-    const expectedText = initialText.includes('Add')
-      ? 'Remove from watchlist'
-      : 'Add to watchlist';
-    await expect(toggleButton).toHaveText(expectedText);
-  });
-
   test.describe('provisional signal score strip', () => {
     // Binance may be unreachable, so any real status line valid at 1h is accepted.
     // "No scheduler score" is the unavailable line and is a bug at BTCUSDT 1h.

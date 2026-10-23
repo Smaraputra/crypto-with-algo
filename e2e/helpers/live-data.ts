@@ -93,7 +93,8 @@ export async function mockStream(
 ): Promise<string[]> {
   const requestedUrls: string[] = [];
 
-  await page.route('**/api/stream?**', async (route) => {
+  // Spot streams use /api/stream, perpetual streams (the Focus chart) /api/stream/perp.
+  await page.route(/\/api\/stream(\/perp)?\?/, async (route) => {
     const url = route.request().url();
     requestedUrls.push(url);
 

@@ -35,14 +35,17 @@ test.describe('Dashboard layout (authenticated)', () => {
     const dialog = page.getByRole('dialog', { name: 'Search coins' });
     await expect(dialog).toBeVisible();
 
-    const toggleButton = dialog.getByRole('button', { name: /watchlist/i }).first();
-    await expect(toggleButton).toBeVisible();
-    const initialText = await toggleButton.innerText();
-    await toggleButton.click();
-    const expectedText = initialText.includes('Add')
-      ? 'Remove from watchlist'
-      : 'Add to watchlist';
-    await expect(toggleButton).toHaveText(expectedText);
+    // BNB is outside the default watchlist (BTC, ETH, SOL). Other tests read the shared
+    // test user's watchlist in parallel, so this adds BNB and removes it again.
+    const toggle = dialog
+      .getByRole('option')
+      .filter({ hasText: 'BNB' })
+      .getByRole('button', { name: /watchlist/i });
+    await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
+    await toggle.click();
+    await expect(toggle).toHaveText('Remove from watchlist', { timeout: 10000 });
+    await toggle.click();
+    await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
   });
 
   test('top bar Account menu shows Log out', async ({ page }) => {
