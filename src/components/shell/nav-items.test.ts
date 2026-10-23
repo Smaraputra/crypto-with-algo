@@ -67,12 +67,8 @@ describe('nav-items and isNavActive', () => {
   });
 
   it('marks interim items with interim: true and appropriate removalReason', () => {
-    const signals = TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Signals')!;
     const notes = TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Notes')!;
     const analytics = TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Analytics')!;
-
-    expect(signals.interim).toBe(true);
-    expect(signals.removalReason).toContain('price score link');
 
     expect(notes.interim).toBe(true);
     expect(notes.removalReason).toContain('Notes switcher');

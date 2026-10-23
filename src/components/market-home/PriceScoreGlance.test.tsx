@@ -39,7 +39,7 @@ describe('PriceScoreGlance', () => {
     const { container } = render(<PriceScoreGlance />);
 
     expect(
-      screen.getByText('BTC reads Long score on the 1 hour score.')
+      screen.getByText('BTC, 1 hour: Long score.')
     ).toBeInTheDocument();
     expect(
       screen.getByText(

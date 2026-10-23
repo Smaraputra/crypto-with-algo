@@ -20,13 +20,6 @@ export const TOOLS_NAV_ITEMS: NavItem[] = [
 ];
 
 export const TOOLS_INTERIM_ITEMS: NavItem[] = [
-  // Signals: the Market screen's price score link
-  {
-    label: 'Signals',
-    href: '/signals',
-    interim: true,
-    removalReason: "the Market screen's price score link",
-  },
   // Notes: the Journal screen's Notes switcher
   {
     label: 'Notes',

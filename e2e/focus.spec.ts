@@ -5,7 +5,7 @@ test.describe('Focus page (authenticated)', () => {
   test('navigates to focus page via coin search palette', async ({ page }) => {
     await mockSymbols(page);
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     await page.getByRole('button', { name: 'Search coins' }).click();
     const dialog = page.getByRole('dialog', { name: 'Search coins' });

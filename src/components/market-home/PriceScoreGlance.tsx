@@ -85,7 +85,7 @@ export const PriceScoreGlance: React.FC<PriceScoreGlanceProps> = ({
       className={cn('flex flex-col', className)}
     >
       <p className="text-[15px] font-semibold text-foreground leading-normal">
-        {base} reads {tierLabel} on the 1 hour score.
+        {base}, 1 hour: {tierLabel}.
       </p>
 
       <p className="text-[13px] text-muted-foreground mt-1 leading-relaxed">

@@ -42,7 +42,7 @@ setup('register and authenticate test user', async ({ page, baseURL }) => {
   await expect(page).toHaveURL('/dashboard', { timeout: 30000 });
 
   // Verify we landed on the authenticated dashboard
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible();
 
   // Save signed-in state for reuse by other test projects
   await page.context().storageState({ path: 'e2e/.auth/user.json' });

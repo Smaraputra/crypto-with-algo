@@ -9,7 +9,7 @@ test.describe('Analytics page (authenticated)', () => {
 
   test('navigates to analytics page via Tools menu', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     await page.getByRole('navigation', { name: 'Desktop primary' }).getByRole('button', { name: 'Tools' }).click();
     await page.getByRole('menuitem', { name: 'Analytics' }).click();

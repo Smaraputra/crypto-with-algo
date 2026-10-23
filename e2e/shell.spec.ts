@@ -5,7 +5,7 @@ test.describe('AppShell desktop (authenticated)', () => {
     page,
   }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     const nav = page.getByRole('navigation', { name: 'Desktop primary' });
     await expect(nav).toBeVisible();
@@ -31,7 +31,7 @@ test.describe('AppShell desktop (authenticated)', () => {
 
   test('Control+K opens the coin palette and Escape closes it', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     await page.keyboard.press('Control+k');
     const palette = page.getByRole('dialog', { name: 'Search coins' });
@@ -49,7 +49,7 @@ test.describe('AppShell phone (authenticated)', () => {
     page,
   }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     // Top bar links are hidden
     await expect(page.getByRole('navigation', { name: 'Desktop primary' })).not.toBeVisible();
@@ -78,7 +78,7 @@ test.describe('AppShell phone (authenticated)', () => {
 
   test('Control+K opens the coin palette and Escape closes it', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     await page.keyboard.press('Control+k');
     const palette = page.getByRole('dialog', { name: 'Search coins' });
