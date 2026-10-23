@@ -205,13 +205,13 @@ describe('theme library', () => {
   });
 
   describe('interim accent tokens', () => {
-    it('globals.css defines interim brand accent for unrebuilt screens in :root and .dark', () => {
+    it('globals.css defines interim caution accent for unrebuilt screens in :root and .dark', () => {
       const globalsCss = readFileSync(join(__dirname, '../app/globals.css'), 'utf8');
       const rootBlock = globalsCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
       const darkBlock = globalsCss.match(/\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? '';
 
-      expect(rootBlock).toContain('--accent: #067346;');
-      expect(darkBlock).toContain('--accent: #00C57C;');
+      expect(rootBlock).toContain('--accent: #8A5300;');
+      expect(darkBlock).toContain('--accent: #E8A93A;');
     });
   });
 
