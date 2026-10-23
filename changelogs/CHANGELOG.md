@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Coin study and Price score screens (UI redesign PR 5)
+- **/focus is now "Coin study"** (`src/components/coin/`): study one coin with the evidence and costs beside the chart.
+  - **Chart:** the perpetual chart through the chart engine, with these controls:
+    - a 15m, 1h, 4h and 1d interval control;
+    - Structure, 50 SMA and MACD toggles;
+    - prior-day levels and the lab-v4 marks;
+    - the drawing tools behind a "Draw" disclosure.
+  - **Timeframes:** 15m to 1d in plain words (trend, last structure event, CVD direction, position against the 50 SMA) under one "Untested" chip, because these readings were never tested as signals.
+  - **Best evidence:** the four forward labs ranked by evidence against threshold for this coin. Each idea shows its plain name and what it currently holds for the coin ("Holding long until 16:10 UTC", "In cash", "Not in this lab's coins"), under one chip. A note says none is validated and the positions are paper records.
+  - **Costs:** the round-trip cost on $1,000 for a chosen hold, with "Open Cost Check" prefilled.
+  - **Headlines** for the coin.
+- **/signals is now "Price score"** (`src/components/score/`): the composite score as context for one coin. It shows:
+  - the direction in words ("Leaning up", "No lean"), one "No edge (measured)" chip and one line saying the rule built on it lost after costs at every interval measured;
+  - what moved the score, as true-scale bars;
+  - recent readings;
+  - futures context (latest funding rate, open interest in coins, the long to short account ratio).
+
+  **Removed** as approved:
+  - the actionable trade ticket (entry, stop, target, size, leverage);
+  - the journal form;
+  - the lab boards, now on /lab.
+- **Lab logic:** the per-coin evidence ranking moved out of the old Focus component into a pure, tested function (`src/lib/signals/lab/coin-evidence.ts`). It returns structured positions instead of display strings.
+- **Market follow-ups from production:**
+  - Coin tabs show a placeholder instead of a fabricated "+0.00%" before prices arrive.
+  - The home chart no longer restores drawings saved elsewhere, which it could not remove.
+  - Headlines from the news feeds decode HTML entities (`src/lib/text/decode-entities.ts`).
+  - `StreamHealth` takes a `market` prop instead of being duplicated.
+- **Deleted:**
+  - the old Focus components;
+  - all old Signals components (including the trade plan card, signal board and lab sections);
+  - `TradingChart` with its legend, indicator settings and call legend;
+  - `SymbolSearch`, `SentimentGauge`, `StreamStatusBadge`, and the unused `PriceCard`.
+- **Tests:** unit tests for every new component and the coin evidence function. The engine behaviour tests that lived in the deleted TradingChart test (history paging, the history error, both overlays, indicator toggling, drawings and saved overlays) are ported to the hook, from 8 cases to 41. The E2E specs for /focus and /signals move to the new screens.
+
 ### Changed: the Market screen replaces the old dashboard (UI redesign PR 4)
 - **/dashboard is now "Market"** (`src/components/market-home/`), with one focal point: the selected coin's price.
   - **Coin tabs** come from the watchlist: base asset, live price and signed 24h change. The selected tab uses an ink fill, never the green, so selection never reads as a rising price.

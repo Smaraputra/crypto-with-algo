@@ -128,12 +128,39 @@ describe('CoinTabs', () => {
     render(<CoinTabs />);
     const tabs = screen.getAllByRole('tab');
 
+    expect(tabs[0]).toHaveAccessibleName('BTC');
+    expect(tabs[0]).not.toHaveTextContent('+0.00%');
+    expect(tabs[0]).not.toHaveTextContent('$0');
+
     await user.click(tabs[1]);
     expect(setSelectedSymbolMock).toHaveBeenCalledWith('ETHUSDT');
 
     tabs[0].focus();
     await user.keyboard('{ArrowRight}');
     expect(setSelectedSymbolMock).toHaveBeenCalledWith('ETHUSDT');
+  });
+
+  it('shows placeholder block and base asset accessible name with no +0.00% or $0 when ticker is missing', () => {
+    vi.mocked(useWatchlist).mockReturnValue({
+      symbols: ['BTCUSDT'],
+      isLoading: false,
+      addSymbol: vi.fn(),
+      removeSymbol: vi.fn(),
+    });
+    vi.mocked(useBinanceTicker).mockReturnValue({
+      tickers: {},
+      isConnected: true,
+      status: 'live',
+      lastMessageAt: Date.now(),
+      retry: vi.fn(),
+    });
+
+    render(<CoinTabs />);
+    const tab = screen.getByRole('tab', { name: 'BTC' });
+    expect(tab).toBeInTheDocument();
+    expect(tab).not.toHaveTextContent('+0.00%');
+    expect(tab).not.toHaveTextContent('$0');
+    expect(screen.getByTestId('coin-tab-ticker-placeholder')).toBeInTheDocument();
   });
 
   it('shows empty text when watchlist is empty', () => {

@@ -154,4 +154,35 @@ describe('MarketFoot', () => {
     render(<MarketFoot />);
     expect(screen.queryByText(/Fear and Greed:/i)).not.toBeInTheDocument();
   });
+
+  it('decodes HTML entities in headline title and source', () => {
+    vi.mocked(useFearAndGreed).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    } as unknown as ReturnType<typeof useFearAndGreed>);
+
+    vi.mocked(useLatestNews).mockReturnValue({
+      data: {
+        articles: [
+          {
+            id: '1',
+            title: 'Bitcoin in &#39;Wait&#39; &amp; see',
+            url: 'https://news.example.com/1',
+            source: 'CoinDesk &amp; Partners',
+            body: '',
+            categories: 'BTC',
+            publishedOn: Math.floor(Date.now() / 1000) - 300,
+            imageUrl: null,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof useLatestNews>);
+
+    render(<MarketFoot />);
+    expect(screen.getByText("Bitcoin in 'Wait' & see")).toBeInTheDocument();
+    expect(screen.getByText(/CoinDesk & Partners/)).toBeInTheDocument();
+  });
 });

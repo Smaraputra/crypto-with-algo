@@ -8,215 +8,81 @@ test.describe('Signals page (authenticated)', () => {
     await page.getByRole('link', { name: 'Score detail' }).click();
 
     await expect(page).toHaveURL('/signals', { timeout: 10000 });
-    await expect(page.getByRole('heading', { name: 'Signals' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Price score', exact: true })).toBeVisible();
   });
 
-  test('renders heading, style tabs, controls, and sections', async ({ page }) => {
+  test('renders heading and "No edge (measured)" chip', async ({ page }) => {
     await page.goto('/signals');
-
-    // Page heading
-    await expect(page.getByRole('heading', { name: 'Signals' })).toBeVisible();
-
-    // Style tabs (4 trading styles)
-    await expect(page.getByTestId('style-tab-scalping')).toBeVisible();
-    await expect(page.getByTestId('style-tab-day_trading')).toBeVisible();
-    await expect(page.getByTestId('style-tab-swing_trading')).toBeVisible();
-    await expect(page.getByTestId('style-tab-position_trading')).toBeVisible();
-
-    // Day Trading is the default active tab
-    await expect(page.getByTestId('style-tab-day_trading')).toHaveAttribute(
-      'data-state',
-      'active'
-    );
-
-    // Controls. There is deliberately no compute button: scoring is the
-    // scheduler's job, not something a browser click can trigger.
-    await expect(page.getByTestId('interval-select')).toBeVisible();
-    await expect(page.getByTestId('compute-button')).toHaveCount(0);
-  });
-
-  test('shows 10 symbol selector buttons', async ({ page }) => {
-    await page.goto('/signals');
-
-    const expectedSymbols = [
-      'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK',
-    ];
-
-    // Scoped to the page: the sidebar watchlist row is also a button, and its name is exactly the symbol while
-    // its price is still loading, which made this match two elements depending on Binance's response time.
-    const main = page.locator('#main-content');
-    for (const sym of expectedSymbols) {
-      await expect(main.getByRole('button', { name: sym, exact: true })).toBeVisible();
-    }
-  });
-
-  test('day_trading default shows 15m and 1h intervals', async ({ page }) => {
-    await page.goto('/signals');
-
-    const select = page.getByTestId('interval-select');
-    await expect(select).toBeVisible();
-
-    // Day trading preferred intervals: 15m, 1h
-    await expect(select.locator('option[value="15m"]')).toHaveText('15m');
-    await expect(select.locator('option[value="1h"]')).toHaveText('1h');
-
-    // Should NOT have scalping intervals
-    await expect(select.locator('option[value="1m"]')).toHaveCount(0);
-    await expect(select.locator('option[value="5m"]')).toHaveCount(0);
-  });
-
-  test('switching to scalping tab offers 5m only (1m scoring is retired)', async ({ page }) => {
-    await page.goto('/signals');
-
-    // Click Scalping tab
-    await page.getByTestId('style-tab-scalping').click();
-    await expect(page.getByTestId('style-tab-scalping')).toHaveAttribute(
-      'data-state',
-      'active'
-    );
-
-    const select = page.getByTestId('interval-select');
-
-    // Scalping scored intervals: 5m only
-    await expect(select.locator('option[value="1m"]')).toHaveCount(0);
-    await expect(select.locator('option[value="5m"]')).toHaveText('5m');
-
-    // Should NOT have day trading intervals
-    await expect(select.locator('option[value="15m"]')).toHaveCount(0);
-    await expect(select.locator('option[value="1h"]')).toHaveCount(0);
-  });
-
-  test('switching to position tab changes intervals to 1d', async ({ page }) => {
-    await page.goto('/signals');
-
-    await page.getByTestId('style-tab-position_trading').click();
-    await expect(page.getByTestId('style-tab-position_trading')).toHaveAttribute(
-      'data-state',
-      'active'
-    );
-
-    const select = page.getByTestId('interval-select');
-    await expect(select.locator('option[value="1d"]')).toHaveText('1d');
-
-    // Only 1 option
-    await expect(select.locator('option')).toHaveCount(1);
-  });
-
-  test('multi-style overview section is visible with 4 style cards', async ({ page }) => {
-    await page.goto('/signals');
-
-    await expect(page.getByText('All Styles')).toBeVisible();
-
-    // Multi-style overview cards show style labels or loading state
-    const scalping = page.getByText('Scalping');
-    const dayTrading = page.getByText('Day Trading');
-    const swing = page.getByText('Swing');
-    const position = page.getByText('Position');
-
-    await expect(scalping.first()).toBeVisible();
-    await expect(dayTrading.first()).toBeVisible();
-    await expect(swing.first()).toBeVisible();
-    await expect(position.first()).toBeVisible();
-  });
-
-  test('futures data section is visible', async ({ page }) => {
-    await page.goto('/signals');
-
-    await expect(page.getByText('Futures Data')).toBeVisible();
-    // Binance REST returns 403 from US IPs, so we accept either loaded or error state.
-    // This is intentional -- not a weak assertion.
-    const futuresPanel = page.getByTestId('futures-panel');
-    const futuresUnavailable = page.getByText('Futures data unavailable');
-    await expect(futuresPanel.or(futuresUnavailable)).toBeVisible({ timeout: 15000 });
-  });
-
-  test('signal history section is visible', async ({ page }) => {
-    await page.goto('/signals');
-
-    await expect(page.getByText('Signal History')).toBeVisible();
-    // No signals may exist yet in test environment, so accept empty or populated state.
-    // Scoped to the card: the trade plan's live-record table also renders once
-    // live outcomes exist, and an unscoped `table` then matches two elements.
-    const card = page.locator('[data-slot="card"]').filter({ hasText: 'Signal History' });
-    const emptyState = card.getByText('No signal history');
-    const historyContent = card.locator('table');
-    await expect(emptyState.or(historyContent)).toBeVisible({ timeout: 10000 });
-  });
-
-  test('market sentiment section is visible', async ({ page }) => {
-    await page.goto('/signals');
-
-    await expect(page.getByText('Market Sentiment')).toBeVisible();
-  });
-
-  test('auto-update status is visible', async ({ page }) => {
-    await page.goto('/signals');
-
-    // Shows either "No signals computed yet" or "Last: ..." timing info
-    const noSignals = page.getByText('No signals computed yet');
-    const lastUpdated = page.getByText(/Last:/);
-    await expect(noSignals.or(lastUpdated)).toBeVisible();
-  });
-
-  test('switching symbol updates page context', async ({ page }) => {
-    await page.goto('/signals');
-
-    // Click ETH button
-    const ethButton = page.getByRole('button', { name: 'ETH', exact: true });
-    await ethButton.click();
-
-    // ETH button should be visually selected (default variant vs outline)
-    // The page should show either signal data, loading state, or empty state for ETHUSDT
-    const ethText = page.getByText(/ETHUSDT/).first();
-    const loadingState = page.locator('.animate-pulse').first();
-    const gaugeArea = page.getByTestId('signal-gauge');
 
     await expect(
-      ethText.or(loadingState).or(gaugeArea)
-    ).toBeVisible({ timeout: 10000 });
+      page.getByRole('heading', { name: 'Price score', exact: true })
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('No edge (measured)').first()).toBeVisible();
   });
 
-  test('clicking multi-style card switches active tab', async ({ page }) => {
+  test('Style control changes the Interval options', async ({ page }) => {
     await page.goto('/signals');
+    await expect(
+      page.getByRole('heading', { name: 'Price score', exact: true })
+    ).toBeVisible({ timeout: 15000 });
 
-    // Default is day_trading. Click the Scalping card in multi-style overview
-    // The card contains the text "Scalping" -- use a more specific locator
-    // to avoid clicking the tab itself
-    const overviewSection = page.getByTestId('multi-style-overview');
-    const scalpingCard = overviewSection.getByText('Scalping');
-    await scalpingCard.click();
+    const styleGroup = page.getByRole('group', { name: 'Style' });
+    const intervalGroup = page.getByRole('group', { name: 'Interval' });
 
-    // Scalping tab should now be active
-    await expect(page.getByTestId('style-tab-scalping')).toHaveAttribute(
-      'data-state',
-      'active'
-    );
+    // Day trading (default) offers 15m and 1h
+    await expect(intervalGroup.getByRole('radio', { name: '15m', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '1h', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '5m', exact: true })).toHaveCount(0);
 
-    // Interval should have switched to the scalping interval (5m)
-    const select = page.getByTestId('interval-select');
-    await expect(select.locator('option[value="5m"]')).toHaveCount(1);
-    await expect(select).toHaveValue('5m');
+    // Switching to Scalping offers 5m only
+    await styleGroup.getByText('Scalping', { exact: true }).click();
+    await expect(intervalGroup.getByRole('radio', { name: '5m', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '15m', exact: true })).toHaveCount(0);
+    await expect(intervalGroup.getByRole('radio', { name: '1h', exact: true })).toHaveCount(0);
+
+    // Switching to Position trading offers 1d only
+    await styleGroup.getByText('Position trading', { exact: true }).click();
+    await expect(intervalGroup.getByRole('radio', { name: '1d', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '5m', exact: true })).toHaveCount(0);
+
+    // Switching to Swing trading offers 4h and 1d
+    await styleGroup.getByText('Swing trading', { exact: true }).click();
+    await expect(intervalGroup.getByRole('radio', { name: '4h', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '1d', exact: true })).toBeVisible();
   });
-  test('shows the trade plan card for the selected style and interval', async ({ page }) => {
+
+  test('has no text matching removed trade ticket or planning terms', async ({ page }) => {
     await page.goto('/signals');
+    await expect(
+      page.getByRole('heading', { name: 'Price score', exact: true })
+    ).toBeVisible({ timeout: 15000 });
 
-    const card = page.getByTestId('trade-plan-card');
-    await expect(card).toBeVisible({ timeout: 15000 });
-    await expect(card.getByText('Trade Plan', { exact: true })).toBeVisible();
+    const forbidden = /entry|stop loss|take profit|position size|leverage/i;
+    await expect(page.locator('body')).not.toHaveText(forbidden);
+  });
 
-    // Once loaded, the card holds exactly one of: a ticket, the flat state, a
-    // reason no plan exists (for example no signal in this database yet), or
-    // the error text. Which one depends on the data, not on this page.
-    await expect(page.getByTestId('trade-plan-loading')).toHaveCount(0, { timeout: 15000 });
-    await expect(card).toContainText(
-      /at the next 15m open|No entry on this 15m bar|No 15m signal has been computed|The scored 15m bar|Trade plan unavailable/
-    );
+  test('offers coin selector and renders score context sections', async ({ page }) => {
+    await page.goto('/signals');
+    await expect(
+      page.getByRole('heading', { name: 'Price score', exact: true })
+    ).toBeVisible({ timeout: 15000 });
 
-    // Switching style re-asks for the plan at the new style's interval (5m for scalping).
-    await page.getByTestId('style-tab-scalping').click();
-    await expect(page.getByTestId('trade-plan-loading')).toHaveCount(0, { timeout: 15000 });
-    await expect(card).toContainText(
-      /at the next 5m open|No entry on this 5m bar|No 5m signal has been computed|The scored 5m bar|Trade plan unavailable/
-    );
+    // Coin select control
+    const coinSelect = page.getByRole('combobox', { name: 'Coin' });
+    await expect(coinSelect).toBeVisible();
+    await expect(coinSelect).toHaveValue('BTCUSDT');
+
+    // Recent readings panel
+    await expect(page.getByRole('heading', { name: 'Recent readings' })).toBeVisible();
+
+    // Futures context panel
+    await expect(page.getByRole('heading', { name: 'Futures context' })).toBeVisible();
+
+    // Link to lab record
+    const labLink = page.getByRole('link', {
+      name: 'See the full measured record on the lab page',
+    });
+    await expect(labLink).toBeVisible();
+    await expect(labLink).toHaveAttribute('href', '/lab');
   });
 });
