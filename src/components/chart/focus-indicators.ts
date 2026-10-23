@@ -10,6 +10,7 @@ import {
   type SwingLabel,
 } from '@/lib/market/structure';
 import { barDelta, barWinner, cvdSeries, type BarWinner } from '@/lib/market/delta';
+import { getIndicatorTheme } from './indicator-theme';
 
 export const STRUCTURE_INDICATOR = 'STRUCTURE';
 export const DELTA_VOL_INDICATOR = 'DELTA_VOL';
@@ -25,11 +26,19 @@ export const MAX_PIVOT_LABELS = 6;
 export const MAX_EVENTS = 4;
 
 export const FOCUS_COLORS = {
-  bullish: '#0ecb81',
-  bearish: '#f6465d',
-  accent: '#f0b90b',
-  muted: '#848e9c',
-} as const;
+  get bullish() {
+    return getIndicatorTheme().up;
+  },
+  get bearish() {
+    return getIndicatorTheme().down;
+  },
+  get accent() {
+    return getIndicatorTheme().accentLine;
+  },
+  get muted() {
+    return getIndicatorTheme().mutedText;
+  },
+};
 
 export interface StructurePivotLabel {
   label: SwingLabel;

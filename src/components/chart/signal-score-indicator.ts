@@ -5,22 +5,11 @@ import { tierDisplayLabel } from '@/lib/signals/tier-labels';
 import type { ProvisionalScore } from '@/lib/signals/provisional/types';
 import type { SignalTier } from '@/types/signal';
 
+import { getIndicatorTheme, withAlpha } from './indicator-theme';
+
 export const SIGNAL_SCORE_INDICATOR = 'SIGNAL_SCORE';
 export const SIGNAL_SCORE_PANE_ID = 'signal_score_pane';
 
-const BULLISH = '#0ecb81';
-const BEARISH = '#f6465d';
-const ACCENT = '#f0b90b';
-const NEUTRAL = '#71717a';
-/**
- * Re-scored bars are hindsight, drawn in darker tier colours so a glance
- * separates them from the scheduler's recorded bars (each stays above 3:1
- * against the chart background).
- */
-const RESCORED_BULLISH = '#0b8a5a';
-const RESCORED_BEARISH = '#b03547';
-const RESCORED_NEUTRAL = '#61656d';
-const GUIDE = '#474d57';
 const GUIDE_LEVELS = [TIER_BUY_CUTOFF, TIER_STRONG_CUTOFF, -TIER_BUY_CUTOFF, -TIER_STRONG_CUTOFF];
 
 export interface RecordedScore {
@@ -111,13 +100,14 @@ export function ensureSignalScoreIndicatorRegistered(): void {
         type: 'bar',
         baseValue: 0,
         styles: ({ data }) => {
+          const theme = getIndicatorTheme();
           const v = data.current?.recorded;
           const color =
             typeof v === 'number' && v >= TIER_BUY_CUTOFF
-              ? BULLISH
+              ? theme.up
               : typeof v === 'number' && v <= -TIER_BUY_CUTOFF
-                ? BEARISH
-                : NEUTRAL;
+                ? theme.down
+                : theme.mutedText;
           return { style: 'fill', color, borderColor: color };
         },
       },
@@ -127,13 +117,14 @@ export function ensureSignalScoreIndicatorRegistered(): void {
         type: 'bar',
         baseValue: 0,
         styles: ({ data }) => {
+          const theme = getIndicatorTheme();
           const v = data.current?.rescored;
           const color =
             typeof v === 'number' && v >= TIER_BUY_CUTOFF
-              ? RESCORED_BULLISH
+              ? withAlpha(theme.up, 0.6)
               : typeof v === 'number' && v <= -TIER_BUY_CUTOFF
-                ? RESCORED_BEARISH
-                : RESCORED_NEUTRAL;
+                ? withAlpha(theme.down, 0.6)
+                : withAlpha(theme.mutedText, 0.6);
           return { style: 'fill', color, borderColor: color };
         },
       },
@@ -142,29 +133,34 @@ export function ensureSignalScoreIndicatorRegistered(): void {
         title: 'Provisional: ',
         type: 'bar',
         baseValue: 0,
-        styles: () => ({
-          style: 'stroke',
-          color: ACCENT,
-          borderColor: ACCENT,
-          borderSize: 1,
-          borderStyle: 'dashed',
-          borderDashedValue: [3, 3],
-        }),
+        styles: () => {
+          const theme = getIndicatorTheme();
+          return {
+            style: 'stroke',
+            color: theme.accentLine,
+            borderColor: theme.accentLine,
+            borderSize: 1,
+            borderStyle: 'dashed',
+            borderDashedValue: [3, 3],
+          };
+        },
       },
     ],
     calc: makeSignalScoreCalc({ recorded: new Map(), provisional: null, state: null }),
     createTooltipDataSource: ({ indicator, crosshair }) => {
+      const theme = getIndicatorTheme();
       const index = crosshair.dataIndex;
       const tip = typeof index === 'number' ? indicator.result[index]?.tip : undefined;
       return {
         name: '',
         calcParamsText: '',
         features: [],
-        legends: tip ? [{ title: '', value: { text: tip, color: ACCENT } }] : [],
+        legends: tip ? [{ title: '', value: { text: tip, color: theme.accentLine } }] : [],
       };
     },
     draw: ({ ctx, bounding, yAxis }) => {
-      ctx.strokeStyle = GUIDE;
+      const theme = getIndicatorTheme();
+      ctx.strokeStyle = theme.mutedText;
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       for (const level of GUIDE_LEVELS) {
