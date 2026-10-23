@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useRef } from 'react';
+import { useIsClient } from '@/hooks/useIsClient';
 import { useWatchlist } from '@/hooks/useWatchlist';
 import { useBinanceTicker } from '@/hooks/useBinanceStream';
 import { useTickers } from '@/hooks/usePrices';
@@ -18,6 +19,7 @@ export interface CoinTabsProps {
 }
 
 export const CoinTabs: React.FC<CoinTabsProps> = ({ className }) => {
+  const isClient = useIsClient();
   const selectedSymbol = useUIStore((s) => s.selectedSymbol);
   const setSelectedSymbol = useUIStore((s) => s.setSelectedSymbol);
   const { symbols, isLoading } = useWatchlist();
@@ -33,7 +35,7 @@ export const CoinTabs: React.FC<CoinTabsProps> = ({ className }) => {
     return map;
   }, [tickersList]);
 
-  if (isLoading) {
+  if (isLoading || !isClient) {
     return (
       <div
         role="tablist"
