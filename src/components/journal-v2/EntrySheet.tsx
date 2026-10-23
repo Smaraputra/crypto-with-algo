@@ -197,7 +197,7 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
           <SheetTitle>{getBaseAsset(entry.symbol)} Trade</SheetTitle>
           <span
             className={cn(
-              'px-2.5 py-0.5 rounded-[6px] text-[12px] font-semibold uppercase tracking-wider',
+              'px-2.5 py-0.5 rounded-[6px] text-[12px] font-semibold',
               isClosed ? 'bg-muted/40 text-ink-2' : 'bg-brand/20 text-brand-line'
             )}
           >
@@ -207,7 +207,7 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
         <SheetDescription>Logged on {formatDate(entry.createdAt)}</SheetDescription>
       </SheetHeader>
 
-      <div className="space-y-6 py-4">
+      <div className="space-y-6 px-4 pb-6 pt-2 sm:px-6">
         {serverError && (
           <div
             role="alert"
@@ -301,7 +301,7 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
             <div className="grid grid-cols-2 gap-3 text-[14px] pt-1">
               <div>
                 <span className="text-[13px] text-muted-foreground block">Action</span>
-                <span className="font-semibold uppercase">{entry.action}</span>
+                <span className="font-semibold capitalize">{entry.action}</span>
               </div>
               <div>
                 <span className="text-[13px] text-muted-foreground block">Entry price</span>

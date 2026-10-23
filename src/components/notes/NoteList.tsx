@@ -132,7 +132,7 @@ export const NoteList: React.FC<NoteListProps> = ({
               <h3 className="font-semibold text-foreground text-[15px] leading-snug line-clamp-1 group-hover:text-foreground">
                 {note.title}
               </h3>
-              <span className="px-2 py-0.5 rounded-[6px] text-[12px] font-semibold uppercase tracking-wider bg-muted/30 text-ink-2 shrink-0">
+              <span className="px-2 py-0.5 rounded-[6px] text-[12px] font-semibold bg-muted/30 text-ink-2 shrink-0">
                 {note.category}
               </span>
             </div>

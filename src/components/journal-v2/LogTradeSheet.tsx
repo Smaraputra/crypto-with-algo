@@ -221,7 +221,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
         <SheetDescription>Record a new trade entry in your journal.</SheetDescription>
       </SheetHeader>
 
-      <form onSubmit={handleSubmit} className="space-y-5 py-4">
+      <form onSubmit={handleSubmit} className="space-y-5 px-4 pb-6 pt-2 sm:px-6">
         {serverError && (
           <div
             role="alert"

@@ -61,7 +61,7 @@ export function MoreSheet({ open, onOpenChange }: MoreSheetProps) {
 
           {isAdmin && (
             <div className="my-2 border-t border-line pt-2">
-              <span className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              <span className="px-3 text-xs font-semibold text-muted-foreground">
                 Admin
               </span>
               {ADMIN_NAV_ITEMS.map((item) => (

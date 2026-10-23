@@ -200,7 +200,7 @@ export const AlertList: React.FC<AlertListProps> = ({
       <div className="hidden md:block overflow-x-auto rounded-[14px] border border-edge bg-card">
         <table className="w-full text-left text-[14px]">
           <thead>
-            <tr className="border-b border-line text-muted-foreground text-[12px] uppercase tracking-wider">
+            <tr className="border-b border-line text-muted-foreground text-[12px]">
               <th className="py-3.5 px-4 font-medium">Coin</th>
               <th className="py-3.5 px-4 font-medium">Condition</th>
               <th className="py-3.5 px-4 font-medium">Current price</th>
@@ -388,7 +388,7 @@ export const AlertList: React.FC<AlertListProps> = ({
 
               <div className="grid grid-cols-2 gap-2 text-[13px] pt-1 border-t border-line">
                 <div>
-                  <span className="text-muted-foreground block text-[11px] uppercase">
+                  <span className="text-muted-foreground block text-[11px]">
                     Current price
                   </span>
                   <span className="font-sans tabular-nums text-foreground font-medium">
@@ -400,7 +400,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground block text-[11px] uppercase">
+                  <span className="text-muted-foreground block text-[11px]">
                     Created
                   </span>
                   <span className="font-sans tabular-nums text-muted-foreground">
@@ -409,7 +409,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                 </div>
                 {triggeredDate !== 'n/a' && (
                   <div className="col-span-2">
-                    <span className="text-muted-foreground block text-[11px] uppercase">
+                    <span className="text-muted-foreground block text-[11px]">
                       Triggered
                     </span>
                     <span className="font-sans tabular-nums text-muted-foreground">

@@ -120,21 +120,21 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
       {/* Key totals once */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Panel className="p-4 sm:p-5 flex flex-col justify-between">
-          <span className="text-[13px] font-medium text-muted">Total trades</span>
+          <span className="text-[13px] font-medium text-muted-foreground">Total trades</span>
           <span className="text-[28px] font-semibold tracking-tight font-sans tabular-nums text-foreground mt-2">
             {summary.totalTrades}
           </span>
         </Panel>
 
         <Panel className="p-4 sm:p-5 flex flex-col justify-between">
-          <span className="text-[13px] font-medium text-muted">Win rate</span>
+          <span className="text-[13px] font-medium text-muted-foreground">Win rate</span>
           <span className="text-[28px] font-semibold tracking-tight font-sans tabular-nums text-foreground mt-2">
             {summary.winRate !== null ? `${(summary.winRate * 100).toFixed(1)}%` : 'n/a'}
           </span>
         </Panel>
 
         <Panel className="p-4 sm:p-5 flex flex-col justify-between">
-          <span className="text-[13px] font-medium text-muted">Net P&L</span>
+          <span className="text-[13px] font-medium text-muted-foreground">Net P&L</span>
           <span
             className={cn(
               'text-[28px] font-semibold tracking-tight font-sans tabular-nums mt-2',
@@ -146,7 +146,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
         </Panel>
 
         <Panel className="p-4 sm:p-5 flex flex-col justify-between">
-          <span className="text-[13px] font-medium text-muted">Avg win vs avg loss</span>
+          <span className="text-[13px] font-medium text-muted-foreground">Avg win vs avg loss</span>
           <span className="text-[20px] sm:text-[22px] font-semibold tracking-tight font-sans tabular-nums text-foreground mt-2">
             {avgWinLossDisplay}
           </span>
@@ -247,7 +247,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px] border-collapse">
                 <thead>
-                  <tr className="border-b border-line text-muted">
+                  <tr className="border-b border-line text-muted-foreground">
                     <th className="py-2 font-medium">Setup</th>
                     <th className="py-2 text-right font-medium">Trades</th>
                     <th className="py-2 text-right font-medium">Win rate</th>
@@ -286,7 +286,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px] border-collapse">
                 <thead>
-                  <tr className="border-b border-line text-muted">
+                  <tr className="border-b border-line text-muted-foreground">
                     <th className="py-2 font-medium">Tag</th>
                     <th className="py-2 text-right font-medium">Trades</th>
                     <th className="py-2 text-right font-medium">Win rate</th>
@@ -325,7 +325,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px] border-collapse">
                 <thead>
-                  <tr className="border-b border-line text-muted">
+                  <tr className="border-b border-line text-muted-foreground">
                     <th className="py-2 font-medium">Emotion</th>
                     <th className="py-2 text-right font-medium">Trades</th>
                     <th className="py-2 text-right font-medium">Win rate</th>
@@ -366,7 +366,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px] border-collapse">
                 <thead>
-                  <tr className="border-b border-line text-muted">
+                  <tr className="border-b border-line text-muted-foreground">
                     <th className="py-2 font-medium">Mistake</th>
                     <th className="py-2 text-right font-medium">Trades</th>
                     <th className="py-2 text-right font-medium">Avg P&L</th>
@@ -408,7 +408,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px] border-collapse">
                 <thead>
-                  <tr className="border-b border-line text-muted">
+                  <tr className="border-b border-line text-muted-foreground">
                     <th className="py-2 font-medium">Session</th>
                     <th className="py-2 text-right font-medium">Trades</th>
                     <th className="py-2 text-right font-medium">Win rate</th>
@@ -449,7 +449,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[13px] border-collapse">
                 <thead>
-                  <tr className="border-b border-line text-muted">
+                  <tr className="border-b border-line text-muted-foreground">
                     <th className="py-2 font-medium">Day</th>
                     <th className="py-2 text-right font-medium">Trades</th>
                     <th className="py-2 text-right font-medium">Win rate</th>

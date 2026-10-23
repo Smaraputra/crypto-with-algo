@@ -137,7 +137,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
     return (
       <div className="flex flex-wrap items-end gap-3 p-4 rounded-[14px] bg-card border border-edge/30">
         <div className="flex flex-col gap-1 min-w-[130px]">
-          <label htmlFor="trades-filter-coin" className="text-[13px] font-medium text-muted">
+          <label htmlFor="trades-filter-coin" className="text-[13px] font-medium text-muted-foreground">
             Coin
           </label>
           <select
@@ -157,7 +157,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
         </div>
 
         <div className="flex flex-col gap-1 min-w-[120px]">
-          <label htmlFor="trades-filter-action" className="text-[13px] font-medium text-muted">
+          <label htmlFor="trades-filter-action" className="text-[13px] font-medium text-muted-foreground">
             Action
           </label>
           <select
@@ -177,7 +177,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
         </div>
 
         <div className="flex flex-col gap-1 min-w-[120px]">
-          <label htmlFor="trades-filter-tag" className="text-[13px] font-medium text-muted">
+          <label htmlFor="trades-filter-tag" className="text-[13px] font-medium text-muted-foreground">
             Tag
           </label>
           <select
@@ -197,7 +197,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
         </div>
 
         <div className="flex flex-col gap-1 min-w-[120px]">
-          <label htmlFor="trades-filter-status" className="text-[13px] font-medium text-muted">
+          <label htmlFor="trades-filter-status" className="text-[13px] font-medium text-muted-foreground">
             Status
           </label>
           <select
@@ -231,7 +231,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
       <div className="overflow-x-auto rounded-[14px] border border-edge/30 bg-card">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-line text-[13px] font-medium text-muted bg-muted/20">
+            <tr className="border-b border-line text-[13px] font-medium text-muted-foreground bg-muted/20">
               <th scope="col" className="py-3.5 px-4">Coin</th>
               <th scope="col" className="py-3.5 px-4">Action</th>
               <th scope="col" className="py-3.5 px-4 text-right">Entry</th>
@@ -263,7 +263,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
                     {getBaseAsset(entry.symbol)}
                   </td>
                   <td className="py-3.5 px-4">
-                    <span className="inline-block px-2 py-0.5 rounded-[6px] text-[12px] font-semibold uppercase tracking-wider bg-muted/30 text-foreground">
+                    <span className="inline-block px-2 py-0.5 rounded-[6px] text-[12px] font-semibold bg-muted/30 text-foreground">
                       {entry.action}
                     </span>
                   </td>

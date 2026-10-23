@@ -65,7 +65,7 @@ export const NoteDetail: React.FC<NoteDetailProps> = ({
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1.5 flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-2.5 py-0.5 rounded-[6px] text-[12px] font-semibold uppercase tracking-wider bg-muted/30 text-ink-2">
+              <span className="px-2.5 py-0.5 rounded-[6px] text-[12px] font-semibold bg-muted/30 text-ink-2">
                 {note.category}
               </span>
               <span className="text-[13px] text-muted-foreground">
