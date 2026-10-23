@@ -183,7 +183,7 @@ const TradeForm: React.FC<TradeFormProps> = ({
   const isSubmitting = addHoldingMutation.isPending || recordTxMutation.isPending;
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4 py-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 px-4 pb-6 pt-2 sm:px-6 overflow-y-auto">
       {serverError && (
         <div
           role="alert"
