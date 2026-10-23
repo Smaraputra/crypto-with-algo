@@ -172,7 +172,7 @@ test.describe('Alerts page (authenticated)', () => {
 
     // Popover should show triggered alerts section and All alerts link
     await expect(
-      page.getByText('Triggered alerts')
+      page.getByRole('dialog').getByText('Triggered alerts', { exact: true }).first()
     ).toBeVisible({ timeout: 10000 });
     await expect(
       page.getByRole('link', { name: 'All alerts' })

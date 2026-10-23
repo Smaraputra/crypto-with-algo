@@ -112,7 +112,7 @@ export const CostPanel: React.FC<CostPanelProps> = ({
               <span className="text-[14px] text-muted-foreground">Round-trip cost ($1,000)</span>
               <div className="flex items-baseline gap-2 font-sans tabular-nums font-semibold">
                 <span className="text-[18px] text-foreground">
-                  {costDollars !== undefined ? `$${costDollars.toFixed(2)}` : '—'}
+                  {costDollars !== undefined ? `$${costDollars.toFixed(2)}` : 'n/a'}
                 </span>
                 <span className="text-[14px] text-muted-foreground">
                   {costPercent !== undefined ? `(${costPercent.toFixed(2)}%)` : ''}

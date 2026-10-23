@@ -68,15 +68,11 @@ describe('nav-items and isNavActive', () => {
 
   it('marks interim items with interim: true and appropriate removalReason', () => {
     const notes = TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Notes')!;
-    const analytics = TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Analytics')!;
 
     expect(notes.interim).toBe(true);
     expect(notes.removalReason).toContain('Notes switcher');
 
-    expect(analytics.interim).toBe(true);
-    expect(analytics.removalReason).toContain('tabs and redirect');
-
-    const moreAnalytics = MORE_SHEET_ITEMS.find((i) => i.label === 'Analytics')!;
-    expect(moreAnalytics.interim).toBe(true);
+    expect(TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Analytics')).toBeUndefined();
+    expect(MORE_SHEET_ITEMS.find((i) => i.label === 'Analytics')).toBeUndefined();
   });
 });

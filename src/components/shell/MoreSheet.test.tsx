@@ -43,8 +43,7 @@ describe('MoreSheet', () => {
     const signals = screen.getByRole('link', { name: 'Signals' });
     expect(signals).toHaveAttribute('href', '/signals');
 
-    const analytics = screen.getByRole('link', { name: 'Analytics' });
-    expect(analytics).toHaveAttribute('href', '/analytics');
+    expect(screen.queryByRole('link', { name: 'Analytics' })).not.toBeInTheDocument();
 
     expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy');
     expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');

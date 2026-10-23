@@ -31,18 +31,18 @@ const CELL_OPTIONS: CellOption[] = [
 ];
 
 function formatPercent(val: number | null): string {
-  if (val === null || !Number.isFinite(val)) return '—';
+  if (val === null || !Number.isFinite(val)) return 'n/a';
   return `${(val * 100).toFixed(1)}%`;
 }
 
 function formatSignedPercent(val: number | null): string {
-  if (val === null || !Number.isFinite(val)) return '—';
+  if (val === null || !Number.isFinite(val)) return 'n/a';
   const sign = val > 0 ? '+' : '';
   return `${sign}${val.toFixed(2)}%`;
 }
 
 function formatTrackDate(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms)) return '—';
+  if (ms === null || !Number.isFinite(ms)) return 'n/a';
   const d = new Date(ms);
   const day = d.getUTCDate();
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -230,7 +230,7 @@ export const ScoreTrackRecord: React.FC<ScoreTrackRecordProps> = ({ className })
                     ? `${formatSignedPercent(intervals.net.lo)} to ${formatSignedPercent(
                         intervals.net.hi
                       )}`
-                    : '—'
+                    : 'n/a'
                 }, 95% range).`}
               </p>
 
