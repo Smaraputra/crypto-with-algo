@@ -13,6 +13,7 @@ import { LabSummary } from './LabSummary';
 import { HypothesisRow, type HypothesisViewLike } from './HypothesisRow';
 import { RejectedRule } from './RejectedRule';
 import { PriceScoreRecord } from './PriceScoreRecord';
+import { ScoreTrackRecord } from './ScoreTrackRecord';
 
 export interface LabRecordProps {
   className?: string;
@@ -208,6 +209,11 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
         {/* Price score */}
         <div className="order-3 lg:col-start-1 lg:row-start-3">
           <PriceScoreRecord />
+        </div>
+
+        {/* Score track record */}
+        <div className="order-3 lg:col-start-1 lg:row-start-4">
+          <ScoreTrackRecord />
         </div>
 
         {/* How this works */}

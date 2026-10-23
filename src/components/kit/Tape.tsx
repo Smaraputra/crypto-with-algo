@@ -74,7 +74,7 @@ export const Tape: React.FC<TapeProps> = ({
                   key={tick.id}
                   data-testid="tape-tick"
                   className={cn(
-                    'w-[3px] rounded-[1px] shrink-0 h-[12px] bg-muted-foreground tape-tick-neutral'
+                    'w-[2px] rounded-[1px] shrink-0 h-[6px] bg-muted-foreground/35 tape-tick-neutral'
                   )}
                 />
               ))

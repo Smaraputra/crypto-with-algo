@@ -76,6 +76,9 @@ describe('Tape', () => {
       expect(tick).not.toHaveAttribute('data-add');
       expect(tick.className).toBe(ticks[0].className);
       expect(tick).toHaveClass('tape-tick-neutral');
+      expect(tick).toHaveClass('h-[6px]');
+      expect(tick).toHaveClass('w-[2px]');
+      expect(tick).toHaveClass('bg-muted-foreground/35');
     }
   });
 

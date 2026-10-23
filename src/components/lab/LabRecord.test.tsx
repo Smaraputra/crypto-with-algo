@@ -34,6 +34,16 @@ vi.mock('@/hooks/useSignals', () => ({
   useCrossSectionalLatest: vi.fn(),
 }));
 
+vi.mock('@/hooks/useTrackRecord', () => ({
+  useTrackRecord: vi.fn(() => ({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  })),
+  isTrackRecordEligible: vi.fn(() => true),
+}));
+
 describe('LabRecord', () => {
   const mockLabV1Data = {
     version: 'lab-v1' as const,
@@ -448,4 +458,12 @@ describe('LabRecord', () => {
     expect(group).not.toBeNull();
     expect(within(group).getAllByText('Not started')).toHaveLength(1);
   });
+
+  it('the panel title "Price score track record" renders', () => {
+    render(<LabRecord />);
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Price score track record' })
+    ).toBeInTheDocument();
+  });
 });
+
