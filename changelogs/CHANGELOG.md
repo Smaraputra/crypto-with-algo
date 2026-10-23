@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Admin Calibration and Paper desk, Optimization retired (UI redesign PR 9)
+- **Shared tab strip:** both admin pages share a Calibration | Paper desk tab strip (`src/components/admin-v2/AdminTabs.tsx`). Admin access is unchanged: each page awaits `requireAdmin()` and redirects non-admins with an HTTP redirect.
+- **/admin/calibration** (`src/components/admin-v2/`): a record of live price score outcomes after costs, labelled "Not a backtest".
+  - **Filters:** style, interval, source, coin, config version and overlapping sampling. A style change keeps the interval only if the new style prefers it, and a style or interval change resets the config version, so a hidden filter never empties the view.
+  - **Coverage:** outcome counts, the resolved span, the horizon, the round-trip cost (marked when it is the default) and the minimum samples.
+  - **Net expectancy by tier:** a signed bar per estimable tier, and a table with sample counts, the net mean and its 95% block bootstrap interval, the gross mean and the win rate.
+    - Withheld tiers show their reason ("below 30 samples", "too few independent blocks") in place of every estimate.
+    - When no tier is estimable, the chart is replaced by one line.
+  - **Reliability:** the signed forward return before costs against the signed score. Points without an interval are hollow, the legend lists only the series present, and a reading aid states that an informative score slopes up through zero.
+  - **Return distribution:** a tier selector replaces the five-colour stack. Bins are coloured by the sign of the return only, with numeric signed-percent ticks.
+  - **Cumulative return:** linear lines on a time axis with no repeated dates. The newest config version is ink and older versions are dashed grey.
+- **/admin/paper-desk:**
+  - **Each book:** an engine and executable equity chart on a time axis, a two-track stats table with "n/a" for a missing track, the lag cost, the declared read rule verbatim, the research record and closed-by-default details.
+- **Optimization retired (UI only):** the page and its components are deleted, and `/admin/optimization` redirects (307) to `/admin/calibration`. The optimisation API routes and models stay.
+- **Deleted:** the old calibration, paper desk and optimization components, `src/components/backtest/EquityCurveChart.tsx`, and `e2e/optimization.spec.ts`.
+- **Tests:** unit tests for every new component and both pages. The calibration E2E moves to the new heading. Admin E2E still skips for the non-admin CI user, as before.
+
 ### Fixed: Market screen hydration mismatch
 - `CoinTabs` rendered the watchlist tabs on the client while the server had rendered the loading placeholders. This happened whenever the shell's own watchlist read finished before the slower `/dashboard` segment hydrated, so React discarded the server markup and logged "Hydration failed" (11 times per E2E run).
 - The tabs now wait for hydration through a new `useIsClient` hook (`useSyncExternalStore`), so the first client render matches the server.

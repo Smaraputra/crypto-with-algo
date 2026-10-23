@@ -6,8 +6,8 @@ vi.mock('next/navigation', () => ({ redirect: mockRedirect }));
 const mockAuth = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth', () => ({ auth: () => mockAuth() }));
 
-vi.mock('@/components/admin/calibration/CalibrationDashboard', () => ({
-  CalibrationDashboard: () => null,
+vi.mock('@/components/admin-v2', () => ({
+  CalibrationScreen: () => <div data-testid="calibration-screen" />,
 }));
 
 import CalibrationPage from '@/app/(dashboard)/admin/calibration/page';
