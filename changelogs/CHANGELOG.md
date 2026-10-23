@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Journal, Notes and Alerts screens (UI redesign PR 7)
+- **/journal** (`src/components/journal-v2/`):
+  - **Layout:** a Trades | Stats | Notes switcher (`?view=stats`) and "Log a trade" as the one green button.
+  - **Trades:** filters, then open trades before closed. A row opens an entry sheet to review (exit, outcome, emotion, mistakes, lesson), edit or delete (with confirmation).
+  - **Stats:** the key totals once, monthly P&L, performance by setup, tag, emotion, mistake, session and weekday, and streaks.
+  - **Kelly suggestion not shown.** The API's Kelly position-size suggestion is deliberately not rendered, because sizing suggestions were removed from the product. Easy to restore if wanted.
+- **Logging links to the real price score.** Each trade records the price score at the time it is logged, for the chosen coin and interval.
+  - The first build hardcoded a neutral score of 0 into every entry, which would have corrupted the per-tier accuracy statistics.
+  - Logging is limited to the ten scored coins.
+  - Save is disabled with an explanation when no score is available.
+  - Inputs the server never stored (quantity, session, planned stop and target) are removed. The persisted "Planned risk to reward" and "Conviction" are offered instead.
+- **/notes** (`src/components/notes/`): Research is renamed Notes, as approved. It has search, categories, list and detail, create, edit and delete (with confirmation). Note bodies render as text, never as HTML. /research now redirects to /notes with an HTTP 307.
+- **/alerts** (`src/components/alerts-v2/`):
+  - A status filter and a list whose conditions are worded exactly as the evaluator checks them, for example "BTC moves 5% either way from $81,800".
+  - Acknowledge, pause and resume, and delete (with confirmation).
+  - A create sheet with a searchable coin picker.
+- **Fixed: percent-change price alerts never fired.**
+  - The evaluator needs a starting price (`referencePrice`). Neither the old form nor the API ever set it, so every percent alert was stored without one.
+  - The new sheet sends the live price.
+  - The API now fills a missing reference price from the current price, and refuses to create the alert with a 422 if no price can be read.
+  - Percent alerts already stored without a starting price are labelled in the list as unable to fire. Delete and recreate them; their stored data is unchanged.
+- **Navigation:** the interim Notes entry leaves the Tools menu, and the More sheet's Notes item points to /notes. No interim entries remain.
+- **Deleted:** the old journal, research and alerts components and the Research page.
+- **Tests:** unit tests for every new component and for the alerts API reference price. The E2E specs move to the new screens and clean up the entries, notes and alerts they create.
+
 ### Changed: Portfolio with Holdings and Performance, Analytics merged (UI redesign PR 6)
 - **/portfolio** (`src/components/portfolio-v2/`) has a Holdings | Performance switcher (`?tab=performance`). /analytics now redirects there with an HTTP 307 from `next.config.ts`, and its page is removed.
   - **Holdings:**
