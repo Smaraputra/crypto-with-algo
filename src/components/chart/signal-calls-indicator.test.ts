@@ -28,8 +28,12 @@ async function load() {
   return import('./signal-calls-indicator');
 }
 
+import { LIGHT_CHART_THEME_FALLBACK } from '@/lib/chart-theme';
+import { setIndicatorTheme } from './indicator-theme';
+
 beforeEach(() => {
   registerIndicator.mockClear();
+  setIndicatorTheme(LIGHT_CHART_THEME_FALLBACK);
 });
 
 describe('describeCall', () => {

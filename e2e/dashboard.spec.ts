@@ -1,154 +1,97 @@
 import { test, expect } from '@playwright/test';
-import { mockSymbols } from './helpers/live-data';
+import {
+  mockHistory,
+  mockStream,
+  mockSymbols,
+  tickerFrame,
+} from './helpers/live-data';
 
-test.describe('Dashboard features (authenticated)', () => {
-  test('market overview section renders price cards or loading state', async ({ page }) => {
-    await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-
-    // MarketOverview renders either shimmer skeletons (loading) or price card buttons.
-    // Binance REST may 403 from US IPs so we accept either state.
-    const priceCards = page.getByRole('button').filter({ hasText: /USDT/ });
-    const skeletons = page.locator('[class*="shimmer"]');
-
-    // At least one of these should be present
-    const hasPriceCards = await priceCards.count() > 0;
-    const hasSkeletons = await skeletons.count() > 0;
-    expect(hasPriceCards || hasSkeletons).toBe(true);
-  });
-
-  test('trading chart container renders', async ({ page }) => {
-    await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-
-    // The chart section should have interval selector tabs
-    const chartSection = page.locator('[class*="space-y"]').filter({
-      has: page.getByRole('tab'),
-    });
-    await expect(chartSection.first()).toBeVisible({ timeout: 10000 });
-  });
-
-  test('chart interval tabs are visible', async ({ page }) => {
-    await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-
-    // Check for at least some interval tabs
-    await expect(page.getByRole('tab', { name: '1m' })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByRole('tab', { name: '1H' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: '1D' })).toBeVisible();
-  });
-
-  test('the default watchlist shows in the palette', async ({ page }) => {
+test.describe('Market screen (authenticated)', () => {
+  test.beforeEach(async ({ page }) => {
     await mockSymbols(page);
+    await mockHistory(page);
+    await mockStream(page, [
+      tickerFrame('BTCUSDT', 65000),
+      tickerFrame('ETHUSDT', 3500),
+    ]);
+  });
+
+  test('coin tabs render from watchlist and selecting ETH updates price heading area', async ({
+    page,
+  }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
-    await page.getByRole('button', { name: 'Search coins' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Search coins' });
-    await expect(dialog).toBeVisible();
+    const tablist = page.getByRole('tablist', { name: 'Watchlist' });
+    await expect(tablist).toBeVisible();
 
-    for (const asset of ['BTC', 'ETH', 'SOL']) {
-      const row = dialog.getByRole('option').filter({ hasText: asset });
-      await expect(row.getByRole('button', { name: 'Remove from watchlist' })).toBeVisible();
+    const btcTab = tablist.getByRole('tab', { name: /BTC/ });
+    const ethTab = tablist.getByRole('tab', { name: /ETH/ });
+    await expect(btcTab).toBeVisible();
+    await expect(ethTab).toBeVisible();
+
+    await expect(page.getByText('BTC / USDT')).toBeVisible();
+
+    await ethTab.click();
+    await expect(ethTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText('ETH / USDT')).toBeVisible();
+  });
+
+  test('interval control offers 1H, 4H, 1D, 1W and 1M, and choosing 4H marks it checked', async ({
+    page,
+  }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
+
+    const intervalGroup = page.getByRole('group', { name: 'Interval' });
+    await expect(intervalGroup).toBeVisible();
+
+    for (const label of ['1H', '4H', '1D', '1W', '1M']) {
+      await expect(page.getByRole('radio', { name: label })).toBeVisible();
     }
+
+    await expect(page.getByRole('radio', { name: '1H' })).toBeChecked();
+
+    await page.getByText('4H', { exact: true }).click();
+    await expect(page.getByRole('radio', { name: '4H' })).toBeChecked();
   });
 
-  test.describe('provisional signal score strip', () => {
-    // Binance may be unreachable, so any real status line valid at 1h is accepted.
-    // "No scheduler score" is the unavailable line and is a bug at BTCUSDT 1h.
-    const STATUS = new RegExp(
-      [
-        '^Provisional ',
-        "^Bar closed\\. Waiting for the scheduler's recorded score\\.$",
-        '^Recorded ',
-        '^No recorded score arrived for the last bar\\.$',
-        '^Waiting for the last closed bar to sync\\.$',
-        '^Not enough history at this interval\\.$',
-        '^Waiting for the next price update\\.$',
-        '^Loading signal inputs\\.$',
-        '^Signal context could not be loaded\\.$',
-        '^The scorer was updated\\. Reload the page to see provisional scores\\.$',
-      ].join('|')
-    );
+  test('"Study this coin" links to /focus?symbol=', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
-    test('renders heading, legend, status and evidence at 1h', async ({ page }) => {
-      await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-
-      const strip = page.getByTestId('signal-score-strip');
-      await expect(strip).toBeVisible({ timeout: 20000 });
-      await expect(strip.getByRole('heading', { name: 'Signal score · Day trading · 1h' })).toBeVisible();
-      await expect(strip.getByText(/Filled bars are the scheduler/)).toBeVisible();
-      await expect(strip.getByText(/never recorded/)).toBeVisible();
-      await expect(strip.getByText(/^Measured record at 1h:/)).toBeVisible();
-      await expect(strip.getByTestId('signal-score-status')).toHaveText(STATUS, { timeout: 20000 });
-    });
-
-    test('1d shows the Swing / Position toggle and Position changes the heading', async ({ page }) => {
-      await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-      await page.getByRole('tab', { name: '1D' }).click();
-
-      const strip = page.getByTestId('signal-score-strip');
-      await expect(strip.getByRole('heading', { name: /^Signal score · .* · 1d$/ })).toBeVisible({ timeout: 20000 });
-      const toggle = strip.getByRole('group', { name: 'Trading style' });
-      await expect(toggle).toBeVisible();
-      await expect(toggle.getByRole('button', { name: 'Swing' })).toBeVisible();
-
-      await toggle.getByRole('button', { name: 'Position' }).click();
-      await expect(strip.getByRole('heading', { name: 'Signal score · Position · 1d' })).toBeVisible();
-      await expect(toggle.getByRole('button', { name: 'Position' })).toHaveAttribute('aria-pressed', 'true');
-    });
-
-    test('an unscored interval shows the no-score line and no toggle', async ({ page }) => {
-      await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-      await page.getByRole('button', { name: /^More$/ }).click();
-      await page.getByRole('menuitem', { name: '3m' }).click();
-
-      const strip = page.getByTestId('signal-score-strip');
-      await expect(strip.getByTestId('signal-score-status')).toHaveText('No scheduler score for BTCUSDT at 3m.', {
-        timeout: 20000,
-      });
-      await expect(strip.getByRole('group', { name: 'Trading style' })).toHaveCount(0);
-    });
+    const studyLink = page.getByRole('link', { name: 'Study this coin' });
+    await expect(studyLink).toBeVisible();
+    await expect(studyLink).toHaveAttribute('href', /\/focus\?symbol=BTCUSDT/);
   });
 
-  test.describe('track record panel', () => {
-    // A database with the re-score loaded shows the answer; one without (CI) says
-    // so. Both are valid here; an error line is not.
-    const STATE = /^(Right \d+\.\d% of the time\.|No buy or sell call in this year\.|The re-scored year is not loaded on this server yet)/;
+  test('the Lab panel links to /lab', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
-    test('renders the track record for BTCUSDT at 1h', async ({ page }) => {
-      await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    const labLink = page.getByRole('link', { name: 'Open the lab record' });
+    await expect(labLink).toBeVisible();
+    await expect(labLink).toHaveAttribute('href', '/lab');
+  });
 
-      const panel = page.getByTestId('track-record-panel');
-      await expect(panel.getByRole('heading', { name: 'Track record · BTCUSDT · Day trading · 1h' })).toBeVisible({
-        timeout: 20000,
-      });
-      await expect(panel.getByText(STATE).first()).toBeVisible({ timeout: 20000 });
-      await expect(panel.getByRole('alert')).toHaveCount(0);
-    });
+  test('the Price score panel shows "No edge (measured)" and links to /signals', async ({
+    page,
+  }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
-    test('says there is no track record at an interval the re-score does not cover', async ({ page }) => {
-      await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-      await page.getByRole('tab', { name: '1m', exact: true }).click();
+    await expect(page.getByText('No edge (measured)')).toBeVisible();
+    const scoreDetailLink = page.getByRole('link', { name: 'Score detail' });
+    await expect(scoreDetailLink).toBeVisible();
+    await expect(scoreDetailLink).toHaveAttribute('href', '/signals');
+  });
 
-      const panel = page.getByTestId('track-record-panel');
-      await expect(
-        panel.getByText('No track record for BTCUSDT at 1m. The re-score covers the ten signal symbols at 5m, 15m, 1h, 4h and 1d.')
-      ).toBeVisible({ timeout: 20000 });
-      await expect(page.getByTestId('call-detail')).toHaveCount(0);
-    });
+  test('the foot shows "Market data from Binance"', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
-    test('shows the call strip under the chart at a re-scored interval', async ({ page }) => {
-      await page.goto('/dashboard');
-      await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
-      await expect(page.getByTestId('call-detail')).toHaveText('Hover or touch a call mark to see its score and how it ended.', {
-        timeout: 20000,
-      });
-    });
+    const footLink = page.getByRole('link', { name: 'Market data from Binance' });
+    await expect(footLink).toBeVisible();
+    await expect(footLink).toHaveAttribute('href', 'https://www.binance.com/');
   });
 });

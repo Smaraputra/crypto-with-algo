@@ -1,12 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Signals page (authenticated)', () => {
-  test('navigates to signals page via Tools menu', async ({ page }) => {
+  test('navigates to signals page via Market score detail link', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
-    await page.getByRole('navigation', { name: 'Desktop primary' }).getByRole('button', { name: 'Tools' }).click();
-    await page.getByRole('menuitem', { name: 'Signals' }).click();
+    await page.getByRole('link', { name: 'Score detail' }).click();
 
     await expect(page).toHaveURL('/signals', { timeout: 10000 });
     await expect(page.getByRole('heading', { name: 'Signals' })).toBeVisible();

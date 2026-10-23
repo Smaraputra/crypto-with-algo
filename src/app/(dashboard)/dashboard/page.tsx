@@ -1,88 +1,10 @@
-import { auth } from '@/lib/auth';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { WhenToLookPanel } from '@/components/dashboard/WhenToLookPanel';
-import { MarketOverview } from '@/components/market/MarketOverview';
-import { CrossSectionalPortfolioCard } from '@/components/signals/CrossSectionalPortfolioCard';
-import { LazyDashboardChart } from '@/components/chart/LazyDashboardChart';
-import { NewsFeed } from '@/components/market/NewsFeed';
-import { SentimentGauge } from '@/components/market/SentimentGauge';
+import type { Metadata } from 'next';
+import { MarketHome } from '@/components/market-home';
 
-export default async function DashboardPage() {
-  const session = await auth();
+export const metadata: Metadata = {
+  title: 'Market | CryptoWithAlgo',
+};
 
-  return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
-      <p className="text-sm text-muted-foreground">
-        Welcome{session?.user?.name ? `, ${session.user.name}` : ''}.
-      </p>
-      <ErrorBoundary
-        fallback={
-          <p className="text-sm text-muted-foreground">
-            Status panel unavailable
-          </p>
-        }
-      >
-        <WhenToLookPanel />
-      </ErrorBoundary>
-      <ErrorBoundary
-        fallback={
-          <p className="text-sm text-muted-foreground">
-            Market data unavailable
-          </p>
-        }
-      >
-        <MarketOverview />
-      </ErrorBoundary>
-      <ErrorBoundary
-        fallback={
-          <p className="text-sm text-muted-foreground">
-            Relative value portfolio unavailable
-          </p>
-        }
-      >
-        <CrossSectionalPortfolioCard />
-      </ErrorBoundary>
-      <ErrorBoundary
-        fallback={
-          <div className="flex h-[560px] items-center sm:h-[640px] justify-center rounded-lg border border-border">
-            <p className="text-sm text-muted-foreground">Chart unavailable</p>
-          </div>
-        }
-      >
-        <LazyDashboardChart />
-      </ErrorBoundary>
-      <div className="rounded-lg border border-border p-4">
-        <h2 className="text-sm font-semibold mb-3">Market Sentiment</h2>
-        <ErrorBoundary
-          fallback={
-            <p className="text-sm text-muted-foreground">Sentiment unavailable</p>
-          }
-        >
-          <SentimentGauge />
-        </ErrorBoundary>
-      </div>
-      <div className="rounded-lg border border-border p-4">
-        <h2 className="text-sm font-semibold mb-3">Crypto News</h2>
-        <ErrorBoundary
-          fallback={
-            <p className="text-sm text-muted-foreground">News unavailable</p>
-          }
-        >
-          <NewsFeed />
-        </ErrorBoundary>
-      </div>
-      <p className="text-[10px] text-muted-foreground text-right">
-        Market data from{' '}
-        <a
-          href="https://www.binance.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          Binance
-        </a>
-      </p>
-    </div>
-  );
+export default function DashboardPage() {
+  return <MarketHome />;
 }

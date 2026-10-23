@@ -24,13 +24,31 @@ const recorded = new Map([
   [T0 - HOUR, { score: -40, tier: 'sell' as const, confidence: 70.5, configVersion: 8 }],
 ]);
 
+import type { ChartTheme } from '@/lib/chart-theme';
+import { setIndicatorTheme, withAlpha } from './indicator-theme';
+
+const testTheme: ChartTheme = {
+  grid: '#111111',
+  crosshair: '#222222',
+  up: '#00cc66',
+  down: '#ee3344',
+  volume: '#555555',
+  text: '#ffffff',
+  mutedText: '#778899',
+  line: '#334455',
+  accentLine: '#ffbb00',
+};
+
 async function load() {
   vi.resetModules();
+  const themeMod = await import('./indicator-theme');
+  themeMod.setIndicatorTheme(testTheme);
   return import('./signal-score-indicator');
 }
 
 beforeEach(() => {
   registerIndicator.mockClear();
+  setIndicatorTheme(testTheme);
 });
 
 describe('makeSignalScoreCalc', () => {
@@ -130,21 +148,21 @@ describe('ensureSignalScoreIndicatorRegistered', () => {
     expect(registerIndicator).toHaveBeenCalledTimes(2);
   });
 
-  it('colours recorded bars by cutoff and draws provisional as a dashed amber outline', async () => {
+  it('colours recorded bars by cutoff and draws provisional as a dashed outline in accentLine', async () => {
     const mod = await load();
     mod.ensureSignalScoreIndicatorRegistered();
     const [recordedFig, rescoredFig, provFig] = registerIndicator.mock.calls[0][0].figures;
     const style = (fig: { styles: (p: unknown) => Record<string, unknown> }, v: Record<string, number>) =>
       fig.styles({ data: { current: v } });
-    expect(style(recordedFig, { recorded: 28 }).color).toBe('#0ecb81');
-    expect(style(recordedFig, { recorded: -28 }).color).toBe('#f6465d');
-    expect(style(recordedFig, { recorded: 27.9 }).color).not.toBe('#0ecb81');
-    expect(style(recordedFig, { recorded: -3 }).color).not.toBe('#f6465d');
-    expect(style(rescoredFig, { rescored: 30 }).color).toBe('#0b8a5a');
-    expect(style(rescoredFig, { rescored: -30 }).color).toBe('#b03547');
-    expect(style(rescoredFig, { rescored: 3 }).color).toBe('#61656d');
+    expect(style(recordedFig, { recorded: 28 }).color).toBe(testTheme.up);
+    expect(style(recordedFig, { recorded: -28 }).color).toBe(testTheme.down);
+    expect(style(recordedFig, { recorded: 27.9 }).color).not.toBe(testTheme.up);
+    expect(style(recordedFig, { recorded: -3 }).color).not.toBe(testTheme.down);
+    expect(style(rescoredFig, { rescored: 30 }).color).toBe(withAlpha(testTheme.up, 0.6));
+    expect(style(rescoredFig, { rescored: -30 }).color).toBe(withAlpha(testTheme.down, 0.6));
+    expect(style(rescoredFig, { rescored: 3 }).color).toBe(withAlpha(testTheme.mutedText, 0.6));
     expect(style(provFig, { provisional: 5 })).toMatchObject({
-      style: 'stroke', borderColor: '#f0b90b', borderStyle: 'dashed',
+      style: 'stroke', borderColor: testTheme.accentLine, borderStyle: 'dashed',
     });
   });
 

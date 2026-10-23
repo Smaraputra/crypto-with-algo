@@ -12,16 +12,24 @@ import { tierDisplayLabel } from '@/lib/signals/tier-labels';
  * horizonBars later.
  */
 
+import { getIndicatorTheme } from './indicator-theme';
+
 export const SIGNAL_CALLS_INDICATOR = 'SIGNAL_CALLS';
 
 export const CALL_COLORS = {
-  won: '#0ecb81',
-  cost: '#848e9c',
-  wrong: '#f6465d',
-  pending: '#b7bdc6',
-} as const;
-const BOUNDARY_LINE = '#848e9c';
-const BOUNDARY_TEXT = '#b7bdc6';
+  get won() {
+    return getIndicatorTheme().up;
+  },
+  get cost() {
+    return getIndicatorTheme().mutedText;
+  },
+  get wrong() {
+    return getIndicatorTheme().down;
+  },
+  get pending() {
+    return getIndicatorTheme().text;
+  },
+};
 
 export interface CallsSnapshot {
   calls: ReadonlyMap<number, CallMark>;
@@ -98,12 +106,13 @@ export function ensureSignalCallsIndicatorRegistered(): void {
       const extend = indicator.extendData;
 
       ctx.save();
+      const theme = getIndicatorTheme();
       // Hand-over line: left of it the re-score, right of it the live record.
       const boundary = extend?.boundary ?? null;
       if (boundary !== null && dataList.length > 0 && boundary >= dataList[0].timestamp && boundary <= dataList[dataList.length - 1].timestamp) {
         const x = Math.round(xAxis.convertTimestampToPixel(boundary) - barSpace / 2) + 0.5;
         if (x >= 0 && x <= bounding.width) {
-          ctx.strokeStyle = BOUNDARY_LINE;
+          ctx.strokeStyle = theme.mutedText;
           ctx.lineWidth = 1;
           ctx.setLineDash([4, 4]);
           ctx.beginPath();
@@ -112,7 +121,7 @@ export function ensureSignalCallsIndicatorRegistered(): void {
           ctx.stroke();
           ctx.setLineDash([]);
           ctx.font = '11px sans-serif';
-          ctx.fillStyle = BOUNDARY_TEXT;
+          ctx.fillStyle = theme.text;
           ctx.textBaseline = 'bottom';
           ctx.textAlign = 'right';
           ctx.fillText('re-scored', x - 4, bounding.height - 4);

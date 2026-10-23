@@ -66,8 +66,12 @@ function generateWalk(numBars: number, seed: number): KLineData[] {
   return candles;
 }
 
+import { LIGHT_CHART_THEME_FALLBACK } from '@/lib/chart-theme';
+import { setIndicatorTheme } from './indicator-theme';
+
 beforeEach(() => {
   registerIndicator.mockClear();
+  setIndicatorTheme(LIGHT_CHART_THEME_FALLBACK);
 });
 
 describe('makeStructureCalc', () => {

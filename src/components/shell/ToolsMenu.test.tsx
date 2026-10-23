@@ -36,7 +36,7 @@ describe('ToolsMenu', () => {
     expect(trigger).not.toHaveAttribute('aria-current');
   });
 
-  it('opening it shows Cost Check and Backtest with the right hrefs, then the interim Signals, Notes (/research) and Analytics items', () => {
+  it('opening it shows Cost Check and Backtest with the right hrefs, then the interim Notes (/research) and Analytics items', () => {
     render(<ToolsMenu />);
     const trigger = screen.getByRole('button', { name: /tools/i });
     fireEvent.pointerDown(trigger, { button: 0 });
@@ -50,9 +50,7 @@ describe('ToolsMenu', () => {
     expect(backtest).toBeInTheDocument();
     expect(backtest).toHaveAttribute('href', '/backtest');
 
-    const signals = screen.getByRole('menuitem', { name: 'Signals' });
-    expect(signals).toBeInTheDocument();
-    expect(signals).toHaveAttribute('href', '/signals');
+    expect(screen.queryByRole('menuitem', { name: 'Signals' })).not.toBeInTheDocument();
 
     const notes = screen.getByRole('menuitem', { name: 'Notes' });
     expect(notes).toBeInTheDocument();

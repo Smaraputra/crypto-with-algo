@@ -20,16 +20,15 @@ test.describe('Dashboard layout (authenticated)', () => {
     await expect(nav.getByRole('button', { name: 'Tools' })).toBeVisible();
   });
 
-  test('dashboard page shows heading and welcome text', async ({ page }) => {
+  test('dashboard page shows Market heading', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-    await expect(page.getByText(/Welcome/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible();
   });
 
   test('coin search palette toggle changes watchlist state for a coin', async ({ page }) => {
     await mockSymbols(page);
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     await page.getByRole('button', { name: 'Search coins' }).click();
     const dialog = page.getByRole('dialog', { name: 'Search coins' });
@@ -50,7 +49,7 @@ test.describe('Dashboard layout (authenticated)', () => {
 
   test('top bar Account menu shows Log out', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     await page.getByRole('button', { name: 'Account' }).click();
     await expect(page.getByRole('menuitem', { name: 'Log out' })).toBeVisible();

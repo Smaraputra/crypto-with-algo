@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Portfolio (authenticated)', () => {
   test('top bar portfolio link navigates to /portfolio', async ({ page }) => {
     await page.goto('/dashboard');
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
     const topBar = page.getByRole('navigation', { name: 'Desktop primary' });
     await topBar.getByRole('link', { name: 'Portfolio' }).click();
