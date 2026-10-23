@@ -3,6 +3,8 @@
 import React from 'react';
 import { useTickers } from '@/hooks/usePrices';
 
+const PLACEHOLDER_IDS = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
+
 function formatPrice(lastPrice: string): string {
   const num = Number(lastPrice);
   if (isNaN(num)) return 'n/a';
@@ -47,9 +49,9 @@ export function PriceStrip() {
         data-testid="price-strip-loading"
         className="flex flex-wrap items-center justify-center gap-3 py-3 px-4"
       >
-        {[...Array(6)].map((_, idx) => (
+        {PLACEHOLDER_IDS.map((id) => (
           <div
-            key={idx}
+            key={id}
             className="h-8 w-28 animate-pulse rounded-lg bg-muted"
           />
         ))}
