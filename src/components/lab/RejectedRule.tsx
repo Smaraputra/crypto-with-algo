@@ -22,11 +22,14 @@ export const RejectedRule: React.FC<RejectedRuleProps> = ({
   return (
     <Panel
       as="section"
+      aria-labelledby="group-heading-rejected"
       data-testid="rejected-rule"
       className={cn(className)}
     >
       <div className="mb-2">
-        <EvidenceChip kind="rejected" />
+        <h2 id="group-heading-rejected" className="m-0 text-base font-normal">
+          <EvidenceChip kind="rejected" />
+        </h2>
       </div>
 
       <div className="pt-1">

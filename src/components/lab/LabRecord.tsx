@@ -47,7 +47,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
       ...labV2.data.hypotheses.map((h) => ({
         ...h,
         threshold: h.threshold ?? labV2.data?.threshold ?? 400,
-        note: 'Effects this small are unlikely to be confirmed within 24 months.',
+        note: 'An effect this small is unlikely to be confirmed within 24 months.',
       }))
     );
   }
@@ -66,7 +66,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
       ...labV4.data.hypotheses.map((h) => ({
         ...h,
         threshold: h.threshold ?? labV4.data?.threshold ?? 800,
-        note: 'These two lost money on historical data and are recorded forward anyway, so the outcome is public.',
+        note: 'Lost money on historical data. Recorded forward anyway, so the outcome is public.',
       }))
     );
   }
@@ -122,23 +122,26 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
             />
           )}
 
-          {errorQueries.map(({ key, query }) => (
+          {errorQueries.length > 0 && (
             <StateNotice
-              key={key}
               kind="error"
               title="The lab record did not load."
               description="The lab service did not answer. Try again in a minute."
               action={
                 <button
                   type="button"
-                  onClick={() => query.refetch()}
+                  onClick={() => {
+                    for (const { query } of errorQueries) {
+                      query.refetch();
+                    }
+                  }}
                   className="inline-flex items-center justify-center min-h-[44px] px-4 py-2 rounded-[12px] border border-edge bg-card text-foreground font-semibold text-[13px] hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring cursor-pointer"
                 >
                   Try again
                 </button>
               }
             />
-          ))}
+          )}
 
           {isEmpty && (
             <StateNotice
@@ -148,9 +151,11 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
           )}
 
           {validatedHypotheses.length > 0 && (
-            <Panel as="section" className="space-y-2">
+            <Panel as="section" aria-labelledby="group-heading-validated" className="space-y-2">
               <div className="mb-2">
-                <EvidenceChip kind="validated" />
+                <h2 id="group-heading-validated" className="m-0 text-base font-normal">
+                  <EvidenceChip kind="validated" />
+                </h2>
               </div>
               {validatedHypotheses.map((h) => (
                 <HypothesisRow key={h.id} hypothesis={h} />
@@ -159,9 +164,11 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
           )}
 
           {underTestHypotheses.length > 0 && (
-            <Panel as="section" className="space-y-2">
+            <Panel as="section" aria-labelledby="group-heading-under-test" className="space-y-2">
               <div className="mb-2">
-                <EvidenceChip kind="under-test" />
+                <h2 id="group-heading-under-test" className="m-0 text-base font-normal">
+                  <EvidenceChip kind="under-test" />
+                </h2>
               </div>
               {underTestHypotheses.map((h) => (
                 <HypothesisRow key={h.id} hypothesis={h} />
@@ -170,9 +177,11 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
           )}
 
           {notStartedHypotheses.length > 0 && (
-            <Panel as="section" className="space-y-2">
+            <Panel as="section" aria-labelledby="group-heading-not-started" className="space-y-2">
               <div className="mb-2">
-                <EvidenceChip kind="not-started" />
+                <h2 id="group-heading-not-started" className="m-0 text-base font-normal">
+                  <EvidenceChip kind="not-started" />
+                </h2>
               </div>
               {notStartedHypotheses.map((h) => (
                 <HypothesisRow key={h.id} hypothesis={h} />
@@ -181,9 +190,11 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
           )}
 
           {notShownHypotheses.length > 0 && (
-            <Panel as="section" className="space-y-2">
+            <Panel as="section" aria-labelledby="group-heading-not-shown" className="space-y-2">
               <div className="mb-2">
-                <EvidenceChip kind="context" label="Not shown" />
+                <h2 id="group-heading-not-shown" className="m-0 text-base font-normal">
+                  <EvidenceChip kind="context" label="Not shown" />
+                </h2>
               </div>
               {notShownHypotheses.map((h) => (
                 <HypothesisRow key={h.id} hypothesis={h} />

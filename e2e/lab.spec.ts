@@ -14,7 +14,7 @@ test.describe('Lab record page (authenticated)', () => {
     const emptyNotice = page.getByText('No ideas are being tested right now.');
 
     await expect(
-      validatedText.or(loadingNotice).or(errorNotice).or(emptyNotice)
+      validatedText.or(loadingNotice).or(errorNotice).or(emptyNotice).first()
     ).toBeVisible({ timeout: 15000 });
 
     // Price score and static V8_STATUS studies disclosure

@@ -62,7 +62,7 @@ export function getChipConfig(status: HypothesisViewLike['status']): { kind: Evi
 }
 
 function formatDate(iso: string | null | undefined): string {
-  if (!iso) return 'None';
+  if (!iso) return 'Not yet';
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso);
@@ -73,7 +73,7 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 function formatBarTime(iso: string | null | undefined): string {
-  if (!iso) return 'None';
+  if (!iso) return 'Not yet';
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso);
@@ -113,7 +113,7 @@ export const HypothesisRow: React.FC<HypothesisRowProps> = ({
     >
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-foreground text-[15px]">{displayName}</span>
+          <h3 className="font-semibold text-foreground text-[15px]">{displayName}</h3>
           <span className="text-[13px] text-muted-foreground font-sans tabular-nums">{hypothesis.id}</span>
         </div>
         <EvidenceChip kind={chipConfig.kind} label={chipConfig.label} />

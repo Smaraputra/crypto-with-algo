@@ -19,8 +19,11 @@ describe('HypothesisRow', () => {
     },
   };
 
-  it('renders display name from mapping for L3-8h', () => {
+  it('renders display name from mapping for L3-8h as an h3 heading', () => {
     render(<HypothesisRow hypothesis={sampleHypothesis} />);
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Volatility fade, 8 hours' })
+    ).toBeInTheDocument();
     expect(screen.getByText('Volatility fade, 8 hours')).toBeInTheDocument();
     expect(screen.getByText('L3-8h')).toBeInTheDocument();
   });
@@ -70,5 +73,18 @@ describe('HypothesisRow', () => {
       screen.getByText('Its 24 months ended without reaching the bar. It keeps no claim.')
     ).toBeInTheDocument();
     expect(screen.queryByText(/bets\. Evidence/)).not.toBeInTheDocument();
+  });
+
+  it('renders "Not yet" for missing date or bar time instead of "None"', () => {
+    const missingDatesHypothesis: HypothesisViewLike = {
+      ...sampleHypothesis,
+      underTestSince: null,
+      testEndsAt: null,
+      latestBar: null,
+    };
+    render(<HypothesisRow hypothesis={missingDatesHypothesis} />);
+    const notYetElements = screen.getAllByText('Not yet');
+    expect(notYetElements.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('None')).not.toBeInTheDocument();
   });
 });

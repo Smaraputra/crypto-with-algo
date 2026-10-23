@@ -22,7 +22,13 @@ describe('RejectedRule', () => {
     render(<RejectedRule />);
 
     expect(screen.getByText('Relative value, 8 hours')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Relative value, 8 hours' })
+    ).toBeInTheDocument();
     expect(screen.getByText('Rejected')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Rejected' })
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         'Failed its re-validation on 15 October 2026. Its paper record keeps running as a public record.'

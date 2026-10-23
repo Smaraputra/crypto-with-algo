@@ -305,6 +305,22 @@ describe('LabRecord', () => {
     expect(screen.getByText('Loading the lab record.')).toBeInTheDocument();
   });
 
+  it('renders status group EvidenceChip in an h2 heading', () => {
+    render(<LabRecord />);
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Under test' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Not started' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Not shown' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Rejected' })
+    ).toBeInTheDocument();
+  });
+
   it('renders error state notice and calls refetch on Try again', () => {
     const refetchMock = vi.fn();
     vi.mocked(useSignalLabModule.useSignalLab).mockReturnValue({
@@ -323,6 +339,55 @@ describe('LabRecord', () => {
     const tryAgainBtn = screen.getByRole('button', { name: 'Try again' });
     fireEvent.click(tryAgainBtn);
     expect(refetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('with two failed queries shows exactly one error notice and clicking Try again calls both refetch mocks', () => {
+    const refetchV1 = vi.fn();
+    const refetchV2 = vi.fn();
+
+    vi.mocked(useSignalLabModule.useSignalLab).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: refetchV1,
+    } as unknown as LabV1QueryResult);
+
+    vi.mocked(useSignalLabV2Module.useSignalLabV2).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: refetchV2,
+    } as unknown as LabV2QueryResult);
+
+    render(<LabRecord />);
+
+    const errorNotices = screen.getAllByText('The lab record did not load.');
+    expect(errorNotices).toHaveLength(1);
+
+    // Rows from queries that did load (labV3, labV4) still render
+    expect(screen.getByText('Funding carry, daily')).toBeInTheDocument();
+    expect(screen.getByText('Swing break with taker flow, hourly')).toBeInTheDocument();
+
+    const tryAgainBtn = screen.getByRole('button', { name: 'Try again' });
+    fireEvent.click(tryAgainBtn);
+    expect(refetchV1).toHaveBeenCalledTimes(1);
+    expect(refetchV2).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows lab-v4 row note exactly once', () => {
+    render(<LabRecord />);
+    const notes = screen.getAllByText(
+      'Lost money on historical data. Recorded forward anyway, so the outcome is public.'
+    );
+    expect(notes).toHaveLength(1);
+  });
+
+  it('shows lab-v2 row note', () => {
+    render(<LabRecord />);
+    const notes = screen.getAllByText(
+      'An effect this small is unlikely to be confirmed within 24 months.'
+    );
+    expect(notes).toHaveLength(1);
   });
 
   it('renders empty state notice when no hypotheses exist across all labs', () => {
