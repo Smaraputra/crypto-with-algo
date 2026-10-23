@@ -28,6 +28,11 @@ test.describe('Journal page (authenticated)', () => {
     page,
   }) => {
     await mockSymbols(page);
+    // A unique entry price keeps this attempt's row apart from any row a failed retry left behind
+    const entryPrice = (200 + (Date.now() % 9000) / 100).toFixed(2);
+    const tradeRow = page
+      .getByRole('button', { name: 'Open trade entry for BNB', exact: true })
+      .filter({ hasText: `$${entryPrice}` });
 
     await page.route('**/api/signals/latest*', async (route) => {
       await route.fulfill({
@@ -69,7 +74,7 @@ test.describe('Journal page (authenticated)', () => {
     await page.getByRole('option', { name: 'BNB', exact: true }).click();
 
     // Fill entry price
-    await page.getByLabel('Entry price', { exact: true }).fill('300');
+    await page.getByLabel('Entry price', { exact: true }).fill(entryPrice);
 
     // Submit trade
     await page.getByRole('button', { name: 'Save trade', exact: true }).click();
@@ -86,14 +91,10 @@ test.describe('Journal page (authenticated)', () => {
       await expect(page.getByRole('heading', { name: 'Open trades', exact: true })).toBeVisible({
         timeout: 10000,
       });
-      const openTradeRow = page.getByRole('button', {
-        name: 'Open trade entry for BNB',
-        exact: true,
-      });
-      await expect(openTradeRow).toBeVisible({ timeout: 10000 });
+      await expect(tradeRow).toBeVisible({ timeout: 10000 });
 
       // Open trade to review it
-      await openTradeRow.click();
+      await tradeRow.click();
       await expect(page.getByRole('heading', { name: 'BNB Trade', exact: true })).toBeVisible({
         timeout: 10000,
       });
@@ -107,7 +108,8 @@ test.describe('Journal page (authenticated)', () => {
       await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15000 });
 
       // Close the entry sheet
-      await page.getByRole('button', { name: 'Close', exact: true }).click();
+      // The footer Close comes before the sheet's corner X in the dialog
+      await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).first().click();
       await expect(page.getByRole('heading', { name: 'BNB Trade', exact: true })).not.toBeVisible({
         timeout: 10000,
       });
@@ -116,14 +118,10 @@ test.describe('Journal page (authenticated)', () => {
       await expect(page.getByRole('heading', { name: 'Closed trades', exact: true })).toBeVisible({
         timeout: 10000,
       });
-      const closedTradeRow = page.getByRole('button', {
-        name: 'Open trade entry for BNB',
-        exact: true,
-      });
-      await expect(closedTradeRow).toBeVisible({ timeout: 10000 });
+      await expect(tradeRow).toBeVisible({ timeout: 10000 });
 
       // Open closed trade and delete it with confirmation
-      await closedTradeRow.click();
+      await tradeRow.click();
       await expect(page.getByRole('heading', { name: 'BNB Trade', exact: true })).toBeVisible({
         timeout: 10000,
       });
@@ -139,9 +137,7 @@ test.describe('Journal page (authenticated)', () => {
       });
 
       // Verify row is gone
-      await expect(
-        page.getByRole('button', { name: 'Open trade entry for BNB', exact: true })
-      ).toHaveCount(0, { timeout: 10000 });
+      await expect(tradeRow).toHaveCount(0, { timeout: 10000 });
       await page.mouse.move(0, 0);
       await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15000 });
     } catch (err) {

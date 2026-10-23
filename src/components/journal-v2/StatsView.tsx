@@ -223,9 +223,9 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
                     formatter={(val: unknown) => [`${Number(val).toFixed(2)}%`, 'P&L']}
                   />
                   <Bar dataKey="pnlPercent" radius={[4, 4, 0, 0]}>
-                    {byMonth.map((entry, index) => (
+                    {byMonth.map((entry) => (
                       <Cell
-                        key={`cell-${index}`}
+                        key={entry.month}
                         fill={entry.pnlPercent >= 0 ? chartTheme.up : chartTheme.down}
                       />
                     ))}

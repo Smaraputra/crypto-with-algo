@@ -239,8 +239,8 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
           >
             <h4 className="text-[13px] font-semibold text-ink-2">Before you log</h4>
             <ul className="space-y-1 text-[13px] text-muted-foreground list-disc list-inside">
-              {nudges.map((n, idx) => (
-                <li key={idx}>{n.message}</li>
+              {nudges.map((n) => (
+                <li key={n.rule}>{n.message}</li>
               ))}
             </ul>
           </div>

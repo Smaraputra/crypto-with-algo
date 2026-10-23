@@ -27,10 +27,11 @@ test.describe('Alerts page (authenticated)', () => {
     await expect(showGroup.getByRole('radio', { name: 'Triggered', exact: true })).toBeVisible();
     await expect(showGroup.getByRole('radio', { name: 'Paused', exact: true })).toBeVisible();
 
-    await showGroup.getByRole('radio', { name: 'Active', exact: true }).click();
+    // The radios are visually hidden; the visible labels take the clicks
+    await showGroup.getByText('Active', { exact: true }).click();
     await expect(showGroup.getByRole('radio', { name: 'Active', exact: true })).toBeChecked();
 
-    await showGroup.getByRole('radio', { name: 'All', exact: true }).click();
+    await showGroup.getByText('All', { exact: true }).click();
     await expect(showGroup.getByRole('radio', { name: 'All', exact: true })).toBeChecked();
   });
 
