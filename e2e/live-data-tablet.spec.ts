@@ -35,14 +35,17 @@ test.describe('Live data tablet layout and interactions', () => {
       const dialog = page.getByRole('dialog', { name: 'Search coins' });
       await expect(dialog).toBeVisible();
 
-      const toggleButton = dialog.getByRole('button', { name: /watchlist/i }).first();
-      await expect(toggleButton).toBeVisible();
-      const initialText = await toggleButton.innerText();
-      await toggleButton.click();
-      const expectedText = initialText.includes('Add')
-        ? 'Remove from watchlist'
-        : 'Add to watchlist';
-      await expect(toggleButton).toHaveText(expectedText);
+      // BNB is outside the default watchlist; add it and remove it again so tests that
+      // read the shared test user's watchlist in parallel are unaffected.
+      const toggle = dialog
+        .getByRole('option')
+        .filter({ hasText: 'BNB' })
+        .getByRole('button', { name: /watchlist/i });
+      await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
+      await toggle.click();
+      await expect(toggle).toHaveText('Remove from watchlist', { timeout: 10000 });
+      await toggle.click();
+      await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
     }
   });
 
@@ -58,6 +61,13 @@ test.describe('Live data tablet layout and interactions', () => {
     await expect(page.getByText('Reconnecting to live prices.')).not.toBeVisible();
     await expect(page.getByText('Live prices paused. Showing the last update.')).not.toBeVisible();
     await expect(page.getByText('Live prices are offline.')).not.toBeVisible();
+
+    // The Market screen subscribes after the watchlist loads, so wait for an open stream first.
+    await page.waitForFunction(
+      () => (window.__esLast as { readyState?: number } | undefined)?.readyState === 1,
+      undefined,
+      { timeout: 15000 }
+    );
 
     await page.evaluate(() => {
       window.__esFail?.({ closed: true });

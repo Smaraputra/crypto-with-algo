@@ -29,6 +29,14 @@ test.describe('Live data and chart controls (authenticated)', () => {
 
     const initialUrls = await fakeEventSourceUrls(page);
 
+    // The Market screen subscribes after the watchlist loads, so wait for an open stream first;
+    // failing before one exists is a no-op.
+    await page.waitForFunction(
+      () => (window.__esLast as { readyState?: number } | undefined)?.readyState === 1,
+      undefined,
+      { timeout: 15000 }
+    );
+
     // Drop the fake stream
     await page.evaluate(() => {
       window.__esFail?.({ closed: true });

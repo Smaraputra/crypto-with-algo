@@ -18,7 +18,7 @@ test.describe('Lab record page (authenticated)', () => {
     ).toBeVisible({ timeout: 15000 });
 
     // Price score and static V8_STATUS studies disclosure
-    await expect(page.getByRole('heading', { name: 'Price score' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Price score', exact: true })).toBeVisible();
     await expect(page.getByText('What was measured')).toBeVisible();
   });
 
