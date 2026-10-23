@@ -99,9 +99,9 @@
   --muted: #E4E7EB;
   --muted-foreground: #59606B;
 
-  /* Accent */
-  --accent: #E4E7EB;
-  --accent-foreground: #0F1114;
+  /* Interim: unrebuilt screens use accent as brand text; the last redesign PR returns accent to the hover role (panel-2). */
+  --accent: #B03E00;
+  --accent-foreground: #FFFFFF;
 
   /* Destructive */
   --destructive: #C21F36;
@@ -194,9 +194,9 @@
   --muted: #1F2227;
   --muted-foreground: #9CA3AE;
 
-  /* Accent */
-  --accent: #1F2227;
-  --accent-foreground: #F4F5F7;
+  /* Interim: unrebuilt screens use accent as brand text; the last redesign PR returns accent to the hover role (panel-2). */
+  --accent: #FF9A52;
+  --accent-foreground: #12100D;
 
   /* Destructive */
   --destructive: #FF6B7A;

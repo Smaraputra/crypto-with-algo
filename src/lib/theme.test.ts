@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_THEME,
@@ -199,6 +201,17 @@ describe('theme library', () => {
       document.documentElement.classList.toggle('dark');
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('interim accent tokens', () => {
+    it('globals.css defines interim brand accent for unrebuilt screens in :root and .dark', () => {
+      const globalsCss = readFileSync(join(__dirname, '../app/globals.css'), 'utf8');
+      const rootBlock = globalsCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+      const darkBlock = globalsCss.match(/\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+
+      expect(rootBlock).toContain('--accent: #B03E00;');
+      expect(darkBlock).toContain('--accent: #FF9A52;');
     });
   });
 });
