@@ -1,52 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import MarketingBlogPage, { metadata } from './page';
 
-vi.mock('next-auth/react', () => ({
-  useSession: () => ({ data: null }),
-}));
-
-vi.mock('next/link', () => ({
-  default: ({
-    children,
-    href,
-    ...rest
-  }: {
-    children: React.ReactNode;
-    href: string;
-  }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
-}));
-
-import BlogPage from './page';
-
-describe('BlogPage', () => {
-  // These tests used to assert four hardcoded fake articles -- invented titles,
-  // invented 2025 dates, invented read times -- which is what kept the
-  // fabricated content in place. The page is now honest about having no posts,
-  // and these assert that instead.
-  it('renders the Blog heading', () => {
-    render(<BlogPage />);
-    expect(screen.getByRole('heading', { name: 'Blog', level: 1 })).toBeInTheDocument();
+describe('MarketingBlogPage', () => {
+  it('exports honest metadata', () => {
+    expect(metadata.title).toBe('Blog | CryptoWithAlgo');
+    expect(metadata.description).toBeDefined();
   });
 
-  it('says there are no posts yet', () => {
-    render(<BlogPage />);
-    expect(screen.getByRole('heading', { name: 'No posts yet' })).toBeInTheDocument();
+  it('renders exact h1 Blog and honest empty state h2 No posts yet', () => {
+    render(<MarketingBlogPage />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Blog' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'No posts yet' })).toBeInTheDocument();
   });
 
-  it('points at the documentation instead', () => {
-    render(<BlogPage />);
-    const link = screen.getByRole('link', { name: 'documentation' });
-    expect(link).toHaveAttribute('href', '/docs');
-  });
-
-  it('presents no article metadata, fabricated or otherwise', () => {
-    render(<BlogPage />);
-    // No read times, no article dates: the tells of the placeholder content.
-    expect(screen.queryByText(/min read/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/\d{4}$/)).not.toBeInTheDocument();
+  it('does not contain banned marketing claims', () => {
+    const { container } = render(<MarketingBlogPage />);
+    expect(container.textContent).not.toMatch(
+      /guarantee|profit|beat the market|predict|accuracy|win rate|tax/i
+    );
   });
 });

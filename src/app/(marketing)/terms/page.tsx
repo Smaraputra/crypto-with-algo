@@ -1,15 +1,17 @@
-import { ContentLayout } from '@/components/marketing/ContentLayout';
+import type { Metadata } from 'next';
+import { LegalPage } from '@/components/marketing-v2';
 import { TermsContent, TERMS_LAST_UPDATED } from '@/content/legal/TermsContent';
 
-export default function TermsPage() {
+export const metadata: Metadata = {
+  title: 'Terms of Service | CryptoWithAlgo',
+  description:
+    'Terms of service, usage rules, and liability disclaimers for the CryptoWithAlgo platform.',
+};
+
+export default function MarketingTermsPage() {
   return (
-    <ContentLayout
-      title="Terms of Service"
-      subtitle={`Last updated: ${TERMS_LAST_UPDATED}`}
-    >
-      <div className="prose prose-sm max-w-none space-y-6 text-muted-foreground">
-        <TermsContent />
-      </div>
-    </ContentLayout>
+    <LegalPage title="Terms of Service" lastUpdated={TERMS_LAST_UPDATED}>
+      <TermsContent />
+    </LegalPage>
   );
 }

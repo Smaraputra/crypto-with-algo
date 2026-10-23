@@ -1,42 +1,54 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import MarketingHomePage, { metadata } from './page';
 
-vi.mock('@/components/marketing/LandingNav', () => ({
-  LandingNav: () => <nav data-testid="landing-nav" />,
-}));
-vi.mock('@/components/marketing/HeroSection', () => ({
-  HeroSection: () => <section data-testid="hero-section" />,
-}));
-vi.mock('@/components/marketing/FeaturesSection', () => ({
-  FeaturesSection: () => <section data-testid="features-section" />,
-}));
-vi.mock('@/components/marketing/HowItWorksSection', () => ({
-  HowItWorksSection: () => <section data-testid="how-it-works-section" />,
-}));
-vi.mock('@/components/marketing/CTASection', () => ({
-  CTASection: () => <section data-testid="cta-section" />,
-}));
-vi.mock('@/components/marketing/Footer', () => ({
-  Footer: () => <footer data-testid="footer" />,
+vi.mock('@/hooks/usePrices', () => ({
+  useTickers: () => ({
+    data: [
+      {
+        symbol: 'BTCUSDT',
+        lastPrice: '67000',
+        priceChange: '500',
+        priceChangePercent: '0.75',
+      },
+    ],
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
 }));
 
-import LandingPage from './page';
-
-describe('LandingPage', () => {
-  it('renders all sections', () => {
-    render(<LandingPage />);
-
-    expect(screen.getByTestId('landing-nav')).toBeInTheDocument();
-    expect(screen.getByTestId('hero-section')).toBeInTheDocument();
-    expect(screen.getByTestId('features-section')).toBeInTheDocument();
-    expect(screen.getByTestId('how-it-works-section')).toBeInTheDocument();
-    expect(screen.getByTestId('cta-section')).toBeInTheDocument();
-    expect(screen.getByTestId('footer')).toBeInTheDocument();
+describe('MarketingHomePage', () => {
+  it('exports honest metadata', () => {
+    expect(metadata.title).toBe(
+      'Crypto market tracker with an open research lab | CryptoWithAlgo'
+    );
+    expect(metadata.description).toBeDefined();
   });
 
-  it('main element has id="main-content" for skip link', () => {
-    render(<LandingPage />);
-    const main = screen.getByRole('main');
-    expect(main).toHaveAttribute('id', 'main-content');
+  it('renders HomePage with h1 headline and actions', () => {
+    render(<MarketingHomePage />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'A crypto market tracker with an open research lab',
+      })
+    ).toBeInTheDocument();
+
+    expect(screen.getAllByRole('link', { name: 'Create a free account' })[0]).toHaveAttribute(
+      'href',
+      '/register'
+    );
+  });
+
+  it('does not contain banned marketing claims', () => {
+    const { container } = render(<MarketingHomePage />);
+    expect(container.textContent).not.toMatch(
+      /guarantee|profit|beat the market|predict|accuracy|win rate|tax/i
+    );
+    expect(container.textContent).not.toMatch(
+      /public record|public research lab|public ledger|markdown|survivorship|instant|currently validated|volume delta|frozen/i
+    );
   });
 });

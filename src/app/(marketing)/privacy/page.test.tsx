@@ -1,31 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import MarketingPrivacyPage, { metadata } from './page';
+import { PRIVACY_LAST_UPDATED } from '@/content/legal/PrivacyContent';
 
-vi.mock('@/components/marketing/ContentLayout', () => ({
-  ContentLayout: ({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) => (
-    <div>
-      <h1>{title}</h1>
-      <p>{subtitle}</p>
-      <div>{children}</div>
-    </div>
-  ),
-}));
-
-import PrivacyPage from './page';
-
-describe('PrivacyPage', () => {
-  it('renders privacy policy heading', () => {
-    render(<PrivacyPage />);
-    expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toBeInTheDocument();
+describe('MarketingPrivacyPage', () => {
+  it('exports honest metadata', () => {
+    expect(metadata.title).toBe('Privacy Policy | CryptoWithAlgo');
+    expect(metadata.description).toBeDefined();
   });
 
-  it('renders last updated date', () => {
-    render(<PrivacyPage />);
-    expect(screen.getByText(/Last updated:/)).toBeInTheDocument();
-  });
+  it('renders exact h1 Privacy Policy, last updated date, and PrivacyContent sections', () => {
+    render(<MarketingPrivacyPage />);
 
-  it('renders introduction section', () => {
-    render(<PrivacyPage />);
-    expect(screen.getByText(/CryptoWithAlgo.*is committed to protecting your privacy/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Privacy Policy' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(`Last updated: ${PRIVACY_LAST_UPDATED}`)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/1. Introduction/i)).toBeInTheDocument();
+    expect(screen.getByText(/2. Information We Collect/i)).toBeInTheDocument();
   });
 });

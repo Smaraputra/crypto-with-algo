@@ -1,46 +1,21 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-
-vi.mock('@/components/marketing/SmoothScroll', () => ({
-  SmoothScroll: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-}));
-
-vi.mock('@/components/marketing/CursorGlow', () => ({
-  CursorGlow: () => <div data-testid="cursor-glow" />,
-}));
-
+import { describe, expect, it } from 'vitest';
 import MarketingLayout from './layout';
 
 describe('MarketingLayout', () => {
-  it('renders skip-to-content link', () => {
+  it('renders MarketingNav, main landmark with id="main-content", and MarketingFooter', () => {
     render(
       <MarketingLayout>
-        <main id="main-content">Content</main>
+        <div>Content placeholder</div>
       </MarketingLayout>
     );
-    const skipLink = screen.getByText('Skip to content');
-    expect(skipLink).toBeInTheDocument();
-    expect(skipLink).toHaveAttribute('href', '#main-content');
-  });
 
-  it('skip-to-content link has sr-only class', () => {
-    render(
-      <MarketingLayout>
-        <div>Content</div>
-      </MarketingLayout>
-    );
-    const skipLink = screen.getByText('Skip to content');
-    expect(skipLink.className).toContain('sr-only');
-  });
-
-  it('renders children', () => {
-    render(
-      <MarketingLayout>
-        <div data-testid="child">Hello</div>
-      </MarketingLayout>
-    );
-    expect(screen.getByTestId('child')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'CryptoWithAlgo' })).toBeInTheDocument();
+    const main = screen.getByRole('main');
+    expect(main).toHaveAttribute('id', 'main-content');
+    expect(screen.getByText('Content placeholder')).toBeInTheDocument();
+    expect(
+      screen.getByText('Not financial advice. Prices from Binance public market data.')
+    ).toBeInTheDocument();
   });
 });
