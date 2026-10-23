@@ -7,8 +7,6 @@ import { useLinkStatus } from 'next/link';
 import { cn } from '@/lib/utils';
 import { NavItem, isNavActive } from './nav-items';
 
-export { isNavActive };
-
 export function NavPendingIndicator({ active }: { active: boolean }) {
   const { pending } = useLinkStatus();
 
