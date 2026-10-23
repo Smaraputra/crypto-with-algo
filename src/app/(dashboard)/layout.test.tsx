@@ -1,4 +1,4 @@
-// @vitest-environment node
+import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockAuth = vi.fn();
@@ -15,48 +15,74 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-vi.mock('@/components/layout/Sidebar', () => ({
-  Sidebar: () => null,
-}));
-
-vi.mock('@/components/layout/Header', () => ({
-  Header: () => null,
+vi.mock('@/components/shell', () => ({
+  AppShell: () => <div data-testid="app-shell">AppShellMock</div>,
 }));
 
 import DashboardLayout from './layout';
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
-describe('DashboardLayout consent gate', () => {
-  it('redirects to /consent when tosAccepted is false', async () => {
-    mockAuth.mockResolvedValue({
-      user: { id: 'user-123', tosAccepted: false },
-    });
-
-    await expect(
-      DashboardLayout({ children: null })
-    ).rejects.toThrow('NEXT_REDIRECT:/consent');
-
-    expect(mockRedirect).toHaveBeenCalledWith('/consent');
+describe('DashboardLayout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('does not redirect when tosAccepted is true', async () => {
-    mockAuth.mockResolvedValue({
-      user: { id: 'user-123', tosAccepted: true },
+  describe('consent gate', () => {
+    it('redirects to /consent when tosAccepted is false', async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: 'user-123', tosAccepted: false },
+      });
+
+      await expect(
+        DashboardLayout({ children: null })
+      ).rejects.toThrow('NEXT_REDIRECT:/consent');
+
+      expect(mockRedirect).toHaveBeenCalledWith('/consent');
     });
 
-    const result = await DashboardLayout({ children: null });
-    expect(result).toBeDefined();
-    expect(mockRedirect).not.toHaveBeenCalled();
+    it('does not redirect when tosAccepted is true', async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: 'user-123', tosAccepted: true },
+      });
+
+      const result = await DashboardLayout({ children: null });
+      expect(result).toBeDefined();
+      expect(mockRedirect).not.toHaveBeenCalled();
+    });
+
+    it('does not redirect when session is null', async () => {
+      mockAuth.mockResolvedValue(null);
+
+      const result = await DashboardLayout({ children: null });
+      expect(result).toBeDefined();
+      expect(mockRedirect).not.toHaveBeenCalled();
+    });
   });
 
-  it('does not redirect when session is null', async () => {
-    mockAuth.mockResolvedValue(null);
+  describe('structure', () => {
+    it('renders the shell, skip link and main#main-content', async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: 'user-123', tosAccepted: true },
+      });
 
-    const result = await DashboardLayout({ children: null });
-    expect(result).toBeDefined();
-    expect(mockRedirect).not.toHaveBeenCalled();
+      const jsx = await DashboardLayout({
+        children: <div data-testid="child-content">Child Content</div>,
+      });
+
+      render(jsx);
+
+      // Skip link
+      const skipLink = screen.getByRole('link', { name: 'Skip to content' });
+      expect(skipLink).toBeInTheDocument();
+      expect(skipLink).toHaveAttribute('href', '#main-content');
+
+      // Shell renders
+      expect(screen.getByTestId('app-shell')).toBeInTheDocument();
+
+      // main#main-content exists and has children
+      const main = document.getElementById('main-content');
+      expect(main).toBeInTheDocument();
+      expect(main?.tagName.toLowerCase()).toBe('main');
+      expect(screen.getByTestId('child-content')).toBeInTheDocument();
+    });
   });
 });
