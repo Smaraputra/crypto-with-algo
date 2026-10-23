@@ -102,7 +102,11 @@ export const PortfolioScreen: React.FC = () => {
       return;
     }
     try {
-      await createPortfolioMutation.mutateAsync(newPortfolioName.trim());
+      const created = (await createPortfolioMutation.mutateAsync(newPortfolioName.trim())) as {
+        portfolio?: { _id?: string };
+      };
+      // Switch to the portfolio just created, rather than leaving the previous one selected.
+      if (created?.portfolio?._id) setUserSelectedId(String(created.portfolio._id));
       setNewPortfolioName('');
       setCreateOpen(false);
     } catch (err: unknown) {

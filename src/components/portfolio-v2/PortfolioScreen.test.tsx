@@ -233,4 +233,21 @@ describe('PortfolioScreen', () => {
       expect(mockCreateMutateAsync).toHaveBeenCalledWith('Staking Vault');
     });
   });
+
+  it('selects the portfolio it just created', async () => {
+    const user = userEvent.setup();
+    mockCreateMutateAsync.mockResolvedValueOnce({ portfolio: { _id: 'port-2', name: 'DeFi Portfolio' } });
+
+    render(<PortfolioScreen />);
+    expect(screen.getByLabelText('Portfolio')).toHaveValue('port-1');
+
+    await user.click(screen.getByRole('button', { name: 'Manage' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'New portfolio' }));
+    await user.type(screen.getByLabelText('Portfolio name'), 'DeFi Portfolio');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Portfolio')).toHaveValue('port-2');
+    });
+  });
 });
