@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
-import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -17,27 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { TurnstileWidget } from '@/components/auth/turnstile';
-
-const registerSchema = z
-  .object({
-    name: z.string().min(2, 'Name must be at least 2 characters'),
-    email: z.string().email('Invalid email address'),
-    password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters')
-      .regex(
-        /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
-        'Password must contain at least one uppercase letter, one digit, and one special character'
-      ),
-    confirmPassword: z.string(),
-    tosAccepted: z.literal(true, {
-      message: 'You must accept the Terms of Service and Privacy Policy',
-    }),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
+import { registerAccount } from '@/lib/auth-forms/flows';
 
 export default function RegisterPage() {
   const [error, setError] = useState('');
@@ -51,36 +30,17 @@ export default function RegisterPage() {
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const data = {
+    const result = await registerAccount({
       name: formData.get('name') as string,
       email: formData.get('email') as string,
       password: formData.get('password') as string,
       confirmPassword: formData.get('confirmPassword') as string,
-      tosAccepted: formData.get('tosAccepted') === 'on' ? (true as const) : (false as unknown as true),
-    };
-
-    const parsed = registerSchema.safeParse(data);
-    if (!parsed.success) {
-      setError(parsed.error.issues[0].message);
-      setLoading(false);
-      return;
-    }
-
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        tosAccepted: data.tosAccepted,
-        turnstileToken,
-      }),
+      tosAccepted: formData.get('tosAccepted') === 'on',
+      turnstileToken,
     });
 
-    if (!res.ok) {
-      const body = await res.json();
-      setError(body.error || 'Registration failed');
+    if (!result.ok) {
+      setError(result.message);
       setLoading(false);
       return;
     }

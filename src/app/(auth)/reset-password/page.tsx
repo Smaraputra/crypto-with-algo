@@ -3,7 +3,6 @@
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -14,22 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-
-const resetSchema = z
-  .object({
-    password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters')
-      .regex(
-        /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
-        'Password must contain at least one uppercase letter, one digit, and one special character'
-      ),
-    confirm: z.string(),
-  })
-  .refine((data) => data.password === data.confirm, {
-    message: 'Passwords do not match',
-    path: ['confirm'],
-  });
+import { resetPassword } from '@/lib/auth-forms/flows';
 
 export default function ResetPasswordPage() {
   return (
@@ -87,34 +71,19 @@ function ResetPasswordContent() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!token) return;
     setError('');
+    setLoading(true);
 
-    const parsed = resetSchema.safeParse({ password, confirm });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0].message);
+    const result = await resetPassword({ token, password, confirm });
+    if (!result.ok) {
+      setError(result.message);
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error ?? 'Something went wrong. Please try again.');
-        return;
-      }
-
-      setSuccess(true);
-    } catch {
-      setError('Network error. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    setSuccess(true);
+    setLoading(false);
   }
 
   return (

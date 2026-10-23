@@ -4,7 +4,6 @@ import { Suspense, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -17,11 +16,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-
-const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-});
+import { safeCallbackUrl } from '@/lib/auth-forms/schemas';
+import { loginWithCredentials } from '@/lib/auth-forms/flows';
 
 export default function LoginPage() {
   return (
@@ -34,7 +30,7 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const callbackUrl = safeCallbackUrl(searchParams.get('callbackUrl'));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showResend, setShowResend] = useState(false);
@@ -46,30 +42,15 @@ function LoginForm() {
     setLoading(true);
 
     const formData = new FormData(e.currentTarget);
-    const data = {
-      email: formData.get('email') as string,
-      password: formData.get('password') as string,
-    };
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
 
-    const parsed = loginSchema.safeParse(data);
-    if (!parsed.success) {
-      setError(parsed.error.issues[0].message);
-      setLoading(false);
-      return;
-    }
+    const result = await loginWithCredentials({ email, password });
 
-    const result = await signIn('credentials', {
-      email: data.email,
-      password: data.password,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      if (result.code === 'email_not_verified') {
-        setError('Please verify your email before signing in.');
+    if (!result.ok) {
+      setError(result.message);
+      if (result.needsVerification) {
         setShowResend(true);
-      } else {
-        setError('Invalid email or password');
       }
       setLoading(false);
       return;

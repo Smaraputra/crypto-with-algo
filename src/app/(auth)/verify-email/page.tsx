@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { TurnstileWidget } from '@/components/auth/turnstile';
+import { resendVerification, verifyEmailToken } from '@/lib/auth-forms/flows';
 
 export default function VerifyEmailPage() {
   return (
@@ -43,15 +44,9 @@ function TokenVerifier({ token }: { token: string }) {
     if (calledRef.current) return;
     calledRef.current = true;
 
-    fetch('/api/auth/verify-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    })
-      .then((res) => {
-        setStatus(res.ok ? 'success' : 'error');
-      })
-      .catch(() => setStatus('error'));
+    verifyEmailToken(token).then((res) => {
+      setStatus(res);
+    });
   }, [token]);
 
   if (status === 'verifying') {
@@ -108,11 +103,7 @@ function ResendForm() {
     if (!turnstileToken) return;
     setLoading(true);
 
-    await fetch('/api/auth/verify-email/resend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, turnstileToken }),
-    });
+    await resendVerification({ email, turnstileToken });
 
     setLoading(false);
     setSubmitted(true);

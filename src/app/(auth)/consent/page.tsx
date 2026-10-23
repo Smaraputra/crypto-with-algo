@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { recordConsent } from '@/lib/auth-forms/flows';
 
 export default function ConsentPage() {
   const router = useRouter();
@@ -28,14 +29,14 @@ export default function ConsentPage() {
     setLoading(true);
     setError('');
 
+    const res = await recordConsent();
+    if (!res.ok) {
+      setError(res.message);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch('/api/auth/consent', { method: 'POST' });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || 'Failed to record consent');
-        setLoading(false);
-        return;
-      }
       // Trigger JWT refresh -- must pass data to force a POST request,
       // otherwise useSession().update() sends a GET which doesn't set
       // trigger='update' in the JWT callback.

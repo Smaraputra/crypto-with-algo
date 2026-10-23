@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { TurnstileWidget } from '@/components/auth/turnstile';
+import { requestPasswordReset } from '@/lib/auth-forms/flows';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -24,18 +25,9 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setLoading(true);
 
-    try {
-      await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, turnstileToken }),
-      });
-    } catch {
-      // intentionally swallow - always show neutral confirmation
-    } finally {
-      setLoading(false);
-      setSubmitted(true);
-    }
+    await requestPasswordReset({ email, turnstileToken });
+    setLoading(false);
+    setSubmitted(true);
   }
 
   if (submitted) {
