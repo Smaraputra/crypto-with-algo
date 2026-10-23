@@ -87,41 +87,51 @@ test.describe('Cost Check (authenticated)', () => {
   test('gives the breakeven win rate for the default trade', async ({ page }) => {
     await stubApi(page);
     await page.goto('/cost-check');
-    await expect(page.getByTestId('cost-check-tone')).toHaveText('Costs dominate', { timeout: 15000 });
-    // taker 0.05% x 2 + 1 bp x 2 = 0.12%; 0.5 + 0.12 / (2 x 0.40) = 65.0%
-    await expect(page.getByTestId('cost-check-verdict')).toContainText('more than 65.0% of the time');
-    await expect(page.getByTestId('cost-check-breakdown')).toContainText('0.1200%');
+    await expect(page.getByTestId('cost-verdict-label')).toHaveText('Costs dominate', { timeout: 15000 });
+    await expect(page.getByText('(65.0% win rate needed)')).toBeVisible();
+    await expect(page.getByTestId('focal-round-trip-cost')).toHaveText('$1.20');
   });
 
   test('recomputes when the hold changes', async ({ page }) => {
     await stubApi(page);
     await page.goto('/cost-check');
-    await expect(page.getByTestId('cost-check-tone')).toBeVisible({ timeout: 15000 });
-    await page.getByText('1w', { exact: true }).click();
-    await expect(page.getByTestId('cost-check-verdict')).toContainText('of a 7d hold');
+    await expect(page.getByTestId('cost-verdict-label')).toBeVisible({ timeout: 15000 });
+
+    const requestPromise = page.waitForRequest((req) => {
+      const url = req.url();
+      return url.includes('/api/cost-check?') && url.includes('holdMinutes=10080');
+    });
+
+    await page
+      .getByRole('group', { name: 'Hold duration presets' })
+      .getByText('1w', { exact: true })
+      .click();
+
+    await expect(page.getByLabel('Custom hold (minutes)', { exact: true })).toHaveValue('10080');
+    await requestPromise;
   });
 
   test('opens on the trade in the URL', async ({ page }) => {
     await stubApi(page);
     await page.goto('/cost-check?symbol=ETHUSDT&holdMinutes=420&notional=248');
-    await expect(page.getByTestId('cost-check-symbol')).toHaveText('ETHUSDT', { timeout: 15000 });
-    await expect(page.getByTestId('cost-check-notional')).toHaveText('Position 248.00 USDT');
+    await expect(page.getByRole('combobox', { name: 'Coin', exact: true })).toContainText('ETH', { timeout: 15000 });
+    await expect(page.getByTestId('notional-display')).toHaveText('Position size: $248');
   });
 
   test('shows the market volatility regime beside the result', async ({ page }) => {
     await stubApi(page);
     await page.goto('/cost-check');
-    const card = page.getByTestId('cost-check-regime');
-    await expect(card).toContainText('High.', { timeout: 15000 });
-    await expect(card).toContainText('2.41%');
-    await expect(card).toContainText('41% of the time, against 15% after other days');
+    await expect(page.getByText('High volatility regime')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Realised vol: 2.41%')).toBeVisible();
+    await expect(page.getByText('41.4% of days')).toBeVisible();
   });
 
   test('still prices the trade when the exchange is unreachable', async ({ page }) => {
     await stubApi(page, { error: 'venue_unreachable', message: 'unreachable' }, 503);
     await page.goto('/cost-check');
-    await expect(page.getByTestId('cost-check-verdict')).toContainText('Market data is unavailable', { timeout: 15000 });
-    await expect(page.getByTestId('cost-check-breakdown')).toContainText('flat assumption, no order book');
-    await expect(page.getByTestId('cost-check-regime')).toContainText('Not available: the exchange could not be reached.');
+    await expect(page.getByText('Live market data did not load: the exchange could not be reached.')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Slippage uses a flat 5 bps assumption')).toBeVisible();
+    await expect(page.getByTestId('focal-round-trip-cost')).toBeVisible();
+    await expect(page.getByText('Regime data did not load: the exchange could not be reached.')).toBeVisible();
   });
 });
