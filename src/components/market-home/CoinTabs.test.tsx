@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CoinTabs } from './CoinTabs';
@@ -202,4 +203,31 @@ describe('CoinTabs', () => {
     render(<CoinTabs />);
     expect(screen.getAllByTestId('coin-tab-placeholder')).toHaveLength(3);
   });
+
+  it('renders placeholder tabs during SSR and real tabs after client hydration when watchlist is loaded', () => {
+    vi.mocked(useWatchlist).mockReturnValue({
+      symbols: ['BTCUSDT', 'ETHUSDT'],
+      isLoading: false,
+      addSymbol: vi.fn(),
+      removeSymbol: vi.fn(),
+    });
+    vi.mocked(useBinanceTicker).mockReturnValue({
+      tickers: {},
+      isConnected: true,
+      status: 'live',
+      lastMessageAt: Date.now(),
+      retry: vi.fn(),
+    });
+
+    const ssrHtml = renderToString(<CoinTabs />);
+    expect(ssrHtml).toContain('coin-tab-placeholder');
+    expect(ssrHtml).not.toContain('role="tab"');
+
+    render(<CoinTabs />);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]).toHaveAccessibleName('BTC');
+    expect(tabs[1]).toHaveAccessibleName('ETH');
+  });
 });
+

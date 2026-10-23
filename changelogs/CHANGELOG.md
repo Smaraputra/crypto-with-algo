@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: Market screen hydration mismatch
+- `CoinTabs` rendered the watchlist tabs on the client while the server had rendered the loading placeholders. This happened whenever the shell's own watchlist read finished before the slower `/dashboard` segment hydrated, so React discarded the server markup and logged "Hydration failed" (11 times per E2E run).
+- The tabs now wait for hydration through a new `useIsClient` hook (`useSyncExternalStore`), so the first client render matches the server.
+
 ### Changed: Cost Check and Backtest screens (UI redesign PR 8)
 - **/cost-check** (`src/components/cost-check-v2/`):
   - **Layout:** inputs on the left and results on the right. On phone, a sticky summary (round trip and move needed) sits above the bottom bar.
