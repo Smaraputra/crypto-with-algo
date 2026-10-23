@@ -25,7 +25,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} // skipcq: JS-0440 static theme script from src/lib/theme.ts, must run before first paint
+        />
       </head>
       <body className={`${outfit.variable} ${jetbrainsMono.variable} antialiased`}>
         <Providers>{children}</Providers>

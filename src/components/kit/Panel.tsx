@@ -1,7 +1,7 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
-export interface PanelProps {
+export interface PanelProps extends Omit<React.HTMLAttributes<HTMLElement>, 'title'> {
   as?: 'section' | 'div';
   title?: string;
   action?: React.ReactNode;
@@ -17,12 +17,16 @@ export const Panel: React.FC<PanelProps> = ({
   level = 2,
   children,
   className,
+  ...rest
 }) => {
   const Component = as;
   const Heading = level === 3 ? 'h3' : 'h2';
 
   return (
-    <Component className={cn('bg-card rounded-panel p-5 sm:p-6', className)}>
+    <Component
+      {...rest}
+      className={cn('bg-card rounded-panel p-5 sm:p-6', className)}
+    >
       {(title || action) && (
         <div className="flex items-center justify-between gap-4 mb-4">
           {title ? (
@@ -39,3 +43,4 @@ export const Panel: React.FC<PanelProps> = ({
     </Component>
   );
 };
+

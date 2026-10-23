@@ -41,4 +41,21 @@ describe('Panel', () => {
     rerender(<Panel as="section">Content</Panel>);
     expect(container.querySelector('section.bg-card')).toBeInTheDocument();
   });
+
+  it('forwards aria-labelledby, data-testid, and id to the rendered section', () => {
+    render(
+      <Panel
+        id="panel-lab"
+        data-testid="lab-panel"
+        aria-labelledby="lab-heading"
+      >
+        Panel content
+      </Panel>
+    );
+    const section = screen.getByTestId('lab-panel');
+    expect(section.tagName).toBe('SECTION');
+    expect(section).toHaveAttribute('id', 'panel-lab');
+    expect(section).toHaveAttribute('aria-labelledby', 'lab-heading');
+  });
 });
+
