@@ -40,12 +40,12 @@ export interface AlertSheetProps {
 }
 
 export const ALERT_TYPE_OPTIONS: { value: AlertType; label: string }[] = [
-  { value: 'price_above', label: 'Price above' },
-  { value: 'price_below', label: 'Price below' },
-  { value: 'price_change_pct', label: 'Price change (%)' },
-  { value: 'portfolio_value_above', label: 'Portfolio value above' },
-  { value: 'portfolio_value_below', label: 'Portfolio value below' },
-  { value: 'holding_change_pct', label: 'Holding change (%)' },
+  { value: 'price_above', label: 'Price at or above' },
+  { value: 'price_below', label: 'Price at or below' },
+  { value: 'price_change_pct', label: 'Price moves by a percent' },
+  { value: 'holding_change_pct', label: 'Holding moves by a percent' },
+  { value: 'portfolio_value_above', label: 'Portfolio value at or above' },
+  { value: 'portfolio_value_below', label: 'Portfolio value at or below' },
 ];
 
 export const AlertSheet: React.FC<AlertSheetProps> = ({
@@ -104,6 +104,17 @@ export const AlertSheet: React.FC<AlertSheetProps> = ({
 
   const { data: portfolioDetail } = usePortfolio(portfolioId || null);
 
+  const selectedHolding = React.useMemo(() => {
+    if (!portfolioDetail?.portfolio?.holdings || !symbol) return null;
+    return (
+      portfolioDetail.portfolio.holdings.find((h) => h.symbol === symbol) ||
+      null
+    );
+  }, [portfolioDetail, symbol]);
+
+  const isWaitingForPrice =
+    type === 'price_change_pct' && (currentPrice === null || currentPrice <= 0);
+
   const handleSelectPortfolio = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
     setPortfolioId(val);
@@ -140,10 +151,21 @@ export const AlertSheet: React.FC<AlertSheetProps> = ({
 
     if (requiresSymbol && !symbol) {
       newErrors.symbol = 'Please select a coin.';
+    } else if (
+      type === 'holding_change_pct' &&
+      portfolioDetail?.portfolio?.holdings &&
+      !portfolioDetail.portfolio.holdings.some((h) => h.symbol === symbol)
+    ) {
+      newErrors.symbol = 'Selected coin is not held in this portfolio.';
     }
 
     if (requiresPortfolio && !portfolioId) {
       newErrors.portfolioId = 'Please select a portfolio.';
+    }
+
+    if (isWaitingForPrice) {
+      newErrors.value =
+        'Waiting for the current price, which this alert measures from.';
     }
 
     if (!value || value.trim() === '') {
@@ -198,6 +220,9 @@ export const AlertSheet: React.FC<AlertSheetProps> = ({
 
     if (isPercentType) {
       payload.percentChange = parseFloat(value);
+      if (type === 'price_change_pct' && currentPrice !== null) {
+        payload.referencePrice = currentPrice;
+      }
     } else {
       payload.targetPrice = parseFloat(value);
     }
@@ -391,7 +416,7 @@ export const AlertSheet: React.FC<AlertSheetProps> = ({
                   <select
                     id="alert-prefill-holding"
                     onChange={handleSelectHolding}
-                    defaultValue=""
+                    value={symbol || ''}
                     className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-medium text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
                   >
                     <option value="">Select a holding...</option>
@@ -406,15 +431,30 @@ export const AlertSheet: React.FC<AlertSheetProps> = ({
 
             {/* Target Value field with current price context */}
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <label
                   htmlFor="alert-value"
-                  className="text-[14px] font-medium text-foreground"
+                  className="text-[14px] font-medium text-foreground shrink-0"
                 >
                   {valueLabel}
                 </label>
-                {requiresSymbol && symbol && (
-                  <span className="text-[13px] text-muted-foreground font-sans tabular-nums font-normal">
+                {type === 'price_change_pct' && (
+                  <span className="text-[13px] text-muted-foreground font-sans tabular-nums font-normal text-right">
+                    {currentPrice !== null
+                      ? `Measured from the current price, ${formatCurrency(currentPrice)}.`
+                      : 'Waiting for the current price, which this alert measures from.'}
+                  </span>
+                )}
+                {type === 'holding_change_pct' &&
+                  selectedHolding &&
+                  selectedHolding.avgBuyPrice !== undefined &&
+                  selectedHolding.avgBuyPrice !== null && (
+                    <span className="text-[13px] text-muted-foreground font-sans tabular-nums font-normal text-right">
+                      {`Measured from your average cost, ${formatCurrency(selectedHolding.avgBuyPrice)}`}
+                    </span>
+                  )}
+                {!isPercentType && requiresSymbol && symbol && (
+                  <span className="text-[13px] text-muted-foreground font-sans tabular-nums font-normal text-right">
                     Current price:{' '}
                     {currentPrice !== null
                       ? formatCurrency(currentPrice)
@@ -538,7 +578,7 @@ export const AlertSheet: React.FC<AlertSheetProps> = ({
           <Button
             type="submit"
             form={formId}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || isWaitingForPrice}
             className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90 font-semibold min-h-[44px] px-6"
           >
             {createMutation.isPending ? 'Creating...' : 'Create alert'}

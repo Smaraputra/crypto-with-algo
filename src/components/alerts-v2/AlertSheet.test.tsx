@@ -251,7 +251,7 @@ describe('AlertSheet', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('creates a price_change_pct alert with only schema-allowed payload keys', async () => {
+  it('creates a price_change_pct alert sending referencePrice equal to mocked live price with only schema-allowed payload keys', async () => {
     const user = userEvent.setup();
     mockMutateAsync.mockResolvedValueOnce({ alert: {} });
 
@@ -266,10 +266,15 @@ describe('AlertSheet', () => {
     const typeSelect = screen.getByLabelText('Alert type');
     await user.selectOptions(typeSelect, 'price_change_pct');
 
+    expect(
+      screen.getByText('Measured from the current price, $85,000.')
+    ).toBeInTheDocument();
+
     const valueInput = screen.getByLabelText('Percent change');
     await user.type(valueInput, '-5');
 
     const submitBtn = screen.getByRole('button', { name: 'Create alert' });
+    expect(submitBtn).toBeEnabled();
     await user.click(submitBtn);
 
     await waitFor(() => {
@@ -285,6 +290,61 @@ describe('AlertSheet', () => {
     expect(payload.type).toBe('price_change_pct');
     expect(payload.symbol).toBe('BTCUSDT');
     expect(payload.percentChange).toBe(-5);
+    expect(payload.referencePrice).toBe(85000);
+  });
+
+  it('disables Create and shows waiting text when no live price is available for price_change_pct', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useBinanceTicker).mockReturnValue({
+      tickers: {},
+      status: 'connected',
+    } as unknown as ReturnType<typeof useBinanceTicker>);
+
+    render(
+      <AlertSheet
+        open={true}
+        onOpenChange={onOpenChange}
+        initialSymbol="BTCUSDT"
+      />
+    );
+
+    const typeSelect = screen.getByLabelText('Alert type');
+    await user.selectOptions(typeSelect, 'price_change_pct');
+
+    expect(
+      screen.getByText(
+        'Waiting for the current price, which this alert measures from.'
+      )
+    ).toBeInTheDocument();
+
+    const submitBtn = screen.getByRole('button', { name: 'Create alert' });
+    expect(submitBtn).toBeDisabled();
+  });
+
+  it('requires a portfolio and a coin held in it for holding_change_pct and shows measured from average cost', async () => {
+    const user = userEvent.setup();
+    render(<AlertSheet open={true} onOpenChange={onOpenChange} />);
+
+    const typeSelect = screen.getByLabelText('Alert type');
+    await user.selectOptions(typeSelect, 'holding_change_pct');
+
+    const submitBtn = screen.getByRole('button', { name: 'Create alert' });
+    await user.click(submitBtn);
+
+    expect(screen.getByText('Please select a portfolio.')).toBeInTheDocument();
+    expect(screen.getByText('Please select a coin.')).toBeInTheDocument();
+
+    const portfolioSelect = screen.getByLabelText('Portfolio');
+    await user.selectOptions(portfolioSelect, 'port-1');
+
+    const prefillSelect = await screen.findByLabelText(
+      'Prefill from portfolio holding (optional)'
+    );
+    await user.selectOptions(prefillSelect, 'ETHUSDT');
+
+    expect(
+      screen.getByText('Measured from your average cost, $3,000')
+    ).toBeInTheDocument();
   });
 
   it('prefills coin from portfolio holdings dropdown', async () => {

@@ -47,6 +47,7 @@ export interface CreateAlertInput {
   type: AlertType;
   targetPrice?: number;
   percentChange?: number;
+  referencePrice?: number;
   recurring?: boolean;
   cooldownMinutes?: number;
   message?: string;

@@ -20,7 +20,7 @@ import {
   useUpdateAlert,
 } from '@/hooks/useAlerts';
 import { cn } from '@/lib/utils';
-import type { Alert, AlertStatus } from '@/types/alert';
+import type { Alert, AlertStatus, AlertType } from '@/types/alert';
 
 export function formatCurrency(val: number | null | undefined): string {
   if (val === null || val === undefined || !Number.isFinite(val)) {
@@ -50,44 +50,37 @@ export function getBaseAsset(symbol?: string | null): string {
   return symbol.replace(/(USDT|USDC|BUSD)$/, '') || symbol;
 }
 
-export function formatAlertCondition(
-  alert: Pick<Alert, 'type' | 'targetPrice' | 'percentChange'>
-): string {
+export function formatAlertCondition(alert: {
+  type: AlertType;
+  targetPrice?: number | null;
+  percentChange?: number | null;
+  referencePrice?: number | null;
+  symbol?: string | null;
+}): string {
+  const base = getBaseAsset(alert.symbol);
+  const target = formatCurrency(alert.targetPrice);
+  const p =
+    alert.percentChange !== null && alert.percentChange !== undefined
+      ? Math.abs(alert.percentChange)
+      : 'n/a';
+
   switch (alert.type) {
     case 'price_above':
-      return alert.targetPrice !== null && alert.targetPrice !== undefined
-        ? `Price above ${formatCurrency(alert.targetPrice)}`
-        : 'Price above n/a';
+      return `${base} at or above ${target}`;
     case 'price_below':
-      return alert.targetPrice !== null && alert.targetPrice !== undefined
-        ? `Price below ${formatCurrency(alert.targetPrice)}`
-        : 'Price below n/a';
+      return `${base} at or below ${target}`;
     case 'price_change_pct': {
-      if (alert.percentChange === null || alert.percentChange === undefined) {
-        return 'Price change n/a';
+      if (alert.referencePrice !== null && alert.referencePrice !== undefined) {
+        return `${base} moves ${p}% either way from ${formatCurrency(alert.referencePrice)}`;
       }
-      if (alert.percentChange < 0) {
-        return `Drops ${Math.abs(alert.percentChange)}% in 24 hours`;
-      }
-      return `Price moves ${alert.percentChange}% in 24 hours`;
+      return `${base} moves ${p}% either way (no starting price, so this alert cannot fire; delete and recreate it)`;
     }
+    case 'holding_change_pct':
+      return `${base} moves ${p}% either way from your average cost`;
     case 'portfolio_value_above':
-      return alert.targetPrice !== null && alert.targetPrice !== undefined
-        ? `Portfolio value above ${formatCurrency(alert.targetPrice)}`
-        : 'Portfolio value above n/a';
+      return `Portfolio value at or above ${target}`;
     case 'portfolio_value_below':
-      return alert.targetPrice !== null && alert.targetPrice !== undefined
-        ? `Portfolio value below ${formatCurrency(alert.targetPrice)}`
-        : 'Portfolio value below n/a';
-    case 'holding_change_pct': {
-      if (alert.percentChange === null || alert.percentChange === undefined) {
-        return 'Holding change n/a';
-      }
-      if (alert.percentChange < 0) {
-        return `Holding drops ${Math.abs(alert.percentChange)}%`;
-      }
-      return `Holding moves ${alert.percentChange}%`;
-    }
+      return `Portfolio value at or below ${target}`;
     default:
       return 'Alert condition';
   }

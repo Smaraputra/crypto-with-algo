@@ -192,26 +192,52 @@ describe('AlertList', () => {
       expect(
         formatAlertCondition({
           type: 'price_above',
+          symbol: 'BTCUSDT',
           targetPrice: 85000,
           percentChange: null,
         })
-      ).toBe('Price above $85,000');
+      ).toBe('BTC at or above $85,000');
+
+      expect(
+        formatAlertCondition({
+          type: 'price_below',
+          symbol: 'BTCUSDT',
+          targetPrice: 85000,
+          percentChange: null,
+        })
+      ).toBe('BTC at or below $85,000');
 
       expect(
         formatAlertCondition({
           type: 'price_change_pct',
+          symbol: 'ETHUSDT',
           targetPrice: null,
           percentChange: -5,
+          referencePrice: 3500,
         })
-      ).toBe('Drops 5% in 24 hours');
+      ).toBe('ETH moves 5% either way from $3,500');
 
       expect(
         formatAlertCondition({
           type: 'price_change_pct',
+          symbol: 'ETHUSDT',
           targetPrice: null,
           percentChange: 10,
+          referencePrice: 3500,
         })
-      ).toBe('Price moves 10% in 24 hours');
+      ).toBe('ETH moves 10% either way from $3,500');
+
+      expect(
+        formatAlertCondition({
+          type: 'price_change_pct',
+          symbol: 'ETHUSDT',
+          targetPrice: null,
+          percentChange: -5,
+          referencePrice: null,
+        })
+      ).toBe(
+        'ETH moves 5% either way (no starting price, so this alert cannot fire; delete and recreate it)'
+      );
 
       expect(
         formatAlertCondition({
@@ -219,7 +245,7 @@ describe('AlertList', () => {
           targetPrice: 50000,
           percentChange: null,
         })
-      ).toBe('Portfolio value above $50,000');
+      ).toBe('Portfolio value at or above $50,000');
 
       expect(
         formatAlertCondition({
@@ -227,33 +253,95 @@ describe('AlertList', () => {
           targetPrice: 20000,
           percentChange: null,
         })
-      ).toBe('Portfolio value below $20,000');
+      ).toBe('Portfolio value at or below $20,000');
 
       expect(
         formatAlertCondition({
           type: 'holding_change_pct',
+          symbol: 'ETHUSDT',
           targetPrice: null,
           percentChange: -10,
         })
-      ).toBe('Holding drops 10%');
+      ).toBe('ETH moves 10% either way from your average cost');
+    });
+
+    it('renders the cannot-fire sentence when referencePrice is null for price_change_pct', () => {
+      expect(
+        formatAlertCondition({
+          type: 'price_change_pct',
+          symbol: 'BTCUSDT',
+          percentChange: 5,
+          referencePrice: null,
+        })
+      ).toBe(
+        'BTC moves 5% either way (no starting price, so this alert cannot fire; delete and recreate it)'
+      );
     });
 
     it('handles missing values with n/a and no raw key', () => {
       expect(
         formatAlertCondition({
           type: 'price_above',
+          symbol: 'BTCUSDT',
           targetPrice: null,
           percentChange: null,
         })
-      ).toBe('Price above n/a');
+      ).toBe('BTC at or above n/a');
 
       expect(
         formatAlertCondition({
           type: 'price_change_pct',
+          symbol: 'BTCUSDT',
           targetPrice: null,
           percentChange: null,
+          referencePrice: null,
         })
-      ).toBe('Price change n/a');
+      ).toBe(
+        'BTC moves n/a% either way (no starting price, so this alert cannot fire; delete and recreate it)'
+      );
+    });
+
+    it('ensures no alert condition text matches /24 hours|drops/i', () => {
+      const conditions = [
+        formatAlertCondition({
+          type: 'price_above',
+          symbol: 'BTCUSDT',
+          targetPrice: 85000,
+        }),
+        formatAlertCondition({
+          type: 'price_below',
+          symbol: 'BTCUSDT',
+          targetPrice: 85000,
+        }),
+        formatAlertCondition({
+          type: 'price_change_pct',
+          symbol: 'ETHUSDT',
+          percentChange: -5,
+          referencePrice: 3500,
+        }),
+        formatAlertCondition({
+          type: 'price_change_pct',
+          symbol: 'ETHUSDT',
+          percentChange: -5,
+          referencePrice: null,
+        }),
+        formatAlertCondition({
+          type: 'holding_change_pct',
+          symbol: 'ETHUSDT',
+          percentChange: -10,
+        }),
+        formatAlertCondition({
+          type: 'portfolio_value_above',
+          targetPrice: 50000,
+        }),
+        formatAlertCondition({
+          type: 'portfolio_value_below',
+          targetPrice: 20000,
+        }),
+      ];
+      for (const text of conditions) {
+        expect(text).not.toMatch(/24 hours|drops/i);
+      }
     });
   });
 
@@ -281,19 +369,21 @@ describe('AlertList', () => {
       expect(onRefetch).toHaveBeenCalledTimes(1);
     });
 
-    it('renders alert rows with coin links, current prices and statuses', () => {
-      render(<AlertList alerts={mockAlerts} />);
+    it('renders alert rows with coin links, current prices and statuses without drops or 24 hours', () => {
+      const { container } = render(<AlertList alerts={mockAlerts} />);
 
       const btcLinks = screen.getAllByRole('link', { name: 'BTC' });
       expect(btcLinks.length).toBeGreaterThan(0);
       expect(btcLinks[0]).toHaveAttribute('href', '/focus?symbol=BTCUSDT');
 
-      expect(screen.getAllByText('Price above $85,000').length).toBeGreaterThan(
-        0
-      );
       expect(
-        screen.getAllByText('Drops 5% in 24 hours').length
+        screen.getAllByText('BTC at or above $85,000').length
       ).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText('ETH moves 5% either way from $3,500').length
+      ).toBeGreaterThan(0);
+
+      expect(container.textContent).not.toMatch(/24 hours|drops/i);
 
       expect(screen.getAllByText('$85,420.50').length).toBeGreaterThan(0);
       expect(screen.getAllByText('$3,450').length).toBeGreaterThan(0);
