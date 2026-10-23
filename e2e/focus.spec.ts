@@ -43,10 +43,10 @@ test.describe('Focus page (authenticated)', () => {
     for (const label of ['15m', '1h', '4h', '1d']) {
       await expect(intervalGroup.getByRole('radio', { name: label })).toBeVisible();
     }
-    await expect(intervalGroup.getByRole('radio', { name: '1h' })).toBeChecked();
+    await expect(intervalGroup.getByRole('radio', { name: '1h', exact: true })).toBeChecked();
 
     await intervalGroup.getByText('4h', { exact: true }).click();
-    await expect(intervalGroup.getByRole('radio', { name: '4h' })).toBeChecked();
+    await expect(intervalGroup.getByRole('radio', { name: '4h', exact: true })).toBeChecked();
 
     await expect
       .poll(
@@ -91,7 +91,7 @@ test.describe('Focus page (authenticated)', () => {
     await page.goto('/focus');
     await expect(page.getByRole('heading', { name: 'BTC study' })).toBeVisible({ timeout: 15000 });
 
-    const drawBtn = page.getByRole('button', { name: 'Draw' });
+    const drawBtn = page.getByRole('button', { name: 'Draw', exact: true });
     await expect(drawBtn).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('toolbar', { name: 'Drawing tools' })).not.toBeVisible();
 

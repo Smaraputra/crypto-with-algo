@@ -30,25 +30,25 @@ test.describe('Signals page (authenticated)', () => {
     const intervalGroup = page.getByRole('group', { name: 'Interval' });
 
     // Day trading (default) offers 15m and 1h
-    await expect(intervalGroup.getByRole('radio', { name: '15m' })).toBeVisible();
-    await expect(intervalGroup.getByRole('radio', { name: '1h' })).toBeVisible();
-    await expect(intervalGroup.getByRole('radio', { name: '5m' })).toHaveCount(0);
+    await expect(intervalGroup.getByRole('radio', { name: '15m', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '1h', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '5m', exact: true })).toHaveCount(0);
 
     // Switching to Scalping offers 5m only
     await styleGroup.getByText('Scalping', { exact: true }).click();
-    await expect(intervalGroup.getByRole('radio', { name: '5m' })).toBeVisible();
-    await expect(intervalGroup.getByRole('radio', { name: '15m' })).toHaveCount(0);
-    await expect(intervalGroup.getByRole('radio', { name: '1h' })).toHaveCount(0);
+    await expect(intervalGroup.getByRole('radio', { name: '5m', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '15m', exact: true })).toHaveCount(0);
+    await expect(intervalGroup.getByRole('radio', { name: '1h', exact: true })).toHaveCount(0);
 
     // Switching to Position trading offers 1d only
     await styleGroup.getByText('Position trading', { exact: true }).click();
-    await expect(intervalGroup.getByRole('radio', { name: '1d' })).toBeVisible();
-    await expect(intervalGroup.getByRole('radio', { name: '5m' })).toHaveCount(0);
+    await expect(intervalGroup.getByRole('radio', { name: '1d', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '5m', exact: true })).toHaveCount(0);
 
     // Switching to Swing trading offers 4h and 1d
     await styleGroup.getByText('Swing trading', { exact: true }).click();
-    await expect(intervalGroup.getByRole('radio', { name: '4h' })).toBeVisible();
-    await expect(intervalGroup.getByRole('radio', { name: '1d' })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '4h', exact: true })).toBeVisible();
+    await expect(intervalGroup.getByRole('radio', { name: '1d', exact: true })).toBeVisible();
   });
 
   test('has no text matching removed trade ticket or planning terms', async ({ page }) => {
