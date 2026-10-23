@@ -23,6 +23,7 @@ import { GET, POST } from './route';
 import { auth } from '@/lib/auth';
 import { Strategy } from '@/lib/models/strategy';
 import { mockCreateStrategyInput } from '@/__fixtures__/strategies';
+import { DEFAULT_WEIGHTS } from '@/types/signal';
 
 const mockSession = { user: { id: 'user-1' } };
 
@@ -81,6 +82,29 @@ describe('POST /api/strategies', () => {
     expect(res.status).toBe(201);
     const data = await res.json();
     expect(data.strategy.name).toBe('New Strategy');
+  });
+
+  it('creates a strategy with DEFAULT_WEIGHTS', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(Strategy.countDocuments).mockResolvedValue(0);
+    const inputWithDefaultWeights = {
+      ...mockCreateStrategyInput,
+      weights: DEFAULT_WEIGHTS,
+    };
+    vi.mocked(Strategy.create).mockResolvedValue({
+      _id: 's1',
+      userId: 'user-1',
+      ...inputWithDefaultWeights,
+    } as never);
+
+    const res = await POST(makePostRequest(inputWithDefaultWeights));
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.strategy.name).toBe('New Strategy');
+    expect(Strategy.create).toHaveBeenCalledWith({
+      userId: 'user-1',
+      ...inputWithDefaultWeights,
+    });
   });
 
   it('returns 400 for invalid input', async () => {

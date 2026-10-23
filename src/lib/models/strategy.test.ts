@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import { DEFAULT_WEIGHTS } from '@/types/signal';
 
 let mongoServer: MongoMemoryServer;
 
@@ -62,6 +63,32 @@ describe('Strategy model', () => {
     expect(strategy.weights.volatility).toBe(0.10);
     expect(strategy.weights.futures).toBe(0.15);
     expect(strategy.weights.sentiment).toBe(0.10);
+  });
+
+  it('reads back weights.htf 0.1 with DEFAULT_WEIGHTS and htf 0 with old six defaults when weights omitted', async () => {
+    const Strategy = await getStrategy();
+    const strategyWithWeights = await Strategy.create({
+      userId: 'user-1',
+      name: 'With Default Weights',
+      symbols: ['BTCUSDT'],
+      weights: DEFAULT_WEIGHTS,
+    });
+    const foundWithWeights = await Strategy.findById(strategyWithWeights._id);
+    expect(foundWithWeights?.weights.htf).toBe(0.1);
+
+    const strategyWithoutWeights = await Strategy.create({
+      userId: 'user-1',
+      name: 'Without Weights',
+      symbols: ['BTCUSDT'],
+    });
+    const foundWithoutWeights = await Strategy.findById(strategyWithoutWeights._id);
+    expect(foundWithoutWeights?.weights.htf).toBe(0);
+    expect(foundWithoutWeights?.weights.trend).toBe(0.25);
+    expect(foundWithoutWeights?.weights.momentum).toBe(0.25);
+    expect(foundWithoutWeights?.weights.volume).toBe(0.15);
+    expect(foundWithoutWeights?.weights.volatility).toBe(0.10);
+    expect(foundWithoutWeights?.weights.futures).toBe(0.15);
+    expect(foundWithoutWeights?.weights.sentiment).toBe(0.10);
   });
 
   it('accepts custom weights', async () => {
