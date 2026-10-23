@@ -24,13 +24,13 @@ export function ThemeToggle() {
       <span
         aria-hidden="true"
         className={`relative inline-block h-7 w-12 shrink-0 rounded-full border-2 transition-colors duration-200 motion-reduce:transition-none peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring ${
-          isDark ? 'border-foreground bg-brand' : 'border-edge bg-card'
+          isDark ? 'border-foreground bg-foreground' : 'border-edge bg-card'
         }`}
       >
         <span
           className={`absolute top-[3px] left-[3px] h-[18px] w-[18px] rounded-full transition-transform duration-200 motion-reduce:transition-none ${
             isDark
-              ? 'translate-x-[20px] bg-brand-foreground'
+              ? 'translate-x-[20px] bg-background'
               : 'translate-x-0 bg-foreground'
           }`}
         />

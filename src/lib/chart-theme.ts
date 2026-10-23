@@ -22,7 +22,7 @@ export const LIGHT_CHART_THEME_FALLBACK: ChartTheme = {
   text: '#0F1114',
   mutedText: '#59606B',
   line: '#E2E5E9',
-  accentLine: '#B03E00',
+  accentLine: '#067346',
 };
 
 export function getChartTheme(): ChartTheme {

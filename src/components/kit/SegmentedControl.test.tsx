@@ -62,4 +62,23 @@ describe('SegmentedControl', () => {
     const group = screen.getByRole('group', { name: 'Chart interval' });
     expect(group).toBeInTheDocument();
   });
+
+  it('applies ink fill to the selected option label', () => {
+    render(
+      <SegmentedControl
+        options={options}
+        value="1d"
+        onChange={vi.fn()}
+        legend="Chart interval"
+      />
+    );
+
+    const selectedLabel = screen.getByText('1D');
+    expect(selectedLabel).toHaveClass('bg-foreground', 'text-background');
+    expect(selectedLabel).not.toHaveClass('bg-brand', 'text-brand-foreground');
+
+    const unselectedLabel = screen.getByText('4H');
+    expect(unselectedLabel).toHaveClass('text-ink-2');
+    expect(unselectedLabel).not.toHaveClass('bg-foreground', 'text-background');
+  });
 });

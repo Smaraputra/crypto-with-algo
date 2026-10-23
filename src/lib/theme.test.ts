@@ -210,8 +210,24 @@ describe('theme library', () => {
       const rootBlock = globalsCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
       const darkBlock = globalsCss.match(/\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? '';
 
-      expect(rootBlock).toContain('--accent: #B03E00;');
-      expect(darkBlock).toContain('--accent: #FF9A52;');
+      expect(rootBlock).toContain('--accent: #067346;');
+      expect(darkBlock).toContain('--accent: #00C57C;');
+    });
+  });
+
+  describe('brand tokens and retired brand palette', () => {
+    it('asserts :root and .dark both contain --brand: #00C57C; and no retired brand hexes remain', () => {
+      const globalsCss = readFileSync(join(__dirname, '../app/globals.css'), 'utf8');
+      const rootBlock = globalsCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+      const darkBlock = globalsCss.match(/\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? '';
+
+      expect(rootBlock).toContain('--brand: #00C57C;');
+      expect(darkBlock).toContain('--brand: #00C57C;');
+
+      const retiredHexes = ['#FF6F0F', '#FF7A1F', '#B03E00', '#FF9A52', '#12100D'];
+      for (const hex of retiredHexes) {
+        expect(globalsCss).not.toContain(hex);
+      }
     });
   });
 });

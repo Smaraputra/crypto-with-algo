@@ -56,4 +56,16 @@ describe('ThemeToggle', () => {
     expect(document.documentElement.style.colorScheme).toBe('dark');
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
   });
+
+  it('uses ink fill bg-foreground on track and bg-background on knob when dark', () => {
+    document.documentElement.classList.add('dark');
+    const { container } = render(<ThemeToggle />);
+    const track = container.querySelector('span[aria-hidden="true"]');
+    expect(track).toHaveClass('bg-foreground');
+    expect(track).not.toHaveClass('bg-brand');
+
+    const knob = track?.firstElementChild;
+    expect(knob).toHaveClass('bg-background');
+    expect(knob).not.toHaveClass('bg-brand-foreground');
+  });
 });

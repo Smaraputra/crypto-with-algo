@@ -34,6 +34,7 @@ describe('chart-theme', () => {
   it('returns the fallbacks when CSS variables are missing', () => {
     const theme = getChartTheme();
     expect(theme).toEqual(LIGHT_CHART_THEME_FALLBACK);
+    expect(theme.accentLine).toBe('#067346');
   });
 
   it('returns custom values when CSS variables are set on documentElement via style.setProperty', () => {

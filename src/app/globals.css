@@ -88,8 +88,8 @@
   --popover-foreground: #0F1114;
 
   /* Primary */
-  --primary: #FF6F0F;
-  --primary-foreground: #12100D;
+  --primary: #00C57C;
+  --primary-foreground: #0F1114;
 
   /* Secondary */
   --secondary: #E4E7EB;
@@ -100,7 +100,7 @@
   --muted-foreground: #59606B;
 
   /* Interim: unrebuilt screens use accent as brand text; the last redesign PR returns accent to the hover role (panel-2). */
-  --accent: #B03E00;
+  --accent: #067346;
   --accent-foreground: #FFFFFF;
 
   /* Destructive */
@@ -121,7 +121,7 @@
 
   /* Chart colors */
   --chart-1: #0F1114;
-  --chart-2: #B03E00;
+  --chart-2: #067346;
   --chart-3: #067346;
   --chart-4: #C21F36;
   --chart-5: #59606B;
@@ -134,8 +134,8 @@
   /* Sidebar */
   --sidebar: #F1F3F5;
   --sidebar-foreground: #0F1114;
-  --sidebar-primary: #FF6F0F;
-  --sidebar-primary-foreground: #12100D;
+  --sidebar-primary: #00C57C;
+  --sidebar-primary-foreground: #0F1114;
   --sidebar-accent: #E4E7EB;
   --sidebar-accent-foreground: #0F1114;
   --sidebar-border: #E2E5E9;
@@ -156,9 +156,9 @@
   --chart-volume-hex: #E4E7EB;
 
   /* Direction B token additions */
-  --brand: #FF6F0F;
-  --brand-foreground: #12100D;
-  --brand-line: #B03E00;
+  --brand: #00C57C;
+  --brand-foreground: #0F1114;
+  --brand-line: #067346;
   --ink-2: #454B55;
   --edge: #7C8490;
   --line: #E2E5E9;
@@ -183,8 +183,8 @@
   --popover-foreground: #F4F5F7;
 
   /* Primary */
-  --primary: #FF7A1F;
-  --primary-foreground: #12100D;
+  --primary: #00C57C;
+  --primary-foreground: #0F1114;
 
   /* Secondary */
   --secondary: #1F2227;
@@ -195,12 +195,12 @@
   --muted-foreground: #9CA3AE;
 
   /* Interim: unrebuilt screens use accent as brand text; the last redesign PR returns accent to the hover role (panel-2). */
-  --accent: #FF9A52;
-  --accent-foreground: #12100D;
+  --accent: #00C57C;
+  --accent-foreground: #0F1114;
 
   /* Destructive */
   --destructive: #FF6B7A;
-  --destructive-foreground: #12100D;
+  --destructive-foreground: #0F1114;
 
   /* Borders and controls */
   --border: #24272D;
@@ -216,7 +216,7 @@
 
   /* Chart colors */
   --chart-1: #F4F5F7;
-  --chart-2: #FF9A52;
+  --chart-2: #00C57C;
   --chart-3: #2FD38F;
   --chart-4: #FF6B7A;
   --chart-5: #9CA3AE;
@@ -229,8 +229,8 @@
   /* Sidebar */
   --sidebar: #15171B;
   --sidebar-foreground: #F4F5F7;
-  --sidebar-primary: #FF7A1F;
-  --sidebar-primary-foreground: #12100D;
+  --sidebar-primary: #00C57C;
+  --sidebar-primary-foreground: #0F1114;
   --sidebar-accent: #1F2227;
   --sidebar-accent-foreground: #F4F5F7;
   --sidebar-border: #24272D;
@@ -246,18 +246,18 @@
   /* Chart-specific hex (for KlineCharts) */
   --chart-grid-hex: #24272D;
   --chart-crosshair-hex: #6B727D;
-  --chart-up-hex: #2FD38F;
+  --chart-up-hex: #00C57C;
   --chart-down-hex: #FF6B7A;
   --chart-volume-hex: #1F2227;
 
   /* Direction B token additions */
-  --brand: #FF7A1F;
-  --brand-foreground: #12100D;
-  --brand-line: #FF9A52;
+  --brand: #00C57C;
+  --brand-foreground: #0F1114;
+  --brand-line: #00C57C;
   --ink-2: #B8BDC6;
   --edge: #6B727D;
   --line: #24272D;
-  --up: #2FD38F;
+  --up: #00C57C;
   --down: #FF6B7A;
 }
 
