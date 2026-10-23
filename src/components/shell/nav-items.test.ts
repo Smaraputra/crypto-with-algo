@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   isNavActive,
   PRIMARY_NAV_ITEMS,
-  TOOLS_INTERIM_ITEMS,
   MORE_SHEET_ITEMS,
 } from './nav-items';
 
@@ -66,13 +65,10 @@ describe('nav-items and isNavActive', () => {
     expect(isNavActive('/portfolio', toolsItem)).toBe(false);
   });
 
-  it('marks interim items with interim: true and appropriate removalReason', () => {
-    const notes = TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Notes')!;
+  it('More sheet contains Notes pointing to /notes and no Analytics', () => {
+    const notes = MORE_SHEET_ITEMS.find((i) => i.label === 'Notes')!;
+    expect(notes.href).toBe('/notes');
 
-    expect(notes.interim).toBe(true);
-    expect(notes.removalReason).toContain('Notes switcher');
-
-    expect(TOOLS_INTERIM_ITEMS.find((i) => i.label === 'Analytics')).toBeUndefined();
     expect(MORE_SHEET_ITEMS.find((i) => i.label === 'Analytics')).toBeUndefined();
   });
 });

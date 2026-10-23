@@ -8,7 +8,6 @@ const NON_ADMIN_ROUTES = [
   'portfolio',
   'alerts',
   'journal',
-  'research',
   'signals',
   'backtest',
   'cost-check',

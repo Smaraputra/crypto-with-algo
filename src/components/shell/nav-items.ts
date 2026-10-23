@@ -19,16 +19,6 @@ export const TOOLS_NAV_ITEMS: NavItem[] = [
   { label: 'Backtest', href: '/backtest' },
 ];
 
-export const TOOLS_INTERIM_ITEMS: NavItem[] = [
-  // Notes: the Journal screen's Notes switcher
-  {
-    label: 'Notes',
-    href: '/research',
-    interim: true,
-    removalReason: "the Journal screen's Notes switcher",
-  },
-];
-
 export const TOOLS_MATCH_PATHS = ['/cost-check', '/backtest'];
 
 export const PHONE_NAV_ITEMS: NavItem[] = [
@@ -42,8 +32,7 @@ export const MORE_SHEET_ITEMS: NavItem[] = [
   { label: 'Alerts', href: '/alerts' },
   { label: 'Cost Check', href: '/cost-check' },
   { label: 'Backtest', href: '/backtest' },
-  // Notes, which links to /research until the Notes page exists
-  { label: 'Notes', href: '/research' },
+  { label: 'Notes', href: '/notes' },
   { label: 'Signals', href: '/signals' },
 ];
 
@@ -70,7 +59,6 @@ export function isNavActive(pathname: string, item: NavItem | string): boolean {
     const found = [
       ...PRIMARY_NAV_ITEMS,
       ...TOOLS_NAV_ITEMS,
-      ...TOOLS_INTERIM_ITEMS,
       { label: 'Tools', href: '/cost-check', matchPaths: TOOLS_MATCH_PATHS },
     ].find((i) => i.href === item || i.label.toLowerCase() === item.toLowerCase());
 

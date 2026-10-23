@@ -19,7 +19,7 @@ describe('MoreSheet', () => {
     vi.clearAllMocks();
   });
 
-  it('renders More title and its main navigation items including Notes linking to /research', () => {
+  it('renders More title and its main navigation items including Notes linking to /notes', () => {
     mockUseSession.mockReturnValue({
       data: { user: { email: 'user@example.com', isAdmin: false } },
     });
@@ -38,7 +38,7 @@ describe('MoreSheet', () => {
     expect(backtest).toHaveAttribute('href', '/backtest');
 
     const notes = screen.getByRole('link', { name: 'Notes' });
-    expect(notes).toHaveAttribute('href', '/research');
+    expect(notes).toHaveAttribute('href', '/notes');
 
     const signals = screen.getByRole('link', { name: 'Signals' });
     expect(signals).toHaveAttribute('href', '/signals');

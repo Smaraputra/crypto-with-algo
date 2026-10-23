@@ -52,7 +52,7 @@ describe('BottomNav', () => {
     expect(screen.getByRole('link', { name: 'Market' })).not.toHaveAttribute('aria-current');
   });
 
-  it('clicking More opens the sheet listing its items, with Notes linking to /research', () => {
+  it('clicking More opens the sheet listing its items, with Notes linking to /notes', () => {
     render(<BottomNav />);
 
     const moreButton = screen.getByRole('button', { name: 'More' });
@@ -62,7 +62,7 @@ describe('BottomNav', () => {
 
     const notesLink = screen.getByRole('link', { name: 'Notes' });
     expect(notesLink).toBeInTheDocument();
-    expect(notesLink).toHaveAttribute('href', '/research');
+    expect(notesLink).toHaveAttribute('href', '/notes');
 
     expect(screen.getByRole('link', { name: 'Alerts' })).toHaveAttribute('href', '/alerts');
     expect(screen.getByRole('link', { name: 'Cost Check' })).toHaveAttribute('href', '/cost-check');
