@@ -5,6 +5,7 @@ import { connectDB } from '@/lib/mongodb';
 import { Alert } from '@/lib/models/alert';
 import { ALERT_TYPES, ALERT_STATUSES } from '@/types/alert';
 import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
+import { fetchTickerPrices } from '@/lib/binance';
 
 const MAX_ALERTS_PER_USER = 50;
 
@@ -154,9 +155,37 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  let referencePrice = parsed.data.referencePrice;
+  if (parsed.data.type === 'price_change_pct' && referencePrice === undefined) {
+    try {
+      const symbol = parsed.data.symbol;
+      const prices = symbol ? await fetchTickerPrices([symbol]) : {};
+      const price = symbol ? prices[symbol] : undefined;
+      if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+        return NextResponse.json(
+          {
+            error:
+              'Could not read the current price for this coin, so the percent alert has no starting point. Try again shortly.',
+          },
+          { status: 422 }
+        );
+      }
+      referencePrice = price;
+    } catch {
+      return NextResponse.json(
+        {
+          error:
+            'Could not read the current price for this coin, so the percent alert has no starting point. Try again shortly.',
+        },
+        { status: 422 }
+      );
+    }
+  }
+
   const alert = await Alert.create({
     userId: session.user.id,
     ...parsed.data,
+    ...(referencePrice !== undefined ? { referencePrice } : {}),
   });
 
   return NextResponse.json({ alert }, { status: 201 });

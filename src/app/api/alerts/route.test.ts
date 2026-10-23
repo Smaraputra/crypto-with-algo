@@ -10,6 +10,10 @@ vi.mock('@/lib/mongodb', () => ({
   connectDB: vi.fn(),
 }));
 
+vi.mock('@/lib/binance', () => ({
+  fetchTickerPrices: vi.fn(),
+}));
+
 vi.mock('@/lib/models/alert', () => ({
   Alert: {
     find: vi.fn(),
@@ -21,6 +25,7 @@ vi.mock('@/lib/models/alert', () => ({
 import { GET, POST } from './route';
 import { auth } from '@/lib/auth';
 import { Alert } from '@/lib/models/alert';
+import { fetchTickerPrices } from '@/lib/binance';
 
 function makeGetRequest(status?: string): NextRequest {
   const url = status
@@ -102,7 +107,7 @@ describe('POST /api/alerts', () => {
     expect(res.status).toBe(401);
   });
 
-  it('creates a price_above alert', async () => {
+  it('creates a price_above alert without fetching ticker prices', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(Alert.countDocuments).mockResolvedValue(0);
     vi.mocked(Alert.create).mockResolvedValue({
@@ -121,11 +126,13 @@ describe('POST /api/alerts', () => {
     const data = await res.json();
     expect(data.alert.type).toBe('price_above');
     expect(data.alert.symbol).toBe('BTCUSDT');
+    expect(fetchTickerPrices).not.toHaveBeenCalled();
   });
 
-  it('creates a price_change_pct alert', async () => {
+  it('stores a percent alert without referencePrice with the mocked current price', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(Alert.countDocuments).mockResolvedValue(0);
+    vi.mocked(fetchTickerPrices).mockResolvedValue({ BTCUSDT: 95000 });
     vi.mocked(Alert.create).mockResolvedValue({
       _id: 'a1',
       type: 'price_change_pct',
@@ -139,10 +146,91 @@ describe('POST /api/alerts', () => {
         type: 'price_change_pct',
         symbol: 'BTCUSDT',
         percentChange: 5,
-        referencePrice: 95000,
       })
     );
     expect(res.status).toBe(201);
+    expect(fetchTickerPrices).toHaveBeenCalledWith(['BTCUSDT']);
+    expect(Alert.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        symbol: 'BTCUSDT',
+        type: 'price_change_pct',
+        percentChange: 5,
+        referencePrice: 95000,
+      })
+    );
+  });
+
+  it('keeps referencePrice: 123 for percent alert and makes no price fetch', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(Alert.countDocuments).mockResolvedValue(0);
+    vi.mocked(Alert.create).mockResolvedValue({
+      _id: 'a1',
+      type: 'price_change_pct',
+      symbol: 'BTCUSDT',
+      percentChange: 5,
+      referencePrice: 123,
+    } as never);
+
+    const res = await POST(
+      makePostRequest({
+        type: 'price_change_pct',
+        symbol: 'BTCUSDT',
+        percentChange: 5,
+        referencePrice: 123,
+      })
+    );
+    expect(res.status).toBe(201);
+    expect(fetchTickerPrices).not.toHaveBeenCalled();
+    expect(Alert.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        symbol: 'BTCUSDT',
+        type: 'price_change_pct',
+        percentChange: 5,
+        referencePrice: 123,
+      })
+    );
+  });
+
+  it('returns 422 and creates nothing when price fetch fails', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(Alert.countDocuments).mockResolvedValue(0);
+    vi.mocked(fetchTickerPrices).mockRejectedValue(new Error('Network error'));
+
+    const res = await POST(
+      makePostRequest({
+        type: 'price_change_pct',
+        symbol: 'BTCUSDT',
+        percentChange: 5,
+      })
+    );
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toBe(
+      'Could not read the current price for this coin, so the percent alert has no starting point. Try again shortly.'
+    );
+    expect(Alert.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 422 and creates nothing when fetched price is not a positive number', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(Alert.countDocuments).mockResolvedValue(0);
+    vi.mocked(fetchTickerPrices).mockResolvedValue({ BTCUSDT: -1 });
+
+    const res = await POST(
+      makePostRequest({
+        type: 'price_change_pct',
+        symbol: 'BTCUSDT',
+        percentChange: 5,
+      })
+    );
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toBe(
+      'Could not read the current price for this coin, so the percent alert has no starting point. Try again shortly.'
+    );
+    expect(Alert.create).not.toHaveBeenCalled();
   });
 
   it('creates a portfolio_value_above alert', async () => {
