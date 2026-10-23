@@ -5,6 +5,7 @@ import { STYLE_CONFIGS, TRADING_STYLES } from '@/lib/indicators/style-configs';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { cn } from '@/lib/utils';
+import { STYLE_LABELS } from './labels';
 
 export interface CalibrationFiltersState {
   style: TradingStyle;
@@ -21,13 +22,6 @@ export interface CalibrationFiltersProps {
   availableConfigVersions?: number[];
   className?: string;
 }
-
-const STYLE_LABELS: Record<TradingStyle, string> = {
-  scalping: 'Scalping',
-  day_trading: 'Day trading',
-  swing_trading: 'Swing trading',
-  position_trading: 'Position trading',
-};
 
 export const CalibrationFilters: React.FC<CalibrationFiltersProps> = ({
   filters,

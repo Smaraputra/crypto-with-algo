@@ -6,3 +6,5 @@ export * from './ReliabilityPanel';
 export * from './DistributionPanel';
 export * from './CumulativePanel';
 export * from './CalibrationScreen';
+export * from './BookPanel';
+export * from './PaperDeskScreen';
