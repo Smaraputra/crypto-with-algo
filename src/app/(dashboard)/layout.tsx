@@ -20,7 +20,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <AppShell />
       <main
         id="main-content"
-        className="mx-auto w-full max-w-[1240px] px-4 sm:px-6 pb-28 lg:pb-12 pt-6"
+        tabIndex={-1}
+        className="mx-auto w-full max-w-[1240px] px-4 sm:px-6 pb-28 lg:pb-12 pt-6 outline-none"
       >
         {children}
       </main>

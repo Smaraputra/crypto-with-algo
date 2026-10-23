@@ -82,6 +82,7 @@ describe('AccountMenu', () => {
     const logout = screen.getByRole('menuitem', { name: 'Log out' });
     fireEvent.click(logout);
 
+    expect(mockSignOut).toHaveBeenCalledTimes(1);
     expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login' });
   });
 });

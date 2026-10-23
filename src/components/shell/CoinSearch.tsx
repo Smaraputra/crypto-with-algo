@@ -43,6 +43,8 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
   const setSelectedSymbol = useUIStore((state) => state.setSelectedSymbol);
 
   useEffect(() => {
+    if (variant !== 'desktop') return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
         const target = e.target as HTMLElement | null;
@@ -59,7 +61,7 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [variant]);
 
   const handleSelect = (symbol: string) => {
     setSelectedSymbol(symbol);
@@ -155,7 +157,6 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
                     key={s.symbol}
                     value={`${s.symbol} ${s.baseAsset}`}
                     onSelect={() => handleSelect(s.symbol)}
-                    onClick={() => handleSelect(s.symbol)}
                     className="flex min-h-[44px] cursor-pointer items-center justify-between px-3 py-2"
                   >
                     <div className="flex items-center gap-2">

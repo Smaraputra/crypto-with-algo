@@ -26,19 +26,8 @@ export function NavPendingIndicator({ active }: { active: boolean }) {
       )}
     >
       {pending && (
-        <span
-          className="block h-full bg-brand-line motion-reduce:hidden"
-          style={{
-            animation: 'navFill 700ms ease-out forwards',
-          }}
-        />
+        <span className="block h-full bg-brand-line motion-reduce:hidden animate-nav-fill" />
       )}
-      <style>{`
-        @keyframes navFill {
-          0% { width: 0%; }
-          100% { width: 100%; }
-        }
-      `}</style>
     </span>
   );
 }

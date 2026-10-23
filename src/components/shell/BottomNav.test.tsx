@@ -69,4 +69,50 @@ describe('BottomNav', () => {
     expect(screen.getByRole('link', { name: 'Backtest' })).toHaveAttribute('href', '/backtest');
     expect(screen.getByRole('link', { name: 'Signals' })).toHaveAttribute('href', '/signals');
   });
+
+  it('handles active state on /signals: Market is active with aria-current="page", More has no data-active', () => {
+    mockUsePathname.mockReturnValue('/signals');
+    render(<BottomNav />);
+
+    const market = screen.getByRole('link', { name: 'Market' });
+    const more = screen.getByRole('button', { name: 'More' });
+
+    expect(market).toHaveAttribute('aria-current', 'page');
+    expect(more).not.toHaveAttribute('data-active');
+    expect(more).not.toHaveAttribute('aria-current');
+  });
+
+  it('handles active state on /alerts: More has data-active, no bottom link has aria-current, and More never has aria-current', () => {
+    mockUsePathname.mockReturnValue('/alerts');
+    render(<BottomNav />);
+
+    const more = screen.getByRole('button', { name: 'More' });
+    expect(more).toHaveAttribute('data-active');
+    expect(more).not.toHaveAttribute('aria-current');
+
+    const links = screen.getAllByRole('link');
+    for (const link of links) {
+      expect(link).not.toHaveAttribute('aria-current');
+    }
+  });
+
+  it('More button never has aria-current across various routes', () => {
+    const routes = [
+      '/dashboard',
+      '/lab',
+      '/portfolio',
+      '/journal',
+      '/signals',
+      '/alerts',
+      '/cost-check',
+      '/admin/calibration',
+    ];
+    for (const route of routes) {
+      mockUsePathname.mockReturnValue(route);
+      const { unmount } = render(<BottomNav />);
+      const more = screen.getByRole('button', { name: 'More' });
+      expect(more).not.toHaveAttribute('aria-current');
+      unmount();
+    }
+  });
 });

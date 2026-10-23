@@ -58,4 +58,17 @@ describe('NavLink', () => {
     const indicatorTrue = screen.getByTestId('nav-pending-indicator');
     expect(indicatorTrue).toHaveAttribute('data-pending');
   });
+
+  it('no style element is rendered inside the link', () => {
+    mockUseLinkStatus.mockReturnValue({ pending: false });
+    const { container, rerender } = render(<NavLink href="/lab">Lab</NavLink>);
+    expect(container.querySelector('style')).toBeNull();
+
+    mockUseLinkStatus.mockReturnValue({ pending: true });
+    rerender(<NavLink href="/lab">Lab</NavLink>);
+    expect(container.querySelector('style')).toBeNull();
+
+    const link = screen.getByRole('link', { name: /lab/i });
+    expect(link.querySelector('style')).toBeNull();
+  });
 });

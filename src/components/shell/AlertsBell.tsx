@@ -101,7 +101,7 @@ export function AlertsBell() {
                   type="button"
                   onClick={() => acknowledgeAlert.mutate(alert._id)}
                   className={cn(
-                    'inline-flex min-h-[36px] cursor-pointer items-center rounded-md border border-edge px-2.5 text-xs font-semibold text-foreground',
+                    'inline-flex min-h-[44px] cursor-pointer items-center rounded-md border border-edge px-2.5 text-xs font-semibold text-foreground',
                     'hover:bg-muted active:scale-[0.98] motion-reduce:active:scale-100',
                     'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
                   )}

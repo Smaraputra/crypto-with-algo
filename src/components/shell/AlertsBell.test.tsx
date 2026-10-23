@@ -131,6 +131,7 @@ describe('AlertsBell', () => {
     expect(screen.getByText('BTC above 70000')).toBeInTheDocument();
 
     const ackBtn = screen.getByRole('button', { name: 'Acknowledge' });
+    expect(ackBtn).toHaveClass('min-h-[44px]');
     fireEvent.click(ackBtn);
 
     expect(mockMutate).toHaveBeenCalledWith('alert-123');

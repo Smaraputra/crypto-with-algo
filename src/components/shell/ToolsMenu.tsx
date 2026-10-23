@@ -22,12 +22,12 @@ export function ToolsMenu() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-current={active ? 'page' : undefined}
+          data-active={active ? 'true' : undefined}
           className={cn(
             'relative inline-flex min-h-[44px] items-center px-3.5 font-semibold transition-colors duration-120 select-none rounded-[10px]',
             'active:scale-[0.98] motion-reduce:active:scale-100',
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-            active ? 'text-foreground' : 'text-ink-2 hover:bg-muted hover:text-foreground'
+            'text-ink-2 hover:bg-muted hover:text-foreground data-[active]:text-foreground'
           )}
         >
           <span>Tools</span>
@@ -40,27 +40,35 @@ export function ToolsMenu() {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-48 p-1.5 shadow-md">
-        {TOOLS_NAV_ITEMS.map((item) => (
-          <DropdownMenuItem key={item.href} asChild>
-            <Link
-              href={item.href}
-              className="flex min-h-[44px] cursor-pointer items-center px-3 py-2 font-medium"
-            >
-              {item.label}
-            </Link>
-          </DropdownMenuItem>
-        ))}
+        {TOOLS_NAV_ITEMS.map((item) => {
+          const itemActive = isNavActive(pathname, item);
+          return (
+            <DropdownMenuItem key={item.href} asChild>
+              <Link
+                href={item.href}
+                aria-current={itemActive ? 'page' : undefined}
+                className="flex min-h-[44px] cursor-pointer items-center px-3 py-2 font-medium"
+              >
+                {item.label}
+              </Link>
+            </DropdownMenuItem>
+          );
+        })}
         <DropdownMenuSeparator className="my-1 border-line" />
-        {TOOLS_INTERIM_ITEMS.map((item) => (
-          <DropdownMenuItem key={item.href} asChild>
-            <Link
-              href={item.href}
-              className="flex min-h-[44px] cursor-pointer items-center px-3 py-2 font-medium text-ink-2"
-            >
-              {item.label}
-            </Link>
-          </DropdownMenuItem>
-        ))}
+        {TOOLS_INTERIM_ITEMS.map((item) => {
+          const itemActive = isNavActive(pathname, item);
+          return (
+            <DropdownMenuItem key={item.href} asChild>
+              <Link
+                href={item.href}
+                aria-current={itemActive ? 'page' : undefined}
+                className="flex min-h-[44px] cursor-pointer items-center px-3 py-2 font-medium text-ink-2"
+              >
+                {item.label}
+              </Link>
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );

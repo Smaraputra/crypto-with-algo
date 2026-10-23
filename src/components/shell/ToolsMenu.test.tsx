@@ -20,16 +20,20 @@ describe('ToolsMenu', () => {
     const trigger = screen.getByRole('button', { name: /tools/i });
     expect(trigger).toBeInTheDocument();
     expect(trigger).not.toHaveAttribute('aria-current');
+    expect(trigger).not.toHaveAttribute('data-active');
   });
 
-  it('has aria-current="page" on /cost-check and /backtest', () => {
+  it('on /cost-check the trigger has data-active and no aria-current', () => {
     mockUsePathname.mockReturnValue('/cost-check');
     const { rerender } = render(<ToolsMenu />);
-    expect(screen.getByRole('button', { name: /tools/i })).toHaveAttribute('aria-current', 'page');
+    const trigger = screen.getByRole('button', { name: /tools/i });
+    expect(trigger).toHaveAttribute('data-active');
+    expect(trigger).not.toHaveAttribute('aria-current');
 
     mockUsePathname.mockReturnValue('/backtest');
     rerender(<ToolsMenu />);
-    expect(screen.getByRole('button', { name: /tools/i })).toHaveAttribute('aria-current', 'page');
+    expect(trigger).toHaveAttribute('data-active');
+    expect(trigger).not.toHaveAttribute('aria-current');
   });
 
   it('opening it shows Cost Check and Backtest with the right hrefs, then the interim Signals, Notes (/research) and Analytics items', () => {
@@ -57,5 +61,19 @@ describe('ToolsMenu', () => {
     const analytics = screen.getByRole('menuitem', { name: 'Analytics' });
     expect(analytics).toBeInTheDocument();
     expect(analytics).toHaveAttribute('href', '/analytics');
+  });
+
+  it('menu item link for current page has aria-current="page"', () => {
+    mockUsePathname.mockReturnValue('/cost-check');
+    render(<ToolsMenu />);
+    const trigger = screen.getByRole('button', { name: /tools/i });
+    fireEvent.pointerDown(trigger, { button: 0 });
+    fireEvent.click(trigger);
+
+    const costCheck = screen.getByRole('menuitem', { name: 'Cost Check' });
+    expect(costCheck).toHaveAttribute('aria-current', 'page');
+
+    const backtest = screen.getByRole('menuitem', { name: 'Backtest' });
+    expect(backtest).not.toHaveAttribute('aria-current');
   });
 });

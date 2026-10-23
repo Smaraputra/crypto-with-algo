@@ -85,7 +85,6 @@ export function AccountMenu() {
         <DropdownMenuSeparator className="my-1 border-line" />
         <DropdownMenuItem
           onSelect={handleSignOut}
-          onClick={handleSignOut}
           className="flex min-h-[44px] cursor-pointer items-center px-3 py-2 font-medium text-destructive focus:text-destructive"
         >
           Log out

@@ -16,10 +16,12 @@ export function BottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const isMoreActive =
-    moreOpen ||
-    MORE_SHEET_ITEMS.some((item) => isNavActive(pathname, item)) ||
-    ADMIN_NAV_ITEMS.some((item) => isNavActive(pathname, item));
+  const hasPhoneMatch = PHONE_NAV_ITEMS.some((item) => isNavActive(pathname, item));
+  const hasMoreMatch =
+    !hasPhoneMatch &&
+    (MORE_SHEET_ITEMS.some((item) => isNavActive(pathname, item)) ||
+      ADMIN_NAV_ITEMS.some((item) => isNavActive(pathname, item)));
+  const isMoreActive = moreOpen || hasMoreMatch;
 
   return (
     <>
@@ -55,12 +57,12 @@ export function BottomNav() {
         <button
           type="button"
           onClick={() => setMoreOpen(true)}
-          aria-current={isMoreActive ? 'page' : undefined}
+          data-active={isMoreActive ? 'true' : undefined}
           className={cn(
             'relative flex h-full flex-col items-center justify-center text-xs font-semibold select-none cursor-pointer',
             'transition-colors duration-120 active:scale-[0.98] motion-reduce:active:scale-100',
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-            isMoreActive ? 'text-foreground' : 'text-ink-2 hover:text-foreground'
+            'text-ink-2 hover:text-foreground data-[active]:text-foreground'
           )}
         >
           {isMoreActive && (

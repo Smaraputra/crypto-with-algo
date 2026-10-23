@@ -43,7 +43,7 @@ export function MoreSheet({ open, onOpenChange }: MoreSheetProps) {
           <SheetDescription className="sr-only">More navigation options and settings</SheetDescription>
         </SheetHeader>
 
-        <nav className="flex flex-col gap-1" aria-label="More navigation">
+        <nav className="flex flex-col gap-1" aria-label="More">
           {MORE_SHEET_ITEMS.map((item) => (
             <Link
               key={item.href + item.label}
@@ -82,12 +82,6 @@ export function MoreSheet({ open, onOpenChange }: MoreSheetProps) {
           )}
 
           <div className="my-2 border-t border-line pt-2">
-            <div className="flex min-h-[44px] items-center px-3">
-              <ThemeToggle />
-            </div>
-          </div>
-
-          <div className="my-2 border-t border-line pt-2">
             <Link
               href="/privacy"
               onClick={handleLinkClick}
@@ -111,21 +105,27 @@ export function MoreSheet({ open, onOpenChange }: MoreSheetProps) {
               Terms
             </Link>
           </div>
-
-          <div className="my-2 border-t border-line pt-2">
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className={cn(
-                'flex min-h-[44px] w-full items-center rounded-lg px-3 text-left text-base font-semibold text-destructive select-none',
-                'transition-colors duration-120 hover:bg-muted active:scale-[0.98] motion-reduce:active:scale-100',
-                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
-              )}
-            >
-              Log out
-            </button>
-          </div>
         </nav>
+
+        <div className="my-2 border-t border-line pt-2">
+          <div className="flex min-h-[44px] items-center px-3">
+            <ThemeToggle />
+          </div>
+        </div>
+
+        <div className="my-2 border-t border-line pt-2">
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className={cn(
+              'flex min-h-[44px] w-full items-center rounded-lg px-3 text-left text-base font-semibold text-destructive select-none',
+              'transition-colors duration-120 hover:bg-muted active:scale-[0.98] motion-reduce:active:scale-100',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+            )}
+          >
+            Log out
+          </button>
+        </div>
       </SheetContent>
     </Sheet>
   );

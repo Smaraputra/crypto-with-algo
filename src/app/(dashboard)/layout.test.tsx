@@ -82,6 +82,8 @@ describe('DashboardLayout', () => {
       const main = document.getElementById('main-content');
       expect(main).toBeInTheDocument();
       expect(main?.tagName.toLowerCase()).toBe('main');
+      expect(main).toHaveAttribute('tabindex', '-1');
+      expect(main).toHaveClass('outline-none');
       expect(screen.getByTestId('child-content')).toBeInTheDocument();
     });
   });

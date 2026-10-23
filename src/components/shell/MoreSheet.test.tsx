@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MoreSheet } from './MoreSheet';
 
@@ -88,5 +88,23 @@ describe('MoreSheet', () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login' });
+  });
+
+  it('the "More" navigation contains the links but not the Log out button', () => {
+    mockUseSession.mockReturnValue({
+      data: { user: { email: 'user@example.com', isAdmin: false } },
+    });
+    render(<MoreSheet open={true} onOpenChange={vi.fn()} />);
+
+    const nav = screen.getByRole('navigation', { name: 'More' });
+    expect(nav).toBeInTheDocument();
+
+    const links = within(nav).getAllByRole('link');
+    expect(links.length).toBeGreaterThan(0);
+    expect(within(nav).getByRole('link', { name: 'Alerts' })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'Privacy' })).toBeInTheDocument();
+
+    expect(within(nav).queryByRole('button', { name: 'Log out' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument();
   });
 });

@@ -96,7 +96,31 @@ describe('CoinSearch', () => {
     const item = screen.getByText('BTCUSDT');
     fireEvent.click(item);
 
+    expect(mockSetSelectedSymbol).toHaveBeenCalledTimes(1);
     expect(mockSetSelectedSymbol).toHaveBeenCalledWith('BTCUSDT');
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/focus?symbol=BTCUSDT');
+  });
+
+  it('renders desktop and icon variants together and opens exactly one dialog on Ctrl+K, then clicking a coin row calls setSelectedSymbol once and router.push once', () => {
+    render(
+      <div>
+        <CoinSearch variant="desktop" />
+        <CoinSearch variant="icon" />
+      </div>
+    );
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+
+    const inputs = screen.getAllByPlaceholderText('Search coins...');
+    expect(inputs).toHaveLength(1);
+
+    const item = screen.getByText('BTCUSDT');
+    fireEvent.click(item);
+
+    expect(mockSetSelectedSymbol).toHaveBeenCalledTimes(1);
+    expect(mockSetSelectedSymbol).toHaveBeenCalledWith('BTCUSDT');
+    expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith('/focus?symbol=BTCUSDT');
   });
 
