@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: Final gate findings (UI redesign PR 13)
+- **Outfit now renders everywhere.**
+  - Since the foundation PR, the font variable sat on `<body>`, but Tailwind resolves the default font on `<html>`. As a result, headings, body text and buttons used the system font, and only elements that asked for `font-sans` got Outfit.
+  - The variable now sits on `<html>` and the body is `font-sans`. Measured: html, body, h1 and buttons compute to Outfit.
+- **Layout shift:**
+  - **/lab:** the shift drops from 0.26 to between 0.004 and 0.012 at 1440px. The hypotheses column no longer stretches the shared grid rows. The summary keeps its height while loading. The groups and the rejected rule render once every lab has answered.
+  - **/dashboard:** the shift drops from 0.12 to 0.05. The stream notice shows only after the stream has been down for 4 seconds, so a normal connect or a short reconnect no longer pushes the price and chart around.
+- **Portfolio at phone width:** the portfolio picker's visible label overprinted the page title. `PageHeader` actions now wrap under the title on small screens, and the picker's label is visually hidden but still read by screen readers.
+- **Touch targets:** marketing nav and footer links, the auth "Back to home" and "Forgot password?" links, and the Backtest checkboxes are now at least 44px tall to tap.
+- **Accessibility:** the auth pages have a `main` landmark.
+- **Design rule: no shadows.** The remaining shadows on buttons, inputs, cards, menus, popovers, dialogs, sheets, the selected coin tab and the selected note are removed. Floating surfaces keep a line border.
+- **Leftovers from the old theme removed:**
+  - the unused `.gradient-heading` (old Binance green), `.marketing-dark`, and the infinite `grid-scroll`, `connector-pulse` and `float` animations;
+  - the monospace keyboard hint in coin search;
+  - the old site description in the root metadata.
+- **Email:** verification and reset emails use the new light palette and the brand green button instead of the old dark background and Binance yellow.
+
 ### Changed: Final redesign pass (UI redesign PR 12)
 - **Theme follows the system by default:** a first visit gets the light or dark theme the visitor's device asks for, and a stored choice still wins. The init script no longer forces dark if storage cannot be read.
 - **Accent back to its plain role:** `--accent` returns to the panel-2 hover fill. The amber caution tone the old screens used is gone, now that every screen is rebuilt.
