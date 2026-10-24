@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { type LabBar, runEProcess } from '@/lib/signals/lab/e-process';
 import {
   generateTrades,
+  gradeControl,
   gradeDailyMtm,
   gradeOverlapping,
+  type GradedBar,
   makeRng,
   maxLogE,
+  runCell,
   runStudy,
+  type SimCell,
+  simulatePrices,
+  THRESHOLDS,
   wilson,
 } from './round4-overlap-sim';
 
@@ -224,6 +230,123 @@ describe('round4-overlap-sim', () => {
         expect(t.bound).toBe(1 / t.k);
         expect(t.exceedsBound).toBe(t.wilson[0] > t.bound);
       }
+    }
+  });
+
+  it('8. runCell with paths: 30 and seed: 5 matches reference computed by collecting bars', () => {
+    const paths = 30;
+    const seed = 5;
+    const cell: SimCell = {
+      id: 'cont_rho0.7_normal',
+      rule: 'cont',
+      rho: 0.7,
+      tails: 'normal',
+    };
+    const zStar = 2.2;
+    const sigma = 0.012;
+    const hours = 730 * 24;
+    const numCoins = 10;
+
+    function oldComputeLag1Corr(pathsBars: GradedBar[][]): number {
+      let count = 0;
+      let sumU = 0;
+      let sumV = 0;
+      let sumU2 = 0;
+      let sumV2 = 0;
+      let sumUV = 0;
+
+      for (const bars of pathsBars) {
+        for (let i = 0; i < bars.length - 1; i++) {
+          const u = bars[i].x;
+          const v = bars[i + 1].x;
+          sumU += u;
+          sumV += v;
+          sumU2 += u * u;
+          sumV2 += v * v;
+          sumUV += u * v;
+          count++;
+        }
+      }
+
+      if (count <= 1) return 0;
+      const meanU = sumU / count;
+      const meanV = sumV / count;
+      const varU = sumU2 / count - meanU * meanU;
+      const varV = sumV2 / count - meanV * meanV;
+      if (varU <= 0 || varV <= 0) return 0;
+      const cov = sumUV / count - meanU * meanV;
+      return cov / Math.sqrt(varU * varV);
+    }
+
+    let totalTrades = 0;
+    let totalGradedHoursA = 0;
+    let multiCoinGradedHoursA = 0;
+    const allBarsA: GradedBar[][] = [];
+    const refCrossingsA = new Map<number, number>();
+    const refCrossingsB = new Map<number, number>();
+    const refCrossingsC = new Map<number, number>();
+    for (const k of THRESHOLDS) {
+      refCrossingsA.set(k, 0);
+      refCrossingsB.set(k, 0);
+      refCrossingsC.set(k, 0);
+    }
+
+    for (let p = 0; p < paths; p++) {
+      const pathSeed = (seed + p * 31337 + 7) >>> 0;
+      const rng = makeRng(pathSeed);
+      const logReturns = simulatePrices(
+        { numCoins, hours, sigma, rho: cell.rho, tails: cell.tails },
+        rng
+      );
+      const trades = generateTrades(logReturns, { rule: cell.rule, zStar, sigma });
+      totalTrades += trades.length;
+
+      const barsA = gradeOverlapping(trades);
+      const barsB = gradeControl(trades);
+      const barsC = gradeDailyMtm(trades, logReturns);
+
+      allBarsA.push(barsA);
+      for (const b of barsA) {
+        totalGradedHoursA++;
+        if ((b.enteringCoins ?? 0) > 1) {
+          multiCoinGradedHoursA++;
+        }
+      }
+
+      const maxA = maxLogE(barsA);
+      const maxB = maxLogE(barsB);
+      const maxC = maxLogE(barsC);
+
+      for (const k of THRESHOLDS) {
+        const logK = Math.log(k);
+        if (maxA >= logK) {
+          refCrossingsA.set(k, (refCrossingsA.get(k) ?? 0) + 1);
+        }
+        if (maxB >= logK) {
+          refCrossingsB.set(k, (refCrossingsB.get(k) ?? 0) + 1);
+        }
+        if (maxC >= logK) {
+          refCrossingsC.set(k, (refCrossingsC.get(k) ?? 0) + 1);
+        }
+      }
+    }
+
+    const days = hours / 24;
+    const refMeanTradesPerDay = totalTrades / paths / days;
+    const refShareMultiCoinHours =
+      totalGradedHoursA > 0 ? multiCoinGradedHoursA / totalGradedHoursA : 0;
+    const refLag1CorrA = oldComputeLag1Corr(allBarsA);
+
+    const result = runCell(cell, { paths, seed });
+
+    expect(result.lag1CorrA).toBe(refLag1CorrA);
+    expect(result.meanTradesPerDay).toBe(refMeanTradesPerDay);
+    expect(result.shareMultiCoinHours).toBe(refShareMultiCoinHours);
+
+    for (const k of THRESHOLDS) {
+      expect(result.gradings.A[k].crossings).toBe(refCrossingsA.get(k));
+      expect(result.gradings.B[k].crossings).toBe(refCrossingsB.get(k));
+      expect(result.gradings.C[k].crossings).toBe(refCrossingsC.get(k));
     }
   });
 });

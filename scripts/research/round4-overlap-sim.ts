@@ -494,29 +494,16 @@ export function wilson(successes: number, n: number): WilsonInterval {
 }
 
 /**
- * Computes lag-1 autocorrelation of graded x values across all paths.
+ * Computes lag-1 autocorrelation of graded x values from running sums.
  */
-function computeLag1Corr(pathsBars: GradedBar[][]): number {
-  let count = 0;
-  let sumU = 0;
-  let sumV = 0;
-  let sumU2 = 0;
-  let sumV2 = 0;
-  let sumUV = 0;
-
-  for (const bars of pathsBars) {
-    for (let i = 0; i < bars.length - 1; i++) {
-      const u = bars[i].x;
-      const v = bars[i + 1].x;
-      sumU += u;
-      sumV += v;
-      sumU2 += u * u;
-      sumV2 += v * v;
-      sumUV += u * v;
-      count++;
-    }
-  }
-
+function computeLag1Corr(
+  count: number,
+  sumU: number,
+  sumV: number,
+  sumU2: number,
+  sumV2: number,
+  sumUV: number
+): number {
   if (count <= 1) return 0;
   const meanU = sumU / count;
   const meanV = sumV / count;
@@ -588,7 +575,12 @@ export function runCell(cell: SimCell, options?: SimOptions): CellReport {
   let totalTrades = 0;
   let totalGradedHoursA = 0;
   let multiCoinGradedHoursA = 0;
-  const allBarsA: GradedBar[][] = [];
+  let count = 0;
+  let sumU = 0;
+  let sumV = 0;
+  let sumU2 = 0;
+  let sumV2 = 0;
+  let sumUV = 0;
 
   for (let p = 0; p < paths; p++) {
     const pathSeed = (baseSeed + p * 31337 + 7) >>> 0;
@@ -604,7 +596,17 @@ export function runCell(cell: SimCell, options?: SimOptions): CellReport {
     const barsB = gradeControl(trades);
     const barsC = gradeDailyMtm(trades, logReturns);
 
-    allBarsA.push(barsA);
+    for (let i = 0; i < barsA.length - 1; i++) {
+      const u = barsA[i].x;
+      const v = barsA[i + 1].x;
+      sumU += u;
+      sumV += v;
+      sumU2 += u * u;
+      sumV2 += v * v;
+      sumUV += u * v;
+      count++;
+    }
+
     for (const b of barsA) {
       totalGradedHoursA++;
       if ((b.enteringCoins ?? 0) > 1) {
@@ -634,7 +636,7 @@ export function runCell(cell: SimCell, options?: SimOptions): CellReport {
   const meanTradesPerDay = paths > 0 && days > 0 ? totalTrades / paths / days : 0;
   const shareMultiCoinHours =
     totalGradedHoursA > 0 ? multiCoinGradedHoursA / totalGradedHoursA : 0;
-  const lag1CorrA = computeLag1Corr(allBarsA);
+  const lag1CorrA = computeLag1Corr(count, sumU, sumV, sumU2, sumV2, sumUV);
 
   const gradingA = buildGradingMap(crossingsA, paths, {
     lag1Correlation: lag1CorrA,
