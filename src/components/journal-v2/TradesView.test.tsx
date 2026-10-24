@@ -40,6 +40,7 @@ const mockOpenTrade: JournalEntry = {
   convictionLevel: 4,
   plannedRiskReward: 2.5,
   sentiment: null,
+  enteredAt: '2026-10-20T10:00:00.000Z',
   createdAt: '2026-10-20T10:00:00.000Z',
   updatedAt: '2026-10-20T10:00:00.000Z',
 };
@@ -70,8 +71,14 @@ const mockClosedTrade: JournalEntry = {
   convictionLevel: 3,
   plannedRiskReward: 2.0,
   sentiment: null,
+  enteredAt: '2026-10-19T08:00:00.000Z',
+  exitedAt: '2026-10-19T10:00:00.000Z',
   createdAt: '2026-10-19T08:00:00.000Z',
   updatedAt: '2026-10-21T12:00:00.000Z',
+  screenshots: [
+    { fileId: 's1', contentType: 'image/png', size: 100, uploadedAt: '' },
+    { fileId: 's2', contentType: 'image/png', size: 100, uploadedAt: '' },
+  ],
 };
 
 describe('TradesView', () => {
@@ -151,8 +158,48 @@ describe('TradesView', () => {
     expect(screen.getByRole('heading', { name: 'Closed trades' })).toBeInTheDocument();
 
     expect(screen.getByRole('cell', { name: 'BTC' })).toBeInTheDocument();
-    expect(screen.getByRole('cell', { name: 'ETH' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: /ETH[\s\S]*2 shots/ })).toBeInTheDocument();
     expect(screen.getByText('+5.71%')).toBeInTheDocument();
+  });
+
+  it('renders Entered column header and Held column in closed list', () => {
+    vi.mocked(journalHooks.useJournalEntries).mockReturnValue({
+      data: { entries: [mockOpenTrade, mockClosedTrade] },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof journalHooks.useJournalEntries>);
+
+    render(<TradesView onSelectEntry={onSelectEntry} onOpenLogTrade={onOpenLogTrade} />);
+
+    // Table column headers
+    const enteredHeaders = screen.getAllByRole('columnheader', { name: 'Entered' });
+    expect(enteredHeaders.length).toBeGreaterThanOrEqual(1);
+
+    const heldHeader = screen.getByRole('columnheader', { name: 'Held' });
+    expect(heldHeader).toBeInTheDocument();
+
+    // Held value "2h" for 08:00 to 10:00
+    expect(screen.getByRole('cell', { name: '2h' })).toBeInTheDocument();
+
+    // Screenshots badge "2 shots"
+    expect(screen.getByText('2 shots')).toBeInTheDocument();
+  });
+
+  it('says "1 shot" for a single screenshot', () => {
+    const oneShot = {
+      ...mockClosedTrade,
+      screenshots: [mockClosedTrade.screenshots![0]],
+    };
+    vi.mocked(journalHooks.useJournalEntries).mockReturnValue({
+      data: { entries: [oneShot] },
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof journalHooks.useJournalEntries>);
+
+    render(<TradesView onSelectEntry={onSelectEntry} onOpenLogTrade={onOpenLogTrade} />);
+
+    expect(screen.getByText('1 shot')).toBeInTheDocument();
+    expect(screen.queryByText('1 shots')).not.toBeInTheDocument();
   });
 
   it('clicking a row calls onSelectEntry to open the sheet', () => {

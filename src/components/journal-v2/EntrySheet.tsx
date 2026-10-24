@@ -23,18 +23,29 @@ import {
   useUpdateJournalEntry,
   useReviewJournalEntry,
   useDeleteJournalEntry,
+  useJournalEntry,
+  useUploadJournalScreenshot,
 } from '@/hooks/useJournal';
 import { cn } from '@/lib/utils';
+import {
+  formatDateTime,
+  toLocalInputValue,
+  fromLocalInputValue,
+  formatHold,
+} from '@/lib/journal/format';
 import {
   TRADE_EMOTIONS,
   TRADE_EMOTION_LABELS,
   TRADE_MISTAKES,
   TRADE_MISTAKE_LABELS,
+  isPositionAction,
   type JournalEntry,
   type TradeEmotion,
   type TradeMistake,
   type UpdateJournalEntryInput,
 } from '@/types/journal';
+import { EntryScreenshots } from './EntryScreenshots';
+import { pickImageFiles } from './ScreenshotDropZone';
 
 export interface EntrySheetProps {
   open: boolean;
@@ -68,17 +79,6 @@ function formatPnl(pnl: number | null | undefined): { text: string; className: s
   };
 }
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return 'n/a';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 'n/a';
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 function getBaseAsset(sym: string): string {
   return sym.replace(/(USDT|USDC|BUSD)$/, '') || sym;
 }
@@ -89,14 +89,21 @@ interface EntryFormContentProps {
 }
 
 const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) => {
+  const { data } = useJournalEntry(entry._id);
+  const current = data?.entry ?? entry;
+
   const updateMutation = useUpdateJournalEntry();
   const reviewMutation = useReviewJournalEntry();
   const deleteMutation = useDeleteJournalEntry();
+  const uploadMutation = useUploadJournalScreenshot();
 
   const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // Edit fields
+  const initialEnteredAt = entry.enteredAt ?? entry.createdAt;
+  const initialLocalEnteredAt = toLocalInputValue(new Date(initialEnteredAt));
+  const [editEnteredAt, setEditEnteredAt] = useState(initialLocalEnteredAt);
   const [editPrice, setEditPrice] = useState(entry.entryPrice ? String(entry.entryPrice) : '');
   const [editNotes, setEditNotes] = useState(entry.notes || '');
   const [editTags, setEditTags] = useState(entry.tags ? entry.tags.join(', ') : '');
@@ -105,6 +112,9 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
   // Review fields
   const [reviewExitPrice, setReviewExitPrice] = useState(
     entry.exitPrice ? String(entry.exitPrice) : ''
+  );
+  const [reviewExitedAt, setReviewExitedAt] = useState(
+    entry.exitedAt ? toLocalInputValue(new Date(entry.exitedAt)) : ''
   );
   const [reviewOutcome, setReviewOutcome] = useState(
     entry.outcomePnlPercent !== null && entry.outcomePnlPercent !== undefined
@@ -117,8 +127,10 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
 
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const isClosed = entry.exitPrice !== null && entry.exitPrice !== undefined;
-  const pnl = formatPnl(entry.outcomePnlPercent);
+  const isClosed = current.exitPrice !== null && current.exitPrice !== undefined;
+  const pnl = formatPnl(current.outcomePnlPercent);
+  const holdDuration = formatHold(current.enteredAt ?? current.createdAt, current.exitedAt);
+  const isPosition = isPositionAction(current.action);
 
   const handleToggleMistake = (mistake: TradeMistake) => {
     setReviewMistakes((prev) =>
@@ -136,11 +148,15 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
       .map((t) => t.trim())
       .filter(Boolean);
 
+    const enteredAtChanged = editEnteredAt !== initialLocalEnteredAt;
+    const enteredAtIso = enteredAtChanged ? fromLocalInputValue(editEnteredAt) : undefined;
+
     const updatePayload: UpdateJournalEntryInput & { id: string } = {
       id: entry._id,
       notes: editNotes,
       setupType: editSetup,
       tags,
+      ...(enteredAtIso ? { enteredAt: enteredAtIso as unknown as Date } : {}),
       ...(priceNum !== undefined ? { exitPrice: undefined, entryPrice: priceNum } : {}),
     };
 
@@ -161,17 +177,27 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
     const exitPriceNum = reviewExitPrice ? parseFloat(reviewExitPrice) : undefined;
     const outcomeNum = reviewOutcome ? parseFloat(reviewOutcome) : undefined;
 
-    const payload = {
+    const hasExitPrice =
+      exitPriceNum !== undefined ||
+      (entry.exitPrice !== null && entry.exitPrice !== undefined);
+
+    let exitedAtPayload: string | null | undefined;
+    if (isPosition && hasExitPrice) {
+      exitedAtPayload = reviewExitedAt ? fromLocalInputValue(reviewExitedAt) : null;
+    }
+
+    const payload: UpdateJournalEntryInput & { id: string } = {
       id: entry._id,
       lessonsLearned: reviewLesson.trim(),
       ...(exitPriceNum !== undefined ? { exitPrice: exitPriceNum } : {}),
       ...(outcomeNum !== undefined ? { outcomePnlPercent: outcomeNum } : {}),
+      ...(exitedAtPayload !== undefined ? { exitedAt: exitedAtPayload as unknown as Date } : {}),
       ...(reviewEmotion ? { emotion: reviewEmotion } : {}),
       ...(reviewMistakes.length > 0 ? { mistakes: reviewMistakes } : { mistakes: [] }),
     };
 
     try {
-      await reviewMutation.mutateAsync(payload as unknown as { id: string; lessonsLearned: string });
+      await reviewMutation.mutateAsync(payload);
       toast.success('Entry reviewed');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to review entry';
@@ -190,11 +216,38 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
     }
   };
 
+  const handleSheetPaste = async (e: React.ClipboardEvent) => {
+    if (e.defaultPrevented) return;
+    const files = e.clipboardData?.files;
+    if (!files || files.length === 0) return;
+
+    const remaining = Math.max(0, 4 - (current.screenshots?.length ?? 0));
+    if (remaining <= 0) return;
+
+    const { files: validFiles, errors: pasteErrors } = pickImageFiles(files, remaining);
+    if (pasteErrors.length > 0) {
+      setServerError(pasteErrors.join(' '));
+    }
+
+    if (validFiles.length > 0) {
+      e.preventDefault();
+      for (const file of validFiles) {
+        try {
+          await uploadMutation.mutateAsync({ entryId: current._id, file });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Upload failed';
+          setServerError(`${file.name} did not upload: ${msg}`);
+          break;
+        }
+      }
+    }
+  };
+
   return (
     <>
       <SheetHeader>
         <div className="flex items-center justify-between gap-2 mr-6">
-          <SheetTitle>{getBaseAsset(entry.symbol)} Trade</SheetTitle>
+          <SheetTitle>{getBaseAsset(current.symbol)} Trade</SheetTitle>
           <span
             className={cn(
               'px-2.5 py-0.5 rounded-[6px] text-[12px] font-semibold',
@@ -204,10 +257,15 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
             {isClosed ? 'Closed' : 'Open'}
           </span>
         </div>
-        <SheetDescription>Logged on {formatDate(entry.createdAt)}</SheetDescription>
+        <SheetDescription>
+          Entered {formatDateTime(current.enteredAt ?? current.createdAt)}
+        </SheetDescription>
       </SheetHeader>
 
-      <div className="space-y-6 px-4 pb-6 pt-2 sm:px-6">
+      <div
+        onPaste={handleSheetPaste}
+        className="space-y-6 px-4 pb-6 pt-2 sm:px-6"
+      >
         {serverError && (
           <div
             role="alert"
@@ -234,6 +292,19 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
 
           {isEditing ? (
             <form onSubmit={handleSaveMainFields} className="space-y-4 pt-2">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="edit-entered-at" className="text-[13px] font-medium text-foreground">
+                  Entered at
+                </label>
+                <input
+                  id="edit-entered-at"
+                  type="datetime-local"
+                  value={editEnteredAt}
+                  onChange={(e) => setEditEnteredAt(e.target.value)}
+                  className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
+                />
+              </div>
+
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="edit-entry-price" className="text-[13px] font-medium text-foreground">
                   Entry price
@@ -301,12 +372,42 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
             <div className="grid grid-cols-2 gap-3 text-[14px] pt-1">
               <div>
                 <span className="text-[13px] text-muted-foreground block">Action</span>
-                <span className="font-semibold capitalize">{entry.action}</span>
+                <span className="font-semibold capitalize">{current.action}</span>
               </div>
               <div>
                 <span className="text-[13px] text-muted-foreground block">Entry price</span>
                 <span className="font-sans tabular-nums font-medium">
-                  {formatCurrency(entry.entryPrice)}
+                  {formatCurrency(current.entryPrice)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[13px] text-muted-foreground block">Entered</span>
+                <span className="font-sans tabular-nums text-foreground">
+                  {formatDateTime(current.enteredAt ?? current.createdAt)}
+                </span>
+              </div>
+              {isPosition && (
+                <div>
+                  <span className="text-[13px] text-muted-foreground block">Exited</span>
+                  <span
+                    className={cn(
+                      'font-sans tabular-nums',
+                      !current.exitedAt && 'text-muted-foreground'
+                    )}
+                  >
+                    {formatDateTime(current.exitedAt)}
+                  </span>
+                </div>
+              )}
+              <div>
+                <span className="text-[13px] text-muted-foreground block">Held</span>
+                <span
+                  className={cn(
+                    'font-sans tabular-nums',
+                    !holdDuration && 'text-muted-foreground'
+                  )}
+                >
+                  {holdDuration ?? 'n/a'}
                 </span>
               </div>
               {isClosed && (
@@ -314,7 +415,7 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
                   <div>
                     <span className="text-[13px] text-muted-foreground block">Exit price</span>
                     <span className="font-sans tabular-nums font-medium">
-                      {formatCurrency(entry.exitPrice)}
+                      {formatCurrency(current.exitPrice)}
                     </span>
                   </div>
                   <div>
@@ -325,25 +426,25 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
                   </div>
                 </>
               )}
-              {entry.setupType && (
+              {current.setupType && (
                 <div className="col-span-2">
                   <span className="text-[13px] text-muted-foreground block">Setup</span>
-                  <span className="text-foreground">{entry.setupType}</span>
+                  <span className="text-foreground">{current.setupType}</span>
                 </div>
               )}
-              {entry.notes && (
+              {current.notes && (
                 <div className="col-span-2">
                   <span className="text-[13px] text-muted-foreground block">Notes</span>
                   <p className="text-foreground text-[14px] mt-0.5 whitespace-pre-wrap">
-                    {entry.notes}
+                    {current.notes}
                   </p>
                 </div>
               )}
-              {entry.tags && entry.tags.length > 0 && (
+              {current.tags && current.tags.length > 0 && (
                 <div className="col-span-2">
                   <span className="text-[13px] text-muted-foreground block mb-1">Tags</span>
                   <div className="flex flex-wrap gap-1">
-                    {entry.tags.map((t) => (
+                    {current.tags.map((t) => (
                       <span
                         key={t}
                         className="inline-block px-2 py-0.5 rounded-[6px] text-[12px] bg-muted/20 text-ink-2"
@@ -356,6 +457,11 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
               )}
             </div>
           )}
+        </div>
+
+        {/* Screenshots block */}
+        <div className="rounded-[14px] bg-card p-4 border border-edge/30">
+          <EntryScreenshots entry={current} />
         </div>
 
         {/* Review Form */}
@@ -376,7 +482,13 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
                   step="any"
                   placeholder="0.00"
                   value={reviewExitPrice}
-                  onChange={(e) => setReviewExitPrice(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setReviewExitPrice(val);
+                    if (val && !reviewExitedAt) {
+                      setReviewExitedAt(toLocalInputValue(new Date()));
+                    }
+                  }}
                   className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
                 />
               </div>
@@ -399,6 +511,27 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
                 />
               </div>
             </div>
+
+            {isPosition && (
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="review-exited-at"
+                  className="text-[13px] font-medium text-foreground"
+                >
+                  Exited at
+                </label>
+                <input
+                  id="review-exited-at"
+                  type="datetime-local"
+                  value={reviewExitedAt}
+                  onChange={(e) => setReviewExitedAt(e.target.value)}
+                  className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
+                />
+                <p className="text-[13px] text-muted-foreground">
+                  Leave empty if you do not know.
+                </p>
+              </div>
+            )}
 
             <div className="flex flex-col gap-1.5">
               <label htmlFor="review-emotion" className="text-[13px] font-medium text-foreground">

@@ -8,6 +8,9 @@ vi.mock('@/hooks/useJournal', () => ({
   useUpdateJournalEntry: vi.fn(),
   useReviewJournalEntry: vi.fn(),
   useDeleteJournalEntry: vi.fn(),
+  useJournalEntry: vi.fn(),
+  useUploadJournalScreenshot: vi.fn(),
+  useDeleteJournalScreenshot: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -43,6 +46,7 @@ const mockEntry: JournalEntry = {
   convictionLevel: 4,
   plannedRiskReward: 2.0,
   sentiment: null,
+  enteredAt: '2026-10-20T10:00:00.000Z',
   createdAt: '2026-10-20T10:00:00.000Z',
   updatedAt: '2026-10-20T10:00:00.000Z',
 };
@@ -52,9 +56,21 @@ describe('EntrySheet', () => {
   const mockUpdateMutate = vi.fn();
   const mockReviewMutate = vi.fn();
   const mockDeleteMutate = vi.fn();
+  const mockUploadMutate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+
+    vi.mocked(journalHooks.useJournalEntry).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: false,
+    } as unknown as ReturnType<typeof journalHooks.useJournalEntry>);
+
+    vi.mocked(journalHooks.useUploadJournalScreenshot).mockReturnValue({
+      mutateAsync: mockUploadMutate,
+      isPending: false,
+    } as unknown as ReturnType<typeof journalHooks.useUploadJournalScreenshot>);
 
     vi.mocked(journalHooks.useUpdateJournalEntry).mockReturnValue({
       mutateAsync: mockUpdateMutate,
@@ -70,6 +86,11 @@ describe('EntrySheet', () => {
       mutateAsync: mockDeleteMutate,
       isPending: false,
     } as unknown as ReturnType<typeof journalHooks.useDeleteJournalEntry>);
+
+    vi.mocked(journalHooks.useDeleteJournalScreenshot).mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: false,
+    } as unknown as ReturnType<typeof journalHooks.useDeleteJournalScreenshot>);
   });
 
   it('renders entry details when open', () => {
@@ -78,9 +99,24 @@ describe('EntrySheet', () => {
     expect(screen.getByText('BTC Trade')).toBeInTheDocument();
     expect(screen.getByText('Original note')).toBeInTheDocument();
     expect(screen.getByText('$60,000.00')).toBeInTheDocument();
+    expect(screen.getByText('Entered')).toBeInTheDocument();
+    expect(screen.getByText('Exited')).toBeInTheDocument();
+    expect(screen.getByText('Held')).toBeInTheDocument();
   });
 
-  it('submits update payload for main fields', async () => {
+  it('Held shows "2h" for an entry from 10:00 to 12:00', () => {
+    const closedEntry: JournalEntry = {
+      ...mockEntry,
+      enteredAt: '2026-10-20T10:00:00.000Z',
+      exitedAt: '2026-10-20T12:00:00.000Z',
+      exitPrice: 62000,
+    };
+
+    render(<EntrySheet open={true} onOpenChange={onOpenChange} entry={closedEntry} />);
+    expect(screen.getByText('2h')).toBeInTheDocument();
+  });
+
+  it('submits update payload for main fields including enteredAt if changed', async () => {
     mockUpdateMutate.mockResolvedValueOnce({ success: true });
 
     render(<EntrySheet open={true} onOpenChange={onOpenChange} entry={mockEntry} />);
@@ -108,7 +144,20 @@ describe('EntrySheet', () => {
     );
   });
 
-  it('submits review payload from review form', async () => {
+  it('typing an exit price fills "Exited at" when empty', () => {
+    render(<EntrySheet open={true} onOpenChange={onOpenChange} entry={mockEntry} />);
+
+    const exitPriceInput = screen.getByLabelText('Exit price');
+    const exitedAtInput = screen.getByLabelText('Exited at') as HTMLInputElement;
+
+    expect(exitedAtInput.value).toBe('');
+
+    fireEvent.change(exitPriceInput, { target: { value: '64000' } });
+
+    expect(exitedAtInput.value).not.toBe('');
+  });
+
+  it('the review save sends exitPrice and exitedAt', async () => {
     mockReviewMutate.mockResolvedValueOnce({ success: true });
 
     render(<EntrySheet open={true} onOpenChange={onOpenChange} entry={mockEntry} />);
@@ -133,12 +182,24 @@ describe('EntrySheet', () => {
       expect.objectContaining({
         id: 'entry-123',
         exitPrice: 64000,
+        exitedAt: expect.any(String),
         outcomePnlPercent: 6.67,
         emotion: 'confident',
         mistakes: ['exited_early'],
         lessonsLearned: 'Followed plan but took profit too soon.',
       })
     );
+  });
+
+  it('a hold or skip entry has no "Exited at" field', () => {
+    const holdEntry: JournalEntry = {
+      ...mockEntry,
+      action: 'hold',
+    };
+
+    render(<EntrySheet open={true} onOpenChange={onOpenChange} entry={holdEntry} />);
+
+    expect(screen.queryByLabelText('Exited at')).not.toBeInTheDocument();
   });
 
   it('deletes entry only after in-UI confirmation', async () => {
@@ -151,7 +212,9 @@ describe('EntrySheet', () => {
     fireEvent.click(deleteButton);
 
     // Confirmation dialog appears
-    expect(screen.getByText('Are you sure you want to delete this trade entry? This action cannot be undone.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Are you sure you want to delete this trade entry? This action cannot be undone.')
+    ).toBeInTheDocument();
     expect(mockDeleteMutate).not.toHaveBeenCalled();
 
     // Confirm deletion

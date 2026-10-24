@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ChevronsUpDown } from 'lucide-react';
 import {
@@ -22,13 +22,20 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { SegmentedControl } from '@/components/kit/SegmentedControl';
-import { useCreateJournalEntry } from '@/hooks/useJournal';
+import {
+  useCreateJournalEntry,
+  useUploadJournalScreenshot,
+} from '@/hooks/useJournal';
 import { useDiscipline } from '@/hooks/useDiscipline';
 import { useLatestSignalForStyle } from '@/hooks/useSignals';
 import { useUIStore } from '@/stores/uiStore';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { scoredIntervals } from '@/lib/indicators/style-configs';
 import { tierDisplayLabel } from '@/lib/signals/tier-labels';
+import {
+  toLocalInputValue,
+  fromLocalInputValue,
+} from '@/lib/journal/format';
 import type { TradingStyle } from '@/lib/models/signal-template';
 import { cn } from '@/lib/utils';
 import {
@@ -41,6 +48,7 @@ import {
   type MarketCondition,
   type TradeEmotion,
 } from '@/types/journal';
+import { ScreenshotDropZone } from './ScreenshotDropZone';
 
 export interface LogTradeSheetProps {
   open: boolean;
@@ -95,6 +103,12 @@ interface LogTradeFormContentProps {
   onClose: () => void;
 }
 
+interface PendingScreenshot {
+  file: File;
+  url: string;
+  id: string;
+}
+
 const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
   initialSymbol,
   onClose,
@@ -112,6 +126,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
   const [openCoinPopover, setOpenCoinPopover] = useState(false);
   const [action, setAction] = useState<JournalAction>('buy');
   const [entryPrice, setEntryPrice] = useState('');
+  const [enteredAt, setEnteredAt] = useState(() => toLocalInputValue(new Date()));
   const [plannedRiskReward, setPlannedRiskReward] = useState('');
   const [conviction, setConviction] = useState('');
   const [setupType, setSetupType] = useState('');
@@ -120,11 +135,26 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
   const [tagsInput, setTagsInput] = useState('');
   const [notes, setNotes] = useState('');
 
+  const [pendingFiles, setPendingFiles] = useState<PendingScreenshot[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const pendingFilesRef = useRef(pendingFiles);
+
+  useEffect(() => {
+    pendingFilesRef.current = pendingFiles;
+  }, [pendingFiles]);
+
+  useEffect(() => {
+    return () => {
+      pendingFilesRef.current.forEach((item) => URL.revokeObjectURL(item.url));
+    };
+  }, []);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
 
   const { data: nudges } = useDiscipline(selectedSymbol, true);
   const createMutation = useCreateJournalEntry();
+  const uploadMutation = useUploadJournalScreenshot();
 
   const currentPair =
     SCORED_PAIRS.find((p) => p.interval === selectedInterval) ??
@@ -139,9 +169,29 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
   const signal = signalData?.signal;
 
   const isSaveDisabled =
-    createMutation.isPending || isSignalLoading || isSignalError || !signal;
+    createMutation.isPending || isUploading || isSignalLoading || isSignalError || !signal;
 
   const selectedBaseAsset = getBaseAsset(selectedSymbol);
+
+  const handleAddPendingFiles = (newFiles: File[]) => {
+    const remainingSlots = 4 - pendingFiles.length;
+    const toAdd = newFiles.slice(0, remainingSlots).map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
+      id: `${file.name}-${file.lastModified}-${Math.random()}`,
+    }));
+    setPendingFiles((prev) => [...prev, ...toAdd]);
+  };
+
+  const handleRemovePendingFile = (id: string) => {
+    setPendingFiles((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target) {
+        URL.revokeObjectURL(target.url);
+      }
+      return prev.filter((item) => item.id !== id);
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,6 +207,17 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
 
     if (!action) {
       newErrors.action = 'Please select an action.';
+    }
+
+    if (!enteredAt || !enteredAt.trim()) {
+      newErrors.enteredAt = 'Enter when the trade was entered.';
+    } else {
+      const enteredDate = new Date(enteredAt);
+      if (isNaN(enteredDate.getTime())) {
+        newErrors.enteredAt = 'Enter when the trade was entered.';
+      } else if (enteredDate.getTime() > Date.now() + 5 * 60 * 1000) {
+        newErrors.enteredAt = 'Entered at cannot be in the future.';
+      }
     }
 
     const priceNum = entryPrice ? parseFloat(entryPrice) : undefined;
@@ -188,12 +249,15 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
       .map((t) => t.trim())
       .filter(Boolean);
 
+    const enteredAtIso = fromLocalInputValue(enteredAt)!;
+
     const payload: CreateJournalEntryInput = {
       symbol: selectedSymbol,
       interval: selectedInterval,
       signalScore: signal.score,
       signalTier: signal.tier,
       action,
+      enteredAt: enteredAtIso as unknown as Date,
       ...(priceNum !== undefined ? { entryPrice: priceNum } : {}),
       ...(riskRewardNum !== undefined ? { plannedRiskReward: riskRewardNum } : {}),
       ...(convictionNum !== undefined ? { convictionLevel: convictionNum } : {}),
@@ -205,12 +269,37 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
     };
 
     try {
-      await createMutation.mutateAsync(payload);
-      toast.success('Trade saved');
+      setIsUploading(true);
+      const res = (await createMutation.mutateAsync(payload)) as unknown as
+        | { entry?: { _id: string }; _id?: string }
+        | undefined;
+      const newEntryId = res?.entry?._id ?? res?._id;
+
+      let failedCount = 0;
+      if (newEntryId && pendingFiles.length > 0) {
+        for (const item of pendingFiles) {
+          try {
+            await uploadMutation.mutateAsync({ entryId: newEntryId, file: item.file });
+          } catch {
+            failedCount++;
+          }
+        }
+      }
+
+      if (failedCount > 0) {
+        toast.error(
+          `Trade saved. ${failedCount} screenshots did not upload. Add them from the trade.`
+        );
+      } else {
+        toast.success('Trade saved');
+      }
+
       onClose();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save trade';
       setServerError(msg);
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -221,7 +310,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
         <SheetDescription>Record a new trade entry in your journal.</SheetDescription>
       </SheetHeader>
 
-      <form onSubmit={handleSubmit} className="space-y-5 px-4 pb-6 pt-2 sm:px-6">
+      <form noValidate onSubmit={handleSubmit} className="space-y-5 px-4 pb-6 pt-2 sm:px-6">
         {serverError && (
           <div
             role="alert"
@@ -352,7 +441,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
           )}
         </div>
 
-        {/* Entry Price & Planned risk to reward */}
+        {/* Entry Price & Entered at beside each other */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <label
@@ -382,31 +471,58 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
 
           <div className="flex flex-col gap-1.5">
             <label
-              htmlFor="log-trade-risk-reward"
+              htmlFor="log-trade-entered-at"
               className="text-[14px] font-medium text-foreground"
             >
-              Planned risk to reward
+              Entered at
             </label>
             <input
-              id="log-trade-risk-reward"
-              type="number"
-              step="any"
-              placeholder="e.g. 2.0"
-              value={plannedRiskReward}
+              id="log-trade-entered-at"
+              type="datetime-local"
+              required
+              max={toLocalInputValue(new Date())}
+              value={enteredAt}
               onChange={(e) => {
-                setPlannedRiskReward(e.target.value);
-                if (errors.plannedRiskReward) {
-                  setErrors((prev) => ({ ...prev, plannedRiskReward: '' }));
-                }
+                setEnteredAt(e.target.value);
+                if (errors.enteredAt) setErrors((prev) => ({ ...prev, enteredAt: '' }));
               }}
               className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
             />
-            {errors.plannedRiskReward && (
+            {errors.enteredAt && (
               <p role="alert" className="text-[13px] text-down">
-                {errors.plannedRiskReward}
+                {errors.enteredAt}
               </p>
             )}
           </div>
+        </div>
+
+        {/* Planned risk to reward moved to next row */}
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="log-trade-risk-reward"
+            className="text-[14px] font-medium text-foreground"
+          >
+            Planned risk to reward
+          </label>
+          <input
+            id="log-trade-risk-reward"
+            type="number"
+            step="any"
+            placeholder="e.g. 2.0"
+            value={plannedRiskReward}
+            onChange={(e) => {
+              setPlannedRiskReward(e.target.value);
+              if (errors.plannedRiskReward) {
+                setErrors((prev) => ({ ...prev, plannedRiskReward: '' }));
+              }
+            }}
+            className="min-h-[44px] px-3 py-2 rounded-[12px] border border-edge bg-card text-foreground font-sans tabular-nums text-[14px] focus-visible:outline-3 focus-visible:outline-ring"
+          />
+          {errors.plannedRiskReward && (
+            <p role="alert" className="text-[13px] text-down">
+              {errors.plannedRiskReward}
+            </p>
+          )}
         </div>
 
         {/* Conviction */}
@@ -506,6 +622,41 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
           />
         </div>
 
+        {/* Screenshots block */}
+        <div className="space-y-3">
+          <span className="text-[14px] font-medium text-foreground">Screenshots</span>
+          {pendingFiles.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {pendingFiles.map((item) => (
+                <div key={item.id} className="flex flex-col gap-1.5">
+                  <div className="aspect-[4/3] w-full overflow-hidden rounded-[8px] border border-edge bg-muted/20">
+                    <img
+                      src={item.url}
+                      alt={item.file.name}
+                      className="size-full aspect-[4/3] object-cover rounded-[8px]"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Remove ${item.file.name}`}
+                    onClick={() => handleRemovePendingFile(item.id)}
+                    className="w-full min-h-[44px] text-[12px] rounded-[8px]"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <ScreenshotDropZone
+            remaining={4 - pendingFiles.length}
+            disabled={isSaveDisabled}
+            onFiles={handleAddPendingFiles}
+          />
+        </div>
+
         <SheetFooter className="mt-6 flex flex-row justify-end gap-3">
           <Button
             type="button"
@@ -520,7 +671,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
             disabled={isSaveDisabled}
             className="rounded-full bg-brand text-brand-foreground hover:bg-brand/90 font-semibold min-h-[44px] px-6"
           >
-            {createMutation.isPending ? 'Saving...' : 'Save trade'}
+            {createMutation.isPending || isUploading ? 'Saving...' : 'Save trade'}
           </Button>
         </SheetFooter>
       </form>

@@ -7,6 +7,7 @@ import { useJournalEntries, useJournalTags, type JournalFilters } from '@/hooks/
 import { useSymbols } from '@/hooks/useSymbols';
 import { SIGNAL_SYMBOLS } from '@/lib/signals/signal-symbols';
 import { cn } from '@/lib/utils';
+import { formatDateTime, formatHold } from '@/lib/journal/format';
 import { JOURNAL_ACTIONS, type JournalEntry } from '@/types/journal';
 
 export interface TradesViewProps {
@@ -39,17 +40,6 @@ function formatPnl(pnl: number | null | undefined): { text: string; className: s
     text: `${sign}${pnl.toFixed(2)}%`,
     className: pnl > 0 ? 'text-up' : 'text-down',
   };
-}
-
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return 'n/a';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 'n/a';
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
 }
 
 function getBaseAsset(sym: string): string {
@@ -237,13 +227,16 @@ export const TradesView: React.FC<TradesViewProps> = ({
               <th scope="col" className="py-3.5 px-4 text-right">Entry</th>
               {isClosedList && <th scope="col" className="py-3.5 px-4 text-right">Exit</th>}
               {isClosedList && <th scope="col" className="py-3.5 px-4 text-right">P&L</th>}
+              {isClosedList && <th scope="col" className="py-3.5 px-4 text-right">Held</th>}
               <th scope="col" className="py-3.5 px-4">Tags</th>
-              <th scope="col" className="py-3.5 px-4 text-right">Date</th>
+              <th scope="col" className="py-3.5 px-4 text-right">Entered</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line text-[14px]">
             {tradeList.map((entry) => {
               const pnl = formatPnl(entry.outcomePnlPercent);
+              const shotCount = entry.screenshots?.length ?? 0;
+              const hold = formatHold(entry.enteredAt ?? entry.createdAt, entry.exitedAt);
               return (
                 <tr
                   key={entry._id}
@@ -260,7 +253,12 @@ export const TradesView: React.FC<TradesViewProps> = ({
                   className="hover:bg-muted/40 transition-colors cursor-pointer focus-visible:outline-3 focus-visible:outline-ring"
                 >
                   <td className="py-3.5 px-4 font-semibold text-foreground">
-                    {getBaseAsset(entry.symbol)}
+                    <span>{getBaseAsset(entry.symbol)}</span>
+                    {shotCount > 0 && (
+                      <span className="ml-1.5 text-[12px] font-normal text-muted-foreground">
+                        {shotCount === 1 ? '1 shot' : `${shotCount} shots`}
+                      </span>
+                    )}
                   </td>
                   <td className="py-3.5 px-4">
                     <span className="inline-block px-2 py-0.5 rounded-[6px] text-[12px] font-semibold bg-muted/30 text-foreground">
@@ -280,6 +278,15 @@ export const TradesView: React.FC<TradesViewProps> = ({
                       {pnl.text}
                     </td>
                   )}
+                  {isClosedList && (
+                    <td className="py-3.5 px-4 text-right font-sans tabular-nums">
+                      {hold ? (
+                        <span className="text-foreground">{hold}</span>
+                      ) : (
+                        <span className="text-muted-foreground">n/a</span>
+                      )}
+                    </td>
+                  )}
                   <td className="py-3.5 px-4">
                     {entry.tags && entry.tags.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
@@ -297,7 +304,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
                     )}
                   </td>
                   <td className="py-3.5 px-4 text-right text-muted-foreground font-sans tabular-nums text-[13px]">
-                    {formatDate(entry.createdAt)}
+                    {formatDateTime(entry.enteredAt ?? entry.createdAt)}
                   </td>
                 </tr>
               );
