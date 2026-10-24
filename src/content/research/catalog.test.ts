@@ -370,4 +370,10 @@ describe('research catalog', () => {
       currentFamilyIndex = familyIndex;
     }
   });
+
+  it('every entry has at least one run', () => {
+    for (const entry of RESEARCH_CATALOG) {
+      expect(entry.runs?.length ?? 0, `Entry ${entry.id} must have at least one run`).toBeGreaterThanOrEqual(1);
+    }
+  });
 });

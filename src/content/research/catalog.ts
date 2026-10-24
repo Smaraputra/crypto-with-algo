@@ -938,6 +938,37 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-14',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-10',
+        label: 'Live record evaluation across 280,942 stored calls',
+        outcome: 'Stored calls were right no more often than chance (balanced hit 0.43 to 0.48), and 1m calls lost about 0.19% each after costs.',
+        source: { path: 'src/lib/signals/v8-status.ts', line: 20 },
+      },
+      {
+        date: '2026-10-10',
+        label: 'Year re-score study across 1,553,180 closed bars',
+        outcome: 'Re-scored over a year, calls were right 44 to 47% of the time on a balanced basis, below chance.',
+        source: { path: 'src/lib/signals/v8-status.ts', line: 26 },
+      },
+      {
+        date: '2026-10-10',
+        label: 'Paper desk read tracking 5m forward simulation',
+        outcome: 'The 5m paper desk lost about 0.17% per trade.',
+        source: { path: 'src/lib/signals/v8-status.ts', line: 31 },
+      },
+      {
+        date: '2026-10-11',
+        label: 'Direction and exit study across 24 configurations',
+        outcome: 'None of the 24 pre-registered direction and exit configurations passed the confirm run.',
+        source: { path: 'src/lib/signals/v8-status.ts', line: 36 },
+      },
+    ],
+    trials: {
+      count: 24,
+      label: '24 pre-registered direction and exit configurations evaluated on confirmation data',
+      source: { path: 'src/lib/signals/v8-status.ts', line: 37 },
+    },
   },
   {
     id: 'price-score-direction-exit',
@@ -980,6 +1011,23 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-11',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-11',
+        label: 'Direction and exit confirmation run',
+        commit: '1ae854e',
+        dataset: '48ff79609080',
+        command: 'scripts/research/direction-exit.ts',
+        outcome: 'All 24 confirmation configurations failed expectancy, consistency windows, and deflated Sharpe ratio tests.',
+        source: { path: 'scripts/research/direction-exit.ts', line: 192 },
+      },
+    ],
+    trials: {
+      count: 54,
+      label: '54 develop-period selection trials across direction and exit configurations',
+      ledgerAfter: 2135,
+      source: { path: 'scripts/research/direction-exit.ts', line: 420 },
+    },
   },
   {
     id: 'price-score-v8-rescore',
@@ -1027,6 +1075,28 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-10',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-10',
+        label: 'Historical v8 re-score over one year across six cells',
+        commit: '663e4a1',
+        dataset: 'a964d87d8f45',
+        image: 'crypto-ops:v8-rescore',
+        command: 'scripts/research/v8-rescore-run.ts',
+        outcome: 'Calls across six timeframe cells showed no detectable edge, losing costs intraday.',
+        source: { path: 'scripts/research/v8-rescore.ts', line: 68 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because historical re-score tunes nothing',
+      ledgerAfter: 2081,
+      source: {
+        path: 'scripts/research/v8-rescore.ts',
+        line: 12,
+        match: 'no trial is added',
+      },
+    },
   },
   {
     id: 'price-score-live-record',
@@ -1074,6 +1144,28 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-10',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-10',
+        label: 'Production live signal outcome evaluation',
+        commit: '9b9405a',
+        dataset: '56b3ce50d8a1',
+        image: 'crypto-ops:live-record',
+        command: 'scripts/ops/export-live-outcomes.ts',
+        outcome: 'Version 8 live calls showed no detectable edge at 1m, 5m, 15m, and 1h.',
+        source: { path: 'scripts/research/live-record.ts', line: 90 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because study evaluates the deployed scorer',
+      ledgerAfter: 2078,
+      source: {
+        path: 'scripts/research/live-record.ts',
+        line: 6,
+        match: 'adds no trial',
+      },
+    },
   },
   {
     id: 'price-score-forward-track',
@@ -1116,6 +1208,38 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-10',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-10',
+        label: 'Binding forward test on frozen window',
+        commit: '9e24e43',
+        dataset: '10e02ba86e01',
+        image: 'crypto-ops:forward',
+        command: 'scripts/research/forward-test.ts',
+        outcome: 'No cell confirmed forward on never-read window.',
+        source: { path: 'scripts/research/forward-test.ts', line: 96 },
+      },
+      {
+        date: '2026-10-10',
+        label: 'Descriptive month-by-month tracking run',
+        commit: '2b765de',
+        dataset: 'b98b246934fa',
+        image: 'crypto-ops:forward-track',
+        command: 'scripts/research/forward-track.ts',
+        outcome: 'Small-trade imbalance negative in 11 of 13 months but below breakeven costs.',
+        source: { path: 'scripts/research/forward-track.ts', line: 42 },
+      },
+    ],
+    trials: {
+      count: 3,
+      label: 'Three pre-registered forward test cells (A1, A2, and B)',
+      ledgerAfter: 2081,
+      source: {
+        path: 'scripts/research/forward-test.ts',
+        line: 59,
+        match: '3 forward cells',
+      },
+    },
   },
   {
     id: 'price-score-composite-audit',
@@ -1159,6 +1283,24 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-09-26',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-26',
+        label: 'Live composite indicator sign audit across five reports',
+        command: 'scripts/research/composite-audit.ts',
+        outcome: 'Every trend and higher-timeframe indicator entered with wrong sign; additive ceiling below taker breakeven.',
+        source: { path: 'scripts/research/composite-audit.ts', line: 39 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because the audit evaluates existing factor-ic reports',
+      source: {
+        path: 'scripts/research/composite-audit.ts',
+        line: 13,
+        match: 'restates it',
+      },
+    },
   },
   {
     id: 'price-score-v1-to-v7',
@@ -1199,6 +1341,36 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         path: 'src/lib/signals/compute-engine.ts',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-21',
+        label: 'Archive calibration run for configVersion 3 tier cutoffs',
+        dataset: 'e84cd66dbe01',
+        command: 'scripts/research/score-percentiles.ts',
+        outcome: 'Validated 24/30 tier cutoffs standing on archive dataset across five intervals.',
+        source: {
+          path: 'changelogs/CHANGELOG.md',
+          anchor: '### Verified (signal calibration, 2026-09-21)',
+        },
+      },
+      {
+        date: '2026-09-25',
+        label: 'Recalibration run for configVersion 6 tier cutoffs',
+        dataset: 'e705b347',
+        command: 'scripts/research/score-percentiles.ts',
+        outcome: 'Recalibrated tier cutoffs to 29 and 37 following scale-free indicator adjustments.',
+        source: { path: 'src/lib/signals/calibration.ts', line: 133 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because earlier composite revisions were descriptive calibration updates',
+      source: {
+        path: 'src/lib/signals/calibration.ts',
+        line: 173,
+        match: 'Never tune these on PnL',
+      },
+    },
   },
 
   // =========================================================================
@@ -1251,6 +1423,36 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-10',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-10',
+        label: 'Discovery scan across 304 extreme condition cells',
+        commit: 'f2da209',
+        dataset: 'd81edcd65a6a',
+        command: 'scripts/research/snipe-scan.ts',
+        outcome: 'Selected five candidate extreme condition cells for confirmation testing.',
+        source: { path: 'scripts/research/snipe.ts', line: 221 },
+      },
+      {
+        date: '2026-10-10',
+        label: 'Confirmation evaluation of five candidate cells',
+        commit: 'f2da209',
+        dataset: 'd81edcd65a6a',
+        command: 'scripts/research/snipe-confirm.ts',
+        outcome: 'Two 5m RSI cells passed statistical tests but fell below maker breakeven rates.',
+        source: { path: 'scripts/research/snipe.ts', line: 221 },
+      },
+    ],
+    trials: {
+      count: 309,
+      label: '309 trials across discovery (304) and confirmation (5)',
+      ledgerAfter: 2078,
+      source: {
+        path: 'scripts/research/snipe.ts',
+        line: 280,
+        match: '304 discovery cells plus 5 confirmation cells',
+      },
+    },
   },
   {
     id: 'research-qh-flow',
@@ -1293,6 +1495,28 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-09',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-09',
+        label: 'Hold-out factor IC evaluation',
+        commit: 'c183f91',
+        dataset: 'a15dfe0fae98',
+        image: 'crypto-ops:qh-flow2',
+        command: 'scripts/research/factor-ic.ts',
+        outcome: 'Phase closed under kill criterion 2 with no cells clearing the 0.02 threshold.',
+        source: { path: 'scripts/research/qh-flow.ts', line: 246 },
+      },
+    ],
+    trials: {
+      count: 28,
+      label: '28 hold-out IC cells across four flow columns and two intervals',
+      ledgerAfter: 1769,
+      source: {
+        path: 'scripts/research/qh-flow.ts',
+        line: 307,
+        match: '28 hold-out IC cells',
+      },
+    },
   },
   {
     id: 'research-broad-trend',
@@ -1340,6 +1564,26 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-08',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-08',
+        label: 'Broad-universe trend following evaluation',
+        commit: 'd8ee759',
+        dataset: 'aa62c5a1cb51',
+        outcome: 'All five candidate trend rules failed multiple gates with no deflated Sharpe ratio nearing the threshold.',
+        source: { path: 'scripts/research/broad-trend.ts', line: 405 },
+      },
+    ],
+    trials: {
+      count: 5,
+      label: 'Five trend trials on survivorship-free universe (TF1, TF2, TF3, TF4, C3)',
+      ledgerAfter: 1729,
+      source: {
+        path: 'scripts/research/broad-trend.ts',
+        line: 23,
+        match: 'this phase adds 5, for 1,729',
+      },
+    },
   },
   {
     id: 'research-broad-flow',
@@ -1382,6 +1626,26 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-08',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-08',
+        label: 'Broad-universe cross-sectional order flow evaluation',
+        commit: 'cb91ad9',
+        dataset: 'aa62c5a1cb51',
+        outcome: 'Daily and weekly cross-sectional order flow sorts failed to show edge after costs.',
+        source: { path: 'scripts/research/broad-flow.ts', line: 228 },
+      },
+    ],
+    trials: {
+      count: 3,
+      label: 'Three cross-sectional order flow trials (DO, W, WO)',
+      ledgerAfter: 1732,
+      source: {
+        path: 'scripts/research/broad-flow.ts',
+        line: 32,
+        match: 'this phase adds 3, for 1,732',
+      },
+    },
   },
   {
     id: 'research-event-studies',
@@ -1424,6 +1688,26 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-08',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-08',
+        label: 'Event study evaluation across three horizons',
+        commit: 'ab67970',
+        dataset: 'a93d2d26403c',
+        outcome: 'No event study cell passed directional gates after costs.',
+        source: { path: 'scripts/research/event-studies.ts', line: 193 },
+      },
+    ],
+    trials: {
+      count: 9,
+      label: 'Nine event-study trials (three events across three horizons)',
+      ledgerAfter: 1741,
+      source: {
+        path: 'scripts/research/event-studies.ts',
+        line: 20,
+        match: 'Nine trials',
+      },
+    },
   },
   {
     id: 'research-funding-carry',
@@ -1466,6 +1750,26 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-02',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-02',
+        label: 'Cash-and-carry funding arbitrage evaluation',
+        commit: '71d29c2',
+        dataset: '0789efcd350f',
+        outcome: 'Both R0 and R1 generated positive annual returns but failed the economic hurdle.',
+        source: { path: 'scripts/research/carry-sim.ts', line: 101 },
+      },
+    ],
+    trials: {
+      count: 7,
+      label: 'Seven carry rules and hysteresis grid configurations (R0 benchmark plus 6 R1 cells)',
+      ledgerAfter: 1713,
+      source: {
+        path: 'scripts/research/carry-sim.ts',
+        line: 44,
+        match: 'trials 7',
+      },
+    },
   },
   {
     id: 'research-trend-sim',
@@ -1513,6 +1817,34 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-02',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-02',
+        label: 'Trend following simulation (run 2)',
+        commit: '9b12f61',
+        dataset: 'd84b32d9fb31',
+        outcome: 'TF1, TF4 and C3 passed single-report gates pending gate 8 evaluation.',
+        source: { path: 'scripts/research/trend-sim.ts', line: 363 },
+      },
+      {
+        date: '2026-10-02',
+        label: 'Harness rules and gate 8 deflated Sharpe evaluation',
+        commit: 'be688f2',
+        dataset: 'd84b32d9fb31',
+        outcome: 'P1-P4, C1, and C2 evaluated on harness with all failing gate sets.',
+        source: { path: 'scripts/research/trend-sim.ts', line: 398 },
+      },
+    ],
+    trials: {
+      count: 11,
+      label: 'Eleven pre-registered trials (trend 4, patterns 4, scour 3)',
+      ledgerAfter: 1724,
+      source: {
+        path: 'scripts/research/trend-sim.ts',
+        line: 13,
+        match: '11 trials',
+      },
+    },
   },
   {
     id: 'research-frontier',
@@ -1560,6 +1892,31 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-01',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-26',
+        label: 'Initial frequency frontier evaluation',
+        command: 'scripts/research/frontier.ts',
+        outcome: 'Derived break-even information coefficient hurdles across five intervals.',
+        source: { path: 'scripts/research/frontier.ts', line: 27 },
+      },
+      {
+        date: '2026-10-01',
+        label: 'Recalibration of frontier hurdles using raw single-trade dispersion',
+        command: 'scripts/research/frontier.ts',
+        outcome: 'Re-measured break-even hurdles correcting for cross-symbol correlation of concurrent trades.',
+        source: { path: 'scripts/research/frontier.ts', line: 41 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because frequency frontier analysis evaluates existing reports',
+      source: {
+        path: 'scripts/research/frontier.ts',
+        line: 2,
+        match: 'frequency frontier',
+      },
+    },
   },
   {
     id: 'research-exploration-families',
@@ -1597,6 +1954,31 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-09-28',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-28',
+        label: 'Round 1 exploration families evaluation',
+        dataset: '3f14b27e',
+        outcome: 'All candidate families failed the eight gates on develop slice S0.',
+        source: { path: 'scripts/research/exploration-families.ts', line: 47 },
+      },
+      {
+        date: '2026-09-28',
+        label: 'Round 2 Deribit options families evaluation',
+        dataset: '3483a511',
+        outcome: 'Delta-flow continuation passed gross filters on S0 but failed when confirmed on out-of-sample data.',
+        source: { path: 'scripts/research/exploration-families.ts', line: 108 },
+      },
+    ],
+    trials: {
+      count: 1186,
+      label: 'Audited trial count across round 1 exploration families (1,141 as run)',
+      source: {
+        path: 'scripts/research/exploration-families.ts',
+        line: 49,
+        match: '1186',
+      },
+    },
   },
   {
     id: 'research-factors',
@@ -1639,6 +2021,25 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-09-26',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-26',
+        label: 'Phase B factor information coefficient evaluation',
+        dataset: 'e84cd66dbe01',
+        command: 'scripts/research/factor-ic.ts',
+        outcome: 'Evaluated 2,361 factor cells across time-series and cross-sectional axes with no new column surviving.',
+        source: { path: 'scripts/research/factors.ts', line: 334 },
+      },
+    ],
+    trials: {
+      count: 2361,
+      label: '2,361 factor cells evaluated across timeframes and horizons in Phase B',
+      source: {
+        path: 'scripts/research/factors.ts',
+        line: 337,
+        match: '2,361 cells',
+      },
+    },
   },
   {
     id: 'research-strategy-families',
@@ -1681,6 +2082,24 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-09-21',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-21',
+        label: 'Phase 4c strategy family grid evaluation',
+        dataset: 'e84cd66dbe01',
+        outcome: 'All eight family-interval runs failed the gate set after trading costs.',
+        source: { path: 'scripts/research/strategy-families.ts', line: 162 },
+      },
+    ],
+    trials: {
+      count: 342,
+      label: '342 total strategy grid cells evaluated across eight family-interval runs',
+      source: {
+        path: 'scripts/research/strategy-families.ts',
+        line: 163,
+        match: 'trials 342',
+      },
+    },
   },
   {
     id: 'research-exposure-gates',
@@ -1725,6 +2144,25 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-09-21',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-21',
+        label: 'Phase 5 banded-exposure evaluation',
+        dataset: 'e84cd66dbe01',
+        command: 'scripts/research/exposure-harness.ts',
+        outcome: 'Pre-registered falsification criterion fired with banded exposure failing expectancy and jackknife gates.',
+        source: { path: 'scripts/research/exposure-gates.ts', line: 4 },
+      },
+    ],
+    trials: {
+      count: 36,
+      label: '36 grid cells evaluated per exposure run (4 bands x 3 z-scales x 3 smoothings)',
+      source: {
+        path: 'scripts/research/exposure-gates.ts',
+        line: 5,
+        match: '--trials 36',
+      },
+    },
   },
   {
     id: 'research-factor-ic',
@@ -1772,5 +2210,25 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-09-18',
       },
     ],
+    runs: [
+      {
+        date: '2026-09-18',
+        label: 'Phase 3 factor information coefficient screening',
+        commit: 'f7946f4',
+        dataset: '3fdeac9e495e',
+        command: 'scripts/research/factor-ic.ts',
+        outcome: 'Screened 40 factors across four intervals showing pervasive intraday mean reversion.',
+        source: { path: 'scripts/research/factor-ic.ts', line: 14 },
+      },
+    ],
+    trials: {
+      count: 40,
+      label: '40 technical, order flow, and positioning factors screened across intervals and horizons',
+      source: {
+        path: 'scripts/research/factor-ic.ts',
+        line: 26,
+        match: '40',
+      },
+    },
   },
 ] as const;
