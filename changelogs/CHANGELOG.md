@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Mongoose return option and corner radii on the design scale
+- **Mongoose:** every `findOneAndUpdate`, `findOneAndReplace` and `findByIdAndUpdate` call now passes `returnDocument: 'after'` in place of the deprecated `new: true`. The deprecation warning no longer prints in CI and production logs. Behaviour is unchanged.
+- **Corner radii:** these now follow the design scale (chips 8px, controls 12px, panels 22px):
+  - buttons, toggles and other controls go from 10px to 12px;
+  - the 26px idea cells go from 7px to 8px;
+  - the 9px inner radius of segmented controls stays, because it is the 12px control less its 3px padding.
 ### Added: Live lab counts on the public home page
 - **Endpoint:** `GET /api/public/lab-counts` returns counts only: hypotheses under test, validated, not started, the total, the one rejected rule and the ledger total of trials.
   - No hypothesis names, evidence values, signals or coins are exposed.
