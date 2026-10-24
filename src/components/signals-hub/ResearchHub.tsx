@@ -102,13 +102,9 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({ className }) => {
 
   const filteredEntries = useMemo(() => {
     return RESEARCH_CATALOG.filter((entry) => {
-      if (statusParam !== 'all' && entry.status !== statusParam) {
-        return false;
-      }
-      if (familyParam !== 'all' && entry.family !== familyParam) {
-        return false;
-      }
-      return true;
+      const statusMatches = statusParam === 'all' || entry.status === statusParam;
+      const familyMatches = familyParam === 'all' || entry.family === familyParam;
+      return statusMatches && familyMatches;
     });
   }, [statusParam, familyParam]);
 

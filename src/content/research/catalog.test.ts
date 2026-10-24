@@ -67,12 +67,11 @@ describe('research catalog', () => {
     for (const entry of RESEARCH_CATALOG) {
       for (const figure of entry.figures) {
         const filePath = path.join(cwd, figure.source.path);
-        if (!fileCache.has(filePath)) {
-          const content = fs.readFileSync(filePath, 'utf8');
-          fileCache.set(filePath, content.split('\n'));
+        let lines = fileCache.get(filePath);
+        if (!lines) {
+          lines = fs.readFileSync(filePath, 'utf8').split('\n');
+          fileCache.set(filePath, lines);
         }
-
-        const lines = fileCache.get(filePath)!;
         const targetText = figure.source.match ?? figure.value;
 
         let startIndex: number;

@@ -122,8 +122,8 @@ export const ResearchEntryCard: React.FC<ResearchEntryCardProps> = ({
               Steps
             </h4>
             <ol className="list-decimal list-inside space-y-1.5 text-[14px] text-muted-foreground leading-relaxed">
-              {entry.steps.map((step, idx) => (
-                <li key={idx}>
+              {entry.steps.map((step) => (
+                <li key={step}>
                   <span>{step}</span>
                 </li>
               ))}
@@ -140,9 +140,9 @@ export const ResearchEntryCard: React.FC<ResearchEntryCardProps> = ({
             </p>
             {entry.figures && entry.figures.length > 0 && (
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-[14px] mt-3">
-                {entry.figures.map((fig, idx) => (
+                {entry.figures.map((fig) => (
                   <div
-                    key={idx}
+                    key={fig.label}
                     className="flex justify-between items-baseline border-b border-line py-1.5"
                   >
                     <dt className="text-muted-foreground">{fig.label}</dt>
@@ -162,8 +162,8 @@ export const ResearchEntryCard: React.FC<ResearchEntryCardProps> = ({
                 Research
               </h4>
               <ul className="list-disc list-inside space-y-1.5 text-[14px] text-muted-foreground leading-relaxed">
-                {entry.research.map((item, idx) => (
-                  <li key={idx}>
+                {entry.research.map((item) => (
+                  <li key={item}>
                     <span>{item}</span>
                   </li>
                 ))}
@@ -178,8 +178,8 @@ export const ResearchEntryCard: React.FC<ResearchEntryCardProps> = ({
                 References
               </h4>
               <ul className="space-y-2 text-[14px] text-muted-foreground">
-                {entry.references.map((ref, idx) => (
-                  <li key={idx} className="flex flex-wrap items-baseline gap-2">
+                {entry.references.map((ref) => (
+                  <li key={`${ref.label}-${ref.path ?? ''}-${ref.pr ?? ''}`} className="flex flex-wrap items-baseline gap-2">
                     <span className="font-medium text-foreground">
                       {ref.label}
                     </span>
