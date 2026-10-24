@@ -12,7 +12,8 @@ export type ResearchFamily =
   | 'relative-value'
   | 'research-program'
   | 'next-version'
-  | 'forward-lab';
+  | 'forward-lab'
+  | 'records';
 
 /**
  * Where a figure's text appears. Give `line` for files that only change in
@@ -119,6 +120,10 @@ export const RESEARCH_FAMILIES: Record<ResearchFamily, { label: string; descript
   'research-program': {
     label: 'Research program',
     description: 'Earlier studies of market factors, events and trading rule families.',
+  },
+  'records': {
+    label: 'Live records',
+    description: 'Running records of live calls and paper trades, kept for measurement rather than as tests.',
   },
 };
 
@@ -700,6 +705,11 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         path: 'scripts/research/next-version-v1.ts',
         date: '2026-10-18',
       },
+      {
+        label: 'Candidate C1 holdout evaluation',
+        path: 'scripts/research/nv1-c1.ts',
+        date: '2026-10-18',
+      },
     ],
     runs: [
       {
@@ -1010,6 +1020,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         path: 'scripts/research/direction-exit.ts',
         date: '2026-10-11',
       },
+      {
+        label: 'Strategy harness engine',
+        path: 'scripts/research/strategy-harness.ts',
+      },
     ],
     runs: [
       {
@@ -1207,6 +1221,11 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         path: 'scripts/research/forward-track.ts',
         date: '2026-10-10',
       },
+      {
+        label: 'Pre-registered forward test lock',
+        path: 'scripts/research/forward-test.ts',
+        date: '2026-10-10',
+      },
     ],
     runs: [
       {
@@ -1340,6 +1359,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         label: 'Compute engine configVersion history',
         path: 'src/lib/signals/compute-engine.ts',
       },
+      {
+        label: 'Signal score and tier calibration',
+        path: 'src/lib/signals/calibration.ts',
+      },
     ],
     runs: [
       {
@@ -1422,6 +1445,11 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         path: 'scripts/research/snipe.ts',
         date: '2026-10-10',
       },
+      {
+        label: 'Snipe phase per-symbol matrix arrays',
+        path: 'scripts/research/snipe-matrix.ts',
+        date: '2026-10-10',
+      },
     ],
     runs: [
       {
@@ -1494,6 +1522,11 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         path: 'scripts/research/qh-flow.ts',
         date: '2026-10-09',
       },
+      {
+        label: 'Quarter-hour flow circular-shift null',
+        path: 'scripts/research/qh-flow-null.ts',
+        date: '2026-10-09',
+      },
     ],
     runs: [
       {
@@ -1562,6 +1595,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         label: 'Broad trend study lock',
         path: 'scripts/research/broad-trend.ts',
         date: '2026-10-08',
+      },
+      {
+        label: 'Trend harness engine',
+        path: 'scripts/research/trend-harness.ts',
       },
     ],
     runs: [
@@ -1676,6 +1713,11 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         value: '1.29',
         source: { path: 'scripts/research/event-studies.ts', line: 218 },
       },
+      {
+        label: 'Top-fifth volatility persistence rate',
+        value: '41.4%',
+        source: { path: 'src/lib/costs/volatility-regime.ts', line: 18 },
+      },
     ],
     research: [
       'Kept the volatility reading as a descriptive finding, not a trade.',
@@ -1685,6 +1727,16 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Event studies lock',
         path: 'scripts/research/event-studies.ts',
+        date: '2026-10-08',
+      },
+      {
+        label: 'Market volatility regime specification',
+        path: 'src/lib/costs/volatility-regime.ts',
+        date: '2026-10-08',
+      },
+      {
+        label: 'Market volatility regime release note',
+        path: 'changelogs/CHANGELOG.md',
         date: '2026-10-08',
       },
     ],
@@ -1814,6 +1866,19 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Legends trend simulation lock',
         path: 'scripts/research/trend-sim.ts',
+        date: '2026-10-02',
+      },
+      {
+        label: 'Strategy harness engine',
+        path: 'scripts/research/strategy-harness.ts',
+      },
+      {
+        label: 'Trend harness engine',
+        path: 'scripts/research/trend-harness.ts',
+      },
+      {
+        label: 'Legends strategy families definitions',
+        path: 'scripts/research/families/legends.ts',
         date: '2026-10-02',
       },
     ],
@@ -2230,5 +2295,179 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         match: '40',
       },
     },
+  },
+
+  // =========================================================================
+  // records (newest first)
+  // =========================================================================
+  {
+    id: 'records-llm-panel',
+    name: 'LLM panel live record',
+    family: 'records',
+    status: 'descriptive',
+    period: 'Live until 2026-10-16',
+    summary: 'Running record of forward-only LLM panel directional calls measured by the outcome resolver.',
+    steps: [
+      'Prompted three panel roles (news reader, regime classifier, risk officer) on point-in-time packets for closed bars at 1h, 4h, and 1d intervals.',
+      'Stored idempotent votes and signed strength in the LlmCall collection without feeding calls into the composite scorer.',
+      'Resolved forward directional outcomes with the shared outcome resolver and evaluated cross-sectional information coefficients with market beta removed.',
+    ],
+    result: 'Retired on 2026-10-16 with stored calls and outcomes kept as a permanent descriptive record because overlapping horizons and market beta left sample sizes too small to prove predictive edge.',
+    figures: [
+      {
+        label: 'First uncorrected readout t-statistic',
+        value: '-2.76',
+        source: { path: 'scripts/ops/llm-factor-stats.ts', line: 25 },
+      },
+      {
+        label: 'Initial evaluated bars count',
+        value: '15',
+        source: { path: 'scripts/ops/llm-factor-stats.ts', line: 25 },
+      },
+      {
+        label: 'Forward horizon bars at 1h',
+        value: '24',
+        source: { path: 'scripts/ops/llm-factor-stats.ts', line: 20 },
+      },
+      {
+        label: 'Newest stored call age in days on production audit',
+        value: '11.6',
+        source: {
+          path: 'changelogs/CHANGELOG.md',
+          anchor: '### Fixed: signal record integrity before the forward signal lab',
+        },
+      },
+    ],
+    research: [
+      'The panel posted calls every two hours against a 24-bar horizon at 1h, so neighbouring observations shared most forward bars.',
+      'Removing cross-sectional mean returns isolated relative ranking from market direction.',
+    ],
+    references: [
+      {
+        label: 'LLM panel call model schema',
+        path: 'src/lib/models/llm-call.ts',
+      },
+      {
+        label: 'LLM factor readout analysis',
+        path: 'scripts/ops/llm-factor-readout.ts',
+      },
+      {
+        label: 'LLM factor statistics module',
+        path: 'scripts/ops/llm-factor-stats.ts',
+      },
+      {
+        label: 'Admin LLM calls API router',
+        path: 'src/app/api/admin/llm-calls/route.ts',
+      },
+    ],
+    runs: [
+      {
+        date: '2026-10-16',
+        label: 'LLM panel host cron retirement and outcome preservation',
+        command: 'scripts/ops/drop-outcome-ttl.ts',
+        outcome: 'Panel retired from cron schedule with stored calls and outcomes preserved permanently for factor measurement.',
+        source: {
+          path: 'changelogs/CHANGELOG.md',
+          anchor: '### Research: rv-v1 re-validation RESULT, the rule fails',
+        },
+      },
+      {
+        date: '2026-10-18',
+        label: 'Production cron health audit of stored call age',
+        command: 'scripts/ops/llm-factor-readout.ts',
+        outcome: 'Verified panel newest stored call was 11.6 days old and cron health confirmed retirement.',
+        source: {
+          path: 'changelogs/CHANGELOG.md',
+          anchor: '### Fixed: signal record integrity before the forward signal lab',
+        },
+      },
+    ],
+  },
+  {
+    id: 'records-paper-desk',
+    name: 'Paper desk records',
+    family: 'records',
+    status: 'descriptive',
+    period: 'Live since 2026-10-02',
+    summary: 'Running record of forward simulated execution across v8 style books and the 8-hour relative value desk, kept for measurement rather than as tests.',
+    steps: [
+      'Tracked paper trading executions across active trading style books with dual-track accounting for engine and executable prices.',
+      'Enforced pre-declared read rule for futility and go-live detection with trade counts sized for one-sided 5% alpha at 80% power.',
+      'Recorded 8-hour cross-sectional relative value paper trades under frozen rule rv-v1 with atomic leases and write-once step logs.',
+    ],
+    result: 'Recorded forward trades across five intraday books and the 8-hour relative value desk, with the 5m book reaching futility (-0.171% per trade) and other books accumulating trades below go-live detection counts.',
+    figures: [
+      {
+        label: '5m book trade count at live evaluation',
+        value: '568',
+        source: { path: 'scripts/research/live-record.ts', line: 131 },
+      },
+      {
+        label: '5m book net expectancy per trade %',
+        value: '-0.171%',
+        source: { path: 'scripts/research/live-record.ts', line: 131 },
+      },
+      {
+        label: '15m book trade count at live evaluation',
+        value: '191',
+        source: { path: 'scripts/research/live-record.ts', line: 133 },
+      },
+      {
+        label: '1h book trade count at live evaluation',
+        value: '67',
+        source: { path: 'scripts/research/live-record.ts', line: 134 },
+      },
+      {
+        label: 'Desk read rule execution minimum trades',
+        value: '30',
+        source: { path: 'src/lib/paper-desk/books.ts', line: 82 },
+      },
+      {
+        label: 'Starting equity per ledger in USDT',
+        value: '1000',
+        source: { path: 'src/lib/paper-desk/books.ts', line: 53 },
+      },
+    ],
+    research: [
+      'The 5m paper desk closed under futility because its whole 95% confidence interval stayed below zero.',
+      'The 8-hour relative value desk recorded forward steps under frozen rule rv-v1 as a descriptive track following its re-validation verdict.',
+    ],
+    references: [
+      {
+        label: 'Paper desk books configuration and read rule',
+        path: 'src/lib/paper-desk/books.ts',
+      },
+      {
+        label: 'Paper desk outcomes evaluation CLI',
+        path: 'scripts/ops/paper-desk-outcomes.ts',
+      },
+      {
+        label: 'Paper desk book report module',
+        path: 'src/lib/paper-desk/report.ts',
+      },
+      {
+        label: 'Relative value rv-v1 paper desk runner',
+        path: 'src/lib/paper-desk/rv-desk.ts',
+      },
+    ],
+    runs: [
+      {
+        date: '2026-10-02',
+        label: 'Desk read rule declared and books initialized',
+        command: 'src/lib/paper-desk/books.ts',
+        outcome: 'Declared futility and go-live detection rule sized for one-sided 5% alpha at 80% power.',
+        source: { path: 'src/lib/paper-desk/books.ts', line: 78 },
+      },
+      {
+        date: '2026-10-10',
+        label: 'v8 paper desk evaluation across active style books',
+        commit: '9b9405a',
+        dataset: '2cdb99e79d441ead3dd4af8e7ae8e4e9bb95b5e46f87eb60a2b9e2a888346671',
+        image: 'crypto-ops:live-record',
+        command: 'scripts/ops/paper-desk-outcomes.ts',
+        outcome: 'Evaluated 5m, 15m, 1h, 4h and 1d books with 5m closing under futility at -0.171% expectancy.',
+        source: { path: 'scripts/research/live-record.ts', line: 90 },
+      },
+    ],
   },
 ] as const;

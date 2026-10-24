@@ -356,6 +356,7 @@ describe('research catalog', () => {
       'relative-value',
       'price-score',
       'research-program',
+      'records',
     ];
 
     expect(Object.keys(RESEARCH_FAMILIES)).toEqual(expectedFamilyOrder);
