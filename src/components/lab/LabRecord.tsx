@@ -101,10 +101,11 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
         className="mb-6 sm:mb-8"
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] lg:grid-rows-[auto_auto_auto_1fr] gap-6 items-start">
         {/* Summary */}
         <div className="order-1 lg:col-start-1 lg:row-start-1">
           <LabSummary
+            isLoading={anyLoading}
             counts={{
               validated: validatedCount,
               underTest: underTestCount,
@@ -115,7 +116,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
         </div>
 
         {/* Groups */}
-        <div className="order-2 lg:col-start-2 lg:row-start-1 lg:row-span-3 space-y-6">
+        <div className="order-2 lg:col-start-2 lg:row-start-1 lg:row-span-4 space-y-6">
           {anyLoading && (
             <StateNotice
               kind="loading"
@@ -151,7 +152,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
             />
           )}
 
-          {validatedHypotheses.length > 0 && (
+          {!anyLoading && validatedHypotheses.length > 0 && (
             <Panel as="section" aria-labelledby="group-heading-validated" className="space-y-2">
               <div className="mb-2">
                 <h2 id="group-heading-validated" className="m-0 text-base font-normal">
@@ -164,7 +165,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
             </Panel>
           )}
 
-          {underTestHypotheses.length > 0 && (
+          {!anyLoading && underTestHypotheses.length > 0 && (
             <Panel as="section" aria-labelledby="group-heading-under-test" className="space-y-2">
               <div className="mb-2">
                 <h2 id="group-heading-under-test" className="m-0 text-base font-normal">
@@ -177,7 +178,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
             </Panel>
           )}
 
-          {notStartedHypotheses.length > 0 && (
+          {!anyLoading && notStartedHypotheses.length > 0 && (
             <Panel as="section" aria-labelledby="group-heading-not-started" className="space-y-2">
               <div className="mb-2">
                 <h2 id="group-heading-not-started" className="m-0 text-base font-normal">
@@ -190,7 +191,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
             </Panel>
           )}
 
-          {notShownHypotheses.length > 0 && (
+          {!anyLoading && notShownHypotheses.length > 0 && (
             <Panel as="section" aria-labelledby="group-heading-not-shown" className="space-y-2">
               <div className="mb-2">
                 <h2 id="group-heading-not-shown" className="m-0 text-base font-normal">
@@ -203,7 +204,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
             </Panel>
           )}
 
-          <RejectedRule />
+          {!anyLoading && <RejectedRule />}
         </div>
 
         {/* Price score */}

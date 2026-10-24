@@ -1,6 +1,5 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StreamHealth } from './StreamHealth';
 import { useMarketStreamStatus } from '@/hooks/useMarketStream';
 
@@ -12,7 +11,12 @@ describe('StreamHealth', () => {
   const retryMock = vi.fn();
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders nothing when status is live', () => {
@@ -41,7 +45,24 @@ describe('StreamHealth', () => {
     expect(useMarketStreamStatus).toHaveBeenCalledWith('perp');
   });
 
-  it('renders "Connecting to live prices." when connecting', () => {
+  it('nothing renders before 4s of connecting', () => {
+    vi.mocked(useMarketStreamStatus).mockReturnValue({
+      status: 'connecting',
+      lastMessageAt: null,
+      isConnected: false,
+      retry: retryMock,
+    });
+
+    const { container } = render(<StreamHealth />);
+    expect(container).toBeEmptyDOMElement();
+
+    act(() => {
+      vi.advanceTimersByTime(3999);
+    });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('the notice renders after 4s', () => {
     vi.mocked(useMarketStreamStatus).mockReturnValue({
       status: 'connecting',
       lastMessageAt: null,
@@ -50,10 +71,77 @@ describe('StreamHealth', () => {
     });
 
     render(<StreamHealth />);
+    expect(screen.queryByText('Connecting to live prices.')).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
     expect(screen.getByText('Connecting to live prices.')).toBeInTheDocument();
   });
 
-  it('renders "Reconnecting to live prices." when reconnecting', () => {
+  it('it disappears at once on live', () => {
+    vi.mocked(useMarketStreamStatus).mockReturnValue({
+      status: 'connecting',
+      lastMessageAt: null,
+      isConnected: false,
+      retry: retryMock,
+    });
+
+    const { rerender, container } = render(<StreamHealth />);
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(screen.getByText('Connecting to live prices.')).toBeInTheDocument();
+
+    vi.mocked(useMarketStreamStatus).mockReturnValue({
+      status: 'live',
+      lastMessageAt: Date.now(),
+      isConnected: true,
+      retry: retryMock,
+    });
+    rerender(<StreamHealth />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('a reconnect shorter than 4s never shows it', () => {
+    vi.mocked(useMarketStreamStatus).mockReturnValue({
+      status: 'live',
+      lastMessageAt: Date.now(),
+      isConnected: true,
+      retry: retryMock,
+    });
+
+    const { rerender, container } = render(<StreamHealth />);
+    expect(container).toBeEmptyDOMElement();
+
+    vi.mocked(useMarketStreamStatus).mockReturnValue({
+      status: 'reconnecting',
+      lastMessageAt: null,
+      isConnected: false,
+      retry: retryMock,
+    });
+    rerender(<StreamHealth />);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(container).toBeEmptyDOMElement();
+
+    vi.mocked(useMarketStreamStatus).mockReturnValue({
+      status: 'live',
+      lastMessageAt: Date.now(),
+      isConnected: true,
+      retry: retryMock,
+    });
+    rerender(<StreamHealth />);
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('renders "Reconnecting to live prices." after 4s when reconnecting', () => {
     vi.mocked(useMarketStreamStatus).mockReturnValue({
       status: 'reconnecting',
       lastMessageAt: null,
@@ -62,11 +150,13 @@ describe('StreamHealth', () => {
     });
 
     render(<StreamHealth />);
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
     expect(screen.getByText('Reconnecting to live prices.')).toBeInTheDocument();
   });
 
-  it('renders "Live prices paused. Showing the last update." and Reconnect calls retry when stale', async () => {
-    const user = userEvent.setup();
+  it('renders "Live prices paused. Showing the last update." after 4s and Reconnect calls retry when stale', () => {
     vi.mocked(useMarketStreamStatus).mockReturnValue({
       status: 'stale',
       lastMessageAt: Date.now() - 30_000,
@@ -75,17 +165,19 @@ describe('StreamHealth', () => {
     });
 
     render(<StreamHealth />);
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
     expect(
       screen.getByText('Live prices paused. Showing the last update.')
     ).toBeInTheDocument();
 
     const button = screen.getByRole('button', { name: 'Reconnect' });
-    await user.click(button);
+    fireEvent.click(button);
     expect(retryMock).toHaveBeenCalledTimes(1);
   });
 
-  it('renders "Live prices are offline." and Reconnect calls retry when offline', async () => {
-    const user = userEvent.setup();
+  it('renders "Live prices are offline." after 4s and Reconnect calls retry when offline', () => {
     vi.mocked(useMarketStreamStatus).mockReturnValue({
       status: 'offline',
       lastMessageAt: null,
@@ -94,10 +186,13 @@ describe('StreamHealth', () => {
     });
 
     render(<StreamHealth />);
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
     expect(screen.getByText('Live prices are offline.')).toBeInTheDocument();
 
     const button = screen.getByRole('button', { name: 'Reconnect' });
-    await user.click(button);
+    fireEvent.click(button);
     expect(retryMock).toHaveBeenCalledTimes(1);
   });
 });

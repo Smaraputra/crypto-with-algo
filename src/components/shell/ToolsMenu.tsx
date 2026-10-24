@@ -38,7 +38,7 @@ export function ToolsMenu() {
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48 p-1.5 shadow-md">
+      <DropdownMenuContent align="start" className="w-48 p-1.5">
         {TOOLS_NAV_ITEMS.map((item) => {
           const itemActive = isNavActive(pathname, item);
           return (

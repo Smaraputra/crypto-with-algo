@@ -8,6 +8,7 @@ describe('MarketingNav', () => {
 
     expect(screen.getByRole('link', { name: 'CryptoWithAlgo' })).toHaveAttribute('href', '/');
     expect(screen.getAllByRole('link', { name: 'Features' })[0]).toHaveAttribute('href', '/features');
+    expect(screen.getAllByRole('link', { name: 'Features' })[0]).toHaveClass('min-h-[44px]');
     expect(screen.getAllByRole('link', { name: 'How it works' })[0]).toHaveAttribute('href', '/how-it-works');
     expect(screen.getAllByRole('link', { name: 'Docs' })[0]).toHaveAttribute('href', '/docs');
     expect(screen.getAllByRole('link', { name: 'Blog' })[0]).toHaveAttribute('href', '/blog');

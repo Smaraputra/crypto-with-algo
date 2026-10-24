@@ -19,23 +19,23 @@ export function MarketingFooter() {
         <div className="flex flex-wrap items-center justify-center gap-6">
           <Link
             href="/docs"
-            className="transition-colors hover:text-foreground"
+            className="inline-flex items-center min-h-[44px] transition-colors hover:text-foreground"
           >
             Docs
           </Link>
           <Link
             href="/privacy"
-            className="transition-colors hover:text-foreground"
+            className="inline-flex items-center min-h-[44px] transition-colors hover:text-foreground"
           >
             Privacy
           </Link>
           <Link
             href="/terms"
-            className="transition-colors hover:text-foreground"
+            className="inline-flex items-center min-h-[44px] transition-colors hover:text-foreground"
           >
             Terms
           </Link>
-          <span className="tabular-nums">
+          <span className="inline-flex items-center min-h-[44px] tabular-nums">
             © {year}
           </span>
         </div>

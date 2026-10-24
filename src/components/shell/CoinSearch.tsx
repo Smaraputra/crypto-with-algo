@@ -100,7 +100,7 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
         >
           <Search className="size-4 shrink-0 text-ink-2" />
           <span className="hidden xl:inline">Search coins</span>
-          <kbd className="pointer-events-none hidden rounded border border-edge bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-ink-2 xl:inline-block">
+          <kbd className="pointer-events-none hidden rounded border border-edge bg-muted px-1.5 py-0.5 font-sans text-[11px] font-semibold text-ink-2 xl:inline-block">
             {isMac ? '⌘K' : 'Ctrl K'}
           </kbd>
         </button>

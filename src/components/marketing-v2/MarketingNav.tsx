@@ -44,32 +44,32 @@ export function MarketingNav() {
         <div className="flex items-center gap-8">
           <Link
             href="/"
-            className="text-[18px] font-semibold tracking-tight text-foreground"
+            className="inline-flex items-center min-h-[44px] text-[18px] font-semibold tracking-tight text-foreground"
           >
             CryptoWithAlgo
           </Link>
           <nav aria-label="Main" className="hidden md:flex md:items-center md:gap-6">
             <Link
               href="/features"
-              className="text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               Features
             </Link>
             <Link
               href="/how-it-works"
-              className="text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               How it works
             </Link>
             <Link
               href="/docs"
-              className="text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               Docs
             </Link>
             <Link
               href="/blog"
-              className="text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] text-[14px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               Blog
             </Link>
@@ -80,13 +80,13 @@ export function MarketingNav() {
           <ThemeToggle />
           <Link
             href="/login"
-            className="px-3 py-2 text-[14px] font-medium text-foreground transition-colors hover:text-foreground/80"
+            className="inline-flex items-center min-h-[44px] px-3 py-2 text-[14px] font-medium text-foreground transition-colors hover:text-foreground/80"
           >
             Log in
           </Link>
           <Link
             href="/register"
-            className="rounded-full bg-brand px-4 py-2 text-[14px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
+            className="inline-flex items-center min-h-[44px] rounded-full bg-brand px-4 py-2 text-[14px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
           >
             Create a free account
           </Link>
@@ -118,7 +118,7 @@ export function MarketingNav() {
               role="menuitem"
               href="/features"
               onClick={closeMenu}
-              className="px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               Features
             </Link>
@@ -126,7 +126,7 @@ export function MarketingNav() {
               role="menuitem"
               href="/how-it-works"
               onClick={closeMenu}
-              className="px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               How it works
             </Link>
@@ -134,7 +134,7 @@ export function MarketingNav() {
               role="menuitem"
               href="/docs"
               onClick={closeMenu}
-              className="px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               Docs
             </Link>
@@ -142,7 +142,7 @@ export function MarketingNav() {
               role="menuitem"
               href="/blog"
               onClick={closeMenu}
-              className="px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
+              className="inline-flex items-center min-h-[44px] px-3 py-2 text-[15px] font-medium text-ink-2 transition-colors hover:text-foreground"
             >
               Blog
             </Link>
@@ -151,7 +151,7 @@ export function MarketingNav() {
               role="menuitem"
               href="/login"
               onClick={closeMenu}
-              className="px-3 py-2 text-[15px] font-medium text-foreground transition-colors hover:text-foreground/80"
+              className="inline-flex items-center min-h-[44px] px-3 py-2 text-[15px] font-medium text-foreground transition-colors hover:text-foreground/80"
             >
               Log in
             </Link>
@@ -159,7 +159,7 @@ export function MarketingNav() {
               role="menuitem"
               href="/register"
               onClick={closeMenu}
-              className="inline-block text-center rounded-full bg-brand px-4 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
+              className="inline-flex items-center justify-center min-h-[44px] rounded-full bg-brand px-4 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
             >
               Create a free account
             </Link>

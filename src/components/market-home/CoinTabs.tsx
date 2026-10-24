@@ -127,7 +127,7 @@ export const CoinTabs: React.FC<CoinTabsProps> = ({ className }) => {
               'focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px] focus-visible:outline transition-colors duration-120',
               'active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100',
               isSelected
-                ? 'bg-foreground text-background shadow-xs'
+                ? 'bg-foreground text-background'
                 : 'bg-card text-foreground hover:bg-muted'
             )}
           >

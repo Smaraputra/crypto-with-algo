@@ -124,6 +124,7 @@ declare global {
     __esLast?: unknown;
     __esPush?: (frame: unknown) => void;
     __esFail?: (opts?: { closed?: boolean }) => void;
+    __esBlockOpen?: boolean;
     __esUpstreamClosed?: () => void;
   }
 }
@@ -136,6 +137,7 @@ declare global {
  * window.__esLast is the newest instance. Control from tests with page.evaluate:
  *   window.__esPush(frame)        -> a `message` on the newest instance
  *   window.__esFail({ closed })   -> readyState CLOSED (2) or CONNECTING (0), then an `error` event
+ *   window.__esBlockOpen = true   -> instances created afterwards never open (the stream stays down)
  *   window.__esUpstreamClosed()   -> the named `upstream-closed` event
  * close() sets readyState 2 and stops deliveries.
  */
@@ -181,6 +183,10 @@ export async function installFakeEventSource(
           this._openTimer = setTimeout(() => {
             this._openTimer = null;
             if (this.readyState === FakeEventSource.CLOSED) {
+              return;
+            }
+            // A test can hold new connections in CONNECTING to keep a dropped stream down.
+            if (window.__esBlockOpen) {
               return;
             }
             this.readyState = FakeEventSource.OPEN;

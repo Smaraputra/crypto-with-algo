@@ -16,8 +16,32 @@ export const StreamHealth: React.FC<StreamHealthProps> = ({
   className,
 }) => {
   const { status, retry } = useMarketStreamStatus(market);
+  const isLive = status === 'live';
+  const [showNotice, setShowNotice] = React.useState(false);
+  const [prevIsLive, setPrevIsLive] = React.useState(isLive);
 
-  if (status === 'live') {
+  if (isLive !== prevIsLive) {
+    setPrevIsLive(isLive);
+    if (isLive) {
+      setShowNotice(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (isLive) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowNotice(true);
+    }, 4000);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isLive, market]);
+
+  if (isLive || !showNotice) {
     return null;
   }
 

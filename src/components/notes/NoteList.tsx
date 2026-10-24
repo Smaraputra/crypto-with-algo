@@ -124,7 +124,7 @@ export const NoteList: React.FC<NoteListProps> = ({
             className={cn(
               'group w-full text-left p-4 rounded-[14px] border transition-colors cursor-pointer min-h-[44px] focus-visible:outline-3 focus-visible:outline-ring flex flex-col gap-1.5',
               isSelected
-                ? 'border-foreground bg-muted/40 shadow-xs'
+                ? 'border-foreground bg-muted/40'
                 : 'border-edge/30 bg-card hover:bg-muted/20'
             )}
           >

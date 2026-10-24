@@ -1158,7 +1158,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                       <label
                         key={sym}
                         className={cn(
-                          'flex items-center gap-2 p-2 rounded-[10px] border border-edge/40 text-[13px] cursor-pointer select-none',
+                          'inline-flex items-center gap-2 min-h-[44px] px-1 rounded-[10px] border border-edge/40 text-[13px] cursor-pointer select-none',
                           isChecked ? 'bg-muted border-edge font-semibold' : 'hover:bg-muted/30'
                         )}
                       >
@@ -1173,7 +1173,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                               setNewSymbols([...newSymbols, sym]);
                             }
                           }}
-                          className="w-4 h-4 rounded cursor-pointer accent-foreground"
+                          className="w-5 h-5 rounded cursor-pointer accent-foreground"
                         />
                         <span>{sym.replace(/USDT$/, '')}</span>
                       </label>
@@ -1194,7 +1194,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                       <label
                         key={iv}
                         className={cn(
-                          'flex items-center gap-2 p-2 rounded-[10px] border border-edge/40 text-[13px] cursor-pointer select-none',
+                          'inline-flex items-center gap-2 min-h-[44px] px-1 rounded-[10px] border border-edge/40 text-[13px] cursor-pointer select-none',
                           isChecked ? 'bg-muted border-edge font-semibold' : 'hover:bg-muted/30'
                         )}
                       >
@@ -1208,7 +1208,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                               setNewIntervals([...newIntervals, iv]);
                             }
                           }}
-                          className="w-4 h-4 rounded cursor-pointer accent-foreground"
+                          className="w-5 h-5 rounded cursor-pointer accent-foreground"
                         />
                         <span>{iv}</span>
                       </label>

@@ -17,6 +17,11 @@ describe('AuthShell', () => {
     const backLink = screen.getByRole('link', { name: 'Back to home' });
     expect(backLink).toBeInTheDocument();
     expect(backLink).toHaveAttribute('href', '/');
+    expect(backLink).toHaveClass('min-h-[44px]');
+
+    const main = screen.getByRole('main');
+    expect(main).toBeInTheDocument();
+    expect(main).toHaveAttribute('id', 'main-content');
 
     const heading = screen.getByRole('heading', { level: 1, name: 'Sign in' });
     expect(heading).toBeInTheDocument();

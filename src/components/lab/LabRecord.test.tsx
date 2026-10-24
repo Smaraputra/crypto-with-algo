@@ -315,6 +315,33 @@ describe('LabRecord', () => {
     expect(screen.getByText('Loading the lab record.')).toBeInTheDocument();
   });
 
+  it('the rejected rule is absent while loading and present after', () => {
+    vi.mocked(useSignalLabModule.useSignalLab).mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as LabV1QueryResult);
+
+    const { unmount } = render(<LabRecord />);
+    expect(screen.getByText('Loading the lab record.')).toBeInTheDocument();
+    expect(screen.queryByText('Relative value, 8 hours')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Rejected' })).not.toBeInTheDocument();
+
+    unmount();
+
+    vi.mocked(useSignalLabModule.useSignalLab).mockReturnValue({
+      data: mockLabV1Data,
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as LabV1QueryResult);
+
+    render(<LabRecord />);
+    expect(screen.getByText('Relative value, 8 hours')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Rejected' })).toBeInTheDocument();
+  });
+
   it('renders status group EvidenceChip in an h2 heading', () => {
     render(<LabRecord />);
     expect(
@@ -464,6 +491,17 @@ describe('LabRecord', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: 'Price score track record' })
     ).toBeInTheDocument();
+  });
+
+  it('hypotheses column carries lg:row-span-4 and grid carries four-row template', () => {
+    const { container } = render(<LabRecord />);
+    const grid = container.querySelector('.lg\\:grid-rows-\\[auto_auto_auto_1fr\\]');
+    expect(grid).toBeInTheDocument();
+    expect(grid).toHaveClass('lg:grid-cols-[1fr_1.6fr]');
+
+    const hypothesesColumn = container.querySelector('.lg\\:row-span-4');
+    expect(hypothesesColumn).toBeInTheDocument();
+    expect(hypothesesColumn).toHaveClass('lg:col-start-2', 'lg:row-start-1');
   });
 });
 
