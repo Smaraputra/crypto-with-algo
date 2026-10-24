@@ -186,8 +186,8 @@ describe('StatsView', () => {
 
     render(<StatsView />);
 
-    expect(screen.getByText('42')).toBeInTheDocument(); // total trades
-    expect(screen.getByText('59.5%')).toBeInTheDocument(); // win rate
+    expect(screen.getAllByText('42')).toHaveLength(2); // total trades and closed trades used
+    expect(screen.getAllByText('59.5%')).toHaveLength(2); // win rate and kelly win rate
     expect(screen.getByText('+48.75%')).toBeInTheDocument(); // net pnl
     expect(screen.getByText('+6.20% / -3.40%')).toBeInTheDocument(); // avg win vs loss
     expect(screen.getByText('3 wins')).toBeInTheDocument(); // current streak
@@ -227,15 +227,17 @@ describe('StatsView', () => {
     expect(screen.getByText('Monday')).toBeInTheDocument();
   });
 
-  it('does NOT render any text matching /kelly/i in the UI', () => {
+  it('renders the Kelly position-size panel when kellySuggestion is present', () => {
     vi.mocked(analyticsHooks.useJournalAnalytics).mockReturnValue({
       data: mockAnalyticsData,
       isLoading: false,
       isError: false,
     } as unknown as ReturnType<typeof analyticsHooks.useJournalAnalytics>);
 
-    const { container } = render(<StatsView />);
-    const textContent = container.textContent || '';
-    expect(textContent).not.toMatch(/kelly/i);
+    render(<StatsView />);
+
+    expect(screen.getByRole('heading', { name: 'Position size (Kelly)' })).toBeInTheDocument();
+    expect(screen.getByText('12.5%')).toBeInTheDocument();
+    expect(screen.getByText('of equity per trade (half Kelly)')).toBeInTheDocument();
   });
 });
