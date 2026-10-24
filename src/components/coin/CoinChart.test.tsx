@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { CoinChart } from './CoinChart';
 
 const mockUseTradingChartEngine = vi.fn();
+const mockUseChartCalls = vi.fn();
 
 vi.mock('@/components/chart/useTradingChartEngine', async () => {
   const actual = await vi.importActual<typeof import('@/components/chart/useTradingChartEngine')>(
@@ -15,6 +16,10 @@ vi.mock('@/components/chart/useTradingChartEngine', async () => {
     useTradingChartEngine: (options: unknown) => mockUseTradingChartEngine(options),
   };
 });
+
+vi.mock('@/hooks/useChartCalls', () => ({
+  useChartCalls: (...args: unknown[]) => mockUseChartCalls(...args),
+}));
 
 vi.mock('@/hooks/useFocusMtf', () => ({
   useFocusMtf: () => ({
@@ -43,10 +48,35 @@ describe('CoinChart', () => {
     clearDrawings: vi.fn(),
     magnetMode: 'normal',
     toggleMagnetMode: vi.fn(),
+    hoverCall: null,
+    callsHorizon: 24,
+    callsCost: 0.16,
+  };
+
+  const mockCallsOverlay = {
+    visible: true,
+    calls: new Map(),
+    boundary: null,
+    horizonBars: 24,
+    costPercent: 0.16,
+  };
+
+  const defaultCallsReturn = {
+    eligible: true,
+    ineligibleReason: null,
+    show: true,
+    setShow: vi.fn(),
+    callsOverlay: mockCallsOverlay,
+    onLoadedRangeChange: vi.fn(),
+    onVisibleRangeChange: vi.fn(),
+    tally: null,
+    loading: false,
+    error: false,
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseChartCalls.mockReturnValue(defaultCallsReturn);
     mockUseTradingChartEngine.mockReturnValue(defaultEngineReturn);
   });
 
@@ -55,7 +85,7 @@ describe('CoinChart', () => {
     return calls[calls.length - 1][0];
   };
 
-  it('passes initialIndicators as [] and maps default 1h interval', () => {
+  it('passes initialIndicators as [] and maps default 1h interval and callsOverlay', () => {
     render(<CoinChart symbol="BTCUSDT" />);
 
     expect(mockUseTradingChartEngine).toHaveBeenCalled();
@@ -64,6 +94,9 @@ describe('CoinChart', () => {
     expect(lastCall.interval).toBe('1h');
     expect(lastCall.market).toBe('perp');
     expect(lastCall.showCandleTooltip).toBe(false);
+    expect(lastCall.callsOverlay).toBe(mockCallsOverlay);
+    expect(lastCall.onLoadedRangeChange).toBe(defaultCallsReturn.onLoadedRangeChange);
+    expect(lastCall.onVisibleRangeChange).toBe(defaultCallsReturn.onVisibleRangeChange);
   });
 
   it('maps interval control changes to the engine interval', async () => {
@@ -142,9 +175,44 @@ describe('CoinChart', () => {
     render(<CoinChart symbol="BTCUSDT" />);
 
     expect(screen.getByText('The chart did not load.')).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Show calls' })).not.toBeInTheDocument();
     const tryAgainBtn = screen.getByRole('button', { name: 'Try again' });
     await user.click(tryAgainBtn);
 
     expect(handleRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders CallsLegend when not in historyError state', () => {
+    render(<CoinChart symbol="BTCUSDT" />);
+
+    expect(screen.getByRole('switch', { name: 'Show calls' })).toBeInTheDocument();
+    expect(screen.getByText('Price score calls')).toBeInTheDocument();
+  });
+
+  it('shows describeCall text in the legend when engine returns a hoverCall', () => {
+    const hoverCall = {
+      t: Date.now(),
+      dir: 1 as const,
+      outcome: 'won' as const,
+      source: 'live' as const,
+      score: 32.0,
+      tier: 'strong_buy' as const,
+      fwd: 1.2,
+    };
+
+    mockUseTradingChartEngine.mockReturnValue({
+      ...defaultEngineReturn,
+      hoverCall,
+      callsHorizon: 24,
+      callsCost: 0.16,
+    });
+
+    render(<CoinChart symbol="BTCUSDT" />);
+
+    expect(
+      screen.getByText(
+        'Buy call (Strong long score), live record, score 32.0: price +1.20% over 24 bars, +1.04% after 0.16% costs, won after costs'
+      )
+    ).toBeInTheDocument();
   });
 });

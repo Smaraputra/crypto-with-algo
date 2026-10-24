@@ -34,3 +34,6 @@ export type { RouteErrorProps } from './RouteError';
 
 export { BrandMark } from './BrandMark';
 export type { BrandMarkProps, BrandMarkSize } from './BrandMark';
+
+export { CallsLegend } from './CallsLegend';
+export type { CallsLegendProps } from './CallsLegend';

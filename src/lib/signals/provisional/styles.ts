@@ -19,6 +19,13 @@ export function stylesForInterval(interval: string): TradingStyle[] {
   return TRADING_STYLES.filter((style) => scoredIntervals(style).includes(interval));
 }
 
+/** The style whose calls a chart at this interval shows: the user's pick at 1d, else the first scored style. */
+export function resolveStyle(interval: string, chosen: TradingStyle | null = null): TradingStyle | null {
+  const styles = stylesForInterval(interval);
+  if (interval === '1d' && chosen && styles.includes(chosen)) return chosen;
+  return styles[0] ?? null;
+}
+
 export function isProvisionalEligible(
   symbol: string,
   interval: string,

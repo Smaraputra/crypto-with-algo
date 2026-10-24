@@ -53,12 +53,12 @@ const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 export function describeCall(call: CallMark, horizonBars: number, costPercent: number): string {
   const side = call.dir === 1 ? 'Buy call' : 'Sell call';
   const source = call.source === 'live' ? 'live record' : 're-scored, not live';
-  const head = `${side} (${tierDisplayLabel(call.tier)}) · ${source} · score ${call.score.toFixed(1)}`;
-  if (call.fwd === null) return `${head} · outcome pending`;
+  const head = `${side} (${tierDisplayLabel(call.tier)}), ${source}, score ${call.score.toFixed(1)}:`;
+  if (call.fwd === null) return `${head} outcome pending`;
   const directional = call.dir * call.fwd;
   const verdict =
     call.outcome === 'won' ? 'won after costs' : call.outcome === 'cost' ? 'right, but costs ate it' : 'wrong way';
-  return `${head} · price ${pct(call.fwd)} over ${horizonBars} bars · ${pct(directional - costPercent)} after ${costPercent.toFixed(2)}% costs · ${verdict}`;
+  return `${head} price ${pct(call.fwd)} over ${horizonBars} bars, ${pct(directional - costPercent)} after ${costPercent.toFixed(2)}% costs, ${verdict}`;
 }
 
 /** A NEW function every call, so overrideIndicator recalculates (see signal-score-indicator). */

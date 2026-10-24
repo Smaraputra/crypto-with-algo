@@ -28,6 +28,22 @@ vi.mock('@/hooks/usePrices', () => ({
 vi.mock('@/components/chart/useTradingChartEngine', () => ({
   useTradingChartEngine: vi.fn(),
 }));
+// The chart's past calls read the track record through React Query; the
+// legend's own behaviour is covered in CallsLegend and useChartCalls tests.
+vi.mock('@/hooks/useChartCalls', () => ({
+  useChartCalls: () => ({
+    eligible: false,
+    ineligibleReason: 'interval',
+    show: true,
+    setShow: () => {},
+    callsOverlay: { visible: false, calls: new Map(), boundary: null, horizonBars: 0, costPercent: 0 },
+    onLoadedRangeChange: () => {},
+    onVisibleRangeChange: () => {},
+    tally: null,
+    loading: false,
+    error: false,
+  }),
+}));
 vi.mock('@/components/lab/useLabSummary', () => ({
   useLabSummary: vi.fn(),
 }));
@@ -196,6 +212,18 @@ describe('MarketHome', () => {
     expect(heading).toBeInTheDocument();
     expect(heading).not.toHaveClass('sr-only');
     expect(screen.queryByText(/Welcome/)).not.toBeInTheDocument();
+  });
+
+  it('does not double the full stop when the first name ends in one', () => {
+    vi.mocked(useSession).mockReturnValue({
+      data: { user: { name: 'A.A. Smara' }, expires: '' },
+      status: 'authenticated',
+      update: vi.fn(),
+    } as unknown as ReturnType<typeof useSession>);
+
+    render(<MarketHome />);
+
+    expect(screen.getByText('Welcome, A.A.')).toBeInTheDocument();
   });
 
   it('holds the welcome line with a blank line while the session loads, so nothing shifts', () => {

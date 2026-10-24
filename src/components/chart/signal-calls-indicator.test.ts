@@ -40,18 +40,18 @@ describe('describeCall', () => {
   it('states the side, the source, the move and the result after costs', async () => {
     const { describeCall } = await load();
     expect(describeCall(call(), 24, 0.16)).toBe(
-      'Buy call (Long score) · re-scored, not live · score 31.3 · price +0.50% over 24 bars · +0.34% after 0.16% costs · won after costs'
+      'Buy call (Long score), re-scored, not live, score 31.3: price +0.50% over 24 bars, +0.34% after 0.16% costs, won after costs'
     );
     expect(describeCall(call({ dir: -1, tier: 'strong_sell', score: -40, fwd: -0.1, outcome: 'cost', source: 'live' }), 24, 0.16)).toBe(
-      'Sell call (Strong short score) · live record · score -40.0 · price -0.10% over 24 bars · -0.06% after 0.16% costs · right, but costs ate it'
+      'Sell call (Strong short score), live record, score -40.0: price -0.10% over 24 bars, -0.06% after 0.16% costs, right, but costs ate it'
     );
-    expect(describeCall(call({ fwd: -0.3, outcome: 'wrong' }), 12, 0.2)).toContain('-0.50% after 0.20% costs · wrong way');
+    expect(describeCall(call({ fwd: -0.3, outcome: 'wrong' }), 12, 0.2)).toContain('-0.50% after 0.20% costs, wrong way');
   });
 
   it('says pending when the outcome is not known yet', async () => {
     const { describeCall } = await load();
     expect(describeCall(call({ fwd: null, outcome: 'pending', source: 'live' }), 24, 0.16)).toBe(
-      'Buy call (Long score) · live record · score 31.3 · outcome pending'
+      'Buy call (Long score), live record, score 31.3: outcome pending'
     );
   });
 });

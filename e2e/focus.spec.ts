@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { mockHistory, mockStream, mockSymbols } from './helpers/live-data';
+import { mockHistory, mockStream, mockSymbols, mockTrackBars } from './helpers/live-data';
 
 test.describe('Focus page (authenticated)', () => {
   test.beforeEach(async ({ page }) => {
     await mockSymbols(page);
     await mockHistory(page);
+    await mockTrackBars(page);
   });
 
   test('navigates to focus page via coin search palette', async ({ page }) => {
@@ -143,5 +144,18 @@ test.describe('Focus page (authenticated)', () => {
       'href',
       '/cost-check?symbol=BTCUSDT&holdMinutes=240'
     );
+  });
+
+  test('/focus?symbol=BTCUSDT shows the "Show calls" switch checked and "Won after costs"', async ({
+    page,
+  }) => {
+    await mockStream(page);
+    await page.goto('/focus?symbol=BTCUSDT');
+    await expect(page.getByRole('heading', { name: 'BTC study' })).toBeVisible({ timeout: 15000 });
+
+    const switchBtn = page.getByRole('switch', { name: 'Show calls' });
+    await expect(switchBtn).toBeVisible();
+    await expect(switchBtn).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Won after costs')).toBeVisible();
   });
 });
