@@ -3,8 +3,11 @@
 import React from 'react';
 import { useUIStore } from '@/stores/uiStore';
 import { useTradingChartEngine, type IndicatorConfig } from '@/components/chart/useTradingChartEngine';
+import { describeCall } from '@/components/chart/signal-calls-indicator';
+import { CallsLegend } from '@/components/kit';
 import { SegmentedControl, type SegmentedControlOption } from '@/components/kit/SegmentedControl';
 import { StateNotice } from '@/components/kit/StateNotice';
+import { useChartCalls } from '@/hooks/useChartCalls';
 import { cn } from '@/lib/utils';
 
 export interface MarketChartProps {
@@ -35,11 +38,16 @@ export const MarketChart: React.FC<MarketChartProps> = ({ className }) => {
     ? (storedInterval as ValidInterval)
     : '1h';
 
+  const calls = useChartCalls(selectedSymbol, currentInterval);
+
   const {
     containerRef,
     isLoading,
     historyError,
     handleRefresh,
+    hoverCall,
+    callsHorizon,
+    callsCost,
   } = useTradingChartEngine({
     symbol: selectedSymbol,
     interval: currentInterval,
@@ -47,6 +55,9 @@ export const MarketChart: React.FC<MarketChartProps> = ({ className }) => {
     initialIndicators: EMPTY_INDICATORS,
     showCandleTooltip: false,
     restoreOverlays: false,
+    callsOverlay: calls.callsOverlay,
+    onLoadedRangeChange: calls.onLoadedRangeChange,
+    onVisibleRangeChange: calls.onVisibleRangeChange,
   });
 
   return (
@@ -100,6 +111,18 @@ export const MarketChart: React.FC<MarketChartProps> = ({ className }) => {
           </>
         )}
       </div>
+
+      {!historyError && (
+        <CallsLegend
+          show={calls.show}
+          onShowChange={calls.setShow}
+          eligible={calls.eligible}
+          ineligibleReason={calls.ineligibleReason}
+          tally={calls.tally}
+          error={calls.error}
+          hoverText={hoverCall ? describeCall(hoverCall, callsHorizon, callsCost) : null}
+        />
+      )}
     </section>
   );
 };

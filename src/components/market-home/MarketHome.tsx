@@ -20,7 +20,8 @@ export const MarketHome: React.FC<MarketHomeProps> = ({ className }) => {
   const { data: session, status } = useSession();
   const firstName = session?.user?.name?.trim().split(/\s+/)[0];
   // While the session loads, a blank line holds the welcome line's space so the page does not shift.
-  const welcome = firstName ? `Welcome, ${firstName}.` : status === 'loading' ? '\u00a0' : undefined;
+  // A name such as "A.A." keeps a single closing full stop.
+  const welcome = firstName ? `Welcome, ${firstName.replace(/\.+$/, '')}.` : status === 'loading' ? '\u00a0' : undefined;
 
   return (
     <div

@@ -382,3 +382,46 @@ export async function mockSymbols(
   });
 }
 
+export async function mockTrackBars(page: Page): Promise<void> {
+  await page.route('**/api/signals/track-record/bars**', async (route) => {
+    const now = Date.now();
+    const currentHour = now - (now % (3600 * 1000));
+    const bars = [
+      {
+        t: currentHour - 40 * 3600 * 1000,
+        score: 25,
+        tier: 'strong_buy',
+        fwd: 1.2,
+        source: 'rescore',
+      },
+      {
+        t: currentHour - 30 * 3600 * 1000,
+        score: -30,
+        tier: 'strong_sell',
+        fwd: 0.5,
+        source: 'rescore',
+      },
+      {
+        t: currentHour - 20 * 3600 * 1000,
+        score: 12,
+        tier: 'buy',
+        fwd: null,
+        source: 'live',
+      },
+    ];
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        available: true,
+        configVersion: 8,
+        boundary: null,
+        horizonBars: 24,
+        costPercent: 0.16,
+        bars,
+      }),
+    });
+  });
+}
+

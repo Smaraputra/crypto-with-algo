@@ -3,6 +3,7 @@ import {
   mockHistory,
   mockStream,
   mockSymbols,
+  mockTrackBars,
   tickerFrame,
 } from './helpers/live-data';
 
@@ -10,6 +11,7 @@ test.describe('Market screen (authenticated)', () => {
   test.beforeEach(async ({ page }) => {
     await mockSymbols(page);
     await mockHistory(page);
+    await mockTrackBars(page);
     await mockStream(page, [
       tickerFrame('BTCUSDT', 65000),
       tickerFrame('ETHUSDT', 3500),
@@ -80,10 +82,41 @@ test.describe('Market screen (authenticated)', () => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
 
-    await expect(page.getByText('No edge (measured)')).toBeVisible();
+    const priceScorePanel = page
+      .locator('section')
+      .filter({ has: page.getByRole('heading', { name: 'Price score' }) });
+    await expect(priceScorePanel.getByText('No edge (measured)')).toBeVisible();
     const scoreDetailLink = page.getByRole('link', { name: 'Score detail' });
     await expect(scoreDetailLink).toBeVisible();
     await expect(scoreDetailLink).toHaveAttribute('href', '/signals');
+  });
+
+  test('the chart shows past calls with a legend and a Show calls switch', async ({
+    page,
+  }) => {
+    const trackRequest = page.waitForRequest((req) =>
+      req.url().includes('/api/signals/track-record/bars')
+    );
+    await page.goto('/dashboard');
+    await trackRequest;
+
+    const switchBtn = page.getByRole('switch', { name: 'Show calls' });
+    await expect(switchBtn).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByText('Won after costs')).toBeVisible();
+
+    await switchBtn.click();
+    await expect(switchBtn).toHaveAttribute('aria-checked', 'false');
+    await expect(page.getByText('Calls are hidden.')).toBeVisible();
+  });
+
+  test('choose the 1W interval and expect "Calls are not recorded at this interval."', async ({
+    page,
+  }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('heading', { name: 'Market' })).toBeVisible({ timeout: 15000 });
+
+    await page.getByText('1W', { exact: true }).click();
+    await expect(page.getByText('Calls are not recorded at this interval.')).toBeVisible();
   });
 
   test('the foot shows "Market data from Binance"', async ({ page }) => {

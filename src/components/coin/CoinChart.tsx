@@ -6,8 +6,11 @@ import {
   DRAWING_TOOLS,
   type IndicatorConfig,
 } from '@/components/chart/useTradingChartEngine';
+import { describeCall } from '@/components/chart/signal-calls-indicator';
+import { CallsLegend } from '@/components/kit';
 import { SegmentedControl, type SegmentedControlOption } from '@/components/kit/SegmentedControl';
 import { StateNotice } from '@/components/kit/StateNotice';
+import { useChartCalls } from '@/hooks/useChartCalls';
 import { useFocusMtf } from '@/hooks/useFocusMtf';
 import { useSignalLabV4 } from '@/hooks/useSignalLabV4';
 import { MTF_INTERVAL_MS, type MtfInterval } from '@/lib/market/mtf';
@@ -181,6 +184,8 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
     [intervalMs, showInternal, showSma, showMacd, mtfData?.priorDay, labMarks]
   );
 
+  const calls = useChartCalls(symbol, interval);
+
   const {
     containerRef,
     isLoading,
@@ -191,6 +196,9 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
     clearDrawings,
     magnetMode,
     toggleMagnetMode,
+    hoverCall,
+    callsHorizon,
+    callsCost,
   } = useTradingChartEngine({
     symbol,
     interval,
@@ -198,6 +206,9 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
     initialIndicators: EMPTY_INDICATORS,
     showCandleTooltip: false,
     focusOverlay,
+    callsOverlay: calls.callsOverlay,
+    onLoadedRangeChange: calls.onLoadedRangeChange,
+    onVisibleRangeChange: calls.onVisibleRangeChange,
   });
 
   return (
@@ -389,6 +400,18 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
           </>
         )}
       </div>
+
+      {!historyError && (
+        <CallsLegend
+          show={calls.show}
+          onShowChange={calls.setShow}
+          eligible={calls.eligible}
+          ineligibleReason={calls.ineligibleReason}
+          tally={calls.tally}
+          error={calls.error}
+          hoverText={hoverCall ? describeCall(hoverCall, callsHorizon, callsCost) : null}
+        />
+      )}
     </section>
   );
 };

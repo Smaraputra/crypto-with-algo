@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Past price score calls on the Market and Coin study charts (owner feedback B)
+- **Arrows are back:** both charts draw every past price score call again, a triangle under the bar for a buy call and over it for a sell call. Each is coloured by how it ended: won after costs, right but eaten by costs, wrong way, or pending (hollow). A dashed line marks where the re-scored year hands over to the live record. The drawing code already existed; the redesign had stopped wiring it.
+- **New kit `CallsLegend`** under each chart:
+  - the "Price score calls" label with the "No edge (measured)" chip;
+  - a "Show calls" switch, on by default;
+  - the colour key;
+  - one status line that shows the call under the crosshair, or a tally of the calls in view, such as "In view: 16 calls, 5 won after costs, 3 eaten by costs, 5 wrong way, 3 pending."
+- **Where calls show:** calls are shown where they are recorded: the ten signal coins at 1h, 4h and 1d on Market, and 15m, 1h, 4h and 1d on Coin study. Elsewhere the legend says "Calls are not recorded at this interval." or "Calls are recorded for the ten signal coins only."
+- **Style:** the style follows the interval, as on the old chart (`resolveStyle`): day trading at 15m and 1h, swing trading at 4h and 1d.
+- **Shared hook:** one hook, `useChartCalls`, holds the overlay state for both charts. It keys the loaded and visible ranges by coin and interval, so a stale range is never used after a switch.
+- **Call text:** the call description now reads as a sentence, with commas in place of middle dots.
+- **Not done:** outcome colours on the lab S1 and S2 marks on Coin study. The lab-v4 API returns open trades only, so closed outcomes are not available to the chart without an API change.
+- **Fixed:** a first name that ends in a full stop (for example "A.A.") no longer shows as "Welcome, A.A.." on Market.
+
 ### Changed: Logo in every navbar, session-aware public site, visible Market title (owner feedback A)
 - **Logo:** the green CWA mark (`public/logo.png`) now sits beside the wordmark in the app top bar, the phone top strip, the public nav and footer, the auth screens and the 404 page, through one kit component, `BrandMark`.
 - **Signed-in visitors on the public site** see "Open dashboard" in place of "Log in" and "Create a free account", in the nav, the phone menu and both home page buttons.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { scoredIntervals, TRADING_STYLES } from '@/lib/indicators/style-configs';
-import { isProvisionalEligible, stylesForInterval, STYLE_CADENCE_MS } from './styles';
+import { isProvisionalEligible, resolveStyle, stylesForInterval, STYLE_CADENCE_MS } from './styles';
 
 describe('provisional styles', () => {
   it('derives styles per interval from the scored intervals', () => {
@@ -33,5 +33,14 @@ describe('provisional styles', () => {
       swing_trading: 900_000,
       position_trading: 3_600_000,
     });
+  });
+
+  it('resolves the style for a chart interval', () => {
+    expect(resolveStyle('15m')).toBe('day_trading');
+    expect(resolveStyle('1h')).toBe('day_trading');
+    expect(resolveStyle('4h')).toBe('swing_trading');
+    expect(resolveStyle('1d')).toBe('swing_trading');
+    expect(resolveStyle('1d', 'position_trading')).toBe('position_trading');
+    expect(resolveStyle('1w')).toBeNull();
   });
 });
