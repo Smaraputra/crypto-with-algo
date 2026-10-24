@@ -6,20 +6,27 @@ vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: null, status: 'unauthenticated', update: vi.fn() }),
 }));
 
-vi.mock('@/hooks/usePrices', () => ({
-  useTickers: () => ({
-    data: [
-      {
-        symbol: 'BTCUSDT',
-        lastPrice: '67000',
-        priceChange: '500',
-        priceChangePercent: '0.75',
-      },
-    ],
-    isLoading: false,
-    isError: false,
-    error: null,
-  }),
+vi.mock('@/components/marketing-v2/hero/HeroGlobe', () => ({
+  HeroGlobe: () => <div data-testid="hero-globe">Globe</div>,
+}));
+
+vi.mock('@/components/marketing-v2/LiveTicker', () => ({
+  LiveTicker: () => (
+    <ul aria-label="Live prices">
+      <li>
+        <span>BTC</span>
+        <span>$67,000.00</span>
+      </li>
+    </ul>
+  ),
+}));
+
+vi.mock('@/components/marketing-v2/LiveCandles', () => ({
+  LiveCandles: () => (
+    <div data-testid="live-candles">
+      <svg role="img" aria-label="BTC hourly candles, last 48 hours, last price $67,000.00" />
+    </div>
+  ),
 }));
 
 describe('MarketingHomePage', () => {
@@ -30,7 +37,7 @@ describe('MarketingHomePage', () => {
     expect(metadata.description).toBeDefined();
   });
 
-  it('renders HomePage with h1 headline and actions', () => {
+  it('renders HomePage with h1 headline, actions, evidence section and caption', () => {
     render(<MarketingHomePage />);
 
     expect(
@@ -44,6 +51,12 @@ describe('MarketingHomePage', () => {
       'href',
       '/register'
     );
+
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'How evidence builds' })
+    ).toBeInTheDocument();
+
+    expect(screen.getByText('Illustration, not live data.')).toBeInTheDocument();
   });
 
   it('does not contain banned marketing claims', () => {

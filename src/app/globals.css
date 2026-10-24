@@ -311,6 +311,68 @@ html {
   animation: fade-in-up 0.6s ease-out both;
 }
 
+/* Hero entrance and evidence tape animations */
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hero-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tape-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0% 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-animate-headline {
+    animation: hero-rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) 0ms both;
+  }
+  .hero-animate-subline {
+    animation: hero-rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) 80ms both;
+  }
+  .hero-animate-ctas {
+    animation: hero-rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) 160ms both;
+  }
+  .hero-animate-ticker {
+    animation: hero-rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) 240ms both;
+  }
+  .hero-animate-globe {
+    animation: hero-fade 900ms cubic-bezier(0.2, 0.8, 0.2, 1) 120ms both;
+  }
+  .tape-reveal-animate {
+    animation: tape-reveal 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-animate-headline,
+  .hero-animate-subline,
+  .hero-animate-ctas,
+  .hero-animate-ticker,
+  .hero-animate-globe,
+  .tape-reveal-animate {
+    animation: none !important;
+  }
+}
+
 /* Grid card overlay (Ethena-inspired fine grid pattern) */
 .grid-card-overlay {
   position: relative;

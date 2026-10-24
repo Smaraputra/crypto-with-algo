@@ -1,37 +1,45 @@
 import React from 'react';
 import Link from 'next/link';
-import { PriceStrip } from './PriceStrip';
+import { LiveTicker } from './LiveTicker';
+import { LiveCandles } from './LiveCandles';
 import { SessionCta } from './SessionCta';
+import { HeroGlobe } from './hero/HeroGlobe';
+import { EvidenceTape } from './EvidenceTape';
 
 export function HomePage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-16 px-4 py-12 sm:gap-20 sm:px-6 sm:py-16">
       {/* Hero section */}
-      <section className="flex flex-col items-center text-center">
-        <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-foreground sm:text-5xl">
-          A crypto market tracker with an open research lab
-        </h1>
-        <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-2 sm:text-lg">
-          Track live crypto prices, study a coin with its trading costs, and follow an open record of trading ideas tested on live data.
-        </p>
+      <section className="grid grid-cols-1 items-center gap-8 lg:grid-cols-2 lg:gap-12">
+        <div className="order-1 flex flex-col items-start text-left lg:order-none lg:col-start-1 lg:row-start-1">
+          <h1 className="hero-animate-headline max-w-3xl text-3xl font-semibold tracking-tight text-foreground sm:text-5xl">
+            A crypto market tracker with an open research lab
+          </h1>
+          <p className="hero-animate-subline mt-4 max-w-2xl text-base leading-relaxed text-ink-2 sm:text-lg">
+            Track live crypto prices, study a coin with its trading costs, and follow an open record of trading ideas tested on live data.
+          </p>
 
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-          <SessionCta className="rounded-full bg-brand px-5 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90" />
-          <Link
-            href="/how-it-works"
-            className="rounded-xl border border-edge px-5 py-2.5 text-[15px] font-medium text-foreground transition-colors hover:bg-card"
-          >
-            See how it works
-          </Link>
+          <div className="hero-animate-ctas mt-8 flex flex-wrap items-center gap-4">
+            <SessionCta className="rounded-full bg-brand px-5 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90" />
+            <Link
+              href="/how-it-works"
+              className="rounded-xl border border-edge px-5 py-2.5 text-[15px] font-medium text-foreground transition-colors hover:bg-card"
+            >
+              See how it works
+            </Link>
+          </div>
+        </div>
+
+        <div className="hero-animate-globe order-2 flex justify-center w-full lg:order-none lg:col-start-2 lg:row-start-1 lg:row-span-2">
+          <HeroGlobe />
+        </div>
+
+        <div className="hero-animate-ticker order-3 w-full lg:order-none lg:col-start-1 lg:row-start-2">
+          <LiveTicker />
         </div>
       </section>
 
-      {/* Live price strip */}
-      <section aria-label="Live market prices" className="rounded-panel border border-line bg-card/60 p-2">
-        <PriceStrip />
-      </section>
-
-      {/* Real capabilities section (varied layout, not identical icon cards) */}
+      {/* Real capabilities section */}
       <section className="flex flex-col gap-8">
         <div className="max-w-2xl">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
@@ -107,17 +115,21 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* The open research lab section */}
-      <section className="rounded-panel border border-line bg-card p-6 sm:p-10">
-        <div className="max-w-3xl">
+      {/* Live BTC and ETH candles section */}
+      <section aria-label="Live BTC and ETH, hour by hour" className="flex flex-col gap-6">
+        <div className="max-w-2xl">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-            Research in the open
+            Live BTC and ETH, hour by hour
           </h2>
-          <p className="mt-4 text-base leading-relaxed text-ink-2">
-            Every idea is tested on live data, and ideas that fail stay on the record. The price score was measured on years of history and showed no edge after costs, so it is shown as context only. Sign in to see each test and where it stands.
+          <p className="mt-2 text-base text-ink-2">
+            The last 48 hours from Binance public market data, updating as trades come in.
           </p>
         </div>
+        <LiveCandles />
       </section>
+
+      {/* How evidence builds section */}
+      <EvidenceTape />
 
       {/* Call to action section */}
       <section className="flex flex-col items-center rounded-panel border border-line bg-card/40 py-12 px-6 text-center sm:py-16">
