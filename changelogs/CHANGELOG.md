@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Outcome colours on the lab S1 and S2 marks on Coin study
+- **API:** `GET /api/signals/lab-v4?symbol=` also returns the coin's closed lab-v4 trades from the last 30 days. Each carries entry and exit times, side, price move and outcome. They are read from the stored graded rows (side and entry and exit prices), with no change to any rule, job or stored data.
+- **Chart:** closed S1 and S2 marks are filled and coloured: won after the 0.14% round trip, right but costs ate it, or wrong way. Open trades stay hollow. Funding is not included in the colour, and the legend line under the chart says so.
 ### Added: Kelly position size back in journal Stats
 - **Panel:** journal Stats shows "Position size (Kelly)" again, from your own closed trades. It gives the half Kelly share of equity per trade, with full Kelly, win rate, average win, average loss and the number of trades used.
 - **Too few trades:** with fewer than 20 closed trades, or without both wins and losses, it says so and gives the count instead of a number.
