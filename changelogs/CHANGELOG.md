@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security: dependency updates for the open Dependabot alerts
+- `zod` ^4.6.7 (high: memory exhaustion on oversized constrained collections, fixed in 4.6.6).
+- `nodemailer` ^10.1.4 (three medium address-parser issues, fixed in 10.1.4). Pinned to the first fixed release rather than the newest.
+- `undici` 7.30.1 through `jsdom` (high: denial of service from excessive content encodings). Dev and test only.
+- `vitest` ^4.1.12, which brings `@vitest/mocker` 4.1.12 (two medium mock-registration issues). Dev only.
+- Typecheck, lint, all 7,666 unit tests and the production build pass on the new versions.
+
 ### Changed: Denser app screens (owner feedback F)
 - **Spacing:** the vertical rhythm on signed-in screens is tighter:
   - section gaps go from 24px to 16px;
