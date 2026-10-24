@@ -150,6 +150,18 @@ export const updateJournalEntrySchema = z.object({
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntrySchema>;
 export type UpdateJournalEntryInput = z.infer<typeof updateJournalEntrySchema>;
 
+export const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+export const MAX_SCREENSHOTS_PER_ENTRY = 4;
+export const SCREENSHOT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+export type ScreenshotType = (typeof SCREENSHOT_TYPES)[number];
+
+export interface JournalScreenshot {
+  fileId: string;
+  contentType: 'image/png' | 'image/jpeg' | 'image/webp';
+  size: number;
+  uploadedAt: string;
+}
+
 export interface ReviewHistoryEntry {
   lessonsLearned: string;
   reviewedAt: string;
@@ -181,6 +193,7 @@ export interface JournalEntry {
   convictionLevel: number | null;
   plannedRiskReward: number | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
+  screenshots?: JournalScreenshot[];
   enteredAt?: string;
   exitedAt?: string | null;
   createdAt: string;

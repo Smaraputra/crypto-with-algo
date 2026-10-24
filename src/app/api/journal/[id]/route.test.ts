@@ -20,9 +20,14 @@ vi.mock('@/lib/models/journal-entry', () => ({
   isPositionAction: (action: string | null | undefined) => action === 'buy' || action === 'sell',
 }));
 
+vi.mock('@/lib/journal/screenshots', () => ({
+  deleteScreenshotFile: vi.fn(),
+}));
+
 import { GET, PATCH, DELETE } from './route';
 import { auth } from '@/lib/auth';
 import { JournalEntry } from '@/lib/models/journal-entry';
+import { deleteScreenshotFile } from '@/lib/journal/screenshots';
 
 const mockSession = { user: { id: 'user-1' } };
 const params = Promise.resolve({ id: 'journal-1' });
@@ -458,5 +463,35 @@ describe('DELETE /api/journal/[id]', () => {
 
     const res = await DELETE(makeRequest('DELETE'), { params });
     expect(res.status).toBe(404);
+  });
+
+  it('deletes screenshot files when entry has screenshots', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOneAndDelete).mockResolvedValue({
+      _id: 'journal-1',
+      screenshots: [
+        { fileId: 'shot-1' },
+        { fileId: 'shot-2' },
+      ],
+    } as never);
+
+    const res = await DELETE(makeRequest('DELETE'), { params });
+    expect(res.status).toBe(200);
+    expect(deleteScreenshotFile).toHaveBeenCalledWith('shot-1');
+    expect(deleteScreenshotFile).toHaveBeenCalledWith('shot-2');
+  });
+
+  it('continues and returns 200 even if deleteScreenshotFile throws', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOneAndDelete).mockResolvedValue({
+      _id: 'journal-1',
+      screenshots: [{ fileId: 'shot-1' }],
+    } as never);
+    vi.mocked(deleteScreenshotFile).mockRejectedValueOnce(new Error('GridFS failure'));
+
+    const res = await DELETE(makeRequest('DELETE'), { params });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
   });
 });

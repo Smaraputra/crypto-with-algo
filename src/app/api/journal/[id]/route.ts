@@ -5,6 +5,7 @@ import { isPositionAction, JournalEntry } from '@/lib/models/journal-entry';
 import { updateJournalEntrySchema } from '@/types/journal';
 import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
 import { serializeJournalEntry } from '@/lib/journal/times';
+import { deleteScreenshotFile } from '@/lib/journal/screenshots';
 
 export async function GET(
   _req: NextRequest,
@@ -181,6 +182,16 @@ export async function DELETE(
 
   if (!result) {
     return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+  }
+
+  if (Array.isArray(result.screenshots) && result.screenshots.length > 0) {
+    for (const screenshot of result.screenshots) {
+      try {
+        await deleteScreenshotFile(screenshot.fileId);
+      } catch (err) {
+        console.error('Failed to delete screenshot file:', screenshot.fileId, err);
+      }
+    }
   }
 
   return NextResponse.json({ success: true });

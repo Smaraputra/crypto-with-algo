@@ -39,6 +39,13 @@ export interface IReviewHistoryEntry {
   reviewedAt: Date;
 }
 
+export interface IJournalScreenshot {
+  fileId: mongoose.Types.ObjectId;
+  contentType: 'image/png' | 'image/jpeg' | 'image/webp';
+  size: number;
+  uploadedAt: Date;
+}
+
 export interface IJournalEntry extends Document {
   userId: string;
   symbol: string;
@@ -64,6 +71,7 @@ export interface IJournalEntry extends Document {
   convictionLevel: number | null; // 1-5
   plannedRiskReward: number | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
+  screenshots: IJournalScreenshot[];
   enteredAt: Date | null;
   exitedAt: Date | null;
   createdAt: Date;
@@ -131,6 +139,18 @@ const journalEntrySchema = new Schema<IJournalEntry>(
         },
         message: 'fearGreedIndex must be between 0 and 100',
       },
+    },
+    screenshots: {
+      type: [
+        {
+          _id: false,
+          fileId: { type: Schema.Types.ObjectId, required: true },
+          contentType: { type: String, required: true },
+          size: { type: Number, required: true },
+          uploadedAt: { type: Date, required: true },
+        },
+      ],
+      default: [],
     },
     enteredAt: { type: Date },
     exitedAt: { type: Date, default: null },

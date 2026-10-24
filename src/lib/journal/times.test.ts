@@ -76,4 +76,87 @@ describe('serializeJournalEntry', () => {
     const result = serializeJournalEntry(entry);
     expect(result.exitedAt).toBeNull();
   });
+
+  it('defaults screenshots to an empty array when undefined or null', () => {
+    const entryWithoutScreenshots = {
+      id: 'entry-7',
+      createdAt,
+    };
+    const result1 = serializeJournalEntry(entryWithoutScreenshots);
+    expect(result1.screenshots).toEqual([]);
+
+    const entryWithNullScreenshots = {
+      id: 'entry-8',
+      createdAt,
+      screenshots: null,
+    };
+    const result2 = serializeJournalEntry(entryWithNullScreenshots);
+    expect(result2.screenshots).toEqual([]);
+  });
+
+  it('maps each fileId to its string form', () => {
+    const uploadedAt = new Date('2026-01-05T10:00:00.000Z');
+    const mockObjectId = {
+      toString: () => '60d5ec49f1b2c8b1f8c1b2c8',
+    };
+    const entry = {
+      id: 'entry-9',
+      createdAt,
+      screenshots: [
+        {
+          fileId: mockObjectId,
+          contentType: 'image/png' as const,
+          size: 1024,
+          uploadedAt,
+        },
+        {
+          fileId: '60d5ec49f1b2c8b1f8c1b2c9',
+          contentType: 'image/jpeg' as const,
+          size: 2048,
+          uploadedAt,
+        },
+      ],
+    };
+    const result = serializeJournalEntry(entry);
+    expect(result.screenshots).toHaveLength(2);
+    expect(result.screenshots[0]).toEqual({
+      fileId: '60d5ec49f1b2c8b1f8c1b2c8',
+      contentType: 'image/png',
+      size: 1024,
+      uploadedAt,
+    });
+    expect(result.screenshots[1]).toEqual({
+      fileId: '60d5ec49f1b2c8b1f8c1b2c9',
+      contentType: 'image/jpeg',
+      size: 2048,
+      uploadedAt,
+    });
+  });
+
+  it('unwraps toObject and maps screenshot fileIds', () => {
+    const uploadedAt = new Date('2026-01-05T10:00:00.000Z');
+    const wrapper = {
+      toObject: () => ({
+        id: 'entry-10',
+        createdAt,
+        screenshots: [
+          {
+            fileId: { toString: () => '60d5ec49f1b2c8b1f8c1b2ca' },
+            contentType: 'image/webp' as const,
+            size: 512,
+            uploadedAt,
+          },
+        ],
+      }),
+    };
+    const result = serializeJournalEntry(wrapper);
+    expect(result.screenshots).toEqual([
+      {
+        fileId: '60d5ec49f1b2c8b1f8c1b2ca',
+        contentType: 'image/webp',
+        size: 512,
+        uploadedAt,
+      },
+    ]);
+  });
 });

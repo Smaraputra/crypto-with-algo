@@ -85,6 +85,7 @@ export async function GET(req: NextRequest) {
       $addFields: {
         enteredAt: EFFECTIVE_ENTERED_AT,
         exitedAt: { $ifNull: ['$exitedAt', null] },
+        screenshots: { $ifNull: ['$screenshots', []] },
       },
     },
   ];
