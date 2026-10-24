@@ -120,6 +120,7 @@ function makeLabV4Hypothesis(overrides?: Partial<LabV4HypothesisView>): LabV4Hyp
         exitsAt: '2026-10-23T14:10:00.000Z',
       },
     ],
+    closedTrades: [],
     latestBar: {
       barClose: '2026-10-23T07:00:00.000Z',
       late: false,

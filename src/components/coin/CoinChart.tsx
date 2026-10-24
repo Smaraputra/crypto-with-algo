@@ -13,6 +13,7 @@ import { StateNotice } from '@/components/kit/StateNotice';
 import { useChartCalls } from '@/hooks/useChartCalls';
 import { useFocusMtf } from '@/hooks/useFocusMtf';
 import { useSignalLabV4 } from '@/hooks/useSignalLabV4';
+import { labDelayMs } from '@/lib/signals/lab/candidates';
 import { MTF_INTERVAL_MS, type MtfInterval } from '@/lib/market/mtf';
 import { cn } from '@/lib/utils';
 
@@ -109,27 +110,51 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
 
   const labMarks = useMemo(() => {
     if (!labV4Data?.hypotheses) return [];
-    const marks: { time: number; side: 1 | -1; label: 'S1' | 'S2' }[] = [];
-    const seen = new Set<string>();
+    type LabMark = {
+      time: number;
+      side: 1 | -1;
+      label: 'S1' | 'S2';
+      outcome?: 'won' | 'cost' | 'wrong' | 'open';
+    };
+    const marksMap = new Map<string, LabMark>();
+
+    const addMark = (mark: LabMark) => {
+      const key = `${mark.time}-${mark.label}`;
+      const existing = marksMap.get(key);
+      if (!existing) {
+        marksMap.set(key, mark);
+      } else if (existing.outcome === 'open' && mark.outcome !== 'open') {
+        // A closed mark wins over an open one
+        marksMap.set(key, mark);
+      }
+    };
 
     for (const hyp of labV4Data.hypotheses) {
-      const label =
+      const label: 'S1' | 'S2' =
         hyp.candidate === 'S1' || hyp.candidate === 'S2'
           ? hyp.candidate
           : hyp.id.startsWith('S1')
             ? 'S1'
             : 'S2';
 
+      if (hyp.closedTrades) {
+        for (const trade of hyp.closedTrades) {
+          if (trade.symbol === symbol) {
+            const enteredMs = new Date(trade.enteredAt).getTime();
+            if (!Number.isNaN(enteredMs)) {
+              const time = enteredMs - labDelayMs('1h');
+              addMark({ time, side: trade.side, label, outcome: trade.outcome });
+            }
+          }
+        }
+      }
+
       if (hyp.openTrades) {
         for (const trade of hyp.openTrades) {
           if (trade.symbol === symbol) {
             const time = new Date(trade.enteredAt).getTime();
             if (!Number.isNaN(time)) {
-              const key = `${time}-${label}`;
-              if (!seen.has(key)) {
-                seen.add(key);
-                marks.push({ time, side: trade.side, label });
-              }
+              addMark({ time, side: trade.side, label, outcome: 'open' });
             }
           }
         }
@@ -140,11 +165,7 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
           if (entry.symbol === symbol) {
             const time = new Date(hyp.latestBar.barClose).getTime();
             if (!Number.isNaN(time)) {
-              const key = `${time}-${label}`;
-              if (!seen.has(key)) {
-                seen.add(key);
-                marks.push({ time, side: entry.side, label });
-              }
+              addMark({ time, side: entry.side, label, outcome: 'open' });
             }
           }
         }
@@ -155,19 +176,15 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
       for (const entry of labV4Data.entries) {
         if (entry.symbol === symbol) {
           const time = new Date(entry.barClose).getTime();
-          const label = entry.hypothesis.startsWith('S1') ? 'S1' : 'S2';
+          const label: 'S1' | 'S2' = entry.hypothesis.startsWith('S1') ? 'S1' : 'S2';
           if (!Number.isNaN(time)) {
-            const key = `${time}-${label}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              marks.push({ time, side: entry.side, label });
-            }
+            addMark({ time, side: entry.side, label, outcome: 'open' });
           }
         }
       }
     }
 
-    return marks;
+    return Array.from(marksMap.values());
   }, [labV4Data, symbol]);
 
   const intervalMs = MTF_INTERVAL_MS[interval as MtfInterval] ?? 3_600_000;
@@ -411,6 +428,12 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
           error={calls.error}
           hoverText={hoverCall ? describeCall(hoverCall, callsHorizon, callsCost) : null}
         />
+      )}
+
+      {!historyError && labMarks.length > 0 && (
+        <p className="text-[12px] text-muted-foreground">
+          Lab S1 and S2 trades: filled when the 8 hour hold ended, coloured won after 0.14% costs, right but costs ate it, or wrong way. Funding is not included. Hollow means still open.
+        </p>
       )}
     </section>
   );

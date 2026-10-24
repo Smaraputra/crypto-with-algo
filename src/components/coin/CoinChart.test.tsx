@@ -29,12 +29,10 @@ vi.mock('@/hooks/useFocusMtf', () => ({
   }),
 }));
 
+const mockUseSignalLabV4 = vi.fn();
+
 vi.mock('@/hooks/useSignalLabV4', () => ({
-  useSignalLabV4: () => ({
-    data: {
-      hypotheses: [],
-    },
-  }),
+  useSignalLabV4: (...args: unknown[]) => mockUseSignalLabV4(...args),
 }));
 
 describe('CoinChart', () => {
@@ -76,6 +74,7 @@ describe('CoinChart', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseSignalLabV4.mockReturnValue({ data: { hypotheses: [] } });
     mockUseChartCalls.mockReturnValue(defaultCallsReturn);
     mockUseTradingChartEngine.mockReturnValue(defaultEngineReturn);
   });
@@ -214,5 +213,72 @@ describe('CoinChart', () => {
         'Buy call (Strong long score), live record, score 32.0: price +1.20% over 24 bars, +1.04% after 0.16% costs, won after costs'
       )
     ).toBeInTheDocument();
+  });
+
+  it('passes labMarks with outcomes won and open and renders lab legend line when marks exist', () => {
+    const tWonBar = 1_700_000_000_000;
+    const tOpenBar = 1_700_003_600_000;
+    mockUseSignalLabV4.mockReturnValue({
+      data: {
+        hypotheses: [
+          {
+            id: 'S1-1h',
+            candidate: 'S1',
+            closedTrades: [
+              {
+                symbol: 'BTCUSDT',
+                side: 1,
+                enteredAt: new Date(tWonBar + 600_000).toISOString(),
+                exitedAt: new Date(tWonBar + 600_000 + 8 * 3600_000).toISOString(),
+                move: 0.02,
+                outcome: 'won',
+              },
+            ],
+            openTrades: [],
+          },
+          {
+            id: 'S2-1h',
+            candidate: 'S2',
+            closedTrades: [],
+            openTrades: [
+              {
+                symbol: 'BTCUSDT',
+                side: -1,
+                enteredAt: new Date(tOpenBar).toISOString(),
+                exitsAt: new Date(tOpenBar + 8 * 3600_000).toISOString(),
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    render(<CoinChart symbol="BTCUSDT" />);
+
+    const lastCall = getLastCall();
+    expect(lastCall.focusOverlay.labMarks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ outcome: 'won', label: 'S1' }),
+        expect.objectContaining({ outcome: 'open', label: 'S2' }),
+      ])
+    );
+    expect(
+      screen.getByText(
+        'Lab S1 and S2 trades: filled when the 8 hour hold ended, coloured won after 0.14% costs, right but costs ate it, or wrong way. Funding is not included. Hollow means still open.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('does not render lab legend line when there are no lab marks', () => {
+    mockUseSignalLabV4.mockReturnValue({
+      data: {
+        hypotheses: [],
+      },
+    });
+
+    render(<CoinChart symbol="BTCUSDT" />);
+    expect(
+      screen.queryByText(/Lab S1 and S2 trades: filled when the 8 hour hold ended/)
+    ).not.toBeInTheDocument();
   });
 });

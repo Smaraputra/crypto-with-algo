@@ -51,11 +51,15 @@ describe('GET /api/signals/lab-v4', () => {
         lean: async () => null,
       }),
     }));
-    mocks.labScoreFind.mockImplementation(() => ({
-      sort: () => ({
-        lean: async () => [],
-      }),
-    }));
+    const createFindChain = (items: unknown = []) => {
+      const chain = {
+        select: () => chain,
+        sort: () => chain,
+        lean: async () => items,
+      };
+      return chain;
+    };
+    mocks.labScoreFind.mockImplementation(() => createFindChain([]));
     mocks.labScoreCountDocuments.mockResolvedValue(0);
     mocks.labSignalFindOne.mockImplementation(() => ({
       sort: () => ({
@@ -249,5 +253,114 @@ describe('GET /api/signals/lab-v4', () => {
     expect(s1.meanNetReturn).toBeCloseTo(-0.0015, 6);
     // meanNetPerTrade = (-0.002 + -0.001) / (2 + 1) = -0.003 / 3 = -0.001
     expect(s1.meanNetPerTrade).toBeCloseTo(-0.001, 6);
+  });
+
+  it('returns empty closedTrades when symbol query param is omitted', async () => {
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    for (const hyp of json.hypotheses) {
+      expect(hyp.closedTrades).toEqual([]);
+    }
+  });
+
+  it('returns closedTrades for requested symbol with won, cost, and wrong in order', async () => {
+    const D = labDelayMs('1h');
+    const t1 = 1_700_000_000_000;
+    const t2 = t1 + 3_600_000;
+    const t3 = t2 + 3_600_000;
+
+    mocks.labScoreFind.mockImplementation((query: Record<string, unknown>) => {
+      const chain = {
+        select: () => chain,
+        sort: () => chain,
+        lean: async () => {
+          if (query?.hypothesis === 'S1-1h' && 'weights.BTCUSDT' in query) {
+            return [
+              {
+                barClose: t1,
+                weights: { BTCUSDT: 1 },
+                prices: { BTCUSDT: { start: 100, end: 102 } }, // +2% -> won
+              },
+              {
+                barClose: t2,
+                weights: { BTCUSDT: 1 },
+                prices: { BTCUSDT: { start: 10000, end: 10005 } }, // +0.05% -> cost
+              },
+              {
+                barClose: t3,
+                weights: { BTCUSDT: 1 },
+                prices: { BTCUSDT: { start: 100, end: 95 } }, // -5% -> wrong
+              },
+            ];
+          }
+          return [];
+        },
+      };
+      return chain;
+    });
+
+    const req = new Request('http://localhost/api/signals/lab-v4?symbol=BTCUSDT');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const s1 = json.hypotheses.find((h: { id: string }) => h.id === 'S1-1h');
+
+    expect(s1.closedTrades).toHaveLength(3);
+    expect(s1.closedTrades[0]).toEqual({
+      symbol: 'BTCUSDT',
+      side: 1,
+      enteredAt: new Date(t1 + D).toISOString(),
+      exitedAt: new Date(t1 + D + LAB_V4_HOLD_MS).toISOString(),
+      move: expect.closeTo(0.02, 6),
+      outcome: 'won',
+    });
+    expect(s1.closedTrades[1]).toEqual({
+      symbol: 'BTCUSDT',
+      side: 1,
+      enteredAt: new Date(t2 + D).toISOString(),
+      exitedAt: new Date(t2 + D + LAB_V4_HOLD_MS).toISOString(),
+      move: expect.closeTo(0.0005, 6),
+      outcome: 'cost',
+    });
+    expect(s1.closedTrades[2]).toEqual({
+      symbol: 'BTCUSDT',
+      side: 1,
+      enteredAt: new Date(t3 + D).toISOString(),
+      exitedAt: new Date(t3 + D + LAB_V4_HOLD_MS).toISOString(),
+      move: expect.closeTo(-0.05, 6),
+      outcome: 'wrong',
+    });
+  });
+
+  it('skips a row without the requested symbol', async () => {
+    const t1 = 1_700_000_000_000;
+
+    mocks.labScoreFind.mockImplementation((query: Record<string, unknown>) => {
+      const chain = {
+        select: () => chain,
+        sort: () => chain,
+        lean: async () => {
+          if (query?.hypothesis === 'S1-1h' && 'weights.BTCUSDT' in query) {
+            return [
+              {
+                barClose: t1,
+                weights: { ETHUSDT: 1 },
+                prices: { ETHUSDT: { start: 2000, end: 2100 } },
+              },
+            ];
+          }
+          return [];
+        },
+      };
+      return chain;
+    });
+
+    const req = new Request('http://localhost/api/signals/lab-v4?symbol=BTCUSDT');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const s1 = json.hypotheses.find((h: { id: string }) => h.id === 'S1-1h');
+    expect(s1.closedTrades).toEqual([]);
   });
 });
