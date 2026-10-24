@@ -2,7 +2,9 @@
 
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import { IdeaCells } from '@/components/kit/IdeaCells';
 import { Tape } from '@/components/kit/Tape';
+import { usePublicLabCounts } from '@/hooks/usePublicLabCounts';
 import { cn } from '@/lib/utils';
 
 /**
@@ -72,6 +74,75 @@ function getReducedMotionServerSnapshot(): boolean {
   return false;
 }
 
+const SKELETON_SLOT_KEYS = [
+  'slot-1',
+  'slot-2',
+  'slot-3',
+  'slot-4',
+  'slot-5',
+  'slot-6',
+  'slot-7',
+  'slot-8',
+  'slot-9',
+  'slot-10',
+  'slot-11',
+  'slot-12',
+  'slot-13',
+  'slot-14',
+];
+
+function EvidenceLiveBlock({ reducedMotion = false }: { reducedMotion?: boolean }) {
+  const { data, isLoading, isError } = usePublicLabCounts();
+
+  if (isLoading) {
+    return (
+      <div className="mb-6 space-y-2" data-testid="evidence-live-loading" aria-hidden="true">
+        <div className="flex flex-wrap gap-1.5 select-none">
+          {SKELETON_SLOT_KEYS.map((key) => (
+            <span
+              key={key}
+              data-testid="evidence-skeleton-cell"
+              className={cn(
+                'w-[26px] h-[26px] rounded-[8px] bg-muted shrink-0',
+                !reducedMotion && 'animate-pulse'
+              )}
+            />
+          ))}
+        </div>
+        <div
+          className={cn(
+            'h-4 w-72 max-w-full rounded bg-muted',
+            !reducedMotion && 'animate-pulse'
+          )}
+        />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return null;
+  }
+
+  const ideaNoun = data.underTest === 1 ? 'idea' : 'ideas';
+  const formattedTrials = data.ledgerTrials.toLocaleString('en-US');
+
+  return (
+    <div className="mb-6 space-y-2" data-testid="evidence-live-block">
+      <IdeaCells
+        counts={{
+          underTest: data.underTest,
+          rejected: data.rejectedRules,
+          validated: data.validated,
+          notStarted: data.notStarted,
+        }}
+      />
+      <p className="text-xs text-ink-2">
+        Live now: {data.underTest} {ideaNoun} under test on new market bars, {data.validated} validated so far, and {formattedTrials} trials recorded.
+      </p>
+    </div>
+  );
+}
+
 export function EvidenceTape({ className }: { className?: string }) {
   const [revealed, setRevealed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,6 +204,8 @@ export function EvidenceTape({ className }: { className?: string }) {
         </div>
 
         <div className="w-full">
+          <EvidenceLiveBlock reducedMotion={reducedMotion} />
+
           <div className="flex items-center justify-between text-xs text-ink-2 mb-2">
             <span className="font-medium">Evidence</span>
             <span className="tabular-nums font-semibold text-foreground">

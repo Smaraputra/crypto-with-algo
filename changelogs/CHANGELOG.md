@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Live lab counts on the public home page
+- **Endpoint:** `GET /api/public/lab-counts` returns counts only: hypotheses under test, validated, not started, the total, the one rejected rule and the ledger total of trials.
+  - No hypothesis names, evidence values, signals or coins are exposed.
+  - It is cached for 5 minutes and rate limited by IP.
+  - Status follows exactly the rule the signed-in lab pages use (first and latest graded row per hypothesis, `labStatus`), through `src/lib/signals/lab/status-counts.ts`.
+- **Home page:** "How evidence builds" now opens with the live lab cells and the line "Live now: N ideas under test on new market bars, N validated so far, and 2,204 trials recorded." The illustration below keeps its "Illustration, not live data." caption.
+  - While loading, grey placeholders hold the space.
+  - If the counts cannot load, the block hides and the illustration still shows.
+
 ### Security: dependency updates for the open Dependabot alerts
 - `zod` ^4.6.7 (high: memory exhaustion on oversized constrained collections, fixed in 4.6.6).
 - `nodemailer` ^10.1.4 (three medium address-parser issues, fixed in 10.1.4). Pinned to the first fixed release rather than the newest.

@@ -131,6 +131,27 @@ test.describe('Landing page (unauthenticated)', () => {
     await expect(page.locator('body')).not.toHaveText(/public record|currently validated/i);
   });
 
+  test('displays live lab counts above evidence tape illustration', async ({ page }) => {
+    await page.route('**/api/public/lab-counts', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          underTest: 12,
+          validated: 0,
+          notStarted: 1,
+          hypotheses: 13,
+          rejectedRules: 1,
+          ledgerTrials: 2204,
+          asOf: new Date().toISOString(),
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.getByText('Live now: 12 ideas under test on new market bars, 0 validated so far, and 2,204 trials recorded.')).toBeVisible();
+  });
+
   test('footer shows legal links', async ({ page }) => {
     await page.goto('/');
     const footer = page.locator('footer');
