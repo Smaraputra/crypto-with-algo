@@ -453,6 +453,8 @@ describe('ensureFocusIndicatorsRegistered', () => {
     )?.[0];
     const { draw } = structureRegistration;
 
+    const fillCalls: string[] = [];
+    let currentFillStyle = '';
     const ctx = {
       save: vi.fn(),
       restore: vi.fn(),
@@ -461,10 +463,18 @@ describe('ensureFocusIndicatorsRegistered', () => {
       lineTo: vi.fn(),
       closePath: vi.fn(),
       stroke: vi.fn(),
+      fill: vi.fn(() => {
+        fillCalls.push(currentFillStyle);
+      }),
       fillText: vi.fn(),
       setLineDash: vi.fn(),
       strokeStyle: '',
-      fillStyle: '',
+      get fillStyle() {
+        return currentFillStyle;
+      },
+      set fillStyle(val: string) {
+        currentFillStyle = val;
+      },
       lineWidth: 0,
       font: '',
       textAlign: '',
@@ -474,6 +484,8 @@ describe('ensureFocusIndicatorsRegistered', () => {
     const dataList = [
       { timestamp: 1000, open: 100, high: 110, low: 90, close: 105, volume: 100 },
       { timestamp: 2000, open: 105, high: 120, low: 100, close: 115, volume: 100 },
+      { timestamp: 3000, open: 115, high: 125, low: 110, close: 120, volume: 100 },
+      { timestamp: 4000, open: 120, high: 130, low: 115, close: 125, volume: 100 },
     ];
 
     expect(() =>
@@ -485,8 +497,10 @@ describe('ensureFocusIndicatorsRegistered', () => {
           extendData: {
             priorDay: null,
             labMarks: [
-              { time: 1000, side: 1, label: 'S1' },
-              { time: 2000, side: -1, label: 'S2' },
+              { time: 1000, side: 1, label: 'S1', outcome: 'open' },
+              { time: 2000, side: -1, label: 'S2', outcome: 'won' },
+              { time: 3000, side: 1, label: 'S1', outcome: 'cost' },
+              { time: 4000, side: -1, label: 'S2', outcome: 'wrong' },
               { time: 999999, side: 1, label: 'S1' }, // out of range
             ],
           },
@@ -499,7 +513,12 @@ describe('ensureFocusIndicatorsRegistered', () => {
 
     expect(ctx.fillText).toHaveBeenCalledWith('S1', expect.any(Number), expect.any(Number));
     expect(ctx.fillText).toHaveBeenCalledWith('S2', expect.any(Number), expect.any(Number));
-    expect(ctx.strokeStyle).toBe(mod.FOCUS_COLORS.accent);
+    expect(ctx.strokeStyle).toBe(LIGHT_CHART_THEME_FALLBACK.text);
+    expect(fillCalls).toEqual([
+      LIGHT_CHART_THEME_FALLBACK.up,
+      LIGHT_CHART_THEME_FALLBACK.mutedText,
+      LIGHT_CHART_THEME_FALLBACK.down,
+    ]);
   });
 });
 

@@ -68,7 +68,12 @@ export interface PriorDayLevels {
 
 export interface StructureExtend {
   priorDay: PriorDayLevels | null;
-  labMarks?: { time: number; side: 1 | -1; label: 'S1' | 'S2' }[];
+  labMarks?: {
+    time: number;
+    side: 1 | -1;
+    label: 'S1' | 'S2';
+    outcome?: 'won' | 'cost' | 'wrong' | 'open';
+  }[];
 }
 
 export interface StructureCalcOptions {
@@ -380,12 +385,13 @@ export function ensureFocusIndicatorsRegistered(): void {
         }
       }
 
-      // Draw lab-v4 marks: small hollow triangles at entry bars with S1 or S2 text
+      // Draw lab-v4 marks: triangles at entry bars with S1 or S2 text
       const labMarks = extend?.labMarks;
       if (labMarks && Array.isArray(labMarks)) {
         const size = 6;
         const h = size * 0.9;
         const gap = 3;
+        const theme = getIndicatorTheme();
 
         for (const mark of labMarks) {
           const idx = dataList.findIndex((k) => k.timestamp === mark.time);
@@ -400,17 +406,33 @@ export function ensureFocusIndicatorsRegistered(): void {
             : yAxis.convertToPixel(k.high) - gap;
           const baseY = isLong ? tipY + h : tipY - h;
 
-          ctx.strokeStyle = FOCUS_COLORS.accent;
-          ctx.lineWidth = 1.5;
+          const outcome = mark.outcome ?? 'open';
+          const color =
+            outcome === 'won'
+              ? theme.up
+              : outcome === 'cost'
+                ? theme.mutedText
+                : outcome === 'wrong'
+                  ? theme.down
+                  : theme.text;
+
           ctx.beginPath();
           ctx.moveTo(x, tipY);
           ctx.lineTo(x - size / 2, baseY);
           ctx.lineTo(x + size / 2, baseY);
           ctx.closePath();
-          ctx.stroke();
+
+          if (outcome === 'open') {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+          } else {
+            ctx.fillStyle = color;
+            ctx.fill();
+          }
 
           ctx.font = '9px sans-serif';
-          ctx.fillStyle = FOCUS_COLORS.accent;
+          ctx.fillStyle = color;
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
           ctx.fillText(mark.label, x + size / 2 + 2, (tipY + baseY) / 2);

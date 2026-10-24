@@ -121,6 +121,14 @@ export interface LabV4HypothesisView {
   lastNetReturn: number | null;
   scale: number;
   openTrades: { symbol: string; side: 1 | -1; enteredAt: string; exitsAt: string }[];
+  closedTrades: {
+    symbol: string;
+    side: 1 | -1;
+    enteredAt: string;
+    exitedAt: string;
+    move: number;
+    outcome: 'won' | 'cost' | 'wrong';
+  }[];
   latestBar: {
     barClose: string;
     late: boolean;

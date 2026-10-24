@@ -18,11 +18,13 @@ import {
   type LabV4HypothesisView,
   type LabV4Response,
 } from '@/lib/signals/lab/view';
+import { labV4Outcome } from '@/lib/signals/lab/v4/outcome';
 
 export const dynamic = 'force-dynamic';
 
 const SYMBOL_REGEX = /^[A-Z0-9]{2,20}USDT$/;
 const FOURTEEN_DAYS_MS = 14 * 86_400_000;
+const THIRTY_DAYS_MS = 30 * 86_400_000;
 
 export async function GET(request?: Request) {
   const session = await auth();
@@ -47,29 +49,54 @@ export async function GET(request?: Request) {
 
     const hypotheses: LabV4HypothesisView[] = await Promise.all(
       LAB_HYPOTHESES_V4.map(async (hyp) => {
-        const [latest, first, gradedBars, latestSignal, bettingScores, openTradeSignals] =
-          await Promise.all([
-            LabScore.findOne({ version: LAB_VERSION_V4, hypothesis: hyp.id })
-              .sort({ barClose: -1 })
-              .lean(),
-            LabScore.findOne({ version: LAB_VERSION_V4, hypothesis: hyp.id })
+        const closedScoresPromise = symbolParam
+          ? LabScore.find(
+              {
+                version: LAB_VERSION_V4,
+                hypothesis: hyp.id,
+                barClose: { $gte: now - THIRTY_DAYS_MS },
+                [`weights.${symbolParam}`]: { $exists: true },
+                [`prices.${symbolParam}.start`]: { $exists: true },
+                [`prices.${symbolParam}.end`]: { $exists: true },
+              },
+              'barClose weights prices'
+            )
+              .select('barClose weights prices')
               .sort({ barClose: 1 })
-              .lean(),
-            LabScore.countDocuments({ version: LAB_VERSION_V4, hypothesis: hyp.id }),
-            LabSignal.findOne({ version: LAB_VERSION_V4, hypothesis: hyp.id })
-              .sort({ barClose: -1 })
-              .lean(),
-            LabScore.find({ version: LAB_VERSION_V4, hypothesis: hyp.id, bet: true })
-              .sort({ barClose: 1 })
-              .lean(),
-            LabSignal.find({
-              version: LAB_VERSION_V4,
-              hypothesis: hyp.id,
-              barClose: { $gt: openTradesMinBarClose },
-            })
-              .sort({ barClose: 1 })
-              .lean(),
-          ]);
+              .lean()
+          : Promise.resolve([]);
+
+        const [
+          latest,
+          first,
+          gradedBars,
+          latestSignal,
+          bettingScores,
+          openTradeSignals,
+          closedScores,
+        ] = await Promise.all([
+          LabScore.findOne({ version: LAB_VERSION_V4, hypothesis: hyp.id })
+            .sort({ barClose: -1 })
+            .lean(),
+          LabScore.findOne({ version: LAB_VERSION_V4, hypothesis: hyp.id })
+            .sort({ barClose: 1 })
+            .lean(),
+          LabScore.countDocuments({ version: LAB_VERSION_V4, hypothesis: hyp.id }),
+          LabSignal.findOne({ version: LAB_VERSION_V4, hypothesis: hyp.id })
+            .sort({ barClose: -1 })
+            .lean(),
+          LabScore.find({ version: LAB_VERSION_V4, hypothesis: hyp.id, bet: true })
+            .sort({ barClose: 1 })
+            .lean(),
+          LabSignal.find({
+            version: LAB_VERSION_V4,
+            hypothesis: hyp.id,
+            barClose: { $gt: openTradesMinBarClose },
+          })
+            .sort({ barClose: 1 })
+            .lean(),
+          closedScoresPromise,
+        ]);
 
         const state = latest?.state ?? initialEState();
         const e = eValue(state);
@@ -135,6 +162,36 @@ export async function GET(request?: Request) {
           }
         }
 
+        const closedTrades: LabV4HypothesisView['closedTrades'] = [];
+        if (symbolParam && Array.isArray(closedScores)) {
+          for (const row of closedScores) {
+            const side = row.weights?.[symbolParam];
+            const price = row.prices?.[symbolParam];
+            if (
+              (side === 1 || side === -1) &&
+              price &&
+              typeof price.start === 'number' &&
+              Number.isFinite(price.start) &&
+              price.start > 0 &&
+              typeof price.end === 'number' &&
+              Number.isFinite(price.end) &&
+              price.end > 0
+            ) {
+              const enteredAtMs = row.barClose + D;
+              const exitedAtMs = enteredAtMs + LAB_V4_HOLD_MS;
+              const { move, outcome } = labV4Outcome(side, price.start, price.end);
+              closedTrades.push({
+                symbol: symbolParam,
+                side,
+                enteredAt: new Date(enteredAtMs).toISOString(),
+                exitedAt: new Date(exitedAtMs).toISOString(),
+                move,
+                outcome,
+              });
+            }
+          }
+        }
+
         let latestBar: LabV4HypothesisView['latestBar'] = null;
         if (latestSignal) {
           const entries = Object.entries(latestSignal.scores ?? {})
@@ -167,6 +224,7 @@ export async function GET(request?: Request) {
           lastNetReturn,
           scale: hyp.scale ?? 1,
           openTrades,
+          closedTrades,
           latestBar,
         };
       })
