@@ -215,7 +215,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="Write note content in markdown..."
-          className="min-h-[140px] px-3 py-2.5 rounded-[12px] border border-edge bg-card text-foreground text-[14px] leading-relaxed focus-visible:outline-3 focus-visible:outline-ring resize-y font-mono"
+          className="min-h-[140px] px-3 py-2.5 rounded-[12px] border border-edge bg-card text-foreground text-[14px] leading-relaxed focus-visible:outline-3 focus-visible:outline-ring resize-y"
         />
       </div>
 

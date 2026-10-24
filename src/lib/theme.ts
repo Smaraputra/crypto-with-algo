@@ -1,7 +1,6 @@
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export const THEME_STORAGE_KEY = 'cwa-theme';
-// Dark stays the default while unrebuilt screens are still dark-only designs; the last redesign PR switches this to 'system'.
-export const DEFAULT_THEME: ThemeChoice = 'dark';
+export const DEFAULT_THEME: ThemeChoice = 'system';
 
 export function resolveTheme(choice: ThemeChoice, systemPrefersDark: boolean): 'light' | 'dark' {
   if (choice === 'system') return systemPrefersDark ? 'dark' : 'light';
@@ -13,7 +12,7 @@ export function isThemeChoice(value: unknown): value is ThemeChoice {
 }
 
 // Runs in <head> before first paint so the page never flashes the wrong theme.
-export const THEME_INIT_SCRIPT = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)};var d=${JSON.stringify(DEFAULT_THEME)};var c=localStorage.getItem(k);if(c!=='light'&&c!=='dark'&&c!=='system'){c=d}var m=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)').matches:false;var t=c==='system'?(m?'dark':'light'):c;var r=document.documentElement;r.classList.toggle('dark',t==='dark');r.style.colorScheme=t}catch(e){document.documentElement.classList.add('dark')}})();`;
+export const THEME_INIT_SCRIPT = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)};var d=${JSON.stringify(DEFAULT_THEME)};var c=localStorage.getItem(k);if(c!=='light'&&c!=='dark'&&c!=='system'){c=d}var m=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)').matches:false;var t=c==='system'?(m?'dark':'light'):c;var r=document.documentElement;r.classList.toggle('dark',t==='dark');r.style.colorScheme=t}catch(e){}})();`;
 
 const subscribers = new Set<() => void>();
 
