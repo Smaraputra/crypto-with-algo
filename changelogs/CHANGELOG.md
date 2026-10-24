@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: A detail page for every research entry, with its trials and test runs
+- **Detail pages:** every entry in the `/signals` hub now has its own page at `/signals/{id}`, linked from its card ("Open the full page"). Each page shows:
+  - method;
+  - trials (with where the program ledger stood after the study, and today's total of 2,204);
+  - result and figures;
+  - a table of test runs (date, what ran, commit or image, dataset, command, outcome);
+  - research notes, references and coins;
+  - the live state for lab entries.
+- **Catalog completeness:** the catalog now records at least one run for all 31 entries, and a trial count wherever a source states one.
+  - Two running records are added under a new "Live records" family: the retired LLM panel and the paper desk.
+  - The other studies found in the repository were folded into the entries they belong to:
+    - forward test into forward track;
+    - legends rules into trend simulation;
+    - C1 holdout runner into Round 1;
+    - the quarter-hour null into the quarter-hour flow entry;
+    - snipe matrix into snipe;
+    - calibration into earlier score versions;
+    - volatility regime line into event studies.
+- **Accuracy:** a test proves each run's date, and any commit, dataset or image, appears in its cited source. An independent audit of meaning led to 26 corrections, for example:
+  - rv-v1 now counts its own 12 cells, so the 14 legacy configurations are no longer counted twice;
+  - v8 no longer carries the direction and exit study's 24 configurations;
+  - three unsourced "no trials" counts were removed;
+  - a cumulative program count is no longer shown as one study's trials.
+
 ### Added: Outcome colours on the lab S1 and S2 marks on Coin study
 - **API:** `GET /api/signals/lab-v4?symbol=` also returns the coin's closed lab-v4 trades from the last 30 days. Each carries entry and exit times, side, price move and outcome. They are read from the stored graded rows (side and entry and exit prices), with no change to any rule, job or stored data.
 - **Chart:** closed S1 and S2 marks are filled and coloured: won after the 0.14% round trip, right but costs ate it, or wrong way. Open trades stay hollow. Funding is not included in the colour, and the legend line under the chart says so.
