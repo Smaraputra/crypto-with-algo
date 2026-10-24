@@ -30,7 +30,7 @@ describe('NotFound', () => {
   it('renders the product name linking to /', () => {
     render(<NotFound />);
 
-    const brandLink = screen.getByRole('link', { name: 'CryptoWithAlgo' });
+    const brandLink = screen.getByRole('link', { name: /CryptoWithAlgo/ });
     expect(brandLink).toBeInTheDocument();
     expect(brandLink).toHaveAttribute('href', '/');
   });

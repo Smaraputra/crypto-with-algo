@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketHome } from './MarketHome';
+import { useSession } from 'next-auth/react';
 import { useWatchlist } from '@/hooks/useWatchlist';
 import { useBinanceTicker } from '@/hooks/useBinanceStream';
 import { useTickers } from '@/hooks/usePrices';
@@ -12,6 +13,9 @@ import { useFearAndGreed } from '@/hooks/useSentiment';
 import { useLatestNews } from '@/hooks/useNews';
 import { useUIStore } from '@/stores/uiStore';
 
+vi.mock('next-auth/react', () => ({
+  useSession: vi.fn(),
+}));
 vi.mock('@/hooks/useWatchlist', () => ({
   useWatchlist: vi.fn(),
 }));
@@ -43,6 +47,14 @@ vi.mock('@/hooks/useNews', () => ({
 describe('MarketHome', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useSession).mockReturnValue({
+      data: {
+        user: { id: 'u1', name: 'Smaraputra Doe', email: 'smara@example.com', tosAccepted: true, isAdmin: false },
+        expires: '1',
+      },
+      status: 'authenticated',
+      update: vi.fn(),
+    });
     useUIStore.setState({
       selectedSymbol: 'BTCUSDT',
       selectedInterval: '1h',
@@ -155,12 +167,13 @@ describe('MarketHome', () => {
     } as unknown as ReturnType<typeof useLatestNews>);
   });
 
-  it('renders the hidden h1 and each section landmark text', () => {
+  it('renders the visible h1 Market, welcome line with first name, and each section landmark text', () => {
     render(<MarketHome />);
 
     const heading = screen.getByRole('heading', { level: 1, name: 'Market' });
     expect(heading).toBeInTheDocument();
-    expect(heading).toHaveClass('sr-only');
+    expect(heading).not.toHaveClass('sr-only');
+    expect(screen.getByText('Welcome, Smaraputra.')).toBeInTheDocument();
 
     expect(screen.getByRole('tablist', { name: 'Watchlist' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Price hero' })).toBeInTheDocument();
@@ -168,6 +181,36 @@ describe('MarketHome', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Lab' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Price score' })).toBeInTheDocument();
     expect(screen.getByRole('contentinfo', { name: 'Market footer' })).toBeInTheDocument();
+  });
+
+  it('renders no welcome line when session has no user name', () => {
+    vi.mocked(useSession).mockReturnValue({
+      data: null,
+      status: 'unauthenticated',
+      update: vi.fn(),
+    });
+
+    render(<MarketHome />);
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Market' });
+    expect(heading).toBeInTheDocument();
+    expect(heading).not.toHaveClass('sr-only');
+    expect(screen.queryByText(/Welcome/)).not.toBeInTheDocument();
+  });
+
+  it('holds the welcome line with a blank line while the session loads, so nothing shifts', () => {
+    vi.mocked(useSession).mockReturnValue({
+      data: null,
+      status: 'loading',
+      update: vi.fn(),
+    });
+
+    render(<MarketHome />);
+
+    const heading = screen.getByRole('heading', { level: 1, name: 'Market' });
+    const placeholder = heading.parentElement?.querySelector('p');
+    expect(placeholder?.textContent).toBe('\u00a0');
+    expect(screen.queryByText(/Welcome/)).not.toBeInTheDocument();
   });
 
   it('does not set double gutters or max-width classes, delegating to layout', () => {

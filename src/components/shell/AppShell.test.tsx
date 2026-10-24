@@ -39,7 +39,7 @@ describe('AppShell', () => {
     render(<AppShell />);
 
     // Brand links (desktop and phone strip)
-    const brandLinks = screen.getAllByRole('link', { name: 'CryptoWithAlgo' });
+    const brandLinks = screen.getAllByRole('link', { name: /CryptoWithAlgo/ });
     expect(brandLinks.length).toBeGreaterThanOrEqual(2);
 
     // Desktop nav items

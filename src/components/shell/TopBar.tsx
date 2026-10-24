@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
+import { BrandMark } from '@/components/kit';
 import { NavLink } from './NavLink';
 import { ToolsMenu } from './ToolsMenu';
 import { CoinSearch } from './CoinSearch';
@@ -15,12 +15,7 @@ export function TopBar() {
       <div className="mx-auto flex h-16 w-full max-w-[1240px] items-center justify-between px-4 sm:px-6">
         {/* Left */}
         <div className="flex min-w-0 items-center gap-4 xl:gap-6">
-          <Link
-            href="/dashboard"
-            className="inline-flex min-h-[44px] shrink-0 items-center font-sans text-[22px] font-semibold tracking-[-0.01em] text-foreground transition-opacity hover:opacity-90 select-none whitespace-nowrap"
-          >
-            CryptoWithAlgo
-          </Link>
+          <BrandMark size="md" href="/dashboard" className="text-[22px]" />
           <nav className="flex items-center gap-1 whitespace-nowrap" aria-label="Desktop primary">
             {PRIMARY_NAV_ITEMS.map((item) => (
               <NavLink key={item.href} item={item} />

@@ -11,12 +11,13 @@ describe('MarketingFooter', () => {
     expect(screen.getByRole('link', { name: 'Docs' })).toHaveAttribute('href', '/docs');
   });
 
-  it('renders the not-financial-advice disclaimer line and the current year with copyright symbol', () => {
+  it('renders brand mark and the current year with copyright symbol without disclaimer', () => {
     const { container } = render(<MarketingFooter />);
 
+    expect(screen.getByText('CryptoWithAlgo')).toBeInTheDocument();
     expect(
-      screen.getByText('Not financial advice. Prices from Binance public market data.')
-    ).toBeInTheDocument();
+      screen.queryByText('Not financial advice. Prices from Binance public market data.')
+    ).not.toBeInTheDocument();
 
     const currentYear = new Date().getFullYear().toString();
     expect(screen.getByText(new RegExp(`© ${currentYear}`))).toBeInTheDocument();

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { BrandMark } from '@/components/kit';
 
 export const metadata: Metadata = {
   title: 'Page not found | CryptoWithAlgo',
@@ -9,12 +10,7 @@ export default function NotFound() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 py-16 bg-background text-foreground">
       <div className="w-full max-w-md flex flex-col items-center text-center">
-        <Link
-          href="/"
-          className="text-[15px] font-semibold tracking-tight text-foreground hover:opacity-80 transition-opacity mb-8"
-        >
-          CryptoWithAlgo
-        </Link>
+        <BrandMark size="md" href="/" className="mb-8" />
         <h1 className="text-[32px] sm:text-[36px] font-semibold text-foreground tracking-[-0.01em] leading-tight mb-3">
           Page not found
         </h1>

@@ -64,11 +64,10 @@ test.describe('Landing page (unauthenticated)', () => {
     await expect(page.locator('body')).not.toHaveText(/public record|currently validated/i);
   });
 
-  test('footer shows disclaimer and legal links', async ({ page }) => {
+  test('footer shows legal links', async ({ page }) => {
     await page.goto('/');
     const footer = page.locator('footer');
     await expect(footer).toBeVisible();
-    await expect(footer).toContainText('Not financial advice');
     await expect(footer.getByRole('link', { name: 'Privacy', exact: true })).toBeVisible();
     await expect(footer.getByRole('link', { name: 'Terms', exact: true })).toBeVisible();
   });

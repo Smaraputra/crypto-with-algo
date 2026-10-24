@@ -2,6 +2,10 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import MarketingHomePage, { metadata } from './page';
 
+vi.mock('next-auth/react', () => ({
+  useSession: () => ({ data: null, status: 'unauthenticated', update: vi.fn() }),
+}));
+
 vi.mock('@/hooks/usePrices', () => ({
   useTickers: () => ({
     data: [

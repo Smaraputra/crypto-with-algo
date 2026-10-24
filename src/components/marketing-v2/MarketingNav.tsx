@@ -2,10 +2,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { Menu, X } from 'lucide-react';
+import { BrandMark } from '@/components/kit';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
+import { cn } from '@/lib/utils';
 
 export function MarketingNav() {
+  const { status } = useSession();
   const [isOpen, setIsOpen] = useState(false);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -42,12 +46,7 @@ export function MarketingNav() {
     <header className="sticky top-0 z-40 w-full border-b border-line bg-background">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-8">
-          <Link
-            href="/"
-            className="inline-flex items-center min-h-[44px] text-[18px] font-semibold tracking-tight text-foreground"
-          >
-            CryptoWithAlgo
-          </Link>
+          <BrandMark size="md" href="/" />
           <nav aria-label="Main" className="hidden md:flex md:items-center md:gap-6">
             <Link
               href="/features"
@@ -78,18 +77,35 @@ export function MarketingNav() {
 
         <div className="hidden md:flex md:items-center md:gap-4">
           <ThemeToggle />
-          <Link
-            href="/login"
-            className="inline-flex items-center min-h-[44px] px-3 py-2 text-[14px] font-medium text-foreground transition-colors hover:text-foreground/80"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/register"
-            className="inline-flex items-center min-h-[44px] rounded-full bg-brand px-4 py-2 text-[14px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
-          >
-            Create a free account
-          </Link>
+          {status === 'authenticated' ? (
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center min-h-[44px] rounded-full bg-brand px-4 py-2 text-[14px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
+            >
+              Open dashboard
+            </Link>
+          ) : (
+            // While the session loads the signed-out actions hold their space unseen,
+            // so a signed-in visitor never sees them flash.
+            <div
+              className={cn('flex items-center gap-4', status === 'loading' && 'invisible')}
+              aria-hidden={status === 'loading' || undefined}
+              inert={status === 'loading' || undefined}
+            >
+              <Link
+                href="/login"
+                className="inline-flex items-center min-h-[44px] px-3 py-2 text-[14px] font-medium text-foreground transition-colors hover:text-foreground/80"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/register"
+                className="inline-flex items-center min-h-[44px] rounded-full bg-brand px-4 py-2 text-[14px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
+              >
+                Create a free account
+              </Link>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 md:hidden">
@@ -147,22 +163,35 @@ export function MarketingNav() {
               Blog
             </Link>
             <div className="my-1 border-t border-line" />
-            <Link
-              role="menuitem"
-              href="/login"
-              onClick={closeMenu}
-              className="inline-flex items-center min-h-[44px] px-3 py-2 text-[15px] font-medium text-foreground transition-colors hover:text-foreground/80"
-            >
-              Log in
-            </Link>
-            <Link
-              role="menuitem"
-              href="/register"
-              onClick={closeMenu}
-              className="inline-flex items-center justify-center min-h-[44px] rounded-full bg-brand px-4 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
-            >
-              Create a free account
-            </Link>
+            {status === 'authenticated' ? (
+              <Link
+                role="menuitem"
+                href="/dashboard"
+                onClick={closeMenu}
+                className="inline-flex items-center justify-center min-h-[44px] rounded-full bg-brand px-4 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
+              >
+                Open dashboard
+              </Link>
+            ) : (
+              <>
+                <Link
+                  role="menuitem"
+                  href="/login"
+                  onClick={closeMenu}
+                  className="inline-flex items-center min-h-[44px] px-3 py-2 text-[15px] font-medium text-foreground transition-colors hover:text-foreground/80"
+                >
+                  Log in
+                </Link>
+                <Link
+                  role="menuitem"
+                  href="/register"
+                  onClick={closeMenu}
+                  className="inline-flex items-center justify-center min-h-[44px] rounded-full bg-brand px-4 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
+                >
+                  Create a free account
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -1,6 +1,11 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useSession } from 'next-auth/react';
 import { HomePage } from './HomePage';
+
+vi.mock('next-auth/react', () => ({
+  useSession: vi.fn(),
+}));
 
 vi.mock('@/hooks/usePrices', () => ({
   useTickers: () => ({
@@ -19,6 +24,15 @@ vi.mock('@/hooks/usePrices', () => ({
 }));
 
 describe('HomePage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useSession).mockReturnValue({
+      data: null,
+      status: 'unauthenticated',
+      update: vi.fn(),
+    });
+  });
+
   it('renders honest headline, subline, and actions', () => {
     render(<HomePage />);
 
@@ -39,6 +53,23 @@ describe('HomePage', () => {
       'href',
       '/how-it-works'
     );
+  });
+
+  it('the signed-in hero shows Open dashboard', () => {
+    vi.mocked(useSession).mockReturnValue({
+      data: { user: { id: 'u1', name: 'Alice', tosAccepted: true, isAdmin: false }, expires: '1' },
+      status: 'authenticated',
+      update: vi.fn(),
+    });
+
+    render(<HomePage />);
+
+    const dashboardLinks = screen.getAllByRole('link', { name: 'Open dashboard' });
+    expect(dashboardLinks.length).toBe(2);
+    expect(dashboardLinks[0]).toHaveAttribute('href', '/dashboard');
+    expect(dashboardLinks[1]).toHaveAttribute('href', '/dashboard');
+    expect(screen.queryByRole('link', { name: 'Create a free account' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'See how it works' })).toBeInTheDocument();
   });
 
   it('renders the price strip and real capabilities', () => {
