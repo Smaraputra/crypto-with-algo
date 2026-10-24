@@ -4,6 +4,8 @@ export { LiveTicker } from './LiveTicker';
 export type { LiveTickerProps } from './LiveTicker';
 export { LiveCandles } from './LiveCandles';
 export type { CandleData } from './LiveCandles';
+export { HeroGlobe } from './hero/HeroGlobe';
+export { EvidenceTape } from './EvidenceTape';
 export { HomePage } from './HomePage';
 export { FeaturesPage } from './FeaturesPage';
 export { HowItWorksPage } from './HowItWorksPage';

@@ -61,6 +61,29 @@ test.describe('Landing page (unauthenticated)', () => {
     await expect(livePrices).toContainText('-2.50%');
   });
 
+  test('globe wrapper box exists with a nonzero size', async ({ page }) => {
+    await page.goto('/');
+    const globeWrapper = page.getByTestId('hero-globe');
+    await expect(globeWrapper).toBeVisible();
+
+    const box = await globeWrapper.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+  });
+
+  test('reduced motion renders hero h1 and evidence caption', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+
+    const h1 = page.getByRole('heading', { level: 1 });
+    await expect(h1).toBeVisible();
+    await expect(h1).toHaveText('A crypto market tracker with an open research lab');
+
+    const caption = page.getByText('Illustration, not live data.');
+    await expect(caption).toBeVisible();
+  });
+
   test('live ticker and live candle chart show moving market data', async ({ page }) => {
     const now = Date.now();
     const currentHour = now - (now % (3600 * 1000));
@@ -102,7 +125,7 @@ test.describe('Landing page (unauthenticated)', () => {
 
   test('lab section renders honest research copy without hype', async ({ page }) => {
     await page.goto('/');
-    const labHeading = page.getByRole('heading', { name: 'Research in the open', exact: true });
+    const labHeading = page.getByRole('heading', { name: 'How evidence builds', exact: true });
     await expect(labHeading).toBeVisible();
     await expect(page.getByText('ideas that fail stay on the record')).toBeVisible();
     await expect(page.locator('body')).not.toHaveText(/public record|currently validated/i);

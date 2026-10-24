@@ -7,6 +7,10 @@ vi.mock('next-auth/react', () => ({
   useSession: vi.fn(),
 }));
 
+vi.mock('./hero/HeroGlobe', () => ({
+  HeroGlobe: () => <div data-testid="hero-globe">Globe</div>,
+}));
+
 vi.mock('./LiveTicker', () => ({
   LiveTicker: () => (
     <ul aria-label="Live prices">
@@ -75,24 +79,38 @@ describe('HomePage', () => {
     expect(screen.getByRole('link', { name: 'See how it works' })).toBeInTheDocument();
   });
 
-  it('renders live prices, candles, and real capabilities', () => {
+  it('renders live prices in hero, candles, real capabilities, and evidence tape', () => {
     render(<HomePage />);
 
     expect(screen.getByText('BTC')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: 'Prices that move' })).toBeInTheDocument();
+    expect(screen.getByTestId('hero-globe')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'What you can do' })).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { level: 2, name: 'Live BTC and ETH, hour by hour' })
     ).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: 'Research in the open' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'How evidence builds' })
+    ).toBeInTheDocument();
+    expect(screen.getByText('Illustration, not live data.')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { level: 2, name: 'Prices that move' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { level: 2, name: 'Research in the open' })
+    ).not.toBeInTheDocument();
   });
 
-  it('renders honest lab description without counts or pass claims', () => {
+  it('renders honest lab description in evidence tape', () => {
     render(<HomePage />);
 
     expect(
       screen.getByText(
-        'Every idea is tested on live data, and ideas that fail stay on the record. The price score was measured on years of history and showed no edge after costs, so it is shown as context only. Sign in to see each test and where it stands.'
+        'Each idea in the lab bets a small, fixed stake on live bars, after trading costs. Wins add evidence and losses take it away.'
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'An idea counts as validated only when its evidence crosses a line set before its test began. Ideas that fail stay on the lab record.'
       )
     ).toBeInTheDocument();
   });
