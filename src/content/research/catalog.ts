@@ -100,7 +100,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     summary: 'Two 1-hour trading rules registered by owner override after their preview failed, tracked forward on live bars.',
     steps: [
       'S1-1h trades swing market structure breaks (CHoCH, a break of the previous swing high or low) when the break bar taker delta has the same sign as the break.',
-      'S2-1h fades regular delta divergences between two swing pivots confirmed within 72 bars on hourly candles.',
+      'S2-1h fades regular delta divergences between the two most recent confirmed swing pivots at most 72 bars apart, confirmed on that last bar.',
       'Both rules enter at the open 10 minutes after bar close, hold for 8 hours, and pay 14 bps round trip fees plus funding.',
       'Judged by an e-process (a test martingale that can be stopped at any time without invalidating error rates) with a validation threshold of 800.',
     ],
@@ -341,6 +341,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'lab-forward-v1 lock',
         path: 'scripts/research/lab-forward-v1.ts',
+        date: '2026-10-18',
+      },
+      {
+        label: 'lab-v1 jobs (PR 98)',
         pr: 98,
         date: '2026-10-18',
       },
@@ -467,7 +471,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     family: 'next-version',
     status: 'rejected',
     period: 'Run 2026-10-18',
-    summary: 'Pre-registered evaluation of a confirmation-delay scorer, weekly ridge model, and volume profile rule.',
+    summary: "Pre-registered candidate evaluation where rejection was C1's (gated, failed), while C2 and C3 only survived screens and went on to lab-v2.",
     steps: [
       'Tested C1 (price score with confirmation delay k) on unread historical holdout segment A (2017 to 2021).',
       'Screened C2 (weekly cross-sectional ridge regression on 5 spot features) across segments B and C.',
@@ -491,13 +495,13 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'scripts/research/next-version-v1.ts', line: 119 },
       },
       {
-        label: 'C3 surviving cell pooled net return',
-        value: '+0.056',
-        source: { path: 'scripts/research/next-version-v1.ts', line: 129 },
+        label: 'C3 k 1 surviving cell pooled net return',
+        value: '+0.056% per one-day trade',
+        source: { path: 'scripts/research/next-version-v1.ts', line: 129, match: '+0.056' },
       },
     ],
     research: [
-      'C1 showed positive returns only in 2017 to 2018 and failed on all subsequent years, showing confirmation delays do not rescue trend-following price scores.',
+      "C1's only clearly positive stretch was segment A1 (2017 to 2018, driven by 2017 +1.87). A2, B and C were flat or negative, so no delay gave a consistent edge.",
       'C2 and C3 advanced to forward lab v2 under strict forward-only alpha spending.',
     ],
     references: [
@@ -518,9 +522,9 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     family: 'relative-value',
     status: 'rejected',
     period: 'Run 2026-10-15',
-    summary: 'Pre-registered re-validation of frozen 8-hour relative value rule rv-v1 on perpetual prices using four-step permutation testing.',
+    summary: "Pre-registered re-validation of frozen 8-hour relative value rule rv-v1 on perpetual prices using Masters' four-step procedure (two of the steps are permutation tests).",
     steps: [
-      'Built an 8-hour perpetual price panel across 10 symbols from 2022 to 2026, pairing 4h candles and syncing funding settlements.',
+      'Built an 8-hour panel of Binance perpetual bars (5,240 bars, 2022-01-01 to 2026-10-13) across 10 symbols, with funding settlements.',
       'G1: Step 2 in-sample permutation with M = 1,000 permutations re-selecting all 12 strategy cells.',
       'G2: Step 4 walk-forward permutation with M = 1,000 permutations across 15 rolling folds.',
       'G3: Deflated Sharpe ratio (a statistical test that discounts the best Sharpe ratio for how many variations were tested) test for rv-v1 at trial count N = 672.',
@@ -543,14 +547,19 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'scripts/research/rv-revalidation.ts', line: 285 },
       },
       {
-        label: 'rv-v1 full span total return',
+        label: 'Net taker paper return, 2022-01-15 to 2026-10-13',
         value: '+130.2%',
         source: { path: 'scripts/research/rv-revalidation.ts', line: 294 },
       },
+      {
+        label: '2026 to 2026-10-13 net taker return',
+        value: '-22.0%',
+        source: { path: 'scripts/research/rv-revalidation.ts', line: 298 },
+      },
     ],
     research: [
-      'Passing G1 and G2 confirmed real time structure destroyed by bar shuffles, but G3 demonstrated the edge was too small to survive multiple testing across earlier model searches.',
-      'Led to removing claims of validated relative value and establishing forward lab v1.',
+      "Passing G1 and G2 confirmed real time structure destroyed by bar shuffles, but G3 demonstrated the edge was too small to survive multiple testing at this phase's count (N = 672, with the program count reported only).",
+      'By the failure action, the desk keeps recording rv-v1 as a descriptive forward test labelled not validated, and the docs record the failure.',
     ],
     references: [
       {
@@ -575,9 +584,9 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     steps: [
       'Evaluated an 8-hour cross-sectional ranking system combining momentum, idiosyncratic return, carry, and taker flow.',
       'Reported backtest returns and permutation test statistics supporting an active strategy claim.',
-      'Audited on 2026-10-14 across 28 specific methodological and data integrity defects.',
+      'Audited on 2026-10-14 (recorded in the docs on 2026-10-15) across methodological and data integrity defects (docs/TECHNICAL.md near line 767).',
     ],
-    result: 'Void because the audit proved it traded spot candles rather than perpetuals, tested against synthetic Gaussian noise rather than real data permutations, left funding unpermuted, assumed an arbitrary trial count, and lacked an untouched holdout.',
+    result: 'Void because the audit proved it traded spot candles rather than perpetuals, assumed an arbitrary trial count, the walk-forward null was synthetic Gaussian noise (docs/TECHNICAL.md near line 793), the in-sample permutation used fixed parameters and did not permute funding (near line 792), and the 1,000-trial run omitted --allow-lockbox (near line 792).',
     figures: [
       {
         label: 'Void claimed p-value',
@@ -585,13 +594,13 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'docs/TECHNICAL.md', line: 790 },
       },
       {
-        label: 'Void claimed deflated Sharpe probability',
+        label: 'Void claimed deflated Sharpe probability (net maker)',
         value: '0.8351 (void)',
         source: { path: 'docs/TECHNICAL.md', line: 785 },
       },
     ],
     research: [
-      'The brief explicitly bars reporting return or Sharpe ratio figures from this study as real results, allowing figures only when labelled as void claims.',
+      'The retracted table is kept for the record only and must not be cited as validation (docs/TECHNICAL.md section 8.5).',
       'The entire validation was retracted in technical documentation sections 8.5 and 8.6, prompting the pre-registered re-validation in rv-revalidation.ts.',
     ],
     references: [
@@ -616,7 +625,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     steps: [
       'Live record study measuring balanced hit rates and net returns of stored production composite signals across 8.6 live days.',
       'Year re-score study running the v8 scorer on historical data across six timeframe cells over a full year.',
-      'Paper desk forward simulation tracking realized trade performance with real stops and fees.',
+      'Paper desk forward simulation tracking realized trade performance after fees (the paper desk lost about 0.17% per trade).',
       'Direction and exit study evaluating 24 pre-registered rule and exit combinations.',
     ],
     result: 'Measured as having no edge, because none of the four studies beats chance after trading costs.',
@@ -674,12 +683,12 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     result: 'No configuration passed because all 24 confirmation runs failed expectancy, consistency windows, symbol count, and deflated Sharpe ratio tests.',
     figures: [
       {
-        label: '1h D0 E1 expectancy % per trade',
+        label: '1h D0 E1 confirmation period net expectancy % (2025-01 to 2026-10-09)',
         value: '-0.165',
         source: { path: 'scripts/research/direction-exit.ts', line: 254 },
       },
       {
-        label: '1h D0 E1 develop net expectancy %',
+        label: '1h D0 E1 develop slice net expectancy % (it selects and is never judged)',
         value: '-0.025',
         source: { path: 'scripts/research/direction-exit.ts', line: 239 },
       },
@@ -691,7 +700,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'Showed that take-profit exits increased win rates but proportionally reduced average win size, producing no net improvement in expectancy.',
-      'Proved the price paths of composite calls matched the paths of random entries, confirming there was no excursion an exit rule could harvest.',
+      'Showed (median favourable and adverse excursions and touch rates) the price paths of composite calls matched the paths of random entries, confirming there was no excursion an exit rule could harvest.',
     ],
     references: [
       {
@@ -785,7 +794,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'Earlier version 7 signals went the wrong way significantly more often than chance during its single week in production.',
-      'Prompted the year re-score and the technical decision to retire active directional trading based on composite scores.',
+      'Prompted the year re-score.',
     ],
     references: [
       {
@@ -807,7 +816,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       'Tracked rule A1 (5m RSI bottom 10% buy) and A2 (5m RSI top 10% sell) against a matched baseline.',
       'Tracked rule B (1h small-trade order imbalance) using pooled rank correlation (information coefficient, a rank correlation measuring how well scores predict future price moves) with forward returns.',
     ],
-    result: 'Small-trade imbalance showed consistent negative correlation in 11 of 13 months, but stayed below breakeven costs.',
+    result: 'Small-trade imbalance showed consistent negative correlation in 11 of 13 months, but stayed below breakeven costs. A1 and A2 were positive in most months (11 of 13 each), and the source says this does not sharpen the verdict.',
     figures: [
       {
         label: 'A1 year excess win rate points',
@@ -849,7 +858,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       'Computed the net weighted contribution of categories and evaluated the theoretical additive ceiling if all signs were corrected.',
       'Compared the additive ceiling against break-even taker fee hurdles across timeframes.',
     ],
-    result: 'Intraday trend and volume indicators entered the composite with inverted signs, and the theoretical ceiling fell below taker fees across all intraday intervals.',
+    result: 'At 5m, 15m and 1h every trend and higher-timeframe reading, and most volume readings, entered with the wrong sign, and the additive ceiling sat below the cheapest taker breakeven. At 4h and 1d the ceiling cleared the line on samples too small to prove a rule.',
     figures: [
       {
         label: '5m composite information coefficient',
@@ -868,8 +877,9 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       },
     ],
     research: [
-      'Explained why composite scoring systematically failed: individual indicators were predicting in reverse due to short-term mean reversion.',
-      'Proved that simply re-weighting existing indicators could not produce an economically viable trading strategy after fees.',
+      'Explained why composite scoring systematically failed: individual indicators were predicting in reverse.',
+      'Indicated that simply re-weighting existing indicators could not produce an economically viable trading strategy after fees.',
+      'The 5m and 1d columns come from pre-v6 reports (2026-09-20), and the 15m, 1h and 4h columns come from v7 (2026-09-26).',
     ],
     references: [
       {
@@ -884,12 +894,12 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     name: 'Earlier composite versions (v1 to v7)',
     family: 'price-score',
     status: 'descriptive',
-    period: 'Deployed 2026-09-16 to 2026-10-01',
+    period: 'Before 2026-10',
     summary: 'Historical development of composite scorer configVersion revisions from initial calibration to causal data corrections.',
     steps: [
-      'v2 introduced higher-timeframe confluence and fixed market session filtering.',
+      'v2 introduced higher-timeframe confluence and introduced market session data (recorded and used as an entry-only backtest filter).',
       'v3 recalibrated tier cutoffs from production score distributions, lowering buy thresholds from 30 to 24.',
-      'v4 enforced evaluation on closed candles only, v5 and v6 adjusted cutoffs, and v7 corrected news keyword parsing and causal snapshot joins.',
+      'v4 enforced evaluation on closed candles only, v5 was the scorer-correctness fixes and the cutoffs they forced, v6 made indicator strength scales scale-free and changed tier cutoffs, and v7 repaired news keyword parsing.',
     ],
     result: 'Successive refinements improved data integrity and causality but did not establish an out-of-sample edge after costs.',
     figures: [
@@ -912,6 +922,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Project changelog',
         path: 'changelogs/CHANGELOG.md',
+      },
+      {
+        label: 'Compute engine configVersion history',
+        path: 'src/lib/signals/compute-engine.ts',
       },
     ],
   },
@@ -956,7 +970,8 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'Proved that while extreme RSI pushes reverse slightly more often than chance, fee friction makes the effect economically unexploitable.',
-      'Closed the search for rare tail entries before trading costs.',
+      'The RSI reversal is real by every test the lock set, and far too small to trade at 5m.',
+      'Part of the edge may be bid-ask bounce in the entry print that kline data cannot separate.',
     ],
     references: [
       {
@@ -998,7 +1013,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'Reproduction confirmed the published quarter-hour continuation appeared in-sample but vanished completely out-of-sample.',
-      'Small-trade imbalance showed persistent next-hour reversal but failed effect size hurdles and taker fee lines.',
+      'Small-trade imbalance showed a next-hour reversal at 1h (horizon 1, with a weaker horizon 4) but failed effect size hurdles and taker fee lines.',
     ],
     references: [
       {
@@ -1016,7 +1031,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     period: 'Run 2026-10-08',
     summary: 'Pre-registered evaluation of five classic trend rules on a point-in-time top 50 perpetual universe.',
     steps: [
-      'Assembled point-in-time top 50 crypto perpetual universe covering 680 contracts over 1,948 days (2021 to 2026).',
+      'Assembled a point-in-time top 50 universe drawn from 680 contracts (204 ever members) over 1,948 days (2021 to 2026).',
       'Tested five trend rules (TF1, TF2, TF3, TF4, C3) with daily rebalancing and funding.',
       'Evaluated across nine statistical gates including bootstrap confidence intervals and deflated Sharpe ratio.',
     ],
@@ -1044,8 +1059,8 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       },
     ],
     research: [
-      'Demonstrated that expanding from 10 survivor coins to a survivorship-free universe cut trend Sharpe ratios by 57% to 80%.',
-      'Permanently closed daily trend strategies on Binance USDT-M perpetuals.',
+      'Expanding from 10 survivor coins to a survivorship-free universe cut the Sharpe of the three near misses (TF1, C3, TF4) by 57%, 73% and 80%.',
+      'Closed daily trend strategies on Binance USDT-M perpetuals by the pre-registered verdict.',
     ],
     references: [
       {
@@ -1087,7 +1102,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'In the literature paper sample period (2021 to 2022) every book lost money, contradicting published gross findings.',
-      'Permanently closed daily and weekly cross-sectional taker flow on Binance perpetuals.',
+      'Closed daily and weekly cross-sectional taker flow on Binance perpetuals by the pre-registered verdict.',
     ],
     references: [
       {
@@ -1128,8 +1143,8 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       },
     ],
     research: [
-      'Closed directional trading on liquidation and volume spikes, but retained the volatility prediction finding as a risk input.',
-      'Showed that post-event volatility prediction added little beyond basic volatility clustering.',
+      'Kept the volatility reading as a descriptive finding, not a trade.',
+      'The comparison with volatility persistence was post hoc, outside the pre-registration.',
     ],
     references: [
       {
@@ -1171,7 +1186,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'Represented the first net return measured in the program whose confidence interval excluded zero, confirming a genuine structural transfer.',
-      'However, net yields fell below risk-free USDT savings yields and trended downward over time (2024: +10.5%, 2025: +1.9%, 2026: -1.7%).',
+      'However, net yields fell below the 5% a year USDT savings-yield hurdle and trended downward over time (2024: +10.5%, 2025: +1.9%, 2026: -1.7%).',
     ],
     references: [
       {
@@ -1236,7 +1251,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     period: 'Measured 2026-09-26, revised 2026-10-01',
     summary: 'Analytical study deriving required factor predictive strength across trading frequencies and cost structures.',
     steps: [
-      'Derived per-trade return standard deviations from walk-forward backtest report confidence intervals.',
+      'Recovered raw per-trade standard deviation as expectancy divided by observed Sharpe. A first version used confidence-interval-implied deviations and was superseded on 2026-10-01.',
       'Calculated the required information coefficient (IC, a rank correlation measuring how well scores predict future price moves) for factors to cover taker and maker fee hurdles.',
       'Modeled trade frequency against required per-trade predictability to achieve fixed daily return targets.',
     ],
@@ -1283,7 +1298,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     period: 'Run 2026-09-28',
     summary: 'Screening of community-derived trading concepts across multi-year forward-rolling slices.',
     steps: [
-      'Tested 13 rule shapes across 40 development runs at 15m, 1h, and 4h on data before 2023.',
+      'Tested 37 develop-slice runs of the round 1 rule shapes across the 13-family registry at 15m, 1h, and 4h on data before 2023 (trials 1141 as run, 1186 audited).',
       'Evaluated four options-flow families using newly ingested Deribit data on 2022 history.',
       'Tested candidate promotions on out-of-sample slices using walk-forward statistical gates.',
     ],
@@ -1332,7 +1347,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'scripts/research/factors.ts', line: 337 },
       },
       {
-        label: 'Phase B rejected cells',
+        label: 'Phase B cells with the null rejected by FDR (before the size and horizon rules)',
         value: '1,371',
         source: { path: 'scripts/research/factors.ts', line: 337 },
       },
@@ -1344,7 +1359,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'Established the causal foundation for all subsequent factor research.',
-      'Showed that time-series intraday trading is dominated by negative autocorrelation, while cross-sectional ranking provides a more viable predictive structure.',
+      'The cross-sectional axis carries information not present on the time-series axis. Tradability was left as an open question (scripts/research/factors.ts near line 410).',
     ],
     references: [
       {
@@ -1366,7 +1381,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       'Ran walk-forward backtests across six rolling windows with parameter optimization.',
       'Evaluated out-of-sample expectancy, trade counts, bootstrap confidence intervals, and timing tests.',
     ],
-    result: 'All eight phase 4c strategy family runs failed to beat trading costs, with real entry timing observed but overcome by fee friction.',
+    result: 'In two of eight runs (funding-z-fade 15m, depth-imbalance-fade 1h) entries were distinguishable from random entries with the same exit, yet still lost money.',
     figures: [
       {
         label: 'Positioning fade 1d expectancy %',
@@ -1385,7 +1400,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       },
     ],
     research: [
-      'Confirmed that entries exhibited genuine statistical timing against random benchmarks, but expected gains remained smaller than transaction costs.',
+      'positioning-fade 1d missed the timing gate (p 0.055).',
       'Demonstrated that discretely timed entries could not overcome standard exchange taker fee structures.',
     ],
     references: [
@@ -1428,7 +1443,9 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     research: [
       'Discovered that selection metrics based on per-period Sharpe ratio inherently penalize banded rebalancing in favor of smooth continuous rebalancing.',
-      'Permanently closed the banded-exposure backtest path on this dataset.',
+      'Closed the backtest track on this dataset by the pre-registered verdict.',
+      'The 1d rows were computed while one funding settlement per bar was charged, a two-thirds undercharge, fixed in code but not re-run, while the 4h rows are unaffected (scripts/research/exposure-gates.ts near line 26).',
+      'band = 0 won at 4h 6 of 6 and at 1d 5 of 6, so the grid effectively tested no band (scripts/research/exposure-gates.ts line 37).',
     ],
     references: [
       {
