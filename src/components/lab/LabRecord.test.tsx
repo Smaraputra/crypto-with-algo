@@ -315,6 +315,33 @@ describe('LabRecord', () => {
     expect(screen.getByText('Loading the lab record.')).toBeInTheDocument();
   });
 
+  it('the rejected rule is absent while loading and present after', () => {
+    vi.mocked(useSignalLabModule.useSignalLab).mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as LabV1QueryResult);
+
+    const { unmount } = render(<LabRecord />);
+    expect(screen.getByText('Loading the lab record.')).toBeInTheDocument();
+    expect(screen.queryByText('Relative value, 8 hours')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Rejected' })).not.toBeInTheDocument();
+
+    unmount();
+
+    vi.mocked(useSignalLabModule.useSignalLab).mockReturnValue({
+      data: mockLabV1Data,
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as LabV1QueryResult);
+
+    render(<LabRecord />);
+    expect(screen.getByText('Relative value, 8 hours')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Rejected' })).toBeInTheDocument();
+  });
+
   it('renders status group EvidenceChip in an h2 heading', () => {
     render(<LabRecord />);
     expect(
