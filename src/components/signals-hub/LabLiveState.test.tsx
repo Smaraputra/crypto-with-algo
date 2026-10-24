@@ -109,6 +109,20 @@ describe('LabLiveState', () => {
     expect(link).toHaveAttribute('href', '/lab');
   });
 
+  it('says "1 bet" for a single bet', () => {
+    const base = vi.mocked(useSignalLab).getMockImplementation()?.();
+    const hyp = base?.data?.hypotheses?.[0];
+    if (!base || !hyp) throw new Error('The lab-v1 mock is missing');
+    vi.mocked(useSignalLab).mockReturnValue({
+      ...base,
+      data: { ...base.data, hypotheses: [{ ...hyp, betBars: 1 }] },
+    } as unknown as ReturnType<typeof useSignalLab>);
+
+    render(<LabLiveState hypothesisIds={['L1-8h']} />);
+
+    expect(screen.getByText('Evidence 12.35 of 100, 1 bet, since 2026-10-18')).toBeInTheDocument();
+  });
+
   it('renders "n/a" for a missing hypothesis', () => {
     render(<LabLiveState hypothesisIds={['L1-8h', 'MISSING-99']} />);
 
