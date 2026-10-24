@@ -204,6 +204,16 @@ export const ResearchEntryCard: React.FC<ResearchEntryCardProps> = ({
             </div>
           )}
 
+          {/* Open full page */}
+          <div className="pt-2">
+            <Link
+              href={`/signals/${entry.id}`}
+              className="inline-flex items-center min-h-[44px] px-3.5 py-2 text-[13px] font-semibold text-foreground rounded-[8px] bg-muted/60 hover:bg-muted hover:border-foreground border border-edge transition-colors duration-120 focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px] focus-visible:outline"
+            >
+              Open the full page
+            </Link>
+          </div>
+
           {/* Coins */}
           {entry.symbols && entry.symbols.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-line text-[14px]">

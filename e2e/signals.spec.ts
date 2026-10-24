@@ -146,4 +146,45 @@ test.describe('Signals and research hub (/signals)', () => {
     await expect(coinLink).toBeVisible();
     await expect(coinLink).toHaveAttribute('href', /\/focus\?symbol=/);
   });
+
+  test('open /signals, expand the rv-v1 re-validation entry, follow "Open the full page", and expect heading, "Test runs" and "Method"', async ({
+    page,
+  }) => {
+    await page.goto('/signals');
+    await expect(
+      page.getByRole('heading', { name: 'Signals and research', exact: true })
+    ).toBeVisible({ timeout: 15000 });
+
+    const statusGroup = page.getByRole('group', { name: 'Status' });
+    await statusGroup.getByText('Rejected', { exact: true }).click();
+    await expect(page).toHaveURL(/status=rejected/, { timeout: 10000 });
+
+    const rvCard = page.locator('#rv-v1-revalidation');
+    await expect(rvCard).toBeVisible();
+
+    // Expand the card
+    const rvButton = rvCard.getByRole('button');
+    if ((await rvButton.getAttribute('aria-expanded')) !== 'true') {
+      await rvButton.click();
+    }
+
+    const openFullPageLink = rvCard.getByRole('link', { name: 'Open the full page' });
+    await expect(openFullPageLink).toBeVisible();
+    await openFullPageLink.click();
+
+    await expect(page).toHaveURL('/signals/rv-v1-revalidation', { timeout: 10000 });
+    await expect(
+      page.getByRole('heading', { name: 'Relative value rv-v1 re-validation', exact: true })
+    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Test runs' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Method' })).toBeVisible();
+  });
+
+  test('/signals/does-not-exist shows the 404 page', async ({ page }) => {
+    await page.goto('/signals/does-not-exist');
+    await expect(
+      page.getByRole('heading', { name: 'Page not found' })
+    ).toBeVisible({ timeout: 15000 });
+  });
 });
+

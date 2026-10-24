@@ -128,4 +128,17 @@ describe('ResearchEntryCard', () => {
       unmount();
     }
   });
+
+  it('expanded card has "Open the full page" link pointing to /signals/{id}', async () => {
+    const user = userEvent.setup();
+    render(<ResearchEntryCard entry={mockEntry} />);
+
+    const button = screen.getByRole('button', { expanded: false });
+    await user.click(button);
+
+    const fullPageLink = screen.getByRole('link', { name: 'Open the full page' });
+    expect(fullPageLink).toBeInTheDocument();
+    expect(fullPageLink).toHaveAttribute('href', `/signals/${mockEntry.id}`);
+  });
 });
+
