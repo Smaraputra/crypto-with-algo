@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: A live public home page with the 3D globe back (owner feedback E)
+- **Hero:** the old landing's dot globe returns (three and react-three fiber, loaded lazily with no server render), now tied to real data.
+  - Each live price update flashes a point on it, green for a rise and red for a fall.
+  - The dots use the neutral text colour, so green and red keep meaning up and down only.
+  - Rendering pauses off screen and in a hidden tab, and stops under reduced motion.
+  - A static drawing of the same size stands in while it loads or where WebGL is missing, so the page does not shift.
+- **Live ticker:** BTC, ETH, SOL and BNB now update from the public stream relay as trades come in, and each price briefly tints on a change.
+  - A dot and the line "Live from Binance" (or "Reconnecting") show the real stream state.
+  - The ticker never shows a sample price: grey blocks while loading, "n/a" when data is missing.
+  - The old polled price strip is removed.
+- **Live candles:** a new section draws the last 48 hourly BTC or ETH candles as SVG and updates the forming bar from the stream.
+  - The price lines sit on round values and never collide with the last-price label.
+  - The bars grow in once when first scrolled into view.
+- **Public candles endpoint:** `GET /api/public/candles` (BTCUSDT or ETHUSDT, 1h, at most 200 bars, no sign-in), cached for 60 seconds and rate limited by IP.
+- **How evidence builds:** the lab's evidence tape, labelled "Illustration, not live data.", explains how an idea earns evidence and what counts as validated. It replaces the "Research in the open" block.
+- **Motion:** one entrance sequence for the hero, plus the chart and tape reveals. All of it is off under reduced motion.
+- **Dependencies:**
+  - Added: `three` 0.182.0 and `@react-three/fiber` 9.5.0 (MIT, no install scripts, no advisories), with `@types/three` 0.182.0.
+  - Not re-added: `gsap`, whose "Standard no charge" licence is not open source, so motion uses CSS instead, and `lenis`, because native scrolling is kept.
+
 ### Added: Past price score calls on the Market and Coin study charts (owner feedback B)
 - **Arrows are back:** both charts draw every past price score call again, a triangle under the bar for a buy call and over it for a sell call. Each is coloured by how it ended: won after costs, right but eaten by costs, wrong way, or pending (hollow). A dashed line marks where the re-scored year hands over to the live record. The drawing code already existed; the redesign had stopped wiring it.
 - **New kit `CallsLegend`** under each chart:
