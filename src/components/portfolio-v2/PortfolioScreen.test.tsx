@@ -135,6 +135,8 @@ describe('PortfolioScreen', () => {
     const picker = screen.getByLabelText('Portfolio');
     expect(picker).toBeInTheDocument();
     expect(picker).toHaveValue('port-1');
+    const label = screen.getByText('Portfolio', { selector: 'label' });
+    expect(label).toHaveClass('sr-only');
 
     // Performance tab is active
     const performanceRadio = screen.getByRole('radio', { name: 'Performance' });

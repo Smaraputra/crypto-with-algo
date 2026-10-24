@@ -26,13 +26,17 @@ describe('PageHeader', () => {
     expect(desc).toHaveClass('text-muted-foreground');
   });
 
-  it('renders the actions slot', () => {
+  it('renders the actions slot with wrapping classes below sm breakpoint', () => {
     render(
       <PageHeader
         title="Lab"
         actions={<button type="button">New test</button>}
       />
     );
-    expect(screen.getByRole('button', { name: 'New test' })).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: 'New test' });
+    expect(button).toBeInTheDocument();
+    const actionsContainer = button.parentElement;
+    expect(actionsContainer).toHaveClass('w-full');
+    expect(actionsContainer).toHaveClass('sm:w-auto');
   });
 });

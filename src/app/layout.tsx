@@ -13,18 +13,19 @@ const outfit = Outfit({
 
 export const metadata: Metadata = {
   title: 'CryptoWithAlgo',
-  description: 'Real-time cryptocurrency portfolio tracking with live market data, interactive charts, and smart alerts',
+  description:
+    'A crypto market tracker with an open research lab: live prices, coin study with trading costs, and an open record of trading ideas tested on live data.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={outfit.variable} suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} // skipcq: JS-0440 static theme script from src/lib/theme.ts, must run before first paint
         />
       </head>
-      <body className={`${outfit.variable} antialiased`}>
+      <body className="font-sans antialiased">
         <Providers>{children}</Providers>
         <ThemedToaster />
       </body>

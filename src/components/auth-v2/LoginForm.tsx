@@ -127,7 +127,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
             </label>
             <Link
               href="/forgot-password"
-              className="text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex items-center min-h-[44px] text-[13px] text-muted-foreground hover:text-foreground transition-colors"
             >
               Forgot password?
             </Link>

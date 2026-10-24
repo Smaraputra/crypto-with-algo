@@ -200,6 +200,11 @@ describe('StrategyConfig', () => {
     expect(screen.getByRole('group', { name: 'Coins (1 to 5)' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Intervals (at least one)' })).toBeInTheDocument();
 
+    const coinCheckbox = screen.getByRole('checkbox', { name: 'BTC' });
+    expect(coinCheckbox).toHaveClass('w-5', 'h-5');
+    const coinLabel = coinCheckbox.closest('label');
+    expect(coinLabel).toHaveClass('min-h-[44px]');
+
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

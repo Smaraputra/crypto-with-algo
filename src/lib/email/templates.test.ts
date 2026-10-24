@@ -11,6 +11,8 @@ describe('verificationEmail', () => {
     expect(html).toContain('https://app.test/verify-email?token=abc');
     expect(html).toContain('Ada');
     expect(text).toContain('https://app.test/verify-email?token=abc');
+    expect(html).toContain('#00C57C');
+    expect(html).not.toContain('#f0b90b');
   });
 });
 
@@ -23,5 +25,7 @@ describe('passwordResetEmail', () => {
     expect(subject).toMatch(/reset/i);
     expect(html).toContain('https://app.test/reset-password?token=xyz');
     expect(text).toContain('https://app.test/reset-password?token=xyz');
+    expect(html).toContain('#00C57C');
+    expect(html).not.toContain('#f0b90b');
   });
 });

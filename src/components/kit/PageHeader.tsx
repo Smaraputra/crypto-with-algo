@@ -15,7 +15,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   className,
 }) => {
   return (
-    <header className={cn('flex items-start justify-between gap-4 flex-wrap', className)}>
+    <header className={cn('flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between', className)}>
       <div className="min-w-0 flex-1">
         <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
           {title}
@@ -26,7 +26,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           </p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-3 shrink-0">{actions}</div>}
+      {actions && <div className="flex items-center gap-3 w-full sm:w-auto shrink-0">{actions}</div>}
     </header>
   );
 };

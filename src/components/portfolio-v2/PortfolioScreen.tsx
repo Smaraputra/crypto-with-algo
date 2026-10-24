@@ -156,7 +156,7 @@ export const PortfolioScreen: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <label
                 htmlFor="portfolio-select"
-                className="text-[14px] font-medium text-muted-foreground"
+                className="sr-only"
               >
                 Portfolio
               </label>
