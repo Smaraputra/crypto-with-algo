@@ -435,7 +435,11 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                     </linearGradient>
                   </defs>
                   <XAxis
+                    type="number"
+                    scale="time"
+                    domain={['dataMin', 'dataMax']}
                     dataKey="time"
+                    minTickGap={48}
                     tick={{ fill: chartTheme.mutedText, fontSize: 12 }}
                     stroke={chartTheme.grid}
                     tickFormatter={(v) => formatChartTick(Number(v))}
@@ -458,7 +462,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                     formatter={(val: unknown) => [formatCurrency(Number(val)), 'Equity']}
                   />
                   <Area
-                    type="monotone"
+                    type="linear"
                     dataKey="equity"
                     stroke={lineColor}
                     strokeWidth={2}

@@ -37,6 +37,25 @@ function formatCurrency(val: number): string {
   }).format(val);
 }
 
+export function formatChartTick(timeMs: number): string {
+  const d = new Date(timeMs);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+export function formatChartTooltipLabel(timeMs: number): string {
+  const d = new Date(timeMs);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export const PerformanceView: React.FC<PerformanceViewProps> = ({
   portfolioId,
   className,
@@ -85,7 +104,11 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
   };
 
   // Compute chart history values
-  const historyPoints = historyData?.history || [];
+  const rawHistoryPoints = historyData?.history || [];
+  const historyPoints = rawHistoryPoints.map((pt) => ({
+    ...pt,
+    time: typeof pt.date === 'number' ? pt.date : new Date(pt.date).getTime(),
+  }));
   const hasHistory = historyPoints.length > 0;
   const startVal = hasHistory ? historyPoints[0].totalValue : 0;
   const endVal = hasHistory ? historyPoints[historyPoints.length - 1].totalValue : 0;
@@ -149,9 +172,14 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                     </linearGradient>
                   </defs>
                   <XAxis
-                    dataKey="date"
+                    type="number"
+                    scale="time"
+                    domain={['dataMin', 'dataMax']}
+                    dataKey="time"
+                    minTickGap={48}
                     tick={{ fill: chartTheme.mutedText, fontSize: 12 }}
                     stroke={chartTheme.grid}
+                    tickFormatter={(v) => formatChartTick(Number(v))}
                   />
                   <YAxis
                     tick={{ fill: chartTheme.mutedText, fontSize: 12 }}
@@ -159,6 +187,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                     tickFormatter={(v) => `$${v}`}
                   />
                   <Tooltip
+                    labelFormatter={(label) => formatChartTooltipLabel(Number(label))}
                     contentStyle={{
                       backgroundColor: 'var(--card)',
                       borderColor: 'var(--line)',
@@ -169,7 +198,7 @@ export const PerformanceView: React.FC<PerformanceViewProps> = ({
                     formatter={(val: unknown) => [formatCurrency(Number(val)), 'Total value']}
                   />
                   <Area
-                    type="monotone"
+                    type="linear"
                     dataKey="totalValue"
                     stroke={lineColor}
                     strokeWidth={2}

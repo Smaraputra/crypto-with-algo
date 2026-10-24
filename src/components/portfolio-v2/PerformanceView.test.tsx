@@ -1,7 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PerformanceView } from './PerformanceView';
+import {
+  PerformanceView,
+  formatChartTick,
+  formatChartTooltipLabel,
+} from './PerformanceView';
 import {
   usePortfolioHistory,
   useCostBasis,
@@ -30,13 +34,29 @@ vi.mock('@/lib/chart-theme', () => ({
   })),
 }));
 
-vi.mock('recharts', async () => {
-  const actual = await vi.importActual<Record<string, unknown>>('recharts');
+let capturedAreaProps: Record<string, unknown> | null = null;
+let capturedXAxisProps: Record<string, unknown> | null = null;
+
+vi.mock('recharts', async (importOriginal) => {
+  const { rechartsWithSizedContainer } = await import('@/test/recharts');
+  const actual = await importOriginal<Record<string, unknown>>();
+  const base = rechartsWithSizedContainer(actual);
+  const ActualArea = actual.Area as React.ComponentType<Record<string, unknown>>;
+  const Area = (props: Record<string, unknown>) => {
+    capturedAreaProps = props;
+    return <ActualArea {...props} />;
+  };
+  Area.displayName = 'Area';
+  const ActualXAxis = actual.XAxis as React.ComponentType<Record<string, unknown>>;
+  const XAxis = (props: Record<string, unknown>) => {
+    capturedXAxisProps = props;
+    return <ActualXAxis {...props} />;
+  };
+  XAxis.displayName = 'XAxis';
   return {
-    ...actual,
-    ResponsiveContainer: ({ children }: { children?: React.ReactNode }) => (
-      <div data-testid="responsive-container">{children}</div>
-    ),
+    ...base,
+    Area,
+    XAxis,
   };
 });
 
@@ -48,6 +68,8 @@ describe('PerformanceView', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedAreaProps = null;
+    capturedXAxisProps = null;
 
     vi.mocked(usePortfolioHistory).mockReturnValue({
       data: {
@@ -218,6 +240,32 @@ describe('PerformanceView', () => {
       expect(
         screen.getByText('Network error downloading CSV')
       ).toBeInTheDocument();
+    });
+  });
+
+  it('the line type is linear', () => {
+    render(<PerformanceView portfolioId="port-1" />);
+
+    expect(capturedAreaProps).toMatchObject({
+      type: 'linear',
+    });
+  });
+
+  it('formats chart ticks as "Oct 4" and tooltip as "Oct 4, 2026"', () => {
+    const timestamp = Date.UTC(2026, 9, 4);
+    expect(formatChartTick(timestamp)).toBe('Oct 4');
+    expect(formatChartTooltipLabel(timestamp)).toBe('Oct 4, 2026');
+  });
+
+  it('uses numeric time axis for value history chart', () => {
+    render(<PerformanceView portfolioId="port-1" />);
+
+    expect(capturedXAxisProps).toMatchObject({
+      type: 'number',
+      scale: 'time',
+      domain: ['dataMin', 'dataMax'],
+      dataKey: 'time',
+      minTickGap: 48,
     });
   });
 });
