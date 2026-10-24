@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
 import { JournalEntry, POSITION_ACTIONS } from '@/lib/models/journal-entry';
 import { SESSION_UTC_RANGES } from '@/lib/sessions';
+import { EFFECTIVE_ENTERED_AT } from '@/lib/journal/times';
 import type {
   JournalAnalyticsSummary,
   TagPerformance,
@@ -27,8 +28,8 @@ const SESSION_SWITCH_EXPR = {
     branches: SESSION_UTC_RANGES.map((range) => ({
       case: {
         $and: [
-          { $gte: [{ $hour: '$createdAt' }, range.startHour] },
-          { $lt: [{ $hour: '$createdAt' }, range.endHour] },
+          { $gte: [{ $hour: EFFECTIVE_ENTERED_AT }, range.startHour] },
+          { $lt: [{ $hour: EFFECTIVE_ENTERED_AT }, range.endHour] },
         ],
       },
       then: range.session,
@@ -66,7 +67,7 @@ export async function GET() {
 
   const [
     allEntries,
-    pnlEntries,
+    pnlEntriesRaw,
     incompleteTradeCount,
     tagAgg,
     actionAgg,
@@ -87,10 +88,9 @@ export async function GET() {
     JournalEntry.find(pnlMatch, {
       outcomePnlPercent: 1,
       action: 1,
+      enteredAt: 1,
       createdAt: 1,
-    })
-      .sort({ createdAt: 1 })
-      .lean(),
+    }).lean(),
 
     // Incomplete trades (have entry price but no P&L)
     JournalEntry.countDocuments(incompleteMatch),
@@ -161,7 +161,7 @@ export async function GET() {
       {
         $group: {
           _id: {
-            $dateToString: { format: '%Y-%m', date: '$createdAt' },
+            $dateToString: { format: '%Y-%m', date: EFFECTIVE_ENTERED_AT },
           },
           pnlPercent: { $sum: '$outcomePnlPercent' },
           tradeCount: { $sum: 1 },
@@ -202,7 +202,7 @@ export async function GET() {
       { $match: pnlMatch },
       {
         $group: {
-          _id: { $hour: '$createdAt' },
+          _id: { $hour: EFFECTIVE_ENTERED_AT },
           count: { $sum: 1 },
           wins: { $sum: { $cond: [{ $gt: ['$outcomePnlPercent', 0] }, 1, 0] } },
           totalPnl: { $sum: '$outcomePnlPercent' },
@@ -216,7 +216,7 @@ export async function GET() {
       { $match: pnlMatch },
       {
         $group: {
-          _id: { $dayOfWeek: '$createdAt' },
+          _id: { $dayOfWeek: EFFECTIVE_ENTERED_AT },
           count: { $sum: 1 },
           wins: { $sum: { $cond: [{ $gt: ['$outcomePnlPercent', 0] }, 1, 0] } },
           totalPnl: { $sum: '$outcomePnlPercent' },
@@ -253,6 +253,22 @@ export async function GET() {
       { $sort: { count: -1 } },
     ]),
   ]);
+
+  // Sort pnlEntries chronologically by effective time (oldest first)
+  const pnlEntries = (
+    pnlEntriesRaw as Array<{
+      outcomePnlPercent: number | null;
+      action: string;
+      enteredAt?: Date | null;
+      createdAt: Date;
+    }>
+  )
+    .slice()
+    .sort((a, b) => {
+      const timeA = new Date((a.enteredAt ?? a.createdAt) as Date).getTime();
+      const timeB = new Date((b.enteredAt ?? b.createdAt) as Date).getTime();
+      return timeA - timeB;
+    });
 
   // Compute summary
   const wins = pnlEntries.filter((e) => (e.outcomePnlPercent ?? 0) > 0).length;

@@ -82,6 +82,20 @@ export const TRADE_MISTAKE_LABELS: Record<TradeMistake, string> = {
   ignored_plan: 'Ignored plan',
 };
 
+const BITCOIN_GENESIS_TIMESTAMP = new Date('2009-01-03T00:00:00.000Z').getTime();
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
+function createJournalDateSchema(label: 'Entered at' | 'Exited at') {
+  return z.coerce
+    .date()
+    .refine((d) => d.getTime() >= BITCOIN_GENESIS_TIMESTAMP, {
+      message: `${label} is too early.`,
+    })
+    .refine((d) => d.getTime() <= Date.now() + FIVE_MINUTES_MS, {
+      message: `${label} cannot be in the future.`,
+    });
+}
+
 export const createJournalEntrySchema = z.object({
   symbol: z.string().min(1, 'Symbol is required'),
   interval: z.string().min(1, 'Interval is required'),
@@ -89,6 +103,7 @@ export const createJournalEntrySchema = z.object({
   signalTier: z.enum(SIGNAL_TIERS),
   action: z.enum(JOURNAL_ACTIONS),
   entryPrice: z.number().positive().optional(),
+  enteredAt: createJournalDateSchema('Entered at').optional(),
   notes: z.string().max(10000).optional(),
   tags: z.array(z.string().min(1).max(50)).max(20).optional(),
   indicatorSnapshot: z.record(z.string(), z.unknown()).optional(),
@@ -109,8 +124,11 @@ export const createJournalEntrySchema = z.object({
 });
 
 export const updateJournalEntrySchema = z.object({
+  entryPrice: z.number().positive().optional(),
   exitPrice: z.number().positive().optional(),
   outcomePnlPercent: z.number().optional(),
+  enteredAt: createJournalDateSchema('Entered at').optional(),
+  exitedAt: createJournalDateSchema('Exited at').nullable().optional(),
   notes: z.string().max(10000).optional(),
   reviewedAt: z.coerce.date().optional(),
   tags: z.array(z.string().min(1).max(50)).max(20).optional(),
@@ -163,6 +181,8 @@ export interface JournalEntry {
   convictionLevel: number | null;
   plannedRiskReward: number | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
+  enteredAt?: string;
+  exitedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

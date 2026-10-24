@@ -64,6 +64,8 @@ export interface IJournalEntry extends Document {
   convictionLevel: number | null; // 1-5
   plannedRiskReward: number | null;
   sentiment: { fearGreedIndex: number; fearGreedLabel: string } | null;
+  enteredAt: Date | null;
+  exitedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -130,11 +132,14 @@ const journalEntrySchema = new Schema<IJournalEntry>(
         message: 'fearGreedIndex must be between 0 and 100',
       },
     },
+    enteredAt: { type: Date },
+    exitedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
 journalEntrySchema.index({ userId: 1, createdAt: -1 });
+journalEntrySchema.index({ userId: 1, enteredAt: -1 });
 journalEntrySchema.index({ userId: 1, symbol: 1 });
 journalEntrySchema.index({ userId: 1, tags: 1 });
 
