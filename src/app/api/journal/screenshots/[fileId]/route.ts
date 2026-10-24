@@ -64,7 +64,7 @@ export async function DELETE(
   const updated = await JournalEntry.findOneAndUpdate(
     { userId: session.user.id, 'screenshots.fileId': objectId },
     { $pull: { screenshots: { fileId: objectId } } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!updated) {

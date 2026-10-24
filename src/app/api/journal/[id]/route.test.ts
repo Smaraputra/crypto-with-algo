@@ -142,7 +142,7 @@ describe('PATCH /api/journal/[id]', () => {
     expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'journal-1', userId: 'user-1' },
       expect.objectContaining({ outcomePnlPercent: 10 }),
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 
@@ -167,7 +167,7 @@ describe('PATCH /api/journal/[id]', () => {
       expect.objectContaining({
         outcomePnlPercent: expect.closeTo(4.545, 2),
       }),
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 
@@ -195,7 +195,7 @@ describe('PATCH /api/journal/[id]', () => {
         entryPrice: 45000,
         outcomePnlPercent: expect.closeTo(11.11, 2),
       }),
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 
@@ -227,7 +227,7 @@ describe('PATCH /api/journal/[id]', () => {
         exitPrice: 44000,
         outcomePnlPercent: 10,
       }),
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 
@@ -317,7 +317,7 @@ describe('PATCH /api/journal/[id]', () => {
     expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'journal-1', userId: 'user-1' },
       expect.not.objectContaining({ outcomePnlPercent: expect.anything() }),
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 
@@ -339,7 +339,7 @@ describe('PATCH /api/journal/[id]', () => {
     expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'journal-1', userId: 'user-1' },
       expect.not.objectContaining({ outcomePnlPercent: expect.anything() }),
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 
@@ -375,7 +375,7 @@ describe('PATCH /api/journal/[id]', () => {
           },
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 
@@ -400,7 +400,7 @@ describe('PATCH /api/journal/[id]', () => {
     expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'journal-1', userId: 'user-1' },
       expect.objectContaining({ lessonsLearned: 'First review' }),
-      { new: true }
+      { returnDocument: 'after' }
     );
     const updateArg = vi.mocked(JournalEntry.findOneAndUpdate).mock.calls[0][1] as Record<string, unknown>;
     expect(updateArg.$push).toBeUndefined();
@@ -435,7 +435,7 @@ describe('PATCH /api/journal/[id]', () => {
         tags: ['breakout'],
         lessonsLearned: 'Good timing',
       }),
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 });

@@ -159,7 +159,7 @@ describe('PUT /api/watchlist', () => {
     expect(Watchlist.findOneAndUpdate).toHaveBeenCalledWith(
       { userId: 'user-1' },
       { symbols: ['DOGEUSDT', 'XRPUSDT'] },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     );
   });
 });

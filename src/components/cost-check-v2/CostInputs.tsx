@@ -301,7 +301,7 @@ export const CostInputs: React.FC<CostInputsProps> = ({
       {/* Read-only notional line */}
       <div
         data-testid="notional-display"
-        className="p-3 rounded-[10px] bg-muted/60 border border-line text-[14px] font-semibold text-foreground font-sans tabular-nums"
+        className="p-3 rounded-[12px] bg-muted/60 border border-line text-[14px] font-semibold text-foreground font-sans tabular-nums"
       >
         Position size: ${formattedNotional}
       </div>
@@ -389,12 +389,12 @@ export const CostInputs: React.FC<CostInputsProps> = ({
 
         {/* Custom fee inputs when custom tier */}
         {inputs.feeTier === 'custom' && (
-          <div className="grid grid-cols-2 gap-3 p-3 rounded-[10px] bg-muted/40 border border-line">
+          <div className="grid grid-cols-2 gap-3 p-3 rounded-[12px] bg-muted/40 border border-line">
             <NumberField
               id="cost-custom-maker-input"
               label="Custom maker fee (%)"
               labelClassName="text-[12px] font-medium text-muted-foreground"
-              inputClassName="rounded-[10px] text-[13px]"
+              inputClassName="rounded-[12px] text-[13px]"
               value={inputs.customMakerPercent}
               min={0}
               max={1}
@@ -414,7 +414,7 @@ export const CostInputs: React.FC<CostInputsProps> = ({
               id="cost-custom-taker-input"
               label="Custom taker fee (%)"
               labelClassName="text-[12px] font-medium text-muted-foreground"
-              inputClassName="rounded-[10px] text-[13px]"
+              inputClassName="rounded-[12px] text-[13px]"
               value={inputs.customTakerPercent}
               min={0}
               max={1}

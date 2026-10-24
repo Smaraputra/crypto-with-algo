@@ -328,7 +328,7 @@ async function runBook(key: BookKey, now: number, owner: string): Promise<BookRu
   const leased = await PaperBook.findOneAndUpdate(
     { tradingStyle, interval, $or: [{ leaseUntil: null }, { leaseUntil: { $lt: new Date(now) } }] },
     { $set: { leaseUntil: new Date(now + LEASE_MS), leaseOwner: owner } },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean<IPaperBook | null>();
   if (!leased) return { ...report, bars: null };
 

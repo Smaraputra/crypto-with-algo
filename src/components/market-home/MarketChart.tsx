@@ -83,7 +83,7 @@ export const MarketChart: React.FC<MarketChartProps> = ({ className }) => {
                   type="button"
                   onClick={handleRefresh}
                   className={cn(
-                    'min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[10px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer',
+                    'min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[12px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer',
                     'hover:border-foreground focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px] focus-visible:outline transition-colors duration-120',
                     'active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100'
                   )}

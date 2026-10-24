@@ -53,7 +53,7 @@ export const CallsLegend: React.FC<CallsLegendProps> = ({
             aria-checked={show}
             onClick={() => onShowChange(!show)}
             className={cn(
-              'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[10px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
+              'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[12px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
               'focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px]',
               show
                 ? 'bg-foreground text-background border-foreground'

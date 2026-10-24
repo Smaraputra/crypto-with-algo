@@ -111,18 +111,21 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({ className }) => {
         <div className="inline-flex items-center border border-edge rounded-[12px] p-[3px] gap-[2px] bg-card">
           <Link
             href="/journal"
+            // Inner radius: the 12px control less its 3px padding.
             className="min-w-[48px] min-h-[44px] px-3 inline-flex items-center justify-center rounded-[9px] font-semibold text-[14px] cursor-pointer select-none text-ink-2 hover:bg-muted hover:text-foreground transition-colors duration-120 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[3px] focus-visible:outline"
           >
             Trades
           </Link>
           <Link
             href="/journal?view=stats"
+            // Inner radius: the 12px control less its 3px padding.
             className="min-w-[48px] min-h-[44px] px-3 inline-flex items-center justify-center rounded-[9px] font-semibold text-[14px] cursor-pointer select-none text-ink-2 hover:bg-muted hover:text-foreground transition-colors duration-120 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[3px] focus-visible:outline"
           >
             Stats
           </Link>
           <span
             aria-current="page"
+            // Inner radius: the 12px control less its 3px padding.
             className="min-w-[48px] min-h-[44px] px-3 inline-flex items-center justify-center rounded-[9px] font-semibold text-[14px] select-none bg-foreground text-background"
           >
             Notes

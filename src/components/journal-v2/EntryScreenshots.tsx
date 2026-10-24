@@ -148,7 +148,7 @@ export const EntryScreenshots: React.FC<EntryScreenshotsProps> = ({ entry }) => 
 
               <div className="w-full flex items-center justify-end gap-3 pt-2">
                 {confirmingDelete ? (
-                  <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-3 p-3 rounded-[10px] bg-muted/20 border border-edge/40">
+                  <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-3 p-3 rounded-[12px] bg-muted/20 border border-edge/40">
                     <p className="text-[13px] text-muted-foreground">
                       Remove this screenshot? This cannot be undone.
                     </p>
@@ -157,7 +157,7 @@ export const EntryScreenshots: React.FC<EntryScreenshotsProps> = ({ entry }) => 
                         type="button"
                         variant="outline"
                         onClick={() => setConfirmingDelete(false)}
-                        className="min-h-[44px] px-3 text-[13px] rounded-[10px]"
+                        className="min-h-[44px] px-3 text-[13px] rounded-[12px]"
                       >
                         Keep
                       </Button>
@@ -166,7 +166,7 @@ export const EntryScreenshots: React.FC<EntryScreenshotsProps> = ({ entry }) => 
                         variant="destructive"
                         disabled={deleteMutation.isPending}
                         onClick={handleDelete}
-                        className="min-h-[44px] px-3 text-[13px] rounded-[10px]"
+                        className="min-h-[44px] px-3 text-[13px] rounded-[12px]"
                       >
                         {deleteMutation.isPending ? 'Removing...' : 'Remove'}
                       </Button>
@@ -177,7 +177,7 @@ export const EntryScreenshots: React.FC<EntryScreenshotsProps> = ({ entry }) => 
                     type="button"
                     variant="destructive"
                     onClick={() => setConfirmingDelete(true)}
-                    className="min-h-[44px] px-4 text-[13px] rounded-[10px]"
+                    className="min-h-[44px] px-4 text-[13px] rounded-[12px]"
                   >
                     Remove screenshot
                   </Button>

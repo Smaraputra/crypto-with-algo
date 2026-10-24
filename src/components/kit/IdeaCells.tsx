@@ -48,7 +48,7 @@ export const IdeaCells: React.FC<IdeaCellsProps> = ({
       data-testid="idea-cell"
       data-kind="under-test"
       aria-hidden="true"
-      className="relative w-[26px] h-[26px] rounded-[7px] border-2 border-foreground bg-transparent shrink-0 idea-cell-under-test"
+      className="relative w-[26px] h-[26px] rounded-[8px] border-2 border-foreground bg-transparent shrink-0 idea-cell-under-test"
     >
       <span className="absolute left-1/2 top-1 bottom-1 w-[2px] -translate-x-1/2 bg-foreground" />
     </span>
@@ -60,7 +60,7 @@ export const IdeaCells: React.FC<IdeaCellsProps> = ({
       data-testid="idea-cell"
       data-kind="rejected"
       aria-hidden="true"
-      className="relative w-[26px] h-[26px] rounded-[7px] bg-foreground text-background shrink-0 flex items-center justify-center idea-cell-rejected"
+      className="relative w-[26px] h-[26px] rounded-[8px] bg-foreground text-background shrink-0 flex items-center justify-center idea-cell-rejected"
     >
       <svg
         width="12"
@@ -84,7 +84,7 @@ export const IdeaCells: React.FC<IdeaCellsProps> = ({
       data-testid="idea-cell"
       data-kind="validated"
       aria-hidden="true"
-      className="relative w-[26px] h-[26px] rounded-[7px] bg-foreground text-background shrink-0 flex items-center justify-center idea-cell-validated"
+      className="relative w-[26px] h-[26px] rounded-[8px] bg-foreground text-background shrink-0 flex items-center justify-center idea-cell-validated"
     >
       <svg
         width="12"
@@ -109,7 +109,7 @@ export const IdeaCells: React.FC<IdeaCellsProps> = ({
       data-testid="idea-cell"
       data-kind="not-started"
       aria-hidden="true"
-      className="relative w-[26px] h-[26px] rounded-[7px] border-2 border-dashed border-edge bg-transparent shrink-0 idea-cell-not-started"
+      className="relative w-[26px] h-[26px] rounded-[8px] border-2 border-dashed border-edge bg-transparent shrink-0 idea-cell-not-started"
     />
   ));
 

@@ -140,7 +140,7 @@ export async function PATCH(
     const entry = await JournalEntry.findOneAndUpdate(
       { _id: id, userId: session.user.id },
       { $set: mongoUpdate, $push: pushOp },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!entry) {
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
@@ -151,7 +151,7 @@ export async function PATCH(
   const entry = await JournalEntry.findOneAndUpdate(
     { _id: id, userId: session.user.id },
     mongoUpdate,
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!entry) {

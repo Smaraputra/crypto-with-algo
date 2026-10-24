@@ -71,7 +71,7 @@ export async function PATCH(
   const alert = await Alert.findOneAndUpdate(
     { _id: id, userId: session.user.id },
     parsed.data,
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!alert) {

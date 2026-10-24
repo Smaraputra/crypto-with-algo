@@ -559,7 +559,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 size="sm"
                 onClick={() => setTradePage((p) => Math.max(1, p - 1))}
                 disabled={tradePage === 1}
-                className="min-h-[44px] rounded-[10px] text-[13px] px-3 font-medium"
+                className="min-h-[44px] rounded-[12px] text-[13px] px-3 font-medium"
               >
                 Previous
               </Button>
@@ -572,7 +572,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 size="sm"
                 onClick={() => setTradePage((p) => Math.min(totalPages, p + 1))}
                 disabled={tradePage === totalPages}
-                className="min-h-[44px] rounded-[10px] text-[13px] px-3 font-medium"
+                className="min-h-[44px] rounded-[12px] text-[13px] px-3 font-medium"
               >
                 Next
               </Button>

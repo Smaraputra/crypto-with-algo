@@ -68,7 +68,7 @@ export const PriceHero: React.FC<PriceHeroProps> = ({
           <div
             data-testid="price-placeholder"
             aria-label="Loading price"
-            className="h-[48px] sm:h-[64px] w-64 rounded-[10px] bg-muted animate-pulse my-1"
+            className="h-[48px] sm:h-[64px] w-64 rounded-[12px] bg-muted animate-pulse my-1"
           />
         )}
       </div>
@@ -77,7 +77,7 @@ export const PriceHero: React.FC<PriceHeroProps> = ({
         <Link
           href={`/focus?symbol=${symbol}`}
           className={cn(
-            'min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[10px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer',
+            'min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[12px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer',
             'hover:border-foreground focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px] focus-visible:outline transition-colors duration-120',
             'active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100'
           )}

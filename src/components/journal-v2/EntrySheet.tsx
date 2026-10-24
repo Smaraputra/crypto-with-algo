@@ -362,7 +362,7 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
                 <Button
                   type="submit"
                   disabled={updateMutation.isPending}
-                  className="rounded-[10px] min-h-[44px] px-4 font-semibold"
+                  className="rounded-[12px] min-h-[44px] px-4 font-semibold"
                 >
                   {updateMutation.isPending ? 'Saving...' : 'Save changes'}
                 </Button>
@@ -562,7 +562,7 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
                     <label
                       key={mistake}
                       className={cn(
-                        'min-h-[44px] px-3 py-2 rounded-[10px] border flex items-center gap-2.5 cursor-pointer text-[13px] transition-colors',
+                        'min-h-[44px] px-3 py-2 rounded-[12px] border flex items-center gap-2.5 cursor-pointer text-[13px] transition-colors',
                         checked
                           ? 'border-foreground bg-muted/40 font-medium'
                           : 'border-edge/40 hover:bg-muted/20 text-muted-foreground'
@@ -600,7 +600,7 @@ const EntryFormContent: React.FC<EntryFormContentProps> = ({ entry, onClose }) =
               <Button
                 type="submit"
                 disabled={reviewMutation.isPending}
-                className="rounded-[10px] min-h-[44px] px-5 font-semibold"
+                className="rounded-[12px] min-h-[44px] px-5 font-semibold"
               >
                 {reviewMutation.isPending ? 'Saving review...' : 'Save review'}
               </Button>

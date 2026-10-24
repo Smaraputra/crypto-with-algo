@@ -51,7 +51,7 @@ export async function PATCH(
   const note = await ResearchNote.findOneAndUpdate(
     { _id: id, userId: session.user.id },
     parsed.data,
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!note) {

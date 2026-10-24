@@ -58,7 +58,7 @@ export function NavLink({
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
       className={cn(
-        'relative inline-flex min-h-[44px] items-center px-3 xl:px-3.5 font-semibold whitespace-nowrap transition-colors duration-120 select-none rounded-[10px]',
+        'relative inline-flex min-h-[44px] items-center px-3 xl:px-3.5 font-semibold whitespace-nowrap transition-colors duration-120 select-none rounded-[12px]',
         'active:scale-[0.98] motion-reduce:active:scale-100',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
         active ? 'text-foreground' : 'text-ink-2 hover:bg-muted hover:text-foreground',

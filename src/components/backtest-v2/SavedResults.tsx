@@ -174,7 +174,7 @@ export const SavedResults: React.FC<SavedResultsProps> = ({
                       size="sm"
                       onClick={() => handleOpenResult(item)}
                       disabled={loadingDetailId === item._id}
-                      className="min-h-[44px] rounded-[10px] text-[13px] font-semibold px-3"
+                      className="min-h-[44px] rounded-[12px] text-[13px] font-semibold px-3"
                     >
                       {loadingDetailId === item._id
                         ? 'Opening...'
@@ -189,12 +189,12 @@ export const SavedResults: React.FC<SavedResultsProps> = ({
                         variant="outline"
                         size="sm"
                         onClick={() => setConfirmDeleteId(item._id)}
-                        className="min-h-[44px] rounded-[10px] text-[13px] font-semibold text-down border-edge hover:border-down px-3"
+                        className="min-h-[44px] rounded-[12px] text-[13px] font-semibold text-down border-edge hover:border-down px-3"
                       >
                         Delete
                       </Button>
                     ) : (
-                      <div className="flex items-center gap-1.5 p-1 border border-line rounded-[10px] bg-card">
+                      <div className="flex items-center gap-1.5 p-1 border border-line rounded-[12px] bg-card">
                         <span className="text-[12px] text-muted-foreground pl-1">Confirm?</span>
                         <Button
                           type="button"
@@ -260,7 +260,7 @@ export const SavedResults: React.FC<SavedResultsProps> = ({
                 {failedLoadIds[item._id] && (
                   <div
                     role="alert"
-                    className="flex items-center justify-between gap-2 p-2.5 rounded-[10px] bg-muted/40 border border-edge text-[13px] text-down"
+                    className="flex items-center justify-between gap-2 p-2.5 rounded-[12px] bg-muted/40 border border-edge text-[13px] text-down"
                   >
                     <span>This saved run did not load.</span>
                     <Button
@@ -279,7 +279,7 @@ export const SavedResults: React.FC<SavedResultsProps> = ({
                 {isExpanded && (
                   <div
                     data-testid={`expanded-metrics-${item._id}`}
-                    className="pt-3 border-t border-line grid grid-cols-2 sm:grid-cols-4 gap-3 text-[13px] font-sans tabular-nums bg-card/60 p-3 rounded-[10px]"
+                    className="pt-3 border-t border-line grid grid-cols-2 sm:grid-cols-4 gap-3 text-[13px] font-sans tabular-nums bg-card/60 p-3 rounded-[12px]"
                   >
                     <div>
                       <span className="text-muted-foreground block text-[11px]">Profit factor</span>

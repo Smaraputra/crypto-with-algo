@@ -112,7 +112,7 @@ describe('PATCH /api/alerts/[id]', () => {
     expect(Alert.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'a1', userId: 'user-1' },
       { targetPrice: 110000 },
-      { new: true }
+      { returnDocument: 'after' }
     );
   });
 

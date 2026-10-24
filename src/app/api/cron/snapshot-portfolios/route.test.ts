@@ -124,7 +124,7 @@ describe('GET /api/cron/snapshot-portfolios', () => {
         totalValue: 0.5 * 42000 + 2.0 * 2800,
         totalCost: 0.5 * 40000 + 2.0 * 2500,
       }),
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
   });
 

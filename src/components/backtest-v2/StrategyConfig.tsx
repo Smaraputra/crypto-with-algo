@@ -628,7 +628,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                   size="sm"
                   onClick={handleDeleteStrategy}
                   disabled={deleteStrategyMutation.isPending}
-                  className="min-h-[44px] rounded-[10px] text-[13px] font-semibold px-3"
+                  className="min-h-[44px] rounded-[12px] text-[13px] font-semibold px-3"
                 >
                   Delete
                 </Button>
@@ -637,7 +637,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                   variant="outline"
                   size="sm"
                   onClick={() => setIsConfirmingDelete(false)}
-                  className="min-h-[44px] rounded-[10px] text-[13px] px-3"
+                  className="min-h-[44px] rounded-[12px] text-[13px] px-3"
                 >
                   Cancel
                 </Button>
@@ -1002,7 +1002,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                 <label
                   key={sess}
                   htmlFor={`${idPrefix}-session-${sess}`}
-                  className="flex items-center gap-2 p-2 rounded-[10px] hover:bg-muted/40 cursor-pointer text-[14px] select-none"
+                  className="flex items-center gap-2 p-2 rounded-[12px] hover:bg-muted/40 cursor-pointer text-[14px] select-none"
                 >
                   <input
                     id={`${idPrefix}-session-${sess}`}
@@ -1158,7 +1158,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                       <label
                         key={sym}
                         className={cn(
-                          'inline-flex items-center gap-2 min-h-[44px] px-1 rounded-[10px] border border-edge/40 text-[13px] cursor-pointer select-none',
+                          'inline-flex items-center gap-2 min-h-[44px] px-1 rounded-[12px] border border-edge/40 text-[13px] cursor-pointer select-none',
                           isChecked ? 'bg-muted border-edge font-semibold' : 'hover:bg-muted/30'
                         )}
                       >
@@ -1194,7 +1194,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({
                       <label
                         key={iv}
                         className={cn(
-                          'inline-flex items-center gap-2 min-h-[44px] px-1 rounded-[10px] border border-edge/40 text-[13px] cursor-pointer select-none',
+                          'inline-flex items-center gap-2 min-h-[44px] px-1 rounded-[12px] border border-edge/40 text-[13px] cursor-pointer select-none',
                           isChecked ? 'bg-muted border-edge font-semibold' : 'hover:bg-muted/30'
                         )}
                       >
