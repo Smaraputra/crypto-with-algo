@@ -14,7 +14,7 @@ describe('PriceScoreGlance', () => {
     useUIStore.setState({ selectedSymbol: 'BTCUSDT' });
   });
 
-  it('renders tier sentence, "No edge (measured)", and the /signals link', () => {
+  it('renders tier sentence, "No edge (measured)", and the /signals/score link', () => {
     vi.mocked(useLatestSignalForStyle).mockReturnValue({
       data: {
         signal: {
@@ -49,7 +49,7 @@ describe('PriceScoreGlance', () => {
     expect(screen.getByText('No edge (measured)')).toBeInTheDocument();
 
     const link = screen.getByRole('link', { name: 'Score detail' });
-    expect(link).toHaveAttribute('href', '/signals');
+    expect(link).toHaveAttribute('href', '/signals/score');
 
     expect(container.textContent).not.toMatch(/stop|target|size|leverage/i);
   });
@@ -81,7 +81,7 @@ describe('PriceScoreGlance', () => {
     expect(screen.getByText('No edge (measured)')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Score detail' })).toHaveAttribute(
       'href',
-      '/signals'
+      '/signals/score'
     );
     expect(container.textContent).not.toMatch(/stop|target|size|leverage/i);
   });

@@ -38,7 +38,7 @@ describe('TopBar', () => {
     mockUsePathname.mockReturnValue('/dashboard');
   });
 
-  it('renders the five links with the right hrefs plus Tools, Search and Account buttons', () => {
+  it('renders the six links with the right hrefs plus Tools, Search and Account buttons', () => {
     render(<TopBar />);
 
     expect(screen.getByRole('link', { name: /CryptoWithAlgo/ })).toHaveAttribute(
@@ -48,6 +48,9 @@ describe('TopBar', () => {
 
     const market = screen.getByRole('link', { name: 'Market' });
     expect(market).toHaveAttribute('href', '/dashboard');
+
+    const signals = screen.getByRole('link', { name: 'Signals' });
+    expect(signals).toHaveAttribute('href', '/signals');
 
     const lab = screen.getByRole('link', { name: 'Lab' });
     expect(lab).toHaveAttribute('href', '/lab');
@@ -70,7 +73,13 @@ describe('TopBar', () => {
     mockUsePathname.mockReturnValue('/dashboard');
     const { rerender } = render(<TopBar />);
     expect(screen.getByRole('link', { name: 'Market' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Signals' })).not.toHaveAttribute('aria-current');
     expect(screen.getByRole('link', { name: 'Lab' })).not.toHaveAttribute('aria-current');
+
+    mockUsePathname.mockReturnValue('/signals');
+    rerender(<TopBar />);
+    expect(screen.getByRole('link', { name: 'Signals' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Market' })).not.toHaveAttribute('aria-current');
 
     mockUsePathname.mockReturnValue('/lab');
     rerender(<TopBar />);

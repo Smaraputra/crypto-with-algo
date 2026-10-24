@@ -2,17 +2,17 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import SignalsPage, { metadata } from './page';
 
-vi.mock('@/components/score', () => ({
-  ScorePage: () => <div data-testid="score-page-root">Score Page Root</div>,
+vi.mock('@/components/signals-hub', () => ({
+  ResearchHub: () => <div data-testid="research-hub-root">Research Hub Root</div>,
 }));
 
 describe('SignalsPage', () => {
-  it('defines metadata with the title "Price score | CryptoWithAlgo"', () => {
-    expect(metadata.title).toBe('Price score | CryptoWithAlgo');
+  it('defines metadata with the title "Signals and research | CryptoWithAlgo"', () => {
+    expect(metadata.title).toBe('Signals and research | CryptoWithAlgo');
   });
 
-  it('renders the ScorePage component', () => {
+  it('renders the ResearchHub component', () => {
     render(<SignalsPage />);
-    expect(screen.getByTestId('score-page-root')).toBeInTheDocument();
+    expect(screen.getByTestId('research-hub-root')).toBeInTheDocument();
   });
 });

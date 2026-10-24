@@ -7,7 +7,8 @@ export interface NavItem {
 }
 
 export const PRIMARY_NAV_ITEMS: NavItem[] = [
-  { label: 'Market', href: '/dashboard', matchPaths: ['/dashboard', '/focus', '/signals'] },
+  { label: 'Market', href: '/dashboard', matchPaths: ['/dashboard', '/focus'] },
+  { label: 'Signals', href: '/signals', matchPaths: ['/signals'] },
   { label: 'Lab', href: '/lab', matchPaths: ['/lab'] },
   { label: 'Portfolio', href: '/portfolio', matchPaths: ['/portfolio', '/analytics'] },
   { label: 'Journal', href: '/journal', matchPaths: ['/journal', '/research', '/notes'] },
@@ -22,7 +23,7 @@ export const TOOLS_NAV_ITEMS: NavItem[] = [
 export const TOOLS_MATCH_PATHS = ['/cost-check', '/backtest'];
 
 export const PHONE_NAV_ITEMS: NavItem[] = [
-  { label: 'Market', href: '/dashboard', matchPaths: ['/dashboard', '/focus', '/signals'] },
+  { label: 'Market', href: '/dashboard', matchPaths: ['/dashboard', '/focus'] },
   { label: 'Lab', href: '/lab', matchPaths: ['/lab'] },
   { label: 'Portfolio', href: '/portfolio', matchPaths: ['/portfolio', '/analytics'] },
   { label: 'Journal', href: '/journal', matchPaths: ['/journal', '/research', '/notes'] },

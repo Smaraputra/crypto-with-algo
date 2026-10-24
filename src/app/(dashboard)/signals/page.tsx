@@ -1,10 +1,15 @@
 import type { Metadata } from 'next';
-import { ScorePage } from '@/components/score';
+import { Suspense } from 'react';
+import { ResearchHub } from '@/components/signals-hub';
 
 export const metadata: Metadata = {
-  title: 'Price score | CryptoWithAlgo',
+  title: 'Signals and research | CryptoWithAlgo',
 };
 
 export default function SignalsPage() {
-  return <ScorePage />;
+  return (
+    <Suspense>
+      <ResearchHub />
+    </Suspense>
+  );
 }

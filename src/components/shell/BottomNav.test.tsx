@@ -70,15 +70,15 @@ describe('BottomNav', () => {
     expect(screen.getByRole('link', { name: 'Signals' })).toHaveAttribute('href', '/signals');
   });
 
-  it('handles active state on /signals: Market is active with aria-current="page", More has no data-active', () => {
+  it('handles active state on /signals: More has data-active, no bottom link has aria-current, and More never has aria-current', () => {
     mockUsePathname.mockReturnValue('/signals');
     render(<BottomNav />);
 
     const market = screen.getByRole('link', { name: 'Market' });
     const more = screen.getByRole('button', { name: 'More' });
 
-    expect(market).toHaveAttribute('aria-current', 'page');
-    expect(more).not.toHaveAttribute('data-active');
+    expect(market).not.toHaveAttribute('aria-current');
+    expect(more).toHaveAttribute('data-active');
     expect(more).not.toHaveAttribute('aria-current');
   });
 

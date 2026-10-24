@@ -5,22 +5,38 @@ import {
   MORE_SHEET_ITEMS,
 } from './nav-items';
 
+function navItem(label: string) {
+  const item = PRIMARY_NAV_ITEMS.find((i) => i.label === label);
+  if (!item) throw new Error(`No primary nav item "${label}"`);
+  return item;
+}
+
 describe('nav-items and isNavActive', () => {
-  const marketItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Market')!;
-  const labItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Lab')!;
-  const portfolioItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Portfolio')!;
-  const journalItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Journal')!;
-  const alertsItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Alerts')!;
+  const marketItem = navItem('Market');
+  const signalsItem = navItem('Signals');
+  const labItem = navItem('Lab');
+  const portfolioItem = navItem('Portfolio');
+  const journalItem = navItem('Journal');
+  const alertsItem = navItem('Alerts');
   const toolsItem = { label: 'Tools', href: '/cost-check' };
 
-  it('Market is active on /dashboard, /focus and /signals', () => {
+  it('Market is active on /dashboard and /focus', () => {
     expect(isNavActive('/dashboard', marketItem)).toBe(true);
     expect(isNavActive('/focus', marketItem)).toBe(true);
     expect(isNavActive('/focus?symbol=BTCUSDT', marketItem)).toBe(true);
-    expect(isNavActive('/signals', marketItem)).toBe(true);
+    expect(isNavActive('/signals', marketItem)).toBe(false);
 
     expect(isNavActive('/lab', marketItem)).toBe(false);
     expect(isNavActive('/portfolio', marketItem)).toBe(false);
+  });
+
+  it('Signals is active on /signals', () => {
+    expect(isNavActive('/signals', signalsItem)).toBe(true);
+    expect(isNavActive('/signals/score', signalsItem)).toBe(true);
+    expect(isNavActive('/signals?status=rejected', signalsItem)).toBe(true);
+
+    expect(isNavActive('/dashboard', signalsItem)).toBe(false);
+    expect(isNavActive('/lab', signalsItem)).toBe(false);
   });
 
   it('Lab is active on /lab', () => {
