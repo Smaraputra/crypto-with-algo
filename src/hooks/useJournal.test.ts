@@ -228,7 +228,7 @@ describe('useUploadJournalScreenshot', () => {
 });
 
 describe('useDeleteJournalScreenshot', () => {
-  it('sends DELETE to /api/journal/screenshots/${fileId} without success toast', async () => {
+  it('sends DELETE to /api/journal/screenshots/{fileId} without a success toast', async () => {
     vi.mocked(fetchJson).mockResolvedValueOnce({ success: true });
     const { result } = renderHook(() => useDeleteJournalScreenshot(), {
       wrapper: createWrapper(),
