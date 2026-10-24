@@ -45,6 +45,35 @@ export interface ResearchReference {
   date?: string;
 }
 
+/** One recorded run of the study: when, on what code and data, and how. */
+export interface ResearchRun {
+  /** YYYY-MM-DD */
+  date: string;
+  /** What this run was, e.g. 'Confirmation run on segment C' or 'Live grading started'. */
+  label: string;
+  /** Short commit hash the run used, when the source names one. */
+  commit?: string;
+  /** Dataset or export hash, when the source names one. */
+  dataset?: string;
+  /** Docker image tag, when the source names one. */
+  image?: string;
+  /** The command or script, when the source names one. */
+  command?: string;
+  /** Key outcome of this run in one plain sentence. */
+  outcome?: string;
+  source: SourceRef;
+}
+
+/** How many trials (configurations evaluated on data) this study added to the program ledger. */
+export interface ResearchTrials {
+  count: number;
+  /** What was counted, e.g. '24 pre-registered direction and exit configurations'. */
+  label: string;
+  /** The program ledger total after this study, when the source states it. */
+  ledgerAfter?: number;
+  source: SourceRef;
+}
+
 export interface ResearchEntry {
   id: string;
   name: string;
@@ -66,6 +95,8 @@ export interface ResearchEntry {
   labHypotheses?: string[];
   /** Coins the entry trades, for links to /focus. */
   symbols?: string[];
+  runs?: ResearchRun[];
+  trials?: ResearchTrials;
 }
 
 export const RESEARCH_FAMILIES: Record<ResearchFamily, { label: string; description: string }> = {
@@ -146,6 +177,32 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-22',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-22',
+        label: 'Parity check on historical data against preview signals',
+        commit: '14e4b2f',
+        dataset: '1b910017b868',
+        image: 'crypto-ops:labv4-parity',
+        command: 'scripts/research/lab-v4-parity.ts',
+        outcome: 'Signals matched on all 386,890 coin-bars and trades reproduced preview results.',
+        source: { path: 'scripts/research/lab-forward-v4.ts', line: 85 },
+      },
+      {
+        date: '2026-10-22',
+        label: 'Live recording started under Amendment 1',
+        commit: 'e816020',
+        command: 'src/lib/signals/lab/job-signals-v4.ts',
+        outcome: 'First rows for S1-1h and S2-1h stored on schedule with no fetch errors.',
+        source: { path: 'scripts/research/lab-forward-v4.ts', line: 106 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because both cells were counted in the Round 3 preview',
+      ledgerAfter: 2204,
+      source: { path: 'scripts/research/lab-forward-v4.ts', line: 83, match: 'none added' },
+    },
     labHypotheses: ['S1-1h', 'S2-1h'],
     symbols: [
       'BTCUSDT',
@@ -208,6 +265,38 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-21',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-21',
+        label: 'Power simulation for F1-1d',
+        command: 'scripts/research/lab-v3-power.ts',
+        outcome: 'Estimated 1.7% to 2.7% crossing probability within 24 months at the measured historical Sharpe ratio.',
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 99 },
+      },
+      {
+        date: '2026-10-21',
+        label: 'Parity check on historical data against preview books and costs',
+        commit: 'be2c024',
+        dataset: 'aa62c5a1cb51',
+        image: 'crypto-ops:labv3-parity',
+        command: 'scripts/research/lab-v3-parity.ts',
+        outcome: 'Live books matched preview on all 1,947 days and costs matched on 1,946 book changes.',
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 116 },
+      },
+      {
+        date: '2026-10-22',
+        label: 'Live recording started under Amendment 1',
+        commit: '6404273',
+        command: 'src/lib/signals/lab/job-signals-v3.ts',
+        outcome: 'First F1-1d row stored on schedule with all 30 coins scored.',
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 141 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because F1-1d is the fund7 h7 cell from Round 2',
+      source: { path: 'scripts/research/ledger.ts', line: 44, match: 'adds none' },
+    },
     labHypotheses: ['F1-1d'],
     symbols: [
       'BTCUSDT',
@@ -290,6 +379,30 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-18',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-18',
+        label: 'Parity check on historical data against candidate screens',
+        commit: 'd9ad573',
+        dataset: '414fef1ee6cc',
+        image: 'crypto-ops:labv2',
+        outcome: 'N2 matched screen on all 245 weeks and N3 matched on 17,208 of 17,210 coin-days.',
+        source: { path: 'scripts/research/lab-forward-v2.ts', line: 112 },
+      },
+      {
+        date: '2026-10-19',
+        label: 'Live recording started under Amendment 1',
+        commit: '518c0ef',
+        outcome: 'First rows for N3-1d and N2-1w stored on schedule with no fetch errors.',
+        source: { path: 'scripts/research/lab-forward-v2.ts', line: 136 },
+      },
+    ],
+    trials: {
+      count: 0,
+      label: 'No trials added because both hypotheses were counted in Round 1',
+      ledgerAfter: 2189,
+      source: { path: 'scripts/research/lab-forward-v2.ts', line: 146, match: 'none added' },
+    },
     labHypotheses: ['N2-1w', 'N3-1d'],
     symbols: [
       'BTCUSDT',
@@ -356,6 +469,30 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-18',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-18',
+        label: 'Pre-lock hurdle and turnover preview',
+        commit: 'b9a9580',
+        dataset: 'a964d87d8f45',
+        command: 'scripts/research/lab-preview.ts',
+        outcome: 'Simulated hurdle distributions and power curves across all eight candidate configurations.',
+        source: { path: 'scripts/research/lab-forward-v1.ts', line: 114 },
+      },
+      {
+        date: '2026-10-18',
+        label: 'Live recording started under Amendment 1',
+        commit: '8388c57',
+        outcome: 'First stored rows recorded on schedule starting with L2-15m at 09:35 UTC.',
+        source: { path: 'scripts/research/lab-forward-v1.ts', line: 155 },
+      },
+    ],
+    trials: {
+      count: 8,
+      label: 'Eight pre-registered forward hypotheses',
+      ledgerAfter: 2169,
+      source: { path: 'scripts/research/lab-forward-v1.ts', line: 177, match: 'eight hypotheses' },
+    },
     labHypotheses: [
       'L1-8h',
       'L2-5m',
@@ -429,6 +566,31 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-22',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-21',
+        label: 'Initial candidate preview run of C1 and C2',
+        commit: 'a0474ae',
+        dataset: 'bc3566f4c6c6',
+        outcome: 'Produced identical trades, means, and t-statistics as the later confirmation run.',
+        source: { path: 'scripts/research/lab-v4-preview.ts', line: 48 },
+      },
+      {
+        date: '2026-10-22',
+        label: 'Candidate preview run under pre-registered decision table',
+        commit: '05d427f',
+        dataset: '1b910017b868',
+        image: 'crypto-ops:labv4-preview2',
+        outcome: 'All three candidates produced negative net returns after fees, registering nothing.',
+        source: { path: 'scripts/research/lab-v4-preview.ts', line: 32 },
+      },
+    ],
+    trials: {
+      count: 5,
+      label: 'Five candidate preview trials across two runs (C1, C2 and C7)',
+      ledgerAfter: 2204,
+      source: { path: 'scripts/research/lab-v4-preview.ts', line: 50, match: '5 trials' },
+    },
   },
   {
     id: 'next-version-round-2',
@@ -470,7 +632,28 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         path: 'scripts/research/nv2-preview.ts',
         date: '2026-10-20',
       },
+      {
+        label: 'lab-forward-v3 lock (cites Round 2 preview run)',
+        path: 'scripts/research/lab-forward-v3.ts',
+        date: '2026-10-21',
+      },
     ],
+    runs: [
+      {
+        date: '2026-10-20',
+        label: 'Exploratory preview across five candidate signals and two hold windows',
+        commit: '55ded39',
+        dataset: 'aa62c5a1cb51',
+        command: 'scripts/research/nv2-preview.ts',
+        outcome: 'fund7 with 7-day holding achieved the highest net annual Sharpe ratio (0.82) over 1,947 days.',
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 7 },
+      },
+    ],
+    trials: {
+      count: 10,
+      label: 'Ten candidate preview configurations (5 signals x 2 holds)',
+      source: { path: 'scripts/research/ledger.ts', line: 41, match: '10' },
+    },
   },
   {
     id: 'next-version-round-1',
@@ -518,6 +701,23 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-18',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-18',
+        label: 'Segment A holdout evaluation and candidate screens',
+        commit: '1713e71',
+        dataset: '414fef1ee6cc',
+        image: 'crypto-ops:nv1',
+        outcome: 'C1 failed gated test on holdout segment A while C2 and C3 each had one surviving cell.',
+        source: { path: 'scripts/research/next-version-v1.ts', line: 90 },
+      },
+    ],
+    trials: {
+      count: 20,
+      label: 'Twenty candidate trials across three rules (C1 4, C2 12, C3 4)',
+      ledgerAfter: 2189,
+      source: { path: 'scripts/research/next-version-v1.ts', line: 86, match: 'C1 4, C2 12, C3 4' },
+    },
   },
 
   // =========================================================================
@@ -575,11 +775,53 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-15',
       },
       {
+        label: 'Re-validation runner script',
+        path: 'scripts/ops/rv-revalidation-run.sh',
+        date: '2026-10-15',
+      },
+      {
         label: 'Technical documentation section 8.7',
         path: 'docs/TECHNICAL.md',
         date: '2026-10-15',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-15',
+        label: 'Synthetic calibration run across four universe models',
+        commit: 'ef4043a',
+        image: 'sha256:591946430356',
+        command: 'scripts/ops/rv-revalidation-run.sh calibrate',
+        outcome: 'Passed across driftless iid, planted edge, GARCH, and carry-only universes.',
+        source: { path: 'scripts/research/rv-revalidation.ts', line: 260 },
+      },
+      {
+        date: '2026-10-15',
+        label: 'Perpetual panel construction and funding resolutions check',
+        commit: 'ef4043a',
+        dataset: 'bc3566f4c6c6',
+        image: 'sha256:591946430356',
+        command: 'scripts/ops/rv-revalidation-run.sh inputs',
+        outcome: 'Assembled 5,240 8-hour bars across 10 symbols with one verified funding resolution.',
+        source: { path: 'scripts/research/rv-revalidation.ts', line: 256 },
+      },
+      {
+        date: '2026-10-15',
+        label: 'Four-step re-validation and permutation run',
+        commit: 'ef4043a',
+        dataset: 'bc3566f4c6c6',
+        image: 'sha256:591946430356',
+        command: 'scripts/ops/rv-revalidation-run.sh verdict',
+        outcome: 'G1 and G2 permutation tests passed but G3 failed with deflated Sharpe probability 0.1034.',
+        source: { path: 'scripts/research/rv-revalidation.ts', line: 254 },
+      },
+    ],
+    trials: {
+      count: 26,
+      label: 'Twenty-six trials evaluated across the re-validation',
+      ledgerAfter: 2161,
+      source: { path: 'scripts/research/rv-revalidation.ts', line: 289, match: 'N = 26' },
+    },
   },
   {
     id: 'rv-8h-legacy-validation',
@@ -617,6 +859,28 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-15',
       },
     ],
+    runs: [
+      {
+        date: '2026-10-15',
+        label: 'Unverified legacy backtest on spot candles',
+        commit: '1da5742',
+        dataset: '48ff79609080',
+        outcome: 'Reported positive returns later found void because it traded spot candles rather than perpetuals.',
+        source: { path: 'docs/TECHNICAL.md', line: 769 },
+      },
+      {
+        date: '2026-10-15',
+        label: 'Unregistered 1,000-trial in-sample permutation run',
+        command: 'cross-sectional-permutation.ts',
+        outcome: 'Produced p-value 0.012 failing the 1% bar, with fixed parameters and omitting lockbox data.',
+        source: { path: 'docs/TECHNICAL.md', line: 792 },
+      },
+    ],
+    trials: {
+      count: 14,
+      label: 'At least 14 unregistered configurations on the same history',
+      source: { path: 'docs/TECHNICAL.md', line: 771, match: '14' },
+    },
   },
 
   // =========================================================================
