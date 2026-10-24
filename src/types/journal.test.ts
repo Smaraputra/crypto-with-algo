@@ -226,3 +226,67 @@ describe('psychology fields', () => {
     expect(result.success).toBe(true);
   });
 });
+
+describe('trade times and entryPrice schemas', () => {
+  const base = {
+    symbol: 'BTCUSDT',
+    interval: '1h',
+    signalScore: 45,
+    signalTier: 'buy' as const,
+    action: 'buy' as const,
+  };
+
+  it('a future enteredAt fails with that message', () => {
+    const futureDate = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const result = createJournalEntrySchema.safeParse({
+      ...base,
+      enteredAt: futureDate,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe('Entered at cannot be in the future.');
+    }
+  });
+
+  it('an enteredAt before 2009-01-03 fails with that message', () => {
+    const result = createJournalEntrySchema.safeParse({
+      ...base,
+      enteredAt: '2008-12-31T23:59:59.000Z',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe('Entered at is too early.');
+    }
+  });
+
+  it('an ISO string parses to a Date', () => {
+    const isoString = '2026-01-15T12:00:00.000Z';
+    const result = createJournalEntrySchema.safeParse({
+      ...base,
+      enteredAt: isoString,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.enteredAt).toBeInstanceOf(Date);
+      expect(result.data.enteredAt?.toISOString()).toBe(isoString);
+    }
+  });
+
+  it('exitedAt: null parses to null', () => {
+    const result = updateJournalEntrySchema.safeParse({
+      exitedAt: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.exitedAt).toBeNull();
+    }
+  });
+
+  it('entryPrice survives updateJournalEntrySchema.parse', () => {
+    const parsed = updateJournalEntrySchema.parse({
+      entryPrice: 45000,
+      exitPrice: 48000,
+    });
+    expect(parsed.entryPrice).toBe(45000);
+  });
+});

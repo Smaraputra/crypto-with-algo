@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { EFFECTIVE_ENTERED_AT } from '@/lib/journal/times';
 
 const mockAuth = vi.fn();
 const mockFind = vi.fn();
@@ -21,6 +22,7 @@ function makeRequest(symbol?: string) {
 
 function mockEntries(entries: unknown[]) {
   mockFind.mockReturnValue({
+    lean: vi.fn().mockResolvedValue(entries),
     sort: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(entries) }),
   });
 }
@@ -44,6 +46,15 @@ describe('GET /api/journal/discipline', () => {
 
     expect(res.status).toBe(200);
     expect(data.nudges).toEqual([]);
+    expect(mockFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $expr: { $gte: [EFFECTIVE_ENTERED_AT, expect.any(Date)] },
+      }),
+      expect.objectContaining({
+        enteredAt: 1,
+        exitedAt: 1,
+      })
+    );
   });
 
   it('emits a cooldown warning after consecutive losses', async () => {
@@ -60,13 +71,15 @@ describe('GET /api/journal/discipline', () => {
     expect(data.nudges.map((n: { rule: string }) => n.rule)).toContain('loss_cooldown');
   });
 
-  it('passes the candidate symbol through for revenge detection', async () => {
+  it('passes the candidate symbol through for revenge detection using effective times', async () => {
     const now = Date.now();
     mockEntries([
       {
         symbol: 'ETHUSDT',
         createdAt: new Date(now - 3600000),
-        updatedAt: new Date(now - 10 * 60000),
+        enteredAt: new Date(now - 3600000),
+        exitedAt: new Date(now - 10 * 60000),
+        updatedAt: new Date(now - 60000),
         outcomePnlPercent: -2,
       },
     ]);

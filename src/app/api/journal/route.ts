@@ -4,6 +4,8 @@ import { connectDB } from '@/lib/mongodb';
 import { JournalEntry, MAX_JOURNAL_ENTRIES_PER_USER, POSITION_ACTIONS } from '@/lib/models/journal-entry';
 import { createJournalEntrySchema } from '@/types/journal';
 import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
+import { EFFECTIVE_ENTERED_AT, serializeJournalEntry } from '@/lib/journal/times';
+import type { PipelineStage } from 'mongoose';
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -14,22 +16,22 @@ export async function GET(req: NextRequest) {
   await connectDB();
 
   const params = req.nextUrl.searchParams;
-  const query: Record<string, unknown> = { userId: session.user.id };
+  const matchFilter: Record<string, unknown> = { userId: session.user.id };
 
   const symbol = params.get('symbol');
-  if (symbol) query.symbol = symbol;
+  if (symbol) matchFilter.symbol = symbol;
 
   const tag = params.get('tag');
-  if (tag) query.tags = tag;
+  if (tag) matchFilter.tags = tag;
 
   const action = params.get('action');
-  if (action) query.action = action;
+  if (action) matchFilter.action = action;
 
   const setupType = params.get('setupType');
-  if (setupType) query.setupType = setupType;
+  if (setupType) matchFilter.setupType = setupType;
 
   const marketCondition = params.get('marketCondition');
-  if (marketCondition) query.marketCondition = marketCondition;
+  if (marketCondition) matchFilter.marketCondition = marketCondition;
 
   // Trade status filter: open = has entryPrice but no exitPrice, closed = has exitPrice
   const status = params.get('status');
@@ -37,46 +39,84 @@ export async function GET(req: NextRequest) {
   // route does: a hold or skip is not a trade, so it belongs in neither the open
   // nor the closed list however its prices are filled in.
   if (status === 'open') {
-    query.action = { $in: POSITION_ACTIONS };
-    query.entryPrice = { $ne: null };
-    query.exitPrice = null;
+    matchFilter.action = { $in: POSITION_ACTIONS };
+    matchFilter.entryPrice = { $ne: null };
+    matchFilter.exitPrice = null;
   } else if (status === 'closed') {
-    query.action = { $in: POSITION_ACTIONS };
-    query.exitPrice = { $ne: null };
+    matchFilter.action = { $in: POSITION_ACTIONS };
+    matchFilter.exitPrice = { $ne: null };
   }
 
   const startDate = params.get('startDate');
   const endDate = params.get('endDate');
-  if (startDate || endDate) {
-    const dateFilter: Record<string, Date> = {};
-    if (startDate) dateFilter.$gte = new Date(startDate);
-    if (endDate) dateFilter.$lte = new Date(endDate);
-    query.createdAt = dateFilter;
-  }
+  const dateFilter: Record<string, Date> = {};
+  if (startDate) dateFilter.$gte = new Date(startDate);
+  if (endDate) dateFilter.$lte = new Date(endDate);
+  const hasDateFilter = startDate != null || endDate != null;
 
   const page = Math.max(1, parseInt(params.get('page') || '1', 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(params.get('limit') || '50', 10) || 1));
 
-  const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'symbol', 'action', 'entryPrice', 'exitPrice'];
-  const rawSort = params.get('sort') || '-createdAt';
+  const ALLOWED_SORT_FIELDS = [
+    'createdAt',
+    'updatedAt',
+    'symbol',
+    'action',
+    'entryPrice',
+    'exitPrice',
+    'enteredAt',
+    'exitedAt',
+  ];
+  const rawSort = params.get('sort') || '-enteredAt';
   const sortField = rawSort.startsWith('-') ? rawSort.slice(1) : rawSort;
-  const sort = ALLOWED_SORT_FIELDS.includes(sortField) ? rawSort : '-createdAt';
+  const sort = ALLOWED_SORT_FIELDS.includes(sortField) ? rawSort : '-enteredAt';
 
-  const sortObj: Record<string, 1 | -1> = {};
+  const sortStage: Record<string, 1 | -1> = {};
   if (sort.startsWith('-')) {
-    sortObj[sort.slice(1)] = -1;
+    sortStage[sort.slice(1)] = -1;
   } else {
-    sortObj[sort] = 1;
+    sortStage[sort] = 1;
+  }
+  sortStage._id = -1;
+
+  const pipeline: Record<string, unknown>[] = [
+    { $match: matchFilter },
+    {
+      $addFields: {
+        enteredAt: EFFECTIVE_ENTERED_AT,
+        exitedAt: { $ifNull: ['$exitedAt', null] },
+        screenshots: { $ifNull: ['$screenshots', []] },
+      },
+    },
+  ];
+
+  if (hasDateFilter) {
+    pipeline.push({ $match: { enteredAt: dateFilter } });
   }
 
-  const [entries, total, totalUserEntries] = await Promise.all([
-    JournalEntry.find(query)
-      .sort(sortObj)
-      .skip((page - 1) * limit)
-      .limit(limit),
-    JournalEntry.countDocuments(query),
+  pipeline.push({
+    $facet: {
+      entries: [
+        { $sort: sortStage },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+      ],
+      total: [{ $count: 'n' }],
+    },
+  });
+
+  const [aggResult, totalUserEntries] = await Promise.all([
+    JournalEntry.aggregate(pipeline as unknown as PipelineStage[]),
     JournalEntry.countDocuments({ userId: session.user.id }),
   ]);
+
+  const facetResult = (aggResult[0] as {
+    entries: unknown[];
+    total: { n: number }[];
+  }) ?? { entries: [], total: [] };
+
+  const entries = facetResult.entries;
+  const total = facetResult.total[0]?.n ?? 0;
 
   return NextResponse.json({
     entries,
@@ -119,7 +159,8 @@ export async function POST(req: NextRequest) {
   const entry = await JournalEntry.create({
     userId: session.user.id,
     ...parsed.data,
+    enteredAt: parsed.data.enteredAt ?? new Date(),
   });
 
-  return NextResponse.json({ entry }, { status: 201 });
+  return NextResponse.json({ entry: serializeJournalEntry(entry) }, { status: 201 });
 }

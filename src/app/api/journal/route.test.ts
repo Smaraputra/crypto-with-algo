@@ -15,6 +15,7 @@ vi.mock('@/lib/models/journal-entry', () => ({
     find: vi.fn(),
     countDocuments: vi.fn(),
     create: vi.fn(),
+    aggregate: vi.fn(),
   },
   MAX_JOURNAL_ENTRIES_PER_USER: 1000,
   // The route filters on this; it is the real value, not a stub, so a change
@@ -29,14 +30,13 @@ import { mockCreateJournalInput } from '@/__fixtures__/journal';
 
 const mockSession = { user: { id: 'user-1' } };
 
-function mockFindChain(entries: unknown[] = []) {
-  vi.mocked(JournalEntry.find).mockReturnValue({
-    sort: vi.fn().mockReturnValue({
-      skip: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(entries),
-      }),
-    }),
-  } as never);
+function mockAggregate(entries: unknown[] = [], total = entries.length) {
+  vi.mocked(JournalEntry.aggregate).mockResolvedValue([
+    {
+      entries,
+      total: total > 0 ? [{ n: total }] : [],
+    },
+  ]);
 }
 
 function makeGetRequest(params?: string): NextRequest {
@@ -67,7 +67,7 @@ describe('GET /api/journal', () => {
 
   it('returns paginated journal entries with entry limit info', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([{ _id: 'j1', symbol: 'BTCUSDT' }]);
+    mockAggregate([{ _id: 'j1', symbol: 'BTCUSDT', enteredAt: new Date('2026-01-01'), exitedAt: null }]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(1);
 
     const res = await GET(makeGetRequest());
@@ -83,66 +83,72 @@ describe('GET /api/journal', () => {
 
   it('filters by symbol', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('symbol=ETHUSDT'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    expect(pipeline[0].$match).toEqual(
       expect.objectContaining({ symbol: 'ETHUSDT' })
     );
   });
 
   it('filters by tag', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('tag=breakout'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    expect(pipeline[0].$match).toEqual(
       expect.objectContaining({ tags: 'breakout' })
     );
   });
 
   it('filters by action', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('action=buy'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    expect(pipeline[0].$match).toEqual(
       expect.objectContaining({ action: 'buy' })
     );
   });
 
   it('filters by setup type', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('setupType=breakout'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    expect(pipeline[0].$match).toEqual(
       expect.objectContaining({ setupType: 'breakout' })
     );
   });
 
   it('filters by market condition', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('marketCondition=trending_up'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    expect(pipeline[0].$match).toEqual(
       expect.objectContaining({ marketCondition: 'trending_up' })
     );
   });
 
   it('filters by status=open', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('status=open'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    expect(pipeline[0].$match).toEqual(
       expect.objectContaining({
         entryPrice: { $ne: null },
         exitPrice: null,
@@ -152,11 +158,12 @@ describe('GET /api/journal', () => {
 
   it('filters by status=closed', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('status=closed'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    expect(pipeline[0].$match).toEqual(
       expect.objectContaining({
         exitPrice: { $ne: null },
       })
@@ -165,23 +172,25 @@ describe('GET /api/journal', () => {
 
   it('filters by date range', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('startDate=2025-01-01&endDate=2025-01-31'));
-    expect(JournalEntry.find).toHaveBeenCalledWith(
-      expect.objectContaining({
-        createdAt: {
-          $gte: new Date('2025-01-01'),
-          $lte: new Date('2025-01-31'),
-        },
-      })
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    const dateMatch = pipeline.find(
+      (stage) => stage.$match && 'enteredAt' in (stage.$match as Record<string, unknown>)
     );
+    expect(dateMatch?.$match).toEqual({
+      enteredAt: {
+        $gte: new Date('2025-01-01'),
+        $lte: new Date('2025-01-31'),
+      },
+    });
   });
 
   it('paginates with page and limit params', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([], 100);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(100);
 
     const res = await GET(makeGetRequest('page=2&limit=10'));
@@ -189,21 +198,25 @@ describe('GET /api/journal', () => {
     expect(data.page).toBe(2);
     expect(data.totalPages).toBe(10);
 
-    const findCall = vi.mocked(JournalEntry.find).mock.results[0].value;
-    const sortCall = findCall.sort.mock.results[0].value;
-    expect(sortCall.skip).toHaveBeenCalledWith(10);
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    const facet = pipeline.find((stage) => '$facet' in stage)?.$facet as {
+      entries: Array<Record<string, unknown>>;
+    };
+    expect(facet.entries).toContainEqual({ $skip: 10 });
+    expect(facet.entries).toContainEqual({ $limit: 10 });
   });
 
   it('clamps limit to max 100', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
-    mockFindChain([]);
+    mockAggregate([]);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
 
     await GET(makeGetRequest('limit=500'));
-    const findCall = vi.mocked(JournalEntry.find).mock.results[0].value;
-    const sortCall = findCall.sort.mock.results[0].value;
-    const skipCall = sortCall.skip.mock.results[0].value;
-    expect(skipCall.limit).toHaveBeenCalledWith(100);
+    const pipeline = vi.mocked(JournalEntry.aggregate).mock.calls[0][0] as unknown as Array<Record<string, unknown>>;
+    const facet = pipeline.find((stage) => '$facet' in stage)?.$facet as {
+      entries: Array<Record<string, unknown>>;
+    };
+    expect(facet.entries).toContainEqual({ $limit: 100 });
   });
 });
 
@@ -217,9 +230,13 @@ describe('POST /api/journal', () => {
   it('creates a journal entry', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
+    const now = new Date('2026-01-10T12:00:00.000Z');
     vi.mocked(JournalEntry.create).mockResolvedValue({
       _id: 'j1',
       userId: 'user-1',
+      createdAt: now,
+      enteredAt: now,
+      exitedAt: null,
       ...mockCreateJournalInput,
     } as never);
 
@@ -227,13 +244,23 @@ describe('POST /api/journal', () => {
     expect(res.status).toBe(201);
     const data = await res.json();
     expect(data.entry.symbol).toBe('BTCUSDT');
+    expect(data.entry.enteredAt).toBeDefined();
+    expect(data.entry.exitedAt).toBeNull();
+    expect(JournalEntry.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enteredAt: expect.any(Date),
+      })
+    );
   });
 
   it('creates entry with new fields', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
+    const now = new Date('2026-01-10T12:00:00.000Z');
+    const customEnteredAt = '2026-01-05T09:30:00.000Z';
     const input = {
       ...mockCreateJournalInput,
+      enteredAt: customEnteredAt,
       tags: ['breakout'],
       marketCondition: 'trending_up',
       setupType: 'breakout',
@@ -242,7 +269,10 @@ describe('POST /api/journal', () => {
     vi.mocked(JournalEntry.create).mockResolvedValue({
       _id: 'j1',
       userId: 'user-1',
+      createdAt: now,
       ...input,
+      enteredAt: new Date(customEnteredAt),
+      exitedAt: null,
     } as never);
 
     const res = await POST(makePostRequest(input));
@@ -251,6 +281,7 @@ describe('POST /api/journal', () => {
       expect.objectContaining({
         tags: ['breakout'],
         marketCondition: 'trending_up',
+        enteredAt: new Date(customEnteredAt),
       })
     );
   });

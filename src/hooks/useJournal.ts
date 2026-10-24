@@ -77,7 +77,7 @@ export function useCreateJournalEntry() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       }),
-    onSuccess: () => toast.success('Journal entry created'),
+    // The log sheet confirms the save itself ("Trade saved"), so no second toast here.
     onError: (err) => toast.error(err.message || 'Failed to create journal entry'),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['journal'] });
@@ -110,13 +110,13 @@ export function useReviewJournalEntry() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, lessonsLearned }: { id: string; lessonsLearned: string }) =>
+    mutationFn: ({ id, ...data }: UpdateJournalEntryInput & { id: string }) =>
       fetchJson(`/api/journal/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...data,
           reviewedAt: new Date().toISOString(),
-          lessonsLearned,
         }),
       }),
     onSuccess: () => toast.success('Entry reviewed'),
@@ -124,6 +124,44 @@ export function useReviewJournalEntry() {
     onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({ queryKey: ['journal'] });
       queryClient.invalidateQueries({ queryKey: ['journal-entry', variables.id] });
+    },
+  });
+}
+
+export function useUploadJournalScreenshot() {
+  const queryClient = useQueryClient();
+
+  return useMutation<JournalEntryResponse, Error, { entryId: string; file: File }>({
+    mutationFn: async ({ entryId, file }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`/api/journal/${entryId}/screenshots`, {
+        method: 'POST',
+        body: formData,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error ?? 'Upload failed');
+      }
+      return json as JournalEntryResponse;
+    },
+    onSettled: (_data, _err, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['journal'] });
+      queryClient.invalidateQueries({ queryKey: ['journal-entry', variables.entryId] });
+    },
+  });
+}
+
+export function useDeleteJournalScreenshot() {
+  const queryClient = useQueryClient();
+
+  return useMutation<unknown, Error, { fileId: string; entryId: string }>({
+    mutationFn: ({ fileId }) =>
+      fetchJson(`/api/journal/screenshots/${fileId}`, { method: 'DELETE' }),
+    onError: (err) => toast.error(err.message || 'Failed to delete screenshot'),
+    onSettled: (_data, _err, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['journal'] });
+      queryClient.invalidateQueries({ queryKey: ['journal-entry', variables.entryId] });
     },
   });
 }

@@ -25,8 +25,18 @@ vi.mock('@/lib/models/journal-entry', () => ({
 import { GET } from './route';
 import { auth } from '@/lib/auth';
 import { JournalEntry } from '@/lib/models/journal-entry';
+import { EFFECTIVE_ENTERED_AT } from '@/lib/journal/times';
 
 const mockSession = { user: { id: 'user-1' } };
+
+function mockFind(entries: unknown[] = []) {
+  vi.mocked(JournalEntry.find).mockReturnValue({
+    lean: vi.fn().mockResolvedValue(entries),
+    sort: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(entries),
+    }),
+  } as never);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,11 +52,7 @@ describe('GET /api/journal/analytics', () => {
   it('returns analytics with empty data', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(0);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as never);
+    mockFind([]);
     vi.mocked(JournalEntry.aggregate).mockResolvedValue([]);
 
     const res = await GET();
@@ -72,16 +78,12 @@ describe('GET /api/journal/analytics', () => {
     const countMock = vi.mocked(JournalEntry.countDocuments);
     countMock.mockResolvedValueOnce(5); // allEntries
     countMock.mockResolvedValueOnce(2); // incompleteTradeCount
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([
-        { outcomePnlPercent: 5 },
-        { outcomePnlPercent: -2 },
-        { outcomePnlPercent: 10 },
-        { outcomePnlPercent: -3 },
-      ]),
-      }),
-    } as never);
+    mockFind([
+      { outcomePnlPercent: 5 },
+      { outcomePnlPercent: -2 },
+      { outcomePnlPercent: 10 },
+      { outcomePnlPercent: -3 },
+    ]);
     vi.mocked(JournalEntry.aggregate).mockResolvedValue([]);
 
     const res = await GET();
@@ -101,11 +103,7 @@ describe('GET /api/journal/analytics', () => {
   it('maps tag aggregation results', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(3);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as never);
+    mockFind([]);
 
     // Make aggregate return different values per call
     const aggMock = vi.mocked(JournalEntry.aggregate);
@@ -134,11 +132,7 @@ describe('GET /api/journal/analytics', () => {
   it('maps action distribution', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(10);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as never);
+    mockFind([]);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
     aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
@@ -161,14 +155,10 @@ describe('GET /api/journal/analytics', () => {
     expect(data.byAction[1].percentage).toBe(40);
   });
 
-  it('maps monthly P&L aggregation', async () => {
+  it('maps monthly P&L aggregation and uses EFFECTIVE_ENTERED_AT in _id', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(5);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as never);
+    mockFind([]);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
     aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
@@ -189,16 +179,53 @@ describe('GET /api/journal/analytics', () => {
     expect(data.byMonth[0].month).toBe('2025-01');
     expect(data.byMonth[0].pnlPercent).toBe(12.5);
     expect(data.byMonth[1].pnlPercent).toBe(-4.2);
+
+    // Assert that the monthly aggregate call used EFFECTIVE_ENTERED_AT
+    const monthlyCall = aggMock.mock.calls[4][0] as unknown as Array<Record<string, unknown>>;
+    const groupStage = monthlyCall.find((s) => '$group' in s)?.$group as {
+      _id: { $dateToString: { format: string; date: unknown } };
+    };
+    expect(groupStage._id.$dateToString.date).toEqual(EFFECTIVE_ENTERED_AT);
+  });
+
+  it('sorts pnlEntries chronologically by effective time in JS', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.countDocuments).mockResolvedValue(2);
+    // Entry 1 has older createdAt (2026-01-01) but later enteredAt (2026-01-05), outcome: +5 (win)
+    // Entry 2 has later createdAt (2026-01-03) but earlier enteredAt (2026-01-02), outcome: -5 (loss)
+    // When sorted by effective time: Entry 2 (-5), then Entry 1 (+5) -> current streak is win of length 1
+    mockFind([
+      {
+        outcomePnlPercent: 5,
+        action: 'buy',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        enteredAt: new Date('2026-01-05T00:00:00.000Z'),
+      },
+      {
+        outcomePnlPercent: -5,
+        action: 'buy',
+        createdAt: new Date('2026-01-03T00:00:00.000Z'),
+        enteredAt: new Date('2026-01-02T00:00:00.000Z'),
+      },
+    ]);
+    vi.mocked(JournalEntry.aggregate).mockResolvedValue([]);
+
+    const res = await GET();
+    const data = await res.json();
+    expect(data.streaks.current).toEqual({ type: 'win', length: 1 });
+    expect(JournalEntry.find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        enteredAt: 1,
+        createdAt: 1,
+      })
+    );
   });
 
   it('maps signal tier accuracy', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(5);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as never);
+    mockFind([]);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
     aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
@@ -229,11 +256,7 @@ describe('GET /api/journal/analytics', () => {
     // error of 50 points; it is not a weak finding, it is no finding.
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(1);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([{ outcomePnlPercent: 5 }]),
-      }),
-    } as never);
+    mockFind([{ outcomePnlPercent: 5 }]);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
     aggMock.mockResolvedValueOnce([{ _id: 'breakout', count: 1, wins: 1, losses: 0, totalPnl: 5 }]); // tag
@@ -264,11 +287,7 @@ describe('GET /api/journal/analytics', () => {
   it('maps setup type and market condition', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(5);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as never);
+    mockFind([]);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
     aggMock.mockResolvedValue([] as never); // base fallback for trailing aggregations
@@ -298,11 +317,7 @@ describe('GET /api/journal/analytics', () => {
   it('maps session, hour, and weekday aggregations', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(6);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    } as never);
+    mockFind([]);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
     aggMock.mockResolvedValue([] as never); // base fallback
@@ -351,18 +366,14 @@ describe('GET /api/journal/analytics', () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(6);
     // Chronological closed trades: W W L L L W -> current 1 win, max 2 wins, max 3 losses
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([
-          { outcomePnlPercent: 2 },
-          { outcomePnlPercent: 1 },
-          { outcomePnlPercent: -1 },
-          { outcomePnlPercent: -2 },
-          { outcomePnlPercent: -0.5 },
-          { outcomePnlPercent: 3 },
-        ]),
-      }),
-    } as never);
+    mockFind([
+      { outcomePnlPercent: 2, createdAt: new Date(1) },
+      { outcomePnlPercent: 1, createdAt: new Date(2) },
+      { outcomePnlPercent: -1, createdAt: new Date(3) },
+      { outcomePnlPercent: -2, createdAt: new Date(4) },
+      { outcomePnlPercent: -0.5, createdAt: new Date(5) },
+      { outcomePnlPercent: 3, createdAt: new Date(6) },
+    ]);
 
     const aggMock = vi.mocked(JournalEntry.aggregate);
     aggMock.mockResolvedValue([] as never); // base fallback
@@ -419,12 +430,10 @@ describe('GET /api/journal/analytics', () => {
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(30);
     // 24 trades: 60% winners at +2%, losers at -1% -> b=2, f = (0.6*2 - 0.4)/2 = 0.4
     const entries = [
-      ...Array.from({ length: 15 }, () => ({ outcomePnlPercent: 2 })),
-      ...Array.from({ length: 10 }, () => ({ outcomePnlPercent: -1 })),
+      ...Array.from({ length: 15 }, (_, i) => ({ outcomePnlPercent: 2, createdAt: new Date(i) })),
+      ...Array.from({ length: 10 }, (_, i) => ({ outcomePnlPercent: -1, createdAt: new Date(15 + i) })),
     ];
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(entries) }),
-    } as never);
+    mockFind(entries);
     vi.mocked(JournalEntry.aggregate).mockResolvedValue([] as never);
 
     const res = await GET();
@@ -440,14 +449,10 @@ describe('GET /api/journal/analytics', () => {
   it('marks Kelly unreliable under 20 closed trades', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.countDocuments).mockResolvedValue(5);
-    vi.mocked(JournalEntry.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([
-          { outcomePnlPercent: 2 },
-          { outcomePnlPercent: -1 },
-        ]),
-      }),
-    } as never);
+    mockFind([
+      { outcomePnlPercent: 2, createdAt: new Date(1) },
+      { outcomePnlPercent: -1, createdAt: new Date(2) },
+    ]);
     vi.mocked(JournalEntry.aggregate).mockResolvedValue([] as never);
 
     const res = await GET();

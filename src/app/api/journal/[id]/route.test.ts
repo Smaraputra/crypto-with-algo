@@ -16,14 +16,22 @@ vi.mock('@/lib/models/journal-entry', () => ({
     findOneAndUpdate: vi.fn(),
     findOneAndDelete: vi.fn(),
   },
+  POSITION_ACTIONS: ['buy', 'sell'],
+  isPositionAction: (action: string | null | undefined) => action === 'buy' || action === 'sell',
+}));
+
+vi.mock('@/lib/journal/screenshots', () => ({
+  deleteScreenshotFile: vi.fn(),
 }));
 
 import { GET, PATCH, DELETE } from './route';
 import { auth } from '@/lib/auth';
 import { JournalEntry } from '@/lib/models/journal-entry';
+import { deleteScreenshotFile } from '@/lib/journal/screenshots';
 
 const mockSession = { user: { id: 'user-1' } };
 const params = Promise.resolve({ id: 'journal-1' });
+const defaultCreatedAt = new Date('2026-01-01T00:00:00.000Z');
 
 function makeRequest(method: string, body?: unknown): NextRequest {
   if (body) {
@@ -47,17 +55,20 @@ describe('GET /api/journal/[id]', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns entry', async () => {
+  it('returns serialized entry', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.findOne).mockResolvedValue({
       _id: 'journal-1',
       symbol: 'BTCUSDT',
+      createdAt: defaultCreatedAt,
     } as never);
 
     const res = await GET(makeRequest('GET'), { params });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.entry.symbol).toBe('BTCUSDT');
+    expect(new Date(data.entry.enteredAt).getTime()).toBe(defaultCreatedAt.getTime());
+    expect(data.entry.exitedAt).toBeNull();
   });
 
   it('returns 404 when not found', async () => {
@@ -76,22 +87,26 @@ describe('PATCH /api/journal/[id]', () => {
     expect(res.status).toBe(401);
   });
 
-  it('updates entry', async () => {
+  it('updates entry and serializes result', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.findOne).mockResolvedValue({
       _id: 'journal-1',
       lessonsLearned: '',
       reviewedAt: null,
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       notes: 'updated',
+      createdAt: defaultCreatedAt,
     } as never);
 
     const res = await PATCH(makeRequest('PATCH', { notes: 'updated' }), { params });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.entry.notes).toBe('updated');
+    expect(data.entry.enteredAt).toBeDefined();
+    expect(data.entry.exitedAt).toBeNull();
   });
 
   it('returns 404 when not found', async () => {
@@ -114,11 +129,13 @@ describe('PATCH /api/journal/[id]', () => {
       _id: 'journal-1',
       entryPrice: 40000,
       action: 'buy',
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       exitPrice: 44000,
       outcomePnlPercent: 10,
+      createdAt: defaultCreatedAt,
     } as never);
 
     await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
@@ -135,11 +152,13 @@ describe('PATCH /api/journal/[id]', () => {
       _id: 'journal-1',
       entryPrice: 2200,
       action: 'sell',
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       exitPrice: 2100,
       outcomePnlPercent: expect.any(Number),
+      createdAt: defaultCreatedAt,
     } as never);
 
     await PATCH(makeRequest('PATCH', { exitPrice: 2100 }), { params });
@@ -152,12 +171,73 @@ describe('PATCH /api/journal/[id]', () => {
     );
   });
 
+  it('recomputes outcomePnlPercent when editing entryPrice for a closed buy', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: 40000,
+      exitPrice: 50000,
+      action: 'buy',
+      createdAt: defaultCreatedAt,
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: 45000,
+      exitPrice: 50000,
+      outcomePnlPercent: ((50000 - 45000) / 45000) * 100,
+      createdAt: defaultCreatedAt,
+    } as never);
+
+    await PATCH(makeRequest('PATCH', { entryPrice: 45000 }), { params });
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.objectContaining({
+        entryPrice: 45000,
+        outcomePnlPercent: expect.closeTo(11.11, 2),
+      }),
+      { new: true }
+    );
+  });
+
+  it('allows setting exitPrice when entryPrice is provided in the same PATCH', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: null,
+      action: 'buy',
+      createdAt: defaultCreatedAt,
+    } as never);
+    vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
+      _id: 'journal-1',
+      entryPrice: 40000,
+      exitPrice: 44000,
+      outcomePnlPercent: 10,
+      createdAt: defaultCreatedAt,
+    } as never);
+
+    const res = await PATCH(
+      makeRequest('PATCH', { entryPrice: 40000, exitPrice: 44000 }),
+      { params }
+    );
+    expect(res.status).toBe(200);
+    expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'journal-1', userId: 'user-1' },
+      expect.objectContaining({
+        entryPrice: 40000,
+        exitPrice: 44000,
+        outcomePnlPercent: 10,
+      }),
+      { new: true }
+    );
+  });
+
   it('returns 400 when setting exitPrice on entry without entryPrice', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.findOne).mockResolvedValue({
       _id: 'journal-1',
       entryPrice: null,
       action: 'buy',
+      createdAt: defaultCreatedAt,
     } as never);
 
     const res = await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
@@ -167,16 +247,70 @@ describe('PATCH /api/journal/[id]', () => {
     expect(JournalEntry.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it('rejects exitedAt before enteredAt with 400', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      action: 'buy',
+      enteredAt: new Date('2026-01-10T12:00:00.000Z'),
+      createdAt: defaultCreatedAt,
+    } as never);
+
+    const res = await PATCH(
+      makeRequest('PATCH', { exitedAt: '2026-01-10T11:00:00.000Z' }),
+      { params }
+    );
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('Exited at must be after entered at.');
+  });
+
+  it('rejects exitedAt on a skip with 400', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      action: 'skip',
+      createdAt: defaultCreatedAt,
+    } as never);
+
+    const res = await PATCH(
+      makeRequest('PATCH', { exitedAt: '2026-01-10T15:00:00.000Z' }),
+      { params }
+    );
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('Only a buy or sell can have an exit time.');
+  });
+
+  it('rejects exitedAt on a hold with 400', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOne).mockResolvedValue({
+      _id: 'journal-1',
+      action: 'hold',
+      createdAt: defaultCreatedAt,
+    } as never);
+
+    const res = await PATCH(
+      makeRequest('PATCH', { exitedAt: '2026-01-10T15:00:00.000Z' }),
+      { params }
+    );
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe('Only a buy or sell can have an exit time.');
+  });
+
   it('does not compute P&L for hold action', async () => {
     vi.mocked(auth).mockResolvedValue(mockSession as never);
     vi.mocked(JournalEntry.findOne).mockResolvedValue({
       _id: 'journal-1',
       entryPrice: 40000,
       action: 'hold',
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       exitPrice: 44000,
+      createdAt: defaultCreatedAt,
     } as never);
 
     await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
@@ -193,10 +327,12 @@ describe('PATCH /api/journal/[id]', () => {
       _id: 'journal-1',
       entryPrice: 40000,
       action: 'skip',
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       exitPrice: 44000,
+      createdAt: defaultCreatedAt,
     } as never);
 
     await PATCH(makeRequest('PATCH', { exitPrice: 44000 }), { params });
@@ -214,11 +350,13 @@ describe('PATCH /api/journal/[id]', () => {
       _id: 'journal-1',
       lessonsLearned: 'First review',
       reviewedAt: existingReviewedAt,
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       lessonsLearned: 'Second review',
       reviewHistory: [{ lessonsLearned: 'First review', reviewedAt: existingReviewedAt }],
+      createdAt: defaultCreatedAt,
     } as never);
 
     const res = await PATCH(
@@ -247,23 +385,23 @@ describe('PATCH /api/journal/[id]', () => {
       _id: 'journal-1',
       lessonsLearned: '',
       reviewedAt: null,
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       lessonsLearned: 'First review',
+      createdAt: defaultCreatedAt,
     } as never);
 
     await PATCH(
       makeRequest('PATCH', { lessonsLearned: 'First review', reviewedAt: new Date().toISOString() }),
       { params }
     );
-    // Should use simple update, not $set/$push
     expect(JournalEntry.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'journal-1', userId: 'user-1' },
       expect.objectContaining({ lessonsLearned: 'First review' }),
       { new: true }
     );
-    // Verify no $push was used
     const updateArg = vi.mocked(JournalEntry.findOneAndUpdate).mock.calls[0][1] as Record<string, unknown>;
     expect(updateArg.$push).toBeUndefined();
   });
@@ -274,11 +412,13 @@ describe('PATCH /api/journal/[id]', () => {
       _id: 'journal-1',
       lessonsLearned: '',
       reviewedAt: null,
+      createdAt: defaultCreatedAt,
     } as never);
     vi.mocked(JournalEntry.findOneAndUpdate).mockResolvedValue({
       _id: 'journal-1',
       tags: ['breakout'],
       lessonsLearned: 'Good timing',
+      createdAt: defaultCreatedAt,
     } as never);
 
     const res = await PATCH(
@@ -323,5 +463,35 @@ describe('DELETE /api/journal/[id]', () => {
 
     const res = await DELETE(makeRequest('DELETE'), { params });
     expect(res.status).toBe(404);
+  });
+
+  it('deletes screenshot files when entry has screenshots', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOneAndDelete).mockResolvedValue({
+      _id: 'journal-1',
+      screenshots: [
+        { fileId: 'shot-1' },
+        { fileId: 'shot-2' },
+      ],
+    } as never);
+
+    const res = await DELETE(makeRequest('DELETE'), { params });
+    expect(res.status).toBe(200);
+    expect(deleteScreenshotFile).toHaveBeenCalledWith('shot-1');
+    expect(deleteScreenshotFile).toHaveBeenCalledWith('shot-2');
+  });
+
+  it('continues and returns 200 even if deleteScreenshotFile throws', async () => {
+    vi.mocked(auth).mockResolvedValue(mockSession as never);
+    vi.mocked(JournalEntry.findOneAndDelete).mockResolvedValue({
+      _id: 'journal-1',
+      screenshots: [{ fileId: 'shot-1' }],
+    } as never);
+    vi.mocked(deleteScreenshotFile).mockRejectedValueOnce(new Error('GridFS failure'));
+
+    const res = await DELETE(makeRequest('DELETE'), { params });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
   });
 });

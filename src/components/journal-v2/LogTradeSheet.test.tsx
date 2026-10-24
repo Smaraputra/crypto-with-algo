@@ -11,6 +11,7 @@ import { useUIStore } from '@/stores/uiStore';
 
 vi.mock('@/hooks/useJournal', () => ({
   useCreateJournalEntry: vi.fn(),
+  useUploadJournalScreenshot: vi.fn(),
 }));
 
 vi.mock('@/hooks/useDiscipline', () => ({
@@ -36,9 +37,13 @@ class MockResizeObserver {
 global.ResizeObserver = MockResizeObserver;
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
+global.URL.createObjectURL = vi.fn((file: File) => `blob:mock-${file.name}`);
+global.URL.revokeObjectURL = vi.fn();
+
 describe('LogTradeSheet', () => {
   const onOpenChange = vi.fn();
   const mockMutateAsync = vi.fn();
+  const mockUploadMutate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -59,6 +64,11 @@ describe('LogTradeSheet', () => {
       mutateAsync: mockMutateAsync,
       isPending: false,
     } as unknown as ReturnType<typeof journalHooks.useCreateJournalEntry>);
+
+    vi.mocked(journalHooks.useUploadJournalScreenshot).mockReturnValue({
+      mutateAsync: mockUploadMutate,
+      isPending: false,
+    } as unknown as ReturnType<typeof journalHooks.useUploadJournalScreenshot>);
 
     vi.mocked(signalsHooks.useLatestSignalForStyle).mockImplementation(
       (symbol, style, interval) => {
@@ -95,8 +105,8 @@ describe('LogTradeSheet', () => {
     ).toBeInTheDocument();
   });
 
-  it('with a mocked signal (score: 31.2, tier: buy) for BTCUSDT at 1h, saving sends interval: 1h, signalScore: 31.2 and signalTier: buy', async () => {
-    mockMutateAsync.mockResolvedValueOnce({ success: true });
+  it('with a mocked signal (score: 31.2, tier: buy) for BTCUSDT at 1h, saving sends interval: 1h, signalScore: 31.2, signalTier: buy, and enteredAt', async () => {
+    mockMutateAsync.mockResolvedValueOnce({ entry: { _id: 'j-1' } });
 
     render(<LogTradeSheet open={true} onOpenChange={onOpenChange} initialSymbol="BTCUSDT" />);
 
@@ -118,11 +128,89 @@ describe('LogTradeSheet', () => {
         interval: '1h',
         signalScore: 31.2,
         signalTier: 'buy',
+        enteredAt: expect.any(String),
       })
     );
 
     expect(toast.success).toHaveBeenCalledWith('Trade saved');
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('a future time shows the error and does not submit', async () => {
+    render(<LogTradeSheet open={true} onOpenChange={onOpenChange} initialSymbol="BTCUSDT" />);
+
+    // 1 hour in the future
+    const futureDate = new Date(Date.now() + 60 * 60 * 1000);
+    const year = futureDate.getFullYear();
+    const month = String(futureDate.getMonth() + 1).padStart(2, '0');
+    const day = String(futureDate.getDate()).padStart(2, '0');
+    const hours = String(futureDate.getHours()).padStart(2, '0');
+    const minutes = String(futureDate.getMinutes()).padStart(2, '0');
+    const futureValue = `${year}-${month}-${day}T${hours}:${minutes}`;
+
+    fireEvent.change(screen.getByLabelText('Entered at'), { target: { value: futureValue } });
+
+    const saveButton = screen.getByRole('button', { name: 'Save trade' });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Entered at cannot be in the future.')).toBeInTheDocument();
+    });
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('two pending files are uploaded after the create, with the returned entry id', async () => {
+    mockMutateAsync.mockResolvedValueOnce({ entry: { _id: 'created-trade-123' } });
+    mockUploadMutate.mockResolvedValue({ success: true });
+
+    render(<LogTradeSheet open={true} onOpenChange={onOpenChange} initialSymbol="BTCUSDT" />);
+
+    const f1 = new File(['content1'], 'chart1.png', { type: 'image/png' });
+    const f2 = new File(['content2'], 'chart2.png', { type: 'image/png' });
+
+    const fileInput = screen.getByLabelText('Screenshot files') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [f1, f2] } });
+
+    expect(screen.getByAltText('chart1.png')).toBeInTheDocument();
+    expect(screen.getByAltText('chart2.png')).toBeInTheDocument();
+
+    const saveButton = screen.getByRole('button', { name: 'Save trade' });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(mockUploadMutate).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockUploadMutate).toHaveBeenNthCalledWith(1, {
+      entryId: 'created-trade-123',
+      file: f1,
+    });
+    expect(mockUploadMutate).toHaveBeenNthCalledWith(2, {
+      entryId: 'created-trade-123',
+      file: f2,
+    });
+    expect(toast.success).toHaveBeenCalledWith('Trade saved');
+  });
+
+  it('removing a pending file drops it and revokes the URL', () => {
+    render(<LogTradeSheet open={true} onOpenChange={onOpenChange} initialSymbol="BTCUSDT" />);
+
+    const file = new File(['data'], 'shot.png', { type: 'image/png' });
+    const fileInput = screen.getByLabelText('Screenshot files') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    expect(screen.getByAltText('shot.png')).toBeInTheDocument();
+
+    const removeBtn = screen.getByRole('button', { name: 'Remove shot.png' });
+    fireEvent.click(removeBtn);
+
+    expect(screen.queryByAltText('shot.png')).not.toBeInTheDocument();
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-shot.png');
   });
 
   it('changing the interval to 4h queries swing_trading and 4h', () => {
@@ -216,6 +304,7 @@ describe('LogTradeSheet', () => {
         signalScore: 31.2,
         signalTier: 'buy',
         action: 'buy',
+        enteredAt: expect.any(String),
         entryPrice: 65000,
         plannedRiskReward: 2.5,
         convictionLevel: 4,

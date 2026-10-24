@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDB } from '@/lib/mongodb';
-import { JournalEntry } from '@/lib/models/journal-entry';
+import { isPositionAction, JournalEntry } from '@/lib/models/journal-entry';
 import { updateJournalEntrySchema } from '@/types/journal';
 import { authenticatedLimiter, rateLimitUser } from '@/lib/rate-limit';
+import { serializeJournalEntry } from '@/lib/journal/times';
+import { deleteScreenshotFile } from '@/lib/journal/screenshots';
 
 export async function GET(
   _req: NextRequest,
@@ -25,7 +27,7 @@ export async function GET(
     return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
   }
 
-  return NextResponse.json({ entry });
+  return NextResponse.json({ entry: serializeJournalEntry(entry) });
 }
 
 export async function PATCH(
@@ -63,8 +65,13 @@ export async function PATCH(
     return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
   }
 
+  const newEntryPrice =
+    (updateData.entryPrice as number | undefined) ?? existing.entryPrice;
+  const newExitPrice =
+    (updateData.exitPrice as number | undefined) ?? existing.exitPrice;
+
   // Reject exitPrice when entry has no entryPrice
-  if (updateData.exitPrice != null && existing.entryPrice == null) {
+  if (newExitPrice != null && newEntryPrice == null) {
     return NextResponse.json(
       { error: 'Cannot set exit price on an entry without an entry price' },
       { status: 400 }
@@ -73,17 +80,47 @@ export async function PATCH(
 
   // Auto-compute P&L only for buy/sell actions with both prices
   if (
-    updateData.exitPrice != null &&
-    existing.entryPrice != null &&
-    (existing.action === 'buy' || existing.action === 'sell')
+    ('entryPrice' in updateData || 'exitPrice' in updateData) &&
+    newEntryPrice != null &&
+    newExitPrice != null &&
+    isPositionAction(existing.action)
   ) {
-    const entryPrice = existing.entryPrice;
-    const exitPrice = updateData.exitPrice as number;
+    const entryPrice = newEntryPrice;
+    const exitPrice = newExitPrice;
     if (existing.action === 'sell') {
       updateData.outcomePnlPercent = ((entryPrice - exitPrice) / entryPrice) * 100;
     } else {
       updateData.outcomePnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
     }
+  }
+
+  // exitedAt (not null) on a hold or skip gives 400 "Only a buy or sell can have an exit time."
+  if (updateData.exitedAt != null && !isPositionAction(existing.action)) {
+    return NextResponse.json(
+      { error: 'Only a buy or sell can have an exit time.' },
+      { status: 400 }
+    );
+  }
+
+  // effectiveEntered and effectiveExited order check
+  const effectiveEntered =
+    (updateData.enteredAt as Date | undefined) ??
+    existing.enteredAt ??
+    existing.createdAt;
+  const effectiveExited =
+    'exitedAt' in updateData
+      ? (updateData.exitedAt as Date | null | undefined)
+      : existing.exitedAt;
+
+  if (
+    effectiveEntered != null &&
+    effectiveExited != null &&
+    new Date(effectiveExited).getTime() < new Date(effectiveEntered).getTime()
+  ) {
+    return NextResponse.json(
+      { error: 'Exited at must be after entered at.' },
+      { status: 400 }
+    );
   }
 
   // Preserve review history when overwriting lessonsLearned
@@ -105,7 +142,10 @@ export async function PATCH(
       { $set: mongoUpdate, $push: pushOp },
       { new: true }
     );
-    return NextResponse.json({ entry });
+    if (!entry) {
+      return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+    }
+    return NextResponse.json({ entry: serializeJournalEntry(entry) });
   }
 
   const entry = await JournalEntry.findOneAndUpdate(
@@ -118,7 +158,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
   }
 
-  return NextResponse.json({ entry });
+  return NextResponse.json({ entry: serializeJournalEntry(entry) });
 }
 
 export async function DELETE(
@@ -142,6 +182,16 @@ export async function DELETE(
 
   if (!result) {
     return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+  }
+
+  if (Array.isArray(result.screenshots) && result.screenshots.length > 0) {
+    for (const screenshot of result.screenshots) {
+      try {
+        await deleteScreenshotFile(screenshot.fileId);
+      } catch (err) {
+        console.error('Failed to delete screenshot file:', screenshot.fileId, err);
+      }
+    }
   }
 
   return NextResponse.json({ success: true });
