@@ -188,7 +188,7 @@ describe('TradesView', () => {
   it('says "1 shot" for a single screenshot', () => {
     const oneShot = {
       ...mockClosedTrade,
-      screenshots: [mockClosedTrade.screenshots![0]],
+      screenshots: (mockClosedTrade.screenshots ?? []).slice(0, 1),
     };
     vi.mocked(journalHooks.useJournalEntries).mockReturnValue({
       data: { entries: [oneShot] },

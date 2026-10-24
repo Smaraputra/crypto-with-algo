@@ -52,7 +52,7 @@ describe('toLocalInputValue and fromLocalInputValue', () => {
     truncated.setSeconds(0, 0);
 
     expect(isoString).toBe(truncated.toISOString());
-    expect(new Date(isoString!).getTime()).toBe(truncated.getTime());
+    expect(new Date(isoString ?? '').getTime()).toBe(truncated.getTime());
   });
 });
 

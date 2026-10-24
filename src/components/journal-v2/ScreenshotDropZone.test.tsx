@@ -76,7 +76,8 @@ describe('ScreenshotDropZone component', () => {
     const onFiles = vi.fn();
     const { container } = render(<ScreenshotDropZone onFiles={onFiles} remaining={3} />);
 
-    const dropTarget = container.querySelector('[tabindex="0"]')!;
+    const dropTarget = container.querySelector('[tabindex="0"]');
+    if (!dropTarget) throw new Error('The drop zone did not render');
     const file = new File(['image-data'], 'pasted.png', { type: 'image/png' });
 
     fireEvent.paste(dropTarget, {

@@ -76,12 +76,12 @@ describe('EntryScreenshots', () => {
     expect(screen.getByRole('heading', { name: 'Screenshots' })).toBeInTheDocument();
 
     const thumb1Btn = screen.getByRole('button', { name: 'View screenshot 1' });
-    const img1 = thumb1Btn.querySelector('img')!;
+    const img1 = thumb1Btn.querySelector('img');
     expect(img1).toHaveAttribute('src', '/api/journal/screenshots/file-1');
     expect(img1).toHaveAttribute('alt', 'Screenshot 1 of the BTC trade');
 
     const thumb2Btn = screen.getByRole('button', { name: 'View screenshot 2' });
-    const img2 = thumb2Btn.querySelector('img')!;
+    const img2 = thumb2Btn.querySelector('img');
     expect(img2).toHaveAttribute('src', '/api/journal/screenshots/file-2');
     expect(img2).toHaveAttribute('alt', 'Screenshot 2 of the BTC trade');
   });

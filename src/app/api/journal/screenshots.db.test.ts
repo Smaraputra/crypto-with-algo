@@ -82,6 +82,13 @@ async function createTestEntry(userId = 'user-1') {
   });
 }
 
+/** The GridFS files collection of the screenshot bucket, on the test connection. */
+function screenshotFiles() {
+  const db = mongoose.connection.db;
+  if (!db) throw new Error('The test database is not connected');
+  return db.collection(`${SCREENSHOT_BUCKET}.files`);
+}
+
 describe('Journal screenshots API with real MongoDB', () => {
   it('returns 401 without a session', async () => {
     mocks.session = null;
@@ -151,7 +158,7 @@ describe('Journal screenshots API with real MongoDB', () => {
     expect(body.entry.screenshots[0].size).toBe(pngBytes.byteLength);
     expect(typeof body.entry.screenshots[0].fileId).toBe('string');
 
-    const filesCollection = mongoose.connection.db!.collection(`${SCREENSHOT_BUCKET}.files`);
+    const filesCollection = screenshotFiles();
     const files = await filesCollection.find({}).toArray();
     expect(files).toHaveLength(1);
     expect(files[0].metadata.userId).toBe('user-1');
@@ -171,7 +178,7 @@ describe('Journal screenshots API with real MongoDB', () => {
       expect(res.status).toBe(201);
     }
 
-    const filesCollection = mongoose.connection.db!.collection(`${SCREENSHOT_BUCKET}.files`);
+    const filesCollection = screenshotFiles();
     expect(await filesCollection.countDocuments()).toBe(4);
 
     const fifthFile = makeFile(makeValidPngBytes(), 'shot-5.png', 'image/png');
@@ -226,7 +233,7 @@ describe('Journal screenshots API with real MongoDB', () => {
     const uploadBody = await uploadRes.json();
     const fileId = uploadBody.entry.screenshots[0].fileId;
 
-    const filesCollection = mongoose.connection.db!.collection(`${SCREENSHOT_BUCKET}.files`);
+    const filesCollection = screenshotFiles();
     expect(await filesCollection.countDocuments()).toBe(1);
 
     const deleteReq = new NextRequest(`http://localhost/api/journal/screenshots/${fileId}`, {
@@ -258,7 +265,7 @@ describe('Journal screenshots API with real MongoDB', () => {
       expect(res.status).toBe(201);
     }
 
-    const filesCollection = mongoose.connection.db!.collection(`${SCREENSHOT_BUCKET}.files`);
+    const filesCollection = screenshotFiles();
     expect(await filesCollection.countDocuments()).toBe(2);
 
     const deleteEntryReq = new NextRequest(`http://localhost/api/journal/${entryId}`, {

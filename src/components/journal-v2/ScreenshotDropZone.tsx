@@ -160,8 +160,8 @@ export const ScreenshotDropZone: React.FC<ScreenshotDropZoneProps> = ({
 
       {errors.length > 0 && (
         <div role="alert" className="space-y-1 text-[13px] text-down">
-          {errors.map((err, i) => (
-            <p key={i}>{err}</p>
+          {errors.map((err) => (
+            <p key={err}>{err}</p>
           ))}
         </div>
       )}

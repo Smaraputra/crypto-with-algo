@@ -249,7 +249,11 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const enteredAtIso = fromLocalInputValue(enteredAt)!;
+    const enteredAtIso = fromLocalInputValue(enteredAt);
+    if (!enteredAtIso) {
+      setErrors({ enteredAt: 'Enter when the trade was entered.' });
+      return;
+    }
 
     const payload: CreateJournalEntryInput = {
       symbol: selectedSymbol,

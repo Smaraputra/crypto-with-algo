@@ -140,7 +140,7 @@ export const EntryScreenshots: React.FC<EntryScreenshotsProps> = ({ entry }) => 
             <div className="flex flex-col items-center gap-4 py-2">
               <img
                 src={`/api/journal/screenshots/${activeScreenshot.fileId}`}
-                alt={`Screenshot ${activeIndex! + 1} of the ${baseAsset} trade`}
+                alt={`Screenshot ${(activeIndex ?? 0) + 1} of the ${baseAsset} trade`}
                 className="w-full max-h-[80vh] object-contain rounded-[8px]"
               />
 
