@@ -78,6 +78,8 @@ test.describe('Live data tablet layout and interactions', () => {
     );
 
     await page.evaluate(() => {
+      // Keep reconnects from opening: the notice waits 4 s of continuous downtime before it shows.
+      window.__esBlockOpen = true;
       window.__esFail?.({ closed: true });
     });
 
