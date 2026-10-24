@@ -190,7 +190,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         dataset: '1b910017b868',
         image: 'crypto-ops:labv4-parity',
         command: 'scripts/research/lab-v4-parity.ts',
-        outcome: 'Signals matched on all 386,890 coin-bars and trades reproduced preview results.',
+        outcome: "Signals matched on all 386,890 coin-bars, and 2,430 of 2,459 S1 and 1,576 of 1,594 S2 preview trades were reproduced (the rest fall in each coin's first 720 bars).",
         source: { path: 'scripts/research/lab-forward-v4.ts', line: 85 },
       },
       {
@@ -398,8 +398,8 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-10-19',
         label: 'Live recording started under Amendment 1',
         commit: '518c0ef',
-        outcome: 'First rows for N3-1d and N2-1w stored on schedule with no fetch errors.',
-        source: { path: 'scripts/research/lab-forward-v2.ts', line: 136 },
+        outcome: 'First rows for N3-1d and N2-1w stored, neither late.',
+        source: { path: 'scripts/research/lab-forward-v2.ts', line: 142 },
       },
     ],
     trials: {
@@ -481,7 +481,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         commit: 'b9a9580',
         dataset: 'a964d87d8f45',
         command: 'scripts/research/lab-preview.ts',
-        outcome: 'Simulated hurdle distributions and power curves across all eight candidate configurations.',
+        outcome: 'Measured turnover and hurdle b for seven of eight hypotheses (L4-8h not previewed) and simulated crossing shares at 8h with b 0.025.',
         source: { path: 'scripts/research/lab-forward-v1.ts', line: 114 },
       },
       {
@@ -577,7 +577,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         label: 'Initial candidate preview run of C1 and C2',
         commit: 'a0474ae',
         dataset: 'bc3566f4c6c6',
-        outcome: 'Produced identical trades, means, and t-statistics as the later confirmation run.',
+        outcome: 'Gave the same C1 and C2 trades, means and t-statistics as the 2026-10-22 run.',
         source: { path: 'scripts/research/lab-v4-preview.ts', line: 48 },
       },
       {
@@ -657,7 +657,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     trials: {
       count: 10,
       label: 'Ten candidate preview configurations (5 signals x 2 holds)',
-      source: { path: 'scripts/research/ledger.ts', line: 41, match: '10' },
+      source: { path: 'scripts/research/ledger.ts', line: 42, match: 'trials: 10' },
     },
   },
   {
@@ -802,8 +802,8 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         commit: 'ef4043a',
         image: 'sha256:591946430356',
         command: 'scripts/ops/rv-revalidation-run.sh calibrate',
-        outcome: 'Passed across driftless iid, planted edge, GARCH, and carry-only universes.',
-        source: { path: 'scripts/research/rv-revalidation.ts', line: 260 },
+        outcome: 'Calibration passed on driftless iid and planted-edge panels. GARCH and carry-only were reported only.',
+        source: { path: 'scripts/research/rv-revalidation.ts', line: 262 },
       },
       {
         date: '2026-10-15',
@@ -812,8 +812,8 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         dataset: 'bc3566f4c6c6',
         image: 'sha256:591946430356',
         command: 'scripts/ops/rv-revalidation-run.sh inputs',
-        outcome: 'Assembled 5,240 8-hour bars across 10 symbols with one verified funding resolution.',
-        source: { path: 'scripts/research/rv-revalidation.ts', line: 256 },
+        outcome: 'Assembled 5,240 8-hour bars across 10 symbols with one accepted no-event funding resolution.',
+        source: { path: 'scripts/research/rv-revalidation.ts', line: 259 },
       },
       {
         date: '2026-10-15',
@@ -827,10 +827,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       },
     ],
     trials: {
-      count: 26,
-      label: 'Twenty-six trials evaluated across the re-validation',
+      count: 12,
+      label: '12 strategy cells re-selected in both permutation steps',
       ledgerAfter: 2161,
-      source: { path: 'scripts/research/rv-revalidation.ts', line: 289, match: 'N = 26' },
+      source: { path: 'scripts/research/rv-revalidation.ts', line: 216, match: 'these 12 cells' },
     },
   },
   {
@@ -861,6 +861,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     research: [
       'The retracted table is kept for the record only and must not be cited as validation (docs/TECHNICAL.md section 8.5).',
       'The entire validation was retracted in technical documentation sections 8.5 and 8.6, prompting the pre-registered re-validation in rv-revalidation.ts.',
+      'These 14 entered the program ledger when the rv-v1 re-validation recorded them on 2026-10-15 (scripts/research/rv-revalidation.ts:216).',
     ],
     references: [
       {
@@ -872,18 +873,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     runs: [
       {
         date: '2026-10-15',
-        label: 'Unverified legacy backtest on spot candles',
-        commit: '1da5742',
+        label: 'Audit correction recorded',
         dataset: '48ff79609080',
         outcome: 'Reported positive returns later found void because it traded spot candles rather than perpetuals.',
-        source: { path: 'docs/TECHNICAL.md', line: 769 },
-      },
-      {
-        date: '2026-10-15',
-        label: 'Unregistered 1,000-trial in-sample permutation run',
-        command: 'cross-sectional-permutation.ts',
-        outcome: 'Produced p-value 0.012 failing the 1% bar, with fixed parameters and omitting lockbox data.',
-        source: { path: 'docs/TECHNICAL.md', line: 792 },
+        source: { path: 'docs/TECHNICAL.md', line: 767 },
       },
     ],
     trials: {
@@ -951,15 +944,15 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     runs: [
       {
         date: '2026-10-10',
-        label: 'Live record evaluation across 280,942 stored calls',
+        label: 'Live record evaluation across 105,353 resolved v8 calls (280,942 resolved rows over versions 4 to 8)',
         outcome: 'Stored calls were right no more often than chance (balanced hit 0.43 to 0.48), and 1m calls lost about 0.19% each after costs.',
-        source: { path: 'src/lib/signals/v8-status.ts', line: 20 },
+        source: { path: 'scripts/research/live-record.ts', line: 95 },
       },
       {
         date: '2026-10-10',
-        label: 'Year re-score study across 1,553,180 closed bars',
+        label: 'Year re-score study across 1,553,180 rows',
         outcome: 'Re-scored over a year, calls were right 44 to 47% of the time on a balanced basis, below chance.',
-        source: { path: 'src/lib/signals/v8-status.ts', line: 26 },
+        source: { path: 'scripts/research/v8-rescore.ts', line: 74, match: '1,553,180 rows' },
       },
       {
         date: '2026-10-10',
@@ -974,11 +967,6 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'src/lib/signals/v8-status.ts', line: 36 },
       },
     ],
-    trials: {
-      count: 24,
-      label: '24 pre-registered direction and exit configurations evaluated on confirmation data',
-      source: { path: 'src/lib/signals/v8-status.ts', line: 37 },
-    },
   },
   {
     id: 'price-score-direction-exit',
@@ -1055,7 +1043,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       'Evaluated balanced hit rate, spread, and net directional returns after costs using live outcome resolver definitions.',
       'Calculated moving-block bootstrap confidence intervals at the Bonferroni-corrected 99.17% level.',
     ],
-    result: 'No detectable edge in any cell, with calls at 5m, 15m, and 1h pointing the wrong way more often than chance.',
+    result: 'Five of six cells showed no detectable edge (1d position not assessable).',
     figures: [
       {
         label: '5m balanced hit rate',
@@ -1097,7 +1085,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         dataset: 'a964d87d8f45',
         image: 'crypto-ops:v8-rescore',
         command: 'scripts/research/v8-rescore-run.ts',
-        outcome: 'Calls across six timeframe cells showed no detectable edge, losing costs intraday.',
+        outcome: 'Five of six cells showed no detectable edge (1d position not assessable).',
         source: { path: 'scripts/research/v8-rescore.ts', line: 68 },
       },
     ],
@@ -1212,7 +1200,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       },
     ],
     research: [
-      'Carried out as a descriptive read without pass or fail claims and added no trials to the program ledger.',
+      'The month-by-month read adds no trial. The binding forward test added 3.',
       'Demonstrated that while small-trade imbalance was persistent, its magnitude was insufficient to clear 1h taker fees.',
     ],
     references: [
@@ -1234,7 +1222,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         commit: '9e24e43',
         dataset: '10e02ba86e01',
         image: 'crypto-ops:forward',
-        command: 'scripts/research/forward-test.ts',
+        command: 'scripts/research/forward-rsi.ts and scripts/research/forward-small-taker.ts',
         outcome: 'No cell confirmed forward on never-read window.',
         source: { path: 'scripts/research/forward-test.ts', line: 96 },
       },
@@ -1251,7 +1239,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     trials: {
       count: 3,
-      label: 'Three pre-registered forward test cells (A1, A2, and B)',
+      label: '3 forward cells in the binding forward test (`forward-test.ts`)',
       ledgerAfter: 2081,
       source: {
         path: 'scripts/research/forward-test.ts',
@@ -1307,19 +1295,10 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         date: '2026-09-26',
         label: 'Live composite indicator sign audit across five reports',
         command: 'scripts/research/composite-audit.ts',
-        outcome: 'Every trend and higher-timeframe indicator entered with wrong sign; additive ceiling below taker breakeven.',
+        outcome: 'Every trend and higher-timeframe indicator entered with wrong sign at 5m, 15m and 1h, and the additive ceiling sat below taker breakeven at 5m, 15m and 1h.',
         source: { path: 'scripts/research/composite-audit.ts', line: 39 },
       },
     ],
-    trials: {
-      count: 0,
-      label: 'No trials added because the audit evaluates existing factor-ic reports',
-      source: {
-        path: 'scripts/research/composite-audit.ts',
-        line: 13,
-        match: 'restates it',
-      },
-    },
   },
   {
     id: 'price-score-v1-to-v7',
@@ -1367,7 +1346,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     runs: [
       {
         date: '2026-09-21',
-        label: 'Archive calibration run for configVersion 3 tier cutoffs',
+        label: 'Archive calibration run for tier cutoffs',
         dataset: 'e84cd66dbe01',
         command: 'scripts/research/score-percentiles.ts',
         outcome: 'Validated 24/30 tier cutoffs standing on archive dataset across five intervals.',
@@ -1385,15 +1364,6 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'src/lib/signals/calibration.ts', line: 133 },
       },
     ],
-    trials: {
-      count: 0,
-      label: 'No trials added because earlier composite revisions were descriptive calibration updates',
-      source: {
-        path: 'src/lib/signals/calibration.ts',
-        line: 173,
-        match: 'Never tune these on PnL',
-      },
-    },
   },
 
   // =========================================================================
@@ -1714,7 +1684,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'scripts/research/event-studies.ts', line: 218 },
       },
       {
-        label: 'Top-fifth volatility persistence rate',
+        label: 'BTCUSDT: share of next days also top-fifth volatility after a top-fifth day (post hoc)',
         value: '41.4%',
         source: { path: 'src/lib/costs/volatility-regime.ts', line: 18 },
       },
@@ -1814,8 +1784,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     trials: {
       count: 7,
-      label: 'Seven carry rules and hysteresis grid configurations (R0 benchmark plus 6 R1 cells)',
-      ledgerAfter: 1713,
+      label: 'Seven carry rules and hysteresis grid configurations (R0 benchmark plus 6 R1 cells), ledger after 1,713 (`scripts/research/trend-sim.ts:248`)',
       source: {
         path: 'scripts/research/carry-sim.ts',
         line: 44,
@@ -1831,7 +1800,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     period: 'Run 2026-10-02',
     summary: 'Pre-registered evaluation of classic published trend-following rules on 10 survivor contracts.',
     steps: [
-      'Evaluated four classic trend rules (TF1, TF2, TF3, TF4) and benchmark C3 on 10 symbols over 2019 to 2026.',
+      'Evaluated four classic trend rules (TF1, TF2, TF3, TF4) and scour candidate trial C3 on 10 symbols over 2019 to 2026.',
       'Evaluated six discrete harness rules (P1 to P4, C1, C2) across listing spans.',
       'Tested gate 8 deflated Sharpe ratio (a statistical test that discounts the best Sharpe ratio for how many variations were tested) across all 11 phase trials.',
     ],
@@ -1906,8 +1875,8 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       ledgerAfter: 1724,
       source: {
         path: 'scripts/research/trend-sim.ts',
-        line: 13,
-        match: '11 trials',
+        line: 248,
+        match: 'This phase adds 11, for 1,724',
       },
     },
   },
@@ -1973,15 +1942,6 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'scripts/research/frontier.ts', line: 41 },
       },
     ],
-    trials: {
-      count: 0,
-      label: 'No trials added because frequency frontier analysis evaluates existing reports',
-      source: {
-        path: 'scripts/research/frontier.ts',
-        line: 2,
-        match: 'frequency frontier',
-      },
-    },
   },
   {
     id: 'research-exploration-families',
@@ -1991,19 +1951,19 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     period: 'Run 2026-09-28',
     summary: 'Screening of community-derived trading concepts across multi-year forward-rolling slices.',
     steps: [
-      'Tested 37 develop-slice runs of the round 1 rule shapes across the 13-family registry at 15m, 1h, and 4h on data before 2023 (trials 1141 as run, 1186 audited).',
+      'Tested 37 rows in the round 1 lock table across the 13-family registry at 15m, 1h, and 4h on data before 2023 (the changelog entry for the round says 40 develop-slice runs).',
       'Evaluated four options-flow families using newly ingested Deribit data on 2022 history.',
       'Tested candidate promotions on out-of-sample slices using walk-forward statistical gates.',
     ],
     result: 'All rule shapes failed statistical gates in round 1, and all six promoted options candidates failed out-of-sample in 2023.',
     figures: [
       {
-        label: 'Round 1 trials run',
+        label: 'Program trial count when round 1 ran (as run)',
         value: '1141',
         source: { path: 'scripts/research/exploration-families.ts', line: 49 },
       },
       {
-        label: 'Round 1 audited trial count',
+        label: 'Program trial count when round 1 ran (audited)',
         value: '1186',
         source: { path: 'scripts/research/exploration-families.ts', line: 49 },
       },
@@ -2035,15 +1995,6 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'scripts/research/exploration-families.ts', line: 108 },
       },
     ],
-    trials: {
-      count: 1186,
-      label: 'Audited trial count across round 1 exploration families (1,141 as run)',
-      source: {
-        path: 'scripts/research/exploration-families.ts',
-        line: 49,
-        match: '1186',
-      },
-    },
   },
   {
     id: 'research-factors',
@@ -2092,7 +2043,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         label: 'Phase B factor information coefficient evaluation',
         dataset: 'e84cd66dbe01',
         command: 'scripts/research/factor-ic.ts',
-        outcome: 'Evaluated 2,361 factor cells across time-series and cross-sectional axes with no new column surviving.',
+        outcome: 'Evaluated 2,361 factor cells across time-series and cross-sectional axes, and no new column survives on the time-series axis.',
         source: { path: 'scripts/research/factors.ts', line: 334 },
       },
     ],
@@ -2221,11 +2172,11 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     ],
     trials: {
       count: 36,
-      label: '36 grid cells evaluated per exposure run (4 bands x 3 z-scales x 3 smoothings)',
+      label: '36 grid cells per run, six runs',
       source: {
-        path: 'scripts/research/exposure-gates.ts',
-        line: 5,
-        match: '--trials 36',
+        path: 'scripts/research/exposure-walk-forward.ts',
+        line: 82,
+        match: 'EXPOSURE_GRID_CELL_COUNT',
       },
     },
   },
@@ -2286,15 +2237,6 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
         source: { path: 'scripts/research/factor-ic.ts', line: 14 },
       },
     ],
-    trials: {
-      count: 40,
-      label: '40 technical, order flow, and positioning factors screened across intervals and horizons',
-      source: {
-        path: 'scripts/research/factor-ic.ts',
-        line: 26,
-        match: '40',
-      },
-    },
   },
 
   // =========================================================================
@@ -2305,14 +2247,14 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     name: 'LLM panel live record',
     family: 'records',
     status: 'descriptive',
-    period: 'Live until 2026-10-16',
+    period: 'Calls stored until about 2026-10-06, retired 2026-10-16',
     summary: 'Running record of forward-only LLM panel directional calls measured by the outcome resolver.',
     steps: [
       'Prompted three panel roles (news reader, regime classifier, risk officer) on point-in-time packets for closed bars at 1h, 4h, and 1d intervals.',
       'Stored idempotent votes and signed strength in the LlmCall collection without feeding calls into the composite scorer.',
       'Resolved forward directional outcomes with the shared outcome resolver and evaluated cross-sectional information coefficients with market beta removed.',
     ],
-    result: 'Retired on 2026-10-16 with stored calls and outcomes kept as a permanent descriptive record because overlapping horizons and market beta left sample sizes too small to prove predictive edge.',
+    result: 'Retired 2026-10-16 with its records kept. Its readouts needed beta removal and overlap correction, and the first read (t -2.76 on 15 bars) was barely one independent observation.',
     figures: [
       {
         label: 'First uncorrected readout t-statistic',
@@ -2331,7 +2273,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       },
       {
         label: 'Newest stored call age in days on production audit',
-        value: '11.6',
+        value: 'about 11.6',
         source: {
           path: 'changelogs/CHANGELOG.md',
           anchor: '### Fixed: signal record integrity before the forward signal lab',
@@ -2364,8 +2306,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         date: '2026-10-16',
         label: 'LLM panel host cron retirement and outcome preservation',
-        command: 'scripts/ops/drop-outcome-ttl.ts',
-        outcome: 'Panel retired from cron schedule with stored calls and outcomes preserved permanently for factor measurement.',
+        outcome: 'Cron line removed and backed up, stored calls and outcomes kept.',
         source: {
           path: 'changelogs/CHANGELOG.md',
           anchor: '### Research: rv-v1 re-validation RESULT, the rule fails',
@@ -2374,8 +2315,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         date: '2026-10-18',
         label: 'Production cron health audit of stored call age',
-        command: 'scripts/ops/llm-factor-readout.ts',
-        outcome: 'Verified panel newest stored call was 11.6 days old and cron health confirmed retirement.',
+        outcome: 'Newest stored call was about 11.6 days old (around 2026-10-06), and the health endpoint had answered degraded (503) because it still expected the retired panel. `DERIVED_JOBS` was emptied.',
         source: {
           path: 'changelogs/CHANGELOG.md',
           anchor: '### Fixed: signal record integrity before the forward signal lab',
@@ -2388,14 +2328,14 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     name: 'Paper desk records',
     family: 'records',
     status: 'descriptive',
-    period: 'Live since 2026-10-02',
+    period: 'Read rule declared 2026-10-02',
     summary: 'Running record of forward simulated execution across v8 style books and the 8-hour relative value desk, kept for measurement rather than as tests.',
     steps: [
       'Tracked paper trading executions across active trading style books with dual-track accounting for engine and executable prices.',
       'Enforced pre-declared read rule for futility and go-live detection with trade counts sized for one-sided 5% alpha at 80% power.',
       'Recorded 8-hour cross-sectional relative value paper trades under frozen rule rv-v1 with atomic leases and write-once step logs.',
     ],
-    result: 'Recorded forward trades across five intraday books and the 8-hour relative value desk, with the 5m book reaching futility (-0.171% per trade) and other books accumulating trades below go-live detection counts.',
+    result: 'Recorded forward trades across the v8 style books at 5m, 15m, 1h, 4h and 1d and the 8-hour relative value desk, with the 5m book reaching futility (-0.171% per trade), and other books had 191 (15m), 67 (1h), 7 (4h) and 3 (1d) trades at that time.',
     figures: [
       {
         label: '5m book trade count at live evaluation',
@@ -2453,17 +2393,13 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
     runs: [
       {
         date: '2026-10-02',
-        label: 'Desk read rule declared and books initialized',
-        command: 'src/lib/paper-desk/books.ts',
+        label: 'Read rule declared 2026-10-02',
         outcome: 'Declared futility and go-live detection rule sized for one-sided 5% alpha at 80% power.',
         source: { path: 'src/lib/paper-desk/books.ts', line: 78 },
       },
       {
         date: '2026-10-10',
         label: 'v8 paper desk evaluation across active style books',
-        commit: '9b9405a',
-        dataset: '2cdb99e79d441ead3dd4af8e7ae8e4e9bb95b5e46f87eb60a2b9e2a888346671',
-        image: 'crypto-ops:live-record',
         command: 'scripts/ops/paper-desk-outcomes.ts',
         outcome: 'Evaluated 5m, 15m, 1h, 4h and 1d books with 5m closing under futility at -0.171% expectancy.',
         source: { path: 'scripts/research/live-record.ts', line: 90 },

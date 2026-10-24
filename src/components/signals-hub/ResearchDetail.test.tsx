@@ -41,7 +41,7 @@ describe('ResearchDetail', () => {
 
     // Trial line
     expect(
-      screen.getByText(/26 trials: Twenty-six trials evaluated across the re-validation/)
+      screen.getByText(/12 trials: 12 strategy cells re-selected in both permutation steps/)
     ).toBeInTheDocument();
     expect(
       screen.getByText(/The program ledger stood at 2,161 after this study/)
