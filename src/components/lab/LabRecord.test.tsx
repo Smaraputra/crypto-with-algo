@@ -465,5 +465,16 @@ describe('LabRecord', () => {
       screen.getByRole('heading', { level: 2, name: 'Price score track record' })
     ).toBeInTheDocument();
   });
+
+  it('hypotheses column carries lg:row-span-4 and grid carries four-row template', () => {
+    const { container } = render(<LabRecord />);
+    const grid = container.querySelector('.lg\\:grid-rows-\\[auto_auto_auto_1fr\\]');
+    expect(grid).toBeInTheDocument();
+    expect(grid).toHaveClass('lg:grid-cols-[1fr_1.6fr]');
+
+    const hypothesesColumn = container.querySelector('.lg\\:row-span-4');
+    expect(hypothesesColumn).toBeInTheDocument();
+    expect(hypothesesColumn).toHaveClass('lg:col-start-2', 'lg:row-start-1');
+  });
 });
 

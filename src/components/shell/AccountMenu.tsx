@@ -52,7 +52,7 @@ export function AccountMenu() {
           <span className="hidden xl:inline">Account</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56 p-1.5 shadow-md">
+      <DropdownMenuContent align="end" className="w-56 p-1.5">
         {email && (
           <DropdownMenuLabel className="truncate px-3 py-1.5 text-xs font-normal text-muted-foreground">
             {email}

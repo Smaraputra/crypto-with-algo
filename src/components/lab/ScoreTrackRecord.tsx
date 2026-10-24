@@ -201,7 +201,7 @@ export const ScoreTrackRecord: React.FC<ScoreTrackRecordProps> = ({ className })
                   )}
                   {bh !== null && (
                     <span
-                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-foreground shadow-sm"
+                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-foreground"
                       style={{ left: `${toRulerPercent(bh)}%` }}
                     />
                   )}

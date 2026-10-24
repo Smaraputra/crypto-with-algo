@@ -101,7 +101,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
         className="mb-6 sm:mb-8"
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] lg:grid-rows-[auto_auto_auto_1fr] gap-6 items-start">
         {/* Summary */}
         <div className="order-1 lg:col-start-1 lg:row-start-1">
           <LabSummary
@@ -115,7 +115,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
         </div>
 
         {/* Groups */}
-        <div className="order-2 lg:col-start-2 lg:row-start-1 lg:row-span-3 space-y-6">
+        <div className="order-2 lg:col-start-2 lg:row-start-1 lg:row-span-4 space-y-6">
           {anyLoading && (
             <StateNotice
               kind="loading"

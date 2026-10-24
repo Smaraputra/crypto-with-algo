@@ -57,7 +57,7 @@ export function AlertsBell() {
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-3 shadow-md">
+      <PopoverContent align="end" className="w-80 p-3">
         <div className="mb-2 flex items-center justify-between border-b border-line pb-2">
           <span className="font-semibold text-foreground text-sm">Triggered alerts</span>
         </div>
