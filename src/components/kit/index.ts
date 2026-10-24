@@ -28,3 +28,6 @@ export type {
 
 export { StateNotice } from './StateNotice';
 export type { StateNoticeKind, StateNoticeProps } from './StateNotice';
+
+export { RouteError } from './RouteError';
+export type { RouteErrorProps } from './RouteError';
