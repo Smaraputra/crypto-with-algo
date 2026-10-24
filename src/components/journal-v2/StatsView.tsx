@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { Panel } from '@/components/kit/Panel';
 import { StateNotice } from '@/components/kit/StateNotice';
+import { KellyPanel } from './KellyPanel';
 import { useJournalAnalytics } from '@/hooks/useJournalAnalytics';
 import { useChartTheme } from '@/lib/chart-theme';
 import { SESSION_LABELS, type MarketSession } from '@/lib/sessions';
@@ -101,7 +102,6 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
     kellySuggestion,
   } = data;
 
-  // Kelly position-size suggestion was left out because sizing suggestions were removed from the product.
   const avgWin = kellySuggestion?.avgWinPercent;
   const avgLoss = kellySuggestion?.avgLossPercent;
   const avgWinLossDisplay =
@@ -176,6 +176,9 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
           </div>
         </div>
       </Panel>
+
+      {/* Sizing */}
+      {kellySuggestion && <KellyPanel suggestion={kellySuggestion} />}
 
       {/* Monthly P&L chart with text alternative */}
       <Panel title="Monthly performance" level={3} className="p-4 sm:p-5">

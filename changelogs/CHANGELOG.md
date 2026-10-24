@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Kelly position size back in journal Stats
+- **Panel:** journal Stats shows "Position size (Kelly)" again, from your own closed trades. It gives the half Kelly share of equity per trade, with full Kelly, win rate, average win, average loss and the number of trades used.
+- **Too few trades:** with fewer than 20 closed trades, or without both wins and losses, it says so and gives the count instead of a number.
+- **No edge:** when the record shows no edge, the suggestion is 0%, with a note.
+- **Wording:** it states plainly that the suggestion assumes past results continue.
 ### Changed: Mongoose return option and corner radii on the design scale
 - **Mongoose:** every `findOneAndUpdate`, `findOneAndReplace` and `findByIdAndUpdate` call now passes `returnDocument: 'after'` in place of the deprecated `new: true`. The deprecation warning no longer prints in CI and production logs. Behaviour is unchanged.
 - **Corner radii:** these now follow the design scale (chips 8px, controls 12px, panels 22px):

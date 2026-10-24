@@ -312,7 +312,7 @@ test.describe('Journal page (authenticated)', () => {
     }
   });
 
-  test('?view=stats shows the Stats sections or empty state, and has no text matching kelly', async ({
+  test('?view=stats shows the Stats sections and the Kelly panel', async ({
     page,
   }) => {
     await page.goto('/journal?view=stats');
@@ -322,9 +322,10 @@ test.describe('Journal page (authenticated)', () => {
     });
 
     const emptyNotice = page.getByText('No stats available yet.');
-    const totalTrades = page.getByText('Total trades');
-    await expect(emptyNotice.or(totalTrades)).toBeVisible({ timeout: 10000 });
-
-    await expect(page.locator('body')).not.toHaveText(/kelly/i);
+    const kellyHeading = page.getByRole('heading', {
+      name: 'Position size (Kelly)',
+      exact: true,
+    });
+    await expect(emptyNotice.or(kellyHeading)).toBeVisible({ timeout: 10000 });
   });
 });
