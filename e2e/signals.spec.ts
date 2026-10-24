@@ -138,7 +138,7 @@ test.describe('Signals and research hub (/signals)', () => {
     // Expanding it shows "Live state" (accept either live rows or the error line)
     await expect(labCard.getByRole('heading', { name: 'Live state' })).toBeVisible();
     await expect(
-      labCard.locator('[data-testid="lab-hypothesis-row"], [role="alert"]')
+      labCard.locator('[data-testid="lab-hypothesis-row"], [role="alert"]').first()
     ).toBeVisible();
 
     // Coin link leads to /focus?symbol=
