@@ -7,20 +7,30 @@ import {
 
 describe('nav-items and isNavActive', () => {
   const marketItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Market')!;
+  const signalsItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Signals')!;
   const labItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Lab')!;
   const portfolioItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Portfolio')!;
   const journalItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Journal')!;
   const alertsItem = PRIMARY_NAV_ITEMS.find((i) => i.label === 'Alerts')!;
   const toolsItem = { label: 'Tools', href: '/cost-check' };
 
-  it('Market is active on /dashboard, /focus and /signals', () => {
+  it('Market is active on /dashboard and /focus', () => {
     expect(isNavActive('/dashboard', marketItem)).toBe(true);
     expect(isNavActive('/focus', marketItem)).toBe(true);
     expect(isNavActive('/focus?symbol=BTCUSDT', marketItem)).toBe(true);
-    expect(isNavActive('/signals', marketItem)).toBe(true);
+    expect(isNavActive('/signals', marketItem)).toBe(false);
 
     expect(isNavActive('/lab', marketItem)).toBe(false);
     expect(isNavActive('/portfolio', marketItem)).toBe(false);
+  });
+
+  it('Signals is active on /signals', () => {
+    expect(isNavActive('/signals', signalsItem)).toBe(true);
+    expect(isNavActive('/signals/score', signalsItem)).toBe(true);
+    expect(isNavActive('/signals?status=rejected', signalsItem)).toBe(true);
+
+    expect(isNavActive('/dashboard', signalsItem)).toBe(false);
+    expect(isNavActive('/lab', signalsItem)).toBe(false);
   });
 
   it('Lab is active on /lab', () => {

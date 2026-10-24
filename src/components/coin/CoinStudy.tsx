@@ -49,7 +49,7 @@ export const CoinStudy: React.FC<CoinStudyProps> = ({ symbol: propSymbol, classN
         actions={
           <div className="flex items-center gap-2.5 flex-wrap">
             <Link
-              href="/signals"
+              href="/signals/score"
               onClick={() => setSelectedSymbol(coin)}
               className={actionButtonClasses}
             >

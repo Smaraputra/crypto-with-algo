@@ -50,7 +50,7 @@ describe('CoinStudy', () => {
     expect(screen.getByText('USDT-M perpetual')).toBeInTheDocument();
 
     const scoreLink = screen.getByRole('link', { name: 'Score detail' });
-    expect(scoreLink).toHaveAttribute('href', '/signals');
+    expect(scoreLink).toHaveAttribute('href', '/signals/score');
 
     const costCheckLink = screen.getByRole('link', { name: 'Open Cost Check' });
     expect(costCheckLink).toHaveAttribute(

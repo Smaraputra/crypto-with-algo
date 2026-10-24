@@ -76,7 +76,7 @@ test.describe('Market screen (authenticated)', () => {
     await expect(labLink).toHaveAttribute('href', '/lab');
   });
 
-  test('the Price score panel shows "No edge (measured)" and links to /signals', async ({
+  test('the Price score panel shows "No edge (measured)" and links to /signals/score', async ({
     page,
   }) => {
     await page.goto('/dashboard');
@@ -88,7 +88,7 @@ test.describe('Market screen (authenticated)', () => {
     await expect(priceScorePanel.getByText('No edge (measured)')).toBeVisible();
     const scoreDetailLink = page.getByRole('link', { name: 'Score detail' });
     await expect(scoreDetailLink).toBeVisible();
-    await expect(scoreDetailLink).toHaveAttribute('href', '/signals');
+    await expect(scoreDetailLink).toHaveAttribute('href', '/signals/score');
   });
 
   test('the chart shows past calls with a legend and a Show calls switch', async ({
