@@ -1,0 +1,9 @@
+# Round 4 research runtime. Direct pins only, each released at least 14 days before
+# it was locked (adopt-or-build Tier 1, 2026-10-25). requirements.lock carries the
+# full set with hashes and is what the image installs.
+numpy==2.5.4
+pandas==3.0.6
+scipy==1.18.1
+scikit-learn==1.9.1
+lightgbm==4.7.0
+pyarrow==26.0.0

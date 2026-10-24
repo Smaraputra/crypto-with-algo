@@ -1,0 +1,15 @@
+[project]
+name = "r4"
+version = "0.1.0"
+description = "Round 4 research: multi-timeframe models for 1h and 4h, trained and cross-validated on the VPS"
+requires-python = ">=3.12,<3.13"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

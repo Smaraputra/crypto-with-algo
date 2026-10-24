@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
+- **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.
+- **Pinning:** every package, transitive ones included, was uploaded at least 14 days before the lock (cutoff 2026-10-11) and had no OSV advisory when locked. pip installs it from hashed lock files with wheels only. `lock.py` regenerates the locks and refuses a version that breaks either rule. `constraints.txt` holds back python-dateutil 3.0.0, pluggy 1.7.0 and pycparser 3.12, which were all too new. uv was not used, because its newest old-enough release (0.13.0) carries a critical CA-store advisory (GHSA-hq85-5cpj-mr62).
+- **Checks:** a smoke suite fits LightGBM and a ridge, round-trips Parquet, and pins skfolio's CPCV layout (15 splits, 5 paths, with purge and embargo applied only after each test block). The suite passed with ruff clean under `--network none` and a 2 GB cap on the VPS. A new workflow, `research-py.yml`, runs the suite in CI when the package changes.
+
 ### Added: A detail page for every research entry, with its trials and test runs
 - **Detail pages:** every entry in the `/signals` hub now has its own page at `/signals/{id}`, linked from its card ("Open the full page"). Each page shows:
   - method;
