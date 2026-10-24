@@ -59,7 +59,7 @@ export const BacktestScreen: React.FC<BacktestScreenProps> = ({ className }) => 
   const activeResult = selectedSavedResult ?? runResult;
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       <PageHeader
         title="Backtest"
         description="Rules built on the price score were measured on years of history and lost after costs. A strong result here is more likely chance or overfitting than an edge."

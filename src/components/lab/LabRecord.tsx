@@ -116,7 +116,7 @@ export const LabRecord: React.FC<LabRecordProps> = ({ className }) => {
         </div>
 
         {/* Groups */}
-        <div className="order-2 lg:col-start-2 lg:row-start-1 lg:row-span-4 space-y-6">
+        <div className="order-2 lg:col-start-2 lg:row-start-1 lg:row-span-4 space-y-4">
           {anyLoading && (
             <StateNotice
               kind="loading"

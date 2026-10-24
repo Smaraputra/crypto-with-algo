@@ -9,7 +9,7 @@ const CostCheckScreen = dynamic(
     ssr: false,
     loading: () => (
       <div
-        className="space-y-6 pb-28 lg:pb-8"
+        className="space-y-4 pb-28 lg:pb-8"
         data-testid="cost-check-loading-placeholder"
         aria-busy="true"
       >
@@ -20,7 +20,7 @@ const CostCheckScreen = dynamic(
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5 h-[560px] rounded-panel bg-card border border-line animate-pulse" />
-          <div className="lg:col-span-7 space-y-6">
+          <div className="lg:col-span-7 space-y-4">
             <div className="h-[420px] rounded-panel bg-card border border-line animate-pulse" />
             <div className="h-[200px] rounded-panel bg-card border border-line animate-pulse" />
           </div>

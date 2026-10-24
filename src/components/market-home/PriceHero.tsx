@@ -46,7 +46,7 @@ export const PriceHero: React.FC<PriceHeroProps> = ({
     <section
       aria-label="Price hero"
       className={cn(
-        'flex flex-col sm:flex-row sm:items-end justify-between gap-4 py-4',
+        'flex flex-col sm:flex-row sm:items-end justify-between gap-3 py-3',
         className
       )}
     >
@@ -62,13 +62,13 @@ export const PriceHero: React.FC<PriceHeroProps> = ({
               direction: change.direction,
             }}
             size="large"
-            className="my-1 [&_[data-testid=price-value]]:sm:text-[80px]"
+            className="my-1 [&_[data-testid=price-value]]:sm:text-[64px]"
           />
         ) : (
           <div
             data-testid="price-placeholder"
             aria-label="Loading price"
-            className="h-[56px] sm:h-[80px] w-64 rounded-[10px] bg-muted animate-pulse my-1"
+            className="h-[48px] sm:h-[64px] w-64 rounded-[10px] bg-muted animate-pulse my-1"
           />
         )}
       </div>

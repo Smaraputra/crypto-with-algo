@@ -134,7 +134,7 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({ className }) => {
   const formattedLedgerTotal = LEDGER_TOTAL.toLocaleString('en-US');
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       <PageHeader
         title="Signals and research"
         description="Every signal and study this project has tested, with how it was run, what it found and where the record lives. No rule is validated."

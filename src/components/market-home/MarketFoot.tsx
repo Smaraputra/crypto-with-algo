@@ -21,7 +21,7 @@ export const MarketFoot: React.FC<MarketFootProps> = ({ className }) => {
   return (
     <footer
       aria-label="Market footer"
-      className={cn('flex flex-col gap-6 pt-6 border-t border-edge', className)}
+      className={cn('flex flex-col gap-4 pt-4 border-t border-edge', className)}
     >
       {!sentimentError && sentiment && (
         <p className="text-[14px] text-muted-foreground font-sans tabular-nums">

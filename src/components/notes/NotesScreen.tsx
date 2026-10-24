@@ -92,7 +92,7 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({ className }) => {
   };
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       <PageHeader
         title="Notes"
         actions={

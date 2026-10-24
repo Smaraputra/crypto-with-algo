@@ -26,7 +26,7 @@ export const MarketHome: React.FC<MarketHomeProps> = ({ className }) => {
   return (
     <div
       className={cn(
-        'flex flex-col gap-6 w-full py-6',
+        'flex flex-col gap-4 w-full py-5',
         className
       )}
     >
@@ -40,7 +40,7 @@ export const MarketHome: React.FC<MarketHomeProps> = ({ className }) => {
 
       <MarketChart />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <LabGlance />
         <PriceScoreGlance />
       </div>

@@ -116,7 +116,7 @@ export const StatsView: React.FC<StatsViewProps> = ({ className }) => {
     : 'None';
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       {/* Key totals once */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Panel className="p-4 sm:p-5 flex flex-col justify-between">

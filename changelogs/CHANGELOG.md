@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Denser app screens (owner feedback F)
+- **Spacing:** the vertical rhythm on signed-in screens is tighter:
+  - section gaps go from 24px to 16px;
+  - `Panel` padding goes from 20/24px to 16/20px, with a smaller title gap;
+  - the `PageHeader` title goes from 26px to 24px.
+- **Market price:** the price on Market goes from 80px to 64px on desktop (56px to 48px on phone), and its loading block matches.
+- **Above the fold:** at 1440x900, `/dashboard` now shows the title, coin tabs, price, interval control and the whole chart frame.
+- **Screens covered:** Market, Coin study, Signals, Lab, Portfolio, Journal, Alerts, Notes, Cost Check, Backtest, the price score page and the admin screens. Only spacing and size classes changed.
+- **Fixed:** the research hub's live state says "1 bet" rather than "1 bets".
+
 ### Added: /signals is a research hub of everything tested (owner feedback D)
 - **The hub:** `/signals` now lists every signal and study the project has run, from the v1 to v8 price score and the relative value rule to the research program, the next-version rounds and the four forward labs.
   - There are 29 entries, grouped by family.

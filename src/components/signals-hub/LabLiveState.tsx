@@ -163,7 +163,7 @@ export const LabLiveState: React.FC<LabLiveStateProps> = ({
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-muted-foreground font-sans tabular-nums">
                   <span>
-                    Evidence {h.e.toFixed(2)} of {h.threshold}, {h.betBars} bets, {sinceText}
+                    Evidence {h.e.toFixed(2)} of {h.threshold}, {h.betBars === 1 ? '1 bet' : `${h.betBars} bets`}, {sinceText}
                   </span>
                 </div>
               </div>

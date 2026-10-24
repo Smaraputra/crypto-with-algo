@@ -102,7 +102,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
 
   if (entries.length === 0) {
     return (
-      <div className={cn('space-y-6', className)}>
+      <div className={cn('space-y-4', className)}>
         {renderFilters()}
         <StateNotice
           kind="empty"
@@ -316,7 +316,7 @@ export const TradesView: React.FC<TradesViewProps> = ({
   }
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       {renderFilters()}
 
       <div className="space-y-3">
