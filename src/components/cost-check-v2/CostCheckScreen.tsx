@@ -31,7 +31,7 @@ export const CostCheckScreen: React.FC<CostCheckScreenProps> = ({ className }) =
   const inputsValid = costCheckInputsSchema.safeParse(inputs).success;
 
   return (
-    <div className={cn('space-y-6 pb-28 lg:pb-8', className)}>
+    <div className={cn('space-y-4 pb-28 lg:pb-8', className)}>
       <PageHeader
         title="Cost Check"
         description="What a round trip costs on your own position, before you place it."
@@ -48,7 +48,7 @@ export const CostCheckScreen: React.FC<CostCheckScreenProps> = ({ className }) =
         </div>
 
         {/* Desktop right, phone second: Results & Regime */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-4">
           <CostResults
             model={model}
             marketData={marketData}

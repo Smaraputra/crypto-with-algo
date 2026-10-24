@@ -25,10 +25,10 @@ export const Panel: React.FC<PanelProps> = ({
   return (
     <Component
       {...rest}
-      className={cn('bg-card rounded-panel p-5 sm:p-6', className)}
+      className={cn('bg-card rounded-panel p-4 sm:p-5', className)}
     >
       {(title || action) && (
-        <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="flex items-center justify-between gap-4 mb-3">
           {title ? (
             <Heading className="text-[16px] font-semibold text-ink-2 leading-none">
               {title}

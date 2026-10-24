@@ -21,7 +21,7 @@ export const PaperDeskScreen: React.FC<PaperDeskScreenProps> = ({ className }) =
     (!query.data.books || query.data.books.length === 0);
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       <PageHeader
         title="Paper desk"
         description="Paper books that trade the price score rule on live bars. Records only, no money at risk."

@@ -39,12 +39,12 @@ describe('PriceFigure', () => {
   it('size classes differ between hero, large, and medium', () => {
     const { rerender } = render(<PriceFigure value="100" size="hero" />);
     const heroEl = screen.getByTestId('price-value');
-    expect(heroEl).toHaveClass('sm:text-[80px]');
+    expect(heroEl).toHaveClass('sm:text-[64px]');
 
     rerender(<PriceFigure value="100" size="large" />);
     const largeEl = screen.getByTestId('price-value');
     expect(largeEl).toHaveClass('text-[56px]');
-    expect(largeEl).not.toHaveClass('sm:text-[80px]');
+    expect(largeEl).not.toHaveClass('sm:text-[64px]');
 
     rerender(<PriceFigure value="100" size="medium" />);
     const mediumEl = screen.getByTestId('price-value');

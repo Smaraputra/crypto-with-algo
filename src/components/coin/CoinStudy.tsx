@@ -42,7 +42,7 @@ export const CoinStudy: React.FC<CoinStudyProps> = ({ symbol: propSymbol, classN
   );
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       <PageHeader
         title={`${baseAsset} study`}
         description="USDT-M perpetual"
@@ -68,12 +68,12 @@ export const CoinStudy: React.FC<CoinStudyProps> = ({ symbol: propSymbol, classN
       <StreamHealth market="perp" />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-6 items-start">
-        <div className="space-y-6 min-w-0">
+        <div className="space-y-4 min-w-0">
           <CoinChart symbol={coin} />
           <CoinHeadlines symbol={coin} className="hidden lg:block" />
         </div>
 
-        <div className="space-y-6 min-w-0">
+        <div className="space-y-4 min-w-0">
           <TimeframesPanel symbol={coin} />
           <CoinEvidencePanel symbol={coin} />
           <CostPanel symbol={coin} onHoldChange={setHoldMinutes} />

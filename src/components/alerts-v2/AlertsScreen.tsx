@@ -31,7 +31,7 @@ export const AlertsScreen: React.FC<AlertsScreenProps> = ({ className }) => {
   const { data, isLoading, isError, refetch } = useAlerts(queryStatus);
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       <PageHeader
         title="Alerts"
         actions={

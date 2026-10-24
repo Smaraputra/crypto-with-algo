@@ -147,7 +147,7 @@ export const PortfolioScreen: React.FC = () => {
   const activePortfolio = portfolios.find((p) => p._id === selectedPortfolioId);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Page Header */}
       <PageHeader
         title="Portfolio"

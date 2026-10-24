@@ -46,7 +46,7 @@ export const CalibrationScreen: React.FC<CalibrationScreenProps> = ({ className 
     query.data.meta.statusCounts.resolved === 0;
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       {/* Rule 6: Not a backtest line under title */}
       <PageHeader
         title="Calibration"

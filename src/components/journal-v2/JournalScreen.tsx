@@ -39,7 +39,7 @@ export const JournalScreen: React.FC<JournalScreenProps> = ({ className }) => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Journal"
         actions={

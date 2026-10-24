@@ -52,7 +52,7 @@ export const ScorePage: React.FC<ScorePageProps> = ({ className }) => {
   }));
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-4', className)}>
       <PageHeader
         title="Price score"
         description={`The composite score as context for ${base}. Measured on years of history: no edge after costs.`}

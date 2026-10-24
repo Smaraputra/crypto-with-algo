@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { PageHeader } from './PageHeader';
 
 describe('PageHeader', () => {
-  it('renders an h1 with title text and 26px weight 600 styling', () => {
+  it('renders an h1 with title text and 24px weight 600 styling', () => {
     render(<PageHeader title="The honest record" />);
     const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('The honest record');
-    expect(heading).toHaveClass('text-[26px]');
+    expect(heading).toHaveClass('text-[24px]');
     expect(heading).toHaveClass('font-semibold');
   });
 

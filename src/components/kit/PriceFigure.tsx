@@ -17,7 +17,7 @@ export interface PriceFigureProps {
 }
 
 const SIZE_CLASSES: Record<PriceFigureSize, string> = {
-  hero: 'text-[56px] sm:text-[80px]',
+  hero: 'text-[48px] sm:text-[64px]',
   large: 'text-[56px]',
   medium: 'text-[32px]',
 };
