@@ -72,7 +72,7 @@ test.describe('Marketing Pages', () => {
     await page.goto('/privacy');
     await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy', exact: true })).toBeVisible();
-    await expect(page.getByText(/Last updated/i)).toBeVisible();
+    await expect(page.getByText(/^Last updated: /)).toBeVisible();
 
     await expect(page.locator('body')).not.toHaveText(/guarantee|beat the market|win rate|tax/i);
   });
@@ -81,7 +81,7 @@ test.describe('Marketing Pages', () => {
     await page.goto('/terms');
     await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Terms of Service', exact: true })).toBeVisible();
-    await expect(page.getByText(/Last updated/i)).toBeVisible();
+    await expect(page.getByText(/^Last updated: /)).toBeVisible();
 
     await expect(page.locator('body')).not.toHaveText(/beat the market|win rate|tax/i);
   });
