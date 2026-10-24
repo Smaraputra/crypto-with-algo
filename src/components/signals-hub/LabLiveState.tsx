@@ -134,7 +134,7 @@ export const LabLiveState: React.FC<LabLiveStateProps> = ({
                   <span className="font-semibold text-foreground font-sans tabular-nums">
                     {id}
                   </span>
-                  <span className="text-muted-foreground text-[13px] font-mono">
+                  <span className="text-muted-foreground text-[13px]">
                     n/a
                   </span>
                 </div>
@@ -163,12 +163,8 @@ export const LabLiveState: React.FC<LabLiveStateProps> = ({
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-muted-foreground font-sans tabular-nums">
                   <span>
-                    evidence {h.e.toFixed(2)} of {h.threshold}
+                    Evidence {h.e.toFixed(2)} of {h.threshold}, {h.betBars} bets, {sinceText}
                   </span>
-                  <span aria-hidden="true">&bull;</span>
-                  <span>{h.betBars} bets</span>
-                  <span aria-hidden="true">&bull;</span>
-                  <span>{sinceText}</span>
                 </div>
               </div>
             );

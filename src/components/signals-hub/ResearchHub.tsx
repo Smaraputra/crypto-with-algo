@@ -149,7 +149,6 @@ export const ResearchHub: React.FC<ResearchHubProps> = ({ className }) => {
         <span className="font-sans tabular-nums font-semibold text-foreground">
           {formattedLedgerTotal} trials recorded in the ledger
         </span>
-        <span className="text-edge" aria-hidden="true">&bull;</span>
         <div className="flex flex-wrap items-center gap-2.5">
           {presentStatuses.map((status) => {
             const count = RESEARCH_CATALOG.filter((e) => e.status === status).length;

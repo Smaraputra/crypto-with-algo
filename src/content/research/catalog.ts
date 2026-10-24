@@ -14,14 +14,21 @@ export type ResearchFamily =
   | 'next-version'
   | 'forward-lab';
 
-export interface SourceRef {
+/**
+ * Where a figure's text appears. Give `line` for files that only change in
+ * place, or `anchor` for a file that grows at the top (the changelog), where
+ * line numbers move with every release: the anchor is text from the heading
+ * line of the section that holds the figure.
+ */
+export type SourceRef = {
   /** Repo-relative path of a tracked file. */
   path: string;
-  /** 1-based line where the figure's text appears. */
-  line: number;
   /** The literal text in the source when it differs from the shown value (e.g. value '2,204', match '2204'). */
   match?: string;
-}
+} & (
+  | { /** 1-based line where the figure's text appears. */ line: number; anchor?: never }
+  | { /** Text of the section heading line; the figure appears in that section. */ anchor: string; line?: never }
+);
 
 export interface ResearchFigure {
   label: string;
@@ -64,23 +71,23 @@ export interface ResearchEntry {
 export const RESEARCH_FAMILIES: Record<ResearchFamily, { label: string; description: string }> = {
   'forward-lab': {
     label: 'Forward lab',
-    description: 'Pre-registered live test tracking unspent future bars with betting martingales.',
+    description: 'Rules frozen in advance and judged only on new live bars, with the pass line set before the test began.',
   },
   'next-version': {
     label: 'Next version',
-    description: 'Candidate screening and holdout tests on earlier historical data for next scorer versions.',
+    description: 'Candidate rules screened on history, with each round deciding in advance what would be registered for a live test.',
   },
   'relative-value': {
     label: 'Relative value',
-    description: 'Cross-sectional relative ranking models trading long expected winners against short losers.',
+    description: 'Rules that rank the coins against each other and hold the strongest against the weakest.',
   },
   'price-score': {
     label: 'Price score',
-    description: 'Single-asset directional composite scores combining trend, momentum, volume, and volatility.',
+    description: 'The single-coin price score that combines trend, momentum, volume and volatility readings.',
   },
   'research-program': {
     label: 'Research program',
-    description: 'Systematic research studies evaluating specific market factors, event windows, and trade families.',
+    description: 'Earlier studies of market factors, events and trading rule families.',
   },
 };
 
@@ -906,12 +913,12 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'v3 buy tier cutoff',
         value: '24',
-        source: { path: 'changelogs/CHANGELOG.md', line: 1675 },
+        source: { path: 'changelogs/CHANGELOG.md', anchor: '### Changed (signal calibration)' },
       },
       {
         label: 'v6 buy tier cutoff',
         value: '29',
-        source: { path: 'changelogs/CHANGELOG.md', line: 1260 },
+        source: { path: 'changelogs/CHANGELOG.md', anchor: 'the tier cutoffs are 29 and 37' },
       },
     ],
     research: [

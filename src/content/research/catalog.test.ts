@@ -60,7 +60,7 @@ describe('research catalog', () => {
     }
   });
 
-  it('proves every figure text appears within lines line - 2 to line + 2 in its source', () => {
+  it('proves every figure text appears at its cited line (plus or minus 2) or in its anchored section', () => {
     const cwd = process.cwd();
     const fileCache = new Map<string, string[]>();
 
@@ -73,13 +73,30 @@ describe('research catalog', () => {
         }
 
         const lines = fileCache.get(filePath)!;
-        const line = figure.source.line;
-        // lines line - 2 to line + 2 (1-based inclusive)
-        const startIndex = Math.max(0, line - 3);
-        const endIndex = Math.min(lines.length, line + 2);
-        const slice = lines.slice(startIndex, endIndex);
-
         const targetText = figure.source.match ?? figure.value;
+
+        let startIndex: number;
+        let endIndex: number;
+        let where: string;
+        if (figure.source.anchor !== undefined) {
+          // The section that starts at the anchor's heading line and runs to the next heading.
+          const anchor = figure.source.anchor;
+          const headingIndex = lines.findIndex((l) => l.includes(anchor));
+          if (headingIndex === -1) {
+            expect.fail(`Entry ${entry.id}, label "${figure.label}": anchor "${anchor}" not found in ${figure.source.path}`);
+          }
+          const nextHeading = lines.findIndex((l, i) => i > headingIndex && /^#{2,3} /.test(l));
+          startIndex = headingIndex;
+          endIndex = nextHeading === -1 ? lines.length : nextHeading;
+          where = `the section headed "${anchor}"`;
+        } else {
+          const line = figure.source.line;
+          // lines line - 2 to line + 2 (1-based inclusive)
+          startIndex = Math.max(0, line - 3);
+          endIndex = Math.min(lines.length, line + 2);
+          where = `lines ${line - 2} to ${line + 2}`;
+        }
+        const slice = lines.slice(startIndex, endIndex);
         const found = slice.some((l) => l.includes(targetText));
 
         if (!found) {
@@ -87,8 +104,18 @@ describe('research catalog', () => {
             .map((l, idx) => `  line ${startIndex + idx + 1}: ${l}`)
             .join('\n');
           expect.fail(
-            `Entry ${entry.id}, label "${figure.label}": expected "${targetText}" within lines ${line - 2} to ${line + 2} of ${figure.source.path}.\nLines read:\n${linesRead}`
+            `Entry ${entry.id}, label "${figure.label}": expected "${targetText}" within ${where} of ${figure.source.path}.\nLines read:\n${linesRead}`
           );
+        }
+      }
+    }
+  });
+
+  it('cites the changelog by section anchor, never by line, because it grows at the top', () => {
+    for (const entry of RESEARCH_CATALOG) {
+      for (const figure of entry.figures) {
+        if (figure.source.path === 'changelogs/CHANGELOG.md') {
+          expect(figure.source.anchor, `Entry ${entry.id}, label "${figure.label}" cites the changelog by line`).toBeTruthy();
         }
       }
     }

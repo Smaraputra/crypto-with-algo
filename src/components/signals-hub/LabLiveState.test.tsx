@@ -103,9 +103,7 @@ describe('LabLiveState', () => {
     expect(screen.getByRole('heading', { name: 'Live state' })).toBeInTheDocument();
     expect(screen.getByText('L1-8h')).toBeInTheDocument();
     expect(screen.getByText('Under test')).toBeInTheDocument();
-    expect(screen.getByText('evidence 12.35 of 100')).toBeInTheDocument();
-    expect(screen.getByText('42 bets')).toBeInTheDocument();
-    expect(screen.getByText('since 2026-10-18')).toBeInTheDocument();
+    expect(screen.getByText('Evidence 12.35 of 100, 42 bets, since 2026-10-18')).toBeInTheDocument();
 
     const link = screen.getByRole('link', { name: 'Open the lab record' });
     expect(link).toHaveAttribute('href', '/lab');

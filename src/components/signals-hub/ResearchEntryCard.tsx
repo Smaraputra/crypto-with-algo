@@ -184,7 +184,7 @@ export const ResearchEntryCard: React.FC<ResearchEntryCardProps> = ({
                       {ref.label}
                     </span>
                     {ref.path && (
-                      <code className="px-1.5 py-0.5 rounded bg-muted text-[13px] text-muted-foreground font-mono">
+                      <code className="px-1.5 py-0.5 rounded bg-muted text-[13px] text-muted-foreground font-sans break-all">
                         {ref.path}
                       </code>
                     )}
