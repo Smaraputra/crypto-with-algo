@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import { PriceStrip } from './PriceStrip';
+import { LiveTicker } from './LiveTicker';
+import { LiveCandles } from './LiveCandles';
 import { SessionCta } from './SessionCta';
 
 export function HomePage() {
@@ -26,9 +27,19 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* Live price strip */}
-      <section aria-label="Live market prices" className="rounded-panel border border-line bg-card/60 p-2">
-        <PriceStrip />
+      {/* Live prices section */}
+      <section aria-label="Prices that move" className="grid grid-cols-1 gap-8 md:grid-cols-2 md:items-center">
+        <div>
+          <LiveTicker />
+        </div>
+        <div className="space-y-3">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            Prices that move
+          </h2>
+          <p className="text-base leading-relaxed text-ink-2">
+            Live prices stream from Binance public market data the moment they change.
+          </p>
+        </div>
       </section>
 
       {/* Real capabilities section (varied layout, not identical icon cards) */}
@@ -105,6 +116,19 @@ export function HomePage() {
             </p>
           </div>
         </div>
+      </section>
+
+      {/* Live BTC and ETH candles section */}
+      <section aria-label="Live BTC and ETH, hour by hour" className="flex flex-col gap-6">
+        <div className="max-w-2xl">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            Live BTC and ETH, hour by hour
+          </h2>
+          <p className="mt-2 text-base text-ink-2">
+            The last 48 hours from Binance public market data, updating as trades come in.
+          </p>
+        </div>
+        <LiveCandles />
       </section>
 
       {/* The open research lab section */}

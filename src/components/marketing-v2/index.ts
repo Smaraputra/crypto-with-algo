@@ -1,6 +1,9 @@
 export { MarketingNav } from './MarketingNav';
 export { MarketingFooter } from './MarketingFooter';
-export { PriceStrip } from './PriceStrip';
+export { LiveTicker } from './LiveTicker';
+export type { LiveTickerProps } from './LiveTicker';
+export { LiveCandles } from './LiveCandles';
+export type { CandleData } from './LiveCandles';
 export { HomePage } from './HomePage';
 export { FeaturesPage } from './FeaturesPage';
 export { HowItWorksPage } from './HowItWorksPage';

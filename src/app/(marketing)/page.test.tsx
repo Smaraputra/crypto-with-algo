@@ -6,20 +6,23 @@ vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: null, status: 'unauthenticated', update: vi.fn() }),
 }));
 
-vi.mock('@/hooks/usePrices', () => ({
-  useTickers: () => ({
-    data: [
-      {
-        symbol: 'BTCUSDT',
-        lastPrice: '67000',
-        priceChange: '500',
-        priceChangePercent: '0.75',
-      },
-    ],
-    isLoading: false,
-    isError: false,
-    error: null,
-  }),
+vi.mock('@/components/marketing-v2/LiveTicker', () => ({
+  LiveTicker: () => (
+    <ul aria-label="Live prices">
+      <li>
+        <span>BTC</span>
+        <span>$67,000.00</span>
+      </li>
+    </ul>
+  ),
+}));
+
+vi.mock('@/components/marketing-v2/LiveCandles', () => ({
+  LiveCandles: () => (
+    <div data-testid="live-candles">
+      <svg role="img" aria-label="BTC hourly candles, last 48 hours, last price $67,000.00" />
+    </div>
+  ),
 }));
 
 describe('MarketingHomePage', () => {

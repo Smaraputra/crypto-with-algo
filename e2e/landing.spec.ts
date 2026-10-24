@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import {
+  installFakeEventSource,
+  tickerFrame,
+  klineFrame,
+} from './helpers/live-data';
 
 const mockTickers = [
   { symbol: 'BTCUSDT', lastPrice: '65000.00', priceChangePercent: '-2.50' },
@@ -48,12 +53,51 @@ test.describe('Landing page (unauthenticated)', () => {
     await expect(page).toHaveURL(/\/register/);
   });
 
-  test('price strip shows BTC ticker and negative change with minus sign', async ({ page }) => {
+  test('live prices shows BTC ticker and negative change with minus sign', async ({ page }) => {
     await page.goto('/');
-    const priceStrip = page.getByTestId('price-strip');
-    await expect(priceStrip).toBeVisible();
-    await expect(priceStrip).toContainText('BTC');
-    await expect(priceStrip).toContainText('-2.50%');
+    const livePrices = page.getByRole('list', { name: 'Live prices' });
+    await expect(livePrices).toBeVisible();
+    await expect(livePrices).toContainText('BTC');
+    await expect(livePrices).toContainText('-2.50%');
+  });
+
+  test('live ticker and live candle chart show moving market data', async ({ page }) => {
+    const now = Date.now();
+    const currentHour = now - (now % (3600 * 1000));
+    const mockCandles = Array.from({ length: 48 }, (_, i) => {
+      const timestamp = currentHour - (47 - i) * 3600 * 1000;
+      const base = 64000 + i * 20;
+      return {
+        t: timestamp,
+        o: base,
+        h: base + 50,
+        l: base - 50,
+        c: i === 47 ? 65000 : base + 20,
+        v: 100 + i,
+      };
+    });
+
+    await page.route('**/api/public/candles**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockCandles),
+      });
+    });
+
+    await installFakeEventSource(page, [
+      tickerFrame('BTCUSDT', 65000),
+      klineFrame('BTCUSDT', '1h', 65000),
+    ]);
+
+    await page.goto('/');
+
+    const livePrices = page.getByRole('list', { name: 'Live prices' });
+    await expect(livePrices).toBeVisible();
+    await expect(livePrices).toContainText('$65,000.00');
+
+    const candleChart = page.getByRole('img', { name: /^BTC hourly candles/ });
+    await expect(candleChart).toBeVisible();
   });
 
   test('lab section renders honest research copy without hype', async ({ page }) => {

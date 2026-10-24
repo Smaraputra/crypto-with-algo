@@ -7,20 +7,23 @@ vi.mock('next-auth/react', () => ({
   useSession: vi.fn(),
 }));
 
-vi.mock('@/hooks/usePrices', () => ({
-  useTickers: () => ({
-    data: [
-      {
-        symbol: 'BTCUSDT',
-        lastPrice: '67000',
-        priceChange: '500',
-        priceChangePercent: '0.75',
-      },
-    ],
-    isLoading: false,
-    isError: false,
-    error: null,
-  }),
+vi.mock('./LiveTicker', () => ({
+  LiveTicker: () => (
+    <ul aria-label="Live prices">
+      <li>
+        <span>BTC</span>
+        <span>$67,000.00</span>
+      </li>
+    </ul>
+  ),
+}));
+
+vi.mock('./LiveCandles', () => ({
+  LiveCandles: () => (
+    <div data-testid="live-candles">
+      <svg role="img" aria-label="BTC hourly candles, last 48 hours, last price $67,000.00" />
+    </div>
+  ),
 }));
 
 describe('HomePage', () => {
@@ -72,11 +75,15 @@ describe('HomePage', () => {
     expect(screen.getByRole('link', { name: 'See how it works' })).toBeInTheDocument();
   });
 
-  it('renders the price strip and real capabilities', () => {
+  it('renders live prices, candles, and real capabilities', () => {
     render(<HomePage />);
 
     expect(screen.getByText('BTC')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Prices that move' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'What you can do' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Live BTC and ETH, hour by hour' })
+    ).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Research in the open' })).toBeInTheDocument();
   });
 
