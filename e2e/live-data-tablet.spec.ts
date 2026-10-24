@@ -35,17 +35,25 @@ test.describe('Live data tablet layout and interactions', () => {
       const dialog = page.getByRole('dialog', { name: 'Search coins' });
       await expect(dialog).toBeVisible();
 
-      // BNB is outside the default watchlist; add it and remove it again so tests that
-      // read the shared test user's watchlist in parallel are unaffected.
+      // Read the toggle text first and restore whatever state another spec left,
+      // keeping parallel specs sharing the test user's watchlist unaffected.
       const toggle = dialog
         .getByRole('option')
         .filter({ hasText: 'BNB' })
         .getByRole('button', { name: /watchlist/i });
-      await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
-      await toggle.click();
-      await expect(toggle).toHaveText('Remove from watchlist', { timeout: 10000 });
-      await toggle.click();
-      await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
+      await expect(toggle).toHaveText(/Add to watchlist|Remove from watchlist/, { timeout: 10000 });
+      const currentText = (await toggle.innerText()).trim();
+      if (currentText === 'Add to watchlist') {
+        await toggle.click();
+        await expect(toggle).toHaveText('Remove from watchlist', { timeout: 10000 });
+        await toggle.click();
+        await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
+      } else {
+        await toggle.click();
+        await expect(toggle).toHaveText('Add to watchlist', { timeout: 10000 });
+        await toggle.click();
+        await expect(toggle).toHaveText('Remove from watchlist', { timeout: 10000 });
+      }
     }
   });
 

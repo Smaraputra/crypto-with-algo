@@ -68,8 +68,12 @@ describe('theme library', () => {
   });
 
   describe('readStoredTheme', () => {
-    it('returns DEFAULT_THEME when localStorage is empty', () => {
-      expect(readStoredTheme()).toBe(DEFAULT_THEME);
+    it('DEFAULT_THEME is "system"', () => {
+      expect(DEFAULT_THEME).toBe('system');
+    });
+
+    it('returns DEFAULT_THEME ("system") when localStorage is empty', () => {
+      expect(readStoredTheme()).toBe('system');
     });
 
     it('returns DEFAULT_THEME when stored value is invalid', () => {
@@ -147,7 +151,7 @@ describe('theme library', () => {
   });
 
   describe('THEME_INIT_SCRIPT', () => {
-    it('executing script with no stored value adds dark and sets colorScheme dark', () => {
+    it('executing script with no stored value follows matchMedia system preference', () => {
       window.matchMedia = vi.fn().mockImplementation((query: string) => ({
         matches: false,
         media: query,
@@ -155,6 +159,17 @@ describe('theme library', () => {
 
       const runner = new Function(THEME_INIT_SCRIPT);
       runner();
+
+      expect(document.documentElement.classList.contains('dark')).toBe(false);
+      expect(document.documentElement.style.colorScheme).toBe('light');
+
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: true,
+        media: query,
+      }));
+
+      const runner2 = new Function(THEME_INIT_SCRIPT);
+      runner2();
 
       expect(document.documentElement.classList.contains('dark')).toBe(true);
       expect(document.documentElement.style.colorScheme).toBe('dark');
@@ -169,6 +184,10 @@ describe('theme library', () => {
 
       expect(document.documentElement.classList.contains('dark')).toBe(false);
       expect(document.documentElement.style.colorScheme).toBe('light');
+    });
+
+    it('does not contain classList.add("dark") in the script string', () => {
+      expect(THEME_INIT_SCRIPT).not.toContain("classList.add('dark')");
     });
   });
 
@@ -204,14 +223,16 @@ describe('theme library', () => {
     });
   });
 
-  describe('interim accent tokens', () => {
-    it('globals.css defines interim caution accent for unrebuilt screens in :root and .dark', () => {
+  describe('accent tokens', () => {
+    it('globals.css defines hover fill accent (panel-2) in :root and .dark', () => {
       const globalsCss = readFileSync(join(__dirname, '../app/globals.css'), 'utf8');
       const rootBlock = globalsCss.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
       const darkBlock = globalsCss.match(/\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? '';
 
-      expect(rootBlock).toContain('--accent: #8A5300;');
-      expect(darkBlock).toContain('--accent: #E8A93A;');
+      expect(rootBlock).toContain('--accent: #E4E7EB;');
+      expect(rootBlock).toContain('--accent-foreground: #0F1114;');
+      expect(darkBlock).toContain('--accent: #1F2227;');
+      expect(darkBlock).toContain('--accent-foreground: #F4F5F7;');
     });
   });
 

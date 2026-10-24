@@ -254,7 +254,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                       className={cn(
                         'inline-flex items-center px-2 py-0.5 rounded-[6px] text-[12px] font-semibold select-none',
                         alert.status === 'triggered' &&
-                          'bg-brand/15 text-accent-line dark:text-brand',
+                          'bg-brand/15 text-brand-line dark:text-brand',
                         alert.status === 'active' && 'bg-muted text-foreground',
                         alert.status === 'paused' &&
                           'bg-muted/60 text-muted-foreground'
@@ -372,7 +372,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                   className={cn(
                     'inline-flex items-center px-2 py-0.5 rounded-[6px] text-[12px] font-semibold select-none',
                     alert.status === 'triggered' &&
-                      'bg-brand/15 text-accent-line dark:text-brand',
+                      'bg-brand/15 text-brand-line dark:text-brand',
                     alert.status === 'active' && 'bg-muted text-foreground',
                     alert.status === 'paused' &&
                       'bg-muted/60 text-muted-foreground'

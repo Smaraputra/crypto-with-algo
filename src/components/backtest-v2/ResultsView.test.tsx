@@ -25,14 +25,21 @@ vi.mock('@/lib/chart-theme', () => ({
   }),
 }));
 
-// Mock ResponsiveContainer from recharts
-vi.mock('recharts', async () => {
-  const original = await vi.importActual('recharts');
+let capturedXAxisProps: Record<string, unknown> | null = null;
+
+vi.mock('recharts', async (importOriginal) => {
+  const { rechartsWithSizedContainer } = await import('@/test/recharts');
+  const actual = await importOriginal<Record<string, unknown>>();
+  const base = rechartsWithSizedContainer(actual);
+  const ActualXAxis = actual.XAxis as React.ComponentType<Record<string, unknown>>;
+  const XAxis = (props: Record<string, unknown>) => {
+    capturedXAxisProps = props;
+    return <ActualXAxis {...props} />;
+  };
+  XAxis.displayName = 'XAxis';
   return {
-    ...original,
-    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="responsive-container">{children}</div>
-    ),
+    ...base,
+    XAxis,
   };
 });
 
@@ -113,6 +120,7 @@ describe('ResultsView', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedXAxisProps = null;
 
     vi.mocked(useSaveBacktestResult).mockReturnValue({
       mutate: mockMutateSave,
@@ -272,5 +280,17 @@ describe('ResultsView', () => {
 
     render(<ResultsView result={fixture16} />);
     expect(screen.getByText('BTC, 1 hour, 16 trades')).toBeInTheDocument();
+  });
+
+  it('equity chart XAxis uses type="number" and scale="time"', () => {
+    render(<ResultsView result={mockResultFixture} />);
+
+    expect(capturedXAxisProps).toMatchObject({
+      type: 'number',
+      scale: 'time',
+      domain: ['dataMin', 'dataMax'],
+      dataKey: 'time',
+      minTickGap: 48,
+    });
   });
 });

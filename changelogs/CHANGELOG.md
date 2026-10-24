@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Final redesign pass (UI redesign PR 12)
+- **Theme follows the system by default:** a first visit gets the light or dark theme the visitor's device asks for, and a stored choice still wins. The init script no longer forces dark if storage cannot be read.
+- **Accent back to its plain role:** `--accent` returns to the panel-2 hover fill. The amber caution tone the old screens used is gone, now that every screen is rebuilt.
+- **Legacy styles removed:**
+  - the monospace price utilities and the JetBrains Mono font load;
+  - the old price flash, shimmer and pulse animations;
+  - the live-indicator and scrollbar-hide classes;
+  - the hardcoded dark scrollbar, replaced by a token-based one that follows both themes.
+  - The note editor uses Outfit like everything else.
+- **Error states:** the four route error boundaries use a shared `RouteError` (kit) with "Try again", a link to Market and a support reference. Raw error messages are never shown. A designed "Page not found" page replaces the framework default.
+- **Charts:** the Backtest equity curve and the Portfolio value chart use time axes on which no date repeats, and draw straight segments between real points instead of smoothed curves.
+- **Fixed:** an alerts badge used a class with no token behind it (`text-accent-line`); it now uses `text-brand-line`.
+- **Cleanup:**
+  - 16 unused UI primitives deleted (alert dialog, alert, badge, checkbox, form, label, progress, scroll area, select, separator, skeleton, slider, table, tabs, textarea, tooltip).
+  - Four unused packages removed: `react-hook-form`, `@hookform/resolvers`, `@tanstack/react-table`, `lightweight-charts`.
+- **Tests:** the tablet watchlist E2E restores whatever state it finds, so it no longer fails when another spec has left BNB in the shared test user's watchlist.
+- **Docs:** `CLAUDE.md` conventions describe the new design system (tokens, Outfit with tabular digits, colour roles, missing values, kit, evidence wording) and the current E2E layout.
+
 ### Changed: Public marketing site (UI redesign PR 11)
 - **The public site is rebuilt** in the new direction (`src/components/marketing-v2/`): `/`, `/features`, `/how-it-works`, `/docs`, `/blog`, `/privacy` and `/terms`.
   - **Bar:** the product name, Features, How it works, Docs, Blog, the theme switch, Log in, and one green "Create a free account". The phone menu is a labelled menu that closes on Escape and returns focus.
