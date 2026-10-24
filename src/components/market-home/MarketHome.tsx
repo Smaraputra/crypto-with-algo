@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import { useSession } from 'next-auth/react';
+import { PageHeader } from '@/components/kit';
 import { CoinTabs } from './CoinTabs';
 import { StreamHealth } from './StreamHealth';
 import { PriceHero } from './PriceHero';
@@ -15,6 +17,11 @@ export interface MarketHomeProps {
 }
 
 export const MarketHome: React.FC<MarketHomeProps> = ({ className }) => {
+  const { data: session, status } = useSession();
+  const firstName = session?.user?.name?.trim().split(/\s+/)[0];
+  // While the session loads, a blank line holds the welcome line's space so the page does not shift.
+  const welcome = firstName ? `Welcome, ${firstName}.` : status === 'loading' ? '\u00a0' : undefined;
+
   return (
     <div
       className={cn(
@@ -22,7 +29,7 @@ export const MarketHome: React.FC<MarketHomeProps> = ({ className }) => {
         className
       )}
     >
-      <h1 className="sr-only">Market</h1>
+      <PageHeader title="Market" description={welcome} />
 
       <CoinTabs />
 

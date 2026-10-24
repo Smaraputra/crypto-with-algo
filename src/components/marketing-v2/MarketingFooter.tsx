@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import { BrandMark } from '@/components/kit';
 
 export function MarketingFooter() {
   const year = new Date().getFullYear();
@@ -7,14 +8,7 @@ export function MarketingFooter() {
   return (
     <footer className="w-full border-t border-line bg-background py-8 text-[13px] text-muted-foreground">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-center sm:flex-row sm:px-6 sm:text-left">
-        <div className="flex flex-col gap-1 sm:gap-2">
-          <p className="font-medium text-foreground">
-            CryptoWithAlgo
-          </p>
-          <p>
-            Not financial advice. Prices from Binance public market data.
-          </p>
-        </div>
+        <BrandMark size="sm" />
 
         <div className="flex flex-wrap items-center justify-center gap-6">
           <Link

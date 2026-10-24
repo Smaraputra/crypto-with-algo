@@ -10,7 +10,7 @@ describe('AuthShell', () => {
       </AuthShell>
     );
 
-    const brandLink = screen.getByRole('link', { name: 'CryptoWithAlgo' });
+    const brandLink = screen.getByRole('link', { name: /CryptoWithAlgo/ });
     expect(brandLink).toBeInTheDocument();
     expect(brandLink).toHaveAttribute('href', '/');
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Logo in every navbar, session-aware public site, visible Market title (owner feedback A)
+- **Logo:** the green CWA mark (`public/logo.png`) now sits beside the wordmark in the app top bar, the phone top strip, the public nav and footer, the auth screens and the 404 page, through one kit component, `BrandMark`.
+- **Signed-in visitors on the public site** see "Open dashboard" in place of "Log in" and "Create a free account", in the nav, the phone menu and both home page buttons.
+  - While the session loads, the signed-out buttons keep their space but stay invisible, so a signed-in visitor never sees them flash. Measured on a cold load: the header never shows "Log in".
+  - The home page stays a server component. Only the button (`SessionCta`) is a client component.
+- **Footer:** the line "Not financial advice. Prices from Binance public market data." is removed.
+- **/dashboard title:** the page now shows a visible "Market" heading with "Welcome, {first name}." under it. A blank line holds that space while the session loads. Measured layout shift on a cold load at 1440px: 0.04.
+- **/signal** now redirects to `/signals` (307).
+- The top bar still fits at 1024px with the logo added (no overflow).
+
 ### Fixed: Final gate findings (UI redesign PR 13)
 - **Outfit now renders everywhere.**
   - Since the foundation PR, the font variable sat on `<body>`, but Tailwind resolves the default font on `<html>`. As a result, headings, body text and buttons used the system font, and only elements that asked for `font-sans` got Outfit.

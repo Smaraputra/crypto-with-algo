@@ -31,3 +31,6 @@ export type { StateNoticeKind, StateNoticeProps } from './StateNotice';
 
 export { RouteError } from './RouteError';
 export type { RouteErrorProps } from './RouteError';
+
+export { BrandMark } from './BrandMark';
+export type { BrandMarkProps, BrandMarkSize } from './BrandMark';

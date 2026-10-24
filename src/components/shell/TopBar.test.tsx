@@ -41,7 +41,7 @@ describe('TopBar', () => {
   it('renders the five links with the right hrefs plus Tools, Search and Account buttons', () => {
     render(<TopBar />);
 
-    expect(screen.getByRole('link', { name: 'CryptoWithAlgo' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /CryptoWithAlgo/ })).toHaveAttribute(
       'href',
       '/dashboard'
     );

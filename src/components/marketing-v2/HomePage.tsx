@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { PriceStrip } from './PriceStrip';
+import { SessionCta } from './SessionCta';
 
 export function HomePage() {
   return (
@@ -15,12 +16,7 @@ export function HomePage() {
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/register"
-            className="rounded-full bg-brand px-5 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
-          >
-            Create a free account
-          </Link>
+          <SessionCta className="rounded-full bg-brand px-5 py-2.5 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90" />
           <Link
             href="/how-it-works"
             className="rounded-xl border border-edge px-5 py-2.5 text-[15px] font-medium text-foreground transition-colors hover:bg-card"
@@ -132,12 +128,7 @@ export function HomePage() {
           Free account with no exchange connection, deposits, or API keys.
         </p>
         <div className="mt-6">
-          <Link
-            href="/register"
-            className="rounded-full bg-brand px-6 py-3 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90"
-          >
-            Create a free account
-          </Link>
+          <SessionCta className="rounded-full bg-brand px-6 py-3 text-[15px] font-semibold text-brand-foreground transition-opacity hover:opacity-90" />
         </div>
       </section>
     </div>

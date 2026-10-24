@@ -9,6 +9,11 @@ test.describe('Notes page (authenticated)', () => {
     });
   });
 
+  test('visiting /signal ends on /signals', async ({ page }) => {
+    await page.goto('/signal');
+    await expect(page).toHaveURL(/\/signals/, { timeout: 15000 });
+  });
+
   test('creates a note with unique title, opens it in detail, edits it, and deletes it with confirmation', async ({
     page,
   }) => {
