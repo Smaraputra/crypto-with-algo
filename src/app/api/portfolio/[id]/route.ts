@@ -71,7 +71,7 @@ export async function PATCH(
   const portfolio = await Portfolio.findOneAndUpdate(
     { _id: id, userId: session.user.id },
     { name: parsed.data.name },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!portfolio) {

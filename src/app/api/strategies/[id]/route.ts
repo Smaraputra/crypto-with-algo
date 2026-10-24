@@ -55,7 +55,7 @@ export async function PATCH(
   const strategy = await Strategy.findOneAndUpdate(
     { _id: id, userId: session.user.id },
     parsed.data,
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!strategy) {

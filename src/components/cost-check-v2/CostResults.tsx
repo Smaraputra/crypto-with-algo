@@ -120,7 +120,7 @@ export const CostResults: React.FC<CostResultsProps> = ({
           <button
             type="button"
             onClick={retryMarket}
-            className="min-h-[44px] h-[44px] px-4 shrink-0 inline-flex items-center justify-center rounded-[10px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer hover:border-foreground focus-visible:outline-3 focus-visible:outline-ring"
+            className="min-h-[44px] h-[44px] px-4 shrink-0 inline-flex items-center justify-center rounded-[12px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer hover:border-foreground focus-visible:outline-3 focus-visible:outline-ring"
           >
             Try again
           </button>

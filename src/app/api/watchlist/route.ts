@@ -46,7 +46,7 @@ export async function PUT(req: NextRequest) {
   const watchlist = await Watchlist.findOneAndUpdate(
     { userId: session.user.id },
     { symbols: parsed.data.symbols },
-    { new: true, upsert: true }
+    { returnDocument: 'after', upsert: true }
   );
 
   return NextResponse.json({ symbols: watchlist.symbols });

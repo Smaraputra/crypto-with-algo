@@ -82,7 +82,7 @@ export const NoteDetail: React.FC<NoteDetailProps> = ({
               variant="outline"
               size="sm"
               onClick={onEdit}
-              className="rounded-[10px] min-h-[44px] px-4 font-semibold text-[14px]"
+              className="rounded-[12px] min-h-[44px] px-4 font-semibold text-[14px]"
             >
               Edit
             </Button>
@@ -91,7 +91,7 @@ export const NoteDetail: React.FC<NoteDetailProps> = ({
               variant="destructive"
               size="sm"
               onClick={() => setDeleteDialogOpen(true)}
-              className="rounded-[10px] min-h-[44px] px-4 font-semibold text-[14px]"
+              className="rounded-[12px] min-h-[44px] px-4 font-semibold text-[14px]"
             >
               Delete
             </Button>

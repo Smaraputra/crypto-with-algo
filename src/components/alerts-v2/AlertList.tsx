@@ -278,7 +278,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                           size="sm"
                           disabled={acknowledgeMutation.isPending}
                           onClick={() => acknowledgeMutation.mutate(alert._id)}
-                          className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium"
+                          className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium"
                         >
                           Acknowledge
                         </Button>
@@ -295,7 +295,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                               status: 'paused',
                             })
                           }
-                          className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium"
+                          className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium"
                         >
                           Pause
                         </Button>
@@ -312,7 +312,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                               status: 'active',
                             })
                           }
-                          className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium"
+                          className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium"
                         >
                           Resume
                         </Button>
@@ -322,7 +322,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => setAlertToDelete(alert)}
-                        className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium text-down hover:text-down hover:bg-down/10"
+                        className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium text-down hover:text-down hover:bg-down/10"
                       >
                         Delete
                       </Button>
@@ -427,7 +427,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                     size="sm"
                     disabled={acknowledgeMutation.isPending}
                     onClick={() => acknowledgeMutation.mutate(alert._id)}
-                    className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium"
+                    className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium"
                   >
                     Acknowledge
                   </Button>
@@ -444,7 +444,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                         status: 'paused',
                       })
                     }
-                    className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium"
+                    className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium"
                   >
                     Pause
                   </Button>
@@ -461,7 +461,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                         status: 'active',
                       })
                     }
-                    className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium"
+                    className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium"
                   >
                     Resume
                   </Button>
@@ -471,7 +471,7 @@ export const AlertList: React.FC<AlertListProps> = ({
                   variant="ghost"
                   size="sm"
                   onClick={() => setAlertToDelete(alert)}
-                  className="min-h-[44px] px-3 rounded-[10px] text-[13px] font-medium text-down hover:text-down hover:bg-down/10"
+                  className="min-h-[44px] px-3 rounded-[12px] text-[13px] font-medium text-down hover:text-down hover:bg-down/10"
                 >
                   Delete
                 </Button>

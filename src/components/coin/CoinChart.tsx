@@ -228,7 +228,7 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
               aria-pressed={showInternal}
               onClick={() => setShowInternal((prev) => !prev)}
               className={cn(
-                'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[10px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
+                'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[12px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
                 'focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px]',
                 showInternal
                   ? 'bg-foreground text-background border-foreground'
@@ -243,7 +243,7 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
               aria-pressed={showSma}
               onClick={() => setShowSma((prev) => !prev)}
               className={cn(
-                'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[10px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
+                'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[12px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
                 'focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px]',
                 showSma
                   ? 'bg-foreground text-background border-foreground'
@@ -258,7 +258,7 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
               aria-pressed={showMacd}
               onClick={() => setShowMacd((prev) => !prev)}
               className={cn(
-                'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[10px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
+                'min-h-[44px] h-[44px] px-3.5 inline-flex items-center justify-center rounded-[12px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100',
                 'focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px]',
                 showMacd
                   ? 'bg-foreground text-background border-foreground'
@@ -275,7 +275,7 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
           aria-expanded={showDrawTools}
           onClick={() => setShowDrawTools((prev) => !prev)}
           className={cn(
-            'min-h-[44px] h-[44px] px-3.5 inline-flex items-center gap-1.5 justify-center rounded-[10px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120',
+            'min-h-[44px] h-[44px] px-3.5 inline-flex items-center gap-1.5 justify-center rounded-[12px] border text-[14px] font-semibold cursor-pointer select-none transition-colors duration-120',
             'focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px]',
             showDrawTools
               ? 'bg-muted text-foreground border-foreground'
@@ -372,7 +372,7 @@ export const CoinChart: React.FC<CoinChartProps> = ({ symbol, className }) => {
                   type="button"
                   onClick={handleRefresh}
                   className={cn(
-                    'min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[10px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer',
+                    'min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[12px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer',
                     'hover:border-foreground focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px] focus-visible:outline transition-colors duration-120',
                     'active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100'
                   )}

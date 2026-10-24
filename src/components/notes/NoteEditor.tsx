@@ -119,7 +119,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             variant="outline"
             size="sm"
             onClick={onCancel}
-            className="rounded-[10px] min-h-[44px] px-4 font-semibold text-[14px]"
+            className="rounded-[12px] min-h-[44px] px-4 font-semibold text-[14px]"
           >
             Cancel
           </Button>
@@ -225,7 +225,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="button"
             variant="outline"
             onClick={onCancel}
-            className="rounded-[10px] min-h-[44px] px-4 font-semibold text-[14px]"
+            className="rounded-[12px] min-h-[44px] px-4 font-semibold text-[14px]"
           >
             Cancel
           </Button>
@@ -233,7 +233,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         <Button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-[10px] min-h-[44px] px-5 font-semibold text-[14px] bg-brand text-brand-foreground hover:bg-brand/90"
+          className="rounded-[12px] min-h-[44px] px-5 font-semibold text-[14px] bg-brand text-brand-foreground hover:bg-brand/90"
         >
           {isSubmitting ? 'Saving note...' : 'Save note'}
         </Button>

@@ -31,7 +31,7 @@ export function AccountMenu() {
           type="button"
           aria-label="Account"
           className={cn(
-            'inline-flex min-h-[44px] min-w-[44px] items-center justify-center px-0 xl:px-3.5 font-semibold text-ink-2 transition-colors duration-120 select-none rounded-[10px]',
+            'inline-flex min-h-[44px] min-w-[44px] items-center justify-center px-0 xl:px-3.5 font-semibold text-ink-2 transition-colors duration-120 select-none rounded-[12px]',
             'hover:bg-muted hover:text-foreground active:scale-[0.98] motion-reduce:active:scale-100',
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
           )}

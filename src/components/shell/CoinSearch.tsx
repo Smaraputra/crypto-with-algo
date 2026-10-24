@@ -90,7 +90,7 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
           onClick={() => setOpen(true)}
           aria-label="Search coins"
           className={cn(
-            'inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-0 rounded-[10px] border border-edge px-0 text-sm font-medium text-ink-2 select-none',
+            'inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-0 rounded-[12px] border border-edge px-0 text-sm font-medium text-ink-2 select-none',
             'xl:justify-start xl:gap-3 xl:px-3.5',
             'transition-colors duration-120 hover:bg-muted hover:text-foreground',
             'active:scale-[0.98] motion-reduce:active:scale-100',
@@ -110,7 +110,7 @@ export function CoinSearch({ variant = 'desktop', className }: CoinSearchProps) 
           onClick={() => setOpen(true)}
           aria-label="Search"
           className={cn(
-            'inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[10px] text-ink-2 select-none',
+            'inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[12px] text-ink-2 select-none',
             'transition-colors duration-120 hover:bg-muted hover:text-foreground',
             'active:scale-[0.98] motion-reduce:active:scale-100',
             'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',

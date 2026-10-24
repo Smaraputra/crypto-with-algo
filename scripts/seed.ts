@@ -398,7 +398,7 @@ async function main() {
   const user = await User.findOneAndUpdate(
     { email: demoEmail },
     { name: DEMO_NAME, email: demoEmail, password: hashedPassword },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
   const userId = user._id.toString();
 

@@ -47,15 +47,15 @@ export const CoinTabs: React.FC<CoinTabsProps> = ({ className }) => {
       >
         <div
           data-testid="coin-tab-placeholder"
-          className="h-[44px] w-32 rounded-[10px] bg-muted shrink-0"
+          className="h-[44px] w-32 rounded-[12px] bg-muted shrink-0"
         />
         <div
           data-testid="coin-tab-placeholder"
-          className="h-[44px] w-32 rounded-[10px] bg-muted shrink-0"
+          className="h-[44px] w-32 rounded-[12px] bg-muted shrink-0"
         />
         <div
           data-testid="coin-tab-placeholder"
-          className="h-[44px] w-32 rounded-[10px] bg-muted shrink-0"
+          className="h-[44px] w-32 rounded-[12px] bg-muted shrink-0"
         />
       </div>
     );
@@ -123,7 +123,7 @@ export const CoinTabs: React.FC<CoinTabsProps> = ({ className }) => {
             onClick={() => setSelectedSymbol(symbol)}
             onKeyDown={(e) => handleKeyDown(e, index)}
             className={cn(
-              'min-h-[44px] h-[44px] px-3.5 inline-flex items-center gap-2 rounded-[10px] font-sans text-[14px] select-none shrink-0 cursor-pointer',
+              'min-h-[44px] h-[44px] px-3.5 inline-flex items-center gap-2 rounded-[12px] font-sans text-[14px] select-none shrink-0 cursor-pointer',
               'focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-[2px] focus-visible:outline transition-colors duration-120',
               'active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100',
               isSelected

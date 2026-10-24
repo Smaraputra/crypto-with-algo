@@ -152,7 +152,7 @@ export const ScreenshotDropZone: React.FC<ScreenshotDropZoneProps> = ({
           variant="outline"
           disabled={disabled}
           onClick={() => fileInputRef.current?.click()}
-          className="rounded-[10px] min-h-[44px] px-4 text-[13px] font-medium"
+          className="rounded-[12px] min-h-[44px] px-4 text-[13px] font-medium"
         >
           Choose images
         </Button>

@@ -223,7 +223,7 @@ export function LiveCandles() {
             <button
               type="button"
               onClick={() => refetch()}
-              className="min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[10px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer hover:border-foreground transition-colors"
+              className="min-h-[44px] h-[44px] px-4 inline-flex items-center justify-center rounded-[12px] border border-edge bg-card text-[14px] font-semibold text-foreground cursor-pointer hover:border-foreground transition-colors"
             >
               Try again
             </button>

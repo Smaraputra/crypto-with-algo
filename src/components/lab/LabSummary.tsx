@@ -56,7 +56,7 @@ export const LabSummary: React.FC<LabSummaryProps> = ({
                 data-testid="idea-cell"
                 data-kind="loading"
                 aria-hidden="true"
-                className="w-[26px] h-[26px] rounded-[7px] bg-muted animate-pulse motion-reduce:animate-none shrink-0"
+                className="w-[26px] h-[26px] rounded-[8px] bg-muted animate-pulse motion-reduce:animate-none shrink-0"
               />
             ))}
           </div>

@@ -98,7 +98,7 @@ async function handler(req: NextRequest) {
           unrealizedPnlPercent,
           holdings,
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
 
       snapshotCount++;

@@ -224,7 +224,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="min-h-[44px] min-w-[44px] rounded-[10px]"
+                          className="min-h-[44px] min-w-[44px] rounded-[12px]"
                           aria-label={`Actions for ${h.baseAsset}`}
                         >
                           <MoreVertical className="size-4" />
@@ -273,7 +273,7 @@ export const HoldingsTable: React.FC<HoldingsTableProps> = ({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="min-h-[44px] min-w-[44px] rounded-[10px]"
+                      className="min-h-[44px] min-w-[44px] rounded-[12px]"
                       aria-label={`Actions for ${h.baseAsset}`}
                     >
                       <MoreVertical className="size-4" />
