@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Journal entry and exit times, hold time and screenshots (owner feedback C)
+- **Times:**
+  - Logging a trade now records "Entered at" (prefilled with the current minute, editable, never more than 5 minutes ahead).
+  - The review adds "Exited at" for buys and sells. Typing an exit price fills it with the current minute, and it can still be edited.
+  - Entries show the entry time, the exit time and the hold time ("2h", "3d 4h").
+  - The server rejects an exit before the entry.
+- **Old entries need no migration:** wherever a time is read, an entry without `enteredAt` falls back to its `createdAt`. That covers the list, its date filter and sort, the analytics by month, hour, weekday and session, and the discipline nudges.
+- **Screenshots:**
+  - Up to 4 images per trade, added by choosing, pasting or dropping, while logging or later from the trade.
+  - They are stored in MongoDB GridFS (bucket `journalScreenshots`).
+  - Only PNG, JPEG and WebP are accepted, checked by their first bytes rather than the declared type, at 5 MB each.
+  - The cap holds even against two parallel uploads.
+  - Images are served only to their owner, with a private cache header.
+  - Removing a screenshot asks first. Deleting a trade deletes its files.
+  - The trades table shows "1 shot" or "N shots".
+- **Fixed:** "Save review" never closed a trade. The review request sent only the lesson, so the exit price, emotion and mistakes were dropped. The review now sends them and the trade moves to Closed with its P&L. The journal E2E test had passed anyway because its row locator matched the open table too; it now checks the closed section.
+- **Fixed:** editing a trade's entry price did nothing, because the update schema had no `entryPrice` field. Edits now save, and the P&L of a closed trade is recomputed.
+- **Fixed:** saving a trade showed two toasts ("Trade saved" and "Journal entry created"). It now shows one.
 ### Added: A live public home page with the 3D globe back (owner feedback E)
 - **Hero:** the old landing's dot globe returns (three and react-three fiber, loaded lazily with no server render), now tied to real data.
   - Each live price update flashes a point on it, green for a rise and red for a fall.
