@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: /signals is a research hub of everything tested (owner feedback D)
+- **The hub:** `/signals` now lists every signal and study the project has run, from the v1 to v8 price score and the relative value rule to the research program, the next-version rounds and the four forward labs.
+  - There are 29 entries, grouped by family.
+  - Each entry has a status chip, the period, a one-line summary, and on opening its steps, result, key figures, research notes and references (lock files, PRs, dates).
+  - Status and family filters live in the URL, so a filtered view can be shared.
+  - The header shows the ledger total of 2,204 trials and "No rule is validated".
+- **Live lab state:** the lab entries show each hypothesis's live state from the lab APIs: evidence against its threshold, bets and start date. Coin names link to the Coin study page.
+- **Accuracy:**
+  - The content lives in `src/content/research/catalog.ts`.
+  - A test proves every figure appears in its cited source, at the cited line or, for the changelog, inside the cited section.
+  - An independent audit checked the meaning of every entry against its source. Its 32 findings were fixed, for example:
+    - the rv-v1 full-span return now sits beside its 2026 to date -22.0%;
+    - an unsourced defect count was removed;
+    - the exposure study's 1d funding undercharge is noted.
+  - No entry can claim validated without a test change.
+- **Price score:** the price score page moves to `/signals/score`. Its links on Market and Coin study follow.
+- **Navigation:** Signals is now a top-level desktop nav item (it still fits at 1024px). On phones it stays in the More sheet.
 ### Added: Journal entry and exit times, hold time and screenshots (owner feedback C)
 - **Times:**
   - Logging a trade now records "Entered at" (prefilled with the current minute, editable, never more than 5 minutes ahead).
