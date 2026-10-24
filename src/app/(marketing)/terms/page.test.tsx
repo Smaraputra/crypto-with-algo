@@ -1,31 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import MarketingTermsPage, { metadata } from './page';
+import { TERMS_LAST_UPDATED } from '@/content/legal/TermsContent';
 
-vi.mock('@/components/marketing/ContentLayout', () => ({
-  ContentLayout: ({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) => (
-    <div>
-      <h1>{title}</h1>
-      <p>{subtitle}</p>
-      <div>{children}</div>
-    </div>
-  ),
-}));
-
-import TermsPage from './page';
-
-describe('TermsPage', () => {
-  it('renders terms of service heading', () => {
-    render(<TermsPage />);
-    expect(screen.getByRole('heading', { name: 'Terms of Service' })).toBeInTheDocument();
+describe('MarketingTermsPage', () => {
+  it('exports honest metadata', () => {
+    expect(metadata.title).toBe('Terms of Service | CryptoWithAlgo');
+    expect(metadata.description).toBeDefined();
   });
 
-  it('renders last updated date', () => {
-    render(<TermsPage />);
-    expect(screen.getByText(/Last updated:/)).toBeInTheDocument();
-  });
+  it('renders exact h1 Terms of Service, last updated date, and TermsContent sections', () => {
+    render(<MarketingTermsPage />);
 
-  it('renders acceptance section', () => {
-    render(<TermsPage />);
-    expect(screen.getByText(/By accessing and using CryptoWithAlgo/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Terms of Service' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(`Last updated: ${TERMS_LAST_UPDATED}`)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/1. Acceptance of Terms/i)).toBeInTheDocument();
+    expect(screen.getByText(/2. Description of Service/i)).toBeInTheDocument();
   });
 });

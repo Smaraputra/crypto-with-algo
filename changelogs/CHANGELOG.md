@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Public marketing site (UI redesign PR 11)
+- **The public site is rebuilt** in the new direction (`src/components/marketing-v2/`): `/`, `/features`, `/how-it-works`, `/docs`, `/blog`, `/privacy` and `/terms`.
+  - **Bar:** the product name, Features, How it works, Docs, Blog, the theme switch, Log in, and one green "Create a free account". The phone menu is a labelled menu that closes on Escape and returns focus.
+  - **Footer:** Privacy, Terms and Docs, plus "Not financial advice. Prices from Binance public market data."
+- **Honest copy:**
+  - The home headline says what the product is: a crypto market tracker with an open research lab.
+  - A live price strip uses the public prices API.
+  - The lab is described as testing ideas on live data, with failures kept on the record and visible after signing in.
+  - The price score is described as context with no measured edge.
+  - Removed:
+    - performance claims, user counts and other vanity stats;
+    - tax exports and testimonials;
+    - "public" lab wording (the lab needs sign-in);
+    - Markdown claims (notes are plain text);
+    - statements about live state that would go stale.
+- **Legal text kept word for word:** the Privacy Policy and Terms of Service moved into `src/content/legal/` as plain markup. Every eight-word span of the old text is present in the new modules.
+- **Removed: the 3D globe, cursor glow, spotlight cards, smooth scrolling and scroll animations,** along with their packages: `three`, `@types/three`, `@react-three/fiber`, `@react-three/drei`, `gsap`, `@gsap/react`, `lenis` and `framer-motion`, plus their test mocks and `src/lib/gsap.ts`. Marketing motion is CSS only and respects reduced motion.
+- **Tests:** unit tests for every new component, including an honesty check of each page's text and a check that no marketing file imports an animation library. The landing, mobile and marketing page E2E specs move to the new site.
+
 ### Changed: Auth screens (UI redesign PR 10)
 - **Every auth page** is rebuilt in the new direction: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email` and `/consent` (`src/components/auth-v2/`).
   - **Shell:** the product name and a "Back to home" link only, then one form with one green action.

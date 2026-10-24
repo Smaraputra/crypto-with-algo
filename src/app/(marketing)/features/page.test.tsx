@@ -1,61 +1,27 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import MarketingFeaturesPage, { metadata } from './page';
 
-vi.mock('next-auth/react', () => ({
-  useSession: () => ({ data: null, status: 'unauthenticated' }),
-  SessionProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
-
-import FeaturesPage from './page';
-
-describe('FeaturesPage', () => {
-  it('renders heading', () => {
-    render(<FeaturesPage />);
-    expect(
-      screen.getByRole('heading', { name: 'Features', level: 1 })
-    ).toBeInTheDocument();
+describe('MarketingFeaturesPage', () => {
+  it('exports honest metadata', () => {
+    expect(metadata.title).toBe('Features | CryptoWithAlgo');
+    expect(metadata.description).toBeDefined();
   });
 
-  it('renders subtitle', () => {
-    render(<FeaturesPage />);
-    expect(
-      screen.getByText(/Professional-grade tools/)
-    ).toBeInTheDocument();
+  it('renders FeaturesPage with exact h1 and required h2 groups', () => {
+    render(<MarketingFeaturesPage />);
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Features' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Market and coins' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Research' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Your trades' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Tools' })).toBeInTheDocument();
   });
 
-  it('renders platform highlights', () => {
-    render(<FeaturesPage />);
-    expect(screen.getByText('WebSocket Architecture')).toBeInTheDocument();
-    expect(screen.getByText('Secure Authentication')).toBeInTheDocument();
-    expect(screen.getByText('Manual Portfolio Entry')).toBeInTheDocument();
-    expect(screen.getByText('Automated Alerts')).toBeInTheDocument();
-  });
-
-  it('renders core features section', () => {
-    render(<FeaturesPage />);
-    expect(
-      screen.getByRole('heading', { name: 'Core Features' })
-    ).toBeInTheDocument();
-  });
-
-  it('renders all 7 feature cards', () => {
-    render(<FeaturesPage />);
-    expect(screen.getByText('Portfolio Management')).toBeInTheDocument();
-    expect(screen.getByText('Live Market Data')).toBeInTheDocument();
-    expect(screen.getByText('Interactive Charts')).toBeInTheDocument();
-    expect(screen.getByText('Smart Alerts')).toBeInTheDocument();
-    expect(screen.getByText('Analytics Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Trading Signals')).toBeInTheDocument();
-    expect(screen.getByText('Backtesting Engine')).toBeInTheDocument();
-  });
-
-  it('renders feature highlights as bullet points', () => {
-    render(<FeaturesPage />);
-    expect(
-      screen.getByText('Multiple portfolios with custom names')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Sub-second WebSocket price updates')
-    ).toBeInTheDocument();
+  it('does not contain banned marketing claims', () => {
+    const { container } = render(<MarketingFeaturesPage />);
+    expect(container.textContent).not.toMatch(
+      /guarantee|profit|beat the market|predict|accuracy|win rate|tax/i
+    );
   });
 });

@@ -1,65 +1,88 @@
 import { test, expect } from '@playwright/test';
 
+const mockTickers = [
+  { symbol: 'BTCUSDT', lastPrice: '65000.00', priceChangePercent: '-2.50' },
+  { symbol: 'ETHUSDT', lastPrice: '3500.00', priceChangePercent: '1.20' },
+  { symbol: 'SOLUSDT', lastPrice: '150.00', priceChangePercent: '4.80' },
+];
+
 test.describe('Marketing Pages', () => {
-  test('Docs page renders heading, nav, and footer', async ({ page }) => {
-    await page.goto('/docs');
-    await expect(page.getByRole('heading', { name: 'Documentation' })).toBeVisible();
-    await expect(page.getByText('CryptoWithAlgo').first()).toBeVisible();
-    await expect(page.getByText('Getting Started')).toBeVisible();
-    await expect(page.getByText('Feature Reference')).toBeVisible();
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/prices', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockTickers),
+      });
+    });
   });
 
-  test('Blog page renders heading and an honest empty state', async ({ page }) => {
-    // This previously asserted the categories of four hardcoded fake articles
-    // ("Education", "Strategy"), which locked the fabricated content in place.
-    await page.goto('/blog');
-    await expect(page.getByRole('heading', { name: 'Blog' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'No posts yet' })).toBeVisible();
-  });
-
-  test('Features page renders heading and feature cards', async ({ page }) => {
+  test('Features page renders h1, h2 sections, honest title, and compliant copy', async ({ page }) => {
     await page.goto('/features');
-    await expect(page.getByRole('heading', { name: 'Features', level: 1 })).toBeVisible();
-    await expect(page.getByText('Core Features')).toBeVisible();
-    await expect(page.getByText('Portfolio Management')).toBeVisible();
-    await expect(page.getByText('Trading Signals')).toBeVisible();
+    await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Features', exact: true })).toBeVisible();
+
+    await expect(page.getByRole('heading', { level: 2, name: 'Market and coins', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Research', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Your trades', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Tools', exact: true })).toBeVisible();
+
+    await expect(page.locator('body')).not.toHaveText(/guarantee|beat the market|win rate|tax/i);
   });
 
-  test('How It Works page renders heading and steps', async ({ page }) => {
+  test('How It Works page renders h1, five step headings, honest title, and compliant copy', async ({ page }) => {
     await page.goto('/how-it-works');
-    await expect(page.getByRole('heading', { name: 'How It Works' })).toBeVisible();
-    await expect(page.getByText('Step 1')).toBeVisible();
-    await expect(page.getByText('Step 2')).toBeVisible();
-    await expect(page.getByText('Step 3')).toBeVisible();
+    await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'How it works', exact: true })).toBeVisible();
+
+    const stepHeadings = page.getByRole('heading', { level: 2 });
+    await expect(stepHeadings).toHaveCount(5);
+    await expect(page.getByRole('heading', { level: 2, name: /1\.\s*Create an account/i })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: /2\.\s*Pick coins/i })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: /3\.\s*Study a coin with its costs/i })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: /4\.\s*Record trades and notes/i })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: /5\.\s*Follow the lab's record/i })).toBeVisible();
+
+    await expect(page.locator('body')).not.toHaveText(/guarantee|beat the market|win rate|tax/i);
   });
 
-  test('Terms of Service page renders heading and content', async ({ page }) => {
-    await page.goto('/terms');
-    await expect(page.getByRole('heading', { name: 'Terms of Service' })).toBeVisible();
-    await expect(page.getByText('Acceptance of Terms')).toBeVisible();
-    await expect(page.getByText('Description of Service')).toBeVisible();
+  test('Docs page renders h1, h2 sections, honest title, and compliant copy', async ({ page }) => {
+    await page.goto('/docs');
+    await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Documentation', exact: true })).toBeVisible();
+
+    await expect(page.getByRole('heading', { level: 2, name: 'Getting started', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Feature reference', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Data and limits', exact: true })).toBeVisible();
+
+    await expect(page.locator('body')).not.toHaveText(/guarantee|beat the market|win rate|tax/i);
   });
 
-  test('Privacy Policy page renders heading and content', async ({ page }) => {
+  test('Blog page renders h1, h2 empty state, honest title, and compliant copy', async ({ page }) => {
+    await page.goto('/blog');
+    await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Blog', exact: true })).toBeVisible();
+
+    await expect(page.getByRole('heading', { level: 2, name: 'No posts yet', exact: true })).toBeVisible();
+
+    await expect(page.locator('body')).not.toHaveText(/guarantee|beat the market|win rate|tax/i);
+  });
+
+  test('Privacy Policy page renders h1, last updated date, honest title, and compliant copy', async ({ page }) => {
     await page.goto('/privacy');
-    await expect(page.getByRole('heading', { name: 'Privacy Policy', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Information We Collect' })).toBeVisible();
+    await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy', exact: true })).toBeVisible();
+    await expect(page.getByText(/^Last updated: /)).toBeVisible();
+
+    await expect(page.locator('body')).not.toHaveText(/guarantee|beat the market|win rate|tax/i);
   });
 
-  test('Nav links navigate to correct pages', async ({ page }) => {
-    await page.goto('/');
-    // Click Features in the desktop nav
-    await page.getByRole('link', { name: 'Features' }).first().click();
-    await expect(page).toHaveURL(/\/features/);
-    await expect(page.getByRole('heading', { name: 'Features', level: 1 })).toBeVisible();
-  });
+  test('Terms of Service page renders h1, last updated date, honest title, and compliant copy', async ({ page }) => {
+    await page.goto('/terms');
+    await expect(page).toHaveTitle(/\| CryptoWithAlgo$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Terms of Service', exact: true })).toBeVisible();
+    await expect(page.getByText(/^Last updated: /)).toBeVisible();
 
-  test('Footer links navigate to correct pages', async ({ page }) => {
-    await page.goto('/');
-    // Scroll to footer and click How It Works link
-    const howItWorksLink = page.getByRole('link', { name: 'How It Works' }).last();
-    await howItWorksLink.scrollIntoViewIfNeeded();
-    await howItWorksLink.click();
-    await expect(page).toHaveURL(/\/how-it-works/);
+    await expect(page.locator('body')).not.toHaveText(/beat the market|win rate|tax/i);
   });
 });

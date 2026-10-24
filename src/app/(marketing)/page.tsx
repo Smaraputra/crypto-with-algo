@@ -1,21 +1,12 @@
-import { LandingNav } from '@/components/marketing/LandingNav';
-import { HeroSection } from '@/components/marketing/HeroSection';
-import { FeaturesSection } from '@/components/marketing/FeaturesSection';
-import { HowItWorksSection } from '@/components/marketing/HowItWorksSection';
-import { CTASection } from '@/components/marketing/CTASection';
-import { Footer } from '@/components/marketing/Footer';
+import type { Metadata } from 'next';
+import { HomePage } from '@/components/marketing-v2';
 
-export default function LandingPage() {
-  return (
-    <div className="min-h-screen bg-background text-foreground">
-      <LandingNav />
-      <main id="main-content">
-        <HeroSection />
-        <FeaturesSection />
-        <HowItWorksSection />
-        <CTASection />
-      </main>
-      <Footer />
-    </div>
-  );
+export const metadata: Metadata = {
+  title: 'Crypto market tracker with an open research lab | CryptoWithAlgo',
+  description:
+    'Track live crypto prices, study a coin with its trading costs, and follow an open record of trading ideas tested on live data.',
+};
+
+export default function MarketingHomePage() {
+  return <HomePage />;
 }
