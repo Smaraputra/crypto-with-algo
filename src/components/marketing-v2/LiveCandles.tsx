@@ -299,8 +299,8 @@ export function LiveCandles() {
           className="overflow-visible select-none"
         >
           {/* Horizontal grid lines */}
-          {gridLines.map((gl, idx) => (
-            <g key={idx}>
+          {gridLines.map((gl) => (
+            <g key={gl.price}>
               <line
                 x1={xMin}
                 y1={gl.y}

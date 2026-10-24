@@ -68,8 +68,8 @@ test.describe('Landing page (unauthenticated)', () => {
 
     const box = await globeWrapper.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.width).toBeGreaterThan(0);
-    expect(box!.height).toBeGreaterThan(0);
+    expect(box?.width ?? 0).toBeGreaterThan(0);
+    expect(box?.height ?? 0).toBeGreaterThan(0);
   });
 
   test('reduced motion renders hero h1 and evidence caption', async ({ page }) => {
@@ -127,7 +127,7 @@ test.describe('Landing page (unauthenticated)', () => {
     await page.goto('/');
     const labHeading = page.getByRole('heading', { name: 'How evidence builds', exact: true });
     await expect(labHeading).toBeVisible();
-    await expect(page.getByText('ideas that fail stay on the record')).toBeVisible();
+    await expect(page.getByText('Ideas that fail stay on the lab record.')).toBeVisible();
     await expect(page.locator('body')).not.toHaveText(/public record|currently validated/i);
   });
 

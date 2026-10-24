@@ -54,9 +54,9 @@ export function GlobeSvgFallback() {
         strokeWidth="0.5"
         opacity="0.2"
       />
-      {FALLBACK_DOTS.map((dot, idx) => (
+      {FALLBACK_DOTS.map((dot) => (
         <circle
-          key={idx}
+          key={`${dot.cx}-${dot.cy}`}
           cx={dot.cx}
           cy={dot.cy}
           r="2.5"
