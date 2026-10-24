@@ -1,0 +1,2215 @@
+{
+ "source": "src/lib/backtest/cost-model.ts, src/lib/backtest/funding.ts, scripts/research/strategy-walk-forward.ts fundingSumsFor",
+ "constants": {
+  "BINANCE_FUTURES_MAKER_FEE": 0.0002,
+  "BINANCE_FUTURES_TAKER_FEE": 0.0005,
+  "STUDY_SLIPPAGE_BPS": {
+   "1m": 5,
+   "5m": 5,
+   "15m": 3,
+   "1h": 3,
+   "4h": 2,
+   "8h": 2,
+   "1d": 2
+  },
+  "FUNDING_INTERVAL_MS": 28800000,
+  "FEE_PROFILES": {
+   "standard": {
+    "name": "standard",
+    "makerFee": 0.0002,
+    "takerFee": 0.0005,
+    "note": "Binance USDT-M VIP 0, fees paid in USDT. Every recorded research number is on this schedule."
+   },
+   "bnb": {
+    "name": "bnb",
+    "makerFee": 0.00018,
+    "takerFee": 0.00045,
+    "note": "VIP 0 with the 10% discount for paying fees in BNB."
+   },
+   "promo-btc-eth-2026-07": {
+    "name": "promo-btc-eth-2026-07",
+    "makerFee": 0,
+    "takerFee": 0.00036,
+    "symbols": [
+     "BTCUSDT",
+     "ETHUSDT"
+    ],
+    "fallback": "bnb",
+    "note": "HYPOTHETICAL ON USDT-M PAIRS. Binance Futures promotion from 2026-07-02 10:00 UTC \"until further notice\": 0 maker fee for all users, 20% taker discount (0.036% with BNB) regular through VIP 3, announced for \"BTCU and ETHU\". Verified on the account fee page 2026-09-27: the schedule applies to USDC-MARGINED contracts (USDC maker 0.0000% / taker 0.0400%, 0.0360% with BNB); USDT-M pairs stay at the standard 0.0200% / 0.0500% (0.0180% / 0.0450% with BNB). This profile prices BTCUSDT and ETHUSDT at a schedule they cannot get and is kept, with its original symbol scoping, only so the 2026-09-26 audit reports reproduce (strategy-families.ts, PROMO FEE CHECK). Never a selection profile; for the traded venue the cheapest real schedule is bnb."
+   }
+  }
+ },
+ "costCases": [
+  {
+   "interval": "1m",
+   "profile": "standard",
+   "symbol": null,
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "standard",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "standard",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "standard",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "bnb",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "bnb",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "bnb",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "bnb",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.17200000000000001,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.17200000000000001,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "1m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "standard",
+   "symbol": null,
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "standard",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "standard",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "standard",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.2,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "bnb",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "bnb",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "bnb",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "bnb",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.17200000000000001,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.17200000000000001,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "5m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.19,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 5
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "standard",
+   "symbol": null,
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "standard",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "standard",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "standard",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "bnb",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "bnb",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "bnb",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "bnb",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.132,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.132,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "15m",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "standard",
+   "symbol": null,
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "standard",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "standard",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "standard",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.16,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "bnb",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "bnb",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "bnb",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "bnb",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.132,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.132,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "1h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.15,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 3
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "standard",
+   "symbol": null,
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "standard",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "standard",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "standard",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "bnb",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "bnb",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "bnb",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "bnb",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.11200000000000002,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.11200000000000002,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "4h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "standard",
+   "symbol": null,
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "standard",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "standard",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "standard",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "bnb",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "bnb",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "bnb",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "bnb",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.11200000000000002,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.11200000000000002,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "8h",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "standard",
+   "symbol": null,
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "standard",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "standard",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "standard",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "standard",
+   "defaultCostPercent": 0.14,
+   "studyCostConfig": {
+    "feePercent": 0.0005,
+    "makerFeePercent": 0.0002,
+    "takerFeePercent": 0.0005,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "bnb",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "bnb",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "bnb",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "bnb",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": null,
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "BTCUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.11200000000000002,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "ETHUSDT",
+   "resolvedProfile": "promo-btc-eth-2026-07",
+   "defaultCostPercent": 0.11200000000000002,
+   "studyCostConfig": {
+    "feePercent": 0.00036,
+    "makerFeePercent": 0,
+    "takerFeePercent": 0.00036,
+    "slippageBps": 2
+   }
+  },
+  {
+   "interval": "1d",
+   "profile": "promo-btc-eth-2026-07",
+   "symbol": "SOLUSDT",
+   "resolvedProfile": "bnb",
+   "defaultCostPercent": 0.13,
+   "studyCostConfig": {
+    "feePercent": 0.00045,
+    "makerFeePercent": 0.00018,
+    "takerFeePercent": 0.00045,
+    "slippageBps": 2
+   }
+  }
+ ],
+ "slippageCases": [
+  {
+   "price": 1,
+   "direction": "buy",
+   "bps": 0,
+   "result": 1
+  },
+  {
+   "price": 1,
+   "direction": "buy",
+   "bps": 2,
+   "result": 1.0002
+  },
+  {
+   "price": 1,
+   "direction": "buy",
+   "bps": 3,
+   "result": 1.0003
+  },
+  {
+   "price": 1,
+   "direction": "buy",
+   "bps": 5,
+   "result": 1.0005
+  },
+  {
+   "price": 1,
+   "direction": "buy",
+   "bps": 10,
+   "result": 1.001
+  },
+  {
+   "price": 1,
+   "direction": "buy",
+   "bps": 17.5,
+   "result": 1.00175
+  },
+  {
+   "price": 1,
+   "direction": "sell",
+   "bps": 0,
+   "result": 1
+  },
+  {
+   "price": 1,
+   "direction": "sell",
+   "bps": 2,
+   "result": 0.9998
+  },
+  {
+   "price": 1,
+   "direction": "sell",
+   "bps": 3,
+   "result": 0.9997
+  },
+  {
+   "price": 1,
+   "direction": "sell",
+   "bps": 5,
+   "result": 0.9995
+  },
+  {
+   "price": 1,
+   "direction": "sell",
+   "bps": 10,
+   "result": 0.999
+  },
+  {
+   "price": 1,
+   "direction": "sell",
+   "bps": 17.5,
+   "result": 0.99825
+  },
+  {
+   "price": 0.123456,
+   "direction": "buy",
+   "bps": 0,
+   "result": 0.123456
+  },
+  {
+   "price": 0.123456,
+   "direction": "buy",
+   "bps": 2,
+   "result": 0.12348069119999999
+  },
+  {
+   "price": 0.123456,
+   "direction": "buy",
+   "bps": 3,
+   "result": 0.1234930368
+  },
+  {
+   "price": 0.123456,
+   "direction": "buy",
+   "bps": 5,
+   "result": 0.123517728
+  },
+  {
+   "price": 0.123456,
+   "direction": "buy",
+   "bps": 10,
+   "result": 0.12357945599999998
+  },
+  {
+   "price": 0.123456,
+   "direction": "buy",
+   "bps": 17.5,
+   "result": 0.12367204799999999
+  },
+  {
+   "price": 0.123456,
+   "direction": "sell",
+   "bps": 0,
+   "result": 0.123456
+  },
+  {
+   "price": 0.123456,
+   "direction": "sell",
+   "bps": 2,
+   "result": 0.1234313088
+  },
+  {
+   "price": 0.123456,
+   "direction": "sell",
+   "bps": 3,
+   "result": 0.1234189632
+  },
+  {
+   "price": 0.123456,
+   "direction": "sell",
+   "bps": 5,
+   "result": 0.123394272
+  },
+  {
+   "price": 0.123456,
+   "direction": "sell",
+   "bps": 10,
+   "result": 0.123332544
+  },
+  {
+   "price": 0.123456,
+   "direction": "sell",
+   "bps": 17.5,
+   "result": 0.12323995199999999
+  },
+  {
+   "price": 98765.4321,
+   "direction": "buy",
+   "bps": 0,
+   "result": 98765.4321
+  },
+  {
+   "price": 98765.4321,
+   "direction": "buy",
+   "bps": 2,
+   "result": 98785.18518642
+  },
+  {
+   "price": 98765.4321,
+   "direction": "buy",
+   "bps": 3,
+   "result": 98795.06172963
+  },
+  {
+   "price": 98765.4321,
+   "direction": "buy",
+   "bps": 5,
+   "result": 98814.81481605
+  },
+  {
+   "price": 98765.4321,
+   "direction": "buy",
+   "bps": 10,
+   "result": 98864.19753209999
+  },
+  {
+   "price": 98765.4321,
+   "direction": "buy",
+   "bps": 17.5,
+   "result": 98938.271606175
+  },
+  {
+   "price": 98765.4321,
+   "direction": "sell",
+   "bps": 0,
+   "result": 98765.4321
+  },
+  {
+   "price": 98765.4321,
+   "direction": "sell",
+   "bps": 2,
+   "result": 98745.67901358001
+  },
+  {
+   "price": 98765.4321,
+   "direction": "sell",
+   "bps": 3,
+   "result": 98735.80247037
+  },
+  {
+   "price": 98765.4321,
+   "direction": "sell",
+   "bps": 5,
+   "result": 98716.04938395001
+  },
+  {
+   "price": 98765.4321,
+   "direction": "sell",
+   "bps": 10,
+   "result": 98666.6666679
+  },
+  {
+   "price": 98765.4321,
+   "direction": "sell",
+   "bps": 17.5,
+   "result": 98592.592593825
+  }
+ ],
+ "crossingCases": [
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704067200000,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704067200001,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704095999999,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704096000000,
+   "crossings": 2
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704096000001,
+   "crossings": 2
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704150000000,
+   "crossings": 3
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704153600000,
+   "crossings": 4
+  },
+  {
+   "prevCloseTime": 1704067199999,
+   "closeTime": 1704326400005,
+   "crossings": 10
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704096000000,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704096000001,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704150000000,
+   "crossings": 2
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704153600000,
+   "crossings": 3
+  },
+  {
+   "prevCloseTime": 1704067200000,
+   "closeTime": 1704326400005,
+   "crossings": 9
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704096000000,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704096000001,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704150000000,
+   "crossings": 2
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704153600000,
+   "crossings": 3
+  },
+  {
+   "prevCloseTime": 1704067200001,
+   "closeTime": 1704326400005,
+   "crossings": 9
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704096000000,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704096000001,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704150000000,
+   "crossings": 2
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704153600000,
+   "crossings": 3
+  },
+  {
+   "prevCloseTime": 1704095999999,
+   "closeTime": 1704326400005,
+   "crossings": 9
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704096000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704096000001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704150000000,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704153600000,
+   "crossings": 2
+  },
+  {
+   "prevCloseTime": 1704096000000,
+   "closeTime": 1704326400005,
+   "crossings": 8
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704096000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704096000001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704150000000,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704153600000,
+   "crossings": 2
+  },
+  {
+   "prevCloseTime": 1704096000001,
+   "closeTime": 1704326400005,
+   "crossings": 8
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704096000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704096000001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704150000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704153600000,
+   "crossings": 1
+  },
+  {
+   "prevCloseTime": 1704150000000,
+   "closeTime": 1704326400005,
+   "crossings": 7
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704096000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704096000001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704150000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704153600000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704153600000,
+   "closeTime": 1704326400005,
+   "crossings": 6
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704067199999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704067200000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704067200001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704095999999,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704096000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704096000001,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704150000000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704153600000,
+   "crossings": 0
+  },
+  {
+   "prevCloseTime": 1704326400005,
+   "closeTime": 1704326400005,
+   "crossings": 0
+  }
+ ],
+ "pnlCases": [
+  {
+   "notional": 1,
+   "fundingRate": 0.0001,
+   "side": "long",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0.0001,
+   "side": "long",
+   "crossings": 1,
+   "pnl": -0.0001
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0.0001,
+   "side": "long",
+   "crossings": 3,
+   "pnl": -0.00030000000000000003
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0.0001,
+   "side": "short",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0.0001,
+   "side": "short",
+   "crossings": 1,
+   "pnl": 0.0001
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0.0001,
+   "side": "short",
+   "crossings": 3,
+   "pnl": 0.00030000000000000003
+  },
+  {
+   "notional": 1,
+   "fundingRate": -0.00025,
+   "side": "long",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": -0.00025,
+   "side": "long",
+   "crossings": 1,
+   "pnl": 0.00025
+  },
+  {
+   "notional": 1,
+   "fundingRate": -0.00025,
+   "side": "long",
+   "crossings": 3,
+   "pnl": 0.00075
+  },
+  {
+   "notional": 1,
+   "fundingRate": -0.00025,
+   "side": "short",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": -0.00025,
+   "side": "short",
+   "crossings": 1,
+   "pnl": -0.00025
+  },
+  {
+   "notional": 1,
+   "fundingRate": -0.00025,
+   "side": "short",
+   "crossings": 3,
+   "pnl": -0.00075
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0,
+   "side": "long",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0,
+   "side": "long",
+   "crossings": 1,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0,
+   "side": "long",
+   "crossings": 3,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0,
+   "side": "short",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0,
+   "side": "short",
+   "crossings": 1,
+   "pnl": 0
+  },
+  {
+   "notional": 1,
+   "fundingRate": 0,
+   "side": "short",
+   "crossings": 3,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0.0001,
+   "side": "long",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0.0001,
+   "side": "long",
+   "crossings": 1,
+   "pnl": -0.10005
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0.0001,
+   "side": "long",
+   "crossings": 3,
+   "pnl": -0.30015000000000003
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0.0001,
+   "side": "short",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0.0001,
+   "side": "short",
+   "crossings": 1,
+   "pnl": 0.10005
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0.0001,
+   "side": "short",
+   "crossings": 3,
+   "pnl": 0.30015000000000003
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": -0.00025,
+   "side": "long",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": -0.00025,
+   "side": "long",
+   "crossings": 1,
+   "pnl": 0.250125
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": -0.00025,
+   "side": "long",
+   "crossings": 3,
+   "pnl": 0.750375
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": -0.00025,
+   "side": "short",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": -0.00025,
+   "side": "short",
+   "crossings": 1,
+   "pnl": -0.250125
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": -0.00025,
+   "side": "short",
+   "crossings": 3,
+   "pnl": -0.750375
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0,
+   "side": "long",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0,
+   "side": "long",
+   "crossings": 1,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0,
+   "side": "long",
+   "crossings": 3,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0,
+   "side": "short",
+   "crossings": 0,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0,
+   "side": "short",
+   "crossings": 1,
+   "pnl": 0
+  },
+  {
+   "notional": 1000.5,
+   "fundingRate": 0,
+   "side": "short",
+   "crossings": 3,
+   "pnl": 0
+  }
+ ],
+ "settlements": [
+  {
+   "t": 1704067200000,
+   "rate": 0.0001
+  },
+  {
+   "t": 1704096000000,
+   "rate": 0.0002
+  },
+  {
+   "t": 1704124800000,
+   "rate": -0.0001
+  },
+  {
+   "t": 1704139200000,
+   "rate": 0.00005
+  },
+  {
+   "t": 1704153600000,
+   "rate": 0.0003
+  },
+  {
+   "t": 1704168000007,
+   "rate": -0.0002
+  },
+  {
+   "t": 1704182400000,
+   "rate": 0.0001
+  },
+  {
+   "t": 1704182400000,
+   "rate": 0.00002
+  },
+  {
+   "t": 1704211199997,
+   "rate": 0.0004
+  }
+ ],
+ "sumsCases": [
+  {
+   "interval": "1h",
+   "intervalMs": 3600000,
+   "opens": [
+    1704060000000,
+    1704063600000,
+    1704067200000,
+    1704070800000,
+    1704074400000,
+    1704078000000,
+    1704081600000,
+    1704085200000,
+    1704088800000,
+    1704092400000,
+    1704096000000,
+    1704099600000,
+    1704103200000,
+    1704106800000,
+    1704110400000,
+    1704114000000,
+    1704117600000,
+    1704121200000,
+    1704124800000,
+    1704128400000,
+    1704132000000,
+    1704135600000,
+    1704139200000,
+    1704142800000,
+    1704146400000,
+    1704150000000,
+    1704153600000,
+    1704157200000,
+    1704160800000,
+    1704164400000,
+    1704168000000,
+    1704171600000,
+    1704175200000,
+    1704178800000,
+    1704182400000,
+    1704186000000,
+    1704189600000,
+    1704193200000,
+    1704196800000,
+    1704200400000,
+    1704204000000,
+    1704207600000,
+    1704211200000,
+    1704214800000,
+    1704218400000,
+    1704222000000,
+    1704225600000,
+    1704229200000,
+    1704232800000,
+    1704236400000
+   ],
+   "sums": [
+    0,
+    0.0001,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.0002,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    -0.0001,
+    0,
+    0,
+    0,
+    0.00005,
+    0,
+    0,
+    0,
+    0.0003,
+    0,
+    0,
+    0,
+    0,
+    -0.0002,
+    0,
+    0,
+    0.00012,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0.0004,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "interval": "4h",
+   "intervalMs": 14400000,
+   "opens": [
+    1704038400000,
+    1704052800000,
+    1704067200000,
+    1704081600000,
+    1704096000000,
+    1704110400000,
+    1704124800000,
+    1704139200000,
+    1704153600000,
+    1704168000000,
+    1704182400000,
+    1704196800000,
+    1704211200000,
+    1704225600000
+   ],
+   "sums": [
+    0,
+    0.0001,
+    0,
+    0.0002,
+    0,
+    -0.0001,
+    0.00005,
+    0.0003,
+    0,
+    -0.00008,
+    0,
+    0.0004,
+    0,
+    0
+   ]
+  },
+  {
+   "interval": "1d",
+   "intervalMs": 86400000,
+   "opens": [
+    1703894400000,
+    1703980800000,
+    1704067200000,
+    1704153600000
+   ],
+   "sums": [
+    0,
+    0.0001,
+    0.00045,
+    0.00032
+   ]
+  }
+ ]
+}
