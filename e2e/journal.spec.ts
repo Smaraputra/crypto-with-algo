@@ -141,8 +141,8 @@ test.describe('Journal page (authenticated)', () => {
         timeout: 10000,
       });
 
-      // Assert the entry sheet shows "Held"
-      await expect(page.getByText('Held')).toBeVisible({ timeout: 10000 });
+      // The entry sheet shows the hold time (the table has a Held column too, so scope to the sheet)
+      await expect(page.getByRole('dialog').getByText('Held', { exact: true })).toBeVisible({ timeout: 10000 });
 
       await page.getByRole('button', { name: 'Delete trade', exact: true }).click();
       const deleteDialog = page.getByRole('dialog', { name: 'Delete trade' });

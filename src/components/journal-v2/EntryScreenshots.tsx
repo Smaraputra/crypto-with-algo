@@ -87,6 +87,7 @@ export const EntryScreenshots: React.FC<EntryScreenshotsProps> = ({ entry }) => 
                 }}
                 className="group relative aspect-[4/3] w-full overflow-hidden rounded-[8px] border border-edge/30 bg-muted/20 min-h-[44px] cursor-pointer focus-visible:outline-3 focus-visible:outline-ring"
               >
+                {/* eslint-disable-next-line @next/next/no-img-element -- private screenshots (auth-only API or a local blob) must not pass through the public image optimizer */}
                 <img
                   src={`/api/journal/screenshots/${shot.fileId}`}
                   alt={`Screenshot ${shotNumber} of the ${baseAsset} trade`}
@@ -138,6 +139,7 @@ export const EntryScreenshots: React.FC<EntryScreenshotsProps> = ({ entry }) => 
 
           {activeScreenshot && (
             <div className="flex flex-col items-center gap-4 py-2">
+              {/* eslint-disable-next-line @next/next/no-img-element -- private screenshots (auth-only API or a local blob) must not pass through the public image optimizer */}
               <img
                 src={`/api/journal/screenshots/${activeScreenshot.fileId}`}
                 alt={`Screenshot ${(activeIndex ?? 0) + 1} of the ${baseAsset} trade`}

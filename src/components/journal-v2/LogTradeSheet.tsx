@@ -634,6 +634,7 @@ const LogTradeFormContent: React.FC<LogTradeFormContentProps> = ({
               {pendingFiles.map((item) => (
                 <div key={item.id} className="flex flex-col gap-1.5">
                   <div className="aspect-[4/3] w-full overflow-hidden rounded-[8px] border border-edge bg-muted/20">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- private screenshots (auth-only API or a local blob) must not pass through the public image optimizer */}
                     <img
                       src={item.url}
                       alt={item.file.name}
