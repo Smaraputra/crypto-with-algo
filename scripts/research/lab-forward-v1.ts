@@ -174,6 +174,12 @@
  * window. The 16:00 bar stays as stored (no coins, no bet). Skipped coins now record their window size in
  * inputs, which is how this went unseen until the first bar.
  *
+ * AMENDMENT 3 (2026-10-25, Round 4 audit V1-1, operational only): a failed price fetch for one coin now
+ * delays a hypothesis only from its first due bar that needs that coin. Its earlier due bars and the other
+ * hypotheses grade in the same run, still in barClose order, and lab-v2 is no longer held back by a lab-v1
+ * fetch failure. No rule, statistic, threshold or graded value changes, only the time at which unaffected
+ * bars are graded.
+ *
  * TRIALS: the program ledger moves from 2,161 to 2,169 (eight hypotheses).
  */
 import { LAB_HYPOTHESES_V1, LAB_VERSION } from '@/lib/signals/lab/candidates';

@@ -803,7 +803,14 @@ export interface LabGradeReport {
     b: number | null;
     e: number;
   }[];
-  pending: { hypothesis: string; barClose: number; dueAt: number }[];
+  pending: {
+    hypothesis: string;
+    barClose: number;
+    dueAt: number;
+    reason?: string;
+    error?: string;
+    blockedBars?: number;
+  }[];
   errors: string[];
 }
 
@@ -882,11 +889,13 @@ async function gradeLabV1AndV2(
 
     const symbols = Array.from(neededTimesBySymbol.keys()).sort();
     const priceMapBySymbol = new Map<string, Map<number, number>>();
+    const failedSymbols = new Map<string, string>();
 
     if (symbols.length > 0) {
       const fetchResults = await Promise.allSettled(
         symbols.map(async (sym) => {
-          const times = Array.from(neededTimesBySymbol.get(sym)!);
+          const timesSet = neededTimesBySymbol.get(sym);
+          const times = timesSet ? Array.from(timesSet) : [];
           const minNeeded = Math.min(...times);
           const maxNeeded = Math.max(...times);
           const klines = await d.fetchPerpKlinesRange(sym, '5m', minNeeded, maxNeeded);
@@ -894,14 +903,15 @@ async function gradeLabV1AndV2(
         })
       );
 
-      let anyFailed = false;
-      for (const res of fetchResults) {
+      for (let i = 0; i < symbols.length; i++) {
+        const res = fetchResults[i];
+        const sym = symbols[i];
         if (res.status === 'rejected') {
-          anyFailed = true;
           const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
+          failedSymbols.set(sym, msg);
           report.errors.push(msg);
         } else {
-          const { sym, klines } = res.value;
+          const { klines } = res.value;
           const klineMap = new Map<number, number>();
           for (const k of klines) {
             klineMap.set(k.openTime, k.open);
@@ -910,9 +920,8 @@ async function gradeLabV1AndV2(
         }
       }
 
-      if (anyFailed) {
+      if (failedSymbols.size > 0) {
         report.success = false;
-        return;
       }
     }
 
@@ -945,7 +954,25 @@ async function gradeLabV1AndV2(
         pastS,
       };
 
-      for (const sig of dueSignals) {
+      for (let i = 0; i < dueSignals.length; i++) {
+        const sig = dueSignals[i];
+        const failedCoins = Object.keys(sig.scores)
+          .filter((sym) => failedSymbols.has(sym))
+          .sort();
+
+        if (failedCoins.length > 0) {
+          const failedSym = failedCoins[0];
+          const errorMsg = failedSymbols.get(failedSym);
+          report.pending.push({
+            hypothesis: hyp.id,
+            barClose: sig.barClose,
+            dueAt: gradeDueAt(sig.barClose, hyp.timeframe),
+            reason: 'price_fetch_failed',
+            blockedBars: dueSignals.length - i,
+            ...(errorMsg !== undefined ? { error: errorMsg } : {}),
+          });
+          break;
+        }
         const { start, end } = priceTimes(sig.barClose, hyp.timeframe);
         const prices: Record<string, { start: number; end: number }> = {};
         for (const sym of Object.keys(sig.scores)) {

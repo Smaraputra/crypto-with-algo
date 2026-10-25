@@ -1204,6 +1204,347 @@ describe('runLabGrade with mocked deps for v1 and v2', () => {
     expect(v2Row!.x).toBeCloseTo(expectedR_N3 / 0.8, 12);
   });
 
+  it('when one symbol price fetch rejects, the unaffected hypothesis grades, the affected stays pending with price_fetch_failed, and lab-v2 still grades', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+
+    const v1SymbolsWithoutSol = [
+      'BTCUSDT',
+      'ETHUSDT',
+      'BNBUSDT',
+      'XRPUSDT',
+      'DOGEUSDT',
+      'ADAUSDT',
+      'AVAXUSDT',
+      'LINKUSDT',
+      'DOTUSDT',
+    ];
+    const scoresWithoutSol: Record<string, number> = {};
+    for (let i = 0; i < v1SymbolsWithoutSol.length; i++) {
+      scoresWithoutSol[v1SymbolsWithoutSol[i]] = i;
+    }
+
+    const v1SymbolsWithSol = [
+      'BTCUSDT',
+      'ETHUSDT',
+      'BNBUSDT',
+      'XRPUSDT',
+      'DOGEUSDT',
+      'ADAUSDT',
+      'AVAXUSDT',
+      'LINKUSDT',
+      'SOLUSDT',
+    ];
+    const scoresWithSol: Record<string, number> = {};
+    for (let i = 0; i < v1SymbolsWithSol.length; i++) {
+      scoresWithSol[v1SymbolsWithSol[i]] = i;
+    }
+
+    // L2-1h does not use SOLUSDT
+    await insertLabSignalOnce({
+      version: 'lab-v1',
+      hypothesis: 'L2-1h',
+      candidate: 'L2',
+      timeframe: '1h',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: scoresWithoutSol,
+      skipped: [],
+      inputs: {},
+    });
+
+    // L1-8h uses SOLUSDT
+    await insertLabSignalOnce({
+      version: 'lab-v1',
+      hypothesis: 'L1-8h',
+      candidate: 'L1',
+      timeframe: '8h',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: scoresWithSol,
+      skipped: [],
+      inputs: {},
+    });
+
+    // N3-1d (lab-v2) uses BTCUSDT and ETHUSDT
+    await insertLabSignalOnce({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      candidate: 'N3',
+      timeframe: '1d',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: { BTCUSDT: 1, ETHUSDT: -1 },
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = Math.max(gradeDueAt(T1, '1h'), gradeDueAt(T1, '8h'), gradeDueAt(T1, '1d')) + 1000;
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(
+      async (symbol: string, _interval: string, startTime: number, endTime: number) => {
+        if (symbol === 'SOLUSDT') {
+          throw new Error('Connection refused for SOLUSDT');
+        }
+        const idx = v1SymbolsWithSol.indexOf(symbol);
+        const klines = [];
+        for (let t = startTime; t <= endTime; t += 300_000) {
+          const open = 100 + (t === startTime ? 0 : (idx + 1) * 0.1);
+          klines.push({
+            openTime: t,
+            closeTime: t + 300_000 - 1,
+            open,
+            high: open * 1.01,
+            low: open * 0.99,
+            close: open,
+            volume: 1000,
+            quoteVolume: 100_000,
+            trades: 50,
+            takerBuyVolume: 500,
+          });
+        }
+        return klines;
+      }
+    );
+
+    const mockFundingSumsFor = vi.fn().mockResolvedValue({
+      BTCUSDT: 0.0005,
+      ETHUSDT: -0.0002,
+    });
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      fundingSumsFor: mockFundingSumsFor,
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+
+    expect(report.success).toBe(false);
+    expect(report.errors).toContain('Connection refused for SOLUSDT');
+
+    expect(report.graded).toHaveLength(2);
+    expect(
+      report.graded
+        .map((g) => ({ hypothesis: g.hypothesis, barClose: g.barClose }))
+        .sort((a, b) => a.hypothesis.localeCompare(b.hypothesis))
+    ).toEqual([
+      { hypothesis: 'L2-1h', barClose: T1 },
+      { hypothesis: 'N3-1d', barClose: T1 },
+    ]);
+
+    expect(report.pending).toContainEqual({
+      hypothesis: 'L1-8h',
+      barClose: T1,
+      dueAt: gradeDueAt(T1, '8h'),
+      reason: 'price_fetch_failed',
+      error: 'Connection refused for SOLUSDT',
+      blockedBars: 1,
+    });
+
+    const l2Row = await LabScore.findOne({ hypothesis: 'L2-1h', barClose: T1 }).lean();
+    expect(l2Row).not.toBeNull();
+    expect(l2Row?.version).toBe('lab-v1');
+    expect(l2Row?.hypothesis).toBe('L2-1h');
+
+    const l1Row = await LabScore.findOne({ hypothesis: 'L1-8h', barClose: T1 }).lean();
+    expect(l1Row).toBeNull();
+
+    const n3Row = await LabScore.findOne({ hypothesis: 'N3-1d', barClose: T1 }).lean();
+    expect(n3Row).not.toBeNull();
+    expect(n3Row?.version).toBe('lab-v2');
+    expect(n3Row?.hypothesis).toBe('N3-1d');
+    expect(n3Row?.bet).toBe(true);
+
+    // Run 2: With no failures, the affected bar grades and row matches expectations
+    const mockFetchPerpKlinesRangeSuccess = vi.fn().mockImplementation(
+      async (symbol: string, _interval: string, startTime: number, endTime: number) => {
+        const idx = v1SymbolsWithSol.indexOf(symbol);
+        const klines = [];
+        for (let t = startTime; t <= endTime; t += 300_000) {
+          const open = 100 + (t === startTime ? 0 : (idx + 1) * 0.1);
+          klines.push({
+            openTime: t,
+            closeTime: t + 300_000 - 1,
+            open,
+            high: open * 1.01,
+            low: open * 0.99,
+            close: open,
+            volume: 1000,
+            quoteVolume: 100_000,
+            trades: 50,
+            takerBuyVolume: 500,
+          });
+        }
+        return klines;
+      }
+    );
+
+    const report2 = await runLabGrade(now, {
+      ...deps,
+      fetchPerpKlinesRange: mockFetchPerpKlinesRangeSuccess,
+    });
+
+    expect(report2.success).toBe(true);
+    expect(report2.graded).toHaveLength(1);
+    expect(report2.graded[0].hypothesis).toBe('L1-8h');
+    expect(report2.graded[0].barClose).toBe(T1);
+
+    const l1RowAfter = await LabScore.findOne({ hypothesis: 'L1-8h', barClose: T1 }).lean();
+    expect(l1RowAfter).not.toBeNull();
+    expect(l1RowAfter?.version).toBe('lab-v1');
+    expect(l1RowAfter?.hypothesis).toBe('L1-8h');
+    expect(l1RowAfter?.noBetReason).toBe('no_hurdle');
+    expect(l1RowAfter?.bet).toBe(false);
+  });
+
+  it('grades due-bar prefix up to first blocked bar, leaving subsequent bars waiting with blockedBars count', async () => {
+    const T1 = Date.UTC(2026, 9, 18, 0);
+    const T2 = Date.UTC(2026, 9, 18, 1);
+    const T3 = Date.UTC(2026, 9, 18, 2);
+
+    const v1SymbolsWithoutSol = [
+      'BTCUSDT',
+      'ETHUSDT',
+      'BNBUSDT',
+      'XRPUSDT',
+      'DOGEUSDT',
+      'ADAUSDT',
+      'AVAXUSDT',
+      'LINKUSDT',
+      'DOTUSDT',
+    ];
+    const scoresWithoutSol: Record<string, number> = {};
+    for (let i = 0; i < v1SymbolsWithoutSol.length; i++) {
+      scoresWithoutSol[v1SymbolsWithoutSol[i]] = i;
+    }
+
+    const v1SymbolsWithSol = [
+      'BTCUSDT',
+      'ETHUSDT',
+      'BNBUSDT',
+      'XRPUSDT',
+      'DOGEUSDT',
+      'ADAUSDT',
+      'AVAXUSDT',
+      'LINKUSDT',
+      'SOLUSDT',
+    ];
+    const scoresWithSol: Record<string, number> = {};
+    for (let i = 0; i < v1SymbolsWithSol.length; i++) {
+      scoresWithSol[v1SymbolsWithSol[i]] = i;
+    }
+
+    // T1: coins priced (scoresWithoutSol)
+    await insertLabSignalOnce({
+      version: 'lab-v1',
+      hypothesis: 'L2-1h',
+      candidate: 'L2',
+      timeframe: '1h',
+      barClose: T1,
+      writtenAt: new Date(T1 + 60_000),
+      late: false,
+      scores: scoresWithoutSol,
+      skipped: [],
+      inputs: {},
+    });
+
+    // T2: needs failed coin SOLUSDT (scoresWithSol)
+    await insertLabSignalOnce({
+      version: 'lab-v1',
+      hypothesis: 'L2-1h',
+      candidate: 'L2',
+      timeframe: '1h',
+      barClose: T2,
+      writtenAt: new Date(T2 + 60_000),
+      late: false,
+      scores: scoresWithSol,
+      skipped: [],
+      inputs: {},
+    });
+
+    // T3: coins priced (scoresWithoutSol)
+    await insertLabSignalOnce({
+      version: 'lab-v1',
+      hypothesis: 'L2-1h',
+      candidate: 'L2',
+      timeframe: '1h',
+      barClose: T3,
+      writtenAt: new Date(T3 + 60_000),
+      late: false,
+      scores: scoresWithoutSol,
+      skipped: [],
+      inputs: {},
+    });
+
+    const now = gradeDueAt(T3, '1h') + 1000;
+
+    const mockFetchPerpKlinesRange = vi.fn().mockImplementation(
+      async (symbol: string, _interval: string, startTime: number, endTime: number) => {
+        if (symbol === 'SOLUSDT') {
+          throw new Error('Connection refused for SOLUSDT');
+        }
+        const idx = v1SymbolsWithoutSol.indexOf(symbol);
+        const klines = [];
+        for (let t = startTime; t <= endTime; t += 300_000) {
+          const open = 100 + (t === startTime ? 0 : (idx + 1) * 0.1);
+          klines.push({
+            openTime: t,
+            closeTime: t + 300_000 - 1,
+            open,
+            high: open * 1.01,
+            low: open * 0.99,
+            close: open,
+            volume: 1000,
+            quoteVolume: 100_000,
+            trades: 50,
+            takerBuyVolume: 500,
+          });
+        }
+        return klines;
+      }
+    );
+
+    const deps: LabGradeDeps = {
+      fetchPerpKlinesRange: mockFetchPerpKlinesRange,
+      clock: () => now,
+    };
+
+    const report = await runLabGrade(now, deps);
+
+    expect(report.success).toBe(false);
+    expect(report.errors).toContain('Connection refused for SOLUSDT');
+
+    // T1 is graded (assert its barClose in report.graded)
+    expect(report.graded).toHaveLength(1);
+    expect(report.graded[0].hypothesis).toBe('L2-1h');
+    expect(report.graded[0].barClose).toBe(T1);
+
+    const t1Row = await LabScore.findOne({ hypothesis: 'L2-1h', barClose: T1 }).lean();
+    expect(t1Row).not.toBeNull();
+    expect(t1Row?.version).toBe('lab-v1');
+
+    // T2 and T3 are not graded
+    const t2Row = await LabScore.findOne({ hypothesis: 'L2-1h', barClose: T2 }).lean();
+    expect(t2Row).toBeNull();
+
+    const t3Row = await LabScore.findOne({ hypothesis: 'L2-1h', barClose: T3 }).lean();
+    expect(t3Row).toBeNull();
+
+    // pending has T2 with blockedBars === 2
+    expect(report.pending).toHaveLength(1);
+    expect(report.pending[0]).toEqual({
+      hypothesis: 'L2-1h',
+      barClose: T2,
+      dueAt: gradeDueAt(T2, '1h'),
+      reason: 'price_fetch_failed',
+      error: 'Connection refused for SOLUSDT',
+      blockedBars: 2,
+    });
+  });
+
   it('leaves bar ungraded with no row written on funding sync error, and grades it once sync succeeds', async () => {
     const T1 = Date.UTC(2026, 9, 18, 0);
 
