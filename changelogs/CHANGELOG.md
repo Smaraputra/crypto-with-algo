@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Problem:** `/api/cron/sync-candles` added strategy and watchlist symbols first and the 10 signal coins last, then cut the (symbol, interval) list at 50 pairs. With 13 or more distinct symbols across 4 intervals, signal coins fell off the end. Production has the 10 signal coins only (40 pairs), so this had not happened.
 - **Fix:** the signal coins come first, in their defined order, so the cap can only drop user-only symbols. The response now reports `droppedPairs`.
 
+### Fixed: live v8 context is pinned to the scored candle's close (Round 4 audit V8-1, V8-2)
+- **Problem:** the higher-timeframe context filtered bars against the batch wall clock (`now`), and news sentiment was read relative to `Date.now()`. A late compute could read an HTF bar, or headlines, from after the scored candle closed.
+- **Fix:** both now use the scored candle's close (`latestCandleTs + interval`). This is the same rule the research path uses (`htf.timestamp + htfMs <= ltf.timestamp + ltfMs`).
+- **Timely runs:** about a minute after sync, scores are unchanged, so `configVersion` is not bumped.
+- **News queries:** news is read once per distinct candle close in a batch, for all the symbols scored at that close. A batch whose tasks share one close still makes one query.
+- **Golden test:** its pinned news query arguments are updated, and its score assertions are unchanged.
+
+### Fixed: lab-v2 no longer uses a silently truncated kline history (Round 4 audit V2-1)
+- **Problem:** `fetchKlinesRange` stops paging when its 120 s deadline passes and returns what it has. Paging runs forward from the start, so a timeout drops the most RECENT bars. N2 (about 2015 daily bars) and N3 (15m) then scored on stale history without any error.
+- **Fix:** an opt-in `{ strict: true }` mode makes the deadline throw. Both lab-v2 jobs use it, and they also require the last bar to be the one closing at T. Either failure takes the existing failed-fetch path: wait, retry, then skip on the final attempt.
+- **Unchanged:** the default (non-strict) behaviour, used by candle ingestion and backfill. Complete histories, the frozen rules and the stored rows are all unchanged as well. The lock (`scripts/research/lab-forward-v2.ts`) records this as an amendment.
+
+### Fixed: one failed price fetch no longer blocks every lab-v1 and lab-v2 grade (Round 4 audit V1-1)
+- **Problem:** `gradeLabV1AndV2` fetched all symbols' 5m prices in parallel and returned at the first failure. One coin's REST error then held back all 8 lab-v1 hypotheses and all of lab-v2 until the next hourly run.
+- **Fix:** a hypothesis grades its due bars in order up to the first bar that needs a coin whose fetch failed. That bar and the later ones wait, reported as one pending entry with `price_fetch_failed`, the error and `blockedBars`. Every other hypothesis, and lab-v2, grades in the same run.
+- **Unchanged:** grading order within a hypothesis and every graded value. Only the time at which unaffected bars are graded moves. The lock (`scripts/research/lab-forward-v1.ts`) records this as AMENDMENT 3.
+
 ### Added: A detail page for every research entry, with its trials and test runs
 - **Detail pages:** every entry in the `/signals` hub now has its own page at `/signals/{id}`, linked from its card ("Open the full page"). Each page shows:
   - method;
