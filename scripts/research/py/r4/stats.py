@@ -354,3 +354,148 @@ def shuffled_label_null(
         null_stats[i] = run_pipeline(shuffled)
 
     return null_stats
+
+
+def _parse_side(s: Any) -> float:
+    """Parse a trade side indicator into +1.0 (long) or -1.0 (short)."""
+    if isinstance(s, (int, float, np.integer, np.floating)):
+        return float(s)
+    s_str = str(s).strip().lower()
+    if s_str in ("long", "buy", "1", "+1"):
+        return 1.0
+    if s_str in ("short", "sell", "-1"):
+        return -1.0
+    raise ValueError(f"Unknown side: {s!r}")
+
+
+def coin_mean_hourly(log_returns_hourly: Sequence[float] | np.ndarray) -> float:
+    """Mean of a coin's hourly log returns over the span, NaN-aware."""
+    arr = np.asarray(log_returns_hourly, dtype=float)
+    if arr.size == 0:
+        return float("nan")
+    valid = ~np.isnan(arr)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(arr[valid]))
+
+
+def drift_free_trade_returns(
+    sides: Sequence[Any] | np.ndarray | str | float | int,
+    gross_log_returns: Sequence[float] | np.ndarray | float,
+    hold_hours: Sequence[float] | np.ndarray | float,
+    coin_mean_hourly: float | Sequence[float] | np.ndarray,
+    costs: Sequence[float] | np.ndarray | float,
+) -> np.ndarray:
+    """Element-wise drift-free trade returns: side * (r - m * hold) - costs."""
+    sides_raw = np.asarray(sides)
+    if sides_raw.ndim == 0:
+        s: float | np.ndarray = _parse_side(sides_raw.item())
+    elif np.issubdtype(sides_raw.dtype, np.number):
+        s = sides_raw.astype(float)
+    else:
+        s = np.array([_parse_side(x) for x in sides_raw.flat], dtype=float).reshape(sides_raw.shape)
+
+    r = np.asarray(gross_log_returns, dtype=float)
+    h = np.asarray(hold_hours, dtype=float)
+    m = np.asarray(coin_mean_hourly, dtype=float)
+    c = np.asarray(costs, dtype=float)
+
+    out = s * (r - m * h) - c
+    return np.asarray(out, dtype=float)
+
+
+def joint_shift_null(
+    evaluate: Callable[[list[tuple[str, int, str, float, int]]], float],
+    entries: Sequence[tuple[str, int, str, float, int]],
+    n_bars: int,
+    min_shift_bars: int,
+    n_draws: int,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Null distribution by circular time shifts of the joint entry set.
+
+    Preserves entry clustering across coins by shifting all entries by the same offset.
+    Drops entries whose holding window wraps past the common bar grid.
+    """
+    if n_bars <= 0:
+        raise ValueError("n_bars must be positive")
+    if min_shift_bars < 0:
+        raise ValueError("min_shift_bars must be non-negative")
+    max_shift = n_bars - min_shift_bars
+    if min_shift_bars > max_shift:
+        raise ValueError("min_shift_bars must be <= n_bars - min_shift_bars")
+    if n_draws < 0:
+        raise ValueError("n_draws must be non-negative")
+
+    null_stats = np.empty(n_draws, dtype=float)
+    dropped_counts = np.empty(n_draws, dtype=np.int64)
+    if n_draws == 0:
+        return (null_stats, dropped_counts)
+
+    rng = np.random.default_rng(seed)
+    entry_list = list(entries)
+
+    for draw_idx in range(n_draws):
+        s = int(rng.integers(min_shift_bars, max_shift, endpoint=True))
+        shifted_entries: list[tuple[str, int, str, float, int]] = []
+        dropped = 0
+        for entry in entry_list:
+            sym, bar, side, size, hold = entry
+            bar_prime = (bar + s) % n_bars
+            if bar_prime + hold > n_bars:
+                dropped += 1
+            else:
+                shifted_entries.append((sym, bar_prime, side, size, hold))
+
+        dropped_counts[draw_idx] = dropped
+        null_stats[draw_idx] = evaluate(shifted_entries)
+
+    return (null_stats, dropped_counts)
+
+
+def hansen_spa(
+    returns_matrix: Sequence[Sequence[float]] | np.ndarray,
+    n_reps: int,
+    mean_block_len: float,
+    seed: int,
+) -> tuple[float, float]:
+    """Hansen (2005) Superior Predictive Ability (SPA) test with consistent p-value."""
+    arr = np.asarray(returns_matrix, dtype=float)
+    if arr.ndim != 2:
+        raise ValueError("returns_matrix must be a 2-D array of shape (T, K)")
+    t_periods, n_configs = arr.shape
+    if t_periods < 3:
+        raise ValueError("T must be >= 3 for Hansen SPA test")
+    if n_configs < 1:
+        raise ValueError("K must be >= 1")
+    if n_reps <= 0:
+        raise ValueError("n_reps must be positive")
+
+    mean_k = np.mean(arr, axis=0)
+    sqrt_t = math.sqrt(t_periods)
+
+    rng = np.random.default_rng(seed)
+    boot_means = np.empty((n_reps, n_configs), dtype=float)
+    for b in range(n_reps):
+        idx = stationary_bootstrap_indices(t_periods, mean_block_len, rng)
+        boot_means[b] = np.mean(arr[idx], axis=0)
+
+    ddof = 1 if n_reps > 1 else 0
+    omega_k = np.std(sqrt_t * boot_means, axis=0, ddof=ddof)
+    omega_safe = np.where(omega_k > 1e-12, omega_k, 1.0)
+
+    t_k = np.where(omega_k > 1e-12, sqrt_t * mean_k / omega_safe, 0.0)
+    t_spa = float(max(0.0, float(np.max(t_k))))
+
+    # Consistent p-value recentering:
+    # Recentre by mean_k * 1{ mean_k >= -sqrt(omega_k^2 / T * 2 * log(log(T))) }
+    crit = np.sqrt((omega_k**2 / t_periods) * 2.0 * math.log(math.log(t_periods)))
+    recentred_k = np.where(mean_k >= -crit, mean_k, 0.0)
+
+    # Bootstrap statistic per rep: max(0, max_k sqrt(T) * (mean*_k - recentred_k) / omega_k)
+    boot_stat_k = np.where(omega_k > 1e-12, sqrt_t * (boot_means - recentred_k) / omega_safe, 0.0)
+    boot_max_k = np.max(boot_stat_k, axis=1)
+    boot_stats = np.maximum(0.0, boot_max_k)
+
+    p_consistent = float(np.mean(boot_stats >= t_spa))
+    return (t_spa, p_consistent)
