@@ -675,3 +675,21 @@ def test_run_result_folds_and_tranches(refit: str):
     summed = pd.concat([f.book for f in res.folds if f.tranches]).groupby("day_start")["drift_free"].sum()
     expected = summed.reindex(res.drift_free.index).fillna(0.0)
     assert np.max(np.abs(res.drift_free["drift_free"].to_numpy() - expected.to_numpy())) <= 1e-12
+
+
+def test_decision_sample_copies_share_market_frames_only():
+    panel = _make_synthetic_panel(symbols=("BTCUSDT",), n_days=8)
+    samples = decision_samples(panel, _make_config())
+    assert not samples.empty
+    dropped = samples.attrs["n_dropped"]
+    original_value = samples.loc[0, "ret_1"]
+    original_output = samples.loc[0, "gross_log"]
+    for copied in (samples.copy(deep=True), samples.loc[samples["T"] >= samples["T"].min()].copy()):
+        for symbol, frames in panel.items():
+            for key, frame in frames.items():
+                assert copied.attrs["panel"][symbol][key] is frame
+        assert copied.attrs["n_dropped"] == dropped
+        copied.loc[0, "ret_1"] = 123.0
+        copied.loc[0, "gross_log"] = 456.0
+        assert samples.loc[0, "ret_1"] == original_value
+        assert samples.loc[0, "gross_log"] == original_output

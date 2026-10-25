@@ -40,6 +40,14 @@ from r4.method import (
 logger = logging.getLogger(__name__)
 
 
+class _SharedPanel(dict[str, dict[str, pd.DataFrame]]):
+    """Share read-only input frames when pandas copies sample attrs within a run."""
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> _SharedPanel:
+        memo[id(self)] = self
+        return self
+
+
 @dataclass(frozen=True)
 class RunConfig:
     family: str
@@ -318,7 +326,7 @@ def decision_samples(
         combined = pd.DataFrame(columns=out_cols)
 
     combined.attrs["n_dropped"] = total_dropped
-    combined.attrs["panel"] = panel
+    combined.attrs["panel"] = _SharedPanel({symbol: dict(frames) for symbol, frames in panel.items()})
     logger.info("decision_samples: dropped %d rows, kept %d rows", total_dropped, len(combined))
     return combined
 

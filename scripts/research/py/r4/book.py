@@ -217,8 +217,12 @@ class FiveMinLookup:
             else:
                 times = df.iloc[:, 0].to_numpy(dtype=np.int64)
                 opens = df.iloc[:, 1].to_numpy(dtype=np.float64)
-            order = np.argsort(times)
-            self._symbols[sym] = (times[order], opens[order])
+            if len(times) < 2 or np.all(times[1:] > times[:-1]):
+                self._symbols[sym] = (times, opens)
+            else:
+                # Retain argsort's existing tie ordering for duplicate timestamps.
+                order = np.argsort(times)
+                self._symbols[sym] = (times[order], opens[order])
 
     def has_symbol(self, symbol: str) -> bool:
         return symbol in self._symbols
@@ -249,6 +253,17 @@ class FiveMinLookup:
         if idx > 0:
             return float(opens[idx - 1]), True
         raise ValueError(f"No 5m bar found at or before {timestamp_ms} for symbol {symbol}")
+
+
+def _tranches_by_day(tranches: Sequence[Tranche]) -> dict[int, list[Tranche]]:
+    """Bucket intersecting UTC days while retaining input accumulation order."""
+    by_day: dict[int, list[Tranche]] = {}
+    for tranche in tranches:
+        start_day = (tranche.entry_ms // DAY_MS) * DAY_MS
+        end_day = ((tranche.exit_ms - 1) // DAY_MS) * DAY_MS
+        for day in range(start_day, end_day + DAY_MS, DAY_MS):
+            by_day.setdefault(day, []).append(tranche)
+    return by_day
 
 
 def daily_book(
@@ -287,22 +302,14 @@ def daily_book(
         sym: _extract_settlements_for_symbol(settlements, sym) for sym in unique_symbols
     }
 
-    active_days: set[int] = set()
-    for t in tranche_list:
-        start_day = (t.entry_ms // DAY_MS) * DAY_MS
-        end_day = ((t.exit_ms - 1) // DAY_MS) * DAY_MS
-        for d in range(start_day, end_day + DAY_MS, DAY_MS):
-            active_days.add(d)
-
-    sorted_days = sorted(active_days)
+    day_tranches = _tranches_by_day(tranche_list)
+    sorted_days = sorted(day_tranches)
     records: list[dict[str, Any]] = []
 
     for d_start in sorted_days:
         d_end = d_start + DAY_MS
 
-        open_tranches = [t for t in tranche_list if t.entry_ms < d_end and t.exit_ms > d_start]
-        if not open_tranches:
-            continue
+        open_tranches = day_tranches[d_start]
 
         n_open = len(open_tranches)
         net_weight_start = sum(t.weight for t in open_tranches if t.entry_ms < d_start < t.exit_ms)
@@ -353,9 +360,10 @@ def daily_book(
 
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
-                mask = (s_times > d_start) & (s_times <= d_end) & (s_times > t.entry_ms) & (s_times <= t.exit_ms)
-                if np.any(mask):
-                    funding += float(np.sum(-w * s_rates[mask]))
+                left = int(np.searchsorted(s_times, max(d_start, t.entry_ms), side="right"))
+                right = int(np.searchsorted(s_times, min(d_end, t.exit_ms), side="right"))
+                if left < right:
+                    funding += float(np.sum(-w * s_rates[left:right]))
 
         costs = day_fees + day_slippage
         net = gross - costs + funding
@@ -555,28 +563,21 @@ def beta_hedged_daily(
         return df_empty
 
     lookup = FiveMinLookup(five_min)
+    ew_cache: dict[tuple[int, int], tuple[float, int]] = {}
 
     unique_symbols = {t.symbol for t in tranche_list}
     symbol_funding: dict[str, tuple[np.ndarray, np.ndarray]] = {
         sym: _extract_settlements_for_symbol(settlements, sym) for sym in unique_symbols
     }
 
-    active_days: set[int] = set()
-    for t in tranche_list:
-        start_day = (t.entry_ms // DAY_MS) * DAY_MS
-        end_day = ((t.exit_ms - 1) // DAY_MS) * DAY_MS
-        for d in range(start_day, end_day + DAY_MS, DAY_MS):
-            active_days.add(d)
-
-    sorted_days = sorted(active_days)
+    day_tranches = _tranches_by_day(tranche_list)
+    sorted_days = sorted(day_tranches)
     records: list[dict[str, Any]] = []
 
     for d_start in sorted_days:
         d_end = d_start + DAY_MS
 
-        open_tranches = [t for t in tranche_list if t.entry_ms < d_end and t.exit_ms > d_start]
-        if not open_tranches:
-            continue
+        open_tranches = day_tranches[d_start]
 
         n_open = 0
         excluded_tranches = 0
@@ -613,16 +614,19 @@ def beta_hedged_daily(
 
             r_coin = float(np.log(p_end / p_start))
 
-            ew_returns: list[float] = []
-            for u_coin in universe:
-                u_p_start = lookup.get_exact_open(u_coin, start)
-                u_p_end = lookup.get_exact_open(u_coin, end)
-                if u_p_start is not None and u_p_end is not None and u_p_start > 0 and u_p_end > 0:
-                    ew_returns.append(float(np.log(u_p_end / u_p_start)))
-
-            n_present = len(ew_returns)
+            boundary = (start, end)
+            if boundary not in ew_cache:
+                ew_returns: list[float] = []
+                for u_coin in universe:
+                    u_p_start = lookup.get_exact_open(u_coin, start)
+                    u_p_end = lookup.get_exact_open(u_coin, end)
+                    if u_p_start is not None and u_p_end is not None and u_p_start > 0 and u_p_end > 0:
+                        ew_returns.append(float(np.log(u_p_end / u_p_start)))
+                n_present = len(ew_returns)
+                r_ew = float(np.mean(ew_returns)) if n_present > 0 else 0.0
+                ew_cache[boundary] = (r_ew, n_present)
+            r_ew, n_present = ew_cache[boundary]
             ew_coins_counts.append(n_present)
-            r_ew = float(np.mean(ew_returns)) if n_present > 0 else 0.0
 
             gross_hedged += w * (r_coin - beta * r_ew)
 
@@ -646,9 +650,10 @@ def beta_hedged_daily(
 
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
-                mask = (s_times > d_start) & (s_times <= d_end) & (s_times > t.entry_ms) & (s_times <= t.exit_ms)
-                if np.any(mask):
-                    funding += float(np.sum(-w * s_rates[mask]))
+                left = int(np.searchsorted(s_times, max(d_start, t.entry_ms), side="right"))
+                right = int(np.searchsorted(s_times, min(d_end, t.exit_ms), side="right"))
+                if left < right:
+                    funding += float(np.sum(-w * s_rates[left:right]))
 
         costs = day_fees + day_slippage
         drift_free = gross_hedged - costs + funding

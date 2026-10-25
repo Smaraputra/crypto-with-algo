@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Round 4 research runtime and development boundary
+- The research CLI now drops labels ending exactly at the exclusive development cutoff, matching signed method M.
+- Daily book aggregation buckets intersecting tranche days, slices sorted funding history and reuses equal-weight basket returns for shared boundaries. Financial results and counters are checked against an independent scalar reference.
+- Decision-sample copies share the read-only market input panel instead of duplicating it through pandas attributes. Local synthetic tests pass. Python 3.12 verification and the full-span VPS benchmark remain pending source-upload approval.
+
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.
 - **Pinning:** every package, transitive ones included, was uploaded at least 14 days before the lock (cutoff 2026-10-11) and had no OSV advisory when locked. pip installs it from hashed lock files with wheels only. `lock.py` regenerates the locks and refuses a version that breaks either rule. `constraints.txt` holds back python-dateutil 3.0.0, pluggy 1.7.0 and pycparser 3.12, which were all too new. uv was not used, because its newest old-enough release (0.13.0) carries a critical CA-store advisory (GHSA-hq85-5cpj-mr62).

@@ -930,3 +930,217 @@ def test_empty_tranches() -> None:
     tl_empty = trade_level([], settlements=None)
     assert tl_empty.empty
     assert "net_return" in tl_empty.columns
+
+
+def _scalar_daily_reference(tranches, prices, settlements, betas=None, universe=()):
+    """Independent scalar oracle for the standard 1h fee profile used below."""
+    import math
+
+    raw_columns = [
+        "gross",
+        "costs",
+        "fees",
+        "slippage",
+        "funding",
+        "net",
+        "net_weight_start",
+        "n_open",
+        "substitutions",
+    ]
+    hedged_columns = [
+        "drift_free",
+        "gross_hedged",
+        "costs",
+        "fees",
+        "slippage",
+        "funding",
+        "n_open",
+        "ew_coins_min",
+        "excluded_tranches",
+    ]
+    quotes = {s: dict(zip(df["t"], df["o"], strict=True)) for s, df in prices.items()}
+
+    def carry(symbol, stamp):
+        return quotes[symbol][max(t for t in quotes[symbol] if t <= stamp)]
+
+    first = min(t.entry_ms for t in tranches) // DAY_MS * DAY_MS
+    last = max(t.exit_ms for t in tranches)
+    rows, days = [], []
+    for day in range(first, last, DAY_MS):
+        active = [t for t in tranches if t.entry_ms < day + DAY_MS and t.exit_ms > day]
+        if not active:
+            continue
+        gross = fees = slip = funding = net_weight = 0.0
+        substitutions, counts = set(), []
+        opened = excluded = 0
+        for t in active:
+            if betas is not None and math.isnan(betas[t.symbol]):
+                excluded += 1
+                continue
+            opened += 1
+            weight = t.side * t.size * 3_600_000 / t.h_ms / 10
+            start, end = max(day, t.entry_ms), min(day + DAY_MS, t.exit_ms)
+            if t.entry_ms < day < t.exit_ms:
+                net_weight += weight
+            if betas is None:
+                p0 = t.entry_price if start == t.entry_ms else carry(t.symbol, start)
+                p1 = t.exit_price if end == t.exit_ms else carry(t.symbol, end)
+                for stamp in (start, end):
+                    if stamp not in (t.entry_ms, t.exit_ms) and stamp not in quotes[t.symbol]:
+                        substitutions.add((t.symbol, stamp))
+            else:
+                p0 = quotes[t.symbol].get(start)
+                p1 = quotes[t.symbol].get(end)
+                if p0 is None:
+                    p0 = t.entry_price if start == t.entry_ms else carry(t.symbol, start)
+                if p1 is None:
+                    p1 = t.exit_price if end == t.exit_ms else carry(t.symbol, end)
+            ret = math.log(p1 / p0)
+            if betas is not None:
+                basket = [
+                    math.log(quotes[s][end] / quotes[s][start])
+                    for s in universe
+                    if start in quotes.get(s, {})
+                    and end in quotes.get(s, {})
+                    and quotes[s][start] > 0
+                    and quotes[s][end] > 0
+                ]
+                counts.append(len(basket))
+                ret -= betas[t.symbol] * (sum(basket) / len(basket) if basket else 0.0)
+            gross += weight * ret
+            fills = []
+            if day <= t.entry_ms < day + DAY_MS:
+                fills.append(t.entry_fill)
+            if day < t.exit_ms <= day + DAY_MS:
+                fills.append(t.exit_fill)
+            for fill in fills:
+                fees += abs(weight) * (0.0002 if fill == "maker" else 0.0005)
+                slip += abs(weight) * (0.0003 if fill == "taker" else 0)
+            for stamp, rate in sorted(settlements[t.symbol]):
+                if start < stamp <= end:
+                    funding += -weight * rate
+        costs = fees + slip
+        net = gross - costs + funding
+        if betas is None:
+            rows.append([gross, costs, fees, slip, funding, net, net_weight, opened, len(substitutions)])
+        else:
+            rows.append([net, gross, costs, fees, slip, funding, opened, min(counts, default=0), excluded])
+        days.append(day)
+    return pd.DataFrame(
+        rows, index=pd.Index(days, name="day_start"), columns=raw_columns if betas is None else hedged_columns
+    )
+
+
+def _runtime_parity_case():
+    hour = 3_600_000
+    tranches = [
+        Tranche("ETHUSDT", -1, 23 * hour, DAY_MS + 3 * hour, 110, 106, "1h", 8 * hour, size=0.7, entry_fill="maker"),
+        Tranche("BTCUSDT", 1, 22 * hour, 2 * DAY_MS, 102, 118, "1h", 48 * hour, exit_fill="maker"),
+        Tranche("SOLUSDT", -1, hour, DAY_MS + 2 * hour, 90, 95, "1h", 32 * hour),
+        Tranche("BTCUSDT", -1, 22 * hour, DAY_MS + 3 * hour, 103, 111, "1h", 12 * hour),
+        Tranche("ETHUSDT", 1, 22 * hour, DAY_MS + 3 * hour, 109, 107, "1h", 8 * hour),
+    ]
+    stamps = [0, hour, 22 * hour, 23 * hour, DAY_MS - 300_000, DAY_MS, DAY_MS + 2 * hour, DAY_MS + 3 * hour, 2 * DAY_MS]
+    prices = {}
+    for i, symbol in enumerate(("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")):
+        rows = [
+            (stamp, 100 + i * 7 + j * 1.3)
+            for j, stamp in enumerate(stamps)
+            if not (symbol == "BTCUSDT" and stamp == DAY_MS)
+            and not (symbol == "BNBUSDT" and stamp == DAY_MS + 3 * hour)
+        ]
+        prices[symbol] = pd.DataFrame(rows[::-1], columns=["t", "o"])
+    settlements = {
+        s: [(2 * DAY_MS, 0.0003), (22 * hour, 0.0009), (DAY_MS, -0.0002), (DAY_MS + 3 * hour, 0.0004), (DAY_MS, 0.0001)]
+        for s in prices
+    }
+    betas = {"BTCUSDT": 1.2, "ETHUSDT": -0.3, "SOLUSDT": np.nan}
+    return tranches, prices, settlements, betas, list(prices) + ["ABSENT"]
+
+
+def test_daily_runtime_scalar_parity():
+    tranches, prices, settlements, _, _ = _runtime_parity_case()
+    expected = _scalar_daily_reference(tranches, prices, settlements)
+    actual = daily_book(tranches, prices, settlements)
+    pd.testing.assert_frame_equal(actual, expected, rtol=1e-12, atol=1e-12)
+    pd.testing.assert_frame_equal(
+        actual[["n_open", "substitutions"]], expected[["n_open", "substitutions"]], check_exact=True
+    )
+
+
+def test_hedged_runtime_scalar_parity():
+    tranches, prices, settlements, betas, universe = _runtime_parity_case()
+    expected = _scalar_daily_reference(tranches, prices, settlements, betas, universe)
+    actual = beta_hedged_daily(tranches, prices, settlements, betas, universe)
+    pd.testing.assert_frame_equal(actual, expected, rtol=1e-12, atol=1e-12)
+    counters = ["n_open", "ew_coins_min", "excluded_tranches"]
+    pd.testing.assert_frame_equal(actual[counters], expected[counters], check_exact=True)
+
+
+def test_active_day_membership_scales_with_intersections():
+    class CountedTranche(Tranche):
+        entry_reads = 0
+
+        def __getattribute__(self, name):
+            if name == "entry_ms":
+                type(self).entry_reads += 1
+            return super().__getattribute__(name)
+
+    n_days = 40
+    tranches = [
+        CountedTranche("BTCUSDT", 1, d * DAY_MS + 3_600_000, d * DAY_MS + 7_200_000, 100, 101, "1h", 14_400_000)
+        for d in range(n_days)
+    ]
+    prices = {"BTCUSDT": pd.DataFrame({"t": [0], "o": [100.0]})}
+    for hedged in (False, True):
+        CountedTranche.entry_reads = 0
+        if hedged:
+            result = beta_hedged_daily(tranches, prices, None, {"BTCUSDT": 1.0}, ["BTCUSDT"])
+        else:
+            result = daily_book(tranches, prices, None)
+        assert len(result) == n_days
+        assert CountedTranche.entry_reads < 15 * n_days
+
+
+def test_coincident_hedges_reuse_basket_lookups(monkeypatch):
+    from r4.book import FiveMinLookup
+
+    original = FiveMinLookup.get_exact_open
+    basket_reads = []
+
+    def counted(self, symbol, stamp):
+        if symbol == "ETHUSDT":
+            basket_reads.append(stamp)
+        return original(self, symbol, stamp)
+
+    monkeypatch.setattr(FiveMinLookup, "get_exact_open", counted)
+    tranches = [Tranche("BTCUSDT", 1, 3_600_000, 7_200_000, 100, 101, "1h", 14_400_000)] * 20
+    prices = {s: pd.DataFrame({"t": [3_600_000, 7_200_000], "o": [100.0, 101.0]}) for s in ("BTCUSDT", "ETHUSDT")}
+    result = beta_hedged_daily(tranches, prices, None, {"BTCUSDT": 1.0}, list(prices))
+    assert result.loc[0, "n_open"] == 20
+    assert basket_reads == [3_600_000, 7_200_000]
+    prices["ETHUSDT"].loc[1, "o"] = 120.0
+    updated = beta_hedged_daily(tranches, prices, None, {"BTCUSDT": 1.0}, list(prices))
+    assert updated.loc[0, "gross_hedged"] != result.loc[0, "gross_hedged"]
+
+
+def test_monotonic_price_lookup_avoids_sorting(monkeypatch):
+    from r4.book import FiveMinLookup
+
+    original = np.argsort
+    sorted_lengths = []
+
+    def counted(values, *args, **kwargs):
+        sorted_lengths.append(len(values))
+        return original(values, *args, **kwargs)
+
+    monkeypatch.setattr(np, "argsort", counted)
+    lookup = FiveMinLookup(
+        {
+            "SORTED": pd.DataFrame({"t": [0, 1, 2], "o": [100.0, 101.0, 102.0]}),
+            "UNSORTED": pd.DataFrame({"t": [2, 0, 1], "o": [102.0, 100.0, 101.0]}),
+        }
+    )
+    assert lookup.get_exact_open("SORTED", 1) == 101.0
+    assert lookup.get_open_or_carry("UNSORTED", 3) == (102.0, True)
+    assert sorted_lengths == [3]
