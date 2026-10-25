@@ -871,6 +871,56 @@ describe('compute-engine', () => {
         dateSpy.mockRestore();
       }
     });
+
+    it('two tasks with the same close and different symbols produce ONE aggregate call containing both symbols', async () => {
+      const ltfOpen = BASE_TIME;
+      const ltfClose = ltfOpen + ONE_HOUR_MS;
+      const btcCandles = generateCandlesWithStep(250, ltfOpen, ONE_HOUR_MS);
+      const ethCandles = generateCandlesWithStep(250, ltfOpen, ONE_HOUR_MS);
+      const htfCandles = generateCandlesWithStep(250, ltfClose - FOUR_HOURS_MS, FOUR_HOURS_MS);
+
+      mockGetCandles.mockImplementation(async (symbol: string, interval: string) => {
+        if (interval === '1h') {
+          return symbol === 'BTCUSDT' ? btcCandles : ethCandles;
+        }
+        return htfCandles;
+      });
+      mockFetchKlines.mockImplementation(async (symbol: string, interval: string) => {
+        if (interval === '1h') {
+          return symbol === 'BTCUSDT' ? btcCandles : ethCandles;
+        }
+        return htfCandles;
+      });
+      mockFetchFearAndGreed.mockResolvedValue({ fearGreedIndex: 50, label: 'Neutral' });
+      mockSnapshotAggregate.mockResolvedValue([
+        { _id: 'BTCUSDT', newsSentiment: { count: 4, avgSentiment: 0.3 } },
+        { _id: 'ETHUSDT', newsSentiment: { count: 3, avgSentiment: -0.2 } },
+      ]);
+
+      const now = ltfClose + 60_000;
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        const { computeSignalBatch } = await import('./compute-engine');
+        const result = await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+          { symbol: 'ETHUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        ]);
+
+        expect(result.computed).toBe(2);
+        expect(mockSnapshotAggregate).toHaveBeenCalledTimes(1);
+        const pipeline = mockSnapshotAggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+        const matchStage = pipeline[0].$match as {
+          symbol: { $in: string[] };
+          interval: string;
+          timestamp: { $gte: number; $lte: number };
+        };
+        expect(matchStage.symbol.$in).toEqual(['BTCUSDT', 'ETHUSDT']);
+        expect(matchStage.timestamp.$lte).toBe(ltfClose);
+        expect(matchStage.timestamp.$gte).toBe(ltfClose - 2 * ONE_HOUR_MS);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
   });
 
   describe('fetchNewsSentimentMap', () => {

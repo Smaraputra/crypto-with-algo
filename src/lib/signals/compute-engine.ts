@@ -107,22 +107,6 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
   // Fetch market sentiment once for all tasks
   const sentimentData: SentimentData | null = await fetchFearAndGreed().catch(() => null);
 
-  // Stored news sentiment by (symbol, ltfClose), shared across tasks scoring the same candle close.
-  const newsCache = new Map<string, Promise<Map<string, { count: number; avgSentiment: number }>>>();
-  const getNewsSentiment = async (
-    symbol: string,
-    refTime: number
-  ): Promise<{ count: number; avgSentiment: number } | null> => {
-    const key = `${symbol}:${refTime}`;
-    let pending = newsCache.get(key);
-    if (!pending) {
-      pending = fetchNewsSentimentMap([symbol], refTime);
-      newsCache.set(key, pending);
-    }
-    const map = await pending;
-    return map.get(symbol) ?? null;
-  };
-
   // Deduplicate candle fetches by (symbol, interval)
   const candleCache = new Map<string, OHLCV[]>();
   // Stored snapshot rows by (symbol, snapshot interval), shared across tasks.
@@ -170,9 +154,23 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
     }
   }
 
-  // Process each task
-  const signalDocs: Array<Record<string, unknown>> = [];
+  type PreparedTask = {
+    task: ComputeTask;
+    profile: ReturnType<typeof getStyleConfig>;
+    candles: OHLCV[];
+    ltfClose: number;
+    latestCandleTs: number;
+  };
 
+  type TaskPrep =
+    | { status: 'skipped'; detail: ComputeResult['details'][number] }
+    | { status: 'error'; detail: ComputeResult['details'][number] }
+    | { status: 'ready'; prepared: PreparedTask };
+
+  const preps: TaskPrep[] = [];
+  const symbolsByLtfClose = new Map<number, Set<string>>();
+
+  // Prepare each task and collect candle close boundaries
   for (const task of tasks) {
     const { symbol, interval, tradingStyle } = task;
     const profile = getStyleConfig(tradingStyle);
@@ -195,13 +193,15 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       const candles = dropOpenBars(rawCandles, interval, now);
 
       if (candles.length === 0) {
-        result.skipped++;
-        result.details.push({
-          symbol,
-          interval,
-          tradingStyle,
+        preps.push({
           status: 'skipped',
-          error: 'No closed candle available',
+          detail: {
+            symbol,
+            interval,
+            tradingStyle,
+            status: 'skipped',
+            error: 'No closed candle available',
+          },
         });
         console.log(
           `compute-engine: skipped ${symbol} ${interval} ${tradingStyle} - no closed candle available`
@@ -211,13 +211,15 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
 
       // Check minimum candle requirement
       if (candles.length < profile.minCandles) {
-        result.skipped++;
-        result.details.push({
-          symbol,
-          interval,
-          tradingStyle,
+        preps.push({
           status: 'skipped',
-          error: `Insufficient candles: ${candles.length} < ${profile.minCandles}`,
+          detail: {
+            symbol,
+            interval,
+            tradingStyle,
+            status: 'skipped',
+            error: `Insufficient candles: ${candles.length} < ${profile.minCandles}`,
+          },
         });
         continue;
       }
@@ -227,19 +229,88 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
       const taskKey = `${symbol}:${interval}:${tradingStyle}`;
       const prevTs = existingTimestamps.get(taskKey);
       if (prevTs !== undefined && prevTs === latestCandleTs) {
-        result.skipped++;
-        result.details.push({
-          symbol,
-          interval,
-          tradingStyle,
+        preps.push({
           status: 'skipped',
-          error: `Candle timestamp unchanged: ${latestCandleTs}`,
+          detail: {
+            symbol,
+            interval,
+            tradingStyle,
+            status: 'skipped',
+            error: `Candle timestamp unchanged: ${latestCandleTs}`,
+          },
         });
         continue;
       }
 
       const ltfClose = latestCandleTs + intervalToMs(interval);
 
+      let closeSymbols = symbolsByLtfClose.get(ltfClose);
+      if (!closeSymbols) {
+        closeSymbols = new Set<string>();
+        symbolsByLtfClose.set(ltfClose, closeSymbols);
+      }
+      closeSymbols.add(symbol);
+
+      preps.push({
+        status: 'ready',
+        prepared: {
+          task,
+          profile,
+          candles,
+          ltfClose,
+          latestCandleTs,
+        },
+      });
+    } catch (error) {
+      preps.push({
+        status: 'error',
+        detail: {
+          symbol,
+          interval,
+          tradingStyle,
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      console.error(
+        `compute-engine: error computing signal for ${symbol} ${interval} ${tradingStyle}:`,
+        error
+      );
+    }
+  }
+
+  // Stored news sentiment by candle close, batched across tasks sharing the same close
+  const newsSentimentByClose = new Map<number, Map<string, { count: number; avgSentiment: number }>>();
+  await Promise.all(
+    Array.from(symbolsByLtfClose.entries()).map(async ([ltfClose, symbols]) => {
+      try {
+        const map = await fetchNewsSentimentMap(Array.from(symbols), ltfClose);
+        newsSentimentByClose.set(ltfClose, map);
+      } catch {
+        // News sentiment is optional
+      }
+    })
+  );
+
+  // Process and score each task
+  const signalDocs: Array<Record<string, unknown>> = [];
+
+  for (const prep of preps) {
+    if (prep.status === 'skipped') {
+      result.skipped++;
+      result.details.push(prep.detail);
+      continue;
+    }
+    if (prep.status === 'error') {
+      result.errors++;
+      result.details.push(prep.detail);
+      continue;
+    }
+
+    const { task, profile, candles, ltfClose, latestCandleTs } = prep.prepared;
+    const { symbol, interval, tradingStyle } = task;
+
+    try {
       // Futures input from stored snapshots, as research reads it (v8)
       let futuresData: FuturesData | null = null;
       try {
@@ -274,14 +345,9 @@ export async function computeSignalBatch(tasks: ComputeTask[]): Promise<ComputeR
         }
       }
 
-      // Per-symbol news rides on the shared Fear & Greed read, pinned to the
-      // scored candle close so late runs cannot leak future headlines
-      let newsSentiment: { count: number; avgSentiment: number } | null = null;
-      try {
-        newsSentiment = await getNewsSentiment(symbol, ltfClose);
-      } catch {
-        // News sentiment is optional
-      }
+      // Per-symbol news read from the close's map, pinned to the candle close
+      const newsMap = newsSentimentByClose.get(ltfClose);
+      const newsSentiment = newsMap?.get(symbol) ?? null;
 
       // Score the signal using template weights
       const weights = weightsMap.get(tradingStyle);
