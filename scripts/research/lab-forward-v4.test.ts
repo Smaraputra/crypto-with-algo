@@ -7,6 +7,7 @@ import { ROUND_TRIP_COST } from './lab-v4-preview';
 import { ledgerTotal } from './ledger';
 import { DIVERGENCE_MAX_BARS } from '@/lib/market/delta';
 import { SWING_LENGTH } from '@/lib/market/structure';
+import { LAB_V4_DAILY_START_MS } from '@/lib/signals/lab/job-grade-v4';
 import {
   LAB_HYPOTHESES_V4,
   LAB_HYPOTHESES_V4_DAILY,
@@ -111,5 +112,13 @@ describe('lab-v4 lock', () => {
     const content = readFileSync(new URL('./lab-forward-v4.ts', import.meta.url), 'utf8');
     expect(content).toContain('AMENDMENT 2');
     expect(content).toContain("Ville's bound for S1");
+  });
+
+  it('pins the amendment 3 start record: the daily statistic starts on 2026-10-26 00:00 UTC', () => {
+    expect(LAB_V4_DAILY_START_MS).toBe(Date.UTC(2026, 9, 26));
+    expect(LAB_V4_DAILY_START_MS).toBe(1792972800000);
+    const content = readFileSync(new URL('./lab-forward-v4.ts', import.meta.url), 'utf8');
+    expect(content).toContain('AMENDMENT 3 (2026-10-25, start record for AMENDMENT 2)');
+    expect(content).toContain('(1792972800000)');
   });
 });

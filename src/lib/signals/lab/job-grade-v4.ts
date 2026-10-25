@@ -47,7 +47,8 @@ import {
   type DailyTrade,
 } from '@/lib/signals/lab/v4/grade-daily';
 
-export const LAB_V4_DAILY_START_MS: number | null = null;
+/** 2026-10-26 00:00 UTC, the first full UTC day after the AMENDMENT 2 deploy (lab-v4 AMENDMENT 3, start record). */
+export const LAB_V4_DAILY_START_MS: number | null = Date.UTC(2026, 9, 26);
 
 export type LabGradeV4Deps = LabGradeDeps & {
   sleep?: (ms: number) => Promise<void>;
