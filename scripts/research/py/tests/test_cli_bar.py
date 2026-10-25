@@ -82,9 +82,7 @@ def _make_fast_synthetic_panel(
         l_5m = np.minimum(o_5m, c_5m) * 0.9995
         v_5m = rng.uniform(10.0, 100.0, size=n_5m)
         tbv_5m = v_5m * 0.5
-        df_5m = pd.DataFrame(
-            {"t": t_5m, "o": o_5m, "h": h_5m, "l": l_5m, "c": c_5m, "v": v_5m, "tbv": tbv_5m}
-        )
+        df_5m = pd.DataFrame({"t": t_5m, "o": o_5m, "h": h_5m, "l": l_5m, "c": c_5m, "v": v_5m, "tbv": tbv_5m})
 
         n_15m = n_days * 96
         t_15m = start_ms + np.arange(n_15m, dtype=np.int64) * 900_000
@@ -536,9 +534,7 @@ def test_7_book_fees_plus_slippage_equals_costs():
 
     # Test beta_hedged_daily
     betas = {"BTCUSDT": 1.0}
-    df_hedged = beta_hedged_daily(
-        [tranche_1, tranche_2], five_min, settlements=None, betas=betas, universe=["BTCUSDT"]
-    )
+    df_hedged = beta_hedged_daily([tranche_1, tranche_2], five_min, settlements=None, betas=betas, universe=["BTCUSDT"])
     assert not df_hedged.empty
     assert "fees" in df_hedged.columns
     assert "slippage" in df_hedged.columns
@@ -548,8 +544,6 @@ def test_7_book_fees_plus_slippage_equals_costs():
         sum_split = row["fees"] + row["slippage"]
         cost_val = row["costs"]
         assert abs(sum_split - cost_val) <= 1e-15
-
-
 
 
 # ---------------------------------------------------------------------------

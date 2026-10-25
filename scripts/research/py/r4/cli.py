@@ -587,9 +587,7 @@ def feature_check(
                 "max": max_val,
             }
         )
-        print(
-            f"{col:<20} {nan_share*100:>6.2f}% {mean_val:>12.5f} {sd_val:>12.5f} {min_val:>12.5f} {max_val:>12.5f}"
-        )
+        print(f"{col:<20} {nan_share * 100:>6.2f}% {mean_val:>12.5f} {sd_val:>12.5f} {min_val:>12.5f} {max_val:>12.5f}")
 
     return pd.DataFrame(records)
 
