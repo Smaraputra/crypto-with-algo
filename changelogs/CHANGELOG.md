@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: candle sync can no longer drop the signal coins (Round 4 audit V8-4)
+- **Problem:** `/api/cron/sync-candles` added strategy and watchlist symbols first and the 10 signal coins last, then cut the (symbol, interval) list at 50 pairs. With 13 or more distinct symbols across 4 intervals, signal coins fell off the end. Production has the 10 signal coins only (40 pairs), so this had not happened.
+- **Fix:** the signal coins come first, in their defined order, so the cap can only drop user-only symbols. The response now reports `droppedPairs`.
+
 ### Fixed: live v8 context is pinned to the scored candle's close (Round 4 audit V8-1, V8-2)
 - **Problem:** the higher-timeframe context filtered bars against the batch wall clock (`now`), and news sentiment was read relative to `Date.now()`. A late compute could read an HTF bar, or headlines, from after the scored candle closed.
 - **Fix:** both now use the scored candle's close (`latestCandleTs + interval`). This is the same rule the research path uses (`htf.timestamp + htfMs <= ltf.timestamp + ltfMs`).
