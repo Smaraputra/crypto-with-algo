@@ -87,19 +87,37 @@ const RATE_LIMIT_DELAY_MS = 200;
 
 const KLINES_RANGE_TIMEOUT_MS = 120_000;
 
+export interface FetchKlinesRangeOptions {
+  strict?: boolean;
+}
+
 export async function fetchKlinesRange(
   symbol: string,
   interval: string,
   startTime: number,
   endTime: number,
-  onProgress?: (fetched: number) => void
+  onProgress?: ((fetched: number) => void) | FetchKlinesRangeOptions,
+  options?: FetchKlinesRangeOptions
 ): Promise<OHLCV[]> {
+  const onProgressCb = typeof onProgress === 'function' ? onProgress : undefined;
+  const opts: FetchKlinesRangeOptions =
+    typeof onProgress === 'object' && onProgress !== null
+      ? onProgress
+      : (options ?? {});
+
   const allCandles: OHLCV[] = [];
   let cursor = startTime;
   const deadline = Date.now() + KLINES_RANGE_TIMEOUT_MS;
 
   while (cursor < endTime) {
     if (Date.now() > deadline) {
+      if (opts.strict) {
+        const lastBarTime =
+          allCandles.length > 0 ? allCandles[allCandles.length - 1].timestamp : 'none';
+        throw new Error(
+          `fetchKlinesRange deadline exceeded for ${symbol} ${interval}, last bar time: ${lastBarTime}`
+        );
+      }
       break;
     }
     const batch = await fetchKlines(
@@ -113,7 +131,7 @@ export async function fetchKlinesRange(
     if (batch.length === 0) break;
 
     allCandles.push(...batch);
-    onProgress?.(allCandles.length);
+    onProgressCb?.(allCandles.length);
 
     const lastTimestamp = batch[batch.length - 1].timestamp;
     cursor = lastTimestamp + 1;
