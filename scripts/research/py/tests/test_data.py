@@ -102,7 +102,7 @@ def test_1_constants():
     assert SPOT_DAILY_END == 1540944000000
     assert PERP_INTRADAY_END == 1640995200000
     assert PERP_DAILY_END == 1577836800000
-    assert MAX_HOLDOUT_READ_IDS == 3
+    assert MAX_HOLDOUT_READ_IDS == 4
 
     assert HOLDOUT_A["spot_intraday_end"] == 1634169600000
     assert HOLDOUT_A["spot_daily_end"] == 1540944000000
@@ -368,6 +368,7 @@ def test_6_allow_flags(tmp_path: Path):
         "1h",
         allow_holdout_a=True,
         holdout_read_id="1" * 40,
+        holdout_finalist_id="finalist-1",
         holdout_ledger=ledger,
     )
     assert res_allow_holdout.holdout_a_applied is False
@@ -397,6 +398,7 @@ def test_6_allow_flags(tmp_path: Path):
         allow_lockbox=True,
         allow_holdout_a=True,
         holdout_read_id="2" * 40,
+        holdout_finalist_id="finalist-2",
         holdout_ledger=ledger,
     )
     assert res_both.holdout_a_applied is False
@@ -554,9 +556,9 @@ def test_9_parquet_cache(tmp_path: Path):
 
 
 def test_10_holdout_read_once(tmp_path: Path):
-    """10. Holdout read-once: allow_holdout_a=True without an id or ledger raises. With both, it returns holdout rows
+    """10. Holdout read-once: allow_holdout_a=True without id, finalist_id, or ledger raises.
 
-    and writes one ledger line. The same (read_id, path) again raises.
+    With all three, it returns holdout rows and writes one ledger line. The same (read_id, path) again raises.
     """
     rows = [
         {
@@ -579,22 +581,50 @@ def test_10_holdout_read_once(tmp_path: Path):
 
     id1 = "a" * 40
     id2 = "b" * 40
+    f1 = "finalist-a"
+    f2 = "finalist-b"
 
     # allow_holdout_a=True without id raises PermissionError
     with pytest.raises(PermissionError, match="holdout_read_id"):
-        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_ledger=ledger_path)
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_finalist_id=f1,
+            holdout_ledger=ledger_path,
+        )
+
+    # allow_holdout_a=True without finalist_id raises PermissionError
+    with pytest.raises(PermissionError, match="holdout_finalist_id"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_read_id=id1,
+            holdout_ledger=ledger_path,
+        )
 
     # allow_holdout_a=True without ledger raises PermissionError
     with pytest.raises(PermissionError, match="holdout_ledger"):
-        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id1)
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_read_id=id1,
+            holdout_finalist_id=f1,
+        )
 
-    # With both: returns holdout rows and writes one ledger line
+    # With all: returns holdout rows and writes one ledger line
     res = load_perp(
         ds_dir,
         "BTCUSDT",
         "1h",
         allow_holdout_a=True,
         holdout_read_id=id1,
+        holdout_finalist_id=f1,
         holdout_ledger=ledger_path,
     )
     assert len(res.rows) == 2
@@ -603,6 +633,7 @@ def test_10_holdout_read_once(tmp_path: Path):
     lines = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").strip().split("\n")]
     assert len(lines) == 1
     assert lines[0]["read_id"] == id1
+    assert lines[0]["finalist_id"] == f1
     assert lines[0]["path"] == str(target_file)
     assert "at" in lines[0]
 
@@ -614,22 +645,25 @@ def test_10_holdout_read_once(tmp_path: Path):
             "1h",
             allow_holdout_a=True,
             holdout_read_id=id1,
+            holdout_finalist_id=f1,
             holdout_ledger=ledger_path,
         )
 
-    # A different read_id succeeds and appends a new line
+    # A different read_id and finalist_id succeeds and appends a new line
     res2 = load_perp(
         ds_dir,
         "BTCUSDT",
         "1h",
         allow_holdout_a=True,
         holdout_read_id=id2,
+        holdout_finalist_id=f2,
         holdout_ledger=ledger_path,
     )
     assert len(res2.rows) == 2
     lines2 = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").strip().split("\n")]
     assert len(lines2) == 2
     assert lines2[1]["read_id"] == id2
+    assert lines2[1]["finalist_id"] == f2
 
 
 def test_11_private_reader_scan():
@@ -775,6 +809,7 @@ def test_14_non_sha_read_id_raises(tmp_path: Path):
                 "1h",
                 allow_holdout_a=True,
                 holdout_read_id=invalid_id,
+                holdout_finalist_id="finalist-valid",
                 holdout_ledger=ledger_path,
             )
 
@@ -785,14 +820,96 @@ def test_14_non_sha_read_id_raises(tmp_path: Path):
         "1h",
         allow_holdout_a=True,
         holdout_read_id=valid_sha,
+        holdout_finalist_id="finalist-valid",
         holdout_ledger=ledger_path,
     )
     assert len(res.rows) == 1
     assert res.rows["t"].iloc[0] == PERP_INTRADAY_END - 3600000
 
 
-def test_15_max_distinct_read_ids_and_repeated_path(tmp_path: Path):
-    """2. A fourth distinct read id raises PermissionError. A repeated (id, path) raises."""
+def test_14b_finalist_id_validation(tmp_path: Path):
+    """A missing holdout_finalist_id raises, and so does an invalid one ("Bad Id")."""
+    rows = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    files_data = {"perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows)}
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    ledger_path = tmp_path / "ledger.jsonl"
+    valid_sha = "a" * 40
+
+    # Missing finalist id
+    with pytest.raises(PermissionError, match="holdout_finalist_id"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_read_id=valid_sha,
+            holdout_finalist_id=None,
+            holdout_ledger=ledger_path,
+        )
+
+    # Invalid finalist ids
+    for invalid_fid in ["Bad Id", "-starts-with-hyphen", "has space", "", "a" * 65]:
+        with pytest.raises(PermissionError, match="holdout_finalist_id"):
+            load_perp(
+                ds_dir,
+                "BTCUSDT",
+                "1h",
+                allow_holdout_a=True,
+                holdout_read_id=valid_sha,
+                holdout_finalist_id=invalid_fid,
+                holdout_ledger=ledger_path,
+            )
+
+    # Valid finalist id succeeds
+    res = load_perp(
+        ds_dir,
+        "BTCUSDT",
+        "1h",
+        allow_holdout_a=True,
+        holdout_read_id=valid_sha,
+        holdout_finalist_id="valid-finalist-1",
+        holdout_ledger=ledger_path,
+    )
+    assert len(res.rows) == 1
+
+
+def test_15_four_finalists_succeed_fifth_raises(tmp_path: Path):
+    """Four distinct (read_id, finalist_id) pairs succeed. A fifth raises."""
+    rows = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    files_data = {"perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows)}
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    ids = [str(i) * 40 for i in range(1, 6)]
+    finalists = [f"finalist-{i}" for i in range(1, 6)]
+
+    # 4 distinct pairs succeed
+    for i in range(4):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_read_id=ids[i],
+            holdout_finalist_id=finalists[i],
+            holdout_ledger=ledger_path,
+        )
+
+    # 5th distinct read id raises PermissionError
+    with pytest.raises(PermissionError, match="limit reached|distinct read ids"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_read_id=ids[4],
+            holdout_finalist_id=finalists[4],
+            holdout_ledger=ledger_path,
+        )
+
+
+def test_20_finalist_read_id_one_to_one(tmp_path: Path):
+    """The same finalist with a second read_id raises. The same read_id with a second finalist raises."""
     rows1 = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
     rows2 = [{"t": PERP_INTRADAY_END - 7200000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
     files_data = {
@@ -804,28 +921,173 @@ def test_15_max_distinct_read_ids_and_repeated_path(tmp_path: Path):
 
     id1 = "1" * 40
     id2 = "2" * 40
-    id3 = "3" * 40
-    id4 = "4" * 40
+    f1 = "finalist-1"
+    f2 = "finalist-2"
 
-    # 1st distinct read id succeeds
-    load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id1, holdout_ledger=ledger_path)
+    # Initial read with (id1, f1) succeeds
+    load_perp(
+        ds_dir,
+        "BTCUSDT",
+        "1h",
+        allow_holdout_a=True,
+        holdout_read_id=id1,
+        holdout_finalist_id=f1,
+        holdout_ledger=ledger_path,
+    )
 
-    # Repeated (id1, path1) raises PermissionError
+    # Same finalist f1 with second read_id id2 raises PermissionError
+    with pytest.raises(PermissionError, match="finalist_id 'finalist-1' already recorded"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "4h",
+            allow_holdout_a=True,
+            holdout_read_id=id2,
+            holdout_finalist_id=f1,
+            holdout_ledger=ledger_path,
+        )
+
+    # Same read_id id1 with second finalist f2 raises PermissionError
+    with pytest.raises(PermissionError, match="read_id '.*' already recorded"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "4h",
+            allow_holdout_a=True,
+            holdout_read_id=id1,
+            holdout_finalist_id=f2,
+            holdout_ledger=ledger_path,
+        )
+
+
+def test_21_one_finalist_two_paths_and_repeated_path(tmp_path: Path):
+    """One finalist reading two different paths with its read_id succeeds, and repeating either path raises."""
+    rows1 = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    rows2 = [{"t": PERP_INTRADAY_END - 7200000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    files_data = {
+        "perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows1),
+        "perp/BTCUSDT/4h.jsonl.gz": ("perp", "BTCUSDT", "4h", rows2),
+    }
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    id1 = "1" * 40
+    f1 = "finalist-1"
+
+    # Reading first path succeeds
+    res1 = load_perp(
+        ds_dir,
+        "BTCUSDT",
+        "1h",
+        allow_holdout_a=True,
+        holdout_read_id=id1,
+        holdout_finalist_id=f1,
+        holdout_ledger=ledger_path,
+    )
+    assert len(res1.rows) == 1
+
+    # Reading second path with same read_id and finalist succeeds
+    res2 = load_perp(
+        ds_dir,
+        "BTCUSDT",
+        "4h",
+        allow_holdout_a=True,
+        holdout_read_id=id1,
+        holdout_finalist_id=f1,
+        holdout_ledger=ledger_path,
+    )
+    assert len(res2.rows) == 1
+
+    # Repeating first path raises PermissionError
     with pytest.raises(PermissionError, match="already completed"):
-        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id1, holdout_ledger=ledger_path)
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_read_id=id1,
+            holdout_finalist_id=f1,
+            holdout_ledger=ledger_path,
+        )
 
-    # Same id on a different path succeeds (finalist reading multiple files in batch)
-    load_perp(ds_dir, "BTCUSDT", "4h", allow_holdout_a=True, holdout_read_id=id1, holdout_ledger=ledger_path)
+    # Repeating second path raises PermissionError
+    with pytest.raises(PermissionError, match="already completed"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "4h",
+            allow_holdout_a=True,
+            holdout_read_id=id1,
+            holdout_finalist_id=f1,
+            holdout_ledger=ledger_path,
+        )
 
-    # 2nd distinct read id succeeds
-    load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id2, holdout_ledger=ledger_path)
 
-    # 3rd distinct read id succeeds (MAX_HOLDOUT_READ_IDS reached)
-    load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id3, holdout_ledger=ledger_path)
+def test_22_legacy_ledger_compatibility(tmp_path: Path):
+    """Older ledger lines without finalist_id are treated as finalist 'legacy'."""
+    rows1 = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    rows2 = [{"t": PERP_INTRADAY_END - 7200000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    files_data = {
+        "perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows1),
+        "perp/BTCUSDT/4h.jsonl.gz": ("perp", "BTCUSDT", "4h", rows2),
+    }
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    ledger_path = tmp_path / "ledger.jsonl"
+    target_file1 = ds_dir / "perp/BTCUSDT/1h.jsonl.gz"
 
-    # 4th distinct read id raises PermissionError
-    with pytest.raises(PermissionError, match="limit reached|distinct read ids"):
-        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id4, holdout_ledger=ledger_path)
+    legacy_read_id = "0" * 40
+    # Pre-seed ledger with legacy line lacking finalist_id
+    legacy_entry = {"read_id": legacy_read_id, "path": str(target_file1), "at": "2026-01-01T00:00:00Z"}
+    ledger_path.write_text(json.dumps(legacy_entry) + "\n", encoding="utf-8")
+
+    # Same read_id with finalist_id="legacy" on 4h succeeds
+    res = load_perp(
+        ds_dir,
+        "BTCUSDT",
+        "4h",
+        allow_holdout_a=True,
+        holdout_read_id=legacy_read_id,
+        holdout_finalist_id="legacy",
+        holdout_ledger=ledger_path,
+    )
+    assert len(res.rows) == 1
+
+    # Same read_id with a different finalist_id raises PermissionError
+    with pytest.raises(PermissionError, match="different finalist_id 'legacy'"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "4h",
+            allow_holdout_a=True,
+            holdout_read_id=legacy_read_id,
+            holdout_finalist_id="other-finalist",
+            holdout_ledger=ledger_path,
+        )
+
+    # Different read_id with finalist_id="legacy" raises PermissionError
+    other_read_id = "9" * 40
+    with pytest.raises(PermissionError, match="finalist_id 'legacy' already recorded"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "4h",
+            allow_holdout_a=True,
+            holdout_read_id=other_read_id,
+            holdout_finalist_id="legacy",
+            holdout_ledger=ledger_path,
+        )
+
+    # Repeating the legacy path raises PermissionError
+    with pytest.raises(PermissionError, match="already completed"):
+        load_perp(
+            ds_dir,
+            "BTCUSDT",
+            "1h",
+            allow_holdout_a=True,
+            holdout_read_id=legacy_read_id,
+            holdout_finalist_id="legacy",
+            holdout_ledger=ledger_path,
+        )
 
 
 def test_16_ledger_file_locking(tmp_path: Path):
@@ -862,6 +1124,7 @@ def test_16_ledger_file_locking(tmp_path: Path):
                 "1h",
                 allow_holdout_a=True,
                 holdout_read_id=read_id,
+                holdout_finalist_id="finalist-lock",
                 holdout_ledger=ledger_path,
             )
             result_container.append(res)
@@ -937,6 +1200,7 @@ def test_18_allow_holdout_never_caches(tmp_path: Path):
         "1h",
         allow_holdout_a=True,
         holdout_read_id="a" * 40,
+        holdout_finalist_id="finalist-cache",
         holdout_ledger=ledger_path,
         cache_dir=cache_dir,
     )

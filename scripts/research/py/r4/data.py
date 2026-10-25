@@ -24,10 +24,11 @@ SPOT_DAILY_END = 1540944000000
 PERP_INTRADAY_END = 1640995200000
 PERP_DAILY_END = 1577836800000
 
-# At most 3 distinct finalist lock commit shas may read the holdout (mirrors r4.method.MAX_FINALISTS).
-MAX_HOLDOUT_READ_IDS = 3
+# 3 directional finalists plus 1 forecast finalist, r4.method.MAX_H_READ_IDS
+MAX_HOLDOUT_READ_IDS = 4
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_FINALIST_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 class _HoldoutA(dict[str, int]):
@@ -164,9 +165,16 @@ def _read_jsonl_gz(path: str | Path) -> pd.DataFrame:
     return df
 
 
-def _record_holdout_read(file_path: Path, read_id: str, ledger_path: str | Path) -> None:
+def _record_holdout_read(
+    file_path: Path,
+    read_id: str,
+    finalist_id: str,
+    ledger_path: str | Path,
+) -> None:
     if not isinstance(read_id, str) or not _SHA_RE.fullmatch(read_id):
         raise PermissionError(f"holdout_read_id must be a 40-character hex git commit sha; got '{read_id}'")
+    if not isinstance(finalist_id, str) or not _FINALIST_ID_RE.fullmatch(finalist_id):
+        raise PermissionError(f"holdout_finalist_id must match ^[a-z0-9][a-z0-9-]{{0,63}}$; got '{finalist_id}'")
 
     ledger_p = Path(ledger_path)
     target_path_str = str(file_path)
@@ -186,9 +194,35 @@ def _record_holdout_read(file_path: Path, read_id: str, ledger_path: str | Path)
                 except Exception:
                     continue
                 entry_id = entry.get("read_id")
-                if isinstance(entry_id, str):
-                    distinct_read_ids.add(entry_id)
-                if entry_id == read_id and entry.get("path") == target_path_str:
+                if not isinstance(entry_id, str):
+                    continue
+
+                distinct_read_ids.add(entry_id)
+
+                entry_finalist = entry.get("finalist_id")
+                if not isinstance(entry_finalist, str) or not entry_finalist:
+                    entry_finalist = "legacy"
+
+                entry_path = entry.get("path")
+                if not isinstance(entry_path, str):
+                    entry_path = ""
+
+                # Refuse if finalist_id already recorded with a DIFFERENT read_id
+                if entry_finalist == finalist_id and entry_id != read_id:
+                    raise PermissionError(
+                        f"Holdout read refused: finalist_id '{finalist_id}' already recorded "
+                        f"with different read_id '{entry_id}'"
+                    )
+
+                # Refuse if read_id already recorded with a DIFFERENT finalist_id
+                if entry_id == read_id and entry_finalist != finalist_id:
+                    raise PermissionError(
+                        f"Holdout read refused: read_id '{read_id}' already recorded "
+                        f"with different finalist_id '{entry_finalist}'"
+                    )
+
+                # Refuse repeated (read_id, path)
+                if entry_id == read_id and entry_path == target_path_str:
                     raise PermissionError(
                         f"Holdout read already completed for read_id '{read_id}' on path '{target_path_str}'"
                     )
@@ -200,7 +234,12 @@ def _record_holdout_read(file_path: Path, read_id: str, ledger_path: str | Path)
                 )
 
             utc_now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-            ledger_entry = {"read_id": read_id, "path": target_path_str, "at": utc_now}
+            ledger_entry = {
+                "read_id": read_id,
+                "finalist_id": finalist_id,
+                "path": target_path_str,
+                "at": utc_now,
+            }
             f.seek(0, 2)
             f.write(json.dumps(ledger_entry) + "\n")
             f.flush()
@@ -215,12 +254,21 @@ def _load_dataset_file(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
     if allow_holdout_a:
         if not holdout_read_id or not isinstance(holdout_read_id, str) or not _SHA_RE.fullmatch(holdout_read_id):
             raise PermissionError("allow_holdout_a=True requires a 40-character hex holdout_read_id")
+        if (
+            not holdout_finalist_id
+            or not isinstance(holdout_finalist_id, str)
+            or not _FINALIST_ID_RE.fullmatch(holdout_finalist_id)
+        ):
+            raise PermissionError(
+                "allow_holdout_a=True requires holdout_finalist_id matching ^[a-z0-9][a-z0-9-]{0,63}$"
+            )
         if not holdout_ledger:
             raise PermissionError("allow_holdout_a=True requires holdout_ledger")
 
@@ -312,7 +360,10 @@ def _load_dataset_file(
 
     if allow_holdout_a and end is not None and not final_df.empty and "t" in final_df.columns:
         if (final_df["t"] < end).any():
-            _record_holdout_read(file_p, holdout_read_id, holdout_ledger)
+            assert holdout_read_id is not None
+            assert holdout_finalist_id is not None
+            assert holdout_ledger is not None
+            _record_holdout_read(file_p, holdout_read_id, holdout_finalist_id, holdout_ledger)
 
     if use_cache and cache_file is not None and file_sha is not None:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -346,6 +397,7 @@ def _load_dataset_file_with_holdout(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -357,6 +409,7 @@ def _load_dataset_file_with_holdout(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -368,6 +421,7 @@ def _load_dataset_file_lockbox_only(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -378,6 +432,7 @@ def _load_dataset_file_lockbox_only(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -390,6 +445,7 @@ def load_candles(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -403,6 +459,7 @@ def load_candles(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -416,6 +473,7 @@ def load_perp(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -436,6 +494,7 @@ def load_perp(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -448,6 +507,7 @@ def load_snapshots(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -459,6 +519,7 @@ def load_snapshots(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -471,6 +532,7 @@ def load_htf(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -484,6 +546,7 @@ def load_htf(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -495,6 +558,7 @@ def load_metrics(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -506,6 +570,7 @@ def load_metrics(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -517,6 +582,7 @@ def load_flow(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -528,6 +594,7 @@ def load_flow(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -539,6 +606,7 @@ def load_options(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -551,6 +619,7 @@ def load_options(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
@@ -562,6 +631,7 @@ def load_funding(
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
+    holdout_finalist_id: str | None = None,
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
@@ -573,6 +643,7 @@ def load_funding(
         allow_lockbox=allow_lockbox,
         allow_holdout_a=allow_holdout_a,
         holdout_read_id=holdout_read_id,
+        holdout_finalist_id=holdout_finalist_id,
         holdout_ledger=holdout_ledger,
         cache_dir=cache_dir,
     )
