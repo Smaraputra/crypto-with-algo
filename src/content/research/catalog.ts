@@ -364,12 +364,12 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Validation threshold',
         value: '400',
-        source: { path: 'scripts/research/lab-forward-v2.ts', line: 160 },
+        source: { path: 'scripts/research/lab-forward-v2.ts', line: 164 },
       },
       {
         label: 'N3 trade cost rate',
         value: '0.0014',
-        source: { path: 'scripts/research/lab-forward-v2.ts', line: 167 },
+        source: { path: 'scripts/research/lab-forward-v2.ts', line: 171 },
       },
     ],
     research: [
