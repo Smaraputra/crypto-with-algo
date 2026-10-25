@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import gzip
 import hashlib
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ import pytest
 from r4.data import (
     HOLDOUT_A,
     LOCKBOX_START,
+    MAX_HOLDOUT_READ_IDS,
     PERP_DAILY_END,
     PERP_INTRADAY_END,
     SPOT_DAILY_END,
@@ -99,6 +102,7 @@ def test_1_constants():
     assert SPOT_DAILY_END == 1540944000000
     assert PERP_INTRADAY_END == 1640995200000
     assert PERP_DAILY_END == 1577836800000
+    assert MAX_HOLDOUT_READ_IDS == 3
 
     assert HOLDOUT_A["spot_intraday_end"] == 1634169600000
     assert HOLDOUT_A["spot_daily_end"] == 1540944000000
@@ -363,7 +367,7 @@ def test_6_allow_flags(tmp_path: Path):
         "BTCUSDT",
         "1h",
         allow_holdout_a=True,
-        holdout_read_id="r1",
+        holdout_read_id="1" * 40,
         holdout_ledger=ledger,
     )
     assert res_allow_holdout.holdout_a_applied is False
@@ -392,7 +396,7 @@ def test_6_allow_flags(tmp_path: Path):
         "1h",
         allow_lockbox=True,
         allow_holdout_a=True,
-        holdout_read_id="r2",
+        holdout_read_id="2" * 40,
         holdout_ledger=ledger,
     )
     assert res_both.holdout_a_applied is False
@@ -517,7 +521,7 @@ def test_9_parquet_cache(tmp_path: Path):
 
     # First load: writes parquet file
     res1 = load_perp(ds_dir, "BTCUSDT", "1h", cache_dir=cache_dir)
-    parquet_path = cache_dir / manifest["datasetHash"] / "perp/BTCUSDT/1h.parquet"
+    parquet_path = cache_dir / manifest["datasetHash"] / "perp/BTCUSDT/1h.lb0.ha0.parquet"
     assert parquet_path.exists()
     assert len(res1.rows) == 1
     assert res1.holdout_dropped_rows == 1
@@ -526,6 +530,8 @@ def test_9_parquet_cache(tmp_path: Path):
     # Second load: identical frame
     res2 = load_perp(ds_dir, "BTCUSDT", "1h", cache_dir=cache_dir)
     pd.testing.assert_frame_equal(res1.rows, res2.rows)
+    assert res2.holdout_dropped_rows == 1
+    assert res2.dropped_rows == 1
 
     # Tamper source_sha256 in the parquet file schema metadata
     table = pq.read_table(parquet_path)
@@ -536,11 +542,15 @@ def test_9_parquet_cache(tmp_path: Path):
     # Read again: cache should be rebuilt with the correct sha
     res3 = load_perp(ds_dir, "BTCUSDT", "1h", cache_dir=cache_dir)
     pd.testing.assert_frame_equal(res1.rows, res3.rows)
+    assert res3.holdout_dropped_rows == 1
+    assert res3.dropped_rows == 1
 
-    # Verify that parquet schema metadata was rebuilt with original sha
+    # Verify that parquet schema metadata was rebuilt with original sha and counts
     rebuilt_table = pq.read_table(parquet_path)
     original_sha = sha256_file(ds_dir / "perp/BTCUSDT/1h.jsonl.gz")
     assert rebuilt_table.schema.metadata[b"source_sha256"].decode("utf-8") == original_sha
+    assert int(rebuilt_table.schema.metadata[b"dropped_rows"].decode("utf-8")) == 1
+    assert int(rebuilt_table.schema.metadata[b"holdout_dropped_rows"].decode("utf-8")) == 1
 
 
 def test_10_holdout_read_once(tmp_path: Path):
@@ -567,13 +577,16 @@ def test_10_holdout_read_once(tmp_path: Path):
     ledger_path = tmp_path / "holdout_ledger.jsonl"
     target_file = ds_dir / "perp/BTCUSDT/1h.jsonl.gz"
 
+    id1 = "a" * 40
+    id2 = "b" * 40
+
     # allow_holdout_a=True without id raises PermissionError
     with pytest.raises(PermissionError, match="holdout_read_id"):
         load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_ledger=ledger_path)
 
     # allow_holdout_a=True without ledger raises PermissionError
     with pytest.raises(PermissionError, match="holdout_ledger"):
-        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id="finalist-lock-1")
+        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id1)
 
     # With both: returns holdout rows and writes one ledger line
     res = load_perp(
@@ -581,7 +594,7 @@ def test_10_holdout_read_once(tmp_path: Path):
         "BTCUSDT",
         "1h",
         allow_holdout_a=True,
-        holdout_read_id="finalist-lock-1",
+        holdout_read_id=id1,
         holdout_ledger=ledger_path,
     )
     assert len(res.rows) == 2
@@ -589,7 +602,7 @@ def test_10_holdout_read_once(tmp_path: Path):
     assert ledger_path.exists()
     lines = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").strip().split("\n")]
     assert len(lines) == 1
-    assert lines[0]["read_id"] == "finalist-lock-1"
+    assert lines[0]["read_id"] == id1
     assert lines[0]["path"] == str(target_file)
     assert "at" in lines[0]
 
@@ -600,7 +613,7 @@ def test_10_holdout_read_once(tmp_path: Path):
             "BTCUSDT",
             "1h",
             allow_holdout_a=True,
-            holdout_read_id="finalist-lock-1",
+            holdout_read_id=id1,
             holdout_ledger=ledger_path,
         )
 
@@ -610,13 +623,13 @@ def test_10_holdout_read_once(tmp_path: Path):
         "BTCUSDT",
         "1h",
         allow_holdout_a=True,
-        holdout_read_id="finalist-lock-2",
+        holdout_read_id=id2,
         holdout_ledger=ledger_path,
     )
     assert len(res2.rows) == 2
     lines2 = [json.loads(line) for line in ledger_path.read_text(encoding="utf-8").strip().split("\n")]
     assert len(lines2) == 2
-    assert lines2[1]["read_id"] == "finalist-lock-2"
+    assert lines2[1]["read_id"] == id2
 
 
 def test_11_private_reader_scan():
@@ -745,6 +758,215 @@ def test_12_all_loader_kinds_and_series(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Unknown perp series"):
         load_perp(ds_dir, "BTCUSDT", "1h", series="invalid_series")
+
+
+def test_14_non_sha_read_id_raises(tmp_path: Path):
+    """1. A non-sha read id ("r1") raises PermissionError. A 40-hex id works."""
+    rows = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    files_data = {"perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows)}
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    for invalid_id in ["r1", "g" * 40, "a" * 39, "a" * 41, "A" * 40, ""]:
+        with pytest.raises(PermissionError, match="holdout_read_id"):
+            load_perp(
+                ds_dir,
+                "BTCUSDT",
+                "1h",
+                allow_holdout_a=True,
+                holdout_read_id=invalid_id,
+                holdout_ledger=ledger_path,
+            )
+
+    valid_sha = "0123456789abcdef0123456789abcdef01234567"
+    res = load_perp(
+        ds_dir,
+        "BTCUSDT",
+        "1h",
+        allow_holdout_a=True,
+        holdout_read_id=valid_sha,
+        holdout_ledger=ledger_path,
+    )
+    assert len(res.rows) == 1
+    assert res.rows["t"].iloc[0] == PERP_INTRADAY_END - 3600000
+
+
+def test_15_max_distinct_read_ids_and_repeated_path(tmp_path: Path):
+    """2. A fourth distinct read id raises PermissionError. A repeated (id, path) raises."""
+    rows1 = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    rows2 = [{"t": PERP_INTRADAY_END - 7200000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    files_data = {
+        "perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows1),
+        "perp/BTCUSDT/4h.jsonl.gz": ("perp", "BTCUSDT", "4h", rows2),
+    }
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    id1 = "1" * 40
+    id2 = "2" * 40
+    id3 = "3" * 40
+    id4 = "4" * 40
+
+    # 1st distinct read id succeeds
+    load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id1, holdout_ledger=ledger_path)
+
+    # Repeated (id1, path1) raises PermissionError
+    with pytest.raises(PermissionError, match="already completed"):
+        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id1, holdout_ledger=ledger_path)
+
+    # Same id on a different path succeeds (finalist reading multiple files in batch)
+    load_perp(ds_dir, "BTCUSDT", "4h", allow_holdout_a=True, holdout_read_id=id1, holdout_ledger=ledger_path)
+
+    # 2nd distinct read id succeeds
+    load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id2, holdout_ledger=ledger_path)
+
+    # 3rd distinct read id succeeds (MAX_HOLDOUT_READ_IDS reached)
+    load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id3, holdout_ledger=ledger_path)
+
+    # 4th distinct read id raises PermissionError
+    with pytest.raises(PermissionError, match="limit reached|distinct read ids"):
+        load_perp(ds_dir, "BTCUSDT", "1h", allow_holdout_a=True, holdout_read_id=id4, holdout_ledger=ledger_path)
+
+
+def test_16_ledger_file_locking(tmp_path: Path):
+    """3. The ledger check-and-append runs under a file lock.
+
+    Holding the lock in the test blocks a read attempt until released.
+    """
+    rows = [{"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0}]
+    files_data = {"perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows)}
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    ledger_path = tmp_path / "ledger.jsonl"
+    ledger_path.touch()
+
+    read_id = "a" * 40
+
+    # Hold exclusive lock on the ledger file
+    f_held = open(ledger_path, "r+", encoding="utf-8")
+    fcntl.flock(f_held.fileno(), fcntl.LOCK_EX)
+
+    # Verify that a second file handle in non-blocking mode raises BlockingIOError or OSError
+    f_check = open(ledger_path, "r+", encoding="utf-8")
+    with pytest.raises((BlockingIOError, OSError)):
+        fcntl.flock(f_check.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    f_check.close()
+
+    result_container: list[Any] = []
+    error_container: list[Exception] = []
+
+    def target_read():
+        try:
+            res = load_perp(
+                ds_dir,
+                "BTCUSDT",
+                "1h",
+                allow_holdout_a=True,
+                holdout_read_id=read_id,
+                holdout_ledger=ledger_path,
+            )
+            result_container.append(res)
+        except Exception as exc:
+            error_container.append(exc)
+
+    t = threading.Thread(target=target_read)
+    t.start()
+
+    # The thread must block because the lock is held
+    t.join(timeout=0.15)
+    assert t.is_alive(), "Target read did not block while lock was held"
+    assert len(result_container) == 0
+
+    # Release the lock
+    fcntl.flock(f_held.fileno(), fcntl.LOCK_UN)
+    f_held.close()
+
+    # Thread unblocks and finishes
+    t.join(timeout=2.0)
+    assert not t.is_alive(), "Target read remained blocked after lock was released"
+    assert len(error_container) == 0
+    assert len(result_container) == 1
+    assert len(result_container[0].rows) == 1
+
+
+def test_17_cache_holds_guarded_rows_only(tmp_path: Path):
+    """4. The cache file for a default load contains NO row with t < holdout_a_end and no row with t >= LOCKBOX_START.
+
+    Read the Parquet directly with pyarrow in the test and check.
+    """
+    rows = [
+        {"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0},
+        {"t": 1700000000000, "o": 1.5, "h": 2.5, "l": 1.0, "c": 2.0, "v": 20.0, "qv": 30.0, "n": 8, "tbv": 10.0},
+        {"t": LOCKBOX_START + 1000, "o": 2.0, "h": 3.0, "l": 1.5, "c": 2.5, "v": 15.0, "qv": 25.0, "n": 6, "tbv": 7.0},
+    ]
+    files_data = {"perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows)}
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    cache_dir = tmp_path / "cache"
+    manifest = load_manifest(ds_dir)
+
+    res = load_perp(ds_dir, "BTCUSDT", "1h", cache_dir=cache_dir)
+    assert len(res.rows) == 1
+    assert res.holdout_dropped_rows == 1
+    assert res.dropped_rows == 1
+
+    parquet_file = cache_dir / manifest["datasetHash"] / "perp/BTCUSDT/1h.lb0.ha0.parquet"
+    assert parquet_file.exists()
+
+    direct_table = pq.read_table(parquet_file)
+    direct_df = direct_table.to_pandas()
+
+    assert not (direct_df["t"] < PERP_INTRADAY_END).any()
+    assert not (direct_df["t"] >= LOCKBOX_START).any()
+    assert len(direct_df) == 1
+    assert direct_df["t"].iloc[0] == 1700000000000
+
+
+def test_18_allow_holdout_never_caches(tmp_path: Path):
+    """5. allow_holdout_a=True writes no cache file."""
+    rows = [
+        {"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0},
+        {"t": 1700000000000, "o": 1.5, "h": 2.5, "l": 1.0, "c": 2.0, "v": 20.0, "qv": 30.0, "n": 8, "tbv": 10.0},
+    ]
+    files_data = {"perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows)}
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    cache_dir = tmp_path / "cache"
+    ledger_path = tmp_path / "ledger.jsonl"
+
+    res = load_perp(
+        ds_dir,
+        "BTCUSDT",
+        "1h",
+        allow_holdout_a=True,
+        holdout_read_id="a" * 40,
+        holdout_ledger=ledger_path,
+        cache_dir=cache_dir,
+    )
+    assert len(res.rows) == 2
+
+    cached_parquets = list(cache_dir.glob("**/*.parquet"))
+    assert cached_parquets == [], f"Expected no cache files, found: {cached_parquets}"
+
+
+def test_19_cold_and_cached_counts_equal(tmp_path: Path):
+    """6. The counts in LoadResult are equal for a cold load and a cached load."""
+    rows = [
+        {"t": PERP_INTRADAY_END - 3600000, "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 10.0, "tbv": 5.0},
+        {"t": 1700000000000, "o": 1.5, "h": 2.5, "l": 1.0, "c": 2.0, "v": 20.0, "qv": 30.0, "n": 8, "tbv": 10.0},
+        {"t": LOCKBOX_START + 1000, "o": 2.0, "h": 3.0, "l": 1.5, "c": 2.5, "v": 15.0, "qv": 25.0, "n": 6, "tbv": 7.0},
+    ]
+    files_data = {"perp/BTCUSDT/1h.jsonl.gz": ("perp", "BTCUSDT", "1h", rows)}
+    ds_dir = _build_synthetic_dataset(tmp_path / "dataset", files_data)
+    cache_dir = tmp_path / "cache"
+
+    res_cold = load_perp(ds_dir, "BTCUSDT", "1h", cache_dir=cache_dir)
+    res_cached = load_perp(ds_dir, "BTCUSDT", "1h", cache_dir=cache_dir)
+
+    assert res_cached.dropped_rows == res_cold.dropped_rows == 1
+    assert res_cached.holdout_dropped_rows == res_cold.holdout_dropped_rows == 1
+    assert res_cached.lockbox_applied == res_cold.lockbox_applied is True
+    assert res_cached.lockbox_start == res_cold.lockbox_start == LOCKBOX_START
+    assert res_cached.holdout_a_applied == res_cold.holdout_a_applied is True
+    assert res_cached.holdout_a_end == res_cold.holdout_a_end == PERP_INTRADAY_END
+    pd.testing.assert_frame_equal(res_cached.rows, res_cold.rows)
 
 
 def test_13_line_lengths():

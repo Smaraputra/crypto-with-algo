@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import gzip
 import hashlib
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,6 +23,11 @@ SPOT_INTRADAY_END = 1634169600000
 SPOT_DAILY_END = 1540944000000
 PERP_INTRADAY_END = 1640995200000
 PERP_DAILY_END = 1577836800000
+
+# At most 3 distinct finalist lock commit shas may read the holdout (mirrors r4.method.MAX_FINALISTS).
+MAX_HOLDOUT_READ_IDS = 3
+
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class _HoldoutA(dict[str, int]):
@@ -158,11 +165,18 @@ def _read_jsonl_gz(path: str | Path) -> pd.DataFrame:
 
 
 def _record_holdout_read(file_path: Path, read_id: str, ledger_path: str | Path) -> None:
+    if not isinstance(read_id, str) or not _SHA_RE.fullmatch(read_id):
+        raise PermissionError(f"holdout_read_id must be a 40-character hex git commit sha; got '{read_id}'")
+
     ledger_p = Path(ledger_path)
     target_path_str = str(file_path)
 
-    if ledger_p.exists():
-        with open(ledger_p, encoding="utf-8") as f:
+    ledger_p.parent.mkdir(parents=True, exist_ok=True)
+    with open(ledger_p, "a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.seek(0)
+            distinct_read_ids: set[str] = set()
             for line in f:
                 stripped = line.strip()
                 if not stripped:
@@ -171,61 +185,33 @@ def _record_holdout_read(file_path: Path, read_id: str, ledger_path: str | Path)
                     entry = json.loads(stripped)
                 except Exception:
                     continue
-                if entry.get("read_id") == read_id and entry.get("path") == target_path_str:
+                entry_id = entry.get("read_id")
+                if isinstance(entry_id, str):
+                    distinct_read_ids.add(entry_id)
+                if entry_id == read_id and entry.get("path") == target_path_str:
                     raise PermissionError(
                         f"Holdout read already completed for read_id '{read_id}' on path '{target_path_str}'"
                     )
 
-    ledger_p.parent.mkdir(parents=True, exist_ok=True)
-    utc_now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
-    ledger_entry = {"read_id": read_id, "path": target_path_str, "at": utc_now}
-    with open(ledger_p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(ledger_entry) + "\n")
+            if read_id not in distinct_read_ids and len(distinct_read_ids) >= MAX_HOLDOUT_READ_IDS:
+                raise PermissionError(
+                    f"Holdout ledger limit reached ({MAX_HOLDOUT_READ_IDS} distinct read ids); "
+                    f"cannot add new read_id '{read_id}'"
+                )
+
+            utc_now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+            ledger_entry = {"read_id": read_id, "path": target_path_str, "at": utc_now}
+            f.seek(0, 2)
+            f.write(json.dumps(ledger_entry) + "\n")
+            f.flush()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-def _load_raw_rows(
-    dir_path: Path,
-    rel_path: str,
-    cache_dir: str | Path | None,
-) -> pd.DataFrame:
-    file_path = dir_path / rel_path
-
-    if cache_dir is None:
-        return _read_jsonl_gz(file_path)
-
-    manifest = load_manifest(dir_path)
-    dataset_hash = manifest.get("datasetHash", "")
-
-    parquet_rel = rel_path[:-9] + ".parquet" if rel_path.endswith(".jsonl.gz") else rel_path + ".parquet"
-    cache_file = Path(cache_dir) / dataset_hash / parquet_rel
-
-    file_sha = sha256_file(file_path)
-
-    if cache_file.exists():
-        try:
-            parquet_file = pq.ParquetFile(cache_file)
-            metadata = parquet_file.schema_arrow.metadata or {}
-            cached_sha = metadata.get(b"source_sha256")
-            if cached_sha is not None and cached_sha.decode("utf-8") == file_sha:
-                return parquet_file.read().to_pandas()
-        except Exception:
-            pass
-
-    df = _read_jsonl_gz(file_path)
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.Table.from_pandas(df)
-    existing_meta = table.schema.metadata or {}
-    new_meta = {**existing_meta, b"source_sha256": file_sha.encode("utf-8")}
-    table = table.replace_schema_metadata(new_meta)
-    pq.write_table(table, cache_file)
-    return df
-
-
-def _load_dataset_file_with_holdout(
+def _load_dataset_file(
     dir: str | Path,
     rel_path: str,
-    market: str,
-    interval: str,
+    end: int | None,
     allow_lockbox: bool = False,
     allow_holdout_a: bool = False,
     holdout_read_id: str | None = None,
@@ -233,31 +219,75 @@ def _load_dataset_file_with_holdout(
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
     if allow_holdout_a:
-        if not holdout_read_id or not isinstance(holdout_read_id, str) or not holdout_read_id.strip():
-            raise PermissionError("allow_holdout_a=True requires a non-empty holdout_read_id")
+        if not holdout_read_id or not isinstance(holdout_read_id, str) or not _SHA_RE.fullmatch(holdout_read_id):
+            raise PermissionError("allow_holdout_a=True requires a 40-character hex holdout_read_id")
         if not holdout_ledger:
             raise PermissionError("allow_holdout_a=True requires holdout_ledger")
 
     dir_p = Path(dir)
     file_p = dir_p / rel_path
-    raw_df = _load_raw_rows(dir_p, rel_path, cache_dir)
 
-    end = holdout_a_end(market, interval)
+    # Holdout rows are never cached; allow_holdout_a loads never read or write cache.
+    use_cache = cache_dir is not None and not allow_holdout_a
+    cache_file: Path | None = None
+    file_sha: str | None = None
+
+    if use_cache:
+        manifest = load_manifest(dir_p)
+        dataset_hash = manifest.get("datasetHash", "")
+        stem = rel_path[:-9] if rel_path.endswith(".jsonl.gz") else rel_path
+        lb_flag = "lb1" if allow_lockbox else "lb0"
+        ha_flag = "ha0"
+        flags = f"{lb_flag}.{ha_flag}"
+        cache_file = Path(cache_dir) / dataset_hash / f"{stem}.{flags}.parquet"
+        file_sha = sha256_file(file_p)
+
+        if cache_file.exists():
+            try:
+                parquet_file = pq.ParquetFile(cache_file)
+                metadata = parquet_file.schema_arrow.metadata or {}
+                cached_sha = metadata.get(b"source_sha256")
+                if cached_sha is not None and cached_sha.decode("utf-8") == file_sha:
+                    dropped_bytes = metadata.get(b"dropped_rows")
+                    holdout_bytes = metadata.get(b"holdout_dropped_rows")
+                    if dropped_bytes is not None and holdout_bytes is not None:
+                        cached_dropped = int(dropped_bytes.decode("utf-8"))
+                        cached_holdout = int(holdout_bytes.decode("utf-8"))
+                        df = parquet_file.read().to_pandas()
+                        return LoadResult(
+                            rows=df,
+                            lockbox_applied=not allow_lockbox,
+                            lockbox_start=LOCKBOX_START,
+                            dropped_rows=cached_dropped,
+                            holdout_a_applied=end is not None,
+                            holdout_a_end=end,
+                            holdout_dropped_rows=cached_holdout,
+                        )
+            except Exception:
+                pass
+
+    raw_df = _read_jsonl_gz(file_p)
+
     holdout_dropped = 0
     holdout_applied = False
 
-    if raw_df.empty or "t" not in raw_df.columns:
-        filtered_df = raw_df.copy()
-    else:
-        if allow_holdout_a:
+    if end is not None:
+        if raw_df.empty or "t" not in raw_df.columns:
             filtered_df = raw_df.copy()
-            holdout_applied = False
-            holdout_dropped = 0
         else:
-            kept_mask = raw_df["t"] >= end
-            filtered_df = raw_df[kept_mask].copy()
-            holdout_applied = True
-            holdout_dropped = int((~kept_mask).sum())
+            if allow_holdout_a:
+                filtered_df = raw_df.copy()
+                holdout_applied = False
+                holdout_dropped = 0
+            else:
+                kept_mask = raw_df["t"] >= end
+                filtered_df = raw_df[kept_mask].copy()
+                holdout_applied = True
+                holdout_dropped = int((~kept_mask).sum())
+    else:
+        filtered_df = raw_df.copy()
+        holdout_applied = False
+        holdout_dropped = 0
 
     lockbox_applied = False
     lockbox_dropped = 0
@@ -280,9 +310,22 @@ def _load_dataset_file_with_holdout(
     else:
         final_df = final_df.reset_index(drop=True)
 
-    if allow_holdout_a and not final_df.empty and "t" in final_df.columns:
+    if allow_holdout_a and end is not None and not final_df.empty and "t" in final_df.columns:
         if (final_df["t"] < end).any():
             _record_holdout_read(file_p, holdout_read_id, holdout_ledger)
+
+    if use_cache and cache_file is not None and file_sha is not None:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        table = pa.Table.from_pandas(final_df)
+        existing_meta = table.schema.metadata or {}
+        new_meta = {
+            **existing_meta,
+            b"source_sha256": file_sha.encode("utf-8"),
+            b"dropped_rows": str(lockbox_dropped).encode("utf-8"),
+            b"holdout_dropped_rows": str(holdout_dropped).encode("utf-8"),
+        }
+        table = table.replace_schema_metadata(new_meta)
+        pq.write_table(table, cache_file)
 
     return LoadResult(
         rows=final_df,
@@ -295,6 +338,30 @@ def _load_dataset_file_with_holdout(
     )
 
 
+def _load_dataset_file_with_holdout(
+    dir: str | Path,
+    rel_path: str,
+    market: str,
+    interval: str,
+    allow_lockbox: bool = False,
+    allow_holdout_a: bool = False,
+    holdout_read_id: str | None = None,
+    holdout_ledger: str | Path | None = None,
+    cache_dir: str | Path | None = None,
+) -> LoadResult:
+    end = holdout_a_end(market, interval)
+    return _load_dataset_file(
+        dir=dir,
+        rel_path=rel_path,
+        end=end,
+        allow_lockbox=allow_lockbox,
+        allow_holdout_a=allow_holdout_a,
+        holdout_read_id=holdout_read_id,
+        holdout_ledger=holdout_ledger,
+        cache_dir=cache_dir,
+    )
+
+
 def _load_dataset_file_lockbox_only(
     dir: str | Path,
     rel_path: str,
@@ -304,38 +371,15 @@ def _load_dataset_file_lockbox_only(
     holdout_ledger: str | Path | None = None,
     cache_dir: str | Path | None = None,
 ) -> LoadResult:
-    dir_p = Path(dir)
-    raw_df = _load_raw_rows(dir_p, rel_path, cache_dir)
-
-    lockbox_applied = False
-    lockbox_dropped = 0
-
-    if raw_df.empty or "t" not in raw_df.columns:
-        final_df = raw_df.copy()
-    else:
-        if allow_lockbox:
-            final_df = raw_df.copy()
-            lockbox_applied = False
-            lockbox_dropped = 0
-        else:
-            kept_mask = raw_df["t"] < LOCKBOX_START
-            final_df = raw_df[kept_mask].copy()
-            lockbox_applied = True
-            lockbox_dropped = int((~kept_mask).sum())
-
-    if not final_df.empty and "t" in final_df.columns:
-        final_df = final_df.sort_values("t", ascending=True).reset_index(drop=True)
-    else:
-        final_df = final_df.reset_index(drop=True)
-
-    return LoadResult(
-        rows=final_df,
-        lockbox_applied=lockbox_applied,
-        lockbox_start=LOCKBOX_START,
-        dropped_rows=lockbox_dropped,
-        holdout_a_applied=False,
-        holdout_a_end=None,
-        holdout_dropped_rows=0,
+    return _load_dataset_file(
+        dir=dir,
+        rel_path=rel_path,
+        end=None,
+        allow_lockbox=allow_lockbox,
+        allow_holdout_a=allow_holdout_a,
+        holdout_read_id=holdout_read_id,
+        holdout_ledger=holdout_ledger,
+        cache_dir=cache_dir,
     )
 
 
