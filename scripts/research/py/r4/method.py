@@ -1,6 +1,7 @@
 """ROUND 4 METHOD LOCK (M), LOCK TEXT V3. Plan of record: ~/.claude/plans/squishy-zooming-wilkes.md (owner-approved
 2026-10-25). Gate M reviewed version 1 and version 2 (Opus, 2026-10-25, both PASS WITH FIXES). Neither was signed.
 V3.1 (before signing): the gate M v3 check's fixes (the basket rule, the spans, the trial unit) and its disclosures.
+SIGNED by the owner on 2026-10-25 (session 41) for the text at 455ac2a0, after the Opus gate returned SIGN.
 This version adopts both reviews' fixes (.superpowers/sdd/round4/gates/). It is committed before any Round 4 model
 reads development outcomes, and the owner signs it. Changes after the first development read are AMENDMENTS appended
 below, never edits.
