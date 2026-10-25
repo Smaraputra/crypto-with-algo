@@ -309,17 +309,28 @@ describe('compute-engine golden', () => {
   it('passes the pinned arguments to the snapshot reads', async () => {
     await runEngine();
 
-    // News pipeline: one aggregate, symbols de-duplicated in task order.
-    expect(mockSnapshotAggregate).toHaveBeenCalledTimes(1);
-    const pipeline = mockSnapshotAggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(pipeline[0]).toEqual({
-      $match: {
-        symbol: { $in: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'] },
-        interval: '1h',
-        timestamp: { $gte: FIXED_NOW - 2 * 60 * 60 * 1000 },
-        'data.newsSentiment': { $ne: null },
-      },
-    });
+    // News pipeline: aggregate per distinct ltfClose, pinned to the candle close.
+    const newsReads = mockSnapshotAggregate.mock.calls.map(
+      (c: unknown[]) => (c[0] as Array<Record<string, unknown>>)[0]
+    );
+    const expectedByClose = new Map<number, string[]>();
+    for (const t of TASKS) {
+      const ltfClose = lastClosedOpenTime(t.interval) + intervalToMs(t.interval);
+      const list = expectedByClose.get(ltfClose) ?? [];
+      if (!list.includes(t.symbol)) list.push(t.symbol);
+      expectedByClose.set(ltfClose, list);
+    }
+    expect(newsReads).toHaveLength(expectedByClose.size);
+    for (const [ltfClose, symbols] of expectedByClose.entries()) {
+      expect(newsReads).toContainEqual({
+        $match: {
+          symbol: { $in: symbols },
+          interval: '1h',
+          timestamp: { $gte: ltfClose - 2 * 60 * 60 * 1000, $lte: ltfClose },
+          'data.newsSentiment': { $ne: null },
+        },
+      });
+    }
 
     // Stored rows: window, ordering inputs and projection per (symbol, interval).
     const projection = { timestamp: 1, 'data.fundingRate': 1, 'data.longShortRatio': 1 };

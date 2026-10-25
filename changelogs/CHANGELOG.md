@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: live v8 context is pinned to the scored candle's close (Round 4 audit V8-1, V8-2)
+- **Problem:** the higher-timeframe context filtered bars against the batch wall clock (`now`), and news sentiment was read relative to `Date.now()`. A late compute could read an HTF bar, or headlines, from after the scored candle closed.
+- **Fix:** both now use the scored candle's close (`latestCandleTs + interval`). This is the same rule the research path uses (`htf.timestamp + htfMs <= ltf.timestamp + ltfMs`).
+- **Timely runs:** about a minute after sync, scores are unchanged, so `configVersion` is not bumped.
+- **News queries:** news is read once per distinct candle close in a batch, for all the symbols scored at that close. A batch whose tasks share one close still makes one query.
+- **Golden test:** its pinned news query arguments are updated, and its score assertions are unchanged.
+
 ### Fixed: lab-v2 no longer uses a silently truncated kline history (Round 4 audit V2-1)
 - **Problem:** `fetchKlinesRange` stops paging when its 120 s deadline passes and returns what it has. Paging runs forward from the start, so a timeout drops the most RECENT bars. N2 (about 2015 daily bars) and N3 (15m) then scored on stale history without any error.
 - **Fix:** an opt-in `{ strict: true }` mode makes the deadline throw. Both lab-v2 jobs use it, and they also require the last bar to be the one closing at T. Either failure takes the existing failed-fetch path: wait, retry, then skip on the final attempt.
