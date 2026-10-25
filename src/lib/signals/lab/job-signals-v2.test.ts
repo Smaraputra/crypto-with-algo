@@ -71,9 +71,14 @@ function mapToBar1d(k: OHLCV): Bar1d {
   };
 }
 
-function generate15mDayBars(dayStart: number, basePrice: number, barCount = 96): OHLCV[] {
+function generate15mDayBars(
+  dayStart: number,
+  basePrice: number,
+  barCount = 96,
+  startIdx = 0
+): OHLCV[] {
   const bars: OHLCV[] = [];
-  for (let i = 0; i < barCount; i++) {
+  for (let i = startIdx; i < startIdx + barCount; i++) {
     bars.push({
       timestamp: dayStart + i * 15 * 60_000,
       open: basePrice,
@@ -204,6 +209,37 @@ describe('job-signals-v2 weekly (N2-1w)', () => {
     expect(candleCounts['ETHUSDT']).toBe(0);
     expect(candleCounts['BTCUSDT']).toBeGreaterThan(0);
   });
+
+  it('treats symbol with fetch result missing the last bar as fetch_failed on first attempt', async () => {
+    const { startTime, endTime } = n2HistoryNeeded(T_MON);
+    const fakeData = generateDailyOHLCV(startTime, endTime);
+    const ethCandles = (fakeData['ETHUSDT'] ?? []).filter(
+      (c) => c.timestamp < T_MON - DAY_MS
+    );
+    fetchKlinesRange.mockImplementation(async (sym: string) => {
+      if (sym === 'ETHUSDT') return ethCandles;
+      return fakeData[sym];
+    });
+
+    const report = await runLabV2Weekly(clockTime, deps, { final: false });
+    expect(report.written).toEqual([]);
+    expect(report.waiting).toEqual([
+      { hypothesis: 'N2-1w', barClose: T_MON, reason: 'fetch_failed' },
+    ]);
+    expect(report.errors.length).toBeGreaterThan(0);
+    expect(report.errors[0]).toContain('ETHUSDT');
+
+    const count = await LabSignal.countDocuments({
+      version: 'lab-v2',
+      hypothesis: 'N2-1w',
+      barClose: T_MON,
+    });
+    expect(count).toBe(0);
+
+    for (const call of fetchKlinesRange.mock.calls) {
+      expect(call[4]).toEqual({ strict: true });
+    }
+  });
 });
 
 describe('job-signals-v2 daily (N3-1d)', () => {
@@ -251,11 +287,11 @@ describe('job-signals-v2 daily (N3-1d)', () => {
       ...generate15mDayBars(d1, 100, 96),
     ];
 
-    // Symbol 3 (SOLUSDT): 60-bar day at D-1 -> va_incomplete
+    // Symbol 3 (SOLUSDT): 60-bar day at D-1 reaching T -> va_incomplete
     barsMap[SIGNAL_SYMBOLS[3]] = [
       ...generate15mDayBars(d3, 100, 96),
       ...generate15mDayBars(d2, 100, 96),
-      ...generate15mDayBars(d1, 100, 60),
+      ...generate15mDayBars(d1, 100, 60, 36),
     ];
 
     // Other symbols: flat
@@ -348,6 +384,44 @@ describe('job-signals-v2 daily (N3-1d)', () => {
 
     const count = await LabSignal.countDocuments({ version: 'lab-v2', hypothesis: 'N3-1d', barClose: T_DAY });
     expect(count).toBe(0);
+  });
+
+  it('treats symbol with fetch result missing the last bar as fetch_failed on first attempt', async () => {
+    const d1 = T_DAY - 1 * DAY_MS;
+    const d2 = T_DAY - 2 * DAY_MS;
+    const d3 = T_DAY - 3 * DAY_MS;
+
+    const barsMap: Record<string, OHLCV[]> = {};
+    for (const sym of SIGNAL_SYMBOLS) {
+      barsMap[sym] = [
+        ...generate15mDayBars(d3, 100, 96),
+        ...generate15mDayBars(d2, 100, 96),
+        ...generate15mDayBars(d1, 100, 96),
+      ];
+    }
+    // Truncate ETHUSDT by removing the last 15m bar closing at T_DAY
+    barsMap['ETHUSDT'] = (barsMap['ETHUSDT'] ?? []).slice(0, -1);
+
+    fetchKlinesRange.mockImplementation(async (sym: string) => barsMap[sym]);
+
+    const report = await runLabV2Daily(clockTime, deps, { final: false });
+    expect(report.written).toEqual([]);
+    expect(report.waiting).toEqual([
+      { hypothesis: 'N3-1d', barClose: T_DAY, reason: 'fetch_failed' },
+    ]);
+    expect(report.errors.length).toBeGreaterThan(0);
+    expect(report.errors[0]).toContain('ETHUSDT');
+
+    const count = await LabSignal.countDocuments({
+      version: 'lab-v2',
+      hypothesis: 'N3-1d',
+      barClose: T_DAY,
+    });
+    expect(count).toBe(0);
+
+    for (const call of fetchKlinesRange.mock.calls) {
+      expect(call[4]).toEqual({ strict: true });
+    }
   });
 });
 

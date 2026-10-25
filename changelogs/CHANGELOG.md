@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: lab-v2 no longer uses a silently truncated kline history (Round 4 audit V2-1)
+- **Problem:** `fetchKlinesRange` stops paging when its 120 s deadline passes and returns what it has. Paging runs forward from the start, so a timeout drops the most RECENT bars. N2 (about 2015 daily bars) and N3 (15m) then scored on stale history without any error.
+- **Fix:** an opt-in `{ strict: true }` mode makes the deadline throw. Both lab-v2 jobs use it, and they also require the last bar to be the one closing at T. Either failure takes the existing failed-fetch path: wait, retry, then skip on the final attempt.
+- **Unchanged:** the default (non-strict) behaviour, used by candle ingestion and backfill. Complete histories, the frozen rules and the stored rows are all unchanged as well. The lock (`scripts/research/lab-forward-v2.ts`) records this as an amendment.
+
 ### Added: A detail page for every research entry, with its trials and test runs
 - **Detail pages:** every entry in the `/signals` hub now has its own page at `/signals/{id}`, linked from its card ("Open the full page"). Each page shows:
   - method;
