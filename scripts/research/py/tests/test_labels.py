@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from r4.costs import trade_net_return
-from r4.labels import average_uniqueness, fixed_horizon, triple_barrier
+from r4.causality import assert_future_invariant
+from r4.costs import (
+    DEFAULT_FEE_PROFILE,
+    STUDY_SLIPPAGE_BPS,
+    resolve_fee_profile,
+    trade_net_return,
+)
+from r4.labels import average_uniqueness, fixed_horizon, trailing_sigma_h, triple_barrier
 
 
 def _build_5m_path(
@@ -615,3 +623,327 @@ def test_edge_cases_and_input_validation() -> None:
     huge_t1 = [100, 6_000_000 * 100 + 100]
     sparse_u = average_uniqueness(huge_t0, huge_t1, grid_ms=100)
     assert np.allclose(sparse_u, [1.0, 1.0])
+
+
+def test_trade_through_take_profit_boundaries() -> None:
+    """Requirement 1: A bar high equal to U does not fill long TP; 1e-9 above does. Mirror for short."""
+    t_decision = 1_000_000_000
+    delay_ms = 600_000
+    h_ms = 1_200_000
+    t_entry = t_decision + delay_ms
+    t_horizon = t_decision + delay_ms + h_ms
+
+    entry_price = 100.0
+    sigma_h = 0.02
+    k_up = 1.0
+    k_down = 1.0
+    upper_price = entry_price * math.exp(k_up * sigma_h)
+    lower_price = entry_price * math.exp(-k_down * sigma_h)
+
+    # Long: bar high == upper_price exactly does not fill TP
+    bars_equal_long = _build_5m_path(
+        [
+            (t_entry, 100.0, 101.0, 99.5, 100.0),
+            (t_entry + 300_000, 100.0, upper_price, 99.5, 100.0),
+            (t_entry + 600_000, 100.0, 101.0, 99.5, 100.0),
+            (t_entry + 900_000, 100.0, 101.0, 99.5, 100.0),
+            (t_horizon, 100.0, 101.0, 99.5, 100.0),
+        ]
+    )
+    res_eq_l = triple_barrier(
+        [t_decision], bars_equal_long, h_ms=h_ms, sigma_h=sigma_h, k_up=k_up, k_down=k_down, side=1, interval="1h"
+    )
+    assert res_eq_l.loc[t_decision, "label"] == 0.0
+    assert res_eq_l.loc[t_decision, "exit"] == 100.0
+    assert res_eq_l.loc[t_decision, "t1_touch"] == t_horizon
+
+    # Long: bar high == upper_price + 1e-9 does fill TP
+    bars_above_long = _build_5m_path(
+        [
+            (t_entry, 100.0, 101.0, 99.5, 100.0),
+            (t_entry + 300_000, 100.0, upper_price + 1e-9, 99.5, 100.0),
+            (t_entry + 600_000, 100.0, 101.0, 99.5, 100.0),
+            (t_entry + 900_000, 100.0, 101.0, 99.5, 100.0),
+            (t_horizon, 100.0, 101.0, 99.5, 100.0),
+        ]
+    )
+    res_ab_l = triple_barrier(
+        [t_decision], bars_above_long, h_ms=h_ms, sigma_h=sigma_h, k_up=k_up, k_down=k_down, side=1, interval="1h"
+    )
+    assert res_ab_l.loc[t_decision, "label"] == 1.0
+    assert res_ab_l.loc[t_decision, "exit"] == pytest.approx(upper_price)
+    assert res_ab_l.loc[t_decision, "t1_touch"] == t_entry + 300_000 + 300_000
+
+    # Short: bar low == lower_price exactly does not fill TP
+    bars_equal_short = _build_5m_path(
+        [
+            (t_entry, 100.0, 100.5, 99.5, 100.0),
+            (t_entry + 300_000, 100.0, 100.5, lower_price, 100.0),
+            (t_entry + 600_000, 100.0, 100.5, 99.5, 100.0),
+            (t_entry + 900_000, 100.0, 100.5, 99.5, 100.0),
+            (t_horizon, 100.0, 100.5, 99.5, 100.0),
+        ]
+    )
+    res_eq_s = triple_barrier(
+        [t_decision], bars_equal_short, h_ms=h_ms, sigma_h=sigma_h, k_up=k_up, k_down=k_down, side=-1, interval="1h"
+    )
+    assert res_eq_s.loc[t_decision, "label"] == 0.0
+    assert res_eq_s.loc[t_decision, "exit"] == 100.0
+    assert res_eq_s.loc[t_decision, "t1_touch"] == t_horizon
+
+    # Short: bar low == lower_price - 1e-9 does fill TP
+    bars_below_short = _build_5m_path(
+        [
+            (t_entry, 100.0, 100.5, 99.5, 100.0),
+            (t_entry + 300_000, 100.0, 100.5, lower_price - 1e-9, 100.0),
+            (t_entry + 600_000, 100.0, 100.5, 99.5, 100.0),
+            (t_entry + 900_000, 100.0, 100.5, 99.5, 100.0),
+            (t_horizon, 100.0, 100.5, 99.5, 100.0),
+        ]
+    )
+    res_be_s = triple_barrier(
+        [t_decision], bars_below_short, h_ms=h_ms, sigma_h=sigma_h, k_up=k_up, k_down=k_down, side=-1, interval="1h"
+    )
+    assert res_be_s.loc[t_decision, "label"] == 1.0
+    assert res_be_s.loc[t_decision, "exit"] == pytest.approx(lower_price)
+    assert res_be_s.loc[t_decision, "t1_touch"] == t_entry + 300_000 + 300_000
+
+
+def test_gap_stop_long_and_short() -> None:
+    """Requirement 2: A bar opening beyond the stop barrier fills at the open, not the barrier."""
+    t_decision = 1_000_000_000
+    delay_ms = 600_000
+    h_ms = 1_200_000
+    t_entry = t_decision + delay_ms
+    t_horizon = t_decision + delay_ms + h_ms
+
+    entry_price = 100.0
+    sigma_h = 0.02
+    lower_price = entry_price * math.exp(-1.0 * sigma_h)  # ~98.019867
+    upper_price = entry_price * math.exp(1.0 * sigma_h)  # ~102.020134
+
+    # Long: bar opens below L and trades lower
+    gap_open_long = 96.0  # strictly below lower_price
+    bars_gap_long = _build_5m_path(
+        [
+            (t_entry, 100.0, 100.5, 99.5, 100.0),
+            (t_entry + 300_000, gap_open_long, 96.5, 95.0, 95.5),
+            (t_entry + 600_000, 95.5, 96.0, 95.0, 95.5),
+            (t_entry + 900_000, 95.5, 96.0, 95.0, 95.5),
+            (t_horizon, 95.5, 96.0, 95.0, 95.5),
+        ]
+    )
+    res_gap_l = triple_barrier(
+        [t_decision], bars_gap_long, h_ms=h_ms, sigma_h=sigma_h, k_up=1.0, k_down=1.0, side=1, interval="1h"
+    )
+    row_l = res_gap_l.loc[t_decision]
+    assert row_l["label"] == -1.0
+    assert row_l["exit"] == gap_open_long
+    assert row_l["exit"] != pytest.approx(lower_price)
+    expected_net_l = trade_net_return(
+        side=1,
+        entry_price=entry_price,
+        exit_price=gap_open_long,
+        funding_sum=0.0,
+        interval="1h",
+        entry_fill="taker",
+        exit_fill="taker",
+    )
+    assert row_l["net"] == pytest.approx(expected_net_l)
+    assert row_l["ambiguous"] is False or row_l["ambiguous"] == False  # noqa: E712
+
+    # Short: bar opens above U and trades higher
+    gap_open_short = 104.0  # strictly above upper_price
+    bars_gap_short = _build_5m_path(
+        [
+            (t_entry, 100.0, 100.5, 99.5, 100.0),
+            (t_entry + 300_000, gap_open_short, 105.0, 103.5, 104.5),
+            (t_entry + 600_000, 104.5, 105.0, 104.0, 104.5),
+            (t_entry + 900_000, 104.5, 105.0, 104.0, 104.5),
+            (t_horizon, 104.5, 105.0, 104.0, 104.5),
+        ]
+    )
+    res_gap_s = triple_barrier(
+        [t_decision], bars_gap_short, h_ms=h_ms, sigma_h=sigma_h, k_up=1.0, k_down=1.0, side=-1, interval="1h"
+    )
+    row_s = res_gap_s.loc[t_decision]
+    assert row_s["label"] == -1.0
+    assert row_s["exit"] == gap_open_short
+    assert row_s["exit"] != pytest.approx(upper_price)
+    expected_net_s = trade_net_return(
+        side=-1,
+        entry_price=entry_price,
+        exit_price=gap_open_short,
+        funding_sum=0.0,
+        interval="1h",
+        entry_fill="taker",
+        exit_fill="taker",
+    )
+    assert row_s["net"] == pytest.approx(expected_net_s)
+    assert row_s["ambiguous"] is False or row_s["ambiguous"] == False  # noqa: E712
+
+
+def test_trailing_sigma_h_hand_computation_missing_and_causality() -> None:
+    """Requirement 3: trailing_sigma_h against hand calculation on 288 bars, missing bar NaN, causality check."""
+    trailing_ms = 86_400_000
+    h_ms = 3_600_000
+    T = trailing_ms  # 86_400_000
+
+    # 288 5m bars ending at T
+    n_bars = 288
+    r_const = 0.001
+    prices = [100.0 * math.exp(r_const * (k + 1)) for k in range(n_bars)]
+    bars_data = []
+    for k in range(n_bars):
+        t_bar = k * 300_000
+        o_bar = 100.0 if k == 0 else prices[k - 1]
+        c_bar = prices[k]
+        h_bar = max(o_bar, c_bar) * 1.0001
+        l_bar = min(o_bar, c_bar) * 0.9999
+        bars_data.append((t_bar, o_bar, h_bar, l_bar, c_bar))
+    df_288 = _build_5m_path(bars_data)
+
+    # Hand calculation:
+    # r0 = log(c0 / o0) = r_const = 0.001
+    # rk = log(ck / ck-1) = r_const = 0.001 for all k in 1..287
+    # sum_sq = 288 * (0.001**2) = 2.88e-4
+    # scale = 3_600_000 / 86_400_000 = 1 / 24 = 12 / 288
+    # sigma_h = sqrt(12 * 1e-6) = 2 * sqrt(3) * 1e-3
+    expected_sigma = math.sqrt(12.0 * 1e-6)
+
+    res_series = trailing_sigma_h([T], df_288, h_ms=h_ms, trailing_ms=trailing_ms)
+    assert res_series.loc[T] == pytest.approx(expected_sigma, rel=1e-12)
+
+    # Missing bar anywhere in the window gives NaN
+    df_missing = df_288[df_288["t"] != (100 * 300_000)]
+    res_missing = trailing_sigma_h([T], df_missing, h_ms=h_ms, trailing_ms=trailing_ms)
+    assert np.isnan(res_missing.loc[T])
+
+    # Missing the first bar gives NaN
+    df_missing_first = df_288[df_288["t"] != 0]
+    res_missing_first = trailing_sigma_h([T], df_missing_first, h_ms=h_ms, trailing_ms=trailing_ms)
+    assert np.isnan(res_missing_first.loc[T])
+
+    # Missing the last bar gives NaN
+    df_missing_last = df_288[df_288["t"] != (287 * 300_000)]
+    res_missing_last = trailing_sigma_h([T], df_missing_last, h_ms=h_ms, trailing_ms=trailing_ms)
+    assert np.isnan(res_missing_last.loc[T])
+
+    # Causality test via assert_future_invariant at 20 random T
+    rng = np.random.default_rng(20261025)
+    total_bars = 96 * 12  # 4 days = 1152 5m bars
+    t_5m = np.arange(total_bars, dtype=np.int64) * 300_000
+    log_ret = rng.normal(0.0001, 0.005, size=total_bars)
+    p_5m = 1000.0 * np.exp(np.cumsum(log_ret))
+    o_5m = np.concatenate(([1000.0], p_5m[:-1]))
+    c_5m = p_5m
+    h_5m = np.maximum(o_5m, c_5m) * (1.0 + rng.uniform(0.0001, 0.002, size=total_bars))
+    l_5m = np.minimum(o_5m, c_5m) * (1.0 - rng.uniform(0.0001, 0.002, size=total_bars))
+
+    df_synth = pd.DataFrame({"t": t_5m, "o": o_5m, "h": h_5m, "l": l_5m, "c": c_5m})
+
+    # Valid decision times where trailing window of 288 bars is fully closed
+    # First bar closed at T requires T >= 288 * 300_000 = 86_400_000
+    # Leave room at the end for future perturbation
+    valid_T = [t for t in range(trailing_ms, (total_bars - 50) * 300_000, 3_600_000)]
+    sample_T = sorted(rng.choice(valid_T, size=20, replace=False).tolist())
+
+    def build_sigma(f5: pd.DataFrame) -> pd.DataFrame:
+        return trailing_sigma_h(sample_T, f5, h_ms=h_ms, trailing_ms=trailing_ms).to_frame()
+
+    assert_future_invariant(build_sigma, (df_synth, 300_000), sample_T, rng=rng)
+
+
+def test_triple_barrier_maker_as_taker() -> None:
+    """Requirement 4: maker_as_taker=True lowers net by exactly taker_fee - maker_fee + slippage."""
+    t_decision = 1_000_000_000
+    delay_ms = 600_000
+    h_ms = 1_200_000
+    t_entry = t_decision + delay_ms
+    t_horizon = t_decision + delay_ms + h_ms
+
+    sigma_h = 0.02
+    k_up = 1.0
+    k_down = 1.0
+
+    # Long take-profit
+    bars_tp_long = _build_5m_path(
+        [
+            (t_entry, 100.0, 101.0, 99.5, 100.5),
+            (t_entry + 300_000, 100.5, 103.0, 99.0, 102.5),  # hits upper barrier
+            (t_entry + 600_000, 102.5, 102.5, 102.0, 102.0),
+            (t_entry + 900_000, 102.0, 102.0, 101.5, 101.5),
+            (t_horizon, 101.5, 101.5, 101.0, 101.0),
+        ]
+    )
+
+    df_maker_l = triple_barrier(
+        [t_decision], bars_tp_long, h_ms, sigma_h, k_up, k_down, side=1, interval="1h", maker_as_taker=False
+    )
+    df_taker_l = triple_barrier(
+        [t_decision], bars_tp_long, h_ms, sigma_h, k_up, k_down, side=1, interval="1h", maker_as_taker=True
+    )
+
+    fees = resolve_fee_profile(DEFAULT_FEE_PROFILE)
+    slippage = STUDY_SLIPPAGE_BPS["1h"] / 10000.0
+    expected_diff = fees.taker_fee - fees.maker_fee + slippage
+
+    actual_diff_l = df_maker_l.loc[t_decision, "net"] - df_taker_l.loc[t_decision, "net"]
+    assert actual_diff_l == pytest.approx(expected_diff, rel=1e-12)
+
+    # Short take-profit
+    bars_tp_short = _build_5m_path(
+        [
+            (t_entry, 100.0, 101.0, 99.5, 100.0),
+            (t_entry + 300_000, 100.0, 100.5, 97.0, 97.5),  # hits lower barrier
+            (t_entry + 600_000, 97.5, 98.0, 97.0, 97.5),
+            (t_entry + 900_000, 97.5, 98.0, 97.0, 97.5),
+            (t_horizon, 97.5, 98.0, 97.0, 97.5),
+        ]
+    )
+
+    df_maker_s = triple_barrier(
+        [t_decision], bars_tp_short, h_ms, sigma_h, k_up, k_down, side=-1, interval="1h", maker_as_taker=False
+    )
+    df_taker_s = triple_barrier(
+        [t_decision], bars_tp_short, h_ms, sigma_h, k_up, k_down, side=-1, interval="1h", maker_as_taker=True
+    )
+
+    actual_diff_s = df_maker_s.loc[t_decision, "net"] - df_taker_s.loc[t_decision, "net"]
+    assert actual_diff_s == pytest.approx(expected_diff, rel=1e-12)
+
+
+def test_triple_barrier_default_sigma_h_computes_trailing() -> None:
+    """When sigma_h is None, triple_barrier computes trailing_sigma_h itself."""
+    trailing_ms = 86_400_000
+    h_ms = 1_200_000
+    delay_ms = 600_000
+    t_decision = trailing_ms
+    t_entry = t_decision + delay_ms
+    t_horizon = t_decision + delay_ms + h_ms
+
+    # Build 288 trailing bars + execution window bars
+    bars_data = []
+    # Trailing bars with fluctuating prices so sigma_h > 0
+    for k in range(288):
+        t_bar = k * 300_000
+        c_val = 100.5 if k % 2 == 0 else 99.5
+        bars_data.append((t_bar, 100.0, 101.0, 99.0, c_val))
+    # Decision / delay bars
+    bars_data.append((t_decision, 100.0, 100.5, 99.5, 100.0))
+    bars_data.append((t_decision + 300_000, 100.0, 100.5, 99.5, 100.0))
+    # Execution bars
+    bars_data.append((t_entry, 100.0, 101.0, 99.5, 100.5))
+    bars_data.append((t_entry + 300_000, 100.5, 105.0, 99.0, 104.0))
+    bars_data.append((t_entry + 600_000, 104.0, 104.5, 103.5, 104.0))
+    bars_data.append((t_entry + 900_000, 104.0, 104.5, 103.5, 104.0))
+    bars_data.append((t_horizon, 104.0, 104.5, 103.5, 104.0))
+
+    df_bars = _build_5m_path(bars_data)
+
+    res_default = triple_barrier([t_decision], df_bars, h_ms=h_ms, sigma_h=None, side=1, interval="1h")
+    sig_manual = trailing_sigma_h([t_decision], df_bars, h_ms=h_ms)
+    res_manual = triple_barrier([t_decision], df_bars, h_ms=h_ms, sigma_h=sig_manual, side=1, interval="1h")
+
+    pd.testing.assert_frame_equal(res_default, res_manual)
+    assert not np.isnan(res_default.loc[t_decision, "label"])
