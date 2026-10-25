@@ -644,3 +644,34 @@ def test_load_panel(tmp_path: Path):
     assert len(panel[sym]["4h"]) == 1
     assert len(panel[sym]["premium_5m"]) == 1
     assert len(panel[sym]["settlements"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# RunResult.folds and RunResult.tranches
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("refit", ["none", "monthly"])
+def test_run_result_folds_and_tranches(refit: str):
+    """RunResult.folds holds each evaluated fold in order, and tranches is their concatenation."""
+    panel = _make_synthetic_panel(n_days=155, seed=91)
+    cfg = _make_config(features=("ret_1",), threshold=0.00001, refit=refit, lookback_months=None)
+    samples = decision_samples(panel, cfg)
+
+    first_refit = 1680307200000  # 2023-04-01
+    end_ms = 1685577600000  # 2023-06-01
+    res = walk_forward(samples, cfg, first_refit_ms=first_refit, end_ms=end_ms)
+
+    assert len(res.folds) == 2
+    assert [f.start_ms for f in res.folds] == [first_refit, 1682899200000]
+    assert [f.end_ms for f in res.folds] == [1682899200000, end_ms]
+    assert all(f.train_cut_ms is None for f in res.folds)
+    assert [t for f in res.folds for t in f.tranches] == res.tranches
+    assert len(res.tranches) > 0
+    for f in res.folds:
+        assert set(f.betas) == set(panel)
+    if refit == "none":
+        assert res.folds[0].betas == res.folds[1].betas
+    summed = pd.concat([f.book for f in res.folds if f.tranches]).groupby("day_start")["drift_free"].sum()
+    expected = summed.reindex(res.drift_free.index).fillna(0.0)
+    assert np.max(np.abs(res.drift_free["drift_free"].to_numpy() - expected.to_numpy())) <= 1e-12

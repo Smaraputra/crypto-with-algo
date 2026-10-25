@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +59,18 @@ class RunConfig:
 
 
 @dataclass
+class FoldRecord:
+    """One evaluated walk-forward fold: its span, the betas used, its tranches and its beta-hedged book."""
+
+    start_ms: int
+    end_ms: int
+    train_cut_ms: int | None  # None means all history
+    betas: dict[str, float]  # as used for the fold, NaN where not estimable
+    tranches: list[Tranche]
+    book: pd.DataFrame  # beta_hedged_daily output for this fold's tranches
+
+
+@dataclass
 class RunResult:
     trades: pd.DataFrame
     book_raw: pd.DataFrame
@@ -68,6 +80,8 @@ class RunResult:
     n_dropped: int
     config: dict[str, Any]
     excluded_tranches: int = 0
+    folds: list[FoldRecord] = field(default_factory=list)
+    tranches: list[Tranche] = field(default_factory=list)
 
 
 def load_panel(
@@ -457,6 +471,7 @@ def walk_forward(
 
     all_tranches: list[Tranche] = []
     all_fold_dfs: list[pd.DataFrame] = []
+    fold_records: list[FoldRecord] = []
 
     if cfg.refit == "none":
         train_mask = samples["t1_max"] < first_refit_ms
@@ -480,9 +495,10 @@ def walk_forward(
             sides = _get_decisions(model, X_test, cfg)
             tranches_k = _make_tranches(test_df, sides, cfg)
             all_tranches.extend(tranches_k)
+            fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_0, universe=universe)
             if tranches_k:
-                fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_0, universe=universe)
                 all_fold_dfs.append(fold_df)
+            fold_records.append(FoldRecord(b_start, b_end, None, dict(betas_0), tranches_k, fold_df))
         refits_count = 1
     else:
         refits_count = 0
@@ -520,9 +536,10 @@ def walk_forward(
             sides = _get_decisions(model, X_test, cfg)
             tranches_k = _make_tranches(test_df, sides, cfg)
             all_tranches.extend(tranches_k)
+            fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_k, universe=universe)
             if tranches_k:
-                fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_k, universe=universe)
                 all_fold_dfs.append(fold_df)
+            fold_records.append(FoldRecord(b_start, b_end, cut_ms, dict(betas_k), tranches_k, fold_df))
 
     book_raw = daily_book(all_tranches, five_min, settlements)
 
@@ -554,6 +571,8 @@ def walk_forward(
         n_dropped=n_dropped,
         config=config_dict,
         excluded_tranches=total_excluded,
+        folds=fold_records,
+        tranches=all_tranches,
     )
 
 
@@ -562,6 +581,7 @@ __all__ = [
     "DEV_END",
     "DEV_START",
     "ENTRY_DELAY_MS",
+    "FoldRecord",
     "RunConfig",
     "RunResult",
     "SIGMA_TRAILING_MS",

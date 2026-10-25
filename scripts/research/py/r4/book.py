@@ -267,6 +267,8 @@ def daily_book(
     columns = [
         "gross",
         "costs",
+        "fees",
+        "slippage",
         "funding",
         "net",
         "net_weight_start",
@@ -306,7 +308,8 @@ def daily_book(
         net_weight_start = sum(t.weight for t in open_tranches if t.entry_ms < d_start < t.exit_ms)
 
         gross = 0.0
-        costs = 0.0
+        day_fees = 0.0
+        day_slippage = 0.0
         funding = 0.0
         substituted_midnights: set[tuple[str, int]] = set()
 
@@ -339,12 +342,14 @@ def daily_book(
             if d_start <= t.entry_ms < d_end:
                 fee_in = fees.maker_fee if t.entry_fill == "maker" else fees.taker_fee
                 slip_in = slip_rate if t.entry_fill == "taker" else 0.0
-                costs += abs(w) * (fee_in + slip_in)
+                day_fees += abs(w) * fee_in
+                day_slippage += abs(w) * slip_in
 
             if d_start < t.exit_ms <= d_end:
                 fee_out = fees.maker_fee if t.exit_fill == "maker" else fees.taker_fee
                 slip_out = slip_rate if t.exit_fill == "taker" else 0.0
-                costs += abs(w) * (fee_out + slip_out)
+                day_fees += abs(w) * fee_out
+                day_slippage += abs(w) * slip_out
 
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
@@ -352,12 +357,15 @@ def daily_book(
                 if np.any(mask):
                     funding += float(np.sum(-w * s_rates[mask]))
 
+        costs = day_fees + day_slippage
         net = gross - costs + funding
         records.append(
             {
                 "day_start": d_start,
                 "gross": gross,
                 "costs": costs,
+                "fees": day_fees,
+                "slippage": day_slippage,
                 "funding": funding,
                 "net": net,
                 "net_weight_start": net_weight_start,
@@ -534,6 +542,8 @@ def beta_hedged_daily(
         "drift_free",
         "gross_hedged",
         "costs",
+        "fees",
+        "slippage",
         "funding",
         "n_open",
         "ew_coins_min",
@@ -571,7 +581,8 @@ def beta_hedged_daily(
         n_open = 0
         excluded_tranches = 0
         gross_hedged = 0.0
-        costs = 0.0
+        day_fees = 0.0
+        day_slippage = 0.0
         funding = 0.0
         ew_coins_counts: list[int] = []
 
@@ -624,12 +635,14 @@ def beta_hedged_daily(
             if d_start <= t.entry_ms < d_end:
                 fee_in = fees.maker_fee if t.entry_fill == "maker" else fees.taker_fee
                 slip_in = slip_rate if t.entry_fill == "taker" else 0.0
-                costs += abs(w) * (fee_in + slip_in)
+                day_fees += abs(w) * fee_in
+                day_slippage += abs(w) * slip_in
 
             if d_start < t.exit_ms <= d_end:
                 fee_out = fees.maker_fee if t.exit_fill == "maker" else fees.taker_fee
                 slip_out = slip_rate if t.exit_fill == "taker" else 0.0
-                costs += abs(w) * (fee_out + slip_out)
+                day_fees += abs(w) * fee_out
+                day_slippage += abs(w) * slip_out
 
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
@@ -637,6 +650,7 @@ def beta_hedged_daily(
                 if np.any(mask):
                     funding += float(np.sum(-w * s_rates[mask]))
 
+        costs = day_fees + day_slippage
         drift_free = gross_hedged - costs + funding
         ew_coins_min = min(ew_coins_counts) if ew_coins_counts else 0
 
@@ -646,6 +660,8 @@ def beta_hedged_daily(
                 "drift_free": drift_free,
                 "gross_hedged": gross_hedged,
                 "costs": costs,
+                "fees": day_fees,
+                "slippage": day_slippage,
                 "funding": funding,
                 "n_open": n_open,
                 "ew_coins_min": ew_coins_min,
