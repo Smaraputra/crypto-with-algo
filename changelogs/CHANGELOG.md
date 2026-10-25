@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: lab-v4's daily statistic starts on 2026-10-26 (AMENDMENT 3, start record)
+- PR #148 (AMENDMENT 2) was merged as `2d2e5fe` and deployed on 2026-10-25, with the app restarting on it at 11:36:37 UTC. The first full UTC day after that deploy is 2026-10-26, so `LAB_V4_DAILY_START_MS` is 2026-10-26 00:00 UTC.
+- The first `S1-1h-daily` and `S2-1h-daily` rows come in the first grade run at or after 2026-10-27 00:05 UTC. From 2026-10-26 the daily e-process is lab-v4's judged statistic, and the per-trade e-process is a descriptive record.
+
 ### Added: lab-v4 daily mark-to-market e-process for S1 and S2 (AMENDMENT 2, owner decision, Round 4 audit V4-1)
 - **Problem:** lab-v4 bets every hour on 8-hour holds across correlated coins, so each bet's size uses outcomes that overlap the next bet. In the Round 4 overlap simulation (50,000 no-edge paths per cell), per-trade grading of a continuation rule like S1 crossed k = 800 in 0.196% of paths [0.161, 0.239], above Ville's bound of 0.125%. Daily mark-to-market grading crossed in 0 of 100,000.
 - **Added:** `S1-1h-daily` and `S2-1h-daily`. R_d is each rule's book return per UTC day: its trades' log returns inside the day, 0.0014 on each entry day, and funding inside both the day and the trade. It is graded as x = min(R_d / c, 1) with c 0.19 and 0.18, threshold 800 and losses unbounded. Every input is a stored S1 or S2 signal, with no change to any trading rule.

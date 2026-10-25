@@ -162,18 +162,19 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Validation threshold',
         value: '800',
-        source: { path: 'scripts/research/lab-forward-v4.ts', line: 153 },
+        source: { path: 'scripts/research/lab-forward-v4.ts', line: 162 },
       },
       {
         label: 'Round trip cost rate',
         value: '0.0014',
-        source: { path: 'scripts/research/lab-forward-v4.ts', line: 156 },
+        source: { path: 'scripts/research/lab-forward-v4.ts', line: 165 },
       },
     ],
     research: [
       'Registered by an explicit owner override following the Round 3 candidate preview in which all candidate rules lost after fees.',
       'The rules were renamed S1 and S2 so they are not confused with Round 1 rules C1 and C2.',
       'Amendment 2 (2026-10-25) adds a daily mark-to-market e-process as the judged statistic from its start day, because per-trade grading of overlapping 8-hour holds broke its own false-crossing bound for S1 in the Round 4 overlap simulation. The per-trade record continues as description only.',
+      'Amendment 3 (2026-10-25) records the start: the daily statistic is judged from 2026-10-26 00:00 UTC, with its first rows due after 2026-10-27 00:05 UTC.',
     ],
     references: [
       {

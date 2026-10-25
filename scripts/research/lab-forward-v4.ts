@@ -127,6 +127,15 @@
  *   - A missing funding settlement waits at most 72 hours, then the day is graded with the settlements found, and the gap is recorded on the row.
  * - Start: the first graded day is the first full UTC day after this amendment's deploy, recorded in a start-record amendment.
  * - Judging: the daily e-process is the judged statistic of lab-v4 from that day. The per-trade e-process keeps running as a descriptive record, and its crossing no longer counts as validation.
+ *
+ * AMENDMENT 3 (2026-10-25, start record for AMENDMENT 2):
+ * - AMENDMENT 2 shipped in PR #148, merged to main as 2d2e5fe and deployed 2026-10-25. The app container restarted
+ *   on that build at 11:36:37 UTC.
+ * - The first full UTC day after that deploy is 2026-10-26, so LAB_V4_DAILY_START_MS is 2026-10-26 00:00 UTC
+ *   (1792972800000) in src/lib/signals/lab/job-grade-v4.ts.
+ * - The first daily rows (S1-1h-daily, S2-1h-daily) are due in the first grade run at or after 2026-10-27 00:05 UTC.
+ * - From 2026-10-26 the daily e-process is the judged statistic of lab-v4, and the per-trade e-process is a
+ *   descriptive record. No rule, statistic, scale or threshold changes.
  */
 
 import {
