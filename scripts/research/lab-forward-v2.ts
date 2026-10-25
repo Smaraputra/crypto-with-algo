@@ -145,6 +145,10 @@
  *
  * TRIALS: none added. The two hypotheses were counted in Round 1 (ledger 2,189) and are judged here under their own
  * alpha.
+ *
+ * AMENDMENT (2026-10-25, Round 4 audit V2-1, data integrity): a kline history that timed out or does not reach the
+ * bar closing at T is now treated as a failed fetch (wait, retry, then skip on the final attempt) instead of being
+ * used truncated. Complete histories are unaffected. No rule, statistic or threshold changes.
  */
 import { LAB_HYPOTHESES_V2, LAB_V2_THRESHOLD, LAB_VERSION_V2 } from '@/lib/signals/lab/candidates';
 

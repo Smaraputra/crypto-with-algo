@@ -60,6 +60,8 @@ function mapToBar15(k: OHLCV): Bar15 {
   };
 }
 
+const BAR_15M_MS = 15 * 60_000;
+
 function computeInputsSha256<T extends { t: number }>(
   candlesBySymbol: Record<string, T[]>
 ): string {
@@ -109,7 +111,7 @@ export async function runLabV2Weekly(
 
   const settled = await Promise.allSettled(
     SIGNAL_SYMBOLS.map((symbol) =>
-      d.fetchKlinesRange(symbol, '1d', startTime, endTime)
+      d.fetchKlinesRange(symbol, '1d', startTime, endTime, { strict: true })
     )
   );
 
@@ -122,8 +124,19 @@ export async function runLabV2Weekly(
     const res = settled[i];
     if (res.status === 'fulfilled') {
       const bars = res.value.map(mapToBar1d).filter((b) => b.t < T);
-      candlesBySymbol[symbol] = bars;
-      candleCounts[symbol] = bars.length;
+      const expectedLastBarT = T - DAY_MS;
+      const lastBar = bars.length > 0 ? bars[bars.length - 1] : undefined;
+      if (!lastBar || lastBar.t !== expectedLastBarT) {
+        hasErrors = true;
+        candlesBySymbol[symbol] = [];
+        candleCounts[symbol] = 0;
+        report.errors.push(
+          `${symbol}: last 1d bar open ${lastBar ? lastBar.t : 'none'} does not match expected ${expectedLastBarT}`
+        );
+      } else {
+        candlesBySymbol[symbol] = bars;
+        candleCounts[symbol] = bars.length;
+      }
     } else {
       hasErrors = true;
       candlesBySymbol[symbol] = [];
@@ -206,7 +219,7 @@ export async function runLabV2Daily(
 
   const settled = await Promise.allSettled(
     SIGNAL_SYMBOLS.map((symbol) =>
-      d.fetchKlinesRange(symbol, '15m', startTime, endTime)
+      d.fetchKlinesRange(symbol, '15m', startTime, endTime, { strict: true })
     )
   );
 
@@ -218,7 +231,17 @@ export async function runLabV2Daily(
     const res = settled[i];
     if (res.status === 'fulfilled') {
       const bars = res.value.map(mapToBar15).filter((b) => b.t < T);
-      barsBySymbol[symbol] = bars;
+      const expectedLastBarT = T - BAR_15M_MS;
+      const lastBar = bars.length > 0 ? bars[bars.length - 1] : undefined;
+      if (!lastBar || lastBar.t !== expectedLastBarT) {
+        hasErrors = true;
+        barsBySymbol[symbol] = [];
+        report.errors.push(
+          `${symbol}: last 15m bar open ${lastBar ? lastBar.t : 'none'} does not match expected ${expectedLastBarT}`
+        );
+      } else {
+        barsBySymbol[symbol] = bars;
+      }
     } else {
       hasErrors = true;
       barsBySymbol[symbol] = [];
