@@ -426,33 +426,280 @@ def equal_weight_market(
     return df_out
 
 
-def drift_hedged(
-    book: pd.DataFrame,
-    market: pd.Series | pd.DataFrame,
-    col: str = "net",
-) -> pd.Series:
-    """Return net - net_weight_start * market per day.
+def daily_close_log_returns(
+    five_min: dict[str, pd.DataFrame],
+    days: Sequence[int] | pd.Index,
+    universe: Sequence[str],
+) -> pd.DataFrame:
+    """Compute daily close log returns for each coin and each UTC day.
 
-    If col is 'net' and 'net' is not in book but 'gross' is, falls back to 'gross'.
+    For each coin and each UTC day, log(open at the next 00:00 / open at 00:00)
+    from the 5m bars. NaN where missing. Returns a days by coins DataFrame.
     """
-    target_col = col
-    if target_col not in book.columns:
-        if target_col == "net" and "gross" in book.columns:
-            target_col = "gross"
-        else:
-            raise KeyError(f"Column '{target_col}' not found in book DataFrame")
+    lookup = FiveMinLookup(five_min)
+    days_list = [int(d) for d in days]
+    data: dict[str, list[float]] = {coin: [] for coin in universe}
 
-    if isinstance(market, pd.DataFrame):
-        m_series = market["market"] if "market" in market.columns else market.iloc[:, 0]
-    elif isinstance(market, pd.Series):
-        m_series = market
-    else:
-        m_series = pd.Series(market, index=book.index)
+    for d_start in days_list:
+        d_end = d_start + DAY_MS
+        for coin in universe:
+            if not lookup.has_symbol(coin):
+                data[coin].append(np.nan)
+                continue
+            o_start = lookup.get_exact_open(coin, d_start)
+            o_end = lookup.get_exact_open(coin, d_end)
+            if o_start is not None and o_end is not None and o_start > 0 and o_end > 0:
+                data[coin].append(float(np.log(o_end / o_start)))
+            else:
+                data[coin].append(np.nan)
 
-    m_aligned = m_series.reindex(book.index)
-    res = book[target_col] - book["net_weight_start"] * m_aligned
-    res.name = "drift_hedged"
-    return res
+    df_out = pd.DataFrame(data, index=pd.Index(days_list, name="day_start"))
+    return df_out
+
+
+def estimate_betas(
+    daily_returns: pd.DataFrame,
+    start_ms: int | None = None,
+    end_ms: int | None = None,
+) -> dict[str, float]:
+    """Estimate per-coin OLS beta on equal-weight daily mean over [start_ms, end_ms).
+
+    - per coin, the OLS slope (with intercept) of its daily log return on the row mean
+      of all coins daily log returns, over days in [start_ms, end_ms).
+    - only days where the coin and at least 5 other coins are present count.
+    - fewer than 60 valid days gives NaN for that coin.
+    Returns a dict mapping symbol to estimated beta slope.
+    """
+    df_window = daily_returns
+    if start_ms is not None:
+        df_window = df_window.loc[df_window.index >= start_ms]
+    if end_ms is not None:
+        df_window = df_window.loc[df_window.index < end_ms]
+
+    betas: dict[str, float] = {}
+    coins = list(daily_returns.columns)
+    if df_window.empty or len(coins) == 0:
+        return {coin: float("nan") for coin in coins}
+
+    row_means = df_window.mean(axis=1, skipna=True)
+    row_counts = df_window.notna().sum(axis=1)
+
+    for coin in coins:
+        series_coin = df_window[coin]
+        valid_mask = series_coin.notna() & (row_counts >= 6)
+        n_valid = int(valid_mask.sum())
+        if n_valid < 60:
+            betas[coin] = float("nan")
+            continue
+
+        y = series_coin.loc[valid_mask].to_numpy(dtype=np.float64)
+        x = row_means.loc[valid_mask].to_numpy(dtype=np.float64)
+
+        var_x = float(np.var(x, ddof=1))
+        if var_x <= 0.0 or np.isnan(var_x):
+            betas[coin] = float("nan")
+            continue
+
+        cov_xy = float(np.cov(x, y)[0, 1])
+        betas[coin] = cov_xy / var_x
+
+    return betas
+
+
+def beta_hedged_daily(
+    tranches: pd.DataFrame | Sequence[dict[str, Any] | Tranche | Any],
+    five_min: dict[str, pd.DataFrame],
+    settlements: Any,
+    betas: dict[str, float],
+    universe: Sequence[str],
+    profile: str = "standard",
+) -> pd.DataFrame:
+    """Compute beta-hedged drift-free daily returns per UTC day.
+
+    For every tranche and every UTC day it is open, split the tranche part
+    inside the day at [start, end] (entry or 00:00, exit or the next 00:00).
+
+    r_coin = log(P(end) / P(start)) from the coin 5m opens.
+    r_EW is the mean over universe coins of log(P_j(end) / P_j(start)) over the SAME
+    [start, end], using each coin 5m opens at those instants, over the coins present.
+
+    Daily D_d = sum w x (r_coin - beta x r_EW) - costs_d + funding_d.
+    A tranche whose coin beta is NaN is excluded and counted.
+
+    Returns a DataFrame by day with columns:
+      drift_free, gross_hedged, costs, funding, n_open, ew_coins_min, excluded_tranches.
+    """
+    tranche_list = _coerce_tranches(tranches)
+    columns = [
+        "drift_free",
+        "gross_hedged",
+        "costs",
+        "funding",
+        "n_open",
+        "ew_coins_min",
+        "excluded_tranches",
+    ]
+    if not tranche_list:
+        df_empty = pd.DataFrame(columns=columns)
+        df_empty.index.name = "day_start"
+        return df_empty
+
+    lookup = FiveMinLookup(five_min)
+
+    unique_symbols = {t.symbol for t in tranche_list}
+    symbol_funding: dict[str, tuple[np.ndarray, np.ndarray]] = {
+        sym: _extract_settlements_for_symbol(settlements, sym) for sym in unique_symbols
+    }
+
+    active_days: set[int] = set()
+    for t in tranche_list:
+        start_day = (t.entry_ms // DAY_MS) * DAY_MS
+        end_day = ((t.exit_ms - 1) // DAY_MS) * DAY_MS
+        for d in range(start_day, end_day + DAY_MS, DAY_MS):
+            active_days.add(d)
+
+    sorted_days = sorted(active_days)
+    records: list[dict[str, Any]] = []
+
+    for d_start in sorted_days:
+        d_end = d_start + DAY_MS
+
+        open_tranches = [t for t in tranche_list if t.entry_ms < d_end and t.exit_ms > d_start]
+        if not open_tranches:
+            continue
+
+        n_open = 0
+        excluded_tranches = 0
+        gross_hedged = 0.0
+        costs = 0.0
+        funding = 0.0
+        ew_coins_counts: list[int] = []
+
+        for t in open_tranches:
+            beta = betas.get(t.symbol, float("nan"))
+            if beta is None or np.isnan(beta):
+                excluded_tranches += 1
+                continue
+
+            n_open += 1
+            w = t.weight
+            start = max(t.entry_ms, d_start)
+            end = min(t.exit_ms, d_end)
+
+            p_start = lookup.get_exact_open(t.symbol, start)
+            if p_start is None:
+                if start == t.entry_ms:
+                    p_start = t.entry_price
+                else:
+                    p_start, _ = lookup.get_open_or_carry(t.symbol, start)
+
+            p_end = lookup.get_exact_open(t.symbol, end)
+            if p_end is None:
+                if end == t.exit_ms:
+                    p_end = t.exit_price
+                else:
+                    p_end, _ = lookup.get_open_or_carry(t.symbol, end)
+
+            r_coin = float(np.log(p_end / p_start))
+
+            ew_returns: list[float] = []
+            for u_coin in universe:
+                u_p_start = lookup.get_exact_open(u_coin, start)
+                u_p_end = lookup.get_exact_open(u_coin, end)
+                if u_p_start is not None and u_p_end is not None and u_p_start > 0 and u_p_end > 0:
+                    ew_returns.append(float(np.log(u_p_end / u_p_start)))
+
+            n_present = len(ew_returns)
+            ew_coins_counts.append(n_present)
+            r_ew = float(np.mean(ew_returns)) if n_present > 0 else 0.0
+
+            gross_hedged += w * (r_coin - beta * r_ew)
+
+            fees = resolve_fee_profile(profile, t.symbol)
+            slip_bps = STUDY_SLIPPAGE_BPS.get(t.interval_str)
+            if slip_bps is None:
+                raise ValueError(f"No slippage configured for interval: {t.interval_str}")
+            slip_rate = slip_bps / 10000.0
+
+            if d_start <= t.entry_ms < d_end:
+                fee_in = fees.maker_fee if t.entry_fill == "maker" else fees.taker_fee
+                slip_in = slip_rate if t.entry_fill == "taker" else 0.0
+                costs += abs(w) * (fee_in + slip_in)
+
+            if d_start < t.exit_ms <= d_end:
+                fee_out = fees.maker_fee if t.exit_fill == "maker" else fees.taker_fee
+                slip_out = slip_rate if t.exit_fill == "taker" else 0.0
+                costs += abs(w) * (fee_out + slip_out)
+
+            s_times, s_rates = symbol_funding[t.symbol]
+            if len(s_times) > 0:
+                mask = (s_times > d_start) & (s_times <= d_end) & (s_times > t.entry_ms) & (s_times <= t.exit_ms)
+                if np.any(mask):
+                    funding += float(np.sum(-w * s_rates[mask]))
+
+        drift_free = gross_hedged - costs + funding
+        ew_coins_min = min(ew_coins_counts) if ew_coins_counts else 0
+
+        records.append(
+            {
+                "day_start": d_start,
+                "drift_free": drift_free,
+                "gross_hedged": gross_hedged,
+                "costs": costs,
+                "funding": funding,
+                "n_open": n_open,
+                "ew_coins_min": ew_coins_min,
+                "excluded_tranches": excluded_tranches,
+            }
+        )
+
+    if not records:
+        df_empty = pd.DataFrame(columns=columns)
+        df_empty.index.name = "day_start"
+        return df_empty
+
+    df_out = pd.DataFrame.from_records(records, index="day_start")
+    return df_out[columns]
+
+
+def daily_series(
+    frame: pd.DataFrame,
+    column: str,
+    span_start_ms: int,
+    span_end_ms: int,
+) -> pd.DataFrame:
+    """Reindex to every UTC day in [span_start, span_end).
+
+    Days with no row are filled with 0.0, and a boolean 'bet' column
+    flags days where a row existed in frame.
+    """
+    first_day = (span_start_ms // DAY_MS) * DAY_MS
+    if first_day < span_start_ms:
+        first_day += DAY_MS
+    span_days = [d for d in range(first_day, span_end_ms, DAY_MS)]
+
+    index_name = frame.index.name if frame.index.name else "day_start"
+    idx = pd.Index(span_days, name=index_name)
+
+    if frame.empty or column not in frame.columns:
+        return pd.DataFrame(
+            {
+                column: np.zeros(len(span_days), dtype=np.float64),
+                "bet": np.zeros(len(span_days), dtype=bool),
+            },
+            index=idx,
+        )
+
+    series_col = frame[column].reindex(idx).fillna(0.0).astype(float)
+    bet_series = idx.isin(frame.index)
+
+    return pd.DataFrame(
+        {
+            column: series_col,
+            "bet": bet_series,
+        },
+        index=idx,
+    )
 
 
 def trade_level(
