@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: lab-v3 funding coverage checks the whole 24-hour window (Round 4 audit V3-1)
+- **Problem:** a coin counted as covered when any settlement was stored in the last 8 hours of F1-1d's 24-hour funding window. A missing earlier settlement (T + 8h or T + 16h) passed, and the bar graded with understated funding.
+- **Fix:** lab-v3 now requires a stored settlement at each 00:00, 08:00 and 16:00 UTC time in the window. Every Binance interval from 1h to 8h settles at those times. The settlements a shorter interval adds between them are not required: Binance has skipped single ones (fourteen 4h symbols at 2026-06-24 04:00), and a waiting lab-v3 bar is released only by an amendment. A bar missing one waits, as before.
+- **Unchanged:** lab-v1, lab-v2 and lab-v4 keep the last-8-hours check, and graded rows and every rule stay as they were. The lock (`scripts/research/lab-forward-v3.ts`) records this as AMENDMENT 2.
+
 ### Fixed: candle sync can no longer drop the signal coins (Round 4 audit V8-4)
 - **Problem:** `/api/cron/sync-candles` added strategy and watchlist symbols first and the 10 signal coins last, then cut the (symbol, interval) list at 50 pairs. With 13 or more distinct symbols across 4 intervals, signal coins fell off the end. Production has the 10 signal coins only (40 pairs), so this had not happened.
 - **Fix:** the signal coins come first, in their defined order, so the cap can only drop user-only symbols. The response now reports `droppedPairs`.

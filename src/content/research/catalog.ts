@@ -250,12 +250,12 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Validation threshold',
         value: '200',
-        source: { path: 'scripts/research/lab-forward-v3.ts', line: 175 },
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 182 },
       },
       {
         label: 'Delisting haircut',
         value: '0.02',
-        source: { path: 'scripts/research/lab-forward-v3.ts', line: 187 },
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 194 },
       },
     ],
     research: [

@@ -2152,4 +2152,75 @@ describe('defaultFundingSumsFor', () => {
     expect(res.coverage.BTCUSDT).toBe(false);
     expect(res.sums.BTCUSDT).toBeCloseTo(0.0002, 10);
   });
+
+  it('full-window mode needs every 8h settlement, the default mode does not', async () => {
+    const windowEnd = Date.UTC(2026, 9, 19, 0);
+    const windowStart = windowEnd - 86_400_000;
+    const h = 3600_000;
+    for (const t of [windowStart - 8 * h, windowStart + 8 * h, windowEnd]) {
+      await FundingSettlement.create({
+        symbol: 'BTCUSDT',
+        fundingTime: t,
+        rawTime: t,
+        rate: 0.0001,
+        intervalHours: 8,
+        source: 'rest',
+      });
+    }
+
+    const old = await defaultFundingSumsFor(['BTCUSDT'], windowStart, windowEnd);
+    expect(old.coverage.BTCUSDT).toBe(true);
+
+    const full = await defaultFundingSumsFor(['BTCUSDT'], windowStart, windowEnd, {
+      fullWindow: true,
+    });
+    expect(full.coverage.BTCUSDT).toBe(false);
+    expect(full.sums.BTCUSDT).toBeCloseTo(0.0002, 10);
+
+    const t16 = windowStart + 16 * h;
+    await FundingSettlement.create({
+      symbol: 'BTCUSDT',
+      fundingTime: t16,
+      rawTime: t16,
+      rate: 0.0001,
+      intervalHours: 8,
+      source: 'rest',
+    });
+    const complete = await defaultFundingSumsFor(['BTCUSDT'], windowStart, windowEnd, {
+      fullWindow: true,
+    });
+    expect(complete.coverage.BTCUSDT).toBe(true);
+  });
+
+  it('full-window mode on a 4h coin requires the 00:00, 08:00 and 16:00 settlements but not the ones between', async () => {
+    const windowEnd = Date.UTC(2026, 9, 19, 0);
+    const windowStart = windowEnd - 86_400_000;
+    const h = 3600_000;
+    const store = async (hours: number[]) => {
+      for (const k of hours) {
+        await FundingSettlement.create({
+          symbol: 'ETHUSDT',
+          fundingTime: windowStart + k * h,
+          rawTime: windowStart + k * h,
+          rate: 0.0001,
+          intervalHours: 4,
+          source: 'rest',
+        });
+      }
+    };
+
+    // 04:00 and 12:00 missing, as Binance has skipped single intermediate settlements: still covered
+    await store([0, 8, 16, 20, 24]);
+    const skipped = await defaultFundingSumsFor(['ETHUSDT'], windowStart, windowEnd, {
+      fullWindow: true,
+    });
+    expect(skipped.coverage.ETHUSDT).toBe(true);
+
+    // 16:00 missing: not covered
+    await FundingSettlement.deleteMany({ symbol: 'ETHUSDT', fundingTime: windowStart + 16 * h });
+    const missing = await defaultFundingSumsFor(['ETHUSDT'], windowStart, windowEnd, {
+      fullWindow: true,
+    });
+    expect(missing.coverage.ETHUSDT).toBe(false);
+  });
 });

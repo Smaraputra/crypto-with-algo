@@ -153,6 +153,13 @@
  *   - the coin with the lowest score (PENGUUSDT, the most funding paid) holds the largest short and the coin with
  *     the highest (QNTUSDT) the largest long, as the rule states.
  * - PR #110 (main 70510b2), deployed 2026-10-22 00:51 UTC, changed no lab, model, cron route or crontab file.
+ *
+ * AMENDMENT 2 (2026-10-25, Round 4 audit V3-1, data integrity): funding coverage for F1-1d now requires a stored
+ * settlement at each 00:00, 08:00 and 16:00 UTC time of the 24-hour window, not only one in the last 8 hours.
+ * Every Binance interval (1h to 8h) settles at those times. A shorter interval's settlements between them are not
+ * required, because Binance has skipped single ones (2026-06-24 04:00) and a waiting bar is released only by an
+ * amendment. A bar missing one waits, as before. Graded rows are never changed, and no rule, statistic or threshold
+ * changes.
  */
 
 import {

@@ -722,10 +722,39 @@ export interface FundingSumsResult {
   coverage: Record<string, boolean>;
 }
 
+export interface FundingSumsOptions {
+  /**
+   * lab-v3 mode. A coin is covered only when a settlement is stored at every
+   * 00:00, 08:00 and 16:00 UTC time in (fromExclusive, toInclusive]. The
+   * default keeps the last-8-hours check.
+   */
+  fullWindow?: boolean;
+}
+
+const FULL_WINDOW_TOLERANCE_MS = 60_000;
+
+/**
+ * Every Binance funding interval (1h, 2h, 4h, 8h) settles at 00:00, 08:00 and
+ * 16:00 UTC, so these times are expected whatever the coin's interval. The
+ * intermediate settlements of a shorter interval are not required, because
+ * Binance has skipped single ones outright (fourteen 4h symbols had none at
+ * 2026-06-24 04:00), and a lab-v3 bar that waits is only released by an amendment.
+ */
+const GRID_STEP_MS = 8 * 60 * 60 * 1000;
+
+function expectedSettlementTimes(fromExclusive: number, toInclusive: number): number[] {
+  const times: number[] = [];
+  for (let t = Math.floor(toInclusive / GRID_STEP_MS) * GRID_STEP_MS; t > fromExclusive; t -= GRID_STEP_MS) {
+    times.push(t);
+  }
+  return times;
+}
+
 export async function defaultFundingSumsFor(
   symbols: string[],
   fromExclusive: number,
-  toInclusive: number
+  toInclusive: number,
+  options?: FundingSumsOptions
 ): Promise<FundingSumsResult> {
   const settlements = (await FundingSettlement.find(
     {
@@ -749,9 +778,31 @@ export async function defaultFundingSumsFor(
     if (Number.isFinite(s.rate)) {
       sums[s.symbol] = (sums[s.symbol] ?? 0) + s.rate;
     }
-    if (s.fundingTime > coverageStart && s.fundingTime <= toInclusive) {
+    if (
+      !options?.fullWindow &&
+      s.fundingTime > coverageStart &&
+      s.fundingTime <= toInclusive
+    ) {
       coverage[s.symbol] = true;
     }
+  }
+
+  if (options?.fullWindow) {
+    const timesBySymbol = new Map<string, number[]>();
+    for (const s of settlements) {
+      const list = timesBySymbol.get(s.symbol) ?? [];
+      list.push(s.fundingTime);
+      timesBySymbol.set(s.symbol, list);
+    }
+    const expected = expectedSettlementTimes(fromExclusive, toInclusive);
+    symbols.forEach((sym) => {
+      const stored = timesBySymbol.get(sym) ?? [];
+      coverage[sym] =
+        expected.length > 0 &&
+        expected.every((t) =>
+          stored.some((f) => Math.abs(f - t) <= FULL_WINDOW_TOLERANCE_MS)
+        );
+    });
   }
 
   return { sums, coverage };
@@ -776,7 +827,8 @@ export interface LabGradeDeps {
   fundingSumsFor?: (
     symbols: string[],
     fromExclusive: number,
-    toInclusive: number
+    toInclusive: number,
+    options?: FundingSumsOptions
   ) => Promise<FundingSumsResult | Record<string, number>>;
   syncFundingSettlements?: (symbols: string[], now: number) => Promise<unknown>;
   fetchPerpExchangeInfo?: () => Promise<Array<{ symbol: string; status: string }>>;
@@ -1515,7 +1567,9 @@ async function gradeLabV3(
       if (pricedCoins.length > 0) {
         let fundingRaw: FundingSumsResult | Record<string, number>;
         try {
-          fundingRaw = await fundingSumsFor(pricedCoins, start, end);
+          fundingRaw = await fundingSumsFor(pricedCoins, start, end, {
+            fullWindow: true,
+          });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           report.errors.push(msg);
