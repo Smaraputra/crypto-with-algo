@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: lab-v3 funding coverage checks the whole 24-hour window (Round 4 audit V3-1)
+- **Problem:** a coin counted as covered when any settlement was stored in the last 8 hours of F1-1d's 24-hour funding window. A missing earlier settlement (T + 8h or T + 16h) passed, and the bar graded with understated funding.
+- **Fix:** lab-v3 now requires a stored settlement at each 00:00, 08:00 and 16:00 UTC time in the window. Every Binance interval from 1h to 8h settles at those times. The settlements a shorter interval adds between them are not required: Binance has skipped single ones (fourteen 4h symbols at 2026-06-24 04:00), and a waiting lab-v3 bar is released only by an amendment. A bar missing one waits, as before.
+- **Unchanged:** lab-v1, lab-v2 and lab-v4 keep the last-8-hours check, and graded rows and every rule stay as they were. The lock (`scripts/research/lab-forward-v3.ts`) records this as AMENDMENT 2.
+
 ### Fixed: one failed price fetch no longer blocks every lab-v1 and lab-v2 grade (Round 4 audit V1-1)
 - **Problem:** `gradeLabV1AndV2` fetched all symbols' 5m prices in parallel and returned at the first failure. One coin's REST error then held back all 8 lab-v1 hypotheses and all of lab-v2 until the next hourly run.
 - **Fix:** a hypothesis grades its due bars in order up to the first bar that needs a coin whose fetch failed. That bar and the later ones wait, reported as one pending entry with `price_fetch_failed`, the error and `blockedBars`. Every other hypothesis, and lab-v2, grades in the same run.
