@@ -83,11 +83,11 @@ def _count_funding_dropped(
 
 
 def restrict_to_d(samples: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Keep samples inside the development window D: t0 >= DEV_START and t1_max <= DEV_END.
+    """Keep samples inside the development window D: t0 >= DEV_START and t1_max < DEV_END.
 
     Returns the restricted frame (positional index reset, attrs kept) and how many rows were removed.
     """
-    keep = (samples["t0"] >= DEV_START) & (samples["t1_max"] <= DEV_END)
+    keep = (samples["t0"] >= DEV_START) & (samples["t1_max"] < DEV_END)
     restricted = samples.loc[keep].reset_index(drop=True)
     restricted.attrs = dict(samples.attrs)
     return restricted, int(len(samples) - len(restricted))

@@ -1203,16 +1203,32 @@ def test_9_missing_manifest_raises(tmp_path: Path):
 
 
 def test_10_samples_outside_d_removed_and_counted(tmp_path: Path):
-    """10. restrict_to_d keeps t0 >= DEV_START and t1_max <= DEV_END. run_wf reports n_outside_d."""
+    """10. restrict_to_d keeps t0 >= DEV_START and t1_max < DEV_END. run_wf reports n_outside_d."""
     frame = pd.DataFrame(
         {
-            "t0": [DEV_START - 1, DEV_START, DEV_END - 10, DEV_END - 10],
-            "t1_max": [DEV_START + 5, DEV_START + 5, DEV_END, DEV_END + 1],
+            "t0": [
+                DEV_START - 1,
+                DEV_START,
+                DEV_END - 10,
+                DEV_END - 10,
+                DEV_END - 10,
+            ],
+            "t1_max": [
+                DEV_START + 5,
+                DEV_START + 5,
+                DEV_END - 1,
+                DEV_END,
+                DEV_END + 1,
+            ],
         }
     )
+    frame.attrs["dataset"] = "synthetic_d"
     kept, removed = restrict_to_d(frame)
-    assert removed == 2
+    assert removed == 3
+    assert len(kept) == 2
     assert kept["t0"].tolist() == [DEV_START, DEV_END - 10]
+    assert kept["t1_max"].tolist() == [DEV_START + 5, DEV_END - 1]
+    assert kept.attrs == {"dataset": "synthetic_d"}
 
     start = DEV_START - 40 * DAY
     panel = _make_fast_synthetic_panel(symbols=UNIVERSE[:6], n_days=170, start_ms=start, seed=100, inject_signal=True)
