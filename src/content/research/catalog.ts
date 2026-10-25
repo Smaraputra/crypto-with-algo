@@ -251,12 +251,12 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Validation threshold',
         value: '200',
-        source: { path: 'scripts/research/lab-forward-v3.ts', line: 175 },
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 182 },
       },
       {
         label: 'Delisting haircut',
         value: '0.02',
-        source: { path: 'scripts/research/lab-forward-v3.ts', line: 187 },
+        source: { path: 'scripts/research/lab-forward-v3.ts', line: 194 },
       },
     ],
     research: [
@@ -365,12 +365,12 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Validation threshold',
         value: '400',
-        source: { path: 'scripts/research/lab-forward-v2.ts', line: 160 },
+        source: { path: 'scripts/research/lab-forward-v2.ts', line: 164 },
       },
       {
         label: 'N3 trade cost rate',
         value: '0.0014',
-        source: { path: 'scripts/research/lab-forward-v2.ts', line: 167 },
+        source: { path: 'scripts/research/lab-forward-v2.ts', line: 171 },
       },
     ],
     research: [
@@ -441,27 +441,28 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       {
         label: 'Significance alpha',
         value: '0.01',
-        source: { path: 'scripts/research/lab-forward-v1.ts', line: 185 },
+        source: { path: 'scripts/research/lab-forward-v1.ts', line: 191 },
       },
       {
         label: 'Validation threshold',
         value: '800',
-        source: { path: 'scripts/research/lab-forward-v1.ts', line: 186 },
+        source: { path: 'scripts/research/lab-forward-v1.ts', line: 192 },
       },
       {
         label: 'Taker cost per side',
         value: '0.0007',
-        source: { path: 'scripts/research/lab-forward-v1.ts', line: 190 },
+        source: { path: 'scripts/research/lab-forward-v1.ts', line: 196 },
       },
       {
         label: 'Trial ledger after lock',
         value: '2,169',
-        source: { path: 'scripts/research/lab-forward-v1.ts', line: 201, match: '2169' },
+        source: { path: 'scripts/research/lab-forward-v1.ts', line: 207, match: '2169' },
       },
     ],
     research: [
       'Established because all historical data through October 2026 had been read during earlier research phases, making fresh forward bars the only clean confirmation.',
       'Amendment 1 recorded deploy timing and Amendment 2 repaired 4h positioning ratio window assembly from stored historical points.',
+      'Amendment 3 (2026-10-25) made a failed price fetch delay only the bars that need that coin, with no change to any graded value.',
     ],
     references: [
       {
@@ -497,7 +498,7 @@ export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
       count: 8,
       label: 'Eight pre-registered forward hypotheses',
       ledgerAfter: 2169,
-      source: { path: 'scripts/research/lab-forward-v1.ts', line: 177, match: 'eight hypotheses' },
+      source: { path: 'scripts/research/lab-forward-v1.ts', line: 183, match: 'eight hypotheses' },
     },
     labHypotheses: [
       'L1-8h',
