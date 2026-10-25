@@ -111,10 +111,27 @@
  *   with no fetch error. The 06:08 retry found both stored. The first bar that can be graded is due at 14:15 UTC.
  * - Every other lab signal run since the recreate succeeded (62 runs), and the 05:20 grade run, now running lab-v1 to
  *   v3 and then lab-v4 in separate passes, finished without error.
+ *
+ * AMENDMENT 2 (2026-10-25, owner decision). Reason: the per-trade grading of overlapping 8-hour holds does not keep Ville's bound for S1 (Round 4 overlap simulation, 0.196% [0.161, 0.239] against 0.125% at k = 800).
+ * - Trades: the lab-v4 trades of each rule, meaning the stored entering coins of non-late LabSignal rows of S1-1h or S2-1h. Each has side +1 or -1, entry at T + 10m and exit at T + 10m + 8h, priced at the opens of the perp 5m bars at those times, as the per-trade grader already fetches them.
+ * - R_d for each UTC day d is the sum over that rule's trades open during d of side x ln(P_end / P_start) for the trade's part inside the day, where:
+ *   - P_start is the entry price if the entry falls in d, else the open of the 5m bar at d's 00:00,
+ *   - P_end is the exit price if the exit falls in d, else the open of the 5m bar at the next 00:00.
+ *   - Subtract 0.0014 for each trade on its entry day.
+ *   - Subtract side x rate for each funding settlement of the trade's coin in (day start, day end] and inside the trade's (entry, exit] window. A positive rate means longs pay.
+ * - x_d = min(R_d / c, 1), with c = 0.19 for S1 and 0.18 for S2. These are 4 x the SD over bet days of the Round 3 preview's trades spread across UTC days in proportion to their time in each day: dataset 1b910017b868, preview at 05d427f, 1,144 and 924 bet days.
+ * - The e-process: stepEProcess from src/lib/signals/lab/e-process.ts with { threshold: 800, lossUnbounded: true }, b = 0, and the 30-bet warm-up.
+ *   - A day with no open trade places no bet.
+ *   - Days are graded in order once the day has ended and every price and settlement needed is stored or fetched.
+ *   - A missing price makes the day wait.
+ *   - A missing funding settlement waits at most 72 hours, then the day is graded with the settlements found, and the gap is recorded on the row.
+ * - Start: the first graded day is the first full UTC day after this amendment's deploy, recorded in a start-record amendment.
+ * - Judging: the daily e-process is the judged statistic of lab-v4 from that day. The per-trade e-process keeps running as a descriptive record, and its crossing no longer counts as validation.
  */
 
 import {
   LAB_HYPOTHESES_V4,
+  LAB_V4_DAILY_SCALE,
   LAB_V4_HOLD_MS,
   LAB_V4_ROUND_TRIP,
   LAB_V4_THRESHOLD,
@@ -130,6 +147,7 @@ export const LAB_FORWARD_V4_LOCK = {
     { id: 'S1-1h', candidate: 'S1', timeframe: '1h', metric: 'trade', scale: 0.15, previewCell: 'C1' },
     { id: 'S2-1h', candidate: 'S2', timeframe: '1h', metric: 'trade', scale: 0.14, previewCell: 'C2' },
   ],
+  dailyScale: LAB_V4_DAILY_SCALE,
   slots: 2,
   alphaPerSlot: 0.00125,
   threshold: 800,
@@ -151,4 +169,5 @@ export const LOCKED_CODE = {
   LAB_V4_ROUND_TRIP,
   LAB_V4_HOLD_MS,
   LAB_V4_WINDOW_BARS,
+  LAB_V4_DAILY_SCALE,
 };

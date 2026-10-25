@@ -363,4 +363,55 @@ describe('GET /api/signals/lab-v4', () => {
     const s1 = json.hypotheses.find((h: { id: string }) => h.id === 'S1-1h');
     expect(s1.closedTrades).toEqual([]);
   });
+
+  it('includes daily as null when not started, and populated as judged statistic once daily scores exist', async () => {
+    // First: no daily rows -> daily is null
+    const res1 = await GET();
+    const json1 = await res1.json();
+    for (const hyp of json1.hypotheses) {
+      expect(hyp.daily).toBeNull();
+    }
+
+    // Second: daily row exists for S1-1h-daily
+    const dailyBarClose = Date.UTC(2026, 9, 25, 0, 0, 0);
+    const crossedAt = Date.UTC(2026, 9, 25, 12, 0, 0);
+    mocks.labScoreFindOne.mockImplementation((query: { hypothesis?: string }) => ({
+      sort: () => ({
+        lean: async () => {
+          if (query?.hypothesis === 'S1-1h-daily') {
+            return {
+              hypothesis: 'S1-1h-daily',
+              barClose: dailyBarClose,
+              state: {
+                logE: Math.log(1.5),
+                logE0: 0,
+                n: 5,
+                sumD: 0,
+                sumD2: 0,
+                sumX: 0,
+                sumX2: 0,
+                crossedAt,
+              },
+            };
+          }
+          return null;
+        },
+      }),
+    }));
+
+    const res2 = await GET();
+    const json2 = await res2.json();
+    const s1 = json2.hypotheses.find((h: { id: string }) => h.id === 'S1-1h');
+    const s2 = json2.hypotheses.find((h: { id: string }) => h.id === 'S2-1h');
+
+    expect(s1.daily).toEqual({
+      e: expect.closeTo(1.5, 6),
+      bets: 5,
+      crossedAt: new Date(crossedAt).toISOString(),
+      lastDay: new Date(dailyBarClose).toISOString(),
+      judged: true,
+      label: 'judged statistic',
+    });
+    expect(s2.daily).toBeNull();
+  });
 });
