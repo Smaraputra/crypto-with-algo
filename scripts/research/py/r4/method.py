@@ -1,5 +1,6 @@
 """ROUND 4 METHOD LOCK (M), LOCK TEXT V3. Plan of record: ~/.claude/plans/squishy-zooming-wilkes.md (owner-approved
 2026-10-25). Gate M reviewed version 1 and version 2 (Opus, 2026-10-25, both PASS WITH FIXES). Neither was signed.
+V3.1 (before signing): the gate M v3 check's fixes (the basket rule, the spans, the trial unit) and its disclosures.
 This version adopts both reviews' fixes (.superpowers/sdd/round4/gates/). It is committed before any Round 4 model
 reads development outcomes, and the owner signs it. Changes after the first development read are AMENDMENTS appended
 below, never edits.
@@ -64,12 +65,19 @@ THE DRIFT-FREE DAILY SERIES (used by every gate)
     D_d = sum over tranches open in day d of w x (r_coin - beta_coin x r_EW) - costs_d + funding_d,
   where:
   - r_coin is the log return of the tranche's part inside the day;
-  - r_EW is the mean log return of the 10 coins over the SAME interval;
-  - beta_coin is the OLS slope of the coin's daily log return on the 10-coin daily mean.
-- beta_coin is estimated on the training window of each walk-forward fold, and on all of D for H and lab-v5, where it
-  is fixed in the finalist lock.
+  - r_EW is the mean log return over the SAME interval of those of the 10 coins with a price at both ends of the
+    interval. The basket size is recorded and its changes are disclosed (in H, DOGE, DOT, SOL and AVAX list during
+    2020; anywhere, a coin missing a bar at an interval boundary leaves the basket for that interval);
+  - beta_coin is the OLS slope of the coin's daily log return on the basket's daily mean (same basket rule).
+- beta_coin is estimated on the training window of each walk-forward fold, on the split's training set in CPCV, on the
+  training window in force at the date a shifted tranche lands in the joint-shift null, and on all of D for H and
+  lab-v5, where it is fixed in the finalist lock.
 - A no-bet day (no open tranche) is a zero in this series for every statistic below, except c and the lab-v5 power,
-  which use bet days only. The common span of a family is its walk-forward span (from its first refit to DEV_END).
+  which use bet days only.
+- Spans: items 1, 3, 5 and 6 use each configuration's own walk-forward span (its first refit to DEV_END). The SPA and
+  PBO matrices of a family use the intersection of its configurations' spans (from the latest first refit among them).
+- D_d removes beta drift but keeps coin-specific drift. The joint-shift null, which keeps the same coins, controls
+  coin-specific drift and is the binding test for it.
 - The raw (unhedged) book return is reported beside every result and is never gated.
 
 TRAINING, CUTOFFS AND VALIDATION
@@ -94,8 +102,9 @@ TRAINING, CUTOFFS AND VALIDATION
 - Final model of a finalist: fit with its lookback arm on the window ending at the cutoff, DEV_END minus 30 days.
 
 TRIALS, BUDGET AND LEDGER
-- ANY computation of a D outcome (walk-forward, CPCV, a probe, a re-run after a code fix) is a trial, and the count
-  never goes down. A configuration is fully specified by:
+- One trial per distinct configuration whose D outcome is computed in any way (walk-forward, CPCV or a probe), plus
+  one per re-run after a code fix, and the count never goes down. The exploration bar's own nulls, the label-shift
+  tripwire and the descriptive 200-day CPCV add no trials. A configuration is fully specified by:
   - family, model, hyperparameter setting, feature set;
   - interval, horizon, label type, decision threshold, side rule, size rule;
   - family C filter (on or off);
@@ -161,7 +170,9 @@ HOLDOUT H
   finalist's lock; the commit is an ancestor of research/round4; the working tree is clean.
 - The r4.data ledger at the fixed path ~/round4-out/holdout-reads.jsonl records (read_id, finalist_id, path). It
   refuses a fifth read id, a second read id for the same finalist, and a repeated (read_id, path). The cache never
-  holds H rows.
+  holds H rows. A read is recorded when its rows are returned: a run that fails before that may be repeated, and one
+  that fails after it counts as read. The git checks are done by Claude outside the container (the research image has
+  no git); r4.data enforces the id format and the ledger rules.
 - Each finalist lock states three things before any read:
   - the frozen procedure, the model artifact hash and beta_coin from D;
   - the power: a block-bootstrap of the finalist's D drift-free daily series, with its deviations about the mean
@@ -184,15 +195,16 @@ HOLDOUT H
 LAB-V5 (FORWARD)
 - A directional finalist gets a lab-v5 slot only after an H pass (Tier B excepted, forward only).
 - Statistic: the drift-free daily series D_d of the finalist with beta_coin from D, x = min(D_d / c, 1), placing no bet
-  on a no-bet day. Unbounded losses: a day with x below -2 is counted at -2 and ends the test (loss floor -2, H0'). The
-  raw book return e-process is kept as a descriptive record.
+  on a no-bet day. Unbounded losses: a day with x below -2 is counted at -2 and ends the test (loss floor -2, H0'),
+  recorded as "ended, not validated". The raw book return e-process is kept as a descriptive record.
 - Threshold 600 per slot: e-Bonferroni arithmetic, 3 slots at alpha 0.005. Warm-up 30 bets.
 - c = 4 times the SD of the finalist's D walk-forward drift-free daily series over bet days, fixed in the finalist
   lock before H, never taken from H or R.
 - Missing data:
   - a missing price waits, never dropped, and is carried to the next priced bar for marking;
   - a missing funding settlement waits at most 72 hours, then the day is graded with the settlements found and the gap
-    is recorded.
+    is recorded. Development drops such a tranche instead; the asymmetry is deliberate (a forward record cannot wait
+    forever) and disclosed.
 - Validity: the days are disjoint and the bets are sized from earlier days only, so the e-process is a supermartingale
   under the null of no edge given the information at each entry. The overlap simulation is a consistency check: at
   k = 600, daily mark-to-market grading had 0 crossings (continuation) and 1 (fade) in 50,000 no-edge paths each,
