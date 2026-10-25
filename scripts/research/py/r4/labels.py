@@ -14,6 +14,7 @@ from r4.costs import DEFAULT_FEE_PROFILE, FeeProfile, trade_funding, trade_net_r
 __all__ = [
     "average_uniqueness",
     "fixed_horizon",
+    "trailing_sigma_h",
     "triple_barrier",
 ]
 
@@ -139,30 +140,119 @@ def fixed_horizon(
     )
 
 
+def trailing_sigma_h(
+    decision_times: Sequence[int] | np.ndarray | pd.Series | pd.Index,
+    five_min: pd.DataFrame,
+    h_ms: int,
+    trailing_ms: int = 86400000,
+) -> pd.Series:
+    """Trailing realized barrier width sigma_h from closed 5m bars.
+
+    Computes sqrt(sum(r_5m**2) * h_ms / trailing_ms) over 5m bars closed in
+    (T - trailing_ms, T]. Log returns are close-to-close between consecutive 5m bars
+    in the window, with the first bar using its own open.
+    Returns NaN for any decision time if any 5m bar in the window is missing.
+    Uses only bars with t + 300000 <= T.
+    """
+    if trailing_ms <= 0 or trailing_ms % 300000 != 0:
+        raise ValueError(f"trailing_ms must be a positive multiple of 300000 ms (5m), got {trailing_ms}")
+    if h_ms <= 0:
+        raise ValueError(f"h_ms must be positive, got {h_ms}")
+
+    dt_arr = np.asarray(decision_times, dtype=np.int64)
+    n = len(dt_arr)
+    idx_name = decision_times.name if isinstance(decision_times, (pd.Index, pd.Series)) else "t"
+
+    if n == 0:
+        return pd.Series(dtype=np.float64, index=pd.Index([], dtype=np.int64, name=idx_name), name="sigma_h")
+
+    bars = five_min.set_index("t") if "t" in five_min.columns else five_min
+    if bars.index.has_duplicates:
+        bars = bars[~bars.index.duplicated(keep="last")]
+
+    bar_ts = bars.index.to_numpy(dtype=np.int64)
+    bar_o = bars["o"].to_numpy(dtype=np.float64) if "o" in bars.columns else np.empty(0, dtype=np.float64)
+    bar_c = bars["c"].to_numpy(dtype=np.float64) if "c" in bars.columns else np.empty(0, dtype=np.float64)
+
+    bar_map: dict[int, tuple[float, float]] = {
+        int(t): (float(o), float(c)) for t, o, c in zip(bar_ts, bar_o, bar_c, strict=True)
+    }
+
+    result_arr = np.full(n, np.nan, dtype=np.float64)
+    step = 300000
+    m = trailing_ms // step
+    scale = h_ms / trailing_ms
+
+    for i in range(n):
+        t_decision = int(dt_arr[i])
+        t_start = t_decision - trailing_ms
+
+        first_bar = bar_map.get(t_start)
+        if first_bar is None:
+            continue
+        o0, prev_c = first_bar
+        if not (o0 > 0.0 and prev_c > 0.0):
+            continue
+
+        r0 = math.log(prev_c / o0)
+        sum_sq = r0 * r0
+
+        curr_t = t_start + step
+        missing = False
+        for _ in range(1, m):
+            bar = bar_map.get(curr_t)
+            if bar is None:
+                missing = True
+                break
+            _, curr_c = bar
+            if not (curr_c > 0.0):
+                missing = True
+                break
+            r = math.log(curr_c / prev_c)
+            sum_sq += r * r
+            prev_c = curr_c
+            curr_t += step
+
+        if not missing:
+            result_arr[i] = math.sqrt(sum_sq * scale)
+
+    return pd.Series(
+        result_arr,
+        index=pd.Index(dt_arr, name=idx_name),
+        name="sigma_h",
+    )
+
+
 def triple_barrier(
     decision_times: Sequence[int] | np.ndarray | pd.Series | pd.Index,
     five_min: pd.DataFrame,
     h_ms: int,
-    sigma_h: float | Sequence[float] | np.ndarray | pd.Series,
-    k_up: float,
-    k_down: float,
-    side: int | str | Sequence[int | str] | np.ndarray | pd.Series,
-    interval: str,
+    sigma_h: float | Sequence[float] | np.ndarray | pd.Series | None = None,
+    k_up: float = 1.0,
+    k_down: float = 1.0,
+    side: int | str | Sequence[int | str] | np.ndarray | pd.Series = 1,
+    interval: str = "1h",
     settlements: pd.DataFrame | None = None,
     delay_ms: int = 600000,
     profile: str | FeeProfile = DEFAULT_FEE_PROFILE,
     symbol: str | None = None,
+    maker_as_taker: bool = False,
 ) -> pd.DataFrame:
     """Triple-barrier labeler at the research lab execution timing.
 
     Walks 5m bars in [T + delay_ms, T + delay_ms + h_ms).
     Upper barrier: entry * exp(k_up * sigma_h).
     Lower barrier: entry * exp(-k_down * sigma_h).
-    Take-profit fills as maker at the barrier price.
-    Stop fills as taker at the barrier price.
-    Both touched in one bar books stop with ambiguous=True.
+    Take-profit fires when high is strictly above upper barrier (long) or low is
+    strictly below lower barrier (short). Fills as maker at the barrier price
+    (or taker when maker_as_taker=True).
+    Stop fires when low is at or below lower barrier (long) or high is at or above
+    upper barrier (short). Fills as taker at min(lower, bar open) for long and
+    max(upper, bar open) for short.
+    Both touched in one bar books stop with gap-aware fill price and ambiguous=True.
     No barrier touched exits at horizon open as taker.
-    Missing 5m bar anywhere in the window produces a NaN row.
+    Missing 5m bar anywhere in the execution window produces a NaN row.
+    When sigma_h is None, computes trailing_sigma_h with trailing_ms=86400000.
     """
     if h_ms <= 0 or h_ms % 300000 != 0:
         raise ValueError(f"h_ms must be a positive multiple of 300000 ms (5m), got {h_ms}")
@@ -180,7 +270,10 @@ def triple_barrier(
         return pd.DataFrame(columns=cols, index=pd.Index([], dtype=np.int64, name=idx_name))
 
     # Resolve sigma_h
-    if np.isscalar(sigma_h):
+    if sigma_h is None:
+        sigma_series = trailing_sigma_h(dt_arr, five_min, h_ms=h_ms, trailing_ms=86400000)
+        sigma_arr = sigma_series.to_numpy(dtype=np.float64)
+    elif np.isscalar(sigma_h):
         sigma_arr = np.full(n, float(sigma_h), dtype=np.float64)  # type: ignore[arg-type]
     else:
         sigma_seq = list(sigma_h)  # type: ignore[arg-type]
@@ -265,43 +358,42 @@ def triple_barrier(
         is_ambiguous = False
 
         for t_bar in window_times:
-            _, h_val, l_val, _ = bar_map[t_bar]
-            hits_upper = h_val >= upper_price
-            hits_lower = l_val <= lower_price
+            o_val, h_val, l_val, _ = bar_map[t_bar]
 
-            if hits_upper and hits_lower:
+            if s == 1:
+                tp_fired = h_val > upper_price
+                sl_fired = l_val <= lower_price
+                sl_exit_price = min(lower_price, o_val)
+                tp_exit_price = upper_price
+            else:
+                tp_fired = l_val < lower_price
+                sl_fired = h_val >= upper_price
+                sl_exit_price = max(upper_price, o_val)
+                tp_exit_price = lower_price
+
+            if tp_fired and sl_fired:
                 hit = True
                 deciding_bar_t = t_bar
                 is_ambiguous = True
                 row_label = -1.0
                 exit_fill = "taker"
-                exit_price = lower_price if s == 1 else upper_price
+                exit_price = sl_exit_price
                 break
-            if hits_upper:
+            if tp_fired:
                 hit = True
                 deciding_bar_t = t_bar
                 is_ambiguous = False
-                if s == 1:
-                    row_label = 1.0
-                    exit_fill = "maker"
-                    exit_price = upper_price
-                else:
-                    row_label = -1.0
-                    exit_fill = "taker"
-                    exit_price = upper_price
+                row_label = 1.0
+                exit_fill = "taker" if maker_as_taker else "maker"
+                exit_price = tp_exit_price
                 break
-            if hits_lower:
+            if sl_fired:
                 hit = True
                 deciding_bar_t = t_bar
                 is_ambiguous = False
-                if s == 1:
-                    row_label = -1.0
-                    exit_fill = "taker"
-                    exit_price = lower_price
-                else:
-                    row_label = 1.0
-                    exit_fill = "maker"
-                    exit_price = lower_price
+                row_label = -1.0
+                exit_fill = "taker"
+                exit_price = sl_exit_price
                 break
 
         if hit:
