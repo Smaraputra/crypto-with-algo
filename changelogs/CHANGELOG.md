@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: live v8 context is pinned to the scored candle's close (Round 4 audit V8-1, V8-2)
+- **Problem:** the higher-timeframe context filtered bars against the batch wall clock (`now`), and news sentiment was read relative to `Date.now()`. A late compute could read an HTF bar, or headlines, from after the scored candle closed.
+- **Fix:** both now use the scored candle's close (`latestCandleTs + interval`). This is the same rule the research path uses (`htf.timestamp + htfMs <= ltf.timestamp + ltfMs`).
+- **Timely runs:** about a minute after sync, scores are unchanged, so `configVersion` is not bumped.
+- **News queries:** news is now read per (symbol, candle close), which is more queries than the single batched read.
+- **Golden test:** its pinned news query arguments are updated, and its score assertions are unchanged.
+
 ### Added: A detail page for every research entry, with its trials and test runs
 - **Detail pages:** every entry in the `/signals` hub now has its own page at `/signals/{id}`, linked from its card ("Open the full page"). Each page shows:
   - method;

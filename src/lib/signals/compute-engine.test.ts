@@ -742,6 +742,165 @@ describe('compute-engine', () => {
     });
   });
 
+  describe('context pinning to candle close (HTF and news)', () => {
+    const ONE_HOUR_MS = 60 * 60 * 1000;
+    const FOUR_HOURS_MS = 4 * ONE_HOUR_MS;
+    const BASE_TIME = 1_700_000_000_000 - (1_700_000_000_000 % FOUR_HOURS_MS);
+
+    function generateCandlesWithStep(count: number, endOpenTime: number, stepMs: number): OHLCV[] {
+      const candles: OHLCV[] = [];
+      let price = 40000;
+      const startOpen = endOpenTime - (count - 1) * stepMs;
+      for (let i = 0; i < count; i++) {
+        const change = (Math.sin(i * 0.1) * 0.02 + 0.001) * price;
+        const open = price;
+        const close = price + change;
+        candles.push({
+          timestamp: startOpen + i * stepMs,
+          open,
+          high: Math.max(open, close) * 1.005,
+          low: Math.min(open, close) * 0.995,
+          close,
+          volume: 100 + i,
+        });
+        price = close;
+      }
+      return candles;
+    }
+
+    it('with now two HTF intervals after the LTF close, the HTF bar that closed after the LTF close is NOT used', async () => {
+      const ltfOpen = BASE_TIME;
+      const ltfClose = ltfOpen + ONE_HOUR_MS;
+      const ltfCandles = generateCandlesWithStep(250, ltfOpen, ONE_HOUR_MS);
+
+      const now = ltfClose + 2 * FOUR_HOURS_MS;
+      const htfLastOpen = ltfClose + FOUR_HOURS_MS;
+      const htfCandles = generateCandlesWithStep(250, htfLastOpen, FOUR_HOURS_MS);
+
+      mockGetCandles.mockImplementation(async (_symbol: string, interval: string) =>
+        interval === '1h' ? ltfCandles : htfCandles
+      );
+      mockFetchKlines.mockImplementation(async (_symbol: string, interval: string) =>
+        interval === '1h' ? ltfCandles : htfCandles
+      );
+
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        const { computeSignalBatch } = await import('./compute-engine');
+        const result = await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        ]);
+
+        expect(result.computed).toBe(1);
+        const doc = mockInsertMany.mock.calls[0][0][0];
+        expect(doc.htfContext).not.toBeNull();
+
+        const usedHtfTs = doc.htfContext.candleTimestamp;
+        expect(usedHtfTs + FOUR_HOURS_MS).toBeLessThanOrEqual(ltfClose);
+        expect(usedHtfTs).toBe(ltfClose - FOUR_HOURS_MS);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('with now one minute after the close, the result equals the previous behaviour', async () => {
+      const ltfOpen = BASE_TIME;
+      const ltfClose = ltfOpen + ONE_HOUR_MS;
+      const ltfCandles = generateCandlesWithStep(250, ltfOpen, ONE_HOUR_MS);
+      const htfCandles = generateCandlesWithStep(250, ltfClose - FOUR_HOURS_MS, FOUR_HOURS_MS);
+
+      mockGetCandles.mockImplementation(async (_symbol: string, interval: string) =>
+        interval === '1h' ? ltfCandles : htfCandles
+      );
+      mockFetchKlines.mockImplementation(async (_symbol: string, interval: string) =>
+        interval === '1h' ? ltfCandles : htfCandles
+      );
+
+      const now = ltfClose + 60_000;
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        const { computeSignalBatch } = await import('./compute-engine');
+        const result = await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        ]);
+
+        expect(result.computed).toBe(1);
+        const doc = mockInsertMany.mock.calls[0][0][0];
+        expect(doc.htfContext).not.toBeNull();
+        expect(doc.htfContext.candleTimestamp).toBe(ltfClose - FOUR_HOURS_MS);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('news query uses ltfClose as the reference time with $gte and $lte bounding', async () => {
+      const ltfOpen = BASE_TIME;
+      const ltfClose = ltfOpen + ONE_HOUR_MS;
+      const ltfCandles = generateCandlesWithStep(250, ltfOpen, ONE_HOUR_MS);
+      const htfCandles = generateCandlesWithStep(250, ltfClose - FOUR_HOURS_MS, FOUR_HOURS_MS);
+
+      mockGetCandles.mockImplementation(async (_symbol: string, interval: string) =>
+        interval === '1h' ? ltfCandles : htfCandles
+      );
+      mockFetchKlines.mockImplementation(async (_symbol: string, interval: string) =>
+        interval === '1h' ? ltfCandles : htfCandles
+      );
+      mockFetchFearAndGreed.mockResolvedValue({ fearGreedIndex: 50, label: 'Neutral' });
+      mockSnapshotAggregate.mockResolvedValue([
+        { _id: 'BTCUSDT', newsSentiment: { count: 4, avgSentiment: 0.3 } },
+      ]);
+
+      const now = ltfClose + 3 * ONE_HOUR_MS;
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        const { computeSignalBatch } = await import('./compute-engine');
+        await computeSignalBatch([
+          { symbol: 'BTCUSDT', interval: '1h', tradingStyle: 'day_trading' },
+        ]);
+
+        expect(mockSnapshotAggregate).toHaveBeenCalled();
+        const pipeline = mockSnapshotAggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+        const matchStage = pipeline[0].$match as {
+          symbol: { $in: string[] };
+          interval: string;
+          timestamp: { $gte: number; $lte: number };
+        };
+        expect(matchStage.timestamp.$lte).toBe(ltfClose);
+        expect(matchStage.timestamp.$gte).toBe(ltfClose - 2 * ONE_HOUR_MS);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('fetchNewsSentimentMap', () => {
+    it('uses the reference time to bound news snapshot query to timestamp <= referenceTime and within staleness window', async () => {
+      const { fetchNewsSentimentMap, NEWS_STALENESS_MS } = await import('./scoring-inputs');
+      const refTime = 1_700_000_000_000;
+
+      mockSnapshotAggregate.mockResolvedValue([
+        { _id: 'BTCUSDT', newsSentiment: { count: 3, avgSentiment: 0.25 } },
+      ]);
+
+      const map = await fetchNewsSentimentMap(['BTCUSDT'], refTime);
+      expect(map.get('BTCUSDT')).toEqual({ count: 3, avgSentiment: 0.25 });
+
+      expect(mockSnapshotAggregate).toHaveBeenCalledTimes(1);
+      const pipeline = mockSnapshotAggregate.mock.calls[0][0] as Array<Record<string, unknown>>;
+      expect(pipeline[0]).toEqual({
+        $match: {
+          symbol: { $in: ['BTCUSDT'] },
+          interval: '1h',
+          timestamp: {
+            $gte: refTime - NEWS_STALENESS_MS,
+            $lte: refTime,
+          },
+          'data.newsSentiment': { $ne: null },
+        },
+      });
+    });
+  });
+
   describe('buildTasksForStyle', () => {
     it('builds scalping tasks at 5m only, one per symbol (1m scoring is retired)', async () => {
       const { buildTasksForStyle } = await import('./compute-engine');

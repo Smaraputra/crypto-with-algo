@@ -17,11 +17,12 @@ import type { HtfContext, SignalWeights } from '@/types/signal';
 export const NEWS_STALENESS_MS = 2 * 60 * 60 * 1000; // snapshots ingest every 15m; 2h covers outages
 
 /**
- * Latest stored news sentiment per symbol (ingested by the snapshot cron), so
- * signal computation never calls the news API directly at compute cadence.
+ * Stored news sentiment per symbol, read as of referenceTime within the staleness window
+ * so late runs do not leak headlines published after the candle closed.
  */
 export async function fetchNewsSentimentMap(
-  symbols: string[]
+  symbols: string[],
+  referenceTime: number = Date.now()
 ): Promise<Map<string, { count: number; avgSentiment: number }>> {
   const map = new Map<string, { count: number; avgSentiment: number }>();
   if (symbols.length === 0) return map;
@@ -32,7 +33,10 @@ export async function fetchNewsSentimentMap(
         $match: {
           symbol: { $in: symbols },
           interval: '1h',
-          timestamp: { $gte: Date.now() - NEWS_STALENESS_MS },
+          timestamp: {
+            $gte: referenceTime - NEWS_STALENESS_MS,
+            $lte: referenceTime,
+          },
           'data.newsSentiment': { $ne: null },
         },
       },
