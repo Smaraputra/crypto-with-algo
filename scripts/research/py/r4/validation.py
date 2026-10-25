@@ -334,6 +334,130 @@ def cpcv_paths(
     return out
 
 
+def panel_cpcv_splits(
+    t0: Any,
+    t1: Any,
+    n_groups: int = 6,
+    n_test_groups: int = 2,
+    embargo_ms: int = 2592000000,
+) -> Iterator[tuple[np.ndarray, list[np.ndarray]]]:
+    """Generate train and test splits for panel Combinatorial Purged Cross-Validation.
+
+    Samples from multiple assets are pooled into a single panel. Group assignment
+    partitions the sorted unique values of decision time t0 into n_groups contiguous
+    time runs using the same rule as assign_groups:
+    size = n_unique // n_groups
+    group = min(rank // size, n_groups - 1)
+    All samples sharing a t0 timestamp are assigned to the same group, so tied
+    timestamps always share a group.
+
+    Splits come in the same lexicographic order of test group combinations as
+    cpcv_splits. Each split yields (train_idx, [test_idx per test group]) with
+    indices in ascending order into the original input arrays.
+
+    For each test group in a split, the block span across all coins is:
+    block_start = min t0 over that group's samples
+    block_end = max t1 over that group's samples
+
+    A candidate training sample is purged if:
+    t0_train <= block_end and t1_train >= block_start
+    for any test group.
+
+    When embargo_ms > 0, a training sample is also removed if:
+    block_end < t0_train <= block_end + embargo_ms
+    for any test group. The default embargo_ms is 2592000000 (30 days in ms).
+
+    cpcv_path_ids and cpcv_paths work unchanged on the panel output produced by
+    this generator, as test groups partition all panel samples and each path
+    covers every sample in the panel exactly once.
+
+    Parameters
+    ----------
+    t0 : array-like
+        Decision time in epoch ms for all panel samples (in any order).
+    t1 : array-like
+        Label end time in epoch ms for all panel samples (t1 >= t0).
+    n_groups : int, default=6
+        Number of groups.
+    n_test_groups : int, default=2
+        Number of test groups per split.
+    embargo_ms : int, default=2592000000
+        Embargo duration in milliseconds after each test block (default 30 days).
+
+    Yields
+    ------
+    train_idx : np.ndarray
+        Integer array of training sample indices after purging and embargo,
+        in ascending order of original array indices.
+    test_idx_list : list[np.ndarray]
+        List of integer arrays containing sample indices for each test group in
+        ascending group order, each with indices in ascending order into the
+        original arrays.
+
+    Raises
+    ------
+    ValueError
+        If t0 and t1 have mismatched shapes or lengths, if any t1 < t0,
+        if n_groups <= 2, n_test_groups <= 0, n_test_groups >= n_groups,
+        or if the number of unique t0 values is less than n_groups.
+    """
+    t0_arr = np.asarray(t0)
+    t1_arr = np.asarray(t1)
+    if t0_arr.ndim != 1 or t1_arr.ndim != 1:
+        raise ValueError("t0 and t1 must be 1-dimensional arrays")
+    if len(t0_arr) != len(t1_arr):
+        raise ValueError(f"t0 and t1 must have the same length, got {len(t0_arr)} and {len(t1_arr)}")
+    if np.any(t1_arr < t0_arr):
+        raise ValueError("t1 must be >= t0 for all samples")
+    if n_groups <= 2:
+        raise ValueError(f"n_groups must be at least 3, got {n_groups}")
+    if n_test_groups <= 0:
+        raise ValueError(f"n_test_groups must be at least 1, got {n_test_groups}")
+    if n_test_groups >= n_groups:
+        raise ValueError(f"n_groups ({n_groups}) must be greater than n_test_groups ({n_test_groups})")
+    if embargo_ms < 0:
+        raise ValueError(f"embargo_ms cannot be negative, got {embargo_ms}")
+
+    unique_t0, inv = np.unique(t0_arr, return_inverse=True)
+    n_unique = len(unique_t0)
+    if n_unique < n_groups:
+        raise ValueError(f"Number of unique t0 ({n_unique}) must be >= n_groups ({n_groups})")
+
+    size = n_unique // n_groups
+    sample_group = np.minimum(inv // size, n_groups - 1)
+
+    group_indices = [np.flatnonzero(sample_group == g) for g in range(n_groups)]
+
+    for test_comb in itertools.combinations(range(n_groups), n_test_groups):
+        test_idx_list = [group_indices[g] for g in test_comb]
+
+        is_test = np.isin(sample_group, test_comb)
+        candidate_train = np.flatnonzero(~is_test)
+
+        if len(candidate_train) == 0:
+            yield np.array([], dtype=int), test_idx_list
+            continue
+
+        t0_tr = t0_arr[candidate_train]
+        t1_tr = t1_arr[candidate_train]
+        keep_mask = np.ones(len(candidate_train), dtype=bool)
+
+        for tg in test_idx_list:
+            block_start = np.min(t0_arr[tg])
+            block_end = np.max(t1_arr[tg])
+
+            purge_mask = (t0_tr <= block_end) & (t1_tr >= block_start)
+            if embargo_ms > 0:
+                embargo_mask = (t0_tr > block_end) & (t0_tr <= block_end + embargo_ms)
+            else:
+                embargo_mask = False
+
+            keep_mask &= ~(purge_mask | embargo_mask)
+
+        train_idx = candidate_train[keep_mask]
+        yield train_idx, test_idx_list
+
+
 def _month_starts(start_ms: int, end_ms: int) -> list[int]:
     """Return epoch ms of the first instant of each UTC calendar month in [start_ms, end_ms)."""
     dt_start = datetime.fromtimestamp(start_ms / 1000, tz=UTC)
