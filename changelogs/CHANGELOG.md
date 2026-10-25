@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: one failed price fetch no longer blocks every lab-v1 and lab-v2 grade (Round 4 audit V1-1)
+- **Problem:** `gradeLabV1AndV2` fetched all symbols' 5m prices in parallel and returned at the first failure. One coin's REST error then held back all 8 lab-v1 hypotheses and all of lab-v2 until the next hourly run.
+- **Fix:** a hypothesis grades its due bars in order up to the first bar that needs a coin whose fetch failed. That bar and the later ones wait, reported as one pending entry with `price_fetch_failed`, the error and `blockedBars`. Every other hypothesis, and lab-v2, grades in the same run.
+- **Unchanged:** grading order within a hypothesis and every graded value. Only the time at which unaffected bars are graded moves. The lock (`scripts/research/lab-forward-v1.ts`) records this as AMENDMENT 3.
+
 ### Added: A detail page for every research entry, with its trials and test runs
 - **Detail pages:** every entry in the `/signals` hub now has its own page at `/signals/{id}`, linked from its card ("Open the full page"). Each page shows:
   - method;
