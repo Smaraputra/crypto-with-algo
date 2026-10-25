@@ -15,6 +15,7 @@ import { eValue, initialEState } from '@/lib/signals/lab/e-process';
 import {
   addMonthsUtc,
   labStatus,
+  type LabV4DailyView,
   type LabV4HypothesisView,
   type LabV4Response,
 } from '@/lib/signals/lab/view';
@@ -66,6 +67,7 @@ export async function GET(request?: Request) {
               .lean()
           : Promise.resolve([]);
 
+        const dailyHypId = `${hyp.candidate}-1h-daily`;
         const [
           latest,
           first,
@@ -74,6 +76,7 @@ export async function GET(request?: Request) {
           bettingScores,
           openTradeSignals,
           closedScores,
+          dailyLatest,
         ] = await Promise.all([
           LabScore.findOne({ version: LAB_VERSION_V4, hypothesis: hyp.id })
             .sort({ barClose: -1 })
@@ -96,7 +99,25 @@ export async function GET(request?: Request) {
             .sort({ barClose: 1 })
             .lean(),
           closedScoresPromise,
+          LabScore.findOne({ version: LAB_VERSION_V4, hypothesis: dailyHypId })
+            .sort({ barClose: -1 })
+            .lean(),
         ]);
+
+        let daily: LabV4DailyView | null = null;
+        if (dailyLatest) {
+          daily = {
+            e: eValue(dailyLatest.state),
+            bets: dailyLatest.state.n,
+            crossedAt:
+              dailyLatest.state.crossedAt !== null
+                ? new Date(dailyLatest.state.crossedAt).toISOString()
+                : null,
+            lastDay: new Date(dailyLatest.barClose).toISOString(),
+            judged: true,
+            label: 'judged statistic',
+          };
+        }
 
         const state = latest?.state ?? initialEState();
         const e = eValue(state);
@@ -226,6 +247,7 @@ export async function GET(request?: Request) {
           openTrades,
           closedTrades,
           latestBar,
+          daily,
         };
       })
     );

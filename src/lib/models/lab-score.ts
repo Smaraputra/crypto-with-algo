@@ -49,6 +49,7 @@ export interface ILabScore extends Document {
   /** Open of the perp 5m kline at T + D (start) and at T + D + Δ (end), per priced coin. */
   prices: Record<string, { start: number; end: number }>;
   funding?: Record<string, number> | null;
+  fundingGaps?: string[] | null;
   state: EProcessState;
   createdAt: Date;
 }
@@ -91,6 +92,7 @@ const labScoreSchema = new Schema<ILabScore>(
     netBookReturn: { type: Number, default: null },
     prices: { type: Schema.Types.Mixed, required: true },
     funding: { type: Schema.Types.Mixed, default: null },
+    fundingGaps: { type: [String], default: null },
     state: { type: stateSchema, required: true },
   },
   { timestamps: { createdAt: true, updatedAt: false }, minimize: false }

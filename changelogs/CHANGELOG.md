@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: lab-v4 daily mark-to-market e-process for S1 and S2 (AMENDMENT 2, owner decision, Round 4 audit V4-1)
+- **Problem:** lab-v4 bets every hour on 8-hour holds across correlated coins, so each bet's size uses outcomes that overlap the next bet. In the Round 4 overlap simulation (50,000 no-edge paths per cell), per-trade grading of a continuation rule like S1 crossed k = 800 in 0.196% of paths [0.161, 0.239], above Ville's bound of 0.125%. Daily mark-to-market grading crossed in 0 of 100,000.
+- **Added:** `S1-1h-daily` and `S2-1h-daily`. R_d is each rule's book return per UTC day: its trades' log returns inside the day, 0.0014 on each entry day, and funding inside both the day and the trade. It is graded as x = min(R_d / c, 1) with c 0.19 and 0.18, threshold 800 and losses unbounded. Every input is a stored S1 or S2 signal, with no change to any trading rule.
+- **Waiting:** a day waits for every price it needs. It waits up to 72 hours for each funding settlement a trade needs (from the coin's settlement interval), and then grades with any gap recorded on the row.
+- **Off until started:** `LAB_V4_DAILY_START_MS` is null, so nothing grades yet. A start-record amendment sets the first full UTC day after deploy. From then on the daily e-process is the judged statistic, and the per-trade one is a descriptive record.
+- **Read route:** `GET /api/signals/lab-v4` returns a `daily` block per rule (e-value, bets, crossedAt, last day). The research catalog's lab-v4 citations follow the lock's new line numbers.
+
 ### Fixed: lab-v3 funding coverage checks the whole 24-hour window (Round 4 audit V3-1)
 - **Problem:** a coin counted as covered when any settlement was stored in the last 8 hours of F1-1d's 24-hour funding window. A missing earlier settlement (T + 8h or T + 16h) passed, and the bar graded with understated funding.
 - **Fix:** lab-v3 now requires a stored settlement at each 00:00, 08:00 and 16:00 UTC time in the window. Every Binance interval from 1h to 8h settles at those times. The settlements a shorter interval adds between them are not required: Binance has skipped single ones (fourteen 4h symbols at 2026-06-24 04:00), and a waiting lab-v3 bar is released only by an amendment. A bar missing one waits, as before.

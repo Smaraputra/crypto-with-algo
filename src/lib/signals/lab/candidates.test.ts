@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { LAB_HYPOTHESES } from './e-process';
 import {
   LAB_HYPOTHESES_V1,
+  LAB_HYPOTHESES_V4_DAILY,
   LAB_MIN_CROSS_SECTION,
   LAB_TIMEFRAME_MS,
+  LAB_V4_DAILY_SCALE,
   LAB_VERSION,
   L2_V8_STYLE,
   L3_BARS,
@@ -79,5 +81,19 @@ describe('candidates registry', () => {
     expect(LAB_TIMEFRAME_MS['4h']).toBe(14_400_000);
     expect(LAB_TIMEFRAME_MS['8h']).toBe(28_800_000);
     expect(LAB_TIMEFRAME_MS['1d']).toBe(86_400_000);
+  });
+
+  it('freezes LAB_HYPOTHESES_V4_DAILY and LAB_V4_DAILY_SCALE', () => {
+    expect(LAB_HYPOTHESES_V4_DAILY.length).toBe(2);
+    expect(LAB_HYPOTHESES_V4_DAILY.map((h) => h.id)).toEqual(['S1-1h-daily', 'S2-1h-daily']);
+    expect(Object.isFrozen(LAB_HYPOTHESES_V4_DAILY)).toBe(true);
+    for (const h of LAB_HYPOTHESES_V4_DAILY) {
+      expect(Object.isFrozen(h)).toBe(true);
+      expect(h.version).toBe('lab-v4');
+      expect(h.timeframe).toBe('1d');
+      expect(h.metric).toBe('book');
+    }
+    expect(LAB_V4_DAILY_SCALE).toEqual({ S1: 0.19, S2: 0.18 });
+    expect(Object.isFrozen(LAB_V4_DAILY_SCALE)).toBe(true);
   });
 });

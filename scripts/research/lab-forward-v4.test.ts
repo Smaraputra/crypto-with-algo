@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { LAB_FORWARD_V4_LOCK as LOCK } from './lab-forward-v4';
@@ -8,6 +9,7 @@ import { DIVERGENCE_MAX_BARS } from '@/lib/market/delta';
 import { SWING_LENGTH } from '@/lib/market/structure';
 import {
   LAB_HYPOTHESES_V4,
+  LAB_HYPOTHESES_V4_DAILY,
   LAB_V4_HOLD_MS,
   LAB_V4_ROUND_TRIP,
   LAB_V4_THRESHOLD,
@@ -98,5 +100,16 @@ describe('lab-v4 lock', () => {
     expect(row.version).toBe('lab-v4');
     expect(row.hypothesis).toBe('S1-1h');
     expect(row.b).toBe(0);
+  });
+
+  it('pins the amendment 2 text marker and daily scales', () => {
+    expect(LOCK.dailyScale).toEqual({ S1: 0.19, S2: 0.18 });
+    expect(LOCK.dailyScale.S1).toBe(0.19);
+    expect(LOCK.dailyScale.S2).toBe(0.18);
+    expect(LAB_HYPOTHESES_V4_DAILY[0]?.scale).toBe(LOCK.dailyScale.S1);
+    expect(LAB_HYPOTHESES_V4_DAILY[1]?.scale).toBe(LOCK.dailyScale.S2);
+    const content = readFileSync(new URL('./lab-forward-v4.ts', import.meta.url), 'utf8');
+    expect(content).toContain('AMENDMENT 2');
+    expect(content).toContain("Ville's bound for S1");
   });
 });
