@@ -1,27 +1,35 @@
-"""ROUND 4 METHOD LOCK (M), LOCK TEXT V2. Plan of record: ~/.claude/plans/squishy-zooming-wilkes.md (owner-approved
-2026-10-25). Version 1 was reviewed at gate M (Opus, 2026-10-25, PASS WITH FIXES) and never signed. This version
-adopts that review's fixes. It is committed before any Round 4 model reads development outcomes and the owner signs
-it. Changes after the first development read are AMENDMENTS appended below, never edits.
+"""ROUND 4 METHOD LOCK (M), LOCK TEXT V3. Plan of record: ~/.claude/plans/squishy-zooming-wilkes.md (owner-approved
+2026-10-25). Gate M reviewed version 1 and version 2 (Opus, 2026-10-25, both PASS WITH FIXES). Neither was signed.
+This version adopts both reviews' fixes (.superpowers/sdd/round4/gates/). It is committed before any Round 4 model
+reads development outcomes, and the owner signs it. Changes after the first development read are AMENDMENTS appended
+below, never edits.
 
 WHAT WAS READ BEFORE THIS LOCK (disclosed)
 - Development D (perp 2022-01-01 to 2026-06-30) was read by earlier studies (Phases 3 to 5, Rounds 1 to 3).
 - The Phase 1 audit read code and production counts only (.superpowers/sdd/round4/audit.md).
-- The overlap simulation used synthetic prices only (scripts/research/round4-overlap-sim.ts, 89f525ee and d6d6c07a).
+- The overlap simulation and the pipeline's statistical tests used synthetic data only.
 - Holdout H was ingested on 2026-10-25 (counts only). No study has computed anything on it, and the Round 4 export
-  (~/round4-ds on the VPS) holds D only.
+  (~/round4-ds, datasetHash 11c87b9c8a97...) holds D only.
 
-PARTITIONS
+PARTITIONS AND DATA EDGES
 - DEV_START 2022-01-01, DEV_END 2026-07-01 (exclusive): perp 5m, 15m, 1h, 4h and 1d bars, premium index and funding
   settlements of the 10 signal coins.
 - Tier B inputs (futures metrics, depth, aggTrades flow, options) develop from 2023-01-01 only. A Tier B row stamped
-  t is usable at T only if t + 5 minutes <= T. A row with a missing Tier B input is dropped, never imputed.
+  t is usable at T only if t + 5 minutes <= T.
 - Recent R: 2026-07-01 to the date of this lock, descriptive only, never used to select.
-- Holdout H 2020-01-01 to 2022-01-01 (exclusive), perp 5m to 4h from each coin's first archive bar. An H sample
-  whose label ends at or after 2022-01-01 is dropped, so no H label overlaps a training label in D. Perp 1d bars
-  and funding before 2022 were read by the broad studies, so H's daily context and funding inputs are disclosed as
-  read.
+- Holdout H 2020-01-01 to 2022-01-01 (exclusive), perp 5m to 4h from each coin's first archive bar. Perp 1d bars and
+  funding before 2022 were read by the broad studies and are disclosed as read inputs.
 - Universe: the 10 signal coins (BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, DOT, LINK), every family included. Their
   2026 selection is the program's known survivorship limit, stated in every result.
+- Edges:
+  - a D sample whose label ends at or after DEV_END is dropped, and so is an H sample whose label ends at or after
+    H_END;
+  - a D sample whose features would need intraday bars before DEV_START has missing features and is dropped (the
+    loader serves no intraday row before 2022 for D);
+  - a sample with ANY missing feature is dropped, never imputed, and no missing value reaches a model;
+  - a tranche whose window lacks a funding settlement the coin's interval in force says must exist is dropped and
+    counted (funding is never assumed);
+  - the EMA warm-ups make the first months of D and of each H coin sparse, which is disclosed.
 
 TIMING, COSTS AND THE BOOK RULE
 - Decision at the close T of a perp 1h or 4h bar. Inputs: bars closed at T only (t + interval <= T), settlements
@@ -29,153 +37,181 @@ TIMING, COSTS AND THE BOOK RULE
 - Entry at the open of the 5m bar starting at T + 10 minutes. Exit at the open of the 5m bar starting at
   T + 10 minutes + h. Horizons: h in {4h, 8h} at 1h, and h in {4h, 8h, 24h} at 4h.
 - Costs: Binance USDT-M VIP 0 (maker 0.02%, taker 0.05%), with study slippage on taker fills (3 bps at 1h, 2 bps at
-  4h). Funding is the sum of actual settlements in (entry, exit], and a positive rate means longs pay.
+  4h), charged as abs(weight) x rate on the fill day. Funding is the sum of actual settlements in (entry, exit] times
+  -weight, and a positive rate means longs pay.
 - r4.costs reproduces the fee, slippage and funding functions of src/lib/backtest/cost-model.ts and funding.ts to
-  1e-8. Labels use r4.costs.trade_net_return, the Round 4 additive convention, which agrees with the TypeScript
-  engine's multiplicative slippage to first order.
+  1e-8. Labels use the Round 4 additive convention, which agrees with the TypeScript multiplicative slippage to first
+  order.
 - BOOK RULE: the equity is split into 10 equal coin slots. Each decision on a coin opens one tranche of weight
-  side x size / (h / interval) of that coin's slot, held to its exit, so overlapping tranches stack up to one slot.
-  - size is 1 unless a family's declared rule sets it in [0, 1].
-  - The daily mark-to-market book return of a UTC day is the sum over tranches open during that day of
-    weight x the log return of the tranche's part inside the day, marked at the 00:00 5m open.
-  - Costs are charged on the fill day, and funding settlements in (day start, day end] go to that day.
-  - A day with no open tranche places no bet.
-- Triple-barrier labels: barriers at entry x exp(+-1.0 x sigma_h), where
-  sigma_h = sqrt(the sum of squared 5m log returns over the 24 hours to T, times h / 24 hours) (trailing realised
-  variance, not a family C forecast, so labels never depend on a fitted model).
-  - A take-profit needs a strict trade-through (high > upper for a long, low < lower for a short) and fills as maker
-    at the barrier.
+  w = side x size x (interval / h) x 1/10, with h the configured horizon even if a declared exit closes the tranche
+  earlier, so overlapping tranches stack to at most one slot.
+  - size is 1 unless the family's declared rule sets it in [0, 1].
+  - Family D replaces the slot rule: each decision sets dollar-neutral target weights w_i with sum of abs(w_i) = 1,
+    and each tranche carries w_i x interval / h.
+  - Each UTC day, a tranche's part inside the day is marked in log return at the 00:00 5m open (carried from the last
+    5m open before midnight if that bar is missing, and counted).
+  - Settlements in (day start, day end] go to that day.
+- Triple-barrier labels: barriers at entry x exp(+-1.0 x sigma_h), with sigma_h = sqrt(the sum of squared 5m log
+  returns over the 24 hours to T, times h / 24 hours). A missing 5m bar in that window makes sigma_h missing and drops
+  the sample.
+  - The scan covers the 5m bars from the entry bar (included) to the horizon.
+  - A take-profit needs a strict trade-through and fills as maker at the barrier.
   - A stop fills as taker at the worse of the barrier and the touching bar's open.
-  - A bar trading through both barriers books the stop.
+  - A bar trading through both books the stop.
+
+THE DRIFT-FREE DAILY SERIES (used by every gate)
+- For each UTC day d, the drift-free daily return of a configuration is the beta-hedged book return
+    D_d = sum over tranches open in day d of w x (r_coin - beta_coin x r_EW) - costs_d + funding_d,
+  where:
+  - r_coin is the log return of the tranche's part inside the day;
+  - r_EW is the mean log return of the 10 coins over the SAME interval;
+  - beta_coin is the OLS slope of the coin's daily log return on the 10-coin daily mean.
+- beta_coin is estimated on the training window of each walk-forward fold, and on all of D for H and lab-v5, where it
+  is fixed in the finalist lock.
+- A no-bet day (no open tranche) is a zero in this series for every statistic below, except c and the lab-v5 power,
+  which use bet days only. The common span of a family is its walk-forward span (from its first refit to DEV_END).
+- The raw (unhedged) book return is reported beside every result and is never gated.
 
 TRAINING, CUTOFFS AND VALIDATION
 - Walk-forward (the deployable path): refit at the first instant of each UTC month from 2023-01-01 (from 2024-01-01
-  for Tier B) to DEV_END. Each month is a test block. Training holds samples whose label horizon ends before the
-  refit (t1_max < refit). Lookback arms: 12 months, 24 months and all of D (12 months and all for Tier B).
-- The no-refit arm is fit once on all data before the first refit and never refit. It is a single configuration
-  with no lookback variants.
-- Preprocessing (scaling, encoding) is fitted on each training window only. LightGBM uses a fixed number of trees
-  per declared setting, with no early stopping.
-- CPCV on D runs on the pooled, time-sorted panel of all coins:
-  - 6 groups by time, so all coins share the same group boundaries and tied timestamps stay in one group;
-  - 2 test groups (15 splits, 5 paths);
-  - purging every training sample whose [t0, t1_max] overlaps a test block's span on ANY coin;
-  - embargo 30 days after each test block.
-  - Features with lookbacks over 30 days (the 1d EMA trend over 200 days) can still carry test-period prices into
-    post-test training rows in CPCV. That is disclosed. The walk-forward is unaffected.
-- Refit question: the monthly refit arm is adopted for the live model only if the paired block-bootstrap 90%
-  interval (mean block 10 days, 1,000 reps) of the walk-forward daily net mean difference (refit minus no-refit)
-  lies entirely above zero. Otherwise the live model is not refit after its final fit.
-- Final model of a finalist: fit with the selected lookback arm on the window ending at the cutoff, DEV_END minus
-  30 days. Nothing after the cutoff is ever training data for it.
+  for Tier B and for family B, so all its primaries share one span) to DEV_END.
+  - Each month is a test block.
+  - Training holds samples with t1_max < refit within the lookback arm: 12 months, 24 months or all of D (12 months
+    and all for Tier B).
+  - Preprocessing and any family C filter are fitted on each training window only.
+  - LightGBM uses a fixed number of trees per declared setting, with no early stopping.
+- The no-refit arm is fit once on all data before the first refit and never refit, as a single configuration.
+- CPCV on the pooled, time-sorted panel: 6 groups by time (ties share a group), 2 test groups, purging any training
+  sample whose [t0, t1_max] overlaps a test block on any coin, and an embargo of 30 days after each block.
+  - Lookback arms apply to the walk-forward only.
+  - CPCV is a necessary hurdle and is never used for ranking, c, H power or finalist evidence.
+  - Features with lookbacks over 30 days (trend_1d, atr14_1d, dist_pdh, dist_pdl, dist_poc, trend_4h, funding_z30d)
+    can carry test-period prices into post-test training rows. Leakage biases CPCV upward, so it can only make the
+    hurdle easier, which is disclosed. Each finalist also gets a descriptive CPCV with a 200-day embargo.
+- Refit question: the monthly refit is adopted for the live model only if the paired block-bootstrap 90% interval
+  (mean block 10 days, 1,000 reps) of the drift-free daily mean difference (refit minus no-refit) lies entirely above
+  zero.
+- Final model of a finalist: fit with its lookback arm on the window ending at the cutoff, DEV_END minus 30 days.
 
 TRIALS, BUDGET AND LEDGER
-- Every distinct outer walk-forward result computed is one trial, re-runs after a code fix included. The count never
-  goes down. A configuration is fully specified by:
+- ANY computation of a D outcome (walk-forward, CPCV, a probe, a re-run after a code fix) is a trial, and the count
+  never goes down. A configuration is fully specified by:
   - family, model, hyperparameter setting, feature set;
-  - interval, horizon, label type (fixed or triple-barrier);
-  - decision threshold and side rule, size rule;
+  - interval, horizon, label type, decision threshold, side rule, size rule;
   - family C filter (on or off);
   - lookback or refit arm, exit rule.
 - Caps: A 48, B 24, D 12, E 24, re-tests 12 (120 alpha-bearing). C (forecasts) is capped at 12 and counted
-  separately.
-- Each family appends one entry to scripts/research/ledger.ts in the commit that declares its configuration list,
-  before it runs. The program count before Round 4 is 2,204.
+  separately. Re-runs consume the cap, and a family that reaches its cap stops.
+- Each family appends one entry to scripts/research/ledger.ts in the commit that declares its configurations, before
+  it runs, and appends re-runs as they happen. The program count before Round 4 is 2,204. Controls (Phase 4) are
+  recorded in the ledger and are excluded from the trial-Sharpe variance.
 
-EXPLORATION BAR (a configuration becomes a finalist only if all hold)
-1. Walk-forward drift-free net expectancy above zero, and at least 4 of the 5 CPCV paths net positive.
-   Drift-free trade return = side x (r - m x hold) net of costs and funding, where m is the coin's mean log return
-   per hour over the evaluation span.
-2. PBO at most 0.25 (CSCV, 16 groups, on the family's daily mark-to-market net returns, by configuration).
-3. Deflated Sharpe probability at least 0.95 on the configuration's daily mark-to-market book returns (n = days),
-   with N = 120 for every configuration whatever the order. The variance of trial Sharpes is taken over all the
-   round's alpha-bearing configurations at round close, and identical configurations are counted once. Also
-   reported at the program count (2,204 + 120).
-4. Two tests, run only for configurations passing items 1 to 3:
-   - Random-entry null with the same entry structure: 1,000 circular time shifts of the whole entry set (all coins
-     together, same coins, sides, sizes and holds), each by at least 7 days. p below 0.05.
-   - Hansen SPA test of the family's walk-forward daily net-return matrix against zero (stationary bootstrap, mean
-     block 10 days, 1,000 reps), consistent p below 0.05. This corrects for selection within the family.
-   - A diagnostic only: a panel-wide circular shift of labels against features by at least 30 days (100 shifts).
-5. At least 7 of 10 coins with positive walk-forward drift-free net expectancy, or for a cross-section a drop-one-coin
-   jackknife that stays positive.
-6. Fees x1.5 and slippage x2, and separately every maker fill repriced as taker, each keep net expectancy at or
-   above zero.
-- Finalists are ranked by walk-forward drift-free daily net Sharpe. At most one finalist per (family, model) and at
-  most 3 in all.
+EXPLORATION BAR (a configuration becomes a finalist only if all hold; every expectancy is on the drift-free series)
+1. Walk-forward drift-free daily mean above zero, and at least 4 of the 5 CPCV paths with a positive drift-free mean.
+2. PBO at most 0.25 (CSCV, 16 groups, on the family's drift-free daily matrix over its common span).
+3. Deflated Sharpe probability at least 0.95 on the drift-free daily series (n = calendar days of the span, no-bet
+   days zero), with N = max(120, the round's alpha-bearing ledger count at round close) for every configuration. The
+   variance of trial Sharpes is taken over the round's alpha-bearing configurations at round close, identical
+   configurations counted once. Round close is the commit of the last family's results. Also reported at the program
+   count (2,204 + N).
+4. Run only for configurations passing items 1 to 3:
+   - Joint-shift random-entry null: 1,000 circular shifts of the whole tranche set by whole days (at least 7), all
+     coins together with the same sizes, sides and holds. The statistic is the drift-free return per unit of absolute
+     weight over the kept tranches. A shifted tranche that wraps past the span or lands on missing data is dropped,
+     and the drop share is reported. p = (1 + count(null >= observed)) / (1 + 1000), below 0.05.
+   - Hansen SPA on the family's drift-free daily matrix over its common span, against zero, using Hansen's consistent
+     p-value (SPA_c), stationary bootstrap with mean block 10 days, 1,000 reps. p below 0.05. It corrects for
+     selection within a family. The deflated Sharpe at N covers selection across families.
+   - Label-shift tripwire: 100 panel-wide circular shifts of labels against features by at least 30 days. If more
+     than 60 of 100 give a positive drift-free mean, the family halts for a leakage review.
+5. At least 7 of 10 coins with a positive drift-free daily mean (each coin's tranches alone), or for family D a
+   drop-one-coin jackknife that stays positive.
+6. Fees x1.5 and slippage x2, and separately every maker fill repriced as taker, each keep the drift-free daily mean
+   at or above zero.
+- Finalists are ranked by the drift-free daily Sharpe. At most one finalist per (family, model), and at most 3
+  directional finalists in all.
 - Family C (forecasts, no trading):
   - QLIKE and log-variance MSE better than persistence and EWMA (halflife 7 windows) with a Diebold-Mariano p below
     0.05 (HAC with lag h) on the walk-forward path;
   - 80% and 95% coverage of the horizon log return within 2 points of nominal;
   - on at least 8 of 10 coins.
-- Stay-out flag, two conditions:
-  - forecast volatility above its trailing 90-day 90th percentile passes if the block-bootstrap 95% interval of the
-    realised-volatility ratio (flagged over unflagged windows) lies entirely above 1;
+  At most 1 forecast finalist, the configuration with the best walk-forward QLIKE.
+- Stay-out flag (part of the family C finalist), two conditions:
+  - forecast volatility above its trailing 90-day 90th percentile passes if the block-bootstrap (mean block 10 days)
+    95% interval of the realised-volatility ratio of flagged over unflagged windows lies entirely above 1;
   - a forecast range over the hold below 3 times the round-trip cost passes if at least 60% of flagged windows have a
     realised high-low range below 3 times the cost.
 
 PIPELINE CALIBRATION (Phase 4, before any family runs; each prediction is committed before its run)
 - Positive control: a planted edge injected into D returns, at an effect the power simulation says is detected with
   probability at least 0.8. The pipeline must detect it.
-- Noise control: 40 random-feature configurations. At most 5 may pass items 1 to 3.
-- Re-tests of closed rules as labelled re-reads (counted in the re-tests budget): v8 at 1h and 4h, rv-v1, Round 1
-  C1, lab-v4 S1 and S2, and N2, N3 and F1 where their shape fits. They are negative controls. One that passes means
-  the pipeline is presumed defective until an independent re-implementation agrees.
-- lab-v5 grading null: the drift-hedged daily mark-to-market e-process under a correlated no-edge null (correlation
-  as measured in D), with its false-crossing rate against 1/600 reported before any lab-v5 code exists.
+- Noise control: 40 random-feature configurations. At most 5 may pass items 1 to 3, and at most 6 may reject the
+  joint-shift null at 0.05.
+- Re-tests of closed rules as labelled re-reads (re-tests budget): v8 at 1h and 4h, rv-v1, Round 1 C1, lab-v4 S1 and
+  S2, and N2, N3 and F1 where their shape fits. They are negative controls. One that passes means the pipeline is
+  presumed defective until an independent re-implementation agrees.
+- lab-v5 grading null: the beta-hedged daily e-process under a correlated no-edge null (correlation as measured in D),
+  with its false-crossing rate against 1/600 reported before any lab-v5 code exists.
 - Gate P: an Opus review accepts the pipeline only if every control behaves as predicted.
 
 HOLDOUT H
-- All finalist locks are committed and signed before the first H read. The reads then run in one batch.
-- Each H read goes through the r4.data read-once ledger, keyed to the finalist lock's 40-character commit sha. There
-  are at most 3 read ids, and the Parquet cache holds guarded rows only.
-- Each finalist lock states three things before any H read:
-  - the frozen procedure and the model artifact hash;
-  - H's power: a block-bootstrap simulation of the finalist's D walk-forward drift-free net series at half its mean,
-    rescaled by the H-to-D ratio of 1d realised volatility;
+- All finalist locks (directional and forecast) are committed and signed before the first H read, and the reads run in
+  one batch.
+- Before each read, Claude verifies three things: the read id equals the 40-character sha of a commit that adds that
+  finalist's lock; the commit is an ancestor of research/round4; the working tree is clean.
+- The r4.data ledger at the fixed path ~/round4-out/holdout-reads.jsonl records (read_id, finalist_id, path). It
+  refuses a fifth read id, a second read id for the same finalist, and a repeated (read_id, path). The cache never
+  holds H rows.
+- Each finalist lock states three things before any read:
+  - the frozen procedure, the model artifact hash and beta_coin from D;
+  - the power: a block-bootstrap of the finalist's D drift-free daily series, with its deviations about the mean
+    rescaled by the H-to-D ratio of 1d realised volatility, resampled to the length of H's span and shifted to half
+    its mean, for the H criterion "drift-free mean above zero";
   - the pass criteria below.
-  If that power is below 0.5, an H fail is recorded as inconclusive (low power), not as evidence against, and an H
-  pass still counts.
-- H pass criteria, applied once with the final model and no refit inside H:
-  - drift-free net expectancy above zero, on all coins with data and separately on the six coins listed by
-    February 2020 (BTC, ETH, XRP, LINK, ADA, BNB);
-  - at least 60% of the coins with data positive. A coin has data if it has at least 30 graded trades after its
+- Directional H pass, applied once with the final model and no refit inside H:
+  - drift-free daily mean above zero, on all coins with data and separately on the six coins listed by February 2020
+    (BTC, ETH, XRP, LINK, ADA, BNB);
+  - at least 60% of the coins with data positive. A coin has data if it has at least 30 graded tranches after its
     first 60 days of listing;
-  - fees x1.5 and slippage x2 keep net expectancy at or above zero;
-  - the random-entry joint-shift null with p below 0.0167 (0.05 over 3 finalists).
-- A Tier B finalist skips H and runs forward only, with no provisional surface until its e-process crosses.
+  - fees x1.5 and slippage x2 keep the drift-free mean at or above zero;
+  - the joint-shift null with p below 0.05/3.
+- Forecast H pass: the family C criteria on H for the forecast finalist and its stay-out flag, at p below 0.05 (its own
+  read id).
+- If the stated power is below 0.5, a fail is recorded as inconclusive. An inconclusive finalist is not promoted, is
+  never read again, and gets no lab-v5. An H pass still counts at any power.
+- A Tier B finalist skips H, runs forward only and is never shown as provisional.
 
 LAB-V5 (FORWARD)
-- Statistic: the drift-hedged daily mark-to-market book return
-  R_d = (book return of day d) - (net weight at the start of day d) x (the equal-weight 10-coin log return of day d),
-  under the BOOK RULE, x = min(R_d / c, 1), with unbounded losses (H0': losses beyond 2c counted at 2c). The raw book
-  return e-process is kept as a descriptive record.
+- A directional finalist gets a lab-v5 slot only after an H pass (Tier B excepted, forward only).
+- Statistic: the drift-free daily series D_d of the finalist with beta_coin from D, x = min(D_d / c, 1), placing no bet
+  on a no-bet day. Unbounded losses: a day with x below -2 is counted at -2 and ends the test (loss floor -2, H0'). The
+  raw book return e-process is kept as a descriptive record.
 - Threshold 600 per slot: e-Bonferroni arithmetic, 3 slots at alpha 0.005. Warm-up 30 bets.
-- c = 4 times the SD of the finalist's D walk-forward drift-hedged daily net book return, fixed in the finalist lock
-  before H, never taken from H or R.
+- c = 4 times the SD of the finalist's D walk-forward drift-free daily series over bet days, fixed in the finalist
+  lock before H, never taken from H or R.
 - Missing data:
   - a missing price waits, never dropped, and is carried to the next priced bar for marking;
-  - a missing funding settlement waits at most 72 hours, then the day is graded with the settlements found and the
-    gap is recorded.
-- Validity: daily mark-to-market bets are disjoint in time and sized from earlier days only, so the e-process is a
-  supermartingale under the null of no edge given the information at each entry. The overlap simulation is a
-  consistency check. At k = 600 it had 0 crossings (continuation) and 1 (fade) in 50,000 no-edge paths each, against
-  lab-v4's per-trade grading at 119 crossings (0.238% against 1/600).
+  - a missing funding settlement waits at most 72 hours, then the day is graded with the settlements found and the gap
+    is recorded.
+- Validity: the days are disjoint and the bets are sized from earlier days only, so the e-process is a supermartingale
+  under the null of no edge given the information at each entry. The overlap simulation is a consistency check: at
+  k = 600, daily mark-to-market grading had 0 crossings (continuation) and 1 (fade) in 50,000 no-edge paths each,
+  against 119 (0.238%, above 1/600) for lab-v4's per-trade grading.
 - The lab-v5 lock states honest power and a 24-month limit.
-- Promotion: an H pass puts the finalist on the paper desk and Focus as "provisional". "Validated" only when its
-  lab-v5 e-process crosses. The volatility forecast (family C) reaches Focus after its own H forecast read.
+- Promotion: an H pass puts the finalist on the paper desk and Focus as "provisional". "Validated" only when its lab-v5
+  e-process crosses. The family C forecast reaches Focus after its own H pass.
 
 PREDICTIONS (recorded before any development read)
 - Given 2,204 earlier trials with no pass, the most likely outcome is that no directional configuration meets the
   exploration bar.
-- Family C (volatility) is the likeliest to pass its forecast bar, because volatility clustering is the one effect
-  the program has replicated.
-- If a directional configuration passes, it is most likely at 1h with BTC-relative or intrabar flow inputs. We
-  predict it does not pass H on the drift-free reading.
+- Family C (volatility) is the likeliest to pass its forecast bar, because volatility clustering is the one effect the
+  program has replicated.
+- If a directional configuration passes, it is most likely at 1h with BTC-relative or intrabar flow inputs. We predict
+  it does not pass H.
 
 STOP RULE
-- If no configuration meets the exploration bar within the budget, Round 4 closes with no lab-v5 and the RESULT
-  block says so.
+- If no configuration meets the exploration bar within the budget, Round 4 closes with no lab-v5, and the RESULT block
+  says so.
 - An override must be recorded as an amendment that quotes the result it overrides, as lab-v4 was.
 """
 
@@ -229,6 +265,16 @@ HORIZONS_MS: dict[str, tuple[int, ...]] = {
 CPCV_GROUPS: int = 6
 CPCV_TEST_GROUPS: int = 2
 CPCV_EMBARGO_MS: int = 2592000000
+CPCV_LONG_LOOKBACK_FEATURES: tuple[str, ...] = (
+    "trend_1d",
+    "atr14_1d",
+    "dist_pdh",
+    "dist_pdl",
+    "dist_poc",
+    "trend_4h",
+    "funding_z30d",
+)
+FINALIST_DESCRIPTIVE_CPCV_EMBARGO_MS: int = 17280000000
 
 WF_LOOKBACK_ARMS_MONTHS: tuple[int | None, ...] = (12, 24, None)
 WF_LOOKBACK_ARMS_MONTHS_TIER_B: tuple[int | None, ...] = (12, None)
@@ -245,9 +291,11 @@ BUDGET: dict[str, int] = {
 }
 
 BUDGET_FORECAST_C: int = 12
-DSR_TRIALS: int = 120
+DSR_TRIALS_MIN: int = 120
 PROGRAM_TRIALS_BEFORE: int = 2204
 MAX_FINALISTS: int = 3
+MAX_FORECAST_FINALISTS: int = 1
+MAX_H_READ_IDS: int = 4
 
 BAR: dict[str, int | float] = {
     "cpcv_paths_positive_min": 4,
@@ -281,12 +329,14 @@ STAY_OUT: dict[str, int | float] = {
     "range_cost_multiple": 3.0,
     "range_share_min": 0.60,
 }
+STAY_OUT_BLOCK_DAYS: int = 10
 
 CONTROLS: dict[str, int | float] = {
     "positive_detection_power_min": 0.80,
     "noise_configs": 40,
     "noise_pass_max": 5,
 }
+NOISE_SHIFT_REJECT_MAX: int = 6
 
 REFIT: dict[str, Any] = {
     "rule": "paired_block_bootstrap_90ci_entirely_above_zero",
@@ -300,9 +350,13 @@ H_RULES: dict[str, int | float] = {
     "min_trades_per_coin": 30,
     "listing_burn_in_days": 60,
     "coin_share_min": 0.6,
-    "null_p_max": 0.0167,
     "power_min": 0.5,
 }
+H_NULL_P_MAX: float = 0.05 / 3
+
+JOINT_SHIFT_GRID_MS: int = 86400000
+HOLDOUT_LEDGER_PATH: str = "~/round4-out/holdout-reads.jsonl"
+LABEL_SHIFT_TRIPWIRE: int = 60
 
 LAB_V5: dict[str, Any] = {
     "alpha": 0.005,
@@ -310,8 +364,8 @@ LAB_V5: dict[str, Any] = {
     "threshold": 600,
     "warmup_bets": 30,
     "scale_sd_multiple": 4.0,
-    "loss_unbounded": True,
-    "statistic": "daily_mtm_drift_hedged_book_return",
+    "loss_floor_x": -2.0,
+    "statistic": "daily_beta_hedged_book_return",
     "horizon_months": 24,
 }
 
@@ -323,23 +377,33 @@ __all__ = [
     "CONTROLS",
     "CPCV_EMBARGO_MS",
     "CPCV_GROUPS",
+    "CPCV_LONG_LOOKBACK_FEATURES",
     "CPCV_TEST_GROUPS",
     "DECISION_INTERVALS_MS",
     "DEV_END",
     "DEV_START",
-    "DSR_TRIALS",
+    "DSR_TRIALS_MIN",
     "ENTRY_DELAY_MS",
+    "FINALIST_DESCRIPTIVE_CPCV_EMBARGO_MS",
+    "HOLDOUT_LEDGER_PATH",
     "HORIZONS_MS",
     "H_EARLY_COINS",
     "H_END",
+    "H_NULL_P_MAX",
     "H_RULES",
     "H_START",
+    "JOINT_SHIFT_GRID_MS",
     "LAB_V5",
+    "LABEL_SHIFT_TRIPWIRE",
     "MAX_FINALISTS",
+    "MAX_FORECAST_FINALISTS",
+    "MAX_H_READ_IDS",
+    "NOISE_SHIFT_REJECT_MAX",
     "PROGRAM_TRIALS_BEFORE",
     "REFIT",
     "SIGMA_TRAILING_MS",
     "STAY_OUT",
+    "STAY_OUT_BLOCK_DAYS",
     "TIER_B_STAMP_MS",
     "TIER_B_START",
     "TRIPLE_BARRIER_K",

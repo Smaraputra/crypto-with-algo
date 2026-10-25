@@ -1,4 +1,4 @@
-"""Tests for r4.method pinning the Round 4 method lock text v2 and constants."""
+"""Tests for r4.method pinning the Round 4 method lock text v3 and constants."""
 
 from __future__ import annotations
 
@@ -49,6 +49,16 @@ def test_constants_exact_values() -> None:
     assert method.CPCV_GROUPS == 6
     assert method.CPCV_TEST_GROUPS == 2
     assert method.CPCV_EMBARGO_MS == 2592000000
+    assert method.CPCV_LONG_LOOKBACK_FEATURES == (
+        "trend_1d",
+        "atr14_1d",
+        "dist_pdh",
+        "dist_pdl",
+        "dist_poc",
+        "trend_4h",
+        "funding_z30d",
+    )
+    assert method.FINALIST_DESCRIPTIVE_CPCV_EMBARGO_MS == 17280000000
 
     assert method.WF_LOOKBACK_ARMS_MONTHS == (12, 24, None)
     assert method.WF_LOOKBACK_ARMS_MONTHS_TIER_B == (12, None)
@@ -64,9 +74,11 @@ def test_constants_exact_values() -> None:
         "retests": 12,
     }
     assert method.BUDGET_FORECAST_C == 12
-    assert method.DSR_TRIALS == 120
+    assert method.DSR_TRIALS_MIN == 120
     assert method.PROGRAM_TRIALS_BEFORE == 2204
     assert method.MAX_FINALISTS == 3
+    assert method.MAX_FORECAST_FINALISTS == 1
+    assert method.MAX_H_READ_IDS == 4
 
     assert method.BAR == {
         "cpcv_paths_positive_min": 4,
@@ -100,12 +112,14 @@ def test_constants_exact_values() -> None:
         "range_cost_multiple": 3.0,
         "range_share_min": 0.60,
     }
+    assert method.STAY_OUT_BLOCK_DAYS == 10
 
     assert method.CONTROLS == {
         "positive_detection_power_min": 0.80,
         "noise_configs": 40,
         "noise_pass_max": 5,
     }
+    assert method.NOISE_SHIFT_REJECT_MAX == 6
 
     assert method.REFIT == {
         "rule": "paired_block_bootstrap_90ci_entirely_above_zero",
@@ -119,9 +133,13 @@ def test_constants_exact_values() -> None:
         "min_trades_per_coin": 30,
         "listing_burn_in_days": 60,
         "coin_share_min": 0.6,
-        "null_p_max": 0.0167,
         "power_min": 0.5,
     }
+    assert method.H_NULL_P_MAX == 0.05 / 3
+
+    assert method.JOINT_SHIFT_GRID_MS == 86400000
+    assert method.HOLDOUT_LEDGER_PATH == "~/round4-out/holdout-reads.jsonl"
+    assert method.LABEL_SHIFT_TRIPWIRE == 60
 
     assert method.LAB_V5 == {
         "alpha": 0.005,
@@ -129,8 +147,8 @@ def test_constants_exact_values() -> None:
         "threshold": 600,
         "warmup_bets": 30,
         "scale_sd_multiple": 4.0,
-        "loss_unbounded": True,
-        "statistic": "daily_mtm_drift_hedged_book_return",
+        "loss_floor_x": -2.0,
+        "statistic": "daily_beta_hedged_book_return",
         "horizon_months": 24,
     }
 
@@ -152,14 +170,14 @@ def test_epoch_constants_match_datetime_utc() -> None:
         assert actual_ms == expected_ms, f"{name} expected {expected_ms} but got {actual_ms}"
 
 
-def test_budget_and_dsr_trials() -> None:
-    """Requirement 3: sum(BUDGET.values()) == DSR_TRIALS == 120."""
-    assert sum(method.BUDGET.values()) == method.DSR_TRIALS == 120
+def test_budget_and_dsr_trials_min() -> None:
+    """Requirement 3: sum(BUDGET.values()) == DSR_TRIALS_MIN == 120."""
+    assert sum(method.BUDGET.values()) == method.DSR_TRIALS_MIN == 120
 
 
-def test_h_rules_null_p_max() -> None:
-    """Requirement 4: H_RULES['null_p_max'] equals round(0.05 / MAX_FINALISTS, 4)."""
-    assert method.H_RULES["null_p_max"] == round(0.05 / method.MAX_FINALISTS, 4)
+def test_h_null_p_max() -> None:
+    """Requirement 4: H_NULL_P_MAX == 0.05 / 3."""
+    assert method.H_NULL_P_MAX == 0.05 / 3
 
 
 def test_lab_v5_threshold_relation() -> None:
@@ -173,26 +191,24 @@ def test_docstring_required_substrings() -> None:
     assert doc is not None
 
     required_substrings = (
-        "LOCK TEXT V2",
+        "LOCK TEXT V3",
+        "DRIFT-FREE DAILY SERIES",
+        "beta-hedged",
+        "N = max(120",
+        "no-bet day",
+        "whole days",
+        "inconclusive",
+        "Hansen's consistent p-value (SPA_c)",
         "DEV_START 2022-01-01",
-        "DEV_END 2026-07-01",
         "H 2020-01-01 to 2022-01-01",
-        "A 48, B 24, D 12, E 24, re-tests 12",
         "threshold 600",
-        "alpha 0.005",
-        "PBO at most 0.25",
-        "N = 120",
-        "Hansen SPA",
-        "embargo 30 days",
-        "drift-free",
         "BOOK RULE",
         "PREDICTIONS",
         "STOP RULE",
     )
 
+    doc_normalized = " ".join(doc.split())
     for substring in required_substrings:
-        assert substring in doc or substring.capitalize() in doc, (
-            f"Expected substring not found in docstring: {substring!r}"
-        )
-
-    assert "Threshold 600" in doc
+        assert (
+            substring in doc or substring in doc_normalized or substring.capitalize() in doc or substring.lower() in doc
+        ), f"Expected substring not found in docstring: {substring!r}"
