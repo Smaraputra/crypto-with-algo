@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Read-only Round 4 integrity audits
+- A research CLI can replay every stored lab signal against its frozen scoring functions and compare stored spot and perpetual 1h/4h candles with Binance archives across D. F1 raw-funding reconstruction is explicitly unavailable, while its score-to-book replay is reported separately.
+- Audits stream bounded JSONL detail beside a summary and do not write to MongoDB. Production replay and candle comparisons have not run yet.
+
 ### Changed: Round 4 research runtime and development boundary
 - The research CLI now drops labels ending exactly at the exclusive development cutoff, matching signed method M.
 - Daily book aggregation buckets intersecting tranche days, slices sorted funding history and reuses equal-weight basket returns for shared boundaries. Financial results and counters are checked against an independent scalar reference.
-- Decision-sample copies share the read-only market input panel instead of duplicating it through pandas attributes. Local synthetic tests pass. Python 3.12 verification and the full-span VPS benchmark remain pending source-upload approval.
+- Decision-sample copies share the read-only market input panel instead of duplicating it through pandas attributes. Local synthetic tests pass. Python 3.12 verification and the full-span VPS benchmark under the 2 GB cap are pending.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.
