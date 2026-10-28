@@ -29,6 +29,7 @@ from r4.book import (
     netted_costs,
 )
 from r4.costs import DEFAULT_FEE_PROFILE
+from r4.exits import ExitContext, is_horizon, parse_exit
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.method import (
     BAR,
@@ -132,6 +133,7 @@ def cpcv_path_daily(
     universe: Sequence[str],
     span_start_ms: int,
     span_end_ms: int,
+    exit_ctx: ExitContext | None = None,
 ) -> tuple[pd.DataFrame, int]:
     """Daily series of one CPCV path (drift_free and gross_hedged_funding), and the NaN-beta exclusion count.
 
@@ -146,7 +148,7 @@ def cpcv_path_daily(
         idx = np.asarray(test_groups_by_split[s][j], dtype=int)
         if len(idx) == 0:
             continue
-        tr = _make_tranches(samples.iloc[idx], path_sides[idx], cfg)
+        tr = _make_tranches(samples.iloc[idx], path_sides[idx], cfg, exit_ctx)
         if not tr:
             continue
         frames.append(beta_hedged_daily(tr, five_min, settlements, betas=split_betas[s], universe=universe))
@@ -185,6 +187,7 @@ def cpcv_path_drift_free(
     universe: Sequence[str],
     span_start_ms: int,
     span_end_ms: int,
+    exit_ctx: ExitContext | None = None,
 ) -> tuple[pd.Series, int]:
     """Drift-free daily series of one CPCV path, and how many tranches were excluded for a NaN beta."""
     daily, excluded = cpcv_path_daily(
@@ -200,6 +203,7 @@ def cpcv_path_drift_free(
         universe,
         span_start_ms,
         span_end_ms,
+        exit_ctx,
     )
     return daily["drift_free"], excluded
 
@@ -379,7 +383,7 @@ def run_wf(
         size_rule=raw_config.get("size_rule", "unit"),
         lookback_months=raw_config.get("lookback_months"),
         refit=raw_config.get("refit", "monthly"),
-        exit=raw_config.get("exit", "horizon"),
+        exit=parse_exit(raw_config.get("exit", "horizon")),
         seed=int(raw_config.get("seed", 7)),
         book=raw_config.get("book", "slot"),
     )
@@ -487,6 +491,7 @@ def run_wf(
     cpcv_path_means: list[float] = []
     cpcv_path_gross_means: list[float] = []
     cpcv_excluded: list[int] = []
+    cpcv_exit_ctx = None if is_horizon(cfg.exit) else ExitContext(five_min, cfg.h_ms)
     for p in range(paths_predictions.shape[0]):
         p_daily, p_excluded = cpcv_path_daily(
             p,
@@ -501,6 +506,7 @@ def run_wf(
             universe,
             cpcv_span_start,
             cpcv_span_end,
+            cpcv_exit_ctx,
         )
         cpcv_path_means.append(float(p_daily["drift_free"].mean()))
         cpcv_path_gross_means.append(float(p_daily["gross_hedged_funding"].mean()))
@@ -583,6 +589,8 @@ def run_wf(
             "stress_maker_as_taker": stress["stress_maker_as_taker"],
             "n_maker_fills": stress["n_maker_fills"],
             "excluded_tranches": int(run_res.excluded_tranches),
+            "exit_reason_counts": {k: int(v) for k, v in sorted(run_res.exit_reason_counts.items())},
+            "missing_sigma_tranches": int(run_res.missing_sigma_tranches),
             "n_samples": int(run_res.n_samples),
             "n_dropped": int(run_res.n_dropped),
             "n_outside_d": n_outside_d,

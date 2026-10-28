@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -27,6 +28,7 @@ from r4.book import (
 )
 from r4.costs import DEFAULT_FEE_PROFILE, coin_slippage_bps, resolve_fee_profile
 from r4.data import load_funding, load_perp
+from r4.exits import ExitContext, ExitSpec, is_horizon, parse_exit
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.labels import trailing_sigma_h, triple_barrier
 from r4.method import (
@@ -63,11 +65,13 @@ class RunConfig:
     size_rule: str  # "unit"
     lookback_months: int | None
     refit: str  # "monthly" or "none"
-    exit: str  # "horizon"
+    exit: str | ExitSpec  # "horizon" (E1) or a parsed E2, E3 or X1 spec; a dict is parsed on construction
     seed: int = 7
     book: str = "slot"  # "slot" (per-coin slot tranches) or "D" (dollar-neutral rank weights)
 
     def __post_init__(self) -> None:
+        parsed = parse_exit(self.exit)
+        object.__setattr__(self, "exit", "horizon" if parsed.rule == "E1" else parsed)
         if self.book not in ("slot", "D"):
             raise ValueError(f"book must be 'slot' or 'D', got {self.book!r}")
         if self.family == "D" and self.book != "D":
@@ -100,6 +104,8 @@ class RunResult:
     excluded_tranches: int = 0
     folds: list[FoldRecord] = field(default_factory=list)
     tranches: list[Tranche] = field(default_factory=list)
+    exit_reason_counts: dict[str, int] = field(default_factory=dict)
+    missing_sigma_tranches: int = 0
 
 
 def load_panel(
@@ -514,10 +520,17 @@ def _get_decisions(model: SideModel, X_test: np.ndarray, cfg: RunConfig) -> np.n
     return sides
 
 
-def _make_tranches(test_df: pd.DataFrame, sides: np.ndarray, cfg: RunConfig) -> list[Tranche]:
+def _make_tranches(
+    test_df: pd.DataFrame,
+    sides: np.ndarray,
+    cfg: RunConfig,
+    exit_ctx: ExitContext | None = None,
+) -> list[Tranche]:
     """Tranches of one block. `sides` is the side per row, or for the D book the score per row.
 
     The D book ranks the rows by their decision time T, so test_df must hold whole decision times.
+    A non-horizon exit needs exit_ctx (the 5m bars and sigma table): the exit engine then sets each tranche's exit
+    time, price, fill and reason. The weight keeps the configured h either way.
     """
     tranches: list[Tranche] = []
     if cfg.book == "D":
@@ -532,6 +545,8 @@ def _make_tranches(test_df: pd.DataFrame, sides: np.ndarray, cfg: RunConfig) -> 
     t0s = test_df["t0"].to_numpy(dtype=np.int64)
     t1s = test_df["t1_max"].to_numpy(dtype=np.int64)
 
+    kept: list[int] = []
+    kept_sides: list[int] = []
     for i in range(len(sides)):
         if weights is not None:
             if weights[i] == 0.0:
@@ -541,21 +556,49 @@ def _make_tranches(test_df: pd.DataFrame, sides: np.ndarray, cfg: RunConfig) -> 
             s = int(sides[i])
             if s == 0:
                 continue
+        kept.append(i)
+        kept_sides.append(s)
+
+    exit_ms_arr: list[int] | np.ndarray = [int(t1s[i]) for i in kept]
+    exit_px_arr: list[float] | np.ndarray = [float(exits[i]) for i in kept]
+    exit_fill_arr: list[str] | np.ndarray = ["taker"] * len(kept)
+    exit_reason_arr: list[str] | np.ndarray = ["horizon"] * len(kept)
+    if not is_horizon(cfg.exit) and kept:
+        if exit_ctx is None:
+            raise ValueError("a non-horizon exit needs an ExitContext with the 5m bars")
+        idx = np.asarray(kept, dtype=np.int64)
+        entry_frame = pd.DataFrame(
+            {
+                "symbol": syms[idx],
+                "side": np.asarray(kept_sides, dtype=np.int64),
+                "T": t0s[idx],
+                "entry_ms": t0s[idx] + ENTRY_DELAY_MS,
+                "exit_ms": t1s[idx],
+                "entry_price": entries[idx],
+            }
+        )
+        replayed = exit_ctx.replay(entry_frame, parse_exit(cfg.exit))
+        exit_ms_arr = replayed["exit_ms"].to_numpy(dtype=np.int64)
+        exit_px_arr = replayed["exit_price"].to_numpy(dtype=np.float64)
+        exit_fill_arr = replayed["exit_fill"].to_numpy()
+        exit_reason_arr = replayed["exit_reason"].to_numpy()
+
+    for n, i in enumerate(kept):
         entry_ms = int(t0s[i]) + ENTRY_DELAY_MS
-        exit_ms = int(t1s[i])
         tranches.append(
             Tranche(
                 symbol=str(syms[i]),
-                side=s,
+                side=kept_sides[n],
                 entry_ms=entry_ms,
-                exit_ms=exit_ms,
+                exit_ms=int(exit_ms_arr[n]),
                 entry_price=float(entries[i]),
-                exit_price=float(exits[i]),
+                exit_price=float(exit_px_arr[n]),
                 interval=cfg.interval,
                 h_ms=cfg.h_ms,
                 size=1.0,
                 entry_fill="taker",
-                exit_fill="taker",
+                exit_fill=str(exit_fill_arr[n]),
+                exit_reason=str(exit_reason_arr[n]),
                 weight_override=None if weights is None else float(weights[i]) * scale,
             )
         )
@@ -633,6 +676,8 @@ def walk_forward(
     days_seq = list(range(min_d, max_d + DAY_MS, DAY_MS))
     daily_ret = daily_close_log_returns(five_min, days_seq, universe)
 
+    exit_ctx = None if is_horizon(cfg.exit) else ExitContext(five_min, cfg.h_ms)
+
     all_tranches: list[Tranche] = []
     all_fold_dfs: list[pd.DataFrame] = []
     fold_records: list[FoldRecord] = []
@@ -657,7 +702,7 @@ def walk_forward(
             block_times.append(np.flatnonzero(test_mask.to_numpy()))
             X_test = scaler.transform(test_df[list(cfg.features)])
             sides = _get_decisions(model, X_test, cfg)
-            tranches_k = _make_tranches(test_df, sides, cfg)
+            tranches_k = _make_tranches(test_df, sides, cfg, exit_ctx)
             all_tranches.extend(tranches_k)
             fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_0, universe=universe)
             if tranches_k:
@@ -697,7 +742,7 @@ def walk_forward(
                 continue
             X_test = scaler.transform(test_df[list(cfg.features)])
             sides = _get_decisions(model, X_test, cfg)
-            tranches_k = _make_tranches(test_df, sides, cfg)
+            tranches_k = _make_tranches(test_df, sides, cfg, exit_ctx)
             all_tranches.extend(tranches_k)
             fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_k, universe=universe)
             if tranches_k:
@@ -740,6 +785,8 @@ def walk_forward(
         excluded_tranches=total_excluded,
         folds=fold_records,
         tranches=all_tranches,
+        exit_reason_counts=dict(Counter(t.exit_reason for t in all_tranches)),
+        missing_sigma_tranches=0 if exit_ctx is None else exit_ctx.missing_sigma,
     )
 
 

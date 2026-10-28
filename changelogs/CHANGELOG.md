@@ -34,6 +34,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Receipts carry a sha256 of the research source.
 - Joint-shift seeds come from each configuration, and the SPA bootstrap has its own seed.
 - The family D book from the method lock now exists. A config with `book: "D"` ranks the model scores across the coins at each decision time, using average ranks, centred and scaled so the absolute weights sum to 1. It holds cash below 6 coins. Each tranche carries its weight times interval over horizon. Ranking never splits a decision time across walk-forward blocks or CPCV groups. Item 5 uses the drop-one-coin jackknife for this book.
+- Round 4 exit engine (`r4/exits.py`): a bar-by-bar state machine, so the same rule replays history candle by candle and can run live.
+  - Exits:
+    - E1 is the lock's horizon exit;
+    - E2 sets ATR-style sigma barriers at entry;
+    - E3 is a volatility trailing stop, checked against the previous bar's trail before it updates and never loosened;
+    - X1 rests a maker order before the scheduled exit and falls back to taker at it.
+  - Fills:
+    - stops fill taker at the worse of the level and the open;
+    - take-profits need a strict trade-through and fill maker;
+    - intrabar fills are stamped at the touching 5m bar's close, so every exit stays on the 5m grid.
+  - A vectorized replay equals the step machine tranche for tranche. It replays 300,000 tranches in about 1.3 s.
+  - Horizon runs are unchanged. Receipts count exits by reason.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.
