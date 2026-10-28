@@ -30,6 +30,7 @@ from r4.costs import DEFAULT_FEE_PROFILE, coin_slippage_bps, resolve_fee_profile
 from r4.data import load_funding, load_perp
 from r4.exits import ExitContext, ExitSpec, is_horizon, parse_exit
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
+from r4.hashfeat import hash_feature_matrix, is_hash_feature, is_noise_feature
 from r4.labels import trailing_sigma_h, triple_barrier
 from r4.method import (
     DEV_END,
@@ -39,8 +40,12 @@ from r4.method import (
     TRIPLE_BARRIER_K,
     UNIVERSE,
 )
+from r4.plant import validate_plant
 
 logger = logging.getLogger(__name__)
+
+# Test-only: build the feature frame even when every feature is a hash feature (parity check of the fast path).
+_FORCE_SLOW_PATH = False
 
 
 class _SharedPanel(dict[str, dict[str, pd.DataFrame]]):
@@ -68,8 +73,18 @@ class RunConfig:
     exit: str | ExitSpec  # "horizon" (E1) or a parsed E2, E3 or X1 spec; a dict is parsed on construction
     seed: int = 7
     book: str = "slot"  # "slot" (per-coin slot tranches) or "D" (dollar-neutral rank weights)
+    noise_seed: int | None = None  # required when a feature is noise_00 to noise_99
+    plant: dict[str, Any] | None = None  # {"seed", "amplitude"}: planted signal, required by planted_z
 
     def __post_init__(self) -> None:
+        if self.plant is not None:
+            validate_plant(self.plant, self.interval, self.h_ms)
+        if "planted_z" in self.features and self.plant is None:
+            raise ValueError("feature planted_z requires a plant")
+        if any(is_noise_feature(f) for f in self.features) and (
+            isinstance(self.noise_seed, bool) or not isinstance(self.noise_seed, int)
+        ):
+            raise ValueError("noise features require an int noise_seed")
         parsed = parse_exit(self.exit)
         object.__setattr__(self, "exit", "horizon" if parsed.rule == "E1" else parsed)
         if self.book not in ("slot", "D"):
@@ -213,20 +228,31 @@ def decision_samples(
         df_prem = data_dict.get("premium_5m", data_dict.get("premiumIndex", pd.DataFrame()))
         df_settle = data_dict.get("settlements", data_dict.get("funding", pd.DataFrame()))
 
-        feat_df = build_feature_frame(
-            five_min=df_5m,
-            fifteen_min=df_15m,
-            decision_bars=dec_bars,
-            four_h=df_4h,
-            one_d=df_1d,
-            premium_5m=df_prem,
-            settlements=df_settle,
-            btc_decision_bars=btc_dec,
-            decision_interval_ms=interval_ms,
-            decision_opens=dec_opens,
-        )
-
-        sub_feats = feat_df.reindex(index=T_arr)[list(cfg.features)].to_numpy(dtype=np.float64)
+        feat_names = list(cfg.features)
+        real_idx = [i for i, f in enumerate(feat_names) if not is_hash_feature(f)]
+        hash_idx = [i for i, f in enumerate(feat_names) if is_hash_feature(f)]
+        sub_feats = np.empty((n_candidates, len(feat_names)), dtype=np.float64)
+        # Hash features are never NaN, so a configuration made only of them needs no feature frame.
+        if real_idx or _FORCE_SLOW_PATH:
+            feat_df = build_feature_frame(
+                five_min=df_5m,
+                fifteen_min=df_15m,
+                decision_bars=dec_bars,
+                four_h=df_4h,
+                one_d=df_1d,
+                premium_5m=df_prem,
+                settlements=df_settle,
+                btc_decision_bars=btc_dec,
+                decision_interval_ms=interval_ms,
+                decision_opens=dec_opens,
+            )
+            if real_idx:
+                real_names = [feat_names[i] for i in real_idx]
+                sub_feats[:, real_idx] = feat_df.reindex(index=T_arr)[real_names].to_numpy(dtype=np.float64)
+        if hash_idx:
+            sub_feats[:, hash_idx] = hash_feature_matrix(
+                [feat_names[i] for i in hash_idx], s, list(panel), T_arr, cfg.noise_seed, cfg.plant
+            )
         feat_has_nan = np.isnan(sub_feats).any(axis=1)
 
         t_5m = df_5m["t"].to_numpy(dtype=np.int64) if "t" in df_5m.columns else np.empty(0, dtype=np.int64)

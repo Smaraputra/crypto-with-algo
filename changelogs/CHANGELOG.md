@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - It also closes when the predicted next funding, from the premium index and Binance's formula, exceeds 0.05% against the position before the settlement.
     - The fill is a taker at 10 minutes after the decision, held as a pending close until then.
     - Under no-edge flow the median hold is the full horizon.
+- Calibration building blocks, all synthetic or in memory:
+  - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
+  - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.
+    - Every planted tranche's return moves by exactly the amplitude times z.
+    - The plant is applied in memory only, and receipts record the seed and amplitude.
+  - A synthetic D-shaped panel generator (`r4/synth.py`): daily GARCH volatility, Cholesky-correlated Student-t 5m shocks and taker-flow volume. It writes a loadable dataset with a manifest hash.
 - A $100-account layer (`r4/account.py`, `r4.cli account`), report only.
   - It replays a run's tranches on a $100 account at 10x, 20x and 50x leverage, using today's Binance lot sizes and minimum notionals with historical prices.
   - It nets orders per coin per instant and charges fees on executed notional and funding on position notional.
