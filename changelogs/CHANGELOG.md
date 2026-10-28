@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - E4 closes when the forecast is below minus one residual standard error. On a planted reversal it closed ahead on 100% of planted tranches and 0% of unplanted ones.
     - E5 at p_close 0.4 closes ahead on planted tranches but breaches the registered 20% false-close bound (53% on unplanted tranches). The test keeps the bound as a strict expected failure until the E5 rule is revised.
     - CPCV for E4 and E5 is not wired yet and raises instead of falling back.
+- The label-shift tripwire from item 4 of the method lock (`r4/tripwire.py`, `r4.cli tripwire`).
+  - It runs 100 deterministic panel-wide shifts of the label columns by 30 + 7k days, mapped by time within each coin.
+  - Features, prices and the book stay on real data. The family halts when more than 60 of 100 shifted runs have a positive drift-free mean, and the cost-free count is reported beside it.
+  - Tripwire receipts are their own kind and are refused in round and family directories.
+  - It halts on coin-drift profit, which survives breaking the feature-label link, and does not halt on a planted feature signal.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.
