@@ -632,6 +632,8 @@ def run_wf(
             "missing_flow_tranches": int(run_res.missing_flow_tranches),
             "missing_funding_tranches": int(run_res.missing_funding_tranches),
             "n_samples": int(run_res.n_samples),
+            "n_decisions": int(((samples["T"] >= first_refit_ms) & (samples["T"] < DEV_END)).sum()),
+            "n_tranches": len(run_res.tranches),
             "n_dropped": int(run_res.n_dropped),
             "n_outside_d": n_outside_d,
             "funding_dropped": int(funding_dropped),
@@ -874,9 +876,73 @@ def main() -> None:
     rt_parser.add_argument("--out", required=True, help="Output directory (receipt at OUT/<rule>/receipt.json)")
     rt_parser.add_argument("--commit", required=False, default=None, help="Commit SHA")
 
+    cg_parser = subparsers.add_parser("calib-grid", help="Write the registered calibration configs (noise, exit, pc)")
+    cg_parser.add_argument("--out", required=True, help="Output directory (noise/, exit/ and pc/ inside)")
+    cg_parser.add_argument(
+        "--amplitude",
+        required=False,
+        type=float,
+        default=0.0,
+        help="Planted amplitude of the pc template (0.0 = template)",
+    )
+
+    cd_parser = subparsers.add_parser("calib-dcov", help="D's daily log-return covariance and betas (second moments)")
+    cd_parser.add_argument("--ds", required=True, help="Dataset directory")
+    cd_parser.add_argument("--out", required=True, help="Output JSON file")
+
+    cn_parser = subparsers.add_parser("calib-null-input", help="Write the daily-null simulator input from a dcov file")
+    cn_parser.add_argument("--dcov", required=True, help="JSON from calib-dcov")
+    cn_parser.add_argument("--out", required=True, help="Output JSON file for r4.calibration_null --input")
+    cn_parser.add_argument("--pilot-paths", required=False, type=int, default=5000, help="Pilot paths (default 5000)")
+
+    ce_parser = subparsers.add_parser("calib-noise-eval", help="Evaluate the noise controls against M's bounds")
+    ce_parser.add_argument("--runs", required=True, help="Directory of the noise control runs")
+    ce_parser.add_argument("--ds", required=True, help="Dataset directory")
+    ce_parser.add_argument("--out", required=True, help="Output JSON file")
+    ce_parser.add_argument(
+        "--draws", required=False, type=int, default=None, help="Joint-shift draws (default: M's 1000)"
+    )
+
     args = parser.parse_args()
 
-    if args.command == "run-wf":
+    if args.command == "calib-grid":
+        from r4 import calibration
+
+        out_root = Path(args.out)
+        groups = {
+            "noise": calibration.noise_grid(),
+            "exit": calibration.exit_block(),
+            "pc": calibration.pc_family(args.amplitude),
+        }
+        for sub, configs in groups.items():
+            (out_root / sub).mkdir(parents=True, exist_ok=True)
+            for c in configs:
+                (out_root / sub / f"{c['id']}.json").write_text(json.dumps(c, indent=2), encoding="utf-8")
+        print(f"Wrote {sum(len(v) for v in groups.values())} configs under {out_root}")
+    elif args.command == "calib-dcov":
+        from r4 import calibration
+
+        dcov = calibration.d_daily_covariance(args.ds)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(dcov, indent=2), encoding="utf-8")
+        print(f"D covariance written to {args.out} ({dcov['n_days']} days)")
+    elif args.command == "calib-null-input":
+        from r4 import calibration
+
+        dcov = json.loads(Path(args.dcov).read_text(encoding="utf-8"))
+        null_input = calibration.daily_null_input(dcov["cov"], dcov["betas"], pilot_paths=args.pilot_paths)
+        null_input["dcov_dataset_hash"] = dcov.get("dataset_hash")
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(null_input, indent=2), encoding="utf-8")
+        print(f"Daily null input written to {args.out} (scale {null_input['scale']:.6g})")
+    elif args.command == "calib-noise-eval":
+        from r4 import calibration
+
+        report = calibration.evaluate_noise(args.runs, args.ds, joint_draws=args.draws)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"Noise evaluation written to {args.out}: gate_ok={report['gate_ok']}")
+    elif args.command == "run-wf":
         receipt = run_wf(
             config_file=args.config,
             ds_dir=args.ds,

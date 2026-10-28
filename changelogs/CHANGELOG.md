@@ -70,6 +70,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hurdles:
     - It evaluates the applicable exploration-bar hurdles from 2023-01-01: monthly betas from the trailing 12 months, fixed-rule CPCV priced with split betas, the calibration DSR, the joint-shift null when no native stop remains, coin count or jackknife, and the cost stresses.
     - Each hurdle is marked applied, not applicable or unavailable, and an unavailable hurdle never counts as passed.
+- The deflated-Sharpe trial variance now defaults to the pooled within-cost-cell variance, an owner amendment to the method lock.
+  - A cell is the configurations that share interval, horizon, label, exit and book.
+  - The family report records the total and cost-free variances beside it.
+  - Reason: across cells, cost tiers alone pushed the benchmark to an unpassable level.
+- Phase 4 calibration registry and drivers (`r4/calibration.py`, `r4.cli calib-grid`, `calib-dcov`, `calib-null-input`, `calib-noise-eval`):
+  - the 40 registered noise configurations, every cost cell holding at least two;
+  - pre-declared trade-floor replacements;
+  - the six exit-control configurations and the positive-control family;
+  - the gated and diagnostic predictions;
+  - D's daily covariance and betas for the lab-v5 null;
+  - the noise evaluation (items 1 to 3 at the within-cell variance, the joint-shift null for all 40 with each configuration's own seed).
+- Receipts carry decision and tranche counts.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.
