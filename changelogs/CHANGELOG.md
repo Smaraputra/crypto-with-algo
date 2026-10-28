@@ -61,6 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Features, prices and the book stay on real data. The family halts when more than 60 of 100 shifted runs have a positive drift-free mean, and the cost-free count is reported beside it.
   - Tripwire receipts are their own kind and are refused in round and family directories.
   - It halts on coin-drift profit, which survives breaking the feature-label link, and does not halt on a planted feature signal.
+- The native re-test reader and evaluation (`r4/natives.py`, `r4.cli retest`).
+  - Inputs and costs:
+    - It maps each export into the book with its native costs, through a per-tranche fee profile and slippage override that never nets across cost profiles.
+    - It drops v8 stop exits that carry no fill price, and counts them.
+    - It checks the 5m grid and the dataset manifest hash.
+  - Hurdles:
+    - It evaluates the applicable exploration-bar hurdles from 2023-01-01: monthly betas from the trailing 12 months, fixed-rule CPCV priced with split betas, the calibration DSR, the joint-shift null when no native stop remains, coin count or jackknife, and the cost stresses.
+    - Each hurdle is marked applied, not applicable or unavailable, and an unavailable hurdle never counts as passed.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.

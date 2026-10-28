@@ -569,6 +569,8 @@ def run_wf(
                 "exit_reason",
                 "entry_reason",
                 "weight_override",
+                "fee_profile",
+                "slippage_bps_override",
             ]
         )
     tranches_df.to_parquet(run_out_dir / "tranches.parquet", index=False)
@@ -840,6 +842,13 @@ def main() -> None:
     acct_parser.add_argument("--run", required=True, help="Run directory holding tranches.parquet")
     acct_parser.add_argument("--ds", required=True, help="Dataset directory")
 
+    rt_parser = subparsers.add_parser("retest", help="Evaluate a native export as a labelled re-test")
+    rt_parser.add_argument("--export", required=True, help="Native export directory (tranches.jsonl, summary.json)")
+    rt_parser.add_argument("--ds", required=True, help="Dataset directory")
+    rt_parser.add_argument("--calib-v", required=True, type=float, help="Within-cell variance of trial Sharpes")
+    rt_parser.add_argument("--out", required=True, help="Output directory (receipt at OUT/<rule>/receipt.json)")
+    rt_parser.add_argument("--commit", required=False, default=None, help="Commit SHA")
+
     args = parser.parse_args()
 
     if args.command == "run-wf":
@@ -878,6 +887,11 @@ def main() -> None:
             shifts_days=SHIFT_DAYS[: args.shifts],
         )
         print(f"Tripwire written: {tw_result['positive']} of {tw_result['n']} positive, halt={tw_result['halt']}")
+    elif args.command == "retest":
+        from r4.natives import run_retest
+
+        receipt = run_retest(args.export, args.ds, args.calib_v, args.out, commit=args.commit)
+        print(f"Retest receipt written for rule {receipt['rule']}: pass={receipt['pass']}")
     elif args.command == "account":
         from r4.account import account_report
 
