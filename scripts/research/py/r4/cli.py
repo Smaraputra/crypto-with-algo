@@ -993,6 +993,15 @@ def main() -> None:
     cpos_parser.add_argument("--rerun", action="store_true", help="Use the registered re-run plant and decoy seeds")
     cpos_parser.add_argument("--tripwire-shifts", required=False, type=int, default=len(SHIFT_DAYS), help="Shifts")
 
+    cx_parser = subparsers.add_parser("calib-exits", help="Evaluate the 6 exit controls (engine-replay null)")
+    cx_parser.add_argument("--ds", required=True, help="Dataset directory")
+    cx_parser.add_argument("--noise-runs", required=True, help="Noise control runs (the base C4 seed-1 run is read)")
+    cx_parser.add_argument("--out", required=True, help="Output directory (runs/, configs/ and exit_block.json)")
+    cx_parser.add_argument("--commit", required=True, help="Commit SHA")
+    cx_parser.add_argument(
+        "--draws", required=False, type=int, default=None, help="Joint-shift draws (default: M's 1000)"
+    )
+
     cdo_parser = subparsers.add_parser("calib-dossier", help="Write the Phase 4 dossier once (exclusive create)")
     cdo_parser.add_argument("--out", required=True, help="Output JSON file (must not exist)")
     cdo_parser.add_argument("--null", required=True, help="Daily null simulation JSON")
@@ -1139,6 +1148,15 @@ def main() -> None:
             provenance=provenance,
         )
         print(f"Positive control written to {args.out}: detected={res['detected']} by {res['detected_by']}")
+    elif args.command == "calib-exits":
+        from r4 import calibration
+
+        block = calibration.evaluate_exit_block(
+            args.ds, args.noise_runs, args.out, commit=args.commit, joint_draws=args.draws
+        )
+        Path(args.out).mkdir(parents=True, exist_ok=True)
+        (Path(args.out) / "exit_block.json").write_text(json.dumps(block, indent=2), encoding="utf-8")
+        print(f"Exit block written to {Path(args.out) / 'exit_block.json'}: {block['n_rejected']} of 6 rejected")
     elif args.command == "calib-dossier":
         from r4 import calibration
 

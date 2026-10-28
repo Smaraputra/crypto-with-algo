@@ -113,6 +113,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The $100-account layer prices intrabar exits at their fill and checks liquidation at each bar's adverse extreme.
   - Synthetic panels draw highs and lows from the Brownian-bridge extreme distribution, so stops and take-profits stay consistent with the path.
   - The native-export header discloses the spot warm-up before 2022.
+- The exit-control block (`calib-exits`) runs the 6 exit controls and refuses any run whose entries differ from the base noise control, whose rebuilt exit replay does not reproduce the stored exits, or whose observed statistic differs from the replay path at zero shift. On synthetic panels E2 to E6 and X1 reproduce with 0 mismatches over 3,408 tranches.
+  - It reports counters, fire rates, median holds and the increment against E1 per control, a determinism check (receipts, outputs and E4/E5 coefficients), and an optional-stopping check on 20 zero-drift panels, the one check that catches an exit using future information.
+  - Its planted intrabar control and the optional-stopping inputs for E4 and E5 are being reworked before registration.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.

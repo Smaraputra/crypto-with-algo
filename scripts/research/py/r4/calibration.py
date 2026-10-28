@@ -10,11 +10,12 @@ evaluation reads finished run directories and calls the `r4.bar` functions, neve
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import math
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ import pandas as pd
 from r4 import bar
 from r4.book import DAY_MS
 from r4.data import load_perp
-from r4.method import BAR, DEV_END, DEV_START
+from r4.method import BAR, DEV_END, DEV_START, UNIVERSE
 
 H1_MS = 3_600_000
 FIRST_REFIT_MS = int(datetime(2023, 1, 1, tzinfo=UTC).timestamp() * 1000)
@@ -1198,6 +1199,785 @@ def positive_control(
 
 
 # ---------------------------------------------------------------------------
+# The exit-control block (brief 28c)
+# ---------------------------------------------------------------------------
+
+EXIT_REPLAY_TOL = 1e-12
+OPT_STOP_ALPHA = 0.01
+OPT_STOP_PANELS = 20
+OPT_STOP_DAYS = 75
+OPT_STOP_SEED_BASE = 6000
+OPT_STOP_VOL = 0.02
+HOLD_SHARE_MIN = 0.8
+FALSE_CLOSE_MAX = 0.2
+PLANT_SEED_BASE = 7000
+DETERMINISM_FOLDS = 3
+_ENTRY_ARRAYS = ("symbol", "side", "entry_ms", "entry_price")
+_REPLAY_FIELDS = ("exit_ms", "exit_price", "exit_fill", "exit_reason")
+
+
+def _exit_base_config() -> dict[str, Any]:
+    """The noise control the exit block is derived from (ridge, fixed label, C4, seed 1)."""
+    return next(c for c in noise_grid() if c["block"] == "ridge" and c["cell"] == "C4" and c["seed_ordinal"] == 1)
+
+
+def _entry_frame(tranches: pd.DataFrame, h_ms: int | None = None) -> pd.DataFrame:
+    """The entries of stored tranches as the exit engine takes them: T, entry stamp, scheduled exit, entry price."""
+    from r4.method import ENTRY_DELAY_MS
+
+    side = tranches["side"].map(lambda v: 1 if v in (1, "long", "buy") else -1).to_numpy(dtype=np.int64)
+    entry = tranches["entry_ms"].to_numpy(dtype=np.int64)
+    hold = tranches["h_ms"].to_numpy(dtype=np.int64) if h_ms is None else np.full(len(tranches), int(h_ms))
+    return pd.DataFrame(
+        {
+            "symbol": tranches["symbol"].to_numpy(),
+            "side": side,
+            "T": entry - ENTRY_DELAY_MS,
+            "entry_ms": entry,
+            "exit_ms": entry + hold,
+            "entry_price": tranches["entry_price"].to_numpy(dtype=np.float64),
+        }
+    )
+
+
+def _run_panel(
+    run_dir: Path, ds_dir: Path | str, panel: dict[str, dict[str, pd.DataFrame]] | None, config: dict[str, Any]
+) -> dict[str, dict[str, pd.DataFrame]]:
+    from r4.pipeline import load_panel
+    from r4.plant import apply_plant
+
+    if panel is None:
+        panel = load_panel(Path(ds_dir), list(bar.read_manifest(ds_dir)["symbols"]))
+    if config.get("plant") is not None:
+        panel = apply_plant(panel, config["plant"])
+    return panel
+
+
+def check_replay_reproduces(
+    run_dir: Path | str,
+    ds_dir: Path | str,
+    panel: dict[str, dict[str, pd.DataFrame]] | None = None,
+    replay: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
+) -> dict[str, Any]:
+    """Rebuild the run's exit replay and feed it the run's OBSERVED entries (brief 28c, section 1).
+
+    The entries are the stored tranches' symbols, sides, entry stamps (T is the stamp less the entry delay) and the
+    scheduled exit entry + h. Every replayed exit_ms, exit_price, exit_fill and exit_reason must equal the stored
+    tranche's, exactly for the integers and strings and to 1e-12 (relative to max(1, |price|)) for the price, NaN
+    equal to NaN. A mismatch means the null's refitted fold models describe a different strategy than the observed
+    run. replay may be passed to reuse an already built replay (its fold-model cache). Returns
+    {"n", "mismatches", "first_mismatch", "by_field"}, mismatches counting rows.
+    """
+    d = Path(run_dir)
+    receipt = json.loads((d / "receipt.json").read_text(encoding="utf-8"))
+    tranches = pd.read_parquet(d / "tranches.parquet")
+    n = len(tranches)
+    if n == 0:
+        return {"n": 0, "mismatches": 0, "first_mismatch": None, "by_field": dict.fromkeys(_REPLAY_FIELDS, 0)}
+    if replay is None:
+        folds = json.loads((d / "folds.json").read_text(encoding="utf-8"))
+        replay = bar.build_exit_replay(_run_panel(d, ds_dir, panel, receipt["config"]), receipt["config"], folds)
+    entries = _entry_frame(tranches)
+    got = replay(entries).reset_index(drop=True)
+    if len(got) != n:
+        raise ValueError("the replay must return one row per stored tranche")
+    bad = {
+        "exit_ms": got["exit_ms"].to_numpy(dtype=np.int64) != tranches["exit_ms"].to_numpy(dtype=np.int64),
+        "exit_fill": got["exit_fill"].to_numpy().astype(str) != tranches["exit_fill"].to_numpy().astype(str),
+        "exit_reason": got["exit_reason"].to_numpy().astype(str) != tranches["exit_reason"].to_numpy().astype(str),
+    }
+    a = got["exit_price"].to_numpy(dtype=np.float64)
+    b = tranches["exit_price"].to_numpy(dtype=np.float64)
+    both_nan = np.isnan(a) & np.isnan(b)
+    with np.errstate(invalid="ignore"):
+        close = np.abs(a - b) <= EXIT_REPLAY_TOL * np.maximum(1.0, np.abs(b))
+    bad["exit_price"] = ~(both_nan | close)
+    any_bad = np.zeros(n, dtype=bool)
+    for v in bad.values():
+        any_bad |= v
+    first: dict[str, Any] | None = None
+    if any_bad.any():
+        i = int(np.flatnonzero(any_bad)[0])
+        field = next(f for f in _REPLAY_FIELDS if bad[f][i])
+        first = {
+            "row": i,
+            "symbol": str(tranches["symbol"].iloc[i]),
+            "entry_ms": int(tranches["entry_ms"].iloc[i]),
+            "field": field,
+            "stored": tranches[field].iloc[i].item()
+            if hasattr(tranches[field].iloc[i], "item")
+            else tranches[field].iloc[i],
+            "replayed": got[field].iloc[i].item() if hasattr(got[field].iloc[i], "item") else got[field].iloc[i],
+        }
+    return {
+        "n": int(n),
+        "mismatches": int(any_bad.sum()),
+        "first_mismatch": first,
+        "by_field": {f: int(bad[f].sum()) for f in _REPLAY_FIELDS},
+    }
+
+
+def _flatten(prefix: str, obj: Any, out: dict[str, Any]) -> None:
+    if isinstance(obj, dict):
+        for k in obj:
+            _flatten(f"{prefix}.{k}" if prefix else str(k), obj[k], out)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            _flatten(f"{prefix}.{i}", v, out)
+    else:
+        out[prefix] = obj
+
+
+def _receipt_differences(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
+    """Dotted paths at which two receipts differ, ignoring runtime_s. NaN equals NaN, floats compare exactly."""
+    fa: dict[str, Any] = {}
+    fb: dict[str, Any] = {}
+    _flatten("", {k: v for k, v in a.items() if k != "runtime_s"}, fa)
+    _flatten("", {k: v for k, v in b.items() if k != "runtime_s"}, fb)
+    diff: list[str] = []
+    for k in sorted(set(fa) | set(fb)):
+        if k not in fa or k not in fb:
+            diff.append(k)
+            continue
+        x, y = fa[k], fb[k]
+        if isinstance(x, float) and isinstance(y, float) and math.isnan(x) and math.isnan(y):
+            continue
+        if x != y:
+            diff.append(k)
+    return diff
+
+
+def _model_pairs_identical(
+    panel: dict[str, dict[str, pd.DataFrame]], config: dict[str, Any], folds: Sequence[dict[str, Any]]
+) -> tuple[int, list[str]]:
+    """Fit the E4/E5 pair twice, independent factories, on up to three folds. Returns (fits, differences)."""
+    from r4.exit_models import ExitModelFactory
+    from r4.pipeline import run_config_from_raw
+
+    cfg = run_config_from_raw(config)
+    rows = sorted(folds, key=lambda f: int(f["start_ms"]))
+    if not rows:
+        return 0, []
+    picks = sorted({0, len(rows) // 2, len(rows) - 1})[:DETERMINISM_FOLDS]
+    refit_none = cfg.refit == "none"
+    diffs: list[str] = []
+    fx, fy = ExitModelFactory.from_config(panel, cfg), ExitModelFactory.from_config(panel, cfg)
+    for i in picks:
+        fold = rows[i]
+        if refit_none:
+            args: tuple[int | None, int] = (None, int(config["first_refit_ms"]))
+        else:
+            cut = fold.get("train_cut_ms")
+            args = (None if cut is None else int(cut), int(fold["start_ms"]))
+        mx, my = fx.fit(*args), fy.fit(*args)
+        if (mx is None) != (my is None):
+            diffs.append(f"fold {i}: one fit fell back")
+            continue
+        if mx is None or my is None:
+            continue
+        for f in dataclasses.fields(mx.pair):
+            vx, vy = getattr(mx.pair, f.name), getattr(my.pair, f.name)
+            if isinstance(vx, np.ndarray):
+                same = bool(vx.dtype == vy.dtype and np.array_equal(vx, vy, equal_nan=True))
+            else:
+                same = bool(vx == vy)
+            if not same:
+                diffs.append(f"fold {i}: {f.name}")
+    return len(picks), diffs
+
+
+# -- synthetic martingale panels: optional stopping, median hold, planted intrabar control ------------------------
+
+
+def _syn_cov(n_coins: int = 6) -> np.ndarray:
+    return (OPT_STOP_VOL**2) * (0.3 * np.ones((n_coins, n_coins)) + 0.7 * np.eye(n_coins))
+
+
+def _grid_entries(
+    panel: dict[str, dict[str, pd.DataFrame]], start_ms: int, end_ms: int, interval_ms: int, h_ms: int, seed: int
+) -> pd.DataFrame:
+    """One entry per coin and decision time T on the interval grid in [start_ms, end_ms - h), random sides (seeded)."""
+    from r4.method import ENTRY_DELAY_MS
+
+    rng = np.random.default_rng(seed)
+    first = -(-start_ms // interval_ms) * interval_ms
+    grid = np.arange(first, end_ms - h_ms - 2 * interval_ms, interval_ms, dtype=np.int64)
+    parts = []
+    for sym in panel:
+        t5 = panel[sym]["5m"]["t"].to_numpy(dtype=np.int64)
+        o5 = panel[sym]["5m"]["o"].to_numpy(dtype=np.float64)
+        entry = grid + ENTRY_DELAY_MS
+        idx = np.searchsorted(t5, entry)
+        px = o5[np.minimum(idx, len(o5) - 1)]
+        parts.append(
+            pd.DataFrame(
+                {
+                    "symbol": sym,
+                    "side": np.where(rng.random(len(grid)) < 0.5, 1, -1).astype(np.int64),
+                    "T": grid,
+                    "entry_ms": entry,
+                    "exit_ms": entry + h_ms,
+                    "entry_price": px,
+                }
+            )
+        )
+    return pd.concat(parts, ignore_index=True)
+
+
+def _cost_free_returns(bars: Mapping[str, Any], entries: pd.DataFrame, res: pd.DataFrame) -> np.ndarray:
+    """side x log(exit price / entry price) per tranche. A horizon exit prices at the 5m open at its stamp."""
+    px = res["exit_price"].to_numpy(dtype=np.float64).copy()
+    stamp = res["exit_ms"].to_numpy(dtype=np.int64)
+    horizon = (res["exit_reason"].to_numpy() == "horizon") | ~np.isfinite(px)
+    sym = entries["symbol"].to_numpy()
+    for s in np.unique(sym):
+        rows = np.flatnonzero((sym == s) & horizon)
+        if len(rows):
+            b = bars[str(s)]
+            idx = np.minimum(np.searchsorted(b.t, stamp[rows]), len(b.t) - 1)
+            px[rows] = b.o[idx]
+    side = entries["side"].to_numpy(dtype=np.float64)
+    return side * np.log(px / entries["entry_price"].to_numpy(dtype=np.float64))
+
+
+def _exit_study_panel(
+    seed: int,
+    n_days: int,
+    specs: Sequence[Any],
+    start_ms: int = 1672531200000,
+) -> dict[str, dict[str, np.ndarray]]:
+    """One zero-drift synthetic panel and a fixed noise entry set, replayed under every spec.
+
+    The entry configuration is the exit block's (C4: 4h decisions, 8h hold). E4 and E5 fit on the first part of the
+    panel (their hash noise features, as in the block's configs) and are scored on entries after the cut.
+    """
+    from r4.exit_models import ExitModelFactory
+    from r4.exits import ExitContext, parse_exit
+    from r4.pipeline import _panel_premium
+    from r4.synth import synth_panel
+
+    base = _exit_base_config()
+    h_ms, interval_ms = int(base["h_ms"]), 4 * H1_MS
+    end_ms = start_ms + n_days * DAY_MS
+    panel = synth_panel(_syn_cov(), UNIVERSE[:6], start_ms, end_ms, seed)
+    cut = start_ms + (n_days * 3 // 5) * DAY_MS
+    entries = _grid_entries(panel, cut, end_ms, interval_ms, h_ms, seed + 1)
+    settlements = {s: panel[s]["settlements"] for s in panel}
+    ctx = ExitContext({s: panel[s]["5m"] for s in panel}, h_ms, premium=_panel_premium(panel), settlements=settlements)
+    models: Any = None
+    out: dict[str, dict[str, np.ndarray]] = {}
+    for spec in specs:
+        ps = parse_exit(spec)
+        if ps.rule in ("E4", "E5"):
+            if models is None:
+                fac = ExitModelFactory(
+                    panel, "4h", h_ms, tuple(base["features"]), int(base["seed"]), base["noise_seed"]
+                )
+                models = fac.fit(None, cut)
+                if models is None:
+                    raise ValueError("the synthetic panel is too short to fit the E4/E5 models (fallback)")
+            ctx.set_models(models)
+        res = ctx.replay(entries, ps)
+        ret = _cost_free_returns(ctx.bars, entries, res)
+        hold = (res["exit_ms"].to_numpy(dtype=np.float64) - entries["entry_ms"].to_numpy(dtype=np.float64)) / float(
+            h_ms
+        )
+        out[str(ps.rule)] = {
+            "returns": ret,
+            "hold_share": hold,
+            "early": (res["exit_reason"].to_numpy() != "horizon"),
+        }
+    return out
+
+
+def optional_stopping_check(
+    n_panels: int = OPT_STOP_PANELS,
+    n_days: int = OPT_STOP_DAYS,
+    rules: Sequence[str] | None = None,
+    seed_base: int = OPT_STOP_SEED_BASE,
+    alpha: float = OPT_STOP_ALPHA,
+) -> dict[str, Any]:
+    """The optional-stopping check (gate P code review, point 6), on zero-drift synthetic panels.
+
+    The engine-replay null cannot see a look-ahead or fill bias in an exit, because shifted entries share it. On a
+    martingale a legitimate exit has a zero cost-free mean per tranche, whatever the sides. Per rule and panel the
+    mean of side x log(exit / entry) is taken over a fixed noise entry set (the same for every rule), then a one-sample
+    t-test across the panels. The rule fails when the mean differs from zero two-sided at alpha, and X1 (a maker
+    order that must not profit) also when it is positive one-sided at alpha. Also records the pooled median hold as a
+    share of h (the registered median-hold diagnostic uses it) and the share of tranches closed early.
+    """
+    from scipy import stats
+
+    specs = [s for s in EXIT_BLOCK_SPECS if rules is None or s["rule"] in rules]
+    per: dict[str, dict[str, list[np.ndarray]]] = {s["rule"]: {"returns": [], "hold": [], "early": []} for s in specs}
+    for k in range(n_panels):
+        study = _exit_study_panel(seed_base + k, n_days, specs)
+        for rule, d in study.items():
+            per[rule]["returns"].append(d["returns"])
+            per[rule]["hold"].append(d["hold_share"])
+            per[rule]["early"].append(d["early"])
+    out: dict[str, Any] = {}
+    for rule, d in per.items():
+        means = np.array([float(np.mean(r)) for r in d["returns"]])
+        t, p2 = stats.ttest_1samp(means, 0.0)
+        p_pos = float(p2 / 2.0 if t > 0 else 1.0 - p2 / 2.0)
+        hold = np.concatenate(d["hold"])
+        early = np.concatenate(d["early"])
+        entry = {
+            "panel_means": [float(m) for m in means],
+            "mean": float(means.mean()),
+            "sd": float(means.std(ddof=1)),
+            "t": float(t),
+            "p_two_sided": float(p2),
+            "p_one_sided_positive": p_pos,
+            "significant": bool(p2 < alpha),
+            "positive": bool(p_pos < alpha),
+            "n_tranches": int(sum(len(r) for r in d["returns"])),
+            "median_hold_share": float(np.median(hold)),
+            "early_share": float(early.mean()),
+        }
+        entry["ok"] = (not entry["positive"]) if rule == "X1" else (not entry["significant"])
+        out[rule] = entry
+    return {
+        "n_panels": int(n_panels),
+        "n_days": int(n_days),
+        "alpha": float(alpha),
+        "seed_base": int(seed_base),
+        "rules": out,
+        "met": bool(all(v["ok"] for v in out.values())),
+    }
+
+
+def _plant_intrabar(
+    panel: dict[str, dict[str, pd.DataFrame]],
+    symbols: Sequence[str],
+    start_ms: int,
+    end_ms: int,
+    seed: int,
+    sigma_h: float,
+    share: float = 0.5,
+    shock_sigma: float = 1.5,
+    drift_sigma: float = 1.5,
+    flow_tilt: float = 0.35,
+) -> tuple[dict[str, dict[str, pd.DataFrame]], dict[str, np.ndarray]]:
+    """A copy of the panel with a visible adverse burst planted inside a random half of the 4h holds.
+
+    For a planted hold (coin, T) with direction d = +-1 the price moves by d x shock_sigma x sigma_h over the 30
+    minutes starting one hour after the entry (6 bars), the taker-buy share of those bars is 0.5 + d x flow_tilt, and
+    the price then drifts by a further d x drift_sigma x sigma_h to the end of the hold. The moves are permanent
+    (cumulative). A tranche entered at T with side -d is the planted adverse one: it loses 3 sigma_h if held.
+    Returns the new panel and {symbol: (n_grid, 2) array of (planted, direction)} on the 4h grid from start.
+    """
+    from r4.method import ENTRY_DELAY_MS
+    from r4.plant import _aggregate
+
+    interval = 4 * H1_MS
+    rng = np.random.default_rng(seed)
+    first = -(-start_ms // interval) * interval
+    grid = np.arange(first, end_ms - 2 * interval, interval, dtype=np.int64)
+    new: dict[str, dict[str, pd.DataFrame]] = {}
+    plan: dict[str, np.ndarray] = {}
+    for sym in symbols:
+        five = panel[sym]["5m"].sort_values("t").reset_index(drop=True)
+        t = five["t"].to_numpy(dtype=np.int64)
+        planted = rng.random(len(grid)) < share
+        direction = np.where(rng.random(len(grid)) < 0.5, 1.0, -1.0)
+        add = np.zeros(len(t))
+        v = five["v"].to_numpy(dtype=np.float64)
+        tbv = five["tbv"].to_numpy(dtype=np.float64).copy()
+        for g, (is_p, d) in enumerate(zip(planted, direction, strict=True)):
+            if not is_p:
+                continue
+            e = int(grid[g]) + ENTRY_DELAY_MS
+            i0 = int(np.searchsorted(t, e + H1_MS))
+            i_end = int(np.searchsorted(t, e + interval))
+            if i_end >= len(t) or i0 + 6 >= i_end:
+                continue
+            add[i0 : i0 + 6] += d * shock_sigma * sigma_h / 6.0
+            add[i0 + 6 : i_end] += d * drift_sigma * sigma_h / (i_end - i0 - 6)
+            tbv[i0 : i0 + 6] = v[i0 : i0 + 6] * (0.5 + d * flow_tilt)
+        p_close = np.cumsum(add)
+        p_open = p_close - add
+        new5 = five.copy()
+        new5["o"] = five["o"].to_numpy(dtype=np.float64) * np.exp(p_open)
+        new5["c"] = five["c"].to_numpy(dtype=np.float64) * np.exp(p_close)
+        new5["h"] = five["h"].to_numpy(dtype=np.float64) * np.exp(np.maximum(p_open, p_close))
+        new5["l"] = five["l"].to_numpy(dtype=np.float64) * np.exp(np.minimum(p_open, p_close))
+        new5["tbv"] = tbv
+        frames = dict(panel[sym])
+        frames["5m"] = new5
+        for iv, ms in (("15m", 900_000), ("1h", 3_600_000), ("4h", interval), ("1d", 86_400_000)):
+            frames[iv] = _aggregate(new5, ms)
+        new[sym] = frames
+        plan[sym] = np.column_stack([planted.astype(np.float64), direction])
+    plan["_grid"] = grid.astype(np.float64)[:, None]
+    return new, plan
+
+
+PLANT_FEATURES: tuple[str, ...] = ("taker_imb_last15", "ret_15m_last")
+
+
+def planted_intrabar_control(
+    n_days: int = 100,
+    seed: int = PLANT_SEED_BASE,
+    rules: Sequence[str] = ("E4", "E5", "E6"),
+    max_false_close: float = FALSE_CLOSE_MAX,
+) -> dict[str, Any]:
+    """The registered planted intrabar control: E4, E5 and E6 against E1 on planted tranches.
+
+    A visible adverse burst is planted inside a random half of the 4h holds (see _plant_intrabar). The tranches
+    entered against the burst are the planted adverse ones. Per rule: increment = mean cost-free return of the rule
+    minus E1's over ALL tranches, and false_close_rate = the share of the tranches that are NOT planted adverse (no
+    burst, or a burst in their favour) closed before the horizon. A rule meets the prediction when its increment is
+    positive and its false-close rate is at most 20%. E4 and E5 fit on the first 60% of the panel with the real
+    features taker_imb_last15 and ret_15m_last (the plant moves prices and taker flow, which hash noise features
+    cannot see), the block's noise-feature configs being unable to detect anything by construction.
+    """
+    from r4.exit_models import ExitModelFactory
+    from r4.exits import ExitContext, parse_exit
+    from r4.pipeline import _panel_premium
+    from r4.synth import synth_panel
+
+    start_ms = 1672531200000
+    h_ms, interval = 4 * H1_MS, 4 * H1_MS
+    end_ms = start_ms + n_days * DAY_MS
+    syms = list(UNIVERSE[:6])
+    sigma_h = OPT_STOP_VOL * math.sqrt(h_ms / DAY_MS)
+    base_panel = synth_panel(_syn_cov(), syms, start_ms, end_ms, seed)
+    panel, plan = _plant_intrabar(base_panel, syms, start_ms, end_ms, seed + 1, sigma_h)
+    cut = start_ms + (n_days * 3 // 5) * DAY_MS
+    entries = _grid_entries(panel, cut, end_ms, interval, h_ms, seed + 2)
+    grid = plan["_grid"][:, 0].astype(np.int64)
+    gi = np.searchsorted(grid, entries["T"].to_numpy(dtype=np.int64))
+    planted = np.zeros(len(entries), dtype=bool)
+    adverse = np.zeros(len(entries), dtype=bool)
+    sym_arr = entries["symbol"].to_numpy()
+    side = entries["side"].to_numpy(dtype=np.int64)
+    for s in syms:
+        rows = np.flatnonzero(sym_arr == s)
+        pl, di = plan[s][gi[rows], 0] > 0.5, plan[s][gi[rows], 1]
+        planted[rows] = pl
+        adverse[rows] = pl & (side[rows] == -di.astype(np.int64))
+    ctx = ExitContext(
+        {s: panel[s]["5m"] for s in syms},
+        h_ms,
+        premium=_panel_premium(panel),
+        settlements={s: panel[s]["settlements"] for s in syms},
+    )
+    e1 = ctx.replay(entries, parse_exit("horizon"))
+    base_ret = _cost_free_returns(ctx.bars, entries, e1)
+    specs = {s["rule"]: s for s in EXIT_BLOCK_SPECS}
+    models: Any = None
+    out: dict[str, Any] = {}
+    for rule in rules:
+        spec = parse_exit(specs[rule])
+        if rule in ("E4", "E5"):
+            if models is None:
+                models = ExitModelFactory(panel, "4h", h_ms, PLANT_FEATURES, 7).fit(None, cut)
+                if models is None:
+                    raise ValueError("the planted panel is too short to fit the E4/E5 models (fallback)")
+            ctx.set_models(models)
+        res = ctx.replay(entries, spec)
+        ret = _cost_free_returns(ctx.bars, entries, res)
+        early = res["exit_reason"].to_numpy() != "horizon"
+        inc = float(np.mean(ret) - np.mean(base_ret))
+        fcr = float(np.mean(early[~adverse])) if (~adverse).any() else float("nan")
+        out[rule] = {
+            "increment": inc,
+            "increment_on_adverse": float(np.mean(ret[adverse]) - np.mean(base_ret[adverse])),
+            "false_close_rate": fcr,
+            "true_close_rate": float(np.mean(early[adverse])) if adverse.any() else float("nan"),
+            "n_tranches": int(len(entries)),
+            "n_planted_adverse": int(adverse.sum()),
+            "met": bool(inc > 0.0 and fcr <= max_false_close),
+        }
+    return {
+        "rules": out,
+        "max_false_close_rate": float(max_false_close),
+        "n_days": int(n_days),
+        "seed": int(seed),
+        "features": list(PLANT_FEATURES),
+        "met": bool(all(v["met"] for v in out.values())),
+    }
+
+
+def _entry_key(tranches: pd.DataFrame) -> pd.DataFrame:
+    """The entry set of a tranche table: symbol, side as +-1, entry stamp and entry price, in one fixed order."""
+    side = tranches["side"].map(lambda v: 1 if v in (1, "long", "buy") else -1)
+    key = pd.DataFrame(
+        {
+            "symbol": tranches["symbol"].astype(str).to_numpy(),
+            "side": side.to_numpy(dtype=np.int64),
+            "entry_ms": tranches["entry_ms"].to_numpy(dtype=np.int64),
+            "entry_price": tranches["entry_price"].to_numpy(dtype=np.float64),
+        }
+    )
+    return key.sort_values(["symbol", "entry_ms", "side"], kind="stable").reset_index(drop=True)
+
+
+def _cost_free_mean(daily: pd.DataFrame) -> float:
+    return float((daily["gross_hedged"] + daily["funding"]).mean())
+
+
+def _run_or_reuse(
+    cfg_file: Path, raw: dict[str, Any], ds: Path, runs: Path, commit: str | None, panel: Any
+) -> dict[str, Any]:
+    """Run a config with run_wf, or reuse a finished run of the same config hash and commit (a resumable block)."""
+    from r4 import cli
+
+    rc = runs / str(raw["id"]) / "receipt.json"
+    if rc.exists():
+        receipt = json.loads(rc.read_text(encoding="utf-8"))
+        if receipt.get("config_hash") != cli.config_hash_of(raw):
+            raise ValueError(f"{rc} holds a different configuration: refusing to overwrite it")
+        if receipt.get("commit") != cli.resolve_commit(commit):
+            raise ValueError(f"{rc} was run at commit {receipt.get('commit')!r}, not {commit!r}: code freeze")
+        return receipt  # type: ignore[no-any-return]
+    return cli.run_wf(cfg_file, ds, runs, commit=commit, panel=panel)
+
+
+def evaluate_exit_block(
+    ds_dir: Path | str,
+    noise_runs_dir: Path | str,
+    out_dir: Path | str,
+    commit: str | None = None,
+    *,
+    panel: dict[str, dict[str, pd.DataFrame]] | None = None,
+    joint_draws: int | None = None,
+    first_refit_ms: int | None = None,
+    span_end_ms: int | None = None,
+    synthetic_panels: int = OPT_STOP_PANELS,
+    synthetic_days: int = OPT_STOP_DAYS,
+    determinism: bool = True,
+) -> dict[str, Any]:
+    """The exit-control block (calibration spec 6 and 12 N5, A1.6, brief 28c).
+
+    Runs the 6 exit_block() configs (kind control) with run_wf on the dataset (a finished run of the same config
+    hash and commit under out_dir/runs is reused). Per config, in this order, each of which raises ValueError:
+    - E4/E5 with a walk-forward exit-model fallback fold (the run is not the configuration under test);
+    - an entry set that differs from the base noise control's (noise_*_ridge_C4_s1 in noise_runs_dir);
+    - a replay that does not reproduce the stored exits (check_replay_reproduces);
+    - an observed statistic that differs from the replay path at zero shift.
+    Then the engine-replay joint-shift null (joint_draws, default 1,000, the config's joint_shift_seed), p and
+    rejected (p < 0.05), and the diagnostics: median hold as a share of h, exit-reason counts and fire rates, the
+    counters, and the increment of the drift-free mean against the base (E1) run. The block adds the optional-stopping
+    check, the two registered diagnostics (median hold and the planted intrabar control) and a determinism check.
+    Gated: at most 1 of 6 rejected. first_refit_ms and span_end_ms (default 2023-01-01 and DEV_END) and the
+    synthetic_* sizes exist so tests can use small panels.
+    """
+    from r4.exits import parse_exit
+
+    ds = Path(ds_dir)
+    out = Path(out_dir)
+    draws = int(BAR["random_entry_draws"]) if joint_draws is None else int(joint_draws)
+    span_end = DEV_END if span_end_ms is None else int(span_end_ms)
+    base_cfg = _exit_base_config()
+    base_dir = Path(noise_runs_dir) / base_cfg["id"]
+    if not (base_dir / "receipt.json").exists():
+        raise ValueError(f"the base noise control {base_cfg['id']} has no run in {noise_runs_dir}")
+    base_receipt = json.loads((base_dir / "receipt.json").read_text(encoding="utf-8"))
+    base_tr = pd.read_parquet(base_dir / "tranches.parquet")
+    base_key = _entry_key(base_tr)
+    base_cf = _cost_free_mean(pd.read_parquet(base_dir / "daily.parquet"))
+    if panel is None:
+        from r4.pipeline import load_panel
+
+        panel = load_panel(ds, list(bar.read_manifest(ds)["symbols"]))
+
+    cfg_dir = out / "configs"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    runs = out / "runs"
+    configs = exit_block()
+    rows: list[dict[str, Any]] = []
+    receipts: list[dict[str, Any]] = []
+    for cfg in configs:
+        if first_refit_ms is not None:
+            cfg["first_refit_ms"] = int(first_refit_ms)
+        f = cfg_dir / f"{cfg['id']}.json"
+        f.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        receipt = _run_or_reuse(f, cfg, ds, runs, commit, panel)
+        receipts.append(receipt)
+        rule = parse_exit(cfg["exit"]).rule
+        m = receipt["metrics"]
+        if rule in ("E4", "E5") and int(m.get("exit_model_fallback_folds", 0)) > 0:
+            raise ValueError(
+                f"{cfg['id']}: {m['exit_model_fallback_folds']} walk-forward fold(s) fell back to E1 (exit-model "
+                "fallback): the run is not the configuration under test"
+            )
+        d = runs / cfg["id"]
+        tr = pd.read_parquet(d / "tranches.parquet")
+        folds = json.loads((d / "folds.json").read_text(encoding="utf-8"))
+        key = _entry_key(tr)
+        if not key.equals(base_key):
+            raise ValueError(
+                f"{cfg['id']}: entry set differs from the base control {base_cfg['id']} "
+                f"({len(key)} against {len(base_key)} entries)"
+            )
+        replay = bar.build_exit_replay(panel, receipt["config"], folds)
+        rep = check_replay_reproduces(d, ds, panel=panel, replay=replay)
+        if rep["mismatches"] > 0:
+            raise ValueError(
+                f"{cfg['id']}: the exit replay does not reproduce the run's stored exits "
+                f"({rep['mismatches']} of {rep['n']} tranches, first {rep['first_mismatch']})"
+            )
+        first_ms = int(receipt["config"]["first_refit_ms"])
+        stats = bar.joint_shift_stats(
+            tr,
+            panel,
+            folds,
+            span_start_ms=first_ms,
+            span_end_ms=span_end,
+            n_draws=draws,
+            min_shift_days=int(BAR["random_entry_shift_min_days"]),
+            seed=int(receipt["config"]["joint_shift_seed"]),
+            exit_replay=replay,
+            zero_shift=True,
+        )
+        obs, zero = stats.obs_stat, stats.zero_shift_stat
+        if zero is None or not (
+            (math.isnan(obs) and math.isnan(zero)) or abs(obs - zero) <= EXIT_REPLAY_TOL * max(1.0, abs(obs))
+        ):
+            raise ValueError(f"{cfg['id']}: shift-zero identity broken: observed {obs!r} against replay path {zero!r}")
+        k = int(np.sum(stats.null_stats >= obs))
+        p = float((1 + k) / (1 + draws)) if stats.n_tranches and stats.shifts else 1.0
+        drop = float(stats.total_dropped / (draws * stats.n_tranches)) if stats.n_tranches and stats.shifts else 0.0
+        n = int(len(tr))
+        reasons = tr["exit_reason"].astype(str).value_counts()
+        counts = {str(r): int(c) for r, c in sorted(reasons.items())}
+        h_ms = tr["h_ms"].to_numpy(dtype=np.float64)
+        hold_share = (tr["exit_ms"].to_numpy(dtype=np.float64) - tr["entry_ms"].to_numpy(dtype=np.float64)) / h_ms
+        daily = pd.read_parquet(d / "daily.parquet")
+        denom = max(n, 1)
+        rows.append(
+            {
+                "id": cfg["id"],
+                "rule": rule,
+                "exit": cfg["exit"],
+                "p": p,
+                "rejected": bool(p < _REJECT_P),
+                "draws": draws,
+                "seed": int(receipt["config"]["joint_shift_seed"]),
+                "drop_share": drop,
+                "observed": float(obs) if np.isfinite(obs) else None,
+                "entries_match_base": True,
+                "n_entries": n,
+                "replay_reproduction": {"n": rep["n"], "mismatches": rep["mismatches"]},
+                "shift_zero": {
+                    "observed": float(obs),
+                    "replayed": float(zero),
+                    "abs_diff": float(abs(obs - zero)),
+                    "ok": True,
+                },
+                "counters": {
+                    "missing_model_share": float(m["missing_model_tranches"]) / denom,
+                    "missing_sigma_share": float(m["missing_sigma_tranches"]) / denom,
+                    "missing_flow_share": float(m["missing_flow_tranches"]) / denom,
+                    "missing_funding_share": float(m["missing_funding_tranches"]) / denom,
+                    "joint_shift_drop_share": drop,
+                    "exit_model_folds": int(m.get("exit_model_folds", 0)),
+                    "exit_model_fallback_folds": int(m.get("exit_model_fallback_folds", 0)),
+                },
+                "fire_rates": {
+                    "by_reason_counts": counts,
+                    "by_reason_share": {r: c / denom for r, c in counts.items()},
+                    "early_share": float(1.0 - counts.get("horizon", 0) / denom),
+                    "never_fires": bool(counts.get("horizon", 0) == n),
+                },
+                "median_hold_share_of_h": float(np.median(hold_share)) if n else float("nan"),
+                "wf_mean": float(m["wf_mean"]),
+                "cost_free_mean": _cost_free_mean(daily),
+                "increment_vs_e1": {
+                    "wf_mean": float(m["wf_mean"]) - float(base_receipt["metrics"]["wf_mean"]),
+                    "cost_free_mean": _cost_free_mean(daily) - base_cf,
+                },
+            }
+        )
+
+    det: dict[str, Any] = {"identical": None, "differences": [], "rules": [], "skipped": not determinism}
+    if determinism:
+        diffs: list[str] = []
+        det_runs = out / "runs_repeat"
+        n_fits = 0
+        coef_rules: list[str] = []
+        for cfg, first in zip(configs, receipts, strict=True):
+            rule = parse_exit(cfg["exit"]).rule
+            again = _run_or_reuse(cfg_dir / f"{cfg['id']}.json", cfg, ds, det_runs, commit, panel)
+            diffs += [f"{rule}: receipt {x}" for x in _receipt_differences(first, again)]
+            for name in ("tranches", "daily"):
+                a = pd.read_parquet(runs / cfg["id"] / f"{name}.parquet")
+                b = pd.read_parquet(det_runs / cfg["id"] / f"{name}.parquet")
+                if not a.equals(b):
+                    diffs.append(f"{rule}: {name}.parquet")
+            if (runs / cfg["id"] / "folds.json").read_text(encoding="utf-8") != (
+                det_runs / cfg["id"] / "folds.json"
+            ).read_text(encoding="utf-8"):
+                diffs.append(f"{rule}: folds.json")
+            det["rules"].append(rule)
+            if rule in ("E4", "E5"):
+                folds = json.loads((runs / cfg["id"] / "folds.json").read_text(encoding="utf-8"))
+                fits, md = _model_pairs_identical(panel, first["config"], folds)
+                n_fits += fits
+                coef_rules.append(rule)
+                diffs += [f"{rule}: model {x}" for x in md]
+        det.update(
+            {
+                "identical": not diffs,
+                "differences": diffs,
+                "model_coefficients_compared": coef_rules,
+                "model_fits_compared": n_fits,
+            }
+        )
+
+    opt = optional_stopping_check(synthetic_panels, synthetic_days)
+    planted = planted_intrabar_control(n_days=max(synthetic_days, 60))
+    hold_rules = {
+        r: {
+            "median_share": opt["rules"][r]["median_hold_share"],
+            "n_tranches": opt["rules"][r]["n_tranches"],
+            "early_share": opt["rules"][r]["early_share"],
+        }
+        for r in ("E4", "E5", "E6")
+    }
+    diagnostics = {
+        "median_hold": {
+            "threshold": HOLD_SHARE_MIN,
+            "rules": hold_rules,
+            "n_panels": opt["n_panels"],
+            "met": bool(all(v["median_share"] >= HOLD_SHARE_MIN for v in hold_rules.values())),
+        },
+        "planted_intrabar": {
+            "rules": {
+                r: {k: v[k] for k in ("increment", "false_close_rate", "n_tranches", "met")}
+                | {"true_close_rate": v["true_close_rate"], "n_planted_adverse": v["n_planted_adverse"]}
+                for r, v in planted["rules"].items()
+            },
+            "max_false_close_rate": planted["max_false_close_rate"],
+            "met": planted["met"],
+        },
+    }
+    n_rej = sum(r["rejected"] for r in rows)
+    return {
+        "configs": rows,
+        "rejected": int(n_rej),
+        "n_rejected": int(n_rej),
+        "gated_max": 1,
+        "as_predicted": bool(n_rej <= 1),
+        "dataset_hash": str(bar.read_manifest(ds)["datasetHash"]),
+        "base": {
+            "id": base_cfg["id"],
+            "n_entries": int(len(base_key)),
+            "wf_mean": float(base_receipt["metrics"]["wf_mean"]),
+            "cost_free_mean": base_cf,
+        },
+        "never_fires": [r["rule"] for r in rows if r["fire_rates"]["never_fires"]],
+        "optional_stopping": opt,
+        "determinism": det,
+        "diagnostics": diagnostics,
+        "provenance": receipt_provenance(receipts),
+    }
+
+
+# ---------------------------------------------------------------------------
 # The dossier
 # ---------------------------------------------------------------------------
 
@@ -1341,6 +2121,14 @@ def _validate_exit_block(d: Any) -> int:
         n_rej += int(c["rejected"])
     if _count(d.get("n_rejected"), "exit_block.n_rejected", N_EXIT_CONFIGS) != n_rej:
         raise ValueError(f"exit_block.n_rejected {d['n_rejected']} disagrees with the {n_rej} rejected configs")
+    diag = d.get("diagnostics")
+    if diag is not None:
+        if not isinstance(diag, dict):
+            raise ValueError("exit_block.diagnostics must be an object")
+        for key in ("median_hold", "planted_intrabar"):
+            entry = diag.get(key)
+            if not isinstance(entry, dict) or not isinstance(entry.get("met"), bool):
+                raise ValueError(f"exit_block.diagnostics.{key}.met must be a boolean")
     return n_rej
 
 
@@ -1598,8 +2386,17 @@ def write_dossier(
         None if n_exit_rej is None else n_exit_rej <= 1,
         "exit_block",
     )
-    for pid in ("exit_median_hold_at_least_80pct", "exit_planted_intrabar_control"):
-        put(pid, None, None, "not evaluated by this dossier")
+    diag = exb.get("diagnostics") if isinstance(exb, dict) else None
+    hold = diag.get("median_hold") if isinstance(diag, dict) else None
+    planted = diag.get("planted_intrabar") if isinstance(diag, dict) else None
+    if hold is None:
+        put("exit_median_hold_at_least_80pct", None, None, "not evaluated by this dossier")
+    else:
+        put("exit_median_hold_at_least_80pct", hold.get("rules"), hold["met"], "exit_block")
+    if planted is None:
+        put("exit_planted_intrabar_control", None, None, "not evaluated by this dossier")
+    else:
+        put("exit_planted_intrabar_control", planted.get("rules"), planted["met"], "exit_block")
     missing = sorted(set(PREDICTIONS) - set(predictions))
     if missing:
         raise ValueError(f"predictions without an evaluation rule: {missing}")
@@ -1625,6 +2422,10 @@ def write_dossier(
 
 __all__ = [
     "CELLS",
+    "check_replay_reproduces",
+    "evaluate_exit_block",
+    "optional_stopping_check",
+    "planted_intrabar_control",
     "POWER_RUN_IDS",
     "adaptive_order",
     "choose_a_star",

@@ -478,6 +478,7 @@ class JointShiftStats(NamedTuple):
     shifts: list[int]
     total_dropped: int
     n_tranches: int
+    zero_shift_stat: float | None = None
 
 
 def make_exit_replay(
@@ -590,8 +591,14 @@ def joint_shift_stats(
     seed: int = 7,
     profile: str = DEFAULT_FEE_PROFILE,
     exit_replay: ExitReplay | None = None,
+    zero_shift: bool = False,
 ) -> JointShiftStats:
     """The joint-shift draws behind joint_shift_null. See that function for the rule.
+
+    zero_shift (with exit_replay only) also prices the OBSERVED entries through the draw path at a shift of zero days:
+    the replayed exits, the book's fill rule and the netting of the kept set. zero_shift_stat is that statistic. It
+    must equal obs_stat (the stored tranches' own statistic), which ties the observed value and the null to one code
+    path (brief 28c, shift-zero identity). The draws themselves are unchanged.
 
     With exit_replay set, every draw shifts the entries only, re-runs the exit engine from them, prices the
     replayed exits and nets the costs on the draw's kept set. Without it, the tranche set must be horizon-only and the
@@ -774,21 +781,10 @@ def joint_shift_stats(
     rng = np.random.default_rng(seed)
     shifts = rng.integers(min_shift_days, max_shift_days, endpoint=True, size=n_draws)
 
-    null_stats = np.empty(n_draws, dtype=np.float64)
-    total_dropped = 0
-    for draw_idx in range(n_draws):
-        s_days = int(shifts[draw_idx])
-        sh_entry, sh_exit = shift_tranche_times(entry0, entry0 + hold, s_days, span_start_ms, n_days)
-        late = sh_exit > span_end_ms
-        if not replay:
-            core, fund = hedge_terms(sh_entry, sh_exit, no_priced, no_px, no_priced, no_px, no_priced)
-            ret = core - costs - fund
-            keep = np.isfinite(ret) & ~late
-            total_dropped += int(n_tr - np.sum(keep))
-            null_stats[draw_idx] = weighted(ret, keep)
-            continue
-
+    def replay_draw(sh_entry: np.ndarray, sh_exit: np.ndarray) -> tuple[float, int]:
+        """(statistic, dropped count) of one set of entry and scheduled-exit times through the exit replay."""
         assert exit_replay is not None and netting is not None
+        late = sh_exit > span_end_ms
         pe = prices_at(sh_entry)
         entry_px = pe[sym_idx, arange_tr]
         sched_px = prices_at(sh_exit)[sym_idx, arange_tr]
@@ -822,7 +818,6 @@ def joint_shift_stats(
         core, fund = hedge_terms(sh_entry, ex_ms, no_priced, no_px, ex_priced, ex_px, ex_intra, pe=pe)
         gross = core - fund
         keep = np.isfinite(gross) & cand
-        total_dropped += int(n_tr - np.sum(keep))
         kept = np.flatnonzero(keep)
         ret = np.zeros(n_tr, dtype=np.float64)
         if len(kept):
@@ -830,9 +825,30 @@ def joint_shift_stats(
                 kept, weight[kept], sh_entry[kept], ex_ms[kept], entry_maker0[kept], ex_maker[kept], ex_intra[kept]
             )
             ret[kept] = gross[kept] - unit
-        null_stats[draw_idx] = weighted(ret, keep)
+        return weighted(ret, keep), int(n_tr - np.sum(keep))
 
-    return JointShiftStats(obs_stat, null_stats, [int(s) for s in shifts], total_dropped, n_tr)
+    zero_stat: float | None = None
+    if zero_shift and replay:
+        zero_stat, _ = replay_draw(entry0, entry0 + hold)
+
+    null_stats = np.empty(n_draws, dtype=np.float64)
+    total_dropped = 0
+    for draw_idx in range(n_draws):
+        s_days = int(shifts[draw_idx])
+        sh_entry, sh_exit = shift_tranche_times(entry0, entry0 + hold, s_days, span_start_ms, n_days)
+        if not replay:
+            late = sh_exit > span_end_ms
+            core, fund = hedge_terms(sh_entry, sh_exit, no_priced, no_px, no_priced, no_px, no_priced)
+            ret = core - costs - fund
+            keep = np.isfinite(ret) & ~late
+            total_dropped += int(n_tr - np.sum(keep))
+            null_stats[draw_idx] = weighted(ret, keep)
+            continue
+        stat, dropped = replay_draw(sh_entry, sh_exit)
+        total_dropped += dropped
+        null_stats[draw_idx] = stat
+
+    return JointShiftStats(obs_stat, null_stats, [int(s) for s in shifts], total_dropped, n_tr, zero_stat)
 
 
 def joint_shift_null(
