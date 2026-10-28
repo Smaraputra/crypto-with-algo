@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - It also closes when the predicted next funding, from the premium index and Binance's formula, exceeds 0.05% against the position before the settlement.
     - The fill is a taker at 10 minutes after the decision, held as a pending close until then.
     - Under no-edge flow the median hold is the full horizon.
+  - E4 (re-forecast close) and E5 (meta-exit) are evaluated at every 5m close inside the hold, each with its own models.
+    - The models are side-symmetric and fitted per fold: hypothetical holds on both sides at every training decision instant, 4 sampled instants per hold. The label is the remaining log return net of funding.
+    - Market features come from 15m-stride phase-shifted decision bars, cached as float32. Position state (elapsed, P&L, MFE, MAE) updates every 5m.
+    - E4 closes when the forecast is below minus one residual standard error. On a planted reversal it closed ahead on 100% of planted tranches and 0% of unplanted ones.
+    - E5 at p_close 0.4 closes ahead on planted tranches but breaches the registered 20% false-close bound (53% on unplanted tranches). The test keeps the bound as a strict expected failure until the E5 rule is revised.
+    - CPCV for E4 and E5 is not wired yet and raises instead of falling back.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.

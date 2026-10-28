@@ -20,6 +20,15 @@ Rules (calibration spec section 2, as amended by N3, N6 and N10.6):
   is scaled by the interval. The SD is the sample SD (ddof 1). A missing close bar is filled by the first bar at or
   after tau + 10 min. Missing flow or funding inputs mean no trigger at that tau and flag the tranche.
 
+- E4 {"rule": "E4", "margin_se"} and E5 {"rule": "E5", "p_close"}: model exits (brief 25c, calibration spec section 2 as
+  amended by N3 and N4). At every 5m close tau inside the hold (tau in (entry, S - 10 min]) a fitted model pair scores
+  the position from the market features at tau_f = floor(tau to the 15m grid) and the position state (side, elapsed
+  share, running P&L, MFE and MAE so far, all from the 5m bars closed at tau). E4 closes when the ridge forecast is
+  below -margin_se x its training residual SE, E5 when the logistic P(y > 0) is below p_close. The first triggering tau
+  schedules a taker close at the 5m open at tau + 10 min, reason "model_exit", stamped there (at tau + 10 min >= S it
+  is the horizon exit). A missing market feature at tau means hold and flags the tranche (missing_model). MFE starts
+  at 0 and MAE at 0 (the entry price itself counts as a point of the path).
+
 Every intrabar fill is stamped at the close of the touching bar (bar.t + 5m), which is on the 5m grid. The scheduled
 exit always wins its own bar. sigma_h is the trailing 24h realized width of labels.trailing_sigma_h. A missing or
 non-positive sigma_h means no barrier or trail: the position holds, and the tranche is counted in missing_sigma.
@@ -34,7 +43,7 @@ import math
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 import pandas as pd
@@ -43,13 +52,23 @@ from numpy.lib.stride_tricks import sliding_window_view
 from r4.method import SIGMA_TRAILING_MS
 
 STEP_MS = 300_000
-EXIT_REASONS = ("horizon", "stop", "take_profit", "maker_exit", "flow_exit", "funding_exit")
+TAU_GRID_MS = 900_000
+EXIT_REASONS = ("horizon", "stop", "take_profit", "maker_exit", "flow_exit", "funding_exit", "model_exit")
 FLOW_MIN_SHARE = 0.8
 E6_INTEREST = 0.0001
 E6_CLAMP = 0.0005
 FUNDING_BASE_MS = 8 * 3_600_000
 
 SigmaAt = Callable[[str, np.ndarray], np.ndarray]
+
+
+class ModelInputs(Protocol):
+    """What E4 and E5 need at replay: the fitted pair (forecast, prob_up, se) and market(symbol, tau_f) -> (n, F)
+    float64 features at the 15m-grid instants tau_f, NaN where missing."""
+
+    pair: Any
+
+    def market(self, symbol: str, tau_f: np.ndarray) -> np.ndarray: ...
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +85,8 @@ class ExitSpec:
     flow_lookback_days: float | None = None
     flow_z: float | None = None
     funding_threshold: float | None = None
+    margin_se: float | None = None
+    p_close: float | None = None
 
 
 _E6_KEYS = {"rule", "flow_bars", "flow_lookback_days", "flow_z", "funding_threshold"}
@@ -88,6 +109,18 @@ def _parse_e6(raw: dict[str, Any]) -> ExitSpec:
     if not _num(thr) or thr <= 0:
         raise ValueError(f"exit E6 needs a finite funding_threshold > 0, got {thr!r}")
     return ExitSpec(rule="E6", flow_bars=fb, flow_lookback_days=days, flow_z=float(z), funding_threshold=float(thr))
+
+
+def _parse_model_exit(raw: dict[str, Any]) -> ExitSpec:
+    rule = raw["rule"]
+    key = "margin_se" if rule == "E4" else "p_close"
+    if set(raw) != {"rule", key}:
+        raise ValueError(f"exit {rule} takes exactly the keys rule and {key}, got {sorted(raw)}")
+    x = raw[key]
+    if not _num(x) or x <= 0 or (rule == "E5" and x >= 1):
+        bound = "a finite margin_se > 0" if rule == "E4" else "a p_close strictly between 0 and 1"
+        raise ValueError(f"exit {rule} needs {bound}, got {x!r}")
+    return ExitSpec(rule=rule, margin_se=float(x)) if rule == "E4" else ExitSpec(rule=rule, p_close=float(x))
 
 
 def parse_exit(raw: Any) -> ExitSpec:
@@ -115,7 +148,9 @@ def parse_exit(raw: Any) -> ExitSpec:
         return ExitSpec(rule="X1", n_bars=n)
     if rule == "E6":
         return _parse_e6(raw)
-    raise ValueError(f"unknown exit rule {rule!r}: expected 'horizon', E2, E3, E6 or X1")
+    if rule in ("E4", "E5"):
+        return _parse_model_exit(raw)
+    raise ValueError(f"unknown exit rule {rule!r}: expected 'horizon', E2, E3, E4, E5, E6 or X1")
 
 
 def _spec_to_raw(spec: ExitSpec) -> Any:
@@ -123,6 +158,10 @@ def _spec_to_raw(spec: ExitSpec) -> Any:
         return "horizon"
     if spec.rule == "X1":
         return {"rule": "X1", "n_bars": spec.n_bars}
+    if spec.rule == "E4":
+        return {"rule": "E4", "margin_se": spec.margin_se}
+    if spec.rule == "E5":
+        return {"rule": "E5", "p_close": spec.p_close}
     if spec.rule == "E6":
         return {
             "rule": "E6",
@@ -206,6 +245,10 @@ class StepCtx:
     flow_sd: float = math.nan
     fund_f: float = math.nan
     fund_next_ms: int = 0
+    # E4 and E5 inputs at tau = bar close: the fitted model pair, and the market features at tau_f (None or any NaN
+    # means a missing feature)
+    models: Any = None
+    market: Any = None
 
 
 @dataclass(frozen=True)
@@ -243,10 +286,23 @@ class ExitState:
     pending_reason: str = ""
     missing_flow: bool = False
     missing_funding: bool = False
+    entry_ms: int = 0
+    mfe: float = 0.0
+    mae: float = 0.0
+    margin_se: float = math.nan
+    p_close: float = math.nan
+    missing_model: bool = False
 
 
-def init_state(spec: ExitSpec, side: int, entry_price: float, scheduled_exit_ms: int, sigma_t: float) -> ExitState:
-    """The state at entry. sigma_t is sigma_h at the decision time T (used by E2 only)."""
+def init_state(
+    spec: ExitSpec,
+    side: int,
+    entry_price: float,
+    scheduled_exit_ms: int,
+    sigma_t: float,
+    entry_ms: int = 0,
+) -> ExitState:
+    """The state at entry. sigma_t is sigma_h at the decision time T (used by E2 only), entry_ms by E4 and E5."""
     if side not in (1, -1):
         raise ValueError(f"side must be +1 or -1, got {side!r}")
     base = ExitState(
@@ -268,6 +324,15 @@ def init_state(spec: ExitSpec, side: int, entry_price: float, scheduled_exit_ms:
     if spec.rule == "E6":
         assert spec.flow_z is not None and spec.funding_threshold is not None
         return replace(base, flow_z=spec.flow_z, fund_thr=spec.funding_threshold)
+    if spec.rule in ("E4", "E5"):
+        if not 0 < entry_ms < scheduled_exit_ms:
+            raise ValueError(f"exit {spec.rule} needs entry_ms before the scheduled exit, got {entry_ms}")
+        return replace(
+            base,
+            entry_ms=int(entry_ms),
+            margin_se=math.nan if spec.margin_se is None else spec.margin_se,
+            p_close=math.nan if spec.p_close is None else spec.p_close,
+        )
     return base
 
 
@@ -299,6 +364,9 @@ def step(state: ExitState, bar: Bar, ctx: StepCtx) -> tuple[ExitState, Hold | Cl
                 st = replace(st, pending_ms=stamp + 2 * STEP_MS, pending_reason=reason)
         return st, HOLD
 
+    if state.rule in ("E4", "E5"):
+        return _step_model(st, bar, ctx)
+
     if state.rule == "E3":
         sig = ctx.sigma_open
         if sig > 0.0:
@@ -327,6 +395,49 @@ def step(state: ExitState, bar: Bar, ctx: StepCtx) -> tuple[ExitState, Hold | Cl
                 return st, Close("maker_exit", st.limit, "maker", stamp)
     if state.rule == "E3":
         st = replace(st, extreme=max(st.extreme, bar.h) if s == 1 else min(st.extreme, bar.l))
+    return st, HOLD
+
+
+def _extreme_logs(side: int, up: Any, dn: Any) -> tuple[Any, Any]:
+    """(MFE, MAE) contribution of a bar from its log high and low over the entry price, signed by the side."""
+    return (up, dn) if side == 1 else (-dn, -up)
+
+
+def _model_fire(rule: str, out: Any, se: float, margin_se: float, p_close: float) -> Any:
+    """E4: forecast below -margin_se x SE. E5: P(y > 0) below p_close. A non-finite output never fires."""
+    with np.errstate(invalid="ignore"):
+        hit = (out < -margin_se * se) if rule == "E4" else (out < p_close)
+    return np.isfinite(out) & hit
+
+
+def _step_model(st: ExitState, bar: Bar, ctx: StepCtx) -> tuple[ExitState, Hold | Close]:
+    """E4 and E5. Same order as E6: a pending close fills first, then this bar's close is scored."""
+    if st.pending_ms and bar.t >= st.pending_ms:
+        return st, Close("model_exit", bar.o, "taker", bar.t)
+    stamp = bar.t + STEP_MS
+    entry = np.float64(st.entry_price)
+    up = np.log(np.float64(bar.h) / entry)
+    dn = np.log(np.float64(bar.l) / entry)
+    mfe_b, mae_b = _extreme_logs(st.side, up, dn)
+    st = replace(st, mfe=max(st.mfe, float(mfe_b)), mae=min(st.mae, float(mae_b)))
+    if st.pending_ms or stamp + 2 * STEP_MS > st.scheduled_exit_ms:
+        return st, HOLD
+    if ctx.models is None:
+        raise ValueError(f"exit {st.rule} needs the fitted model pair in the step context")
+    mk = None if ctx.market is None else np.asarray(ctx.market, dtype=np.float64)
+    if mk is None or not np.isfinite(mk).all():
+        return replace(st, missing_model=True), HOLD
+    elapsed = (stamp - st.entry_ms) / (st.scheduled_exit_ms - st.entry_ms)
+    pnl = st.side * np.log(np.float64(bar.c) / entry)
+    state = np.array([[st.side, elapsed, pnl, st.mfe, st.mae]], dtype=np.float64)
+    if st.rule == "E4":
+        out = ctx.models.forecast(mk[None, :], state)
+        fire = _model_fire("E4", out, ctx.models.se, st.margin_se, st.p_close)
+    else:
+        out = ctx.models.prob_up(mk[None, :], state)
+        fire = _model_fire("E5", out, 0.0, st.margin_se, st.p_close)
+    if bool(fire[0]):
+        return replace(st, pending_ms=stamp + 2 * STEP_MS, pending_reason="model_exit"), HOLD
     return st, HOLD
 
 
@@ -584,6 +695,7 @@ def _empty_result(n: int) -> dict[str, np.ndarray]:
         "missing_sigma": np.zeros(n, dtype=bool),
         "missing_flow": np.zeros(n, dtype=bool),
         "missing_funding": np.zeros(n, dtype=bool),
+        "missing_model": np.zeros(n, dtype=bool),
     }
 
 
@@ -597,6 +709,7 @@ def replay_exits(
     spec: Any,
     sigma_at: SigmaAt,
     e6: E6Data | None = None,
+    models: ModelInputs | None = None,
 ) -> pd.DataFrame:
     """Replay the exit rule over every entry's bars. Equal to stepping step() tranche for tranche.
 
@@ -625,7 +738,7 @@ def replay_exits(
         b = bars.get(str(s))
         if b is None or len(b.t) == 0:
             raise ValueError(f"no 5m bars for symbol {s!r}")
-        _replay_symbol(str(s), b, rows, side, t_dec, entry_ms, sched, entry_px, spec, sigma_at, res, e6)
+        _replay_symbol(str(s), b, rows, side, t_dec, entry_ms, sched, entry_px, spec, sigma_at, res, e6, models)
     return _finish(res)
 
 
@@ -642,6 +755,7 @@ def _replay_symbol(
     sigma_at: SigmaAt,
     res: dict[str, np.ndarray],
     e6: E6Data | None = None,
+    models: ModelInputs | None = None,
 ) -> None:
     n_bars = len(b.t)
     i0 = np.searchsorted(b.t, entry_ms[rows], side="left")
@@ -655,6 +769,9 @@ def _replay_symbol(
         return
     if spec.rule == "E6":
         _replay_e6(sym, b, rows, side[rows], i0, i1, sched[rows], spec, e6, res)
+        return
+    if spec.rule in ("E4", "E5"):
+        _replay_model(sym, b, rows, side[rows], i0, i1, entry_ms[rows], sched[rows], entry_px[rows], spec, models, res)
         return
     n_path = np.maximum(i1 - i0, 0)
     side_r = side[rows]
@@ -812,12 +929,101 @@ def _replay_e6(
             res["exit_reason"][gg] = np.where(flow_fire[cand[ci]], "flow_exit", "funding_exit")
 
 
+_MODEL_PAIR_CELLS = 150_000
+
+
+def _replay_model(
+    sym: str,
+    b: _Bars,
+    rows: np.ndarray,
+    side_r: np.ndarray,
+    i0: np.ndarray,
+    i1: np.ndarray,
+    entry_r: np.ndarray,
+    sched_r: np.ndarray,
+    entry_px_r: np.ndarray,
+    spec: ExitSpec,
+    models: ModelInputs | None,
+    res: dict[str, np.ndarray],
+) -> None:
+    """E4 and E5 over each tranche's closed bars, in chunks of at most _MODEL_PAIR_CELLS (tranche, tau) cells."""
+    if models is None:
+        raise ValueError(f"exit {spec.rule} needs the fitted model pair (pass models=ModelInputs)")
+    nb = len(b.t)
+    # bars j in [i0, ie) are scored: bar.t <= S - 15 min, that is tau + 10 min <= S
+    ie = np.maximum(np.searchsorted(b.t, sched_r - 3 * STEP_MS, side="right"), i0)
+    n_eval = ie - i0
+    for s in (1, -1):
+        sel = np.flatnonzero((side_r == s) & (n_eval > 0))
+        if len(sel) == 0:
+            continue
+        per_chunk = max(1, _MODEL_PAIR_CELLS // int(n_eval[sel].max()))
+        for c0 in range(0, len(sel), per_chunk):
+            part = sel[c0 : c0 + per_chunk]
+            g = rows[part]
+            i0p, npp = i0[part], n_eval[part]
+            lc = int(npp.max())
+            pos = np.arange(lc)
+            valid = pos[None, :] < npp[:, None]
+            idx = np.minimum(i0p[:, None] + pos[None, :], nb - 1)
+            entry = entry_px_r[part].astype(np.float64)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                up = np.log(b.h[idx] / entry[:, None])
+                dn = np.log(b.l[idx] / entry[:, None])
+                mfe_b, mae_b = _extreme_logs(s, up, dn)
+                mfe = np.maximum.accumulate(np.where(valid, np.maximum(mfe_b, 0.0), 0.0), axis=1)
+                mae = np.minimum.accumulate(np.where(valid, np.minimum(mae_b, 0.0), 0.0), axis=1)
+                pnl = s * np.log(b.c[idx] / entry[:, None])
+            tau = b.t[idx] + STEP_MS
+            elapsed = (tau - entry_r[part][:, None]) / (sched_r[part] - entry_r[part])[:, None]
+            tau_f = tau - tau % TAU_GRID_MS
+            mk = np.asarray(models.market(sym, tau_f[valid]), dtype=np.float64)
+            miss_pairs = ~np.isfinite(mk).all(axis=1)
+            ok = ~miss_pairs
+            out = np.full(len(mk), np.nan)
+            if ok.any():
+                state = np.column_stack(
+                    [
+                        np.full(int(ok.sum()), float(s)),
+                        elapsed[valid][ok],
+                        pnl[valid][ok],
+                        mfe[valid][ok],
+                        mae[valid][ok],
+                    ]
+                )
+                if spec.rule == "E4":
+                    out[ok] = models.pair.forecast(mk[ok], state)
+                else:
+                    out[ok] = models.pair.prob_up(mk[ok], state)
+            se = float(models.pair.se) if spec.rule == "E4" else 0.0
+            fire_v = _model_fire(spec.rule, out, se, spec.margin_se or 0.0, spec.p_close or 0.0) & ok
+            fire = np.zeros(valid.shape, dtype=bool)
+            fire[valid] = fire_v
+            miss = np.zeros(valid.shape, dtype=bool)
+            miss[valid] = miss_pairs
+            first, has = fire.argmax(axis=1), fire.any(axis=1)
+            last = np.where(has, first, npp - 1)
+            res["missing_model"][g] = (miss & (pos[None, :] <= last[:, None])).any(axis=1)
+            fire_j = np.minimum(i0p + first, nb - 1)
+            fill_i = np.searchsorted(b.t, b.t[fire_j] + 3 * STEP_MS, side="left")
+            close = has & (fill_i < i1[part])
+            ci = np.flatnonzero(close)
+            if len(ci):
+                gg = g[ci]
+                fi = fill_i[ci]
+                res["exit_ms"][gg] = b.t[fi]
+                res["exit_price"][gg] = b.o[fi]
+                res["exit_fill"][gg] = "taker"
+                res["exit_reason"][gg] = "model_exit"
+
+
 def replay_by_steps(
     entries: pd.DataFrame,
     five_min: Mapping[str, pd.DataFrame | _Bars],
     spec: Any,
     sigma_at: SigmaAt,
     e6: E6Data | None = None,
+    models: ModelInputs | None = None,
 ) -> pd.DataFrame:
     """The reference: drive step() bar by bar for each entry. Same output as replay_exits()."""
     spec = parse_exit(spec)
@@ -831,7 +1037,9 @@ def replay_by_steps(
         i0 = int(np.searchsorted(b.t, int(row.entry_ms), side="left"))
         side = int(row.side)
         sig_t = float(_clean_sigma(sigma_at(sym, np.array([int(row.T)])))[0])
-        state = init_state(spec, side, float(row.entry_price), sched, sig_t)
+        state = init_state(spec, side, float(row.entry_price), sched, sig_t, entry_ms=int(row.entry_ms))
+        if spec.rule in ("E4", "E5") and models is None:
+            raise ValueError(f"exit {spec.rule} needs the fitted model pair (pass models=ModelInputs)")
         ser = None
         if spec.rule == "E6":
             if e6 is None:
@@ -843,6 +1051,9 @@ def replay_by_steps(
             bar = Bar(int(b.t[j]), float(b.o[j]), float(b.h[j]), float(b.l[j]), float(b.c[j]))
             sig_open = float(_clean_sigma(sigma_at(sym, np.array([bar.t])))[0]) if spec.rule == "E3" else math.nan
             ctx = StepCtx(sigma_open=sig_open)
+            if models is not None and spec.rule in ("E4", "E5"):
+                tf = (bar.t + STEP_MS) - (bar.t + STEP_MS) % TAU_GRID_MS
+                ctx = StepCtx(models=models.pair, market=models.market(sym, np.array([tf], dtype=np.int64))[0])
             if ser is not None:
                 q = int(ser.pos(np.array([bar.t]))[0])
                 ctx = StepCtx(
@@ -866,6 +1077,7 @@ def replay_by_steps(
         res["missing_sigma"][i] = state.missing_sigma
         res["missing_flow"][i] = state.missing_flow
         res["missing_funding"][i] = state.missing_funding
+        res["missing_model"][i] = state.missing_model
     return _finish(res)
 
 
@@ -891,10 +1103,27 @@ class ExitContext:
         self.missing_sigma = 0
         self.missing_flow = 0
         self.missing_funding = 0
+        self.missing_model = 0
+        # E4 and E5: the current fold's fitted models (None with fallback set means the fold has too few samples)
+        self.models: ModelInputs | None = None
+        self.model_fallback = False
+        self.fallback_tranches = 0
+
+    def set_models(self, models: ModelInputs | None) -> None:
+        """Install the fold's fitted E4/E5 models. None is the E1 fallback for a fold without enough samples."""
+        self.models = models
+        self.model_fallback = models is None
 
     def replay(self, entries: pd.DataFrame, spec: ExitSpec) -> pd.DataFrame:
-        out = replay_exits(entries, self.bars, spec, self.sigma_at, self.e6)
+        if spec.rule in ("E4", "E5"):
+            if self.models is None:
+                if not self.model_fallback:
+                    raise ValueError(f"exit {spec.rule} has no fitted models: call set_models() for the fold")
+                self.fallback_tranches += len(entries)
+                spec = ExitSpec(rule="E1")
+        out = replay_exits(entries, self.bars, spec, self.sigma_at, self.e6, self.models)
         self.reasons.update(out["exit_reason"].tolist())
+        self.missing_model += int(out["missing_model"].sum())
         self.missing_sigma += int(out["missing_sigma"].sum())
         self.missing_flow += int(out["missing_flow"].sum())
         self.missing_funding += int(out["missing_funding"].sum())
@@ -905,6 +1134,7 @@ __all__ = [
     "EXIT_REASONS",
     "HOLD",
     "STEP_MS",
+    "TAU_GRID_MS",
     "Bar",
     "Close",
     "E6Data",
@@ -913,6 +1143,7 @@ __all__ = [
     "ExitSpec",
     "ExitState",
     "Hold",
+    "ModelInputs",
     "SigmaTable",
     "StepCtx",
     "build_e6_series",

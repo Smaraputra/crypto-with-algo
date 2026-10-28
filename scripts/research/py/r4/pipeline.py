@@ -28,6 +28,7 @@ from r4.book import (
 )
 from r4.costs import DEFAULT_FEE_PROFILE, coin_slippage_bps, resolve_fee_profile
 from r4.data import load_funding, load_perp
+from r4.exit_models import ExitModelFactory
 from r4.exits import ExitContext, ExitSpec, is_horizon, parse_exit
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.hashfeat import hash_feature_matrix, is_hash_feature, is_noise_feature
@@ -123,6 +124,10 @@ class RunResult:
     missing_sigma_tranches: int = 0
     missing_flow_tranches: int = 0
     missing_funding_tranches: int = 0
+    missing_model_tranches: int = 0
+    exit_model_folds: int = 0  # E4 and E5: folds that fitted a model pair
+    exit_model_fallback_folds: int = 0  # E4 and E5: folds with too few samples, run as E1
+    exit_model_fallback_tranches: int = 0
 
 
 def load_panel(
@@ -674,8 +679,14 @@ def walk_forward(
     first_refit_ms: int,
     end_ms: int,
     panel: dict[str, dict[str, pd.DataFrame]] | None = None,
+    exit_cache_dir: Path | str | None = None,
+    dataset_hash: str | None = None,
 ) -> RunResult:
-    """Execute walk-forward cross-validation for configured model."""
+    """Execute walk-forward cross-validation for configured model.
+
+    E4 and E5 fit their exit-model pair per fold (the fold's training window only). exit_cache_dir and dataset_hash
+    switch on the on-disk tau-frame cache.
+    """
     if panel is None:
         panel = samples.attrs.get("panel")
 
@@ -722,6 +733,24 @@ def walk_forward(
         )
     )
 
+    exit_factory: ExitModelFactory | None = None
+    model_folds = fallback_folds = 0
+    if exit_ctx is not None and parse_exit(cfg.exit).rule in ("E4", "E5"):
+        if panel is None:
+            raise ValueError("exits E4 and E5 need the panel (5m, 15m, 4h, 1d, premium and settlements)")
+        exit_factory = ExitModelFactory.from_config(panel, cfg, cache_dir=exit_cache_dir, dataset_hash=dataset_hash)
+
+    def fit_fold_models(t_start: int | None, cut: int) -> None:
+        nonlocal model_folds, fallback_folds
+        if exit_factory is None or exit_ctx is None:
+            return
+        fitted = exit_factory.fit(t_start, cut)
+        exit_ctx.set_models(fitted)
+        if fitted is None:
+            fallback_folds += 1
+        else:
+            model_folds += 1
+
     all_tranches: list[Tranche] = []
     all_fold_dfs: list[pd.DataFrame] = []
     fold_records: list[FoldRecord] = []
@@ -733,6 +762,7 @@ def walk_forward(
         scaler = StandardScaler()
         X_train = scaler.fit_transform(train_df[list(cfg.features)])
         model = fit_side_model(cfg, X_train, train_df)
+        fit_fold_models(None, first_refit_ms)
 
         betas_0 = estimate_betas(daily_ret, start_ms=None, end_ms=first_refit_ms)
 
@@ -779,6 +809,7 @@ def walk_forward(
             scaler = StandardScaler()
             X_train = scaler.fit_transform(train_df[list(cfg.features)])
             model = fit_side_model(cfg, X_train, train_df)
+            fit_fold_models(cut_ms, b_start)
 
             betas_k = estimate_betas(daily_ret, start_ms=cut_ms, end_ms=b_start)
 
@@ -833,6 +864,10 @@ def walk_forward(
         missing_sigma_tranches=0 if exit_ctx is None else exit_ctx.missing_sigma,
         missing_flow_tranches=0 if exit_ctx is None else exit_ctx.missing_flow,
         missing_funding_tranches=0 if exit_ctx is None else exit_ctx.missing_funding,
+        missing_model_tranches=0 if exit_ctx is None else exit_ctx.missing_model,
+        exit_model_folds=model_folds,
+        exit_model_fallback_folds=fallback_folds,
+        exit_model_fallback_tranches=0 if exit_ctx is None else exit_ctx.fallback_tranches,
     )
 
 
