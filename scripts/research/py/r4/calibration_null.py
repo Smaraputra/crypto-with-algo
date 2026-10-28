@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -388,6 +389,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="E-process threshold (default: 600.0)",
     )
     parser.add_argument(
+        "--commit",
+        default=None,
+        help="Commit sha of the code (default: the R4_COMMIT environment variable, else none is recorded)",
+    )
+    parser.add_argument(
         "--out",
         required=True,
         help="Path to output JSON file",
@@ -449,8 +455,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write(f"Simulation error: {exc}\n")
         return 1
 
+    from r4.cli import _SHA_RE, reproduction_inputs
+
+    commit = args.commit if args.commit else os.environ.get("R4_COMMIT") or None
+    if commit is not None and not _SHA_RE.fullmatch(commit):
+        sys.stderr.write(f"Error: the commit {commit!r} is not a 7 to 40 character hex sha\n")
+        return 1
+    repro = reproduction_inputs()
     result["input_sha256"] = input_sha256
     result["pilot"] = payload.get("pilot")
+    # The code freeze evidence the dossier checks, and the dataset D's covariance was taken from.
+    result["dcov_dataset_hash"] = payload.get("dcov_dataset_hash")
+    result["provenance"] = {
+        "commits": [commit],
+        "source_sha256": [repro["source_sha256"]],
+        "requirements_lock_sha256": [repro["requirements_lock_sha256"]],
+        "versions": [repro["versions"]],
+    }
+    result["reproduction"] = repro
 
     try:
         out_json_str = json.dumps(result, allow_nan=False, indent=2)

@@ -396,6 +396,86 @@ def daily_null_input(
 # The noise evaluation
 # ---------------------------------------------------------------------------
 
+BOOK_ANCHOR_TOL = 1e-9
+
+
+def _cli() -> Any:
+    from r4 import cli
+
+    return cli
+
+
+def _book_anchor(
+    tranches: pd.DataFrame, stats: Any, daily: pd.DataFrame, label: str = "run", tol: float = BOOK_ANCHOR_TOL
+) -> dict[str, Any]:
+    """The run-time tie between the null's observed statistic and the independent book (brief 28g, review C-3).
+
+    obs_stat x sum(|w|) over the kept tranches is the observed set's weighted net return, computed in the null by
+    hedge_terms and the netting. The book (beta_hedged_daily, stored as daily.parquet) computes the same quantity as
+    the sum over days of drift_free. They share no code, so a defect in hedge_terms or in the netting, which enters
+    the observed value, the shift-zero value and every draw alike, shows up here. Raises beyond tol relative.
+
+    The identity holds when every tranche is kept by the null (a finite return) and lies inside the daily series'
+    window. It can differ legitimately in exactly two cases, and then the difference is recorded with the case in
+    "explained" and does not raise: "tranches_not_kept" (a missing price or a NaN beta drops a tranche from the
+    null's kept set while the book handles it by its own rule) and "tranche_outside_daily_window" (a tranche leg
+    falls on a day the stored daily series does not cover). An unexplained difference raises.
+    """
+    n_tr = int(stats.n_tranches)
+    n_kept = int(stats.obs_n_kept or 0)
+    obs = float(stats.obs_stat)
+    w_sum = stats.obs_weight_sum
+    if n_tr == 0 or w_sum is None or not np.isfinite(obs) or n_kept == 0:
+        return {
+            "checked": False,
+            "ok": True,
+            "obs_weighted_sum": None,
+            "book_sum": None,
+            "abs_diff": None,
+            "rel_diff": None,
+            "n_tranches": n_tr,
+            "n_kept": n_kept,
+            "explained": None,
+        }
+    if "drift_free" not in daily.columns or len(daily) == 0:
+        raise ValueError(f"{label}: book anchor needs the run's daily drift_free series")
+    obs_sum = obs * float(w_sum)
+    book_daily = daily["drift_free"].to_numpy(dtype=np.float64)
+    book_sum = float(np.sum(book_daily))
+    abs_diff = abs(obs_sum - book_sum)
+    # Relative to the series' gross magnitude, so a sum that cancels to near zero cannot turn rounding into a miss.
+    scale = max(abs(obs_sum), abs(book_sum), float(np.sum(np.abs(book_daily))), 1e-12)
+    rel = abs_diff / scale
+    causes: list[str] = []
+    if rel > tol:
+        if n_kept < n_tr:
+            causes.append("tranches_not_kept")
+        idx = daily.index.to_numpy(dtype=np.int64)
+        lo, hi = int(idx.min()), int(idx.max()) + DAY_MS
+        if len(tranches) and (
+            (tranches["entry_ms"].to_numpy(dtype=np.int64) < lo).any()
+            or (tranches["exit_ms"].to_numpy(dtype=np.int64) > hi).any()
+        ):
+            causes.append("tranche_outside_daily_window")
+    explained = "+".join(causes) if causes else None
+    if rel > tol and explained is None:
+        raise ValueError(
+            f"{label}: book anchor broken: obs_stat x sum|w| = {obs_sum!r} against the book's summed drift_free "
+            f"{book_sum!r} (relative difference {rel:.3e}, tolerance {tol:.0e}) with every tranche kept and inside "
+            "the daily window"
+        )
+    return {
+        "checked": True,
+        "ok": True,
+        "obs_weighted_sum": obs_sum,
+        "book_sum": book_sum,
+        "abs_diff": abs_diff,
+        "rel_diff": rel,
+        "n_tranches": n_tr,
+        "n_kept": n_kept,
+        "explained": explained,
+    }
+
 
 def _load_noise_runs(runs_dir: Path | str) -> dict[str, dict[str, Any]]:
     runs: dict[str, dict[str, Any]] = {}
@@ -495,11 +575,32 @@ def _cost_free_diagnostics(runs: dict[str, dict[str, Any]], v_cost_free: float |
     }
 
 
-def receipt_provenance(receipts: Sequence[dict[str, Any]]) -> dict[str, list[Any]]:
-    """The distinct commits and source digests among receipts (the code-freeze evidence the dossier checks)."""
-    commits = sorted({r.get("commit") for r in receipts}, key=str)
-    sources = sorted({r.get("source_sha256") for r in receipts}, key=str)
-    return {"commits": commits, "source_sha256": sources}
+def _canon(v: Any) -> str:
+    return json.dumps(v, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def receipt_provenance(receipts: Sequence[dict[str, Any]], dataset: bool = True) -> dict[str, list[Any]]:
+    """The distinct code-freeze and dataset evidence among receipts (what the dossier checks).
+
+    commits, source digests, requirements-lock hashes and library-version maps, plus the dataset hashes when the
+    receipts ran on a dataset (dataset=False for the synthetic power simulation, whose panels are generated).
+    """
+    out: dict[str, list[Any]] = {
+        "commits": sorted({r.get("commit") for r in receipts}, key=str),
+        "source_sha256": sorted({r.get("source_sha256") for r in receipts}, key=str),
+        "requirements_lock_sha256": sorted({r.get("requirements_lock_sha256") for r in receipts}, key=str),
+        "versions": [json.loads(c) for c in sorted({_canon(r.get("versions")) for r in receipts})],
+    }
+    if dataset:
+        out["dataset_hash"] = sorted({r.get("dataset_hash") for r in receipts}, key=str)
+    return out
+
+
+def _check_receipts_dataset(receipts: Sequence[dict[str, Any]], manifest_hash: str, label: str) -> None:
+    """Every receipt must have run on the dataset whose manifest the evaluator reads (brief 28g, C-1)."""
+    bad = sorted({str(r.get("dataset_hash")) for r in receipts if r.get("dataset_hash") != manifest_hash})
+    if bad:
+        raise ValueError(f"{label}: receipts carry dataset hash {bad}, the dataset read has {manifest_hash!r}")
 
 
 def evaluate_noise(
@@ -520,6 +621,7 @@ def evaluate_noise(
     manifest = bar.read_manifest(ds_dir)
     runs = _load_noise_runs(noise_runs_dir)
     ids = sorted(runs)
+    _check_receipts_dataset([runs[i]["receipt"] for i in ids], str(manifest["datasetHash"]), "noise controls")
     if panel is None:
         panel = load_panel(Path(ds_dir), list(manifest["symbols"]))
 
@@ -546,7 +648,7 @@ def evaluate_noise(
         res3 = bar.item3(run["receipt"], v_within, N_TRIALS_CALIBRATION, candidate_daily=run["daily"])
         res3["variance_mode"] = "within_cell"
         seed = int(cfg["joint_shift_seed"])
-        p, drop, obs, _ = bar.joint_shift_null(
+        stats = bar.joint_shift_stats(
             run["tranches"],
             panel,
             run["folds"],
@@ -556,6 +658,9 @@ def evaluate_noise(
             min_shift_days=int(BAR["random_entry_shift_min_days"]),
             seed=seed,
         )
+        p, drop = bar.joint_shift_p(stats, draws)
+        obs = float("nan") if (stats.n_tranches == 0 or not stats.shifts) else stats.obs_stat
+        anchor = _book_anchor(run["tranches"], stats, run["daily"], label=i)
         configs[i] = {
             "cell": list(bar.cell_key(cfg)),
             "block": cfg.get("block"),
@@ -568,6 +673,7 @@ def evaluate_noise(
                 "drop_share": float(drop),
                 "observed": float(obs) if np.isfinite(obs) else None,
             },
+            "book_anchor": anchor,
             "pass_items_1_to_3": bool(res1["pass"] and item2_res["pass"] and res3["pass"]),
         }
 
@@ -630,6 +736,7 @@ def evaluate_noise(
         "dataset_hash": str(manifest["datasetHash"]),
         "noise_set": noise_set,
         "provenance": receipt_provenance([runs[i]["receipt"] for i in ids]),
+        "reproduction": _cli().reproduction_inputs(),
         "configs": configs,
         "item2": item2_res,
         "variance": {"mode": "within_cell", "V": v_within, "modes": variance_modes},
@@ -716,6 +823,7 @@ def _power_meta(
         "grid": [float(a) for a in grid],
         "garch": [0.08, 0.88],
         "t_df": 4.5,
+        "dcov_dataset_hash": dcov.get("dataset_hash"),
     }
 
 
@@ -1030,7 +1138,7 @@ def power_provenance(power_dir: Path | str) -> dict[str, list[Any]]:
     receipts = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(Path(power_dir).glob("a*/r*/*/receipt.json"))]
     if not receipts:
         raise ValueError(f"no power receipts found under {power_dir}")
-    return receipt_provenance(receipts)
+    return receipt_provenance(receipts, dataset=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1135,6 +1243,8 @@ def positive_control(
     for c in configs:
         cli.run_wf(cfg_files[c["id"]], ds, runs, commit=commit, panel=panel)
 
+    run_receipts = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(runs.glob("*/receipt.json"))]
+    _check_receipts_dataset(run_receipts, str(bar.read_manifest(ds)["datasetHash"]), "positive control")
     planted = apply_plant(panel, configs[0]["plant"])
     report = bar.family_report(
         family="pc",
@@ -1183,9 +1293,9 @@ def positive_control(
         "detected_by": detected_by,
         "dataset_hash": report["inputs_hashes"]["dataset_hash"],
         "commit": commit,
-        "provenance": receipt_provenance(
-            [json.loads(f.read_text(encoding="utf-8")) for f in sorted(runs.glob("*/receipt.json"))]
-        ),
+        "config_hashes": {str(r["config"]["id"]): str(r["config_hash"]) for r in run_receipts},
+        "provenance": receipt_provenance(run_receipts),
+        "reproduction": cli.reproduction_inputs(),
         "inputs": provenance,
     }
     (out / "positive_control.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -1216,6 +1326,7 @@ OPT_STOP_PANELS = 20
 OPT_STOP_DAYS = 75
 OPT_STOP_SEED_BASE = 6000
 OPT_STOP_VOL = 0.02
+OPT_STOP_LOOSE_MIN_EARLY = 0.10
 HOLD_SHARE_MIN = 0.8
 FALSE_CLOSE_MAX = 0.2
 CLOSE_AHEAD_MIN = 0.8
@@ -1466,6 +1577,16 @@ PLANT_FEATURES: tuple[str, ...] = ("taker_imb_last15", "ret_15m_last")
 OPT_STOP_LOOSE: tuple[tuple[str, str], ...] = (("E4_loose", "E4"), ("E5_loose", "E5"))
 
 
+_LOOSE_NAMES: frozenset[str] = frozenset(n for n, _ in OPT_STOP_LOOSE)
+
+
+def _opt_met(rules: Mapping[str, Mapping[str, Any]]) -> bool:
+    """Every row ok, and every loosened row present closed early on at least 10% of tranches (else it tests nothing)."""
+    return bool(
+        all(v["ok"] for v in rules.values()) and all(v["informative"] for n, v in rules.items() if n in _LOOSE_NAMES)
+    )
+
+
 def _opt_rows() -> list[tuple[str, Any]]:
     from r4.exits import parse_exit
 
@@ -1536,9 +1657,11 @@ def optional_stopping_check(
     The engine-replay null cannot see a look-ahead or fill bias in an exit, because shifted entries share it. On a
     martingale a legitimate exit has a zero cost-free mean per tranche, whatever the sides. Per rule and panel the
     mean of side x log(exit / entry) is taken over a fixed noise entry set (the same for every rule), then a one-sample
-    t-test across the panels. The rule fails when the mean differs from zero two-sided at alpha, and X1 (a maker
-    order that must not profit) also when it is positive one-sided at alpha. Also records the pooled median hold as a
-    share of h (the registered median-hold diagnostic uses it) and the share of tranches closed early.
+    t-test across the panels. Every row fails when the mean differs from zero two-sided at alpha, and X1 (a maker
+    order that must not profit) also when it is positive one-sided at alpha. The check is met only when every row is
+    ok and each loosened row closes early on at least 10% of tranches (else it exercises nothing and is not
+    evaluated). Also records the pooled median hold as a share of h (the registered median-hold diagnostic uses it)
+    and the share of tranches closed early.
 
     E4 and E5 fit on each panel's own real features (see _exit_study_panel), and the rows E4_loose and E5_loose
     replay the same pair at thresholds that fire often. Brief 28c fitted them on hash noise features (E4 never
@@ -1575,7 +1698,9 @@ def optional_stopping_check(
             "median_hold_share": float(np.median(hold)),
             "early_share": float(early.mean()),
         }
-        entry["ok"] = (not entry["positive"]) if rule == "X1" else (not entry["significant"])
+        entry["ok"] = (not entry["significant"]) and (rule != "X1" or not entry["positive"])
+        if rule in _LOOSE_NAMES:
+            entry["informative"] = bool(entry["early_share"] >= OPT_STOP_LOOSE_MIN_EARLY)
         out[rule] = entry
     return {
         "n_panels": int(n_panels),
@@ -1583,7 +1708,7 @@ def optional_stopping_check(
         "alpha": float(alpha),
         "seed_base": int(seed_base),
         "rules": out,
-        "met": bool(all(v["ok"] for v in out.values())),
+        "met": _opt_met(out),
     }
 
 
@@ -1744,7 +1869,11 @@ def _cost_free_mean(daily: pd.DataFrame) -> float:
 def _run_or_reuse(
     cfg_file: Path, raw: dict[str, Any], ds: Path, runs: Path, commit: str | None, panel: Any
 ) -> dict[str, Any]:
-    """Run a config with run_wf, or reuse a finished run of the same config hash and commit (a resumable block)."""
+    """Run a config with run_wf, or reuse a finished run of the same config hash, commit, source and dataset.
+
+    A run is reused only when its config hash, its commit, its r4 source digest and its dataset hash all match the
+    code and the dataset in hand (brief 28g, C-1): a run made by other code or on another dataset raises.
+    """
     from r4 import cli
 
     rc = runs / str(raw["id"]) / "receipt.json"
@@ -1754,6 +1883,13 @@ def _run_or_reuse(
             raise ValueError(f"{rc} holds a different configuration: refusing to overwrite it")
         if receipt.get("commit") != cli.resolve_commit(commit):
             raise ValueError(f"{rc} was run at commit {receipt.get('commit')!r}, not {commit!r}: code freeze")
+        if receipt.get("source_sha256") != cli.source_digest():
+            raise ValueError(f"{rc} was run with another r4 source digest than the code in hand: code freeze")
+        manifest_hash = str(bar.read_manifest(ds)["datasetHash"])
+        if receipt.get("dataset_hash") != manifest_hash:
+            raise ValueError(
+                f"{rc} was run on dataset {receipt.get('dataset_hash')!r}, the dataset in hand is {manifest_hash!r}"
+            )
         return receipt  # type: ignore[no-any-return]
     return cli.run_wf(cfg_file, ds, runs, commit=commit, panel=panel)
 
@@ -1793,11 +1929,28 @@ def evaluate_exit_block(
     out = Path(out_dir)
     draws = int(BAR["random_entry_draws"]) if joint_draws is None else int(joint_draws)
     span_end = DEV_END if span_end_ms is None else int(span_end_ms)
+    cli = _cli()
     base_cfg = _exit_base_config()
+    if first_refit_ms is not None:
+        base_cfg = {**base_cfg, "first_refit_ms": int(first_refit_ms)}
     base_dir = Path(noise_runs_dir) / base_cfg["id"]
     if not (base_dir / "receipt.json").exists():
         raise ValueError(f"the base noise control {base_cfg['id']} has no run in {noise_runs_dir}")
     base_receipt = json.loads((base_dir / "receipt.json").read_text(encoding="utf-8"))
+    manifest_hash = str(bar.read_manifest(ds)["datasetHash"])
+    # The base run supplies the entry set and the increments against E1, so it is checked before anything runs.
+    if base_receipt.get("config_hash") != cli.config_hash_of(base_cfg):
+        raise ValueError(f"the base noise control {base_cfg['id']} does not carry the registered configuration hash")
+    if base_receipt.get("commit") != cli.resolve_commit(commit):
+        raise ValueError(
+            f"the base noise control {base_cfg['id']} was run at commit {base_receipt.get('commit')!r}, "
+            f"not {commit!r}: code freeze"
+        )
+    if base_receipt.get("dataset_hash") != manifest_hash:
+        raise ValueError(
+            f"the base noise control {base_cfg['id']} ran on dataset {base_receipt.get('dataset_hash')!r}, "
+            f"the dataset in hand is {manifest_hash!r}"
+        )
     base_tr = pd.read_parquet(base_dir / "tranches.parquet")
     base_key = _entry_key(base_tr)
     base_cf = _cost_free_mean(pd.read_parquet(base_dir / "daily.parquet"))
@@ -1805,6 +1958,22 @@ def evaluate_exit_block(
         from r4.pipeline import load_panel
 
         panel = load_panel(ds, list(bar.read_manifest(ds)["symbols"]))
+
+    # A-9: the base E1 configuration's own joint-shift p, under the same replay path, draws and the base config's
+    # seed, so a reader can tell the base entries' place in their own null from what the exits add.
+    base_folds = json.loads((base_dir / "folds.json").read_text(encoding="utf-8"))
+    base_stats = bar.joint_shift_stats(
+        base_tr,
+        panel,
+        base_folds,
+        span_start_ms=int(base_receipt["config"]["first_refit_ms"]),
+        span_end_ms=span_end,
+        n_draws=draws,
+        min_shift_days=int(BAR["random_entry_shift_min_days"]),
+        seed=int(base_receipt["config"]["joint_shift_seed"]),
+        exit_replay=bar.build_exit_replay(panel, base_receipt["config"], base_folds),
+    )
+    p_e1, p_e1_drop = bar.joint_shift_p(base_stats, draws)
 
     cfg_dir = out / "configs"
     cfg_dir.mkdir(parents=True, exist_ok=True)
@@ -1818,6 +1987,7 @@ def evaluate_exit_block(
         f = cfg_dir / f"{cfg['id']}.json"
         f.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         receipt = _run_or_reuse(f, cfg, ds, runs, commit, panel)
+        _check_receipts_dataset([receipt], manifest_hash, f"exit control {cfg['id']}")
         receipts.append(receipt)
         rule = parse_exit(cfg["exit"]).rule
         m = receipt["metrics"]
@@ -1860,6 +2030,7 @@ def evaluate_exit_block(
             (math.isnan(obs) and math.isnan(zero)) or abs(obs - zero) <= EXIT_REPLAY_TOL * max(1.0, abs(obs))
         ):
             raise ValueError(f"{cfg['id']}: shift-zero identity broken: observed {obs!r} against replay path {zero!r}")
+        anchor = _book_anchor(tr, stats, pd.read_parquet(d / "daily.parquet"), label=str(cfg["id"]))
         p, drop = bar.joint_shift_p(stats, draws)
         n = int(len(tr))
         reasons = tr["exit_reason"].astype(str).value_counts()
@@ -1889,6 +2060,7 @@ def evaluate_exit_block(
                     "abs_diff": float(abs(obs - zero)),
                     "ok": True,
                 },
+                "anchor": anchor,
                 "counters": {
                     "missing_model_share": float(m["missing_model_tranches"]) / denom,
                     "missing_sigma_share": float(m["missing_sigma_tranches"]) / denom,
@@ -1904,6 +2076,7 @@ def evaluate_exit_block(
                     "early_share": float(1.0 - counts.get("horizon", 0) / denom),
                     "never_fires": bool(counts.get("horizon", 0) == n),
                 },
+                "repeats_e1": bool(counts.get("horizon", 0) == n),
                 "median_hold_share_of_h": float(np.median(hold_share)) if n else float("nan"),
                 "wf_mean": float(m["wf_mean"]),
                 "cost_free_mean": _cost_free_mean(daily),
@@ -1975,18 +2148,24 @@ def evaluate_exit_block(
         "n_rejected": int(n_rej),
         "gated_max": 1,
         "as_predicted": bool(n_rej <= 1),
-        "dataset_hash": str(bar.read_manifest(ds)["datasetHash"]),
+        "dataset_hash": manifest_hash,
+        "span_end_ms": int(span_end),
         "base": {
             "id": base_cfg["id"],
             "n_entries": int(len(base_key)),
             "wf_mean": float(base_receipt["metrics"]["wf_mean"]),
             "cost_free_mean": base_cf,
+            "p_e1": p_e1,
+            "p_e1_drop_share": p_e1_drop,
+            "joint_shift_seed": int(base_receipt["config"]["joint_shift_seed"]),
+            "draws": draws,
         },
         "never_fires": [r["rule"] for r in rows if r["fire_rates"]["never_fires"]],
         "optional_stopping": opt,
         "determinism": det,
         "diagnostics": diagnostics,
-        "provenance": receipt_provenance(receipts),
+        "provenance": receipt_provenance([*receipts, base_receipt]),
+        "reproduction": cli.reproduction_inputs(),
     }
 
 
@@ -2092,10 +2271,84 @@ def _validate_power(d: Any) -> dict[str, Any]:
     return star  # type: ignore[no-any-return]
 
 
+def _check_power_parameters(d: dict[str, Any], star: dict[str, Any]) -> None:
+    """The registered power parameters (brief 28g, C-1): margin, draws, trials, replicates and the amplitude grid."""
+    if not _same_number(d.get("margin"), POWER_MARGIN):
+        raise ValueError(f"power.margin is {d.get('margin')!r}, registered {POWER_MARGIN}")
+    if d.get("joint_draws") != POWER_JOINT_DRAWS or not _is_int(d.get("joint_draws")):
+        raise ValueError(f"power.joint_draws is {d.get('joint_draws')!r}, registered {POWER_JOINT_DRAWS}")
+    if d.get("n_trials") != N_TRIALS_CALIBRATION or not _is_int(d.get("n_trials")):
+        raise ValueError(f"power.n_trials is {d.get('n_trials')!r}, registered {N_TRIALS_CALIBRATION}")
+    curve = {float(a): e for a, e in d["curve_at_1_2v"].items()}
+    for a, e in curve.items():
+        if e["n"] != POWER_REPLICATES:
+            raise ValueError(f"power curve {a}: {e['n']} replicates, registered {POWER_REPLICATES}")
+    grid = d.get("grid")
+    if (
+        not isinstance(grid, list)
+        or not grid
+        or not all(isinstance(g, (int, float)) and not isinstance(g, bool) and g > 0 for g in grid)
+        or any(x >= y for x, y in zip(grid, grid[1:], strict=False))
+    ):
+        raise ValueError("power.grid must list the registered amplitudes, positive and strictly increasing")
+    extensions = star.get("extensions", [])
+    doubled = (
+        [float(max(grid)) * 2.0 ** (k + 1) for k in range(len(extensions))] if isinstance(extensions, list) else None
+    )
+    if (
+        doubled is None
+        or len(extensions) > POWER_MAX_DOUBLINGS
+        or not all(_same_number(x, y) for x, y in zip(extensions, doubled, strict=True))
+    ):
+        raise ValueError("power.a_star.extensions must be the registered doublings of the grid maximum")
+    allowed = [float(g) for g in grid] + doubled
+    stray = sorted(a for a in curve if not any(math.isclose(a, g, rel_tol=1e-12) for g in allowed))
+    if stray:
+        raise ValueError(f"power curve amplitudes {stray} are outside the registered grid {grid}")
+    qualifying = sorted(a for a, e in curve.items() if float(e["rate"]) >= POWER_TARGET - 1e-12)
+    if star["infeasible"]:
+        if qualifying:
+            raise ValueError(f"power.a_star is infeasible but amplitudes {qualifying} reach {POWER_TARGET}")
+        return
+    value = float(star["a_star"])
+    if not qualifying or not math.isclose(qualifying[0], value, rel_tol=1e-12):
+        raise ValueError(f"power.a_star {value} is not the smallest evaluated amplitude with a rate of {POWER_TARGET}")
+    below = [float(g) for g in grid if float(g) < value]
+    if below and not any(math.isclose(max(below), a, rel_tol=1e-12) for a in curve):
+        raise ValueError(f"power.a_star {value}: the next lower grid amplitude {max(below)} was never evaluated")
+
+
 def _validate_positive(d: Any) -> Any:
     if not isinstance(d, dict) or d.get("detected") not in (True, False, None):
         raise ValueError("positive_control must be an object with detected true, false or null")
     return d["detected"]
+
+
+def _recompute_positive(pos: dict[str, Any]) -> tuple[bool, str | None]:
+    """Detection as the failure tree defines it, from the recorded per-item results (brief 28g, C-5).
+
+    A pc_P1 or pc_P2 detects when items 1 to 6 all pass and its label-shift tripwire ran and did not halt.
+    """
+    report = pos.get("report")
+    configs = report.get("configurations") if isinstance(report, dict) else None
+    tripwires = pos.get("tripwires")
+    if not isinstance(configs, dict) or not isinstance(tripwires, dict):
+        raise ValueError("positive_control needs report.configurations and tripwires to recompute detection")
+    by: str | None = None
+    for rid in ("pc_P1", "pc_P2"):
+        ev = configs.get(rid)
+        if not isinstance(ev, dict):
+            raise ValueError(f"positive_control.report.configurations lacks {rid}")
+        items = [ev.get(f"item{i}") for i in range(1, 7)]
+        if not all(isinstance(it, dict) and isinstance(it.get("pass"), bool) for it in items):
+            raise ValueError(f"positive_control {rid}: items 1 to 6 need a boolean pass")
+        all_pass = all(it["pass"] for it in items)
+        if ev.get("all_pass") is not all_pass:
+            raise ValueError(f"positive_control {rid}: all_pass {ev.get('all_pass')!r} disagrees with its items")
+        tw = tripwires.get(rid)
+        if all_pass and isinstance(tw, dict) and tw.get("halt") is False and by is None:
+            by = rid
+    return by is not None, by
 
 
 def _validate_retests(rows: Sequence[Any]) -> int:
@@ -2108,6 +2361,18 @@ def _validate_retests(rows: Sequence[Any]) -> int:
             raise ValueError("a re-test receipt needs a string rule and a boolean pass")
         if r.get("kind") != "retest":
             raise ValueError(f"re-test receipt for {r['rule']!r} is not kind 'retest'")
+        hurdles = r.get("hurdles")
+        if not isinstance(hurdles, list) or not all(isinstance(h, dict) for h in hurdles):
+            raise ValueError(f"re-test receipt for {r['rule']!r} lists no hurdles")
+        applied = [h for h in hurdles if h.get("status") == "applied"]
+        if not applied:
+            raise ValueError(
+                f"re-test receipt for {r['rule']!r} has no applied hurdle: a rule with nothing applied is not evaluated"
+            )
+        if not all(isinstance(h.get("pass"), bool) for h in applied):
+            raise ValueError(f"re-test receipt for {r['rule']!r}: an applied hurdle needs a boolean pass")
+        if r["pass"] is not all(h["pass"] for h in applied):
+            raise ValueError(f"re-test receipt for {r['rule']!r}: pass disagrees with its applied hurdles")
         rules.add(r["rule"])
         n_pass += int(r["pass"])
     if len(rules) != N_RETESTS:
@@ -2115,14 +2380,92 @@ def _validate_retests(rows: Sequence[Any]) -> int:
     return n_pass
 
 
+def _validate_family_spa(spa: Any, rules: set[str]) -> None:
+    """The re-test family SPA is evidence only (no prediction reads it): its shape must still be the registered one."""
+    if not isinstance(spa, dict):
+        raise ValueError("family_spa must be a JSON object")
+    if spa.get("n_rules") != N_RETESTS or not _is_int(spa.get("n_rules")):
+        raise ValueError(f"family_spa.n_rules is {spa.get('n_rules')!r}, expected {N_RETESTS}")
+    _rate(spa.get("spa_p"), "family_spa.spa_p")
+    if "rules" in spa and (not isinstance(spa["rules"], list) or set(spa["rules"]) != rules):
+        raise ValueError("family_spa.rules differ from the re-tested rules")
+
+
+def _check_optional_stopping(opt: dict[str, Any]) -> None:
+    """Recompute every optional-stopping flag from the recorded p-values (brief 28g, C-5, C-4, A-2)."""
+    if not _same_number(opt.get("alpha"), OPT_STOP_ALPHA):
+        raise ValueError(f"exit_block.optional_stopping.alpha is {opt.get('alpha')!r}, registered {OPT_STOP_ALPHA}")
+    rules = opt["rules"]
+    for rule, e in rules.items():
+        p2 = _rate(e.get("p_two_sided"), f"optional_stopping {rule} p_two_sided")
+        pp = _rate(e.get("p_one_sided_positive"), f"optional_stopping {rule} p_one_sided_positive")
+        significant, positive = bool(p2 < OPT_STOP_ALPHA), bool(pp < OPT_STOP_ALPHA)
+        ok = (not significant) and (rule != "X1" or not positive)
+        for key, want in (("significant", significant), ("positive", positive), ("ok", ok)):
+            if e.get(key) is not want:
+                raise ValueError(
+                    f"exit_block.optional_stopping.rules.{rule}.{key} is {e.get(key)!r}, recomputed {want!r} from "
+                    f"p {p2} (two-sided) and {pp} (one-sided positive) at alpha {OPT_STOP_ALPHA}"
+                )
+        if rule in _LOOSE_NAMES:
+            informative = bool(
+                _rate(e.get("early_share"), f"optional_stopping {rule} early_share") >= OPT_STOP_LOOSE_MIN_EARLY
+            )
+            if e.get("informative") is not informative:
+                raise ValueError(
+                    f"exit_block.optional_stopping.rules.{rule}.informative is {e.get('informative')!r}, "
+                    f"recomputed {informative!r} from its early share"
+                )
+    if opt.get("met") is not _opt_met(rules):
+        raise ValueError(f"exit_block.optional_stopping.met is {opt.get('met')!r}, recomputed {_opt_met(rules)!r}")
+
+
+def _check_diagnostics(diag: dict[str, Any]) -> None:
+    """Recompute the median-hold and planted-control verdicts from their recorded numbers (brief 28g, C-5)."""
+    mh = diag["median_hold"]
+    if not _same_number(mh.get("threshold"), HOLD_SHARE_MIN):
+        raise ValueError(f"median_hold.threshold is {mh.get('threshold')!r}, registered {HOLD_SHARE_MIN}")
+    hold = mh.get("rules")
+    if not isinstance(hold, dict) or set(hold) != {"E4", "E5", "E6"}:
+        raise ValueError("median_hold.rules must cover exactly E4, E5 and E6")
+    shares = []
+    for r, e in hold.items():
+        v = e.get("median_share") if isinstance(e, dict) else None
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            raise ValueError(f"median_hold.rules.{r}.median_share must be a finite number")
+        shares.append(float(v))
+    if mh["met"] is not bool(all(v >= HOLD_SHARE_MIN for v in shares)):
+        raise ValueError("median_hold.met disagrees with the median shares")
+    pl = diag["planted_intrabar"]
+    if not _same_number(pl.get("min_close_ahead_rate"), CLOSE_AHEAD_MIN) or not _same_number(
+        pl.get("max_false_close_rate"), FALSE_CLOSE_MAX
+    ):
+        raise ValueError("planted_intrabar thresholds differ from the registered 0.8 and 0.2")
+    prules = pl.get("rules")
+    if not isinstance(prules, dict) or set(prules) != {"E4", "E5", "E6"}:
+        raise ValueError("planted_intrabar.rules must cover exactly E4, E5 and E6")
+    for r, e in prules.items():
+        vals = [
+            e.get(k) if isinstance(e, dict) else None for k in ("increment", "close_ahead_rate", "false_close_rate")
+        ]
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in vals):
+            raise ValueError(f"planted_intrabar.rules.{r}: increment and both rates must be finite numbers")
+        want = bool(vals[0] > 0.0 and vals[1] >= CLOSE_AHEAD_MIN and vals[2] <= FALSE_CLOSE_MAX)
+        if e.get("met") is not want:
+            raise ValueError(f"planted_intrabar.rules.{r}.met is {e.get('met')!r}, recomputed {want!r}")
+    if pl["met"] is not bool(all(e["met"] for e in prules.values())):
+        raise ValueError("planted_intrabar.met disagrees with its rules")
+
+
 def _validate_exit_block(d: Any) -> int:
-    """An exit-block result as the registered evaluation writes it (brief 28e). Returns the gated count n_rejected.
+    """An exit-block result as the registered evaluation writes it (briefs 28e, 28g). Returns the gated count.
 
     Refuses unless the 6 configs carry the registered ids and config hashes in order, and every row ran the
-    registered draws and joint-shift seed with a clean replay reproduction, shift-zero identity and entry match.
-    The determinism check must have run and be identical. The optional-stopping check must cover the six rules at
-    the registered sizes and seed base, and the planted control the registered seeds and sizes. Both diagnostics
-    must be present.
+    registered draws and joint-shift seed with a clean replay reproduction, shift-zero identity, book anchor and
+    entry match. The span must end at DEV_END, and the base E1 p must be recorded under the base config's seed. The
+    determinism check must have run and be identical. The optional-stopping check must cover the eight rows at the
+    registered sizes and seed base, and the planted control the registered seeds and sizes. Both diagnostics must
+    be present, and every verdict flag is recomputed from the numbers beside it.
     """
     from r4.cli import config_hash_of
 
@@ -2131,6 +2474,18 @@ def _validate_exit_block(d: Any) -> int:
     cfgs = d.get("configs")
     if not isinstance(cfgs, list) or len(cfgs) != N_EXIT_CONFIGS:
         raise ValueError(f"exit_block.configs must list {N_EXIT_CONFIGS} configurations")
+    if d.get("span_end_ms") != DEV_END or not _is_int(d.get("span_end_ms")):
+        raise ValueError(f"exit_block.span_end_ms is {d.get('span_end_ms')!r}, registered {DEV_END} (DEV_END)")
+    base = d.get("base")
+    base_cfg = _exit_base_config()
+    if (
+        not isinstance(base, dict)
+        or base.get("id") != base_cfg["id"]
+        or base.get("joint_shift_seed") != base_cfg["joint_shift_seed"]
+        or base.get("draws") != int(BAR["random_entry_draws"])
+    ):
+        raise ValueError("exit_block.base must record the base control's id, joint-shift seed and registered draws")
+    _rate(base.get("p_e1"), "exit_block.base.p_e1")
     registered = exit_block()
     n_rej = 0
     for i, (c, reg) in enumerate(zip(cfgs, registered, strict=True)):
@@ -2157,8 +2512,20 @@ def _validate_exit_block(d: Any) -> int:
         sz = c.get("shift_zero")
         if not isinstance(sz, dict) or sz.get("ok") is not True:
             raise ValueError(f"exit_block {c['id']}: the shift-zero identity must hold")
+        anchor = c.get("anchor")
+        if not isinstance(anchor, dict) or anchor.get("checked") is not True or anchor.get("ok") is not True:
+            raise ValueError(f"exit_block {c['id']}: the book anchor must be checked and hold")
+        rel = anchor.get("rel_diff")
+        if isinstance(rel, bool) or not isinstance(rel, (int, float)) or not math.isfinite(rel):
+            raise ValueError(f"exit_block {c['id']}: the book anchor needs a finite relative difference")
+        if rel > BOOK_ANCHOR_TOL and not (isinstance(anchor.get("explained"), str) and anchor["explained"]):
+            raise ValueError(f"exit_block {c['id']}: an unexplained book-anchor difference of {rel:.3e}")
         if c.get("entries_match_base") is not True:
             raise ValueError(f"exit_block {c['id']}: the entry set must match the base control")
+        fire = c.get("fire_rates")
+        never = fire.get("never_fires") if isinstance(fire, dict) else None
+        if not isinstance(never, bool) or c.get("repeats_e1") is not never:
+            raise ValueError(f"exit_block {c['id']}: repeats_e1 must be recorded and equal never_fires")
         n_rej += int(c["rejected"])
     if _count(d.get("n_rejected"), "exit_block.n_rejected", N_EXIT_CONFIGS) != n_rej:
         raise ValueError(f"exit_block.n_rejected {d['n_rejected']} disagrees with the {n_rej} rejected configs")
@@ -2180,6 +2547,7 @@ def _validate_exit_block(d: Any) -> int:
     for rule, entry in rules.items():
         if not isinstance(entry, dict) or not isinstance(entry.get("ok"), bool):
             raise ValueError(f"exit_block.optional_stopping.rules.{rule}.ok must be a boolean")
+    _check_optional_stopping(opt)
 
     diag = d.get("diagnostics")
     if not isinstance(diag, dict):
@@ -2198,6 +2566,7 @@ def _validate_exit_block(d: Any) -> int:
     ):
         if pl.get(key) != want:
             raise ValueError(f"exit_block.diagnostics.planted_intrabar.{key} is {pl.get(key)!r}, registered {want}")
+    _check_diagnostics(diag)
     return n_rej
 
 
@@ -2267,40 +2636,111 @@ def _check_noise_set(noi: dict[str, Any]) -> None:
         raise ValueError("noise_eval.noise_set holds a configuration that is not in the registered grid")
 
 
-def _provenance_pairs(name: str, obj: Any) -> tuple[set[str], set[str]]:
+_FREEZE_KEYS = ("commits", "source_sha256", "requirements_lock_sha256", "versions")
+
+
+def _freeze_values(name: str, obj: Any) -> dict[str, set[str]]:
+    """The code-freeze evidence of one dossier input: its receipts' provenance and the code that evaluated them.
+
+    Per key (commit, source digest, requirements-lock hash, library versions) the receipts' values and the
+    evaluation-time reproduction record contribute to one set. A missing or non-string value raises.
+    """
     prov = obj.get("provenance") if isinstance(obj, dict) else None
+    repro = obj.get("reproduction") if isinstance(obj, dict) else None
     if not isinstance(prov, dict):
-        raise ValueError(f"{name} carries no provenance (commits and source_sha256 of its receipts)")
-    out: list[set[str]] = []
-    for key in ("commits", "source_sha256"):
+        raise ValueError(f"{name} carries no provenance (commit, source, lock and versions of its receipts)")
+    if not isinstance(repro, dict):
+        raise ValueError(f"{name} carries no reproduction record of the code that evaluated it")
+    out: dict[str, set[str]] = {}
+    for key in _FREEZE_KEYS:
         vals = prov.get(key)
-        if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v for v in vals):
-            raise ValueError(f"{name}.provenance.{key} must list the receipts' string values")
-        out.append(set(vals))
-    return out[0], out[1]
+        if not isinstance(vals, list) or not vals:
+            raise ValueError(f"{name}.provenance.{key} must list the receipts' values")
+        if key == "versions":
+            if not all(isinstance(v, dict) and v for v in vals):
+                raise ValueError(f"{name}.provenance.versions must list library-version maps")
+            got = {_canon(v) for v in vals}
+        else:
+            if not all(isinstance(v, str) and v for v in vals):
+                raise ValueError(f"{name}.provenance.{key} must list the receipts' string values")
+            got = set(vals)
+        if key == "commits":
+            pass  # the evaluation-time record has no commit: it is the code, not a git object
+        elif key == "versions":
+            rv = repro.get("versions")
+            if not isinstance(rv, dict) or not rv:
+                raise ValueError(f"{name}.reproduction.versions must be a library-version map")
+            got.add(_canon(rv))
+        else:
+            rv = repro.get(key)
+            if not isinstance(rv, str) or not rv:
+                raise ValueError(f"{name}.reproduction.{key} must be a string")
+            got.add(rv)
+        out[key] = got
+    return out
 
 
-def _check_code_freeze(named: dict[str, Any], retests: Sequence[Any]) -> None:
-    """Every input receipt shares ONE commit and ONE source_sha256 (spec section 8 code freeze)."""
-    commits: set[str] = set()
-    sources: set[str] = set()
+def _check_code_freeze(named: dict[str, Any], retests: Sequence[Any]) -> str:
+    """Every input shares ONE commit, source digest, lock hash and library-version map (spec section 8 code freeze).
+
+    The inputs are the evaluation outputs (each with its receipts' provenance and the evaluation-time reproduction
+    record), the daily null simulation, and the re-test receipts. Returns the frozen commit.
+    """
+    pools: dict[str, set[str]] = {k: set() for k in _FREEZE_KEYS}
     for name, obj in named.items():
-        c, src = _provenance_pairs(name, obj)
-        commits |= c
-        sources |= src
+        for key, vals in _freeze_values(name, obj).items():
+            pools[key] |= vals
     for i, r in enumerate(retests):
-        c_, s_ = r.get("commit"), r.get("source_sha256")
-        if not isinstance(c_, str) or not c_ or not isinstance(s_, str) or not s_:
-            raise ValueError(f"retests[{i}] needs a commit and a source_sha256")
-        commits.add(c_)
-        sources.add(s_)
-    if len(commits) != 1 or len(sources) != 1:
-        raise ValueError(
-            f"input receipts must share one commit and one source_sha256, found {sorted(commits)} and {sorted(sources)}"
-        )
+        for key, rkey in zip(
+            _FREEZE_KEYS, ("commit", "source_sha256", "requirements_lock_sha256", "versions"), strict=True
+        ):
+            v = r.get(rkey)
+            if key == "versions":
+                if not isinstance(v, dict) or not v:
+                    raise ValueError(f"retests[{i}] needs a library-version map")
+                pools[key].add(_canon(v))
+            else:
+                if not isinstance(v, str) or not v:
+                    raise ValueError(f"retests[{i}] needs a {rkey}")
+                pools[key].add(v)
+    for key, vals in pools.items():
+        if len(vals) != 1:
+            raise ValueError(f"inputs must share one {key}, found {sorted(vals)}")
+    return next(iter(pools["commits"]))
+
+
+def _check_one_dataset(named: dict[str, Any], retests: Sequence[Any]) -> str:
+    """One D dataset hash across every input that carries one (brief 28g, C-1). Returns it."""
+    seen: dict[str, str] = {}
+
+    def add(label: str, v: Any) -> None:
+        if not isinstance(v, str) or not v:
+            raise ValueError(f"{label} carries no dataset hash")
+        seen[label] = v
+
+    for name, obj in named.items():
+        if name == "null_simulation":
+            add("null_simulation.dcov_dataset_hash", obj.get("dcov_dataset_hash"))
+        elif name == "power":
+            add("power.dcov_dataset_hash", obj.get("dcov_dataset_hash"))
+        else:
+            add(f"{name}.dataset_hash", obj.get("dataset_hash"))
+            prov = obj.get("provenance", {}).get("dataset_hash")
+            if not isinstance(prov, list) or not prov:
+                raise ValueError(f"{name}.provenance carries no dataset hash of its receipts")
+            for j, v in enumerate(prov):
+                add(f"{name}.provenance.dataset_hash[{j}]", v)
+    for i, r in enumerate(retests):
+        add(f"retests[{i}].dataset_hash", r.get("dataset_hash"))
+    if len(set(seen.values())) != 1:
+        raise ValueError(f"the inputs span more than one dataset: {seen}")
+    return next(iter(seen.values()))
 
 
 def _check_positive_binding(pos: dict[str, Any], star: dict[str, Any], pwr: dict[str, Any], v_noise: float) -> None:
+    from r4.cli import config_hash_of
+    from r4.tripwire import SHIFT_DAYS
+
     if not _same_number(pos.get("a_star"), star.get("a_star")):
         raise ValueError(
             f"positive_control.a_star {pos.get('a_star')!r} differs from power.a_star {star.get('a_star')!r}"
@@ -2324,6 +2764,66 @@ def _check_positive_binding(pos: dict[str, Any], star: dict[str, Any], pwr: dict
             f"positive_control plant seed {seed!r} with rerun {rerun!r} is not {PLANT_SEED}, "
             f"or {PC_RERUN_PLANT_SEED} for the one re-run"
         )
+    if pos.get("tripwire_shifts") != len(SHIFT_DAYS) or not _is_int(pos.get("tripwire_shifts")):
+        raise ValueError(
+            f"positive_control.tripwire_shifts is {pos.get('tripwire_shifts')!r}, registered {len(SHIFT_DAYS)}"
+        )
+    family = pc_rerun_family(float(star["a_star"])) if rerun else pc_family(float(star["a_star"]))
+    want_hashes = {c["id"]: config_hash_of(c) for c in family}
+    if pos.get("config_hashes") != want_hashes:
+        raise ValueError(
+            "positive_control.config_hashes differ from the registered "
+            f"{'pc_rerun_family' if rerun else 'pc_family'}(a*): a shortened first refit or other decoys were run"
+        )
+    detected, by = _recompute_positive(pos)
+    if pos.get("detected") is not detected or pos.get("detected_by") != by:
+        raise ValueError(
+            f"positive_control.detected {pos.get('detected')!r} by {pos.get('detected_by')!r} disagrees with the "
+            f"recomputed {detected!r} by {by!r}"
+        )
+
+
+def _expected_receipt_ids(
+    noi: dict[str, Any], exb: dict[str, Any], pos: dict[str, Any] | None, retests: Sequence[Any]
+) -> dict[str, set[str] | None]:
+    """The receipt ids each prediction's evidence must list. None means any non-empty list (the daily null)."""
+    exp: dict[str, set[str] | None] = {}
+    noise_ids = {str(r["id"]) for r in noi["noise_set"]}
+    exit_ids = {str(c["id"]) for c in exb["configs"]}
+    rules = {str(r["rule"]) for r in retests}
+    for pid in PREDICTIONS:
+        if pid.startswith("noise_"):
+            exp[pid] = noise_ids
+        elif pid.startswith("exit_"):
+            exp[pid] = exit_ids
+        elif pid == "natives_all_six_fail":
+            exp[pid] = rules
+        elif pid == "positive_detected_at_astar":
+            exp[pid] = None if pos is None else set(pos["config_hashes"])
+        else:
+            exp[pid] = None
+    return exp
+
+
+def _bind_commit_order(order: dict[str, Any], commit: str, expected: dict[str, set[str] | None]) -> None:
+    """The commit-order evidence must be about the frozen commit's receipts (brief 28g, C-2).
+
+    Every receipt commit listed under a prediction equals the frozen commit (a short sha is accepted when it is a
+    prefix of it), and every input receipt id of that prediction appears among them.
+    """
+    for pid, entry in order["predictions"].items():
+        for rc in entry["receipts"]:
+            sha = rc["commit"]
+            if not (commit.startswith(sha) or sha.startswith(commit)):
+                raise ValueError(
+                    f"commit_order {pid}: receipt {rc.get('id')!r} is at {sha}, not the frozen commit {commit}"
+                )
+        want = expected.get(pid)
+        if want is not None:
+            have = {str(rc.get("id")) for rc in entry["receipts"]}
+            missing = sorted(want - have)
+            if missing:
+                raise ValueError(f"commit_order {pid}: input receipts {missing} are not listed")
 
 
 def _validate_commit_order(d: Any) -> dict[str, Any]:
@@ -2363,26 +2863,32 @@ def write_dossier(
     noise_eval: Path | str,
     power: Path | str,
     positive_control: Path | str,
-    family_spa: Path | str,
     retests: Sequence[Path | str],
     commit_order: dict[str, Any],
     exit_block: Path | str | None,
+    family_spa: Path | str | None = None,
 ) -> dict[str, Any]:
     """Assemble the Phase 4 dossier once: every registered prediction against its observed value.
 
-    Inputs are JSON files, each referenced by absolute path and sha256. exit_block is required (brief 28e) and its
-    dataset hash must equal the noise evaluation's. gate_p_ready is true when every GATED prediction is as predicted. It
-    is evidence for the review and is not the Gate P decision. commit_order is the lead's git evidence, validated
-    here (the research image has no git). All inputs are validated before the file is created with exclusive create.
+    Inputs are JSON files, each referenced by absolute path and sha256. exit_block is required (brief 28e). The
+    dossier refuses unless every input is bound to ONE D dataset hash, ONE commit, r4 source digest, requirements-lock
+    hash and library-version map (receipts and the evaluation-time record alike, the daily null and the re-tests
+    included), to the registered parameters (power margin, draws, trials, replicates and grid, positive-control
+    tripwire count and configurations, the exit null's span, the re-tests' calibration V), and to the receipts the
+    commit-order evidence lists (brief 28g). Every verdict flag is recomputed from the numbers beside it. family_spa
+    is optional evidence that no prediction reads: when given, its shape is validated. gate_p_ready is true when
+    every GATED prediction is as predicted. It is evidence for the review and is not the Gate P decision.
+    commit_order is the lead's git evidence, validated here (the research image has no git). All inputs are
+    validated before the file is created with exclusive create.
     """
     refs: dict[str, Any] = {}
     nul, refs["null_simulation"] = _load_json(null_simulation, "null_simulation")
     noi, refs["noise_eval"] = _load_json(noise_eval, "noise_eval")
     pwr, refs["power"] = _load_json(power, "power")
     pos, refs["positive_control"] = _load_json(positive_control, "positive_control")
-    spa, refs["family_spa"] = _load_json(family_spa, "family_spa")
-    if not isinstance(spa, dict):
-        raise ValueError("family_spa must be a JSON object")
+    spa: Any = None
+    if family_spa is not None:
+        spa, refs["family_spa"] = _load_json(family_spa, "family_spa")
     rts: list[Any] = []
     refs["retests"] = []
     for i, f in enumerate(retests):
@@ -2401,6 +2907,8 @@ def write_dossier(
     n_native_pass = _validate_retests(rts)
     n_exit_rej = _validate_exit_block(exb)
     order = _validate_commit_order(commit_order)
+    if spa is not None:
+        _validate_family_spa(spa, {str(r["rule"]) for r in rts})
 
     _check_noise_set(noi)
     v_noise = noi.get("variance", {}).get("V") if isinstance(noi.get("variance"), dict) else None
@@ -2408,17 +2916,20 @@ def write_dossier(
         raise ValueError("noise_eval.variance.V must be a positive number")
     if not _same_number(pwr.get("v"), v_noise):
         raise ValueError(f"power.v {pwr.get('v')!r} differs from the noise evaluation's V {v_noise!r}")
-    frozen: dict[str, Any] = {"noise_eval": noi, "power": pwr}
+    _check_power_parameters(pwr, star)
+    for i, r in enumerate(rts):
+        if not _same_number(r.get("calib_v"), v_noise):
+            raise ValueError(f"retests[{i}].calib_v {r.get('calib_v')!r} differs from the noise evaluation's V")
+    frozen: dict[str, Any] = {"null_simulation": nul, "noise_eval": noi, "power": pwr}
     if star["infeasible"]:
         pass  # no a* to plant: there is no positive-control run to bind
     else:
         _check_positive_binding(pos, star, pwr, float(v_noise))
         frozen["positive_control"] = pos
     frozen["exit_block"] = exb
-    ds_noise, ds_exit = noi.get("dataset_hash"), exb.get("dataset_hash")
-    if not isinstance(ds_noise, str) or not ds_noise or ds_exit != ds_noise:
-        raise ValueError(f"exit_block.dataset_hash {ds_exit!r} differs from the noise evaluation's {ds_noise!r}")
-    _check_code_freeze(frozen, rts)
+    _check_one_dataset(frozen, rts)
+    commit = _check_code_freeze(frozen, rts)
+    _bind_commit_order(order, commit, _expected_receipt_ids(noi, exb, None if star["infeasible"] else pos, rts))
 
     predictions: dict[str, dict[str, Any]] = {}
 
@@ -2465,7 +2976,7 @@ def write_dossier(
         "exit_block",
     )
     opt_ok = {r: bool(v["ok"]) for r, v in exb["optional_stopping"]["rules"].items()}
-    put("exit_optional_stopping_zero_mean", opt_ok, all(opt_ok.values()), "exit_block")
+    put("exit_optional_stopping_zero_mean", opt_ok, bool(exb["optional_stopping"]["met"]), "exit_block")
     missing = sorted(set(PREDICTIONS) - set(predictions))
     if missing:
         raise ValueError(f"predictions without an evaluation rule: {missing}")
@@ -2479,9 +2990,10 @@ def write_dossier(
         "gate_p_ready": bool(gate_ready),
         "gate_p_note": "Evidence only. The Opus review decides Gate P, not this file.",
         "power": {"a_star": star, "curve_at_1_2v": pwr["curve_at_1_2v"]},
-        "family_spa": spa,
         "commit_order": order,
     }
+    if spa is not None:
+        doc["family_spa"] = spa
     target = Path(out_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("x", encoding="utf-8") as handle:

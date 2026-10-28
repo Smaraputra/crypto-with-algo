@@ -1060,8 +1060,12 @@ def test_6_item6_joint_stress_and_maker():
 # ---------------------------------------------------------------------------
 
 
-def test_7_item3_dedupes_by_config_hash():
-    """7. Two receipts with the same config_hash count once in the trial-Sharpe variance."""
+def test_7_item3_takes_a_variance_not_a_mapping_of_frames():
+    """7. Brief 28g (review C-8): item3's mapping branch took the TOTAL variance, contradicting A1.8's within-cell V.
+
+    No caller passed a mapping, so the branch is gone and a mapping raises. The one-count-per-config_hash rule lives
+    in trial_sharpe_variance, which family_report and the calibration evaluators call.
+    """
     rng = np.random.default_rng(1)
     days = [i * DAY for i in range(120)]
 
@@ -1071,22 +1075,12 @@ def test_7_item3_dedupes_by_config_hash():
         return df
 
     a = frame(0.001, "hash_a")
-    a_copy = a.copy()
-    a_copy.attrs["config_hash"] = "hash_a"
     b = frame(0.002, "hash_b")
     receipt = {"metrics": {"wf_sharpe": 0.5, "n_days": 120}}
-
-    from r4.stats import per_period_sharpe
-
-    res = item3(receipt, {"r1": a, "r2": a_copy, "r3": b}, ledger_count=120)
-    assert res["n_unique_configs"] == 2
-    sharpes = [per_period_sharpe(a["drift_free"].to_numpy()), per_period_sharpe(b["drift_free"].to_numpy())]
-    expected = float(np.var(sharpes, ddof=1))
-    assert res["var_trial_sharpes"] == pytest.approx(expected, abs=1e-15)
-
-    no_hash = pd.DataFrame({"drift_free": [0.1, 0.2]})
-    with pytest.raises(ValueError):
-        item3(receipt, {"r1": no_hash}, ledger_count=120)
+    with pytest.raises(TypeError, match="mapping"):
+        item3(receipt, {"r1": a, "r2": a.copy(), "r3": b}, ledger_count=120)
+    with pytest.raises(TypeError, match="mapping"):
+        item3(receipt, {"r1": pd.DataFrame({"drift_free": [0.1, 0.2]})}, ledger_count=120)
 
 
 # ---------------------------------------------------------------------------
@@ -1347,7 +1341,7 @@ def test_receipt_kind_required(tmp_path: Path, kind):
 
 
 def test_item3_raises_below_two_configs():
-    """Fewer than two unique configs (dict path) or finite values (sequence path) cannot give a variance."""
+    """Fewer than two finite trial Sharpes (sequence path) cannot give a variance. A mapping raises (brief 28g)."""
     receipt = {"metrics": {"wf_sharpe": 0.5, "n_days": 120}}
     days = [i * DAY for i in range(120)]
 
@@ -1356,16 +1350,16 @@ def test_item3_raises_below_two_configs():
         df.attrs["config_hash"] = h
         return df
 
-    with pytest.raises(ValueError, match="at least 2"):
+    with pytest.raises(TypeError, match="mapping"):
         item3(receipt, {"r1": frame("h"), "r2": frame("h")}, ledger_count=120)
-    with pytest.raises(ValueError, match="at least 2"):
+    with pytest.raises(TypeError, match="mapping"):
         item3(receipt, {}, ledger_count=120)
     with pytest.raises(ValueError, match="at least 2"):
         item3(receipt, [0.1], ledger_count=120)
     with pytest.raises(ValueError, match="at least 2"):
         item3(receipt, [0.1, float("nan")], ledger_count=120)
-    ok = item3(receipt, {"r1": frame("h1"), "r2": frame("h2")}, ledger_count=120)
-    assert ok["n_unique_configs"] == 2
+    ok = item3(receipt, [0.1, 0.3], ledger_count=120)
+    assert ok["n_unique_configs"] is None and ok["var_trial_sharpes"] == pytest.approx(0.02)
 
 
 def _set_kind(runs_dir: Path, kinds: dict[str, str]) -> None:

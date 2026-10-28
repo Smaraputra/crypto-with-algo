@@ -1008,7 +1008,7 @@ def main() -> None:
     cdo_parser.add_argument("--noise", required=True, help="calib-noise-eval JSON")
     cdo_parser.add_argument("--power", required=True, help="calib-power-curve JSON")
     cdo_parser.add_argument("--positive", required=True, help="Positive control JSON")
-    cdo_parser.add_argument("--spa", required=True, help="Re-test family SPA JSON")
+    cdo_parser.add_argument("--spa", required=False, default=None, help="Re-test family SPA JSON (optional, evidence)")
     cdo_parser.add_argument("--retests", required=True, nargs="+", help="The 6 re-test receipts")
     cdo_parser.add_argument("--commit-order", required=True, help="Commit-order evidence JSON (computed outside)")
     cdo_parser.add_argument("--exit-block", required=True, help="Exit block result JSON (calib-exits output)")
@@ -1110,6 +1110,8 @@ def main() -> None:
             "curve_at_1_2v": curve_json(chosen["curve"]),
             "a_star": {k: chosen[k] for k in ("a_star", "infeasible", "extensions")},
             "provenance": calibration.power_provenance(args.power_dir),
+            "reproduction": reproduction_inputs(),
+            "dcov_dataset_hash": calibration._read_power_meta(args.power_dir).get("dcov_dataset_hash"),
             "disclosed": "tripwire and SPA are skipped in the power simulation; P2 is omitted",
         }
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

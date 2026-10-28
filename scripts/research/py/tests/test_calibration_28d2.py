@@ -21,11 +21,13 @@ from tests.test_calibration_power import (
     FIRST_REFIT,
     SHA2,
     TW_SHIFTS,
+    _commit_order,
     _curve,
     _inputs,
     _noise_eval,
     _null_sim,
     _positive,
+    _power_doc,
     _prov,
     pos_env,  # noqa: F401  (module fixture reused)
 )
@@ -235,15 +237,7 @@ def _drop(d: dict, *path: str) -> dict:
 
 
 def _power(**over) -> dict:
-    curve = _curve({0.02: 0.5, 0.04: 0.9})
-    d = {
-        "curve_at_1_2v": {str(a): v for a, v in curve.items()},
-        "a_star": {"a_star": 0.04, "infeasible": False},
-        "v": D_V,
-        "provenance": _prov(),
-    }
-    d.update(over)
-    return d
+    return _power_doc(**over)
 
 
 def _case_map() -> dict[str, dict]:
@@ -329,7 +323,7 @@ def test_dossier_recorded_trade_floor_replacement_is_accepted(tmp_path):
     from r4.cli import config_hash_of
 
     ne["noise_set"][5] = {"id": alt["id"], "config_hash": config_hash_of(alt), "replaces": orig["id"], "attempt": 1}
-    doc = _dossier(tmp_path, "alt", noise_eval=ne)
+    doc = _dossier(tmp_path, "alt", noise_eval=ne, commit_order=_commit_order([r["id"] for r in ne["noise_set"]]))
     assert doc["gate_p_ready"] is True
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -241,7 +241,7 @@ def trial_sharpe_variance(
 
 def item3(
     receipt: dict[str, Any],
-    round_daily: dict[str, pd.DataFrame] | Sequence[float] | float,
+    round_daily: Sequence[float] | float,
     ledger_count: int,
     candidate_daily: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
@@ -255,27 +255,13 @@ def item3(
     n_trials = max(int(DSR_TRIALS_MIN), int(ledger_count))
 
     n_unique_configs: int | None = None
+    if isinstance(round_daily, Mapping):
+        raise TypeError(
+            "item3 takes the trial-Sharpe variance as a float (or a sequence of trial Sharpes), not a mapping of "
+            "daily frames: compute it with trial_sharpe_variance(..., 'within_cell') and pass V"
+        )
     if isinstance(round_daily, (int, float)):
         var_trial_sharpes = float(round_daily)
-    elif isinstance(round_daily, dict):
-        unique_sharpes: list[float] = []
-        seen_hashes: set[str] = set()
-        for key, df in round_daily.items():
-            cfg_hash = getattr(df, "attrs", {}).get("config_hash")
-            if not cfg_hash:
-                raise ValueError(f"Round run {key} has no config_hash, so identical configs cannot be counted once")
-            if cfg_hash in seen_hashes:
-                continue
-            seen_hashes.add(cfg_hash)
-            col = "drift_free" if "drift_free" in df.columns else df.columns[0]
-            arr = df[col].to_numpy(dtype=np.float64)
-            unique_sharpes.append(per_period_sharpe(arr))
-        n_unique_configs = len(unique_sharpes)
-        if n_unique_configs < 2:
-            raise ValueError(
-                f"Item 3 needs at least 2 unique configurations for the trial-Sharpe variance, got {n_unique_configs}"
-            )
-        var_trial_sharpes = float(np.var(unique_sharpes, ddof=1))
     else:
         arr_srs = np.asarray(round_daily, dtype=np.float64)
         arr_finite = arr_srs[np.isfinite(arr_srs)]
@@ -479,6 +465,10 @@ class JointShiftStats(NamedTuple):
     total_dropped: int
     n_tranches: int
     zero_shift_stat: float | None = None
+    # Sum of |weight| and count of the observed tranches that carry a finite return: obs_stat x obs_weight_sum is the
+    # observed set's weighted return, which the book's summed drift_free must equal (the calibration book anchor).
+    obs_weight_sum: float | None = None
+    obs_n_kept: int | None = None
 
 
 def make_exit_replay(
@@ -848,7 +838,16 @@ def joint_shift_stats(
         total_dropped += dropped
         null_stats[draw_idx] = stat
 
-    return JointShiftStats(obs_stat, null_stats, [int(s) for s in shifts], total_dropped, n_tr, zero_stat)
+    return JointShiftStats(
+        obs_stat,
+        null_stats,
+        [int(s) for s in shifts],
+        total_dropped,
+        n_tr,
+        zero_stat,
+        obs_weight_sum=float(np.sum(w_abs[obs_keep])),
+        obs_n_kept=int(np.sum(obs_keep)),
+    )
 
 
 def joint_shift_p(stats: JointShiftStats, n_draws: int) -> tuple[float, float]:

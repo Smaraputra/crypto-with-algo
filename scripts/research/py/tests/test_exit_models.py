@@ -165,6 +165,37 @@ def test_tau_frame_causal() -> None:
     assert_future_invariant(_build_for_causality, inputs, t_values, rng=np.random.default_rng(3))
 
 
+def _build_for_causality_4h(five, fifteen, four_h, one_d, prem, settle, btc5) -> pd.DataFrame:
+    coin = {"5m": five, "15m": fifteen, "4h": four_h, "1d": one_d, "premium_5m": prem, "settlements": settle}
+    return build_tau_frame(coin, btc5, H4)
+
+
+def test_tau_frame_causal_at_4h_with_nonzero_phases() -> None:
+    """The exit block and the optional-stopping check run at 4h: 16 phases, shifted higher-timeframe lookups."""
+    panel = _panel(2, 30, seed=11)
+    d, btc = panel[UNIVERSE[1]], panel[UNIVERSE[0]]
+    inputs = {
+        "five": (d["5m"], STEP_MS),
+        "fifteen": (d["15m"], 900_000),
+        "four_h": (d["4h"], H4),
+        "one_d": (d["1d"], DAY),
+        "prem": (d["premium_5m"], STEP_MS),
+        "settle": (d["settlements"], 0),
+        "btc5": (btc["5m"], STEP_MS),
+    }
+    t_values = [
+        B0 + 20 * DAY + H4 + 900_000,
+        B0 + 25 * DAY + H4 + 3 * HOUR + 2_700_000,
+        B0 + 27 * DAY + 2 * H4 + 1_800_000,
+    ]
+    base = _build_for_causality_4h(**{k: v[0] for k, v in inputs.items()})
+    for t in t_values:
+        assert t in base.index
+        assert (t - B0) % H4 != 0  # a non-zero phase of the 4h interval
+        assert base.loc[t].notna().sum() > 25  # the check is not vacuous
+    assert_future_invariant(_build_for_causality_4h, inputs, t_values, rng=np.random.default_rng(3))
+
+
 def test_tau_frame_union_covers_every_15m_instant() -> None:
     panel = _panel(2, 12, seed=5)
     d, btc = panel[UNIVERSE[1]], panel[UNIVERSE[0]]

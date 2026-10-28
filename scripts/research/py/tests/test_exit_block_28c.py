@@ -17,8 +17,8 @@ from r4 import calibration as cal
 from r4.cli import main, run_wf
 from r4.method import UNIVERSE
 from r4.synth import synth_panel, write_synthetic_dataset
+from tests.test_calibration_power import DS_HASH, _inputs, _prov, _repro
 from tests.test_calibration_power import _exit_block as dossier_exit_block
-from tests.test_calibration_power import _inputs, _noise_eval, _prov
 from tests.test_cli_bar import COMMIT
 
 DAY = 86_400_000
@@ -105,7 +105,7 @@ def test_exit_block_small(world, tmp_path):
     with pytest.raises(ValueError):
         cal._validate_exit_block(res)
     from r4.cli import config_hash_of
-    from r4.method import BAR
+    from r4.method import BAR, DEV_END
 
     registered = copy.deepcopy(res)
     for row, cfg in zip(registered["configs"], cal.exit_block(), strict=True):
@@ -113,13 +113,14 @@ def test_exit_block_small(world, tmp_path):
         row["config_hash"] = config_hash_of(cfg)
     registered["optional_stopping"]["n_panels"] = cal.OPT_STOP_PANELS
     registered["optional_stopping"]["n_days"] = cal.OPT_STOP_DAYS
+    registered["span_end_ms"] = DEV_END  # test only: the small run's span ends earlier
+    registered["base"]["draws"] = BAR["random_entry_draws"]
     assert cal._validate_exit_block(registered) == res["rejected"]
     assert res["provenance"]["commits"] == [COMMIT] and len(res["provenance"]["source_sha256"]) == 1
     json.dumps(res)
     # And the dossier takes it (the freeze check needs the other inputs' provenance, so borrow the test commit).
-    shaped = {**registered, "provenance": _prov()}
-    noise = {**_noise_eval(), "dataset_hash": res["dataset_hash"]}
-    doc = cal.write_dossier(tmp_path / "d.json", **_inputs(tmp_path, exit_block=shaped, noise_eval=noise))
+    shaped = {**registered, "provenance": _prov(True), "reproduction": _repro(), "dataset_hash": DS_HASH}
+    doc = cal.write_dossier(tmp_path / "d.json", **_inputs(tmp_path, exit_block=shaped))
     assert doc["predictions"]["exit_block_at_most_1_of_6_rejects"]["observed"] == res["rejected"]
 
 
@@ -371,10 +372,7 @@ def test_planted_control_records_the_registered_e6_result():
 
 def test_dossier_evaluates_registered_diagnostics(tmp_path):
     def block(**diag):
-        b = dossier_exit_block()
-        b["diagnostics"]["median_hold"]["met"] = diag.get("hold", True)
-        b["diagnostics"]["planted_intrabar"]["met"] = diag.get("planted", True)
-        return b
+        return dossier_exit_block(hold_miss=not diag.get("hold", True), planted_miss=not diag.get("planted", True))
 
     def run(name, exit_block):
         sub = tmp_path / name
@@ -469,3 +467,163 @@ def test_replay_reproduces_model_exits_that_fire(tmp_path):
         assert receipt["metrics"]["exit_model_fallback_folds"] == 0
         out = cal.check_replay_reproduces(tmp_path / "runs" / cfg["id"], ds, panel=panel)
         assert out["n"] == len(tr) and out["mismatches"] == 0, (rule, out["first_mismatch"])
+
+
+# ---------------------------------------------------------------------------
+# Brief 28g: the book anchor, the base run, the base E1 p, the evaluation-time code, the span
+# ---------------------------------------------------------------------------
+
+
+def _exit_kwargs(world, **over):
+    kw = {
+        "commit": COMMIT,
+        "panel": world["panel"],
+        "joint_draws": 10,
+        "first_refit_ms": FIRST_REFIT,
+        "span_end_ms": SPAN_END,
+        "synthetic_panels": 3,
+        "synthetic_days": 60,
+        "determinism": False,
+    }
+    kw.update(over)
+    return kw
+
+
+def test_exit_block_records_the_book_anchor_on_every_row(world):
+    print("\nbook anchor, obs_stat x sum|w| against the book's summed drift_free (synthetic exit-block world)")
+    for c in world["res"]["configs"]:
+        a = c["anchor"]
+        print(
+            f"{c['rule']:3s} obs*sum|w| {a['obs_weighted_sum']:+.12e} book {a['book_sum']:+.12e} "
+            f"abs {a['abs_diff']:.3e} rel {a['rel_diff']:.3e} kept {a['n_kept']}/{a['n_tranches']} "
+            f"explained {a['explained']}"
+        )
+        assert a["checked"] is True and a["ok"] is True
+        assert a["rel_diff"] <= 1e-9 and a["explained"] is None
+        assert a["n_kept"] == a["n_tranches"] == c["n_entries"]
+
+
+def test_exit_block_book_anchor_breaks_when_the_hedge_terms_are_perturbed(world, monkeypatch, tmp_path):
+    """A defect in hedge_terms shifts the observed value, the zero-shift value and every draw alike, so the
+    shift-zero identity still holds. Only the independent book can see it."""
+    from r4 import bar
+
+    real = bar._fold_table
+
+    def scaled_betas(folds, basket):
+        starts, ends, betas = real(folds, basket)
+        return starts, ends, betas * 1.3
+
+    monkeypatch.setattr(bar, "_fold_table", scaled_betas)
+    out = tmp_path / "out"
+    shutil.copytree(world["out"], out)
+    with pytest.raises(ValueError, match="book anchor"):
+        cal.evaluate_exit_block(world["ds"], world["noise"], out, **_exit_kwargs(world))
+
+
+def test_exit_block_records_the_evaluation_time_code_and_the_span(world):
+    from r4.cli import reproduction_inputs
+
+    res = world["res"]
+    assert res["reproduction"] == reproduction_inputs()
+    assert res["reproduction"]["source_sha256"] == res["provenance"]["source_sha256"][0]
+    assert res["span_end_ms"] == SPAN_END
+    assert res["provenance"]["dataset_hash"] == [res["dataset_hash"]]
+
+
+def test_exit_block_records_the_base_e1_p_and_whether_a_row_repeats_it(world):
+    from r4 import bar
+
+    base = world["res"]["base"]
+    base_dir = world["noise"] / world["base"]["id"]
+    receipt = json.loads((base_dir / "receipt.json").read_text(encoding="utf-8"))
+    folds = json.loads((base_dir / "folds.json").read_text(encoding="utf-8"))
+    replay = bar.build_exit_replay(world["panel"], receipt["config"], folds)
+    stats = bar.joint_shift_stats(
+        pd.read_parquet(base_dir / "tranches.parquet"),
+        world["panel"],
+        folds,
+        FIRST_REFIT,
+        SPAN_END,
+        n_draws=10,
+        seed=int(receipt["config"]["joint_shift_seed"]),
+        exit_replay=replay,
+    )
+    p, drop = bar.joint_shift_p(stats, 10)
+    assert base["p_e1"] == p and base["p_e1_drop_share"] == drop
+    assert base["joint_shift_seed"] == receipt["config"]["joint_shift_seed"] and base["draws"] == 10
+    for c in world["res"]["configs"]:
+        assert c["repeats_e1"] is c["fire_rates"]["never_fires"]
+
+
+@pytest.mark.parametrize("what", ["config", "commit", "dataset"])
+def test_exit_block_refuses_a_base_run_that_is_not_the_one_under_evaluation(world, tmp_path, what):
+    noise = tmp_path / "noise"
+    shutil.copytree(world["noise"], noise)
+    rc = noise / world["base"]["id"] / "receipt.json"
+    receipt = json.loads(rc.read_text(encoding="utf-8"))
+    receipt[{"config": "config_hash", "commit": "commit", "dataset": "dataset_hash"}[what]] = (
+        "d" * 40 if what == "commit" else "0" * 64
+    )
+    rc.write_text(json.dumps(receipt), encoding="utf-8")
+    out = tmp_path / "out"
+    with pytest.raises(ValueError, match="base"):
+        cal.evaluate_exit_block(world["ds"], noise, out, **_exit_kwargs(world))
+    assert not (out / "runs").exists(), "the base is checked before any run starts"
+
+
+def test_exit_block_refuses_a_reused_run_from_another_dataset(world, tmp_path):
+    out = tmp_path / "out"
+    shutil.copytree(world["out"], out)
+    rc = out / "runs" / cal.exit_block()[0]["id"] / "receipt.json"
+    receipt = json.loads(rc.read_text(encoding="utf-8"))
+    receipt["dataset_hash"] = "0" * 64
+    rc.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(ValueError, match="dataset"):
+        cal.evaluate_exit_block(world["ds"], world["noise"], out, **_exit_kwargs(world))
+
+
+def test_book_anchor_helper_equal_differing_explained_and_empty():
+    from r4 import bar
+
+    day = 86_400_000
+    daily = pd.DataFrame({"drift_free": [0.004, 0.006, 0.0]}, index=pd.Index([0, day, 2 * day], name="day_start"))
+    tr = pd.DataFrame({"entry_ms": [1000, day + 5], "exit_ms": [day - 5, 2 * day - 5]})
+
+    def stats(obs, wsum, kept=2):
+        return bar.JointShiftStats(obs, np.empty(0), [], 0, 2, None, wsum, kept)
+
+    ok = cal._book_anchor(tr, stats(0.005, 2.0), daily)
+    assert ok["checked"] is True and ok["ok"] is True and ok["rel_diff"] == pytest.approx(0.0, abs=1e-15)
+    assert ok["obs_weighted_sum"] == pytest.approx(0.01) and ok["book_sum"] == pytest.approx(0.01)
+    assert ok["explained"] is None and ok["n_kept"] == 2 and ok["n_tranches"] == 2
+    with pytest.raises(ValueError, match="book anchor"):
+        cal._book_anchor(tr, stats(0.0051, 2.0), daily)
+    # A tranche with a leg outside the daily window loses that leg's day: the difference is recorded as explained.
+    out_tr = pd.DataFrame({"entry_ms": [1000, day + 5], "exit_ms": [day - 5, 4 * day]})
+    explained = cal._book_anchor(out_tr, stats(0.0051, 2.0), daily)
+    assert explained["ok"] is True and explained["explained"] == "tranche_outside_daily_window"
+    assert explained["rel_diff"] > cal.BOOK_ANCHOR_TOL
+    # Nothing to compare: no tranche kept, or a NaN statistic.
+    none = cal._book_anchor(tr.iloc[:0], bar.JointShiftStats(float("nan"), np.empty(0), [], 0, 0), daily)
+    assert none["checked"] is False and none["ok"] is True
+
+
+def test_book_anchor_is_relative_to_gross_magnitude_when_the_sum_cancels():
+    from r4 import bar
+
+    day = 86_400_000
+    # Daily values that cancel to a sum near zero: rounding of 1e-17 must not count as a miss, a real gap must.
+    daily = pd.DataFrame(
+        {"drift_free": [0.01, -0.01 + 1e-15, 0.0]}, index=pd.Index([0, day, 2 * day], name="day_start")
+    )
+    tr = pd.DataFrame({"entry_ms": [1000, day + 5], "exit_ms": [day - 5, 2 * day - 5]})
+
+    def stats(obs, wsum, kept=2):
+        return bar.JointShiftStats(obs, np.empty(0), [], 0, 2, None, wsum, kept)
+
+    book = float(np.sum(daily["drift_free"]))
+    ok = cal._book_anchor(tr, stats((book + 1e-17) / 2.0, 2.0), daily)
+    assert ok["ok"] is True and ok["rel_diff"] < cal.BOOK_ANCHOR_TOL
+    with pytest.raises(ValueError, match="book anchor"):
+        cal._book_anchor(tr, stats((book + 1e-6) / 2.0, 2.0), daily)
