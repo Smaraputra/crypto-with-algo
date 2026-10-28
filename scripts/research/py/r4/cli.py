@@ -46,6 +46,7 @@ from r4.pipeline import (
     RunConfig,
     _get_decisions,
     _make_tranches,
+    _panel_premium,
     assert_whole_decision_times,
     compute_missing_settlement_times,
     decision_samples,
@@ -491,7 +492,11 @@ def run_wf(
     cpcv_path_means: list[float] = []
     cpcv_path_gross_means: list[float] = []
     cpcv_excluded: list[int] = []
-    cpcv_exit_ctx = None if is_horizon(cfg.exit) else ExitContext(five_min, cfg.h_ms)
+    cpcv_exit_ctx = (
+        None
+        if is_horizon(cfg.exit)
+        else ExitContext(five_min, cfg.h_ms, premium=_panel_premium(panel), settlements=settlements)
+    )
     for p in range(paths_predictions.shape[0]):
         p_daily, p_excluded = cpcv_path_daily(
             p,
@@ -591,6 +596,8 @@ def run_wf(
             "excluded_tranches": int(run_res.excluded_tranches),
             "exit_reason_counts": {k: int(v) for k, v in sorted(run_res.exit_reason_counts.items())},
             "missing_sigma_tranches": int(run_res.missing_sigma_tranches),
+            "missing_flow_tranches": int(run_res.missing_flow_tranches),
+            "missing_funding_tranches": int(run_res.missing_funding_tranches),
             "n_samples": int(run_res.n_samples),
             "n_dropped": int(run_res.n_dropped),
             "n_outside_d": n_outside_d,

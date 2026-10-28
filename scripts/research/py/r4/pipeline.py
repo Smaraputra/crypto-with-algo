@@ -106,6 +106,8 @@ class RunResult:
     tranches: list[Tranche] = field(default_factory=list)
     exit_reason_counts: dict[str, int] = field(default_factory=dict)
     missing_sigma_tranches: int = 0
+    missing_flow_tranches: int = 0
+    missing_funding_tranches: int = 0
 
 
 def load_panel(
@@ -520,6 +522,13 @@ def _get_decisions(model: SideModel, X_test: np.ndarray, cfg: RunConfig) -> np.n
     return sides
 
 
+def _panel_premium(panel: dict[str, dict[str, pd.DataFrame]] | None) -> dict[str, pd.DataFrame | None] | None:
+    """The 5m premium-index frame per coin, for the E6 exit (None when there is no panel)."""
+    if panel is None:
+        return None
+    return {s: panel[s].get("premium_5m", panel[s].get("premiumIndex")) for s in panel}
+
+
 def _make_tranches(
     test_df: pd.DataFrame,
     sides: np.ndarray,
@@ -676,7 +685,16 @@ def walk_forward(
     days_seq = list(range(min_d, max_d + DAY_MS, DAY_MS))
     daily_ret = daily_close_log_returns(five_min, days_seq, universe)
 
-    exit_ctx = None if is_horizon(cfg.exit) else ExitContext(five_min, cfg.h_ms)
+    exit_ctx = (
+        None
+        if is_horizon(cfg.exit)
+        else ExitContext(
+            five_min,
+            cfg.h_ms,
+            premium=_panel_premium(panel),
+            settlements=settlements if panel is not None else None,
+        )
+    )
 
     all_tranches: list[Tranche] = []
     all_fold_dfs: list[pd.DataFrame] = []
@@ -787,6 +805,8 @@ def walk_forward(
         tranches=all_tranches,
         exit_reason_counts=dict(Counter(t.exit_reason for t in all_tranches)),
         missing_sigma_tranches=0 if exit_ctx is None else exit_ctx.missing_sigma,
+        missing_flow_tranches=0 if exit_ctx is None else exit_ctx.missing_flow,
+        missing_funding_tranches=0 if exit_ctx is None else exit_ctx.missing_funding,
     )
 
 

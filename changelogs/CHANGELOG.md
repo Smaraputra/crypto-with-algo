@@ -46,6 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - intrabar fills are stamped at the touching 5m bar's close, so every exit stays on the 5m grid.
   - A vectorized replay equals the step machine tranche for tranche. It replays 300,000 tranches in about 1.3 s.
   - Horizon runs are unchanged. Receipts count exits by reason.
+  - E6 is an information exit evaluated at every 5m close inside the hold. It closes when the 12-bar taker-buy share moves 2 standard deviations against the position, against its trailing 30-day mean.
+    - It also closes when the predicted next funding, from the premium index and Binance's formula, exceeds 0.05% against the position before the settlement.
+    - The fill is a taker at 10 minutes after the decision, held as a pending close until then.
+    - Under no-edge flow the median hold is the full horizon.
 - A $100-account layer (`r4/account.py`, `r4.cli account`), report only.
   - It replays a run's tranches on a $100 account at 10x, 20x and 50x leverage, using today's Binance lot sizes and minimum notionals with historical prices.
   - It nets orders per coin per instant and charges fees on executed notional and funding on position notional.
