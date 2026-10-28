@@ -150,6 +150,90 @@ def item2(
     }
 
 
+VARIANCE_MODES = ("within_cell", "total", "cost_free_total")
+
+
+def cell_key(config: dict[str, Any]) -> tuple[Any, ...]:
+    """The cost cell of a configuration: (interval, h_ms, label, exit, book).
+
+    The exit is the string "horizon" or the sorted-key JSON of its dict, so key order never splits a cell. The book
+    defaults to "slot" and the label to "fixed". A missing interval or h_ms is None (old fixtures).
+    """
+    raw_exit = config.get("exit", "horizon")
+    exit_key = raw_exit if isinstance(raw_exit, str) else json.dumps(raw_exit, sort_keys=True)
+    return (
+        config.get("interval"),
+        config.get("h_ms"),
+        config.get("label", "fixed"),
+        exit_key,
+        config.get("book", "slot"),
+    )
+
+
+def trial_sharpe_variance(
+    round_daily: dict[str, pd.DataFrame],
+    round_configs: dict[str, dict[str, Any]],
+    mode: str = "within_cell",
+) -> dict[str, Any]:
+    """Variance of the trial per-calendar-day Sharpes, for the DSR benchmark (owner amendment 2026-10-28).
+
+    round_daily maps run id to a daily frame whose attrs["config_hash"] identifies the configuration (identical
+    hashes count once, the first in sorted run-id order). round_configs maps the same ids to config dicts for
+    cell_key. Modes:
+    - "within_cell": pooled within cost cells. A cell holds the unique configurations sharing cell_key. Cells with
+      at least 2 contribute sum((S_i - mean_cell)^2), divided by the sum of (n_cell - 1). Raises when that
+      degrees-of-freedom total is below 1.
+    - "total": the ddof=1 variance of all unique Sharpes.
+    - "cost_free_total": as total, on the Sharpe of gross_hedged + funding (both columns required).
+    Returns {"V", "df", "cells_used", "cells_singleton"}. The cell counts are reported in every mode.
+    """
+    if mode not in VARIANCE_MODES:
+        raise ValueError(f"variance mode must be one of {VARIANCE_MODES}, got {mode!r}")
+    seen: set[str] = set()
+    sharpes: dict[tuple[Any, ...], list[float]] = {}
+    for key in sorted(round_daily):
+        df = round_daily[key]
+        cfg_hash = getattr(df, "attrs", {}).get("config_hash")
+        if not cfg_hash:
+            raise ValueError(f"Round run {key} has no config_hash, so identical configs cannot be counted once")
+        if cfg_hash in seen:
+            continue
+        seen.add(cfg_hash)
+        if key not in round_configs:
+            raise ValueError(f"Round run {key} has no config for its cost cell")
+        if mode == "cost_free_total":
+            if "gross_hedged" not in df.columns or "funding" not in df.columns:
+                raise ValueError(f"Round run {key} has no gross_hedged and funding columns for the cost-free Sharpe")
+            arr = (df["gross_hedged"] + df["funding"]).to_numpy(dtype=np.float64)
+        else:
+            col = "drift_free" if "drift_free" in df.columns else df.columns[0]
+            arr = df[col].to_numpy(dtype=np.float64)
+        sharpes.setdefault(cell_key(round_configs[key]), []).append(per_period_sharpe(arr))
+
+    cells_used = sum(1 for v in sharpes.values() if len(v) >= 2)
+    cells_singleton = sum(1 for v in sharpes.values() if len(v) == 1)
+    if mode == "within_cell":
+        df_total = sum(len(v) - 1 for v in sharpes.values() if len(v) >= 2)
+        if df_total < 1:
+            raise ValueError(
+                "within-cell variance needs at least one cell with 2 unique configs: degrees of freedom < 1"
+            )
+        ss = sum(float(np.sum((np.asarray(v) - np.mean(v)) ** 2)) for v in sharpes.values() if len(v) >= 2)
+        return {"V": ss / df_total, "df": int(df_total), "cells_used": cells_used, "cells_singleton": cells_singleton}
+
+    allv = [x for v in sharpes.values() for x in v]
+    if len(allv) < 2:
+        raise ValueError(
+            f"Item 3 needs at least 2 unique configurations for the trial-Sharpe variance, got {len(allv)}"
+        )
+    return {
+        "V": float(np.var(allv, ddof=1)),
+        "df": len(allv) - 1,
+        "cells_used": cells_used,
+        "cells_singleton": cells_singleton,
+    }
+
+
 def item3(
     receipt: dict[str, Any],
     round_daily: dict[str, pd.DataFrame] | Sequence[float] | float,
@@ -657,8 +741,13 @@ def family_report(
     calibration: bool = False,
     seed_base: int = DEFAULT_JOINT_SHIFT_SEED_BASE,
     spa_seed: int = DEFAULT_SPA_SEED,
+    variance_mode: str = "within_cell",
 ) -> dict[str, Any]:
     """Evaluate exploration bar across all configurations in a family and write report.
+
+    The trial-Sharpe variance V of item 3 is the within-cost-cell pooled variance by default (owner amendment
+    2026-10-28). All three modes are computed and recorded under report["variance"]; variance_mode picks the one
+    item 3 receives.
 
     calibration=False (default) is the trial path: a round receipt with kind "control" raises, because controls
     are excluded from the round-close variance (M lines 116-117). calibration=True is the control path: only
@@ -720,6 +809,7 @@ def family_report(
 
     # 2. Discover round runs for trial Sharpe variance (item 3), keyed by the receipts' config_hash
     round_daily: dict[str, pd.DataFrame] = {}
+    round_configs: dict[str, dict[str, Any]] = {}
     for p in sorted(round_path.iterdir()):
         if not p.is_dir():
             continue
@@ -743,6 +833,7 @@ def family_report(
             df_round = pd.read_parquet(dly)
             df_round.attrs["config_hash"] = str(cfg_hash)
             round_daily[p.name] = df_round
+            round_configs[p.name] = round_receipt.get("config", {})
 
     # 3. Item 2 across the family
     item2_res = item2(family_daily)
@@ -753,6 +844,19 @@ def family_report(
         symbols = list(manifest["symbols"]) if manifest.get("symbols") else list(UNIVERSE)
         panel = load_panel(ds_path, symbols)
 
+    if variance_mode not in VARIANCE_MODES:
+        raise ValueError(f"variance_mode must be one of {VARIANCE_MODES}, got {variance_mode!r}")
+    variance_modes: dict[str, Any] = {}
+    for vm in VARIANCE_MODES:
+        try:
+            variance_modes[vm] = trial_sharpe_variance(round_daily, round_configs, vm)
+        except ValueError as exc:
+            if vm == variance_mode:
+                raise
+            variance_modes[vm] = {"error": str(exc)}
+    chosen_v = float(variance_modes[variance_mode]["V"])
+    n_unique_round = len({df.attrs["config_hash"] for df in round_daily.values()})
+
     config_evals: dict[str, Any] = {}
     passing_configs: list[dict[str, Any]] = []
 
@@ -760,7 +864,9 @@ def family_report(
     for run_id, receipt in family_runs.items():
         res1 = item1(receipt)
         c_daily = family_daily[run_id]
-        res3 = item3(receipt, round_daily, ledger_count, candidate_daily=c_daily)
+        res3 = item3(receipt, chosen_v, ledger_count, candidate_daily=c_daily)
+        res3["variance_mode"] = variance_mode
+        res3["n_unique_configs"] = n_unique_round
         res5 = item5(receipt)
         res6 = item6(receipt)
 
@@ -824,6 +930,7 @@ def family_report(
         "configurations": config_evals,
         "candidates": candidates,
         "finalists": finalists,
+        "variance": {"mode": variance_mode, "V": chosen_v, "modes": variance_modes},
         "tripwire": tripwire_status,
         "tripwire_input": tripwire_input,
         "calibration": bool(calibration),
@@ -846,6 +953,9 @@ def family_report(
 
 __all__ = [
     "BAR",
+    "VARIANCE_MODES",
+    "cell_key",
+    "trial_sharpe_variance",
     "DEV_END",
     "DSR_TRIALS_MIN",
     "JOINT_SHIFT_GRID_MS",
