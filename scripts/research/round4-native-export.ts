@@ -14,9 +14,14 @@
  * Usage (one rule per call, run on the VPS, never on the Mac):
  *   round4-native-export.ts <rule> --dataset-dir DIR --out DIR [--resolutions FILE]   (--resolutions: rv-v1 only)
  *
- * Reads are restricted to [2022-01-01, 2026-07-01). Neither --allow-lockbox nor any holdout flag exists, and the
- * parser refuses them. No callee below is passed allowLockbox or allowHoldoutA (grep: loadPerp, loadFunding,
- * loadCandles are called with their default options, which apply the lockbox and holdout A clips).
+ * Decisions and evaluation are restricted to [2022-01-01, 2026-07-01). Two rules read older spot bars as warm-up
+ * only, before the span starts: v8 reads spot from 2021-10-01 (V8_HARNESS_START) and c1 reads spot 1h from
+ * 2021-10-14 (the end of holdout A). Each summary records this in warmup_from. Holdout H is not read: the loader
+ * clips perp 5m to 4h before 2022 (the holdout A clip), so no perp intraday bar before 2022-01-01 reaches this
+ * script, and spot intraday before the span is outside the allowance N7 states for the span itself. Neither
+ * --allow-lockbox nor any holdout flag exists, and the parser refuses them. No callee below is passed allowLockbox
+ * or allowHoldoutA (grep: loadPerp, loadFunding, loadCandles are called with their default options, which apply the
+ * lockbox and holdout A clips).
  *
  * Output per rule: tranches.jsonl (TRANCHE_FIELDS) and summary.json. The summary's parity block reports the export's
  * trade count and mean net per trade next to the recorded RESULT values and their difference. It never fails on a
@@ -428,7 +433,7 @@ async function exportC1(opts: CliOptions): Promise<void> {
   summary.price_source_note =
     'prices are SPOT 1h closes (the rule\'s native prices). The 29b reader maps entry and exit times to perp 5m opens for the book, a disclosed price-source change';
   summary.warmup_note =
-    'scores use every spot candle the default loader returns (from the end of holdout A, 2021-10-14); older history stays unread, so a recursive indicator can differ slightly from the Round 1 scores computed from 2017';
+    'scores use every spot candle the default loader returns (spot 1h from the end of holdout A, 2021-10-14, as warm-up before the span, see warmup_from); older history stays unread, so a recursive indicator can differ slightly from the Round 1 scores computed from 2017. Holdout H is not read (perp intraday before 2022-01-01 is clipped by the loader)';
   writeExport(opts.out, set.tranches, summary);
 }
 
@@ -442,6 +447,8 @@ async function exportV8(opts: CliOptions, rule: 'v8-1h' | 'v8-4h'): Promise<void
   }
   const set = v8Tranches(rule, report, perp);
   const summary = baseSummary(rule, set, report.datasetManifestHash, V8_HARNESS_START);
+  summary.warmup_note =
+    'the harness reads spot from 2021-10-01 as warm-up before the span (warmup_from); perp 5m to 4h before 2022-01-01 is clipped by the loader, so holdout H is not read';
   const tf = report.costs.takerFeePercent / 100;
   summary.costs = {
     fee_taker: tf,

@@ -920,20 +920,29 @@ def main() -> None:
 
     cc_parser = subparsers.add_parser("calib-power-curve", help="Recompute the power curve at a variance, choose a*")
     cc_parser.add_argument("--power-dir", required=True, help="Directory from calib-power")
-    cc_parser.add_argument("--v", required=True, type=float, help="D within-cell V (the margin is applied here)")
+    cc_vgroup = cc_parser.add_mutually_exclusive_group(required=True)
+    cc_vgroup.add_argument("--v", type=float, help="D within-cell V (the margin is applied here)")
+    cc_vgroup.add_argument("--noise-eval", help="calib-noise-eval JSON: reads variance.V and records its sha256")
     cc_parser.add_argument("--out", required=True, help="Output JSON file")
     cc_parser.add_argument("--margin", required=False, type=float, default=1.2, help="V multiplier (default 1.2)")
     cc_parser.add_argument("--draws", required=False, type=int, default=200, help="Joint-shift draws (default 200)")
     cc_parser.add_argument("--extend", action="store_true", help="Extend the grid by doubling (runs simulations)")
-    cc_parser.add_argument("--commit", required=False, default=None, help="Commit SHA (needed with --extend)")
+    cc_parser.add_argument(
+        "--commit",
+        required=False,
+        default=None,
+        help="Commit SHA (needed to simulate a lower grid amplitude or extend)",
+    )
 
     cpos_parser = subparsers.add_parser("calib-positive", help="Run and evaluate the planted positive control on D")
     cpos_parser.add_argument("--ds", required=True, help="Dataset directory")
     cpos_parser.add_argument("--noise-runs", required=True, help="Noise control runs (their V is used)")
     cpos_parser.add_argument("--out", required=True, help="Output directory")
     cpos_parser.add_argument("--commit", required=True, help="Commit SHA")
-    cpos_parser.add_argument("--a-star", required=False, type=float, default=None, help="Planted amplitude")
-    cpos_parser.add_argument("--power", required=False, default=None, help="calib-power-curve JSON (reads a_star)")
+    cpos_parser.add_argument("--power", required=True, help="calib-power-curve JSON (reads power.a_star.a_star)")
+    cpos_parser.add_argument(
+        "--noise-eval", required=True, help="calib-noise-eval JSON (reads noise_eval.variance.V, the only V used)"
+    )
     cpos_parser.add_argument("--audited", action="store_true", help="A code audit found nothing (needed after a miss)")
     cpos_parser.add_argument("--rerun", action="store_true", help="Use the registered re-run plant and decoy seeds")
     cpos_parser.add_argument("--tripwire-shifts", required=False, type=int, default=len(SHIFT_DAYS), help="Shifts")
@@ -1013,28 +1022,39 @@ def main() -> None:
     elif args.command == "calib-power-curve":
         from r4 import calibration
 
-        v_margin = args.v * args.margin
+        v_input: dict[str, Any] | None = None
+        if args.noise_eval:
+            from r4.data import sha256_file
+
+            noise_doc = json.loads(Path(args.noise_eval).read_text(encoding="utf-8"))
+            v_value = float(noise_doc["variance"]["V"])
+            v_input = {"path": str(Path(args.noise_eval).resolve()), "sha256": sha256_file(args.noise_eval)}
+        else:
+            v_value = float(args.v)
+        v_margin = v_value * args.margin
 
         def curve_json(curve: dict[float, dict[str, Any]]) -> dict[str, Any]:
             return {repr(a): e for a, e in sorted(curve.items())}
 
-        curve = calibration.power_curve(args.power_dir, v_margin, joint_draws=args.draws)
-
-        def extend_one(a: float) -> dict[str, Any]:
-            calibration.extend_amplitude(args.power_dir, a, commit=args.commit)
-            return calibration.power_curve(args.power_dir, v_margin, joint_draws=args.draws)[a]
-
         if args.extend and not args.commit:
             raise SystemExit("--extend needs --commit")
-        chosen = calibration.choose_a_star(curve, extend=extend_one if args.extend else None)
+        try:
+            chosen = calibration.select_a_star(
+                args.power_dir, v_margin, args.commit, extend_up=args.extend, joint_draws=args.draws
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         result = {
-            "v": args.v,
+            "v": v_value,
+            "v_input": v_input,
             "margin": args.margin,
             "v_margin": v_margin,
             "joint_draws": args.draws,
             "n_trials": 120,
+            "grid": calibration._read_power_meta(args.power_dir).get("grid"),
             "curve_at_1_2v": curve_json(chosen["curve"]),
             "a_star": {k: chosen[k] for k in ("a_star", "infeasible", "extensions")},
+            "provenance": calibration.power_provenance(args.power_dir),
             "disclosed": "tripwire and SPA are skipped in the power simulation; P2 is omitted",
         }
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -1042,15 +1062,22 @@ def main() -> None:
         print(f"Power curve written to {args.out}: a*={chosen['a_star']} infeasible={chosen['infeasible']}")
     elif args.command == "calib-positive":
         from r4 import calibration
+        from r4.data import sha256_file
 
-        a_star = args.a_star
+        noise_doc = json.loads(Path(args.noise_eval).read_text(encoding="utf-8"))
+        power_doc = json.loads(Path(args.power).read_text(encoding="utf-8"))
+        v_noise = float(noise_doc["variance"]["V"])
+        a_star = power_doc["a_star"]["a_star"]
         if a_star is None:
-            if not args.power:
-                raise SystemExit("pass --a-star or --power")
-            power_doc = json.loads(Path(args.power).read_text(encoding="utf-8"))
-            a_star = power_doc["a_star"]["a_star"]
-            if a_star is None:
-                raise SystemExit("the power result is infeasible: there is no a* to plant")
+            raise SystemExit("the power result is infeasible: there is no a* to plant")
+        if power_doc.get("v") is None or abs(float(power_doc["v"]) - v_noise) > 1e-12 * max(1.0, abs(v_noise)):
+            raise SystemExit(
+                f"the power file's V {power_doc.get('v')!r} differs from the noise evaluation's V {v_noise!r}"
+            )
+        provenance = {
+            "noise_eval": {"path": str(Path(args.noise_eval).resolve()), "sha256": sha256_file(args.noise_eval)},
+            "power": {"path": str(Path(args.power).resolve()), "sha256": sha256_file(args.power)},
+        }
         if not 1 <= args.tripwire_shifts <= len(SHIFT_DAYS):
             raise SystemExit(f"--tripwire-shifts must be between 1 and {len(SHIFT_DAYS)}")
         res = calibration.positive_control(
@@ -1062,6 +1089,8 @@ def main() -> None:
             tripwire_shifts=SHIFT_DAYS[: args.tripwire_shifts],
             rerun=args.rerun,
             audited=args.audited,
+            expected_v=v_noise,
+            provenance=provenance,
         )
         print(f"Positive control written to {args.out}: detected={res['detected']} by {res['detected_by']}")
     elif args.command == "calib-dossier":
