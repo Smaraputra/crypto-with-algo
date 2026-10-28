@@ -903,6 +903,52 @@ def main() -> None:
         "--draws", required=False, type=int, default=None, help="Joint-shift draws (default: M's 1000)"
     )
 
+    cp_parser = subparsers.add_parser(
+        "calib-power", help="Power simulation: P1 and decoys on synthetic D-shaped panels"
+    )
+    cp_parser.add_argument("--dcov", required=True, help="JSON from calib-dcov")
+    cp_parser.add_argument("--out", required=True, help="Power directory (a<amplitude>/r<replicate>/ inside)")
+    cp_parser.add_argument("--commit", required=True, help="Commit SHA")
+    cp_parser.add_argument("--amplitudes", required=True, help="Comma-separated registered amplitude grid")
+    cp_parser.add_argument("--replicates", required=False, type=int, default=40, help="Replicates (default 40)")
+    cp_parser.add_argument("--start-ms", required=False, type=int, default=None, help="Panel start (default DEV_START)")
+    cp_parser.add_argument("--end-ms", required=False, type=int, default=None, help="Panel end (default DEV_END)")
+    cp_parser.add_argument(
+        "--first-refit-ms", required=False, type=int, default=None, help="First refit (default 2023)"
+    )
+    cp_parser.add_argument("--stop-v", required=False, type=float, default=None, help="Adaptive walk at this variance")
+
+    cc_parser = subparsers.add_parser("calib-power-curve", help="Recompute the power curve at a variance, choose a*")
+    cc_parser.add_argument("--power-dir", required=True, help="Directory from calib-power")
+    cc_parser.add_argument("--v", required=True, type=float, help="D within-cell V (the margin is applied here)")
+    cc_parser.add_argument("--out", required=True, help="Output JSON file")
+    cc_parser.add_argument("--margin", required=False, type=float, default=1.2, help="V multiplier (default 1.2)")
+    cc_parser.add_argument("--draws", required=False, type=int, default=200, help="Joint-shift draws (default 200)")
+    cc_parser.add_argument("--extend", action="store_true", help="Extend the grid by doubling (runs simulations)")
+    cc_parser.add_argument("--commit", required=False, default=None, help="Commit SHA (needed with --extend)")
+
+    cpos_parser = subparsers.add_parser("calib-positive", help="Run and evaluate the planted positive control on D")
+    cpos_parser.add_argument("--ds", required=True, help="Dataset directory")
+    cpos_parser.add_argument("--noise-runs", required=True, help="Noise control runs (their V is used)")
+    cpos_parser.add_argument("--out", required=True, help="Output directory")
+    cpos_parser.add_argument("--commit", required=True, help="Commit SHA")
+    cpos_parser.add_argument("--a-star", required=False, type=float, default=None, help="Planted amplitude")
+    cpos_parser.add_argument("--power", required=False, default=None, help="calib-power-curve JSON (reads a_star)")
+    cpos_parser.add_argument("--audited", action="store_true", help="A code audit found nothing (needed after a miss)")
+    cpos_parser.add_argument("--rerun", action="store_true", help="Use the registered re-run plant and decoy seeds")
+    cpos_parser.add_argument("--tripwire-shifts", required=False, type=int, default=len(SHIFT_DAYS), help="Shifts")
+
+    cdo_parser = subparsers.add_parser("calib-dossier", help="Write the Phase 4 dossier once (exclusive create)")
+    cdo_parser.add_argument("--out", required=True, help="Output JSON file (must not exist)")
+    cdo_parser.add_argument("--null", required=True, help="Daily null simulation JSON")
+    cdo_parser.add_argument("--noise", required=True, help="calib-noise-eval JSON")
+    cdo_parser.add_argument("--power", required=True, help="calib-power-curve JSON")
+    cdo_parser.add_argument("--positive", required=True, help="Positive control JSON")
+    cdo_parser.add_argument("--spa", required=True, help="Re-test family SPA JSON")
+    cdo_parser.add_argument("--retests", required=True, nargs="+", help="The 6 re-test receipts")
+    cdo_parser.add_argument("--commit-order", required=True, help="Commit-order evidence JSON (computed outside)")
+    cdo_parser.add_argument("--exit-block", required=False, default=None, help="Exit block result JSON, when run")
+
     args = parser.parse_args()
 
     if args.command == "calib-grid":
@@ -942,6 +988,98 @@ def main() -> None:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(f"Noise evaluation written to {args.out}: gate_ok={report['gate_ok']}")
+    elif args.command == "calib-power":
+        from r4 import calibration
+
+        dcov = json.loads(Path(args.dcov).read_text(encoding="utf-8"))
+        extra: dict[str, Any] = {}
+        if args.start_ms is not None:
+            extra["start_ms"] = args.start_ms
+        if args.end_ms is not None:
+            extra["end_ms"] = args.end_ms
+        if args.first_refit_ms is not None:
+            extra["first_refit_ms"] = args.first_refit_ms
+        summary = calibration.power_simulation(
+            dcov,
+            args.out,
+            [float(x) for x in args.amplitudes.split(",")],
+            n_replicates=args.replicates,
+            commit=args.commit,
+            stop_v=args.stop_v,
+            **extra,
+        )
+        (Path(args.out) / "power_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print(f"Power simulation written to {args.out}: order {summary['order']} in {summary['runtime_s']} s")
+    elif args.command == "calib-power-curve":
+        from r4 import calibration
+
+        v_margin = args.v * args.margin
+
+        def curve_json(curve: dict[float, dict[str, Any]]) -> dict[str, Any]:
+            return {repr(a): e for a, e in sorted(curve.items())}
+
+        curve = calibration.power_curve(args.power_dir, v_margin, joint_draws=args.draws)
+
+        def extend_one(a: float) -> dict[str, Any]:
+            calibration.extend_amplitude(args.power_dir, a, commit=args.commit)
+            return calibration.power_curve(args.power_dir, v_margin, joint_draws=args.draws)[a]
+
+        if args.extend and not args.commit:
+            raise SystemExit("--extend needs --commit")
+        chosen = calibration.choose_a_star(curve, extend=extend_one if args.extend else None)
+        result = {
+            "v": args.v,
+            "margin": args.margin,
+            "v_margin": v_margin,
+            "joint_draws": args.draws,
+            "n_trials": 120,
+            "curve_at_1_2v": curve_json(chosen["curve"]),
+            "a_star": {k: chosen[k] for k in ("a_star", "infeasible", "extensions")},
+            "disclosed": "tripwire and SPA are skipped in the power simulation; P2 is omitted",
+        }
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print(f"Power curve written to {args.out}: a*={chosen['a_star']} infeasible={chosen['infeasible']}")
+    elif args.command == "calib-positive":
+        from r4 import calibration
+
+        a_star = args.a_star
+        if a_star is None:
+            if not args.power:
+                raise SystemExit("pass --a-star or --power")
+            power_doc = json.loads(Path(args.power).read_text(encoding="utf-8"))
+            a_star = power_doc["a_star"]["a_star"]
+            if a_star is None:
+                raise SystemExit("the power result is infeasible: there is no a* to plant")
+        if not 1 <= args.tripwire_shifts <= len(SHIFT_DAYS):
+            raise SystemExit(f"--tripwire-shifts must be between 1 and {len(SHIFT_DAYS)}")
+        res = calibration.positive_control(
+            args.ds,
+            float(a_star),
+            args.noise_runs,
+            args.out,
+            commit=args.commit,
+            tripwire_shifts=SHIFT_DAYS[: args.tripwire_shifts],
+            rerun=args.rerun,
+            audited=args.audited,
+        )
+        print(f"Positive control written to {args.out}: detected={res['detected']} by {res['detected_by']}")
+    elif args.command == "calib-dossier":
+        from r4 import calibration
+
+        order = json.loads(Path(args.commit_order).read_text(encoding="utf-8"))
+        doc = calibration.write_dossier(
+            args.out,
+            null_simulation=args.null,
+            noise_eval=args.noise,
+            power=args.power,
+            positive_control=args.positive,
+            family_spa=args.spa,
+            retests=args.retests,
+            commit_order=order,
+            exit_block=args.exit_block,
+        )
+        print(f"Dossier written to {args.out}: gate_p_ready={doc['gate_p_ready']} (evidence only)")
     elif args.command == "run-wf":
         receipt = run_wf(
             config_file=args.config,

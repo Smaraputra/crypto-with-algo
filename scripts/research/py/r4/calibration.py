@@ -12,6 +12,9 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
+import time
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -606,8 +609,774 @@ def evaluate_noise(
     }
 
 
+# ---------------------------------------------------------------------------
+# Power simulation (spec sections 5 and 12 N1): synthetic panels only
+# ---------------------------------------------------------------------------
+
+POWER_PANEL_SEED_BASE = 4000
+POWER_PLANT_SEED_BASE = 30_000
+POWER_JOINT_SEED_BASE = 9_000_000
+POWER_REPLICATES = 40
+POWER_JOINT_DRAWS = 200
+POWER_MARGIN = 1.2
+POWER_TARGET = 0.8
+POWER_MAX_DOUBLINGS = 3
+PC_RERUN_PLANT_SEED = 20261029
+PC_RERUN_DECOY_BASE = 2_000_011
+POSITIVE_MISS_FILE = "positive_miss.json"
+# P1 and the four decoys: P2 is omitted in the power simulation (disclosed).
+POWER_RUN_IDS: tuple[str, ...] = ("pc_P1", "pc_D1", "pc_D2", "pc_D3", "pc_D4")
+
+
+def _amp_dir(power_dir: Path | str, amplitude: float) -> Path:
+    return Path(power_dir) / f"a{float(amplitude)!r}"
+
+
+def power_family(amplitude: float, replicate: int, first_refit_ms: int = FIRST_REFIT_MS) -> list[dict[str, Any]]:
+    """P1 and D1 to D4 at one amplitude, with the plant seed of this replicate (30,000 + r)."""
+    out: list[dict[str, Any]] = []
+    for c in pc_family(amplitude):
+        if c["id"] == "pc_P2":
+            continue
+        c["plant"] = {"seed": POWER_PLANT_SEED_BASE + int(replicate), "amplitude": float(amplitude)}
+        c["first_refit_ms"] = int(first_refit_ms)
+        out.append(c)
+    return out
+
+
+def adaptive_order(grid: Sequence[float]) -> list[float]:
+    """Middle amplitude first, then the nearest neighbours outward, the upper one before the lower one."""
+    g = sorted(float(a) for a in grid)
+    n = len(g)
+    if n == 0:
+        return []
+    mid = n // 2
+    order = [g[mid]]
+    k = 1
+    while len(order) < n:
+        for idx in (mid + k, mid - k):
+            if 0 <= idx < n:
+                order.append(g[idx])
+        k += 1
+    return order
+
+
+def _power_meta(
+    dcov: dict[str, Any], n_replicates: int, start_ms: int, end_ms: int, first_refit_ms: int
+) -> dict[str, Any]:
+    cov = np.asarray(dcov["cov"], dtype=np.float64)
+    symbols = list(dcov["symbols"])
+    if cov.shape != (len(symbols), len(symbols)):
+        raise ValueError(f"dcov covariance shape {cov.shape} does not match {len(symbols)} symbols")
+    return {
+        "symbols": symbols,
+        "cov": cov.tolist(),
+        "start_ms": int(start_ms),
+        "end_ms": int(end_ms),
+        "first_refit_ms": int(first_refit_ms),
+        "panel_seed_base": POWER_PANEL_SEED_BASE,
+        "plant_seed_base": POWER_PLANT_SEED_BASE,
+        "joint_seed_base": POWER_JOINT_SEED_BASE,
+        "n_replicates": int(n_replicates),
+        "garch": [0.08, 0.88],
+        "t_df": 4.5,
+    }
+
+
+def _read_power_meta(power_dir: Path | str) -> dict[str, Any]:
+    f = Path(power_dir) / "power_meta.json"
+    if not f.is_file():
+        raise ValueError(f"{f} is missing: not a power simulation directory")
+    return json.loads(f.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+def _simulate_amplitude(power_dir: Path | str, amplitude: float, meta: dict[str, Any], commit: str | None) -> None:
+    """Run P1 and the decoys for every replicate at one amplitude. A finished replicate is not re-run."""
+    import shutil
+
+    from r4 import cli
+    from r4.synth import synth_panel, write_synthetic_dataset
+
+    adir = _amp_dir(power_dir, amplitude)
+    for r in range(int(meta["n_replicates"])):
+        run_dir = adir / f"r{r}"
+        if all((run_dir / rid / "receipt.json").is_file() for rid in POWER_RUN_IDS):
+            continue
+        panel = synth_panel(
+            meta["cov"],
+            meta["symbols"],
+            int(meta["start_ms"]),
+            int(meta["end_ms"]),
+            seed=int(meta["panel_seed_base"]) + r,
+            garch=tuple(meta["garch"]),
+            t_df=float(meta["t_df"]),
+        )
+        tmp = run_dir / "_tmp"
+        try:
+            ds = write_synthetic_dataset(panel, tmp / "ds")
+            for c in power_family(amplitude, r, int(meta["first_refit_ms"])):
+                cfg_file = tmp / "cfg" / f"{c['id']}.json"
+                cfg_file.parent.mkdir(parents=True, exist_ok=True)
+                cfg_file.write_text(json.dumps(c, indent=2), encoding="utf-8")
+                cli.run_wf(cfg_file, ds, run_dir, commit=commit, panel=panel)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        del panel
+
+
+def _amplitude_rate(
+    power_dir: Path | str, amplitude: float, v: float, n_trials: int, joint_draws: int, **kw: Any
+) -> float:
+    entry = _curve_entry(Path(power_dir), _read_power_meta(power_dir), amplitude, v, n_trials, joint_draws)
+    return float(entry["rate"])
+
+
+def power_simulation(
+    dcov: dict[str, Any],
+    out_dir: Path | str,
+    amplitudes: Sequence[float],
+    n_replicates: int = POWER_REPLICATES,
+    commit: str | None = None,
+    *,
+    start_ms: int = DEV_START,
+    end_ms: int = DEV_END,
+    first_refit_ms: int = FIRST_REFIT_MS,
+    stop_v: float | None = None,
+    n_trials: int = N_TRIALS_CALIBRATION,
+    joint_draws: int = POWER_JOINT_DRAWS,
+) -> dict[str, Any]:
+    """Run the power simulation: P1 and decoys D1 to D4 on synthetic D-shaped panels, one stored series per run.
+
+    For each amplitude and replicate r the panel is synth_panel(cov, seed 4,000 + r) (common across amplitudes),
+    written to a temporary synthetic dataset that is deleted afterwards, and run through run_wf with the plant seed
+    30,000 + r. Runs land under out_dir/a{amplitude}/r{r}/<run id>/ with daily.parquet, receipt.json, tranches and
+    folds. Amplitudes are evaluated in adaptive order (middle first, then outward). Without stop_v all of them run.
+    With stop_v the walk follows the detection rate at that variance (an evaluation at the synthetic V): from the
+    middle it goes down while the rate is at least 0.8, up otherwise, one neighbour at a time, and stops at the first
+    change of side. start_ms, end_ms and first_refit_ms exist so tests can shrink the span.
+    """
+    if n_replicates < 1:
+        raise ValueError("n_replicates must be at least 1")
+    grid = sorted({float(a) for a in amplitudes})
+    if not grid:
+        raise ValueError("amplitudes must not be empty")
+    t0 = time.perf_counter()
+    power_dir = Path(out_dir)
+    meta = _power_meta(dcov, n_replicates, start_ms, end_ms, first_refit_ms)
+    meta_file = power_dir / "power_meta.json"
+    if meta_file.is_file():
+        if _read_power_meta(power_dir) != meta:
+            raise ValueError(f"{meta_file} differs from the requested simulation: use a fresh directory")
+    else:
+        power_dir.mkdir(parents=True, exist_ok=True)
+        meta_file.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    order = adaptive_order(grid)
+    evaluated: list[float] = []
+    if stop_v is None:
+        for a in order:
+            _simulate_amplitude(power_dir, a, meta=meta, commit=commit)
+            evaluated.append(a)
+    else:
+        i = len(grid) // 2
+        _simulate_amplitude(power_dir, grid[i], meta=meta, commit=commit)
+        evaluated.append(grid[i])
+        qualifies = _amplitude_rate(power_dir, grid[i], stop_v, n_trials, joint_draws) >= POWER_TARGET - 1e-12
+        step = -1 if qualifies else 1
+        j = i + step
+        while 0 <= j < len(grid):
+            _simulate_amplitude(power_dir, grid[j], meta=meta, commit=commit)
+            evaluated.append(grid[j])
+            ok = _amplitude_rate(power_dir, grid[j], stop_v, n_trials, joint_draws) >= POWER_TARGET - 1e-12
+            if ok != qualifies:
+                break
+            j += step
+        order = list(evaluated)
+    return {
+        "power_dir": str(power_dir),
+        "amplitudes": grid,
+        "order": order,
+        "evaluated": evaluated,
+        "panel_seeds": [POWER_PANEL_SEED_BASE + r for r in range(n_replicates)],
+        "plant_seeds": [POWER_PLANT_SEED_BASE + r for r in range(n_replicates)],
+        "n_replicates": int(n_replicates),
+        "stop_v": stop_v,
+        "commit": commit,
+        "runtime_s": round(time.perf_counter() - t0, 3),
+    }
+
+
+def extend_amplitude(power_dir: Path | str, amplitude: float, commit: str | None = None) -> None:
+    """Simulate one more amplitude into an existing power directory, with the same replicate seeds."""
+    _simulate_amplitude(power_dir, amplitude, meta=_read_power_meta(power_dir), commit=commit)
+
+
+def _curve_entry(
+    power_dir: Path, meta: dict[str, Any], amplitude: float, v: float, n_trials: int, joint_draws: int
+) -> dict[str, Any]:
+    """Detection at one amplitude: P1 passes items 1, 2 (5-config PBO), 3 at v, 5, 6, then the joint shift."""
+    from r4 import bar
+    from r4.plant import apply_plant
+    from r4.stats import wilson
+    from r4.synth import synth_panel
+
+    adir = _amp_dir(power_dir, amplitude)
+    detail: list[dict[str, Any]] = []
+    detected = 0
+    for r in range(int(meta["n_replicates"])):
+        run_dir = adir / f"r{r}"
+        missing = [rid for rid in POWER_RUN_IDS if not (run_dir / rid / "receipt.json").is_file()]
+        if missing:
+            raise ValueError(f"replicate {r} at amplitude {amplitude} has no stored runs for {missing}")
+        receipts = {
+            rid: json.loads((run_dir / rid / "receipt.json").read_text(encoding="utf-8")) for rid in POWER_RUN_IDS
+        }
+        dailies = {rid: pd.read_parquet(run_dir / rid / "daily.parquet") for rid in POWER_RUN_IDS}
+        p1, d1 = receipts["pc_P1"], dailies["pc_P1"]
+        res1 = bar.item1(p1)
+        res2 = bar.item2(dailies)
+        res3 = bar.item3(p1, v, n_trials, candidate_daily=d1)
+        res5 = bar.item5(p1)
+        res6 = bar.item6(p1)
+        cheap = bool(res1["pass"] and res2["pass"] and res3["pass"] and res5["pass"] and res6["pass"])
+        row: dict[str, Any] = {
+            "replicate": r,
+            "item1": bool(res1["pass"]),
+            "item2": bool(res2["pass"]),
+            "item3": bool(res3["pass"]),
+            "item5": bool(res5["pass"]),
+            "item6": bool(res6["pass"]),
+            "joint_shift_p": None,
+            "detected": False,
+        }
+        if cheap:
+            plant = {"seed": POWER_PLANT_SEED_BASE + r, "amplitude": float(amplitude)}
+            panel = synth_panel(
+                meta["cov"],
+                meta["symbols"],
+                int(meta["start_ms"]),
+                int(meta["end_ms"]),
+                seed=int(meta["panel_seed_base"]) + r,
+                garch=tuple(meta["garch"]),
+                t_df=float(meta["t_df"]),
+            )
+            planted = apply_plant(panel, plant)
+            p_joint, _drop, _obs, _sh = bar.joint_shift_null(
+                pd.read_parquet(run_dir / "pc_P1" / "tranches.parquet"),
+                planted,
+                json.loads((run_dir / "pc_P1" / "folds.json").read_text(encoding="utf-8")),
+                span_start_ms=int(meta["first_refit_ms"]),
+                span_end_ms=DEV_END,
+                n_draws=int(joint_draws),
+                min_shift_days=int(BAR["random_entry_shift_min_days"]),
+                seed=POWER_JOINT_SEED_BASE + r,
+            )
+            row["joint_shift_p"] = float(p_joint)
+            row["detected"] = bool(p_joint < float(BAR["random_entry_p_max"]))
+        detected += int(row["detected"])
+        detail.append(row)
+    n = int(meta["n_replicates"])
+    lo, hi = wilson(detected, n)
+    return {
+        "detected": int(detected),
+        "n": n,
+        "rate": detected / n,
+        "wilson95": [float(lo), float(hi)],
+        "replicates": detail,
+    }
+
+
+def power_curve(
+    power_dir: Path | str, v: float, n_trials: int = N_TRIALS_CALIBRATION, joint_draws: int = POWER_JOINT_DRAWS
+) -> dict[float, dict[str, Any]]:
+    """Detection rate per stored amplitude at the trial-Sharpe variance v: a pure recomputation over stored series.
+
+    Detection for replicate r means P1 passes item 1, item 2 (PBO of the 5-config matrix), item 3 at v, items 5 and
+    6, and then item 4's joint shift at joint_draws draws (seed 9,000,000 + r), which runs only when the others pass.
+    The joint shift reads the replicate's synthetic panel (regenerated from its seed) with the plant applied. The
+    tripwire and the SPA are skipped (disclosed). Returns {amplitude: {detected, n, rate, wilson95, replicates}}.
+    """
+    pdir = Path(power_dir)
+    meta = _read_power_meta(pdir)
+    amps = sorted(float(p.name[1:]) for p in pdir.iterdir() if p.is_dir() and p.name.startswith("a"))
+    if not amps:
+        raise ValueError(f"no amplitudes stored under {pdir}")
+    return {a: _curve_entry(pdir, meta, a, float(v), int(n_trials), int(joint_draws)) for a in amps}
+
+
+def power_curve_at_margin(
+    power_dir: Path | str, v: float, margin: float = POWER_MARGIN, **kw: Any
+) -> dict[float, dict[str, Any]]:
+    """The power curve at margin x v (registered margin 1.2), which is the curve a* is chosen on."""
+    return power_curve(power_dir, float(v) * float(margin), **kw)
+
+
+def choose_a_star(
+    curve: dict[float, dict[str, Any]], extend: Callable[[float], dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """a* = the smallest amplitude with a detection rate of at least 0.8 on a curve already taken at 1.2 x V.
+
+    If none qualifies and extend is given, the grid is extended upward by doubling its largest amplitude, at most 3
+    times, calling extend(amplitude) for each new curve entry (the same replicate seeds). If it still fails the result
+    is infeasible. Returns {"a_star", "infeasible", "extensions", "curve"}.
+    """
+    if not curve:
+        raise ValueError("an empty curve has no a*")
+    work = {float(a): dict(e) for a, e in curve.items()}
+    extensions: list[float] = []
+
+    def pick() -> float | None:
+        ok = [a for a, e in sorted(work.items()) if float(e["rate"]) >= POWER_TARGET - 1e-12]
+        return ok[0] if ok else None
+
+    star = pick()
+    while star is None and extend is not None and len(extensions) < POWER_MAX_DOUBLINGS:
+        a_new = 2.0 * max(work)
+        work[a_new] = dict(extend(a_new))
+        extensions.append(a_new)
+        star = pick()
+    return {"a_star": star, "infeasible": star is None, "extensions": extensions, "curve": work}
+
+
+# ---------------------------------------------------------------------------
+# Positive control on D
+# ---------------------------------------------------------------------------
+
+
+def pc_rerun_family(amplitude: float) -> list[dict[str, Any]]:
+    """The registered plant re-run: plant seed 20261029 and decoy noise seeds 2,000,011 to 2,000,014."""
+    out = pc_family(amplitude)
+    for c in out:
+        c["plant"] = {"seed": PC_RERUN_PLANT_SEED, "amplitude": float(amplitude)}
+        if c["id"].startswith("pc_D"):
+            c["noise_seed"] = PC_RERUN_DECOY_BASE + int(c["id"][4:]) - 1
+    return out
+
+
+def positive_control(
+    ds_dir: Path | str,
+    a_star: float,
+    noise_runs_dir: Path | str,
+    out_dir: Path | str,
+    commit: str | None = None,
+    *,
+    first_refit_ms: int | None = None,
+    tripwire_shifts: Sequence[int] | None = None,
+    panel: dict[str, dict[str, pd.DataFrame]] | None = None,
+    rerun: bool = False,
+    audited: bool = False,
+    n_trials: int = N_TRIALS_CALIBRATION,
+) -> dict[str, Any]:
+    """Run the pc family (P1, P2, D1 to D4) with the plant at a* on D and evaluate it with the calibration bar.
+
+    Receipts are kind "control". Item 3 uses the within-cell V of the NOISE controls (noise_runs_dir is the round
+    directory of family_report) and N = 120. Item 4's joint shift and the SPA read the PLANTED panel, because the
+    observed statistic is priced from the panel and the plant only exists there. The label-shift tripwire runs for
+    P1 and P2 only when they pass items 1 to 3. Detection means P1 or P2 passes items 1 to 6 and the tripwire does
+    not halt. A miss writes positive_miss.json, and a later call with the same out_dir refuses unless audited=True
+    (the failure tree: a re-run follows a code audit, spec section 8). rerun=True uses the registered re-run seeds.
+    """
+    from r4 import bar, cli
+    from r4.pipeline import load_panel
+    from r4.plant import apply_plant
+    from r4.tripwire import SHIFT_DAYS
+
+    out = Path(out_dir)
+    miss_file = out / POSITIVE_MISS_FILE
+    runs = out / "runs"
+    if miss_file.exists() and not audited:
+        raise ValueError(f"{miss_file} exists: a code audit must find nothing before a re-run (pass audited=True)")
+    attempt_tag = 1
+    while (out / f"attempt_{attempt_tag}").exists():
+        attempt_tag += 1
+    if miss_file.exists():
+        archive = out / f"attempt_{attempt_tag}"
+        archive.mkdir(parents=True)
+        miss_file.rename(archive / POSITIVE_MISS_FILE)
+        if runs.exists():
+            runs.rename(archive / "runs")
+        for name in ("tripwire", "configs", "family_report.json", "positive_control.json"):
+            if (out / name).exists():
+                (out / name).rename(archive / name)
+    elif runs.exists() and any(runs.iterdir()):
+        raise ValueError(f"{runs} already holds runs and no miss record: refusing to overwrite them")
+
+    configs = pc_rerun_family(a_star) if rerun else pc_family(a_star)
+    if first_refit_ms is not None:
+        for c in configs:
+            c["first_refit_ms"] = int(first_refit_ms)
+    cfg_dir = out / "configs"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    cfg_files: dict[str, Path] = {}
+    for c in configs:
+        f = cfg_dir / f"{c['id']}.json"
+        f.write_text(json.dumps(c, indent=2), encoding="utf-8")
+        cfg_files[c["id"]] = f
+
+    ds = Path(ds_dir)
+    if panel is None:
+        manifest = bar.read_manifest(ds)
+        panel = load_panel(ds, list(manifest["symbols"]))
+    for c in configs:
+        cli.run_wf(cfg_files[c["id"]], ds, runs, commit=commit, panel=panel)
+
+    planted = apply_plant(panel, configs[0]["plant"])
+    report = bar.family_report(
+        family="pc",
+        runs_dir=runs,
+        round_runs_dir=noise_runs_dir,
+        ledger_count=n_trials,
+        ds_dir=ds,
+        out_file=out / "family_report.json",
+        panel=planted,
+        calibration=True,
+    )
+    shifts = tuple(SHIFT_DAYS if tripwire_shifts is None else tripwire_shifts)
+    tripwires: dict[str, Any] = {}
+    detected_by: str | None = None
+    for rid in ("pc_P1", "pc_P2"):
+        ev = report["configurations"][rid]
+        passes123 = bool(ev["item1"]["pass"] and ev["item2"]["pass"] and ev["item3"]["pass"])
+        if not passes123:
+            continue
+        tw = cli.run_tripwire(cfg_files[rid], ds, out / "tripwire", commit=commit, panel=panel, shifts_days=shifts)
+        tripwires[rid] = {"positive": int(tw["positive"]), "n": int(tw["n"]), "halt": bool(tw["halt"])}
+        if ev["all_pass"] and not tw["halt"] and detected_by is None:
+            detected_by = rid
+
+    slim = dict(report)
+    slim["configurations"] = {
+        k: {kk: vv for kk, vv in ev.items() if kk != "receipt"} for k, ev in report["configurations"].items()
+    }
+    result: dict[str, Any] = {
+        "a_star": float(a_star),
+        "n_trials": int(n_trials),
+        "rerun": bool(rerun),
+        "plant": dict(configs[0]["plant"]),
+        "variance": report["variance"],
+        "report": slim,
+        "tripwires": tripwires,
+        "tripwire_shifts": len(shifts),
+        "detected": detected_by is not None,
+        "detected_by": detected_by,
+        "dataset_hash": report["inputs_hashes"]["dataset_hash"],
+        "commit": commit,
+    }
+    (out / "positive_control.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    if detected_by is None:
+        miss_file.write_text(
+            json.dumps(
+                {
+                    "a_star": float(a_star),
+                    "plant": dict(configs[0]["plant"]),
+                    "next_step": "failure tree (spec section 8): a code audit must find nothing, then one re-run "
+                    "at the fresh plant seed 20261029 with audited=True; a second miss means the pipeline is "
+                    "presumed insensitive",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# The dossier
+# ---------------------------------------------------------------------------
+
+_SHA_HEX = re.compile(r"[0-9a-f]{7,40}")
+_REJECT_P = float(BAR["random_entry_p_max"])
+N_RETESTS = 6
+N_EXIT_CONFIGS = 6
+
+
+def _is_int(v: Any) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _count(v: Any, name: str, maximum: int | None = None) -> int:
+    if not _is_int(v) or v < 0 or (maximum is not None and v > maximum):
+        bound = "" if maximum is None else f" and at most {maximum}"
+        raise ValueError(f"{name} must be a non-negative integer{bound}, got {v!r}")
+    return int(v)
+
+
+def _rate(v: Any, name: str) -> float:
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not 0.0 <= v <= 1.0:
+        raise ValueError(f"{name} must be a rate in [0, 1], got {v!r}")
+    return float(v)
+
+
+def _load_json(path: Path | str, name: str) -> tuple[Any, dict[str, str]]:
+    from r4.data import sha256_file
+
+    p = Path(path)
+    if not p.is_file():
+        raise ValueError(f"dossier input {name} is missing: {p}")
+    return json.loads(p.read_text(encoding="utf-8")), {"path": str(p.resolve()), "sha256": sha256_file(p)}
+
+
+def _check_wilson(v: Any, name: str) -> None:
+    if not isinstance(v, (list, tuple)) or len(v) != 2:
+        raise ValueError(f"{name} must be a pair of rates")
+    lo, hi = _rate(v[0], f"{name}[0]"), _rate(v[1], f"{name}[1]")
+    if lo > hi:
+        raise ValueError(f"{name} is not ordered: {v!r}")
+
+
+def _validate_null(d: Any) -> tuple[int, int]:
+    if not isinstance(d, dict):
+        raise ValueError("null_simulation must be a JSON object")
+    n = d.get("parameters", {}).get("n_paths") if isinstance(d.get("parameters"), dict) else None
+    n = _count(n, "null_simulation.parameters.n_paths")
+    if n < 1:
+        raise ValueError("null_simulation.parameters.n_paths must be positive")
+    count = _count(d.get("crossing_count"), "null_simulation.crossing_count", n)
+    rate = _rate(d.get("crossing_rate"), "null_simulation.crossing_rate")
+    if abs(rate - count / n) > 1e-9:
+        raise ValueError(f"null_simulation.crossing_rate {rate} disagrees with {count}/{n}")
+    _check_wilson(d.get("wilson_95"), "null_simulation.wilson_95")
+    return count, n
+
+
+def _validate_noise(d: Any) -> dict[str, Any]:
+    if not isinstance(d, dict):
+        raise ValueError("noise_eval must be a JSON object")
+    n = _count(d.get("n_configs"), "noise_eval.n_configs")
+    gated = d.get("gated")
+    if not isinstance(gated, dict):
+        raise ValueError("noise_eval.gated is missing")
+    for key in ("n_pass_items_1_to_3", "n_reject_joint_shift_05"):
+        _count(gated.get(key), f"noise_eval.gated.{key}", n)
+    verdict = d.get("verdict")
+    if not isinstance(verdict, dict):
+        raise ValueError("noise_eval.verdict is missing")
+    for pid, v in verdict.items():
+        if pid not in PREDICTIONS:
+            raise ValueError(f"noise_eval.verdict has an unregistered prediction {pid!r}")
+        if not isinstance(v, dict) or v.get("met") not in (True, False, None):
+            raise ValueError(f"noise_eval.verdict[{pid!r}].met must be true, false or null")
+    return verdict  # type: ignore[no-any-return]
+
+
+def _validate_power(d: Any) -> dict[str, Any]:
+    if not isinstance(d, dict) or not isinstance(d.get("curve_at_1_2v"), dict):
+        raise ValueError("power must be an object with curve_at_1_2v")
+    for a, e in d["curve_at_1_2v"].items():
+        n = _count(e.get("n") if isinstance(e, dict) else None, f"power curve {a} n")
+        if n < 1:
+            raise ValueError(f"power curve {a}: n must be positive")
+        det = _count(e.get("detected"), f"power curve {a} detected", n)
+        rate = _rate(e.get("rate"), f"power curve {a} rate")
+        if abs(rate - det / n) > 1e-9:
+            raise ValueError(f"power curve {a}: rate {rate} disagrees with {det}/{n}")
+        _check_wilson(e.get("wilson95"), f"power curve {a} wilson95")
+    star = d.get("a_star")
+    if not isinstance(star, dict) or not isinstance(star.get("infeasible"), bool):
+        raise ValueError("power.a_star must be an object with a boolean infeasible")
+    value = star.get("a_star")
+    if star["infeasible"] != (value is None):
+        raise ValueError("power.a_star: infeasible must be true exactly when a_star is null")
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0):
+        raise ValueError(f"power.a_star.a_star must be a positive number, got {value!r}")
+    return star  # type: ignore[no-any-return]
+
+
+def _validate_positive(d: Any) -> Any:
+    if not isinstance(d, dict) or d.get("detected") not in (True, False, None):
+        raise ValueError("positive_control must be an object with detected true, false or null")
+    return d["detected"]
+
+
+def _validate_retests(rows: Sequence[Any]) -> int:
+    if len(rows) != N_RETESTS:
+        raise ValueError(f"expected {N_RETESTS} native re-test receipts, got {len(rows)}")
+    rules: set[str] = set()
+    n_pass = 0
+    for r in rows:
+        if not isinstance(r, dict) or not isinstance(r.get("rule"), str) or not isinstance(r.get("pass"), bool):
+            raise ValueError("a re-test receipt needs a string rule and a boolean pass")
+        if r.get("kind") != "retest":
+            raise ValueError(f"re-test receipt for {r['rule']!r} is not kind 'retest'")
+        rules.add(r["rule"])
+        n_pass += int(r["pass"])
+    if len(rules) != N_RETESTS:
+        raise ValueError("the native re-test receipts name duplicate rules")
+    return n_pass
+
+
+def _validate_exit_block(d: Any) -> int:
+    """Shape of an exit-block result: {"configs": [{id, p, rejected} x 6], "n_rejected": int} (the gated count)."""
+    if not isinstance(d, dict):
+        raise ValueError("exit_block must be a JSON object")
+    cfgs = d.get("configs")
+    if not isinstance(cfgs, list) or len(cfgs) != N_EXIT_CONFIGS:
+        raise ValueError(f"exit_block.configs must list {N_EXIT_CONFIGS} configurations")
+    n_rej = 0
+    for c in cfgs:
+        if not isinstance(c, dict) or not isinstance(c.get("id"), str) or not c["id"]:
+            raise ValueError("every exit_block config needs a non-empty string id")
+        p = _rate(c.get("p"), f"exit_block {c['id']} p")
+        if not isinstance(c.get("rejected"), bool):
+            raise ValueError(f"exit_block {c['id']}: rejected must be a boolean")
+        if c["rejected"] != (p < _REJECT_P):
+            raise ValueError(f"exit_block {c['id']}: rejected disagrees with p {p} against {_REJECT_P}")
+        n_rej += int(c["rejected"])
+    if _count(d.get("n_rejected"), "exit_block.n_rejected", N_EXIT_CONFIGS) != n_rej:
+        raise ValueError(f"exit_block.n_rejected {d['n_rejected']} disagrees with the {n_rej} rejected configs")
+    return n_rej
+
+
+def _validate_commit_order(d: Any) -> dict[str, Any]:
+    """{"predictions": {id: {"registration_commit": sha, "receipts": [{"id", "commit", "is_ancestor": True}]}}}.
+
+    is_ancestor is the lead's `git merge-base --is-ancestor <registration> <receipt commit>` result. Every registered
+    prediction needs an entry with at least one receipt, and every receipt must be marked an ancestor.
+    """
+    preds = d.get("predictions") if isinstance(d, dict) else None
+    if not isinstance(preds, dict):
+        raise ValueError("commit_order must be an object with predictions")
+    if set(preds) != set(PREDICTIONS):
+        missing, extra = sorted(set(PREDICTIONS) - set(preds)), sorted(set(preds) - set(PREDICTIONS))
+        raise ValueError(f"commit_order predictions differ from the registry: missing {missing}, unregistered {extra}")
+    for pid, entry in preds.items():
+        reg = entry.get("registration_commit") if isinstance(entry, dict) else None
+        if not isinstance(reg, str) or not _SHA_HEX.fullmatch(reg):
+            raise ValueError(f"commit_order {pid}: registration_commit must be a 7 to 40 character lowercase hex sha")
+        receipts = entry.get("receipts")
+        if not isinstance(receipts, list) or not receipts:
+            raise ValueError(f"commit_order {pid}: needs at least one receipt")
+        for rc in receipts:
+            sha = rc.get("commit") if isinstance(rc, dict) else None
+            if not isinstance(sha, str) or not _SHA_HEX.fullmatch(sha):
+                raise ValueError(f"commit_order {pid}: a receipt commit must be a 7 to 40 character lowercase hex sha")
+            if rc.get("is_ancestor") is not True:
+                raise ValueError(
+                    f"commit_order {pid}: receipt {rc.get('id')!r} is not marked as built after its registration"
+                )
+    return d  # type: ignore[no-any-return]
+
+
+def write_dossier(
+    out_path: Path | str,
+    *,
+    null_simulation: Path | str,
+    noise_eval: Path | str,
+    power: Path | str,
+    positive_control: Path | str,
+    family_spa: Path | str,
+    retests: Sequence[Path | str],
+    commit_order: dict[str, Any],
+    exit_block: Path | str | None = None,
+) -> dict[str, Any]:
+    """Assemble the Phase 4 dossier once: every registered prediction against its observed value.
+
+    Inputs are JSON files, each referenced by absolute path and sha256. exit_block may be None (not yet run): its
+    gated prediction is then not as predicted. gate_p_ready is true when every GATED prediction is as predicted. It
+    is evidence for the review and is not the Gate P decision. commit_order is the lead's git evidence, validated
+    here (the research image has no git). All inputs are validated before the file is created with exclusive create.
+    """
+    refs: dict[str, Any] = {}
+    nul, refs["null_simulation"] = _load_json(null_simulation, "null_simulation")
+    noi, refs["noise_eval"] = _load_json(noise_eval, "noise_eval")
+    pwr, refs["power"] = _load_json(power, "power")
+    pos, refs["positive_control"] = _load_json(positive_control, "positive_control")
+    spa, refs["family_spa"] = _load_json(family_spa, "family_spa")
+    if not isinstance(spa, dict):
+        raise ValueError("family_spa must be a JSON object")
+    rts: list[Any] = []
+    refs["retests"] = []
+    for i, f in enumerate(retests):
+        obj, ref = _load_json(f, f"retests[{i}]")
+        rts.append(obj)
+        refs["retests"].append(ref)
+    exb: Any = None
+    refs["exit_block"] = None
+    if exit_block is not None:
+        exb, refs["exit_block"] = _load_json(exit_block, "exit_block")
+
+    n_cross, n_paths = _validate_null(nul)
+    verdict = _validate_noise(noi)
+    star = _validate_power(pwr)
+    detected = _validate_positive(pos)
+    n_native_pass = _validate_retests(rts)
+    n_exit_rej = None if exb is None else _validate_exit_block(exb)
+    order = _validate_commit_order(commit_order)
+
+    predictions: dict[str, dict[str, Any]] = {}
+
+    def put(pid: str, observed: Any, met: bool | None, evidence: str) -> None:
+        spec = PREDICTIONS[pid]
+        predictions[pid] = {
+            "status": spec["status"],
+            "text": spec["text"],
+            "gated": spec["status"] == "gated",
+            "observed": observed,
+            "as_predicted": None if met is None else bool(met),
+            "evidence": evidence,
+        }
+
+    for pid in PREDICTIONS:
+        if pid.startswith("noise_"):
+            v = verdict.get(pid)
+            put(pid, None if v is None else v.get("observed"), None if v is None else v.get("met"), "noise_eval")
+    rate = n_cross / n_paths
+    put("daily_null_crossing_rate_at_most_1_over_600", rate, rate <= 1.0 / 600.0, "null_simulation")
+    put(
+        "daily_null_at_most_10_crossings",
+        n_cross,
+        n_cross <= 10 and float(nul["wilson_95"][0]) <= 1.0 / 600.0,
+        "null_simulation",
+    )
+    if star["infeasible"]:
+        put("positive_detected_at_astar", {"detected": None, "infeasible": True}, False, "power")
+    else:
+        put("positive_detected_at_astar", detected, None if detected is None else bool(detected), "positive_control")
+    put("natives_all_six_fail", n_native_pass, n_native_pass == 0, "retests")
+    put(
+        "exit_block_at_most_1_of_6_rejects",
+        n_exit_rej,
+        None if n_exit_rej is None else n_exit_rej <= 1,
+        "exit_block",
+    )
+    for pid in ("exit_median_hold_at_least_80pct", "exit_planted_intrabar_control"):
+        put(pid, None, None, "not evaluated by this dossier")
+    missing = sorted(set(PREDICTIONS) - set(predictions))
+    if missing:
+        raise ValueError(f"predictions without an evaluation rule: {missing}")
+
+    gate_ready = all(p["as_predicted"] is True for p in predictions.values() if p["gated"])
+    doc = {
+        "version": 1,
+        "created_utc": datetime.now(UTC).isoformat(),
+        "inputs": refs,
+        "predictions": predictions,
+        "gate_p_ready": bool(gate_ready),
+        "gate_p_note": "Evidence only. The Opus review decides Gate P, not this file.",
+        "power": {"a_star": star, "curve_at_1_2v": pwr["curve_at_1_2v"]},
+        "family_spa": spa,
+        "commit_order": order,
+    }
+    target = Path(out_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(doc, indent=2))
+    return doc
+
+
 __all__ = [
     "CELLS",
+    "POWER_RUN_IDS",
+    "adaptive_order",
+    "choose_a_star",
+    "extend_amplitude",
+    "pc_rerun_family",
+    "positive_control",
+    "power_curve",
+    "power_curve_at_margin",
+    "power_family",
+    "power_simulation",
+    "write_dossier",
     "EXIT_BLOCK_SPECS",
     "P2_PRICE_FEATURES",
     "PREDICTIONS",

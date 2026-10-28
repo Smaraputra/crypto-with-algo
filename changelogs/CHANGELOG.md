@@ -87,6 +87,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Horizon-exit sets are unchanged draw for draw.
   - On 20 no-edge synthetic panels the null rejected 0 at 0.05.
   - The family report builds the replay itself for dynamic-exit configurations. 1,000 draws take about 4.5 minutes for E3 and 10 for E4 on a 450-day panel.
+- Phase 4 power simulation, positive control and dossier (`r4.cli calib-power`, `calib-power-curve`, `calib-positive`, `calib-dossier`).
+  - **Power simulation.** It runs the planted family on synthetic D-shaped panels and stores every replicate's series, so detection can be recomputed at any variance without re-running.
+  - **a\*.** It is the smallest amplitude detected at least 80% of the time at 1.2 times the noise variance. The grid extends by doubling, at most three times, and is otherwise recorded as infeasible.
+  - **Positive control.** It runs the planted family on D. Detection is judged with the noise controls' within-cell variance and the tripwire. A miss blocks a re-run until a code audit is recorded.
+  - **Dossier.** It is written once and refuses to overwrite. It validates every input and the commit-order evidence. It marks Gate P ready only when every gated prediction is as predicted.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.
