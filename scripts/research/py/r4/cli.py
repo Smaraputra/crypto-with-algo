@@ -43,11 +43,10 @@ from r4.pipeline import (
     FoldRecord,
     RunConfig,
     _get_decisions,
-    _get_target,
-    _make_model,
     _make_tranches,
     compute_missing_settlement_times,
     decision_samples,
+    fit_side_model,
     load_panel,
     walk_forward,
 )
@@ -438,6 +437,7 @@ def run_wf(
     split_preds: list[np.ndarray] = []
     test_groups_by_split: list[list[np.ndarray]] = []
     split_betas: list[dict[str, float]] = []
+    split_degenerate: list[int] = []
 
     for train_idx, test_idx_list in splits:
         train_df = samples.iloc[train_idx]
@@ -445,9 +445,8 @@ def run_wf(
 
         scaler = StandardScaler()
         x_train = scaler.fit_transform(train_df[list(cfg.features)])
-        y_train = _get_target(train_df, cfg)
-        model = _make_model(cfg)
-        model.fit(x_train, y_train)
+        model = fit_side_model(cfg, x_train, train_df)
+        split_degenerate.append(len(model.degenerate_fits))
 
         # Betas on the split's own training set (its training days), never on the test groups.
         train_days = sorted({(t // DAY_MS) * DAY_MS for t in train_df["t0"]})
@@ -557,6 +556,7 @@ def run_wf(
             "cpcv_path_means": cpcv_path_means,
             "cpcv_path_gross_means": cpcv_path_gross_means,
             "cpcv_excluded_tranches": cpcv_excluded,
+            "cpcv_degenerate_fits_per_split": split_degenerate,
             "coin_means": coin_means,
             "jackknife_means": jackknife_means,
             "stress_cost": stress["stress_cost"],

@@ -350,29 +350,70 @@ def _make_model(cfg: RunConfig) -> Any:
     raise ValueError(f"Unknown model: {cfg.model}")
 
 
-def _get_target(train_df: pd.DataFrame, cfg: RunConfig) -> np.ndarray:
-    if cfg.model == "ridge":
-        return train_df["gross_log"].to_numpy(dtype=np.float64)
+@dataclass(frozen=True)
+class SideModel:
+    """A fitted side model: one ridge, or an independent up and down binary pair.
+
+    `up` and `dn` are fitted classifiers or, for a degenerate side, the constant training base rate.
+    `degenerate_fits` names the sides ("up", "down") whose training labels held a single class.
+    """
+
+    kind: str  # "ridge" or "binary"
+    ridge: Any
+    up: Any
+    dn: Any
+    degenerate_fits: tuple[str, ...]
+
+
+def _binary_labels(train_df: pd.DataFrame, cfg: RunConfig) -> tuple[np.ndarray, np.ndarray]:
     if cfg.label == "triple_barrier":
-        return (train_df["tb_label"] == 1.0).astype(int).to_numpy()
+        tb = train_df["tb_label"]
+        return (tb == 1.0).astype(int).to_numpy(), (tb == -1.0).astype(int).to_numpy()
     rt_cost = default_cost_percent(cfg.interval) / 100.0
-    return (train_df["gross_log"] > rt_cost).astype(int).to_numpy()
+    gross = train_df["gross_log"]
+    return (gross > rt_cost).astype(int).to_numpy(), (gross < -rt_cost).astype(int).to_numpy()
 
 
-def _get_decisions(model: Any, X_test: np.ndarray, cfg: RunConfig) -> np.ndarray:
+def fit_side_model(cfg: RunConfig, x_train: np.ndarray, train_df: pd.DataFrame) -> SideModel:
+    if cfg.model == "ridge":
+        ridge = _make_model(cfg)
+        ridge.fit(x_train, train_df["gross_log"].to_numpy(dtype=np.float64))
+        return SideModel("ridge", ridge, None, None, ())
+    y_up, y_dn = _binary_labels(train_df, cfg)
+    fitted: list[Any] = []
+    degenerate: list[str] = []
+    for name, y in (("up", y_up), ("down", y_dn)):
+        if len(np.unique(y)) < 2:
+            degenerate.append(name)
+            logger.warning("degenerate %s fit: training labels hold one class", name)
+            fitted.append(float(y.mean()) if len(y) else 0.0)
+            continue
+        model = _make_model(cfg)
+        model.fit(x_train, y)
+        fitted.append(model)
+    return SideModel("binary", None, fitted[0], fitted[1], tuple(degenerate))
+
+
+def _side_proba(side: Any, x_test: np.ndarray) -> np.ndarray:
+    if isinstance(side, float):
+        return np.full(len(x_test), side, dtype=np.float64)
+    return side.predict_proba(x_test)[:, 1]
+
+
+def _get_decisions(model: SideModel, X_test: np.ndarray, cfg: RunConfig) -> np.ndarray:
     n = len(X_test)
     if n == 0:
         return np.zeros(0, dtype=np.int64)
-    if cfg.model == "ridge":
-        preds = model.predict(X_test)
-        sides = np.zeros(n, dtype=np.int64)
+    sides = np.zeros(n, dtype=np.int64)
+    if model.kind == "ridge":
+        preds = model.ridge.predict(X_test)
         sides[preds > cfg.threshold] = 1
         sides[preds < -cfg.threshold] = -1
         return sides
-    probs = model.predict_proba(X_test)[:, 1]
-    sides = np.zeros(n, dtype=np.int64)
-    sides[probs > cfg.threshold] = 1
-    sides[probs < (1.0 - cfg.threshold)] = -1
+    p_up = _side_proba(model.up, X_test)
+    p_dn = _side_proba(model.dn, X_test)
+    sides[(p_up > cfg.threshold) & (p_up > p_dn)] = 1
+    sides[(p_dn > cfg.threshold) & (p_dn > p_up)] = -1
     return sides
 
 
@@ -488,9 +529,7 @@ def walk_forward(
         train_df = samples.loc[train_mask]
         scaler = StandardScaler()
         X_train = scaler.fit_transform(train_df[list(cfg.features)])
-        y_train = _get_target(train_df, cfg)
-        model = _make_model(cfg)
-        model.fit(X_train, y_train)
+        model = fit_side_model(cfg, X_train, train_df)
 
         betas_0 = estimate_betas(daily_ret, start_ms=None, end_ms=first_refit_ms)
 
@@ -534,9 +573,7 @@ def walk_forward(
 
             scaler = StandardScaler()
             X_train = scaler.fit_transform(train_df[list(cfg.features)])
-            y_train = _get_target(train_df, cfg)
-            model = _make_model(cfg)
-            model.fit(X_train, y_train)
+            model = fit_side_model(cfg, X_train, train_df)
 
             betas_k = estimate_betas(daily_ret, start_ms=cut_ms, end_ms=b_start)
 

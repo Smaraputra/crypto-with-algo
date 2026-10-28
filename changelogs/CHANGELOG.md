@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Control receipts are refused in the round-close variance outside calibration mode.
   - Each configuration has its own joint-shift seed.
   - LightGBM is deterministic.
+- The logistic and LightGBM classifiers now fit two independent binary models (up: return above the round-trip cost; down: below minus the cost; triple barrier: the upper or lower barrier). They go long or short only when that side's probability clears the threshold and beats the other side. The old rule shorted whenever "up" was unlikely, which made classifier configurations mostly short. Single-class training windows are recorded as degenerate fits.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.
