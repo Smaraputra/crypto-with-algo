@@ -673,6 +673,29 @@ def _compute_coin_mean_hourly(
     return 0.0
 
 
+def run_config_from_raw(raw_config: dict[str, Any]) -> RunConfig:
+    """The RunConfig of a receipt's config dict, with the defaults run_wf applies."""
+    return RunConfig(
+        family=raw_config["family"],
+        model=raw_config["model"],
+        params=raw_config.get("params", {}),
+        features=tuple(raw_config["features"]),
+        interval=raw_config["interval"],
+        h_ms=int(raw_config["h_ms"]),
+        label=raw_config.get("label", "fixed"),
+        side_rule=raw_config.get("side_rule", "sign" if raw_config["model"] == "ridge" else "prob"),
+        threshold=float(raw_config["threshold"]),
+        size_rule=raw_config.get("size_rule", "unit"),
+        lookback_months=raw_config.get("lookback_months"),
+        refit=raw_config.get("refit", "monthly"),
+        exit=parse_exit(raw_config.get("exit", "horizon")),
+        seed=int(raw_config.get("seed", 7)),
+        book=raw_config.get("book", "slot"),
+        noise_seed=raw_config.get("noise_seed"),
+        plant=raw_config.get("plant"),
+    )
+
+
 def walk_forward(
     samples: pd.DataFrame,
     cfg: RunConfig,
@@ -887,5 +910,6 @@ __all__ = [
     "decision_samples",
     "load_panel",
     "rank_weights",
+    "run_config_from_raw",
     "walk_forward",
 ]

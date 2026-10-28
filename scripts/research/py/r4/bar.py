@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -19,11 +19,12 @@ from r4.book import (
     _extract_settlements_for_symbol,
     netted_costs,
 )
-from r4.costs import DEFAULT_FEE_PROFILE
+from r4.costs import DEFAULT_FEE_PROFILE, coin_slippage_bps, resolve_fee_profile
 from r4.method import (
     BAR,
     DEV_END,
     DSR_TRIALS_MIN,
+    ENTRY_DELAY_MS,
     JOINT_SHIFT_GRID_MS,
     MAX_FINALISTS,
     PROGRAM_TRIALS_BEFORE,
@@ -371,7 +372,197 @@ def _refuse_path_exits(tranche_list: list[Tranche]) -> None:
         )
 
 
-def joint_shift_null(
+ExitReplay = Callable[[pd.DataFrame], pd.DataFrame]
+
+# Group keys of the vectorised netting: (cost class, fill) in the high bits, the instant in the low 43 bits.
+_KEY_SHIFT = 43
+
+
+class _Netting:
+    """Vectorised twin of book.netted_costs for a fixed set of tranches whose times and fills may change.
+
+    The coin, fee profile and slippage override of a tranche are fixed (its cost class). Entry and exit instants and
+    fills are passed per call. Legs merge exactly as in netted_costs: same coin, same instant, same fill kind and
+    same native cost.
+    """
+
+    def __init__(self, tranches: Sequence[Tranche], profile: str):
+        classes: dict[tuple[str, str, float], int] = {}
+        cls = np.empty(len(tranches), dtype=np.int64)
+        for i, t in enumerate(tranches):
+            prof = t.fee_profile if t.fee_profile is not None else profile
+            slip = -1.0 if t.slippage_bps_override is None else float(t.slippage_bps_override)
+            cls[i] = classes.setdefault((t.symbol, prof, slip), len(classes))
+        n_cls = len(classes)
+        self._cls = cls
+        # rate[2 * c + 1] is the maker rate of class c, rate[2 * c] the taker rate (fee plus slippage).
+        self._rate = np.zeros(2 * max(n_cls, 1), dtype=np.float64)
+        for (sym, prof, slip), c in classes.items():
+            fees = resolve_fee_profile(prof, sym)
+            slip_rate = (coin_slippage_bps(sym) if slip < 0.0 else slip) / 10000.0
+            self._rate[2 * c] = fees.taker_fee + slip_rate
+            self._rate[2 * c + 1] = fees.maker_fee
+        for t in tranches:
+            for fill in (t.entry_fill, t.exit_fill):
+                if fill not in ("maker", "taker"):
+                    raise ValueError(f"Unknown fill kind: {fill}")
+
+    def unit_costs(
+        self,
+        idx: np.ndarray,
+        weight: np.ndarray,
+        entry_ms: np.ndarray,
+        exit_ms: np.ndarray,
+        entry_maker: np.ndarray,
+        exit_maker: np.ndarray,
+    ) -> np.ndarray:
+        """Netted cost per unit of absolute weight of the tranches idx (arrays aligned to idx)."""
+        n = len(idx)
+        if n == 0:
+            return np.zeros(0, dtype=np.float64)
+        cls = self._cls[idx]
+        code_e = 2 * cls + entry_maker.astype(np.int64)
+        code_x = 2 * cls + exit_maker.astype(np.int64)
+        key = np.concatenate(
+            ((code_e << _KEY_SHIFT) | entry_ms.astype(np.int64), (code_x << _KEY_SHIFT) | exit_ms.astype(np.int64))
+        )
+        uniq, gid = np.unique(key, return_inverse=True)
+        amount = np.concatenate((weight, -weight))
+        traded = np.abs(np.bincount(gid, weights=amount, minlength=len(uniq)))
+        abs_sum = np.bincount(gid, weights=np.abs(amount), minlength=len(uniq))
+        group_cost = traded * self._rate[uniq >> _KEY_SHIFT]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            share = np.where(abs_sum[gid] > 0.0, np.abs(amount) / abs_sum[gid], 0.0)
+        leg = share * group_cost[gid]
+        cost = leg[:n] + leg[n:]
+        w_abs = np.abs(weight)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(w_abs > 0.0, cost / w_abs, 0.0)
+
+
+def _unit_costs(tranches: Sequence[Tranche], profile: str = DEFAULT_FEE_PROFILE) -> np.ndarray:
+    """Netted cost per unit of absolute weight of a tranche set, from its own times and fills (twin of netted_costs)."""
+    tr = list(tranches)
+    return _Netting(tr, profile).unit_costs(
+        np.arange(len(tr)),
+        np.array([t.weight for t in tr], dtype=np.float64),
+        np.array([t.entry_ms for t in tr], dtype=np.int64),
+        np.array([t.exit_ms for t in tr], dtype=np.int64),
+        np.array([t.entry_fill == "maker" for t in tr], dtype=bool),
+        np.array([t.exit_fill == "maker" for t in tr], dtype=bool),
+    )
+
+
+class JointShiftStats(NamedTuple):
+    """The raw output of a joint-shift run: the observed statistic, one statistic per draw and the bookkeeping."""
+
+    obs_stat: float
+    null_stats: np.ndarray
+    shifts: list[int]
+    total_dropped: int
+    n_tranches: int
+
+
+def make_exit_replay(
+    ctx: Any,
+    spec: Any,
+    folds: Sequence[dict[str, Any]] | None = None,
+    fold_models: Callable[[dict[str, Any]], Any] | None = None,
+) -> ExitReplay:
+    """Build the callable joint_shift_null takes as exit_replay, from an ExitContext and an exit spec.
+
+    The callable takes a frame of entries (symbol, side, T, entry_ms, exit_ms, entry_price; exit_ms is the scheduled
+    exit) and returns the exit fields aligned to it: exit_ms, exit_price, exit_fill, exit_reason.
+    For E4 and E5 the exit-model pair is the one of the fold whose [start_ms, end_ms) holds the entry: folds is the
+    run's fold list and fold_models(fold) returns that fold's models (None is the counted E1 fallback). Entries outside
+    every fold close at their scheduled exit, and the null drops them anyway (no beta there). Models are asked for
+    once per fold.
+    """
+    from r4.exits import parse_exit
+
+    parsed = parse_exit(spec)
+    model_rule = parsed.rule in ("E4", "E5")
+    fold_rows: list[dict[str, Any]] = []
+    starts = ends = np.empty(0, dtype=np.int64)
+    if model_rule:
+        if not folds or fold_models is None:
+            raise ValueError(f"exit {parsed.rule} needs the run's folds and a fold_models callable")
+        fold_rows = sorted(folds, key=lambda f: int(f["start_ms"]))
+        starts = np.array([int(f["start_ms"]) for f in fold_rows], dtype=np.int64)
+        ends = np.array([int(f["end_ms"]) for f in fold_rows], dtype=np.int64)
+    cache: dict[int, Any] = {}
+
+    def replay(entries: pd.DataFrame) -> pd.DataFrame:
+        if not model_rule:
+            return ctx.replay(entries, parsed).reset_index(drop=True)
+        n = len(entries)
+        entry_ms = entries["entry_ms"].to_numpy(dtype=np.int64)
+        f_idx = np.searchsorted(starts, entry_ms, side="right") - 1
+        f_c = np.maximum(f_idx, 0)
+        in_fold = (f_idx >= 0) & (entry_ms < ends[f_c])
+        exit_ms = entries["exit_ms"].to_numpy(dtype=np.int64).copy()
+        exit_price = np.full(n, np.nan, dtype=np.float64)
+        exit_fill = np.full(n, "taker", dtype=object)
+        exit_reason = np.full(n, "horizon", dtype=object)
+        for fi in np.unique(f_idx[in_fold]):
+            fi = int(fi)
+            if fi not in cache:
+                cache[fi] = fold_models(fold_rows[fi])
+            ctx.set_models(cache[fi])
+            rows = np.flatnonzero(in_fold & (f_idx == fi))
+            res = ctx.replay(entries.iloc[rows].reset_index(drop=True), parsed)
+            exit_ms[rows] = res["exit_ms"].to_numpy(dtype=np.int64)
+            exit_price[rows] = res["exit_price"].to_numpy(dtype=np.float64)
+            exit_fill[rows] = res["exit_fill"].to_numpy()
+            exit_reason[rows] = res["exit_reason"].to_numpy()
+        out = pd.DataFrame(
+            {"exit_ms": exit_ms, "exit_price": exit_price, "exit_fill": exit_fill, "exit_reason": exit_reason}
+        )
+        return out
+
+    return replay
+
+
+def build_exit_replay(
+    panel: dict[str, dict[str, pd.DataFrame]],
+    config: dict[str, Any],
+    folds: Sequence[dict[str, Any]],
+    exit_cache_dir: Path | str | None = None,
+    dataset_hash: str | None = None,
+) -> ExitReplay:
+    """Rebuild a run's exit replay from the panel, the receipt's config and its folds.json (nothing is stored).
+
+    The exit context (5m bars, sigma table, premium and settlements) is built from the panel. For E4 and E5 the
+    fold models are refitted deterministically, lazily and once per fold: monthly runs fit on
+    (fold.train_cut_ms, fold.start_ms) as walk_forward does, refit "none" runs fit once on all history before
+    config["first_refit_ms"].
+    """
+    from r4.exit_models import ExitModelFactory
+    from r4.exits import ExitContext, parse_exit
+    from r4.pipeline import _panel_premium, run_config_from_raw
+
+    cfg = run_config_from_raw(config)
+    spec = parse_exit(cfg.exit)
+    settlements = {s: panel[s].get("settlements", panel[s].get("funding")) for s in panel}
+    ctx = ExitContext(
+        {s: panel[s]["5m"] for s in panel}, cfg.h_ms, premium=_panel_premium(panel), settlements=settlements
+    )
+    models_for: Callable[[dict[str, Any]], Any] | None = None
+    if spec.rule in ("E4", "E5"):
+        factory = ExitModelFactory.from_config(panel, cfg, cache_dir=exit_cache_dir, dataset_hash=dataset_hash)
+        first_refit = int(config["first_refit_ms"])
+        refit_none = cfg.refit == "none"
+
+        def models_for(fold: dict[str, Any]) -> Any:
+            if refit_none:
+                return factory.fit(None, first_refit)
+            cut = fold.get("train_cut_ms")
+            return factory.fit(None if cut is None else int(cut), int(fold["start_ms"]))
+
+    return make_exit_replay(ctx, spec, folds=folds, fold_models=models_for)
+
+
+def joint_shift_stats(
     tranches: list[Tranche] | pd.DataFrame,
     panel: dict[str, dict[str, pd.DataFrame]],
     folds: Sequence[dict[str, Any]],
@@ -381,21 +572,13 @@ def joint_shift_null(
     min_shift_days: int = 7,
     seed: int = 7,
     profile: str = DEFAULT_FEE_PROFILE,
-) -> tuple[float, float, float, list[int]]:
-    """Joint-shift random-entry null with the lock's beta-hedged drift-free statistic.
+    exit_replay: ExitReplay | None = None,
+) -> JointShiftStats:
+    """The joint-shift draws behind joint_shift_null. See that function for the rule.
 
-    Circular shifts of the whole tranche set by whole days (at least min_shift_days). Per tranche, observed
-    and shifted alike: side x (r_coin - beta x r_EW) - costs - side x funding. The costs are the observed
-    tranche's allocated netted cost per unit of absolute weight (see netted_costs), kept for the shifted copy
-    because a whole-day shift moves all legs of a fill group together. A tranche dropped from a shifted draw keeps
-    its allocation in the others. r_coin is the log of the 5m
-    opens at exit over entry, r_EW is the mean of that log ratio over the panel coins with an exact 5m open at
-    both times, beta is the coin's beta in the fold whose [start_ms, end_ms) holds the (shifted) entry time, and
-    funding sums the settlements in (entry, exit]. A shifted tranche is dropped when its exit passes the span
-    end, a price is missing, or its beta is NaN or has no fold. The statistic is the weighted mean of that
-    return per unit of absolute weight over the kept tranches.
-
-    Returns (p_value, drop_share, observed_statistic, shifts_in_days).
+    With exit_replay set, every draw shifts the entries only, re-runs the exit engine from them, prices the
+    replayed exits and nets the costs on the draw's kept set. Without it, the tranche set must be horizon-only and the
+    shifted copy keeps the observed set's hold and netted cost allocation.
     """
     n_days = int((span_end_ms - span_start_ms) // DAY_MS)
     if n_days < 2 * min_shift_days:
@@ -404,9 +587,11 @@ def joint_shift_null(
         )
 
     tranche_list = _coerce_tranches(tranches)
-    _refuse_path_exits(tranche_list)
+    replay = exit_replay is not None
+    if not replay:
+        _refuse_path_exits(tranche_list)
     if not tranche_list:
-        return 1.0, 0.0, float("nan"), []
+        return JointShiftStats(float("nan"), np.empty(0), [], 0, 0)
 
     basket = [s for s in panel if "5m" in panel[s]]
     sym_pos = {s: i for i, s in enumerate(basket)}
@@ -449,44 +634,62 @@ def joint_shift_null(
     n_tr = len(tranche_list)
     sym_idx = np.array([sym_pos[t.symbol] for t in tranche_list], dtype=np.int64)
     side = np.array([t.side_val for t in tranche_list], dtype=np.float64)
-    w_abs = np.array([abs(t.weight) for t in tranche_list], dtype=np.float64)
+    weight = np.array([t.weight for t in tranche_list], dtype=np.float64)
+    w_abs = np.abs(weight)
     entry0 = np.array([t.entry_ms for t in tranche_list], dtype=np.int64)
     exit0 = np.array([t.exit_ms for t in tranche_list], dtype=np.int64)
     # The observed tranche set uses the book's fill-price rule: a priced entry or exit takes the tranche's own
-    # price, and the basket hedge of a priced exit ends at the next 5m boundary. Shifted tranches keep horizon
-    # pricing (path-dependent exits get their own null later).
+    # price, and the basket hedge of a priced exit ends at the next 5m boundary. Without a replay the shifted
+    # copies keep horizon pricing. With one they follow the same rule as the observed set, from the replayed exit.
     entry_priced = np.array([t.entry_priced for t in tranche_list], dtype=bool)
     exit_priced = np.array([t.exit_priced for t in tranche_list], dtype=bool)
     entry_px0 = np.array([t.entry_price for t in tranche_list], dtype=np.float64)
     exit_px0 = np.array([t.exit_price for t in tranche_list], dtype=np.float64)
-    any_priced = bool(entry_priced.any() or exit_priced.any())
+    no_priced = np.zeros(n_tr, dtype=bool)
+    no_px = np.full(n_tr, np.nan, dtype=np.float64)
 
-    # Netted costs of the OBSERVED tranche set, per unit of absolute weight. A whole-day shift moves every leg of a
-    # fill group together, so the grouping survives and shifted tranches reuse their observed allocation. A
-    # tranche dropped from a shifted draw keeps its allocation in the others (the netting is not redone).
     fold_starts, fold_ends, fold_betas = _fold_table(folds, basket)
+
+    def beta_at(entry: np.ndarray) -> np.ndarray:
+        f_idx = np.searchsorted(fold_starts, entry, side="right") - 1
+        f_idx_c = np.maximum(f_idx, 0)
+        in_fold = (f_idx >= 0) & (entry < fold_ends[f_idx_c])
+        return np.where(in_fold, fold_betas[f_idx_c, sym_idx], np.nan)
 
     # Net over the same set the book charges: observed tranches with a finite beta in the fold of their entry
     # (beta_hedged_daily excludes the rest, so they carry no fill). The excluded ones get no cost; their return is
     # NaN through beta anyway.
-    f_obs = np.searchsorted(fold_starts, entry0, side="right") - 1
-    f_obs_c = np.maximum(f_obs, 0)
-    in_fold_obs = (f_obs >= 0) & (entry0 < fold_ends[f_obs_c])
-    beta_obs = np.where(in_fold_obs, fold_betas[f_obs_c, sym_idx], np.nan)
-    included = np.isfinite(beta_obs)
+    included = np.isfinite(beta_at(entry0))
+    arange_tr = np.arange(n_tr)
+    netting = _Netting(tranche_list, profile) if replay else None
+    entry_maker0 = np.array([t.entry_fill == "maker" for t in tranche_list], dtype=bool)
+    exit_maker0 = np.array([t.exit_fill == "maker" for t in tranche_list], dtype=bool)
     costs = np.zeros(n_tr, dtype=np.float64)
     if np.any(included):
         inc_idx = np.flatnonzero(included)
-        netted = netted_costs([tranche_list[i] for i in inc_idx], profile)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            costs[inc_idx] = np.where(w_abs[inc_idx] > 0.0, netted.tranche_cost / w_abs[inc_idx], 0.0)
-    arange_tr = np.arange(n_tr)
+        if netting is not None:
+            costs[inc_idx] = netting.unit_costs(
+                inc_idx, weight[inc_idx], entry0[inc_idx], exit0[inc_idx], entry_maker0[inc_idx], exit_maker0[inc_idx]
+            )
+        else:
+            netted = netted_costs([tranche_list[i] for i in inc_idx], profile)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                costs[inc_idx] = np.where(w_abs[inc_idx] > 0.0, netted.tranche_cost / w_abs[inc_idx], 0.0)
 
-    def tranche_returns(entry: np.ndarray, exit_: np.ndarray, observed: bool = False) -> np.ndarray:
-        """Per tranche statistic, NaN where a price, the basket, a fold or a beta is missing."""
-        priced_out = observed and bool(exit_priced.any())
-        hedge_exit = np.where(exit_priced, -(-exit_ // 300_000) * 300_000, exit_) if priced_out else exit_
-        pe = prices_at(entry)
+    def hedge_terms(
+        entry: np.ndarray,
+        exit_: np.ndarray,
+        e_priced: np.ndarray,
+        e_px: np.ndarray,
+        x_priced: np.ndarray,
+        x_px: np.ndarray,
+        pe: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """(side x (r_coin - beta x r_EW), side x funding) per tranche, NaN where an input is missing."""
+        any_priced = bool(e_priced.any() or x_priced.any())
+        hedge_exit = np.where(x_priced, -(-exit_ // 300_000) * 300_000, exit_) if x_priced.any() else exit_
+        if pe is None:
+            pe = prices_at(entry)
         px = prices_at(hedge_exit)
         ok = (pe > 0.0) & (px > 0.0)
         with np.errstate(all="ignore"):
@@ -496,17 +699,14 @@ def joint_shift_null(
         with np.errstate(all="ignore"):
             r_ew = np.where(cnt > 0, total / cnt, np.nan)
         r_coin = lr[sym_idx, arange_tr]
-        if observed and any_priced:
+        if any_priced:
             # Coin leg from the fill prices where priced, else from the exact 5m opens as before.
-            own_entry = np.where(entry_priced, entry_px0, pe[sym_idx, arange_tr])
-            own_exit = np.where(exit_priced, exit_px0, px[sym_idx, arange_tr])
+            own_entry = np.where(e_priced, e_px, pe[sym_idx, arange_tr])
+            own_exit = np.where(x_priced, x_px, px[sym_idx, arange_tr])
             with np.errstate(all="ignore"):
                 r_coin = np.where((own_entry > 0.0) & (own_exit > 0.0), np.log(own_exit / own_entry), np.nan)
 
-        f_idx = np.searchsorted(fold_starts, entry, side="right") - 1
-        f_idx_c = np.maximum(f_idx, 0)
-        in_fold = (f_idx >= 0) & (entry < fold_ends[f_idx_c])
-        beta = np.where(in_fold, fold_betas[f_idx_c, sym_idx], np.nan)
+        beta = beta_at(entry)
 
         funding = np.zeros(n_tr, dtype=np.float64)
         for pos, f_t in fund_times.items():
@@ -518,7 +718,7 @@ def joint_shift_null(
             idx_entry = np.searchsorted(f_t, entry[sel], side="right")
             funding[sel] = cum[idx_exit] - cum[idx_entry]
 
-        return side * (r_coin - beta * r_ew) - costs - side * funding
+        return side * (r_coin - beta * r_ew), side * funding
 
     def weighted(ret: np.ndarray, keep: np.ndarray) -> float:
         """Weighted mean return per unit of absolute weight over kept tranches. Inf when none are kept."""
@@ -527,11 +727,16 @@ def joint_shift_null(
             return float("inf")
         return float(np.sum(w_abs[keep] * ret[keep]) / np.sum(w_abs[keep]))
 
-    obs_ret = tranche_returns(entry0, exit0, observed=True)
+    core0, fund0 = hedge_terms(entry0, exit0, entry_priced, entry_px0, exit_priced, exit_px0)
+    obs_ret = core0 - costs - fund0
     obs_keep = np.isfinite(obs_ret)
     if not np.any(obs_keep):
-        return 1.0, 1.0, float("nan"), []
+        return JointShiftStats(float("nan"), np.empty(0), [], 0, n_tr)
     obs_stat = weighted(obs_ret, obs_keep)
+
+    hold = np.array([t.h_ms for t in tranche_list], dtype=np.int64) if replay else exit0 - entry0
+    sym_names = np.array([t.symbol for t in tranche_list], dtype=object)
+    side_int = side.astype(np.int64)
 
     max_shift_days = n_days - min_shift_days
     rng = np.random.default_rng(seed)
@@ -541,18 +746,117 @@ def joint_shift_null(
     total_dropped = 0
     for draw_idx in range(n_draws):
         s_days = int(shifts[draw_idx])
-        sh_entry, sh_exit = shift_tranche_times(entry0, exit0, s_days, span_start_ms, n_days)
+        sh_entry, sh_exit = shift_tranche_times(entry0, entry0 + hold, s_days, span_start_ms, n_days)
         late = sh_exit > span_end_ms
-        ret = tranche_returns(sh_entry, sh_exit)
-        keep = np.isfinite(ret) & ~late
+        if not replay:
+            core, fund = hedge_terms(sh_entry, sh_exit, no_priced, no_px, no_priced, no_px)
+            ret = core - costs - fund
+            keep = np.isfinite(ret) & ~late
+            total_dropped += int(n_tr - np.sum(keep))
+            null_stats[draw_idx] = weighted(ret, keep)
+            continue
+
+        assert exit_replay is not None and netting is not None
+        pe = prices_at(sh_entry)
+        entry_px = pe[sym_idx, arange_tr]
+        sched_px = prices_at(sh_exit)[sym_idx, arange_tr]
+        cand = ~late & (entry_px > 0.0) & (sched_px > 0.0) & np.isfinite(beta_at(sh_entry))
+        ex_ms = sh_exit.copy()
+        ex_px = np.full(n_tr, np.nan, dtype=np.float64)
+        ex_priced = np.zeros(n_tr, dtype=bool)
+        ex_maker = np.zeros(n_tr, dtype=bool)
+        rows = np.flatnonzero(cand)
+        if len(rows):
+            frame = pd.DataFrame(
+                {
+                    "symbol": sym_names[rows],
+                    "side": side_int[rows],
+                    "T": sh_entry[rows] - ENTRY_DELAY_MS,
+                    "entry_ms": sh_entry[rows],
+                    "exit_ms": sh_exit[rows],
+                    "entry_price": entry_px[rows],
+                }
+            )
+            res = exit_replay(frame)
+            if len(res) != len(rows):
+                raise ValueError("exit_replay must return one row per entry")
+            ex_ms[rows] = res["exit_ms"].to_numpy(dtype=np.int64)
+            ex_px[rows] = res["exit_price"].to_numpy(dtype=np.float64)
+            reason = res["exit_reason"].to_numpy()
+            ex_priced[rows] = reason != "horizon"
+            ex_maker[rows] = res["exit_fill"].to_numpy() == "maker"
+        core, fund = hedge_terms(sh_entry, ex_ms, no_priced, no_px, ex_priced, ex_px, pe=pe)
+        gross = core - fund
+        keep = np.isfinite(gross) & cand
         total_dropped += int(n_tr - np.sum(keep))
+        kept = np.flatnonzero(keep)
+        ret = np.zeros(n_tr, dtype=np.float64)
+        if len(kept):
+            unit = netting.unit_costs(
+                kept, weight[kept], sh_entry[kept], ex_ms[kept], entry_maker0[kept], ex_maker[kept]
+            )
+            ret[kept] = gross[kept] - unit
         null_stats[draw_idx] = weighted(ret, keep)
 
-    k = int(np.sum(null_stats >= obs_stat))
-    p_val = float((1 + k) / (1 + n_draws))
-    drop_share = float(total_dropped / (n_draws * n_tr))
+    return JointShiftStats(obs_stat, null_stats, [int(s) for s in shifts], total_dropped, n_tr)
 
-    return p_val, drop_share, obs_stat, [int(s) for s in shifts]
+
+def joint_shift_null(
+    tranches: list[Tranche] | pd.DataFrame,
+    panel: dict[str, dict[str, pd.DataFrame]],
+    folds: Sequence[dict[str, Any]],
+    span_start_ms: int,
+    span_end_ms: int,
+    n_draws: int = 1000,
+    min_shift_days: int = 7,
+    seed: int = 7,
+    profile: str = DEFAULT_FEE_PROFILE,
+    exit_replay: ExitReplay | None = None,
+) -> tuple[float, float, float, list[int]]:
+    """Joint-shift random-entry null with the lock's beta-hedged drift-free statistic.
+
+    Circular shifts of the whole tranche set by whole days (at least min_shift_days). Per tranche, observed
+    and shifted alike: side x (r_coin - beta x r_EW) - costs - side x funding. The costs are the observed
+    tranche's allocated netted cost per unit of absolute weight (see netted_costs), kept for the shifted copy
+    because a whole-day shift moves all legs of a fill group together. A tranche dropped from a shifted draw keeps
+    its allocation in the others. r_coin is the log of the 5m
+    opens at exit over entry, r_EW is the mean of that log ratio over the panel coins with an exact 5m open at
+    both times, beta is the coin's beta in the fold whose [start_ms, end_ms) holds the (shifted) entry time, and
+    funding sums the settlements in (entry, exit]. A shifted tranche is dropped when its exit passes the span
+    end, a price is missing, or its beta is NaN or has no fold. The statistic is the weighted mean of that
+    return per unit of absolute weight over the kept tranches.
+
+    exit_replay (Amendment 1, N5) is for a declared path-dependent exit. Without it, a non-horizon tranche raises.
+    With it, each draw shifts every entry by the same whole days with its side, weight and hold h_ms (the scheduled
+    exit is the shifted entry plus h_ms), calls exit_replay on the frame of shifted entries (symbol, side, T,
+    entry_ms, exit_ms, entry_price) to get each exit (exit_ms, exit_price, exit_fill, exit_reason), prices the
+    tranche by the book's rule (fill price for a priced exit, basket hedge ending at the stamp) and recomputes the
+    netted costs on the draw's kept set. A shifted entry is priced at the 5m open at its instant. The observed set
+    uses its own replayed exits and the netted costs of the observed set. A shifted tranche is dropped as above, and
+    when its scheduled exit passes the span end. See make_exit_replay and build_exit_replay.
+
+    Returns (p_value, drop_share, observed_statistic, shifts_in_days).
+    """
+    stats = joint_shift_stats(
+        tranches,
+        panel,
+        folds,
+        span_start_ms,
+        span_end_ms,
+        n_draws=n_draws,
+        min_shift_days=min_shift_days,
+        seed=seed,
+        profile=profile,
+        exit_replay=exit_replay,
+    )
+    if stats.n_tranches == 0:
+        return 1.0, 0.0, float("nan"), []
+    if not stats.shifts:
+        return 1.0, 1.0, float("nan"), []
+    k = int(np.sum(stats.null_stats >= stats.obs_stat))
+    p_val = float((1 + k) / (1 + n_draws))
+    drop_share = float(stats.total_dropped / (n_draws * stats.n_tranches))
+    return p_val, drop_share, stats.obs_stat, stats.shifts
 
 
 def item4(
@@ -565,6 +869,7 @@ def item4(
     seed: int = 7,
     joint_seed: int | None = None,
     spa_seed: int | None = None,
+    exit_replay: ExitReplay | None = None,
 ) -> dict[str, Any]:
     """Lock exploration bar item 4 (only for configurations passing items 1 to 3):
 
@@ -589,6 +894,7 @@ def item4(
         n_draws=int(BAR["random_entry_draws"]),
         min_shift_days=int(BAR["random_entry_shift_min_days"]),
         seed=seed if joint_seed is None else joint_seed,
+        exit_replay=exit_replay,
     )
 
     mat_arr = (
@@ -879,6 +1185,13 @@ def family_report(
             if run_id not in family_folds:
                 raise ValueError(f"Run {run_id} has no folds.json, so the joint-shift null cannot read its betas")
             tranches_df = family_tranches.get(run_id, pd.DataFrame())
+            from r4.exits import is_horizon
+
+            replay_fn = (
+                None
+                if is_horizon(receipt.get("config", {}).get("exit", "horizon"))
+                else build_exit_replay(panel, receipt["config"], family_folds[run_id])
+            )
             res4 = item4(
                 receipt=receipt,
                 tranches=tranches_df,
@@ -888,6 +1201,7 @@ def family_report(
                 seed=seed,
                 joint_seed=run_joint_seed,
                 spa_seed=spa_seed,
+                exit_replay=replay_fn,
             )
         else:
             res4 = {"pass": False, "skipped": True}
@@ -968,7 +1282,11 @@ __all__ = [
     "item4",
     "item5",
     "item6",
+    "JointShiftStats",
+    "build_exit_replay",
     "joint_shift_null",
+    "joint_shift_stats",
+    "make_exit_replay",
     "read_manifest",
     "shift_tranche_times",
 ]

@@ -82,6 +82,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - D's daily covariance and betas for the lab-v5 null;
   - the noise evaluation (items 1 to 3 at the within-cell variance, the joint-shift null for all 40 with each configuration's own seed).
 - Receipts carry decision and tranche counts.
+- The item 4 joint-shift null for dynamic exits re-runs the exit engine from each shifted entry, an owner amendment to the method lock.
+  - Each draw shifts the entries by whole days and keeps sides and weights. It replays the same exit rule on the shifted price path, using each fold's E4/E5 models refitted from the run's fold windows. It then prices fills by the book's rule and recomputes the netting.
+  - Horizon-exit sets are unchanged draw for draw.
+  - On 20 no-edge synthetic panels the null rejected 0 at 0.05.
+  - The family report builds the replay itself for dynamic-exit configurations. 1,000 draws take about 4.5 minutes for E3 and 10 for E4 on a 450-day panel.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.
