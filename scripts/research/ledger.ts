@@ -50,6 +50,12 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/lab-v4-preview.ts CANDIDATES C1, C2, C7 run 2026-10-22 at 05d427f, plus the C1 and C2 run of 2026-10-21 at a0474ae; nothing registered',
   },
+  {
+    id: 'scalp-s1-r',
+    date: '2026-10-29',
+    trials: 12,
+    source: 'scripts/research/py/scalp/lock.py CONFIG_IDS (3 rules x 2 holds x 2 executions) on span R',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */

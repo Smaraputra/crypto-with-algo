@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Scalp study S1 (registered, not yet run)
+- A pre-registered test of 1h-context scalping on the 10 signal coins over span R (2026-07-03 to 2026-10-27, outside D and H): three rules (trend pullback, short-term reversal, taker flow with trend), 15m and 60m holds, taker or maker entries, 12 trials (ledger 2,216).
+- Costs follow Binance USDT-M VIP 0 (0.02% maker, 0.05% taker) with per-coin slippage and Round 4 netting. A $100 account at 10x and 50x is reported. The registered prediction is that none of the 12 passes.
+
 ### Added: Read-only Round 4 integrity audits
 - A research CLI can replay every stored lab signal against its frozen scoring functions and compare stored spot and perpetual 1h/4h candles with Binance archives across D. F1 raw-funding reconstruction is explicitly unavailable, while its score-to-book replay is reported separately.
 - Audits stream bounded JSONL detail beside a summary and do not write to MongoDB. Production replay and candle comparisons have not run yet.
