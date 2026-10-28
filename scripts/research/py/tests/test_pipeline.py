@@ -441,19 +441,19 @@ def test_coin_under_60_days_history_excluded_no_beta_one_assumed():
         "BNBUSDT",
         "XRPUSDT",
         "ADAUSDT",
-        "SHORTUSDT",
+        "LINKUSDT",
     )
     panel = _make_synthetic_panel(symbols=symbols, n_days=125, seed=42)
 
     first_refit = 1680307200000  # 2023-04-01 (day 90)
     end_ms = 1682899200000  # 2023-05-01 (day 120)
 
-    # SHORTUSDT starts 30 days before first_refit (day 60 of panel, so 30 days < 60 days of history)
+    # LINKUSDT starts 30 days before first_refit (day 60 of panel, so 30 days < 60 days of history)
     short_start_ms = 1672531200000 + 60 * 86_400_000
     for key in ("5m", "15m", "1h", "4h", "1d", "premium_5m", "premiumIndex", "settlements", "funding"):
-        if key in panel["SHORTUSDT"] and not panel["SHORTUSDT"][key].empty:
-            df = panel["SHORTUSDT"][key]
-            panel["SHORTUSDT"][key] = df.loc[df["t"] >= short_start_ms].reset_index(drop=True)
+        if key in panel["LINKUSDT"] and not panel["LINKUSDT"][key].empty:
+            df = panel["LINKUSDT"][key]
+            panel["LINKUSDT"][key] = df.loc[df["t"] >= short_start_ms].reset_index(drop=True)
 
     cfg = _make_config(
         features=("ret_1", "ret_4"),
@@ -463,20 +463,20 @@ def test_coin_under_60_days_history_excluded_no_beta_one_assumed():
     )
     samples = decision_samples(panel, cfg)
     assert not samples.empty
-    assert (samples["symbol"] == "SHORTUSDT").any()
+    assert (samples["symbol"] == "LINKUSDT").any()
 
-    # SHORTUSDT has decision samples in the test block
+    # LINKUSDT has decision samples in the test block
     test_short_samples = samples.loc[
-        (samples["symbol"] == "SHORTUSDT") & (samples["T"] >= first_refit) & (samples["T"] < end_ms)
+        (samples["symbol"] == "LINKUSDT") & (samples["T"] >= first_refit) & (samples["T"] < end_ms)
     ]
     assert not test_short_samples.empty
 
     res = walk_forward(samples, cfg, first_refit_ms=first_refit, end_ms=end_ms)
 
-    # SHORTUSDT tranches must be excluded and counted
+    # LINKUSDT tranches must be excluded and counted
     assert res.excluded_tranches > 0
 
-    # Verify directly that estimate_betas produced NaN for SHORTUSDT, not 1.0
+    # Verify directly that estimate_betas produced NaN for LINKUSDT, not 1.0
     from r4.book import daily_close_log_returns, estimate_betas
 
     five_min = {s: panel[s]["5m"] for s in panel}
@@ -487,8 +487,8 @@ def test_coin_under_60_days_history_excluded_no_beta_one_assumed():
     daily_ret = daily_close_log_returns(five_min, days_seq, list(symbols))
     betas = estimate_betas(daily_ret, start_ms=None, end_ms=first_refit)
 
-    assert np.isnan(betas["SHORTUSDT"])
-    assert betas["SHORTUSDT"] != 1.0
+    assert np.isnan(betas["LINKUSDT"])
+    assert betas["LINKUSDT"] != 1.0
 
     # Established coins have real, finite betas
     for s in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT"):

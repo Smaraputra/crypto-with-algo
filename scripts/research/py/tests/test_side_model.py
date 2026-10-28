@@ -5,7 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from r4.pipeline import RunConfig, SideModel, _get_decisions, default_cost_percent, fit_side_model
+from r4.costs import default_cost_percent
+from r4.pipeline import RunConfig, SideModel, _get_decisions, fit_side_model
 
 
 def _cfg(model: str, label: str = "fixed", threshold: float = 0.55, params: dict | None = None) -> RunConfig:
@@ -44,7 +45,7 @@ def test_classifier_symmetric_on_symmetric_data():
     rt = default_cost_percent("1h") / 100.0
     # up when x is high, down when x is low, symmetric about zero, with magnitudes beyond the cost
     gross = np.where(x[:, 0] > 0.5, 2 * rt, np.where(x[:, 0] < -0.5, -2 * rt, 0.0))
-    df = pd.DataFrame({"gross_log": gross})
+    df = pd.DataFrame({"gross_log": gross, "symbol": "BTCUSDT"})
     cfg = _cfg("logistic", threshold=0.5)
     model = fit_side_model(cfg, x, df)
     sides = _get_decisions(model, x, cfg)
@@ -69,7 +70,7 @@ def test_degenerate_side():
     x = rng.normal(size=(n, 1))
     rt = default_cost_percent("1h") / 100.0
     gross = np.where(x[:, 0] > 0, 2 * rt, 0.0)  # never below -rt: no down labels
-    df = pd.DataFrame({"gross_log": gross})
+    df = pd.DataFrame({"gross_log": gross, "symbol": "BTCUSDT"})
     cfg = _cfg("logistic", threshold=0.5)
     model = fit_side_model(cfg, x, df)
     assert model.degenerate_fits == ("down",)
@@ -111,7 +112,7 @@ def test_lightgbm_pair_deterministic():
     x = rng.normal(size=(n, 3))
     rt = default_cost_percent("1h") / 100.0
     gross = rt * 3 * x[:, 0] + rt * rng.normal(size=n)
-    df = pd.DataFrame({"gross_log": gross})
+    df = pd.DataFrame({"gross_log": gross, "symbol": "BTCUSDT"})
     cfg = _cfg(
         "lightgbm",
         threshold=0.4,

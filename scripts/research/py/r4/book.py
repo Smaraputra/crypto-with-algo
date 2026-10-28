@@ -15,10 +15,9 @@ import numpy as np
 import pandas as pd
 
 from r4.costs import (
-    STUDY_SLIPPAGE_BPS,
+    coin_slippage_bps,
     resolve_fee_profile,
     trade_funding,
-    trade_net_return,
 )
 
 DAY_MS: int = 86_400_000
@@ -289,6 +288,121 @@ def _tranches_by_day(tranches: Sequence[Tranche]) -> dict[int, list[Tranche]]:
     return by_day
 
 
+@dataclass(frozen=True)
+class NettedCosts:
+    """Fees and slippage after netting same-instant fills per coin.
+
+    groups: one row per (symbol, instant_ms, fill) with traded (abs of the summed signed legs), fee, slippage
+      and day_start (the UTC day [d_start, d_end) that contains the instant).
+    tranche_fee, tranche_slippage: each group's cost split over its legs in proportion to abs(leg amount),
+      summed over a tranche's two legs, in input order. Together they sum to the netted total.
+    by_day: groups summed by day_start, columns fees and slippage.
+    """
+
+    groups: pd.DataFrame
+    tranche_fee: np.ndarray
+    tranche_slippage: np.ndarray
+    by_day: pd.DataFrame
+
+    @property
+    def tranche_cost(self) -> np.ndarray:
+        return self.tranche_fee + self.tranche_slippage
+
+
+def netted_costs(
+    tranches: Sequence[Tranche],
+    profile: str = "standard",
+    maker_as_taker: bool = False,
+) -> NettedCosts:
+    """Charge fees and slippage on the net traded amount per (symbol, instant, fill type).
+
+    Binance USDT-M in one-way position mode nets an expiring position against a new one on the same coin at
+    the same instant. Each tranche contributes an entry leg (+w at entry_ms with entry_fill) and an exit leg
+    (-w at exit_ms with exit_fill), where w is Tranche.weight. Within a group the traded amount is
+    abs(sum of the signed legs), costing traded x the fill type's fee rate, plus traded x the coin's slippage
+    (coin_slippage_bps) for taker groups. Maker fills pay the maker fee and no slippage. Makers and takers
+    never merge. maker_as_taker relabels every maker leg taker first, so it can merge with taker legs.
+
+    A group is booked on the UTC day [d_start, d_end) that contains its instant. This differs from the old
+    per-tranche exit convention (d_start < t <= d_end) only for a fill at exactly 00:00.
+
+    The group cost is allocated to its legs in proportion to abs(leg amount). A group whose legs all have
+    zero weight costs nothing.
+    """
+    n = len(tranches)
+    if n == 0:
+        empty_groups = pd.DataFrame(columns=["symbol", "instant_ms", "fill", "traded", "fee", "slippage", "day_start"])
+        empty_day = pd.DataFrame({"fees": [], "slippage": []}, index=pd.Index([], dtype=np.int64, name="day_start"))
+        return NettedCosts(empty_groups, np.zeros(0), np.zeros(0), empty_day)
+
+    weights = np.array([t.weight for t in tranches], dtype=np.float64)
+    legs = pd.DataFrame(
+        {
+            "symbol": [t.symbol for t in tranches] * 2,
+            "instant_ms": np.array([t.entry_ms for t in tranches] + [t.exit_ms for t in tranches], dtype=np.int64),
+            "fill": [t.entry_fill for t in tranches] + [t.exit_fill for t in tranches],
+            "amount": np.concatenate((weights, -weights)),
+        }
+    )
+    for fill in legs["fill"].unique():
+        if fill not in ("maker", "taker"):
+            raise ValueError(f"Unknown fill kind: {fill}")
+    if maker_as_taker:
+        legs["fill"] = "taker"
+
+    gid = legs.groupby(["symbol", "instant_ms", "fill"], sort=True).ngroup().to_numpy()
+    n_groups = int(gid.max()) + 1
+    amount = legs["amount"].to_numpy()
+    traded = np.abs(np.bincount(gid, weights=amount, minlength=n_groups))
+    abs_sum = np.bincount(gid, weights=np.abs(amount), minlength=n_groups)
+
+    first = np.full(n_groups, -1, dtype=np.int64)
+    first[gid[::-1]] = np.arange(len(gid) - 1, -1, -1)
+    g_symbol = legs["symbol"].to_numpy()[first]
+    g_instant = legs["instant_ms"].to_numpy()[first]
+    g_fill = legs["fill"].to_numpy()[first]
+
+    fee_rate = np.empty(n_groups, dtype=np.float64)
+    slip_rate = np.empty(n_groups, dtype=np.float64)
+    schedule: dict[str, Any] = {}
+    for g in range(n_groups):
+        sym = str(g_symbol[g])
+        if sym not in schedule:
+            schedule[sym] = resolve_fee_profile(profile, sym)
+        fees = schedule[sym]
+        if g_fill[g] == "maker":
+            fee_rate[g] = fees.maker_fee
+            slip_rate[g] = 0.0
+        else:
+            fee_rate[g] = fees.taker_fee
+            slip_rate[g] = coin_slippage_bps(sym) / 10000.0
+
+    group_fee = traded * fee_rate
+    group_slip = traded * slip_rate
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        share = np.where(abs_sum[gid] > 0.0, np.abs(amount) / abs_sum[gid], 0.0)
+    leg_fee = share * group_fee[gid]
+    leg_slip = share * group_slip[gid]
+    tranche_fee = leg_fee[:n] + leg_fee[n:]
+    tranche_slip = leg_slip[:n] + leg_slip[n:]
+
+    day_start = (g_instant.astype(np.int64) // DAY_MS) * DAY_MS
+    groups = pd.DataFrame(
+        {
+            "symbol": g_symbol,
+            "instant_ms": g_instant,
+            "fill": g_fill,
+            "traded": traded,
+            "fee": group_fee,
+            "slippage": group_slip,
+            "day_start": day_start,
+        }
+    )
+    by_day = groups.groupby("day_start")[["fee", "slippage"]].sum().rename(columns={"fee": "fees"})
+    return NettedCosts(groups, tranche_fee, tranche_slip, by_day)
+
+
 def daily_book(
     tranches: pd.DataFrame | Sequence[dict[str, Any] | Tranche | Any],
     five_min: dict[str, pd.DataFrame],
@@ -299,7 +413,8 @@ def daily_book(
 
     Returns a DataFrame indexed by UTC day start (ms) with:
       gross, costs, funding, net, net_weight_start, n_open, substitutions.
-    Days with no open tranche are omitted.
+    Days with no open tranche are omitted, except a day that only carries a netted fill at its 00:00.
+    Costs are netted per coin and instant (see netted_costs).
     """
     tranche_list = _coerce_tranches(tranches)
     columns = [
@@ -326,20 +441,22 @@ def daily_book(
     }
 
     day_tranches = _tranches_by_day(tranche_list)
-    sorted_days = sorted(day_tranches)
+    netted = netted_costs(tranche_list, profile)
+    cost_by_day = netted.by_day.to_dict("index")
+    sorted_days = sorted(set(day_tranches) | set(cost_by_day))
     records: list[dict[str, Any]] = []
 
     for d_start in sorted_days:
         d_end = d_start + DAY_MS
 
-        open_tranches = day_tranches[d_start]
+        open_tranches = day_tranches.get(d_start, [])
 
         n_open = len(open_tranches)
         net_weight_start = sum(t.weight for t in open_tranches if t.entry_ms < d_start < t.exit_ms)
 
         gross = 0.0
-        day_fees = 0.0
-        day_slippage = 0.0
+        day_fees = float(cost_by_day.get(d_start, {}).get("fees", 0.0))
+        day_slippage = float(cost_by_day.get(d_start, {}).get("slippage", 0.0))
         funding = 0.0
         substituted_midnights: set[tuple[str, int]] = set()
 
@@ -362,24 +479,6 @@ def daily_book(
 
             in_day_log_ret = float(np.log(p_end / p_start))
             gross += w * in_day_log_ret
-
-            fees = resolve_fee_profile(profile, t.symbol)
-            slip_bps = STUDY_SLIPPAGE_BPS.get(t.interval_str)
-            if slip_bps is None:
-                raise ValueError(f"No slippage configured for interval: {t.interval_str}")
-            slip_rate = slip_bps / 10000.0
-
-            if d_start <= t.entry_ms < d_end:
-                fee_in = fees.maker_fee if t.entry_fill == "maker" else fees.taker_fee
-                slip_in = slip_rate if t.entry_fill == "taker" else 0.0
-                day_fees += abs(w) * fee_in
-                day_slippage += abs(w) * slip_in
-
-            if d_start < t.exit_ms <= d_end:
-                fee_out = fees.maker_fee if t.exit_fill == "maker" else fees.taker_fee
-                slip_out = slip_rate if t.exit_fill == "taker" else 0.0
-                day_fees += abs(w) * fee_out
-                day_slippage += abs(w) * slip_out
 
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
@@ -545,6 +644,11 @@ def estimate_betas(
     return betas
 
 
+def _beta_missing(betas: dict[str, float], symbol: str) -> bool:
+    beta = betas.get(symbol, float("nan"))
+    return beta is None or bool(np.isnan(beta))
+
+
 def beta_hedged_daily(
     tranches: pd.DataFrame | Sequence[dict[str, Any] | Tranche | Any],
     five_min: dict[str, pd.DataFrame],
@@ -562,7 +666,8 @@ def beta_hedged_daily(
     r_EW is the mean over universe coins of log(P_j(end) / P_j(start)) over the SAME
     [start, end], using each coin 5m opens at those instants, over the coins present.
 
-    Daily D_d = sum w x (r_coin - beta x r_EW) - costs_d + funding_d.
+    Daily D_d = sum w x (r_coin - beta x r_EW) - costs_d + funding_d. costs_d are the netted costs of the
+    non-excluded tranches (see netted_costs), booked on the day that contains each fill instant.
     A tranche whose coin beta is NaN is excluded and counted.
 
     Returns a DataFrame by day with columns:
@@ -594,27 +699,31 @@ def beta_hedged_daily(
     }
 
     day_tranches = _tranches_by_day(tranche_list)
-    sorted_days = sorted(day_tranches)
+    # Excluded tranches (NaN beta) are not in the book, so they carry no fill and are not netted.
+    included = [t for t in tranche_list if not _beta_missing(betas, t.symbol)]
+    netted = netted_costs(included, profile)
+    cost_by_day = netted.by_day.to_dict("index")
+    sorted_days = sorted(set(day_tranches) | set(cost_by_day))
     records: list[dict[str, Any]] = []
 
     for d_start in sorted_days:
         d_end = d_start + DAY_MS
 
-        open_tranches = day_tranches[d_start]
+        open_tranches = day_tranches.get(d_start, [])
 
         n_open = 0
         excluded_tranches = 0
         gross_hedged = 0.0
-        day_fees = 0.0
-        day_slippage = 0.0
+        day_fees = float(cost_by_day.get(d_start, {}).get("fees", 0.0))
+        day_slippage = float(cost_by_day.get(d_start, {}).get("slippage", 0.0))
         funding = 0.0
         ew_coins_counts: list[int] = []
 
         for t in open_tranches:
-            beta = betas.get(t.symbol, float("nan"))
-            if beta is None or np.isnan(beta):
+            if _beta_missing(betas, t.symbol):
                 excluded_tranches += 1
                 continue
+            beta = betas[t.symbol]
 
             n_open += 1
             w = t.weight
@@ -667,24 +776,6 @@ def beta_hedged_daily(
             ew_coins_counts.append(n_present)
 
             gross_hedged += w * (r_coin - beta * r_ew)
-
-            fees = resolve_fee_profile(profile, t.symbol)
-            slip_bps = STUDY_SLIPPAGE_BPS.get(t.interval_str)
-            if slip_bps is None:
-                raise ValueError(f"No slippage configured for interval: {t.interval_str}")
-            slip_rate = slip_bps / 10000.0
-
-            if d_start <= t.entry_ms < d_end:
-                fee_in = fees.maker_fee if t.entry_fill == "maker" else fees.taker_fee
-                slip_in = slip_rate if t.entry_fill == "taker" else 0.0
-                day_fees += abs(w) * fee_in
-                day_slippage += abs(w) * slip_in
-
-            if d_start < t.exit_ms <= d_end:
-                fee_out = fees.maker_fee if t.exit_fill == "maker" else fees.taker_fee
-                slip_out = slip_rate if t.exit_fill == "taker" else 0.0
-                day_fees += abs(w) * fee_out
-                day_slippage += abs(w) * slip_out
 
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
@@ -767,7 +858,10 @@ def trade_level(
     coin_mean_hourly: dict[str, float] | float | None = None,
     profile: str = "standard",
 ) -> pd.DataFrame:
-    """Per-tranche net return and hold in hours, plus drift-free return if coin_mean_hourly given."""
+    """Per-tranche net return and hold in hours, plus drift-free return if coin_mean_hourly given.
+
+    Costs are each tranche's allocated share of the netted costs (see netted_costs) per unit of its weight.
+    """
     tranche_list = _coerce_tranches(tranches)
     if not tranche_list:
         cols = ["net_return", "hold_hours"]
@@ -780,23 +874,20 @@ def trade_level(
         sym: _extract_settlements_for_symbol(settlements, sym) for sym in unique_symbols
     }
 
+    # Per unit of the tranche: its allocated netted cost over abs(weight).
+    netted = netted_costs(tranche_list, profile)
+    abs_w = np.array([abs(t.weight) for t in tranche_list], dtype=np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        unit_cost = np.where(abs_w > 0.0, netted.tranche_cost / abs_w, 0.0)
+
     records: list[dict[str, Any]] = []
-    for t in tranche_list:
+    for k, t in enumerate(tranche_list):
         hold_hours = (t.exit_ms - t.entry_ms) / 3_600_000.0
         s_times, s_rates = symbol_funding[t.symbol]
         funding_sum = trade_funding(s_times, s_rates, t.entry_ms, t.exit_ms)
 
-        net_ret = trade_net_return(
-            side=t.side,
-            entry_price=t.entry_price,
-            exit_price=t.exit_price,
-            funding_sum=funding_sum,
-            interval=t.interval_str,
-            entry_fill=t.entry_fill,
-            exit_fill=t.exit_fill,
-            profile=profile,
-            symbol=t.symbol,
-        )
+        costs = float(unit_cost[k])
+        net_ret = t.side_val * (t.exit_price / t.entry_price - 1.0) - t.side_val * funding_sum - costs
 
         rec: dict[str, Any] = {
             "net_return": net_ret,
@@ -809,18 +900,6 @@ def trade_level(
             else:
                 m = float(coin_mean_hourly)
 
-            fees = resolve_fee_profile(profile, t.symbol)
-            fee_in = fees.maker_fee if t.entry_fill == "maker" else fees.taker_fee
-            fee_out = fees.maker_fee if t.exit_fill == "maker" else fees.taker_fee
-
-            slip_bps = STUDY_SLIPPAGE_BPS.get(t.interval_str)
-            if slip_bps is None:
-                raise ValueError(f"No slippage configured for interval: {t.interval_str}")
-            slip_rate = slip_bps / 10000.0
-            slip_in = slip_rate if t.entry_fill == "taker" else 0.0
-            slip_out = slip_rate if t.exit_fill == "taker" else 0.0
-
-            costs = fee_in + fee_out + slip_in + slip_out
             signed_funding = t.side_val * funding_sum
             gross_log = float(np.log(t.exit_price / t.entry_price))
 

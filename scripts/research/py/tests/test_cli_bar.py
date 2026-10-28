@@ -29,7 +29,7 @@ from r4.cli import (
     run_wf,
     stress_metrics,
 )
-from r4.costs import STUDY_SLIPPAGE_BPS, resolve_fee_profile
+from r4.costs import coin_slippage_bps, resolve_fee_profile
 from r4.method import (
     BAR,
     CPCV_GROUPS,
@@ -748,7 +748,7 @@ def test_3_cpcv_group_priced_with_the_splits_own_betas():
     path_sides = np.ones(CPCV_GROUPS, dtype=np.int64)
 
     fee = resolve_fee_profile("standard", "BTCUSDT")
-    slip = STUDY_SLIPPAGE_BPS["1h"] / 10000.0
+    slip = coin_slippage_bps("BTCUSDT") / 10000.0  # per-coin slippage (was the 3 bp 1h budget)
     weight = 1.0 / 4.0 / 10.0
     cost = weight * (2 * fee.taker_fee + 2 * slip)
     r_coin = 0.001 * 48
@@ -825,11 +825,23 @@ def test_4_stress_cost_and_maker_as_taker():
 
     out2 = stress_metrics(folds2, res.drift_free, first_refit, DEV_END)
     fee = resolve_fee_profile("standard", changed.symbol)
-    slip_rate = STUDY_SLIPPAGE_BPS[changed.interval_str] / 10000.0
-    extra = abs(changed.weight) * (fee.taker_fee - fee.maker_fee + slip_rate)
+    rate = fee.taker_fee + coin_slippage_bps(changed.symbol) / 10000.0
+    # Hand netting at the changed fill's instant: the taker legs there sum to s_taker, the maker leg is the changed
+    # entry. Relabelled taker, the entry nets against the other taker legs (other fills at that instant).
+    instant = changed.entry_ms
+    s_taker = 0.0
+    for t in fold.tranches:
+        if t.symbol != changed.symbol or np.isnan(fold.betas[t.symbol]):
+            continue
+        if t.entry_ms == instant and t is not fold.tranches[k]:
+            s_taker += t.weight
+        if t.exit_ms == instant:
+            s_taker -= t.weight
+    base_cost = abs(s_taker) * rate + abs(changed.weight) * fee.maker_fee
+    relabelled_cost = abs(s_taker + changed.weight) * rate
+    extra = relabelled_cost - base_cost
     assert out2["n_maker_fills"] == 1
     assert out2["stress_maker_as_taker"] == pytest.approx(wf_mean - extra / n, abs=1e-15)
-    assert out2["stress_maker_as_taker"] < wf_mean
 
 
 # ---------------------------------------------------------------------------
@@ -882,7 +894,8 @@ def _ref_statistic(
         if beta is None or np.isnan(beta):
             continue
         fee = resolve_fee_profile("standard", t.symbol)
-        slip = STUDY_SLIPPAGE_BPS[t.interval_str] / 10000.0
+        slip = coin_slippage_bps(t.symbol) / 10000.0
+        # No two tranches here share a coin and an instant, so the netted cost equals the per-tranche cost.
         costs = 2 * fee.taker_fee + 2 * slip
         ret = t.side_val * (float(np.log(px / pe)) - beta * float(np.mean(ew))) - costs
         num += abs(t.weight) * ret
@@ -1430,5 +1443,5 @@ def test_joint_shift_observed_uses_fill_prices():
     hedge_end = -(-exit_ms // 300_000) * 300_000
     r_ew = np.mean([np.log(_price(panel, s, hedge_end) / _price(panel, s, entry_ms)) for s in UNIVERSE[:6]])
     fees = resolve_fee_profile("standard", "BTCUSDT")
-    costs = 2 * fees.taker_fee + 2 * STUDY_SLIPPAGE_BPS["1h"] / 10000.0
+    costs = 2 * fees.taker_fee + 2 * coin_slippage_bps("BTCUSDT") / 10000.0
     assert obs == pytest.approx(np.log(exit_price / entry_price) - 1.0 * r_ew - costs, rel=1e-9, abs=1e-12)

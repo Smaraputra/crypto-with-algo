@@ -66,7 +66,7 @@ def test_single_long_tranche_inside_one_day() -> None:
     row = df_book.loc[day_0]
     expected_gross = expected_weight * float(np.log(exit_price / entry_price))
     taker_fee = 0.0005
-    slippage = 0.0003  # 3 bps for 1h
+    slippage = 0.0001  # BTC per-coin slippage, 1 bp
     expected_costs = abs(expected_weight) * 2.0 * (taker_fee + slippage)
     expected_funding = 0.0
     expected_net = expected_gross - expected_costs + expected_funding
@@ -128,7 +128,7 @@ def test_tranche_spanning_midnight() -> None:
     assert abs(total_gross - expected_total_gross) < 1e-12
 
     taker_fee = 0.0005
-    slippage = 0.0003
+    slippage = 0.0001  # BTC per-coin slippage, 1 bp
     single_fill_cost = abs(w) * (taker_fee + slippage)
     assert np.isclose(df_book.loc[day_1, "costs"], single_fill_cost, rtol=1e-12, atol=1e-12)
     assert np.isclose(df_book.loc[day_2, "costs"], single_fill_cost, rtol=1e-12, atol=1e-12)
@@ -611,7 +611,7 @@ def test_weights_use_configured_h_even_if_early_exit() -> None:
     res = beta_hedged_daily([tranche], five_min, settlements=None, betas=betas, universe=universe)
 
     expected_gross = expected_w * float(np.log(102.0 / 100.0))
-    expected_costs = abs(expected_w) * 2.0 * (0.0005 + 0.0003)
+    expected_costs = abs(expected_w) * 2.0 * (0.0005 + 0.0001)  # BTC slippage 1 bp
     assert np.isclose(res.loc[day_0, "gross_hedged"], expected_gross, rtol=1e-12, atol=1e-12)
     assert np.isclose(res.loc[day_0, "costs"], expected_costs, rtol=1e-12, atol=1e-12)
 
@@ -801,8 +801,8 @@ def test_trade_level_drift_free_and_plain_net() -> None:
     hold_hours = 4.0
 
     fees = 0.0005 + 0.0005  # standard taker fee = 0.001
-    slip = 0.0003 + 0.0003  # 1h slippage = 3 bps each = 0.0006
-    costs = fees + slip  # 0.0016
+    slip = 0.0001 + 0.0001  # BTC per-coin slippage = 1 bp each = 0.0002
+    costs = fees + slip  # 0.0012
     signed_funding = 1 * 0.0001
     gross_log = float(np.log(105.0 / 100.0))
 
@@ -935,7 +935,7 @@ def test_empty_tranches() -> None:
 
 
 def _scalar_daily_reference(tranches, prices, settlements, betas=None, universe=()):
-    """Independent scalar oracle for the standard 1h fee profile used below."""
+    """Independent scalar oracle for the standard fee profile and the netted per-coin costs used below."""
     import math
 
     raw_columns = [
@@ -965,12 +965,31 @@ def _scalar_daily_reference(tranches, prices, settlements, betas=None, universe=
     def carry(symbol, stamp):
         return quotes[symbol][max(t for t in quotes[symbol] if t <= stamp)]
 
+    # Netted costs, by hand: one-way mode nets the signed legs per (coin, instant, fill kind). A group is
+    # booked on the UTC day [d, d + 1) holding its instant, at the per-coin slippage, and the maker pays no slippage.
+    coin_bps = {"BTCUSDT": 1, "ETHUSDT": 1, "SOLUSDT": 2, "BNBUSDT": 2}
+    legs: dict = {}
+    for t in tranches:
+        if betas is not None and math.isnan(betas[t.symbol]):
+            continue
+        weight = t.side * t.size * 3_600_000 / t.h_ms / 10
+        legs.setdefault((t.symbol, t.entry_ms, t.entry_fill), []).append(weight)
+        legs.setdefault((t.symbol, t.exit_ms, t.exit_fill), []).append(-weight)
+    cost_fees: dict = {}
+    cost_slip: dict = {}
+    for (symbol, stamp, fill), amounts in legs.items():
+        traded = abs(sum(amounts))
+        day_key = stamp // DAY_MS * DAY_MS
+        cost_fees[day_key] = cost_fees.get(day_key, 0.0) + traded * (0.0002 if fill == "maker" else 0.0005)
+        if fill == "taker":
+            cost_slip[day_key] = cost_slip.get(day_key, 0.0) + traded * coin_bps[symbol] / 10_000
+
     first = min(t.entry_ms for t in tranches) // DAY_MS * DAY_MS
-    last = max(t.exit_ms for t in tranches)
+    last = max(max(t.exit_ms for t in tranches), max(cost_fees, default=0) + 1)
     rows, days = [], []
     for day in range(first, last, DAY_MS):
         active = [t for t in tranches if t.entry_ms < day + DAY_MS and t.exit_ms > day]
-        if not active:
+        if not active and day not in cost_fees:
             continue
         gross = fees = slip = funding = net_weight = 0.0
         substitutions, counts = set(), []
@@ -1010,17 +1029,10 @@ def _scalar_daily_reference(tranches, prices, settlements, betas=None, universe=
                 counts.append(len(basket))
                 ret -= betas[t.symbol] * (sum(basket) / len(basket) if basket else 0.0)
             gross += weight * ret
-            fills = []
-            if day <= t.entry_ms < day + DAY_MS:
-                fills.append(t.entry_fill)
-            if day < t.exit_ms <= day + DAY_MS:
-                fills.append(t.exit_fill)
-            for fill in fills:
-                fees += abs(weight) * (0.0002 if fill == "maker" else 0.0005)
-                slip += abs(weight) * (0.0003 if fill == "taker" else 0)
             for stamp, rate in sorted(settlements[t.symbol]):
                 if start < stamp <= end:
                     funding += -weight * rate
+        fees, slip = cost_fees.get(day, 0.0), cost_slip.get(day, 0.0)
         costs = fees + slip
         net = gross - costs + funding
         if betas is None:
@@ -1266,5 +1278,11 @@ def test_horizon_exit_unchanged() -> None:
     explicit = [dataclasses.replace(t, exit_reason="horizon") for t in tranches]
     for case in (tranches, explicit):
         res = beta_hedged_daily(case, prices, settlements, betas, universe)
-        assert [float(x) for x in res["gross_hedged"]] == [0.0003914907331017391, 4.7025973830872026e-05]
-        assert [float(x) for x in res["drift_free"]] == [0.0003711573997684058, 2.3317640497538694e-05]
+        assert [float(x) for x in res["gross_hedged"]] == [0.0003914907331017391, 4.7025973830872026e-05, 0.0]
+        # Costs are now netted per coin with per-coin slippage (was per tranche at 3 bps), and the BTC exit at exactly
+        # 00:00 of day 2 is booked on day 2, a cost-only third row. Values from the independent scalar oracle.
+        assert [float(x) for x in res["drift_free"]] == [
+            0.00037824073310173916,
+            4.015097383087203e-05,
+            -4.1666666666666667e-07,
+        ]

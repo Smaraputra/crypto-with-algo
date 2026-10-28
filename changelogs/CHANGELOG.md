@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Each configuration has its own joint-shift seed.
   - LightGBM is deterministic.
 - The logistic and LightGBM classifiers now fit two independent binary models (up: return above the round-trip cost; down: below minus the cost; triple barrier: the upper or lower barrier). They go long or short only when that side's probability clears the threshold and beats the other side. The old rule shorted whenever "up" was unlikely, which made classifier configurations mostly short. Single-class training windows are recorded as degenerate fits.
+- Research costs now follow Binance USDT-M one-way execution (owner amendment to the method lock).
+  - Fees and slippage are charged on the net position change per coin, fill instant and fill type. An expiring tranche and a new same-side tranche at the same instant no longer pay two fills.
+  - Slippage is set per coin instead of per decision interval: BTC and ETH 1 bp; BNB, SOL, XRP and DOGE 2; AVAX, DOT and LINK 3; ADA 5. Each is at least twice the half-spread plus $1k impact measured on 2026-10-28.
+  - The book, the joint-shift null (over the same tranches the book charges), the item 6 stresses and the classifier labels all use the netted, per-coin costs. The TypeScript-parity cost functions are unchanged.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.

@@ -24,7 +24,7 @@ from r4.book import (
     estimate_betas,
     trade_level,
 )
-from r4.costs import default_cost_percent
+from r4.costs import DEFAULT_FEE_PROFILE, coin_slippage_bps, resolve_fee_profile
 from r4.data import load_funding, load_perp
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.labels import trailing_sigma_h, triple_barrier
@@ -369,9 +369,14 @@ def _binary_labels(train_df: pd.DataFrame, cfg: RunConfig) -> tuple[np.ndarray, 
     if cfg.label == "triple_barrier":
         tb = train_df["tb_label"]
         return (tb == 1.0).astype(int).to_numpy(), (tb == -1.0).astype(int).to_numpy()
-    rt_cost = default_cost_percent(cfg.interval) / 100.0
-    gross = train_df["gross_log"]
-    return (gross > rt_cost).astype(int).to_numpy(), (gross < -rt_cost).astype(int).to_numpy()
+    # Per-coin round trip: 2 x (taker fee + the coin's slippage), from each training row's symbol.
+    taker_fee = resolve_fee_profile(DEFAULT_FEE_PROFILE).taker_fee
+    rt_by_symbol = {
+        sym: 2.0 * (taker_fee + coin_slippage_bps(str(sym)) / 10_000.0) for sym in train_df["symbol"].unique()
+    }
+    rt_cost = train_df["symbol"].map(rt_by_symbol).to_numpy(dtype=np.float64)
+    gross = train_df["gross_log"].to_numpy(dtype=np.float64)
+    return (gross > rt_cost).astype(int), (gross < -rt_cost).astype(int)
 
 
 def fit_side_model(cfg: RunConfig, x_train: np.ndarray, train_df: pd.DataFrame) -> SideModel:

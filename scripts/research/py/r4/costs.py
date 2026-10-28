@@ -22,6 +22,21 @@ STUDY_SLIPPAGE_BPS: dict[str, int] = {
     "1d": 2,
 }
 
+# Per-coin taker slippage in bps (measured half-spread plus a $1k order, 2026-10-28). The research book, the
+# nulls, the stresses and the labels charge this; STUDY_SLIPPAGE_BPS stays for TypeScript parity.
+COIN_SLIPPAGE_BPS: dict[str, int] = {
+    "BTCUSDT": 1,
+    "ETHUSDT": 1,
+    "BNBUSDT": 2,
+    "SOLUSDT": 2,
+    "XRPUSDT": 2,
+    "DOGEUSDT": 2,
+    "AVAXUSDT": 3,
+    "DOTUSDT": 3,
+    "LINKUSDT": 3,
+    "ADAUSDT": 5,
+}
+
 FUNDING_INTERVAL_MS: int = 28_800_000
 DEFAULT_FEE_PROFILE: str = "standard"
 
@@ -138,6 +153,13 @@ def resolve_fee_profile(
             raise ValueError(f"Fee profile {profile_name} is symbol-scoped and has no fallback")
         return FEE_PROFILES[candidate.fallback]
     return candidate
+
+
+def coin_slippage_bps(symbol: str) -> float:
+    """Taker slippage in bps for a coin. Raises ValueError for a symbol outside the table."""
+    if symbol not in COIN_SLIPPAGE_BPS:
+        raise ValueError(f"No per-coin slippage configured for symbol: {symbol}")
+    return float(COIN_SLIPPAGE_BPS[symbol])
 
 
 def study_cost_config(
@@ -276,6 +298,7 @@ def trade_net_return(
     exit_fill: str = "taker",
     profile: str | FeeProfile = DEFAULT_FEE_PROFILE,
     symbol: str | None = None,
+    slippage_bps: float | None = None,
 ) -> float:
     """Net trade return accounting for price change, funding, fees, and slippage.
 
@@ -288,6 +311,7 @@ def trade_net_return(
 
     side must be +1 (or "long") or -1 (or "short").
     entry_fill and exit_fill must each be "maker" or "taker".
+    slippage_bps overrides the per-interval budget (the labels pass the coin's slippage); None keeps the budget.
     """
     if side in (1, +1, "long"):
         side_val = 1
@@ -301,14 +325,14 @@ def trade_net_return(
     if exit_fill not in ("maker", "taker"):
         raise ValueError(f"Unknown exit_fill kind: {exit_fill}")
 
-    if interval not in STUDY_SLIPPAGE_BPS:
+    if slippage_bps is None and interval not in STUDY_SLIPPAGE_BPS:
         raise ValueError(f"No slippage budget configured for interval: {interval}")
 
     fees = resolve_fee_profile(profile, symbol)
     fee_in = fees.maker_fee if entry_fill == "maker" else fees.taker_fee
     fee_out = fees.maker_fee if exit_fill == "maker" else fees.taker_fee
 
-    slip_rate = STUDY_SLIPPAGE_BPS[interval] / 10000.0
+    slip_rate = (STUDY_SLIPPAGE_BPS[interval] if slippage_bps is None else slippage_bps) / 10000.0
     slip_in = slip_rate if entry_fill == "taker" else 0.0
     slip_out = slip_rate if exit_fill == "taker" else 0.0
 

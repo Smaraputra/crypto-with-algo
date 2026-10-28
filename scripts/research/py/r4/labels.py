@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from r4.costs import DEFAULT_FEE_PROFILE, FeeProfile, trade_funding, trade_net_return
+from r4.costs import DEFAULT_FEE_PROFILE, FeeProfile, coin_slippage_bps, trade_funding, trade_net_return
 
 __all__ = [
     "average_uniqueness",
@@ -98,6 +98,9 @@ def fixed_horizon(
         s_times = settlements["t"].to_numpy(dtype=np.int64)  # type: ignore[index]
         s_rates = settlements["rate"].to_numpy(dtype=np.float64)  # type: ignore[index]
 
+    # Per-coin slippage when the coin is known. Without a symbol the per-interval budget still applies.
+    slip_override = coin_slippage_bps(symbol) if symbol is not None else None
+
     for i in np.where(valid_mask)[0]:
         s = int(side_arr[i])
         e_price = float(entry_reindexed[i])
@@ -121,6 +124,7 @@ def fixed_horizon(
             exit_fill="taker",
             profile=profile,
             symbol=symbol,
+            slippage_bps=slip_override,
         )
 
     t0_arr = dt_arr
@@ -323,6 +327,8 @@ def triple_barrier(
         s_times = settlements["t"].to_numpy(dtype=np.int64)  # type: ignore[index]
         s_rates = settlements["rate"].to_numpy(dtype=np.float64)  # type: ignore[index]
 
+    slip_override = coin_slippage_bps(symbol) if symbol is not None else None
+
     for i in range(n):
         t_decision = int(dt_arr[i])
         t_entry = t_decision + delay_ms
@@ -430,6 +436,7 @@ def triple_barrier(
             exit_fill=exit_fill,
             profile=profile,
             symbol=symbol,
+            slippage_bps=slip_override,
         )
 
     # Cast t1_touch to int64 if no NaNs are present

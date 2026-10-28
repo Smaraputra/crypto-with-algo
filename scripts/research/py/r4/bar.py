@@ -17,8 +17,9 @@ from r4.book import (
     Tranche,
     _coerce_tranches,
     _extract_settlements_for_symbol,
+    netted_costs,
 )
-from r4.costs import DEFAULT_FEE_PROFILE, STUDY_SLIPPAGE_BPS, resolve_fee_profile
+from r4.costs import DEFAULT_FEE_PROFILE
 from r4.method import (
     BAR,
     DEV_END,
@@ -290,7 +291,10 @@ def joint_shift_null(
     """Joint-shift random-entry null with the lock's beta-hedged drift-free statistic.
 
     Circular shifts of the whole tranche set by whole days (at least min_shift_days). Per tranche, observed
-    and shifted alike: side x (r_coin - beta x r_EW) - costs - side x funding, where r_coin is the log of the 5m
+    and shifted alike: side x (r_coin - beta x r_EW) - costs - side x funding. The costs are the observed
+    tranche's allocated netted cost per unit of absolute weight (see netted_costs), kept for the shifted copy
+    because a whole-day shift moves all legs of a fill group together. A tranche dropped from a shifted draw keeps
+    its allocation in the others. r_coin is the log of the 5m
     opens at exit over entry, r_EW is the mean of that log ratio over the panel coins with an exact 5m open at
     both times, beta is the coin's beta in the fold whose [start_ms, end_ms) holds the (shifted) entry time, and
     funding sums the settlements in (entry, exit]. A shifted tranche is dropped when its exit passes the span
@@ -362,23 +366,25 @@ def joint_shift_null(
     exit_px0 = np.array([t.exit_price for t in tranche_list], dtype=np.float64)
     any_priced = bool(entry_priced.any() or exit_priced.any())
 
-    costs = np.empty(n_tr, dtype=np.float64)
-    fee_cache: dict[str, Any] = {}
-    for i, t in enumerate(tranche_list):
-        if t.symbol not in fee_cache:
-            fee_cache[t.symbol] = resolve_fee_profile(profile, t.symbol)
-        fees = fee_cache[t.symbol]
-        slip_bps = STUDY_SLIPPAGE_BPS.get(t.interval_str)
-        if slip_bps is None:
-            raise ValueError(f"No slippage configured for interval: {t.interval_str}")
-        slip_rate = slip_bps / 10000.0
-        fee_in = fees.maker_fee if t.entry_fill == "maker" else fees.taker_fee
-        fee_out = fees.maker_fee if t.exit_fill == "maker" else fees.taker_fee
-        slip_in = slip_rate if t.entry_fill == "taker" else 0.0
-        slip_out = slip_rate if t.exit_fill == "taker" else 0.0
-        costs[i] = fee_in + fee_out + slip_in + slip_out
-
+    # Netted costs of the OBSERVED tranche set, per unit of absolute weight. A whole-day shift moves every leg of a
+    # fill group together, so the grouping survives and shifted tranches reuse their observed allocation. A
+    # tranche dropped from a shifted draw keeps its allocation in the others (the netting is not redone).
     fold_starts, fold_ends, fold_betas = _fold_table(folds, basket)
+
+    # Net over the same set the book charges: observed tranches with a finite beta in the fold of their entry
+    # (beta_hedged_daily excludes the rest, so they carry no fill). The excluded ones get no cost; their return is
+    # NaN through beta anyway.
+    f_obs = np.searchsorted(fold_starts, entry0, side="right") - 1
+    f_obs_c = np.maximum(f_obs, 0)
+    in_fold_obs = (f_obs >= 0) & (entry0 < fold_ends[f_obs_c])
+    beta_obs = np.where(in_fold_obs, fold_betas[f_obs_c, sym_idx], np.nan)
+    included = np.isfinite(beta_obs)
+    costs = np.zeros(n_tr, dtype=np.float64)
+    if np.any(included):
+        inc_idx = np.flatnonzero(included)
+        netted = netted_costs([tranche_list[i] for i in inc_idx], profile)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            costs[inc_idx] = np.where(w_abs[inc_idx] > 0.0, netted.tranche_cost / w_abs[inc_idx], 0.0)
     arange_tr = np.arange(n_tr)
 
     def tranche_returns(entry: np.ndarray, exit_: np.ndarray, observed: bool = False) -> np.ndarray:

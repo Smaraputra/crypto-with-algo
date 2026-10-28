@@ -26,8 +26,9 @@ from r4.book import (
     daily_close_log_returns,
     daily_series,
     estimate_betas,
+    netted_costs,
 )
-from r4.costs import DEFAULT_FEE_PROFILE, STUDY_SLIPPAGE_BPS, resolve_fee_profile
+from r4.costs import DEFAULT_FEE_PROFILE
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.method import (
     BAR,
@@ -223,7 +224,8 @@ def stress_metrics(
     - stress_cost: fees x BAR["stress_fee_mult"] and slippage x BAR["stress_slippage_mult"], one joint stress;
     - stress_fee and stress_slippage: the same two stresses one at a time (descriptive);
     - stress_maker_as_taker: every maker fill (entry or exit) of a tranche that entered the book is repriced
-      as taker, adding abs(w) x (taker_fee - maker_fee + slippage_rate) on the fill's day.
+      as taker and the netted costs are recomputed (a relabelled leg can net against a taker leg), the extra
+      cost being the difference on each day.
     """
     fee_extra_mult = float(BAR["stress_fee_mult"]) - 1.0
     slip_extra_mult = float(BAR["stress_slippage_mult"]) - 1.0
@@ -237,26 +239,26 @@ def stress_metrics(
     stress_fee = base - fee_extra_mult * fees
     stress_slip = base - slip_extra_mult * slippage
 
+    # Maker-as-taker: per fold (the book's own netting set, non-excluded tranches), recompute the netted costs
+    # with every maker leg relabelled taker so it can merge with taker legs at the same instant. The extra cost
+    # on a day is the relabelled netted total minus the netted total (negative when the merge saves cost).
     extra: dict[int, float] = {}
     n_maker_fills = 0
     for fold in folds:
+        kept = []
         for t in fold.tranches:
             beta = fold.betas.get(t.symbol, float("nan"))
             if beta is None or np.isnan(beta):
                 continue  # excluded from the book, so it carries no fill
-            slip_bps = STUDY_SLIPPAGE_BPS.get(t.interval_str)
-            if slip_bps is None:
-                raise ValueError(f"No slippage configured for interval: {t.interval_str}")
-            fee = resolve_fee_profile(profile, t.symbol)
-            add = abs(t.weight) * (fee.taker_fee - fee.maker_fee + slip_bps / 10000.0)
-            if t.entry_fill == "maker":
-                day = (t.entry_ms // DAY_MS) * DAY_MS
-                extra[day] = extra.get(day, 0.0) + add
-                n_maker_fills += 1
-            if t.exit_fill == "maker":
-                day = ((t.exit_ms - 1) // DAY_MS) * DAY_MS
-                extra[day] = extra.get(day, 0.0) + add
-                n_maker_fills += 1
+            kept.append(t)
+            n_maker_fills += int(t.entry_fill == "maker") + int(t.exit_fill == "maker")
+        if not kept:
+            continue
+        base_day = netted_costs(kept, profile).by_day
+        taker_day = netted_costs(kept, profile, maker_as_taker=True).by_day
+        diff = (taker_day["fees"] + taker_day["slippage"]).sub(base_day["fees"] + base_day["slippage"], fill_value=0.0)
+        for day, val in diff.items():
+            extra[int(day)] = extra.get(int(day), 0.0) + float(val)
     extra_series = pd.Series(extra, dtype=np.float64).reindex(base.index).fillna(0.0)
     stress_maker = base - extra_series
 
