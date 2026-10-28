@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added: Scalp study S1 (registered, not yet run)
+### Added: Scalp study S1 (registered and run: 0 of 12 pass)
 - A pre-registered test of 1h-context scalping on the 10 signal coins over span R (2026-07-03 to 2026-10-27, outside D and H): three rules (trend pullback, short-term reversal, taker flow with trend), 15m and 60m holds, taker or maker entries, 12 trials (ledger 2,216).
 - Costs follow Binance USDT-M VIP 0 (0.02% maker, 0.05% taker) with per-coin slippage and Round 4 netting. A $100 account at 10x and 50x is reported. The registered prediction is that none of the 12 passes.
+- Result on the VPS (2026-10-29): 0 of 12 pass, as predicted. Gross edges are 0.2 to 1.4 bps a trade against 12 to 13 bps taker round trips, maker entries fill 91% of the time but turn the gross edge negative, and every month of every configuration loses (net -9.8 to -13.8 bps a trade, t -9 to -41). A $100 account at 10x on the fastest rule falls to $25 in 3 days and stops near $5, where the minimum order size blocks trading; at 50x it is under $1 by day 2.
+- Break-even: a 15-minute taker scalp needs a forecast correlation of 0.46 to 0.91 with the next return (0.11 to 0.27 all-maker), against the 0.02 to 0.06 measured anywhere in this program. The current research does not support a scalping paper desk.
 
 ### Added: Read-only Round 4 integrity audits
 - A research CLI can replay every stored lab signal against its frozen scoring functions and compare stored spot and perpetual 1h/4h candles with Binance archives across D. F1 raw-funding reconstruction is explicitly unavailable, while its score-to-book replay is reported separately.

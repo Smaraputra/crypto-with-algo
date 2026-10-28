@@ -86,6 +86,43 @@ AMENDMENT 1 (2026-10-29, before any run of these rules). The netting sentence "a
 corrected: a flip at one open is a single order of twice the position, so it pays the exit and the new entry in full,
 exactly as two separate fills would. Only a same-side continuation saves anything (it trades nothing). Found in the
 code review of the implementation, which charges flips in full.
+
+RESULT (2026-10-29, VPS image crypto-ops:round4-py-4d1a819a, network none, data manifest sha256 d6e79c3fc9b87d6a...,
+output ~/scalp-r/out/s1-4d1a819a.json sha256 d5151334615f85c1...). 34,272 bars per coin, none missing, no dropped
+trade. 0 of 12 pass. Every taker configuration's gross mean is below its cost. The PREDICTION is met.
+
+  config          trades/day  gross bp  cost bp  net bp   t      monthly net (Jul, Aug, Sep, Oct), units of notional
+  P1_15m_taker       265.9      +0.68    12.75   -13.13  -27.7  -11.23 -10.39 -10.54  -8.70
+  P1_15m_maker       245.1      -0.77     9.41   -10.19  -22.6   -8.09  -7.56  -7.52  -6.03
+  P1_60m_taker       138.1      +1.42    13.20   -12.63  -11.8   -6.10  -5.18  -4.62  -4.50
+  P1_60m_maker       131.4      -0.39     9.42    -9.84   -9.1   -4.62  -3.82  -3.25  -3.43
+  P2_15m_taker       425.3      +0.20    12.63   -13.55  -36.4  -17.21 -17.34 -18.05 -14.82
+  P2_15m_maker       403.8      -1.20     9.42   -10.62  -30.4  -12.69 -12.83 -13.61 -11.02
+  P2_60m_taker       173.9      +0.90    12.80   -12.92  -16.0   -6.66  -7.25  -6.25  -6.14
+  P2_60m_maker       169.1      -0.56     9.42    -9.98  -12.4   -4.78  -5.17  -5.10  -4.70
+  P3_15m_taker       221.4      +0.18    13.17   -13.82  -40.7   -9.12  -9.36  -9.54  -7.79
+  P3_15m_maker       208.9      -1.13     9.40   -10.53  -32.4   -6.60  -6.56  -6.92  -5.67
+  P3_60m_taker       127.1      +0.98    13.43   -13.16  -13.1   -5.32  -5.04  -5.20  -4.01
+  P3_60m_maker       122.8      -0.37     9.40    -9.79   -9.9   -3.89  -3.54  -3.81  -2.83
+
+- Gross edges are 0.2 to 1.4 bps a trade for taker entries, against round trips of 12 to 13 bps. Paying fees in BNB
+  moves the net by under 1 bp.
+- Maker entries fill 91% of the time and their gross edge turns NEGATIVE (-0.4 to -1.2 bps): a limit order fills when
+  the price runs through it, which is adverse selection. They save 3.2 to 4.0 bps of cost and lose 1.3 to 1.8 bps
+  of edge.
+- Every month of every configuration loses.
+- $100 account (r4.account, report only):
+  - P2_15m_taker at 10x: $68 after day 1, $25 after day 3, $6.50 after day 7. It then stops at about $5, because the
+    notional of equity x 10 / 10 falls below the minimum order and the account cannot trade (17,291 of 21,386 orders
+    refused in P1_15m_taker).
+  - At 50x every 15m configuration ends near $1 (P2_15m is under $1 by day 2). P2_60m is liquidated at 50x.
+  - The slowest configuration, P1_60m_maker at 10x, is below $50 on day 5 and below $10 on day 18.
+- Break-even forecast correlation with the return over the hold (sign bet): 15m taker 0.46 (DOT) to 0.91 (BNB), 15m
+  maker-maker 0.11 to 0.27, 60m taker 0.23 to 0.47, 60m maker-maker 0.06 to 0.14. The largest correlations measured in
+  this program are about 0.02 to 0.06.
+- Conclusion: the current research does not support a scalping paper desk at these trade rates. The costs exceed the
+  available edge by an order of magnitude at every hold tested, and a paper desk on these rules would only re-measure
+  the costs. Ledger: 12 trials, program total 2,216.
 """
 
 from __future__ import annotations
