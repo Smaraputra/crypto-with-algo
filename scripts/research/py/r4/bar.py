@@ -46,6 +46,8 @@ _TRIPWIRE_HALT_SHARE = Fraction(3, 5)
 
 # family_report gives configuration i the joint-shift seed DEFAULT_JOINT_SHIFT_SEED_BASE + i (sorted run ids).
 DEFAULT_JOINT_SHIFT_SEED_BASE = 5_000_000
+# The SPA bootstrap seed of family_report, separate from the joint-shift seeds.
+DEFAULT_SPA_SEED = 6_000_000
 
 
 def read_manifest(ds_dir: Path | str) -> dict[str, Any]:
@@ -277,6 +279,14 @@ def _fold_table(folds: Sequence[dict[str, Any]], basket: Sequence[str]) -> tuple
     return starts, ends, betas
 
 
+def _refuse_path_exits(tranche_list: list[Tranche]) -> None:
+    if any(t.exit_reason != "horizon" for t in tranche_list):
+        raise ValueError(
+            "joint-shift null for path-dependent exits needs the exit-engine replay (Amendment 1); "
+            "refusing to treat them as time exits"
+        )
+
+
 def joint_shift_null(
     tranches: list[Tranche] | pd.DataFrame,
     panel: dict[str, dict[str, pd.DataFrame]],
@@ -310,6 +320,7 @@ def joint_shift_null(
         )
 
     tranche_list = _coerce_tranches(tranches)
+    _refuse_path_exits(tranche_list)
     if not tranche_list:
         return 1.0, 0.0, float("nan"), []
 
@@ -469,6 +480,7 @@ def item4(
     end_ms: int = DEV_END,
     seed: int = 7,
     joint_seed: int | None = None,
+    spa_seed: int | None = None,
 ) -> dict[str, Any]:
     """Lock exploration bar item 4 (only for configurations passing items 1 to 3):
 
@@ -476,7 +488,8 @@ def item4(
     - Hansen SPA on the family's intersection matrix
     - Label-shift tripwire: run by Claude outside this function, reported here as 'pending'
 
-    seed drives the SPA bootstrap. joint_seed drives the joint-shift draws and defaults to seed.
+    spa_seed drives the SPA bootstrap and defaults to seed. joint_seed drives the joint-shift draws and
+    defaults to seed.
     """
     config = receipt.get("config", {})
     if "first_refit_ms" not in config:
@@ -504,7 +517,7 @@ def item4(
         mat_arr,
         n_reps=int(BAR["spa_reps"]),
         mean_block_len=float(BAR["spa_mean_block_days"]),
-        seed=seed,
+        seed=seed if spa_seed is None else spa_seed,
     )
 
     pass_joint = bool(p_joint < float(BAR["random_entry_p_max"]))
@@ -514,6 +527,7 @@ def item4(
     return {
         "pass": passed,
         "joint_shift_seed": int(seed if joint_seed is None else joint_seed),
+        "spa_seed": int(seed if spa_seed is None else spa_seed),
         "joint_shift_p": float(p_joint),
         "joint_shift_drop_share": float(drop_share),
         "joint_shift_observed": float(obs_stat) if np.isfinite(obs_stat) else None,
@@ -640,14 +654,16 @@ def family_report(
     tripwire: dict[str, Any] | None = None,
     calibration: bool = False,
     seed_base: int = DEFAULT_JOINT_SHIFT_SEED_BASE,
+    spa_seed: int = DEFAULT_SPA_SEED,
 ) -> dict[str, Any]:
     """Evaluate exploration bar across all configurations in a family and write report.
 
     calibration=False (default) is the trial path: a round receipt with kind "control" raises, because controls
     are excluded from the round-close variance (M lines 116-117). calibration=True is the control path: only
     receipts with kind "control" are accepted, in the family and in the round directory.
-    The joint-shift seed of each configuration is seed_base + its index in the sorted run ids (seed drives the
-    SPA bootstrap), and the seed used is recorded per configuration.
+    The joint-shift seed of each configuration is receipt["config"]["joint_shift_seed"] when present, else
+    seed_base + its index in the sorted run ids. In calibration mode a configuration without one raises. The seed
+    used is recorded per configuration. spa_seed drives the SPA bootstrap, and both it and seed are recorded.
 
     Finalists are chosen only once the label-shift tripwire is known and does not halt the family.
     Without a tripwire input the all-pass configurations are listed as candidates and finalists stay empty.
@@ -683,6 +699,10 @@ def family_report(
                 run_id = p.name
                 if calibration and receipt.get("kind") != "control":
                     raise ValueError(f"Calibration mode accepts only control receipts, but {receipt_file} is not one")
+                if calibration and receipt.get("config", {}).get("joint_shift_seed") is None:
+                    raise ValueError(
+                        f"Calibration mode needs config.joint_shift_seed in every receipt, but {receipt_file} has none"
+                    )
                 family_runs[run_id] = receipt
                 family_daily[run_id] = pd.read_parquet(daily_file)
                 if tranches_file.exists():
@@ -740,6 +760,9 @@ def family_report(
 
         passes_1_to_3 = bool(res1["pass"] and item2_res["pass"] and res3["pass"])
 
+        config_seed = receipt.get("config", {}).get("joint_shift_seed")
+        run_joint_seed = int(config_seed) if config_seed is not None else seed_base + run_index[run_id]
+
         if passes_1_to_3:
             if run_id not in family_folds:
                 raise ValueError(f"Run {run_id} has no folds.json, so the joint-shift null cannot read its betas")
@@ -751,7 +774,8 @@ def family_report(
                 family_matrix=family_matrix,
                 folds=family_folds[run_id],
                 seed=seed,
-                joint_seed=seed_base + run_index[run_id],
+                joint_seed=run_joint_seed,
+                spa_seed=spa_seed,
             )
         else:
             res4 = {"pass": False, "skipped": True}
@@ -774,7 +798,7 @@ def family_report(
             "item4": res4,
             "item5": res5,
             "item6": res6,
-            "joint_shift_seed": seed_base + run_index[run_id] if passes_1_to_3 else None,
+            "joint_shift_seed": run_joint_seed if passes_1_to_3 else None,
             "all_pass": all_pass,
         }
         config_evals[run_id] = cfg_eval
@@ -798,6 +822,8 @@ def family_report(
         "tripwire_input": tripwire_input,
         "calibration": bool(calibration),
         "seed_base": int(seed_base),
+        "seed": int(seed),
+        "spa_seed": int(spa_seed),
         "inputs_hashes": {
             "dataset_hash": dataset_hash,
             "receipts": input_receipt_shas,

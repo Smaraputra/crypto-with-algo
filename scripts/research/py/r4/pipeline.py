@@ -276,14 +276,33 @@ def decision_samples(
                 delay_ms=ENTRY_DELAY_MS,
                 symbol=s,
             )
+            tb_short_df = triple_barrier(
+                decision_times=T_arr,
+                five_min=df_5m,
+                h_ms=cfg.h_ms,
+                sigma_h=sigma_series,
+                k_up=TRIPLE_BARRIER_K,
+                k_down=TRIPLE_BARRIER_K,
+                side=-1,
+                interval=cfg.interval,
+                settlements=df_settle,
+                delay_ms=ENTRY_DELAY_MS,
+                symbol=s,
+            )
             tb_label = tb_df["label"].to_numpy(dtype=np.float64)
             tb_net = tb_df["net"].to_numpy(dtype=np.float64)
             tb_exit = tb_df["exit"].to_numpy(dtype=np.float64)
-            label_has_nan = np.isnan(tb_label)
+            tb_label_short = tb_short_df["label"].to_numpy(dtype=np.float64)
+            tb_net_short = tb_short_df["net"].to_numpy(dtype=np.float64)
+            tb_exit_short = tb_short_df["exit"].to_numpy(dtype=np.float64)
+            label_has_nan = np.isnan(tb_label) | np.isnan(tb_label_short)
         else:
             tb_label = None
             tb_net = None
             tb_exit = None
+            tb_label_short = None
+            tb_net_short = None
+            tb_exit_short = None
             label_has_nan = np.isnan(gross_log)
 
         drop_mask = exceeds_dev | lacks_funding | feat_has_nan | label_has_nan
@@ -313,6 +332,10 @@ def decision_samples(
             sym_cols["tb_label"] = tb_label[keep_mask]
             sym_cols["tb_net"] = tb_net[keep_mask]
             sym_cols["tb_exit"] = tb_exit[keep_mask]
+            assert tb_label_short is not None and tb_net_short is not None and tb_exit_short is not None
+            sym_cols["tb_label_short"] = tb_label_short[keep_mask]
+            sym_cols["tb_net_short"] = tb_net_short[keep_mask]
+            sym_cols["tb_exit_short"] = tb_exit_short[keep_mask]
 
         per_symbol_dfs.append(pd.DataFrame(sym_cols))
 
@@ -322,7 +345,7 @@ def decision_samples(
     else:
         out_cols = ["symbol", "T", *cfg.features, "entry", "exit", "gross_log", "t0", "t1_max"]
         if cfg.label == "triple_barrier":
-            out_cols.extend(["tb_label", "tb_net", "tb_exit"])
+            out_cols.extend(["tb_label", "tb_net", "tb_exit", "tb_label_short", "tb_net_short", "tb_exit_short"])
         combined = pd.DataFrame(columns=out_cols)
 
     combined.attrs["n_dropped"] = total_dropped
@@ -356,6 +379,8 @@ class SideModel:
 
     `up` and `dn` are fitted classifiers or, for a degenerate side, the constant training base rate.
     `degenerate_fits` names the sides ("up", "down") whose training labels held a single class.
+    `base_up` and `base_dn` are the training base rates of the two labels.
+    The classifier threshold is a margin over them.
     """
 
     kind: str  # "ridge" or "binary"
@@ -363,12 +388,16 @@ class SideModel:
     up: Any
     dn: Any
     degenerate_fits: tuple[str, ...]
+    base_up: float = 0.0
+    base_dn: float = 0.0
 
 
 def _binary_labels(train_df: pd.DataFrame, cfg: RunConfig) -> tuple[np.ndarray, np.ndarray]:
     if cfg.label == "triple_barrier":
-        tb = train_df["tb_label"]
-        return (tb == 1.0).astype(int).to_numpy(), (tb == -1.0).astype(int).to_numpy()
+        # Each side counts only its own take-profit: label 1 of the side=1 run (long) and of the side=-1 run (short).
+        y_up = (train_df["tb_label"] == 1.0).astype(int).to_numpy()
+        y_dn = (train_df["tb_label_short"] == 1.0).astype(int).to_numpy()
+        return y_up, y_dn
     # Per-coin round trip: 2 x (taker fee + the coin's slippage), from each training row's symbol.
     taker_fee = resolve_fee_profile(DEFAULT_FEE_PROFILE).taker_fee
     rt_by_symbol = {
@@ -396,7 +425,9 @@ def fit_side_model(cfg: RunConfig, x_train: np.ndarray, train_df: pd.DataFrame) 
         model = _make_model(cfg)
         model.fit(x_train, y)
         fitted.append(model)
-    return SideModel("binary", None, fitted[0], fitted[1], tuple(degenerate))
+    base_up = float(y_up.mean()) if len(y_up) else 0.0
+    base_dn = float(y_dn.mean()) if len(y_dn) else 0.0
+    return SideModel("binary", None, fitted[0], fitted[1], tuple(degenerate), base_up, base_dn)
 
 
 def _side_proba(side: Any, x_test: np.ndarray) -> np.ndarray:
@@ -417,8 +448,11 @@ def _get_decisions(model: SideModel, X_test: np.ndarray, cfg: RunConfig) -> np.n
         return sides
     p_up = _side_proba(model.up, X_test)
     p_dn = _side_proba(model.dn, X_test)
-    sides[(p_up > cfg.threshold) & (p_up > p_dn)] = 1
-    sides[(p_dn > cfg.threshold) & (p_dn > p_up)] = -1
+    # For classifiers the threshold is a margin over each side's training base rate.
+    m_up = p_up - model.base_up
+    m_dn = p_dn - model.base_dn
+    sides[(m_up > cfg.threshold) & (m_up > m_dn)] = 1
+    sides[(m_dn > cfg.threshold) & (m_dn > m_up)] = -1
     return sides
 
 

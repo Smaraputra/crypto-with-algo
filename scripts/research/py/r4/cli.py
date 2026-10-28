@@ -326,6 +326,15 @@ _ALLOWED_KINDS = ("trial", "control", "retest")
 _SHA_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 
 
+def source_digest(package_dir: Path | str | None = None) -> str:
+    """sha256 over the sorted (relative path, file sha256) pairs of every .py file in the r4 package directory."""
+    root = Path(package_dir) if package_dir is not None else Path(__file__).resolve().parent
+    entries = [
+        [p.relative_to(root).as_posix(), hashlib.sha256(p.read_bytes()).hexdigest()] for p in sorted(root.rglob("*.py"))
+    ]
+    return hashlib.sha256(json.dumps(entries, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 def resolve_commit(commit: str | None) -> str:
     """The commit argument, else the R4_COMMIT env var, as a 7 to 40 character hex sha. Never 'unknown'."""
     sha = commit if commit else os.environ.get("R4_COMMIT", "")
@@ -546,6 +555,7 @@ def run_wf(
     receipt = {
         "kind": kind,
         "commit": commit_sha,
+        "source_sha256": source_digest(),
         "dataset_hash": dataset_hash,
         "config_hash": config_hash_of(raw_config),
         "config": raw_config,

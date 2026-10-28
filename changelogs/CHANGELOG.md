@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fees and slippage are charged on the net position change per coin, fill instant and fill type. An expiring tranche and a new same-side tranche at the same instant no longer pay two fills.
   - Slippage is set per coin instead of per decision interval: BTC and ETH 1 bp; BNB, SOL, XRP and DOGE 2; AVAX, DOT and LINK 3; ADA 5. Each is at least twice the half-spread plus $1k impact measured on 2026-10-28.
   - The book, the joint-shift null (over the same tranches the book charges), the item 6 stresses and the classifier labels all use the netted, per-coin costs. The TypeScript-parity cost functions are unchanged.
+- Classifier thresholds are now a margin over each side's training base rate. An absolute 0.55 threshold traded 0% of decisions on noise at a 0.46 base rate. The margin rule at 0.02 trades about 36%.
+- Triple-barrier short labels come from their own short-side run, so a long stop touch no longer counts as a short success.
+- The joint-shift null refuses path-dependent exits until the exit-engine replay exists.
+- Receipts carry a sha256 of the research source.
+- Joint-shift seeds come from each configuration, and the SPA bootstrap has its own seed.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.

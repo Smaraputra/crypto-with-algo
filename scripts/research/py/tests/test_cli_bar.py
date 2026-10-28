@@ -1376,6 +1376,14 @@ def _set_kind(runs_dir: Path, kinds: dict[str, str]) -> None:
         path.write_text(json.dumps(rec), encoding="utf-8")
 
 
+def _set_config_seeds(runs_dir: Path, seeds: dict[str, int]) -> None:
+    for run_id, seed in seeds.items():
+        path = runs_dir / run_id / "receipt.json"
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        rec["config"]["joint_shift_seed"] = seed
+        path.write_text(json.dumps(rec), encoding="utf-8")
+
+
 def test_family_report_refuses_controls_in_round_variance(tmp_path: Path):
     """A control receipt in the round directory raises: controls are excluded from the round-close variance."""
     ds_dir, runs_dir, panel = _write_planted_family(tmp_path)
@@ -1395,6 +1403,7 @@ def test_family_report_calibration_mode(tmp_path: Path):
     with pytest.raises(ValueError, match="control"):
         family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, calibration=True)  # trial receipts
     _set_kind(runs_dir, {"cfg_0": "control", "cfg_1": "control"})
+    _set_config_seeds(runs_dir, {"cfg_0": 11, "cfg_1": 12})
     rep = family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, calibration=True)
     assert rep["n_configurations"] == 2 and rep["calibration"] is True
     with pytest.raises(ValueError, match="controls are excluded"):
@@ -1425,8 +1434,14 @@ def test_joint_shift_seeds_per_config(tmp_path: Path, monkeypatch):
     assert rep2["configurations"]["cfg_1"]["joint_shift_seed"] == 43
 
 
-def test_joint_shift_observed_uses_fill_prices():
-    """The observed tranche takes its own exit price (stop at an off-grid time, hedge to the next 5m boundary)."""
+def test_joint_shift_observed_uses_fill_prices(monkeypatch):
+    """The observed tranche takes its own exit price (stop at an off-grid time, hedge to the next 5m boundary).
+
+    The path-exit refusal is bypassed here so the fill-price arithmetic stays covered until the exit engine exists.
+    """
+    import r4.bar as bar
+
+    monkeypatch.setattr(bar, "_refuse_path_exits", lambda tranche_list: None)
     start = 1672531200000
     n_days = 100
     panel = _pulse_panel(start, n_days, [])
@@ -1445,3 +1460,94 @@ def test_joint_shift_observed_uses_fill_prices():
     fees = resolve_fee_profile("standard", "BTCUSDT")
     costs = 2 * fees.taker_fee + 2 * coin_slippage_bps("BTCUSDT") / 10000.0
     assert obs == pytest.approx(np.log(exit_price / entry_price) - 1.0 * r_ew - costs, rel=1e-9, abs=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Brief 24a: path-exit refusal, source digest, config seeds, SPA seed
+# ---------------------------------------------------------------------------
+
+
+def test_joint_shift_refuses_path_exits():
+    start = 1672531200000
+    n_days = 100
+    panel = _pulse_panel(start, n_days, [])
+    entry_ms = start + 10 * DAY + 6 * 3_600_000
+    price = _price(panel, "BTCUSDT", entry_ms)
+    tr = [Tranche("BTCUSDT", 1, entry_ms, entry_ms + 3_600_000, price, price, "1h", 14_400_000, exit_reason="stop")]
+    with pytest.raises(ValueError, match="exit-engine replay"):
+        joint_shift_null(tr, panel, _one_fold(start, n_days), start, start + n_days * DAY, n_draws=10, seed=3)
+    horizon = [dataclasses.replace(tr[0], exit_reason="horizon")]
+    joint_shift_null(horizon, panel, _one_fold(start, n_days), start, start + n_days * DAY, n_draws=10, seed=3)
+
+
+def test_source_digest_changes(tmp_path: Path):
+    import shutil
+
+    from r4.cli import source_digest
+
+    pkg = Path(__file__).resolve().parents[1] / "r4"
+    copy = tmp_path / "r4"
+    shutil.copytree(pkg, copy, ignore=shutil.ignore_patterns("__pycache__"))
+    base = source_digest(copy)
+    assert len(base) == 64 and base == source_digest(copy)
+    assert source_digest() == base  # the live package digest equals the copy's
+    target = copy / "costs.py"
+    target.write_text(target.read_text(encoding="utf-8") + "\n# changed\n", encoding="utf-8")
+    changed = source_digest(copy)
+    assert changed != base
+    target.write_text(target.read_text(encoding="utf-8").replace("\n# changed\n", ""), encoding="utf-8")
+    assert source_digest(copy) == base
+
+
+def test_run_wf_receipt_has_source_sha256(tmp_path: Path):
+    from r4.cli import source_digest
+
+    panel, ds_dir, cfg_file, _ = _small_run(tmp_path, "srcsha")
+    receipt = run_wf(cfg_file, ds_dir, tmp_path / "out", commit=COMMIT, panel=panel)
+    assert receipt["source_sha256"] == source_digest()
+
+
+def test_family_report_uses_config_seed(tmp_path: Path, monkeypatch):
+    import r4.bar as bar
+
+    ds_dir, runs_dir, panel = _write_planted_family(tmp_path)
+    _set_config_seeds(runs_dir, {"cfg_0": 111})  # cfg_1 has none and falls back to seed_base + index
+    seen: list[int] = []
+    original = bar.joint_shift_null
+
+    def recording(*args, **kwargs):
+        seen.append(kwargs["seed"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bar, "joint_shift_null", recording)
+    rep = family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel)
+    assert seen == [111, 5_000_001]
+    assert [rep["configurations"][c]["joint_shift_seed"] for c in ("cfg_0", "cfg_1")] == seen
+
+
+def test_calibration_requires_config_seed(tmp_path: Path):
+    ds_dir, runs_dir, panel = _write_planted_family(tmp_path)
+    _set_kind(runs_dir, {"cfg_0": "control", "cfg_1": "control"})
+    _set_config_seeds(runs_dir, {"cfg_0": 11})
+    with pytest.raises(ValueError, match="joint_shift_seed"):
+        family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, calibration=True)
+
+
+def test_spa_seed_param(tmp_path: Path, monkeypatch):
+    import r4.bar as bar
+
+    ds_dir, runs_dir, panel = _write_planted_family(tmp_path)
+    seen: list[int] = []
+    original = bar.hansen_spa
+
+    def recording(*args, **kwargs):
+        seen.append(kwargs["seed"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bar, "hansen_spa", recording)
+    rep = family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, seed=5)
+    assert seen == [6_000_000, 6_000_000]
+    assert rep["spa_seed"] == 6_000_000 and rep["seed"] == 5
+    seen.clear()
+    rep2 = family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, seed=5, spa_seed=99)
+    assert seen == [99, 99] and rep2["spa_seed"] == 99

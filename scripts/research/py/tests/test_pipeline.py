@@ -546,7 +546,10 @@ def test_triple_barrier_decision_samples():
     assert "tb_label" in samples.columns
     assert "tb_net" in samples.columns
     assert "tb_exit" in samples.columns
+    for col in ("tb_label_short", "tb_net_short", "tb_exit_short"):
+        assert col in samples.columns, col
     assert not samples["tb_label"].isna().any()
+    assert not samples["tb_label_short"].isna().any()
 
 
 def test_load_panel(tmp_path: Path):
