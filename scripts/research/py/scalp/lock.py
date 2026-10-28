@@ -81,6 +81,11 @@ BREAK-EVEN REFERENCE, not a trial
 - For a sign bet on a normal return with SD s_h over the hold, the expected gross per trade is 0.798 x rho x s_h,
   where rho is the forecast's correlation with the return. The break-even rho per coin is the round trip / (0.798 x
   s_h), from R's measured s_h, for the taker round trip and for a maker-maker round trip of 0.04%.
+
+AMENDMENT 1 (2026-10-29, before any run of these rules). The netting sentence "a flip pays one unit" is wrong and is
+corrected: a flip at one open is a single order of twice the position, so it pays the exit and the new entry in full,
+exactly as two separate fills would. Only a same-side continuation saves anything (it trades nothing). Found in the
+code review of the implementation, which charges flips in full.
 """
 
 from __future__ import annotations
