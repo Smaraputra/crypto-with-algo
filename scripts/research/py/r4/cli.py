@@ -252,26 +252,26 @@ def stress_metrics(
     stress_fee = base - fee_extra_mult * fees
     stress_slip = base - slip_extra_mult * slippage
 
-    # Maker-as-taker: per fold (the book's own netting set, non-excluded tranches), recompute the netted costs
-    # with every maker leg relabelled taker so it can merge with taker legs at the same instant. The extra cost
-    # on a day is the relabelled netted total minus the netted total (negative when the merge saves cost).
+    # Maker-as-taker: over the run's one netting set (the non-excluded tranches of all folds, as walk_forward charges
+    # them), recompute the netted costs with every maker leg relabelled taker so it can merge with taker legs at the
+    # same instant. The extra cost on a day is the relabelled netted total minus the netted total (negative when the
+    # merge saves cost).
     extra: dict[int, float] = {}
     n_maker_fills = 0
+    kept = []
     for fold in folds:
-        kept = []
         for t in fold.tranches:
             beta = fold.betas.get(t.symbol, float("nan"))
             if beta is None or np.isnan(beta):
                 continue  # excluded from the book, so it carries no fill
             kept.append(t)
             n_maker_fills += int(t.entry_fill == "maker") + int(t.exit_fill == "maker")
-        if not kept:
-            continue
+    if kept:
         base_day = netted_costs(kept, profile).by_day
         taker_day = netted_costs(kept, profile, maker_as_taker=True).by_day
         diff = (taker_day["fees"] + taker_day["slippage"]).sub(base_day["fees"] + base_day["slippage"], fill_value=0.0)
         for day, val in diff.items():
-            extra[int(day)] = extra.get(int(day), 0.0) + float(val)
+            extra[int(day)] = float(val)
     extra_series = pd.Series(extra, dtype=np.float64).reindex(base.index).fillna(0.0)
     stress_maker = base - extra_series
 
@@ -346,6 +346,36 @@ def source_digest(package_dir: Path | str | None = None) -> str:
         [p.relative_to(root).as_posix(), hashlib.sha256(p.read_bytes()).hexdigest()] for p in sorted(root.rglob("*.py"))
     ]
     return hashlib.sha256(json.dumps(entries, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+REQUIREMENTS_LOCK = Path(__file__).resolve().parents[1] / "requirements.lock"
+_VERSION_PACKAGES: tuple[tuple[str, str], ...] = (
+    ("numpy", "numpy"),
+    ("pandas", "pandas"),
+    ("scipy", "scipy"),
+    ("scikit-learn", "scikit-learn"),
+    ("lightgbm", "lightgbm"),
+    ("pyarrow", "pyarrow"),
+)
+
+
+def reproduction_inputs() -> dict[str, Any]:
+    """What a receipt needs to reproduce a run: the r4 source digest, the requirements lock hash and library versions.
+
+    requirements_lock_sha256 is None when the lock file is absent (recorded, not an error). A library that is not
+    installed has version None.
+    """
+    import platform
+    from importlib import metadata
+
+    versions: dict[str, str | None] = {"python": platform.python_version()}
+    for key, dist in _VERSION_PACKAGES:
+        try:
+            versions[key] = metadata.version(dist)
+        except metadata.PackageNotFoundError:
+            versions[key] = None
+    lock_sha = hashlib.sha256(REQUIREMENTS_LOCK.read_bytes()).hexdigest() if REQUIREMENTS_LOCK.is_file() else None
+    return {"source_sha256": source_digest(), "requirements_lock_sha256": lock_sha, "versions": versions}
 
 
 def resolve_commit(commit: str | None) -> str:
@@ -602,7 +632,7 @@ def run_wf(
     receipt = {
         "kind": kind,
         "commit": commit_sha,
-        "source_sha256": source_digest(),
+        **reproduction_inputs(),
         "dataset_hash": dataset_hash,
         "config_hash": config_hash_of(raw_config),
         "config": raw_config,
@@ -631,6 +661,12 @@ def run_wf(
             "missing_sigma_tranches": int(run_res.missing_sigma_tranches),
             "missing_flow_tranches": int(run_res.missing_flow_tranches),
             "missing_funding_tranches": int(run_res.missing_funding_tranches),
+            "missing_model_tranches": int(run_res.missing_model_tranches),
+            "exit_model_folds": int(run_res.exit_model_folds),
+            "exit_model_fallback_folds": int(run_res.exit_model_fallback_folds),
+            "exit_model_fallback_tranches": int(run_res.exit_model_fallback_tranches),
+            "cpcv_missing_model": 0 if cpcv_exit_ctx is None else int(cpcv_exit_ctx.missing_model),
+            "cpcv_missing_sigma": 0 if cpcv_exit_ctx is None else int(cpcv_exit_ctx.missing_sigma),
             "n_samples": int(run_res.n_samples),
             "n_decisions": int(((samples["T"] >= first_refit_ms) & (samples["T"] < DEV_END)).sum()),
             "n_tranches": len(run_res.tranches),
@@ -699,6 +735,7 @@ def run_tripwire(
 
     run_out = Path(out_dir) / run_id
     config_hash = config_hash_of(raw_config)
+    repro = reproduction_inputs()
 
     def write_shift(entry: dict[str, Any], daily: pd.DataFrame | None) -> None:
         shift_dir = run_out / "tripwire" / f"shift_{entry['shift_days']:03d}"
@@ -709,6 +746,7 @@ def run_tripwire(
         receipt = {
             "kind": "tripwire",
             "commit": commit_sha,
+            **repro,
             "dataset_hash": str(manifest["datasetHash"]),
             "config_hash": config_hash,
             "config": raw_config,
@@ -723,6 +761,7 @@ def run_tripwire(
     result = {
         "kind": "tripwire",
         "commit": commit_sha,
+        **repro,
         "dataset_hash": str(manifest["datasetHash"]),
         "config_hash": config_hash,
         "config_id": run_id,
@@ -842,6 +881,13 @@ def main() -> None:
     bar_parser.add_argument("--ds", required=True, help="Dataset directory")
     bar_parser.add_argument("--out", required=True, help="Output report JSON file")
     bar_parser.add_argument("--seed", required=False, type=int, default=7, help="Random seed")
+    bar_parser.add_argument(
+        "--family-index",
+        required=False,
+        type=int,
+        default=0,
+        help="Index of the family in the program (the SPA seed is 6,000,000 + this index)",
+    )
     bar_parser.add_argument(
         "--tripwire",
         required=False,
@@ -1102,6 +1148,7 @@ def main() -> None:
             out_file=args.out,
             seed=args.seed,
             tripwire=tripwire_input,
+            family_index=args.family_index,
         )
         print(f"Family report written to {args.out}")
     elif args.command == "tripwire":

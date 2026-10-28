@@ -14,6 +14,7 @@ import pandas as pd
 
 from r4.book import (
     DAY_MS,
+    INTRABAR_EXIT_REASONS,
     Tranche,
     _coerce_tranches,
     _extract_settlements_for_symbol,
@@ -157,11 +158,14 @@ VARIANCE_MODES = ("within_cell", "total", "cost_free_total")
 def cell_key(config: dict[str, Any]) -> tuple[Any, ...]:
     """The cost cell of a configuration: (interval, h_ms, label, exit, book).
 
-    The exit is the string "horizon" or the sorted-key JSON of its dict, so key order never splits a cell. The book
+    The exit is parsed (r4.exits.parse_exit) and written back in its canonical form, as the string "horizon" or the
+    sorted-key JSON of its dict, so neither key order nor {"k": 1} against {"k": 1.0} splits a cell. The book
     defaults to "slot" and the label to "fixed". A missing interval or h_ms is None (old fixtures).
     """
-    raw_exit = config.get("exit", "horizon")
-    exit_key = raw_exit if isinstance(raw_exit, str) else json.dumps(raw_exit, sort_keys=True)
+    from r4.exits import _spec_to_raw, parse_exit
+
+    canonical = _spec_to_raw(parse_exit(config.get("exit", "horizon")))
+    exit_key = canonical if isinstance(canonical, str) else json.dumps(canonical, sort_keys=True)
     return (
         config.get("interval"),
         config.get("h_ms"),
@@ -383,7 +387,7 @@ class _Netting:
 
     The coin, fee profile and slippage override of a tranche are fixed (its cost class). Entry and exit instants and
     fills are passed per call. Legs merge exactly as in netted_costs: same coin, same instant, same fill kind and
-    same native cost.
+    same native cost, and never an intrabar exit (stop, take-profit, maker exit), which fills inside a 5m bar.
     """
 
     def __init__(self, tranches: Sequence[Tranche], profile: str):
@@ -415,22 +419,34 @@ class _Netting:
         exit_ms: np.ndarray,
         entry_maker: np.ndarray,
         exit_maker: np.ndarray,
+        exit_intrabar: np.ndarray,
     ) -> np.ndarray:
-        """Netted cost per unit of absolute weight of the tranches idx (arrays aligned to idx)."""
+        """Netted cost per unit of absolute weight of the tranches idx (arrays aligned to idx).
+
+        exit_intrabar marks exits that fill inside a 5m bar (they never net). Entries fill at a 5m open.
+        """
         n = len(idx)
         if n == 0:
             return np.zeros(0, dtype=np.float64)
         cls = self._cls[idx]
         code_e = 2 * cls + entry_maker.astype(np.int64)
         code_x = 2 * cls + exit_maker.astype(np.int64)
-        key = np.concatenate(
-            ((code_e << _KEY_SHIFT) | entry_ms.astype(np.int64), (code_x << _KEY_SHIFT) | exit_ms.astype(np.int64))
-        )
-        uniq, gid = np.unique(key, return_inverse=True)
+        intra = np.concatenate((np.zeros(n, dtype=bool), exit_intrabar.astype(bool)))
+        code = np.concatenate((code_e, code_x))
+        key = (code << _KEY_SHIFT) | np.concatenate((entry_ms.astype(np.int64), exit_ms.astype(np.int64)))
+        # Open-price legs merge on (class, fill, instant). An intrabar leg is a group of its own.
+        uniq, inv = np.unique(key[~intra], return_inverse=True)
+        n_open = len(uniq)
+        n_intra = int(intra.sum())
+        gid = np.empty(2 * n, dtype=np.int64)
+        gid[~intra] = inv
+        gid[intra] = n_open + np.arange(n_intra, dtype=np.int64)
+        g_code = np.concatenate((uniq >> _KEY_SHIFT, code[intra]))
+        n_groups = n_open + n_intra
         amount = np.concatenate((weight, -weight))
-        traded = np.abs(np.bincount(gid, weights=amount, minlength=len(uniq)))
-        abs_sum = np.bincount(gid, weights=np.abs(amount), minlength=len(uniq))
-        group_cost = traded * self._rate[uniq >> _KEY_SHIFT]
+        traded = np.abs(np.bincount(gid, weights=amount, minlength=n_groups))
+        abs_sum = np.bincount(gid, weights=np.abs(amount), minlength=n_groups)
+        group_cost = traded * self._rate[g_code]
         with np.errstate(divide="ignore", invalid="ignore"):
             share = np.where(abs_sum[gid] > 0.0, np.abs(amount) / abs_sum[gid], 0.0)
         leg = share * group_cost[gid]
@@ -450,6 +466,7 @@ def _unit_costs(tranches: Sequence[Tranche], profile: str = DEFAULT_FEE_PROFILE)
         np.array([t.exit_ms for t in tr], dtype=np.int64),
         np.array([t.entry_fill == "maker" for t in tr], dtype=bool),
         np.array([t.exit_fill == "maker" for t in tr], dtype=bool),
+        np.array([t.exit_intrabar for t in tr], dtype=bool),
     )
 
 
@@ -664,12 +681,19 @@ def joint_shift_stats(
     netting = _Netting(tranche_list, profile) if replay else None
     entry_maker0 = np.array([t.entry_fill == "maker" for t in tranche_list], dtype=bool)
     exit_maker0 = np.array([t.exit_fill == "maker" for t in tranche_list], dtype=bool)
+    exit_intra0 = np.array([t.exit_intrabar for t in tranche_list], dtype=bool)
     costs = np.zeros(n_tr, dtype=np.float64)
     if np.any(included):
         inc_idx = np.flatnonzero(included)
         if netting is not None:
             costs[inc_idx] = netting.unit_costs(
-                inc_idx, weight[inc_idx], entry0[inc_idx], exit0[inc_idx], entry_maker0[inc_idx], exit_maker0[inc_idx]
+                inc_idx,
+                weight[inc_idx],
+                entry0[inc_idx],
+                exit0[inc_idx],
+                entry_maker0[inc_idx],
+                exit_maker0[inc_idx],
+                exit_intra0[inc_idx],
             )
         else:
             netted = netted_costs([tranche_list[i] for i in inc_idx], profile)
@@ -683,9 +707,13 @@ def joint_shift_stats(
         e_px: np.ndarray,
         x_priced: np.ndarray,
         x_px: np.ndarray,
+        x_intra: np.ndarray,
         pe: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """(side x (r_coin - beta x r_EW), side x funding) per tranche, NaN where an input is missing."""
+        """(side x (r_coin - beta x r_EW), side x funding) per tranche, NaN where an input is missing.
+
+        Funding sums the settlements in (entry, exit], and in (entry, exit) for an intrabar exit (x_intra).
+        """
         any_priced = bool(e_priced.any() or x_priced.any())
         hedge_exit = np.where(x_priced, -(-exit_ // 300_000) * 300_000, exit_) if x_priced.any() else exit_
         if pe is None:
@@ -714,7 +742,11 @@ def joint_shift_stats(
             if not np.any(sel) or len(f_t) == 0:
                 continue
             cum = fund_cum[pos]
-            idx_exit = np.searchsorted(f_t, exit_[sel], side="right")
+            idx_exit = np.where(
+                x_intra[sel],
+                np.searchsorted(f_t, exit_[sel], side="left"),
+                np.searchsorted(f_t, exit_[sel], side="right"),
+            )
             idx_entry = np.searchsorted(f_t, entry[sel], side="right")
             funding[sel] = cum[idx_exit] - cum[idx_entry]
 
@@ -727,7 +759,7 @@ def joint_shift_stats(
             return float("inf")
         return float(np.sum(w_abs[keep] * ret[keep]) / np.sum(w_abs[keep]))
 
-    core0, fund0 = hedge_terms(entry0, exit0, entry_priced, entry_px0, exit_priced, exit_px0)
+    core0, fund0 = hedge_terms(entry0, exit0, entry_priced, entry_px0, exit_priced, exit_px0, exit_intra0)
     obs_ret = core0 - costs - fund0
     obs_keep = np.isfinite(obs_ret)
     if not np.any(obs_keep):
@@ -749,7 +781,7 @@ def joint_shift_stats(
         sh_entry, sh_exit = shift_tranche_times(entry0, entry0 + hold, s_days, span_start_ms, n_days)
         late = sh_exit > span_end_ms
         if not replay:
-            core, fund = hedge_terms(sh_entry, sh_exit, no_priced, no_px, no_priced, no_px)
+            core, fund = hedge_terms(sh_entry, sh_exit, no_priced, no_px, no_priced, no_px, no_priced)
             ret = core - costs - fund
             keep = np.isfinite(ret) & ~late
             total_dropped += int(n_tr - np.sum(keep))
@@ -765,6 +797,7 @@ def joint_shift_stats(
         ex_px = np.full(n_tr, np.nan, dtype=np.float64)
         ex_priced = np.zeros(n_tr, dtype=bool)
         ex_maker = np.zeros(n_tr, dtype=bool)
+        ex_intra = np.zeros(n_tr, dtype=bool)
         rows = np.flatnonzero(cand)
         if len(rows):
             frame = pd.DataFrame(
@@ -785,7 +818,8 @@ def joint_shift_stats(
             reason = res["exit_reason"].to_numpy()
             ex_priced[rows] = reason != "horizon"
             ex_maker[rows] = res["exit_fill"].to_numpy() == "maker"
-        core, fund = hedge_terms(sh_entry, ex_ms, no_priced, no_px, ex_priced, ex_px, pe=pe)
+            ex_intra[rows] = np.isin(reason, INTRABAR_EXIT_REASONS)
+        core, fund = hedge_terms(sh_entry, ex_ms, no_priced, no_px, ex_priced, ex_px, ex_intra, pe=pe)
         gross = core - fund
         keep = np.isfinite(gross) & cand
         total_dropped += int(n_tr - np.sum(keep))
@@ -793,7 +827,7 @@ def joint_shift_stats(
         ret = np.zeros(n_tr, dtype=np.float64)
         if len(kept):
             unit = netting.unit_costs(
-                kept, weight[kept], sh_entry[kept], ex_ms[kept], entry_maker0[kept], ex_maker[kept]
+                kept, weight[kept], sh_entry[kept], ex_ms[kept], entry_maker0[kept], ex_maker[kept], ex_intra[kept]
             )
             ret[kept] = gross[kept] - unit
         null_stats[draw_idx] = weighted(ret, keep)
@@ -1034,6 +1068,15 @@ def _rank_candidates(passing: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _exit_model_fallback(receipt: dict[str, Any]) -> bool:
+    """True for an E4 or E5 receipt that counts walk-forward folds run as E1 (the exit-model fit fell back)."""
+    from r4.exits import parse_exit
+
+    if parse_exit(receipt.get("config", {}).get("exit", "horizon")).rule not in ("E4", "E5"):
+        return False
+    return int(receipt.get("metrics", {}).get("exit_model_fallback_folds", 0)) > 0
+
+
 def family_report(
     family: str,
     runs_dir: Path | str,
@@ -1046,8 +1089,9 @@ def family_report(
     tripwire: dict[str, Any] | None = None,
     calibration: bool = False,
     seed_base: int = DEFAULT_JOINT_SHIFT_SEED_BASE,
-    spa_seed: int = DEFAULT_SPA_SEED,
+    spa_seed: int | None = None,
     variance_mode: str = "within_cell",
+    family_index: int = 0,
 ) -> dict[str, Any]:
     """Evaluate exploration bar across all configurations in a family and write report.
 
@@ -1060,13 +1104,24 @@ def family_report(
     receipts with kind "control" are accepted, in the family and in the round directory.
     The joint-shift seed of each configuration is receipt["config"]["joint_shift_seed"] when present, else
     seed_base + its index in the sorted run ids. In calibration mode a configuration without one raises. The seed
-    used is recorded per configuration. spa_seed drives the SPA bootstrap, and both it and seed are recorded.
+    used is recorded per configuration. spa_seed drives the SPA bootstrap and defaults to DEFAULT_SPA_SEED +
+    family_index (the family's index in the program, spec section 9). Both are recorded with seed.
+
+    An E4 or E5 configuration whose receipt counts walk-forward fold fallbacks (exit_model_fallback_folds above 0)
+    ran some folds as E1, so it is not the configuration under test: its evaluation carries "exit_model_fallback":
+    true, and calibration mode raises.
 
     Finalists are chosen only once the label-shift tripwire is known and does not halt the family.
     Without a tripwire input the all-pass configurations are listed as candidates and finalists stay empty.
     """
+    from r4.cli import reproduction_inputs
     from r4.data import sha256_file
     from r4.pipeline import load_panel
+
+    if isinstance(family_index, bool) or not isinstance(family_index, int) or family_index < 0:
+        raise ValueError(f"family_index must be a non-negative int, got {family_index!r}")
+    if spa_seed is None:
+        spa_seed = DEFAULT_SPA_SEED + family_index
 
     runs_path = Path(runs_dir)
     round_path = Path(round_runs_dir)
@@ -1168,6 +1223,13 @@ def family_report(
 
     run_index = {run_id: i for i, run_id in enumerate(sorted(family_runs))}
     for run_id, receipt in family_runs.items():
+        exit_fallback = _exit_model_fallback(receipt)
+        if exit_fallback and calibration:
+            raise ValueError(
+                f"Run {run_id} is an E4 or E5 configuration with {receipt['metrics']['exit_model_fallback_folds']} "
+                "walk-forward fold(s) run as E1 (exit_model_fallback_folds above 0): it is not the configuration "
+                "under test"
+            )
         res1 = item1(receipt)
         c_daily = family_daily[run_id]
         res3 = item3(receipt, chosen_v, ledger_count, candidate_daily=c_daily)
@@ -1225,6 +1287,7 @@ def family_report(
             "item5": res5,
             "item6": res6,
             "joint_shift_seed": run_joint_seed if passes_1_to_3 else None,
+            "exit_model_fallback": exit_fallback,
             "all_pass": all_pass,
         }
         config_evals[run_id] = cfg_eval
@@ -1251,6 +1314,8 @@ def family_report(
         "seed_base": int(seed_base),
         "seed": int(seed),
         "spa_seed": int(spa_seed),
+        "family_index": int(family_index),
+        **reproduction_inputs(),
         "inputs_hashes": {
             "dataset_hash": dataset_hash,
             "receipts": input_receipt_shas,

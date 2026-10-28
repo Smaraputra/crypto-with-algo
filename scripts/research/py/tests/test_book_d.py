@@ -149,7 +149,7 @@ def test_d_get_decisions_scores():
     binary = SideModel("binary", None, cls, 0.2, (), 0.5, 0.1)
     # (p_up - base_up) - (p_dn - base_dn) with p_dn the constant 0.2
     np.testing.assert_allclose(
-        _get_decisions(binary, np.array([[0.7], [0.3]]), _cfg(model="logistic")),
+        _get_decisions(binary, np.array([[0.7], [0.3]]), _cfg(model="logistic", side_rule="prob")),
         [(0.7 - 0.5) - (0.2 - 0.1), (0.3 - 0.5) - (0.2 - 0.1)],
     )
 
@@ -165,7 +165,8 @@ def test_d_family_requires_book_d_and_size_rule_refused():
         _cfg(book="D", size_rule="vol")
     with pytest.raises(ValueError):
         _cfg(book="bogus")
-    assert _cfg(book="slot", size_rule="vol").size_rule == "vol"  # the slot rule is unchanged
+    with pytest.raises(ValueError, match="size_rule"):
+        _cfg(book="slot", size_rule="vol")  # only "unit" exists (finding 9): an unknown size rule never runs silently
     # the key enters the config hash
     h_slot = config_hash_of({**BASE_CFG, "book": "slot"})
     h_d = config_hash_of({**BASE_CFG, "book": "D"})
