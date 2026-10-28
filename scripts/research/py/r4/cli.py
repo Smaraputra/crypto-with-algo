@@ -1011,7 +1011,7 @@ def main() -> None:
     cdo_parser.add_argument("--spa", required=True, help="Re-test family SPA JSON")
     cdo_parser.add_argument("--retests", required=True, nargs="+", help="The 6 re-test receipts")
     cdo_parser.add_argument("--commit-order", required=True, help="Commit-order evidence JSON (computed outside)")
-    cdo_parser.add_argument("--exit-block", required=False, default=None, help="Exit block result JSON, when run")
+    cdo_parser.add_argument("--exit-block", required=True, help="Exit block result JSON (calib-exits output)")
 
     args = parser.parse_args()
 

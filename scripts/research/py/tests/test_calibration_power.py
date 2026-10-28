@@ -297,6 +297,7 @@ def _noise_eval() -> dict:
         "gate_ok": True,
         "variance": {"mode": "within_cell", "V": D_V},
         "provenance": _prov(),
+        "dataset_hash": DS_HASH,
         "noise_set": _noise_set(),
     }
 
@@ -312,9 +313,72 @@ def _null_sim(count: int = 3, n: int = 50_000) -> dict:
     }
 
 
+DS_HASH = "9" * 64
+
+
 def _exit_block(rejects: tuple[bool, ...] = (False,) * 6) -> dict:
-    cfgs = [{"id": f"exit_{i}", "p": 0.01 if r else 0.5, "rejected": r} for i, r in enumerate(rejects)]
-    return {"configs": cfgs, "n_rejected": int(sum(rejects)), "provenance": _prov()}
+    """A block as the registered evaluation writes it: registered ids, hashes, draws, seeds and sizes."""
+    from r4.method import BAR
+
+    cfgs = cal.exit_block()
+    rows = []
+    for i, (c, r) in enumerate(zip(cfgs, rejects, strict=True)):
+        rows.append(
+            {
+                "id": c["id"],
+                "config_hash": config_hash_of(c),
+                "rule": c["exit"]["rule"],
+                "p": 0.01 if r else 0.5,
+                "rejected": r,
+                "draws": BAR["random_entry_draws"],
+                "seed": cal.EXIT_JOINT_SHIFT_SEED_BASE + i,
+                "entries_match_base": True,
+                "replay_reproduction": {"n": 100, "mismatches": 0},
+                "shift_zero": {"observed": 0.1, "replayed": 0.1, "abs_diff": 0.0, "ok": True},
+            }
+        )
+    rules = [c["exit"]["rule"] for c in cfgs] + ["E4_loose", "E5_loose"]
+    opt = {
+        "n_panels": cal.OPT_STOP_PANELS,
+        "n_days": cal.OPT_STOP_DAYS,
+        "seed_base": cal.OPT_STOP_SEED_BASE,
+        "alpha": cal.OPT_STOP_ALPHA,
+        "rules": {rule: {"ok": True, "mean": 0.0, "t": 0.0, "p_two_sided": 0.5, "early_share": 0.1} for rule in rules},
+        "met": True,
+    }
+    planted_rules = {
+        r: {
+            "increment": 0.001,
+            "close_ahead_rate": 0.9,
+            "false_close_rate": 0.1,
+            "n_planted": 500,
+            "n_unplanted": 500,
+            "met": True,
+        }
+        for r in ("E4", "E5", "E6")
+    }
+    return {
+        "configs": rows,
+        "n_rejected": int(sum(rejects)),
+        "dataset_hash": DS_HASH,
+        "optional_stopping": opt,
+        "determinism": {"identical": True, "skipped": False, "differences": []},
+        "diagnostics": {
+            "median_hold": {"met": True, "threshold": 0.8, "rules": {}},
+            "planted_intrabar": {
+                "met": True,
+                "rules": planted_rules,
+                "max_false_close_rate": 0.2,
+                "min_close_ahead_rate": 0.8,
+                "panel_seeds": [7000, 7002, 7004, 7006],
+                "event_seeds": [7001, 7003, 7005, 7007],
+                "n_panels": 4,
+                "n_days": 100,
+                "n_coins": 4,
+            },
+        },
+        "provenance": _prov(),
+    }
 
 
 RULES = ("rv-v1", "lab-v4-s1", "lab-v4-s2", "v8-1h", "v8-4h", "c1")
@@ -514,8 +578,9 @@ def test_dossier_gate_ready_logic(tmp_path):
     assert all(p["gated"] == (cal.PREDICTIONS[k]["status"] == "gated") for k, p in preds.items())
     assert preds["natives_all_six_fail"]["as_predicted"] is True
     assert preds["daily_null_crossing_rate_at_most_1_over_600"]["as_predicted"] is True  # 3 / 50,000 = 6e-5
-    # Diagnostics not evaluated here stay None and never block the gate.
-    assert preds["exit_median_hold_at_least_80pct"]["as_predicted"] is None
+    # The exit diagnostics are always evaluated now (the block is required, brief 28e). One not judged by this
+    # dossier (the reference-panel count) stays None and never blocks the gate.
+    assert preds["exit_median_hold_at_least_80pct"]["as_predicted"] is True
     assert preds["noise_joint_shift_reference_panels"]["as_predicted"] is None
     assert base["gate_p_ready"] is True
 
@@ -537,10 +602,9 @@ def test_dossier_gate_ready_logic(tmp_path):
         run("g3", retests=[*[_retest(r) for r in RULES[:5]], _retest(RULES[5], passed=True)])["gate_p_ready"] is False
     )
     assert run("g4", null_simulation=_null_sim(count=100))["gate_p_ready"] is False  # 100 / 50,000 > 1/600
-    # An exit block that was not run is not "as predicted".
-    nb = run("g5", exit_block=None)
-    assert nb["predictions"]["exit_block_at_most_1_of_6_rejects"]["as_predicted"] is None
-    assert nb["gate_p_ready"] is False
+    # An exit block that was not run is refused: it is no longer optional (brief 28e).
+    with pytest.raises(ValueError, match="exit_block"):
+        run("g5", exit_block=None)
     # An infeasible power grid leaves the positive prediction unmet.
     inf = run(
         "g6",

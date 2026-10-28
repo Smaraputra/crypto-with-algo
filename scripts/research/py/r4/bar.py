@@ -851,6 +851,21 @@ def joint_shift_stats(
     return JointShiftStats(obs_stat, null_stats, [int(s) for s in shifts], total_dropped, n_tr, zero_stat)
 
 
+def joint_shift_p(stats: JointShiftStats, n_draws: int) -> tuple[float, float]:
+    """The p-value and the drop share of a joint-shift run: the one rule joint_shift_null and the exit block share.
+
+    p = (1 + number of draws with a statistic at or above the observed) / (1 + n_draws). The drop share is the
+    dropped tranche-draws over n_draws x n_tranches. No tranches gives (1.0, 0.0). No shift that fits the span gives
+    (1.0, 1.0): every draw is lost.
+    """
+    if stats.n_tranches == 0:
+        return 1.0, 0.0
+    if not stats.shifts:
+        return 1.0, 1.0
+    k = int(np.sum(stats.null_stats >= stats.obs_stat))
+    return float((1 + k) / (1 + n_draws)), float(stats.total_dropped / (n_draws * stats.n_tranches))
+
+
 def joint_shift_null(
     tranches: list[Tranche] | pd.DataFrame,
     panel: dict[str, dict[str, pd.DataFrame]],
@@ -899,13 +914,9 @@ def joint_shift_null(
         profile=profile,
         exit_replay=exit_replay,
     )
-    if stats.n_tranches == 0:
-        return 1.0, 0.0, float("nan"), []
-    if not stats.shifts:
-        return 1.0, 1.0, float("nan"), []
-    k = int(np.sum(stats.null_stats >= stats.obs_stat))
-    p_val = float((1 + k) / (1 + n_draws))
-    drop_share = float(stats.total_dropped / (n_draws * stats.n_tranches))
+    p_val, drop_share = joint_shift_p(stats, n_draws)
+    if stats.n_tranches == 0 or not stats.shifts:
+        return p_val, drop_share, float("nan"), []
     return p_val, drop_share, stats.obs_stat, stats.shifts
 
 
@@ -1366,6 +1377,7 @@ __all__ = [
     "JointShiftStats",
     "build_exit_replay",
     "joint_shift_null",
+    "joint_shift_p",
     "joint_shift_stats",
     "make_exit_replay",
     "read_manifest",

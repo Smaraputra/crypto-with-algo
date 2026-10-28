@@ -381,6 +381,7 @@ def test_predictions_gated_set():
         "natives_all_six_fail",
         "daily_null_crossing_rate_at_most_1_over_600",
         "exit_block_at_most_1_of_6_rejects",
+        "exit_optional_stopping_zero_mean",
     }
     for k, v in cal.PREDICTIONS.items():
         assert v["status"] in ("gated", "diagnostic"), k

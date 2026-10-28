@@ -151,3 +151,91 @@ def apply_plant(panel: dict[str, dict[str, pd.DataFrame]], plant: dict[str, Any]
         out.dropped[sym] = drops
         out[sym] = frames
     return out
+
+
+# ---------------------------------------------------------------------------
+# The planted reversal of the exit controls (calibration spec lines 171 and 269)
+# ---------------------------------------------------------------------------
+
+EVENT_AMP = 0.02
+_HOUR_MS = 3_600_000
+_MIN_MS = 60_000
+
+
+def plant_events(
+    panel: dict[str, dict[str, pd.DataFrame]], seed: int
+) -> tuple[dict[str, dict[str, pd.DataFrame]], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """A copy of the panel with a planted reversal that is observable from taker flow before the price moves.
+
+    Events sit at hour tops, 6 to 15 hours apart (the first 30 hours in). For an event at e with sign s the taker
+    buy share of the three 5m bars in [e - 15m, e) is 0.95 (s > 0) or 0.05 (s < 0), then the price ramps by
+    s x EVENT_AMP (2%) over the twelve 5m bars of [e + 30m, e + 90m). The ramp is cumulative and permanent. Only 5m
+    prices and taker volume change, and the higher bars are re-aggregated. Returns the new panel and
+    {symbol: (event times, signs)}.
+    """
+    rng = np.random.default_rng(seed)
+    out: dict[str, dict[str, pd.DataFrame]] = {}
+    events: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for sym, d in panel.items():
+        five = d["5m"].copy()
+        t0 = int(five["t"].iloc[0])
+        n = len(five)
+        hours = []
+        h = 30
+        while h < n // 12 - 3:
+            hours.append(h)
+            h += int(rng.integers(6, 16))
+        e = t0 + np.array(hours, dtype=np.int64) * _HOUR_MS
+        sign = rng.choice([-1, 1], size=len(e))
+        inc = np.zeros(n + 12)
+        for ee, sg in zip(e, sign, strict=True):
+            a = int((ee + 30 * _MIN_MS - t0) // BAR_MS)
+            inc[a : a + 12] += sg * EVENT_AMP / 12.0
+        cum = np.cumsum(inc)[:n]
+        off_open = np.concatenate(([0.0], cum[:-1]))
+        off_close = cum
+        five["o"] = five["o"].to_numpy() * np.exp(off_open)
+        five["c"] = five["c"].to_numpy() * np.exp(off_close)
+        five["h"] = five["h"].to_numpy() * np.exp(np.maximum(off_open, off_close))
+        five["l"] = five["l"].to_numpy() * np.exp(np.minimum(off_open, off_close))
+        tbv = five["tbv"].to_numpy().copy()
+        v = five["v"].to_numpy()
+        for ee, sg in zip(e, sign, strict=True):
+            a = int((ee - 15 * _MIN_MS - t0) // BAR_MS)
+            tbv[a : a + 3] = v[a : a + 3] * (0.95 if sg > 0 else 0.05)
+        five["tbv"] = tbv
+        frames = dict(d)
+        frames["5m"] = five
+        for iv, ms in HIGHER_BARS.items():
+            frames[iv] = _aggregate(five, ms)
+        out[sym] = frames
+        events[sym] = (e, sign)
+    return out, events
+
+
+def classify_events(
+    ent: pd.DataFrame, events: dict[str, tuple[np.ndarray, np.ndarray]]
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per entry row: the planted mask, the unplanted mask and the drop start of the first adverse event.
+
+    A tranche is planted when an event against its side (sign x side < 0) falls in [entry + 15m, exit - 2h], and the
+    drop starts 30 minutes after that event. It is unplanted when no event lies in [entry - 90m, exit + 15m]. The
+    rest (a favourable event, or an event too close to the edges) is neither.
+    """
+    planted = np.zeros(len(ent), dtype=bool)
+    unplanted = np.zeros(len(ent), dtype=bool)
+    drop_start = np.full(len(ent), np.iinfo(np.int64).max, dtype=np.int64)
+    for sym, (e, sg) in events.items():
+        rows = np.flatnonzero((ent["symbol"] == sym).to_numpy())
+        entry = ent["entry_ms"].to_numpy()[rows]
+        sched = ent["exit_ms"].to_numpy()[rows]
+        side = ent["side"].to_numpy()[rows]
+        for r, en, sc, sd in zip(rows, entry, sched, side, strict=True):
+            adverse = (e >= en + 15 * _MIN_MS) & (e <= sc - 2 * _HOUR_MS) & (sg * sd < 0)
+            near = (e >= en - 90 * _MIN_MS) & (e <= sc + 15 * _MIN_MS)
+            if adverse.any():
+                planted[r] = True
+                drop_start[r] = int(e[adverse][0]) + 30 * _MIN_MS
+            elif not near.any():
+                unplanted[r] = True
+    return planted, unplanted, drop_start

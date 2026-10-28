@@ -36,7 +36,7 @@ from r4.exits import (
 )
 from r4.method import ENTRY_DELAY_MS, UNIVERSE
 from r4.pipeline import RunConfig, decision_samples, walk_forward
-from r4.plant import HIGHER_BARS, _aggregate
+from r4.plant import classify_events, plant_events
 from r4.synth import synth_panel
 
 B0 = 1_672_531_200_000  # 2023-01-01 UTC
@@ -568,57 +568,10 @@ def test_step_equals_replay_e5_confirm() -> None:
 # A planted reversal observable from taker flow halfway through the hold
 # ---------------------------------------------------------------------------
 
-EVENT_AMP = 0.02
-
-
-def _plant_events(
-    panel: dict[str, dict[str, pd.DataFrame]], seed: int
-) -> tuple[dict[str, dict[str, pd.DataFrame]], dict[str, tuple[np.ndarray, np.ndarray]]]:
-    """Events at hour tops: taker flow in [e - 15m, e) (buy-heavy before a rise, sell-heavy before a fall), then a
-    +-2% ramp over [e + 30m, e + 90m). Events are at least 6h apart."""
-    rng = np.random.default_rng(seed)
-    out: dict[str, dict[str, pd.DataFrame]] = {}
-    events: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for sym, d in panel.items():
-        five = d["5m"].copy()
-        t0 = int(five["t"].iloc[0])
-        n = len(five)
-        hours = []
-        h = 30
-        while h < n // 12 - 3:
-            hours.append(h)
-            h += int(rng.integers(6, 16))
-        e = t0 + np.array(hours, dtype=np.int64) * HOUR
-        sign = rng.choice([-1, 1], size=len(e))
-        inc = np.zeros(n + 12)
-        for ee, sg in zip(e, sign, strict=True):
-            a = int((ee + 30 * 60_000 - t0) // STEP_MS)
-            inc[a : a + 12] += sg * EVENT_AMP / 12.0
-        cum = np.cumsum(inc)[:n]
-        off_open = np.concatenate(([0.0], cum[:-1]))
-        off_close = cum
-        five["o"] = five["o"].to_numpy() * np.exp(off_open)
-        five["c"] = five["c"].to_numpy() * np.exp(off_close)
-        five["h"] = five["h"].to_numpy() * np.exp(np.maximum(off_open, off_close))
-        five["l"] = five["l"].to_numpy() * np.exp(np.minimum(off_open, off_close))
-        tbv = five["tbv"].to_numpy().copy()
-        v = five["v"].to_numpy()
-        for ee, sg in zip(e, sign, strict=True):
-            a = int((ee - 15 * 60_000 - t0) // STEP_MS)
-            tbv[a : a + 3] = v[a : a + 3] * (0.95 if sg > 0 else 0.05)
-        five["tbv"] = tbv
-        frames = dict(d)
-        frames["5m"] = five
-        for iv, ms in HIGHER_BARS.items():
-            frames[iv] = _aggregate(five, ms)
-        out[sym] = frames
-        events[sym] = (e, sign)
-    return out, events
-
 
 @pytest.fixture(scope="module")
 def planted() -> dict[str, Any]:
-    panel, events = _plant_events(_panel(4, 100, seed=31), seed=32)
+    panel, events = plant_events(_panel(4, 100, seed=31), seed=32)
     fac = ExitModelFactory(panel, "1h", H4, FEATURES, seed=7)
     cut = B0 + 70 * DAY
     inputs = fac.fit(None, cut)
@@ -651,33 +604,10 @@ def planted() -> dict[str, Any]:
     return {"panel": panel, "events": events, "fac": fac, "inputs": inputs, "ent": ent, "e1": e1, "e4": e4, "e5": e5}
 
 
-def _classify(
-    ent: pd.DataFrame, events: dict[str, tuple[np.ndarray, np.ndarray]]
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Per entry row: the planted mask, the unplanted mask and the drop start of the first adverse event."""
-    planted = np.zeros(len(ent), dtype=bool)
-    unplanted = np.zeros(len(ent), dtype=bool)
-    drop_start = np.full(len(ent), np.iinfo(np.int64).max, dtype=np.int64)
-    for sym, (e, sg) in events.items():
-        rows = np.flatnonzero((ent["symbol"] == sym).to_numpy())
-        entry = ent["entry_ms"].to_numpy()[rows]
-        sched = ent["exit_ms"].to_numpy()[rows]
-        side = ent["side"].to_numpy()[rows]
-        for r, en, sc, sd in zip(rows, entry, sched, side, strict=True):
-            adverse = (e >= en + 15 * 60_000) & (e <= sc - 2 * HOUR) & (sg * sd < 0)
-            near = (e >= en - 90 * 60_000) & (e <= sc + 15 * 60_000)
-            if adverse.any():
-                planted[r] = True
-                drop_start[r] = int(e[adverse][0]) + 30 * 60_000
-            elif not near.any():
-                unplanted[r] = True
-    return planted, unplanted, drop_start
-
-
 @pytest.mark.parametrize("rule", ["e4", "e5"])
 def test_e4_closes_on_planted_reversal(planted: dict[str, Any], rule: str) -> None:
     ent, res, e1 = planted["ent"], planted[rule], planted["e1"]
-    pl, un, drop_start = _classify(ent, planted["events"])
+    pl, un, drop_start = classify_events(ent, planted["events"])
     assert pl.sum() >= 100 and un.sum() >= 100
     closed = (res["exit_reason"] == "model_exit").to_numpy()
     ahead = closed & (res["exit_ms"].to_numpy() <= drop_start)

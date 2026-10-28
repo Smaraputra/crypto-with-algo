@@ -148,7 +148,15 @@ PREDICTIONS: dict[str, dict[str, str]] = {
         "diagnostic", "On synthetic no-edge panels the median hold under E4, E5 and E6 is at least 80% of h."
     ),
     "exit_planted_intrabar_control": _prediction(
-        "diagnostic", "E4, E5 and E6 beat E1 on planted tranches with a false-close rate of at most 20%."
+        "diagnostic",
+        "On the planted reversal E4, E5 and E6 beat E1 on planted tranches, close ahead of the drop on at least 80% "
+        "of them, and falsely close at most 20% of unplanted tranches.",
+    ),
+    "exit_optional_stopping_zero_mean": _prediction(
+        "gated",
+        "On 20 zero-drift synthetic panels of 75 days no exit's cost-free mean per tranche differs from zero "
+        "(two-sided 0.01), and X1's is not positive. E4 and E5 fit on each panel's own real features, at the "
+        "registered and loosened thresholds.",
     ),
 }
 
@@ -1210,7 +1218,16 @@ OPT_STOP_SEED_BASE = 6000
 OPT_STOP_VOL = 0.02
 HOLD_SHARE_MIN = 0.8
 FALSE_CLOSE_MAX = 0.2
+CLOSE_AHEAD_MIN = 0.8
 PLANT_SEED_BASE = 7000
+PLANT_PANELS = 4
+PLANT_PANEL_SEEDS: tuple[int, ...] = tuple(PLANT_SEED_BASE + 2 * k for k in range(PLANT_PANELS))
+PLANT_EVENT_SEEDS: tuple[int, ...] = tuple(PLANT_SEED_BASE + 1 + 2 * k for k in range(PLANT_PANELS))
+PLANT_DAYS = 100
+PLANT_FIT_DAYS = 70
+PLANT_COINS = 4
+PLANT_VOL = 0.015
+PLANT_MODEL_SEED = 7
 DETERMINISM_FOLDS = 3
 _ENTRY_ARRAYS = ("symbol", "side", "entry_ms", "entry_price")
 _REPLAY_FIELDS = ("exit_ms", "exit_price", "exit_fill", "exit_reason")
@@ -1440,19 +1457,39 @@ def _cost_free_returns(bars: Mapping[str, Any], entries: pd.DataFrame, res: pd.D
     return side * np.log(px / entries["entry_price"].to_numpy(dtype=np.float64))
 
 
+PLANT_FEATURES: tuple[str, ...] = ("taker_imb_last15", "ret_15m_last")
+
+
+# The loosened model-exit rows of the optional-stopping check: same per-panel pair as the registered row, but
+# thresholds that fire often, so the engine's model-exit path is exercised. The engine refuses margin_se <= 0 (and
+# the replay re-parses every spec), so "margin 0" is margin_se 1e-12, which is zero for any practical purpose.
+OPT_STOP_LOOSE: tuple[tuple[str, str], ...] = (("E4_loose", "E4"), ("E5_loose", "E5"))
+
+
+def _opt_rows() -> list[tuple[str, Any]]:
+    from r4.exits import parse_exit
+
+    rows: list[tuple[str, Any]] = [(str(s["rule"]), parse_exit(s)) for s in EXIT_BLOCK_SPECS]
+    rows.append(("E4_loose", parse_exit({"rule": "E4", "margin_se": 1e-12})))
+    rows.append(("E5_loose", parse_exit({"rule": "E5", "p_close": 0.5, "confirm_bars": 1})))
+    return rows
+
+
 def _exit_study_panel(
     seed: int,
     n_days: int,
-    specs: Sequence[Any],
+    rows: Sequence[tuple[str, Any]],
     start_ms: int = 1672531200000,
 ) -> dict[str, dict[str, np.ndarray]]:
-    """One zero-drift synthetic panel and a fixed noise entry set, replayed under every spec.
+    """One zero-drift synthetic panel and a fixed noise entry set, replayed under every row (name, parsed spec).
 
-    The entry configuration is the exit block's (C4: 4h decisions, 8h hold). E4 and E5 fit on the first part of the
-    panel (their hash noise features, as in the block's configs) and are scored on entries after the cut.
+    The entry configuration is the exit block's (C4: 4h decisions, 8h hold). E4 and E5 (and their loosened rows)
+    fit ONE pair on this panel's own first 60% (the cut), with the real features taker_imb_last15 and ret_15m_last,
+    the block's 4h interval and hold and model seed 7, and are scored on entries after the cut. A model that learns
+    leaked future information from those features would fire on it and profit. A fallback fit raises.
     """
     from r4.exit_models import ExitModelFactory
-    from r4.exits import ExitContext, parse_exit
+    from r4.exits import ExitContext
     from r4.pipeline import _panel_premium
     from r4.synth import synth_panel
 
@@ -1466,13 +1503,10 @@ def _exit_study_panel(
     ctx = ExitContext({s: panel[s]["5m"] for s in panel}, h_ms, premium=_panel_premium(panel), settlements=settlements)
     models: Any = None
     out: dict[str, dict[str, np.ndarray]] = {}
-    for spec in specs:
-        ps = parse_exit(spec)
+    for name, ps in rows:
         if ps.rule in ("E4", "E5"):
             if models is None:
-                fac = ExitModelFactory(
-                    panel, "4h", h_ms, tuple(base["features"]), int(base["seed"]), base["noise_seed"]
-                )
+                fac = ExitModelFactory(panel, "4h", h_ms, PLANT_FEATURES, PLANT_MODEL_SEED)
                 models = fac.fit(None, cut)
                 if models is None:
                     raise ValueError("the synthetic panel is too short to fit the E4/E5 models (fallback)")
@@ -1482,7 +1516,7 @@ def _exit_study_panel(
         hold = (res["exit_ms"].to_numpy(dtype=np.float64) - entries["entry_ms"].to_numpy(dtype=np.float64)) / float(
             h_ms
         )
-        out[str(ps.rule)] = {
+        out[name] = {
             "returns": ret,
             "hold_share": hold,
             "early": (res["exit_reason"].to_numpy() != "horizon"),
@@ -1505,13 +1539,18 @@ def optional_stopping_check(
     t-test across the panels. The rule fails when the mean differs from zero two-sided at alpha, and X1 (a maker
     order that must not profit) also when it is positive one-sided at alpha. Also records the pooled median hold as a
     share of h (the registered median-hold diagnostic uses it) and the share of tranches closed early.
+
+    E4 and E5 fit on each panel's own real features (see _exit_study_panel), and the rows E4_loose and E5_loose
+    replay the same pair at thresholds that fire often. Brief 28c fitted them on hash noise features (E4 never
+    closed, E5 about 1%), and brief 28e on a planted panel whose flow pattern the zero-drift panels never show
+    (E4 0%, E5 1.3%): both were blind to a look-ahead in a model exit.
     """
     from scipy import stats
 
-    specs = [s for s in EXIT_BLOCK_SPECS if rules is None or s["rule"] in rules]
-    per: dict[str, dict[str, list[np.ndarray]]] = {s["rule"]: {"returns": [], "hold": [], "early": []} for s in specs}
+    rows = [(n, ps) for n, ps in _opt_rows() if rules is None or n in rules]
+    per: dict[str, dict[str, list[np.ndarray]]] = {n: {"returns": [], "hold": [], "early": []} for n, _ in rows}
     for k in range(n_panels):
-        study = _exit_study_panel(seed_base + k, n_days, specs)
+        study = _exit_study_panel(seed_base + k, n_days, rows)
         for rule, d in study.items():
             per[rule]["returns"].append(d["returns"])
             per[rule]["hold"].append(d["hold_share"])
@@ -1548,155 +1587,138 @@ def optional_stopping_check(
     }
 
 
-def _plant_intrabar(
-    panel: dict[str, dict[str, pd.DataFrame]],
-    symbols: Sequence[str],
-    start_ms: int,
-    end_ms: int,
-    seed: int,
-    sigma_h: float,
-    share: float = 0.5,
-    shock_sigma: float = 1.5,
-    drift_sigma: float = 1.5,
-    flow_tilt: float = 0.35,
-) -> tuple[dict[str, dict[str, pd.DataFrame]], dict[str, np.ndarray]]:
-    """A copy of the panel with a visible adverse burst planted inside a random half of the 4h holds.
-
-    For a planted hold (coin, T) with direction d = +-1 the price moves by d x shock_sigma x sigma_h over the 30
-    minutes starting one hour after the entry (6 bars), the taker-buy share of those bars is 0.5 + d x flow_tilt, and
-    the price then drifts by a further d x drift_sigma x sigma_h to the end of the hold. The moves are permanent
-    (cumulative). A tranche entered at T with side -d is the planted adverse one: it loses 3 sigma_h if held.
-    Returns the new panel and {symbol: (n_grid, 2) array of (planted, direction)} on the 4h grid from start.
-    """
+def _planted_entries(panel: dict[str, dict[str, pd.DataFrame]], cut_ms: int, end_ms: int, h_ms: int) -> pd.DataFrame:
+    """1h decisions at every hour top from the cut to 6 hours before the end, both sides, for every coin."""
     from r4.method import ENTRY_DELAY_MS
-    from r4.plant import _aggregate
 
-    interval = 4 * H1_MS
-    rng = np.random.default_rng(seed)
-    first = -(-start_ms // interval) * interval
-    grid = np.arange(first, end_ms - 2 * interval, interval, dtype=np.int64)
-    new: dict[str, dict[str, pd.DataFrame]] = {}
-    plan: dict[str, np.ndarray] = {}
-    for sym in symbols:
-        five = panel[sym]["5m"].sort_values("t").reset_index(drop=True)
-        t = five["t"].to_numpy(dtype=np.int64)
-        planted = rng.random(len(grid)) < share
-        direction = np.where(rng.random(len(grid)) < 0.5, 1.0, -1.0)
-        add = np.zeros(len(t))
-        v = five["v"].to_numpy(dtype=np.float64)
-        tbv = five["tbv"].to_numpy(dtype=np.float64).copy()
-        for g, (is_p, d) in enumerate(zip(planted, direction, strict=True)):
-            if not is_p:
-                continue
-            e = int(grid[g]) + ENTRY_DELAY_MS
-            i0 = int(np.searchsorted(t, e + H1_MS))
-            i_end = int(np.searchsorted(t, e + interval))
-            if i_end >= len(t) or i0 + 6 >= i_end:
-                continue
-            add[i0 : i0 + 6] += d * shock_sigma * sigma_h / 6.0
-            add[i0 + 6 : i_end] += d * drift_sigma * sigma_h / (i_end - i0 - 6)
-            tbv[i0 : i0 + 6] = v[i0 : i0 + 6] * (0.5 + d * flow_tilt)
-        p_close = np.cumsum(add)
-        p_open = p_close - add
-        new5 = five.copy()
-        new5["o"] = five["o"].to_numpy(dtype=np.float64) * np.exp(p_open)
-        new5["c"] = five["c"].to_numpy(dtype=np.float64) * np.exp(p_close)
-        new5["h"] = five["h"].to_numpy(dtype=np.float64) * np.exp(np.maximum(p_open, p_close))
-        new5["l"] = five["l"].to_numpy(dtype=np.float64) * np.exp(np.minimum(p_open, p_close))
-        new5["tbv"] = tbv
-        frames = dict(panel[sym])
-        frames["5m"] = new5
-        for iv, ms in (("15m", 900_000), ("1h", 3_600_000), ("4h", interval), ("1d", 86_400_000)):
-            frames[iv] = _aggregate(new5, ms)
-        new[sym] = frames
-        plan[sym] = np.column_stack([planted.astype(np.float64), direction])
-    plan["_grid"] = grid.astype(np.float64)[:, None]
-    return new, plan
+    top = np.arange(cut_ms, end_ms - 6 * H1_MS, H1_MS, dtype=np.int64)
+    parts = []
+    for sym in panel:
+        t5 = panel[sym]["5m"]["t"].to_numpy(dtype=np.int64)
+        o5 = panel[sym]["5m"]["o"].to_numpy(dtype=np.float64)
+        entry = top + ENTRY_DELAY_MS
+        px = o5[np.minimum(np.searchsorted(t5, entry), len(o5) - 1)]
+        for side in (1, -1):
+            parts.append(
+                pd.DataFrame(
+                    {
+                        "symbol": sym,
+                        "side": side,
+                        "T": top,
+                        "entry_ms": entry,
+                        "exit_ms": entry + h_ms,
+                        "entry_price": px,
+                    }
+                )
+            )
+    return pd.concat(parts, ignore_index=True)
 
 
-PLANT_FEATURES: tuple[str, ...] = ("taker_imb_last15", "ret_15m_last")
+def planted_intrabar_control(rules: Sequence[str] = ("E4", "E5", "E6")) -> dict[str, Any]:
+    """The registered planted intrabar control (calibration spec lines 171 and 269): E4, E5 and E6 against E1.
 
+    The planted reversal is the spec's (r4.plant.plant_events): taker flow in [e - 15m, e) shows it, the price ramps
+    2% over [e + 30m, e + 90m), events are 6 to 15 hours apart. Setup: synth_panel with vol 0.015, 4 coins, 100 days,
+    1h decisions at every hour top from day 70, a 4h hold, both sides, E4 and E5 fitted on the first 70 days with
+    taker_imb_last15 and ret_15m_last (model seed 7) and evaluated after the cut. Registered seeds: 4 panels with
+    panel seed 7000 + 2k and event seed 7001 + 2k, k = 0..3. Rates are pooled over the 4 panels. Per rule:
+    - increment: the mean cost-free return of the rule minus E1's on the planted tranches (an adverse event inside
+      the hold, see r4.plant.classify_events);
+    - close_ahead_rate: the share of the planted tranches closed early at or before the start of the drop;
+    - false_close_rate: the share of the unplanted tranches (no event near the hold) closed early;
+    - n_planted and n_unplanted.
+    A rule meets the prediction when increment > 0, close_ahead_rate >= 0.80 and false_close_rate <= 0.20.
 
-def planted_intrabar_control(
-    n_days: int = 100,
-    seed: int = PLANT_SEED_BASE,
-    rules: Sequence[str] = ("E4", "E5", "E6"),
-    max_false_close: float = FALSE_CLOSE_MAX,
-) -> dict[str, Any]:
-    """The registered planted intrabar control: E4, E5 and E6 against E1 on planted tranches.
-
-    A visible adverse burst is planted inside a random half of the 4h holds (see _plant_intrabar). The tranches
-    entered against the burst are the planted adverse ones. Per rule: increment = mean cost-free return of the rule
-    minus E1's over ALL tranches, and false_close_rate = the share of the tranches that are NOT planted adverse (no
-    burst, or a burst in their favour) closed before the horizon. A rule meets the prediction when its increment is
-    positive and its false-close rate is at most 20%. E4 and E5 fit on the first 60% of the panel with the real
-    features taker_imb_last15 and ret_15m_last (the plant moves prices and taker flow, which hash noise features
-    cannot see), the block's noise-feature configs being unable to detect anything by construction.
+    Disclosure: brief 28c's first design (a price burst with simultaneous flow and continued drift, false closes
+    counted over every non-adverse tranche, favourable bursts included) measured E5 false closes of 22 to 29% at
+    seeds 7000 to 7003. It was replaced because it was not the spec's design. Nothing here was tuned: a miss at the
+    registered seeds is kept and reported.
     """
     from r4.exit_models import ExitModelFactory
     from r4.exits import ExitContext, parse_exit
     from r4.pipeline import _panel_premium
+    from r4.plant import classify_events, plant_events
     from r4.synth import synth_panel
 
     start_ms = 1672531200000
-    h_ms, interval = 4 * H1_MS, 4 * H1_MS
-    end_ms = start_ms + n_days * DAY_MS
-    syms = list(UNIVERSE[:6])
-    sigma_h = OPT_STOP_VOL * math.sqrt(h_ms / DAY_MS)
-    base_panel = synth_panel(_syn_cov(), syms, start_ms, end_ms, seed)
-    panel, plan = _plant_intrabar(base_panel, syms, start_ms, end_ms, seed + 1, sigma_h)
-    cut = start_ms + (n_days * 3 // 5) * DAY_MS
-    entries = _grid_entries(panel, cut, end_ms, interval, h_ms, seed + 2)
-    grid = plan["_grid"][:, 0].astype(np.int64)
-    gi = np.searchsorted(grid, entries["T"].to_numpy(dtype=np.int64))
-    planted = np.zeros(len(entries), dtype=bool)
-    adverse = np.zeros(len(entries), dtype=bool)
-    sym_arr = entries["symbol"].to_numpy()
-    side = entries["side"].to_numpy(dtype=np.int64)
-    for s in syms:
-        rows = np.flatnonzero(sym_arr == s)
-        pl, di = plan[s][gi[rows], 0] > 0.5, plan[s][gi[rows], 1]
-        planted[rows] = pl
-        adverse[rows] = pl & (side[rows] == -di.astype(np.int64))
-    ctx = ExitContext(
-        {s: panel[s]["5m"] for s in syms},
-        h_ms,
-        premium=_panel_premium(panel),
-        settlements={s: panel[s]["settlements"] for s in syms},
-    )
-    e1 = ctx.replay(entries, parse_exit("horizon"))
-    base_ret = _cost_free_returns(ctx.bars, entries, e1)
+    h_ms = 4 * H1_MS
+    end_ms = start_ms + PLANT_DAYS * DAY_MS
+    cut = start_ms + PLANT_FIT_DAYS * DAY_MS
+    syms = list(UNIVERSE[:PLANT_COINS])
+    cov = (PLANT_VOL**2) * (0.3 * np.ones((PLANT_COINS, PLANT_COINS)) + 0.7 * np.eye(PLANT_COINS))
     specs = {s["rule"]: s for s in EXIT_BLOCK_SPECS}
-    models: Any = None
+    acc: dict[str, dict[str, list[Any]]] = {r: {"inc": [], "ahead": [], "false": [], "per_seed": []} for r in rules}
+    for panel_seed, event_seed in zip(PLANT_PANEL_SEEDS, PLANT_EVENT_SEEDS, strict=True):
+        panel, events = plant_events(synth_panel(cov, syms, start_ms, end_ms, panel_seed), event_seed)
+        entries = _planted_entries(panel, cut, end_ms, h_ms)
+        planted, unplanted, drop_start = classify_events(entries, events)
+        ctx = ExitContext(
+            {s: panel[s]["5m"] for s in syms},
+            h_ms,
+            premium=_panel_premium(panel),
+            settlements={s: panel[s]["settlements"] for s in syms},
+        )
+        base_ret = _cost_free_returns(ctx.bars, entries, ctx.replay(entries, parse_exit("horizon")))
+        models: Any = None
+        for rule in rules:
+            if rule in ("E4", "E5"):
+                if models is None:
+                    models = ExitModelFactory(panel, "1h", h_ms, PLANT_FEATURES, PLANT_MODEL_SEED).fit(None, cut)
+                    if models is None:
+                        raise ValueError("the planted panel is too short to fit the E4/E5 models (fallback)")
+                ctx.set_models(models)
+            res = ctx.replay(entries, parse_exit(specs[rule]))
+            ret = _cost_free_returns(ctx.bars, entries, res)
+            early = res["exit_reason"].to_numpy() != "horizon"
+            ahead = early & (res["exit_ms"].to_numpy(dtype=np.int64) <= drop_start)
+            inc = (ret - base_ret)[planted]
+            a = acc[rule]
+            a["inc"].append(inc)
+            a["ahead"].append(ahead[planted])
+            a["false"].append(early[unplanted])
+            a["per_seed"].append(
+                {
+                    "panel_seed": int(panel_seed),
+                    "event_seed": int(event_seed),
+                    "n_planted": int(planted.sum()),
+                    "n_unplanted": int(unplanted.sum()),
+                    "increment": float(inc.mean()) if len(inc) else float("nan"),
+                    "close_ahead_rate": float(ahead[planted].mean()) if planted.any() else float("nan"),
+                    "false_close_rate": float(early[unplanted].mean()) if unplanted.any() else float("nan"),
+                }
+            )
     out: dict[str, Any] = {}
     for rule in rules:
-        spec = parse_exit(specs[rule])
-        if rule in ("E4", "E5"):
-            if models is None:
-                models = ExitModelFactory(panel, "4h", h_ms, PLANT_FEATURES, 7).fit(None, cut)
-                if models is None:
-                    raise ValueError("the planted panel is too short to fit the E4/E5 models (fallback)")
-            ctx.set_models(models)
-        res = ctx.replay(entries, spec)
-        ret = _cost_free_returns(ctx.bars, entries, res)
-        early = res["exit_reason"].to_numpy() != "horizon"
-        inc = float(np.mean(ret) - np.mean(base_ret))
-        fcr = float(np.mean(early[~adverse])) if (~adverse).any() else float("nan")
+        a = acc[rule]
+        inc, ahead, false = np.concatenate(a["inc"]), np.concatenate(a["ahead"]), np.concatenate(a["false"])
+        inc_m = float(inc.mean()) if len(inc) else float("nan")
+        ahead_r = float(ahead.mean()) if len(ahead) else float("nan")
+        false_r = float(false.mean()) if len(false) else float("nan")
         out[rule] = {
-            "increment": inc,
-            "increment_on_adverse": float(np.mean(ret[adverse]) - np.mean(base_ret[adverse])),
-            "false_close_rate": fcr,
-            "true_close_rate": float(np.mean(early[adverse])) if adverse.any() else float("nan"),
-            "n_tranches": int(len(entries)),
-            "n_planted_adverse": int(adverse.sum()),
-            "met": bool(inc > 0.0 and fcr <= max_false_close),
+            "spec": dict(specs[rule]),
+            "increment": inc_m,
+            "close_ahead_rate": ahead_r,
+            "false_close_rate": false_r,
+            "n_planted": int(len(inc)),
+            "n_unplanted": int(len(false)),
+            "per_seed": a["per_seed"],
+            "met": bool(inc_m > 0.0 and ahead_r >= CLOSE_AHEAD_MIN and false_r <= FALSE_CLOSE_MAX),
         }
     return {
         "rules": out,
-        "max_false_close_rate": float(max_false_close),
-        "n_days": int(n_days),
-        "seed": int(seed),
+        "panel_seeds": list(PLANT_PANEL_SEEDS),
+        "event_seeds": list(PLANT_EVENT_SEEDS),
+        "n_panels": PLANT_PANELS,
+        "n_days": PLANT_DAYS,
+        "n_coins": PLANT_COINS,
+        "vol": PLANT_VOL,
+        "interval": "1h",
+        "h_ms": h_ms,
+        "fit_days": PLANT_FIT_DAYS,
+        "model_seed": PLANT_MODEL_SEED,
         "features": list(PLANT_FEATURES),
+        "min_close_ahead_rate": CLOSE_AHEAD_MIN,
+        "max_false_close_rate": FALSE_CLOSE_MAX,
         "met": bool(all(v["met"] for v in out.values())),
     }
 
@@ -1838,9 +1860,7 @@ def evaluate_exit_block(
             (math.isnan(obs) and math.isnan(zero)) or abs(obs - zero) <= EXIT_REPLAY_TOL * max(1.0, abs(obs))
         ):
             raise ValueError(f"{cfg['id']}: shift-zero identity broken: observed {obs!r} against replay path {zero!r}")
-        k = int(np.sum(stats.null_stats >= obs))
-        p = float((1 + k) / (1 + draws)) if stats.n_tranches and stats.shifts else 1.0
-        drop = float(stats.total_dropped / (draws * stats.n_tranches)) if stats.n_tranches and stats.shifts else 0.0
+        p, drop = bar.joint_shift_p(stats, draws)
         n = int(len(tr))
         reasons = tr["exit_reason"].astype(str).value_counts()
         counts = {str(r): int(c) for r, c in sorted(reasons.items())}
@@ -1851,6 +1871,7 @@ def evaluate_exit_block(
         rows.append(
             {
                 "id": cfg["id"],
+                "config_hash": str(receipt["config_hash"]),
                 "rule": rule,
                 "exit": cfg["exit"],
                 "p": p,
@@ -1929,7 +1950,7 @@ def evaluate_exit_block(
         )
 
     opt = optional_stopping_check(synthetic_panels, synthetic_days)
-    planted = planted_intrabar_control(n_days=max(synthetic_days, 60))
+    planted = planted_intrabar_control()
     hold_rules = {
         r: {
             "median_share": opt["rules"][r]["median_hold_share"],
@@ -1945,15 +1966,7 @@ def evaluate_exit_block(
             "n_panels": opt["n_panels"],
             "met": bool(all(v["median_share"] >= HOLD_SHARE_MIN for v in hold_rules.values())),
         },
-        "planted_intrabar": {
-            "rules": {
-                r: {k: v[k] for k in ("increment", "false_close_rate", "n_tranches", "met")}
-                | {"true_close_rate": v["true_close_rate"], "n_planted_adverse": v["n_planted_adverse"]}
-                for r, v in planted["rules"].items()
-            },
-            "max_false_close_rate": planted["max_false_close_rate"],
-            "met": planted["met"],
-        },
+        "planted_intrabar": planted,
     }
     n_rej = sum(r["rejected"] for r in rows)
     return {
@@ -2103,32 +2116,88 @@ def _validate_retests(rows: Sequence[Any]) -> int:
 
 
 def _validate_exit_block(d: Any) -> int:
-    """Shape of an exit-block result: {"configs": [{id, p, rejected} x 6], "n_rejected": int} (the gated count)."""
+    """An exit-block result as the registered evaluation writes it (brief 28e). Returns the gated count n_rejected.
+
+    Refuses unless the 6 configs carry the registered ids and config hashes in order, and every row ran the
+    registered draws and joint-shift seed with a clean replay reproduction, shift-zero identity and entry match.
+    The determinism check must have run and be identical. The optional-stopping check must cover the six rules at
+    the registered sizes and seed base, and the planted control the registered seeds and sizes. Both diagnostics
+    must be present.
+    """
+    from r4.cli import config_hash_of
+
     if not isinstance(d, dict):
         raise ValueError("exit_block must be a JSON object")
     cfgs = d.get("configs")
     if not isinstance(cfgs, list) or len(cfgs) != N_EXIT_CONFIGS:
         raise ValueError(f"exit_block.configs must list {N_EXIT_CONFIGS} configurations")
+    registered = exit_block()
     n_rej = 0
-    for c in cfgs:
+    for i, (c, reg) in enumerate(zip(cfgs, registered, strict=True)):
         if not isinstance(c, dict) or not isinstance(c.get("id"), str) or not c["id"]:
             raise ValueError("every exit_block config needs a non-empty string id")
+        if c["id"] != reg["id"]:
+            raise ValueError(f"exit_block config {i} is {c['id']!r}, registered {reg['id']!r}")
+        if c.get("config_hash") != config_hash_of(reg):
+            raise ValueError(f"exit_block {c['id']} does not match its registered config hash")
         p = _rate(c.get("p"), f"exit_block {c['id']} p")
         if not isinstance(c.get("rejected"), bool):
             raise ValueError(f"exit_block {c['id']}: rejected must be a boolean")
         if c["rejected"] != (p < _REJECT_P):
             raise ValueError(f"exit_block {c['id']}: rejected disagrees with p {p} against {_REJECT_P}")
+        if c.get("draws") != int(BAR["random_entry_draws"]) or not _is_int(c.get("draws")):
+            raise ValueError(f"exit_block {c['id']}: draws {c.get('draws')!r}, registered {BAR['random_entry_draws']}")
+        if c.get("seed") != reg["joint_shift_seed"] or not _is_int(c.get("seed")):
+            raise ValueError(
+                f"exit_block {c['id']}: joint-shift seed {c.get('seed')!r}, registered {reg['joint_shift_seed']}"
+            )
+        rep = c.get("replay_reproduction")
+        if not isinstance(rep, dict) or rep.get("mismatches") != 0 or not _is_int(rep.get("mismatches")):
+            raise ValueError(f"exit_block {c['id']}: the exit replay must reproduce the stored exits (mismatches 0)")
+        sz = c.get("shift_zero")
+        if not isinstance(sz, dict) or sz.get("ok") is not True:
+            raise ValueError(f"exit_block {c['id']}: the shift-zero identity must hold")
+        if c.get("entries_match_base") is not True:
+            raise ValueError(f"exit_block {c['id']}: the entry set must match the base control")
         n_rej += int(c["rejected"])
     if _count(d.get("n_rejected"), "exit_block.n_rejected", N_EXIT_CONFIGS) != n_rej:
         raise ValueError(f"exit_block.n_rejected {d['n_rejected']} disagrees with the {n_rej} rejected configs")
+
+    det = d.get("determinism")
+    if not isinstance(det, dict) or det.get("skipped") is not False or det.get("identical") is not True:
+        raise ValueError("exit_block.determinism must have run (skipped false) and be identical")
+
+    opt = d.get("optional_stopping")
+    if not isinstance(opt, dict):
+        raise ValueError("exit_block.optional_stopping is missing")
+    for key, want in (("n_panels", OPT_STOP_PANELS), ("n_days", OPT_STOP_DAYS), ("seed_base", OPT_STOP_SEED_BASE)):
+        if opt.get(key) != want or not _is_int(opt.get(key)):
+            raise ValueError(f"exit_block.optional_stopping.{key} is {opt.get(key)!r}, registered {want}")
+    rules = opt.get("rules")
+    want_rules = {str(s["rule"]) for s in EXIT_BLOCK_SPECS} | {n for n, _ in OPT_STOP_LOOSE}
+    if not isinstance(rules, dict) or set(rules) != want_rules:
+        raise ValueError(f"exit_block.optional_stopping.rules must cover exactly {sorted(want_rules)}")
+    for rule, entry in rules.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("ok"), bool):
+            raise ValueError(f"exit_block.optional_stopping.rules.{rule}.ok must be a boolean")
+
     diag = d.get("diagnostics")
-    if diag is not None:
-        if not isinstance(diag, dict):
-            raise ValueError("exit_block.diagnostics must be an object")
-        for key in ("median_hold", "planted_intrabar"):
-            entry = diag.get(key)
-            if not isinstance(entry, dict) or not isinstance(entry.get("met"), bool):
-                raise ValueError(f"exit_block.diagnostics.{key}.met must be a boolean")
+    if not isinstance(diag, dict):
+        raise ValueError("exit_block.diagnostics is missing")
+    for key in ("median_hold", "planted_intrabar"):
+        entry = diag.get(key)
+        if not isinstance(entry, dict) or not isinstance(entry.get("met"), bool):
+            raise ValueError(f"exit_block.diagnostics.{key}.met must be a boolean")
+    pl = diag["planted_intrabar"]
+    for key, want in (
+        ("panel_seeds", list(PLANT_PANEL_SEEDS)),
+        ("event_seeds", list(PLANT_EVENT_SEEDS)),
+        ("n_panels", PLANT_PANELS),
+        ("n_days", PLANT_DAYS),
+        ("n_coins", PLANT_COINS),
+    ):
+        if pl.get(key) != want:
+            raise ValueError(f"exit_block.diagnostics.planted_intrabar.{key} is {pl.get(key)!r}, registered {want}")
     return n_rej
 
 
@@ -2297,12 +2366,12 @@ def write_dossier(
     family_spa: Path | str,
     retests: Sequence[Path | str],
     commit_order: dict[str, Any],
-    exit_block: Path | str | None = None,
+    exit_block: Path | str | None,
 ) -> dict[str, Any]:
     """Assemble the Phase 4 dossier once: every registered prediction against its observed value.
 
-    Inputs are JSON files, each referenced by absolute path and sha256. exit_block may be None (not yet run): its
-    gated prediction is then not as predicted. gate_p_ready is true when every GATED prediction is as predicted. It
+    Inputs are JSON files, each referenced by absolute path and sha256. exit_block is required (brief 28e) and its
+    dataset hash must equal the noise evaluation's. gate_p_ready is true when every GATED prediction is as predicted. It
     is evidence for the review and is not the Gate P decision. commit_order is the lead's git evidence, validated
     here (the research image has no git). All inputs are validated before the file is created with exclusive create.
     """
@@ -2320,10 +2389,9 @@ def write_dossier(
         obj, ref = _load_json(f, f"retests[{i}]")
         rts.append(obj)
         refs["retests"].append(ref)
-    exb: Any = None
-    refs["exit_block"] = None
-    if exit_block is not None:
-        exb, refs["exit_block"] = _load_json(exit_block, "exit_block")
+    if exit_block is None:
+        raise ValueError("exit_block is required: run the exit-control block (calib-exits) first")
+    exb, refs["exit_block"] = _load_json(exit_block, "exit_block")
 
     n_cross, n_paths = _validate_null(nul)
     _check_null_parameters(nul)
@@ -2331,7 +2399,7 @@ def write_dossier(
     star = _validate_power(pwr)
     detected = _validate_positive(pos)
     n_native_pass = _validate_retests(rts)
-    n_exit_rej = None if exb is None else _validate_exit_block(exb)
+    n_exit_rej = _validate_exit_block(exb)
     order = _validate_commit_order(commit_order)
 
     _check_noise_set(noi)
@@ -2346,8 +2414,10 @@ def write_dossier(
     else:
         _check_positive_binding(pos, star, pwr, float(v_noise))
         frozen["positive_control"] = pos
-    if exb is not None:
-        frozen["exit_block"] = exb
+    frozen["exit_block"] = exb
+    ds_noise, ds_exit = noi.get("dataset_hash"), exb.get("dataset_hash")
+    if not isinstance(ds_noise, str) or not ds_noise or ds_exit != ds_noise:
+        raise ValueError(f"exit_block.dataset_hash {ds_exit!r} differs from the noise evaluation's {ds_noise!r}")
     _check_code_freeze(frozen, rts)
 
     predictions: dict[str, dict[str, Any]] = {}
@@ -2383,20 +2453,19 @@ def write_dossier(
     put(
         "exit_block_at_most_1_of_6_rejects",
         n_exit_rej,
-        None if n_exit_rej is None else n_exit_rej <= 1,
+        n_exit_rej <= 1,
         "exit_block",
     )
-    diag = exb.get("diagnostics") if isinstance(exb, dict) else None
-    hold = diag.get("median_hold") if isinstance(diag, dict) else None
-    planted = diag.get("planted_intrabar") if isinstance(diag, dict) else None
-    if hold is None:
-        put("exit_median_hold_at_least_80pct", None, None, "not evaluated by this dossier")
-    else:
-        put("exit_median_hold_at_least_80pct", hold.get("rules"), hold["met"], "exit_block")
-    if planted is None:
-        put("exit_planted_intrabar_control", None, None, "not evaluated by this dossier")
-    else:
-        put("exit_planted_intrabar_control", planted.get("rules"), planted["met"], "exit_block")
+    diag = exb["diagnostics"]
+    put("exit_median_hold_at_least_80pct", diag["median_hold"].get("rules"), diag["median_hold"]["met"], "exit_block")
+    put(
+        "exit_planted_intrabar_control",
+        diag["planted_intrabar"].get("rules"),
+        diag["planted_intrabar"]["met"],
+        "exit_block",
+    )
+    opt_ok = {r: bool(v["ok"]) for r, v in exb["optional_stopping"]["rules"].items()}
+    put("exit_optional_stopping_zero_mean", opt_ok, all(opt_ok.values()), "exit_block")
     missing = sorted(set(PREDICTIONS) - set(predictions))
     if missing:
         raise ValueError(f"predictions without an evaluation rule: {missing}")

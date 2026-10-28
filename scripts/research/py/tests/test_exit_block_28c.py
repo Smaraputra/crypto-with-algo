@@ -18,7 +18,7 @@ from r4.cli import main, run_wf
 from r4.method import UNIVERSE
 from r4.synth import synth_panel, write_synthetic_dataset
 from tests.test_calibration_power import _exit_block as dossier_exit_block
-from tests.test_calibration_power import _inputs, _prov
+from tests.test_calibration_power import _inputs, _noise_eval, _prov
 from tests.test_cli_bar import COMMIT
 
 DAY = 86_400_000
@@ -100,13 +100,26 @@ def test_exit_block_small(world, tmp_path):
     for c in res["configs"]:
         assert 0.0 < c["p"] <= 1.0 and c["rejected"] is (c["p"] < 0.05)
         assert c["draws"] == 10
-    # The dossier validator accepts the shape, and the block carries a provenance of its receipts.
-    assert cal._validate_exit_block(res) == res["rejected"]
+    # The small run (10 draws, 3 panels of 60 days, a test-only first refit) is not the registered block, and the
+    # dossier validator says so. Restoring only the fields reduced for speed makes it acceptable.
+    with pytest.raises(ValueError):
+        cal._validate_exit_block(res)
+    from r4.cli import config_hash_of
+    from r4.method import BAR
+
+    registered = copy.deepcopy(res)
+    for row, cfg in zip(registered["configs"], cal.exit_block(), strict=True):
+        row["draws"] = BAR["random_entry_draws"]
+        row["config_hash"] = config_hash_of(cfg)
+    registered["optional_stopping"]["n_panels"] = cal.OPT_STOP_PANELS
+    registered["optional_stopping"]["n_days"] = cal.OPT_STOP_DAYS
+    assert cal._validate_exit_block(registered) == res["rejected"]
     assert res["provenance"]["commits"] == [COMMIT] and len(res["provenance"]["source_sha256"]) == 1
     json.dumps(res)
     # And the dossier takes it (the freeze check needs the other inputs' provenance, so borrow the test commit).
-    shaped = {**res, "provenance": _prov()}
-    doc = cal.write_dossier(tmp_path / "d.json", **_inputs(tmp_path, exit_block=shaped))
+    shaped = {**registered, "provenance": _prov()}
+    noise = {**_noise_eval(), "dataset_hash": res["dataset_hash"]}
+    doc = cal.write_dossier(tmp_path / "d.json", **_inputs(tmp_path, exit_block=shaped, noise_eval=noise))
     assert doc["predictions"]["exit_block_at_most_1_of_6_rejects"]["observed"] == res["rejected"]
 
 
@@ -342,27 +355,25 @@ def test_registered_diagnostics_shapes(world):
     pl = diag["planted_intrabar"]
     assert set(pl["rules"]) == {"E4", "E5", "E6"} and pl["max_false_close_rate"] == 0.2
     for r in pl["rules"].values():
-        assert {"increment", "false_close_rate", "n_tranches", "met"} <= set(r)
-        assert 0.0 <= r["false_close_rate"] <= 1.0
+        assert {"increment", "close_ahead_rate", "false_close_rate", "n_planted", "n_unplanted", "met"} <= set(r)
+        assert 0.0 <= r["false_close_rate"] <= 1.0 and 0.0 <= r["close_ahead_rate"] <= 1.0
     assert pl["met"] is all(r["met"] for r in pl["rules"].values())
-    assert world["res"]["optional_stopping"]["rules"].keys() == set(RULES)
+    assert world["res"]["optional_stopping"]["rules"].keys() == set(RULES) | {"E4_loose", "E5_loose"}
 
 
-def test_planted_control_gives_a_known_edge():
-    """On a plain exit (E6) with a visible flow burst, closing early beats E1 on planted adverse holds."""
-    out = cal.planted_intrabar_control(n_days=60, seed=5, rules=("E6",))
+def test_planted_control_records_the_registered_e6_result():
+    """The registered control (brief 28e) records E6's increment and both rates on the spec's planted reversal."""
+    out = cal.planted_intrabar_control(rules=("E6",))
     r = out["rules"]["E6"]
-    assert r["increment"] > 0.0 and r["n_planted_adverse"] > 50
-    assert r["false_close_rate"] <= 0.2 and r["met"] is True
+    assert set(out["rules"]) == {"E6"} and r["n_planted"] > 50 and r["n_unplanted"] > 50
+    assert r["met"] is bool(r["increment"] > 0.0 and r["close_ahead_rate"] >= 0.8 and r["false_close_rate"] <= 0.2)
 
 
 def test_dossier_evaluates_registered_diagnostics(tmp_path):
     def block(**diag):
         b = dossier_exit_block()
-        b["diagnostics"] = {
-            "median_hold": {"met": diag.get("hold", True), "threshold": 0.8, "rules": {}},
-            "planted_intrabar": {"met": diag.get("planted", True), "max_false_close_rate": 0.2, "rules": {}},
-        }
+        b["diagnostics"]["median_hold"]["met"] = diag.get("hold", True)
+        b["diagnostics"]["planted_intrabar"]["met"] = diag.get("planted", True)
         return b
 
     def run(name, exit_block):
@@ -378,9 +389,11 @@ def test_dossier_evaluates_registered_diagnostics(tmp_path):
     assert miss["predictions"]["exit_median_hold_at_least_80pct"]["as_predicted"] is False
     assert miss["predictions"]["exit_planted_intrabar_control"]["as_predicted"] is False
     assert miss["gate_p_ready"] is True  # diagnostics never block the gate
-    # An exit block without the diagnostics leaves both unevaluated, as before.
-    old = run("old", dossier_exit_block())
-    assert old["predictions"]["exit_median_hold_at_least_80pct"]["as_predicted"] is None
+    # An exit block without the diagnostics is refused (brief 28e): they are no longer optional.
+    old = dossier_exit_block()
+    del old["diagnostics"]
+    with pytest.raises(ValueError):
+        run("old", old)
     # A malformed diagnostic raises.
     bad = block()
     bad["diagnostics"]["median_hold"]["met"] = "yes"
