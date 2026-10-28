@@ -22,6 +22,7 @@ from r4.book import (
     daily_close_log_returns,
     daily_series,
     estimate_betas,
+    parse_interval_ms,
     trade_level,
 )
 from r4.costs import DEFAULT_FEE_PROFILE, coin_slippage_bps, resolve_fee_profile
@@ -64,6 +65,15 @@ class RunConfig:
     refit: str  # "monthly" or "none"
     exit: str  # "horizon"
     seed: int = 7
+    book: str = "slot"  # "slot" (per-coin slot tranches) or "D" (dollar-neutral rank weights)
+
+    def __post_init__(self) -> None:
+        if self.book not in ("slot", "D"):
+            raise ValueError(f"book must be 'slot' or 'D', got {self.book!r}")
+        if self.family == "D" and self.book != "D":
+            raise ValueError("family D requires book 'D'")
+        if self.book == "D" and self.size_rule != "unit":
+            raise ValueError("size_rule is not applied in the D book (sum of abs weights is exactly 1): use 'unit'")
 
 
 @dataclass
@@ -436,8 +446,56 @@ def _side_proba(side: Any, x_test: np.ndarray) -> np.ndarray:
     return side.predict_proba(x_test)[:, 1]
 
 
+MIN_D_COINS = 6
+
+
+def rank_weights(times: np.ndarray, scores: np.ndarray) -> np.ndarray:
+    """Family D dollar-neutral target weights, ranked among the rows that share a decision time.
+
+    At each time with at least MIN_D_COINS rows: average ranks (ties share), centred c = rank - (n + 1) / 2,
+    w = c / sum |c|, so sum |w| = 1 and sum w = 0. Fewer rows, or all scores tied, give zero weights (cash).
+    A median coin of an odd count gets exactly 0.
+    """
+    times = np.asarray(times)
+    scores = np.asarray(scores, dtype=np.float64)
+    out = np.zeros(len(scores), dtype=np.float64)
+    if len(scores) == 0:
+        return out
+    ranks = pd.Series(scores).groupby(times).rank(method="average").to_numpy(dtype=np.float64)
+    counts = pd.Series(times).map(pd.Series(times).value_counts()).to_numpy(dtype=np.float64)
+    centred = ranks - (counts + 1.0) / 2.0
+    abs_sum = pd.Series(np.abs(centred)).groupby(times).transform("sum").to_numpy(dtype=np.float64)
+    ok = (counts >= MIN_D_COINS) & (abs_sum > 0.0)
+    out[ok] = centred[ok] / abs_sum[ok]
+    return out
+
+
+def assert_whole_decision_times(groups: Sequence[np.ndarray], times: np.ndarray) -> None:
+    """Raise ValueError when a decision time appears in more than one of the index groups."""
+    times = np.asarray(times)
+    seen: set[Any] = set()
+    for g in groups:
+        ts = set(np.unique(times[np.asarray(g, dtype=int)]).tolist())
+        dup = ts & seen
+        if dup:
+            raise ValueError(f"decision time {sorted(dup)[0]} is split across groups: the D book ranks whole times")
+        seen |= ts
+
+
 def _get_decisions(model: SideModel, X_test: np.ndarray, cfg: RunConfig) -> np.ndarray:
+    """Sides in {-1, 0, 1} for the slot book. For the D book, the float score per row instead.
+
+    The D score is the ridge prediction, or (p_up - base_up) - (p_dn - base_dn) for the classifiers.
+    """
     n = len(X_test)
+    if cfg.book == "D":
+        if n == 0:
+            return np.zeros(0, dtype=np.float64)
+        if model.kind == "ridge":
+            return np.asarray(model.ridge.predict(X_test), dtype=np.float64)
+        p_up = _side_proba(model.up, X_test)
+        p_dn = _side_proba(model.dn, X_test)
+        return (p_up - model.base_up) - (p_dn - model.base_dn)
     if n == 0:
         return np.zeros(0, dtype=np.int64)
     sides = np.zeros(n, dtype=np.int64)
@@ -457,7 +515,17 @@ def _get_decisions(model: SideModel, X_test: np.ndarray, cfg: RunConfig) -> np.n
 
 
 def _make_tranches(test_df: pd.DataFrame, sides: np.ndarray, cfg: RunConfig) -> list[Tranche]:
+    """Tranches of one block. `sides` is the side per row, or for the D book the score per row.
+
+    The D book ranks the rows by their decision time T, so test_df must hold whole decision times.
+    """
     tranches: list[Tranche] = []
+    if cfg.book == "D":
+        weights = rank_weights(test_df["T"].to_numpy(dtype=np.int64), sides)
+        scale = float(parse_interval_ms(cfg.interval)) / float(cfg.h_ms)
+    else:
+        weights = None
+        scale = 1.0
     syms = test_df["symbol"].to_numpy()
     entries = test_df["entry"].to_numpy(dtype=np.float64)
     exits = test_df["exit"].to_numpy(dtype=np.float64)
@@ -465,9 +533,14 @@ def _make_tranches(test_df: pd.DataFrame, sides: np.ndarray, cfg: RunConfig) -> 
     t1s = test_df["t1_max"].to_numpy(dtype=np.int64)
 
     for i in range(len(sides)):
-        s = int(sides[i])
-        if s == 0:
-            continue
+        if weights is not None:
+            if weights[i] == 0.0:
+                continue
+            s = 1 if weights[i] > 0.0 else -1
+        else:
+            s = int(sides[i])
+            if s == 0:
+                continue
         entry_ms = int(t0s[i]) + ENTRY_DELAY_MS
         exit_ms = int(t1s[i])
         tranches.append(
@@ -483,6 +556,7 @@ def _make_tranches(test_df: pd.DataFrame, sides: np.ndarray, cfg: RunConfig) -> 
                 size=1.0,
                 entry_fill="taker",
                 exit_fill="taker",
+                weight_override=None if weights is None else float(weights[i]) * scale,
             )
         )
     return tranches
@@ -562,6 +636,7 @@ def walk_forward(
     all_tranches: list[Tranche] = []
     all_fold_dfs: list[pd.DataFrame] = []
     fold_records: list[FoldRecord] = []
+    block_times: list[np.ndarray] = []  # row positions of each monthly test block
 
     if cfg.refit == "none":
         train_mask = samples["t1_max"] < first_refit_ms
@@ -579,6 +654,7 @@ def walk_forward(
             test_df = samples.loc[test_mask]
             if test_df.empty:
                 continue
+            block_times.append(np.flatnonzero(test_mask.to_numpy()))
             X_test = scaler.transform(test_df[list(cfg.features)])
             sides = _get_decisions(model, X_test, cfg)
             tranches_k = _make_tranches(test_df, sides, cfg)
@@ -595,6 +671,7 @@ def walk_forward(
             b_end = boundaries[k + 1]
             test_mask = (samples["T"] >= b_start) & (samples["T"] < b_end)
             test_df = samples.loc[test_mask]
+            block_times.append(np.flatnonzero(test_mask.to_numpy()))
 
             train_mask = samples["t1_max"] < b_start
             if cfg.lookback_months is not None:
@@ -626,6 +703,10 @@ def walk_forward(
             if tranches_k:
                 all_fold_dfs.append(fold_df)
             fold_records.append(FoldRecord(b_start, b_end, cut_ms, dict(betas_k), tranches_k, fold_df))
+
+    if cfg.book == "D":
+        # The D book ranks the coins of one decision time together: no time may be split across blocks.
+        assert_whole_decision_times(block_times, samples["T"].to_numpy())
 
     book_raw = daily_book(all_tranches, five_min, settlements)
 
@@ -673,8 +754,10 @@ __all__ = [
     "SIGMA_TRAILING_MS",
     "TRIPLE_BARRIER_K",
     "UNIVERSE",
+    "assert_whole_decision_times",
     "compute_missing_settlement_times",
     "decision_samples",
     "load_panel",
+    "rank_weights",
     "walk_forward",
 ]

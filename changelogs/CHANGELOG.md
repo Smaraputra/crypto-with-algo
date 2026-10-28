@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The joint-shift null refuses path-dependent exits until the exit-engine replay exists.
 - Receipts carry a sha256 of the research source.
 - Joint-shift seeds come from each configuration, and the SPA bootstrap has its own seed.
+- The family D book from the method lock now exists. A config with `book: "D"` ranks the model scores across the coins at each decision time, using average ranks, centred and scaled so the absolute weights sum to 1. It holds cash below 6 coins. Each tranche carries its weight times interval over horizon. Ranking never splits a decision time across walk-forward blocks or CPCV groups. Item 5 uses the drop-one-coin jackknife for this book.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.

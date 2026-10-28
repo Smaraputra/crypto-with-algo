@@ -64,6 +64,13 @@ class Tranche:
     exit_fill: str = "taker"
     exit_reason: str = "horizon"
     entry_reason: str = "open"
+    weight_override: float | None = None  # family D: explicit signed weight, ignoring side, size and the slot rule
+
+    def __post_init__(self) -> None:
+        if self.weight_override is not None:
+            w = float(self.weight_override)
+            if w == 0.0 or np.sign(w) != self.side_val:
+                raise ValueError(f"weight_override {w} must be non-zero and share the sign of side {self.side!r}")
 
     @property
     def entry_priced(self) -> bool:
@@ -98,9 +105,21 @@ class Tranche:
 
     @property
     def weight(self) -> float:
-        """Fraction of total equity: side * size / (h_ms / interval_ms) / 10."""
+        """Fraction of total equity: side * size / (h_ms / interval_ms) / 10, or weight_override when set."""
+        if self.weight_override is not None:
+            w = float(self.weight_override)
+            if w == 0.0 or np.sign(w) != self.side_val:
+                raise ValueError(f"weight_override {w} must be non-zero and share the sign of side {self.side!r}")
+            return w
         bars = float(self.h_ms) / float(self.interval_ms)
         return (self.side_val * float(self.size) / bars) / 10.0
+
+
+def _opt_float(value: Any) -> float | None:
+    """A float, or None for None and NaN."""
+    if value is None or pd.isna(value):
+        return None
+    return float(value)
 
 
 def _coerce_tranches(
@@ -131,6 +150,9 @@ def _coerce_tranches(
                     entry_reason=str(row["entry_reason"])
                     if "entry_reason" in row and pd.notna(row["entry_reason"])
                     else "open",
+                    weight_override=float(row["weight_override"])
+                    if "weight_override" in row and pd.notna(row["weight_override"])
+                    else None,
                 )
             )
         return rows
@@ -155,6 +177,7 @@ def _coerce_tranches(
                     exit_fill=str(item.get("exit_fill", "taker")),
                     exit_reason=str(item.get("exit_reason", "horizon")),
                     entry_reason=str(item.get("entry_reason", "open")),
+                    weight_override=_opt_float(item.get("weight_override")),
                 )
             )
         else:
@@ -173,6 +196,7 @@ def _coerce_tranches(
                     exit_fill=str(getattr(item, "exit_fill", "taker")),
                     exit_reason=str(getattr(item, "exit_reason", "horizon")),
                     entry_reason=str(getattr(item, "entry_reason", "open")),
+                    weight_override=_opt_float(getattr(item, "weight_override", None)),
                 )
             )
     return out

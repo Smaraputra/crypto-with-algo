@@ -45,6 +45,7 @@ from r4.pipeline import (
     RunConfig,
     _get_decisions,
     _make_tranches,
+    assert_whole_decision_times,
     compute_missing_settlement_times,
     decision_samples,
     fit_side_model,
@@ -380,6 +381,7 @@ def run_wf(
         refit=raw_config.get("refit", "monthly"),
         exit=raw_config.get("exit", "horizon"),
         seed=int(raw_config.get("seed", 7)),
+        book=raw_config.get("book", "slot"),
     )
 
     ds_path = Path(ds_dir)
@@ -453,6 +455,9 @@ def run_wf(
     for train_idx, test_idx_list in splits:
         train_df = samples.iloc[train_idx]
         test_groups_by_split.append(test_idx_list)
+        if cfg.book == "D":
+            # The D book ranks the coins of each decision time together, so no time may span two groups.
+            assert_whole_decision_times(test_idx_list, samples["T"].to_numpy())
 
         scaler = StandardScaler()
         x_train = scaler.fit_transform(train_df[list(cfg.features)])
@@ -546,6 +551,7 @@ def run_wf(
                 "exit_fill",
                 "exit_reason",
                 "entry_reason",
+                "weight_override",
             ]
         )
     tranches_df.to_parquet(run_out_dir / "tranches.parquet", index=False)

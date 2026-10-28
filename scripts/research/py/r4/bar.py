@@ -543,12 +543,14 @@ def item5(receipt: dict[str, Any]) -> dict[str, Any]:
     """Lock exploration bar item 5:
 
     At least 7 of 10 coins with a positive drift-free daily mean (each coin's tranches alone),
-    or for family D a drop-one-coin jackknife that stays positive. A null mean is not positive.
+    or for family D (or any config with book "D") a drop-one-coin jackknife that stays positive.
+    The jackknife removes a coin's tranches without re-ranking the rest, which is the declared reading.
+    A null mean is not positive.
     """
     metrics = receipt["metrics"]
-    family = receipt.get("config", {}).get("family")
+    config = receipt.get("config", {})
 
-    if family == "D":
+    if config.get("family") == "D" or config.get("book") == "D":
         if "jackknife_means" not in metrics:
             raise ValueError("Family D item 5 needs metrics.jackknife_means in the receipt")
         jk = metrics["jackknife_means"]
