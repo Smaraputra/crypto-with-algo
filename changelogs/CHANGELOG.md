@@ -56,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Every planted tranche's return moves by exactly the amplitude times z.
     - The plant is applied in memory only, and receipts record the seed and amplitude.
   - A synthetic D-shaped panel generator (`r4/synth.py`): daily GARCH volatility, Cholesky-correlated Student-t 5m shocks and taker-flow volume. It writes a loadable dataset with a manifest hash.
+- Native replay exports for the Phase 4 re-tests (`scripts/research/round4-native-export.ts`).
+  - Covers rv-v1, lab-v4 S1 and S2, Round 1 C1, and v8 D0 at 1h and 4h.
+  - Each rule's trades come from its frozen code over D, written as tranches with a summary (manifest hash, warm-up start, native costs, parity against the recorded result).
+  - Lockbox and holdout flags are refused.
+  - Disclosed limits:
+    - v8 stop exits carry no fill price, and the recorded D0 results used spot;
+    - C1's recorded result is from its holdout segment;
+    - rv-v1 needs the repaired rv2 dataset.
 - A $100-account layer (`r4/account.py`, `r4.cli account`), report only.
   - It replays a run's tranches on a $100 account at 10x, 20x and 50x leverage, using today's Binance lot sizes and minimum notionals with historical prices.
   - It nets orders per coin per instant and charges fees on executed notional and funding on position notional.
