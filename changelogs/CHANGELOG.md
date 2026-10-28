@@ -92,6 +92,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **a\*.** It is the smallest amplitude detected at least 80% of the time at 1.2 times the noise variance. The grid extends by doubling, at most three times, and is otherwise recorded as infeasible.
   - **Positive control.** It runs the planted family on D. Detection is judged with the noise controls' within-cell variance and the tripwire. A miss blocks a re-run until a code audit is recorded.
   - **Dossier.** It is written once and refuses to overwrite. It validates every input and the commit-order evidence. It marks Gate P ready only when every gated prediction is as predicted.
+- Fixes from the Opus code gate (PASS WITH FIXES):
+  - Netting:
+    - stops, take-profits and maker exits never net with fills at a 5m open. A stop stamped at an entry instant had been netting against the new entry and understating cost;
+    - costs are netted once per run across walk-forward folds;
+    - an intrabar fill pays no settlement at its stamp.
+  - Receipts and reports:
+    - E4/E5 fold fallbacks and missing features are reported, and calibration refuses any E4/E5 run with a fallback fold;
+    - receipts and reports carry the source hash, the lock-file hash and the library versions.
+  - Configuration and seeds:
+    - configs reject unknown size rules, labels and mismatched side rules;
+    - cost cells key exits canonically;
+    - each family has its own SPA seed.
+  - The tripwire purges training rows whose shifted label window reaches the refit.
+  - The positive control:
+    - a* must be the smallest registered grid amplitude with the next lower one evaluated;
+    - its variance and a* are read from the noise-evaluation and power files;
+    - a miss allows one audited re-run at the registered seed, and a second miss is terminal.
+  - The dossier refuses mismatched a*, variances, trial counts or plant seeds, more than one commit or source digest, a noise set other than the 40 registered ids, and non-registered null-simulation parameters.
+  - The $100-account layer prices intrabar exits at their fill and checks liquidation at each bar's adverse extreme.
+  - Synthetic panels draw highs and lows from the Brownian-bridge extreme distribution, so stops and take-profits stay consistent with the path.
+  - The native-export header discloses the spot warm-up before 2022.
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.

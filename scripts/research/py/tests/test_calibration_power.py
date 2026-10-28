@@ -14,7 +14,7 @@ import pytest
 import r4.cli
 from r4 import calibration as cal
 from r4.bar import trial_sharpe_variance
-from r4.cli import main
+from r4.cli import config_hash_of, main
 from r4.method import DEV_END, UNIVERSE
 from r4.synth import synth_panel, write_synthetic_dataset
 from r4.tripwire import SHIFT_DAYS
@@ -266,6 +266,18 @@ def test_pc_rerun_configs():
 
 SHA = "a" * 40
 SHA2 = "b" * 40
+FREEZE_SRC = "c" * 64  # the code freeze: one source digest for every receipt
+D_V = 0.0123  # the noise controls' D within-cell V
+
+
+def _prov() -> dict:
+    return {"commits": [SHA2], "source_sha256": [FREEZE_SRC]}
+
+
+def _noise_set() -> list[dict]:
+    return [
+        {"id": c["id"], "config_hash": config_hash_of(c), "replaces": None, "attempt": None} for c in cal.noise_grid()
+    ]
 
 
 def _noise_eval() -> dict:
@@ -283,6 +295,9 @@ def _noise_eval() -> dict:
         "gated": {"n_pass_items_1_to_3": 0, "n_reject_joint_shift_05": 2},
         "verdict": verdict,
         "gate_ok": True,
+        "variance": {"mode": "within_cell", "V": D_V},
+        "provenance": _prov(),
+        "noise_set": _noise_set(),
     }
 
 
@@ -290,21 +305,23 @@ def _null_sim(count: int = 3, n: int = 50_000) -> dict:
     return {
         "crossing_count": count,
         "crossing_rate": count / n,
-        "parameters": {"n_paths": n},
+        "parameters": {"n_paths": n, "n_days": 730, "threshold": 600.0},
         "wilson_95": [0.0, 0.001],
+        "seed": 20261025,
+        "pilot": {"paths": 5000, "seed": 20261024, "n_days": 730},
     }
 
 
 def _exit_block(rejects: tuple[bool, ...] = (False,) * 6) -> dict:
     cfgs = [{"id": f"exit_{i}", "p": 0.01 if r else 0.5, "rejected": r} for i, r in enumerate(rejects)]
-    return {"configs": cfgs, "n_rejected": int(sum(rejects))}
+    return {"configs": cfgs, "n_rejected": int(sum(rejects)), "provenance": _prov()}
 
 
 RULES = ("rv-v1", "lab-v4-s1", "lab-v4-s2", "v8-1h", "v8-4h", "c1")
 
 
 def _retest(rule: str, passed: bool = False) -> dict:
-    return {"kind": "retest", "rule": rule, "pass": passed}
+    return {"kind": "retest", "rule": rule, "pass": passed, "commit": SHA2, "source_sha256": FREEZE_SRC}
 
 
 def _commit_order() -> dict:
@@ -325,6 +342,20 @@ def _put(tmp: Path, name: str, obj) -> Path:
     return p
 
 
+def _positive(**over) -> dict:
+    d = {
+        "detected": True,
+        "a_star": 0.04,
+        "n_trials": 120,
+        "rerun": False,
+        "plant": {"seed": 20261028, "amplitude": 0.04},
+        "variance": {"mode": "within_cell", "V": D_V},
+        "provenance": _prov(),
+    }
+    d.update(over)
+    return d
+
+
 def _inputs(tmp: Path, **over) -> dict:
     curve = _curve({0.02: 0.5, 0.04: 0.9})
     d = {
@@ -333,8 +364,10 @@ def _inputs(tmp: Path, **over) -> dict:
         "power": {
             "curve_at_1_2v": {str(a): v for a, v in curve.items()},
             "a_star": {"a_star": 0.04, "infeasible": False},
+            "v": D_V,
+            "provenance": _prov(),
         },
-        "positive_control": {"detected": True, "a_star": 0.04},
+        "positive_control": _positive(),
         "family_spa": {"spa_p": 0.5, "n_rules": 6},
         "exit_block": _exit_block(),
         "retests": [_retest(r) for r in RULES],
@@ -499,7 +532,7 @@ def test_dossier_gate_ready_logic(tmp_path):
     ne = _noise_eval()
     ne["verdict"]["noise_items123_zero_of_40"]["met"] = False
     assert run("g1", noise_eval=ne)["gate_p_ready"] is False
-    assert run("g2", positive_control={"detected": False, "a_star": 0.04})["gate_p_ready"] is False
+    assert run("g2", positive_control=_positive(detected=False))["gate_p_ready"] is False
     assert (
         run("g3", retests=[*[_retest(r) for r in RULES[:5]], _retest(RULES[5], passed=True)])["gate_p_ready"] is False
     )
@@ -511,7 +544,12 @@ def test_dossier_gate_ready_logic(tmp_path):
     # An infeasible power grid leaves the positive prediction unmet.
     inf = run(
         "g6",
-        power={"curve_at_1_2v": {"0.04": _curve({0.04: 0.1})[0.04]}, "a_star": {"a_star": None, "infeasible": True}},
+        power={
+            "curve_at_1_2v": {"0.04": _curve({0.04: 0.1})[0.04]},
+            "a_star": {"a_star": None, "infeasible": True},
+            "v": D_V,
+            "provenance": _prov(),
+        },
         positive_control={"detected": None, "a_star": None},
     )
     assert inf["predictions"]["positive_detected_at_astar"]["as_predicted"] is False
@@ -543,8 +581,14 @@ def test_cli_power_curve_and_dossier(power_sim, tmp_path, monkeypatch):
     assert pc["margin"] == 1.2 and pc["v"] == pytest.approx(V_SMALL / 1.2)
     assert pc["a_star"]["a_star"] == A_HI and pc["a_star"]["infeasible"] is False
     assert str(A_HI) in pc["curve_at_1_2v"] or repr(A_HI) in pc["curve_at_1_2v"]
+    assert pc["grid"] == [A_LO, A_HI]
+    assert pc["provenance"]["commits"] == [COMMIT] and len(pc["provenance"]["source_sha256"]) == 1
+    # The dossier binds every input to one code freeze and one V, so the other inputs of this test share the CLI
+    # file's V and provenance.
+    pc["v"] = D_V
+    pc["provenance"] = _prov()
 
-    ins = _inputs(tmp_path, power=pc)
+    ins = _inputs(tmp_path, power=pc, positive_control=_positive(a_star=A_HI))
     argv = [
         "calib-dossier",
         "--out",

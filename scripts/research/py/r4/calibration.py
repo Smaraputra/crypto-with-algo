@@ -422,9 +422,13 @@ def _binom_tail(n: int, p: float, k: int) -> float:
     return float(sum(math.comb(n, j) * p**j * (1 - p) ** (n - j) for j in range(k, n + 1)))
 
 
-def _cost_free_diagnostics(
-    runs: dict[str, dict[str, Any]], v_within: float, v_cost_free: float | None
-) -> dict[str, Any]:
+def _cost_free_diagnostics(runs: dict[str, dict[str, Any]], v_cost_free: float | None) -> dict[str, Any]:
+    """Cost-free items 1 to 3 on gross_hedged + funding, with the within-cell V of the COST-FREE Sharpes.
+
+    The net within-cell V belongs to the net series. The cost-free series has its own trial-Sharpe spread, so item 3
+    here is evaluated at the same pooled-within-cell statistic taken on the cost-free Sharpes (brief 28d-2). The
+    total-V reading stays as a second, secondary count.
+    """
     ids = sorted(runs)
     if any("gross_hedged" not in runs[i]["daily"].columns or "funding" not in runs[i]["daily"].columns for i in ids):
         return {"error": "daily.parquet has no gross_hedged and funding columns"}
@@ -432,6 +436,9 @@ def _cost_free_diagnostics(
     for i in ids:
         cf[i].attrs["config_hash"] = runs[i]["daily"].attrs["config_hash"]
     item2_cf = bar.item2(cf)
+    v_cf_within = float(
+        bar.trial_sharpe_variance(cf, {i: runs[i]["receipt"]["config"] for i in ids}, "within_cell")["V"]
+    )
     per_config: dict[str, Any] = {}
     n_pass = 0
     n_pass_cf_v = 0
@@ -447,7 +454,7 @@ def _cost_free_diagnostics(
             }
         }
         r1 = bar.item1(pseudo)
-        r3 = bar.item3(receipt, v_within, N_TRIALS_CALIBRATION, candidate_daily=cf[i])
+        r3 = bar.item3(receipt, v_cf_within, N_TRIALS_CALIBRATION, candidate_daily=cf[i])
         passed = bool(r1["pass"] and item2_cf["pass"] and r3["pass"])
         n_pass += passed
         entry = {"item1": r1, "item3": r3, "pass_items_1_to_3": passed}
@@ -471,11 +478,19 @@ def _cost_free_diagnostics(
         "n_pass_items_1_to_3": int(n_pass),
         "n_pass_items_1_to_3_cost_free_total_v": int(n_pass_cf_v) if v_cost_free is not None else None,
         "pbo": float(item2_cf["pbo"]),
+        "variance": {"mode": "within_cell_cost_free", "V": v_cf_within},
         "item1": {i: per_config[i]["item1"]["pass"] for i in ids},
         "item3": {i: per_config[i]["item3"]["pass"] for i in ids},
         "configs": per_config,
         "group_pbo": group_pbo,
     }
+
+
+def receipt_provenance(receipts: Sequence[dict[str, Any]]) -> dict[str, list[Any]]:
+    """The distinct commits and source digests among receipts (the code-freeze evidence the dossier checks)."""
+    commits = sorted({r.get("commit") for r in receipts}, key=str)
+    sources = sorted({r.get("source_sha256") for r in receipts}, key=str)
+    return {"commits": commits, "source_sha256": sources}
 
 
 def evaluate_noise(
@@ -552,7 +567,7 @@ def evaluate_noise(
     rej_p = float(BAR["random_entry_p_max"])
     n_rej = sum(c["joint_shift"]["p"] < rej_p for c in configs.values())
 
-    cost_free = _cost_free_diagnostics(runs, v_within, None if v_cf is None else float(v_cf))
+    cost_free = _cost_free_diagnostics(runs, None if v_cf is None else float(v_cf))
     group_pbo = cost_free.get("group_pbo", {})
     wsg_median = float(np.median(list(group_pbo.values()))) if group_pbo else None
     diagnostics = {
@@ -592,9 +607,20 @@ def evaluate_noise(
     put("noise_joint_shift_reference_panels", int(n_rej), None)  # judged against 2 synthetic panels, not computed here
 
     gate_ok = all(v["met"] for v in verdict.values() if v["status"] == "gated")
+    noise_set = [
+        {
+            "id": i,
+            "config_hash": str(runs[i]["receipt"]["config_hash"]),
+            "replaces": runs[i]["receipt"]["config"].get("replaces"),
+            "attempt": runs[i]["receipt"]["config"].get("attempt"),
+        }
+        for i in ids
+    ]
     return {
         "n_configs": n,
         "dataset_hash": str(manifest["datasetHash"]),
+        "noise_set": noise_set,
+        "provenance": receipt_provenance([runs[i]["receipt"] for i in ids]),
         "configs": configs,
         "item2": item2_res,
         "variance": {"mode": "within_cell", "V": v_within, "modes": variance_modes},
@@ -662,7 +688,7 @@ def adaptive_order(grid: Sequence[float]) -> list[float]:
 
 
 def _power_meta(
-    dcov: dict[str, Any], n_replicates: int, start_ms: int, end_ms: int, first_refit_ms: int
+    dcov: dict[str, Any], n_replicates: int, start_ms: int, end_ms: int, first_refit_ms: int, grid: Sequence[float]
 ) -> dict[str, Any]:
     cov = np.asarray(dcov["cov"], dtype=np.float64)
     symbols = list(dcov["symbols"])
@@ -678,6 +704,7 @@ def _power_meta(
         "plant_seed_base": POWER_PLANT_SEED_BASE,
         "joint_seed_base": POWER_JOINT_SEED_BASE,
         "n_replicates": int(n_replicates),
+        "grid": [float(a) for a in grid],
         "garch": [0.08, 0.88],
         "t_df": 4.5,
     }
@@ -762,7 +789,7 @@ def power_simulation(
         raise ValueError("amplitudes must not be empty")
     t0 = time.perf_counter()
     power_dir = Path(out_dir)
-    meta = _power_meta(dcov, n_replicates, start_ms, end_ms, first_refit_ms)
+    meta = _power_meta(dcov, n_replicates, start_ms, end_ms, first_refit_ms, grid)
     meta_file = power_dir / "power_meta.json"
     if meta_file.is_file():
         if _read_power_meta(power_dir) != meta:
@@ -912,22 +939,32 @@ def power_curve_at_margin(
 
 
 def choose_a_star(
-    curve: dict[float, dict[str, Any]], extend: Callable[[float], dict[str, Any]] | None = None
+    curve: dict[float, dict[str, Any]],
+    extend: Callable[[float], dict[str, Any]] | None = None,
+    grid: Sequence[float] | None = None,
 ) -> dict[str, Any]:
-    """a* = the smallest amplitude with a detection rate of at least 0.8 on a curve already taken at 1.2 x V.
+    """a* = the smallest grid amplitude with a detection rate of at least 0.8 on a curve taken at 1.2 x V.
 
-    If none qualifies and extend is given, the grid is extended upward by doubling its largest amplitude, at most 3
-    times, calling extend(amplitude) for each new curve entry (the same replicate seeds). If it still fails the result
-    is infeasible. Returns {"a_star", "infeasible", "extensions", "curve"}.
+    The next lower grid amplitude must have been evaluated and failed, unless a* is the grid minimum (A1.9). grid is
+    the registered amplitude grid (power_meta.json). Without it the grid is the evaluated amplitudes. If the lower
+    neighbour was never simulated the result is {"needs": amplitude}: the caller simulates it with the same replicate
+    seeds and asks again. If no evaluated amplitude qualifies and extend is given, the grid is extended upward by
+    doubling its largest amplitude, at most 3 times, calling extend(amplitude) for each new curve entry. If it
+    still fails the result is infeasible. Returns {"a_star", "infeasible", "extensions", "curve"} or {"needs"}.
     """
     if not curve:
         raise ValueError("an empty curve has no a*")
     work = {float(a): dict(e) for a, e in curve.items()}
+    registered = {float(a) for a in grid} if grid is not None else set()
     extensions: list[float] = []
 
     def pick() -> float | None:
         ok = [a for a, e in sorted(work.items()) if float(e["rate"]) >= POWER_TARGET - 1e-12]
         return ok[0] if ok else None
+
+    def lower_neighbour(star: float) -> float | None:
+        below = [a for a in registered | set(work) if a < star]
+        return max(below) if below else None
 
     star = pick()
     while star is None and extend is not None and len(extensions) < POWER_MAX_DOUBLINGS:
@@ -935,7 +972,56 @@ def choose_a_star(
         work[a_new] = dict(extend(a_new))
         extensions.append(a_new)
         star = pick()
+    if star is not None:
+        lower = lower_neighbour(star)
+        if lower is not None and lower not in work:
+            return {"needs": lower}
     return {"a_star": star, "infeasible": star is None, "extensions": extensions, "curve": work}
+
+
+def select_a_star(
+    power_dir: Path | str,
+    v_margin: float,
+    commit: str | None,
+    *,
+    extend_up: bool = False,
+    joint_draws: int = POWER_JOINT_DRAWS,
+) -> dict[str, Any]:
+    """choose_a_star on the stored power directory, simulating any needed lower grid amplitude first.
+
+    v_margin is 1.2 x the noise controls' D within-cell V. Each needed amplitude is simulated with the same replicate
+    seeds (extend_amplitude) and the curve is recomputed, until the rule holds. extend_up also allows the registered
+    upward doubling. Both kinds of simulation need a commit.
+    """
+    meta = _read_power_meta(power_dir)
+    grid = meta.get("grid")
+    if not grid:
+        raise ValueError(f"{Path(power_dir) / 'power_meta.json'} records no registered amplitude grid")
+
+    def curve_now() -> dict[float, dict[str, Any]]:
+        return power_curve(power_dir, v_margin, joint_draws=joint_draws)
+
+    def extend_one(a: float) -> dict[str, Any]:
+        if not commit:
+            raise ValueError("a commit is required to simulate another amplitude")
+        extend_amplitude(power_dir, a, commit=commit)
+        return curve_now()[a]
+
+    while True:
+        chosen = choose_a_star(curve_now(), extend=extend_one if extend_up else None, grid=grid)
+        if "needs" not in chosen:
+            return chosen
+        if not commit:
+            raise ValueError(f"amplitude {chosen['needs']} must be simulated first: a commit is required")
+        extend_amplitude(power_dir, chosen["needs"], commit=commit)
+
+
+def power_provenance(power_dir: Path | str) -> dict[str, list[Any]]:
+    """The distinct commits and source digests among every stored power-simulation receipt."""
+    receipts = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(Path(power_dir).glob("a*/r*/*/receipt.json"))]
+    if not receipts:
+        raise ValueError(f"no power receipts found under {power_dir}")
+    return receipt_provenance(receipts)
 
 
 # ---------------------------------------------------------------------------
@@ -966,6 +1052,8 @@ def positive_control(
     rerun: bool = False,
     audited: bool = False,
     n_trials: int = N_TRIALS_CALIBRATION,
+    expected_v: float | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the pc family (P1, P2, D1 to D4) with the plant at a* on D and evaluate it with the calibration bar.
 
@@ -973,8 +1061,12 @@ def positive_control(
     directory of family_report) and N = 120. Item 4's joint shift and the SPA read the PLANTED panel, because the
     observed statistic is priced from the panel and the plant only exists there. The label-shift tripwire runs for
     P1 and P2 only when they pass items 1 to 3. Detection means P1 or P2 passes items 1 to 6 and the tripwire does
-    not halt. A miss writes positive_miss.json, and a later call with the same out_dir refuses unless audited=True
-    (the failure tree: a re-run follows a code audit, spec section 8). rerun=True uses the registered re-run seeds.
+    not halt. A miss writes positive_miss.json. The failure tree (spec section 8, A1.9) then allows exactly one
+    re-run: rerun=True (plant seed 20261029, decoy seeds 2,000,011 to 2,000,014) with audited=True after a code
+    audit. A re-run without a miss, a re-run without the audit, an audited call at the original seed, and any call
+    after a second miss ("second miss is terminal") all raise. expected_v, when given, is the noise controls' D
+    within-cell V from the noise-evaluation file: a different V in this run raises before anything is written.
+    provenance records the input files (path and sha256) in the result.
     """
     from r4 import bar, cli
     from r4.pipeline import load_panel
@@ -984,8 +1076,22 @@ def positive_control(
     out = Path(out_dir)
     miss_file = out / POSITIVE_MISS_FILE
     runs = out / "runs"
-    if miss_file.exists() and not audited:
-        raise ValueError(f"{miss_file} exists: a code audit must find nothing before a re-run (pass audited=True)")
+    has_attempt = any(out.glob("attempt_*"))
+    if miss_file.exists():
+        if has_attempt:
+            raise ValueError(
+                f"{miss_file} exists after a re-run: the second miss is terminal, the pipeline is presumed insensitive"
+            )
+        if not rerun:
+            raise ValueError(
+                f"{miss_file} exists: the one allowed re-run needs rerun=True (fresh plant seed) after a code audit"
+            )
+        if not audited:
+            raise ValueError(
+                f"{miss_file} exists: a code audit must find nothing before the re-run (pass audited=True)"
+            )
+    elif rerun:
+        raise ValueError(f"rerun=True but {miss_file} does not exist: a re-run follows a recorded miss only")
     attempt_tag = 1
     while (out / f"attempt_{attempt_tag}").exists():
         attempt_tag += 1
@@ -1044,6 +1150,13 @@ def positive_control(
         if ev["all_pass"] and not tw["halt"] and detected_by is None:
             detected_by = rid
 
+    if expected_v is not None and not math.isclose(
+        float(report["variance"]["V"]), float(expected_v), rel_tol=1e-9, abs_tol=1e-15
+    ):
+        raise ValueError(
+            f"the positive control's variance V {report['variance']['V']} differs from the noise evaluation's "
+            f"{expected_v}"
+        )
     slim = dict(report)
     slim["configurations"] = {
         k: {kk: vv for kk, vv in ev.items() if kk != "receipt"} for k, ev in report["configurations"].items()
@@ -1061,6 +1174,10 @@ def positive_control(
         "detected_by": detected_by,
         "dataset_hash": report["inputs_hashes"]["dataset_hash"],
         "commit": commit,
+        "provenance": receipt_provenance(
+            [json.loads(f.read_text(encoding="utf-8")) for f in sorted(runs.glob("*/receipt.json"))]
+        ),
+        "inputs": provenance,
     }
     (out / "positive_control.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     if detected_by is None:
@@ -1227,6 +1344,131 @@ def _validate_exit_block(d: Any) -> int:
     return n_rej
 
 
+NULL_PATHS = 50_000
+NULL_DAYS = 730
+NULL_THRESHOLD = 600.0
+NULL_SEED = 20261025
+NULL_PILOT_SEED = 20261024
+
+
+def _same_number(a: Any, b: Any) -> bool:
+    ok = (int, float)
+    return (
+        isinstance(a, ok)
+        and isinstance(b, ok)
+        and not isinstance(a, bool)
+        and not isinstance(b, bool)
+        and math.isclose(float(a), float(b), rel_tol=1e-12, abs_tol=0.0)
+    )
+
+
+def _check_null_parameters(nul: dict[str, Any]) -> None:
+    params = nul["parameters"]
+    wanted = {"n_paths": NULL_PATHS, "n_days": NULL_DAYS, "threshold": NULL_THRESHOLD}
+    for key, want in wanted.items():
+        if not _same_number(params.get(key), want):
+            raise ValueError(f"null_simulation.parameters.{key} is {params.get(key)!r}, registered {want}")
+    if nul.get("seed") != NULL_SEED:
+        raise ValueError(f"null_simulation.seed is {nul.get('seed')!r}, registered {NULL_SEED}")
+    pilot = nul.get("pilot")
+    if not isinstance(pilot, dict) or pilot.get("seed") != NULL_PILOT_SEED:
+        raise ValueError(f"null_simulation.pilot.seed must be the registered pilot seed {NULL_PILOT_SEED}")
+
+
+def _check_noise_set(noi: dict[str, Any]) -> None:
+    """The 40 registered noise_grid() ids and config hashes, after any recorded trade-floor replacement."""
+    from r4.cli import config_hash_of
+
+    rows = noi.get("noise_set")
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise ValueError("noise_eval.noise_set must list the evaluated configurations")
+    registered = noise_grid()
+    if len(rows) != len(registered):
+        raise ValueError(f"noise_eval.noise_set has {len(rows)} configurations, registered {len(registered)}")
+    claimed: set[int] = set()
+    for g in registered:
+        mine = [i for i, r in enumerate(rows) if r.get("id") == g["id"] or r.get("replaces") == g["id"]]
+        if len(mine) != 1:
+            raise ValueError(f"noise control {g['id']} must appear exactly once (original or its replacement)")
+        row = rows[mine[0]]
+        if row.get("id") == g["id"]:
+            want = config_hash_of(g)
+            if row.get("replaces") is not None or row.get("attempt") is not None:
+                raise ValueError(f"noise control {g['id']} is marked as a replacement but keeps the registered id")
+        else:
+            attempt = row.get("attempt")
+            if attempt not in (1, 2) or isinstance(attempt, bool):
+                raise ValueError(f"noise replacement of {g['id']} has attempt {attempt!r}, only 1 and 2 exist")
+            alt = noise_alternative(g, int(attempt))
+            if row.get("id") != alt["id"]:
+                raise ValueError(f"noise replacement of {g['id']} has id {row.get('id')!r}, registered {alt['id']!r}")
+            want = config_hash_of(alt)
+        if row.get("config_hash") != want:
+            raise ValueError(f"noise control {row.get('id')} does not match its registered config hash")
+        claimed.add(mine[0])
+    if len(claimed) != len(rows):
+        raise ValueError("noise_eval.noise_set holds a configuration that is not in the registered grid")
+
+
+def _provenance_pairs(name: str, obj: Any) -> tuple[set[str], set[str]]:
+    prov = obj.get("provenance") if isinstance(obj, dict) else None
+    if not isinstance(prov, dict):
+        raise ValueError(f"{name} carries no provenance (commits and source_sha256 of its receipts)")
+    out: list[set[str]] = []
+    for key in ("commits", "source_sha256"):
+        vals = prov.get(key)
+        if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v for v in vals):
+            raise ValueError(f"{name}.provenance.{key} must list the receipts' string values")
+        out.append(set(vals))
+    return out[0], out[1]
+
+
+def _check_code_freeze(named: dict[str, Any], retests: Sequence[Any]) -> None:
+    """Every input receipt shares ONE commit and ONE source_sha256 (spec section 8 code freeze)."""
+    commits: set[str] = set()
+    sources: set[str] = set()
+    for name, obj in named.items():
+        c, src = _provenance_pairs(name, obj)
+        commits |= c
+        sources |= src
+    for i, r in enumerate(retests):
+        c_, s_ = r.get("commit"), r.get("source_sha256")
+        if not isinstance(c_, str) or not c_ or not isinstance(s_, str) or not s_:
+            raise ValueError(f"retests[{i}] needs a commit and a source_sha256")
+        commits.add(c_)
+        sources.add(s_)
+    if len(commits) != 1 or len(sources) != 1:
+        raise ValueError(
+            f"input receipts must share one commit and one source_sha256, found {sorted(commits)} and {sorted(sources)}"
+        )
+
+
+def _check_positive_binding(pos: dict[str, Any], star: dict[str, Any], pwr: dict[str, Any], v_noise: float) -> None:
+    if not _same_number(pos.get("a_star"), star.get("a_star")):
+        raise ValueError(
+            f"positive_control.a_star {pos.get('a_star')!r} differs from power.a_star {star.get('a_star')!r}"
+        )
+    if pos.get("n_trials") != N_TRIALS_CALIBRATION:
+        raise ValueError(f"positive_control.n_trials must be {N_TRIALS_CALIBRATION}, got {pos.get('n_trials')!r}")
+    var = pos.get("variance")
+    if not isinstance(var, dict) or not _same_number(var.get("V"), v_noise):
+        raise ValueError("positive_control.variance.V differs from the noise evaluation's V")
+    plant = pos.get("plant")
+    seed = plant.get("seed") if isinstance(plant, dict) else None
+    rerun = pos.get("rerun")
+    if rerun is True:
+        legal = seed == PC_RERUN_PLANT_SEED
+    elif rerun is False:
+        legal = seed == PLANT_SEED
+    else:
+        legal = False
+    if not legal:
+        raise ValueError(
+            f"positive_control plant seed {seed!r} with rerun {rerun!r} is not {PLANT_SEED}, "
+            f"or {PC_RERUN_PLANT_SEED} for the one re-run"
+        )
+
+
 def _validate_commit_order(d: Any) -> dict[str, Any]:
     """{"predictions": {id: {"registration_commit": sha, "receipts": [{"id", "commit", "is_ancestor": True}]}}}.
 
@@ -1296,12 +1538,29 @@ def write_dossier(
         exb, refs["exit_block"] = _load_json(exit_block, "exit_block")
 
     n_cross, n_paths = _validate_null(nul)
+    _check_null_parameters(nul)
     verdict = _validate_noise(noi)
     star = _validate_power(pwr)
     detected = _validate_positive(pos)
     n_native_pass = _validate_retests(rts)
     n_exit_rej = None if exb is None else _validate_exit_block(exb)
     order = _validate_commit_order(commit_order)
+
+    _check_noise_set(noi)
+    v_noise = noi.get("variance", {}).get("V") if isinstance(noi.get("variance"), dict) else None
+    if isinstance(v_noise, bool) or not isinstance(v_noise, (int, float)) or not math.isfinite(v_noise) or v_noise <= 0:
+        raise ValueError("noise_eval.variance.V must be a positive number")
+    if not _same_number(pwr.get("v"), v_noise):
+        raise ValueError(f"power.v {pwr.get('v')!r} differs from the noise evaluation's V {v_noise!r}")
+    frozen: dict[str, Any] = {"noise_eval": noi, "power": pwr}
+    if star["infeasible"]:
+        pass  # no a* to plant: there is no positive-control run to bind
+    else:
+        _check_positive_binding(pos, star, pwr, float(v_noise))
+        frozen["positive_control"] = pos
+    if exb is not None:
+        frozen["exit_block"] = exb
+    _check_code_freeze(frozen, rts)
 
     predictions: dict[str, dict[str, Any]] = {}
 

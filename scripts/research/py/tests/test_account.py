@@ -253,7 +253,8 @@ def test_intrabar_stop_and_entry_at_one_instant_are_two_orders():
     # A long stopped intrabar (stamp = the 5h open) and a new long entered at that open are two orders, not one no-op.
     five = {"DOGEUSDT": _bars(0.37, TWO_DAYS)}
     stamp = START + 5 * HOUR
-    stopped = _tr("DOGEUSDT", 0.1, START + HOUR, stamp, exit_reason="stop")
+    # The stop fills at its own price (A1.10), set to the flat bar price so only the round-trip costs move equity.
+    stopped = _tr("DOGEUSDT", 0.1, START + HOUR, stamp, exit_reason="stop", exit_price=0.37)
     fresh = _tr("DOGEUSDT", 0.1, stamp, START + DAY)
     res = simulate_account([stopped, fresh], five, {}, 100.0, 10)
     # The second entry is sized on the equity left after the stop's round trip (100 less fees and slippage, 99.9 or so:

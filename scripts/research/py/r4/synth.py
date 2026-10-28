@@ -26,6 +26,27 @@ def _frame(t: np.ndarray, o: np.ndarray, h: np.ndarray, lo: np.ndarray, c: np.nd
     return pd.DataFrame({"t": t, "o": o, "h": h, "l": lo, "c": c, "v": v, "tbv": tbv})
 
 
+def _bridge_extremes(
+    o: np.ndarray, c: np.ndarray, sigma: np.ndarray, u_high: np.ndarray, u_low: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """High and low of each 5m bar as the extremes of a Brownian bridge from log open to log close.
+
+    For a bridge from a to b over a bar with total variance s2, P(max >= m) = exp(-2 (m - a)(m - b) / s2) for
+    m >= max(a, b). Inverting at the uniform u gives m = (a + b) / 2 + sqrt((b - a)^2 - 2 s2 ln u) / 2, and the minimum
+    is the mirror image. The extremes then agree with the path (high >= max(o, c), low <= min(o, c)).
+    """
+    a, b = np.log(o), np.log(c)
+    s2 = sigma * sigma
+    mid = 0.5 * (a + b)
+    gap2 = (b - a) ** 2
+    # 1 - u lies in (0, 1], so the logarithm is finite.
+    up = 0.5 * np.sqrt(gap2 - 2.0 * s2 * np.log1p(-u_high))
+    down = 0.5 * np.sqrt(gap2 - 2.0 * s2 * np.log1p(-u_low))
+    high = np.maximum(np.exp(mid + up), np.maximum(o, c))
+    low = np.minimum(np.exp(mid - down), np.minimum(o, c))
+    return high, low
+
+
 def synth_panel(
     cov_daily: Any,
     symbols: Sequence[str],
@@ -78,8 +99,7 @@ def synth_panel(
 
     c = START_PRICE * np.exp(np.cumsum(x, axis=0))
     o = np.vstack([np.full((1, k), START_PRICE), c[:-1]])
-    h = np.maximum(o, c) * np.exp(rng.random((n, k)) * 0.5 * sigma_5m)
-    lo = np.minimum(o, c) * np.exp(-rng.random((n, k)) * 0.5 * sigma_5m)
+    h, lo = _bridge_extremes(o, c, sigma_5m, rng.random((n, k)), rng.random((n, k)))
     v = np.exp(rng.normal(4.0, 0.5, size=(n, k)))
     tbv = rng.beta(50.0, 50.0, size=(n, k)) * v
 

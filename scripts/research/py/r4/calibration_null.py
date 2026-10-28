@@ -450,6 +450,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     result["input_sha256"] = input_sha256
+    result["pilot"] = payload.get("pilot")
 
     try:
         out_json_str = json.dumps(result, allow_nan=False, indent=2)

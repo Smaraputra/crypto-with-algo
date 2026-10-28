@@ -18,6 +18,12 @@ Disclosed assumptions:
   order, never netted, and it fills before the instant's funding, so its position pays no settlement at the stamp.
 - Cross margin: equity is cash plus the unrealised PnL of all positions, and one maintenance requirement covers
   the whole account.
+- A taker exit that fills inside a 5m bar (a stop) fills at its own price plus the coin's taker slippage. A
+  take-profit or a maker exit fills at its own price with no slippage. Entries and horizon exits fill at the 5m open
+  at the stamp.
+- Liquidation is checked at every 5m bar's adverse extreme: the low for a long coin, the high for a short coin. The
+  extremes of different coins are treated as simultaneous, which is conservative. A frame without high and low
+  columns is checked at its opens only.
 - After a liquidation the account is bust and the simulation stops. The bust day's log return uses the equity
   after liquidation, floored at BUST_FLOOR so the logarithm stays finite.
 - The zero-position share counts, per coin, the days on which the research book holds the coin at the day's end
@@ -88,6 +94,7 @@ EPS_W: float = 1e-12
 DEFAULT_LEVERAGES: tuple[int, ...] = (10, 20, 50)
 ACCOUNT_FILE: str = "account_100.json"
 BARS_PER_DAY: int = DAY_MS // FIVE_MIN_MS
+INTRABAR_EXITS: tuple[str, ...] = ("stop", "take_profit", "maker_exit")
 
 DISCLOSURES: tuple[str, ...] = (
     "REPORT ONLY: never a gate, never read by the exploration bar.",
@@ -96,6 +103,8 @@ DISCLOSURES: tuple[str, ...] = (
     "LIQ_FEE is a declared 0.5% of the liquidated notional.",
     "Closing to zero is always allowed (reduce-only), partial reductions below the minimum are skipped.",
     "Orders per coin and instant are netted, sized with the equity marked before the instant's fills.",
+    "Intrabar exits fill at their own price (stops plus taker slippage). Liquidation is checked at each 5m bar's "
+    "adverse extreme (low for longs, high for shorts), with all coins' extremes taken as simultaneous.",
     "Cross margin, one maintenance requirement for the account, liquidation stops the simulation (bust).",
 )
 
@@ -183,6 +192,27 @@ def _grid_prices(five_min: dict[str, pd.DataFrame], symbols: list[str], t0: int,
     return out
 
 
+def _grid_extremes(
+    five_min: dict[str, pd.DataFrame], symbols: list[str], t0: int, n: int, opens: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """5m high and low matrices on the grid of _grid_prices. A missing bar or column falls back to the open."""
+    highs = opens.copy()
+    lows = opens.copy()
+    for j, sym in enumerate(symbols):
+        df = five_min[sym]
+        if "t" not in df.columns or "h" not in df.columns or "l" not in df.columns:
+            continue
+        times = df["t"].to_numpy(dtype=np.int64)
+        idx = (times - t0) // FIVE_MIN_MS
+        keep = (idx >= 0) & (idx < n) & ((times - t0) % FIVE_MIN_MS == 0)
+        h = df["h"].to_numpy(dtype=np.float64)[keep]
+        lo = df["l"].to_numpy(dtype=np.float64)[keep]
+        ok = np.isfinite(h) & np.isfinite(lo)
+        highs[idx[keep][ok], j] = np.maximum(h[ok], opens[idx[keep][ok], j])
+        lows[idx[keep][ok], j] = np.minimum(lo[ok], opens[idx[keep][ok], j])
+    return highs, lows
+
+
 def _research_daily(tranches: Any, five_min: dict[str, pd.DataFrame], settlements: Any, profile: str) -> pd.DataFrame:
     return daily_book(tranches, five_min, settlements, profile)
 
@@ -223,6 +253,7 @@ def simulate_account(
     t1 = (last_ms // DAY_MS + 1) * DAY_MS
     n_grid = int((t1 - t0) // FIVE_MIN_MS) + 1
     prices = _grid_prices(five_min, symbols, t0, n_grid)
+    highs, lows = _grid_extremes(five_min, symbols, t0, n_grid, prices)
 
     # Legs: an entry (+w) and an exit (-w) per tranche, aggregated per (grid index, coin).
     weights = np.array([t.weight for t in tr], dtype=np.float64)
@@ -250,6 +281,9 @@ def simulate_account(
         }
     )
     legs["nonmaker"] = (~legs["maker"]).astype(np.int64)
+    # Only an exit leg can fill inside a bar; d1 groups intrabar legs apart (key "intra"), so each group is all open or
+    # all intrabar. "stop" marks a stop leg, which also pays the taker slippage at its own fill price.
+    legs["stop"] = np.array([0] * len(tr) + [int(t.exit_reason == "stop") for t in tr], dtype=np.int64)
     legs = legs.sort_values(["idx", "intra", "sym", "absw"], kind="stable")
     grouped = legs.groupby(["idx", "intra", "sym"], sort=True)
     agg = pd.DataFrame(
@@ -257,6 +291,7 @@ def simulate_account(
             "dw": grouped["dw"].sum(),
             "taker_legs": grouped["nonmaker"].sum(),
             "level": grouped["level"].last(),
+            "stop": grouped["stop"].max(),
         }
     ).reset_index()
     ev_idx = agg["idx"].to_numpy()
@@ -265,6 +300,7 @@ def simulate_account(
     ev_dw = agg["dw"].to_numpy()
     ev_maker = agg["taker_legs"].to_numpy() == 0
     ev_level = agg["level"].to_numpy()
+    ev_stop = agg["stop"].to_numpy() == 1
     # Event rows are sorted by (idx, intra, sym): per instant, the intrabar rows come first, then the open-price rows.
     fill_idx_unique = np.unique(ev_idx)
     fill_at: dict[int, tuple[int, int]] = {}  # open-price fills per instant
@@ -321,9 +357,9 @@ def simulate_account(
             research_days[held] += count
             zero_days[held & (np.abs(q) < 0.5 * step)] += count
 
-    def liquidate(k: int, eq_before: float) -> None:
+    def liquidate(k: int, eq_before: float, mark: np.ndarray) -> None:
         nonlocal liquidation, cash
-        notional = float(np.sum(np.abs(q) * prices[k]))
+        notional = float(np.sum(np.abs(q) * mark))
         fee = LIQ_FEE * notional
         eq_after = eq_before - fee
         liquidation = {
@@ -343,8 +379,11 @@ def simulate_account(
             return False
         block = prices[a:b]
         eq = cash + (block - avg) @ q
-        maint = block @ (np.abs(q) * mmr)
-        hit = np.nonzero(eq <= maint)[0]
+        # Liquidation is judged at each bar's adverse extreme: the low for a long coin, the high for a short coin.
+        adverse = np.where(q > 0, lows[a:b], np.where(q < 0, highs[a:b], block))
+        eq_adv = cash + (adverse - avg) @ q
+        maint = adverse @ (np.abs(q) * mmr)
+        hit = np.nonzero(eq_adv <= maint)[0]
         end = b
         if len(hit):
             end = a + int(hit[0])
@@ -355,7 +394,7 @@ def simulate_account(
                 mid_eq.extend(float(x) for x in eq[mids - a])
                 note_days(len(mids))
         if len(hit):
-            liquidate(end, float(eq[hit[0]]))
+            liquidate(end, float(eq_adv[hit[0]]), adverse[hit[0]])
             return True
         return False
 
@@ -387,6 +426,12 @@ def simulate_account(
                 px = float(ev_level[r])
                 rate = float(maker_fee[j])
                 kind = "maker"
+            elif ev_intra[r]:
+                # Filled inside a bar: at its own price, and a stop also pays the taker slippage.
+                ref = float(ev_level[r])
+                px = apply_slippage(ref, "buy" if delta > 0 else "sell", float(slip_bps[j])) if ev_stop[r] else ref
+                rate = float(taker_fee[j])
+                kind = "taker"
             else:
                 px = apply_slippage(ref, "buy" if delta > 0 else "sell", float(slip_bps[j]))
                 rate = float(taker_fee[j])
