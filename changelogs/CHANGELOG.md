@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - intrabar fills are stamped at the touching 5m bar's close, so every exit stays on the 5m grid.
   - A vectorized replay equals the step machine tranche for tranche. It replays 300,000 tranches in about 1.3 s.
   - Horizon runs are unchanged. Receipts count exits by reason.
+- A $100-account layer (`r4/account.py`, `r4.cli account`), report only.
+  - It replays a run's tranches on a $100 account at 10x, 20x and 50x leverage, using today's Binance lot sizes and minimum notionals with historical prices.
+  - It nets orders per coin per instant and charges fees on executed notional and funding on position notional.
+  - It simulates cross-margin maintenance and stops at the first liquidation.
+  - It reports equity, skipped below-minimum orders, fees, funding and tracking against the research book.
+  - Nothing in the exploration bar reads it.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.

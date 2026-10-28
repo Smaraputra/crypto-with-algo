@@ -724,6 +724,10 @@ def main() -> None:
     fc_parser.add_argument("--symbol", required=True, help="Symbol name (e.g. BTCUSDT)")
     fc_parser.add_argument("--interval", required=True, choices=["1h", "4h"], help="Interval")
 
+    acct_parser = subparsers.add_parser("account", help="Write the $100-account report (report only)")
+    acct_parser.add_argument("--run", required=True, help="Run directory holding tranches.parquet")
+    acct_parser.add_argument("--ds", required=True, help="Dataset directory")
+
     args = parser.parse_args()
 
     if args.command == "run-wf":
@@ -750,6 +754,11 @@ def main() -> None:
             tripwire=tripwire_input,
         )
         print(f"Family report written to {args.out}")
+    elif args.command == "account":
+        from r4.account import account_report
+
+        account_report(args.run, args.ds)
+        print(f"Account report written to {Path(args.run) / 'account_100.json'}")
     elif args.command == "feature-check":
         feature_check(
             ds_dir=args.ds,
