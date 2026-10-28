@@ -14,7 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed: Round 4 research runtime and development boundary
 - The research CLI now drops labels ending exactly at the exclusive development cutoff, matching signed method M.
 - Daily book aggregation buckets intersecting tranche days, slices sorted funding history and reuses equal-weight basket returns for shared boundaries. Financial results and counters are checked against an independent scalar reference.
-- Decision-sample copies share the read-only market input panel instead of duplicating it through pandas attributes. Local synthetic tests pass. Python 3.12 verification and the full-span VPS benchmark under the 2 GB cap are pending.
+- Decision-sample copies share the read-only market input panel instead of duplicating it through pandas attributes. In the Python 3.12 VPS image at `2e356887`, 188 tests and the full-span synthetic benchmark pass under the 2 GB cap. The benchmark ran 1,642 days on 10 coins at 1h: peak 1,204 MB, `run_wf` 571 s, joint-shift null 687 s per 1,000 draws.
+- Fixes before calibration (gate P pre-review):
+  - Exits that fill at their own price (stop, take-profit, model close) are priced at the fill, and their basket hedge ends at the next 5m boundary.
+  - An empty basket now raises instead of hedging with zero. Across D's 472,896 5m instants every coin has a bar, so this never fires there.
+  - Receipts carry daily gross, cost, fee, slippage and funding columns, CPCV gross path means, each fold's long share and net exposure, a required `kind` (trial, control or retest) and a required commit sha.
+  - The DSR variance needs at least two configurations.
+  - Control receipts are refused in the round-close variance outside calibration mode.
+  - Each configuration has its own joint-shift seed.
+  - LightGBM is deterministic.
 
 ### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.

@@ -5,6 +5,8 @@ drift-hedged returns, and drift-free trade returns.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 
@@ -1091,7 +1093,8 @@ def test_active_day_membership_scales_with_intersections():
         CountedTranche("BTCUSDT", 1, d * DAY_MS + 3_600_000, d * DAY_MS + 7_200_000, 100, 101, "1h", 14_400_000)
         for d in range(n_days)
     ]
-    prices = {"BTCUSDT": pd.DataFrame({"t": [0], "o": [100.0]})}
+    stamps = [0] + [d * DAY_MS + h for d in range(n_days) for h in (3_600_000, 7_200_000)]
+    prices = {"BTCUSDT": pd.DataFrame({"t": stamps, "o": [100.0] * len(stamps)})}  # basket needs both ends priced
     for hedged in (False, True):
         CountedTranche.entry_reads = 0
         if hedged:
@@ -1144,3 +1147,124 @@ def test_monotonic_price_lookup_avoids_sorting(monkeypatch):
     assert lookup.get_exact_open("SORTED", 1) == 101.0
     assert lookup.get_open_or_carry("UNSORTED", 3) == (102.0, True)
     assert sorted_lengths == [3]
+
+
+# ---------------------------------------------------------------------------
+# Brief 21: priced fills, empty basket, coin-leg agreement, unchanged horizon pricing
+# ---------------------------------------------------------------------------
+
+_FIVE = 300_000
+
+
+def _grid_prices(universe, stamps, base=100.0):
+    """Every coin quoted at every stamp, with distinct, deterministic opens."""
+    return {
+        coin: pd.DataFrame({"t": list(stamps), "o": [base + 3.0 * i + 0.7 * j for j, _ in enumerate(stamps)]})
+        for i, coin in enumerate(universe)
+    }
+
+
+def _ceil5(ms):
+    return -(-ms // _FIVE) * _FIVE
+
+
+def test_priced_exit_uses_fill_price() -> None:
+    """A stop (any reason other than horizon) fills at its own exit_price, on or off the 5m grid.
+
+    gross = w x (log(exit_price / entry_price) - beta x r_EW), with r_EW over [entry, ceil5m(exit)].
+    """
+    import pytest
+
+    day_0 = 1700006400000
+    entry_ms = day_0 + 3_600_000
+    universe = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    for exit_ms in (entry_ms + 2 * 3_600_000 + 120_000, entry_ms + 2 * 3_600_000):  # off the grid, then on it
+        hedge_end = _ceil5(exit_ms)
+        five_min = _grid_prices(universe, [day_0, entry_ms, hedge_end, day_0 + DAY_MS])
+        entry_price = float(five_min["BTCUSDT"].loc[1, "o"])
+        exit_price = entry_price * 0.97  # stop price, not the 5m open
+        tranche = Tranche(
+            symbol="BTCUSDT",
+            side=1,
+            entry_ms=entry_ms,
+            exit_ms=exit_ms,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            interval="1h",
+            h_ms=8 * 3_600_000,
+            exit_reason="stop",
+        )
+        beta = 0.8
+        res = beta_hedged_daily([tranche], five_min, None, {c: beta for c in universe}, universe)
+        r_ew = float(
+            np.mean([np.log(df.loc[2, "o"] / df.loc[1, "o"]) for df in five_min.values()])  # entry to hedge end
+        )
+        expected = tranche.weight * (np.log(exit_price / entry_price) - beta * r_ew)
+        assert res.loc[day_0, "gross_hedged"] == pytest.approx(expected, rel=1e-12, abs=1e-15)
+
+
+def test_empty_basket_raises() -> None:
+    """No basket coin with prices at both ends of an interval raises, never r_EW = 0."""
+    import pytest
+
+    day_0 = 1700006400000
+    entry_ms = day_0 + 3_600_000
+    exit_ms = entry_ms + 4 * 3_600_000
+    tranche = Tranche("BTCUSDT", 1, entry_ms, exit_ms, 100.0, 101.0, "1h", 4 * 3_600_000)
+    five_min = {"BTCUSDT": pd.DataFrame({"t": [day_0], "o": [100.0]})}  # no bar at either end
+    with pytest.raises(ValueError, match=r"basket.*interval"):
+        beta_hedged_daily([tranche], five_min, None, {"BTCUSDT": 1.0}, ["BTCUSDT", "ETHUSDT"])
+
+
+def test_daily_book_and_hedged_agree_on_coin_leg() -> None:
+    """At beta 0 the hedged gross is the coin leg alone, and must equal daily_book's gross for every tranche kind."""
+    day_0 = 1700006400000
+    hour = 3_600_000
+    universe = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    stop_exit = day_0 + DAY_MS + 2 * hour + 120_000
+    stamps = [
+        day_0,
+        day_0 + 22 * hour,
+        day_0 + DAY_MS,
+        day_0 + DAY_MS + 2 * hour,
+        _ceil5(stop_exit),
+        day_0 + 2 * DAY_MS,
+    ]
+    five_min = _grid_prices(universe, stamps)
+    open_at = {s: dict(zip(df["t"], df["o"], strict=True)) for s, df in five_min.items()}
+    horizon = Tranche(
+        "ETHUSDT",
+        -1,
+        day_0 + 22 * hour,
+        day_0 + DAY_MS + 2 * hour,
+        open_at["ETHUSDT"][day_0 + 22 * hour],
+        open_at["ETHUSDT"][day_0 + DAY_MS + 2 * hour],
+        "1h",
+        4 * hour,
+    )
+    stopped = Tranche(
+        "BTCUSDT",
+        1,
+        day_0 + 22 * hour,
+        stop_exit,
+        open_at["BTCUSDT"][day_0 + 22 * hour],
+        open_at["BTCUSDT"][day_0 + 22 * hour] * 0.96,
+        "1h",
+        8 * hour,
+        exit_reason="stop",
+    )
+    betas = {c: 0.0 for c in universe}
+    hedged = beta_hedged_daily([horizon, stopped], five_min, None, betas, universe)
+    raw = daily_book([horizon, stopped], five_min, None)
+    assert list(hedged.index) == list(raw.index)
+    np.testing.assert_allclose(hedged["gross_hedged"].to_numpy(), raw["gross"].to_numpy(), rtol=1e-12, atol=1e-15)
+
+
+def test_horizon_exit_unchanged() -> None:
+    """Default (horizon) tranches give bit-identical results to the values recorded before brief 21."""
+    tranches, prices, settlements, betas, universe = _runtime_parity_case()
+    explicit = [dataclasses.replace(t, exit_reason="horizon") for t in tranches]
+    for case in (tranches, explicit):
+        res = beta_hedged_daily(case, prices, settlements, betas, universe)
+        assert [float(x) for x in res["gross_hedged"]] == [0.0003914907331017391, 4.7025973830872026e-05]
+        assert [float(x) for x in res["drift_free"]] == [0.0003711573997684058, 2.3317640497538694e-05]

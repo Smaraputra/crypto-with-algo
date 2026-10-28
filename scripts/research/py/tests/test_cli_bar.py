@@ -46,6 +46,7 @@ from r4.pipeline import (
 from r4.validation import cpcv_path_ids
 
 DAY = 86_400_000
+COMMIT = "abc1234"
 
 
 def _make_fast_synthetic_panel(
@@ -191,6 +192,7 @@ def test_1_run_wf_receipt_keys_and_determinism(tmp_path: Path):
 
     cfg_dict = {
         "id": "run_001",
+        "kind": "trial",
         "family": "A",
         "model": "ridge",
         "params": {"alpha": 1.0},
@@ -211,11 +213,11 @@ def test_1_run_wf_receipt_keys_and_determinism(tmp_path: Path):
     cfg_file.write_text(json.dumps(cfg_dict, indent=2), encoding="utf-8")
 
     out_dir_1 = tmp_path / "out_1"
-    receipt_1 = run_wf(cfg_file, ds_dir, out_dir_1, commit="test_commit_sha", panel=panel)
+    receipt_1 = run_wf(cfg_file, ds_dir, out_dir_1, commit=COMMIT, panel=panel)
 
     # Check top-level receipt keys
     assert "commit" in receipt_1
-    assert receipt_1["commit"] == "test_commit_sha"
+    assert receipt_1["commit"] == COMMIT
     assert "dataset_hash" in receipt_1
     assert receipt_1["dataset_hash"] != "unknown"
     assert "config" in receipt_1
@@ -264,7 +266,7 @@ def test_1_run_wf_receipt_keys_and_determinism(tmp_path: Path):
     assert (run_dir / "tranches.parquet").exists()
     folds_json = json.loads((run_dir / "folds.json").read_text(encoding="utf-8"))
     assert len(folds_json) >= 1
-    assert set(folds_json[0]) == {"start_ms", "end_ms", "train_cut_ms", "betas"}
+    assert set(folds_json[0]) == {"start_ms", "end_ms", "train_cut_ms", "betas", "long_share", "net_exposure"}
     assert folds_json[0]["start_ms"] == cfg_dict["first_refit_ms"]
 
     daily_df = pd.read_parquet(run_dir / "daily.parquet")
@@ -277,7 +279,7 @@ def test_1_run_wf_receipt_keys_and_determinism(tmp_path: Path):
 
     # Run twice and check identical metrics
     out_dir_2 = tmp_path / "out_2"
-    receipt_2 = run_wf(cfg_file, ds_dir, out_dir_2, commit="test_commit_sha", panel=panel)
+    receipt_2 = run_wf(cfg_file, ds_dir, out_dir_2, commit=COMMIT, panel=panel)
 
     assert receipt_1["metrics"] == receipt_2["metrics"]
 
@@ -294,6 +296,7 @@ def test_2_cpcv_path_means_finite_numbers(tmp_path: Path):
 
     cfg_dict = {
         "id": "run_002",
+        "kind": "trial",
         "family": "A",
         "model": "ridge",
         "params": {"alpha": 1.0},
@@ -314,7 +317,7 @@ def test_2_cpcv_path_means_finite_numbers(tmp_path: Path):
     cfg_file.write_text(json.dumps(cfg_dict, indent=2), encoding="utf-8")
 
     out_dir = tmp_path / "out_2"
-    receipt = run_wf(cfg_file, ds_dir, out_dir, panel=panel)
+    receipt = run_wf(cfg_file, ds_dir, out_dir, commit=COMMIT, panel=panel)
 
     cpcv_means = receipt["metrics"]["cpcv_path_means"]
     assert len(cpcv_means) == 5
@@ -339,6 +342,7 @@ def test_3_planted_edge_passes_items_1_5_6_noise_fails_item_1(tmp_path: Path):
 
     cfg_planted_dict = {
         "id": "run_planted",
+        "kind": "trial",
         "family": "A",
         "model": "ridge",
         "params": {"alpha": 0.01},
@@ -358,7 +362,7 @@ def test_3_planted_edge_passes_items_1_5_6_noise_fails_item_1(tmp_path: Path):
     cfg_file_p = tmp_path / "config_p.json"
     cfg_file_p.write_text(json.dumps(cfg_planted_dict, indent=2), encoding="utf-8")
 
-    receipt_p = run_wf(cfg_file_p, ds_dir_planted, tmp_path / "out_p", panel=panel_planted)
+    receipt_p = run_wf(cfg_file_p, ds_dir_planted, tmp_path / "out_p", commit=COMMIT, panel=panel_planted)
 
     res1 = item1(receipt_p)
     res5 = item5(receipt_p)
@@ -376,6 +380,7 @@ def test_3_planted_edge_passes_items_1_5_6_noise_fails_item_1(tmp_path: Path):
         ds_dir_noise = _create_synthetic_dataset_dir(tmp_path / f"t3_ds_noise_{s}", panel_noise)
         cfg_noise_dict = {
             "id": f"run_noise_{s}",
+            "kind": "trial",
             "family": "A",
             "model": "ridge",
             "params": {"alpha": 10.0},
@@ -394,7 +399,7 @@ def test_3_planted_edge_passes_items_1_5_6_noise_fails_item_1(tmp_path: Path):
         }
         cfg_file_n = tmp_path / f"config_n_{s}.json"
         cfg_file_n.write_text(json.dumps(cfg_noise_dict, indent=2), encoding="utf-8")
-        receipt_n = run_wf(cfg_file_n, ds_dir_noise, tmp_path / f"out_n_{s}", panel=panel_noise)
+        receipt_n = run_wf(cfg_file_n, ds_dir_noise, tmp_path / f"out_n_{s}", commit=COMMIT, panel=panel_noise)
         if not item1(receipt_n)["pass"]:
             fail_count += 1
 
@@ -552,6 +557,7 @@ def test_7_book_fees_plus_slippage_equals_costs():
 
 BASE_CFG: dict = {
     "id": "base",
+    "kind": "trial",
     "family": "A",
     "model": "ridge",
     "params": {"alpha": 1.0},
@@ -1103,6 +1109,7 @@ def _write_planted_family(tmp_path: Path) -> tuple[Path, Path, dict]:
             "variant": i,
         }
         receipt = {
+            "kind": "trial",
             "commit": "abc",
             "dataset_hash": "hash123",
             "config_hash": config_hash_of(config),
@@ -1183,13 +1190,13 @@ def test_9_missing_manifest_raises(tmp_path: Path):
     empty_ds = tmp_path / "ds_missing"
     empty_ds.mkdir()
     with pytest.raises(ValueError, match="manifest"):
-        run_wf(cfg_file, empty_ds, tmp_path / "out9", panel=panel)
+        run_wf(cfg_file, empty_ds, tmp_path / "out9", commit=COMMIT, panel=panel)
 
     no_hash_ds = tmp_path / "ds_nohash"
     no_hash_ds.mkdir()
     (no_hash_ds / "manifest.json").write_text(json.dumps({"symbols": ["BTCUSDT"]}), encoding="utf-8")
     with pytest.raises(ValueError, match="datasetHash"):
-        run_wf(cfg_file, no_hash_ds, tmp_path / "out9", panel=panel)
+        run_wf(cfg_file, no_hash_ds, tmp_path / "out9", commit=COMMIT, panel=panel)
 
     runs = tmp_path / "runs9"
     runs.mkdir()
@@ -1239,6 +1246,189 @@ def test_10_samples_outside_d_removed_and_counted(tmp_path: Path):
     expected_outside = int((raw["t0"] < DEV_START).sum())
     assert expected_outside > 0
 
-    receipt = run_wf(cfg_file, ds_dir, tmp_path / "out10", panel=panel)
+    receipt = run_wf(cfg_file, ds_dir, tmp_path / "out10", commit=COMMIT, panel=panel)
     assert receipt["metrics"]["n_outside_d"] == expected_outside
     assert receipt["metrics"]["n_samples"] == len(raw) - expected_outside
+
+
+# ---------------------------------------------------------------------------
+# Brief 21: receipts, commit guard, item 3 guard, family_report controls and seeds
+# ---------------------------------------------------------------------------
+
+
+def _small_run(tmp_path: Path, name: str, **over):
+    panel = _make_fast_synthetic_panel(symbols=UNIVERSE[:6], n_days=130, seed=10, inject_signal=True)
+    ds_dir = _create_synthetic_dataset_dir(tmp_path / f"{name}_ds", panel)
+    cfg_file, cfg = _cfg_file(tmp_path, name, id=name, **over)
+    return panel, ds_dir, cfg_file, cfg
+
+
+def test_run_wf_daily_has_cost_columns(tmp_path: Path):
+    """daily.parquet carries the cost columns, the receipt the gross paths and the folds their exposure."""
+    panel, ds_dir, cfg_file, _ = _small_run(tmp_path, "cols")
+    receipt = run_wf(cfg_file, ds_dir, tmp_path / "out", commit=COMMIT, panel=panel)
+    run_dir = tmp_path / "out" / "cols"
+
+    daily = pd.read_parquet(run_dir / "daily.parquet")
+    for col in ("drift_free", "bet", "gross_hedged", "costs", "fees", "slippage", "funding"):
+        assert col in daily.columns, col
+    assert daily["bet"].any() and not daily["bet"].all()
+    idle = daily.loc[~daily["bet"]]
+    assert (idle[["drift_free", "gross_hedged", "costs", "fees", "slippage", "funding"]] == 0.0).all().all()
+    np.testing.assert_allclose(
+        daily["drift_free"], daily["gross_hedged"] - daily["costs"] + daily["funding"], rtol=1e-9, atol=1e-12
+    )
+    np.testing.assert_allclose(daily["costs"], daily["fees"] + daily["slippage"], rtol=1e-9, atol=1e-15)
+    assert (daily["costs"] >= 0.0).all() and daily["costs"].sum() > 0.0
+
+    m = receipt["metrics"]
+    assert len(m["cpcv_path_gross_means"]) == 5
+    assert all(np.isfinite(v) for v in m["cpcv_path_gross_means"])
+    # Gross paths add no costs, so they sit at or above the net paths (a path with no tranche has both at zero).
+    pairs = list(zip(m["cpcv_path_gross_means"], m["cpcv_path_means"], strict=True))
+    assert all(g >= n for g, n in pairs) and any(g > n for g, n in pairs)
+
+    folds = json.loads((run_dir / "folds.json").read_text(encoding="utf-8"))
+    assert receipt["kind"] == "trial"
+    run_tranches = pd.read_parquet(run_dir / "tranches.parquet")
+    traded = [f for f in folds if f["long_share"] is not None]
+    assert traded
+    for f in traded:
+        assert 0.0 <= f["long_share"] <= 1.0
+        assert -1.0 <= f["net_exposure"] <= 1.0
+    assert len(run_tranches) > 0
+
+
+def test_run_wf_requires_commit(tmp_path: Path, monkeypatch):
+    """No sha argument and no R4_COMMIT gives a ValueError, never the string 'unknown'. A non-hex sha is refused."""
+    from r4.cli import resolve_commit
+
+    panel, ds_dir, cfg_file, _ = _small_run(tmp_path, "nocommit")
+    monkeypatch.delenv("R4_COMMIT", raising=False)
+    with pytest.raises(ValueError, match="commit"):
+        run_wf(cfg_file, ds_dir, tmp_path / "out", panel=panel)
+    with pytest.raises(ValueError, match="commit"):
+        run_wf(cfg_file, ds_dir, tmp_path / "out", commit="not-a-sha", panel=panel)
+    assert not (tmp_path / "out").exists()
+
+    monkeypatch.setenv("R4_COMMIT", "0123abcd")
+    assert resolve_commit(None) == "0123abcd"
+    assert resolve_commit("ABCDEF1") == "ABCDEF1"
+    for bad in ("abc12", "g" * 7, "a" * 41, "unknown", ""):
+        monkeypatch.setenv("R4_COMMIT", bad)
+        with pytest.raises(ValueError, match="commit"):
+            resolve_commit(None)
+
+
+@pytest.mark.parametrize("kind", [None, "bogus", "Trial", 3])
+def test_receipt_kind_required(tmp_path: Path, kind):
+    """The config key kind must be trial, control or retest, else run_wf raises before any work."""
+    panel, ds_dir, _, cfg = _small_run(tmp_path, "kind")
+    cfg = {k: v for k, v in cfg.items() if k != "kind"}
+    if kind is not None:
+        cfg["kind"] = kind
+    path = tmp_path / "kind_cfg.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    with pytest.raises(ValueError, match="kind"):
+        run_wf(path, ds_dir, tmp_path / "out", commit=COMMIT, panel=panel)
+
+
+def test_item3_raises_below_two_configs():
+    """Fewer than two unique configs (dict path) or finite values (sequence path) cannot give a variance."""
+    receipt = {"metrics": {"wf_sharpe": 0.5, "n_days": 120}}
+    days = [i * DAY for i in range(120)]
+
+    def frame(h: str) -> pd.DataFrame:
+        df = pd.DataFrame({"drift_free": np.linspace(-0.001, 0.003, 120)}, index=pd.Index(days, name="day_start"))
+        df.attrs["config_hash"] = h
+        return df
+
+    with pytest.raises(ValueError, match="at least 2"):
+        item3(receipt, {"r1": frame("h"), "r2": frame("h")}, ledger_count=120)
+    with pytest.raises(ValueError, match="at least 2"):
+        item3(receipt, {}, ledger_count=120)
+    with pytest.raises(ValueError, match="at least 2"):
+        item3(receipt, [0.1], ledger_count=120)
+    with pytest.raises(ValueError, match="at least 2"):
+        item3(receipt, [0.1, float("nan")], ledger_count=120)
+    ok = item3(receipt, {"r1": frame("h1"), "r2": frame("h2")}, ledger_count=120)
+    assert ok["n_unique_configs"] == 2
+
+
+def _set_kind(runs_dir: Path, kinds: dict[str, str]) -> None:
+    for run_id, kind in kinds.items():
+        path = runs_dir / run_id / "receipt.json"
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        rec["kind"] = kind
+        path.write_text(json.dumps(rec), encoding="utf-8")
+
+
+def test_family_report_refuses_controls_in_round_variance(tmp_path: Path):
+    """A control receipt in the round directory raises: controls are excluded from the round-close variance."""
+    ds_dir, runs_dir, panel = _write_planted_family(tmp_path)
+    round_dir = tmp_path / "round"
+    for run_id in ("cfg_0", "cfg_1"):
+        (round_dir / run_id).mkdir(parents=True)
+        for name in ("receipt.json", "daily.parquet"):
+            (round_dir / run_id / name).write_bytes((runs_dir / run_id / name).read_bytes())
+    _set_kind(round_dir, {"cfg_1": "control"})
+    with pytest.raises(ValueError, match="controls are excluded from the round-close variance"):
+        family_report("A", runs_dir, round_dir, 120, ds_dir, panel=panel)
+
+
+def test_family_report_calibration_mode(tmp_path: Path):
+    """calibration=True accepts only control receipts. calibration=False (default) never sees them."""
+    ds_dir, runs_dir, panel = _write_planted_family(tmp_path)
+    with pytest.raises(ValueError, match="control"):
+        family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, calibration=True)  # trial receipts
+    _set_kind(runs_dir, {"cfg_0": "control", "cfg_1": "control"})
+    rep = family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, calibration=True)
+    assert rep["n_configurations"] == 2 and rep["calibration"] is True
+    with pytest.raises(ValueError, match="controls are excluded"):
+        family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel)
+
+
+def test_joint_shift_seeds_per_config(tmp_path: Path, monkeypatch):
+    """Each config's joint-shift seed is seed_base + its index in sorted run ids, and the report records it."""
+    import r4.bar as bar
+
+    ds_dir, runs_dir, panel = _write_planted_family(tmp_path)
+    seen: list[int] = []
+    original = bar.joint_shift_null
+
+    def recording(*args, **kwargs):
+        seen.append(kwargs["seed"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(bar, "joint_shift_null", recording)
+    rep = family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel)
+    assert seen == [5_000_000, 5_000_001]
+    assert [rep["configurations"][c]["joint_shift_seed"] for c in ("cfg_0", "cfg_1")] == seen
+    assert rep["seed_base"] == 5_000_000
+
+    seen.clear()
+    rep2 = family_report("A", runs_dir, runs_dir, 120, ds_dir, panel=panel, seed_base=42)
+    assert seen == [42, 43]
+    assert rep2["configurations"]["cfg_1"]["joint_shift_seed"] == 43
+
+
+def test_joint_shift_observed_uses_fill_prices():
+    """The observed tranche takes its own exit price (stop at an off-grid time, hedge to the next 5m boundary)."""
+    start = 1672531200000
+    n_days = 100
+    panel = _pulse_panel(start, n_days, [])
+    entry_ms = start + 10 * DAY + 6 * 3_600_000
+    exit_ms = entry_ms + 3_600_000 + 120_000  # off the 5m grid
+    entry_price = _price(panel, "BTCUSDT", entry_ms)
+    exit_price = entry_price * 0.98
+    tr = [
+        Tranche("BTCUSDT", 1, entry_ms, exit_ms, entry_price, exit_price, "1h", 14_400_000, exit_reason="stop"),
+    ]
+    _p, _drop, obs, _ = joint_shift_null(
+        tr, panel, _one_fold(start, n_days), start, start + n_days * DAY, n_draws=10, seed=3
+    )
+    hedge_end = -(-exit_ms // 300_000) * 300_000
+    r_ew = np.mean([np.log(_price(panel, s, hedge_end) / _price(panel, s, entry_ms)) for s in UNIVERSE[:6]])
+    fees = resolve_fee_profile("standard", "BTCUSDT")
+    costs = 2 * fees.taker_fee + 2 * STUDY_SLIPPAGE_BPS["1h"] / 10000.0
+    assert obs == pytest.approx(np.log(exit_price / entry_price) - 1.0 * r_ew - costs, rel=1e-9, abs=1e-12)

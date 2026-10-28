@@ -693,3 +693,39 @@ def test_decision_sample_copies_share_market_frames_only():
         copied.loc[0, "gross_log"] = 456.0
         assert samples.loc[0, "ret_1"] == original_value
         assert samples.loc[0, "gross_log"] == original_output
+
+
+def test_lightgbm_deterministic_repeatable():
+    """Two fits on the same data give identical predictions, and the model is built deterministic and seeded."""
+    from r4.pipeline import _make_model
+
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=(600, 5))
+    y = ((x[:, 0] + 0.5 * rng.normal(size=600)) > 0).astype(int)
+    cfg = RunConfig(
+        family="A",
+        model="lightgbm",
+        params={"n_estimators": 30, "num_leaves": 8, "subsample": 0.7, "subsample_freq": 1, "colsample_bytree": 0.6},
+        features=("f",),
+        interval="1h",
+        h_ms=14_400_000,
+        label="fixed",
+        side_rule="prob",
+        threshold=0.55,
+        size_rule="unit",
+        lookback_months=None,
+        refit="monthly",
+        exit="horizon",
+        seed=11,
+    )
+    model_1, model_2 = _make_model(cfg), _make_model(cfg)
+    assert model_1.get_params()["deterministic"] is True
+    assert model_1.get_params()["random_state"] == 11
+    model_1.fit(x, y)
+    model_2.fit(x, y)
+    np.testing.assert_array_equal(model_1.predict_proba(x), model_2.predict_proba(x))
+
+    explicit = RunConfig(**{**cfg.__dict__, "params": {**cfg.params, "deterministic": False, "random_state": 5}})
+    built = _make_model(explicit)
+    assert built.get_params()["deterministic"] is False
+    assert built.get_params()["random_state"] == 5

@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 # the family halts for a leakage review." Kept as an exact fraction so 60 of 100 never halts.
 _TRIPWIRE_HALT_SHARE = Fraction(3, 5)
 
+# family_report gives configuration i the joint-shift seed DEFAULT_JOINT_SHIFT_SEED_BASE + i (sorted run ids).
+DEFAULT_JOINT_SHIFT_SEED_BASE = 5_000_000
+
 
 def read_manifest(ds_dir: Path | str) -> dict[str, Any]:
     """Read the dataset manifest. It is required and must carry a datasetHash."""
@@ -176,10 +179,17 @@ def item3(
             arr = df[col].to_numpy(dtype=np.float64)
             unique_sharpes.append(per_period_sharpe(arr))
         n_unique_configs = len(unique_sharpes)
-        var_trial_sharpes = float(np.var(unique_sharpes, ddof=1)) if len(unique_sharpes) > 1 else 0.0
+        if n_unique_configs < 2:
+            raise ValueError(
+                f"Item 3 needs at least 2 unique configurations for the trial-Sharpe variance, got {n_unique_configs}"
+            )
+        var_trial_sharpes = float(np.var(unique_sharpes, ddof=1))
     else:
         arr_srs = np.asarray(round_daily, dtype=np.float64)
-        var_trial_sharpes = float(np.var(arr_srs, ddof=1)) if len(arr_srs) > 1 else 0.0
+        arr_finite = arr_srs[np.isfinite(arr_srs)]
+        if len(arr_finite) < 2:
+            raise ValueError(f"Item 3 needs at least 2 finite trial Sharpes for their variance, got {len(arr_finite)}")
+        var_trial_sharpes = float(np.var(arr_finite, ddof=1))
 
     if candidate_daily is not None and not candidate_daily.empty:
         col = "drift_free" if "drift_free" in candidate_daily.columns else candidate_daily.columns[0]
@@ -343,6 +353,14 @@ def joint_shift_null(
     w_abs = np.array([abs(t.weight) for t in tranche_list], dtype=np.float64)
     entry0 = np.array([t.entry_ms for t in tranche_list], dtype=np.int64)
     exit0 = np.array([t.exit_ms for t in tranche_list], dtype=np.int64)
+    # The observed tranche set uses the book's fill-price rule: a priced entry or exit takes the tranche's own
+    # price, and the basket hedge of a priced exit ends at the next 5m boundary. Shifted tranches keep horizon
+    # pricing (path-dependent exits get their own null later).
+    entry_priced = np.array([t.entry_priced for t in tranche_list], dtype=bool)
+    exit_priced = np.array([t.exit_priced for t in tranche_list], dtype=bool)
+    entry_px0 = np.array([t.entry_price for t in tranche_list], dtype=np.float64)
+    exit_px0 = np.array([t.exit_price for t in tranche_list], dtype=np.float64)
+    any_priced = bool(entry_priced.any() or exit_priced.any())
 
     costs = np.empty(n_tr, dtype=np.float64)
     fee_cache: dict[str, Any] = {}
@@ -363,10 +381,12 @@ def joint_shift_null(
     fold_starts, fold_ends, fold_betas = _fold_table(folds, basket)
     arange_tr = np.arange(n_tr)
 
-    def tranche_returns(entry: np.ndarray, exit_: np.ndarray) -> np.ndarray:
+    def tranche_returns(entry: np.ndarray, exit_: np.ndarray, observed: bool = False) -> np.ndarray:
         """Per tranche statistic, NaN where a price, the basket, a fold or a beta is missing."""
+        priced_out = observed and bool(exit_priced.any())
+        hedge_exit = np.where(exit_priced, -(-exit_ // 300_000) * 300_000, exit_) if priced_out else exit_
         pe = prices_at(entry)
-        px = prices_at(exit_)
+        px = prices_at(hedge_exit)
         ok = (pe > 0.0) & (px > 0.0)
         with np.errstate(all="ignore"):
             lr = np.where(ok, np.log(px / pe), np.nan)
@@ -375,6 +395,12 @@ def joint_shift_null(
         with np.errstate(all="ignore"):
             r_ew = np.where(cnt > 0, total / cnt, np.nan)
         r_coin = lr[sym_idx, arange_tr]
+        if observed and any_priced:
+            # Coin leg from the fill prices where priced, else from the exact 5m opens as before.
+            own_entry = np.where(entry_priced, entry_px0, pe[sym_idx, arange_tr])
+            own_exit = np.where(exit_priced, exit_px0, px[sym_idx, arange_tr])
+            with np.errstate(all="ignore"):
+                r_coin = np.where((own_entry > 0.0) & (own_exit > 0.0), np.log(own_exit / own_entry), np.nan)
 
         f_idx = np.searchsorted(fold_starts, entry, side="right") - 1
         f_idx_c = np.maximum(f_idx, 0)
@@ -400,7 +426,7 @@ def joint_shift_null(
             return float("inf")
         return float(np.sum(w_abs[keep] * ret[keep]) / np.sum(w_abs[keep]))
 
-    obs_ret = tranche_returns(entry0, exit0)
+    obs_ret = tranche_returns(entry0, exit0, observed=True)
     obs_keep = np.isfinite(obs_ret)
     if not np.any(obs_keep):
         return 1.0, 1.0, float("nan"), []
@@ -436,12 +462,15 @@ def item4(
     folds: Sequence[dict[str, Any]],
     end_ms: int = DEV_END,
     seed: int = 7,
+    joint_seed: int | None = None,
 ) -> dict[str, Any]:
     """Lock exploration bar item 4 (only for configurations passing items 1 to 3):
 
     - Joint-shift random-entry null: circular shifts of tranche set by whole days
     - Hansen SPA on the family's intersection matrix
     - Label-shift tripwire: run by Claude outside this function, reported here as 'pending'
+
+    seed drives the SPA bootstrap. joint_seed drives the joint-shift draws and defaults to seed.
     """
     config = receipt.get("config", {})
     if "first_refit_ms" not in config:
@@ -456,7 +485,7 @@ def item4(
         span_end_ms=end_ms,
         n_draws=int(BAR["random_entry_draws"]),
         min_shift_days=int(BAR["random_entry_shift_min_days"]),
-        seed=seed,
+        seed=seed if joint_seed is None else joint_seed,
     )
 
     mat_arr = (
@@ -478,6 +507,7 @@ def item4(
 
     return {
         "pass": passed,
+        "joint_shift_seed": int(seed if joint_seed is None else joint_seed),
         "joint_shift_p": float(p_joint),
         "joint_shift_drop_share": float(drop_share),
         "joint_shift_observed": float(obs_stat) if np.isfinite(obs_stat) else None,
@@ -602,8 +632,16 @@ def family_report(
     seed: int = 7,
     panel: dict[str, dict[str, pd.DataFrame]] | None = None,
     tripwire: dict[str, Any] | None = None,
+    calibration: bool = False,
+    seed_base: int = DEFAULT_JOINT_SHIFT_SEED_BASE,
 ) -> dict[str, Any]:
     """Evaluate exploration bar across all configurations in a family and write report.
+
+    calibration=False (default) is the trial path: a round receipt with kind "control" raises, because controls
+    are excluded from the round-close variance (M lines 116-117). calibration=True is the control path: only
+    receipts with kind "control" are accepted, in the family and in the round directory.
+    The joint-shift seed of each configuration is seed_base + its index in the sorted run ids (seed drives the
+    SPA bootstrap), and the seed used is recorded per configuration.
 
     Finalists are chosen only once the label-shift tripwire is known and does not halt the family.
     Without a tripwire input the all-pass configurations are listed as candidates and finalists stay empty.
@@ -637,6 +675,8 @@ def family_report(
             receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
             if receipt.get("config", {}).get("family") == family or family == "*":
                 run_id = p.name
+                if calibration and receipt.get("kind") != "control":
+                    raise ValueError(f"Calibration mode accepts only control receipts, but {receipt_file} is not one")
                 family_runs[run_id] = receipt
                 family_daily[run_id] = pd.read_parquet(daily_file)
                 if tranches_file.exists():
@@ -657,6 +697,14 @@ def family_report(
         dly = p / "daily.parquet"
         if rcpt.exists() and dly.exists():
             round_receipt = json.loads(rcpt.read_text(encoding="utf-8"))
+            if calibration:
+                if round_receipt.get("kind") != "control":
+                    raise ValueError(f"Calibration mode accepts only control receipts, but {rcpt} is not one")
+            elif round_receipt.get("kind") == "control":
+                raise ValueError(
+                    f"Round receipt {rcpt} is a control: controls are excluded from the round-close variance, "
+                    "M lines 116-117"
+                )
             cfg_hash = round_receipt.get("config_hash")
             if not cfg_hash:
                 raise ValueError(f"Round receipt {rcpt} has no config_hash")
@@ -676,6 +724,7 @@ def family_report(
     config_evals: dict[str, Any] = {}
     passing_configs: list[dict[str, Any]] = []
 
+    run_index = {run_id: i for i, run_id in enumerate(sorted(family_runs))}
     for run_id, receipt in family_runs.items():
         res1 = item1(receipt)
         c_daily = family_daily[run_id]
@@ -696,6 +745,7 @@ def family_report(
                 family_matrix=family_matrix,
                 folds=family_folds[run_id],
                 seed=seed,
+                joint_seed=seed_base + run_index[run_id],
             )
         else:
             res4 = {"pass": False, "skipped": True}
@@ -718,6 +768,7 @@ def family_report(
             "item4": res4,
             "item5": res5,
             "item6": res6,
+            "joint_shift_seed": seed_base + run_index[run_id] if passes_1_to_3 else None,
             "all_pass": all_pass,
         }
         config_evals[run_id] = cfg_eval
@@ -739,6 +790,8 @@ def family_report(
         "finalists": finalists,
         "tripwire": tripwire_status,
         "tripwire_input": tripwire_input,
+        "calibration": bool(calibration),
+        "seed_base": int(seed_base),
         "inputs_hashes": {
             "dataset_hash": dataset_hash,
             "receipts": input_receipt_shas,

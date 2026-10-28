@@ -8,6 +8,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -117,7 +118,7 @@ def cpcv_path_layout(
     return layout
 
 
-def cpcv_path_drift_free(
+def cpcv_path_daily(
     path: int,
     path_sides: np.ndarray,
     samples: pd.DataFrame,
@@ -130,11 +131,12 @@ def cpcv_path_drift_free(
     universe: Sequence[str],
     span_start_ms: int,
     span_end_ms: int,
-) -> tuple[pd.Series, int]:
-    """Drift-free daily series of one CPCV path, and how many tranches were excluded for a NaN beta.
+) -> tuple[pd.DataFrame, int]:
+    """Daily series of one CPCV path (drift_free and gross_hedged_funding), and the NaN-beta exclusion count.
 
     For each test group g of the path, the tranches come from the split that tested g in this path and are
     priced with THAT split's betas (estimated on its training set). No averaging, no fallback.
+    gross_hedged_funding is gross_hedged plus funding, with no costs.
     """
     frames: list[pd.DataFrame] = []
     for (p, _g), (s, j) in sorted(layout.items()):
@@ -150,11 +152,54 @@ def cpcv_path_drift_free(
 
     if frames:
         combined = pd.concat(frames).groupby("day_start").sum()
+        combined["gross_hedged_funding"] = combined["gross_hedged"] + combined["funding"]
     else:
-        combined = pd.DataFrame(columns=["drift_free", "excluded_tranches"])
+        combined = pd.DataFrame(columns=["drift_free", "excluded_tranches", "gross_hedged_funding"])
         combined.index.name = "day_start"
     excluded = int(combined["excluded_tranches"].sum()) if len(combined) else 0
-    daily = daily_series(combined, column="drift_free", span_start_ms=span_start_ms, span_end_ms=span_end_ms)
+    daily = pd.concat(
+        [
+            daily_series(combined, column="drift_free", span_start_ms=span_start_ms, span_end_ms=span_end_ms)[
+                "drift_free"
+            ],
+            daily_series(combined, column="gross_hedged_funding", span_start_ms=span_start_ms, span_end_ms=span_end_ms)[
+                "gross_hedged_funding"
+            ],
+        ],
+        axis=1,
+    )
+    return daily, excluded
+
+
+def cpcv_path_drift_free(
+    path: int,
+    path_sides: np.ndarray,
+    samples: pd.DataFrame,
+    test_groups_by_split: Sequence[Sequence[np.ndarray]],
+    layout: dict[tuple[int, int], tuple[int, int]],
+    split_betas: Sequence[dict[str, float]],
+    cfg: RunConfig,
+    five_min: dict[str, pd.DataFrame],
+    settlements: Any,
+    universe: Sequence[str],
+    span_start_ms: int,
+    span_end_ms: int,
+) -> tuple[pd.Series, int]:
+    """Drift-free daily series of one CPCV path, and how many tranches were excluded for a NaN beta."""
+    daily, excluded = cpcv_path_daily(
+        path,
+        path_sides,
+        samples,
+        test_groups_by_split,
+        layout,
+        split_betas,
+        cfg,
+        five_min,
+        settlements,
+        universe,
+        span_start_ms,
+        span_end_ms,
+    )
     return daily["drift_free"], excluded
 
 
@@ -253,12 +298,18 @@ def folds_to_json(folds: Sequence[FoldRecord]) -> list[dict[str, Any]]:
     """Fold spans and betas as written to folds.json (NaN betas become null)."""
     out: list[dict[str, Any]] = []
     for f in folds:
+        # Exposure of the fold's tranches. None (not zero) when the fold took no tranche.
+        n_tr = len(f.tranches)
+        long_share = float(sum(1 for t in f.tranches if t.side_val == 1) / n_tr) if n_tr else None
+        net_exposure = float(np.mean([t.weight for t in f.tranches])) if n_tr else None
         out.append(
             {
                 "start_ms": int(f.start_ms),
                 "end_ms": int(f.end_ms),
                 "train_cut_ms": None if f.train_cut_ms is None else int(f.train_cut_ms),
                 "betas": {k: (None if v is None or np.isnan(v) else float(v)) for k, v in f.betas.items()},
+                "long_share": long_share,
+                "net_exposure": net_exposure,
             }
         )
     return out
@@ -268,6 +319,18 @@ def config_hash_of(raw_config: dict[str, Any]) -> str:
     """sha256 hex of the config without its id, as canonical JSON."""
     body = {k: v for k, v in raw_config.items() if k != "id"}
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+_ALLOWED_KINDS = ("trial", "control", "retest")
+_SHA_RE = re.compile(r"[0-9a-fA-F]{7,40}")
+
+
+def resolve_commit(commit: str | None) -> str:
+    """The commit argument, else the R4_COMMIT env var, as a 7 to 40 character hex sha. Never 'unknown'."""
+    sha = commit if commit else os.environ.get("R4_COMMIT", "")
+    if not _SHA_RE.fullmatch(sha or ""):
+        raise ValueError("A commit sha (7 to 40 hex characters) is required: pass commit or set R4_COMMIT")
+    return sha
 
 
 def run_wf(
@@ -284,6 +347,10 @@ def run_wf(
     cfg_path = Path(config_file)
     raw_config = json.loads(cfg_path.read_text(encoding="utf-8"))
     run_id = str(raw_config["id"])
+    kind = raw_config.get("kind")
+    if not isinstance(kind, str) or kind not in _ALLOWED_KINDS:
+        raise ValueError(f"Config key kind must be one of {_ALLOWED_KINDS}, got {kind!r}")
+    commit_sha = resolve_commit(commit)
     if "first_refit_ms" not in raw_config:
         raise ValueError("Config has no first_refit_ms")
     first_refit_ms = int(raw_config["first_refit_ms"])
@@ -403,9 +470,10 @@ def run_wf(
         cpcv_span_end = max_d
 
     cpcv_path_means: list[float] = []
+    cpcv_path_gross_means: list[float] = []
     cpcv_excluded: list[int] = []
     for p in range(paths_predictions.shape[0]):
-        p_daily, p_excluded = cpcv_path_drift_free(
+        p_daily, p_excluded = cpcv_path_daily(
             p,
             paths_predictions[p],
             samples,
@@ -419,7 +487,8 @@ def run_wf(
             cpcv_span_start,
             cpcv_span_end,
         )
-        cpcv_path_means.append(float(p_daily.mean()))
+        cpcv_path_means.append(float(p_daily["drift_free"].mean()))
+        cpcv_path_gross_means.append(float(p_daily["gross_hedged_funding"].mean()))
         cpcv_excluded.append(p_excluded)
 
     # 5. Per-coin means and the drop-one-coin jackknife, from the fold tranches and fold betas
@@ -436,19 +505,17 @@ def run_wf(
             coin_means[sym] = float(coin_series.mean())
             jackknife_means[sym] = float((wf_drift_free - coin_series).mean())
 
-    # 6. Commit SHA
-    commit_sha = commit
-    if not commit_sha:
-        commit_sha = os.environ.get("R4_COMMIT", "unknown")
-
     runtime_s = round(time.perf_counter() - t_start, 3)
 
     # 7. Write outputs
     run_out_dir = Path(out_dir) / run_id
     run_out_dir.mkdir(parents=True, exist_ok=True)
 
-    daily_df = run_res.drift_free
+    daily_df = run_res.drift_free.copy()
     daily_df.index.name = "day_start"
+    combined_book = _sum_books([f.book for f in run_res.folds if len(f.book)])
+    for col in ("gross_hedged", "costs", "fees", "slippage", "funding"):
+        daily_df[col] = daily_series(combined_book, col, span_start_ms=first_refit_ms, span_end_ms=DEV_END)[col]
     daily_df.to_parquet(run_out_dir / "daily.parquet")
 
     if run_res.tranches:
@@ -467,6 +534,8 @@ def run_wf(
                 "size",
                 "entry_fill",
                 "exit_fill",
+                "exit_reason",
+                "entry_reason",
             ]
         )
     tranches_df.to_parquet(run_out_dir / "tranches.parquet", index=False)
@@ -474,6 +543,7 @@ def run_wf(
     (run_out_dir / "folds.json").write_text(json.dumps(folds_to_json(run_res.folds), indent=2), encoding="utf-8")
 
     receipt = {
+        "kind": kind,
         "commit": commit_sha,
         "dataset_hash": dataset_hash,
         "config_hash": config_hash_of(raw_config),
@@ -485,6 +555,7 @@ def run_wf(
             "n_days": n_days,
             "bet_days": bet_days,
             "cpcv_path_means": cpcv_path_means,
+            "cpcv_path_gross_means": cpcv_path_gross_means,
             "cpcv_excluded_tranches": cpcv_excluded,
             "coin_means": coin_means,
             "jackknife_means": jackknife_means,

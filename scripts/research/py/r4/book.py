@@ -22,6 +22,7 @@ from r4.costs import (
 )
 
 DAY_MS: int = 86_400_000
+FIVE_MIN_MS: int = 300_000
 INTERVAL_MS: dict[str, int] = {
     "1m": 60_000,
     "3m": 180_000,
@@ -62,6 +63,18 @@ class Tranche:
     size: float = 1.0
     entry_fill: str = "taker"
     exit_fill: str = "taker"
+    exit_reason: str = "horizon"
+    entry_reason: str = "open"
+
+    @property
+    def entry_priced(self) -> bool:
+        """True when the entry fills at its own entry_price rather than at the 5m open at entry_ms."""
+        return self.entry_reason != "open"
+
+    @property
+    def exit_priced(self) -> bool:
+        """True when the exit fills at its own exit_price (stop, take-profit, model close), not the horizon open."""
+        return self.exit_reason != "horizon"
 
     @property
     def side_val(self) -> int:
@@ -113,6 +126,12 @@ def _coerce_tranches(
                     if "entry_fill" in row and pd.notna(row["entry_fill"])
                     else "taker",
                     exit_fill=str(row["exit_fill"]) if "exit_fill" in row and pd.notna(row["exit_fill"]) else "taker",
+                    exit_reason=str(row["exit_reason"])
+                    if "exit_reason" in row and pd.notna(row["exit_reason"])
+                    else "horizon",
+                    entry_reason=str(row["entry_reason"])
+                    if "entry_reason" in row and pd.notna(row["entry_reason"])
+                    else "open",
                 )
             )
         return rows
@@ -135,6 +154,8 @@ def _coerce_tranches(
                     size=float(item.get("size", 1.0)),
                     entry_fill=str(item.get("entry_fill", "taker")),
                     exit_fill=str(item.get("exit_fill", "taker")),
+                    exit_reason=str(item.get("exit_reason", "horizon")),
+                    entry_reason=str(item.get("entry_reason", "open")),
                 )
             )
         else:
@@ -151,6 +172,8 @@ def _coerce_tranches(
                     size=float(getattr(item, "size", 1.0)),
                     entry_fill=str(getattr(item, "entry_fill", "taker")),
                     exit_fill=str(getattr(item, "exit_fill", "taker")),
+                    exit_reason=str(getattr(item, "exit_reason", "horizon")),
+                    entry_reason=str(getattr(item, "entry_reason", "open")),
                 )
             )
     return out
@@ -598,33 +621,48 @@ def beta_hedged_daily(
             start = max(t.entry_ms, d_start)
             end = min(t.exit_ms, d_end)
 
-            p_start = lookup.get_exact_open(t.symbol, start)
-            if p_start is None:
-                if start == t.entry_ms:
-                    p_start = t.entry_price
-                else:
-                    p_start, _ = lookup.get_open_or_carry(t.symbol, start)
+            if start == t.entry_ms and t.entry_priced:
+                p_start = t.entry_price
+            else:
+                p_start = lookup.get_exact_open(t.symbol, start)
+                if p_start is None:
+                    if start == t.entry_ms:
+                        p_start = t.entry_price
+                    else:
+                        p_start, _ = lookup.get_open_or_carry(t.symbol, start)
 
-            p_end = lookup.get_exact_open(t.symbol, end)
-            if p_end is None:
-                if end == t.exit_ms:
-                    p_end = t.exit_price
-                else:
-                    p_end, _ = lookup.get_open_or_carry(t.symbol, end)
+            # A priced exit closes the position at t = exit_ms, so the coin leg ends there, and the basket
+            # hedge runs to the next 5m boundary at or after t (grid instants only). The coin leg's part
+            # from t to that boundary is zero.
+            hedge_end = end
+            if end == t.exit_ms and t.exit_priced:
+                p_end = t.exit_price
+                hedge_end = -(-end // FIVE_MIN_MS) * FIVE_MIN_MS
+            else:
+                p_end = lookup.get_exact_open(t.symbol, end)
+                if p_end is None:
+                    if end == t.exit_ms:
+                        p_end = t.exit_price
+                    else:
+                        p_end, _ = lookup.get_open_or_carry(t.symbol, end)
 
             r_coin = float(np.log(p_end / p_start))
 
-            boundary = (start, end)
+            boundary = (start, hedge_end)
             if boundary not in ew_cache:
                 ew_returns: list[float] = []
                 for u_coin in universe:
                     u_p_start = lookup.get_exact_open(u_coin, start)
-                    u_p_end = lookup.get_exact_open(u_coin, end)
+                    u_p_end = lookup.get_exact_open(u_coin, hedge_end)
                     if u_p_start is not None and u_p_end is not None and u_p_start > 0 and u_p_end > 0:
                         ew_returns.append(float(np.log(u_p_end / u_p_start)))
                 n_present = len(ew_returns)
-                r_ew = float(np.mean(ew_returns)) if n_present > 0 else 0.0
-                ew_cache[boundary] = (r_ew, n_present)
+                if n_present == 0:
+                    raise ValueError(
+                        f"No basket coin has 5m opens at both ends of the interval [{start}, {hedge_end}] "
+                        f"for {t.symbol}, so r_EW is undefined"
+                    )
+                ew_cache[boundary] = (float(np.mean(ew_returns)), n_present)
             r_ew, n_present = ew_cache[boundary]
             ew_coins_counts.append(n_present)
 

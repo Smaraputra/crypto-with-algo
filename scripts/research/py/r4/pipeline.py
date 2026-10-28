@@ -342,6 +342,8 @@ def _make_model(cfg: RunConfig) -> Any:
         return LogisticRegression(**params)
     if cfg.model == "lightgbm":
         params.setdefault("random_state", cfg.seed)
+        params.setdefault("deterministic", True)
+        params.setdefault("force_row_wise", True)  # LightGBM pairs deterministic with a forced histogram layout
         params.setdefault("n_jobs", 2)
         params.setdefault("verbose", -1)
         return LGBMClassifier(**params)
