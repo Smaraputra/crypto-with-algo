@@ -56,6 +56,7 @@ from r4.pipeline import (
 )
 from r4.plant import PlantedPanel, apply_plant
 from r4.stats import per_period_sharpe
+from r4.tripwire import SHIFT_DAYS, label_shift_tripwire
 from r4.validation import cpcv_path_ids, cpcv_paths, panel_cpcv_splits
 
 logger = logging.getLogger(__name__)
@@ -617,6 +618,93 @@ def run_wf(
     return receipt
 
 
+def run_tripwire(
+    config_file: Path | str,
+    ds_dir: Path | str,
+    out_dir: Path | str,
+    cache_dir: Path | str | None = None,
+    commit: str | None = None,
+    panel: dict[str, dict[str, pd.DataFrame]] | None = None,
+    shifts_days: Sequence[int] = SHIFT_DAYS,
+) -> dict[str, Any]:
+    """Run the label-shift tripwire (lock M item 4) for one configuration.
+
+    Writes <out_dir>/<id>/tripwire.json (the family_report tripwire input, with "positive" and "n") and one
+    non-trial receipt (kind "tripwire") per shift under <out_dir>/<id>/tripwire/shift_<days>/. It adds no trial and
+    writes no receipt.json beside tripwire.json.
+    """
+    t_start = time.perf_counter()
+    raw_config = json.loads(Path(config_file).read_text(encoding="utf-8"))
+    run_id = str(raw_config["id"])
+    commit_sha = resolve_commit(commit)
+    if "first_refit_ms" not in raw_config:
+        raise ValueError("Config has no first_refit_ms")
+    first_refit_ms = int(raw_config["first_refit_ms"])
+    cfg = RunConfig(
+        family=raw_config["family"],
+        model=raw_config["model"],
+        params=raw_config.get("params", {}),
+        features=tuple(raw_config["features"]),
+        interval=raw_config["interval"],
+        h_ms=int(raw_config["h_ms"]),
+        label=raw_config.get("label", "fixed"),
+        side_rule=raw_config.get("side_rule", "sign" if raw_config["model"] == "ridge" else "prob"),
+        threshold=float(raw_config["threshold"]),
+        size_rule=raw_config.get("size_rule", "unit"),
+        lookback_months=raw_config.get("lookback_months"),
+        refit=raw_config.get("refit", "monthly"),
+        exit=parse_exit(raw_config.get("exit", "horizon")),
+        seed=int(raw_config.get("seed", 7)),
+        book=raw_config.get("book", "slot"),
+        noise_seed=raw_config.get("noise_seed"),
+        plant=raw_config.get("plant"),
+    )
+    ds_path = Path(ds_dir)
+    manifest = read_manifest(ds_path)
+    symbols_to_load = list(manifest["symbols"]) if manifest.get("symbols") else list(UNIVERSE)
+    if panel is None:
+        panel = load_panel(ds_path, symbols_to_load, cache_dir=cache_dir)
+    if cfg.plant is not None:
+        panel = apply_plant(panel, cfg.plant)
+    samples, _ = restrict_to_d(decision_samples(panel, cfg))
+
+    run_out = Path(out_dir) / run_id
+    config_hash = config_hash_of(raw_config)
+
+    def write_shift(entry: dict[str, Any], daily: pd.DataFrame | None) -> None:
+        shift_dir = run_out / "tripwire" / f"shift_{entry['shift_days']:03d}"
+        shift_dir.mkdir(parents=True, exist_ok=True)
+        if daily is not None:
+            daily.index.name = "day_start"
+            daily.to_parquet(shift_dir / "daily.parquet")
+        receipt = {
+            "kind": "tripwire",
+            "commit": commit_sha,
+            "dataset_hash": str(manifest["datasetHash"]),
+            "config_hash": config_hash,
+            "config": raw_config,
+            "shift_days": entry["shift_days"],
+            "metrics": {k: v for k, v in entry.items() if k != "shift_days"},
+        }
+        (shift_dir / "receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+
+    result = label_shift_tripwire(
+        samples, cfg, first_refit_ms, DEV_END, panel, shifts_days=shifts_days, on_run=write_shift
+    )
+    result = {
+        "kind": "tripwire",
+        "commit": commit_sha,
+        "dataset_hash": str(manifest["datasetHash"]),
+        "config_hash": config_hash,
+        "config_id": run_id,
+        **result,
+        "runtime_s": round(time.perf_counter() - t_start, 3),
+    }
+    run_out.mkdir(parents=True, exist_ok=True)
+    (run_out / "tripwire.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
 def feature_check(
     ds_dir: Path | str,
     symbol: str,
@@ -738,6 +826,16 @@ def main() -> None:
     fc_parser.add_argument("--symbol", required=True, help="Symbol name (e.g. BTCUSDT)")
     fc_parser.add_argument("--interval", required=True, choices=["1h", "4h"], help="Interval")
 
+    tw_parser = subparsers.add_parser("tripwire", help="Run the label-shift tripwire (lock M item 4)")
+    tw_parser.add_argument("--config", required=True, help="Path to config JSON file")
+    tw_parser.add_argument("--ds", required=True, help="Dataset directory")
+    tw_parser.add_argument("--out", required=True, help="Output directory (never a round directory)")
+    tw_parser.add_argument("--cache", required=False, default=None, help="Cache directory")
+    tw_parser.add_argument("--commit", required=False, default=None, help="Commit SHA")
+    tw_parser.add_argument(
+        "--shifts", required=False, type=int, default=len(SHIFT_DAYS), help="First N of the 100 locked shifts"
+    )
+
     acct_parser = subparsers.add_parser("account", help="Write the $100-account report (report only)")
     acct_parser.add_argument("--run", required=True, help="Run directory holding tranches.parquet")
     acct_parser.add_argument("--ds", required=True, help="Dataset directory")
@@ -768,6 +866,18 @@ def main() -> None:
             tripwire=tripwire_input,
         )
         print(f"Family report written to {args.out}")
+    elif args.command == "tripwire":
+        if not 1 <= args.shifts <= len(SHIFT_DAYS):
+            raise SystemExit(f"--shifts must be between 1 and {len(SHIFT_DAYS)}")
+        tw_result = run_tripwire(
+            config_file=args.config,
+            ds_dir=args.ds,
+            out_dir=args.out,
+            cache_dir=args.cache,
+            commit=args.commit,
+            shifts_days=SHIFT_DAYS[: args.shifts],
+        )
+        print(f"Tripwire written: {tw_result['positive']} of {tw_result['n']} positive, halt={tw_result['halt']}")
     elif args.command == "account":
         from r4.account import account_report
 

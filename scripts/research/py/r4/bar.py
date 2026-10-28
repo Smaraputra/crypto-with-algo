@@ -699,6 +699,8 @@ def family_report(
             receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
             if receipt.get("config", {}).get("family") == family or family == "*":
                 run_id = p.name
+                if receipt.get("kind") == "tripwire":
+                    raise ValueError(f"Tripwire receipt {receipt_file} is not a trial: it never enters a family")
                 if calibration and receipt.get("kind") != "control":
                     raise ValueError(f"Calibration mode accepts only control receipts, but {receipt_file} is not one")
                 if calibration and receipt.get("config", {}).get("joint_shift_seed") is None:
@@ -725,6 +727,8 @@ def family_report(
         dly = p / "daily.parquet"
         if rcpt.exists() and dly.exists():
             round_receipt = json.loads(rcpt.read_text(encoding="utf-8"))
+            if round_receipt.get("kind") == "tripwire":
+                raise ValueError(f"Round receipt {rcpt} is a tripwire receipt: tripwire runs add no trials")
             if calibration:
                 if round_receipt.get("kind") != "control":
                     raise ValueError(f"Calibration mode accepts only control receipts, but {rcpt} is not one")
