@@ -45,7 +45,8 @@ HOUR = 3_600_000
 H4 = 4 * HOUR
 FEATURES = ("taker_imb_last15", "ret_15m_last")
 SPEC_E4 = {"rule": "E4", "margin_se": 1.0}
-SPEC_E5 = {"rule": "E5", "p_close": 0.4}
+SPEC_E5 = {"rule": "E5", "p_close": 0.35, "confirm_bars": 3}
+SPEC_E5_SINGLE = {"rule": "E5", "p_close": 0.4, "confirm_bars": 1}
 
 
 def _panel(n_coins: int, days: int, seed: int, vol: float = 0.015) -> dict[str, dict[str, pd.DataFrame]]:
@@ -61,16 +62,23 @@ def _panel(n_coins: int, days: int, seed: int, vol: float = 0.015) -> dict[str, 
 
 def test_parse_e4_e5_specs() -> None:
     assert parse_exit(SPEC_E4) == ExitSpec(rule="E4", margin_se=1.0)
-    assert parse_exit(SPEC_E5) == ExitSpec(rule="E5", p_close=0.4)
+    assert parse_exit(SPEC_E5) == ExitSpec(rule="E5", p_close=0.35, confirm_bars=3)
+    assert parse_exit(parse_exit(SPEC_E5)) == parse_exit(SPEC_E5)
     assert parse_exit(parse_exit(SPEC_E4)) == parse_exit(SPEC_E4)
     for bad in (
         {"rule": "E4"},
         {"rule": "E4", "margin_se": 0},
         {"rule": "E4", "margin_se": float("nan")},
         {"rule": "E4", "margin_se": 1.0, "p_close": 0.4},
-        {"rule": "E5", "p_close": 1.0},
-        {"rule": "E5", "p_close": 0.0},
-        {"rule": "E5", "margin_se": 1.0},
+        {"rule": "E5", "p_close": 1.0, "confirm_bars": 3},
+        {"rule": "E5", "p_close": 0.0, "confirm_bars": 3},
+        {"rule": "E5", "margin_se": 1.0, "confirm_bars": 3},
+        {"rule": "E5", "p_close": 0.4},  # confirm_bars is required
+        {"rule": "E5", "confirm_bars": 3},
+        {"rule": "E5", "p_close": 0.4, "confirm_bars": 0},
+        {"rule": "E5", "p_close": 0.4, "confirm_bars": 2.5},
+        {"rule": "E5", "p_close": 0.4, "confirm_bars": True},
+        {"rule": "E4", "margin_se": 1.0, "confirm_bars": 3},
     ):
         with pytest.raises(ValueError):
             parse_exit(bad)
@@ -358,12 +366,79 @@ def test_e4_margin_rule() -> None:
 def test_e5_threshold_rule() -> None:
     bars = {"X": _flat_bars()}
     ent = _entry_frame(["X"])
-    out = _replay_both(ent, bars, SPEC_E5, _StubInputs(_step_fn(B0 + 30 * 60_000, 0.6, 0.399)))
+    out = _replay_both(ent, bars, SPEC_E5_SINGLE, _StubInputs(_step_fn(B0 + 30 * 60_000, 0.6, 0.399)))
     assert out["exit_reason"][0] == "model_exit" and out["exit_ms"][0] == B0 + 40 * 60_000
-    held = _replay_both(ent, bars, SPEC_E5, _StubInputs(_step_fn(B0 + 30 * 60_000, 0.6, 0.4)))
+    held = _replay_both(ent, bars, SPEC_E5_SINGLE, _StubInputs(_step_fn(B0 + 30 * 60_000, 0.6, 0.4)))
     assert held["exit_reason"][0] == "horizon"  # P exactly 0.4 does not close
-    other = _replay_both(ent, bars, {"rule": "E5", "p_close": 0.3}, _StubInputs(_step_fn(0, 0.35, 0.35)))
+    other = _replay_both(
+        ent, bars, {"rule": "E5", "p_close": 0.3, "confirm_bars": 1}, _StubInputs(_step_fn(0, 0.35, 0.35))
+    )
     assert other["exit_reason"][0] == "horizon"
+
+
+class _ElapsedPair:
+    """P(y > 0) is low exactly at the checks whose k = elapsed x 12 is in `lows` (entry_i 3, length 12)."""
+
+    se = 0.01
+
+    def __init__(self, lows: set[int]):
+        self.lows = lows
+
+    def forecast(self, market: np.ndarray, state: np.ndarray) -> np.ndarray:
+        return market[:, 0].copy()
+
+    def prob_up(self, market: np.ndarray, state: np.ndarray) -> np.ndarray:
+        k = np.rint(state[:, 1] * 12).astype(int)
+        return np.where(np.isin(k, list(self.lows)), 0.1, 0.9)
+
+
+class _ElapsedInputs:
+    def __init__(self, lows: set[int]):
+        self.pair = _ElapsedPair(lows)
+
+    def market(self, symbol: str, tau_f: np.ndarray) -> np.ndarray:
+        return np.ones((len(tau_f), 1))
+
+
+def test_e5_requires_consecutive_confirmation() -> None:
+    bars = {"X": _flat_bars()}
+    ent = _entry_frame(["X"], entry_i=3)  # entry B0 + 15m, S = B0 + 75m; check k is at tau = entry + 5m x k
+    o = bars["X"]["o"].to_numpy()
+    spec = SPEC_E5  # P < 0.35 at 3 consecutive 5m closes
+    two = _replay_both(ent, bars, spec, _ElapsedInputs({3, 4}))
+    assert two["exit_reason"][0] == "horizon"
+    # 3 consecutive lows at k = 3, 4, 5: confirmed at the third close tau = B0 + 15m + 25m, the fill is at tau + 10m
+    three = _replay_both(ent, bars, spec, _ElapsedInputs({3, 4, 5}))
+    assert three["exit_reason"][0] == "model_exit" and three["exit_fill"][0] == "taker"
+    assert three["exit_ms"][0] == B0 + 50 * 60_000
+    assert three["exit_price"][0] == o[10]
+    # lows broken by a high are not consecutive: 3, 4, 6, 7 never reaches three in a row
+    broken = _replay_both(ent, bars, spec, _ElapsedInputs({3, 4, 6, 7}))
+    assert broken["exit_reason"][0] == "horizon"
+    # a longer run closes at the third bar of the run, not the first
+    run = _replay_both(ent, bars, spec, _ElapsedInputs({2, 3, 4, 5, 6}))
+    assert run["exit_ms"][0] == B0 + 45 * 60_000
+    # a run whose third bar is not scored (tau + 10m > S) never closes: k = 9, 10, 11
+    late = _replay_both(ent, bars, spec, _ElapsedInputs({9, 10, 11}))
+    assert late["exit_reason"][0] == "horizon"
+    # confirm_bars 1 is the old single-bar rule
+    one = _replay_both(ent, bars, {"rule": "E5", "p_close": 0.35, "confirm_bars": 1}, _ElapsedInputs({4}))
+    assert one["exit_reason"][0] == "model_exit" and one["exit_ms"][0] == B0 + 45 * 60_000
+
+
+def test_e5_missing_feature_resets_count() -> None:
+    bars = {"X": _flat_bars()}
+    ent = _entry_frame(["X"], entry_i=3)
+    always_low = lambda sym, tf: np.full(len(tf), 0.1)  # noqa: E731
+    clean = _replay_both(ent, bars, SPEC_E5, _StubInputs(always_low))
+    assert clean["exit_reason"][0] == "model_exit" and clean["exit_ms"][0] == B0 + 40 * 60_000  # k = 3
+    assert not clean["missing_model"][0]
+    # tau_f = B0 + 30m covers the checks k = 3, 4, 5: the run (k = 1, 2) is reset, the run restarts at k = 6 and is
+    # confirmed at k = 8 (tau = B0 + 55m), filled at tau + 10m
+    gap = lambda sym, tf: np.where(tf == B0 + 30 * 60_000, np.nan, 0.1)  # noqa: E731
+    out = _replay_both(ent, bars, SPEC_E5, _StubInputs(gap))
+    assert out["exit_reason"][0] == "model_exit" and out["exit_ms"][0] == B0 + 65 * 60_000
+    assert out["missing_model"][0]
 
 
 def test_missing_feature_holds_and_counts() -> None:
@@ -430,7 +505,7 @@ class _NonlinearInputs:
         return v[:, None]
 
 
-def test_step_equals_replay_e4_e5() -> None:
+def _random_world() -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
     rng = np.random.default_rng(9)
     n = 3 * 288
     bars = {}
@@ -463,12 +538,30 @@ def test_step_equals_replay_e4_e5() -> None:
             "entry_price": [float(bars[r[0]]["o"].iloc[r[2]]) for r in rows],
         }
     )
+    return bars, ent
+
+
+def test_step_equals_replay_e4_e5() -> None:
+    bars, ent = _random_world()
     for spec in (SPEC_E4, SPEC_E5):
         out = _replay_both(ent, bars, spec, _NonlinearInputs())
         reasons = out["exit_reason"].value_counts()
         assert reasons.get("model_exit", 0) >= 10 and reasons.get("horizon", 0) >= 10, reasons.to_dict()
         assert out["missing_model"].any()
         assert (out.loc[out["exit_reason"] == "model_exit", "exit_fill"] == "taker").all()
+
+
+def test_step_equals_replay_e5_confirm() -> None:
+    bars, ent = _random_world()
+    closes = {}
+    for confirm in (1, 2, 3, 6):
+        spec = {"rule": "E5", "p_close": 0.35, "confirm_bars": confirm}
+        out = _replay_both(ent, bars, spec, _NonlinearInputs())  # step() and replay_exits() equal tranche for tranche
+        closes[confirm] = int((out["exit_reason"] == "model_exit").sum())
+        assert out["missing_model"].any()
+    # a longer confirmation can only remove closes, and the loose settings still close some tranches
+    assert closes[1] >= closes[2] >= closes[3] >= closes[6]
+    assert closes[1] > closes[3] > 0, closes
 
 
 # ---------------------------------------------------------------------------
@@ -581,20 +674,7 @@ def _classify(
     return planted, unplanted, drop_start
 
 
-@pytest.mark.parametrize(
-    "rule",
-    [
-        "e4",
-        pytest.param(
-            "e5",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="E5 at p_close 0.4 breaches the registered 20% false-close bound (0.531 measured); "
-                "brief 25e changes the E5 rule",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("rule", ["e4", "e5"])
 def test_e4_closes_on_planted_reversal(planted: dict[str, Any], rule: str) -> None:
     ent, res, e1 = planted["ent"], planted[rule], planted["e1"]
     pl, un, drop_start = _classify(ent, planted["events"])
@@ -759,3 +839,109 @@ def test_e4_e5_scale() -> None:
     assert peak_gb < 2.0
     assert stats["n_train_samples"] >= 100_000
     assert stats["n_entries"] > 50_000  # 10 coins x ~420 days of hourly entries, replayed under both rules
+
+
+# ---------------------------------------------------------------------------
+# CPCV: one exit-model pair per split, fitted on that split's own training instants
+# ---------------------------------------------------------------------------
+
+
+def test_cpcv_e4_uses_split_models(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from r4.cli import restrict_to_d, run_wf
+    from r4.exits import ExitContext as Ctx
+    from r4.method import CPCV_EMBARGO_MS, CPCV_GROUPS, CPCV_TEST_GROUPS
+    from r4.validation import panel_cpcv_splits
+
+    panel = _panel(4, 170, seed=71)
+    ds = tmp_path / "ds"
+    ds.mkdir()
+    (ds / "manifest.json").write_text(
+        json.dumps({"version": 1, "datasetHash": "synthetic71", "symbols": list(panel), "files": []}),
+        encoding="utf-8",
+    )
+    raw = {
+        "id": "cpcv_e4",
+        "kind": "trial",
+        "family": "A",
+        "model": "ridge",
+        "params": {"alpha": 1.0},
+        "features": list(FEATURES),
+        "interval": "1h",
+        "h_ms": H4,
+        "label": "fixed",
+        "side_rule": "sign",
+        "threshold": 0.0,
+        "size_rule": "unit",
+        "lookback_months": None,
+        "refit": "monthly",
+        "exit": SPEC_E4,
+        "first_refit_ms": B0 + 60 * DAY,
+        "seed": 7,
+    }
+    cfg_file = tmp_path / "cfg.json"
+    cfg_file.write_text(json.dumps(raw), encoding="utf-8")
+
+    events: list[tuple[str, Any, Any]] = []
+    real_fit = ExitModelFactory.fit
+    real_set = Ctx.set_models
+
+    def spy_fit(self: ExitModelFactory, t_start: Any, cut_ms: int, select: Any = None) -> Any:
+        out = real_fit(self, t_start, cut_ms, select)
+        events.append(("fit", select, out))
+        return out
+
+    def spy_set(self: Ctx, models: Any) -> None:
+        events.append(("set", None, models))
+        real_set(self, models)
+
+    monkeypatch.setattr(ExitModelFactory, "fit", spy_fit)
+    monkeypatch.setattr(Ctx, "set_models", spy_set)
+    receipt = run_wf(cfg_file, ds, tmp_path / "out", commit="abc1234", panel=panel)
+
+    # the expected splits, rebuilt independently from the same samples
+    cfg = RunConfig(
+        family="A",
+        model="ridge",
+        params={"alpha": 1.0},
+        features=FEATURES,
+        interval="1h",
+        h_ms=H4,
+        label="fixed",
+        side_rule="sign",
+        threshold=0.0,
+        size_rule="unit",
+        lookback_months=None,
+        refit="monthly",
+        exit=parse_exit(SPEC_E4),
+        seed=7,
+    )
+    samples, _ = restrict_to_d(decision_samples(panel, cfg))
+    splits = list(
+        panel_cpcv_splits(
+            samples["t0"].to_numpy(dtype=np.int64),
+            samples["t1_max"].to_numpy(dtype=np.int64),
+            n_groups=CPCV_GROUPS,
+            n_test_groups=CPCV_TEST_GROUPS,
+            embargo_ms=CPCV_EMBARGO_MS,
+        )
+    )
+    cpcv_fits = [e for e in events if e[0] == "fit" and e[1] is not None]
+    assert len(cpcv_fits) == len(splits) == 15  # one fit per split, in split order
+    probe = np.unique(samples["T"].to_numpy(dtype=np.int64))
+    probe_s = probe + ENTRY_DELAY_MS + H4
+    for (_, select, _out), (train_idx, test_list) in zip(cpcv_fits, splits, strict=True):
+        train_t = samples.iloc[train_idx]["T"].to_numpy(dtype=np.int64)
+        got = np.asarray(select(probe, probe_s), dtype=bool)
+        np.testing.assert_array_equal(got, np.isin(probe, train_t))
+        test_t = samples.iloc[np.concatenate(test_list)]["T"].to_numpy(dtype=np.int64)
+        assert not got[np.isin(probe, test_t)].any()  # a test instant is never trained on
+    # every CPCV replay used one of the split pairs (or the counted E1 fallback), and every pair was used
+    first = events.index(cpcv_fits[0])
+    split_models = [e[2] for e in cpcv_fits]
+    used = [e[2] for e in events[first:] if e[0] == "set"]
+    assert used and all(u is None or any(u is m for m in split_models) for u in used)
+    assert all(m is None or any(m is u for u in used) for m in split_models)
+    fallback = sum(m is None for m in split_models)
+    assert receipt["metrics"]["cpcv_exit_model_fallback_splits"] == fallback
+    assert len(receipt["metrics"]["cpcv_path_means"]) == 5  # item 1's CPCV paths all completed
+    assert fallback < len(splits)

@@ -20,13 +20,16 @@ Rules (calibration spec section 2, as amended by N3, N6 and N10.6):
   is scaled by the interval. The SD is the sample SD (ddof 1). A missing close bar is filled by the first bar at or
   after tau + 10 min. Missing flow or funding inputs mean no trigger at that tau and flag the tranche.
 
-- E4 {"rule": "E4", "margin_se"} and E5 {"rule": "E5", "p_close"}: model exits (brief 25c, calibration spec section 2 as
-  amended by N3 and N4). At every 5m close tau inside the hold (tau in (entry, S - 10 min]) a fitted model pair scores
+- E4 {"rule": "E4", "margin_se"} and E5 {"rule": "E5", "p_close", "confirm_bars"}: model exits (brief 25c, calibration
+  spec section 2 as amended by N3 and N4). At every 5m close tau inside the hold (tau in (entry, S - 10 min]) a fitted
+  model pair scores
   the position from the market features at tau_f = floor(tau to the 15m grid) and the position state (side, elapsed
   share, running P&L, MFE and MAE so far, all from the 5m bars closed at tau). E4 closes when the ridge forecast is
-  below -margin_se x its training residual SE, E5 when the logistic P(y > 0) is below p_close. The first triggering tau
-  schedules a taker close at the 5m open at tau + 10 min, reason "model_exit", stamped there (at tau + 10 min >= S it
-  is the horizon exit). A missing market feature at tau means hold and flags the tranche (missing_model). MFE starts
+  below -margin_se x its training residual SE. E5 closes when the logistic P(y > 0) is below p_close at confirm_bars
+  CONSECUTIVE 5m closes (brief 25e: a single check crosses a noisy classifier's threshold on most holds). A missing
+  feature at a check resets the run. The first triggering tau (the last confirming close for E5) schedules a taker
+  close at the 5m open at tau + 10 min, reason "model_exit", stamped there (at tau + 10 min >= S it is the horizon
+  exit). A missing market feature at tau means hold and flags the tranche (missing_model). MFE starts
   at 0 and MAE at 0 (the entry price itself counts as a point of the path).
 
 Every intrabar fill is stamped at the close of the touching bar (bar.t + 5m), which is on the 5m grid. The scheduled
@@ -87,6 +90,7 @@ class ExitSpec:
     funding_threshold: float | None = None
     margin_se: float | None = None
     p_close: float | None = None
+    confirm_bars: int | None = None
 
 
 _E6_KEYS = {"rule", "flow_bars", "flow_lookback_days", "flow_z", "funding_threshold"}
@@ -114,13 +118,19 @@ def _parse_e6(raw: dict[str, Any]) -> ExitSpec:
 def _parse_model_exit(raw: dict[str, Any]) -> ExitSpec:
     rule = raw["rule"]
     key = "margin_se" if rule == "E4" else "p_close"
-    if set(raw) != {"rule", key}:
-        raise ValueError(f"exit {rule} takes exactly the keys rule and {key}, got {sorted(raw)}")
+    keys = {"rule", key} | ({"confirm_bars"} if rule == "E5" else set())
+    if set(raw) != keys:
+        raise ValueError(f"exit {rule} takes exactly the keys {sorted(keys)}, got {sorted(raw)}")
     x = raw[key]
     if not _num(x) or x <= 0 or (rule == "E5" and x >= 1):
         bound = "a finite margin_se > 0" if rule == "E4" else "a p_close strictly between 0 and 1"
         raise ValueError(f"exit {rule} needs {bound}, got {x!r}")
-    return ExitSpec(rule=rule, margin_se=float(x)) if rule == "E4" else ExitSpec(rule=rule, p_close=float(x))
+    if rule == "E4":
+        return ExitSpec(rule=rule, margin_se=float(x))
+    n = raw["confirm_bars"]
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        raise ValueError(f"exit E5 needs an integer confirm_bars >= 1, got {n!r}")
+    return ExitSpec(rule=rule, p_close=float(x), confirm_bars=n)
 
 
 def parse_exit(raw: Any) -> ExitSpec:
@@ -161,7 +171,7 @@ def _spec_to_raw(spec: ExitSpec) -> Any:
     if spec.rule == "E4":
         return {"rule": "E4", "margin_se": spec.margin_se}
     if spec.rule == "E5":
-        return {"rule": "E5", "p_close": spec.p_close}
+        return {"rule": "E5", "p_close": spec.p_close, "confirm_bars": spec.confirm_bars}
     if spec.rule == "E6":
         return {
             "rule": "E6",
@@ -291,6 +301,8 @@ class ExitState:
     mae: float = 0.0
     margin_se: float = math.nan
     p_close: float = math.nan
+    confirm_bars: int = 1
+    run: int = 0  # E5: consecutive confirming checks so far
     missing_model: bool = False
 
 
@@ -332,6 +344,7 @@ def init_state(
             entry_ms=int(entry_ms),
             margin_se=math.nan if spec.margin_se is None else spec.margin_se,
             p_close=math.nan if spec.p_close is None else spec.p_close,
+            confirm_bars=1 if spec.confirm_bars is None else spec.confirm_bars,
         )
     return base
 
@@ -426,7 +439,7 @@ def _step_model(st: ExitState, bar: Bar, ctx: StepCtx) -> tuple[ExitState, Hold 
         raise ValueError(f"exit {st.rule} needs the fitted model pair in the step context")
     mk = None if ctx.market is None else np.asarray(ctx.market, dtype=np.float64)
     if mk is None or not np.isfinite(mk).all():
-        return replace(st, missing_model=True), HOLD
+        return replace(st, missing_model=True, run=0), HOLD
     elapsed = (stamp - st.entry_ms) / (st.scheduled_exit_ms - st.entry_ms)
     pnl = st.side * np.log(np.float64(bar.c) / entry)
     state = np.array([[st.side, elapsed, pnl, st.mfe, st.mae]], dtype=np.float64)
@@ -436,9 +449,10 @@ def _step_model(st: ExitState, bar: Bar, ctx: StepCtx) -> tuple[ExitState, Hold 
     else:
         out = ctx.models.prob_up(mk[None, :], state)
         fire = _model_fire("E5", out, 0.0, st.margin_se, st.p_close)
-    if bool(fire[0]):
-        return replace(st, pending_ms=stamp + 2 * STEP_MS, pending_reason="model_exit"), HOLD
-    return st, HOLD
+    run = st.run + 1 if bool(fire[0]) else 0
+    if run >= st.confirm_bars:
+        return replace(st, run=run, pending_ms=stamp + 2 * STEP_MS, pending_reason="model_exit"), HOLD
+    return replace(st, run=run), HOLD
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1013,11 @@ def _replay_model(
             fire_v = _model_fire(spec.rule, out, se, spec.margin_se or 0.0, spec.p_close or 0.0) & ok
             fire = np.zeros(valid.shape, dtype=bool)
             fire[valid] = fire_v
+            if (spec.confirm_bars or 1) > 1:
+                # confirmed at a check when it and the previous confirm_bars - 1 checks all fired; a missing feature
+                # or a non-fire breaks the run, so positions are counted from the last non-firing one
+                last_off = np.maximum.accumulate(np.where(fire, -1, pos[None, :]), axis=1)
+                fire = (pos[None, :] - last_off) >= (spec.confirm_bars or 1)
             miss = np.zeros(valid.shape, dtype=bool)
             miss[valid] = miss_pairs
             first, has = fire.argmax(axis=1), fire.any(axis=1)

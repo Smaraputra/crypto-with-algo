@@ -54,8 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - The models are side-symmetric and fitted per fold: hypothetical holds on both sides at every training decision instant, 4 sampled instants per hold. The label is the remaining log return net of funding.
     - Market features come from 15m-stride phase-shifted decision bars, cached as float32. Position state (elapsed, P&L, MFE, MAE) updates every 5m.
     - E4 closes when the forecast is below minus one residual standard error. On a planted reversal it closed ahead on 100% of planted tranches and 0% of unplanted ones.
-    - E5 at p_close 0.4 closes ahead on planted tranches but breaches the registered 20% false-close bound (53% on unplanted tranches). The test keeps the bound as a strict expected failure until the E5 rule is revised.
-    - CPCV for E4 and E5 is not wired yet and raises instead of falling back.
+    - E5 at p_close 0.4 breached the registered 20% false-close bound (53% on unplanted tranches), a first-passage effect over about 46 checks per hold.
+    - E5 now closes only when P stays below 0.35 for 3 consecutive 5m closes, the pre-declared fix. On the planted control: 7.3% false closes, 100% closed ahead, positive increment. The bound is met and the expected failure is removed.
+    - CPCV fits one exit-model pair per split on that split's own purged training instants. Splits with too few samples fall back to the horizon exit, and the fallback is counted.
 - The label-shift tripwire from item 4 of the method lock (`r4/tripwire.py`, `r4.cli tripwire`).
   - It runs 100 deterministic panel-wide shifts of the label columns by 30 + 7k days, mapped by time within each coin.
   - Features, prices and the book stay on real data. The family halts when more than 60 of 100 shifted runs have a positive drift-free mean, and the cost-free count is reported beside it.

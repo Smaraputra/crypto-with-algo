@@ -29,7 +29,8 @@ from r4.book import (
     netted_costs,
 )
 from r4.costs import DEFAULT_FEE_PROFILE
-from r4.exits import ExitContext, is_horizon, parse_exit
+from r4.exit_models import ExitModelFactory
+from r4.exits import ExitContext, ModelInputs, is_horizon, parse_exit
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.method import (
     BAR,
@@ -137,12 +138,14 @@ def cpcv_path_daily(
     span_start_ms: int,
     span_end_ms: int,
     exit_ctx: ExitContext | None = None,
+    split_exit_models: Sequence[ModelInputs | None] | None = None,
 ) -> tuple[pd.DataFrame, int]:
     """Daily series of one CPCV path (drift_free and gross_hedged_funding), and the NaN-beta exclusion count.
 
     For each test group g of the path, the tranches come from the split that tested g in this path and are
     priced with THAT split's betas (estimated on its training set). No averaging, no fallback.
-    gross_hedged_funding is gross_hedged plus funding, with no costs.
+    gross_hedged_funding is gross_hedged plus funding, with no costs. With split_exit_models (E4 and E5), the tranches
+    of a group replay with the exit-model pair of the split that tested it (None is that split's counted E1 fallback).
     """
     frames: list[pd.DataFrame] = []
     for (p, _g), (s, j) in sorted(layout.items()):
@@ -151,6 +154,8 @@ def cpcv_path_daily(
         idx = np.asarray(test_groups_by_split[s][j], dtype=int)
         if len(idx) == 0:
             continue
+        if exit_ctx is not None and split_exit_models is not None:
+            exit_ctx.set_models(split_exit_models[s])
         tr = _make_tranches(samples.iloc[idx], path_sides[idx], cfg, exit_ctx)
         if not tr:
             continue
@@ -462,6 +467,13 @@ def run_wf(
     test_groups_by_split: list[list[np.ndarray]] = []
     split_betas: list[dict[str, float]] = []
     split_degenerate: list[int] = []
+    # E4 and E5: one exit-model pair per split, fitted on that split's own training instants (the purge and embargo the
+    # split applied to the entry model's training rows). None is the counted E1 fallback for a split below MIN_SAMPLES.
+    exit_factory: ExitModelFactory | None = None
+    split_exit_models: list[ModelInputs | None] | None = None
+    if parse_exit(cfg.exit).rule in ("E4", "E5"):
+        exit_factory = ExitModelFactory.from_config(panel, cfg)
+        split_exit_models = []
 
     for train_idx, test_idx_list in splits:
         train_df = samples.iloc[train_idx]
@@ -474,6 +486,15 @@ def run_wf(
         x_train = scaler.fit_transform(train_df[list(cfg.features)])
         model = fit_side_model(cfg, x_train, train_df)
         split_degenerate.append(len(model.degenerate_fits))
+        if exit_factory is not None and split_exit_models is not None:
+            train_instants = np.unique(train_df["T"].to_numpy(dtype=np.int64))
+            split_exit_models.append(
+                exit_factory.fit(
+                    None,
+                    np.iinfo(np.int64).max,
+                    select=lambda T, S, keep=train_instants: np.isin(T, keep),
+                )
+            )
 
         # Betas on the split's own training set (its training days), never on the test groups.
         train_days = sorted({(t // DAY_MS) * DAY_MS for t in train_df["t0"]})
@@ -518,6 +539,7 @@ def run_wf(
             cpcv_span_start,
             cpcv_span_end,
             cpcv_exit_ctx,
+            split_exit_models,
         )
         cpcv_path_means.append(float(p_daily["drift_free"].mean()))
         cpcv_path_gross_means.append(float(p_daily["gross_hedged_funding"].mean()))
@@ -594,6 +616,9 @@ def run_wf(
             "cpcv_path_gross_means": cpcv_path_gross_means,
             "cpcv_excluded_tranches": cpcv_excluded,
             "cpcv_degenerate_fits_per_split": split_degenerate,
+            "cpcv_exit_model_fallback_splits": 0
+            if split_exit_models is None
+            else sum(m is None for m in split_exit_models),
             "coin_means": coin_means,
             "jackknife_means": jackknife_means,
             "stress_cost": stress["stress_cost"],
