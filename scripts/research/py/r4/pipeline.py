@@ -17,12 +17,15 @@ from sklearn.preprocessing import StandardScaler
 
 from r4.book import (
     DAY_MS,
+    LegCosts,
     Tranche,
+    _beta_missing,
     beta_hedged_daily,
     daily_book,
     daily_close_log_returns,
     daily_series,
     estimate_betas,
+    netted_costs,
     parse_interval_ms,
     trade_level,
 )
@@ -34,6 +37,7 @@ from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.hashfeat import hash_feature_matrix, is_hash_feature, is_noise_feature
 from r4.labels import trailing_sigma_h, triple_barrier
 from r4.method import (
+    CPCV_EMBARGO_MS,
     DEV_END,
     DEV_START,
     ENTRY_DELAY_MS,
@@ -44,6 +48,9 @@ from r4.method import (
 from r4.plant import validate_plant
 
 logger = logging.getLogger(__name__)
+
+# Column a shifted-label frame carries: the window end (t1_max) of the row its labels came from.
+SOURCE_WINDOW_COLUMN = "label_t1_max"
 
 # Test-only: build the feature frame even when every feature is a hash feature (parity check of the fast path).
 _FORCE_SLOW_PATH = False
@@ -78,6 +85,16 @@ class RunConfig:
     plant: dict[str, Any] | None = None  # {"seed", "amplitude"}: planted signal, required by planted_z
 
     def __post_init__(self) -> None:
+        if self.size_rule != "unit":
+            raise ValueError(f"unknown size_rule {self.size_rule!r}: only 'unit' exists")
+        if self.label not in ("fixed", "triple_barrier"):
+            raise ValueError(f"unknown label {self.label!r}: use 'fixed' or 'triple_barrier'")
+        expected_side_rule = "sign" if self.model == "ridge" else "prob"
+        if self.side_rule != expected_side_rule:
+            raise ValueError(
+                f"side_rule {self.side_rule!r} does not match model {self.model!r}: "
+                f"ridge uses 'sign', the classifiers use 'prob' (expected {expected_side_rule!r})"
+            )
         if self.plant is not None:
             validate_plant(self.plant, self.interval, self.h_ms)
         if "planted_z" in self.features and self.plant is None:
@@ -92,8 +109,6 @@ class RunConfig:
             raise ValueError(f"book must be 'slot' or 'D', got {self.book!r}")
         if self.family == "D" and self.book != "D":
             raise ValueError("family D requires book 'D'")
-        if self.book == "D" and self.size_rule != "unit":
-            raise ValueError("size_rule is not applied in the D book (sum of abs weights is exactly 1): use 'unit'")
 
 
 @dataclass
@@ -696,6 +711,18 @@ def run_config_from_raw(raw_config: dict[str, Any]) -> RunConfig:
     )
 
 
+def _train_window_mask(samples: pd.DataFrame, cut_ms: int) -> pd.Series:
+    """Training rows of a refit at cut_ms: label window ended before the cut.
+
+    A frame that carries SOURCE_WINDOW_COLUMN (a label-shift tripwire run, see r4.tripwire) also needs the source row's
+    window to end before the cut less the embargo, so no training label comes from the test period.
+    """
+    mask = samples["t1_max"] < cut_ms
+    if SOURCE_WINDOW_COLUMN in samples.columns:
+        mask = mask & (samples[SOURCE_WINDOW_COLUMN] < cut_ms - CPCV_EMBARGO_MS)
+    return mask
+
+
 def walk_forward(
     samples: pd.DataFrame,
     cfg: RunConfig,
@@ -778,9 +805,12 @@ def walk_forward(
     all_fold_dfs: list[pd.DataFrame] = []
     fold_records: list[FoldRecord] = []
     block_times: list[np.ndarray] = []  # row positions of each monthly test block
+    # (start_ms, end_ms, train_cut_ms, betas, tranches) per evaluated fold. The fold books are built after the loop,
+    # because fees and slippage net once over the whole run's included tranches (Amendment 1, A1.1).
+    pending_folds: list[tuple[int, int, int | None, dict[str, float], list[Tranche]]] = []
 
     if cfg.refit == "none":
-        train_mask = samples["t1_max"] < first_refit_ms
+        train_mask = _train_window_mask(samples, first_refit_ms)
         train_df = samples.loc[train_mask]
         scaler = StandardScaler()
         X_train = scaler.fit_transform(train_df[list(cfg.features)])
@@ -801,10 +831,7 @@ def walk_forward(
             sides = _get_decisions(model, X_test, cfg)
             tranches_k = _make_tranches(test_df, sides, cfg, exit_ctx)
             all_tranches.extend(tranches_k)
-            fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_0, universe=universe)
-            if tranches_k:
-                all_fold_dfs.append(fold_df)
-            fold_records.append(FoldRecord(b_start, b_end, None, dict(betas_0), tranches_k, fold_df))
+            pending_folds.append((b_start, b_end, None, dict(betas_0), tranches_k))
         refits_count = 1
     else:
         refits_count = 0
@@ -815,7 +842,7 @@ def walk_forward(
             test_df = samples.loc[test_mask]
             block_times.append(np.flatnonzero(test_mask.to_numpy()))
 
-            train_mask = samples["t1_max"] < b_start
+            train_mask = _train_window_mask(samples, b_start)
             if cfg.lookback_months is not None:
                 b_dt = pd.to_datetime(b_start, unit="ms", utc=True)
                 cut_dt = b_dt - pd.DateOffset(months=cfg.lookback_months)
@@ -842,14 +869,34 @@ def walk_forward(
             sides = _get_decisions(model, X_test, cfg)
             tranches_k = _make_tranches(test_df, sides, cfg, exit_ctx)
             all_tranches.extend(tranches_k)
-            fold_df = beta_hedged_daily(tranches_k, five_min, settlements, betas=betas_k, universe=universe)
-            if tranches_k:
-                all_fold_dfs.append(fold_df)
-            fold_records.append(FoldRecord(b_start, b_end, cut_ms, dict(betas_k), tranches_k, fold_df))
+            pending_folds.append((b_start, b_end, cut_ms, dict(betas_k), tranches_k))
 
     if cfg.book == "D":
         # The D book ranks the coins of one decision time together: no time may be split across blocks.
         assert_whole_decision_times(block_times, samples["T"].to_numpy())
+
+    # One netting set per run: the tranches with a finite beta in their fold, across all folds, so an exit in one
+    # fold and an entry at the same open in the next net. Each fold book then charges its tranches' legs.
+    run_tranches = [t for f in pending_folds for t in f[4]]
+    in_set = [not _beta_missing(f[3], t.symbol) for f in pending_folds for t in f[4]]
+    included_idx = [i for i, ok in enumerate(in_set) if ok]
+    run_legs = LegCosts.from_netted(
+        netted_costs([run_tranches[i] for i in included_idx]), included_idx, len(run_tranches)
+    )
+    offset = 0
+    for b_start, b_end, cut, betas_f, tranches_f in pending_folds:
+        fold_df = beta_hedged_daily(
+            tranches_f,
+            five_min,
+            settlements,
+            betas=betas_f,
+            universe=universe,
+            leg_costs=run_legs.take(offset, offset + len(tranches_f)),
+        )
+        offset += len(tranches_f)
+        if tranches_f:
+            all_fold_dfs.append(fold_df)
+        fold_records.append(FoldRecord(b_start, b_end, cut, betas_f, tranches_f, fold_df))
 
     book_raw = daily_book(all_tranches, five_min, settlements)
 

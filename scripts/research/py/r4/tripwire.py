@@ -17,7 +17,7 @@ import pandas as pd
 
 from r4.bar import _TRIPWIRE_HALT_SHARE
 from r4.book import DAY_MS, daily_series
-from r4.pipeline import RunConfig, walk_forward
+from r4.pipeline import SOURCE_WINDOW_COLUMN, RunConfig, walk_forward
 
 SHIFT_DAYS: tuple[int, ...] = tuple(30 + 7 * k for k in range(100))
 LABEL_COLUMNS: tuple[str, ...] = (
@@ -37,13 +37,18 @@ def halt_decision(positive: int, n: int) -> bool:
     return Fraction(int(positive)) > _TRIPWIRE_HALT_SHARE * int(n)
 
 
-def shift_labels(samples: pd.DataFrame, shift_ms: int, interval_ms: int) -> tuple[pd.DataFrame, int]:
+def shift_labels(
+    samples: pd.DataFrame, shift_ms: int, interval_ms: int, with_source_window: bool = False
+) -> tuple[pd.DataFrame, int]:
     """Replace each row's label columns with those of the same symbol at T' = T + shift, wrapped circularly.
 
     The wrap is within the symbol's sample span: the sorted unique decision times, a circle of length
     (last T - first T + interval_ms). T' is looked up by time, never by row position, and a row whose T' has no sample
     is dropped. Feature, price and time columns are untouched. Returns the shifted frame (attrs kept) and the number
     of rows dropped.
+
+    with_source_window adds the column label_t1_max: the t1_max of the row each label came from. walk_forward then
+    keeps a row out of training when that source window reaches the refit cut (less the embargo).
     """
     present = [c for c in LABEL_COLUMNS if c in samples.columns]
     n = len(samples)
@@ -67,6 +72,8 @@ def shift_labels(samples: pd.DataFrame, shift_ms: int, interval_ms: int) -> tupl
     out = samples.loc[keep].reset_index(drop=True)
     for col in present:
         out[col] = samples[col].to_numpy()[src[keep]]
+    if with_source_window:
+        out[SOURCE_WINDOW_COLUMN] = samples["t1_max"].to_numpy(dtype=np.int64)[src[keep]]
     out.attrs = dict(samples.attrs)
     return out, int(n - keep.sum())
 
@@ -91,7 +98,7 @@ def shifted_run(
 ) -> dict[str, Any]:
     """One shifted walk-forward. The daily frame travels under the private key '_daily'."""
     interval_ms = 3_600_000 if cfg.interval == "1h" else 14_400_000
-    shifted, n_dropped = shift_labels(samples, int(shift_days) * DAY_MS, interval_ms)
+    shifted, n_dropped = shift_labels(samples, int(shift_days) * DAY_MS, interval_ms, with_source_window=True)
     n_rows = len(samples)
     res = walk_forward(shifted, cfg, first_refit_ms=first_refit_ms, end_ms=end_ms, panel=panel)
     books = [f.book for f in res.folds if len(f.book)]

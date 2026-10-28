@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -22,6 +22,9 @@ from r4.costs import (
 
 DAY_MS: int = 86_400_000
 FIVE_MIN_MS: int = 300_000
+# Exit reasons that fill inside a 5m bar at their own level and are stamped at that bar's close (Amendment 1, A1.2).
+# These fills never net with any other fill, and pay no funding settlement at their stamp.
+INTRABAR_EXIT_REASONS: tuple[str, ...] = ("stop", "take_profit", "maker_exit")
 INTERVAL_MS: dict[str, int] = {
     "1m": 60_000,
     "3m": 180_000,
@@ -85,6 +88,11 @@ class Tranche:
     def exit_priced(self) -> bool:
         """True when the exit fills at its own exit_price (stop, take-profit, model close), not the horizon open."""
         return self.exit_reason != "horizon"
+
+    @property
+    def exit_intrabar(self) -> bool:
+        """True when the exit filled inside a 5m bar (stop, take-profit, maker exit), not at a 5m open."""
+        return self.exit_reason in INTRABAR_EXIT_REASONS
 
     @property
     def side_val(self) -> int:
@@ -348,10 +356,64 @@ class NettedCosts:
     tranche_fee: np.ndarray
     tranche_slippage: np.ndarray
     by_day: pd.DataFrame
+    leg_fee: np.ndarray = field(default_factory=lambda: np.zeros(0))  # 2n: the n entry legs, then the n exit legs
+    leg_slippage: np.ndarray = field(default_factory=lambda: np.zeros(0))
 
     @property
     def tranche_cost(self) -> np.ndarray:
         return self.tranche_fee + self.tranche_slippage
+
+
+@dataclass(frozen=True)
+class LegCosts:
+    """Netted fee and slippage of each tranche's entry leg and exit leg, aligned to a tranche list.
+
+    Built once over a whole run's included tranches (see from_netted) and handed to beta_hedged_daily for a subset, so
+    every fold book charges the run-level netting set. A tranche that is not in the netting set carries zeros.
+    """
+
+    entry_fee: np.ndarray
+    entry_slippage: np.ndarray
+    exit_fee: np.ndarray
+    exit_slippage: np.ndarray
+
+    @classmethod
+    def from_netted(cls, netted: NettedCosts, included_idx: Sequence[int] | np.ndarray, n_total: int) -> LegCosts:
+        """Spread netted_costs(included tranches) over n_total slots; included_idx[k] is the slot of tranche k."""
+        idx = np.asarray(included_idx, dtype=np.int64)
+        m = len(idx)
+        out = [np.zeros(n_total, dtype=np.float64) for _ in range(4)]
+        if m:
+            out[0][idx] = netted.leg_fee[:m]
+            out[1][idx] = netted.leg_slippage[:m]
+            out[2][idx] = netted.leg_fee[m:]
+            out[3][idx] = netted.leg_slippage[m:]
+        return cls(*out)
+
+    def take(self, lo: int, hi: int) -> LegCosts:
+        """The slots lo:hi."""
+        return LegCosts(
+            self.entry_fee[lo:hi], self.entry_slippage[lo:hi], self.exit_fee[lo:hi], self.exit_slippage[lo:hi]
+        )
+
+    def by_day(self, tranches: Sequence[Tranche]) -> dict[int, dict[str, float]]:
+        """Fees and slippage per UTC day: each leg on the day that holds its instant."""
+        if len(tranches) != len(self.entry_fee):
+            raise ValueError(f"LegCosts has {len(self.entry_fee)} slots but {len(tranches)} tranches were given")
+        frame = pd.DataFrame(
+            {
+                "day_start": np.array(
+                    [t.entry_ms // DAY_MS * DAY_MS for t in tranches]
+                    + [t.exit_ms // DAY_MS * DAY_MS for t in tranches],
+                    dtype=np.int64,
+                ),
+                "fees": np.concatenate((self.entry_fee, self.exit_fee)),
+                "slippage": np.concatenate((self.entry_slippage, self.exit_slippage)),
+            }
+        )
+        if frame.empty:
+            return {}
+        return frame.groupby("day_start")[["fees", "slippage"]].sum().to_dict("index")
 
 
 def netted_costs(
@@ -370,6 +432,10 @@ def netted_costs(
     and legs with different native costs never merge either. maker_as_taker relabels every maker leg taker
     first, so it can merge with taker legs.
 
+    Fills net only when they execute at the same 5m open. An intrabar exit (stop, take-profit, maker exit, see
+    INTRABAR_EXIT_REASONS) fills inside a 5m bar at its own level, so it never nets with an open-price fill or with
+    another intrabar fill. A relabelled maker exit stays intrabar.
+
     A group is booked on the UTC day [d_start, d_end) that contains its instant. This differs from the old
     per-tranche exit convention (d_start < t <= d_end) only for a fill at exactly 00:00.
 
@@ -380,7 +446,7 @@ def netted_costs(
     if n == 0:
         empty_groups = pd.DataFrame(columns=["symbol", "instant_ms", "fill", "traded", "fee", "slippage", "day_start"])
         empty_day = pd.DataFrame({"fees": [], "slippage": []}, index=pd.Index([], dtype=np.int64, name="day_start"))
-        return NettedCosts(empty_groups, np.zeros(0), np.zeros(0), empty_day)
+        return NettedCosts(empty_groups, np.zeros(0), np.zeros(0), empty_day, np.zeros(0), np.zeros(0))
 
     weights = np.array([t.weight for t in tranches], dtype=np.float64)
     # A tranche with a native cost carries its own fee schedule and taker slippage. Legs with different costs never
@@ -392,6 +458,7 @@ def netted_costs(
             "symbol": [t.symbol for t in tranches] * 2,
             "instant_ms": np.array([t.entry_ms for t in tranches] + [t.exit_ms for t in tranches], dtype=np.int64),
             "fill": [t.entry_fill for t in tranches] + [t.exit_fill for t in tranches],
+            "intrabar": np.array([False] * n + [t.exit_intrabar for t in tranches], dtype=bool),
             "amount": np.concatenate((weights, -weights)),
             "profile": leg_profile * 2,
             "slip_override": np.array(leg_slip * 2, dtype=np.float64),
@@ -403,7 +470,13 @@ def netted_costs(
     if maker_as_taker:
         legs["fill"] = "taker"
 
-    gid = legs.groupby(["symbol", "instant_ms", "fill", "profile", "slip_override"], sort=True).ngroup().to_numpy()
+    # An intrabar leg is its own group: a unique key per leg keeps it out of every netting group.
+    legs["intrabar_key"] = np.where(legs["intrabar"].to_numpy(), np.arange(2 * n, dtype=np.int64), -1)
+    gid = (
+        legs.groupby(["symbol", "instant_ms", "fill", "profile", "slip_override", "intrabar_key"], sort=True)
+        .ngroup()
+        .to_numpy()
+    )
     n_groups = int(gid.max()) + 1
     amount = legs["amount"].to_numpy()
     traded = np.abs(np.bincount(gid, weights=amount, minlength=n_groups))
@@ -456,7 +529,7 @@ def netted_costs(
         }
     )
     by_day = groups.groupby("day_start")[["fee", "slippage"]].sum().rename(columns={"fee": "fees"})
-    return NettedCosts(groups, tranche_fee, tranche_slip, by_day)
+    return NettedCosts(groups, tranche_fee, tranche_slip, by_day, leg_fee, leg_slip)
 
 
 def daily_book(
@@ -539,7 +612,9 @@ def daily_book(
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
                 left = int(np.searchsorted(s_times, max(d_start, t.entry_ms), side="right"))
-                right = int(np.searchsorted(s_times, min(d_end, t.exit_ms), side="right"))
+                # An intrabar exit pays no settlement at its stamp: the window is (entry, stamp).
+                excl = "left" if (t.exit_intrabar and t.exit_ms <= d_end) else "right"
+                right = int(np.searchsorted(s_times, min(d_end, t.exit_ms), side=excl))
                 if left < right:
                     funding += float(np.sum(-w * s_rates[left:right]))
 
@@ -712,6 +787,7 @@ def beta_hedged_daily(
     betas: dict[str, float],
     universe: Sequence[str],
     profile: str = "standard",
+    leg_costs: LegCosts | None = None,
 ) -> pd.DataFrame:
     """Compute beta-hedged drift-free daily returns per UTC day.
 
@@ -725,6 +801,10 @@ def beta_hedged_daily(
     Daily D_d = sum w x (r_coin - beta x r_EW) - costs_d + funding_d. costs_d are the netted costs of the
     non-excluded tranches (see netted_costs), booked on the day that contains each fill instant.
     A tranche whose coin beta is NaN is excluded and counted.
+
+    leg_costs, when given, replaces the netting inside this call: the book charges those netted leg costs (one slot per
+    tranche, in input order), so a fold book carries its share of a run-level netting set (walk_forward builds it once
+    across folds). Without it the call nets its own included tranches.
 
     Returns a DataFrame by day with columns:
       drift_free, gross_hedged, costs, funding, n_open, ew_coins_min, excluded_tranches.
@@ -756,9 +836,11 @@ def beta_hedged_daily(
 
     day_tranches = _tranches_by_day(tranche_list)
     # Excluded tranches (NaN beta) are not in the book, so they carry no fill and are not netted.
-    included = [t for t in tranche_list if not _beta_missing(betas, t.symbol)]
-    netted = netted_costs(included, profile)
-    cost_by_day = netted.by_day.to_dict("index")
+    if leg_costs is not None:
+        cost_by_day = leg_costs.by_day(tranche_list)
+    else:
+        included = [t for t in tranche_list if not _beta_missing(betas, t.symbol)]
+        cost_by_day = netted_costs(included, profile).by_day.to_dict("index")
     sorted_days = sorted(set(day_tranches) | set(cost_by_day))
     records: list[dict[str, Any]] = []
 
@@ -836,7 +918,9 @@ def beta_hedged_daily(
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
                 left = int(np.searchsorted(s_times, max(d_start, t.entry_ms), side="right"))
-                right = int(np.searchsorted(s_times, min(d_end, t.exit_ms), side="right"))
+                # An intrabar exit pays no settlement at its stamp: the window is (entry, stamp).
+                excl = "left" if (t.exit_intrabar and t.exit_ms <= d_end) else "right"
+                right = int(np.searchsorted(s_times, min(d_end, t.exit_ms), side=excl))
                 if left < right:
                     funding += float(np.sum(-w * s_rates[left:right]))
 
@@ -940,7 +1024,9 @@ def trade_level(
     for k, t in enumerate(tranche_list):
         hold_hours = (t.exit_ms - t.entry_ms) / 3_600_000.0
         s_times, s_rates = symbol_funding[t.symbol]
-        funding_sum = trade_funding(s_times, s_rates, t.entry_ms, t.exit_ms)
+        # An intrabar exit pays no settlement at its stamp: the window is (entry, stamp), integer ms.
+        fund_end = t.exit_ms - 1 if t.exit_intrabar else t.exit_ms
+        funding_sum = trade_funding(s_times, s_rates, t.entry_ms, fund_end)
 
         costs = float(unit_cost[k])
         net_ret = t.side_val * (t.exit_price / t.entry_price - 1.0) - t.side_val * funding_sum - costs

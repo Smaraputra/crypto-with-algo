@@ -247,3 +247,30 @@ def test_end_to_end_synthetic(tmp_path: Path):
     written = json.loads((run_dir / "account_100.json").read_text(encoding="utf-8"))
     assert written["leverages"].keys() == rep["leverages"].keys()
     assert written["leverages"]["10"]["final_equity"] == pytest.approx(rep["leverages"]["10"]["final_equity"])
+
+
+def test_intrabar_stop_and_entry_at_one_instant_are_two_orders():
+    # A long stopped intrabar (stamp = the 5h open) and a new long entered at that open are two orders, not one no-op.
+    five = {"DOGEUSDT": _bars(0.37, TWO_DAYS)}
+    stamp = START + 5 * HOUR
+    stopped = _tr("DOGEUSDT", 0.1, START + HOUR, stamp, exit_reason="stop")
+    fresh = _tr("DOGEUSDT", 0.1, stamp, START + DAY)
+    res = simulate_account([stopped, fresh], five, {}, 100.0, 10)
+    # The second entry is sized on the equity left after the stop's round trip (100 less fees and slippage, 99.9 or so:
+    # 0.1 x 99.9 x 10 / 0.37 = 269.99 lots, floored to 269).
+    assert [round(q) for q in res.fills["qty"]] == [270, -270, 269, -269]
+    # the plain roll (an open-price exit) still nets to nothing
+    rolled = simulate_account(
+        [_tr("DOGEUSDT", 0.1, START + HOUR, stamp, exit_reason="model_exit"), fresh], five, {}, 100.0, 10
+    )
+    assert [round(q) for q in rolled.fills["qty"]] == [270, -270]
+
+
+@pytest.mark.parametrize(("reason", "paid"), [("stop", False), ("horizon", True)])
+def test_funding_at_an_intrabar_stamp(reason, paid):
+    five = {"DOGEUSDT": _bars(0.37, TWO_DAYS)}
+    settle = {"DOGEUSDT": pd.DataFrame({"t": [START + 8 * HOUR], "rate": [0.001]})}
+    res = simulate_account(
+        [_tr("DOGEUSDT", 0.1, START + HOUR, START + 8 * HOUR, exit_reason=reason)], five, settle, 100.0, 10
+    )
+    assert res.funding == pytest.approx(-270 * 0.37 * 0.001 if paid else 0.0, abs=1e-15)

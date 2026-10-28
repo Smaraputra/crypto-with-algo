@@ -14,6 +14,8 @@ Disclosed assumptions:
 - Every order at an instant uses the equity marked at that instant before any of its fills.
 - A coin's orders at one instant are netted. They fill as maker (at the level of the largest leg) only when every
   leg is maker, else as a taker at the 5m open plus or minus the coin slippage.
+- Fills net only when they execute at the same 5m open. An intrabar exit (stop, take-profit, maker exit) is its own
+  order, never netted, and it fills before the instant's funding, so its position pays no settlement at the stamp.
 - Cross margin: equity is cash plus the unrealised PnL of all positions, and one maintenance requirement covers
   the whole account.
 - After a liquidation the account is bust and the simulation stops. The bust day's log return uses the equity
@@ -244,11 +246,12 @@ def simulate_account(
                 )
             ),
             "absw": np.abs(np.concatenate((weights, weights))),
+            "intra": np.array([False] * len(tr) + [t.exit_intrabar for t in tr], dtype=bool),
         }
     )
     legs["nonmaker"] = (~legs["maker"]).astype(np.int64)
-    legs = legs.sort_values(["idx", "sym", "absw"], kind="stable")
-    grouped = legs.groupby(["idx", "sym"], sort=True)
+    legs = legs.sort_values(["idx", "intra", "sym", "absw"], kind="stable")
+    grouped = legs.groupby(["idx", "intra", "sym"], sort=True)
     agg = pd.DataFrame(
         {
             "dw": grouped["dw"].sum(),
@@ -257,13 +260,23 @@ def simulate_account(
         }
     ).reset_index()
     ev_idx = agg["idx"].to_numpy()
+    ev_intra = agg["intra"].to_numpy()
     ev_sym = agg["sym"].to_numpy()
     ev_dw = agg["dw"].to_numpy()
     ev_maker = agg["taker_legs"].to_numpy() == 0
     ev_level = agg["level"].to_numpy()
-    fill_idx_unique, fill_starts = np.unique(ev_idx, return_index=True)
-    fill_ends = np.append(fill_starts[1:], len(ev_idx))
-    fill_at = {int(i): (int(a), int(b)) for i, a, b in zip(fill_idx_unique, fill_starts, fill_ends, strict=True)}
+    # Event rows are sorted by (idx, intra, sym): per instant, the intrabar rows come first, then the open-price rows.
+    fill_idx_unique = np.unique(ev_idx)
+    fill_at: dict[int, tuple[int, int]] = {}  # open-price fills per instant
+    fill_at_intra: dict[int, tuple[int, int]] = {}  # intrabar fills per instant
+    for flag, target in ((False, fill_at), (True, fill_at_intra)):
+        rows_f = np.flatnonzero(ev_intra == flag)
+        if len(rows_f) == 0:
+            continue
+        idx_f, starts_f = np.unique(ev_idx[rows_f], return_index=True)
+        ends_f = np.append(starts_f[1:], len(rows_f))
+        for i, a, b in zip(idx_f, starts_f, ends_f, strict=True):
+            target[int(i)] = (int(rows_f[a]), int(rows_f[b - 1]) + 1)
 
     # Funding settlements strictly inside the traded span, per coin, as (grid index, rate).
     fund_events: dict[int, list[tuple[int, float]]] = {}
@@ -276,7 +289,7 @@ def simulate_account(
             if first_fill <= k <= last_fill:
                 fund_events.setdefault(k, []).append((sidx[sym], float(rate)))
 
-    event_idx = sorted(set(fill_at) | set(fund_events))
+    event_idx = sorted(set(fill_at) | set(fill_at_intra) | set(fund_events))
 
     q = np.zeros(n_sym)
     avg = np.zeros(n_sym)
@@ -346,6 +359,58 @@ def simulate_account(
             return True
         return False
 
+    def apply_fills(e: int, a: int, b: int) -> None:
+        """Execute the event rows a:b at grid index e, with the equity marked at e before any of them."""
+        nonlocal cash, fees_total, slip_total, orders_total, orders_skipped, orders_closes
+        equity_now = float(cash + (prices[e] - avg) @ q)
+        for r in range(a, b):
+            j = int(ev_sym[r])
+            new_w = wcur[j] + ev_dw[r]
+            if abs(new_w) < EPS_W:
+                new_w = 0.0
+            if abs(new_w - wcur[j]) <= EPS_W:
+                continue
+            wcur[j] = new_w
+            ref = float(prices[e, j])
+            target_abs = math.floor(abs(new_w) * equity_now * leverage / ref / step[j] + 1e-9) * step[j]
+            target = math.copysign(round(target_abs, 12), new_w) if target_abs >= min_qty[j] else 0.0
+            delta = target - q[j]
+            if abs(delta) < 0.5 * step[j]:
+                continue
+            orders_total += 1
+            if target == 0.0:
+                orders_closes += 1
+            elif abs(delta) * ref < min_notional[j]:
+                orders_skipped += 1
+                continue
+            if ev_maker[r]:
+                px = float(ev_level[r])
+                rate = float(maker_fee[j])
+                kind = "maker"
+            else:
+                px = apply_slippage(ref, "buy" if delta > 0 else "sell", float(slip_bps[j]))
+                rate = float(taker_fee[j])
+                kind = "taker"
+            fee = abs(delta) * px * rate
+            cash -= fee
+            fees_total += fee
+            slip_total += abs(delta) * abs(px - ref) if kind == "taker" else 0.0
+            # realise PnL on the part that shrinks, then update the average entry
+            old = float(q[j])
+            newq = old + delta
+            if old != 0.0 and (old > 0) != (delta > 0):
+                closed = min(abs(delta), abs(old)) * math.copysign(1.0, old)
+                cash += (px - avg[j]) * closed
+                if abs(newq) < 0.5 * step[j]:
+                    newq = 0.0
+                    avg[j] = 0.0
+                elif (newq > 0) != (old > 0):
+                    avg[j] = px
+            else:
+                avg[j] = (avg[j] * abs(old) + px * abs(delta)) / abs(newq)
+            q[j] = newq
+            fill_rows.append((int(t0 + e * FIVE_MIN_MS), symbols[j], float(delta), px, abs(delta) * px, fee, kind))
+
     # Day 0 starts flat at the first midnight.
     cursor = 0
     bust = False
@@ -353,7 +418,13 @@ def simulate_account(
         if scan(cursor, e, record=True):
             bust = True
             break
-        # 1. funding at e (it belongs to the day that ends at e), then the pre-fill mark
+        # 1. intrabar exits filled inside the bar that ends at e, so before any settlement at e
+        if e in fill_at_intra:
+            apply_fills(e, *fill_at_intra[e])
+            if scan(e, e + 1, record=False):
+                bust = True
+                break
+        # 2. funding at e (it belongs to the day that ends at e), then the pre-fill mark
         for j, rate in fund_events.get(e, []):
             pay = -q[j] * prices[e, j] * rate
             cash += pay
@@ -361,57 +432,9 @@ def simulate_account(
         if scan(e, e + 1, record=True):
             bust = True
             break
-        # 2. the fills at e
+        # 3. the open-price fills at e
         if e in fill_at:
-            a, b = fill_at[e]
-            equity_now = float(cash + (prices[e] - avg) @ q)
-            for r in range(a, b):
-                j = int(ev_sym[r])
-                new_w = wcur[j] + ev_dw[r]
-                if abs(new_w) < EPS_W:
-                    new_w = 0.0
-                if abs(new_w - wcur[j]) <= EPS_W:
-                    continue
-                wcur[j] = new_w
-                ref = float(prices[e, j])
-                target_abs = math.floor(abs(new_w) * equity_now * leverage / ref / step[j] + 1e-9) * step[j]
-                target = math.copysign(round(target_abs, 12), new_w) if target_abs >= min_qty[j] else 0.0
-                delta = target - q[j]
-                if abs(delta) < 0.5 * step[j]:
-                    continue
-                orders_total += 1
-                if target == 0.0:
-                    orders_closes += 1
-                elif abs(delta) * ref < min_notional[j]:
-                    orders_skipped += 1
-                    continue
-                if ev_maker[r]:
-                    px = float(ev_level[r])
-                    rate = float(maker_fee[j])
-                    kind = "maker"
-                else:
-                    px = apply_slippage(ref, "buy" if delta > 0 else "sell", float(slip_bps[j]))
-                    rate = float(taker_fee[j])
-                    kind = "taker"
-                fee = abs(delta) * px * rate
-                cash -= fee
-                fees_total += fee
-                slip_total += abs(delta) * abs(px - ref) if kind == "taker" else 0.0
-                # realise PnL on the part that shrinks, then update the average entry
-                old = float(q[j])
-                newq = old + delta
-                if old != 0.0 and (old > 0) != (delta > 0):
-                    closed = min(abs(delta), abs(old)) * math.copysign(1.0, old)
-                    cash += (px - avg[j]) * closed
-                    if abs(newq) < 0.5 * step[j]:
-                        newq = 0.0
-                        avg[j] = 0.0
-                    elif (newq > 0) != (old > 0):
-                        avg[j] = px
-                else:
-                    avg[j] = (avg[j] * abs(old) + px * abs(delta)) / abs(newq)
-                q[j] = newq
-                fill_rows.append((int(t0 + e * FIVE_MIN_MS), symbols[j], float(delta), px, abs(delta) * px, fee, kind))
+            apply_fills(e, *fill_at[e])
             if scan(e, e + 1, record=False):
                 bust = True
                 break

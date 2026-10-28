@@ -327,3 +327,53 @@ def test_cli_tripwire_subcommand(tmp_path: Path, monkeypatch, capsys):
     data = json.loads((out / "tw_run" / "tripwire.json").read_text(encoding="utf-8"))
     assert data["n"] == 2
     assert "tripwire" in capsys.readouterr().out.lower()
+
+
+def test_shifted_run_trains_on_no_label_from_the_test_period(monkeypatch):
+    """Finding 8: the source label window of every training row ends before the refit cut less the embargo."""
+    import r4.pipeline as pl
+    from r4.method import CPCV_EMBARGO_MS
+
+    n_days = 190
+    panel = synth_panel(_cov(), SYMS, START, START + n_days * DAY, seed=3)
+    raw = _cfg_dict(["ret_24", "trend_1d"], first_refit_ms=START + 70 * DAY)
+    cfg = _run_config(raw)
+    end_ms = START + n_days * DAY
+    samples = decision_samples(panel, cfg)
+
+    seen: list[tuple[int, int, int]] = []  # (training rows, max source window end, max real window end)
+    real_fit = pl.fit_side_model
+
+    def spy(c, x, train_df):
+        seen.append((len(train_df), int(train_df["label_t1_max"].max()), int(train_df["t1_max"].max())))
+        return real_fit(c, x, train_df)
+
+    monkeypatch.setattr(pl, "fit_side_model", spy)
+    out = tw.shifted_run(samples, cfg, 100, raw["first_refit_ms"], end_ms, panel)
+    assert out["shift_days"] == 100
+
+    cuts = []
+    cur = pd.to_datetime(raw["first_refit_ms"], unit="ms", utc=True)
+    while cur < pd.to_datetime(end_ms, unit="ms", utc=True):
+        cuts.append(int(cur.timestamp() * 1000))
+        cur = cur + pd.DateOffset(months=1)
+    # a leading fold whose purged training set is empty is skipped, so the fits belong to the last cuts
+    assert len(seen) >= 3
+    for cut, (_n, src_end, _real_end) in zip(cuts[-len(seen) :], seen, strict=True):
+        assert src_end < cut - CPCV_EMBARGO_MS
+    # the purge is what removes them: the real-label cut alone would have let some source window reach the cut
+    shifted, _ = tw.shift_labels(samples, 100 * DAY, H1, with_source_window=True)
+    leaks = [int(shifted.loc[shifted["t1_max"] < cut, "label_t1_max"].max()) >= cut - CPCV_EMBARGO_MS for cut in cuts]
+    assert any(leaks)
+
+
+def test_shift_labels_source_window_column_is_opt_in():
+    s = _toy_samples({3, 50})
+    plain, _ = tw.shift_labels(s, 37 * DAY, H1)
+    assert "label_t1_max" not in plain.columns
+    with_src, _ = tw.shift_labels(s, 37 * DAY, H1, with_source_window=True)
+    assert (with_src["label_t1_max"] - with_src["T"]).nunique() > 1  # the source row's window end, not the row's own
+    # the window end belongs to the same source row as the label
+    src_t1 = dict(zip(s["gross_log"].round(9), s["t1_max"], strict=True))
+    for g, w in zip(with_src["gross_log"].round(9), with_src["label_t1_max"], strict=True):
+        assert src_t1[g] == w
