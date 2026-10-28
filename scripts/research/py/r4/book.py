@@ -65,8 +65,12 @@ class Tranche:
     exit_reason: str = "horizon"
     entry_reason: str = "open"
     weight_override: float | None = None  # family D: explicit signed weight, ignoring side, size and the slot rule
+    fee_profile: str | None = None  # native cost: this tranche's own fee schedule (None: the function's profile)
+    slippage_bps_override: float | None = None  # native cost: taker slippage in bps (None: the per-coin table)
 
     def __post_init__(self) -> None:
+        if self.slippage_bps_override is not None and not float(self.slippage_bps_override) >= 0.0:
+            raise ValueError(f"slippage_bps_override {self.slippage_bps_override} must be a non-negative number")
         if self.weight_override is not None:
             w = float(self.weight_override)
             if w == 0.0 or np.sign(w) != self.side_val:
@@ -122,6 +126,13 @@ def _opt_float(value: Any) -> float | None:
     return float(value)
 
 
+def _opt_str(value: Any) -> str | None:
+    """A str, or None for None and NaN."""
+    if value is None or pd.isna(value):
+        return None
+    return str(value)
+
+
 def _coerce_tranches(
     tranches: pd.DataFrame | Sequence[dict[str, Any] | Tranche | Any],
 ) -> list[Tranche]:
@@ -153,6 +164,12 @@ def _coerce_tranches(
                     weight_override=float(row["weight_override"])
                     if "weight_override" in row and pd.notna(row["weight_override"])
                     else None,
+                    fee_profile=str(row["fee_profile"])
+                    if "fee_profile" in row and pd.notna(row["fee_profile"])
+                    else None,
+                    slippage_bps_override=_opt_float(row["slippage_bps_override"])
+                    if "slippage_bps_override" in row
+                    else None,
                 )
             )
         return rows
@@ -178,6 +195,8 @@ def _coerce_tranches(
                     exit_reason=str(item.get("exit_reason", "horizon")),
                     entry_reason=str(item.get("entry_reason", "open")),
                     weight_override=_opt_float(item.get("weight_override")),
+                    fee_profile=_opt_str(item.get("fee_profile")),
+                    slippage_bps_override=_opt_float(item.get("slippage_bps_override")),
                 )
             )
         else:
@@ -197,6 +216,8 @@ def _coerce_tranches(
                     exit_reason=str(getattr(item, "exit_reason", "horizon")),
                     entry_reason=str(getattr(item, "entry_reason", "open")),
                     weight_override=_opt_float(getattr(item, "weight_override", None)),
+                    fee_profile=_opt_str(getattr(item, "fee_profile", None)),
+                    slippage_bps_override=_opt_float(getattr(item, "slippage_bps_override", None)),
                 )
             )
     return out
@@ -316,8 +337,8 @@ def _tranches_by_day(tranches: Sequence[Tranche]) -> dict[int, list[Tranche]]:
 class NettedCosts:
     """Fees and slippage after netting same-instant fills per coin.
 
-    groups: one row per (symbol, instant_ms, fill) with traded (abs of the summed signed legs), fee, slippage
-      and day_start (the UTC day [d_start, d_end) that contains the instant).
+    groups: one row per (symbol, instant_ms, fill, cost profile, slippage) with traded (abs of the summed signed
+      legs), fee, slippage and day_start (the UTC day [d_start, d_end) that contains the instant).
     tranche_fee, tranche_slippage: each group's cost split over its legs in proportion to abs(leg amount),
       summed over a tranche's two legs, in input order. Together they sum to the netted total.
     by_day: groups summed by day_start, columns fees and slippage.
@@ -345,7 +366,9 @@ def netted_costs(
     (-w at exit_ms with exit_fill), where w is Tranche.weight. Within a group the traded amount is
     abs(sum of the signed legs), costing traded x the fill type's fee rate, plus traded x the coin's slippage
     (coin_slippage_bps) for taker groups. Maker fills pay the maker fee and no slippage. Makers and takers
-    never merge. maker_as_taker relabels every maker leg taker first, so it can merge with taker legs.
+    never merge. A tranche with its own fee_profile or slippage_bps_override (a native cost) is charged by those,
+    and legs with different native costs never merge either. maker_as_taker relabels every maker leg taker
+    first, so it can merge with taker legs.
 
     A group is booked on the UTC day [d_start, d_end) that contains its instant. This differs from the old
     per-tranche exit convention (d_start < t <= d_end) only for a fill at exactly 00:00.
@@ -360,12 +383,18 @@ def netted_costs(
         return NettedCosts(empty_groups, np.zeros(0), np.zeros(0), empty_day)
 
     weights = np.array([t.weight for t in tranches], dtype=np.float64)
+    # A tranche with a native cost carries its own fee schedule and taker slippage. Legs with different costs never
+    # share a group. -1.0 marks "no override" (use the per-coin table), so plain tranches group exactly as before.
+    leg_profile = [t.fee_profile if t.fee_profile is not None else profile for t in tranches]
+    leg_slip = [-1.0 if t.slippage_bps_override is None else float(t.slippage_bps_override) for t in tranches]
     legs = pd.DataFrame(
         {
             "symbol": [t.symbol for t in tranches] * 2,
             "instant_ms": np.array([t.entry_ms for t in tranches] + [t.exit_ms for t in tranches], dtype=np.int64),
             "fill": [t.entry_fill for t in tranches] + [t.exit_fill for t in tranches],
             "amount": np.concatenate((weights, -weights)),
+            "profile": leg_profile * 2,
+            "slip_override": np.array(leg_slip * 2, dtype=np.float64),
         }
     )
     for fill in legs["fill"].unique():
@@ -374,7 +403,7 @@ def netted_costs(
     if maker_as_taker:
         legs["fill"] = "taker"
 
-    gid = legs.groupby(["symbol", "instant_ms", "fill"], sort=True).ngroup().to_numpy()
+    gid = legs.groupby(["symbol", "instant_ms", "fill", "profile", "slip_override"], sort=True).ngroup().to_numpy()
     n_groups = int(gid.max()) + 1
     amount = legs["amount"].to_numpy()
     traded = np.abs(np.bincount(gid, weights=amount, minlength=n_groups))
@@ -385,21 +414,24 @@ def netted_costs(
     g_symbol = legs["symbol"].to_numpy()[first]
     g_instant = legs["instant_ms"].to_numpy()[first]
     g_fill = legs["fill"].to_numpy()[first]
+    g_profile = legs["profile"].to_numpy()[first]
+    g_slip = legs["slip_override"].to_numpy()[first]
 
     fee_rate = np.empty(n_groups, dtype=np.float64)
     slip_rate = np.empty(n_groups, dtype=np.float64)
-    schedule: dict[str, Any] = {}
+    schedule: dict[tuple[str, str], Any] = {}
     for g in range(n_groups):
         sym = str(g_symbol[g])
-        if sym not in schedule:
-            schedule[sym] = resolve_fee_profile(profile, sym)
-        fees = schedule[sym]
+        key = (str(g_profile[g]), sym)
+        if key not in schedule:
+            schedule[key] = resolve_fee_profile(key[0], sym)
+        fees = schedule[key]
         if g_fill[g] == "maker":
             fee_rate[g] = fees.maker_fee
             slip_rate[g] = 0.0
         else:
             fee_rate[g] = fees.taker_fee
-            slip_rate[g] = coin_slippage_bps(sym) / 10000.0
+            slip_rate[g] = (coin_slippage_bps(sym) if g_slip[g] < 0.0 else float(g_slip[g])) / 10000.0
 
     group_fee = traded * fee_rate
     group_slip = traded * slip_rate
