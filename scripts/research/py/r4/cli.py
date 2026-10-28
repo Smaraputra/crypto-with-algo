@@ -53,6 +53,7 @@ from r4.pipeline import (
     load_panel,
     walk_forward,
 )
+from r4.plant import PlantedPanel, apply_plant
 from r4.stats import per_period_sharpe
 from r4.validation import cpcv_path_ids, cpcv_paths, panel_cpcv_splits
 
@@ -386,6 +387,8 @@ def run_wf(
         exit=parse_exit(raw_config.get("exit", "horizon")),
         seed=int(raw_config.get("seed", 7)),
         book=raw_config.get("book", "slot"),
+        noise_seed=raw_config.get("noise_seed"),
+        plant=raw_config.get("plant"),
     )
 
     ds_path = Path(ds_dir)
@@ -395,6 +398,8 @@ def run_wf(
 
     if panel is None:
         panel = load_panel(ds_path, symbols_to_load, cache_dir=cache_dir)
+    if cfg.plant is not None:
+        panel = apply_plant(panel, cfg.plant)
 
     universe = list(panel.keys())
     five_min = {s: panel[s]["5m"] for s in universe}
@@ -598,6 +603,8 @@ def run_wf(
         },
         "runtime_s": runtime_s,
     }
+    if isinstance(panel, PlantedPanel):
+        receipt["plant"] = {**panel.plant, "dropped_higher_bars": panel.dropped_total}
 
     (run_out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     return receipt
