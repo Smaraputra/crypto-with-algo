@@ -212,3 +212,19 @@ def test_docstring_required_substrings() -> None:
         assert (
             substring in doc or substring in doc_normalized or substring.capitalize() in doc or substring.lower() in doc
         ), f"Expected substring not found in docstring: {substring!r}"
+
+
+def test_signed_text_unchanged_and_amendments_appended_only() -> None:
+    """The text the owner signed (commit bbc4330b) is byte-identical at the head of the docstring.
+
+    Anything after it is an appended AMENDMENT, never an edit (lock M: "Changes after the first development read are
+    AMENDMENTS appended below, never edits").
+    """
+    from pathlib import Path
+
+    signed = (Path(__file__).parent / "fixtures" / "method_doc_signed_bbc4330b.txt").read_text(encoding="utf-8")
+    doc = method.__doc__
+    assert doc is not None
+    assert doc.startswith(signed)
+    tail = doc[len(signed) :]
+    assert tail == "" or tail.lstrip("\n").startswith("AMENDMENT ")
