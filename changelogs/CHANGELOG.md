@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Result on the VPS (2026-10-29): 0 of 12 pass, as predicted. Gross edges are 0.2 to 1.4 bps a trade against 12 to 13 bps taker round trips, maker entries fill 91% of the time but turn the gross edge negative, and every month of every configuration loses (net -9.8 to -13.8 bps a trade, t -9 to -41). A $100 account at 10x on the fastest rule falls to $25 in 3 days and stops near $5, where the minimum order size blocks trading; at 50x it is under $1 by day 2.
 - Break-even: a 15-minute taker scalp needs a forecast correlation of 0.46 to 0.91 with the next return (0.11 to 0.27 all-maker), against the 0.02 to 0.06 measured anywhere in this program. The current research does not support a scalping paper desk.
 
+### Fixed: the research image pins its one apt package
+- `libgomp1` is pinned to 14.2.0-19, the version in the digest-pinned Python 3.12 base, which clears DeepSource's DL3008 finding.
+
 ### Fixed: ESLint no longer runs out of memory on a local research venv
 - `npm run lint` ignores `scripts/research/py/.venv` (minified plotly bundles exhausted the 4 GB heap) and the git-excluded `.superpowers` working records.
 
@@ -127,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The planted intrabar control is the calibration spec's design: a reversal visible in 5m taker flow before the price moves, on 4 registered synthetic panels. E4, E5 and E6 close ahead of the move on 100%, 100% and 93% of planted tranches, and close early on 0%, 8.3% and 0.04% of unplanted ones. A first version with a different plant had measured E5 false closes of 22 to 29%, and is disclosed.
   - In the optional-stopping check, E4 and E5 fit on each panel's own real features, at the registered thresholds and at loosened ones that fire on 76% and 91% of tranches. All 8 rows pass. Reading the features 30 minutes ahead makes E5 and both loosened rows significantly positive (t 36 to 48), so the check sees a feature-path leak. It is a gated prediction.
   - The dossier requires the exit block and refuses unregistered config ids or hashes, draw counts, seeds and synthetic sizes, a replay mismatch, a broken shift-zero identity, a failed determinism check, and a dataset hash other than the noise evaluation's.
+- The label-shift tripwire also shifts the E4 and E5 exit models' in-hold labels (owner choice on gate finding A-8): each exit-model training sample keeps its real features and position state and takes the remaining-return label of the same coin's hold shifted by the same days, purged when that window reaches the refit less the 30-day embargo. On the planted reversal, E5 closes ahead of the move on 100% of planted tranches with real labels and 0% with labels shifted by 30 days.
 - Fixes from the second Opus code gate (PASS WITH FIXES):
   - One dataset, one code state: every receipt and evaluation output carries the dataset hash, source digest, lock hash and library versions, a reused run must match all of them, and the dossier requires one value of each across noise, exit block, power, positive control, re-tests and the daily null.
   - The dossier checks the registered power, positive-control, exit-span and re-test parameters, ties the commit-order record to the frozen commit, and recomputes every pass flag instead of trusting it.
