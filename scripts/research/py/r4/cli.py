@@ -949,6 +949,17 @@ def main() -> None:
         "--draws", required=False, type=int, default=None, help="Joint-shift draws (default: M's 1000)"
     )
 
+    csv_parser = subparsers.add_parser(
+        "calib-synth-v", help="Noise controls on the synthetic V panel and the 2 reference panels"
+    )
+    csv_parser.add_argument("--dcov", required=True, help="JSON from calib-dcov")
+    csv_parser.add_argument("--out", required=True, help="Output directory (synth_v.json inside, never overwritten)")
+    csv_parser.add_argument("--commit", required=True, help="Commit SHA")
+    csv_parser.add_argument("--start-ms", required=False, type=int, default=None, help="Panel start (test only)")
+    csv_parser.add_argument("--end-ms", required=False, type=int, default=None, help="Panel end (test only)")
+    csv_parser.add_argument("--first-refit-ms", required=False, type=int, default=None, help="First refit (test only)")
+    csv_parser.add_argument("--draws", required=False, type=int, default=None, help="Joint-shift draws (test only)")
+
     cp_parser = subparsers.add_parser(
         "calib-power", help="Power simulation: P1 and decoys on synthetic D-shaped panels"
     )
@@ -1052,6 +1063,25 @@ def main() -> None:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(f"Noise evaluation written to {args.out}: gate_ok={report['gate_ok']}")
+    elif args.command == "calib-synth-v":
+        from r4 import calibration
+
+        target = Path(args.out) / calibration.SYNTH_V_FILE
+        if target.exists():
+            raise SystemExit(f"{target} exists: refusing to overwrite it")
+        report = calibration.synthetic_v(
+            args.dcov,
+            args.out,
+            args.commit,
+            start_ms=args.start_ms,
+            end_ms=args.end_ms,
+            first_refit_ms=args.first_refit_ms,
+            joint_draws=args.draws,
+        )
+        refs = [r["n_reject_05"] for r in report["reference_panels"]]
+        print(
+            f"Synthetic V written to {target}: V={report['variance']['within_cell']['V']:.6g} reference counts {refs}"
+        )
     elif args.command == "calib-power":
         from r4 import calibration
 

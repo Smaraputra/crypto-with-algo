@@ -27,6 +27,7 @@ from r4 import bar
 from r4.book import DAY_MS
 from r4.data import load_perp
 from r4.method import BAR, DEV_END, DEV_START, UNIVERSE
+from r4.stats import expected_max_sharpe, per_period_sharpe
 
 H1_MS = 3_600_000
 FIRST_REFIT_MS = int(datetime(2023, 1, 1, tzinfo=UTC).timestamp() * 1000)
@@ -749,6 +750,283 @@ def evaluate_noise(
         "verdict": verdict,
         "gate_ok": bool(gate_ok),
     }
+
+
+# ---------------------------------------------------------------------------
+# Synthetic V panel and reference panels (spec sections 5 and 9, Amendment 1 A1.9)
+# ---------------------------------------------------------------------------
+
+SYNTH_V_SEED = 3999
+REFERENCE_PANEL_SEEDS: tuple[int, ...] = (3997, 3998)
+SYNTH_V_FILE = "synth_v.json"
+_SYNTH_GARCH = (0.08, 0.88)
+_SYNTH_T_DF = 4.5
+
+
+def _trade_counts(receipt: Mapping[str, Any]) -> tuple[int, int]:
+    """(n_tranches, n_decisions) of a receipt, read as trade_floor_ok reads them."""
+    m = receipt["metrics"]
+    if "n_tranches" in m:
+        n_tr = int(m["n_tranches"])
+    else:
+        n_tr = int(sum(m["exit_reason_counts"].values()))
+    return n_tr, int(m["n_decisions"])
+
+
+def _load_run(run_dir: Path) -> dict[str, Any]:
+    receipt = json.loads((run_dir / "receipt.json").read_text(encoding="utf-8"))
+    daily = pd.read_parquet(run_dir / "daily.parquet")
+    daily.attrs["config_hash"] = str(receipt["config_hash"])
+    tr_file = run_dir / "tranches.parquet"
+    return {
+        "receipt": receipt,
+        "daily": daily,
+        "tranches": pd.read_parquet(tr_file) if tr_file.exists() else pd.DataFrame(),
+        "folds": json.loads((run_dir / "folds.json").read_text(encoding="utf-8")),
+    }
+
+
+def _seed_group_split(sharpes: Mapping[str, float], groups: Mapping[str, str]) -> dict[str, Any]:
+    """Split the variance of the trial Sharpes into between-group and within-seed-group parts.
+
+    A seed group holds the configurations that differ only in their noise seed (block and cell, as the cost-free
+    diagnostics group them). within = pooled over groups of at least 2, sum of squared deviations from the group
+    mean over the sum of (n - 1). between = the ddof=1 variance of the group means over all groups. ss_between and
+    ss_within add up to the total sum of squares about the grand mean.
+    """
+    by_group: dict[str, list[float]] = {}
+    for i in sorted(sharpes):
+        by_group.setdefault(groups[i], []).append(float(sharpes[i]))
+    allv = np.asarray([x for v in by_group.values() for x in v])
+    ss_within = float(sum(np.sum((np.asarray(v) - np.mean(v)) ** 2) for v in by_group.values()))
+    df_within = int(sum(len(v) - 1 for v in by_group.values() if len(v) >= 2))
+    means = np.asarray([np.mean(v) for v in by_group.values()])
+    ss_total = float(np.sum((allv - allv.mean()) ** 2))
+    return {
+        "V": ss_within / df_within if df_within >= 1 else None,
+        "df": df_within,
+        "n_groups": len(by_group),
+        "n_groups_used": sum(1 for v in by_group.values() if len(v) >= 2),
+        "between_group_V": float(np.var(means, ddof=1)) if len(means) >= 2 else None,
+        "ss_within": ss_within,
+        "ss_between": max(ss_total - ss_within, 0.0),
+        "ss_total": ss_total,
+    }
+
+
+def synthetic_v(
+    dcov_path: Path | str,
+    out_dir: Path | str,
+    commit: str,
+    *,
+    start_ms: int | None = None,
+    end_ms: int | None = None,
+    first_refit_ms: int | None = None,
+    joint_draws: int | None = None,
+) -> dict[str, Any]:
+    """The 40 noise controls on the synthetic V panel (seed 3,999), then on the 2 reference panels (3,997 and 3,998).
+
+    V panel: every noise_grid() config runs on a D-shaped panel built from the calib-dcov covariance exactly as the
+    power panels are. A config that fails trade_floor_ok is replaced by noise_alternative(config, 1), then (2). If
+    attempt 2 fails too it is kept and recorded with trade_floor_failed (A1.9: reported and still counted in V). V,
+    its between-group and within-seed-group split and SR0 (N = 120) are taken on the final set. Reference panels
+    run the FINAL set and the joint-shift null of every config (draws default to M's 1,000, each config's own seed),
+    and record the count with p < M's rejection p. Writes out_dir/synth_v.json (an existing file is replaced by the
+    same content: refusing is the CLI's job). Finished runs are reused through _run_or_reuse, and finished
+    joint-shift records when their config hash, dataset, commit and draws match. Synthetic datasets are deleted
+    after their runs. start_ms, end_ms, first_refit_ms and joint_draws exist so tests can shrink the work.
+    """
+    import hashlib
+    import shutil
+
+    from r4 import cli
+    from r4.synth import synth_panel, write_synthetic_dataset
+
+    start = DEV_START if start_ms is None else int(start_ms)
+    end = DEV_END if end_ms is None else int(end_ms)
+    refit = FIRST_REFIT_MS if first_refit_ms is None else int(first_refit_ms)
+    draws = int(BAR["random_entry_draws"]) if joint_draws is None else int(joint_draws)
+    rej_p = float(BAR["random_entry_p_max"])
+    dcov_file = Path(dcov_path)
+    dcov_bytes = dcov_file.read_bytes()
+    dcov = json.loads(dcov_bytes.decode("utf-8"))
+    symbols = list(dcov["symbols"])
+    cov = np.asarray(dcov["cov"], dtype=np.float64)
+    if cov.shape != (len(symbols), len(symbols)):
+        raise ValueError(f"dcov covariance shape {cov.shape} does not match {len(symbols)} symbols")
+    out_root = Path(out_dir)
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    def prepare(c: dict[str, Any]) -> dict[str, Any]:
+        c = copy.deepcopy(c)
+        c["first_refit_ms"] = refit
+        return c
+
+    def panel_and_ds(seed: int, tmp: Path) -> tuple[dict[str, dict[str, pd.DataFrame]], Path]:
+        panel = synth_panel(cov, symbols, start, end, seed=seed, garch=_SYNTH_GARCH, t_df=_SYNTH_T_DF)
+        return panel, write_synthetic_dataset(panel, tmp / "ds")
+
+    def run_one(c: dict[str, Any], tmp: Path, ds: Path, runs: Path, panel: Any) -> dict[str, Any]:
+        cfg_file = tmp / "cfg" / f"{c['id']}.json"
+        cfg_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg_file.write_text(json.dumps(c, indent=2), encoding="utf-8")
+        return _run_or_reuse(cfg_file, c, ds, runs, commit, panel)
+
+    # ---- V panel ----
+    v_dir = out_root / f"v_{SYNTH_V_SEED}"
+    v_runs, v_tmp = v_dir / "runs", v_dir / "_tmp"
+    final_cfgs: list[dict[str, Any]] = []
+    floor: dict[str, Any] = {}
+    v_dataset_hash: str
+    try:
+        panel, ds = panel_and_ds(SYNTH_V_SEED, v_tmp)
+        v_dataset_hash = str(bar.read_manifest(ds)["datasetHash"])
+        for reg in noise_grid():
+            base = prepare(reg)
+            tried: list[dict[str, Any]] = []
+            cur = base
+            for attempt in (0, 1, 2):
+                if attempt:
+                    cur = noise_alternative(base, attempt)
+                receipt = run_one(cur, v_tmp, ds, v_runs, panel)
+                n_tr, n_dec = _trade_counts(receipt)
+                ok = bool(trade_floor_ok(receipt))
+                tried.append(
+                    {
+                        "id": cur["id"],
+                        "attempt": attempt,
+                        "n_tranches": n_tr,
+                        "n_decisions": n_dec,
+                        "trade_share": (n_tr / n_dec) if n_dec else None,
+                        "ok": ok,
+                    }
+                )
+                if ok:
+                    break
+            final_cfgs.append(cur)
+            last = tried[-1]
+            floor[reg["id"]] = {
+                "final_id": cur["id"],
+                "attempts": tried,
+                "trade_floor_failed": not last["ok"],
+                "n_tranches": last["n_tranches"],
+                "n_decisions": last["n_decisions"],
+                "trade_share": last["trade_share"],
+            }
+        del panel
+    finally:
+        shutil.rmtree(v_tmp, ignore_errors=True)
+
+    v_loaded = {c["id"]: _load_run(v_runs / c["id"]) for c in final_cfgs}
+    ids = sorted(v_loaded)
+    daily = {i: v_loaded[i]["daily"] for i in ids}
+    configs = {i: v_loaded[i]["receipt"]["config"] for i in ids}
+    modes = {m: bar.trial_sharpe_variance(daily, configs, m) for m in ("within_cell", "total")}
+    sharpes = {i: float(per_period_sharpe(daily[i]["drift_free"].to_numpy(dtype=np.float64))) for i in ids}
+    groups = {i: f"{configs[i].get('block')}_{configs[i].get('cell')}" for i in ids}
+    split = _seed_group_split(sharpes, groups)
+    sr0 = {"N": N_TRIALS_CALIBRATION}
+    for name, val in (
+        ("within_cell", modes["within_cell"]["V"]),
+        ("total", modes["total"]["V"]),
+        ("within_seed_group", split["V"]),
+    ):
+        sr0[name] = None if val is None else float(expected_max_sharpe(N_TRIALS_CALIBRATION, float(val)))
+
+    # ---- reference panels ----
+    ref_out: list[dict[str, Any]] = []
+    ref_receipts: list[dict[str, Any]] = []
+    ref_datasets: list[str] = []
+    for seed in REFERENCE_PANEL_SEEDS:
+        r_dir = out_root / f"ref_{seed}"
+        r_runs, r_tmp, r_joint = r_dir / "runs", r_dir / "_tmp", r_dir / "joint"
+        r_joint.mkdir(parents=True, exist_ok=True)
+        by_cfg: dict[str, Any] = {}
+        try:
+            panel, ds = panel_and_ds(seed, r_tmp)
+            ds_hash = str(bar.read_manifest(ds)["datasetHash"])
+            ref_datasets.append(ds_hash)
+            for c in final_cfgs:
+                receipt = run_one(c, r_tmp, ds, r_runs, panel)
+                ref_receipts.append(receipt)
+                jf = r_joint / f"{c['id']}.json"
+                want = {
+                    "config_hash": str(receipt["config_hash"]),
+                    "dataset_hash": ds_hash,
+                    "commit": cli.resolve_commit(commit),
+                    "draws": draws,
+                    "seed": int(c["joint_shift_seed"]),
+                    "span_end_ms": end,
+                }
+                rec: dict[str, Any] | None = None
+                if jf.is_file():
+                    old = json.loads(jf.read_text(encoding="utf-8"))
+                    if all(old.get(k) == v for k, v in want.items()):
+                        rec = old
+                if rec is None:
+                    run = _load_run(r_runs / c["id"])
+                    stats = bar.joint_shift_stats(
+                        run["tranches"],
+                        panel,
+                        run["folds"],
+                        span_start_ms=int(c["first_refit_ms"]),
+                        span_end_ms=end,
+                        n_draws=draws,
+                        min_shift_days=int(BAR["random_entry_shift_min_days"]),
+                        seed=int(c["joint_shift_seed"]),
+                    )
+                    p, drop = bar.joint_shift_p(stats, draws)
+                    rec = {**want, "p": float(p), "drop_share": float(drop)}
+                    jf.write_text(json.dumps(rec, indent=2), encoding="utf-8")
+                by_cfg[c["id"]] = {"p": rec["p"], "drop_share": rec["drop_share"], "seed": rec["seed"]}
+            del panel
+        finally:
+            shutil.rmtree(r_tmp, ignore_errors=True)
+        ref_out.append(
+            {
+                "seed": seed,
+                "dataset_hash": ds_hash,
+                "draws": draws,
+                "n_reject_05": int(sum(v["p"] < rej_p for v in by_cfg.values())),
+                "reject_p": rej_p,
+                "rejections_by_config": by_cfg,
+            }
+        )
+
+    all_receipts = [v_loaded[i]["receipt"] for i in ids] + ref_receipts
+    noise_set = [
+        {
+            "id": i,
+            "config_hash": str(v_loaded[i]["receipt"]["config_hash"]),
+            "replaces": v_loaded[i]["receipt"]["config"].get("replaces"),
+            "attempt": v_loaded[i]["receipt"]["config"].get("attempt"),
+        }
+        for i in ids
+    ]
+    result = {
+        "panel_seeds": {"v": SYNTH_V_SEED, "reference": list(REFERENCE_PANEL_SEEDS)},
+        "span": {"start_ms": start, "end_ms": end, "first_refit_ms": refit},
+        "commit": cli.resolve_commit(commit),
+        "noise_set": noise_set,
+        "trade_floor": floor,
+        "variance": {
+            "within_cell": modes["within_cell"],
+            "total": modes["total"],
+            "within_seed_group": split,
+            "between_group": {"V": split["between_group_V"], "ss_between": split["ss_between"]},
+            "sharpes": sharpes,
+        },
+        "sr0": sr0,
+        "reference_panels": ref_out,
+        "v_dataset_hash": v_dataset_hash,
+        "reference_dataset_hashes": ref_datasets,
+        "dcov_sha256": hashlib.sha256(dcov_bytes).hexdigest(),
+        "dcov_dataset_hash": dcov.get("dataset_hash"),
+        "provenance": receipt_provenance(all_receipts, dataset=False),
+        "reproduction": cli.reproduction_inputs(),
+    }
+    (out_root / SYNTH_V_FILE).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
 
 
 # ---------------------------------------------------------------------------
