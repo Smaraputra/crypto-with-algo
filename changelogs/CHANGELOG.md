@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: the research image pins its one apt package
+- `libgomp1` is pinned to 14.2.0-19, the version in the digest-pinned Python 3.12 base, which clears DeepSource's DL3008 finding.
+
 ### Fixed: ESLint no longer runs out of memory on a local research venv
 - `npm run lint` ignores `scripts/research/py/.venv` (minified plotly bundles exhausted the 4 GB heap) and the git-excluded `.superpowers` working records.
 

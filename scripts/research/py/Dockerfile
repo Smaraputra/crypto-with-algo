@@ -11,8 +11,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app
 # LightGBM's Linux wheel links the system OpenMP runtime.
+# Pinned to the version in the digest-pinned base (Debian 13). Bump it together with the base image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1=14.2.0-19 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.lock ./
