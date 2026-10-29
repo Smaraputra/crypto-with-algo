@@ -226,6 +226,197 @@ STOP RULE
 - If no configuration meets the exploration bar within the budget, Round 4 closes with no lab-v5, and the RESULT block
   says so.
 - An override must be recorded as an amendment that quotes the result it overrides, as lab-v4 was.
+
+AMENDMENT 1 (2026-10-28, owner-approved in session 43; SIGNED by the owner on 2026-10-29 (session 44) for the text
+at 3c68c376). It is written before any Round 4 configuration has computed a development outcome. It changes how the
+bar is measured and executed, and changes no threshold, span, budget or H rule.
+
+A1.1 COSTS, to match Binance USDT-M one-way execution. It amends "Costs: ... charged as abs(weight) x rate on the fill
+day" and "with study slippage on taker fills (3 bps at 1h, 2 bps at 4h)".
+- Netting. Fees and slippage are charged on the net position change per (coin, fill instant, fill type, native cost),
+  not per tranche leg.
+- Fills net only when they execute at the same 5m open. Tranches on a coin that expire and open at the same open on the
+  same side trade only the difference of their weights (nothing when the weights are equal). A stop, take-profit or
+  maker exit never nets.
+- Netting runs once over a run's included tranches, across walk-forward folds.
+- Booking. A fill group is booked on the UTC day [d_start, d_end) that holds its instant. Each group's cost is allocated
+  to its legs pro rata to abs(weight) wherever a per-tranche cost is needed (the joint-shift null, trade tables).
+- Slippage per coin, the same at every interval: BTC 1, ETH 1, BNB 2, SOL 2, XRP 2, DOGE 2, AVAX 3, DOT 3, LINK 3, ADA 5
+  bps on taker fills. Each is at least twice the sum of the half-spread and the $1k-order impact measured on 2026-10-28,
+  from 6 order-book snapshots on one calm day (disclosed).
+- Item 6's slippage x2 applies to this table. Fees (VIP 0, 2 and 5 bps) and the funding rule are unchanged.
+- Classifier label thresholds use each coin's round trip, 2 x (taker + coin slippage).
+- The TypeScript-parity functions of r4.costs are unchanged. The research book no longer uses the per-interval budget.
+
+A1.2 PRICED EXITS AND THE HEDGE INTERVAL. It amends "r_EW is the mean log return over the SAME interval".
+- A stop, take-profit or maker exit fills inside a 5m bar. It is stamped at that bar's close, which is on the 5m grid.
+- A model, flow or funding close fills at the 5m open at tau + 10 minutes and is stamped at that open.
+- The coin leg is priced at the fill. The basket interval ends at the stamp.
+- An intrabar fill pays no settlement at its stamp: funding sums the settlements in (entry, stamp).
+- A basket with no coin priced at both ends is never taken as 0. In the book it raises an error. The joint-shift null
+  drops the tranche and counts it. In D every 5m instant has all 10 coins (counted 2026-10-28).
+
+A1.3 CLASSIFIER SIDE RULE. It defines "side rule" for the logistic and LightGBM models.
+- Two binary models are fit on the same rows. The up label is the return above the round trip and the down label is the
+  return below minus the round trip. For the triple barrier, each side's own take-profit counts, from that side's own
+  run.
+- With m the declared margin over each side's training base rate:
+  - long if p_up - base_up > m and exceeds p_dn - base_dn;
+  - short in the mirror case;
+  - else flat, and a tie is flat.
+- Ridge is unchanged.
+
+A1.4 FAMILY D BOOK. It specifies "Family D replaces the slot rule".
+- Weights are centred average ranks of the model score across the coins with a sample at T, scaled so sum abs(w) = 1
+  exactly.
+- Fewer than 6 coins means cash. The median coin of an odd count is flat.
+- The size rule does not apply. Ranking never splits a decision time across folds or CPCV groups.
+- Item 5's jackknife drops a coin's tranches without re-ranking.
+
+A1.5 EXITS. It specifies the "exit rule" configuration dimension.
+- Every exit runs in one bar-by-bar engine. On history it replays closed 5m bars. Live it runs the same rule on new
+  data.
+- E1. The horizon exit of the TIMING rule.
+- E2. Barriers at entry x exp(+-k x sigma_h(T)) with M's sigma_h, k = 1.0.
+- E3. A trailing stop at the running favourable extreme x exp(-+k x sigma_h), k = 2.0, with sigma_h at the close of the
+  previous 5m bar.
+  - Each bar is checked against the trail from earlier bars before the extreme is updated.
+  - The trail never loosens.
+- X1. A maker order rests at the open of the bar 3 bars before the scheduled exit. It fills on a strict trade-through,
+  else taker at the scheduled exit.
+- E4, E5 and E6 are evaluated at every 5m close inside the hold. A close fills taker at the open 10 minutes later.
+  - E4 closes when its forecast of the remaining net return is below -1.0 x its training residual SE.
+  - E5 closes when P(holding beats closing) < 0.35 at 3 consecutive 5m closes. A missing feature resets the count.
+    Disclosed: (0.35, 3) replaced a single-check 0.4 after the synthetic planted control of the brief 25e test world
+    (the flow-led reversal plant at seeds 31 and 32) measured 53.1% false closes (synthetic data only, 2026-10-28).
+  - E4 at 1.0 x SE may rarely or never fire on an entry with no edge. That is reported, not retuned.
+  - E6 closes on a taker-buy share 2 SD against the position (12 bars against 30 days), or on a predicted funding
+    against the position above 0.05% before the settlement. The prediction uses Binance's formula approximated by the
+    simple mean of 5m premium-index closes since the last settlement, with interest 0.01% scaled by the funding
+    interval. The flow statistics are a trailing mean and SD over 30 days including the current window, with at least
+    80% coverage.
+- E4 and E5 models.
+  - They are fit per fold (per split in CPCV) on side-symmetric hypothetical holds from every training decision instant,
+    4 sampled 5m instants per hold. Labels are the remaining log return net of funding. Holds end before the refit cut.
+  - Market features at an instant come from 15m-stride phase-shifted decision bars. Position state updates every 5m.
+  - The market features are the configuration's own. The model input is [x, side x x, side, elapsed share, running P&L,
+    MFE, MAE], standardised on the training set. E4 is a ridge (alpha 1.0) and E5 a logistic regression on 1[y > 0]. A
+    fold with fewer than 1,000 samples falls back to E1 and is counted.
+  - A missing feature means hold, and is counted.
+- Fills.
+  - A stop fills taker at the worse of the level and the bar's open.
+  - A take-profit needs a strict trade-through and fills maker at the level.
+  - A tie books the stop. A missing sigma means hold, and is counted.
+- The weight keeps the configured h. Live stop orders use the contract price, which the replay's kline OHLC reproduces.
+
+A1.6 ITEM 4 FOR PATH-DEPENDENT EXITS. It amends "with the same sizes, sides and holds" for configurations with E2 to E6
+or X1.
+- The joint shift moves every entry by the same whole-day shift, with the same sides and sizes. It then re-runs the exit
+  engine from each shifted entry, using the models of the fold that holds the shifted entry, and recomputes the netting.
+- 1,000 draws, p below 0.05.
+
+A1.7 THE LABEL-SHIFT TRIPWIRE.
+- Shifts s_k = 30 + 7k days, k = 0 to 99, of every label column against the features: the entry model's labels, and the
+  E4 and E5 exit models' in-hold labels. An exit-model training sample keeps its real market features and position
+  state, and takes the remaining-return label of the same coin's hold at T + s_k at the same offset into the hold. The
+  shift maps by time within each coin and wraps within each coin's sample span.
+- In each shifted run, a training row of either model is purged when its shifted label window ends at or after the refit
+  minus the 30-day embargo, so no test-period label trains the model. This slightly lowers the tripwire's sensitivity
+  (disclosed).
+- Features, prices and the book stay real.
+- The halt rule is M's: more than 60 positive. The cost-free count is reported. It adds no trials.
+
+A1.8 ITEM 3 VARIANCE, at round close and in calibration. It amends "The variance of trial Sharpes is taken over the
+round's alpha-bearing configurations at round close".
+- The variance is pooled WITHIN COST CELLS. A cell is (interval, horizon, label, exit, book).
+- It uses every cell with at least 2 unique configurations, with degrees of freedom summed over cells.
+- N, the identical-configuration rule and the program-count report are unchanged.
+- Why: in a simplified synthetic estimate (gate-P-pre-review-2, appendix B, with the old per-interval costs, no netting
+  and no D read), cost tiers alone spread trial Sharpes from about -2.6 to -0.4 a day. That makes SR0 about 1 to 2 a
+  day, and no configuration could pass by construction.
+- The total and cost-free variances are reported beside the pooled one.
+
+A1.9 PIPELINE CALIBRATION, operational definitions. Each prediction is committed before its run, and each run's receipt
+carries its commit, which must descend from that prediction commit. The optional-stopping check, the median hold and the
+planted control are deterministic synthetic computations whose results at the registration commit are known before
+registration. They are acceptance tests of the engine and guard against code changes after it, not predictions. Measured
+power of the optional-stopping check: a look-ahead of 15 minutes in the shared feature lookup gives t 3.7 and 9.6 on the
+loosened rows, and one of 30 minutes gives t 44 and 48 (synthetic, 2026-10-29).
+- Noise.
+  - Interval-horizon groups: C1 1h/4h, C2 1h/8h, C3 4h/4h, C4 4h/8h, C5 4h/24h. "Cell" keeps A1.8's meaning.
+  - 40 configurations of hash noise features across groups C1 to C5, models ridge, LightGBM, logistic, no-refit ridge
+    and the family D score.
+  - Every group has at least 2 configurations, and every configuration trades at least 5% of decisions and 1,000
+    tranches. The trade floor is checked on the synthetic V panel before registration. A D run below it is reported and
+    still counted in V.
+  - The cost-free diagnostic uses the within-cell V of the cost-free Sharpes.
+  - Gated: M's two bounds, and 0 of 40 pass items 1 to 3.
+- Positive.
+  - A planted, cross-sectionally demeaned signal enters the 5m prices as a linear drift over each 4h hold, read through
+    the feature planted_z.
+  - Family: P1 and P2 plus 4 noise decoys.
+  - a* is the smallest registered grid amplitude with a power simulation detection rate of at least 0.8 at 1.2 x the
+    noise controls' within-cell V on D. The next lower grid amplitude must have been evaluated and failed, unless a* is
+    the grid minimum. The power simulation runs on synthetic D-shaped panels. It omits P2, the SPA and the tripwire, and
+    uses a 200-draw joint shift.
+  - On D, item 3 uses the noise controls' D within-cell V itself, not 1.2 x V, with N = 120.
+  - Gated: P1 or P2 passes items 1 to 6, with the tripwire. A miss gets one re-run, only after a code audit, at plant
+    seed 20261029 with decoy seeds 2,000,011 to 2,000,014. A second miss is terminal: the pipeline is presumed
+    insensitive.
+- Exits.
+  - E2 to E6 and X1 on one noise entry configuration, under A1.6's null: the base noise_06 (ridge, fixed label, C4, seed
+    ordinal 1, 20 hash-noise features), with only the exit changed. Gated: at most 1 of 6 rejects.
+  - The six rows share the base entries, so the count mostly reflects the base entries' place in their null. The base's
+    own p under the same replay path is reported. A row that never fires repeats E1's null and is reported as such. In
+    the block E4 and E5 see only hash noise, so they are expected never to fire on D.
+  - Each run must have the base control's entries exactly, an exit replay that reproduces its stored exits, and an
+    observed statistic equal to the replay path at zero shift. E4 and E5 runs may not fall back to E1 in any fold.
+  - Determinism: a second run of each exit configuration gives identical receipts apart from the runtime, identical
+    outputs and identical E4 and E5 coefficients. Both runs share one process, so non-determinism across processes or
+    machines is not tested.
+  - Optional stopping, on 20 zero-drift synthetic panels of 75 days (seeds 6000 to 6019, 6 coins, daily volatility 2%)
+    with a fixed noise entry set of the base's 4h decisions and 8h hold. E4 and E5 fit on each panel's first 60% with
+    the features taker_imb_last15 and ret_15m_last and are scored after it. A model therefore learns a look-ahead that
+    reaches past the 10-minute fill delay through the feature lookup that training and serving share. The check does not
+    see a leak in serving only, a leak in other features, or information inside the fill delay.
+  - E4 and E5 run at the registered thresholds and at loosened ones (E4 margin 1e-12 SE, E5 0.5 at 1 close). Gated: no
+    row's cost-free mean per tranche differs from 0 (two-sided t-test across panels at 0.01), X1's is not positive, and
+    the loosened rows close early on at least 10% of tranches, else the check is not met. A significant mean means the
+    exit engine is presumed to use future information. A loosened row below the floor means the check tested nothing.
+  - Diagnostics on synthetic panels: the median hold under E4, E5 and E6 is at least 80% of h (E4 and E5 rarely fire on
+    these panels, so theirs is met almost by construction), and the planted intrabar control. The plant is a reversal
+    visible in 5m taker flow before the price moves (4 panels). Each of E4, E5 and E6 should show a positive increment
+    against E1 on planted tranches, close ahead of the reversal on at least 80% of them, and close early on at most 20%
+    of unplanted tranches. Panel seeds 7000, 7002, 7004 and 7006, event seeds 7001, 7003, 7005 and 7007, 4 coins, 100
+    days, fit on the first 70, 1h decisions, 4h hold. E5's (0.35, 3) was chosen on this plant design at other seeds
+    (A1.5), so E5's result here is not an independent check. Disclosed: a first implementation with a different plant (a
+    burst with simultaneous flow, false closes counted over all non-adverse tranches) measured E5 false closes of 22 to
+    29%. It was replaced because it was not this design.
+- Re-tests.
+  - Rules: rv-v1, S1, S2, C1, v8 1h and v8 4h, replayed from frozen code with native costs and timing, from 2023-01-01.
+  - Betas from the trailing 12 months. Item 3 at the calibration V, labelled a re-read.
+  - Native rates, netted under A1.1.
+  - PBO not applicable. A rule passes when at least one hurdle is applied and every applied hurdle passes. A rule with
+    no applied hurdle is not evaluated. An unavailable or not-applicable hurdle neither passes nor blocks, and is
+    listed.
+  - Disclosed: v8 stop exits carry no fill price in the harness report and are dropped, which biases the v8 re-tests
+    upward. The dropped share is reported.
+  - N2, N3 and F1 do not fit (spot inputs, a 30-coin universe).
+  - Gated: all 6 fail. A pass means independent evaluation, then round-close re-evaluation.
+- lab-v5 null. Gated: a false-crossing rate at most 1/600 in 50,000 paths over 730 days.
+- Everything else registered is a diagnostic: a miss triggers a review, not a rejection.
+- Trials. Program total after Phase 4: 2,204 + 40 + 6 + 6 + 6 = 2,262. Controls are kind control, outside the
+  alpha-bearing N and outside the round-close V (calibration uses the noise controls' own within-cell V).
+- Re-tests are alpha-bearing within the 12 re-test budget. They count in N but, as singleton cells, add nothing to V.
+- The family B Tier B noise mini-control is deferred to before family B runs, as a later counted control.
+
+A1.10 $100-ACCOUNT LAYER, REPORT ONLY.
+- Each run's tranches are replayed on a $100 account at 10x, 20x and 50x with today's lot sizes and minimum notionals,
+  cross margin and liquidation. Intrabar exits are priced at their fill.
+- It never gates.
+
+A1.11 READS. This amendment adds reads of D's daily log-return covariance and betas (second moments only, as for the
+lab-v5 null), the calibration runs above, and nothing of H.
 """
 
 from __future__ import annotations
