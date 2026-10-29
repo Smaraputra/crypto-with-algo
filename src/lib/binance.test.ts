@@ -421,4 +421,47 @@ describe('fetchKlinesRange', () => {
     expect(result).toEqual([]);
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  it('returns partial result when deadline is exceeded in non-strict mode', async () => {
+    const batch1 = makeKlineResponse(
+      Array.from({ length: 1000 }, (_, i) => 1000 + i * 1000)
+    );
+    let mockNow = 1_000_000;
+    const dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => mockNow);
+    mockFetch.mockImplementation(async () => {
+      mockNow += 125_000;
+      return okResponse(batch1);
+    });
+
+    try {
+      const result = await fetchKlinesRange('BTCUSDT', '1h', 1000, 20_000_000);
+      expect(result).toHaveLength(1000);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
+
+  it('throws Error naming symbol, interval and last fetched bar time when deadline is exceeded in strict mode', async () => {
+    const batch1 = makeKlineResponse(
+      Array.from({ length: 1000 }, (_, i) => 1000 + i * 1000)
+    );
+    let mockNow = 1_000_000;
+    const dateSpy = vi.spyOn(Date, 'now').mockImplementation(() => mockNow);
+    mockFetch.mockImplementation(async () => {
+      mockNow += 125_000;
+      return okResponse(batch1);
+    });
+
+    const lastBarTime = 1000 + 999 * 1000;
+    try {
+      await expect(
+        fetchKlinesRange('BTCUSDT', '1h', 1000, 20_000_000, { strict: true })
+      ).rejects.toThrowError(
+        new RegExp(`BTCUSDT.*1h.*${lastBarTime}`)
+      );
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
 });

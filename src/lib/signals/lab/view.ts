@@ -103,6 +103,15 @@ export interface LabV3Response {
   hypotheses: LabV3HypothesisView[];
 }
 
+export interface LabV4DailyView {
+  e: number;
+  bets: number;
+  crossedAt: string | null;
+  lastDay: string | null;
+  judged: boolean;
+  label?: string;
+}
+
 export interface LabV4HypothesisView {
   id: string;
   candidate: 'S1' | 'S2';
@@ -134,6 +143,7 @@ export interface LabV4HypothesisView {
     late: boolean;
     entries: { symbol: string; side: 1 | -1 }[];
   } | null;
+  daily?: LabV4DailyView | null;
 }
 
 export interface LabV4Response {

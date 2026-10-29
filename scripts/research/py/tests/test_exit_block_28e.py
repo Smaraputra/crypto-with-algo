@@ -278,6 +278,29 @@ def test_optional_stopping_sees_a_feature_path_leak(monkeypatch):
     assert positive, "at least one model row must be significantly positive"
 
 
+def test_optional_stopping_sees_a_fifteen_minute_feature_path_leak(monkeypatch):
+    """Brief 28g, power record: a 15-minute look-ahead in the shared TauFrame.market lookup, registered sizes.
+
+    The fill is 10 minutes after tau, so a 15-minute read reaches 5 minutes past the fill. The review measured
+    t 3.7 (E4_loose) and 9.6 (E5_loose). The numbers are printed, nothing here is tuned.
+    """
+    from r4.exit_models import TauFrame
+
+    real = TauFrame.market
+
+    def leaking(self, tau_f, dtype=np.float64):
+        return real(self, np.asarray(tau_f, dtype=np.int64) + 900_000, dtype)
+
+    monkeypatch.setattr(TauFrame, "market", leaking)
+    out = cal.optional_stopping_check()
+    _print_table("leak: features read 15 minutes ahead", out)
+    for rule in ("E4", "E5", "E4_loose", "E5_loose"):
+        r = out["rules"][rule]
+        print(f"LEAK15 {rule:9s} t {r['t']:+.3f} p {r['p_two_sided']:.5f} early {r['early_share']:.4f} ok {r['ok']}")
+    assert out["met"] is False
+    assert any(out["rules"][r]["significant"] and out["rules"][r]["mean"] > 0 for r in ("E4_loose", "E5_loose"))
+
+
 def _peeking_replay(rule: str):
     from r4.exits import STEP_MS, ExitContext
 
@@ -332,8 +355,7 @@ def test_new_prediction_is_registered_and_evaluated(tmp_path):
     p = doc["predictions"]["exit_optional_stopping_zero_mean"]
     assert p["as_predicted"] is True and p["evidence"] == "exit_block"
     assert set(p["observed"]) == ROWS8
-    bad = _exit_block()
-    bad["optional_stopping"]["rules"]["E4"]["ok"] = False
+    bad = _exit_block(opt_miss=("E4",))
     sub = tmp_path / "miss"
     sub.mkdir()
     doc = cal.write_dossier(sub / "d.json", **_inputs(sub, exit_block=bad))

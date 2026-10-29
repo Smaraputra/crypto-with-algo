@@ -187,6 +187,43 @@ describe('GET /api/cron/sync-candles', () => {
     expect(data.synced).toBe(50);
   });
 
+  it('syncs every signal pair first and reports droppedPairs with 20 user symbols', async () => {
+    const userSymbols = Array.from({ length: 20 }, (_, i) => `USER${i}USDT`);
+    vi.mocked(Strategy.find).mockReturnValue({
+      select: vi.fn().mockResolvedValue([{ symbols: userSymbols }]),
+    } as never);
+    vi.mocked(Watchlist.find).mockReturnValue({
+      select: vi.fn().mockResolvedValue([]),
+    } as never);
+    vi.mocked(syncCandles).mockResolvedValue({ inserted: 1 });
+
+    const res = await GET(makeRequest('test-secret'));
+    const data = await res.json();
+
+    // 30 symbols x 4 intervals = 120 pairs, capped at 50, so 70 dropped
+    expect(data.pairs).toBe(50);
+    expect(data.droppedPairs).toBe(70);
+
+    const calls = vi.mocked(syncCandles).mock.calls.map((c) => `${c[0]}|${c[1]}`);
+    for (const sym of SIGNAL_SYMBOLS) {
+      for (const interval of ['15m', '1h', '4h', '1d']) {
+        expect(calls).toContain(`${sym}|${interval}`);
+      }
+    }
+    // Signal coins lead in their defined order
+    expect(vi.mocked(syncCandles).mock.calls[0][0]).toBe(SIGNAL_SYMBOLS[0]);
+  });
+
+  it('reports droppedPairs as 0 when nothing is capped', async () => {
+    mockEmptyDB();
+    vi.mocked(syncCandles).mockResolvedValue({ inserted: 1 });
+
+    const res = await GET(makeRequest('test-secret'));
+    const data = await res.json();
+
+    expect(data.droppedPairs).toBe(0);
+  });
+
   it('counts errors from failed syncs', async () => {
     mockEmptyDB();
     let callCount = 0;

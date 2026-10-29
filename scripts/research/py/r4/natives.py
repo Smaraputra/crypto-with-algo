@@ -46,8 +46,8 @@ from r4.cli import (
     coin_daily_drift_free,
     cpcv_path_layout,
     folds_to_json,
+    reproduction_inputs,
     resolve_commit,
-    source_digest,
     stress_metrics,
 )
 from r4.costs import FEE_PROFILES
@@ -516,7 +516,7 @@ def evaluate_retest(
         "kind": "retest",
         "rule": rule,
         "commit": commit_sha,
-        "source_sha256": source_digest(),
+        **reproduction_inputs(),
         "dataset_hash": dataset_hash,
         "export_summary_sha256": None
         if summary is None

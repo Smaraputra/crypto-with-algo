@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Result on the VPS (2026-10-29): 0 of 12 pass, as predicted. Gross edges are 0.2 to 1.4 bps a trade against 12 to 13 bps taker round trips, maker entries fill 91% of the time but turn the gross edge negative, and every month of every configuration loses (net -9.8 to -13.8 bps a trade, t -9 to -41). A $100 account at 10x on the fastest rule falls to $25 in 3 days and stops near $5, where the minimum order size blocks trading; at 50x it is under $1 by day 2.
 - Break-even: a 15-minute taker scalp needs a forecast correlation of 0.46 to 0.91 with the next return (0.11 to 0.27 all-maker), against the 0.02 to 0.06 measured anywhere in this program. The current research does not support a scalping paper desk.
 
+### Fixed: ESLint no longer runs out of memory on a local research venv
+- `npm run lint` ignores `scripts/research/py/.venv` (minified plotly bundles exhausted the 4 GB heap) and the git-excluded `.superpowers` working records.
+
 ### Added: Read-only Round 4 integrity audits
 - A research CLI can replay every stored lab signal against its frozen scoring functions and compare stored spot and perpetual 1h/4h candles with Binance archives across D. F1 raw-funding reconstruction is explicitly unavailable, while its score-to-book replay is reported separately.
 - Audits stream bounded JSONL detail beside a summary and do not write to MongoDB. Production replay and candle comparisons have not run yet.
@@ -124,6 +127,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The planted intrabar control is the calibration spec's design: a reversal visible in 5m taker flow before the price moves, on 4 registered synthetic panels. E4, E5 and E6 close ahead of the move on 100%, 100% and 93% of planted tranches, and close early on 0%, 8.3% and 0.04% of unplanted ones. A first version with a different plant had measured E5 false closes of 22 to 29%, and is disclosed.
   - In the optional-stopping check, E4 and E5 fit on each panel's own real features, at the registered thresholds and at loosened ones that fire on 76% and 91% of tranches. All 8 rows pass. Reading the features 30 minutes ahead makes E5 and both loosened rows significantly positive (t 36 to 48), so the check sees a feature-path leak. It is a gated prediction.
   - The dossier requires the exit block and refuses unregistered config ids or hashes, draw counts, seeds and synthetic sizes, a replay mismatch, a broken shift-zero identity, a failed determinism check, and a dataset hash other than the noise evaluation's.
+- Fixes from the second Opus code gate (PASS WITH FIXES):
+  - One dataset, one code state: every receipt and evaluation output carries the dataset hash, source digest, lock hash and library versions, a reused run must match all of them, and the dossier requires one value of each across noise, exit block, power, positive control, re-tests and the daily null.
+  - The dossier checks the registered power, positive-control, exit-span and re-test parameters, ties the commit-order record to the frozen commit, and recomputes every pass flag instead of trusting it.
+  - A book anchor ties the null's observed statistic to the independent daily book on every run (synthetic differences 0 to 1.6e-15), so a defect shared by the null and its shift-zero check can no longer pass.
+  - X1 must also pass the two-sided test, the loosened exit rows must fire on at least 10% of tranches for the optional-stopping gate to count, the base entries' own p is reported beside the exit rows, and a re-test with no applied hurdle is refused. A 15-minute shared feature leak fails the check (t 3.7 and 9.6 on the loosened rows).
 - Calibration building blocks, all synthetic or in memory:
   - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
   - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.
@@ -149,6 +157,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.
 - **Pinning:** every package, transitive ones included, was uploaded at least 14 days before the lock (cutoff 2026-10-11) and had no OSV advisory when locked. pip installs it from hashed lock files with wheels only. `lock.py` regenerates the locks and refuses a version that breaks either rule. `constraints.txt` holds back python-dateutil 3.0.0, pluggy 1.7.0 and pycparser 3.12, which were all too new. uv was not used, because its newest old-enough release (0.13.0) carries a critical CA-store advisory (GHSA-hq85-5cpj-mr62).
 - **Checks:** a smoke suite fits LightGBM and a ridge, round-trips Parquet, and pins skfolio's CPCV layout (15 splits, 5 paths, with purge and embargo applied only after each test block). The suite passed with ruff clean under `--network none` and a 2 GB cap on the VPS. A new workflow, `research-py.yml`, runs the suite in CI when the package changes.
+
+### Changed: lab-v4's daily statistic starts on 2026-10-26 (AMENDMENT 3, start record)
+- PR #148 (AMENDMENT 2) was merged as `2d2e5fe` and deployed on 2026-10-25, with the app restarting on it at 11:36:37 UTC. The first full UTC day after that deploy is 2026-10-26, so `LAB_V4_DAILY_START_MS` is 2026-10-26 00:00 UTC.
+- The first `S1-1h-daily` and `S2-1h-daily` rows come in the first grade run at or after 2026-10-27 00:05 UTC. From 2026-10-26 the daily e-process is lab-v4's judged statistic, and the per-trade e-process is a descriptive record.
+
+### Added: lab-v4 daily mark-to-market e-process for S1 and S2 (AMENDMENT 2, owner decision, Round 4 audit V4-1)
+- **Problem:** lab-v4 bets every hour on 8-hour holds across correlated coins, so each bet's size uses outcomes that overlap the next bet. In the Round 4 overlap simulation (50,000 no-edge paths per cell), per-trade grading of a continuation rule like S1 crossed k = 800 in 0.196% of paths [0.161, 0.239], above Ville's bound of 0.125%. Daily mark-to-market grading crossed in 0 of 100,000.
+- **Added:** `S1-1h-daily` and `S2-1h-daily`. R_d is each rule's book return per UTC day: its trades' log returns inside the day, 0.0014 on each entry day, and funding inside both the day and the trade. It is graded as x = min(R_d / c, 1) with c 0.19 and 0.18, threshold 800 and losses unbounded. Every input is a stored S1 or S2 signal, with no change to any trading rule.
+- **Waiting:** a day waits for every price it needs. It waits up to 72 hours for each funding settlement a trade needs (from the coin's settlement interval), and then grades with any gap recorded on the row.
+- **Off until started:** `LAB_V4_DAILY_START_MS` is null, so nothing grades yet. A start-record amendment sets the first full UTC day after deploy. From then on the daily e-process is the judged statistic, and the per-trade one is a descriptive record.
+- **Read route:** `GET /api/signals/lab-v4` returns a `daily` block per rule (e-value, bets, crossedAt, last day). The research catalog's lab-v4 citations follow the lock's new line numbers.
+
+### Fixed: lab-v3 funding coverage checks the whole 24-hour window (Round 4 audit V3-1)
+- **Problem:** a coin counted as covered when any settlement was stored in the last 8 hours of F1-1d's 24-hour funding window. A missing earlier settlement (T + 8h or T + 16h) passed, and the bar graded with understated funding.
+- **Fix:** lab-v3 now requires a stored settlement at each 00:00, 08:00 and 16:00 UTC time in the window. Every Binance interval from 1h to 8h settles at those times. The settlements a shorter interval adds between them are not required: Binance has skipped single ones (fourteen 4h symbols at 2026-06-24 04:00), and a waiting lab-v3 bar is released only by an amendment. A bar missing one waits, as before.
+- **Unchanged:** lab-v1, lab-v2 and lab-v4 keep the last-8-hours check, and graded rows and every rule stay as they were. The lock (`scripts/research/lab-forward-v3.ts`) records this as AMENDMENT 2.
+
+### Fixed: candle sync can no longer drop the signal coins (Round 4 audit V8-4)
+- **Problem:** `/api/cron/sync-candles` added strategy and watchlist symbols first and the 10 signal coins last, then cut the (symbol, interval) list at 50 pairs. With 13 or more distinct symbols across 4 intervals, signal coins fell off the end. Production has the 10 signal coins only (40 pairs), so this had not happened.
+- **Fix:** the signal coins come first, in their defined order, so the cap can only drop user-only symbols. The response now reports `droppedPairs`.
+
+### Fixed: live v8 context is pinned to the scored candle's close (Round 4 audit V8-1, V8-2)
+- **Problem:** the higher-timeframe context filtered bars against the batch wall clock (`now`), and news sentiment was read relative to `Date.now()`. A late compute could read an HTF bar, or headlines, from after the scored candle closed.
+- **Fix:** both now use the scored candle's close (`latestCandleTs + interval`). This is the same rule the research path uses (`htf.timestamp + htfMs <= ltf.timestamp + ltfMs`).
+- **Timely runs:** about a minute after sync, scores are unchanged, so `configVersion` is not bumped.
+- **News queries:** news is read once per distinct candle close in a batch, for all the symbols scored at that close. A batch whose tasks share one close still makes one query.
+- **Golden test:** its pinned news query arguments are updated, and its score assertions are unchanged.
+
+### Fixed: lab-v2 no longer uses a silently truncated kline history (Round 4 audit V2-1)
+- **Problem:** `fetchKlinesRange` stops paging when its 120 s deadline passes and returns what it has. Paging runs forward from the start, so a timeout drops the most RECENT bars. N2 (about 2015 daily bars) and N3 (15m) then scored on stale history without any error.
+- **Fix:** an opt-in `{ strict: true }` mode makes the deadline throw. Both lab-v2 jobs use it, and they also require the last bar to be the one closing at T. Either failure takes the existing failed-fetch path: wait, retry, then skip on the final attempt.
+- **Unchanged:** the default (non-strict) behaviour, used by candle ingestion and backfill. Complete histories, the frozen rules and the stored rows are all unchanged as well. The lock (`scripts/research/lab-forward-v2.ts`) records this as an amendment.
+
+### Fixed: one failed price fetch no longer blocks every lab-v1 and lab-v2 grade (Round 4 audit V1-1)
+- **Problem:** `gradeLabV1AndV2` fetched all symbols' 5m prices in parallel and returned at the first failure. One coin's REST error then held back all 8 lab-v1 hypotheses and all of lab-v2 until the next hourly run.
+- **Fix:** a hypothesis grades its due bars in order up to the first bar that needs a coin whose fetch failed. That bar and the later ones wait, reported as one pending entry with `price_fetch_failed`, the error and `blockedBars`. Every other hypothesis, and lab-v2, grades in the same run.
+- **Unchanged:** grading order within a hypothesis and every graded value. Only the time at which unaffected bars are graded moves. The lock (`scripts/research/lab-forward-v1.ts`) records this as AMENDMENT 3.
 
 ### Added: A detail page for every research entry, with its trials and test runs
 - **Detail pages:** every entry in the `/signals` hub now has its own page at `/signals/{id}`, linked from its card ("Open the full page"). Each page shows:

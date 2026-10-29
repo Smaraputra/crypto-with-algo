@@ -593,3 +593,32 @@ def test_cli_calib_subcommands(tmp_path: Path, monkeypatch, noise_runs):
     )
     ev = json.loads((tmp_path / "eval.json").read_text(encoding="utf-8"))
     assert ev["n_configs"] == 6 and ev["gated"]["n_pass_items_1_to_3"] >= 0
+
+
+def test_evaluate_noise_records_book_anchor_provenance_and_the_evaluation_code(noise_runs):
+    """Brief 28g: the book anchor per config, the receipts' dataset in the provenance, the code that evaluated."""
+    from r4.cli import reproduction_inputs
+
+    out = cal.evaluate_noise(noise_runs["runs"], noise_runs["ds"], panel=noise_runs["panel"], joint_draws=20)
+    print("\nnoise book anchor, obs_stat x sum|w| against the book's summed drift_free")
+    for rid, e in sorted(out["configs"].items()):
+        a = e["book_anchor"]
+        print(f"{rid:24s} rel {a['rel_diff']:.3e} kept {a['n_kept']}/{a['n_tranches']} checked {a['checked']}")
+        assert a["ok"] is True
+        assert (a["checked"] is False) or (a["rel_diff"] <= 1e-9 or a["explained"] is not None)
+    assert any(e["book_anchor"]["checked"] for e in out["configs"].values())
+    assert out["reproduction"] == reproduction_inputs()
+    assert out["provenance"]["dataset_hash"] == [out["dataset_hash"]]
+    assert out["provenance"]["requirements_lock_sha256"] == [reproduction_inputs()["requirements_lock_sha256"]]
+
+
+def test_evaluate_noise_refuses_a_receipt_from_another_dataset(tmp_path):
+    runs_dir, ds_dir = _write_cell_family(tmp_path)
+    for d in runs_dir.iterdir():
+        (d / "folds.json").write_text("[]", encoding="utf-8")
+    rc = runs_dir / "r2" / "receipt.json"
+    receipt = json.loads(rc.read_text(encoding="utf-8"))
+    receipt["dataset_hash"] = "not-the-manifest"
+    rc.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(ValueError, match="dataset"):
+        cal.evaluate_noise(runs_dir, ds_dir, panel={}, joint_draws=5)

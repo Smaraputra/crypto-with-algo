@@ -267,11 +267,27 @@ def test_pc_rerun_configs():
 SHA = "a" * 40
 SHA2 = "b" * 40
 FREEZE_SRC = "c" * 64  # the code freeze: one source digest for every receipt
+LOCK_SHA = "d" * 64  # the requirements lock hash of the freeze
+VERSIONS = {"python": "3.13.0", "numpy": "2.0.0", "pandas": "2.2.0", "scipy": "1.14.0"}
 D_V = 0.0123  # the noise controls' D within-cell V
+DS_HASH = "9" * 64
 
 
-def _prov() -> dict:
-    return {"commits": [SHA2], "source_sha256": [FREEZE_SRC]}
+def _repro() -> dict:
+    """What cli.reproduction_inputs() records at evaluation time, equal to the receipts' freeze."""
+    return {"source_sha256": FREEZE_SRC, "requirements_lock_sha256": LOCK_SHA, "versions": dict(VERSIONS)}
+
+
+def _prov(dataset: bool = False) -> dict:
+    out = {
+        "commits": [SHA2],
+        "source_sha256": [FREEZE_SRC],
+        "requirements_lock_sha256": [LOCK_SHA],
+        "versions": [dict(VERSIONS)],
+    }
+    if dataset:
+        out["dataset_hash"] = [DS_HASH]
+    return out
 
 
 def _noise_set() -> list[dict]:
@@ -296,7 +312,8 @@ def _noise_eval() -> dict:
         "verdict": verdict,
         "gate_ok": True,
         "variance": {"mode": "within_cell", "V": D_V},
-        "provenance": _prov(),
+        "provenance": _prov(True),
+        "reproduction": _repro(),
         "dataset_hash": DS_HASH,
         "noise_set": _noise_set(),
     }
@@ -310,13 +327,59 @@ def _null_sim(count: int = 3, n: int = 50_000) -> dict:
         "wilson_95": [0.0, 0.001],
         "seed": 20261025,
         "pilot": {"paths": 5000, "seed": 20261024, "n_days": 730},
+        "dcov_dataset_hash": DS_HASH,
+        "provenance": {
+            "commits": [SHA2],
+            "source_sha256": [FREEZE_SRC],
+            "requirements_lock_sha256": [LOCK_SHA],
+            "versions": [dict(VERSIONS)],
+        },
+        "reproduction": _repro(),
     }
 
 
-DS_HASH = "9" * 64
+def _opt_row(rule: str, miss: bool = False) -> dict:
+    p2 = 0.001 if miss else 0.5
+    row = {
+        "panel_means": [0.0] * 3,
+        "mean": 0.0,
+        "sd": 0.001,
+        "t": 3.0 if miss else 0.0,
+        "p_two_sided": p2,
+        "p_one_sided_positive": p2 / 2.0 if miss else 0.5,
+        "significant": miss,
+        "positive": miss,
+        "n_tranches": 1000,
+        "median_hold_share": 1.0,
+        "early_share": 0.5 if rule.endswith("_loose") else 0.1,
+        "ok": not miss,
+    }
+    if rule.endswith("_loose"):
+        row["informative"] = True
+    return row
 
 
-def _exit_block(rejects: tuple[bool, ...] = (False,) * 6) -> dict:
+def _anchor() -> dict:
+    return {
+        "checked": True,
+        "ok": True,
+        "obs_weighted_sum": 0.1,
+        "book_sum": 0.1,
+        "abs_diff": 0.0,
+        "rel_diff": 0.0,
+        "n_tranches": 100,
+        "n_kept": 100,
+        "explained": None,
+    }
+
+
+def _exit_block(
+    rejects: tuple[bool, ...] = (False,) * 6,
+    *,
+    opt_miss: tuple[str, ...] = (),
+    hold_miss: bool = False,
+    planted_miss: bool = False,
+) -> dict:
     """A block as the registered evaluation writes it: registered ids, hashes, draws, seeds and sizes."""
     from r4.method import BAR
 
@@ -335,6 +398,9 @@ def _exit_block(rejects: tuple[bool, ...] = (False,) * 6) -> dict:
                 "entries_match_base": True,
                 "replay_reproduction": {"n": 100, "mismatches": 0},
                 "shift_zero": {"observed": 0.1, "replayed": 0.1, "abs_diff": 0.0, "ok": True},
+                "anchor": _anchor(),
+                "fire_rates": {"never_fires": False, "early_share": 0.3},
+                "repeats_e1": False,
             }
         )
     rules = [c["exit"]["rule"] for c in cfgs] + ["E4_loose", "E5_loose"]
@@ -343,30 +409,42 @@ def _exit_block(rejects: tuple[bool, ...] = (False,) * 6) -> dict:
         "n_days": cal.OPT_STOP_DAYS,
         "seed_base": cal.OPT_STOP_SEED_BASE,
         "alpha": cal.OPT_STOP_ALPHA,
-        "rules": {rule: {"ok": True, "mean": 0.0, "t": 0.0, "p_two_sided": 0.5, "early_share": 0.1} for rule in rules},
-        "met": True,
+        "rules": {rule: _opt_row(rule, rule in opt_miss) for rule in rules},
+        "met": not opt_miss,
     }
     planted_rules = {
         r: {
             "increment": 0.001,
-            "close_ahead_rate": 0.9,
+            "close_ahead_rate": 0.5 if (planted_miss and r == "E4") else 0.9,
             "false_close_rate": 0.1,
             "n_planted": 500,
             "n_unplanted": 500,
-            "met": True,
+            "met": not (planted_miss and r == "E4"),
         }
+        for r in ("E4", "E5", "E6")
+    }
+    hold_rules = {
+        r: {"median_share": 0.5 if (hold_miss and r == "E5") else 1.0, "n_tranches": 1000, "early_share": 0.1}
         for r in ("E4", "E5", "E6")
     }
     return {
         "configs": rows,
         "n_rejected": int(sum(rejects)),
         "dataset_hash": DS_HASH,
+        "span_end_ms": DEV_END,
+        "base": {
+            "id": cal._exit_base_config()["id"],
+            "n_entries": 100,
+            "p_e1": 0.5,
+            "joint_shift_seed": cal._exit_base_config()["joint_shift_seed"],
+            "draws": BAR["random_entry_draws"],
+        },
         "optional_stopping": opt,
         "determinism": {"identical": True, "skipped": False, "differences": []},
         "diagnostics": {
-            "median_hold": {"met": True, "threshold": 0.8, "rules": {}},
+            "median_hold": {"met": not hold_miss, "threshold": 0.8, "rules": hold_rules},
             "planted_intrabar": {
-                "met": True,
+                "met": not planted_miss,
                 "rules": planted_rules,
                 "max_false_close_rate": 0.2,
                 "min_close_ahead_rate": 0.8,
@@ -377,23 +455,55 @@ def _exit_block(rejects: tuple[bool, ...] = (False,) * 6) -> dict:
                 "n_coins": 4,
             },
         },
-        "provenance": _prov(),
+        "provenance": _prov(True),
+        "reproduction": _repro(),
     }
 
 
 RULES = ("rv-v1", "lab-v4-s1", "lab-v4-s2", "v8-1h", "v8-4h", "c1")
 
 
-def _retest(rule: str, passed: bool = False) -> dict:
-    return {"kind": "retest", "rule": rule, "pass": passed, "commit": SHA2, "source_sha256": FREEZE_SRC}
+def _retest(rule: str, passed: bool = False, *, applied: bool = True) -> dict:
+    rows = (
+        [{"item": 4, "test": "joint_shift_null", "status": "applied", "pass": passed}]
+        if applied
+        else [{"item": 4, "test": "joint_shift_null", "status": "unavailable", "reason": "no data"}]
+    )
+    return {
+        "kind": "retest",
+        "rule": rule,
+        "pass": passed,
+        "commit": SHA2,
+        **_repro(),
+        "dataset_hash": DS_HASH,
+        "calib_v": D_V,
+        "hurdles": rows,
+        "hurdles_passed": ["joint_shift_null"] if applied and passed else [],
+        "hurdles_failed": ["joint_shift_null"] if applied and not passed else [],
+    }
 
 
-def _commit_order() -> dict:
+def _expected_receipt_ids(pid: str, a_star: float = 0.04, noise_ids: list[str] | None = None) -> list[str]:
+    if pid.startswith("noise_"):
+        return list(noise_ids) if noise_ids is not None else [r["id"] for r in _noise_set()]
+    if pid.startswith("exit_"):
+        return [c["id"] for c in cal.exit_block()]
+    if pid == "natives_all_six_fail":
+        return list(RULES)
+    if pid == "positive_detected_at_astar":
+        return [c["id"] for c in cal.pc_family(a_star)]
+    return ["null_simulation"]
+
+
+def _commit_order(noise_ids: list[str] | None = None) -> dict:
     return {
         "predictions": {
             pid: {
                 "registration_commit": SHA,
-                "receipts": [{"id": f"r_{pid}", "commit": SHA2, "is_ancestor": True}],
+                "receipts": [
+                    {"id": rid, "commit": SHA2, "is_ancestor": True}
+                    for rid in _expected_receipt_ids(pid, noise_ids=noise_ids)
+                ],
             }
             for pid in cal.PREDICTIONS
         }
@@ -406,31 +516,60 @@ def _put(tmp: Path, name: str, obj) -> Path:
     return p
 
 
-def _positive(**over) -> dict:
+def _power_doc(**over) -> dict:
+    curve = _curve({0.02: 0.5, 0.04: 0.9})
     d = {
-        "detected": True,
-        "a_star": 0.04,
+        "curve_at_1_2v": {str(a): v for a, v in curve.items()},
+        "a_star": {"a_star": 0.04, "infeasible": False, "extensions": []},
+        "v": D_V,
+        "margin": 1.2,
+        "joint_draws": 200,
+        "n_trials": 120,
+        "grid": [0.02, 0.04],
+        "dcov_dataset_hash": DS_HASH,
+        "provenance": _prov(),
+        "reproduction": _repro(),
+    }
+    d.update(over)
+    return d
+
+
+def _positive(**over) -> dict:
+    detected = over.get("detected", True)
+    a_star = over.get("a_star", 0.04)
+    fam = cal.pc_rerun_family(a_star) if over.get("rerun") else cal.pc_family(a_star)
+    ok = {f"item{i}": {"pass": bool(detected)} for i in range(1, 7)}
+    no = {f"item{i}": {"pass": False} for i in range(1, 7)}
+    d = {
+        "detected": detected,
+        "detected_by": "pc_P1" if detected else None,
+        "a_star": a_star,
         "n_trials": 120,
         "rerun": False,
         "plant": {"seed": 20261028, "amplitude": 0.04},
         "variance": {"mode": "within_cell", "V": D_V},
-        "provenance": _prov(),
+        "report": {
+            "configurations": {
+                "pc_P1": {**ok, "all_pass": bool(detected)},
+                "pc_P2": {**no, "all_pass": False},
+            }
+        },
+        "tripwires": {"pc_P1": {"positive": 0, "n": 100, "halt": False}} if detected else {},
+        "tripwire_shifts": len(SHIFT_DAYS),
+        "config_hashes": {c["id"]: config_hash_of(c) for c in fam},
+        "dataset_hash": DS_HASH,
+        "provenance": _prov(True),
+        "reproduction": _repro(),
     }
     d.update(over)
     return d
 
 
 def _inputs(tmp: Path, **over) -> dict:
-    curve = _curve({0.02: 0.5, 0.04: 0.9})
     d = {
         "null_simulation": _null_sim(),
         "noise_eval": _noise_eval(),
-        "power": {
-            "curve_at_1_2v": {str(a): v for a, v in curve.items()},
-            "a_star": {"a_star": 0.04, "infeasible": False},
-            "v": D_V,
-            "provenance": _prov(),
-        },
+        "power": _power_doc(),
         "positive_control": _positive(),
         "family_spa": {"spa_p": 0.5, "n_rules": 6},
         "exit_block": _exit_block(),
@@ -608,12 +747,11 @@ def test_dossier_gate_ready_logic(tmp_path):
     # An infeasible power grid leaves the positive prediction unmet.
     inf = run(
         "g6",
-        power={
-            "curve_at_1_2v": {"0.04": _curve({0.04: 0.1})[0.04]},
-            "a_star": {"a_star": None, "infeasible": True},
-            "v": D_V,
-            "provenance": _prov(),
-        },
+        power=_power_doc(
+            curve_at_1_2v={"0.04": _curve({0.04: 0.1})[0.04]},
+            a_star={"a_star": None, "infeasible": True, "extensions": []},
+            grid=[0.04],
+        ),
         positive_control={"detected": None, "a_star": None},
     )
     assert inf["predictions"]["positive_detected_at_astar"]["as_predicted"] is False
@@ -647,10 +785,19 @@ def test_cli_power_curve_and_dossier(power_sim, tmp_path, monkeypatch):
     assert str(A_HI) in pc["curve_at_1_2v"] or repr(A_HI) in pc["curve_at_1_2v"]
     assert pc["grid"] == [A_LO, A_HI]
     assert pc["provenance"]["commits"] == [COMMIT] and len(pc["provenance"]["source_sha256"]) == 1
+    # The file records the code it was evaluated with, and the dataset its covariance came from (brief 28g).
+    assert pc["reproduction"] == r4.cli.reproduction_inputs()
+    assert pc["reproduction"]["source_sha256"] == pc["provenance"]["source_sha256"][0]
+    assert "dcov_dataset_hash" in pc and pc["joint_draws"] == 20 and pc["n_trials"] == 120
     # The dossier binds every input to one code freeze and one V, so the other inputs of this test share the CLI
     # file's V and provenance.
     pc["v"] = D_V
     pc["provenance"] = _prov()
+    # The CLI file of this small simulation (3 replicates, 20 draws) also differs from the registered parameters the
+    # dossier binds (40 replicates, 200 draws, D's covariance), so those are restored here like V and the provenance.
+    pc.update(joint_draws=200, dcov_dataset_hash=DS_HASH, reproduction=_repro())
+    for entry in pc["curve_at_1_2v"].values():
+        entry.update(n=40, detected=round(entry["rate"] * 40), wilson95=[0.0, 1.0])
 
     ins = _inputs(tmp_path, power=pc, positive_control=_positive(a_star=A_HI))
     argv = [

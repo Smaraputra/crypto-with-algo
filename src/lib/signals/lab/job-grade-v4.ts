@@ -10,6 +10,7 @@ import {
   BinanceHttpError,
   type PerpKline,
 } from '@/lib/binance-futures';
+import { FundingSettlement } from '@/lib/models/funding-settlement';
 import {
   insertLabScoreOnce,
   LabScore,
@@ -19,6 +20,7 @@ import { LabSignal, type ILabSignal } from '@/lib/models/lab-signal';
 import { connectDB } from '@/lib/mongodb';
 import {
   LAB_HYPOTHESES_V4,
+  LAB_HYPOTHESES_V4_DAILY,
 } from '@/lib/signals/lab/candidates';
 import {
   eValue,
@@ -29,6 +31,7 @@ import {
   defaultLabGradeDeps,
   type FundingSumsResult,
   LAB_GRADE_MAX_SPAN_MS,
+  LAB_GRADE_SETTLE_MS,
   type LabGradeDeps,
   type LabGradeReport,
   normalizeFundingSumsResult,
@@ -39,8 +42,44 @@ import {
   priceTimesV4,
   type TradeGradeInput,
 } from '@/lib/signals/lab/v4/grade';
+import {
+  gradeDailyBar,
+  type DailyTrade,
+} from '@/lib/signals/lab/v4/grade-daily';
 
-export type LabGradeV4Deps = LabGradeDeps & { sleep?: (ms: number) => Promise<void> };
+/** 2026-10-26 00:00 UTC, the first full UTC day after the AMENDMENT 2 deploy (lab-v4 AMENDMENT 3, start record). */
+export const LAB_V4_DAILY_START_MS: number | null = Date.UTC(2026, 9, 26);
+
+export type LabGradeV4Deps = LabGradeDeps & {
+  sleep?: (ms: number) => Promise<void>;
+  dailyStartMs?: number | null;
+};
+
+const DAY_MS = 86_400_000;
+const FUNDING_MATCH_TOLERANCE_MS = 60_000;
+const DEFAULT_FUNDING_INTERVAL_HOURS = 8;
+
+type StoredSettlement = { symbol: string; rate: number; fundingTime: number };
+
+/**
+ * The settlement times a trade needs on day d: the coin's grid (every intervalHours from 00:00 UTC)
+ * inside (max(entry, dayStart), min(exit, dayEnd)].
+ */
+function neededFundingTimes(
+  trade: DailyTrade,
+  dayStart: number,
+  dayEnd: number,
+  intervalHours: number
+): number[] {
+  const stepMs = intervalHours * 3600_000;
+  const lo = Math.max(trade.entryTime, dayStart);
+  const hi = Math.min(trade.exitTime, dayEnd);
+  const times: number[] = [];
+  for (let t = (Math.floor(lo / stepMs) + 1) * stepMs; t <= hi; t += stepMs) {
+    times.push(t);
+  }
+  return times;
+}
 
 export async function runLabGradeV4(
   now: number,
@@ -55,6 +94,7 @@ export async function runLabGradeV4(
     fetchPerpExchangeInfo: deps?.fetchPerpExchangeInfo ?? defaultLabGradeDeps.fetchPerpExchangeInfo,
     sleep: deps?.sleep ?? defaultLabGradeDeps.sleep,
     clock: deps?.clock ?? defaultLabGradeDeps.clock,
+    dailyStartMs: deps?.dailyStartMs,
   };
 
   const report: LabGradeReport = {
@@ -64,7 +104,7 @@ export async function runLabGradeV4(
     errors: [],
   };
 
-  const sleep = d.sleep ?? defaultLabGradeDeps.sleep!;
+  const sleep = d.sleep ?? defaultLabGradeDeps.sleep ?? (async () => {});
   const fundingSumsFor = d.fundingSumsFor ?? defaultFundingSumsFor;
 
   for (const hyp of LAB_HYPOTHESES_V4) {
@@ -133,7 +173,7 @@ export async function runLabGradeV4(
         await sleep(250);
       }
       const sym = symbolsV4[i];
-      const times = Array.from(neededTimesBySymbol.get(sym)!);
+      const times = Array.from(neededTimesBySymbol.get(sym) ?? []);
       const minNeeded = Math.min(...times);
       const maxNeeded = Math.max(...times);
 
@@ -201,13 +241,13 @@ export async function runLabGradeV4(
         if (!Number.isFinite(side) || side === 0) continue;
 
         const klineMap = priceMapBySymbol.get(sym);
-        const hasStart = klineMap ? klineMap.has(start) : false;
-        const hasEnd = klineMap ? klineMap.has(end) : false;
+        const pStart = klineMap?.get(start);
+        const pEnd = klineMap?.get(end);
 
-        if (hasStart && hasEnd) {
+        if (typeof pStart === 'number' && typeof pEnd === 'number') {
           prices[sym] = {
-            start: klineMap!.get(start)!,
-            end: klineMap!.get(end)!,
+            start: pStart,
+            end: pEnd,
           };
           pricedCoins.push(sym);
         }
@@ -310,6 +350,281 @@ export async function runLabGradeV4(
         b: row.b,
         e: eValue(row.state),
       });
+    }
+  }
+
+  const dailyStartMs = deps?.dailyStartMs !== undefined ? deps.dailyStartMs : LAB_V4_DAILY_START_MS;
+  if (dailyStartMs !== null && dailyStartMs % DAY_MS !== 0) {
+    report.errors.push(`Daily pass start is not a UTC midnight: ${dailyStartMs}`);
+  } else if (dailyStartMs !== null) {
+    const SEVENTY_TWO_HOURS = 72 * 3600_000;
+
+    for (const cand of ['S1', 'S2'] as const) {
+      const dailyHypId = `${cand}-1h-daily`;
+      try {
+        const sigHypId = `${cand}-1h`;
+        const hypConfig = LAB_HYPOTHESES_V4_DAILY.find((h) => h.id === dailyHypId);
+        if (!hypConfig) continue;
+
+        const lastDaily = (await LabScore.findOne({
+          version: 'lab-v4',
+          hypothesis: dailyHypId,
+        })
+          .sort({ barClose: -1 })
+          .lean()) as LabScoreFields | null;
+
+        let dayStart = lastDaily ? lastDaily.barClose + 86_400_000 : dailyStartMs;
+        let currentState = lastDaily?.state ? { ...lastDaily.state } : initialEState();
+
+        while (now >= dayStart + 86_400_000 + LAB_GRADE_SETTLE_MS) {
+          const dayEnd = dayStart + 86_400_000;
+
+          const signals = (await LabSignal.find({
+            version: 'lab-v4',
+            hypothesis: sigHypId,
+            barClose: {
+              $gte: dayStart - 9 * 3600_000,
+              $lte: dayEnd,
+            },
+            late: false,
+          })
+            .sort({ barClose: 1 })
+            .lean()) as ILabSignal[];
+
+          const trades: DailyTrade[] = [];
+          for (const sig of signals) {
+            const entryTime = sig.barClose + 10 * 60_000;
+            const exitTime = entryTime + 8 * 3600_000;
+            if (entryTime < dayEnd && exitTime > dayStart) {
+              if (sig.scores && typeof sig.scores === 'object') {
+                const sortedEntries = Object.entries(sig.scores).sort(([a], [b]) => a.localeCompare(b));
+                for (const [sym, side] of sortedEntries) {
+                  if (side === 1 || side === -1) {
+                    trades.push({
+                      symbol: sym,
+                      side,
+                      entryTime,
+                      exitTime,
+                      barClose: sig.barClose,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          trades.sort((a, b) => a.entryTime - b.entryTime || a.symbol.localeCompare(b.symbol));
+
+          if (trades.length === 0) {
+            const row = gradeDailyBar({
+              hypothesis: hypConfig,
+              dayStart,
+              trades: [],
+              prices5m: {},
+              settlements: [],
+              prev: { state: currentState },
+              gradedAt: new Date(d.clock()),
+            });
+
+            const { inserted } = await insertLabScoreOnce(row);
+            if (!inserted) {
+              break;
+            }
+
+            currentState = row.state;
+            report.graded.push({
+              hypothesis: dailyHypId,
+              barClose: dayStart,
+              bet: row.bet,
+              x: row.x,
+              b: row.b,
+              e: eValue(row.state),
+            });
+
+            dayStart += 86_400_000;
+            continue;
+          }
+
+          const neededTimesBySymbol = new Map<string, Set<number>>();
+          for (const t of trades) {
+            let times = neededTimesBySymbol.get(t.symbol);
+            if (!times) {
+              times = new Set<number>();
+              neededTimesBySymbol.set(t.symbol, times);
+            }
+            const isEntryInDay = t.entryTime >= dayStart && t.entryTime < dayEnd;
+            const startTime = isEntryInDay ? t.entryTime : dayStart;
+            const isExitInDay = t.exitTime > dayStart && t.exitTime <= dayEnd;
+            const endTime = isExitInDay ? t.exitTime : dayEnd;
+            times.add(startTime);
+            times.add(endTime);
+          }
+
+          const symbolsDaily = Array.from(neededTimesBySymbol.keys()).sort();
+          const priceMapBySymbol = new Map<string, Map<number, number>>();
+
+          for (let i = 0; i < symbolsDaily.length; i++) {
+            if (i > 0) {
+              await sleep(250);
+            }
+            const sym = symbolsDaily[i];
+            const times = Array.from(neededTimesBySymbol.get(sym) ?? []);
+            const minNeeded = Math.min(...times);
+            const maxNeeded = Math.max(...times);
+
+            let klines: PerpKline[];
+            try {
+              klines = await d.fetchPerpKlinesRange(sym, '5m', minNeeded, maxNeeded);
+            } catch (err) {
+              if (err instanceof BinanceHttpError && err.status === 400) {
+                klines = [];
+              } else {
+                throw err;
+              }
+            }
+
+            const klineMap = new Map<number, number>();
+            for (const k of klines) {
+              klineMap.set(k.openTime, k.open);
+            }
+            priceMapBySymbol.set(sym, klineMap);
+          }
+
+          let missingPrice = false;
+          for (const t of trades) {
+            const kMap = priceMapBySymbol.get(t.symbol);
+            const isEntryInDay = t.entryTime >= dayStart && t.entryTime < dayEnd;
+            const startTime = isEntryInDay ? t.entryTime : dayStart;
+            const isExitInDay = t.exitTime > dayStart && t.exitTime <= dayEnd;
+            const endTime = isExitInDay ? t.exitTime : dayEnd;
+
+            const startPrice = kMap?.get(startTime);
+            const endPrice = kMap?.get(endTime);
+            if (
+              typeof startPrice !== 'number' ||
+              !Number.isFinite(startPrice) ||
+              startPrice <= 0 ||
+              typeof endPrice !== 'number' ||
+              !Number.isFinite(endPrice) ||
+              endPrice <= 0
+            ) {
+              missingPrice = true;
+              break;
+            }
+          }
+
+          if (missingPrice) {
+            report.pending.push({
+              hypothesis: dailyHypId,
+              barClose: dayStart,
+              dueAt: dayEnd + LAB_GRADE_SETTLE_MS,
+            });
+            break;
+          }
+
+          if (d.syncFundingSettlements) {
+            try {
+              await d.syncFundingSettlements(symbolsDaily, now);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              report.errors.push(`Daily funding sync error (${dailyHypId}): ${msg}`);
+            }
+          }
+
+          const settlements = (await FundingSettlement.find(
+            {
+              symbol: { $in: symbolsDaily },
+              fundingTime: {
+                $gt: dayStart - FUNDING_MATCH_TOLERANCE_MS,
+                $lte: dayEnd + FUNDING_MATCH_TOLERANCE_MS,
+              },
+            },
+            { symbol: 1, rate: 1, fundingTime: 1, intervalHours: 1 }
+          ).lean()) as Array<StoredSettlement & { intervalHours?: number | null }>;
+
+          const intervalBySymbol = new Map<string, number>();
+          for (const sym of symbolsDaily) {
+            const latest = (await FundingSettlement.findOne(
+              { symbol: sym, fundingTime: { $lte: dayEnd } },
+              { intervalHours: 1 }
+            )
+              .sort({ fundingTime: -1 })
+              .lean()) as { intervalHours?: number | null } | null;
+            const hours = latest?.intervalHours;
+            intervalBySymbol.set(
+              sym,
+              typeof hours === 'number' && Number.isFinite(hours) && hours > 0
+                ? hours
+                : DEFAULT_FUNDING_INTERVAL_HOURS
+            );
+          }
+
+          const missingTimes = new Set<string>();
+          for (const t of trades) {
+            const interval = intervalBySymbol.get(t.symbol) ?? DEFAULT_FUNDING_INTERVAL_HOURS;
+            for (const needed of neededFundingTimes(t, dayStart, dayEnd, interval)) {
+              const present = settlements.some(
+                (s) =>
+                  s.symbol === t.symbol &&
+                  Math.abs(s.fundingTime - needed) <= FUNDING_MATCH_TOLERANCE_MS
+              );
+              if (!present) {
+                missingTimes.add(`${t.symbol}@${needed}`);
+              }
+            }
+          }
+
+          if (missingTimes.size > 0 && now < dayEnd + SEVENTY_TWO_HOURS) {
+            report.pending.push({
+              hypothesis: dailyHypId,
+              barClose: dayStart,
+              dueAt: dayEnd + SEVENTY_TWO_HOURS,
+            });
+            break;
+          }
+
+          const fundingGaps = Array.from(missingTimes).sort();
+
+          const pricesRecord: Record<string, Record<number, number>> = {};
+          for (const [sym, kMap] of priceMapBySymbol.entries()) {
+            pricesRecord[sym] = {};
+            for (const [time, open] of kMap.entries()) {
+              pricesRecord[sym][time] = open;
+            }
+          }
+
+          const row = gradeDailyBar({
+            hypothesis: hypConfig,
+            dayStart,
+            trades,
+            prices5m: pricesRecord,
+            settlements,
+            fundingGaps: fundingGaps.length > 0 ? fundingGaps : null,
+            prev: { state: currentState },
+            gradedAt: new Date(d.clock()),
+          });
+
+          const { inserted } = await insertLabScoreOnce(row);
+          if (!inserted) {
+            break;
+          }
+
+          currentState = row.state;
+          report.graded.push({
+            hypothesis: dailyHypId,
+            barClose: dayStart,
+            bet: row.bet,
+            x: row.x,
+            b: row.b,
+            e: eValue(row.state),
+          });
+
+          dayStart += 86_400_000;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        report.errors.push(`Daily pass error (${dailyHypId}): ${msg}`);
+      }
     }
   }
 
