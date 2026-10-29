@@ -1160,7 +1160,7 @@ def family_report(
     # 1. Discover family runs
     family_runs: dict[str, dict[str, Any]] = {}
     family_daily: dict[str, pd.DataFrame] = {}
-    family_tranches: dict[str, pd.DataFrame] = {}
+    family_tranches_paths: dict[str, Path] = {}
     family_folds: dict[str, list[dict[str, Any]]] = {}
     input_receipt_shas: dict[str, str] = {}
 
@@ -1186,7 +1186,7 @@ def family_report(
                 family_runs[run_id] = receipt
                 family_daily[run_id] = pd.read_parquet(daily_file)
                 if tranches_file.exists():
-                    family_tranches[run_id] = pd.read_parquet(tranches_file)
+                    family_tranches_paths[run_id] = tranches_file
                 if folds_file.exists():
                     family_folds[run_id] = json.loads(folds_file.read_text(encoding="utf-8"))
                 input_receipt_shas[run_id] = sha256_file(receipt_file)
@@ -1272,7 +1272,9 @@ def family_report(
         if passes_1_to_3:
             if run_id not in family_folds:
                 raise ValueError(f"Run {run_id} has no folds.json, so the joint-shift null cannot read its betas")
-            tranches_df = family_tranches.get(run_id, pd.DataFrame())
+            tranches_df = (
+                pd.read_parquet(family_tranches_paths[run_id]) if run_id in family_tranches_paths else pd.DataFrame()
+            )
             from r4.exits import is_horizon
 
             replay_fn = (

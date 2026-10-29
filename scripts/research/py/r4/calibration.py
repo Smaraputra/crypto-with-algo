@@ -494,12 +494,16 @@ def _load_noise_runs(runs_dir: Path | str) -> dict[str, dict[str, Any]]:
         runs[p.name] = {
             "receipt": receipt,
             "daily": daily,
-            "tranches": pd.read_parquet(tr_file) if tr_file.exists() else pd.DataFrame(),
+            "tranches_path": tr_file if tr_file.exists() else None,
             "folds": json.loads((p / "folds.json").read_text(encoding="utf-8")),
         }
     if not runs:
         raise ValueError(f"no control runs found in {runs_dir}")
     return runs
+
+
+def _read_tranches(path: Path | None) -> pd.DataFrame:
+    return pd.read_parquet(path) if path is not None else pd.DataFrame()
 
 
 def _cost_free_frame(daily: pd.DataFrame) -> pd.DataFrame:
@@ -644,13 +648,14 @@ def evaluate_noise(
     configs: dict[str, Any] = {}
     for i in ids:
         run = runs[i]
+        tranches = _read_tranches(run["tranches_path"])
         cfg = run["receipt"]["config"]
         res1 = bar.item1(run["receipt"])
         res3 = bar.item3(run["receipt"], v_within, N_TRIALS_CALIBRATION, candidate_daily=run["daily"])
         res3["variance_mode"] = "within_cell"
         seed = int(cfg["joint_shift_seed"])
         stats = bar.joint_shift_stats(
-            run["tranches"],
+            tranches,
             panel,
             run["folds"],
             span_start_ms=int(cfg["first_refit_ms"]),
@@ -661,7 +666,7 @@ def evaluate_noise(
         )
         p, drop = bar.joint_shift_p(stats, draws)
         obs = float("nan") if (stats.n_tranches == 0 or not stats.shifts) else stats.obs_stat
-        anchor = _book_anchor(run["tranches"], stats, run["daily"], label=i)
+        anchor = _book_anchor(tranches, stats, run["daily"], label=i)
         configs[i] = {
             "cell": list(bar.cell_key(cfg)),
             "block": cfg.get("block"),
@@ -677,6 +682,7 @@ def evaluate_noise(
             "book_anchor": anchor,
             "pass_items_1_to_3": bool(res1["pass"] and item2_res["pass"] and res3["pass"]),
         }
+        del tranches, stats
 
     n = len(ids)
     n_pass = sum(c["pass_items_1_to_3"] for c in configs.values())
@@ -773,17 +779,19 @@ def _trade_counts(receipt: Mapping[str, Any]) -> tuple[int, int]:
     return n_tr, int(m["n_decisions"])
 
 
-def _load_run(run_dir: Path) -> dict[str, Any]:
+def _load_run(run_dir: Path, *, with_tranches: bool = True) -> dict[str, Any]:
     receipt = json.loads((run_dir / "receipt.json").read_text(encoding="utf-8"))
     daily = pd.read_parquet(run_dir / "daily.parquet")
     daily.attrs["config_hash"] = str(receipt["config_hash"])
-    tr_file = run_dir / "tranches.parquet"
-    return {
+    out: dict[str, Any] = {
         "receipt": receipt,
         "daily": daily,
-        "tranches": pd.read_parquet(tr_file) if tr_file.exists() else pd.DataFrame(),
         "folds": json.loads((run_dir / "folds.json").read_text(encoding="utf-8")),
     }
+    if with_tranches:
+        tr_file = run_dir / "tranches.parquet"
+        out["tranches"] = pd.read_parquet(tr_file) if tr_file.exists() else pd.DataFrame()
+    return out
 
 
 def _seed_group_split(sharpes: Mapping[str, float], groups: Mapping[str, str]) -> dict[str, Any]:
@@ -917,7 +925,7 @@ def synthetic_v(
     finally:
         shutil.rmtree(v_tmp, ignore_errors=True)
 
-    v_loaded = {c["id"]: _load_run(v_runs / c["id"]) for c in final_cfgs}
+    v_loaded = {c["id"]: _load_run(v_runs / c["id"], with_tranches=False) for c in final_cfgs}
     ids = sorted(v_loaded)
     daily = {i: v_loaded[i]["daily"] for i in ids}
     configs = {i: v_loaded[i]["receipt"]["config"] for i in ids}
@@ -978,6 +986,7 @@ def synthetic_v(
                     p, drop = bar.joint_shift_p(stats, draws)
                     rec = {**want, "p": float(p), "drop_share": float(drop)}
                     jf.write_text(json.dumps(rec, indent=2), encoding="utf-8")
+                    del run, stats
                 by_cfg[c["id"]] = {"p": rec["p"], "drop_share": rec["drop_share"], "seed": rec["seed"]}
             del panel
         finally:
