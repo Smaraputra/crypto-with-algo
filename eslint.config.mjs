@@ -71,6 +71,10 @@ const eslintConfig = defineConfig([
     ".claude/worktrees/**",
     // Same for manual worktrees under .worktrees/<name>.
     ".worktrees/**",
+    // The research Python venv ships minified JS bundles (plotly) that run ESLint out of memory.
+    "scripts/research/py/.venv/**",
+    // Git-excluded working records (briefs, scratch scripts), not part of the app.
+    ".superpowers/**",
   ]),
   // Re-score models: only the track-record server reads them. Declared before the
   // provisional blocks, which repeat the rule because a later block replaces it.

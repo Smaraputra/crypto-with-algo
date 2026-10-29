@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: ESLint no longer runs out of memory on a local research venv
+- `npm run lint` ignores `scripts/research/py/.venv` (minified plotly bundles exhausted the 4 GB heap) and the git-excluded `.superpowers` working records.
+
 ### Added: Read-only Round 4 integrity audits
 - A research CLI can replay every stored lab signal against its frozen scoring functions and compare stored spot and perpetual 1h/4h candles with Binance archives across D. F1 raw-funding reconstruction is explicitly unavailable, while its score-to-book replay is reported separately.
 - Audits stream bounded JSONL detail beside a summary and do not write to MongoDB. Production replay and candle comparisons have not run yet.
