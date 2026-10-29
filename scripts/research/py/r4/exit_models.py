@@ -37,7 +37,7 @@ from sklearn.linear_model import LogisticRegression, Ridge
 from r4.exits import STEP_MS, TAU_GRID_MS, _Bars, prepare_bars
 from r4.features import ALL_FEATURE_COLUMNS, build_feature_frame
 from r4.hashfeat import hash_feature_matrix, is_hash_feature
-from r4.method import ENTRY_DELAY_MS
+from r4.method import CPCV_EMBARGO_MS, ENTRY_DELAY_MS
 
 SAMPLES_PER_HOLD = 4
 MIN_SAMPLES = 1000
@@ -276,6 +276,8 @@ class TrainingSet:
     paths: dict[str, np.ndarray]  # elapsed, lr, mfe_long, mae_long, core, fund as (N,)
     columns: tuple[str, ...]
     n_missing_feature: int = 0
+    n_label_shift_dropped: int = 0
+    n_label_shift_purged: int = 0
 
     @property
     def n_samples(self) -> int:
@@ -415,6 +417,7 @@ class ExitModelFactory:
         cache_dir: Path | str | None = None,
         dataset_hash: str | None = None,
         dataset_dir: Path | str | None = None,
+        label_shift_ms: int = 0,
     ):
         if "planted_z" in features:
             raise ValueError("planted_z is keyed to decision times and cannot be served at tau_f")
@@ -429,16 +432,36 @@ class ExitModelFactory:
         self.cache_dir = cache_dir
         self.dataset_hash = dataset_hash
         self.dataset_dir = dataset_dir
+        self.label_shift_ms = int(label_shift_ms)
         self.length = self.h_ms // STEP_MS
         if self.h_ms % STEP_MS or self.length < 6:
             raise ValueError(f"h_ms must be a multiple of 5m and at least 30m, got {h_ms}")
         self._bars: dict[str, _Bars] = {}
         self._frames: dict[str, TauFrame] | None = None
         self._missing: dict[str, np.ndarray] = {}
+        self.last_dropped = 0
+        self.last_purged = 0
 
     @classmethod
-    def from_config(cls, panel: Mapping[str, Mapping[str, pd.DataFrame]], cfg: Any, **kw: Any) -> ExitModelFactory:
-        return cls(panel, cfg.interval, cfg.h_ms, tuple(cfg.features), cfg.seed, cfg.noise_seed, cfg.plant, **kw)
+    def from_config(
+        cls,
+        panel: Mapping[str, Mapping[str, pd.DataFrame]],
+        cfg: Any,
+        label_shift_ms: int = 0,
+        **kw: Any,
+    ) -> ExitModelFactory:
+        shift = kw.pop("label_shift_ms", label_shift_ms)
+        return cls(
+            panel,
+            cfg.interval,
+            cfg.h_ms,
+            tuple(cfg.features),
+            cfg.seed,
+            cfg.noise_seed,
+            cfg.plant,
+            label_shift_ms=shift,
+            **kw,
+        )
 
     def bars(self, symbol: str) -> _Bars:
         if symbol not in self._bars:
@@ -511,6 +534,8 @@ class ExitModelFactory:
             k: [] for k in ("elapsed", "lr", "mfe_long", "mae_long", "core", "fund")
         }
         n_missing = 0
+        n_shift_dropped = 0
+        n_shift_purged = 0
         length = self.length
         n_k = length - 2
         n_draw = min(SAMPLES_PER_HOLD, n_k)
@@ -543,20 +568,118 @@ class ExitModelFactory:
             rng = np.random.default_rng([self.seed, zlib.crc32(sym.encode())])
             draw = np.argsort(rng.random((len(sel), n_k)), axis=1)[:, :n_draw] + 1
             draw.sort(axis=1)
-            st, sr = self._settlements(sym)
-            hp = hold_paths(b, st, sr, i0[sel], length, draw)
-            tau = entry[sel][:, None] + draw * STEP_MS
-            tau_f = tau - tau % TAU_GRID_MS
-            mk = frames[sym].market(tau_f.ravel(), dtype=np.float32)
-            good = np.isfinite(mk).all(axis=1)
-            for p in path_parts:
-                path_parts[p].append(getattr(hp, p).ravel()[good])
-            n_missing += int((~good).sum())
-            parts["symbol"].append(np.full(int(good.sum()), sym, dtype=object))
-            parts["T"].append(np.repeat(T[sel], n_draw)[good])
-            parts["tau"].append(tau.ravel()[good])
-            parts["S"].append(np.repeat(S[sel], n_draw)[good])
-            parts["market"].append(mk[good])
+
+            if self.label_shift_ms == 0:
+                st, sr = self._settlements(sym)
+                hp = hold_paths(b, st, sr, i0[sel], length, draw)
+                tau = entry[sel][:, None] + draw * STEP_MS
+                tau_f = tau - tau % TAU_GRID_MS
+                mk = frames[sym].market(tau_f.ravel(), dtype=np.float32)
+                good = np.isfinite(mk).all(axis=1)
+                for p in path_parts:
+                    path_parts[p].append(getattr(hp, p).ravel()[good])
+                n_missing += int((~good).sum())
+                parts["symbol"].append(np.full(int(good.sum()), sym, dtype=object))
+                parts["T"].append(np.repeat(T[sel], n_draw)[good])
+                parts["tau"].append(tau.ravel()[good])
+                parts["S"].append(np.repeat(S[sel], n_draw)[good])
+                parts["market"].append(mk[good])
+            else:
+                T_all = np.sort(np.unique(dec["t"].to_numpy(dtype=np.int64))) + self.interval_ms
+                lo = int(T_all[0])
+                hi = int(T_all[-1])
+                circle_length = hi - lo + self.interval_ms
+
+                T_sel = T[sel]
+                entry_sel = entry[sel]
+                S_sel = S[sel]
+                tp = lo + (T_sel - lo + self.label_shift_ms) % circle_length
+                pos = np.searchsorted(T_all, tp)
+                pos_c = np.minimum(pos, len(T_all) - 1)
+                exists = (pos < len(T_all)) & (T_all[pos_c] == tp)
+
+                entry_prime = tp + ENTRY_DELAY_MS
+                S_prime = entry_prime + self.h_ms
+
+                purged = S_prime >= (cut_ms - CPCV_EMBARGO_MS)
+
+                valid = exists & (~purged)
+                i0_src = np.searchsorted(b.t, entry_prime)
+                i1_src = np.searchsorted(b.t, S_prime)
+                valid &= (i0_src < nb) & (i1_src < nb)
+                i0c_src, i1c_src = np.minimum(i0_src, nb - 1), np.minimum(i1_src, nb - 1)
+                valid &= (b.t[i0c_src] == entry_prime) & (b.t[i1c_src] == S_prime) & (i1_src - i0_src == length)
+                valid &= (b.o[i0c_src] > 0.0) & (b.o[i1c_src] > 0.0)
+                if len(miss):
+                    valid &= np.searchsorted(miss, S_prime, side="right") == np.searchsorted(
+                        miss, entry_prime, side="right"
+                    )
+
+                dropped = (~purged) & (~valid)
+                n_shift_purged += int(purged.sum()) * n_draw
+                n_shift_dropped += int(dropped.sum()) * n_draw
+
+                sel_valid = np.flatnonzero(valid)
+                if len(sel_valid) == 0:
+                    continue
+
+                draw_v = draw[sel_valid]
+                i0_v_src = i0_src[sel_valid]
+                i1_v_src = i1_src[sel_valid]
+                entry_prime_v = entry_prime[sel_valid]
+                S_prime_v = S_prime[sel_valid]
+
+                o_tau_prime_10m = b.o[i0_v_src[:, None] + draw_v + 2]
+                o_S_prime = b.o[i1_v_src][:, None]
+                pos_opens = (o_tau_prime_10m > 0.0) & np.isfinite(o_tau_prime_10m)
+
+                st, sr = self._settlements(sym)
+                cs = np.concatenate(([0.0], np.cumsum(np.asarray(sr, dtype=np.float64))))
+                tau_prime = entry_prime_v[:, None] + draw_v * STEP_MS
+                tau_prime_10m = tau_prime + 2 * STEP_MS
+                s_prime_mat = S_prime_v[:, None]
+                fund_v = (
+                    cs[np.searchsorted(st, s_prime_mat, side="right")]
+                    - cs[np.searchsorted(st, tau_prime_10m, side="right")]
+                )
+
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    core_v = np.log(o_S_prime / o_tau_prime_10m)
+
+                hp = hold_paths(b, st, sr, i0[sel][sel_valid], length, draw_v)
+
+                tau_real = entry_sel[sel_valid][:, None] + draw_v * STEP_MS
+                tau_f = tau_real - tau_real % TAU_GRID_MS
+                mk = frames[sym].market(tau_f.ravel(), dtype=np.float32)
+                good = np.isfinite(mk).all(axis=1)
+
+                pos_opens_flat = pos_opens.ravel()
+                bad_src = ~pos_opens_flat
+                if bad_src.any():
+                    n_shift_dropped += int(bad_src.sum())
+
+                keep_sample = pos_opens_flat & good
+                n_missing += int((pos_opens_flat & ~good).sum())
+
+                if not keep_sample.any():
+                    continue
+
+                path_parts["elapsed"].append(hp.elapsed.ravel()[keep_sample])
+                path_parts["lr"].append(hp.lr.ravel()[keep_sample])
+                path_parts["mfe_long"].append(hp.mfe_long.ravel()[keep_sample])
+                path_parts["mae_long"].append(hp.mae_long.ravel()[keep_sample])
+                path_parts["core"].append(core_v.ravel()[keep_sample])
+                path_parts["fund"].append(fund_v.ravel()[keep_sample])
+
+                parts["symbol"].append(np.full(int(keep_sample.sum()), sym, dtype=object))
+                parts["T"].append(np.repeat(T_sel[sel_valid], n_draw)[keep_sample])
+                parts["tau"].append(tau_real.ravel()[keep_sample])
+                parts["S"].append(np.repeat(S_sel[sel_valid], n_draw)[keep_sample])
+                parts["market"].append(mk[keep_sample])
+
+        self.last_dropped = n_shift_dropped
+        self.last_purged = n_shift_purged
+
         if not parts["T"]:
             return TrainingSet(
                 np.empty(0, dtype=object),
@@ -567,6 +690,8 @@ class ExitModelFactory:
                 {k: np.empty(0) for k in path_parts},
                 cols,
                 n_missing,
+                n_shift_dropped,
+                n_shift_purged,
             )
         return TrainingSet(
             np.concatenate(parts["symbol"]),
@@ -577,6 +702,8 @@ class ExitModelFactory:
             {k: np.concatenate(v) for k, v in path_parts.items()},
             cols,
             n_missing,
+            n_shift_dropped,
+            n_shift_purged,
         )
 
     def fit(

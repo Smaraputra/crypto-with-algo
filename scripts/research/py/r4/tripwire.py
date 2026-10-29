@@ -1,9 +1,10 @@
 """Label-shift tripwire (lock M, exploration bar item 4).
 
 100 panel-wide circular shifts of the labels against the features, each by s_k = 30 + 7k days (k = 0 to 99, no
-seed). Features, entry and exit prices and the sample times stay where they are, so training sees shifted labels while
-decisions are booked at real prices. If more than 60 of the 100 shifted walk-forwards give a positive drift-free daily
-mean, the family halts for a leakage review. The tripwire adds no trials.
+seed). Features, entry and exit prices and the sample times stay where they are, so training sees shifted labels
+(including the E4 and E5 exit models' in-hold labels) while decisions are booked at real prices. If more than 60 of
+the 100 shifted walk-forwards give a positive drift-free daily mean, the family halts for a leakage review. The
+tripwire adds no trials.
 """
 
 from __future__ import annotations
@@ -98,9 +99,17 @@ def shifted_run(
 ) -> dict[str, Any]:
     """One shifted walk-forward. The daily frame travels under the private key '_daily'."""
     interval_ms = 3_600_000 if cfg.interval == "1h" else 14_400_000
-    shifted, n_dropped = shift_labels(samples, int(shift_days) * DAY_MS, interval_ms, with_source_window=True)
+    shift_ms = int(shift_days) * DAY_MS
+    shifted, n_dropped = shift_labels(samples, shift_ms, interval_ms, with_source_window=True)
     n_rows = len(samples)
-    res = walk_forward(shifted, cfg, first_refit_ms=first_refit_ms, end_ms=end_ms, panel=panel)
+    res = walk_forward(
+        shifted,
+        cfg,
+        first_refit_ms=first_refit_ms,
+        end_ms=end_ms,
+        panel=panel,
+        exit_label_shift_ms=shift_ms,
+    )
     books = [f.book for f in res.folds if len(f.book)]
     combined = pd.concat(books).groupby("day_start").sum() if books else pd.DataFrame()
     gross = daily_series(combined, "gross_hedged", span_start_ms=first_refit_ms, span_end_ms=end_ms)["gross_hedged"]
@@ -116,6 +125,8 @@ def shifted_run(
         "n_rows": int(n_rows),
         "n_dropped": int(n_dropped),
         "drop_share": float(n_dropped / n_rows) if n_rows else 0.0,
+        "exit_label_shift_dropped": int(res.exit_label_shift_dropped),
+        "exit_label_shift_purged": int(res.exit_label_shift_purged),
         "_daily": daily,
     }
 

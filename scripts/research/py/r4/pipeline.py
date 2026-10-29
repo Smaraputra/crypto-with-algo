@@ -121,6 +121,8 @@ class FoldRecord:
     betas: dict[str, float]  # as used for the fold, NaN where not estimable
     tranches: list[Tranche]
     book: pd.DataFrame  # beta_hedged_daily output for this fold's tranches
+    exit_label_shift_dropped: int = 0
+    exit_label_shift_purged: int = 0
 
 
 @dataclass
@@ -143,6 +145,8 @@ class RunResult:
     exit_model_folds: int = 0  # E4 and E5: folds that fitted a model pair
     exit_model_fallback_folds: int = 0  # E4 and E5: folds with too few samples, run as E1
     exit_model_fallback_tranches: int = 0
+    exit_label_shift_dropped: int = 0
+    exit_label_shift_purged: int = 0
 
 
 def load_panel(
@@ -731,6 +735,7 @@ def walk_forward(
     panel: dict[str, dict[str, pd.DataFrame]] | None = None,
     exit_cache_dir: Path | str | None = None,
     dataset_hash: str | None = None,
+    exit_label_shift_ms: int = 0,
 ) -> RunResult:
     """Execute walk-forward cross-validation for configured model.
 
@@ -788,11 +793,20 @@ def walk_forward(
     if exit_ctx is not None and parse_exit(cfg.exit).rule in ("E4", "E5"):
         if panel is None:
             raise ValueError("exits E4 and E5 need the panel (5m, 15m, 4h, 1d, premium and settlements)")
-        exit_factory = ExitModelFactory.from_config(panel, cfg, cache_dir=exit_cache_dir, dataset_hash=dataset_hash)
+        exit_factory = ExitModelFactory.from_config(
+            panel,
+            cfg,
+            cache_dir=exit_cache_dir,
+            dataset_hash=dataset_hash,
+            label_shift_ms=exit_label_shift_ms,
+        )
+
+    last_dropped = last_purged = 0
 
     def fit_fold_models(t_start: int | None, cut: int) -> None:
-        nonlocal model_folds, fallback_folds
+        nonlocal model_folds, fallback_folds, last_dropped, last_purged
         if exit_factory is None or exit_ctx is None:
+            last_dropped = last_purged = 0
             return
         fitted = exit_factory.fit(t_start, cut)
         exit_ctx.set_models(fitted)
@@ -800,14 +814,15 @@ def walk_forward(
             fallback_folds += 1
         else:
             model_folds += 1
+        last_dropped = exit_factory.last_dropped
+        last_purged = exit_factory.last_purged
 
     all_tranches: list[Tranche] = []
     all_fold_dfs: list[pd.DataFrame] = []
     fold_records: list[FoldRecord] = []
     block_times: list[np.ndarray] = []  # row positions of each monthly test block
-    # (start_ms, end_ms, train_cut_ms, betas, tranches) per evaluated fold. The fold books are built after the loop,
-    # because fees and slippage net once over the whole run's included tranches (Amendment 1, A1.1).
-    pending_folds: list[tuple[int, int, int | None, dict[str, float], list[Tranche]]] = []
+    # (start_ms, end_ms, train_cut_ms, betas, tranches, dropped, purged) per evaluated fold.
+    pending_folds: list[tuple[int, int, int | None, dict[str, float], list[Tranche], int, int]] = []
 
     if cfg.refit == "none":
         train_mask = _train_window_mask(samples, first_refit_ms)
@@ -831,7 +846,9 @@ def walk_forward(
             sides = _get_decisions(model, X_test, cfg)
             tranches_k = _make_tranches(test_df, sides, cfg, exit_ctx)
             all_tranches.extend(tranches_k)
-            pending_folds.append((b_start, b_end, None, dict(betas_0), tranches_k))
+            d_cnt = last_dropped if len(pending_folds) == 0 else 0
+            p_cnt = last_purged if len(pending_folds) == 0 else 0
+            pending_folds.append((b_start, b_end, None, dict(betas_0), tranches_k, d_cnt, p_cnt))
         refits_count = 1
     else:
         refits_count = 0
@@ -869,7 +886,7 @@ def walk_forward(
             sides = _get_decisions(model, X_test, cfg)
             tranches_k = _make_tranches(test_df, sides, cfg, exit_ctx)
             all_tranches.extend(tranches_k)
-            pending_folds.append((b_start, b_end, cut_ms, dict(betas_k), tranches_k))
+            pending_folds.append((b_start, b_end, cut_ms, dict(betas_k), tranches_k, last_dropped, last_purged))
 
     if cfg.book == "D":
         # The D book ranks the coins of one decision time together: no time may be split across blocks.
@@ -884,7 +901,7 @@ def walk_forward(
         netted_costs([run_tranches[i] for i in included_idx]), included_idx, len(run_tranches)
     )
     offset = 0
-    for b_start, b_end, cut, betas_f, tranches_f in pending_folds:
+    for b_start, b_end, cut, betas_f, tranches_f, dropped_f, purged_f in pending_folds:
         fold_df = beta_hedged_daily(
             tranches_f,
             five_min,
@@ -896,7 +913,7 @@ def walk_forward(
         offset += len(tranches_f)
         if tranches_f:
             all_fold_dfs.append(fold_df)
-        fold_records.append(FoldRecord(b_start, b_end, cut, betas_f, tranches_f, fold_df))
+        fold_records.append(FoldRecord(b_start, b_end, cut, betas_f, tranches_f, fold_df, dropped_f, purged_f))
 
     book_raw = daily_book(all_tranches, five_min, settlements)
 
@@ -918,6 +935,8 @@ def walk_forward(
     n_dropped = samples.attrs.get("n_dropped", 0)
     config_dict = asdict(cfg)
     total_excluded = int(sum(df["excluded_tranches"].sum() for df in all_fold_dfs)) if all_fold_dfs else 0
+    total_exit_dropped = sum(f.exit_label_shift_dropped for f in fold_records)
+    total_exit_purged = sum(f.exit_label_shift_purged for f in fold_records)
 
     return RunResult(
         trades=trades,
@@ -938,6 +957,8 @@ def walk_forward(
         exit_model_folds=model_folds,
         exit_model_fallback_folds=fallback_folds,
         exit_model_fallback_tranches=0 if exit_ctx is None else exit_ctx.fallback_tranches,
+        exit_label_shift_dropped=total_exit_dropped,
+        exit_label_shift_purged=total_exit_purged,
     )
 
 
