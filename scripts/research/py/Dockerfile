@@ -20,6 +20,7 @@ COPY requirements.lock ./
 RUN pip install --require-hashes --only-binary=:all: --no-deps -r requirements.lock
 COPY pyproject.toml ./
 COPY r4 ./r4
+COPY scalp ./scalp
 
 FROM runtime AS test
 COPY requirements-test.lock ./
