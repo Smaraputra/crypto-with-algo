@@ -227,9 +227,9 @@ STOP RULE
   says so.
 - An override must be recorded as an amendment that quotes the result it overrides, as lab-v4 was.
 
-AMENDMENT 1 (2026-10-28, owner-approved in session 43; UNSIGNED DRAFT, not in force until the owner signs). It is
-written before any Round 4 configuration has computed a development outcome. It changes how the bar is measured and
-executed, and changes no threshold, span, budget or H rule.
+AMENDMENT 1 (2026-10-28, owner-approved in session 43; SIGNED by the owner on 2026-10-29 (session 44) for the text
+at 3c68c376). It is written before any Round 4 configuration has computed a development outcome. It changes how the
+bar is measured and executed, and changes no threshold, span, budget or H rule.
 
 A1.1 COSTS, to match Binance USDT-M one-way execution. It amends "Costs: ... charged as abs(weight) x rate on the fill
 day" and "with study slippage on taker fills (3 bps at 1h, 2 bps at 4h)".
