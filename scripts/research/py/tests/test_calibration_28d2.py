@@ -316,15 +316,22 @@ def test_dossier_refuses_each_cross_check(tmp_path, label):
     assert not (sub / "x.json").exists()
 
 
-def test_dossier_recorded_trade_floor_replacement_is_accepted(tmp_path):
+def test_dossier_registered_trade_floor_replacement_is_accepted(tmp_path):
+    ne = _noise_eval()
+    assert sum(r["replaces"] is not None for r in ne["noise_set"]) == 4
+    doc = _dossier(tmp_path, "alt", noise_eval=ne, commit_order=_commit_order([r["id"] for r in ne["noise_set"]]))
+    assert doc["gate_p_ready"] is True
+
+
+def test_dossier_unregistered_trade_floor_replacement_is_refused(tmp_path):
     ne = _noise_eval()
     orig = cal.noise_grid()[5]
     alt = cal.noise_alternative(orig, 1)
     from r4.cli import config_hash_of
 
     ne["noise_set"][5] = {"id": alt["id"], "config_hash": config_hash_of(alt), "replaces": orig["id"], "attempt": 1}
-    doc = _dossier(tmp_path, "alt", noise_eval=ne, commit_order=_commit_order([r["id"] for r in ne["noise_set"]]))
-    assert doc["gate_p_ready"] is True
+    with pytest.raises(ValueError, match=orig["id"]):
+        _dossier(tmp_path, "alt", noise_eval=ne, commit_order=_commit_order([r["id"] for r in ne["noise_set"]]))
 
 
 # ---------------------------------------------------------------------------

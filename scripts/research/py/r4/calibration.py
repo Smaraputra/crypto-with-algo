@@ -205,6 +205,28 @@ def noise_grid() -> list[dict[str, Any]]:
     return grid
 
 
+# A1.9: the trade-floor outcome of the synthetic V panel (seed 3,999, calib-synth-v at 81e3c5b0). Registered
+# before any D noise run. Every other noise control keeps its registered config.
+NOISE_REPLACEMENTS: dict[str, int] = {
+    "noise_26_logit_C2_s1": 2,
+    "noise_27_logit_C2_s2": 2,
+    "noise_28_logit_C4_s1": 2,
+    "noise_29_logit_C4_s2": 2,
+}
+
+
+def noise_final_set() -> list[dict[str, Any]]:
+    """noise_grid() in its order, with each NOISE_REPLACEMENTS id replaced by its registered alternative."""
+    grid = noise_grid()
+    ids = {c["id"] for c in grid}
+    for cid, attempt in NOISE_REPLACEMENTS.items():
+        if cid not in ids:
+            raise ValueError(f"NOISE_REPLACEMENTS names {cid!r}, which is not a noise_grid() id")
+        if attempt not in (1, 2) or isinstance(attempt, bool):
+            raise ValueError(f"NOISE_REPLACEMENTS[{cid!r}] is {attempt!r}, only attempts 1 and 2 exist")
+    return [noise_alternative(c, NOISE_REPLACEMENTS[c["id"]]) if c["id"] in NOISE_REPLACEMENTS else c for c in grid]
+
+
 def noise_alternative(config: dict[str, Any], attempt: int) -> dict[str, Any]:
     """The pre-declared replacement of a noise control that fails the trade floor.
 
@@ -726,7 +748,12 @@ def evaluate_noise(
         wsg_median,
         None if wsg_median is None else 0.3 <= wsg_median <= 0.7,
     )
-    put("noise_joint_shift_reference_panels", int(n_rej), None)  # judged against 2 synthetic panels, not computed here
+    ref_pair = REFERENCE_PANEL_REJECTIONS
+    if ref_pair is None:
+        put("noise_joint_shift_reference_panels", int(n_rej), None)  # not registered yet
+    else:
+        put("noise_joint_shift_reference_panels", int(n_rej), min(ref_pair) <= n_rej <= max(ref_pair))
+        verdict["noise_joint_shift_reference_panels"]["reference_counts"] = list(ref_pair)
 
     gate_ok = all(v["met"] for v in verdict.values() if v["status"] == "gated")
     noise_set = [
@@ -764,6 +791,9 @@ def evaluate_noise(
 
 SYNTH_V_SEED = 3999
 REFERENCE_PANEL_SEEDS: tuple[int, ...] = (3997, 3998)
+# Rejection counts at p < 0.05 of the reference panels 3,997 and 3,998 (synth_v.json at 81e3c5b0). Set in the
+# registration commit before any D noise run.
+REFERENCE_PANEL_REJECTIONS: tuple[int, int] | None = None
 SYNTH_V_FILE = "synth_v.json"
 _SYNTH_GARCH = (0.08, 0.88)
 _SYNTH_T_DF = 4.5
@@ -2921,6 +2951,17 @@ def _check_noise_set(noi: dict[str, Any]) -> None:
         claimed.add(mine[0])
     if len(claimed) != len(rows):
         raise ValueError("noise_eval.noise_set holds a configuration that is not in the registered grid")
+    # A1.9: the rows must also be the registered final set (the V panel's trade-floor replacements), in any order.
+    for f in noise_final_set():
+        hits = [r for r in rows if r.get("id") == f["id"]]
+        row = hits[0] if len(hits) == 1 else None
+        if (
+            row is None
+            or row.get("config_hash") != config_hash_of(f)
+            or row.get("replaces") != f.get("replaces")
+            or row.get("attempt") != f.get("attempt")
+        ):
+            raise ValueError(f"noise control {f['id']} is not in the registered final noise set (A1.9)")
 
 
 _FREEZE_KEYS = ("commits", "source_sha256", "requirements_lock_sha256", "versions")
@@ -3314,6 +3355,7 @@ __all__ = [
     "evaluate_noise",
     "exit_block",
     "noise_alternative",
+    "noise_final_set",
     "noise_grid",
     "pc_family",
     "trade_floor_ok",

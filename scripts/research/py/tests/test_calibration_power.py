@@ -292,7 +292,13 @@ def _prov(dataset: bool = False) -> dict:
 
 def _noise_set() -> list[dict]:
     return [
-        {"id": c["id"], "config_hash": config_hash_of(c), "replaces": None, "attempt": None} for c in cal.noise_grid()
+        {
+            "id": c["id"],
+            "config_hash": config_hash_of(c),
+            "replaces": c.get("replaces"),
+            "attempt": c.get("attempt"),
+        }
+        for c in cal.noise_final_set()
     ]
 
 

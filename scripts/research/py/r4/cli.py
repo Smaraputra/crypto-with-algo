@@ -922,7 +922,9 @@ def main() -> None:
     rt_parser.add_argument("--out", required=True, help="Output directory (receipt at OUT/<rule>/receipt.json)")
     rt_parser.add_argument("--commit", required=False, default=None, help="Commit SHA")
 
-    cg_parser = subparsers.add_parser("calib-grid", help="Write the registered calibration configs (noise, exit, pc)")
+    cg_parser = subparsers.add_parser(
+        "calib-grid", help="Write the registered calibration configs (the registered final noise set, exit, pc)"
+    )
     cg_parser.add_argument("--out", required=True, help="Output directory (noise/, exit/ and pc/ inside)")
     cg_parser.add_argument(
         "--amplitude",
@@ -1031,7 +1033,7 @@ def main() -> None:
 
         out_root = Path(args.out)
         groups = {
-            "noise": calibration.noise_grid(),
+            "noise": calibration.noise_final_set(),
             "exit": calibration.exit_block(),
             "pc": calibration.pc_family(args.amplitude),
         }

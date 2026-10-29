@@ -188,7 +188,10 @@ def test_full_run_keys_and_noise_set(full_run):
     assert written["dcov_sha256"] == hashlib.sha256(full_run["dcov"].read_bytes()).hexdigest()
     assert written["dcov_dataset_hash"] == DCOV_HASH
     assert len(written["noise_set"]) == 40
-    cal._check_noise_set({"noise_set": written["noise_set"]})
+    # Every trade floor passes here, so the rows are the plain grid. The registered final set (A1.9) also needs the
+    # four recorded replacements, so the plain grid is refused until they are substituted.
+    with pytest.raises(ValueError, match="noise_26_logit_C2_s1_alt2"):
+        cal._check_noise_set({"noise_set": written["noise_set"]})
     v = written["variance"]
     assert v["within_cell"]["V"] > 0 and v["total"]["V"] > 0
     assert set(v["within_seed_group"]) >= {"V", "df"}
