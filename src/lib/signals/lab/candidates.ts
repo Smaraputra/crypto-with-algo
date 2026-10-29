@@ -72,6 +72,17 @@ export const LAB_HYPOTHESES_V4: readonly LabHypothesis[] = Object.freeze([
   Object.freeze({ id: 'S1-1h', candidate: 'S1', timeframe: '1h', version: LAB_VERSION_V4, metric: 'trade', scale: 0.15 }),
   Object.freeze({ id: 'S2-1h', candidate: 'S2', timeframe: '1h', version: LAB_VERSION_V4, metric: 'trade', scale: 0.14 }),
 ]);
+
+export const LAB_HYPOTHESES_V4_DAILY: readonly LabHypothesis[] = Object.freeze([
+  Object.freeze({ id: 'S1-1h-daily', candidate: 'S1', timeframe: '1d', version: LAB_VERSION_V4, metric: 'book', scale: 0.19 }),
+  Object.freeze({ id: 'S2-1h-daily', candidate: 'S2', timeframe: '1d', version: LAB_VERSION_V4, metric: 'book', scale: 0.18 }),
+]);
+
+export const LAB_V4_DAILY_SCALE = Object.freeze({
+  S1: 0.19,
+  S2: 0.18,
+} as const);
+
 /** Round trip per trade: 7 bps a side taker, twice (Round 3 preview ROUND_TRIP_COST). */
 export const LAB_V4_ROUND_TRIP = 0.0014;
 /** Each trade is held this long from T + D. */

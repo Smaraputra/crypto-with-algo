@@ -41,8 +41,9 @@ async function handler(req: NextRequest) {
 
   const intervals = parseIntervals(req);
 
-  // Collect unique symbols from strategies and watchlists
-  const symbolSet = new Set<string>();
+  // Signal symbols come first, in their defined order, so the per-run cap
+  // can only ever drop user-only symbols and never the signal coins.
+  const symbolSet = new Set<string>(SIGNAL_SYMBOLS);
 
   const strategies = await Strategy.find({ active: true }).select('symbols');
   for (const s of strategies) {
@@ -58,11 +59,6 @@ async function handler(req: NextRequest) {
     }
   }
 
-  // Always include signal symbols so compute-signals has candle data
-  for (const sym of SIGNAL_SYMBOLS) {
-    symbolSet.add(sym);
-  }
-
   // Build (symbol, interval) pairs
   const pairs: Array<{ symbol: string; interval: string }> = [];
   for (const symbol of symbolSet) {
@@ -73,6 +69,7 @@ async function handler(req: NextRequest) {
 
   // Limit to MAX_PAIRS_PER_RUN
   const toSync = pairs.slice(0, MAX_PAIRS_PER_RUN);
+  const droppedPairs = pairs.length - toSync.length;
 
   let synced = 0;
   let errors = 0;
@@ -93,6 +90,7 @@ async function handler(req: NextRequest) {
     errors,
     totalInserted,
     pairs: toSync.length,
+    droppedPairs,
     intervals,
   });
 }
