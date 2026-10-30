@@ -417,6 +417,34 @@ A1.10 $100-ACCOUNT LAYER, REPORT ONLY.
 
 A1.11 READS. This amendment adds reads of D's daily log-return covariance and betas (second moments only, as for the
 lab-v5 null), the calibration runs above, and nothing of H.
+
+AMENDMENT 2 (2026-10-30, owner-approved and SIGNED by the owner on 2026-10-30 (session 44) for this text). It is
+written after the synthetic V panel and the 2 reference panels (calib-synth-v at 81e3c5b0, recorded in
+records/synth_v_81e3c5b0.json) and before any D noise run. It changes which noise controls enter the calibration V and
+defines one registered diagnostic. It changes no threshold, span, budget or H rule.
+
+A2.1 TRADE-FLOOR FAILURES AND THE CALIBRATION V. It amends A1.9 "A D run below it is reported and still counted in V".
+- On the synthetic V panel, noise_26_logit_C2_s1, noise_27_logit_C2_s2, noise_28_logit_C4_s1 and noise_29_logit_C4_s2
+  fail the trade floor at attempts 0, 1 and 2 (at most 1,635 tranches and 2.1% of decisions). Their attempt 2
+  configurations are the registered members of the noise set.
+- These 4 registered failures stay in the noise set, the ledger, items 1 to 3, the PBO, the joint-shift null and every
+  report. They are left out of the calibration V:
+  - the within-cell V of item 3, for the noise controls and for the positive control;
+  - the power simulation's 1.2 x V, and SR0;
+  - the total and cost-free variances reported beside it.
+- A D noise run below the floor that is not one of the 4 is reported and still counted in V, as A1.9 says.
+- Why: every trading noise control loses to costs (daily Sharpe -0.17 to -0.95 on the V panel), and a control that does
+  not trade has a daily Sharpe near 0. Within their cells the 4 alone raise the synthetic within-cell V from 0.0060 to
+  0.0310, and SR0 (N = 120) from 0.20 to 0.46 a day. That is the cost-tier spread that A1.8 removes between cells,
+  entering again within them. The larger V would choose a larger planted amplitude and make the positive control a
+  weaker test.
+- Synthetic values under this amendment (V panel, 36 controls): within-cell V 0.0060 (df 25), SR0 0.20.
+
+A2.2 THE REFERENCE-PANEL DIAGNOSTIC. It defines noise_joint_shift_reference_panels ("The joint-shift rejection count
+sits inside the empirical count of 2 synthetic D-shaped panels").
+- The reference panels 3,997 and 3,998 reject 1 and 2 of the 40 noise controls at p < 0.05 (1,000 draws each).
+- The diagnostic is met when D's rejection count is from the smaller to the larger of the two, inclusive: 1 to 2.
+- It stays a diagnostic. A miss triggers a review, not a rejection. M's gated bound of at most 6 is unchanged.
 """
 
 from __future__ import annotations
