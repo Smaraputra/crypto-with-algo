@@ -46,7 +46,7 @@ describe('ResearchDetail', () => {
     expect(
       screen.getByText(/The program ledger stood at 2,161 after this study/)
     ).toBeInTheDocument();
-    expect(screen.getByText(/Program total today: 2,216/)).toBeInTheDocument();
+    expect(screen.getByText(/Program total today: 2,274/)).toBeInTheDocument();
 
     // One run row with its date and commit
     const commits = screen.getAllByText('ef4043a');

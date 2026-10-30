@@ -26,5 +26,6 @@ FROM runtime AS test
 COPY requirements-test.lock ./
 RUN pip install --require-hashes --only-binary=:all: --no-deps -r requirements-test.lock
 COPY lock.py ./
+COPY records ./records
 COPY tests ./tests
 CMD ["sh", "-c", "ruff check . && ruff format --check . && pytest -q"]

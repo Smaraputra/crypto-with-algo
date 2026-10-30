@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Phase 4 registration, with lock Amendment 2 signed
+- The synthetic V record is committed as `scripts/research/py/records/synth_v_81e3c5b0.json`, the output of `calib-synth-v` at `81e3c5b0`:
+  - the V panel at seed 3,999;
+  - the reference panels at 3,997 and 3,998, each with 40 controls and a 1,000-draw joint-shift null.
+  - A test binds every registered constant to it.
+- Final noise set: noise_26 to noise_29 (logit, C2 and C4) are their attempt 2 replacements, and every other control keeps its registered config. `calib-grid` writes exactly this set, and the dossier refuses any other.
+- Amendment 2, signed by the owner on 2026-10-30, before any D noise run:
+  - The four controls that do not trade stay in the noise set, the ledger and every check, but leave the calibration V. Every trading noise control loses to costs and they sit near zero, so on the synthetic panel they alone raised the within-cell V from 0.0060 to 0.0310 and SR0 from 0.20 to 0.46 a day. That would have made the positive control a weaker test.
+  - The reference panels reject 1 and 2 of 40. The reference diagnostic is met when D's count is 1 to 2. It stays a diagnostic, and the gated bound of at most 6 is unchanged.
+- Ledger: round4-controls 52 (40 noise, 6 positive family, 6 exit rows, all kind control) and round4-retests 6, for a program total of 2,274.
+  - Amendment 1's "2,262" predates the 12 trials of scalp study S1. Round 4's own 58 are unchanged.
+  - The site's ledger total reads 2,274.
+
+### Fixed: Round 4 calibration reads tranche frames one config at a time
+- On the VPS on 2026-10-29, `calib-synth-v` at `81e3c5b0` went over its 2 GB container cap during the second reference-panel run. It kept every V-panel run's tranche frame in memory (762 MB for 48 runs) next to a full synthetic panel and a 1,000-draw joint-shift null.
+- `synthetic_v` and `evaluate_noise` now read each run's tranches only when its own joint-shift null needs them. `bar.family_report` reads them only for configurations that pass items 1 to 3. `evaluate_noise` would otherwise have failed the same way on D.
+- No value changes: on the same fixtures, the `evaluate_noise` and `synthetic_v` outputs are byte-identical before and after.
+- The synthetic V panel finished before the failure. Its reference panels are completed at `81e3c5b0` by separate worker processes, so its finished runs stay valid.
+- On the V panel, the four logit noise controls in cells C2 and C4 fail the trade floor in all three registered attempts (at most 1,635 tranches, 2.1% of decisions). Their attempt 2 is kept and flagged. Amendment 2 takes them out of the calibration V (see the registration entry).
+
 ### Added: Scalp study S1 (registered and run: 0 of 12 pass)
 - A pre-registered test of 1h-context scalping on the 10 signal coins over span R (2026-07-03 to 2026-10-27, outside D and H): three rules (trend pullback, short-term reversal, taker flow with trend), 15m and 60m holds, taker or maker entries, 12 trials (ledger 2,216).
 - Costs follow Binance USDT-M VIP 0 (0.02% maker, 0.05% taker) with per-coin slippage and Round 4 netting. A $100 account at 10x and 50x is reported. The registered prediction is that none of the 12 passes.

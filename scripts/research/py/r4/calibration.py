@@ -832,9 +832,9 @@ def evaluate_noise(
 
 SYNTH_V_SEED = 3999
 REFERENCE_PANEL_SEEDS: tuple[int, ...] = (3997, 3998)
-# Rejection counts at p < 0.05 of the reference panels 3,997 and 3,998 (synth_v.json at 81e3c5b0). Set in the
-# registration commit before any D noise run.
-REFERENCE_PANEL_REJECTIONS: tuple[int, int] | None = None
+# Rejection counts at p < 0.05 of the reference panels 3,997 and 3,998 (records/synth_v_81e3c5b0.json). Registered
+# before any D noise run; A2.2 judges D's count against them.
+REFERENCE_PANEL_REJECTIONS: tuple[int, int] | None = (1, 2)
 SYNTH_V_FILE = "synth_v.json"
 _SYNTH_GARCH = (0.08, 0.88)
 _SYNTH_T_DF = 4.5
