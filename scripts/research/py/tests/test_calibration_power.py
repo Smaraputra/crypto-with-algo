@@ -304,22 +304,35 @@ def _noise_set() -> list[dict]:
     ]
 
 
-def _noise_eval() -> dict:
-    verdict = {}
-    for pid, spec in cal.PREDICTIONS.items():
-        if pid.startswith("noise_"):
-            verdict[pid] = {
-                "status": spec["status"],
-                "text": spec["text"],
-                "observed": 0,
-                "met": None if pid == "noise_joint_shift_reference_panels" else True,
-            }
+def _noise_eval(
+    *, n_pass: int = 0, n_rej: int = 2, pbo: float = 0.05, cf_n: int | None = 1, wsg_median: float | None = 0.5
+) -> dict:
+    """A noise_eval document that is internally consistent: the registered final set, 1,000 draws and seeds, and
+    verdicts, gated counts and V exclusions that equal their recount (Gate P review 3, F1)."""
+    final = cal.noise_final_set()
+    configs = {
+        c["id"]: {
+            "joint_shift": {
+                "p": 0.01 if k < n_rej else 0.5,
+                "seed": c["joint_shift_seed"],
+                "draws": int(cal.BAR["random_entry_draws"]),
+            },
+            "pass_items_1_to_3": k < n_pass,
+        }
+        for k, c in enumerate(final)
+    }
     return {
         "n_configs": 40,
-        "gated": {"n_pass_items_1_to_3": 0, "n_reject_joint_shift_05": 2},
-        "verdict": verdict,
+        "gated": {"n_pass_items_1_to_3": n_pass, "n_reject_joint_shift_05": n_rej},
+        "configs": configs,
+        "item2": {"pbo": pbo},
+        "diagnostics": {
+            "cost_free": {"n_pass_items_1_to_3": cf_n},
+            "within_seed_group_pbo": {"median": wsg_median},
+        },
+        "verdict": cal._noise_verdicts(n_pass, n_rej, pbo, cf_n, wsg_median, cal.REFERENCE_PANEL_REJECTIONS),
         "gate_ok": True,
-        "variance": {"mode": "within_cell", "V": D_V},
+        "variance": {"mode": "within_cell", "V": D_V, "excluded_from_v": sorted(cal.NOISE_V_EXCLUDED)},
         "provenance": _prov(True),
         "reproduction": _repro(),
         "dataset_hash": DS_HASH,
@@ -729,21 +742,19 @@ def test_dossier_gate_ready_logic(tmp_path):
     # The exit diagnostics are always evaluated now (the block is required, brief 28e). One not judged by this
     # dossier (the reference-panel count) stays None and never blocks the gate.
     assert preds["exit_median_hold_at_least_80pct"]["as_predicted"] is True
-    assert preds["noise_joint_shift_reference_panels"]["as_predicted"] is None
+    assert preds["noise_joint_shift_reference_panels"]["as_predicted"] is True  # 2 lies in the registered (1, 2)
     assert base["gate_p_ready"] is True
 
     # A diagnostic miss does not flip it.
-    ne = _noise_eval()
-    ne["verdict"]["noise_family_pbo_net_below_0_1"]["met"] = False
-    ne["verdict"]["noise_cost_free_items123_0_to_2"]["met"] = False
+    ne = _noise_eval(pbo=0.3, cf_n=5)
     d = run("diag", noise_eval=ne, null_simulation=_null_sim(count=11))
     assert d["predictions"]["noise_family_pbo_net_below_0_1"]["as_predicted"] is False
     assert d["predictions"]["daily_null_at_most_10_crossings"]["as_predicted"] is False
     assert d["gate_p_ready"] is True
 
     # Each gated miss flips it.
-    ne = _noise_eval()
-    ne["verdict"]["noise_items123_zero_of_40"]["met"] = False
+    ne = _noise_eval(n_pass=1)
+    assert ne["verdict"]["noise_items123_zero_of_40"]["met"] is False
     assert run("g1", noise_eval=ne)["gate_p_ready"] is False
     assert run("g2", positive_control=_positive(detected=False))["gate_p_ready"] is False
     assert (

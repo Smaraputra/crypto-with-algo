@@ -530,6 +530,11 @@ def _load_noise_runs(runs_dir: Path | str) -> dict[str, dict[str, Any]]:
             raise ValueError(f"{p / 'receipt.json'} is not a control receipt: the noise evaluation takes controls only")
         if receipt["config"].get("joint_shift_seed") is None:
             raise ValueError(f"{p / 'receipt.json'} has no config.joint_shift_seed")
+        if p.name != receipt["config"].get("id"):
+            raise ValueError(
+                f"run directory {p.name!r} is not named by its config id {receipt['config'].get('id')!r}: "
+                "the V exclusion and the noise set key on different names"
+            )
         daily = pd.read_parquet(p / "daily.parquet")
         daily.attrs["config_hash"] = str(receipt["config_hash"])
         tr_file = p / "tranches.parquet"
@@ -658,6 +663,43 @@ def _check_receipts_dataset(receipts: Sequence[dict[str, Any]], manifest_hash: s
         raise ValueError(f"{label}: receipts carry dataset hash {bad}, the dataset read has {manifest_hash!r}")
 
 
+def _noise_verdicts(
+    n_pass: int,
+    n_rej: int,
+    family_pbo: float,
+    cf_n: int | None,
+    wsg_median: float | None,
+    reference_pair: tuple[int, int] | None,
+) -> dict[str, dict[str, Any]]:
+    """The 7 noise verdicts from the recounted statistics, so the evaluator and the dossier judge them alike."""
+    verdict: dict[str, dict[str, Any]] = {}
+
+    def put(pid: str, observed: Any, met: bool | None) -> None:
+        verdict[pid] = {
+            "status": PREDICTIONS[pid]["status"],
+            "text": PREDICTIONS[pid]["text"],
+            "observed": observed,
+            "met": None if met is None else bool(met),
+        }
+
+    put("noise_items123_at_most_5", int(n_pass), n_pass <= 5)
+    put("noise_items123_zero_of_40", int(n_pass), n_pass == 0)
+    put("noise_joint_shift_at_most_6", int(n_rej), n_rej <= 6)
+    put("noise_family_pbo_net_below_0_1", float(family_pbo), family_pbo < 0.1)
+    put("noise_cost_free_items123_0_to_2", cf_n, None if cf_n is None else cf_n <= 2)
+    put(
+        "noise_within_seed_group_pbo_median_0_3_to_0_7",
+        wsg_median,
+        None if wsg_median is None else 0.3 <= wsg_median <= 0.7,
+    )
+    if reference_pair is None:
+        put("noise_joint_shift_reference_panels", int(n_rej), None)  # not registered yet
+    else:
+        put("noise_joint_shift_reference_panels", int(n_rej), min(reference_pair) <= n_rej <= max(reference_pair))
+        verdict["noise_joint_shift_reference_panels"]["reference_counts"] = list(reference_pair)
+    return verdict
+
+
 def evaluate_noise(
     noise_runs_dir: Path | str,
     ds_dir: Path | str,
@@ -724,6 +766,7 @@ def evaluate_noise(
         p, drop = bar.joint_shift_p(stats, draws)
         obs = float("nan") if (stats.n_tranches == 0 or not stats.shifts) else stats.obs_stat
         anchor = _book_anchor(tranches, stats, run["daily"], label=i)
+        n_tr, n_dec = _trade_counts(run["receipt"])
         configs[i] = {
             "cell": list(bar.cell_key(cfg)),
             "block": cfg.get("block"),
@@ -737,6 +780,12 @@ def evaluate_noise(
                 "observed": float(obs) if np.isfinite(obs) else None,
             },
             "book_anchor": anchor,
+            "trade_floor": {
+                "n_tranches": n_tr,
+                "n_decisions": n_dec,
+                "trade_share": float(n_tr / n_dec) if n_dec else None,
+                "ok": trade_floor_ok(run["receipt"]),
+            },
             "pass_items_1_to_3": bool(res1["pass"] and item2_res["pass"] and res3["pass"]),
         }
         del tranches, stats
@@ -762,33 +811,8 @@ def evaluate_noise(
         },
     }
 
-    verdict: dict[str, dict[str, Any]] = {}
-
-    def put(pid: str, observed: Any, met: bool | None) -> None:
-        verdict[pid] = {
-            "status": PREDICTIONS[pid]["status"],
-            "text": PREDICTIONS[pid]["text"],
-            "observed": observed,
-            "met": None if met is None else bool(met),
-        }
-
-    put("noise_items123_at_most_5", int(n_pass), n_pass <= 5)
-    put("noise_items123_zero_of_40", int(n_pass), n_pass == 0)
-    put("noise_joint_shift_at_most_6", int(n_rej), n_rej <= 6)
-    put("noise_family_pbo_net_below_0_1", float(item2_res["pbo"]), item2_res["pbo"] < 0.1)
     cf_n = cost_free.get("n_pass_items_1_to_3")
-    put("noise_cost_free_items123_0_to_2", cf_n, None if cf_n is None else cf_n <= 2)
-    put(
-        "noise_within_seed_group_pbo_median_0_3_to_0_7",
-        wsg_median,
-        None if wsg_median is None else 0.3 <= wsg_median <= 0.7,
-    )
-    ref_pair = REFERENCE_PANEL_REJECTIONS
-    if ref_pair is None:
-        put("noise_joint_shift_reference_panels", int(n_rej), None)  # not registered yet
-    else:
-        put("noise_joint_shift_reference_panels", int(n_rej), min(ref_pair) <= n_rej <= max(ref_pair))
-        verdict["noise_joint_shift_reference_panels"]["reference_counts"] = list(ref_pair)
+    verdict = _noise_verdicts(n_pass, n_rej, float(item2_res["pbo"]), cf_n, wsg_median, REFERENCE_PANEL_REJECTIONS)
 
     gate_ok = all(v["met"] for v in verdict.values() if v["status"] == "gated")
     noise_set = [
@@ -807,6 +831,7 @@ def evaluate_noise(
         "provenance": receipt_provenance([runs[i]["receipt"] for i in ids]),
         "reproduction": _cli().reproduction_inputs(),
         "configs": configs,
+        "trade_floor_failed": sorted(i for i, c in configs.items() if not c["trade_floor"]["ok"]),
         "item2": item2_res,
         "variance": {
             "mode": "within_cell",
@@ -2621,7 +2646,85 @@ def _validate_noise(d: Any) -> dict[str, Any]:
             raise ValueError(f"noise_eval.verdict has an unregistered prediction {pid!r}")
         if not isinstance(v, dict) or v.get("met") not in (True, False, None):
             raise ValueError(f"noise_eval.verdict[{pid!r}].met must be true, false or null")
+    _recompute_noise(d, gated, verdict)
     return verdict  # type: ignore[no-any-return]
+
+
+def _recompute_noise(d: dict[str, Any], gated: dict[str, Any], verdict: dict[str, Any]) -> None:
+    """Recount the noise evaluation from its per-config rows and judge it again (Gate P review 3, F1).
+
+    The per-config joint-shift draws and seeds must be the registered ones, the gated counts must equal the recount,
+    and every verdict must equal what _noise_verdicts returns for the recounted statistics.
+    """
+    rows = d.get("noise_set")
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise ValueError("noise_eval.noise_set must list the evaluated configurations")
+    configs = d.get("configs")
+    if not isinstance(configs, dict):
+        raise ValueError("noise_eval.configs is missing: the per-config rows are needed to recount the verdicts")
+    set_ids = {str(r.get("id")) for r in rows}
+    if set(configs) != set_ids:
+        raise ValueError(
+            "noise_eval.configs ids differ from noise_eval.noise_set: "
+            f"only in configs {sorted(set(configs) - set_ids)}, only in noise_set {sorted(set_ids - set(configs))}"
+        )
+    seeds = {c["id"]: int(c["joint_shift_seed"]) for c in noise_final_set()}
+    want_draws = int(BAR["random_entry_draws"])
+    rej_p = float(BAR["random_entry_p_max"])
+    n_pass = 0
+    n_rej = 0
+    for cid, c in configs.items():
+        js = c.get("joint_shift") if isinstance(c, dict) else None
+        if not isinstance(js, dict):
+            raise ValueError(f"noise_eval.configs[{cid!r}].joint_shift is missing")
+        if cid not in seeds:
+            raise ValueError(f"noise_eval.configs[{cid!r}] is not a noise_final_set() id")
+        if not _is_int(js.get("draws")) or js["draws"] != want_draws:
+            raise ValueError(f"noise_eval.configs[{cid!r}].joint_shift.draws is {js.get('draws')!r}, need {want_draws}")
+        if not _is_int(js.get("seed")) or js["seed"] != seeds[cid]:
+            raise ValueError(
+                f"noise_eval.configs[{cid!r}].joint_shift.seed is {js.get('seed')!r}, registered {seeds[cid]}"
+            )
+        p = js.get("p")
+        if isinstance(p, bool) or not isinstance(p, (int, float)) or not math.isfinite(p):
+            raise ValueError(f"noise_eval.configs[{cid!r}].joint_shift.p must be a finite number")
+        if not isinstance(c.get("pass_items_1_to_3"), bool):
+            raise ValueError(f"noise_eval.configs[{cid!r}].pass_items_1_to_3 must be a boolean")
+        n_pass += int(c["pass_items_1_to_3"])
+        n_rej += int(p < rej_p)
+    if gated["n_pass_items_1_to_3"] != n_pass:
+        raise ValueError(f"noise_eval.gated.n_pass_items_1_to_3 is {gated['n_pass_items_1_to_3']}, recount {n_pass}")
+    if gated["n_reject_joint_shift_05"] != n_rej:
+        raise ValueError(
+            f"noise_eval.gated.n_reject_joint_shift_05 is {gated['n_reject_joint_shift_05']}, recount {n_rej}"
+        )
+    item2 = d.get("item2")
+    pbo = item2.get("pbo") if isinstance(item2, dict) else None
+    if isinstance(pbo, bool) or not isinstance(pbo, (int, float)) or not math.isfinite(pbo):
+        raise ValueError("noise_eval.item2.pbo must be a finite number")
+    diag = d.get("diagnostics")
+    cost_free = diag.get("cost_free") if isinstance(diag, dict) else None
+    if not isinstance(cost_free, dict):
+        raise ValueError("noise_eval.diagnostics.cost_free is missing")
+    cf_n = cost_free.get("n_pass_items_1_to_3")
+    if cf_n is not None and not _is_int(cf_n):
+        raise ValueError("noise_eval.diagnostics.cost_free.n_pass_items_1_to_3 must be an integer or null")
+    wsg = diag.get("within_seed_group_pbo")
+    wsg_median = wsg.get("median") if isinstance(wsg, dict) else None
+    if wsg_median is not None and (
+        isinstance(wsg_median, bool) or not isinstance(wsg_median, (int, float)) or not math.isfinite(wsg_median)
+    ):
+        raise ValueError("noise_eval.diagnostics.within_seed_group_pbo.median must be a number or null")
+    expected = _noise_verdicts(n_pass, n_rej, float(pbo), cf_n, wsg_median, REFERENCE_PANEL_REJECTIONS)
+    if set(verdict) != set(expected):
+        raise ValueError(f"noise_eval.verdict lists {sorted(verdict)}, the recount judges {sorted(expected)}")
+    for pid, want in expected.items():
+        if verdict[pid] != want:
+            raise ValueError(f"noise_eval.verdict[{pid!r}] is {verdict[pid]!r}, the recount gives {want!r}")
+    variance = d.get("variance")
+    excluded = variance.get("excluded_from_v") if isinstance(variance, dict) else None
+    if excluded != sorted(NOISE_V_EXCLUDED):
+        raise ValueError(f"noise_eval.variance.excluded_from_v is {excluded!r}, registered {sorted(NOISE_V_EXCLUDED)}")
 
 
 def _validate_power(d: Any) -> dict[str, Any]:
