@@ -228,3 +228,23 @@ def test_signed_text_unchanged_and_amendments_appended_only() -> None:
     assert doc.startswith(signed)
     tail = doc[len(signed) :]
     assert tail == "" or tail.lstrip("\n").startswith("AMENDMENT ")
+
+
+def test_signed_amendments_unchanged_and_later_ones_appended_only() -> None:
+    """Amendment 1 (signed for the text at 3c68c376, record 2f4b26f1) and Amendment 2 (signed at 245c4522) follow M
+    byte for byte. Anything after them is a later appended AMENDMENT, never an edit (Gate P pre-run review 3, F10).
+    """
+    from pathlib import Path
+
+    fixtures = Path(__file__).parent / "fixtures"
+    signed = (fixtures / "method_doc_signed_bbc4330b.txt").read_text(encoding="utf-8")
+    a1 = (fixtures / "method_doc_amendment1_signed_3c68c376.txt").read_text(encoding="utf-8")
+    a2 = (fixtures / "method_doc_amendment2_signed_245c4522.txt").read_text(encoding="utf-8")
+    doc = method.__doc__
+    assert doc is not None
+    tail = doc[len(signed) :]
+    start = tail.index("AMENDMENT 1 (")
+    assert tail[:start].strip() == ""
+    assert tail[start:].startswith(a1 + a2)
+    rest = tail[start + len(a1) + len(a2) :]
+    assert rest == "" or rest.lstrip("\n").startswith("AMENDMENT 3 ")

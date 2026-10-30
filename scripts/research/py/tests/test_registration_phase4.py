@@ -17,6 +17,7 @@ import pytest
 from r4 import bar
 from r4 import calibration as cal
 from r4.cli import config_hash_of
+from r4.method import DEV_END, DEV_START
 from r4.stats import expected_max_sharpe
 
 RECORD = Path(__file__).resolve().parents[1] / "records" / "synth_v_81e3c5b0.json"
@@ -30,6 +31,15 @@ def test_record_is_the_81e3c5b0_run_on_the_registered_panels():
     rec = _record()
     assert str(rec["commit"]).startswith("81e3c5b0")
     assert rec["panel_seeds"] == {"v": cal.SYNTH_V_SEED, "reference": list(cal.REFERENCE_PANEL_SEEDS)}
+
+
+def test_record_span_and_code_are_81e3c5b0s():
+    # Gate P pre-run review 3, F10: the record covers D's span from the registered first refit, and was made by the
+    # r4 source of 81e3c5b0 (digest recomputed from that commit's git tree with r4.cli.source_digest, 2026-10-30).
+    rec = _record()
+    assert rec["span"] == {"start_ms": DEV_START, "end_ms": DEV_END, "first_refit_ms": cal.FIRST_REFIT_MS}
+    assert rec["provenance"]["commits"] == ["81e3c5b0"]
+    assert rec["provenance"]["source_sha256"] == ["be222a8045c9a72826cd5087f93c73a25ca987a47768e7d1a6080b178099eb65"]
 
 
 def test_record_noise_set_is_the_registered_final_set():
