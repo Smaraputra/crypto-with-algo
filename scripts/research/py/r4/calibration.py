@@ -15,7 +15,7 @@ import json
 import math
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -213,6 +213,26 @@ NOISE_REPLACEMENTS: dict[str, int] = {
     "noise_28_logit_C4_s1": 2,
     "noise_29_logit_C4_s2": 2,
 }
+
+
+# A2.1: the registered trade-floor failures of the synthetic V panel. They stay in the noise set, items 1 to 3, the PBO,
+# the joint-shift null and every report, and are left out of every calibration variance (V, 1.2 x V, SR0, total and
+# cost-free).
+NOISE_V_EXCLUDED: frozenset[str] = frozenset(
+    {
+        "noise_26_logit_C2_s1_alt2",
+        "noise_27_logit_C2_s2_alt2",
+        "noise_28_logit_C4_s1_alt2",
+        "noise_29_logit_C4_s2_alt2",
+    }
+)
+
+
+def _check_v_excluded(excluded: Collection[str]) -> None:
+    ids = {c["id"] for c in noise_final_set()}
+    for cid in sorted(excluded):
+        if cid not in ids:
+            raise ValueError(f"NOISE_V_EXCLUDED names {cid!r}, which is not a noise_final_set() id")
 
 
 def noise_final_set() -> list[dict[str, Any]]:
@@ -538,6 +558,11 @@ def _binom_tail(n: int, p: float, k: int) -> float:
     return float(sum(math.comb(n, j) * p**j * (1 - p) ** (n - j) for j in range(k, n + 1)))
 
 
+def _v_run_ids(runs: Mapping[str, dict[str, Any]]) -> list[str]:
+    """The run ids that enter the calibration V: every run whose receipt config id is not in NOISE_V_EXCLUDED."""
+    return sorted(i for i in runs if runs[i]["receipt"]["config"].get("id") not in NOISE_V_EXCLUDED)
+
+
 def _cost_free_diagnostics(runs: dict[str, dict[str, Any]], v_cost_free: float | None) -> dict[str, Any]:
     """Cost-free items 1 to 3 on gross_hedged + funding, with the within-cell V of the COST-FREE Sharpes.
 
@@ -552,8 +577,11 @@ def _cost_free_diagnostics(runs: dict[str, dict[str, Any]], v_cost_free: float |
     for i in ids:
         cf[i].attrs["config_hash"] = runs[i]["daily"].attrs["config_hash"]
     item2_cf = bar.item2(cf)
+    v_ids = _v_run_ids(runs)
     v_cf_within = float(
-        bar.trial_sharpe_variance(cf, {i: runs[i]["receipt"]["config"] for i in ids}, "within_cell")["V"]
+        bar.trial_sharpe_variance(
+            {i: cf[i] for i in v_ids}, {i: runs[i]["receipt"]["config"] for i in v_ids}, "within_cell"
+        )["V"]
     )
     per_config: dict[str, Any] = {}
     n_pass = 0
@@ -652,8 +680,10 @@ def evaluate_noise(
     if panel is None:
         panel = load_panel(Path(ds_dir), list(manifest["symbols"]))
 
-    round_daily = {i: runs[i]["daily"] for i in ids}
-    round_configs = {i: runs[i]["receipt"]["config"] for i in ids}
+    _check_v_excluded(NOISE_V_EXCLUDED)
+    v_ids = _v_run_ids(runs)
+    round_daily = {i: runs[i]["daily"] for i in v_ids}
+    round_configs = {i: runs[i]["receipt"]["config"] for i in v_ids}
     variance_modes: dict[str, Any] = {}
     for vm in bar.VARIANCE_MODES:
         try:
@@ -664,6 +694,11 @@ def evaluate_noise(
             variance_modes[vm] = {"error": str(exc)}
     v_within = float(variance_modes["within_cell"]["V"])
     v_cf = variance_modes["cost_free_total"].get("V")
+    excluded_ids = sorted(str(runs[i]["receipt"]["config"]["id"]) for i in set(ids) - set(v_ids))
+    # disclosure only: the within-cell V over every run, never used
+    with_excluded = bar.trial_sharpe_variance(
+        {i: runs[i]["daily"] for i in ids}, {i: runs[i]["receipt"]["config"] for i in ids}, "within_cell"
+    )
 
     item2_res = bar.item2({i: runs[i]["daily"] for i in ids})
 
@@ -773,7 +808,13 @@ def evaluate_noise(
         "reproduction": _cli().reproduction_inputs(),
         "configs": configs,
         "item2": item2_res,
-        "variance": {"mode": "within_cell", "V": v_within, "modes": variance_modes},
+        "variance": {
+            "mode": "within_cell",
+            "V": v_within,
+            "modes": variance_modes,
+            "excluded_from_v": excluded_ids,
+            "within_cell_with_excluded": with_excluded,
+        },
         "gated": {
             "n_pass_items_1_to_3": int(n_pass),
             "n_reject_joint_shift_05": int(n_rej),
@@ -1563,6 +1604,7 @@ def positive_control(
     run_receipts = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(runs.glob("*/receipt.json"))]
     _check_receipts_dataset(run_receipts, str(bar.read_manifest(ds)["datasetHash"]), "positive control")
     planted = apply_plant(panel, configs[0]["plant"])
+    _check_v_excluded(NOISE_V_EXCLUDED)
     report = bar.family_report(
         family="pc",
         runs_dir=runs,
@@ -1572,6 +1614,7 @@ def positive_control(
         out_file=out / "family_report.json",
         panel=planted,
         calibration=True,
+        v_exclude=NOISE_V_EXCLUDED,
     )
     shifts = tuple(SHIFT_DAYS if tripwire_shifts is None else tripwire_shifts)
     tripwires: dict[str, Any] = {}

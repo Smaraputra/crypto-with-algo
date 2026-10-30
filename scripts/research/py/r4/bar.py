@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -1118,6 +1118,7 @@ def family_report(
     spa_seed: int | None = None,
     variance_mode: str = "within_cell",
     family_index: int = 0,
+    v_exclude: Collection[str] = (),
 ) -> dict[str, Any]:
     """Evaluate exploration bar across all configurations in a family and write report.
 
@@ -1136,6 +1137,9 @@ def family_report(
     An E4 or E5 configuration whose receipt counts walk-forward fold fallbacks (exit_model_fallback_folds above 0)
     ran some folds as E1, so it is not the configuration under test: its evaluation carries "exit_model_fallback":
     true, and calibration mode raises.
+
+    v_exclude (A2.1, calibration only) lists receipt config ids whose round runs are left out of the trial-Sharpe
+    variance. They stay out of nothing else. The default () changes nothing, Phase 5 round close included.
 
     Finalists are chosen only once the label-shift tripwire is known and does not halt the family.
     Without a tripwire input the all-pass configurations are listed as candidates and finalists stay empty.
@@ -1197,6 +1201,7 @@ def family_report(
     # 2. Discover round runs for trial Sharpe variance (item 3), keyed by the receipts' config_hash
     round_daily: dict[str, pd.DataFrame] = {}
     round_configs: dict[str, dict[str, Any]] = {}
+    v_excluded: list[str] = []
     for p in sorted(round_path.iterdir()):
         if not p.is_dir():
             continue
@@ -1217,6 +1222,9 @@ def family_report(
             cfg_hash = round_receipt.get("config_hash")
             if not cfg_hash:
                 raise ValueError(f"Round receipt {rcpt} has no config_hash")
+            if round_receipt.get("config", {}).get("id") in v_exclude:
+                v_excluded.append(str(round_receipt["config"]["id"]))
+                continue
             df_round = pd.read_parquet(dly)
             df_round.attrs["config_hash"] = str(cfg_hash)
             round_daily[p.name] = df_round
@@ -1335,7 +1343,12 @@ def family_report(
         "configurations": config_evals,
         "candidates": candidates,
         "finalists": finalists,
-        "variance": {"mode": variance_mode, "V": chosen_v, "modes": variance_modes},
+        "variance": {
+            "mode": variance_mode,
+            "V": chosen_v,
+            "modes": variance_modes,
+            **({"v_excluded": sorted(v_excluded)} if v_exclude else {}),
+        },
         "tripwire": tripwire_status,
         "tripwire_input": tripwire_input,
         "calibration": bool(calibration),
