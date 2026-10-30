@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The grid is 10 to 24 bps per 4h tranche per unit z, with 1 bp steps through the edge. The walk variance is 1.2 x the synthetic V.
   - The dossier binds both, and `calib-power` refuses any other.
   - Fixed: if nothing qualifies at the D V, the a* rule now evaluates the next registered amplitude before doubling. It used to double the largest evaluated amplitude, skipping grid points and starting the doublings below the grid maximum the dossier expects.
+- Gate P pre-run review 3 (Opus, PASS WITH FIXES) found no defect in any computed statistic, but found places where a setting could change after D results without the dossier noticing. All are fixed before any D run:
+  - The dossier now recomputes the noise evaluation: 40 configurations, 1,000-draw joint nulls with the registered seeds, recounted pass and reject numbers, every verdict, and the four excluded controls.
+  - The positive control checks its noise inputs before any D work: the registered set, the frozen commit and code, the dataset, and V.
+  - The power simulation's span, seeds, replicates, volatility model and covariance file are carried into the power file and bound. An infeasible a* needs the registered doublings. The daily null's pilot size is bound.
+  - Each D noise run's trade floor is reported, and run directories must be named by their configuration.
+  - Tests pin the signed texts of Amendments 1 and 2, and the synthetic record's span and code digest.
+  - The amplitude grid adds 17 bps. The review's re-derivation, with P1's turnover, puts 80% detection near 16 bps, where the grid had stepped by 2 bps.
 - Ledger: round4-controls 52 (40 noise, 6 positive family, 6 exit rows, all kind control) and round4-retests 6, for a program total of 2,274.
   - Amendment 1's "2,262" predates the 12 trials of scalp study S1. Round 4's own 58 are unchanged.
   - The site's ledger total reads 2,274.
