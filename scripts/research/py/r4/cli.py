@@ -968,14 +968,26 @@ def main() -> None:
     cp_parser.add_argument("--dcov", required=True, help="JSON from calib-dcov")
     cp_parser.add_argument("--out", required=True, help="Power directory (a<amplitude>/r<replicate>/ inside)")
     cp_parser.add_argument("--commit", required=True, help="Commit SHA")
-    cp_parser.add_argument("--amplitudes", required=True, help="Comma-separated registered amplitude grid")
+    cp_parser.add_argument(
+        "--amplitudes",
+        required=False,
+        default=None,
+        help="Comma-separated amplitude grid; must equal the registered grid (default: the registered grid)",
+    )
     cp_parser.add_argument("--replicates", required=False, type=int, default=40, help="Replicates (default 40)")
     cp_parser.add_argument("--start-ms", required=False, type=int, default=None, help="Panel start (default DEV_START)")
     cp_parser.add_argument("--end-ms", required=False, type=int, default=None, help="Panel end (default DEV_END)")
     cp_parser.add_argument(
         "--first-refit-ms", required=False, type=int, default=None, help="First refit (default 2023)"
     )
-    cp_parser.add_argument("--stop-v", required=False, type=float, default=None, help="Adaptive walk at this variance")
+    cp_parser.add_argument(
+        "--stop-v",
+        required=False,
+        type=float,
+        default=None,
+        help="Adaptive walk variance (default and only allowed value: the registered 1.2 x synthetic V; "
+        "another value needs the test-only --start-ms or --end-ms)",
+    )
 
     cc_parser = subparsers.add_parser("calib-power-curve", help="Recompute the power curve at a variance, choose a*")
     cc_parser.add_argument("--power-dir", required=True, help="Directory from calib-power")
@@ -1095,13 +1107,23 @@ def main() -> None:
             extra["end_ms"] = args.end_ms
         if args.first_refit_ms is not None:
             extra["first_refit_ms"] = args.first_refit_ms
+        amplitudes = (
+            list(calibration.POWER_AMPLITUDE_GRID)
+            if args.amplitudes is None
+            else [float(x) for x in args.amplitudes.split(",")]
+        )
+        if amplitudes != list(calibration.POWER_AMPLITUDE_GRID):
+            raise SystemExit(f"--amplitudes {amplitudes} is not the registered grid {calibration.POWER_AMPLITUDE_GRID}")
+        stop_v = calibration.POWER_STOP_V if args.stop_v is None else args.stop_v
+        if stop_v != calibration.POWER_STOP_V and args.start_ms is None and args.end_ms is None:
+            raise SystemExit(f"--stop-v {stop_v} is not the registered walk variance {calibration.POWER_STOP_V}")
         summary = calibration.power_simulation(
             dcov,
             args.out,
-            [float(x) for x in args.amplitudes.split(",")],
+            amplitudes,
             n_replicates=args.replicates,
             commit=args.commit,
-            stop_v=args.stop_v,
+            stop_v=stop_v,
             **extra,
         )
         (Path(args.out) / "power_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -1131,6 +1153,10 @@ def main() -> None:
             )
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+        summary_file = Path(args.power_dir) / "power_summary.json"
+        power_stop_v = (
+            json.loads(summary_file.read_text(encoding="utf-8")).get("stop_v") if summary_file.is_file() else None
+        )
         result = {
             "v": v_value,
             "v_input": v_input,
@@ -1139,6 +1165,7 @@ def main() -> None:
             "joint_draws": args.draws,
             "n_trials": 120,
             "grid": calibration._read_power_meta(args.power_dir).get("grid"),
+            "stop_v": power_stop_v,
             "curve_at_1_2v": curve_json(chosen["curve"]),
             "a_star": {k: chosen[k] for k in ("a_star", "infeasible", "extensions")},
             "provenance": calibration.power_provenance(args.power_dir),

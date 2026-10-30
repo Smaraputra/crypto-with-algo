@@ -1119,6 +1119,14 @@ POWER_JOINT_SEED_BASE = 9_000_000
 POWER_REPLICATES = 40
 POWER_JOINT_DRAWS = 200
 POWER_MARGIN = 1.2
+# Calibration spec 5: the registered amplitude grid (log return per 4h tranche per unit z), an analytical bracket at
+# the synthetic V under A2 (records/synth_v_81e3c5b0.json; the V panel's ridge C3 controls plus the plant's exact gain):
+# item 3 flips between 12 and 13 bps, item 6 (fees x 1.5, slippage x 2) between 13 and 14 bps, so the 0.8 point is
+# about 14.5 bps. One-bp steps through the edge; the adaptive walk starts at the middle, 0.0015.
+POWER_AMPLITUDE_GRID: tuple[float, ...] = (0.0010, 0.0012, 0.0013, 0.0014, 0.0015, 0.0016, 0.0018, 0.0020, 0.0024)
+# The synthetic V under A2 (36 controls) and the walk variance at the a* margin.
+SYNTH_V_A2 = 0.005999340537151945
+POWER_STOP_V = POWER_MARGIN * SYNTH_V_A2
 POWER_TARGET = 0.8
 POWER_MAX_DOUBLINGS = 3
 PC_RERUN_PLANT_SEED = 20261029
@@ -1422,9 +1430,11 @@ def choose_a_star(
 
     The next lower grid amplitude must have been evaluated and failed, unless a* is the grid minimum (A1.9). grid is
     the registered amplitude grid (power_meta.json). Without it the grid is the evaluated amplitudes. If the lower
-    neighbour was never simulated the result is {"needs": amplitude}: the caller simulates it with the same replicate
-    seeds and asks again. If no evaluated amplitude qualifies and extend is given, the grid is extended upward by
-    doubling its largest amplitude, at most 3 times, calling extend(amplitude) for each new curve entry. If it
+    neighbour was never simulated, or nothing qualifies while registered amplitudes above every evaluated one remain,
+    the result is {"needs": amplitude} (that lower neighbour, or the lowest such higher one): the caller simulates it
+    with the same replicate seeds and asks again. If no amplitude of the registered grid qualifies and extend is given,
+    the grid is extended upward by doubling its largest amplitude, at most 3 times, calling extend(amplitude) for each
+    new curve entry. If it
     still fails the result is infeasible. Returns {"a_star", "infeasible", "extensions", "curve"} or {"needs"}.
     """
     if not curve:
@@ -1442,6 +1452,12 @@ def choose_a_star(
         return max(below) if below else None
 
     star = pick()
+    if star is None:
+        # Registered grid amplitudes above every evaluated one come before any doubling, so doublings start at the
+        # grid maximum (the dossier's rule).
+        above = sorted(a for a in registered if a > max(work))
+        if above:
+            return {"needs": above[0]}
     while star is None and extend is not None and len(extensions) < POWER_MAX_DOUBLINGS:
         a_new = 2.0 * max(work)
         work[a_new] = dict(extend(a_new))
@@ -2651,6 +2667,10 @@ def _check_power_parameters(d: dict[str, Any], star: dict[str, Any]) -> None:
         or any(x >= y for x, y in zip(grid, grid[1:], strict=False))
     ):
         raise ValueError("power.grid must list the registered amplitudes, positive and strictly increasing")
+    if grid != list(POWER_AMPLITUDE_GRID):
+        raise ValueError(f"power.grid {grid} is not the registered amplitude grid {list(POWER_AMPLITUDE_GRID)}")
+    if not _same_number(d.get("stop_v"), POWER_STOP_V):
+        raise ValueError(f"power.stop_v is {d.get('stop_v')!r}, registered walk variance {POWER_STOP_V}")
     extensions = star.get("extensions", [])
     doubled = (
         [float(max(grid)) * 2.0 ** (k + 1) for k in range(len(extensions))] if isinstance(extensions, list) else None

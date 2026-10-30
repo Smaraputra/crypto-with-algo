@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Amendment 2, signed by the owner on 2026-10-30, before any D noise run:
   - The four controls that do not trade stay in the noise set, the ledger and every check, but leave the calibration V. Every trading noise control loses to costs and they sit near zero, so on the synthetic panel they alone raised the within-cell V from 0.0060 to 0.0310 and SR0 from 0.20 to 0.46 a day. That would have made the positive control a weaker test.
   - The reference panels reject 1 and 2 of 40. The reference diagnostic is met when D's count is 1 to 2. It stays a diagnostic, and the gated bound of at most 6 is unchanged.
+- Power amplitude grid, registered before any power run. The spec required "registered numbers", but the dossier had only checked that the grid increases.
+  - It is an analytical bracket at the amended synthetic V, built from the V panel's ridge C3 controls (P1's exact model and book) plus the plant's exact gain. Item 3 flips at 12 to 13 bps per unit z, and the cost stress of item 6 at 13 to 14 bps, so 80% detection sits near 14.5 bps.
+  - The grid is 10 to 24 bps per 4h tranche per unit z, with 1 bp steps through the edge. The walk variance is 1.2 x the synthetic V.
+  - The dossier binds both, and `calib-power` refuses any other.
+  - Fixed: if nothing qualifies at the D V, the a* rule now evaluates the next registered amplitude before doubling. It used to double the largest evaluated amplitude, skipping grid points and starting the doublings below the grid maximum the dossier expects.
 - Ledger: round4-controls 52 (40 noise, 6 positive family, 6 exit rows, all kind control) and round4-retests 6, for a program total of 2,274.
   - Amendment 1's "2,262" predates the 12 trials of scalp study S1. Round 4's own 58 are unchanged.
   - The site's ledger total reads 2,274.

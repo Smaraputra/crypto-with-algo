@@ -32,6 +32,8 @@ DCOV = {"cov": COV10, "betas": [1.0] * 10, "symbols": SYMS}
 SMALL = {"start_ms": START, "end_ms": DEV_END, "first_refit_ms": FIRST_REFIT}
 TW_SHIFTS = tuple(SHIFT_DAYS[:1])
 A_LO, A_HI = 0.0003, 0.03
+# The dossier tests' power document: a* and its lower neighbour are registered grid amplitudes (brief 28m).
+A_DOC_LO, A_DOC = 0.0014, 0.0015
 V_SMALL = 0.002
 
 
@@ -489,7 +491,7 @@ def _retest(rule: str, passed: bool = False, *, applied: bool = True) -> dict:
     }
 
 
-def _expected_receipt_ids(pid: str, a_star: float = 0.04, noise_ids: list[str] | None = None) -> list[str]:
+def _expected_receipt_ids(pid: str, a_star: float = A_DOC, noise_ids: list[str] | None = None) -> list[str]:
     if pid.startswith("noise_"):
         return list(noise_ids) if noise_ids is not None else [r["id"] for r in _noise_set()]
     if pid.startswith("exit_"):
@@ -523,15 +525,16 @@ def _put(tmp: Path, name: str, obj) -> Path:
 
 
 def _power_doc(**over) -> dict:
-    curve = _curve({0.02: 0.5, 0.04: 0.9})
+    curve = _curve({A_DOC_LO: 0.5, A_DOC: 0.9})
     d = {
         "curve_at_1_2v": {str(a): v for a, v in curve.items()},
-        "a_star": {"a_star": 0.04, "infeasible": False, "extensions": []},
+        "a_star": {"a_star": A_DOC, "infeasible": False, "extensions": []},
         "v": D_V,
         "margin": 1.2,
         "joint_draws": 200,
         "n_trials": 120,
-        "grid": [0.02, 0.04],
+        "grid": list(cal.POWER_AMPLITUDE_GRID),
+        "stop_v": cal.POWER_STOP_V,
         "dcov_dataset_hash": DS_HASH,
         "provenance": _prov(),
         "reproduction": _repro(),
@@ -542,7 +545,7 @@ def _power_doc(**over) -> dict:
 
 def _positive(**over) -> dict:
     detected = over.get("detected", True)
-    a_star = over.get("a_star", 0.04)
+    a_star = over.get("a_star", A_DOC)
     fam = cal.pc_rerun_family(a_star) if over.get("rerun") else cal.pc_family(a_star)
     ok = {f"item{i}": {"pass": bool(detected)} for i in range(1, 7)}
     no = {f"item{i}": {"pass": False} for i in range(1, 7)}
@@ -552,7 +555,7 @@ def _positive(**over) -> dict:
         "a_star": a_star,
         "n_trials": 120,
         "rerun": False,
-        "plant": {"seed": 20261028, "amplitude": 0.04},
+        "plant": {"seed": 20261028, "amplitude": A_DOC},
         "variance": {"mode": "within_cell", "V": D_V},
         "report": {
             "configurations": {
@@ -754,9 +757,8 @@ def test_dossier_gate_ready_logic(tmp_path):
     inf = run(
         "g6",
         power=_power_doc(
-            curve_at_1_2v={"0.04": _curve({0.04: 0.1})[0.04]},
+            curve_at_1_2v={str(A_DOC): _curve({A_DOC: 0.1})[A_DOC]},
             a_star={"a_star": None, "infeasible": True, "extensions": []},
-            grid=[0.04],
         ),
         positive_control={"detected": None, "a_star": None},
     )
@@ -789,7 +791,7 @@ def test_cli_power_curve_and_dossier(power_sim, tmp_path, monkeypatch):
     assert pc["margin"] == 1.2 and pc["v"] == pytest.approx(V_SMALL / 1.2)
     assert pc["a_star"]["a_star"] == A_HI and pc["a_star"]["infeasible"] is False
     assert str(A_HI) in pc["curve_at_1_2v"] or repr(A_HI) in pc["curve_at_1_2v"]
-    assert pc["grid"] == [A_LO, A_HI]
+    assert pc["grid"] == [A_LO, A_HI] and pc["stop_v"] is None  # no power_summary.json in this directory
     assert pc["provenance"]["commits"] == [COMMIT] and len(pc["provenance"]["source_sha256"]) == 1
     # The file records the code it was evaluated with, and the dataset its covariance came from (brief 28g).
     assert pc["reproduction"] == r4.cli.reproduction_inputs()
@@ -802,10 +804,14 @@ def test_cli_power_curve_and_dossier(power_sim, tmp_path, monkeypatch):
     # The CLI file of this small simulation (3 replicates, 20 draws) also differs from the registered parameters the
     # dossier binds (40 replicates, 200 draws, D's covariance), so those are restored here like V and the provenance.
     pc.update(joint_draws=200, dcov_dataset_hash=DS_HASH, reproduction=_repro())
+    # Likewise the registered amplitude grid and walk variance (brief 28m), and the amplitudes follow the grid.
+    pc.update(grid=list(cal.POWER_AMPLITUDE_GRID), stop_v=cal.POWER_STOP_V)
+    pc["curve_at_1_2v"] = {str(a): e for a, e in zip((A_DOC_LO, A_DOC), pc["curve_at_1_2v"].values(), strict=True)}
+    pc["a_star"]["a_star"] = A_DOC
     for entry in pc["curve_at_1_2v"].values():
         entry.update(n=40, detected=round(entry["rate"] * 40), wilson95=[0.0, 1.0])
 
-    ins = _inputs(tmp_path, power=pc, positive_control=_positive(a_star=A_HI))
+    ins = _inputs(tmp_path, power=pc, positive_control=_positive(a_star=A_DOC))
     argv = [
         "calib-dossier",
         "--out",

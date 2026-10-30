@@ -17,6 +17,7 @@ from r4.cli import main
 from r4.method import DEV_END
 from tests.test_calibration import _write_cell_family
 from tests.test_calibration_power import (
+    A_DOC,
     D_V,
     FIRST_REFIT,
     SHA2,
@@ -222,7 +223,7 @@ def test_dossier_good_baseline_passes(tmp_path):
     ok = _dossier(
         tmp_path,
         "rerun",
-        positive_control=_positive(rerun=True, plant={"seed": 20261029, "amplitude": 0.04}),
+        positive_control=_positive(rerun=True, plant={"seed": 20261029, "amplitude": A_DOC}),
     )
     assert ok["gate_p_ready"] is True
 
@@ -264,9 +265,9 @@ def _case_map() -> dict[str, dict]:
         "power v differs from noise V": {"power": _power(v=D_V * 1.5)},
         "positive V differs from noise V": {"positive_control": _positive(variance={"mode": "within_cell", "V": 0.5})},
         "positive n_trials not 120": {"positive_control": _positive(n_trials=40)},
-        "positive plant seed wrong": {"positive_control": _positive(plant={"seed": 7, "amplitude": 0.04})},
+        "positive plant seed wrong": {"positive_control": _positive(plant={"seed": 7, "amplitude": A_DOC})},
         "rerun seed without rerun flag": {
-            "positive_control": _positive(plant={"seed": 20261029, "amplitude": 0.04}, rerun=False)
+            "positive_control": _positive(plant={"seed": 20261029, "amplitude": A_DOC}, rerun=False)
         },
         "first seed with rerun flag": {"positive_control": _positive(rerun=True)},
         "positive commit differs": {"positive_control": _positive(provenance={**_prov(), "commits": ["d" * 40]})},

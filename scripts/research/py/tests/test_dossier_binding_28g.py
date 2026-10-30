@@ -13,6 +13,7 @@ import pytest
 
 from r4 import calibration as cal
 from tests.test_calibration_power import (
+    A_DOC,
     D_V,
     DS_HASH,
     LOCK_SHA,
@@ -116,11 +117,11 @@ def _cases() -> dict[str, dict[str, Any]]:
         "power joint draws": {"power": _mut(pw, lambda o: o.__setitem__("joint_draws", 100))},
         "power trials": {"power": _mut(pw, lambda o: o.__setitem__("n_trials", 100))},
         "power replicates": {
-            "power": _mut(pw, lambda o: o["curve_at_1_2v"]["0.04"].update(n=20, detected=18, rate=0.9))
+            "power": _mut(pw, lambda o: o["curve_at_1_2v"][str(A_DOC)].update(n=20, detected=18, rate=0.9))
         },
         "power grid missing": {"power": _mut(pw, lambda o: o.pop("grid"))},
-        "power grid unsorted": {"power": _mut(pw, lambda o: o.__setitem__("grid", [0.04, 0.02]))},
-        "power curve outside the grid": {"power": _mut(pw, lambda o: o.__setitem__("grid", [0.04]))},
+        "power grid unsorted": {"power": _mut(pw, lambda o: o.__setitem__("grid", [0.0024, 0.0020]))},
+        "power curve outside the grid": {"power": _mut(pw, lambda o: o.__setitem__("grid", [0.0024]))},
         "positive tripwire shifts": {"positive_control": _mut(po, lambda o: o.__setitem__("tripwire_shifts", 50))},
         "positive config hash": {
             "positive_control": _mut(po, lambda o: o["config_hashes"].__setitem__("pc_P1", "0" * 64))
@@ -128,7 +129,7 @@ def _cases() -> dict[str, dict[str, Any]]:
         "positive config hashes missing": {"positive_control": _mut(po, lambda o: o.pop("config_hashes"))},
         "positive first-run hashes with the re-run flag": {
             "positive_control": _mut(
-                _positive(rerun=True, plant={"seed": 20261029, "amplitude": 0.04}),
+                _positive(rerun=True, plant={"seed": 20261029, "amplitude": A_DOC}),
                 lambda o: o.__setitem__("config_hashes", _positive()["config_hashes"]),
             )
         },
