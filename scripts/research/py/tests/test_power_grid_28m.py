@@ -15,13 +15,13 @@ from r4.cli import main
 from tests.test_calibration_power import DCOV, SMALL, V_SMALL, _power_doc, power_sim  # noqa: F401
 from tests.test_registration_phase4 import _record
 
-REGISTERED_GRID = [0.0010, 0.0012, 0.0013, 0.0014, 0.0015, 0.0016, 0.0018, 0.0020, 0.0024]
+REGISTERED_GRID = [0.0010, 0.0012, 0.0013, 0.0014, 0.0015, 0.0016, 0.0017, 0.0018, 0.0020, 0.0024]
 GRID_ARG = ",".join(repr(a) for a in REGISTERED_GRID)
 
 
 def test_registered_constants_have_the_exact_values():
     assert cal.POWER_AMPLITUDE_GRID == tuple(REGISTERED_GRID)
-    assert cal.POWER_AMPLITUDE_GRID[len(cal.POWER_AMPLITUDE_GRID) // 2] == 0.0015
+    assert cal.POWER_AMPLITUDE_GRID[len(cal.POWER_AMPLITUDE_GRID) // 2] == 0.0016
     assert cal.SYNTH_V_A2 == 0.005999340537151945
     assert cal.POWER_STOP_V == cal.POWER_MARGIN * cal.SYNTH_V_A2
 
