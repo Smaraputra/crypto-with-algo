@@ -135,6 +135,13 @@ def test_excluded_id_outside_final_set_raises(noise_runs, monkeypatch):  # noqa:
         _run(noise_runs)
 
 
+@pytest.fixture(autouse=True)
+def _no_positive_preflight(monkeypatch):
+    # These fixtures use a small cell family, not the registered 40-run noise set at a frozen commit. The preflight
+    # (brief 28o) has its own tests in test_power_positive_null_28o.py; the post-run V check still runs here.
+    monkeypatch.setattr(cal, "_positive_preflight", lambda *a, **k: None)
+
+
 def test_positive_control_passes_v_exclude(monkeypatch, tmp_path):
     seen = {}
 

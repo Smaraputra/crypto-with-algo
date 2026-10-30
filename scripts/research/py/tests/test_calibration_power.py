@@ -15,7 +15,7 @@ import r4.cli
 from r4 import calibration as cal
 from r4.bar import trial_sharpe_variance
 from r4.cli import config_hash_of, main
-from r4.method import DEV_END, UNIVERSE
+from r4.method import DEV_END, DEV_START, UNIVERSE
 from r4.synth import synth_panel, write_synthetic_dataset
 from r4.tripwire import SHIFT_DAYS
 from tests.test_calibration import _write_cell_family
@@ -180,6 +180,13 @@ def test_choose_a_star_margin_and_extension():
 # ---------------------------------------------------------------------------
 # Positive control
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _no_positive_preflight(monkeypatch):
+    # These fixtures use a small cell family, not the registered 40-run noise set at a frozen commit. The preflight
+    # (brief 28o) has its own tests in test_power_positive_null_28o.py; the post-run V check still runs here.
+    monkeypatch.setattr(cal, "_positive_preflight", lambda *a, **k: None)
 
 
 @pytest.fixture(scope="module")
@@ -549,6 +556,19 @@ def _power_doc(**over) -> dict:
         "grid": list(cal.POWER_AMPLITUDE_GRID),
         "stop_v": cal.POWER_STOP_V,
         "dcov_dataset_hash": DS_HASH,
+        "power_meta": {
+            "start_ms": DEV_START,
+            "end_ms": DEV_END,
+            "first_refit_ms": cal.FIRST_REFIT_MS,
+            "panel_seed_base": cal.POWER_PANEL_SEED_BASE,
+            "plant_seed_base": cal.POWER_PLANT_SEED_BASE,
+            "joint_seed_base": cal.POWER_JOINT_SEED_BASE,
+            "n_replicates": cal.POWER_REPLICATES,
+            "garch": list(cal.POWER_GARCH),
+            "t_df": cal.POWER_T_DF,
+            "dcov_dataset_hash": DS_HASH,
+            "dcov_sha256": cal.DCOV_SHA256,
+        },
         "provenance": _prov(),
         "reproduction": _repro(),
     }
@@ -768,8 +788,24 @@ def test_dossier_gate_ready_logic(tmp_path):
     inf = run(
         "g6",
         power=_power_doc(
-            curve_at_1_2v={str(A_DOC): _curve({A_DOC: 0.1})[A_DOC]},
-            a_star={"a_star": None, "infeasible": True, "extensions": []},
+            # Infeasible needs the 3 registered doublings and every grid amplitude above the lowest evaluated (28o).
+            curve_at_1_2v={
+                str(a): e
+                for a, e in _curve(
+                    {
+                        a: 0.1
+                        for a in [
+                            *(g for g in cal.POWER_AMPLITUDE_GRID if g >= A_DOC),
+                            *(max(cal.POWER_AMPLITUDE_GRID) * 2.0**k for k in (1, 2, 3)),
+                        ]
+                    }
+                ).items()
+            },
+            a_star={
+                "a_star": None,
+                "infeasible": True,
+                "extensions": [max(cal.POWER_AMPLITUDE_GRID) * 2.0**k for k in (1, 2, 3)],
+            },
         ),
         positive_control={"detected": None, "a_star": None},
     )
@@ -817,6 +853,8 @@ def test_cli_power_curve_and_dossier(power_sim, tmp_path, monkeypatch):
     pc.update(joint_draws=200, dcov_dataset_hash=DS_HASH, reproduction=_repro())
     # Likewise the registered amplitude grid and walk variance (brief 28m), and the amplitudes follow the grid.
     pc.update(grid=list(cal.POWER_AMPLITUDE_GRID), stop_v=cal.POWER_STOP_V)
+    # And the power meta of the registered simulation (brief 28o): the small simulation's span, seeds and dcov differ.
+    pc["power_meta"] = _power_doc()["power_meta"]
     pc["curve_at_1_2v"] = {str(a): e for a, e in zip((A_DOC_LO, A_DOC), pc["curve_at_1_2v"].values(), strict=True)}
     pc["a_star"]["a_star"] = A_DOC
     for entry in pc["curve_at_1_2v"].values():

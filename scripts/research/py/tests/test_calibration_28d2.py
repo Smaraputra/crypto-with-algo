@@ -155,6 +155,13 @@ def test_calib_positive_reads_v_and_a_star_by_path(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _no_positive_preflight(monkeypatch):
+    # These fixtures use a small cell family, not the registered 40-run noise set at a frozen commit. The preflight
+    # (brief 28o) has its own tests in test_power_positive_null_28o.py; the post-run V check still runs here.
+    monkeypatch.setattr(cal, "_positive_preflight", lambda *a, **k: None)
+
+
 def _pc(pos_env, out, **kw):  # noqa: F811
     return cal.positive_control(
         pos_env["ds"],

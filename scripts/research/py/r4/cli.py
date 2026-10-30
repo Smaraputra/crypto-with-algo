@@ -1103,7 +1103,8 @@ def main() -> None:
     elif args.command == "calib-power":
         from r4 import calibration
 
-        dcov = json.loads(Path(args.dcov).read_text(encoding="utf-8"))
+        dcov_bytes = Path(args.dcov).read_bytes()
+        dcov = json.loads(dcov_bytes.decode("utf-8"))
         extra: dict[str, Any] = {}
         if args.start_ms is not None:
             extra["start_ms"] = args.start_ms
@@ -1119,7 +1120,12 @@ def main() -> None:
         if amplitudes != list(calibration.POWER_AMPLITUDE_GRID):
             raise SystemExit(f"--amplitudes {amplitudes} is not the registered grid {calibration.POWER_AMPLITUDE_GRID}")
         stop_v = calibration.POWER_STOP_V if args.stop_v is None else args.stop_v
-        if stop_v != calibration.POWER_STOP_V and args.start_ms is None and args.end_ms is None:
+        span_is_d = (
+            extra.get("start_ms", DEV_START) == DEV_START
+            and extra.get("end_ms", DEV_END) == DEV_END
+            and extra.get("first_refit_ms", calibration.FIRST_REFIT_MS) == calibration.FIRST_REFIT_MS
+        )
+        if stop_v != calibration.POWER_STOP_V and span_is_d:
             raise SystemExit(f"--stop-v {stop_v} is not the registered walk variance {calibration.POWER_STOP_V}")
         summary = calibration.power_simulation(
             dcov,
@@ -1128,6 +1134,7 @@ def main() -> None:
             n_replicates=args.replicates,
             commit=args.commit,
             stop_v=stop_v,
+            dcov_sha256=hashlib.sha256(dcov_bytes).hexdigest(),
             **extra,
         )
         (Path(args.out) / "power_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -1175,6 +1182,9 @@ def main() -> None:
             "provenance": calibration.power_provenance(args.power_dir),
             "reproduction": reproduction_inputs(),
             "dcov_dataset_hash": calibration._read_power_meta(args.power_dir).get("dcov_dataset_hash"),
+            "power_meta": {
+                k: calibration._read_power_meta(args.power_dir).get(k) for k in calibration.POWER_META_CARRIED
+            },
             "disclosed": "tripwire and SPA are skipped in the power simulation; P2 is omitted",
         }
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

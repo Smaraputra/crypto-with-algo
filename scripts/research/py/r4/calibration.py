@@ -1147,8 +1147,40 @@ POWER_MARGIN = 1.2
 # Calibration spec 5: the registered amplitude grid (log return per 4h tranche per unit z), an analytical bracket at
 # the synthetic V under A2 (records/synth_v_81e3c5b0.json; the V panel's ridge C3 controls plus the plant's exact gain):
 # item 3 flips between 12 and 13 bps, item 6 (fees x 1.5, slippage x 2) between 13 and 14 bps, so the 0.8 point is
-# about 14.5 bps. One-bp steps through the edge; the adaptive walk starts at the middle, 0.0015.
-POWER_AMPLITUDE_GRID: tuple[float, ...] = (0.0010, 0.0012, 0.0013, 0.0014, 0.0015, 0.0016, 0.0018, 0.0020, 0.0024)
+# about 14.5 bps (assuming noise_04/05's turnover). Gate P review 3 re-derived it with P1's side-flip rate of about
+# 0.49 against the noise ridge's 0.43: about 16.3 bps, where the grid stepped by 2 bps, so 0.0017 is added for 1 bp
+# steps there. The adaptive walk starts at the middle, 0.0016.
+POWER_AMPLITUDE_GRID: tuple[float, ...] = (
+    0.0010,
+    0.0012,
+    0.0013,
+    0.0014,
+    0.0015,
+    0.0016,
+    0.0017,
+    0.0018,
+    0.0020,
+    0.0024,
+)
+# The synthetic panel's GARCH(alpha, beta) and Student-t degrees of freedom, bound in the power meta and the dossier.
+POWER_GARCH: tuple[float, float] = (0.08, 0.88)
+POWER_T_DF = 4.5
+# sha256 of the calib-dcov file behind the registered power simulation (records/synth_v_81e3c5b0.json, dcov_sha256).
+DCOV_SHA256 = "bcfd511f5ccff9be2744af1486fb257559114b5af81812640f25526fde91bf9b"
+# The power-meta fields calib-power-curve carries into its result (never the covariance itself).
+POWER_META_CARRIED: tuple[str, ...] = (
+    "start_ms",
+    "end_ms",
+    "first_refit_ms",
+    "panel_seed_base",
+    "plant_seed_base",
+    "joint_seed_base",
+    "n_replicates",
+    "garch",
+    "t_df",
+    "dcov_dataset_hash",
+    "dcov_sha256",
+)
 # The synthetic V under A2 (36 controls) and the walk variance at the a* margin.
 SYNTH_V_A2 = 0.005999340537151945
 POWER_STOP_V = POWER_MARGIN * SYNTH_V_A2
@@ -1195,7 +1227,13 @@ def adaptive_order(grid: Sequence[float]) -> list[float]:
 
 
 def _power_meta(
-    dcov: dict[str, Any], n_replicates: int, start_ms: int, end_ms: int, first_refit_ms: int, grid: Sequence[float]
+    dcov: dict[str, Any],
+    n_replicates: int,
+    start_ms: int,
+    end_ms: int,
+    first_refit_ms: int,
+    grid: Sequence[float],
+    dcov_sha256: str | None = None,
 ) -> dict[str, Any]:
     cov = np.asarray(dcov["cov"], dtype=np.float64)
     symbols = list(dcov["symbols"])
@@ -1212,9 +1250,10 @@ def _power_meta(
         "joint_seed_base": POWER_JOINT_SEED_BASE,
         "n_replicates": int(n_replicates),
         "grid": [float(a) for a in grid],
-        "garch": [0.08, 0.88],
-        "t_df": 4.5,
+        "garch": list(POWER_GARCH),
+        "t_df": POWER_T_DF,
         "dcov_dataset_hash": dcov.get("dataset_hash"),
+        "dcov_sha256": dcov_sha256,
     }
 
 
@@ -1279,6 +1318,7 @@ def power_simulation(
     stop_v: float | None = None,
     n_trials: int = N_TRIALS_CALIBRATION,
     joint_draws: int = POWER_JOINT_DRAWS,
+    dcov_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Run the power simulation: P1 and decoys D1 to D4 on synthetic D-shaped panels, one stored series per run.
 
@@ -1288,7 +1328,8 @@ def power_simulation(
     folds. Amplitudes are evaluated in adaptive order (middle first, then outward). Without stop_v all of them run.
     With stop_v the walk follows the detection rate at that variance (an evaluation at the synthetic V): from the
     middle it goes down while the rate is at least 0.8, up otherwise, one neighbour at a time, and stops at the first
-    change of side. start_ms, end_ms and first_refit_ms exist so tests can shrink the span.
+    change of side. start_ms, end_ms and first_refit_ms exist so tests can shrink the span. dcov_sha256 is the hash
+    of the covariance file's bytes, recorded in power_meta.json (and so in the meta-equality check) for the dossier.
     """
     if n_replicates < 1:
         raise ValueError("n_replicates must be at least 1")
@@ -1297,7 +1338,7 @@ def power_simulation(
         raise ValueError("amplitudes must not be empty")
     t0 = time.perf_counter()
     power_dir = Path(out_dir)
-    meta = _power_meta(dcov, n_replicates, start_ms, end_ms, first_refit_ms, grid)
+    meta = _power_meta(dcov, n_replicates, start_ms, end_ms, first_refit_ms, grid, dcov_sha256)
     meta_file = power_dir / "power_meta.json"
     if meta_file.is_file():
         if _read_power_meta(power_dir) != meta:
@@ -1555,6 +1596,45 @@ def pc_rerun_family(amplitude: float) -> list[dict[str, Any]]:
     return out
 
 
+def _positive_preflight(
+    ds_dir: Path | str, noise_runs_dir: Path | str, commit: str | None, expected_v: float | None
+) -> None:
+    """Check the noise runs behind a positive control before any D work (Gate P review 3, F2).
+
+    The receipts must form the registered final noise set (A1.9), carry the frozen commit, the current source digest
+    and the dataset read, and, when expected_v is given, their within-cell V must equal it. Raises ValueError.
+    """
+    from r4 import bar, cli
+
+    runs = _load_noise_runs(noise_runs_dir)
+    rows = [
+        {
+            "id": r["receipt"]["config"].get("id"),
+            "config_hash": str(r["receipt"]["config_hash"]),
+            "replaces": r["receipt"]["config"].get("replaces"),
+            "attempt": r["receipt"]["config"].get("attempt"),
+        }
+        for r in runs.values()
+    ]
+    _check_noise_set({"noise_set": rows})
+    want_commit = cli.resolve_commit(commit)
+    want_src = cli.source_digest()
+    want_ds = str(bar.read_manifest(ds_dir)["datasetHash"])
+    for field, want in (("commit", want_commit), ("source_sha256", want_src), ("dataset_hash", want_ds)):
+        bad = sorted({str(r["receipt"].get(field)) for r in runs.values() if r["receipt"].get(field) != want})
+        if bad:
+            raise ValueError(f"noise runs: receipts carry {field} {bad}, this positive control has {want!r}")
+    if expected_v is not None:
+        ids = _v_run_ids(runs)
+        v = float(
+            bar.trial_sharpe_variance(
+                {i: runs[i]["daily"] for i in ids}, {i: runs[i]["receipt"]["config"] for i in ids}, "within_cell"
+            )["V"]
+        )
+        if not math.isclose(v, float(expected_v), rel_tol=1e-9, abs_tol=1e-15):
+            raise ValueError(f"the noise runs' variance V {v} differs from the expected V {expected_v}")
+
+
 def positive_control(
     ds_dir: Path | str,
     a_star: float,
@@ -1580,8 +1660,11 @@ def positive_control(
     not halt. A miss writes positive_miss.json. The failure tree (spec section 8, A1.9) then allows exactly one
     re-run: rerun=True (plant seed 20261029, decoy seeds 2,000,011 to 2,000,014) with audited=True after a code
     audit. A re-run without a miss, a re-run without the audit, an audited call at the original seed, and any call
-    after a second miss ("second miss is terminal") all raise. expected_v, when given, is the noise controls' D
-    within-cell V from the noise-evaluation file: a different V in this run raises before anything is written.
+    after a second miss ("second miss is terminal") all raise. Before the miss and re-run logic and before anything
+    is written, a preflight (_positive_preflight) checks that noise_runs_dir holds the registered final noise set at
+    this commit, the current source digest and this dataset, and that its within-cell V equals expected_v (the noise
+    controls' D V from the noise-evaluation file) when given. Each failure raises ValueError and leaves out_dir
+    untouched. The same V comparison runs again on the family report after the runs.
     provenance records the input files (path and sha256) in the result.
     """
     from r4 import bar, cli
@@ -1589,6 +1672,7 @@ def positive_control(
     from r4.plant import apply_plant
     from r4.tripwire import SHIFT_DAYS
 
+    _positive_preflight(ds_dir, noise_runs_dir, commit, expected_v)
     out = Path(out_dir)
     miss_file = out / POSITIVE_MISS_FILE
     runs = out / "runs"
@@ -2750,6 +2834,35 @@ def _validate_power(d: Any) -> dict[str, Any]:
     return star  # type: ignore[no-any-return]
 
 
+def _check_power_meta(pm: Any) -> None:
+    """The power simulation's span, first refit, seeds, replicates, garch, t_df and covariance file (review 3, F3)."""
+    if not isinstance(pm, dict):
+        raise ValueError("power.power_meta must carry the power simulation's meta (re-run calib-power-curve)")
+    registered: dict[str, Any] = {
+        "start_ms": DEV_START,
+        "end_ms": DEV_END,
+        "first_refit_ms": FIRST_REFIT_MS,
+        "panel_seed_base": POWER_PANEL_SEED_BASE,
+        "plant_seed_base": POWER_PLANT_SEED_BASE,
+        "joint_seed_base": POWER_JOINT_SEED_BASE,
+        "n_replicates": POWER_REPLICATES,
+        "t_df": POWER_T_DF,
+        "dcov_sha256": DCOV_SHA256,
+    }
+    for key, want in registered.items():
+        got = pm.get(key)
+        ok = got == want if isinstance(want, str) else _same_number(got, want)
+        if not ok:
+            raise ValueError(f"power.power_meta.{key} is {got!r}, registered {want!r}")
+    garch = pm.get("garch")
+    if not (
+        isinstance(garch, list)
+        and len(garch) == len(POWER_GARCH)
+        and all(_same_number(g, w) for g, w in zip(garch, POWER_GARCH, strict=True))
+    ):
+        raise ValueError(f"power.power_meta.garch is {garch!r}, registered {list(POWER_GARCH)}")
+
+
 def _check_power_parameters(d: dict[str, Any], star: dict[str, Any]) -> None:
     """The registered power parameters (brief 28g, C-1): margin, draws, trials, replicates and the amplitude grid."""
     if not _same_number(d.get("margin"), POWER_MARGIN):
@@ -2758,6 +2871,7 @@ def _check_power_parameters(d: dict[str, Any], star: dict[str, Any]) -> None:
         raise ValueError(f"power.joint_draws is {d.get('joint_draws')!r}, registered {POWER_JOINT_DRAWS}")
     if d.get("n_trials") != N_TRIALS_CALIBRATION or not _is_int(d.get("n_trials")):
         raise ValueError(f"power.n_trials is {d.get('n_trials')!r}, registered {N_TRIALS_CALIBRATION}")
+    _check_power_meta(d.get("power_meta"))
     curve = {float(a): e for a, e in d["curve_at_1_2v"].items()}
     for a, e in curve.items():
         if e["n"] != POWER_REPLICATES:
@@ -2792,6 +2906,18 @@ def _check_power_parameters(d: dict[str, Any], star: dict[str, Any]) -> None:
     if star["infeasible"]:
         if qualifying:
             raise ValueError(f"power.a_star is infeasible but amplitudes {qualifying} reach {POWER_TARGET}")
+        if len(extensions) != POWER_MAX_DOUBLINGS:
+            raise ValueError(
+                f"power.a_star is infeasible with {len(extensions)} doublings, registered {POWER_MAX_DOUBLINGS}"
+            )
+        lowest = min(curve)
+        missing = [
+            float(g)
+            for g in grid
+            if float(g) > lowest and not any(math.isclose(float(g), a, rel_tol=1e-12) for a in curve)
+        ]
+        if missing:
+            raise ValueError(f"power.a_star is infeasible but the grid amplitudes {missing} were never evaluated")
         return
     value = float(star["a_star"])
     if not qualifying or not math.isclose(qualifying[0], value, rel_tol=1e-12):
@@ -3058,6 +3184,7 @@ NULL_DAYS = 730
 NULL_THRESHOLD = 600.0
 NULL_SEED = 20261025
 NULL_PILOT_SEED = 20261024
+NULL_PILOT_PATHS = 5000
 
 
 def _same_number(a: Any, b: Any) -> bool:
@@ -3082,6 +3209,9 @@ def _check_null_parameters(nul: dict[str, Any]) -> None:
     pilot = nul.get("pilot")
     if not isinstance(pilot, dict) or pilot.get("seed") != NULL_PILOT_SEED:
         raise ValueError(f"null_simulation.pilot.seed must be the registered pilot seed {NULL_PILOT_SEED}")
+    for key, want in (("paths", NULL_PILOT_PATHS), ("n_days", NULL_DAYS)):
+        if not _same_number(pilot.get(key), want):
+            raise ValueError(f"null_simulation.pilot.{key} is {pilot.get(key)!r}, registered {want}")
 
 
 def _check_noise_set(noi: dict[str, Any]) -> None:
