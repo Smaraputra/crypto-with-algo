@@ -4,14 +4,17 @@ import { LAB_FORWARD_V1_LOCK } from './lab-forward-v1';
 import { LEDGER, ledgerTotal } from './ledger';
 
 describe('ledger', () => {
-  it('returns the running total, 2204 after the Round 3 preview', () => {
-    expect(ledgerTotal()).toBe(2204);
+  it('returns the running total, 2274 after the Round 4 Phase 4 registration', () => {
+    expect(ledgerTotal()).toBe(2274);
   });
 
   it('counts Round 1 and Round 2 separately', () => {
     expect(ledgerTotal('next-version-r1')).toBe(2189);
     expect(ledgerTotal('next-version-r2')).toBe(2199);
     expect(ledgerTotal('round3-lab-v4-preview')).toBe(2204);
+    expect(ledgerTotal('scalp-s1-r')).toBe(2216);
+    expect(ledgerTotal('round4-controls')).toBe(2268);
+    expect(ledgerTotal('round4-retests')).toBe(2274);
   });
 
   it('matches baseline trials to LAB_FORWARD_V1_LOCK.ledgerAfter', () => {

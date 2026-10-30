@@ -1,0 +1,6 @@
+# Transitive pins held back to meet the 14-day age rule (cutoff 2026-10-11).
+# python-dateutil 3.0.0 was uploaded 2026-10-21, pluggy 1.7.0 on 2026-10-15,
+# pycparser 3.12 on 2026-10-22.
+python-dateutil==2.9.0.post0
+pluggy==1.6.0
+pycparser==3.11

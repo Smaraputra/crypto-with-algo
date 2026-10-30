@@ -1,0 +1,17 @@
+name: Research (Python)
+
+on:
+  push:
+    branches: [main]
+    paths: ['scripts/research/py/**', '.github/workflows/research-py.yml']
+  pull_request:
+    branches: [main]
+    paths: ['scripts/research/py/**', '.github/workflows/research-py.yml']
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target test -t round4-py-test scripts/research/py
+      - run: docker run --rm --network none round4-py-test

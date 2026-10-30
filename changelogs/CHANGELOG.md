@@ -7,6 +7,194 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Phase 4 registration, with lock Amendment 2 signed
+- The synthetic V record is committed as `scripts/research/py/records/synth_v_81e3c5b0.json`, the output of `calib-synth-v` at `81e3c5b0`:
+  - the V panel at seed 3,999;
+  - the reference panels at 3,997 and 3,998, each with 40 controls and a 1,000-draw joint-shift null.
+  - A test binds every registered constant to it.
+- Final noise set: noise_26 to noise_29 (logit, C2 and C4) are their attempt 2 replacements, and every other control keeps its registered config. `calib-grid` writes exactly this set, and the dossier refuses any other.
+- Amendment 2, signed by the owner on 2026-10-30, before any D noise run:
+  - The four controls that do not trade stay in the noise set, the ledger and every check, but leave the calibration V. Every trading noise control loses to costs and they sit near zero, so on the synthetic panel they alone raised the within-cell V from 0.0060 to 0.0310 and SR0 from 0.20 to 0.46 a day. That would have made the positive control a weaker test.
+  - The reference panels reject 1 and 2 of 40. The reference diagnostic is met when D's count is 1 to 2. It stays a diagnostic, and the gated bound of at most 6 is unchanged.
+- Power amplitude grid, registered before any power run. The spec required "registered numbers", but the dossier had only checked that the grid increases.
+  - It is an analytical bracket at the amended synthetic V, built from the V panel's ridge C3 controls (P1's exact model and book) plus the plant's exact gain. Item 3 flips at 12 to 13 bps per unit z, and the cost stress of item 6 at 13 to 14 bps, so 80% detection sits near 14.5 bps.
+  - The grid is 10 to 24 bps per 4h tranche per unit z, with 1 bp steps through the edge. The walk variance is 1.2 x the synthetic V.
+  - The dossier binds both, and `calib-power` refuses any other.
+  - Fixed: if nothing qualifies at the D V, the a* rule now evaluates the next registered amplitude before doubling. It used to double the largest evaluated amplitude, skipping grid points and starting the doublings below the grid maximum the dossier expects.
+- Gate P pre-run review 3 (Opus, PASS WITH FIXES) found no defect in any computed statistic, but found places where a setting could change after D results without the dossier noticing. All are fixed before any D run:
+  - The dossier now recomputes the noise evaluation: 40 configurations, 1,000-draw joint nulls with the registered seeds, recounted pass and reject numbers, every verdict, and the four excluded controls.
+  - The positive control checks its noise inputs before any D work: the registered set, the frozen commit and code, the dataset, and V.
+  - The power simulation's span, seeds, replicates, volatility model and covariance file are carried into the power file and bound. An infeasible a* needs the registered doublings. The daily null's pilot size is bound.
+  - Each D noise run's trade floor is reported, and run directories must be named by their configuration.
+  - Tests pin the signed texts of Amendments 1 and 2, and the synthetic record's span and code digest.
+  - The amplitude grid adds 17 bps. The review's re-derivation, with P1's turnover, puts 80% detection near 16 bps, where the grid had stepped by 2 bps.
+- Ledger: round4-controls 52 (40 noise, 6 positive family, 6 exit rows, all kind control) and round4-retests 6, for a program total of 2,274.
+  - Amendment 1's "2,262" predates the 12 trials of scalp study S1. Round 4's own 58 are unchanged.
+  - The site's ledger total reads 2,274.
+
+### Fixed: Round 4 calibration reads tranche frames one config at a time
+- On the VPS on 2026-10-29, `calib-synth-v` at `81e3c5b0` went over its 2 GB container cap during the second reference-panel run. It kept every V-panel run's tranche frame in memory (762 MB for 48 runs) next to a full synthetic panel and a 1,000-draw joint-shift null.
+- `synthetic_v` and `evaluate_noise` now read each run's tranches only when its own joint-shift null needs them. `bar.family_report` reads them only for configurations that pass items 1 to 3. `evaluate_noise` would otherwise have failed the same way on D.
+- No value changes: on the same fixtures, the `evaluate_noise` and `synthetic_v` outputs are byte-identical before and after.
+- The synthetic V panel finished before the failure. Its reference panels are completed at `81e3c5b0` by separate worker processes, so its finished runs stay valid.
+- On the V panel, the four logit noise controls in cells C2 and C4 fail the trade floor in all three registered attempts (at most 1,635 tranches, 2.1% of decisions). Their attempt 2 is kept and flagged. Amendment 2 takes them out of the calibration V (see the registration entry).
+
+### Added: Scalp study S1 (registered and run: 0 of 12 pass)
+- A pre-registered test of 1h-context scalping on the 10 signal coins over span R (2026-07-03 to 2026-10-27, outside D and H): three rules (trend pullback, short-term reversal, taker flow with trend), 15m and 60m holds, taker or maker entries, 12 trials (ledger 2,216).
+- Costs follow Binance USDT-M VIP 0 (0.02% maker, 0.05% taker) with per-coin slippage and Round 4 netting. A $100 account at 10x and 50x is reported. The registered prediction is that none of the 12 passes.
+- Result on the VPS (2026-10-29): 0 of 12 pass, as predicted. Gross edges are 0.2 to 1.4 bps a trade against 12 to 13 bps taker round trips, maker entries fill 91% of the time but turn the gross edge negative, and every month of every configuration loses (net -9.8 to -13.8 bps a trade, t -9 to -41). A $100 account at 10x on the fastest rule falls to $25 in 3 days and stops near $5, where the minimum order size blocks trading; at 50x it is under $1 by day 2.
+- Break-even: a 15-minute taker scalp needs a forecast correlation of 0.46 to 0.91 with the next return (0.11 to 0.27 all-maker), against the 0.02 to 0.06 measured anywhere in this program. The current research does not support a scalping paper desk.
+
+### Fixed: the research image pins its one apt package
+- `libgomp1` is pinned to 14.2.0-19, the version in the digest-pinned Python 3.12 base, which clears DeepSource's DL3008 finding.
+
+### Fixed: ESLint no longer runs out of memory on a local research venv
+- `npm run lint` ignores `scripts/research/py/.venv` (minified plotly bundles exhausted the 4 GB heap) and the git-excluded `.superpowers` working records.
+
+### Added: Read-only Round 4 integrity audits
+- A research CLI can replay every stored lab signal against its frozen scoring functions and compare stored spot and perpetual 1h/4h candles with Binance archives across D. F1 raw-funding reconstruction is explicitly unavailable, while its score-to-book replay is reported separately.
+- Audits stream bounded JSONL detail beside a summary and do not write to MongoDB. Production replay and candle comparisons have not run yet.
+
+### Changed: Round 4 research runtime and development boundary
+- The research CLI now drops labels ending exactly at the exclusive development cutoff, matching signed method M.
+- Daily book aggregation buckets intersecting tranche days, slices sorted funding history and reuses equal-weight basket returns for shared boundaries. Financial results and counters are checked against an independent scalar reference.
+- Decision-sample copies share the read-only market input panel instead of duplicating it through pandas attributes. In the Python 3.12 VPS image at `2e356887`, 188 tests and the full-span synthetic benchmark pass under the 2 GB cap. The benchmark ran 1,642 days on 10 coins at 1h: peak 1,204 MB, `run_wf` 571 s, joint-shift null 687 s per 1,000 draws.
+- Fixes before calibration (gate P pre-review):
+  - Exits that fill at their own price (stop, take-profit, model close) are priced at the fill, and their basket hedge ends at the next 5m boundary.
+  - An empty basket now raises instead of hedging with zero. Across D's 472,896 5m instants every coin has a bar, so this never fires there.
+  - Receipts carry daily gross, cost, fee, slippage and funding columns, CPCV gross path means, each fold's long share and net exposure, a required `kind` (trial, control or retest) and a required commit sha.
+  - The DSR variance needs at least two configurations.
+  - Control receipts are refused in the round-close variance outside calibration mode.
+  - Each configuration has its own joint-shift seed.
+  - LightGBM is deterministic.
+- The logistic and LightGBM classifiers now fit two independent binary models (up: return above the round-trip cost; down: below minus the cost; triple barrier: the upper or lower barrier). They go long or short only when that side's probability clears the threshold and beats the other side. The old rule shorted whenever "up" was unlikely, which made classifier configurations mostly short. Single-class training windows are recorded as degenerate fits.
+- Research costs now follow Binance USDT-M one-way execution (owner amendment to the method lock).
+  - Fees and slippage are charged on the net position change per coin, fill instant and fill type. An expiring tranche and a new same-side tranche at the same instant no longer pay two fills.
+  - Slippage is set per coin instead of per decision interval: BTC and ETH 1 bp; BNB, SOL, XRP and DOGE 2; AVAX, DOT and LINK 3; ADA 5. Each is at least twice the half-spread plus $1k impact measured on 2026-10-28.
+  - The book, the joint-shift null (over the same tranches the book charges), the item 6 stresses and the classifier labels all use the netted, per-coin costs. The TypeScript-parity cost functions are unchanged.
+- Classifier thresholds are now a margin over each side's training base rate. An absolute 0.55 threshold traded 0% of decisions on noise at a 0.46 base rate. The margin rule at 0.02 trades about 36%.
+- Triple-barrier short labels come from their own short-side run, so a long stop touch no longer counts as a short success.
+- The joint-shift null refuses path-dependent exits until the exit-engine replay exists.
+- Receipts carry a sha256 of the research source.
+- Joint-shift seeds come from each configuration, and the SPA bootstrap has its own seed.
+- The family D book from the method lock now exists. A config with `book: "D"` ranks the model scores across the coins at each decision time, using average ranks, centred and scaled so the absolute weights sum to 1. It holds cash below 6 coins. Each tranche carries its weight times interval over horizon. Ranking never splits a decision time across walk-forward blocks or CPCV groups. Item 5 uses the drop-one-coin jackknife for this book.
+- Round 4 exit engine (`r4/exits.py`): a bar-by-bar state machine, so the same rule replays history candle by candle and can run live.
+  - Exits:
+    - E1 is the lock's horizon exit;
+    - E2 sets ATR-style sigma barriers at entry;
+    - E3 is a volatility trailing stop, checked against the previous bar's trail before it updates and never loosened;
+    - X1 rests a maker order before the scheduled exit and falls back to taker at it.
+  - Fills:
+    - stops fill taker at the worse of the level and the open;
+    - take-profits need a strict trade-through and fill maker;
+    - intrabar fills are stamped at the touching 5m bar's close, so every exit stays on the 5m grid.
+  - A vectorized replay equals the step machine tranche for tranche. It replays 300,000 tranches in about 1.3 s.
+  - Horizon runs are unchanged. Receipts count exits by reason.
+  - E6 is an information exit evaluated at every 5m close inside the hold. It closes when the 12-bar taker-buy share moves 2 standard deviations against the position, against its trailing 30-day mean.
+    - It also closes when the predicted next funding, from the premium index and Binance's formula, exceeds 0.05% against the position before the settlement.
+    - The fill is a taker at 10 minutes after the decision, held as a pending close until then.
+    - Under no-edge flow the median hold is the full horizon.
+  - E4 (re-forecast close) and E5 (meta-exit) are evaluated at every 5m close inside the hold, each with its own models.
+    - The models are side-symmetric and fitted per fold: hypothetical holds on both sides at every training decision instant, 4 sampled instants per hold. The label is the remaining log return net of funding.
+    - Market features come from 15m-stride phase-shifted decision bars, cached as float32. Position state (elapsed, P&L, MFE, MAE) updates every 5m.
+    - E4 closes when the forecast is below minus one residual standard error. On a planted reversal it closed ahead on 100% of planted tranches and 0% of unplanted ones.
+    - E5 at p_close 0.4 breached the registered 20% false-close bound (53% on unplanted tranches), a first-passage effect over about 46 checks per hold.
+    - E5 now closes only when P stays below 0.35 for 3 consecutive 5m closes, the pre-declared fix. On the planted control: 7.3% false closes, 100% closed ahead, positive increment. The bound is met and the expected failure is removed.
+    - CPCV fits one exit-model pair per split on that split's own purged training instants. Splits with too few samples fall back to the horizon exit, and the fallback is counted.
+- The label-shift tripwire from item 4 of the method lock (`r4/tripwire.py`, `r4.cli tripwire`).
+  - It runs 100 deterministic panel-wide shifts of the label columns by 30 + 7k days, mapped by time within each coin.
+  - Features, prices and the book stay on real data. The family halts when more than 60 of 100 shifted runs have a positive drift-free mean, and the cost-free count is reported beside it.
+  - Tripwire receipts are their own kind and are refused in round and family directories.
+  - It halts on coin-drift profit, which survives breaking the feature-label link, and does not halt on a planted feature signal.
+- The native re-test reader and evaluation (`r4/natives.py`, `r4.cli retest`).
+  - Inputs and costs:
+    - It maps each export into the book with its native costs, through a per-tranche fee profile and slippage override that never nets across cost profiles.
+    - It drops v8 stop exits that carry no fill price, and counts them.
+    - It checks the 5m grid and the dataset manifest hash.
+  - Hurdles:
+    - It evaluates the applicable exploration-bar hurdles from 2023-01-01: monthly betas from the trailing 12 months, fixed-rule CPCV priced with split betas, the calibration DSR, the joint-shift null when no native stop remains, coin count or jackknife, and the cost stresses.
+    - Each hurdle is marked applied, not applicable or unavailable, and an unavailable hurdle never counts as passed.
+- The deflated-Sharpe trial variance now defaults to the pooled within-cost-cell variance, an owner amendment to the method lock.
+  - A cell is the configurations that share interval, horizon, label, exit and book.
+  - The family report records the total and cost-free variances beside it.
+  - Reason: across cells, cost tiers alone pushed the benchmark to an unpassable level.
+- Phase 4 calibration registry and drivers (`r4/calibration.py`, `r4.cli calib-grid`, `calib-dcov`, `calib-null-input`, `calib-noise-eval`):
+  - the 40 registered noise configurations, every cost cell holding at least two;
+  - pre-declared trade-floor replacements;
+  - the six exit-control configurations and the positive-control family;
+  - the gated and diagnostic predictions;
+  - D's daily covariance and betas for the lab-v5 null;
+  - the noise evaluation (items 1 to 3 at the within-cell variance, the joint-shift null for all 40 with each configuration's own seed).
+- Receipts carry decision and tranche counts.
+- The item 4 joint-shift null for dynamic exits re-runs the exit engine from each shifted entry, an owner amendment to the method lock.
+  - Each draw shifts the entries by whole days and keeps sides and weights. It replays the same exit rule on the shifted price path, using each fold's E4/E5 models refitted from the run's fold windows. It then prices fills by the book's rule and recomputes the netting.
+  - Horizon-exit sets are unchanged draw for draw.
+  - On 20 no-edge synthetic panels the null rejected 0 at 0.05.
+  - The family report builds the replay itself for dynamic-exit configurations. 1,000 draws take about 4.5 minutes for E3 and 10 for E4 on a 450-day panel.
+- Phase 4 power simulation, positive control and dossier (`r4.cli calib-power`, `calib-power-curve`, `calib-positive`, `calib-dossier`).
+  - **Power simulation.** It runs the planted family on synthetic D-shaped panels and stores every replicate's series, so detection can be recomputed at any variance without re-running.
+  - **a\*.** It is the smallest amplitude detected at least 80% of the time at 1.2 times the noise variance. The grid extends by doubling, at most three times, and is otherwise recorded as infeasible.
+  - **Positive control.** It runs the planted family on D. Detection is judged with the noise controls' within-cell variance and the tripwire. A miss blocks a re-run until a code audit is recorded.
+  - **Dossier.** It is written once and refuses to overwrite. It validates every input and the commit-order evidence. It marks Gate P ready only when every gated prediction is as predicted.
+- Fixes from the Opus code gate (PASS WITH FIXES):
+  - Netting:
+    - stops, take-profits and maker exits never net with fills at a 5m open. A stop stamped at an entry instant had been netting against the new entry and understating cost;
+    - costs are netted once per run across walk-forward folds;
+    - an intrabar fill pays no settlement at its stamp.
+  - Receipts and reports:
+    - E4/E5 fold fallbacks and missing features are reported, and calibration refuses any E4/E5 run with a fallback fold;
+    - receipts and reports carry the source hash, the lock-file hash and the library versions.
+  - Configuration and seeds:
+    - configs reject unknown size rules, labels and mismatched side rules;
+    - cost cells key exits canonically;
+    - each family has its own SPA seed.
+  - The tripwire purges training rows whose shifted label window reaches the refit.
+  - The positive control:
+    - a* must be the smallest registered grid amplitude with the next lower one evaluated;
+    - its variance and a* are read from the noise-evaluation and power files;
+    - a miss allows one audited re-run at the registered seed, and a second miss is terminal.
+  - The dossier refuses mismatched a*, variances, trial counts or plant seeds, more than one commit or source digest, a noise set other than the 40 registered ids, and non-registered null-simulation parameters.
+  - The $100-account layer prices intrabar exits at their fill and checks liquidation at each bar's adverse extreme.
+  - Synthetic panels draw highs and lows from the Brownian-bridge extreme distribution, so stops and take-profits stay consistent with the path.
+  - The native-export header discloses the spot warm-up before 2022.
+- The exit-control block (`calib-exits`) runs the 6 exit controls and refuses any run whose entries differ from the base noise control, whose rebuilt exit replay does not reproduce the stored exits, or whose observed statistic differs from the replay path at zero shift. On synthetic panels E2 to E6 and X1 reproduce with 0 mismatches over 3,408 tranches.
+  - It reports counters, fire rates, median holds and the increment against E1 per control, a determinism check (receipts, outputs and E4/E5 coefficients), and an optional-stopping check on 20 zero-drift panels, the one check that catches an exit using future information.
+  - The planted intrabar control is the calibration spec's design: a reversal visible in 5m taker flow before the price moves, on 4 registered synthetic panels. E4, E5 and E6 close ahead of the move on 100%, 100% and 93% of planted tranches, and close early on 0%, 8.3% and 0.04% of unplanted ones. A first version with a different plant had measured E5 false closes of 22 to 29%, and is disclosed.
+  - In the optional-stopping check, E4 and E5 fit on each panel's own real features, at the registered thresholds and at loosened ones that fire on 76% and 91% of tranches. All 8 rows pass. Reading the features 30 minutes ahead makes E5 and both loosened rows significantly positive (t 36 to 48), so the check sees a feature-path leak. It is a gated prediction.
+  - The dossier requires the exit block and refuses unregistered config ids or hashes, draw counts, seeds and synthetic sizes, a replay mismatch, a broken shift-zero identity, a failed determinism check, and a dataset hash other than the noise evaluation's.
+- `calib-synth-v` runs the 40 noise controls on the registered synthetic V panel (seed 3,999) with the trade-floor replacement rule, records the synthetic within-cell V, its split and SR0, and counts joint-shift rejections on the two reference panels (seeds 3,997 and 3,998). Amendment 1 requires the trade floor to be checked there before registration.
+- The label-shift tripwire also shifts the E4 and E5 exit models' in-hold labels (owner choice on gate finding A-8): each exit-model training sample keeps its real features and position state and takes the remaining-return label of the same coin's hold shifted by the same days, purged when that window reaches the refit less the 30-day embargo. On the planted reversal, E5 closes ahead of the move on 100% of planted tranches with real labels and 0% with labels shifted by 30 days.
+- Fixes from the second Opus code gate (PASS WITH FIXES):
+  - One dataset, one code state: every receipt and evaluation output carries the dataset hash, source digest, lock hash and library versions, a reused run must match all of them, and the dossier requires one value of each across noise, exit block, power, positive control, re-tests and the daily null.
+  - The dossier checks the registered power, positive-control, exit-span and re-test parameters, ties the commit-order record to the frozen commit, and recomputes every pass flag instead of trusting it.
+  - A book anchor ties the null's observed statistic to the independent daily book on every run (synthetic differences 0 to 1.6e-15), so a defect shared by the null and its shift-zero check can no longer pass.
+  - X1 must also pass the two-sided test, the loosened exit rows must fire on at least 10% of tranches for the optional-stopping gate to count, the base entries' own p is reported beside the exit rows, and a re-test with no applied hurdle is refused. A 15-minute shared feature leak fails the check (t 3.7 and 9.6 on the loosened rows).
+- Calibration building blocks, all synthetic or in memory:
+  - Hash noise features (`noise_00` onward): a seeded splitmix64 normal per configuration, coin, feature and decision time. They are independent of prices and of the span, with a fast path that skips the real feature build.
+  - A planted signal (`plant`, 4h/4h only). It is a cross-sectionally demeaned, seeded z applied to the 5m prices as a linear drift over each hold, with the 15m to 1d bars re-aggregated.
+    - Every planted tranche's return moves by exactly the amplitude times z.
+    - The plant is applied in memory only, and receipts record the seed and amplitude.
+  - A synthetic D-shaped panel generator (`r4/synth.py`): daily GARCH volatility, Cholesky-correlated Student-t 5m shocks and taker-flow volume. It writes a loadable dataset with a manifest hash.
+- Native replay exports for the Phase 4 re-tests (`scripts/research/round4-native-export.ts`).
+  - Covers rv-v1, lab-v4 S1 and S2, Round 1 C1, and v8 D0 at 1h and 4h.
+  - Each rule's trades come from its frozen code over D, written as tranches with a summary (manifest hash, warm-up start, native costs, parity against the recorded result).
+  - Lockbox and holdout flags are refused.
+  - Disclosed limits:
+    - v8 stop exits carry no fill price, and the recorded D0 results used spot;
+    - C1's recorded result is from its holdout segment;
+    - rv-v1 needs the repaired rv2 dataset.
+- A $100-account layer (`r4/account.py`, `r4.cli account`), report only.
+  - It replays a run's tranches on a $100 account at 10x, 20x and 50x leverage, using today's Binance lot sizes and minimum notionals with historical prices.
+  - It nets orders per coin per instant and charges fees on executed notional and funding on position notional.
+  - It simulates cross-margin maintenance and stops at the first liquidation.
+  - It reports equity, skipped below-minimum orders, fees, funding and tracking against the research book.
+  - Nothing in the exploration bar reads it.
+
+### Added: A Python research image for Round 4 (multi-timeframe models at 1h and 4h)
+- **What:** `scripts/research/py/` holds a Docker image for model training and cross-validation that runs on the VPS only. The `runtime` stage carries numpy, pandas, scipy, scikit-learn, LightGBM and pyarrow. The `test` stage adds pytest, ruff and skfolio, which is used only as a test oracle for the purged combinatorial cross-validation splits. The app image and the live path are unchanged, and the root `.dockerignore` keeps the package out of the app image.
+- **Pinning:** every package, transitive ones included, was uploaded at least 14 days before the lock (cutoff 2026-10-11) and had no OSV advisory when locked. pip installs it from hashed lock files with wheels only. `lock.py` regenerates the locks and refuses a version that breaks either rule. `constraints.txt` holds back python-dateutil 3.0.0, pluggy 1.7.0 and pycparser 3.12, which were all too new. uv was not used, because its newest old-enough release (0.13.0) carries a critical CA-store advisory (GHSA-hq85-5cpj-mr62).
+- **Checks:** a smoke suite fits LightGBM and a ridge, round-trips Parquet, and pins skfolio's CPCV layout (15 splits, 5 paths, with purge and embargo applied only after each test block). The suite passed with ruff clean under `--network none` and a 2 GB cap on the VPS. A new workflow, `research-py.yml`, runs the suite in CI when the package changes.
+
 ### Changed: lab-v4's daily statistic starts on 2026-10-26 (AMENDMENT 3, start record)
 - PR #148 (AMENDMENT 2) was merged as `2d2e5fe` and deployed on 2026-10-25, with the app restarting on it at 11:36:37 UTC. The first full UTC day after that deploy is 2026-10-26, so `LAB_V4_DAILY_START_MS` is 2026-10-26 00:00 UTC.
 - The first `S1-1h-daily` and `S2-1h-daily` rows come in the first grade run at or after 2026-10-27 00:05 UTC. From 2026-10-26 the daily e-process is lab-v4's judged statistic, and the per-trade e-process is a descriptive record.
