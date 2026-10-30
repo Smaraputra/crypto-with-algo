@@ -948,7 +948,11 @@ def main() -> None:
     ce_parser.add_argument("--ds", required=True, help="Dataset directory")
     ce_parser.add_argument("--out", required=True, help="Output JSON file")
     ce_parser.add_argument(
-        "--draws", required=False, type=int, default=None, help="Joint-shift draws (default: M's 1000)"
+        "--draws",
+        required=False,
+        type=int,
+        default=None,
+        help="Joint-shift draws (default: M's 1000, test only: the dossier refuses any other value)",
     )
 
     csv_parser = subparsers.add_parser(
