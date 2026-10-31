@@ -1,0 +1,82 @@
+AMENDMENT 3 (2026-10-31, owner-approved and SIGNED by the owner on 2026-11-01 (session 44) for this text). It is written
+after the D noise evaluation and the D power simulation, and before any native re-test export or evaluation. It
+changes the data from which four of the six re-tests take their decisions, fixes how v8's exits are stamped, and sets
+how the re-test receipts bind to code. It changes no threshold, span, budget, prediction or H rule.
+
+A3.1 DECISION SOURCES OF THE RE-TESTS. It amends A1.9 "Rules: rv-v1, S1, S2, C1, v8 1h and v8 4h, replayed from frozen
+code with native costs and timing" for the data that frozen code reads, and supersedes calibration spec section 6's
+"--price perp" for v8.
+- D (datasetHash 11c87b9c...) holds perp klines and premium index (5m to 1d), funding, metrics and flow. It holds no
+  spot candles, HTF candles or snapshots.
+- C1 scores spot 1h candles, and v8's harness reads spot candles, HTF candles and snapshots: on D both stop at the
+  first missing file. rv-v1's registered treatment (calibration spec section 6) needs the repaired rv2 data and the
+  reviewed resolutions file, which the brief 29a exporter requires.
+- These four take their DECISIONS (entry and exit times, sides, sizes, and stop exits) from the dataset their frozen
+  code was last run on, fixed by datasetHash:
+  - rv-v1: the repaired re-validation export ~/rv2-ds, bc3566f4c6c6b0fe09e0c6984fca4aa8ba4f4c3a3fe8837826aad57f9c4137c8,
+    with the reviewed resolutions file, sha256 bc4d30b25232a572555c9b09fb00972dab75bdff7c55ba4818d598196f3f0657
+    (checked in code). Its weights come from its native equity path on rv2-ds prices and funding.
+  - C1: the Round 1 export ~/nv1-ds, 414fef1ee6ccf45fcb6e6a7e25ad8a5c3a3ea24176b40cfd7158e8cf2a906e5f, spot 1h.
+  - v8 1h and v8 4h: the direction-exit export ~/dx-ds,
+    48ff79609080f11a48c45822f27cd609818b913b2d42455cddf4ea1ef4806e93,
+    with the harness on spot prices, as the recorded direction-exit study ran. dx-ds holds no perp bars.
+- S1 and S2 read D: their inputs (perp 1h klines with taker volume, and funding) are in D.
+- The BOOK of every re-test is unchanged. It prices the exported tranches on D's perp 5m opens and D's funding from
+  2023-01-01, under A1.1. A re-test refuses any tranche whose booked entry or exit instant has no D 5m open for its
+  coin. A receipt's dataset_hash stays D's. A new field, decision_dataset_hash, records the decision source, and the
+  dossier checks it against this list. Each export records the commit that made it, export_commit, and a receipt
+  refuses an export from another commit.
+- v8 EXIT INSTANT. The harness fills a time stop, and the close of a hold still open at the last bar (end_of_data),
+  at that bar's close, and stamps it with the bar's open time. The 29a exporter booked that stamp, which closed every
+  v8 trade one bar early (23 of 24 hours at 1h, 29 of 30 bars at 4h). The export now books both at exitTime + the
+  interval, the instant of the fill.
+- Reads: decisions use [2022-01-01, 2026-07-01) plus the warm-up each frozen code needs:
+  - spot 1h from 2021-10-14 (the holdout A clip) for C1 and v8 1h;
+  - spot 4h and 1d candles, HTF 4h and 1d, snapshots and funding settlements from 2021-10-01 for v8.
+  rv-v1's panel loads its source files whole (to 2026-10-13) and uses only the span grid. Funding rows after the span
+  can serve as spacing neighbours when an interval is derived. rv-v1's export re-checks its resolutions against
+  Binance REST and halts on any disagreement. No perp bar before 2022-01-01 is read, so none of them reads H.
+- Funding by role. rv-v1's carry factor and native nets use rv2-ds funding with the reviewed resolution. v8's harness
+  uses dx-ds funding settlements and snapshot funding rates. S1 and S2 use D's funding. Every book uses D's funding.
+- Disclosed:
+  - the three sources were exported from production on 2026-10-15 (rv2-ds), 2026-10-18 (nv1-ds) and 2026-10-11
+    (dx-ds), before D (2026-10-24). A revision of a source row between those exports and D's is not reconciled. Its
+    direction is unknown;
+  - C1's scores restart from 2021-10-14 rather than from 2017 as in Round 1, so a recursive indicator can differ
+    slightly from the recorded scores;
+  - v8's stop logic sees spot prices, as in its recorded study. That changes which stop exits A1.9 drops (no known
+    direction) while its book is priced on D's perp bars;
+  - C1 and v8 decide on spot closes and are booked at D's perp opens at the same instants. A zero-delay fill earns part
+    of the bid-ask bounce in its own market, and the cross-market mapping removes most of that, which likely biases
+    these two re-tests down, toward the predicted fail. At holds of 24 hours or 30 bars the effect is small. This is
+    plausible, not measured.
+
+A3.2 CODE BINDING OF THE RE-TESTS. It amends the code freeze (one commit, r4 source digest, requirements lock and
+library versions across every dossier input) for the re-tests only.
+- The re-tests, the exports and the dossier run at a later commit, C3, that carries this amendment's code. Every
+  other dossier input stays at the frozen commit 5250b8eaf30b5bb4cf073bbcb9eb2529fb8b8701.
+- The dossier accepts the two commits only when the lead's commit-order evidence carries a code_change record:
+  - its fields are from (the frozen commit, all 40 characters), to (C3, all 40 characters), is_ancestor (true),
+    to_source_sha256 (the r4 source digest of a clean git archive of C3) and files;
+  - its files all lie in this list:
+    - scripts/research/py/r4/natives.py and scripts/research/py/r4/calibration.py;
+    - scripts/research/py/r4/method.py, by appending to its docstring only;
+    - scripts/research/round4-native-export.ts and its test;
+    - files under scripts/research/py/tests/;
+    - changelogs/CHANGELOG.md.
+- Every re-test receipt, and the dossier run itself, must have the r4 source digest to_source_sha256. Re-tests at
+  the frozen commit with another digest are refused. A code_change on re-tests that did not move is refused.
+- The requirements lock and the library versions must still be one across every input.
+- A test compares the source text of every top-level node of every r4 module with its 5250b8ea text, through a
+  fixture of sha256 digests that a committed generator rebuilds from git. Only these may differ:
+  - calibration.py, changed: _bind_commit_order, _check_code_freeze, _validate_commit_order, _validate_retests,
+    write_dossier;
+  - calibration.py, new: A3_CODE_CHANGE_FILES, A3_CODE_CHANGE_PREFIXES, A3_FROZEN_COMMIT, _prefix_match,
+    _check_retest_sources, _validate_code_change;
+  - natives.py, changed: read_export, evaluate_retest, run_retest;
+  - natives.py, new: NATIVE_DECISION_SOURCES, RV_V1_RESOLUTIONS_SHA256, decision_source;
+  - method.py: its module docstring only.
+- The Gate P review reads the full 5250b8ea..C3 diff of every listed file, the exporter and its test included, and
+  regenerates the node fixture from git.
+- The natives prediction keeps its text and its registration. Its receipts at C3 descend from that registration
+  commit.

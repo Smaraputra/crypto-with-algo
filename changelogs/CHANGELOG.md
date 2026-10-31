@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Round 4 native re-tests, lock Amendment 3 signed
+- The Phase 4 dossier needs six native re-tests bound to D, but D holds only perp klines, funding, metrics and flow. C1 and v8 read spot candles, HTF and snapshots, and rv-v1 needs its repaired rv2 data, so four of the six could not run on D. The owner signed Amendment 3 on 2026-11-01, before any native export or re-test ran.
+- Decisions come from each rule's own recorded dataset, fixed by hash: rv-v1 from `~/rv2-ds` with its reviewed resolutions file, C1 from `~/nv1-ds`, and v8 1h and 4h from `~/dx-ds` on spot prices, as the recorded direction-exit study ran. S1 and S2 stay on D. Every book still prices on D's perp 5m opens and D's funding.
+- v8 exits: the harness fills a time stop, or a hold still open at the last bar, at the bar's close but stamps it with the bar's open. The 29a exporter booked that stamp, which closed every v8 trade one bar early (23 of 24 hours). Both are now booked at the fill instant.
+- Receipts and exports:
+  - each receipt records `decision_dataset_hash`, and the rv-v1 resolutions hash is checked;
+  - each export records `export_commit`;
+  - a re-test refuses any tranche without an exact D 5m open.
+- Code binding: the re-tests and the dossier run at a later commit while every other input stays at `5250b8ea`. The commit-order evidence must carry a `code_change` record with full shas and the clean-tree source digest of the later commit, and every re-test and the dossier run must match that digest.
+- Frozen-code guard: a fixture fingerprints the source text of every top-level node of every r4 module at `5250b8ea`, and a test allows only the 17 nodes named in A3.2 to differ. The text digest is the same under every Python version, where `ast.dump` is not (3.13 omits fields that 3.12 prints). A test pins the signed text (`method_doc_amendment3_signed_c31bfd69.txt`).
+- Review: the Opus review (`gate-P-amendment-3-review.md`) passed with fixes. F1 to F7 and F9 to F14 are in. F8 is declined, because calibration spec section 6 already registered rv-v1 as needing the repaired rv2 data.
+
 ### Added: Round 4 Phase 4 registration, with lock Amendment 2 signed
 - The synthetic V record is committed as `scripts/research/py/records/synth_v_81e3c5b0.json`, the output of `calib-synth-v` at `81e3c5b0`:
   - the V panel at seed 3,999;
