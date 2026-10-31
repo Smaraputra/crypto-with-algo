@@ -2661,6 +2661,20 @@ def evaluate_exit_block(
 _SHA_HEX = re.compile(r"[0-9a-f]{7,40}")
 _REJECT_P = float(BAR["random_entry_p_max"])
 N_RETESTS = 6
+# Amendment 3 (A3.2): the files that may differ between the frozen commit and the re-test commit.
+A3_CODE_CHANGE_FILES: frozenset[str] = frozenset(
+    {
+        "scripts/research/py/r4/natives.py",
+        "scripts/research/py/r4/calibration.py",
+        "scripts/research/py/r4/method.py",
+        "scripts/research/round4-native-export.ts",
+        "scripts/research/round4-native-export.test.ts",
+        "changelogs/CHANGELOG.md",
+    }
+)
+A3_CODE_CHANGE_PREFIXES: tuple[str, ...] = ("scripts/research/py/tests/",)
+# Amendment 3 (A3.2): the frozen commit 5250b8ea in full. A code_change runs from it, and the frozen inputs are at it.
+A3_FROZEN_COMMIT = "5250b8eaf30b5bb4cf073bbcb9eb2529fb8b8701"
 N_EXIT_CONFIGS = 6
 
 
@@ -2986,6 +3000,10 @@ def _validate_retests(rows: Sequence[Any]) -> int:
         n_pass += int(r["pass"])
     if len(rules) != N_RETESTS:
         raise ValueError("the native re-test receipts name duplicate rules")
+    from r4.natives import NATIVE_RULES
+
+    if rules != set(NATIVE_RULES):
+        raise ValueError(f"the native re-test receipts name the rules {sorted(rules)}, expected {sorted(NATIVE_RULES)}")
     return n_pass
 
 
@@ -3304,16 +3322,33 @@ def _freeze_values(name: str, obj: Any) -> dict[str, set[str]]:
     return out
 
 
-def _check_code_freeze(named: dict[str, Any], retests: Sequence[Any]) -> str:
-    """Every input shares ONE commit, source digest, lock hash and library-version map (spec section 8 code freeze).
+def _prefix_match(a: str, b: str) -> bool:
+    return a.startswith(b) or b.startswith(a)
 
-    The inputs are the evaluation outputs (each with its receipts' provenance and the evaluation-time reproduction
-    record), the daily null simulation, and the re-test receipts. Returns the frozen commit.
+
+def _check_code_freeze(
+    named: dict[str, Any], retests: Sequence[Any], code_change: dict[str, Any] | None
+) -> tuple[str, str]:
+    """The frozen inputs share ONE commit, source digest, lock hash and library-version map (spec section 8).
+
+    The frozen inputs are the evaluation outputs (each with its receipts' provenance and the evaluation-time
+    reproduction record) and the daily null simulation. The re-test receipts share one commit and one source digest
+    among themselves, and their lock hash and library versions equal the frozen inputs'. Amendment 3 (A3.2):
+    - re-tests at the frozen commit must carry the frozen source digest, whatever a code_change says (a dirty tree
+      is refused), and a code_change is then refused because the re-tests did not move;
+    - re-tests at another commit need the lead's code_change record: the frozen inputs are at A3_FROZEN_COMMIT, the
+      re-test commit is the record's "to", and the re-tests' source digest is the record's to_source_sha256, the
+      digest of a clean checkout of that commit.
+    Returns (frozen commit, re-test commit).
     """
     pools: dict[str, set[str]] = {k: set() for k in _FREEZE_KEYS}
     for name, obj in named.items():
         for key, vals in _freeze_values(name, obj).items():
             pools[key] |= vals
+    for key, vals in pools.items():
+        if len(vals) != 1:
+            raise ValueError(f"inputs must share one {key}, found {sorted(vals)}")
+    retest_pools: dict[str, set[str]] = {k: set() for k in _FREEZE_KEYS}
     for i, r in enumerate(retests):
         for key, rkey in zip(
             _FREEZE_KEYS, ("commit", "source_sha256", "requirements_lock_sha256", "versions"), strict=True
@@ -3322,15 +3357,60 @@ def _check_code_freeze(named: dict[str, Any], retests: Sequence[Any]) -> str:
             if key == "versions":
                 if not isinstance(v, dict) or not v:
                     raise ValueError(f"retests[{i}] needs a library-version map")
-                pools[key].add(_canon(v))
+                retest_pools[key].add(_canon(v))
             else:
                 if not isinstance(v, str) or not v:
                     raise ValueError(f"retests[{i}] needs a {rkey}")
-                pools[key].add(v)
-    for key, vals in pools.items():
-        if len(vals) != 1:
-            raise ValueError(f"inputs must share one {key}, found {sorted(vals)}")
-    return next(iter(pools["commits"]))
+                retest_pools[key].add(v)
+    for key in ("commits", "source_sha256"):
+        if len(retest_pools[key]) != 1:
+            raise ValueError(f"the re-tests must share one {key}, found {sorted(retest_pools[key])}")
+    for key in ("requirements_lock_sha256", "versions"):
+        if retest_pools[key] != pools[key]:
+            raise ValueError(
+                f"the re-tests' {key} {sorted(retest_pools[key])} differ from the frozen inputs' {sorted(pools[key])}"
+            )
+    frozen = next(iter(pools["commits"]))
+    retest_commit = next(iter(retest_pools["commits"]))
+    frozen_src = next(iter(pools["source_sha256"]))
+    retest_src = next(iter(retest_pools["source_sha256"]))
+    if _prefix_match(retest_commit, frozen):
+        if retest_src != frozen_src:
+            raise ValueError(
+                f"the re-tests are at the frozen commit {frozen} but their source digest {retest_src} is not the "
+                f"frozen digest {frozen_src}: the tree was not clean"
+            )
+        if code_change is not None:
+            raise ValueError(
+                "a code_change is recorded but the re-tests did not move: they are at the frozen commit and digest"
+            )
+        return frozen, retest_commit
+    if code_change is None:
+        raise ValueError(
+            f"the re-tests are at commit {retest_commit}, not the frozen commit {frozen}, "
+            "and no code_change is recorded"
+        )
+    if not _prefix_match(frozen, A3_FROZEN_COMMIT):
+        raise ValueError(f"the frozen inputs are at {frozen}, not the Amendment 3 frozen commit {A3_FROZEN_COMMIT}")
+    if not _prefix_match(retest_commit, str(code_change["to"])):
+        raise ValueError(f"code_change.to {code_change['to']} is not the re-test commit {retest_commit}")
+    if retest_src != code_change["to_source_sha256"]:
+        raise ValueError(
+            f"the re-tests' source digest {retest_src} is not code_change.to_source_sha256 "
+            f"{code_change['to_source_sha256']}"
+        )
+    return frozen, retest_commit
+
+
+def _check_retest_sources(retests: Sequence[Any], d_hash: str) -> None:
+    """Every re-test's decision_dataset_hash is its rule's registered decision source (A3.1)."""
+    from r4.natives import decision_source
+
+    for r in retests:
+        want = decision_source(str(r["rule"]), d_hash)
+        got = r.get("decision_dataset_hash")
+        if not isinstance(got, str) or got != want:
+            raise ValueError(f"retest {r['rule']!r}: decision_dataset_hash {got!r} is not its decision source {want!r}")
 
 
 def _check_one_dataset(named: dict[str, Any], retests: Sequence[Any]) -> str:
@@ -3429,18 +3509,23 @@ def _expected_receipt_ids(
     return exp
 
 
-def _bind_commit_order(order: dict[str, Any], commit: str, expected: dict[str, set[str] | None]) -> None:
+def _bind_commit_order(
+    order: dict[str, Any], commit: str, expected: dict[str, set[str] | None], retest_commit: str
+) -> None:
     """The commit-order evidence must be about the frozen commit's receipts (brief 28g, C-2).
 
     Every receipt commit listed under a prediction equals the frozen commit (a short sha is accepted when it is a
-    prefix of it), and every input receipt id of that prediction appears among them.
+    prefix of it), except natives_all_six_fail, whose receipts are at the re-test commit (A3.2). Every input receipt
+    id of that prediction appears among them.
     """
     for pid, entry in order["predictions"].items():
+        want_commit = retest_commit if pid == "natives_all_six_fail" else commit
+        label = "re-test" if pid == "natives_all_six_fail" else "frozen"
         for rc in entry["receipts"]:
             sha = rc["commit"]
-            if not (commit.startswith(sha) or sha.startswith(commit)):
+            if not _prefix_match(want_commit, sha):
                 raise ValueError(
-                    f"commit_order {pid}: receipt {rc.get('id')!r} is at {sha}, not the frozen commit {commit}"
+                    f"commit_order {pid}: receipt {rc.get('id')!r} is at {sha}, not the {label} commit {want_commit}"
                 )
         want = expected.get(pid)
         if want is not None:
@@ -3450,15 +3535,58 @@ def _bind_commit_order(order: dict[str, Any], commit: str, expected: dict[str, s
                 raise ValueError(f"commit_order {pid}: input receipts {missing} are not listed")
 
 
+def _validate_code_change(cc: Any) -> None:
+    """{"from", "to", "to_source_sha256", "is_ancestor": True, "files"}: A3.2's record of the 5250b8ea..C3 change.
+
+    from is A3_FROZEN_COMMIT in full, to is another full sha that does not prefix-match it, to_source_sha256 is the
+    r4 source digest of a clean checkout of to, and every file is a normalised relative path on the A3 list.
+    """
+    import posixpath
+
+    if not isinstance(cc, dict):
+        raise ValueError("commit_order.code_change must be an object")
+    for k in ("from", "to"):
+        if not isinstance(cc.get(k), str) or not re.fullmatch(r"[0-9a-f]{40}", cc[k]):
+            raise ValueError(f"commit_order.code_change.{k} must be a 40 character lowercase hex sha")
+    if cc["from"] != A3_FROZEN_COMMIT:
+        raise ValueError(f"commit_order.code_change.from {cc['from']} is not the frozen commit {A3_FROZEN_COMMIT}")
+    if _prefix_match(cc["from"], cc["to"]):
+        raise ValueError("commit_order.code_change.from and to must be different commits")
+    if not isinstance(cc.get("to_source_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", cc["to_source_sha256"]):
+        raise ValueError("commit_order.code_change.to_source_sha256 must be a 64 character lowercase hex digest")
+    if cc.get("is_ancestor") is not True:
+        raise ValueError(
+            "commit_order.code_change.is_ancestor must be true: the frozen commit must precede the re-test"
+        )
+    files = cc.get("files")
+    if not isinstance(files, list) or not files or not all(isinstance(f, str) for f in files):
+        raise ValueError("commit_order.code_change.files must be a non-empty list of paths")
+    for f in files:
+        if f.startswith("/") or "\\" in f or ".." in f.split("/") or posixpath.normpath(f) != f:
+            raise ValueError(f"commit_order.code_change.files: {f!r} is not a normalised relative path")
+    if len(set(files)) != len(files):
+        raise ValueError("commit_order.code_change.files lists a path twice")
+    outside = sorted(f for f in files if f not in A3_CODE_CHANGE_FILES and not f.startswith(A3_CODE_CHANGE_PREFIXES))
+    if outside:
+        raise ValueError(f"commit_order.code_change.files {outside} are outside the Amendment 3 list")
+
+
 def _validate_commit_order(d: Any) -> dict[str, Any]:
     """{"predictions": {id: {"registration_commit": sha, "receipts": [{"id", "commit", "is_ancestor": True}]}}}.
 
     is_ancestor is the lead's `git merge-base --is-ancestor <registration> <receipt commit>` result. Every registered
-    prediction needs an entry with at least one receipt, and every receipt must be marked an ancestor.
+    prediction needs an entry with at least one receipt, and every receipt must be marked an ancestor. An optional
+    "code_change" ({"from", "to", "is_ancestor": True, "files"}, Amendment 3 A3.2) records the lead's git evidence for
+    re-tests built at a later commit than the frozen inputs.
     """
     preds = d.get("predictions") if isinstance(d, dict) else None
     if not isinstance(preds, dict):
         raise ValueError("commit_order must be an object with predictions")
+    unknown = sorted(set(d) - {"predictions", "code_change"})
+    if unknown:
+        raise ValueError(f"commit_order has unknown keys {unknown}: only predictions and code_change are accepted")
+    if "code_change" in d:
+        _validate_code_change(d["code_change"])
     if set(preds) != set(PREDICTIONS):
         missing, extra = sorted(set(PREDICTIONS) - set(preds)), sorted(set(preds) - set(PREDICTIONS))
         raise ValueError(f"commit_order predictions differ from the registry: missing {missing}, unregistered {extra}")
@@ -3495,10 +3623,15 @@ def write_dossier(
     """Assemble the Phase 4 dossier once: every registered prediction against its observed value.
 
     Inputs are JSON files, each referenced by absolute path and sha256. exit_block is required (brief 28e). The
-    dossier refuses unless every input is bound to ONE D dataset hash, ONE commit, r4 source digest, requirements-lock
-    hash and library-version map (receipts and the evaluation-time record alike, the daily null and the re-tests
-    included), to the registered parameters (power margin, draws, trials, replicates and grid, positive-control
-    tripwire count and configurations, the exit null's span, the re-tests' calibration V), and to the receipts the
+    dossier refuses unless every input is bound to ONE D dataset hash, and the frozen inputs (noise evaluation,
+    power, positive control, exit block, daily null: receipts and the evaluation-time record alike) to ONE commit, r4
+    source digest, requirements-lock hash and library-version map. The six re-tests (Amendment 3, A3.2) share one
+    lock hash and one version map with them and either sit at that commit and digest (no code_change allowed) or at
+    the code_change record's "to" commit with its to_source_sha256, the record running from the frozen commit
+    5250b8ea; the dossier run's own source digest must then equal to_source_sha256 too, and its reproduction record
+    is written under "dossier_reproduction" (tests patch r4.cli.reproduction_inputs). The inputs are also bound to the
+    registered parameters (power margin, draws, trials, replicates and grid, positive-control tripwire count and
+    configurations, the exit null's span, the re-tests' calibration V and decision sources), and to the receipts the
     commit-order evidence lists (brief 28g). Every verdict flag is recomputed from the numbers beside it. family_spa
     is optional evidence that no prediction reads: when given, its shape is validated. gate_p_ready is true when
     every GATED prediction is as predicted. It is evidence for the review and is not the Gate P decision.
@@ -3551,9 +3684,20 @@ def write_dossier(
         _check_positive_binding(pos, star, pwr, float(v_noise))
         frozen["positive_control"] = pos
     frozen["exit_block"] = exb
-    _check_one_dataset(frozen, rts)
-    commit = _check_code_freeze(frozen, rts)
-    _bind_commit_order(order, commit, _expected_receipt_ids(noi, exb, None if star["infeasible"] else pos, rts))
+    d_hash = _check_one_dataset(frozen, rts)
+    _check_retest_sources(rts, d_hash)
+    code_change = order.get("code_change")
+    commit, retest_commit = _check_code_freeze(frozen, rts, code_change)
+    dossier_repro = _cli().reproduction_inputs()
+    if code_change is not None and dossier_repro["source_sha256"] != code_change["to_source_sha256"]:
+        raise ValueError(
+            f"the dossier's own source digest {dossier_repro['source_sha256']} is not "
+            f"code_change.to_source_sha256 {code_change['to_source_sha256']}: run it from a clean checkout of "
+            f"{code_change['to']}"
+        )
+    _bind_commit_order(
+        order, commit, _expected_receipt_ids(noi, exb, None if star["infeasible"] else pos, rts), retest_commit
+    )
 
     predictions: dict[str, dict[str, Any]] = {}
 
@@ -3615,6 +3759,13 @@ def write_dossier(
         "gate_p_note": "Evidence only. The Opus review decides Gate P, not this file.",
         "power": {"a_star": star, "curve_at_1_2v": pwr["curve_at_1_2v"]},
         "commit_order": order,
+        "code_change": code_change,
+        "retest_commit": retest_commit,
+        "dossier_reproduction": dossier_repro,
+        "retest_sources": [
+            {"rule": r["rule"], "decision_dataset_hash": r["decision_dataset_hash"], "dataset_hash": r["dataset_hash"]}
+            for r in rts
+        ],
     }
     if spa is not None:
         doc["family_spa"] = spa

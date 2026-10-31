@@ -16,6 +16,7 @@ from r4 import calibration as cal
 from r4.bar import trial_sharpe_variance
 from r4.cli import config_hash_of, main
 from r4.method import DEV_END, DEV_START, UNIVERSE
+from r4.natives import decision_source
 from r4.synth import synth_panel, write_synthetic_dataset
 from r4.tripwire import SHIFT_DAYS
 from tests.test_calibration import _write_cell_family
@@ -488,7 +489,7 @@ def _exit_block(
     }
 
 
-RULES = ("rv-v1", "lab-v4-s1", "lab-v4-s2", "v8-1h", "v8-4h", "c1")
+RULES = ("rv-v1", "s1", "s2", "v8-1h", "v8-4h", "c1")
 
 
 def _retest(rule: str, passed: bool = False, *, applied: bool = True) -> dict:
@@ -504,6 +505,7 @@ def _retest(rule: str, passed: bool = False, *, applied: bool = True) -> dict:
         "commit": SHA2,
         **_repro(),
         "dataset_hash": DS_HASH,
+        "decision_dataset_hash": decision_source(rule, DS_HASH),
         "calib_v": D_V,
         "hurdles": rows,
         "hurdles_passed": ["joint_shift_null"] if applied and passed else [],

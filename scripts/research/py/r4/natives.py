@@ -94,6 +94,24 @@ NATIVE_RULES: dict[str, NativeRule] = {
     "v8-4h": NativeRule("4h", None, None, "coin_count", from_summary=True),
 }
 
+# Amendment 3 (A3.1): re-tests whose frozen code reads inputs D does not hold take their decisions from the dataset
+# that code was last run on, fixed by datasetHash. The book always prices on D. Rules not listed read D itself.
+NATIVE_DECISION_SOURCES: dict[str, str] = {
+    "rv-v1": "bc3566f4c6c6b0fe09e0c6984fca4aa8ba4f4c3a3fe8837826aad57f9c4137c8",
+    "c1": "414fef1ee6ccf45fcb6e6a7e25ad8a5c3a3ea24176b40cfd7158e8cf2a906e5f",
+    "v8-1h": "48ff79609080f11a48c45822f27cd609818b913b2d42455cddf4ea1ef4806e93",
+    "v8-4h": "48ff79609080f11a48c45822f27cd609818b913b2d42455cddf4ea1ef4806e93",
+}
+
+
+# Amendment 3 (A3.1): sha256 of the reviewed resolutions file that rv-v1's export must have been built with.
+RV_V1_RESOLUTIONS_SHA256 = "bc4d30b25232a572555c9b09fb00972dab75bdff7c55ba4818d598196f3f0657"
+
+
+def decision_source(rule: str, book_hash: str) -> str:
+    """The datasetHash a rule's export must carry: its registered decision source, else the book dataset D."""
+    return NATIVE_DECISION_SOURCES.get(rule, book_hash)
+
 
 def _profile_from_costs(fee_taker: float, fee_maker: float | None) -> str:
     """The fee profile whose taker (and maker, when reported) fee equals the export's reported fees."""
@@ -138,8 +156,12 @@ def _grid_ms(value: Any, field: str, line: int) -> int:
     return ms
 
 
-def read_export(export_dir: Path | str, dataset_hash: str) -> tuple[list[Tranche], dict[str, Any], dict[str, Any]]:
+def read_export(export_dir: Path | str, book_hash: str) -> tuple[list[Tranche], dict[str, Any], dict[str, Any]]:
     """Read tranches.jsonl and summary.json of a native export into book tranches.
+
+    book_hash is D's datasetHash. The export's manifest_hash must be the rule's decision source (A3.1): the registered
+    hash of a listed rule, D's hash for any other. A listed rule exported on D is refused, and so is an unlisted rule
+    exported on any other dataset.
 
     Every row becomes a Tranche with weight_override = weight and the rule's native cost. "horizon", "rebalance" and
     "end_of_data" exits are on-grid opens that the book prices at the 5m open (exit_reason "horizon"). A "stop" keeps
@@ -151,11 +173,20 @@ def read_export(export_dir: Path | str, dataset_hash: str) -> tuple[list[Tranche
     rule = summary.get("rule")
     if rule not in NATIVE_RULES:
         raise ValueError(f"Unknown rule in the export summary: {rule!r}")
-    if summary.get("manifest_hash") != dataset_hash:
+    want_hash = decision_source(rule, book_hash)
+    if summary.get("manifest_hash") != want_hash:
         raise ValueError(
-            f"{rule}: the export's manifest_hash {summary.get('manifest_hash')!r} is not the dataset manifest's "
-            f"datasetHash {dataset_hash!r}"
+            f"{rule}: the export's manifest_hash {summary.get('manifest_hash')!r} is not its decision source "
+            f"{want_hash!r} (book dataset D {book_hash!r})"
         )
+    if rule == "rv-v1":
+        panel = summary.get("panel")
+        got = panel.get("resolutions_sha256") if isinstance(panel, Mapping) else None
+        if got != RV_V1_RESOLUTIONS_SHA256:
+            raise ValueError(
+                f"{rule}: the export's resolutions_sha256 {got!r} is not the reviewed resolutions file "
+                f"{RV_V1_RESOLUTIONS_SHA256!r}"
+            )
     fee_profile, slippage = _native_cost(rule, summary)
     interval = NATIVE_RULES[rule].interval
 
@@ -353,6 +384,7 @@ def evaluate_retest(
     summary: Mapping[str, Any] | None = None,
     dropped: Mapping[str, Any] | None = None,
     dataset_hash: str | None = None,
+    decision_dataset_hash: str | None = None,
     commit: str | None = None,
     span_start: int | None = None,
     span_end: int | None = None,
@@ -365,16 +397,31 @@ def evaluate_retest(
     betas from the lookback_months before each month's start. The drift-free series is the folds' beta_hedged_daily
     summed by day and reindexed to every calendar day of the span, no-bet days as 0.
 
-    seed_cfg is an int (the joint-shift seed) or a mapping with "joint_shift" and "spa" seeds.
+    seed_cfg is an int (the joint-shift seed) or a mapping with "joint_shift" and "spa" seeds. dataset_hash is the
+    book's D; decision_dataset_hash is the dataset the exported decisions came from (A3.1), required with a summary
+    and equal to the summary's manifest_hash.
     """
     if rule not in NATIVE_RULES:
         raise ValueError(f"Unknown rule: {rule!r}")
+    if summary is not None and decision_dataset_hash != summary.get("manifest_hash"):
+        raise ValueError(
+            f"{rule}: decision_dataset_hash {decision_dataset_hash!r} is not the summary's manifest_hash "
+            f"{summary.get('manifest_hash')!r}"
+        )
     start = WF_SPAN[0] if span_start is None else int(span_start)
     end = WF_SPAN[1] if span_end is None else int(span_end)
     draws = int(BAR["random_entry_draws"]) if n_draws is None else int(n_draws)
     joint_seed, spa_seed = _seeds(seed_cfg)
     spec = NATIVE_RULES[rule]
     commit_sha = resolve_commit(commit)
+    if summary is not None:
+        export_commit = summary.get("export_commit")
+        if not isinstance(export_commit, str) or not (
+            commit_sha.startswith(export_commit) or export_commit.startswith(commit_sha)
+        ):
+            raise ValueError(
+                f"{rule}: the export's export_commit {export_commit!r} is not the receipt's commit {commit_sha!r}"
+            )
 
     all_tranches = _coerce_tranches(list(tranches))
     for t in all_tranches:
@@ -518,6 +565,12 @@ def evaluate_retest(
         "commit": commit_sha,
         **reproduction_inputs(),
         "dataset_hash": dataset_hash,
+        "decision_dataset_hash": decision_dataset_hash,
+        "rv_resolutions_sha256": (
+            summary["panel"].get("resolutions_sha256")
+            if rule == "rv-v1" and summary is not None and isinstance(summary.get("panel"), Mapping)
+            else None
+        ),
         "export_summary_sha256": None
         if summary is None
         else hashlib.sha256(json.dumps(summary, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
@@ -612,13 +665,26 @@ def run_retest(
     """Read one export, load the dataset's 5m opens and funding, evaluate, and write out_dir/<rule>/receipt.json."""
     ds_path = Path(ds_dir)
     manifest = read_manifest(ds_path)
-    dataset_hash = str(manifest["datasetHash"])
-    tranches, summary, dropped = read_export(export_dir, dataset_hash)
+    book_hash = str(manifest["datasetHash"])
+    tranches, summary, dropped = read_export(export_dir, book_hash)
     symbols = list(manifest["symbols"]) if manifest.get("symbols") else list(UNIVERSE)
     panel: dict[str, dict[str, pd.DataFrame]] = {}
     for sym in symbols:
         fund = load_funding(ds_path, sym).rows
         panel[sym] = {"5m": load_perp(ds_path, sym, "5m", series="klines").rows, "settlements": fund, "funding": fund}
+    # Amendment 3 review F11: the book falls back to the exported price when D has no exact 5m open, and for a rule
+    # whose decisions came from spot that would mix spot and perp in one return. Every booked instant must be on D.
+    missing: list[tuple[str, int]] = []
+    for sym in sorted({t.symbol for t in tranches} & set(panel)):
+        opens = np.asarray(panel[sym]["5m"]["t"], dtype=np.int64)
+        instants = {t.entry_ms for t in tranches if t.symbol == sym}
+        instants |= {t.exit_ms for t in tranches if t.symbol == sym and not t.exit_priced}
+        want = np.array(sorted(instants), dtype=np.int64)
+        missing += [(sym, int(ms)) for ms in want[~np.isin(want, opens)]]
+    if missing:
+        raise ValueError(
+            f"{summary['rule']}: {len(missing)} booked instants have no exact D 5m open, first {missing[:5]}"
+        )
     receipt = evaluate_retest(
         str(summary["rule"]),
         tranches,
@@ -627,7 +693,8 @@ def run_retest(
         seed_cfg=seed_cfg,
         summary=summary,
         dropped=dropped,
-        dataset_hash=dataset_hash,
+        dataset_hash=book_hash,
+        decision_dataset_hash=str(summary["manifest_hash"]),
         commit=commit,
         n_draws=n_draws,
     )

@@ -21,6 +21,8 @@ from r4.book import (
 from r4.method import UNIVERSE
 from r4.natives import (
     NATIVE_RULES,
+    RV_V1_RESOLUTIONS_SHA256,
+    decision_source,
     evaluate_retest,
     mechanical_parity,
     read_export,
@@ -84,7 +86,7 @@ def _random_rows(panel, rule: str, n: int, seed: int, lo: int, hi: int, hold: in
     return rows
 
 
-def _summary(rule: str, n: int, hash_: str = DATASET_HASH, costs: dict | None = None) -> dict[str, Any]:
+def _summary(rule: str, n: int, hash_: str | None = None, costs: dict | None = None) -> dict[str, Any]:
     default_costs = {"fee_taker": 0.0005, "fee_maker": 0.0002, "slippage_bps": 2, "round_trip": 0.0014}
     if rule == "c1":
         default_costs = {"fee_taker": 0.0005, "fee_maker": None, "slippage_bps": 3, "round_trip": 0.0016}
@@ -92,9 +94,11 @@ def _summary(rule: str, n: int, hash_: str = DATASET_HASH, costs: dict | None = 
         "rule": rule,
         "n_tranches": n,
         "mean_net_native": -0.001,
-        "manifest_hash": hash_,
+        "manifest_hash": decision_source(rule, DATASET_HASH) if hash_ is None else hash_,
+        "export_commit": COMMIT,
         "costs": costs or default_costs,
         "parity": {"recorded_trades": 10, "export_trades": n, "trades_diff": n - 10, "reference": "fixture"},
+        **({"panel": {"resolutions_sha256": RV_V1_RESOLUTIONS_SHA256}} if rule == "rv-v1" else {}),
     }
 
 
@@ -115,6 +119,8 @@ def _retest(rule, tranches, panel, summary=None, **kw):
     kw.setdefault("span_start", SPAN_START)
     kw.setdefault("span_end", SPAN_END)
     kw.setdefault("n_draws", 100)
+    if summary is not None:
+        kw.setdefault("decision_dataset_hash", summary["manifest_hash"])
     return evaluate_retest(rule, tranches, panel, 0.01, summary=summary, dataset_hash=DATASET_HASH, commit=COMMIT, **kw)
 
 
@@ -369,6 +375,7 @@ def test_retest_end_to_end_synthetic(tmp_path, panel):
             0.01,
             summary=summary,
             dataset_hash=DATASET_HASH,
+            decision_dataset_hash=summary["manifest_hash"],
             commit=COMMIT,
             span_start=SPAN_START,
             span_end=SPAN_END,

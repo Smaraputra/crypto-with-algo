@@ -83,7 +83,7 @@ describe('contract fields and the writer', () => {
       },
     ];
     writeExport(out, tranches, {
-      rule: 's1', n_tranches: 2, mean_net_native: -0.001, manifest_hash: 'abc', warmup_from: '2022-01-01T00:00:00.000Z',
+      rule: 's1', n_tranches: 2, mean_net_native: -0.001, manifest_hash: 'abc', export_commit: 'abc1234', warmup_from: '2022-01-01T00:00:00.000Z',
       span: { from: '2022-01-01T00:00:00.000Z', to_exclusive: '2026-07-01T00:00:00.000Z' },
       costs: { fee_taker: 0.0005, fee_maker: 0.0002, slippage_bps: 2, round_trip: 0.0014 },
       parity: {},
@@ -102,9 +102,9 @@ describe('contract fields and the writer', () => {
 });
 
 describe('flag refusal', () => {
-  const base = ['s1', '--dataset-dir', '/d', '--out', '/o'];
+  const base = ['s1', '--dataset-dir', '/d', '--out', '/o', '--commit', 'abc1234'];
   it('parses the required flags', () => {
-    expect(parseCliArgs(base)).toMatchObject({ rule: 's1', datasetDir: '/d', out: '/o' });
+    expect(parseCliArgs(base)).toMatchObject({ rule: 's1', datasetDir: '/d', out: '/o', commit: 'abc1234' });
   });
   it.each(['--allow-lockbox', '--allow-holdout-a', '--allowHoldoutA', '--holdout', '--holdout-h'])('refuses %s', (flag) => {
     expect(() => parseCliArgs([...base, flag])).toThrow(/refus/i);
@@ -112,6 +112,15 @@ describe('flag refusal', () => {
   it('refuses an unknown rule and an unknown flag', () => {
     expect(() => parseCliArgs(['nope', '--dataset-dir', '/d', '--out', '/o'])).toThrow(/rule/i);
     expect(() => parseCliArgs([...base, '--bogus'])).toThrow(/unknown/i);
+  });
+  it('requires a well-formed --commit', () => {
+    const noCommit = ['s1', '--dataset-dir', '/d', '--out', '/o'];
+    expect(() => parseCliArgs(noCommit)).toThrow(/--commit is required/);
+    expect(() => parseCliArgs([...noCommit, '--commit'])).toThrow(/Missing value/);
+    for (const bad of ['abc123', 'ABCDEF1', 'abc123g', 'a'.repeat(41), '']) {
+      expect(() => parseCliArgs([...noCommit, '--commit', bad])).toThrow(/--commit/);
+    }
+    expect(parseCliArgs([...noCommit, '--commit', 'a'.repeat(40)]).commit).toBe('a'.repeat(40));
   });
 });
 
@@ -245,11 +254,11 @@ describe('C1 at k = 1', () => {
 });
 
 describe('v8 at 1h and 4h', () => {
-  it('builds harness args from the runbook: fixed D0 E1, perp prices, no lockbox, ends before 2026-07-01', () => {
+  it('builds harness args from the runbook: fixed D0 E1, spot prices, no lockbox, ends before 2026-07-01', () => {
     for (const interval of ['1h', '4h'] as const) {
       const a = v8HarnessArgs(interval, '/ds', '/out/report.json');
       expect(a).toMatchObject({
-        family: 'dx-d0', interval, fixedEval: true, fixParams: { exit: 1, k: 1 }, price: 'perp',
+        family: 'dx-d0', interval, fixedEval: true, fixParams: { exit: 1, k: 1 }, price: 'spot',
         allowLockbox: false, fundingSettlements: true, noBenchmark: true,
         evalFrom: EXPORT_SPAN.from, datasetDir: '/ds', out: '/out/report.json',
       });
@@ -258,7 +267,7 @@ describe('v8 at 1h and 4h', () => {
     }
   });
 
-  it('turns report trades into tranches with prices from the perp bars', () => {
+  it('turns report trades into tranches with prices from the spot bars', () => {
     const t0 = EXPORT_SPAN.from + 100 * HOUR;
     const bars: OHLCV[] = [];
     for (let i = 0; i < 40; i++) bars.push({ timestamp: t0 + i * HOUR, open: 100 + i, high: 200, low: 1, close: 100.5 + i, volume: 1 });
@@ -274,9 +283,16 @@ describe('v8 at 1h and 4h', () => {
     const { tranches, nativeNets } = v8Tranches('v8-1h', report, { BTCUSDT: bars });
     expect(tranches).toHaveLength(3);
     const horizon = tranches.find((t) => t.exit_reason === 'horizon') as Tranche;
-    expect(horizon).toMatchObject({ rule: 'v8-1h', symbol: 'BTCUSDT', side: 1, weight: 0.1, entry_price: 101, exit_price: 125.5, price_source: 'perp' });
+    expect(horizon).toMatchObject({ rule: 'v8-1h', symbol: 'BTCUSDT', side: 1, weight: 0.1, entry_price: 101, exit_price: 125.5, price_source: 'spot' });
+    // The time stop fills at the exit bar's close, so the book closes at the close instant, one bar after the stamp.
+    expect(horizon.exit_ms).toBe(t0 + 25 * HOUR + HOUR);
     const stop = tranches.find((t) => t.exit_reason === 'stop') as Tranche;
-    expect(stop).toMatchObject({ side: -1, weight: -0.1, exit_price: null });
+    expect(stop).toMatchObject({ side: -1, weight: -0.1, exit_price: null, exit_ms: t0 + 33 * HOUR });
+    // A hold still open at the last bar closes at that bar's close too (end_of_data), priced and stamped the same way.
+    const eod = tranches.find((t) => t.exit_reason === 'end_of_data') as Tranche;
+    expect(eod).toMatchObject({ side: 1, entry_price: 102, exit_price: 126.5, exit_ms: t0 + 26 * HOUR + HOUR });
+    const four = v8Tranches('v8-4h', report, { BTCUSDT: bars });
+    expect(four.tranches.find((t) => t.exit_reason === 'horizon')?.exit_ms).toBe(t0 + 25 * HOUR + 4 * HOUR);
     expect(nativeNets.every((n) => n === -0.001)).toBe(true);
   });
 

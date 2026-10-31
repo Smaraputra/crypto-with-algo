@@ -12,7 +12,16 @@
  *           direction-exit-judge.ts tradesOf
  *
  * Usage (one rule per call, run on the VPS, never on the Mac):
- *   round4-native-export.ts <rule> --dataset-dir DIR --out DIR [--resolutions FILE]   (--resolutions: rv-v1 only)
+ *   round4-native-export.ts <rule> --dataset-dir DIR --out DIR --commit SHA [--resolutions FILE]
+ *     --resolutions: rv-v1 only. --commit: the git commit (7 to 40 lowercase hex) of the clean checkout that runs the
+ *     export, recorded in the summary as export_commit and checked against the receipt's commit.
+ *
+ * --dataset-dir is the rule's DECISION SOURCE (Amendment 3, A3.1), fixed by datasetHash. The book prices on D later:
+ *   rv-v1   ~/rv2-ds, the repaired re-validation export, with --resolutions (the reviewed resolutions file)
+ *   c1      ~/nv1-ds, the Round 1 export (spot 1h)
+ *   v8-1h,
+ *   v8-4h   ~/dx-ds, the direction-exit export: v8 reads its decision source, spot only, on spot prices
+ *   s1, s2  D itself, ~/round4-ds
  *
  * Decisions and evaluation are restricted to [2022-01-01, 2026-07-01). Two rules read older spot bars as warm-up
  * only, before the span starts: v8 reads spot from 2021-10-01 (V8_HARNESS_START) and c1 reads spot 1h from
@@ -79,6 +88,8 @@ export interface ExportSummary {
   /** Mean net return per native unit (per trade, per 8h step for rv-v1), as a fraction. */
   mean_net_native: number | null;
   manifest_hash: string;
+  /** The git commit of the checkout that ran the export (--commit). */
+  export_commit: string;
   /** Start of the history the rule's own code reads before its first decision, ISO. */
   warmup_from: string;
   span: { from: string; to_exclusive: string };
@@ -121,6 +132,7 @@ export interface CliOptions {
   rule: Rule;
   datasetDir: string;
   out: string;
+  commit: string;
   resolutions?: string;
 }
 
@@ -139,7 +151,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
       throw new Error(`REFUSE: ${arg}: this export never reads the lockbox (2026-07-01 on) or any holdout`);
     }
     const key = arg.slice(2);
-    if (key !== 'dataset-dir' && key !== 'out' && key !== 'resolutions') throw new Error(`Unknown flag ${arg}`);
+    if (key !== 'dataset-dir' && key !== 'out' && key !== 'commit' && key !== 'resolutions') throw new Error(`Unknown flag ${arg}`);
     const value = rest[i + 1];
     if (value === undefined) throw new Error(`Missing value for ${arg}`);
     flags.set(key, value);
@@ -149,7 +161,10 @@ export function parseCliArgs(argv: string[]): CliOptions {
   const out = flags.get('out');
   if (!datasetDir) throw new Error('--dataset-dir is required');
   if (!out) throw new Error('--out is required');
-  return { rule: rule as Rule, datasetDir, out, resolutions: flags.get('resolutions') };
+  const commit = flags.get('commit');
+  if (!commit) throw new Error('--commit is required (the git commit of the checkout that runs the export)');
+  if (!/^[0-9a-f]{7,40}$/.test(commit)) throw new Error(`--commit ${commit} must be 7 to 40 lowercase hex characters`);
+  return { rule: rule as Rule, datasetDir, out, commit, resolutions: flags.get('resolutions') };
 }
 
 export function writeExport(outDir: string, tranches: readonly Tranche[], summary: ExportSummary): void {
@@ -306,51 +321,61 @@ export const V8_LABEL = 'v8 without news; long/short ratio and open interest abs
 export const V8_HARNESS_START = Date.UTC(2021, 9, 1);
 
 /**
- * The harness arguments of a direction-exit D0 E1 run (scripts/ops/direction-exit-run.sh harness_run), with perp
+ * The harness arguments of a direction-exit D0 E1 run (scripts/ops/direction-exit-run.sh harness_run), with SPOT
  * prices, the dev-window shape (benchmark off) and the end moved to 2026-06-30 23:59:59.999. No lockbox flag.
+ * Spot because A3.1 takes v8's decisions from its decision source dx-ds, which holds no perp bars, and the recorded
+ * direction-exit study ran on spot.
  */
 export function v8HarnessArgs(interval: '1h' | '4h', datasetDir: string, out: string): StrategyHarnessArgs {
   return parseHarnessArgs([
     '--family', 'dx-d0', '--interval', interval, '--fixed-eval', '--fix-params', 'exit=1,k=1',
     '--symbols', DIRECTION_EXIT_SYMBOLS.join(','),
     '--start', ISO(V8_HARNESS_START), '--eval-from', ISO(EXPORT_SPAN.from), '--end', ISO(EXPORT_SPAN.to - 1),
-    '--no-benchmark', '--funding-settlements', '--windows', '6', '--price', 'perp',
+    '--no-benchmark', '--funding-settlements', '--windows', '6', '--price', 'spot',
     '--dataset-dir', datasetDir, '--out', out,
   ]);
 }
 
 const V8_REASON: Record<string, string> = { time_stop: 'horizon', stop_loss: 'stop' };
 
+/** Harness exits that fill at the exit bar's close (bar-loop.ts time stop and end of data). */
+const CLOSE_FILLED = new Set(['time_stop', 'end_of_data']);
+
 /**
  * The report carries entry and exit times, side, pnlPercent (net of the harness's fees, slippage and funding) and the
- * exit reason, but not the fills. Entry price is the perp open at entryTime. A time_stop closes at that bar's close
- * (bar-loop.ts), so its exit price is the close at exitTime. Any other exit has no recoverable fill and stays null.
+ * exit reason, but not the fills. Entry price is the spot open at entryTime. A time_stop, and an end_of_data close of
+ * a hold still open at the last bar, both fill at that bar's close (bar-loop.ts), so the exit price is the close at
+ * exitTime and exit_ms is the close instant, exitTime + one bar (the bar is stamped with its open time). Any other
+ * exit has no recoverable fill, stays null and is stamped at the bar's open.
  */
 export function v8Tranches(
   rule: 'v8-1h' | 'v8-4h',
   report: StrategyReport,
-  perpBars: Record<string, readonly OHLCV[]>
+  priceBars: Record<string, readonly OHLCV[]>
 ): TrancheSet {
+  const intervalMs = rule === 'v8-1h' ? 3_600_000 : 4 * 3_600_000;
   const barAt = new Map<string, Map<number, OHLCV>>();
-  for (const [symbol, bars] of Object.entries(perpBars)) barAt.set(symbol, new Map(bars.map((b) => [b.timestamp, b])));
+  for (const [symbol, bars] of Object.entries(priceBars)) barAt.set(symbol, new Map(bars.map((b) => [b.timestamp, b])));
   const items: { tranche: Tranche; net: number }[] = [];
   for (const t of tradesOf(report)) {
     const bars = barAt.get(t.symbol);
     const entryBar = bars?.get(t.entryTime);
-    if (!entryBar) throw new Error(`${t.symbol}: no perp bar at entry ${ISO(t.entryTime)}`);
+    if (!entryBar) throw new Error(`${t.symbol}: no spot bar at entry ${ISO(t.entryTime)}`);
     const side = t.side === 'long' ? 1 : -1;
     let exitPrice: number | null = null;
-    if (t.exitReason === 'time_stop') {
+    let exitMs = t.exitTime;
+    if (CLOSE_FILLED.has(t.exitReason)) {
       const exitBar = bars?.get(t.exitTime);
-      if (!exitBar) throw new Error(`${t.symbol}: no perp bar at exit ${ISO(t.exitTime)}`);
+      if (!exitBar) throw new Error(`${t.symbol}: no spot bar at exit ${ISO(t.exitTime)}`);
       exitPrice = exitBar.close;
+      exitMs = t.exitTime + intervalMs;
     }
     items.push({
       net: t.pnlPercent / 100,
       tranche: {
-        rule, symbol: t.symbol, side, entry_ms: t.entryTime, exit_ms: t.exitTime, entry_price: entryBar.open,
+        rule, symbol: t.symbol, side, entry_ms: t.entryTime, exit_ms: exitMs, entry_price: entryBar.open,
         exit_price: exitPrice, weight: side * SLOT_WEIGHT, exit_reason: V8_REASON[t.exitReason] ?? t.exitReason,
-        price_source: 'perp',
+        price_source: 'spot',
       },
     });
   }
@@ -372,13 +397,14 @@ function parityOf(rule: Rule, nExport: number, meanExport: number | null): Recor
   };
 }
 
-function baseSummary(rule: Rule, set: TrancheSet, manifestHash: string, warmupFrom: number): ExportSummary {
+function baseSummary(rule: Rule, set: TrancheSet, manifestHash: string, warmupFrom: number, exportCommit: string): ExportSummary {
   const m = mean(set.nativeNets);
   return {
     rule,
     n_tranches: set.tranches.length,
     mean_net_native: m,
     manifest_hash: manifestHash,
+    export_commit: exportCommit,
     warmup_from: ISO(warmupFrom),
     span: { from: ISO(EXPORT_SPAN.from), to_exclusive: ISO(EXPORT_SPAN.to) },
     costs: { fee_taker: 0.0005, fee_maker: 0.0002, slippage_bps: 2, round_trip: ROUND_TRIP_COST },
@@ -409,7 +435,7 @@ async function exportSignals(opts: CliOptions, rule: 's1' | 's2'): Promise<void>
     data[symbol] = { bars: toBars(perp.rows), settlements: funding.rows };
   }
   const set = signalTranches(rule, data);
-  const summary = baseSummary(rule, set, hash, EXPORT_SPAN.from);
+  const summary = baseSummary(rule, set, hash, EXPORT_SPAN.from, opts.commit);
   summary.warmup_note = 'none: the preview filters bars to the span before computing signals, and so does this export';
   writeExport(opts.out, set.tranches, summary);
 }
@@ -428,7 +454,7 @@ async function exportC1(opts: CliOptions): Promise<void> {
     }
   }
   const set = c1Tranches(rows);
-  const summary = baseSummary('c1', set, hash, Number.isFinite(firstCandle) ? firstCandle : EXPORT_SPAN.from);
+  const summary = baseSummary('c1', set, hash, Number.isFinite(firstCandle) ? firstCandle : EXPORT_SPAN.from, opts.commit);
   summary.costs = { fee_taker: 0.0005, fee_maker: null, slippage_bps: 3, round_trip: NV1_C1.costPct / 100 };
   summary.price_source_note =
     'prices are SPOT 1h closes (the rule\'s native prices). The 29b reader maps entry and exit times to perp 5m opens for the book, a disclosed price-source change';
@@ -441,14 +467,14 @@ async function exportV8(opts: CliOptions, rule: 'v8-1h' | 'v8-4h'): Promise<void
   const interval = rule === 'v8-1h' ? '1h' : '4h';
   const args = v8HarnessArgs(interval, opts.datasetDir, join(opts.out, 'harness-report.json'));
   const report = await runStrategyHarness(args);
-  const perp: Record<string, OHLCV[]> = {};
+  const spot: Record<string, OHLCV[]> = {};
   for (const symbol of DIRECTION_EXIT_SYMBOLS) {
-    perp[symbol] = toBars(loadPerp(opts.datasetDir, symbol, interval, 'klines').rows);
+    spot[symbol] = toBars(loadCandles(opts.datasetDir, symbol, interval).rows);
   }
-  const set = v8Tranches(rule, report, perp);
-  const summary = baseSummary(rule, set, report.datasetManifestHash, V8_HARNESS_START);
+  const set = v8Tranches(rule, report, spot);
+  const summary = baseSummary(rule, set, report.datasetManifestHash, V8_HARNESS_START, opts.commit);
   summary.warmup_note =
-    'the harness reads spot from 2021-10-01 as warm-up before the span (warmup_from); perp 5m to 4h before 2022-01-01 is clipped by the loader, so holdout H is not read';
+    'the harness reads before the span as warm-up: spot 1h candles start 2021-10-14 (the holdout A clip of the loader, as in the recorded study), and spot 4h and 1d candles, HTF 4h and 1d, snapshots and funding settlements start 2021-10-01 (warmup_from, the earliest read). The span itself is read on spot (the decision source holds spot only, A3.1). No perp bar before 2022-01-01 is read, so holdout H is not read';
   const tf = report.costs.takerFeePercent / 100;
   summary.costs = {
     fee_taker: tf,
@@ -458,7 +484,7 @@ async function exportV8(opts: CliOptions, rule: 'v8-1h' | 'v8-4h'): Promise<void
   };
   summary.label = V8_LABEL;
   summary.harness = {
-    family: 'dx-d0', fix_params: 'exit=1,k=1', price: 'perp', fee_profile: report.feeProfile, funding: 'settlements',
+    family: 'dx-d0', fix_params: 'exit=1,k=1', price: 'spot', fee_profile: report.feeProfile, funding: 'settlements',
     eval_from: ISO(EXPORT_SPAN.from), end: ISO(EXPORT_SPAN.to - 1), report: 'harness-report.json',
   };
   const confirmFrom = Date.UTC(2025, 0, 1);
@@ -478,8 +504,8 @@ async function exportV8(opts: CliOptions, rule: 'v8-1h' | 'v8-4h'): Promise<void
   };
   summary.exit_price_unavailable = set.tranches.filter((t) => t.exit_price === null).length;
   summary.exit_price_note =
-    'the report keeps times, side, net pnl and exit reason, not fills: horizon (time_stop) exits take the bar close at exit time; other exits stay null';
-  summary.entry_price_note = 'entry price is the perp open at entryTime (the harness fill adds slippage on top, which is in the net)';
+    'the report keeps times, side, net pnl and exit reason, not fills: horizon (time_stop) and end_of_data exits take the exit bar close, stamped at its close instant (exit time + one bar); other exits stay null';
+  summary.entry_price_note = 'entry price is the spot open at entryTime (the harness fill adds slippage on top, which is in the net)';
   writeExport(opts.out, set.tranches, summary);
 }
 
@@ -492,7 +518,7 @@ async function exportRv(opts: CliOptions): Promise<void> {
   const steps = rvV1TakerSteps(built.panel);
   const tranches = rvTranches(built.panel, steps);
   const stats = rvStepStats(steps);
-  const summary = baseSummary('rv-v1', { tranches, nativeNets: steps.map((s) => s.ret) }, built.meta.manifestHash, EXPORT_SPAN.from);
+  const summary = baseSummary('rv-v1', { tranches, nativeNets: steps.map((s) => s.ret) }, built.meta.manifestHash, EXPORT_SPAN.from, opts.commit);
   summary.n_tranches = tranches.length;
   summary.mean_net_native = stats.mean;
   summary.costs = {
