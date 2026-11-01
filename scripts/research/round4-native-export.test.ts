@@ -21,6 +21,7 @@ import {
   rvSpan,
   rvTranches,
   signalTranches,
+  v8Costs,
   v8HarnessArgs,
   v8Tranches,
   writeExport,
@@ -277,7 +278,7 @@ describe('v8 at 1h and 4h', () => {
     const report = {
       interval: '1h',
       pooled: { n: 3 },
-      costs: { feePercent: 0.05, makerFeePercent: 0.02, takerFeePercent: 0.05, slippageBps: 3, fundingEnabled: true },
+      costs: { feePercent: 0.0005, makerFeePercent: 0.0002, takerFeePercent: 0.0005, slippageBps: 3, fundingEnabled: true },
       perSymbol: [{ symbol: 'BTCUSDT', windows: [{ trades: [trade(1, 25, 'long', 'time_stop'), trade(30, 33, 'short', 'stop_loss')] }, { trades: [trade(2, 26, 'long', 'end_of_data')] }] }],
     } as unknown as StrategyReport;
     const { tranches, nativeNets } = v8Tranches('v8-1h', report, { BTCUSDT: bars });
@@ -294,6 +295,12 @@ describe('v8 at 1h and 4h', () => {
     const four = v8Tranches('v8-4h', report, { BTCUSDT: bars });
     expect(four.tranches.find((t) => t.exit_reason === 'horizon')?.exit_ms).toBe(t0 + 25 * HOUR + 4 * HOUR);
     expect(nativeNets.every((n) => n === -0.001)).toBe(true);
+  });
+
+  it('takes the harness fee fields as fractions, not percents (0.0005 is the 5 bps taker fee)', () => {
+    const c = v8Costs({ feePercent: 0.0005, makerFeePercent: 0.0002, takerFeePercent: 0.0005, slippageBps: 3 } as StrategyReport['costs']);
+    expect(c).toMatchObject({ fee_taker: 0.0005, fee_maker: 0.0002, slippage_bps: 3 });
+    expect(c.round_trip).toBeCloseTo(0.0016, 12);
   });
 
   it('records the plain label and the recorded RESULT values', () => {

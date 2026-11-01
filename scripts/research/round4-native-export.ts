@@ -463,6 +463,25 @@ async function exportC1(opts: CliOptions): Promise<void> {
   writeExport(opts.out, set.tranches, summary);
 }
 
+/**
+ * v8's native costs from the harness report. The report's fee fields hold FRACTIONS despite their "Percent" names
+ * (0.0005 is the 5 bps taker fee, as src/lib/backtest/cost-model.test.ts uses them), so they are taken as they are.
+ * The 29a version divided them by 100 again, which the re-test reader refused as an unknown fee profile.
+ */
+export function v8Costs(costs: StrategyReport['costs']): {
+  fee_taker: number;
+  fee_maker: number;
+  slippage_bps: number;
+  round_trip: number;
+} {
+  return {
+    fee_taker: costs.takerFeePercent,
+    fee_maker: costs.makerFeePercent,
+    slippage_bps: costs.slippageBps,
+    round_trip: 2 * (costs.takerFeePercent + costs.slippageBps / 10_000),
+  };
+}
+
 async function exportV8(opts: CliOptions, rule: 'v8-1h' | 'v8-4h'): Promise<void> {
   const interval = rule === 'v8-1h' ? '1h' : '4h';
   const args = v8HarnessArgs(interval, opts.datasetDir, join(opts.out, 'harness-report.json'));
@@ -475,13 +494,7 @@ async function exportV8(opts: CliOptions, rule: 'v8-1h' | 'v8-4h'): Promise<void
   const summary = baseSummary(rule, set, report.datasetManifestHash, V8_HARNESS_START, opts.commit);
   summary.warmup_note =
     'the harness reads before the span as warm-up: spot 1h candles start 2021-10-14 (the holdout A clip of the loader, as in the recorded study), and spot 4h and 1d candles, HTF 4h and 1d, snapshots and funding settlements start 2021-10-01 (warmup_from, the earliest read). The span itself is read on spot (the decision source holds spot only, A3.1). No perp bar before 2022-01-01 is read, so holdout H is not read';
-  const tf = report.costs.takerFeePercent / 100;
-  summary.costs = {
-    fee_taker: tf,
-    fee_maker: report.costs.makerFeePercent / 100,
-    slippage_bps: report.costs.slippageBps,
-    round_trip: 2 * (tf + report.costs.slippageBps / 10_000),
-  };
+  summary.costs = v8Costs(report.costs);
   summary.label = V8_LABEL;
   summary.harness = {
     family: 'dx-d0', fix_params: 'exit=1,k=1', price: 'spot', fee_profile: report.feeProfile, funding: 'settlements',
