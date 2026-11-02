@@ -297,6 +297,26 @@ describe('v8 at 1h and 4h', () => {
     expect(nativeNets.every((n) => n === -0.001)).toBe(true);
   });
 
+  it('drops and counts trades whose fill instant is at or after the span end', () => {
+    const t1 = EXPORT_SPAN.to - 3 * HOUR;
+    const bars: OHLCV[] = [0, 1, 2].map((i) => ({ timestamp: t1 + i * HOUR, open: 10 + i, high: 20, low: 1, close: 10.5 + i, volume: 1 }));
+    const trade = (entry: number, exit: number, reason: string) => ({
+      entryTime: t1 + entry * HOUR, exitTime: t1 + exit * HOUR, side: 'long', pnlPercent: 0, exitReason: reason, holdTimeBars: exit - entry,
+    });
+    const report = {
+      interval: '1h',
+      pooled: { n: 3 },
+      costs: { feePercent: 0.0005, makerFeePercent: 0.0002, takerFeePercent: 0.0005, slippageBps: 3, fundingEnabled: true },
+      perSymbol: [{ symbol: 'BTCUSDT', windows: [{ trades: [trade(0, 1, 'time_stop'), trade(1, 2, 'time_stop'), trade(0, 2, 'end_of_data')] }] }],
+    } as unknown as StrategyReport;
+    const set = v8Tranches('v8-1h', report, { BTCUSDT: bars });
+    // The first time stop closes at t1 + 2h, inside the span. The other two fill at t1 + 3h, the span's exclusive end.
+    expect(set.tranches).toHaveLength(1);
+    expect(set.tranches[0]).toMatchObject({ exit_ms: t1 + 2 * HOUR, exit_price: 11.5 });
+    expect(set.spanEndDropped).toBe(2);
+    expect(set.nativeNets).toHaveLength(1);
+  });
+
   it('takes the harness fee fields as fractions, not percents (0.0005 is the 5 bps taker fee)', () => {
     const c = v8Costs({ feePercent: 0.0005, makerFeePercent: 0.0002, takerFeePercent: 0.0005, slippageBps: 3 } as StrategyReport['costs']);
     expect(c).toMatchObject({ fee_taker: 0.0005, fee_maker: 0.0002, slippage_bps: 3 });

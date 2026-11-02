@@ -352,11 +352,12 @@ export function v8Tranches(
   rule: 'v8-1h' | 'v8-4h',
   report: StrategyReport,
   priceBars: Record<string, readonly OHLCV[]>
-): TrancheSet {
+): TrancheSet & { spanEndDropped: number } {
   const intervalMs = rule === 'v8-1h' ? 3_600_000 : 4 * 3_600_000;
   const barAt = new Map<string, Map<number, OHLCV>>();
   for (const [symbol, bars] of Object.entries(priceBars)) barAt.set(symbol, new Map(bars.map((b) => [b.timestamp, b])));
   const items: { tranche: Tranche; net: number }[] = [];
+  let spanEndDropped = 0;
   for (const t of tradesOf(report)) {
     const bars = barAt.get(t.symbol);
     const entryBar = bars?.get(t.entryTime);
@@ -370,6 +371,12 @@ export function v8Tranches(
       exitPrice = exitBar.close;
       exitMs = t.exitTime + intervalMs;
     }
+    // A fill at or after the span's exclusive end lies outside [from, to), where D holds no 5m open to book it (the
+    // lockbox clip): the last bar's close of a hold still open at the data end, or a time stop on that bar.
+    if (exitMs >= EXPORT_SPAN.to) {
+      spanEndDropped += 1;
+      continue;
+    }
     items.push({
       net: t.pnlPercent / 100,
       tranche: {
@@ -379,7 +386,7 @@ export function v8Tranches(
       },
     });
   }
-  return toSet(items);
+  return { ...toSet(items), spanEndDropped };
 }
 
 // ------------------------------------------------------------------------------------------------ summaries
@@ -516,6 +523,9 @@ async function exportV8(opts: CliOptions, rule: 'v8-1h' | 'v8-4h'): Promise<void
     },
   };
   summary.exit_price_unavailable = set.tranches.filter((t) => t.exit_price === null).length;
+  summary.span_end_dropped = set.spanEndDropped;
+  summary.span_end_note =
+    'trades whose fill instant is at or after the span end (2026-07-01 00:00 UTC) are dropped and counted here: the last bar of a hold still open at the data end, or a time stop on that bar. The span is half-open and D holds no 5m open at its end to book them';
   summary.exit_price_note =
     'the report keeps times, side, net pnl and exit reason, not fills: horizon (time_stop) and end_of_data exits take the exit bar close, stamped at its close instant (exit time + one bar); other exits stay null';
   summary.entry_price_note = 'entry price is the spot open at entryTime (the harness fill adds slippage on top, which is in the net)';
