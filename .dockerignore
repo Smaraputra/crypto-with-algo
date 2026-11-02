@@ -42,3 +42,6 @@ docker-compose.yml
 
 # OS
 .DS_Store
+
+# Round 4 Python research package (its own image, see scripts/research/py/Dockerfile)
+scripts/research/py/

@@ -61,7 +61,8 @@ describe('lab-v4 lock', () => {
   });
 
   it('freezes ledger trial total and universe', () => {
-    expect(ledgerTotal()).toBe(LOCK.ledgerTotal);
+    // The lock froze the total at its registration; later studies add entries after it.
+    expect(ledgerTotal('round3-lab-v4-preview')).toBe(LOCK.ledgerTotal);
     expect([...SIGNAL_SYMBOLS]).toEqual([...LOCK.universe]);
     expect(LOCK.universe.length).toBe(10);
   });

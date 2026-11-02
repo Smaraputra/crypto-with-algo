@@ -1,0 +1,6 @@
+# Test and lint tools for the Round 4 research package. skfolio is a test-only
+# oracle for the purged combinatorial cross-validation splits.
+-r requirements.in
+pytest==9.1.1
+ruff==0.17.0
+skfolio==1.8.1

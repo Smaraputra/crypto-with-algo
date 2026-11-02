@@ -50,6 +50,40 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/lab-v4-preview.ts CANDIDATES C1, C2, C7 run 2026-10-22 at 05d427f, plus the C1 and C2 run of 2026-10-21 at a0474ae; nothing registered',
   },
+  {
+    id: 'scalp-s1-r',
+    date: '2026-10-29',
+    trials: 12,
+    source: 'scripts/research/py/scalp/lock.py CONFIG_IDS (3 rules x 2 holds x 2 executions) on span R',
+  },
+  {
+    id: 'round4-controls',
+    date: '2026-10-29',
+    trials: 52,
+    source:
+      'scripts/research/py/r4/calibration.py noise_final_set() 40, pc_family() 6 (P1, P2, 4 decoys), exit_block() 6; kind control, outside the alpha-bearing N and the round-close V (r4/method.py A1.9)',
+  },
+  {
+    id: 'round4-retests',
+    date: '2026-10-29',
+    trials: 6,
+    source:
+      'scripts/research/py/r4/natives.py NATIVE_RULES, the Phase 4 native re-tests; alpha-bearing within the 12 re-test budget (r4/method.py A1.9)',
+  },
+  {
+    id: 'round4-controls-c4',
+    date: '2026-11-02',
+    trials: 52,
+    source:
+      'the Phase 4 re-run at C4 (r4/method.py A4.3 and A4.4): 40 noise, 6 positive-control and 6 exit runs, counted as re-runs after a code fix under M; kind control, outside the alpha-bearing N and the round-close V',
+  },
+  {
+    id: 'round4-retests-c4',
+    date: '2026-11-02',
+    trials: 6,
+    source:
+      'the six native re-tests at C4 (r4/method.py A4.3 and A4.4); the re-test family reaches its cap of 12 and no re-test slot remains',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */
