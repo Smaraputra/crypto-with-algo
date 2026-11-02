@@ -571,9 +571,10 @@ def _v_run_ids(runs: Mapping[str, dict[str, Any]]) -> list[str]:
 def _cost_free_diagnostics(runs: dict[str, dict[str, Any]], v_cost_free: float | None) -> dict[str, Any]:
     """Cost-free items 1 to 3 on gross_hedged + funding, with the within-cell V of the COST-FREE Sharpes.
 
-    The net within-cell V belongs to the net series. The cost-free series has its own trial-Sharpe spread, so item 3
-    here is evaluated at the same pooled-within-cell statistic taken on the cost-free Sharpes (brief 28d-2). The
-    total-V reading stays as a second, secondary count.
+    The net within-cell V belongs to the net series. The cost-free series has its own trial-Sharpe spread, so the
+    diagnostic V here is the same pooled-within-cell statistic taken on the cost-free Sharpes (brief 28d-2). The
+    total-V reading stays as a second, secondary count. Since Amendment 4 item 3 benchmarks at V0 x lambda of each
+    cost-free series (A4.2), so both V readings are diagnostics and give the same item 3.
     """
     ids = sorted(runs)
     if any("gross_hedged" not in runs[i]["daily"].columns or "funding" not in runs[i]["daily"].columns for i in ids):
@@ -628,6 +629,7 @@ def _cost_free_diagnostics(runs: dict[str, dict[str, Any]], v_cost_free: float |
         "n_pass_items_1_to_3_cost_free_total_v": int(n_pass_cf_v) if v_cost_free is not None else None,
         "pbo": float(item2_cf["pbo"]),
         "variance": {"mode": "within_cell_cost_free", "V": v_cf_within},
+        "item3_variance": A4_ITEM3_VARIANCE,
         "item1": {i: per_config[i]["item1"]["pass"] for i in ids},
         "item3": {i: per_config[i]["item3"]["pass"] for i in ids},
         "configs": per_config,
@@ -708,9 +710,10 @@ def evaluate_noise(
 ) -> dict[str, Any]:
     """Evaluate the noise controls against M's bounds and the registered predictions.
 
-    Item 1 per config, item 2 as one PBO on the whole matrix, item 3 with the within-cell V and N = 120, and the
-    joint-shift null for ALL configs (draws default to M's 1,000, each config's own joint_shift_seed). Joint_draws
-    exists so tests can shorten the null. Reads receipts, daily series, tranches and folds only.
+    Item 1 per config, item 2 as one PBO on the whole matrix, item 3 with N = 120 at V0 = 1 / (T - 1) x lambda
+    (Amendment 4, A4.2; the within-cell V is passed and reported as a diagnostic only), and the joint-shift null for
+    ALL configs (draws default to M's 1,000, each config's own joint_shift_seed). Joint_draws exists so tests can
+    shorten the null. Reads receipts, daily series, tranches and folds only.
     """
     from r4.pipeline import load_panel
 
@@ -752,6 +755,7 @@ def evaluate_noise(
         res1 = bar.item1(run["receipt"])
         res3 = bar.item3(run["receipt"], v_within, N_TRIALS_CALIBRATION, candidate_daily=run["daily"])
         res3["variance_mode"] = "within_cell"
+        res3["item3_variance"] = A4_ITEM3_VARIANCE
         seed = int(cfg["joint_shift_seed"])
         stats = bar.joint_shift_stats(
             tranches,
@@ -1328,7 +1332,9 @@ def power_simulation(
     folds. Amplitudes are evaluated in adaptive order (middle first, then outward). Without stop_v all of them run.
     With stop_v the walk follows the detection rate at that variance (an evaluation at the synthetic V): from the
     middle it goes down while the rate is at least 0.8, up otherwise, one neighbour at a time, and stops at the first
-    change of side. start_ms, end_ms and first_refit_ms exist so tests can shrink the span. dcov_sha256 is the hash
+    change of side. Since Amendment 4 the walk's item 3 benchmarks at POWER_MARGIN x lambda x V0 (A4.2), recorded as
+    margin and item3_variance, and stop_v is kept as a diagnostic. start_ms, end_ms and first_refit_ms exist so
+    tests can shrink the span. dcov_sha256 is the hash
     of the covariance file's bytes, recorded in power_meta.json (and so in the meta-equality check) for the dossier.
     """
     if n_replicates < 1:
@@ -1376,6 +1382,8 @@ def power_simulation(
         "panel_seeds": [POWER_PANEL_SEED_BASE + r for r in range(n_replicates)],
         "plant_seeds": [POWER_PLANT_SEED_BASE + r for r in range(n_replicates)],
         "n_replicates": int(n_replicates),
+        "margin": POWER_MARGIN,
+        "item3_variance": A4_ITEM3_VARIANCE,
         "stop_v": stop_v,
         "commit": commit,
         "runtime_s": round(time.perf_counter() - t0, 3),
@@ -1390,7 +1398,11 @@ def extend_amplitude(power_dir: Path | str, amplitude: float, commit: str | None
 def _curve_entry(
     power_dir: Path, meta: dict[str, Any], amplitude: float, v: float, n_trials: int, joint_draws: int
 ) -> dict[str, Any]:
-    """Detection at one amplitude: P1 passes items 1, 2 (5-config PBO), 3 at v, 5, 6, then the joint shift."""
+    """Detection at one amplitude: P1 passes items 1, 2 (5-config PBO), 3, 5, 6, then the joint shift.
+
+    Item 3 benchmarks at margin x lambda x V0 (A4.2) with the registered margin POWER_MARGIN. v is the recorded
+    diagnostic V and does not enter the benchmark.
+    """
     from r4 import bar
     from r4.plant import apply_plant
     from r4.stats import wilson
@@ -1411,7 +1423,7 @@ def _curve_entry(
         p1, d1 = receipts["pc_P1"], dailies["pc_P1"]
         res1 = bar.item1(p1)
         res2 = bar.item2(dailies)
-        res3 = bar.item3(p1, v, n_trials, candidate_daily=d1)
+        res3 = bar.item3(p1, v, n_trials, candidate_daily=d1, margin=POWER_MARGIN)
         res5 = bar.item5(p1)
         res6 = bar.item6(p1)
         cheap = bool(res1["pass"] and res2["pass"] and res3["pass"] and res5["pass"] and res6["pass"])
@@ -1458,6 +1470,8 @@ def _curve_entry(
         "n": n,
         "rate": detected / n,
         "wilson95": [float(lo), float(hi)],
+        "margin": POWER_MARGIN,
+        "item3_variance": A4_ITEM3_VARIANCE,
         "replicates": detail,
     }
 
@@ -1653,8 +1667,9 @@ def positive_control(
 ) -> dict[str, Any]:
     """Run the pc family (P1, P2, D1 to D4) with the plant at a* on D and evaluate it with the calibration bar.
 
-    Receipts are kind "control". Item 3 uses the within-cell V of the NOISE controls (noise_runs_dir is the round
-    directory of family_report) and N = 120. Item 4's joint shift and the SPA read the PLANTED panel, because the
+    Receipts are kind "control". Item 3 uses N = 120 at V0 = 1 / (T - 1) x lambda (Amendment 4, A4.2); the
+    within-cell V of the NOISE controls (noise_runs_dir is the round directory of family_report) is the reported
+    diagnostic. Item 4's joint shift and the SPA read the PLANTED panel, because the
     observed statistic is priced from the panel and the plant only exists there. The label-shift tripwire runs for
     P1 and P2 only when they pass items 1 to 3. Detection means P1 or P2 passes items 1 to 6 and the tripwire does
     not halt. A miss writes positive_miss.json. The failure tree (spec section 8, A1.9) then allows exactly one
@@ -1771,6 +1786,7 @@ def positive_control(
         "rerun": bool(rerun),
         "plant": dict(configs[0]["plant"]),
         "variance": report["variance"],
+        "item3_variance": A4_ITEM3_VARIANCE,
         "report": slim,
         "tripwires": tripwires,
         "tripwire_shifts": len(shifts),
@@ -2661,6 +2677,12 @@ def evaluate_exit_block(
 _SHA_HEX = re.compile(r"[0-9a-f]{7,40}")
 _REJECT_P = float(BAR["random_entry_p_max"])
 N_RETESTS = 6
+# Amendment 4 (A4.2, A4.3): item 3 runs at V0 = 1 / (T - 1) x lambda x margin. The margin is 1 everywhere but the
+# power curve (POWER_MARGIN). The dossier checks each recorded item 3 block against that formula, and each re-test
+# against the registered lookback.
+A4_ITEM3_VARIANCE = "a4_v0"
+A4_VARIANCE_MARGIN = 1.0
+A4_RETEST_LOOKBACK_MONTHS = 12
 # Amendment 3 (A3.2): the files that may differ between the frozen commit and the re-test commit.
 A3_CODE_CHANGE_FILES: frozenset[str] = frozenset(
     {
@@ -2881,6 +2903,8 @@ def _check_power_parameters(d: dict[str, Any], star: dict[str, Any]) -> None:
     """The registered power parameters (brief 28g, C-1): margin, draws, trials, replicates and the amplitude grid."""
     if not _same_number(d.get("margin"), POWER_MARGIN):
         raise ValueError(f"power.margin is {d.get('margin')!r}, registered {POWER_MARGIN}")
+    if d.get("item3_variance") != A4_ITEM3_VARIANCE:
+        raise ValueError(f"power.item3_variance is {d.get('item3_variance')!r}, registered {A4_ITEM3_VARIANCE!r}")
     if d.get("joint_draws") != POWER_JOINT_DRAWS or not _is_int(d.get("joint_draws")):
         raise ValueError(f"power.joint_draws is {d.get('joint_draws')!r}, registered {POWER_JOINT_DRAWS}")
     if d.get("n_trials") != N_TRIALS_CALIBRATION or not _is_int(d.get("n_trials")):
@@ -2975,8 +2999,31 @@ def _recompute_positive(pos: dict[str, Any]) -> tuple[bool, str | None]:
 
 
 def _validate_retests(rows: Sequence[Any]) -> int:
+    """The shape of the six re-test receipts, then (A4.3) their item 3 formula and each hurdle flag recomputed.
+
+    Per receipt: item 3 sits on its V0 formula, the span, trial count and lookback are the registered ones, and every
+    applied hurdle's pass flag equals what its recorded value gives against the registered bar.
+    """
+    from r4.natives import WF_SPAN
+
     if len(rows) != N_RETESTS:
         raise ValueError(f"expected {N_RETESTS} native re-test receipts, got {len(rows)}")
+
+    def finite(v: Any) -> bool:
+        return not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v)
+
+    # The registered bar of each hurdle, from the recorded value (A4.3): item 1, item 3, the joint shift, breadth or
+    # jackknife, and the stress cost.
+    flag_rules: dict[str, Callable[[float], bool]] = {
+        "walk_forward_mean": lambda v: v > 0.0,
+        "cpcv_paths": lambda v: v >= float(BAR["cpcv_paths_positive_min"]),
+        "deflated_sharpe": lambda v: v >= float(BAR["dsr_min"]),
+        "joint_shift_null": lambda v: v < float(BAR["random_entry_p_max"]),
+        "coin_breadth": lambda v: v >= float(BAR["symbols_positive_min"]),
+        "drop_one_coin_jackknife": lambda v: v == len(UNIVERSE),
+        "stress_cost": lambda v: v >= 0.0,
+        "maker_as_taker": lambda v: v >= 0.0,
+    }
     rules: set[str] = set()
     n_pass = 0
     for r in rows:
@@ -2996,6 +3043,48 @@ def _validate_retests(rows: Sequence[Any]) -> int:
             raise ValueError(f"re-test receipt for {r['rule']!r}: an applied hurdle needs a boolean pass")
         if r["pass"] is not all(h["pass"] for h in applied):
             raise ValueError(f"re-test receipt for {r['rule']!r}: pass disagrees with its applied hurdles")
+        label = f"re-test {r['rule']!r}"
+        if r.get("span") != {"start_ms": WF_SPAN[0], "end_ms": WF_SPAN[1]}:
+            raise ValueError(f"{label}: span is {r.get('span')!r}, registered {list(WF_SPAN)}")
+        if r.get("n_trials") != N_TRIALS_CALIBRATION or not _is_int(r.get("n_trials")):
+            raise ValueError(f"{label}: n_trials is {r.get('n_trials')!r}, registered {N_TRIALS_CALIBRATION}")
+        if r.get("lookback_months") != A4_RETEST_LOOKBACK_MONTHS or not _is_int(r.get("lookback_months")):
+            raise ValueError(
+                f"{label}: lookback_months is {r.get('lookback_months')!r}, registered {A4_RETEST_LOOKBACK_MONTHS}"
+            )
+        blk = r.get("item3")
+        if not isinstance(blk, dict):
+            raise ValueError(f"{label}: item3 is missing, the V0 formula cannot be checked")
+        for key in ("v0", "lambda", "margin", "v_item3"):
+            if not finite(blk.get(key)):
+                raise ValueError(f"{label}: item3.{key} must be a finite number, got {blk.get(key)!r}")
+        t_days = blk.get("t_days")
+        if not _is_int(t_days) or t_days < 3:
+            raise ValueError(f"{label}: item3.t_days must be an integer of at least 3, got {t_days!r}")
+        if not math.isclose(blk["v0"], 1.0 / (t_days - 1), rel_tol=1e-9):
+            raise ValueError(f"{label}: item3.v0 is {blk['v0']!r}, 1 / (t_days - 1) is {1.0 / (t_days - 1)!r}")
+        if not math.isclose(blk["margin"], A4_VARIANCE_MARGIN, rel_tol=1e-12):
+            raise ValueError(f"{label}: item3.margin is {blk['margin']!r}, registered {A4_VARIANCE_MARGIN}")
+        if blk["lambda"] < 1.0:
+            raise ValueError(f"{label}: item3.lambda is {blk['lambda']!r}, it is never below 1")
+        want_v = blk["margin"] * blk["lambda"] * blk["v0"]
+        if not math.isclose(blk["v_item3"], want_v, rel_tol=1e-9):
+            raise ValueError(f"{label}: item3.v_item3 is {blk['v_item3']!r}, margin x lambda x v0 is {want_v!r}")
+        if r.get("n_days") != t_days:
+            raise ValueError(f"{label}: n_days {r.get('n_days')!r} differs from item3.t_days {t_days!r}")
+        for h in applied:
+            test = h.get("test")
+            if test not in flag_rules:
+                raise ValueError(f"{label}: applied hurdle {test!r} has no registered bar to recompute")
+            value = h.get("value")
+            if not finite(value):
+                raise ValueError(f"{label}: hurdle {test!r} needs a finite value to recompute its flag, got {value!r}")
+            if flag_rules[str(test)](float(value)) is not h["pass"]:
+                raise ValueError(f"{label}: hurdle {test!r} pass is {h['pass']!r}, its value {value!r} gives otherwise")
+            # Two values are also stored beside their hurdle row, and must agree with it.
+            ref = {"walk_forward_mean": r.get("wf_mean"), "deflated_sharpe": blk.get("dsr_prob")}.get(str(test), value)
+            if not (finite(ref) and math.isclose(float(ref), float(value), rel_tol=1e-9, abs_tol=1e-15)):
+                raise ValueError(f"{label}: hurdle {test!r} value {value!r} differs from the receipt's {ref!r}")
         rules.add(r["rule"])
         n_pass += int(r["pass"])
     if len(rules) != N_RETESTS:
@@ -3632,7 +3721,9 @@ def write_dossier(
     is written under "dossier_reproduction" (tests patch r4.cli.reproduction_inputs). The inputs are also bound to the
     registered parameters (power margin, draws, trials, replicates and grid, positive-control tripwire count and
     configurations, the exit null's span, the re-tests' calibration V and decision sources), and to the receipts the
-    commit-order evidence lists (brief 28g). Every verdict flag is recomputed from the numbers beside it. family_spa
+    commit-order evidence lists (brief 28g). Every verdict flag is recomputed from the numbers beside it. Under
+    Amendment 4 (A4.3) every noise config's and re-test's item 3 block is checked against V0 = 1 / (T - 1), lambda
+    at least 1 and margin 1, and each re-test's hurdle flags, span, trial count and lookback are recomputed. family_spa
     is optional evidence that no prediction reads: when given, its shape is validated. gate_p_ready is true when
     every GATED prediction is as predicted. It is evidence for the review and is not the Gate P decision.
     commit_order is the lead's git evidence, validated here (the research image has no git). All inputs are
@@ -3659,6 +3750,39 @@ def write_dossier(
     n_cross, n_paths = _validate_null(nul)
     _check_null_parameters(nul)
     verdict = _validate_noise(noi)
+
+    # A4.3: every item 3 block sits on its V0 formula: the noise configs', their cost-free diagnostics' and, below,
+    # the positive control's. The within-cell V is a recorded diagnostic.
+    def check_item3(blk: Any, label: str) -> None:
+        if not isinstance(blk, dict):
+            raise ValueError(f"{label}.item3 is missing, the V0 formula cannot be checked")
+        for key in ("v0", "lambda", "margin", "v_item3"):
+            v = blk.get(key)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                raise ValueError(f"{label}.item3.{key} must be a finite number, got {v!r}")
+        t_days = blk.get("t_days")
+        if not _is_int(t_days) or t_days < 3:
+            raise ValueError(f"{label}.item3.t_days must be an integer of at least 3, got {t_days!r}")
+        if not math.isclose(blk["v0"], 1.0 / (t_days - 1), rel_tol=1e-9):
+            raise ValueError(f"{label}.item3.v0 is {blk['v0']!r}, 1 / (t_days - 1) is {1.0 / (t_days - 1)!r}")
+        if not math.isclose(blk["margin"], A4_VARIANCE_MARGIN, rel_tol=1e-12):
+            raise ValueError(f"{label}.item3.margin is {blk['margin']!r}, registered {A4_VARIANCE_MARGIN}")
+        if blk["lambda"] < 1.0:
+            raise ValueError(f"{label}.item3.lambda is {blk['lambda']!r}, it is never below 1")
+        want_v = blk["margin"] * blk["lambda"] * blk["v0"]
+        if not math.isclose(blk["v_item3"], want_v, rel_tol=1e-9):
+            raise ValueError(f"{label}.item3.v_item3 is {blk['v_item3']!r}, margin x lambda x v0 is {want_v!r}")
+
+    for cid, c in noi["configs"].items():
+        check_item3(c.get("item3") if isinstance(c, dict) else None, f"noise_eval.configs[{cid!r}]")
+    cf_configs = noi["diagnostics"]["cost_free"].get("configs")
+    if not isinstance(cf_configs, dict) or set(cf_configs) != set(noi["configs"]):
+        raise ValueError("noise_eval.diagnostics.cost_free.configs must hold the item 3 block of every noise config")
+    for cid, c in cf_configs.items():
+        label = f"noise_eval.diagnostics.cost_free.configs[{cid!r}]"
+        check_item3(c.get("item3") if isinstance(c, dict) else None, label)
+        if isinstance(c, dict) and "item3_cost_free_total_v" in c:
+            check_item3(c["item3_cost_free_total_v"], label + ".total_v")
     star = _validate_power(pwr)
     detected = _validate_positive(pos)
     n_native_pass = _validate_retests(rts)
@@ -3682,6 +3806,10 @@ def write_dossier(
         pass  # no a* to plant: there is no positive-control run to bind
     else:
         _check_positive_binding(pos, star, pwr, float(v_noise))
+        for rid, ev in pos["report"]["configurations"].items():
+            check_item3(
+                ev.get("item3") if isinstance(ev, dict) else None, f"positive_control.report.configurations[{rid!r}]"
+            )
         frozen["positive_control"] = pos
     frozen["exit_block"] = exb
     d_hash = _check_one_dataset(frozen, rts)

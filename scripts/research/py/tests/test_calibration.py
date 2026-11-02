@@ -187,8 +187,8 @@ def test_family_report_uses_within_cell_by_default_and_records_all_modes(tmp_pat
 
 
 def test_item3_accepts_a_precomputed_variance():
-    receipt = {"metrics": {"wf_sharpe": 0.1, "n_days": 700}}
-    res = item3(receipt, 0.0025, 120)
+    series = pd.DataFrame({"drift_free": np.random.default_rng(2).normal(0.0005, 0.01, 700)})
+    res = item3({}, 0.0025, 120, candidate_daily=series)
     assert res["var_trial_sharpes"] == 0.0025
 
 

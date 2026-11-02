@@ -420,8 +420,8 @@ def test_item3_refuses_a_dict_of_daily_frames():
         f.attrs["config_hash"] = "h"
     with pytest.raises(TypeError, match="float"):
         item3({"metrics": {"wf_sharpe": 0.1, "n_days": 4}}, frames, 120)
-    # The float path is unchanged.
-    assert item3({"metrics": {"wf_sharpe": 0.1, "n_days": 4}}, 0.01, 120)["num_trials"] == 120
+    # The float path is unchanged (item 3 also needs its candidate series since Amendment 4).
+    assert item3({}, 0.01, 120, candidate_daily=frames["a"])["num_trials"] == 120
 
 
 # -- the null writer -------------------------------------------------------------------------------------------

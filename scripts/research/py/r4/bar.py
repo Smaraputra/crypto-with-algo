@@ -244,14 +244,22 @@ def item3(
     round_daily: Sequence[float] | float,
     ledger_count: int,
     candidate_daily: pd.DataFrame | None = None,
+    *,
+    margin: float = 1.0,
 ) -> dict[str, Any]:
-    """Lock exploration bar item 3:
+    """Lock exploration bar item 3, with the variance of Amendment 4 (A4.2):
 
-    Deflated Sharpe probability at least 0.95 on the drift-free daily series,
-    with N = max(120, round alpha-bearing ledger count). The variance of trial
-    Sharpes counts identical configurations once, keyed by the receipt config_hash
-    that the caller stores in each frame's attrs.
+    Deflated Sharpe probability at least 0.95 on the drift-free daily series, with N = max(120, round
+    alpha-bearing ledger count). The benchmark's variance is V0 = 1 / (T - 1), T the series' length, times
+    lambda (the long-run variance factor of the series, at least 1) and margin (1 except in the power curve, 1.2).
+    The candidate's own Sharpe variance is scaled by lambda too. round_daily, the trial-Sharpe variance V of
+    A1.8 and A2.1 (counting identical configurations once, keyed by the receipt config_hash the caller stores in
+    each frame's attrs), is parsed and reported as a diagnostic and no longer enters the benchmark.
+
+    candidate_daily is required and fails closed: empty, shorter than 3 days or non-finite raises ValueError.
     """
+    from r4.stats import long_run_variance_factor
+
     n_trials = max(int(DSR_TRIALS_MIN), int(ledger_count))
 
     n_unique_configs: int | None = None
@@ -269,36 +277,45 @@ def item3(
             raise ValueError(f"Item 3 needs at least 2 finite trial Sharpes for their variance, got {len(arr_finite)}")
         var_trial_sharpes = float(np.var(arr_finite, ddof=1))
 
-    if candidate_daily is not None and not candidate_daily.empty:
-        col = "drift_free" if "drift_free" in candidate_daily.columns else candidate_daily.columns[0]
-        series_vals = candidate_daily[col].to_numpy(dtype=np.float64)
-        obs_sharpe = per_period_sharpe(series_vals)
-        n_obs = len(series_vals)
-        skew = sample_skewness(series_vals)
-        kurt = sample_kurtosis(series_vals)
-    else:
-        obs_sharpe = float(receipt["metrics"]["wf_sharpe"])
-        n_obs = int(receipt["metrics"]["n_days"])
-        skew = float(receipt.get("metrics", {}).get("skew", 0.0))
-        kurt = float(receipt.get("metrics", {}).get("kurt", 3.0))
+    if candidate_daily is None or candidate_daily.empty:
+        raise ValueError("Item 3 needs candidate_daily: the drift-free daily series it evaluates (A4.2)")
+    margin = float(margin)
+    if not margin >= 1.0:
+        raise ValueError(f"Item 3 margin must be at least 1, got {margin!r}")
+    col = "drift_free" if "drift_free" in candidate_daily.columns else candidate_daily.columns[0]
+    series_vals = candidate_daily[col].to_numpy(dtype=np.float64)
+    if len(series_vals) < 3:
+        raise ValueError(f"Item 3 needs a series of at least 3 days, got {len(series_vals)}")
+    if not np.all(np.isfinite(series_vals)):
+        raise ValueError("Item 3 needs a finite series: candidate_daily holds NaN or infinite values")
+    obs_sharpe = per_period_sharpe(series_vals)
+    n_obs = len(series_vals)
+    skew = sample_skewness(series_vals)
+    kurt = sample_kurtosis(series_vals)
+
+    lam = long_run_variance_factor(series_vals)
+    v0 = 1.0 / (n_obs - 1)
+    v_item3 = margin * lam * v0
 
     bench_round, prob_round = deflated_sharpe(
         obs_sharpe,
         n_trials,
-        var_trial_sharpes,
+        v_item3,
         n_obs,
         skew,
         kurt,
+        lam=lam,
     )
 
     n_prog = int(PROGRAM_TRIALS_BEFORE + n_trials)
     bench_prog, prob_prog = deflated_sharpe(
         obs_sharpe,
         n_prog,
-        var_trial_sharpes,
+        v_item3,
         n_obs,
         skew,
         kurt,
+        lam=lam,
     )
 
     dsr_min = float(BAR["dsr_min"])
@@ -315,6 +332,12 @@ def item3(
         "program_trials": n_prog,
         "var_trial_sharpes": float(var_trial_sharpes),
         "n_unique_configs": n_unique_configs,
+        "variance_mode": "a4_v0",
+        "v0": float(v0),
+        "lambda": float(lam),
+        "margin": margin,
+        "v_item3": float(v_item3),
+        "t_days": int(n_obs),
     }
 
 
@@ -636,14 +659,57 @@ def joint_shift_stats(
             out[i, exact] = opens_by_coin[i][idx_c[exact]]
         return out
 
-    # Funding as cumulative sums so the sum over (entry, exit] is a difference of two lookups.
+    # Funding as cumulative sums so the sum over (entry, exit] is a difference of two lookups. Every basket coin
+    # is loaded, not only the traded ones: the hedge leg pays the basket's funding (A4.1).
     fund_times: dict[int, np.ndarray] = {}
     fund_cum: dict[int, np.ndarray] = {}
-    for s in {t.symbol for t in tranche_list}:
+    fund_steps: dict[int, np.ndarray] = {}
+    for s in basket:
         raw = panel[s].get("settlements", panel[s].get("funding"))
         f_t, f_r = _extract_settlements_for_symbol(raw, s)
         fund_times[sym_pos[s]] = f_t
         fund_cum[sym_pos[s]] = np.concatenate(([0.0], np.cumsum(f_r)))
+        if isinstance(raw, pd.DataFrame) and len(raw) and "intervalHours" in raw.columns:
+            hours = raw["intervalHours"].to_numpy(dtype=np.float64)[np.argsort(raw["t"].to_numpy(dtype=np.int64))]
+        else:
+            hours = np.full(len(f_t), 8.0)
+        fund_steps[sym_pos[s]] = np.rint(hours * 3_600_000).astype(np.int64)
+
+    # Coverage of a settlement record (A4.1, "its settlement record covers the window. No missing settlement is taken
+    # as 0", read as follows; the book applies the same rule). The due region R is the coin-leg window with its edge
+    # rule, (entry, exit] or (entry, exit) for an intrabar exit, cut to t < data_end (the last 5m bar open of the price
+    # panel plus 5 minutes: a settlement due at data_end lies outside the span, not missing from the record). With
+    # rows t_i and stated intervalHours I_i (8 if absent), the record covers R when (a) its first row t_0 is at or
+    # before entry, or no due time t_0 - k x I_0 lies in R, (b) no settlement is due inside R across an interior gap,
+    # i.e. a gap t_{i+1} - t_i above max(I_i, I_{i+1}) plus one minute leaves no due time t_i + k x max(I_i, I_{i+1})
+    # in R, and (c) after the last row t_L no due time t_L + k x I_L lies in R. An empty R is covered.
+    data_end = max((int(tt[-1]) for tt in times_by_coin if len(tt)), default=0) + 300_000
+    fund_gaps: dict[int, list[tuple[int, int, int]]] = {}
+    for pos, f_t in fund_times.items():
+        st = fund_steps[pos]
+        fund_gaps[pos] = [
+            (int(f_t[i]), int(f_t[i + 1]), int(max(st[i], st[i + 1])))
+            for i in range(len(f_t) - 1)
+            if int(f_t[i + 1]) - int(f_t[i]) > int(max(st[i], st[i + 1])) + 60_000
+        ]
+
+    def record_covers(pos: int, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+        """Whether basket coin pos's record covers each tranche's due region (lo, hi] (hi is edge-adjusted)."""
+        f_t = fund_times[pos]
+        hi_eff = np.minimum(hi, data_end - 1)
+        empty = hi_eff <= lo
+        if len(f_t) == 0:
+            return empty
+        st = fund_steps[pos]
+        t0, s0 = int(f_t[0]), int(st[0])
+        k0 = np.maximum(1, -(-(t0 - hi_eff) // s0))
+        good = (t0 <= lo) | (t0 - k0 * s0 <= lo)
+        for g_start, g_end, step in fund_gaps[pos]:
+            due = g_start + np.maximum(1, (lo - g_start) // step + 1) * step
+            good &= ~((due <= hi_eff) & (due < g_end - 60_000))
+        t_last, s_last = int(f_t[-1]), int(st[-1])
+        good &= ~(t_last + np.maximum(1, (lo - t_last) // s_last + 1) * s_last <= hi_eff)
+        return good | empty
 
     n_tr = len(tranche_list)
     sym_idx = np.array([sym_pos[t.symbol] for t in tranche_list], dtype=np.int64)
@@ -707,9 +773,13 @@ def joint_shift_stats(
         x_intra: np.ndarray,
         pe: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """(side x (r_coin - beta x r_EW), side x funding) per tranche, NaN where an input is missing.
+        """(side x (r_coin - beta x r_EW), side x (f_coin - beta x f_EW)) per tranche, NaN where an input is missing.
 
-        Funding sums the settlements in (entry, exit], and in (entry, exit) for an intrabar exit (x_intra).
+        f_coin sums the coin's settlements in (entry, exit], and in (entry, exit) for an intrabar exit (x_intra).
+        f_EW is the mean, over the basket coins used for r_EW whose settlement record covers the window (no
+        settlement due in it and inside the data's span is missing, see record_covers), of the same sum (A4.1). A
+        priced tranche with no covered coin raises ValueError. The hedge pays beta x side x f_EW against the
+        coin's side x f_coin.
         """
         any_priced = bool(e_priced.any() or x_priced.any())
         hedge_exit = np.where(x_priced, -(-exit_ // 300_000) * 300_000, exit_) if x_priced.any() else exit_
@@ -733,21 +803,34 @@ def joint_shift_stats(
 
         beta = beta_at(entry)
 
-        funding = np.zeros(n_tr, dtype=np.float64)
+        win_sum = np.zeros((len(basket), n_tr), dtype=np.float64)
+        covered = ok.copy()
         for pos, f_t in fund_times.items():
-            sel = sym_idx == pos
-            if not np.any(sel) or len(f_t) == 0:
+            if len(f_t) == 0:
                 continue
             cum = fund_cum[pos]
             idx_exit = np.where(
-                x_intra[sel],
-                np.searchsorted(f_t, exit_[sel], side="left"),
-                np.searchsorted(f_t, exit_[sel], side="right"),
+                x_intra,
+                np.searchsorted(f_t, exit_, side="left"),
+                np.searchsorted(f_t, exit_, side="right"),
             )
-            idx_entry = np.searchsorted(f_t, entry[sel], side="right")
-            funding[sel] = cum[idx_exit] - cum[idx_entry]
+            idx_entry = np.searchsorted(f_t, entry, side="right")
+            win_sum[pos] = cum[idx_exit] - cum[idx_entry]
+        for pos in fund_times:
+            covered[pos] &= record_covers(pos, entry, np.where(x_intra, exit_ - 1, exit_))
+        funding = win_sum[sym_idx, arange_tr]
+        n_cov = covered.sum(axis=0)
+        beta_ok = np.isfinite(beta)
+        if np.any(ok.any(axis=0) & beta_ok & (n_cov == 0)):
+            i = int(np.flatnonzero(ok.any(axis=0) & beta_ok & (n_cov == 0))[0])
+            raise ValueError(
+                f"No basket coin has settlements covering [{int(entry[i])}, {int(exit_[i])}] for "
+                f"{tranche_list[i].symbol}, so the hedge leg's funding is undefined"
+            )
+        with np.errstate(all="ignore"):
+            f_ew = np.where(n_cov > 0, np.where(covered, win_sum, 0.0).sum(axis=0) / n_cov, np.nan)
 
-        return side * (r_coin - beta * r_ew), side * funding
+        return side * (r_coin - beta * r_ew), side * (funding - beta * f_ew)
 
     def weighted(ret: np.ndarray, keep: np.ndarray) -> float:
         """Weighted mean return per unit of absolute weight over kept tranches. Inf when none are kept."""
@@ -880,14 +963,18 @@ def joint_shift_null(
     """Joint-shift random-entry null with the lock's beta-hedged drift-free statistic.
 
     Circular shifts of the whole tranche set by whole days (at least min_shift_days). Per tranche, observed
-    and shifted alike: side x (r_coin - beta x r_EW) - costs - side x funding. The costs are the observed
+    and shifted alike: side x (r_coin - beta x r_EW) - costs - side x (f_coin - beta x f_EW). f_EW is the
+    hedge leg's funding (A4.1): the mean, over the basket coins used for r_EW whose settlement record covers the
+    tranche's own window, of each coin's summed settlements in that window. The costs are the observed
     tranche's allocated netted cost per unit of absolute weight (see netted_costs), kept for the shifted copy
     because a whole-day shift moves all legs of a fill group together. A tranche dropped from a shifted draw keeps
     its allocation in the others. r_coin is the log of the 5m
     opens at exit over entry, r_EW is the mean of that log ratio over the panel coins with an exact 5m open at
     both times, beta is the coin's beta in the fold whose [start_ms, end_ms) holds the (shifted) entry time, and
     funding sums the settlements in (entry, exit]. A shifted tranche is dropped when its exit passes the span
-    end, a price is missing, or its beta is NaN or has no fold. The statistic is the weighted mean of that
+    end, a price is missing, or its beta is NaN or has no fold. A priced tranche whose window no basket coin's
+    settlements cover raises ValueError. The
+    statistic is the weighted mean of that
     return per unit of absolute weight over the kept tranches.
 
     exit_replay (Amendment 1, N5) is for a declared path-dependent exit. Without it, a non-horizon tranche raises.
@@ -1124,7 +1211,8 @@ def family_report(
 
     The trial-Sharpe variance V of item 3 is the within-cost-cell pooled variance by default (owner amendment
     2026-10-28). All three modes are computed and recorded under report["variance"]; variance_mode picks the one
-    item 3 receives.
+    item 3 receives as its diagnostic V. Since Amendment 4 item 3 itself benchmarks at V0 = 1 / (T - 1) times lambda
+    (A4.2), recorded in each item 3 block (item3_variance "a4_v0").
 
     calibration=False (default) is the trial path: a round receipt with kind "control" raises, because controls
     are excluded from the round-close variance (M lines 116-117). calibration=True is the control path: only
@@ -1268,6 +1356,7 @@ def family_report(
         c_daily = family_daily[run_id]
         res3 = item3(receipt, chosen_v, ledger_count, candidate_daily=c_daily)
         res3["variance_mode"] = variance_mode
+        res3["item3_variance"] = "a4_v0"
         res3["n_unique_configs"] = n_unique_round
         res5 = item5(receipt)
         res6 = item6(receipt)

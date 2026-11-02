@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.a3_nodes_gen import METHOD, nodes_from_source
+from tests.test_a4_frozen_nodes_30c import A4_ALLOWED_CHANGED, A4_ALLOWED_NEW
 
 R4 = Path(__file__).resolve().parents[1] / "r4"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "a3_nodes_5250b8ea.json"
@@ -84,8 +85,9 @@ def test_no_module_was_added_or_removed():
 def test_top_level_nodes_match_the_frozen_digests(module):
     frozen = _FIXTURE["modules"][module]
     head = nodes_from_source((R4 / module).read_text(encoding="utf-8"), skip_module_docstring=module == METHOD)
-    allowed_changed = ALLOWED_CHANGED.get(module, frozenset())
-    allowed_new = ALLOWED_NEW.get(module, frozenset())
+    # Amendment 4 (A4.3) adds its own nodes to A3's allowed set. test_a4_frozen_nodes_30c holds the tighter check.
+    allowed_changed = ALLOWED_CHANGED.get(module, frozenset()) | A4_ALLOWED_CHANGED.get(module, frozenset())
+    allowed_new = ALLOWED_NEW.get(module, frozenset()) | A4_ALLOWED_NEW.get(module, frozenset())
     head_nodes: dict[str, str] = head["nodes"]  # type: ignore[assignment]
     frozen_nodes: dict[str, str] = frozen["nodes"]
     missing = sorted(k for k in frozen_nodes if k not in head_nodes)

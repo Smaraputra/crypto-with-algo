@@ -44,19 +44,41 @@ def psr_radicand(sr: float, skew: float, kurt: float) -> float:
     return float(1.0 - skew * sr + ((kurt - 1.0) / 4.0) * (sr**2))
 
 
+def long_run_variance_factor(x: Sequence[float] | np.ndarray, lags: int = 10) -> float:
+    """Serial-dependence factor of item 3 (A4.2): lambda = max(1, 1 + 2 sum (1 - k / (lags + 1)) rho_k) for k = 1..lags.
+
+    rho_k is the lag-k sample autocorrelation about the full-series mean, divided by the lag-0 sum of squares. A
+    series shorter than 2 or with zero variance has lambda = 1. lambda never loosens the bar, so it is at least 1.
+    """
+    arr = np.asarray(x, dtype=np.float64)
+    if len(arr) < 2:
+        return 1.0
+    d = arr - float(np.mean(arr))
+    c0 = float(np.sum(d * d))
+    if c0 == 0.0:
+        return 1.0
+    total = 0.0
+    for k in range(1, min(int(lags), len(arr) - 1) + 1):
+        total += (1.0 - k / (lags + 1)) * float(np.sum(d[k:] * d[:-k])) / c0
+    return max(1.0, 1.0 + 2.0 * total)
+
+
 def probabilistic_sharpe(
     sr: float,
     bench: float,
     n: int,
     skew: float,
     kurt: float,
+    lam: float = 1.0,
 ) -> float:
-    """Probability that true Sharpe ratio exceeds benchmark."""
+    """Probability that true Sharpe ratio exceeds benchmark. lam >= 1 scales the estimate's variance (A4.2)."""
+    if lam < 1.0:
+        raise ValueError(f"lam must be at least 1, got {lam!r}")
     radicand = psr_radicand(sr, skew, kurt)
     if radicand <= 0.0:
         return float("nan")
     numerator = (sr - bench) * math.sqrt(n - 1)
-    denominator = math.sqrt(radicand)
+    denominator = math.sqrt(radicand * lam)
     return float(scipy.stats.norm.cdf(numerator / denominator))
 
 
@@ -67,6 +89,7 @@ def deflated_sharpe(
     n_observations: int,
     skewness: float,
     kurtosis: float,
+    lam: float = 1.0,
 ) -> tuple[float, float]:
     """Deflated Sharpe ratio: expected max benchmark and corrected probability."""
     benchmark = expected_max_sharpe(num_trials, variance_of_trial_sharpes)
@@ -76,6 +99,7 @@ def deflated_sharpe(
         n_observations,
         skewness,
         kurtosis,
+        lam,
     )
     return (benchmark, prob)
 

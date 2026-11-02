@@ -67,8 +67,10 @@ def test_evaluate_noise_excludes_from_v(noise_runs, monkeypatch):  # noqa: F811
         cal.N_TRIALS_CALIBRATION,
         candidate_daily=cal._load_noise_runs(noise_runs["runs"])[drop]["daily"],
     )
-    got = {k: v for k, v in out["configs"][drop]["item3"].items() if k != "variance_mode"}
-    assert got == ref
+    # evaluate_noise relabels variance_mode as the diagnostic V's mode and adds item3_variance (Amendment 4)
+    got = {k: v for k, v in out["configs"][drop]["item3"].items() if k not in ("variance_mode", "item3_variance")}
+    assert got == {k: v for k, v in ref.items() if k != "variance_mode"}
+    assert out["configs"][drop]["item3"]["item3_variance"] == "a4_v0"
 
 
 def test_real_constant_changes_nothing_on_the_fixture(noise_runs):  # noqa: F811

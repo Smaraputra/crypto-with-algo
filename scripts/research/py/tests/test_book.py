@@ -21,6 +21,7 @@ from r4.book import (
     estimate_betas,
     trade_level,
 )
+from tests.a4_cover import zero_settlements
 
 
 def test_single_long_tranche_inside_one_day() -> None:
@@ -344,7 +345,9 @@ def test_beta_hedged_identical_moves_beta_one_and_zero() -> None:
 
     # 1. At beta 1
     betas_1 = {coin: 1.0 for coin in universe}
-    df_hedged_1 = beta_hedged_daily([tranche], five_min, settlements=None, betas=betas_1, universe=universe)
+    df_hedged_1 = beta_hedged_daily(
+        [tranche], five_min, settlements=zero_settlements(five_min), betas=betas_1, universe=universe
+    )
     assert len(df_hedged_1) == 1
     row_1 = df_hedged_1.loc[day_0]
 
@@ -358,7 +361,9 @@ def test_beta_hedged_identical_moves_beta_one_and_zero() -> None:
 
     # 2. At beta 0
     betas_0 = {coin: 0.0 for coin in universe}
-    df_hedged_0 = beta_hedged_daily([tranche], five_min, settlements=None, betas=betas_0, universe=universe)
+    df_hedged_0 = beta_hedged_daily(
+        [tranche], five_min, settlements=zero_settlements(five_min), betas=betas_0, universe=universe
+    )
     df_raw = daily_book([tranche], five_min, settlements=None)
 
     row_0 = df_hedged_0.loc[day_0]
@@ -419,7 +424,9 @@ def test_beta_hedged_mid_day_r_ew() -> None:
 
     beta = 1.2
     betas = {"BTCUSDT": beta, "ETHUSDT": 1.0}
-    df_res = beta_hedged_daily([tranche], five_min, settlements=None, betas=betas, universe=universe)
+    df_res = beta_hedged_daily(
+        [tranche], five_min, settlements=zero_settlements(five_min), betas=betas, universe=universe
+    )
 
     w = tranche.weight
     expected_gross_d0 = w * (r_btc_in_day - beta * expected_r_ew)
@@ -476,7 +483,9 @@ def test_beta_hedged_spanning_midnight_telescoping() -> None:
 
     beta = 0.8
     betas = {"BTCUSDT": beta, "ETHUSDT": 1.0, "SOLUSDT": 1.0}
-    df_res = beta_hedged_daily([tranche], five_min, settlements=None, betas=betas, universe=universe)
+    df_res = beta_hedged_daily(
+        [tranche], five_min, settlements=zero_settlements(five_min), betas=betas, universe=universe
+    )
 
     assert len(df_res) == 2
     assert list(df_res.index) == [day_1, day_2]
@@ -608,7 +617,7 @@ def test_weights_use_configured_h_even_if_early_exit() -> None:
     }
 
     betas = {"BTCUSDT": 0.0}
-    res = beta_hedged_daily([tranche], five_min, settlements=None, betas=betas, universe=universe)
+    res = beta_hedged_daily([tranche], five_min, settlements=zero_settlements(five_min), betas=betas, universe=universe)
 
     expected_gross = expected_w * float(np.log(102.0 / 100.0))
     expected_costs = abs(expected_w) * 2.0 * (0.0005 + 0.0001)  # BTC slippage 1 bp
@@ -692,7 +701,11 @@ def test_beta_hedged_excluded_tranches_nan_beta() -> None:
     }
     betas = {"BTCUSDT": 1.0, "NEWUSDT": float("nan")}
     res = beta_hedged_daily(
-        [tranche_valid, tranche_nan], five_min, settlements=None, betas=betas, universe=["BTCUSDT", "NEWUSDT"]
+        [tranche_valid, tranche_nan],
+        five_min,
+        settlements=zero_settlements(five_min),
+        betas=betas,
+        universe=["BTCUSDT", "NEWUSDT"],
     )
 
     assert len(res) == 1
@@ -761,16 +774,20 @@ def test_beta_hedged_with_funding() -> None:
             }
         )
     }
-    settlements = [(settle_ms, rate)]
+    # The record brackets the window with zero-rate settlements, so the hedge leg (A4.1) has coverage.
+    settlements = [(day_0, 0.0), (settle_ms, rate), (day_0 + DAY_MS, 0.0)]
     betas = {"BTCUSDT": 1.0}
     res = beta_hedged_daily([tranche], five_min, settlements=settlements, betas=betas, universe=["BTCUSDT"])
 
     w = tranche.weight
     expected_funding = -w * rate
-    assert np.isclose(res.loc[day_0, "funding"], expected_funding, rtol=1e-12, atol=1e-12)
+    assert np.isclose(res.loc[day_0, "funding_coin"], expected_funding, rtol=1e-12, atol=1e-12)
+    # A one-coin basket whose beta is 1 hedges the coin's funding away exactly (A4.1).
+    assert np.isclose(res.loc[day_0, "funding_hedge"], -expected_funding, rtol=1e-12, atol=1e-12)
+    assert np.isclose(res.loc[day_0, "funding"], 0.0, atol=1e-15)
     assert np.isclose(
         res.loc[day_0, "drift_free"],
-        res.loc[day_0, "gross_hedged"] - res.loc[day_0, "costs"] + expected_funding,
+        res.loc[day_0, "gross_hedged"] - res.loc[day_0, "costs"] + res.loc[day_0, "funding"],
         rtol=1e-12,
         atol=1e-12,
     )
@@ -956,8 +973,11 @@ def _scalar_daily_reference(tranches, prices, settlements, betas=None, universe=
         "fees",
         "slippage",
         "funding",
+        "funding_coin",
+        "funding_hedge",
         "n_open",
         "ew_coins_min",
+        "n_basket_funding_min",
         "excluded_tranches",
     ]
     quotes = {s: dict(zip(df["t"], df["o"], strict=True)) for s, df in prices.items()}
@@ -991,8 +1011,8 @@ def _scalar_daily_reference(tranches, prices, settlements, betas=None, universe=
         active = [t for t in tranches if t.entry_ms < day + DAY_MS and t.exit_ms > day]
         if not active and day not in cost_fees:
             continue
-        gross = fees = slip = funding = net_weight = 0.0
-        substitutions, counts = set(), []
+        gross = fees = slip = funding = hedge_funding = net_weight = 0.0
+        substitutions, counts, covered_counts = set(), [], []
         opened = excluded = 0
         for t in active:
             if betas is not None and math.isnan(betas[t.symbol]):
@@ -1028,17 +1048,51 @@ def _scalar_daily_reference(tranches, prices, settlements, betas=None, universe=
                 ]
                 counts.append(len(basket))
                 ret -= betas[t.symbol] * (sum(basket) / len(basket) if basket else 0.0)
+                # A4.1: the hedge pays the mean funding of the basket coins whose record spans the segment.
+                used = [
+                    s
+                    for s in universe
+                    if start in quotes.get(s, {})
+                    and end in quotes.get(s, {})
+                    and quotes[s][start] > 0
+                    and quotes[s][end] > 0
+                ]
+                sums = [
+                    sum(rate for stamp, rate in settlements[s] if start < stamp <= end)
+                    for s in used
+                    if min(stamp for stamp, _ in settlements[s]) <= start
+                    and max(stamp for stamp, _ in settlements[s]) >= end
+                ]
+                covered_counts.append(len(sums))
+                hedge_funding += betas[t.symbol] * weight * sum(sums) / len(sums)
             gross += weight * ret
             for stamp, rate in sorted(settlements[t.symbol]):
                 if start < stamp <= end:
                     funding += -weight * rate
         fees, slip = cost_fees.get(day, 0.0), cost_slip.get(day, 0.0)
         costs = fees + slip
+        coin_funding = funding
+        funding = coin_funding + hedge_funding
         net = gross - costs + funding
         if betas is None:
             rows.append([gross, costs, fees, slip, funding, net, net_weight, opened, len(substitutions)])
         else:
-            rows.append([net, gross, costs, fees, slip, funding, opened, min(counts, default=0), excluded])
+            rows.append(
+                [
+                    net,
+                    gross,
+                    costs,
+                    fees,
+                    slip,
+                    funding,
+                    coin_funding,
+                    hedge_funding,
+                    opened,
+                    min(counts, default=0),
+                    min(covered_counts, default=0),
+                    excluded,
+                ]
+            )
         days.append(day)
     return pd.DataFrame(
         rows, index=pd.Index(days, name="day_start"), columns=raw_columns if betas is None else hedged_columns
@@ -1065,7 +1119,16 @@ def _runtime_parity_case():
         ]
         prices[symbol] = pd.DataFrame(rows[::-1], columns=["t", "o"])
     settlements = {
-        s: [(2 * DAY_MS, 0.0003), (22 * hour, 0.0009), (DAY_MS, -0.0002), (DAY_MS + 3 * hour, 0.0004), (DAY_MS, 0.0001)]
+        s: [
+            (2 * DAY_MS, 0.0003),
+            (22 * hour, 0.0009),
+            (DAY_MS, -0.0002),
+            (DAY_MS + 3 * hour, 0.0004),
+            (DAY_MS, 0.0001),
+            # zero-rate settlements fill the 8h gap to day 2, so the hedge leg's coverage rule (A4.1) holds
+            (DAY_MS + 11 * hour, 0.0),
+            (DAY_MS + 19 * hour, 0.0),
+        ]
         for s in prices
     }
     betas = {"BTCUSDT": 1.2, "ETHUSDT": -0.3, "SOLUSDT": np.nan}
@@ -1087,7 +1150,7 @@ def test_hedged_runtime_scalar_parity():
     expected = _scalar_daily_reference(tranches, prices, settlements, betas, universe)
     actual = beta_hedged_daily(tranches, prices, settlements, betas, universe)
     pd.testing.assert_frame_equal(actual, expected, rtol=1e-12, atol=1e-12)
-    counters = ["n_open", "ew_coins_min", "excluded_tranches"]
+    counters = ["n_open", "ew_coins_min", "n_basket_funding_min", "excluded_tranches"]
     pd.testing.assert_frame_equal(actual[counters], expected[counters], check_exact=True)
 
 
@@ -1110,7 +1173,7 @@ def test_active_day_membership_scales_with_intersections():
     for hedged in (False, True):
         CountedTranche.entry_reads = 0
         if hedged:
-            result = beta_hedged_daily(tranches, prices, None, {"BTCUSDT": 1.0}, ["BTCUSDT"])
+            result = beta_hedged_daily(tranches, prices, zero_settlements(prices), {"BTCUSDT": 1.0}, ["BTCUSDT"])
         else:
             result = daily_book(tranches, prices, None)
         assert len(result) == n_days
@@ -1131,11 +1194,11 @@ def test_coincident_hedges_reuse_basket_lookups(monkeypatch):
     monkeypatch.setattr(FiveMinLookup, "get_exact_open", counted)
     tranches = [Tranche("BTCUSDT", 1, 3_600_000, 7_200_000, 100, 101, "1h", 14_400_000)] * 20
     prices = {s: pd.DataFrame({"t": [3_600_000, 7_200_000], "o": [100.0, 101.0]}) for s in ("BTCUSDT", "ETHUSDT")}
-    result = beta_hedged_daily(tranches, prices, None, {"BTCUSDT": 1.0}, list(prices))
+    result = beta_hedged_daily(tranches, prices, zero_settlements(prices), {"BTCUSDT": 1.0}, list(prices))
     assert result.loc[0, "n_open"] == 20
     assert basket_reads == [3_600_000, 7_200_000]
     prices["ETHUSDT"].loc[1, "o"] = 120.0
-    updated = beta_hedged_daily(tranches, prices, None, {"BTCUSDT": 1.0}, list(prices))
+    updated = beta_hedged_daily(tranches, prices, zero_settlements(prices), {"BTCUSDT": 1.0}, list(prices))
     assert updated.loc[0, "gross_hedged"] != result.loc[0, "gross_hedged"]
 
 
@@ -1207,7 +1270,7 @@ def test_priced_exit_uses_fill_price() -> None:
             exit_reason="stop",
         )
         beta = 0.8
-        res = beta_hedged_daily([tranche], five_min, None, {c: beta for c in universe}, universe)
+        res = beta_hedged_daily([tranche], five_min, zero_settlements(five_min), {c: beta for c in universe}, universe)
         r_ew = float(
             np.mean([np.log(df.loc[2, "o"] / df.loc[1, "o"]) for df in five_min.values()])  # entry to hedge end
         )
@@ -1266,7 +1329,7 @@ def test_daily_book_and_hedged_agree_on_coin_leg() -> None:
         exit_reason="stop",
     )
     betas = {c: 0.0 for c in universe}
-    hedged = beta_hedged_daily([horizon, stopped], five_min, None, betas, universe)
+    hedged = beta_hedged_daily([horizon, stopped], five_min, zero_settlements(five_min), betas, universe)
     raw = daily_book([horizon, stopped], five_min, None)
     assert list(hedged.index) == list(raw.index)
     np.testing.assert_allclose(hedged["gross_hedged"].to_numpy(), raw["gross"].to_numpy(), rtol=1e-12, atol=1e-15)
@@ -1280,9 +1343,10 @@ def test_horizon_exit_unchanged() -> None:
         res = beta_hedged_daily(case, prices, settlements, betas, universe)
         assert [float(x) for x in res["gross_hedged"]] == [0.0003914907331017391, 4.7025973830872026e-05, 0.0]
         # Costs are now netted per coin with per-coin slippage (was per tranche at 3 bps), and the BTC exit at exactly
-        # 00:00 of day 2 is booked on day 2, a cost-only third row. Values from the independent scalar oracle.
+        # 00:00 of day 2 is booked on day 2, a cost-only third row. Values from the independent scalar oracle. Since
+        # Amendment 4 the hedge leg pays the basket's funding too (A4.1), which moves the first two days.
         assert [float(x) for x in res["drift_free"]] == [
-            0.00037824073310173916,
-            4.015097383087203e-05,
+            0.00037910323310173913,
+            3.745097383087202e-05,
             -4.1666666666666667e-07,
         ]

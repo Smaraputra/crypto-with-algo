@@ -15,6 +15,7 @@ from r4.book import DAY_MS, Tranche, netted_costs
 from r4.costs import coin_slippage_bps, resolve_fee_profile
 from r4.exits import ExitContext
 from r4.method import UNIVERSE
+from tests.a4_cover import zero_settlements
 from tests.test_cli_bar import (
     COMMIT,
     _create_synthetic_dataset_dir,
@@ -55,7 +56,6 @@ def _crash_panel(n_days: int, crash_day: int, crash_hour: float = 6.5) -> dict:
     n_bars = n_days * 288
     t = START + np.arange(n_bars, dtype=np.int64) * 300_000
     panel = {}
-    empty = pd.DataFrame({"t": np.empty(0, dtype=np.int64), "rate": np.empty(0, dtype=np.float64)})
     for s in SYMS:
         o = np.full(n_bars, 100.0)
         h = o.copy()
@@ -70,11 +70,10 @@ def _crash_panel(n_days: int, crash_day: int, crash_hour: float = 6.5) -> dict:
             h[k + 1 : end] = 99.0
             low[k + 1 : end] = 99.0
             c[k + 1 : end] = 99.0
-        panel[s] = {
-            "5m": pd.DataFrame({"t": t, "o": o, "h": h, "l": low, "c": c}),
-            "settlements": empty,
-            "funding": empty,
-        }
+        bars = pd.DataFrame({"t": t, "o": o, "h": h, "l": low, "c": c})
+        # Zero-rate settlements spanning the bars: the hedge leg (A4.1) needs a record that covers its windows.
+        settle = zero_settlements({s: bars})[s]
+        panel[s] = {"5m": bars, "settlements": settle, "funding": settle}
     return panel
 
 

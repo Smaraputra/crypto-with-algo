@@ -598,8 +598,19 @@ def run_wf(
     daily_df = run_res.drift_free.copy()
     daily_df.index.name = "day_start"
     combined_book = _sum_books([f.book for f in run_res.folds if len(f.book)])
-    for col in ("gross_hedged", "costs", "fees", "slippage", "funding"):
+    for col in ("gross_hedged", "costs", "fees", "slippage", "funding", "funding_coin", "funding_hedge"):
         daily_df[col] = daily_series(combined_book, col, span_start_ms=first_refit_ms, span_end_ms=DEV_END)[col]
+    # The fewest covered basket coins of the day (A4.1), over the folds that held a tranche that day. Summing it
+    # across fold books, as the other columns are, would add counts: this takes the minimum. 0 on a no-bet day.
+    basket_min = [f.book.loc[f.book["n_open"] > 0, "n_basket_funding_min"] for f in run_res.folds if len(f.book)]
+    if basket_min:
+        basket_by_day = pd.concat(basket_min).groupby("day_start").min().to_frame("n_basket_funding_min")
+        basket_col = daily_series(
+            basket_by_day, "n_basket_funding_min", span_start_ms=first_refit_ms, span_end_ms=DEV_END
+        )["n_basket_funding_min"]
+        daily_df["n_basket_funding_min"] = basket_col.astype(np.int64)
+    else:
+        daily_df["n_basket_funding_min"] = 0
     daily_df.to_parquet(run_out_dir / "daily.parquet")
 
     if run_res.tranches:
@@ -1151,6 +1162,10 @@ def main() -> None:
             v_input = {"path": str(Path(args.noise_eval).resolve()), "sha256": sha256_file(args.noise_eval)}
         else:
             v_value = float(args.v)
+        if args.margin != calibration.POWER_MARGIN:
+            # Item 3 takes the registered margin as its own argument (A4.2), so another --margin would be recorded
+            # but not used.
+            raise SystemExit(f"--margin {args.margin} is not the registered margin {calibration.POWER_MARGIN}")
         v_margin = v_value * args.margin
 
         def curve_json(curve: dict[float, dict[str, Any]]) -> dict[str, Any]:
@@ -1177,6 +1192,7 @@ def main() -> None:
             "n_trials": 120,
             "grid": calibration._read_power_meta(args.power_dir).get("grid"),
             "stop_v": power_stop_v,
+            "item3_variance": calibration.A4_ITEM3_VARIANCE,
             "curve_at_1_2v": curve_json(chosen["curve"]),
             "a_star": {k: chosen[k] for k in ("a_star", "infeasible", "extensions")},
             "provenance": calibration.power_provenance(args.power_dir),

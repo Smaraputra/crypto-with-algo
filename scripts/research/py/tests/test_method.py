@@ -231,9 +231,9 @@ def test_signed_text_unchanged_and_amendments_appended_only() -> None:
 
 
 def test_signed_amendments_unchanged_and_later_ones_appended_only() -> None:
-    """Amendment 1 (signed for the text at 3c68c376, record 2f4b26f1), Amendment 2 (signed at 245c4522) and Amendment 3
-    (signed at c31bfd69) follow M byte for byte. Anything after them is a later appended AMENDMENT, never an edit (Gate
-    P pre-run review 3, F10).
+    """Amendment 1 (signed for the text at 3c68c376, record 2f4b26f1), Amendment 2 (signed at 245c4522), Amendment 3
+    (signed at c31bfd69) and Amendment 4 (signed at c88c677e) follow M byte for byte. Anything after them is a later
+    appended AMENDMENT, never an edit (Gate P pre-run review 3, F10).
     """
     from pathlib import Path
 
@@ -242,6 +242,8 @@ def test_signed_amendments_unchanged_and_later_ones_appended_only() -> None:
     a1 = (fixtures / "method_doc_amendment1_signed_3c68c376.txt").read_text(encoding="utf-8")
     a2 = (fixtures / "method_doc_amendment2_signed_245c4522.txt").read_text(encoding="utf-8")
     a3 = (fixtures / "method_doc_amendment3_signed_c31bfd69.txt").read_text(encoding="utf-8")
+    a4 = (fixtures / "method_doc_amendment4_signed_c88c677e.txt").read_text(encoding="utf-8")
+    assert a4.startswith("AMENDMENT 4 (") and a4.endswith(".json).\n")
     doc = method.__doc__
     assert doc is not None
     tail = doc[len(signed) :]
@@ -250,5 +252,7 @@ def test_signed_amendments_unchanged_and_later_ones_appended_only() -> None:
     assert tail[start:].startswith(a1 + a2)
     rest = tail[start + len(a1) + len(a2) :].lstrip("\n")
     assert rest.startswith(a3)
-    later = rest[len(a3) :]
-    assert later == "" or later.lstrip("\n").startswith("AMENDMENT 4 ")
+    rest = rest[len(a3) :].lstrip("\n")
+    assert rest.startswith(a4)
+    later = rest[len(a4) :]
+    assert later == "" or later.lstrip("\n").startswith("AMENDMENT 5 ")

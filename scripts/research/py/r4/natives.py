@@ -399,7 +399,8 @@ def evaluate_retest(
 
     seed_cfg is an int (the joint-shift seed) or a mapping with "joint_shift" and "spa" seeds. dataset_hash is the
     book's D; decision_dataset_hash is the dataset the exported decisions came from (A3.1), required with a summary
-    and equal to the summary's manifest_hash.
+    and equal to the summary's manifest_hash. The receipt records what the dossier recomputes each hurdle flag from
+    (A4.3): every hurdle row's value, the span, the trial count, the lookback and the item 3 V0 block.
     """
     if rule not in NATIVE_RULES:
         raise ValueError(f"Unknown rule: {rule!r}")
@@ -479,9 +480,10 @@ def evaluate_retest(
     }
     rows.append(_skipped(2, "pbo", "not applicable", item2["reason"]))
 
-    # Item 3: the calibration DSR with the within-cell V and N = 120, labelled a Phase 4 re-read.
+    # Item 3: the calibration DSR at V0 = 1 / (T - 1) x lambda (A4.2) and N = 120, labelled a Phase 4 re-read. The
+    # within-cell calib_v is the recorded diagnostic.
     d3 = item3({}, float(calib_v), int(n_trials), candidate_daily=pd.DataFrame({"drift_free": series}))
-    item3_out = {**d3, "phase4_reread": True, "calib_v": float(calib_v)}
+    item3_out = {**d3, "phase4_reread": True, "calib_v": float(calib_v), "item3_variance": "a4_v0"}
     rows.append(_applied(3, "deflated_sharpe", d3["pass"], value=d3["dsr_prob"]))
 
     # Item 4

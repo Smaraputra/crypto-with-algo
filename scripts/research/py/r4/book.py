@@ -806,8 +806,18 @@ def beta_hedged_daily(
     tranche, in input order), so a fold book carries its share of a run-level netting set (walk_forward builds it once
     across folds). Without it the call nets its own included tranches.
 
+    Funding (A4.1) is the coin leg's, -w x (sum of the coin's settlement rates in the tranche's window), plus the
+    hedge leg's, beta x w x f_EW. The hedge position -beta x w in the equal-weight basket pays the basket's funding:
+    f_EW is the mean, over the basket coins used for r_EW at that interval, of each coin's summed rates in the same
+    window. A basket coin enters f_EW only when its settlement record covers the window: no settlement due inside the
+    window and inside the data's span is missing from the record (the rule is written at the call site). No missing
+    settlement is taken as 0, and a window with no covered basket coin raises ValueError. settlements must hold every
+    universe coin, not only the traded ones.
+
     Returns a DataFrame by day with columns:
-      drift_free, gross_hedged, costs, funding, n_open, ew_coins_min, excluded_tranches.
+      drift_free, gross_hedged, costs, fees, slippage, funding (coin plus hedge), funding_coin, funding_hedge,
+      n_open, ew_coins_min, n_basket_funding_min (the fewest covered basket coins over the day's tranche windows),
+      excluded_tranches.
     """
     tranche_list = _coerce_tranches(tranches)
     columns = [
@@ -817,8 +827,11 @@ def beta_hedged_daily(
         "fees",
         "slippage",
         "funding",
+        "funding_coin",
+        "funding_hedge",
         "n_open",
         "ew_coins_min",
+        "n_basket_funding_min",
         "excluded_tranches",
     ]
     if not tranche_list:
@@ -827,12 +840,65 @@ def beta_hedged_daily(
         return df_empty
 
     lookup = FiveMinLookup(five_min)
-    ew_cache: dict[tuple[int, int], tuple[float, int]] = {}
+    ew_cache: dict[tuple[int, int], tuple[float, int, tuple[str, ...]]] = {}
+    hedge_cache: dict[tuple[int, int, tuple[str, ...], bool], tuple[float, int]] = {}
 
-    unique_symbols = {t.symbol for t in tranche_list}
+    # Every universe coin is loaded: the hedge leg pays the basket's funding, not only the traded coins' (A4.1).
+    funding_symbols = {t.symbol for t in tranche_list} | set(universe)
     symbol_funding: dict[str, tuple[np.ndarray, np.ndarray]] = {
-        sym: _extract_settlements_for_symbol(settlements, sym) for sym in unique_symbols
+        sym: _extract_settlements_for_symbol(settlements, sym) for sym in funding_symbols
     }
+
+    # Coverage of a settlement record (A4.1, "its settlement record covers the window. No missing settlement is taken
+    # as 0", read as follows). The due region R is the coin-leg window with its edge rule, (lo, hi] or (lo, hi) for an
+    # intrabar exit, cut to t < data_end (the last 5m bar open of the price panel plus 5 minutes: a settlement due at
+    # data_end lies outside the span, not missing from the record). With rows t_i and stated intervalHours I_i (8 if
+    # absent), the record covers R when (a) its first row t_0 is at or before lo, or no due time t_0 - k x I_0 lies
+    # in R, (b) no settlement is due inside R across an interior gap, i.e. a gap t_{i+1} - t_i above
+    # max(I_i, I_{i+1}) plus one minute leaves no due time t_i + k x max(I_i, I_{i+1}) in R, and (c) after the last
+    # row t_L no due time t_L + k x I_L lies in R. An empty R is covered.
+    data_end = max((int(times[-1]) for times, _ in lookup._symbols.values() if len(times)), default=0) + FIVE_MIN_MS
+    record_steps: dict[str, tuple[np.ndarray, list[tuple[int, int, int]]]] = {}
+    for sym in funding_symbols:
+        rec_t = symbol_funding[sym][0]
+        raw = settlements
+        if isinstance(raw, dict):
+            raw = raw.get(sym)
+        elif isinstance(raw, pd.DataFrame) and "symbol" in raw.columns:
+            raw = raw[raw["symbol"] == sym]
+        if isinstance(raw, pd.DataFrame) and len(raw) and "intervalHours" in raw.columns:
+            hours = raw["intervalHours"].to_numpy(dtype=np.float64)[np.argsort(raw["t"].to_numpy(dtype=np.int64))]
+        else:
+            hours = np.full(len(rec_t), 8.0)
+        steps = np.rint(hours * 3_600_000).astype(np.int64)
+        gaps: list[tuple[int, int, int]] = []
+        for i in range(len(rec_t) - 1):
+            step = int(max(steps[i], steps[i + 1]))
+            if int(rec_t[i + 1]) - int(rec_t[i]) > step + 60_000:
+                gaps.append((int(rec_t[i]), int(rec_t[i + 1]), step))
+        record_steps[sym] = (steps, gaps)
+
+    def covers(sym: str, lo: int, hi: int, intrabar: bool) -> bool:
+        hi_eff = min(hi - 1 if intrabar else hi, data_end - 1)
+        if hi_eff <= lo:
+            return True
+        rec_t = symbol_funding[sym][0]
+        if len(rec_t) == 0:
+            return False
+        steps, gaps = record_steps[sym]
+        t0 = int(rec_t[0])
+        if t0 > lo:
+            k = max(1, -(-(t0 - hi_eff) // int(steps[0])))
+            if t0 - k * int(steps[0]) > lo:
+                return False
+        for g_start, g_end, step in gaps:
+            k = max(1, (lo - g_start) // step + 1)
+            due = g_start + k * step
+            if due <= hi_eff and due < g_end - 60_000:
+                return False
+        t_last, step_last = int(rec_t[-1]), int(steps[-1])
+        k = max(1, (lo - t_last) // step_last + 1)
+        return not t_last + k * step_last <= hi_eff
 
     day_tranches = _tranches_by_day(tranche_list)
     # Excluded tranches (NaN beta) are not in the book, so they carry no fill and are not netted.
@@ -854,8 +920,10 @@ def beta_hedged_daily(
         gross_hedged = 0.0
         day_fees = float(cost_by_day.get(d_start, {}).get("fees", 0.0))
         day_slippage = float(cost_by_day.get(d_start, {}).get("slippage", 0.0))
-        funding = 0.0
+        funding_coin = 0.0
+        funding_hedge = 0.0
         ew_coins_counts: list[int] = []
+        basket_funding_counts: list[int] = []
 
         for t in open_tranches:
             if _beta_missing(betas, t.symbol):
@@ -898,35 +966,63 @@ def beta_hedged_daily(
             boundary = (start, hedge_end)
             if boundary not in ew_cache:
                 ew_returns: list[float] = []
+                ew_coins: list[str] = []
                 for u_coin in universe:
                     u_p_start = lookup.get_exact_open(u_coin, start)
                     u_p_end = lookup.get_exact_open(u_coin, hedge_end)
                     if u_p_start is not None and u_p_end is not None and u_p_start > 0 and u_p_end > 0:
                         ew_returns.append(float(np.log(u_p_end / u_p_start)))
+                        ew_coins.append(u_coin)
                 n_present = len(ew_returns)
                 if n_present == 0:
                     raise ValueError(
                         f"No basket coin has 5m opens at both ends of the interval [{start}, {hedge_end}] "
                         f"for {t.symbol}, so r_EW is undefined"
                     )
-                ew_cache[boundary] = (float(np.mean(ew_returns)), n_present)
-            r_ew, n_present = ew_cache[boundary]
+                ew_cache[boundary] = (float(np.mean(ew_returns)), n_present, tuple(ew_coins))
+            r_ew, n_present, ew_coins_used = ew_cache[boundary]
             ew_coins_counts.append(n_present)
 
             gross_hedged += w * (r_coin - beta * r_ew)
 
+            win_start = max(d_start, t.entry_ms)
+            win_end = min(d_end, t.exit_ms)
+            # An intrabar exit pays no settlement at its stamp: the window is (entry, stamp).
+            excl = "left" if (t.exit_intrabar and t.exit_ms <= d_end) else "right"
             s_times, s_rates = symbol_funding[t.symbol]
             if len(s_times) > 0:
-                left = int(np.searchsorted(s_times, max(d_start, t.entry_ms), side="right"))
-                # An intrabar exit pays no settlement at its stamp: the window is (entry, stamp).
-                excl = "left" if (t.exit_intrabar and t.exit_ms <= d_end) else "right"
-                right = int(np.searchsorted(s_times, min(d_end, t.exit_ms), side=excl))
+                left = int(np.searchsorted(s_times, win_start, side="right"))
+                right = int(np.searchsorted(s_times, win_end, side=excl))
                 if left < right:
-                    funding += float(np.sum(-w * s_rates[left:right]))
+                    funding_coin += float(np.sum(-w * s_rates[left:right]))
+
+            # The hedge leg pays the basket's funding over the same window, on the coins used for r_EW that the
+            # settlement records cover. An uncovered coin is left out, never counted as 0.
+            hedge_key = (win_start, win_end, ew_coins_used, excl == "left")
+            if hedge_key not in hedge_cache:
+                window_sums: list[float] = []
+                for u_coin in ew_coins_used:
+                    u_times, u_rates = symbol_funding[u_coin]
+                    if not covers(u_coin, win_start, win_end, excl == "left"):
+                        continue
+                    u_left = int(np.searchsorted(u_times, win_start, side="right"))
+                    u_right = int(np.searchsorted(u_times, win_end, side=excl))
+                    window_sums.append(float(np.sum(u_rates[u_left:u_right])) if u_left < u_right else 0.0)
+                if not window_sums:
+                    raise ValueError(
+                        f"No basket coin has settlements covering [{win_start}, {win_end}] for {t.symbol}, "
+                        "so the hedge leg's funding is undefined"
+                    )
+                hedge_cache[hedge_key] = (float(np.mean(window_sums)), len(window_sums))
+            f_ew, n_covered = hedge_cache[hedge_key]
+            basket_funding_counts.append(n_covered)
+            funding_hedge += beta * w * f_ew
 
         costs = day_fees + day_slippage
+        funding = funding_coin + funding_hedge
         drift_free = gross_hedged - costs + funding
         ew_coins_min = min(ew_coins_counts) if ew_coins_counts else 0
+        n_basket_funding_min = min(basket_funding_counts) if basket_funding_counts else 0
 
         records.append(
             {
@@ -937,8 +1033,11 @@ def beta_hedged_daily(
                 "fees": day_fees,
                 "slippage": day_slippage,
                 "funding": funding,
+                "funding_coin": funding_coin,
+                "funding_hedge": funding_hedge,
                 "n_open": n_open,
                 "ew_coins_min": ew_coins_min,
+                "n_basket_funding_min": n_basket_funding_min,
                 "excluded_tranches": excluded_tranches,
             }
         )

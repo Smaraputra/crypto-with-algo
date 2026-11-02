@@ -14,6 +14,7 @@ from r4.bar import _unit_costs, cell_key, family_report, joint_shift_null
 from r4.book import DAY_MS, Tranche
 from r4.cli import main, run_tripwire, run_wf
 from r4.method import UNIVERSE
+from tests.a4_cover import zero_settlements
 from tests.test_cli_bar import _small_run, _write_planted_family
 from tests.test_tripwire import _cov, _small_dataset
 
@@ -130,6 +131,14 @@ def _settle_frame() -> pd.DataFrame:
     return pd.DataFrame({"t": [SETTLE], "rate": [RATE]})
 
 
+def _settle_book(five: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Zero-rate records spanning the prices (the hedge leg needs coverage, A4.1), with RATE at SETTLE on BTC only."""
+    out = zero_settlements(five)
+    btc = out["BTCUSDT"]
+    btc.loc[btc["t"] == SETTLE, "rate"] = RATE
+    return out
+
+
 def _five_min() -> dict[str, pd.DataFrame]:
     n = 3 * 288
     t = DAY0 - DAY_MS + np.arange(n, dtype=np.int64) * 300_000
@@ -161,8 +170,12 @@ def test_funding_window_at_the_stamp(reason, paid):
     day = book.daily_book([tr], five, {"BTCUSDT": _settle_frame()})
     assert float(day["funding"].sum()) == pytest.approx(expected, abs=1e-15)
     betas = {s: 1.0 for s in UNIVERSE[:6]}
-    hedged = book.beta_hedged_daily([tr], five, {"BTCUSDT": _settle_frame()}, betas, UNIVERSE[:6])
-    assert float(hedged["funding"].sum()) == pytest.approx(expected, abs=1e-15)
+    hedged = book.beta_hedged_daily([tr], five, _settle_book(five), betas, UNIVERSE[:6])
+    # The coin leg and the hedge leg both leave the stamp's settlement out of an intrabar exit's window (A4.1). The
+    # hedge pays beta x w x f_EW, and BTC is one of the six basket coins carrying RATE at the stamp.
+    assert float(hedged["funding_coin"].sum()) == pytest.approx(expected, abs=1e-15)
+    assert float(hedged["funding_hedge"].sum()) == pytest.approx(-expected / 6.0, abs=1e-15)
+    assert float(hedged["funding"].sum()) == pytest.approx(expected * 5.0 / 6.0, abs=1e-15)
     trades = book.trade_level([tr], {"BTCUSDT": _settle_frame()})
     net = float(trades["net_return"].iloc[0])
     cost = float(book.netted_costs([tr]).tranche_cost[0] / abs(tr.weight))
@@ -176,10 +189,9 @@ def test_funding_stamp_rule_in_joint_shift_observed(monkeypatch):
     start = DAY0 - 10 * DAY_MS
     n_days = 100
     t = start + np.arange(n_days * 288, dtype=np.int64) * 300_000
-    flat = {
-        s: {"5m": pd.DataFrame({"t": t, "o": np.full(len(t), 100.0)}), "settlements": _settle_frame()}
-        for s in UNIVERSE[:6]
-    }
+    five_flat = {s: pd.DataFrame({"t": t, "o": np.full(len(t), 100.0)}) for s in UNIVERSE[:6]}
+    settle = _settle_book(five_flat)
+    flat = {s: {"5m": five_flat[s], "settlements": settle[s]} for s in UNIVERSE[:6]}
     folds = [
         {
             "start_ms": start,
@@ -195,7 +207,8 @@ def test_funding_stamp_rule_in_joint_shift_observed(monkeypatch):
         out[reason] = obs
     cost = float(book.netted_costs([_funding_tranche("stop")]).tranche_cost[0] / abs(_funding_tranche("stop").weight))
     assert out["stop"] == pytest.approx(-cost, abs=1e-12)
-    assert out["horizon"] == pytest.approx(-cost - RATE, abs=1e-12)
+    # Coin leg RATE, hedge leg RATE / 6 (BTC is one of six basket coins): side x (f_coin - beta x f_EW).
+    assert out["horizon"] == pytest.approx(-cost - RATE * 5.0 / 6.0, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -211,15 +224,16 @@ def test_leg_costs_net_a_cross_fold_roll():
     betas = {s: 1.0 for s in UNIVERSE[:6]}
     universe = UNIVERSE[:6]
     run_legs = book.LegCosts.from_netted(book.netted_costs([a, b]), [0, 1], 2)
-    fold1 = book.beta_hedged_daily([a], five, {}, betas, universe, leg_costs=run_legs.take(0, 1))
-    fold2 = book.beta_hedged_daily([b], five, {}, betas, universe, leg_costs=run_legs.take(1, 2))
+    zero = zero_settlements(five)
+    fold1 = book.beta_hedged_daily([a], five, zero, betas, universe, leg_costs=run_legs.take(0, 1))
+    fold2 = book.beta_hedged_daily([b], five, zero, betas, universe, leg_costs=run_legs.take(1, 2))
     rate = TAKER + BTC_SLIP
     assert stamp  # the roll instant
     run_level = float(fold1["costs"].sum() + fold2["costs"].sum())
     assert run_level == pytest.approx(2 * W * rate, abs=1e-15)  # first entry and last exit only
     alone = float(
-        book.beta_hedged_daily([a], five, {}, betas, universe)["costs"].sum()
-        + book.beta_hedged_daily([b], five, {}, betas, universe)["costs"].sum()
+        book.beta_hedged_daily([a], five, zero, betas, universe)["costs"].sum()
+        + book.beta_hedged_daily([b], five, zero, betas, universe)["costs"].sum()
     )
     assert alone == pytest.approx(4 * W * rate, abs=1e-15)  # per-fold netting charges the roll in full
 
@@ -228,7 +242,10 @@ def test_leg_costs_slot_count_must_match():
     a = _t(entry=HOUR, exit_=5 * HOUR)
     legs = book.LegCosts.from_netted(book.netted_costs([a]), [0], 1)
     with pytest.raises(ValueError, match="slots"):
-        book.beta_hedged_daily([a, a], _five_min(), {}, {s: 1.0 for s in UNIVERSE[:6]}, UNIVERSE[:6], leg_costs=legs)
+        five = _five_min()
+        book.beta_hedged_daily(
+            [a, a], five, zero_settlements(five), {s: 1.0 for s in UNIVERSE[:6]}, UNIVERSE[:6], leg_costs=legs
+        )
 
 
 def test_walk_forward_fold_costs_sum_to_the_run_level_netting():

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Round 4 hedge funding, item 3 at V0 and the C4 code, lock Amendment 4 signed
+- The owner signed Amendment 4 on 2026-11-02, after the Gate P post-run review (PASS WITH CONDITIONS) and before any Phase 5 read of D. It changes no threshold, span, budget cap, prediction or holdout rule. A4.1 and A4.2 were chosen after Phase 4 on D was seen, which the amendment discloses as a forking path.
+- Hedge funding (A4.1): the beta hedge was notional and paid no funding, so the four never-refit short-book noise controls collected 1.2 to 1.5 bps a day of carry through the coin leg alone and made up 97% of the within-cell V. The hedge position now pays the basket's funding, `funding_hedge = beta x w x f_EW`:
+  - f_EW is the mean, over the basket coins used for r_EW in that interval, of each coin's summed settlements in the coin leg's window, an intrabar exit excluding its stamp;
+  - a basket coin counts only when its settlement record covers the window, no missing settlement is taken as 0, and a window with no covered coin raises;
+  - the daily frame's `funding` is coin plus hedge, with `funding_coin`, `funding_hedge` and `n_basket_funding_min` beside it;
+  - the joint-shift statistic carries the same term, and a parity test ties its observed value to the book's drift-free sum.
+- Item 3 variance (A4.2): the trial-Sharpe variance put SR0 at 0.634 a day, a bar no realistic edge clears. Item 3 now benchmarks at V0 = 1 / (T - 1) times lambda and a margin (1, or 1.2 in the power curve):
+  - lambda is the Bartlett long-run variance factor over 10 lags, never below 1, and it also scales the candidate's Sharpe variance (`long_run_variance_factor`, and `lam` on `probabilistic_sharpe` and `deflated_sharpe`);
+  - `item3` fails closed without a candidate series of at least 3 finite days, and reports `v0`, `lambda`, `margin`, `v_item3` and `t_days`;
+  - the within-cell V is still computed and reported as a diagnostic.
+- Dossier (A4.3): it checks every noise config's and re-test's item 3 block against the V0 formula, requires the power curve's margin and `item3_variance`, and recomputes each re-test's hurdle flags, span, trial count and lookback from their recorded values.
+- Code binding: the frozen-node test now compares every top-level r4 node with its `b23a7b26` text bar the nodes A4.3 names, and pins the requirement locks to their `5250b8ea` hashes. A fixture pins the signed text (`method_doc_amendment4_signed_c88c677e.txt`).
+- Counting (A4.4): the C4 re-run counts as 52 controls and 6 re-tests, so the ledger goes from 2,274 to 2,332 and the re-test family reaches its cap of 12.
+
 ### Changed: Round 4 native re-tests, lock Amendment 3 signed
 - The Phase 4 dossier needs six native re-tests bound to D, but D holds only perp klines, funding, metrics and flow. C1 and v8 read spot candles, HTF and snapshots, and rv-v1 needs its repaired rv2 data, so four of the six could not run on D. The owner signed Amendment 3 on 2026-11-01, before any native export or re-test ran.
 - Decisions come from each rule's own recorded dataset, fixed by hash: rv-v1 from `~/rv2-ds` with its reviewed resolutions file, C1 from `~/nv1-ds`, and v8 1h and 4h from `~/dx-ds` on spot prices, as the recorded direction-exit study ran. S1 and S2 stay on D. Every book still prices on D's perp 5m opens and D's funding.

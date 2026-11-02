@@ -16,7 +16,7 @@ from r4 import calibration as cal
 from r4.bar import trial_sharpe_variance
 from r4.cli import config_hash_of, main
 from r4.method import DEV_END, DEV_START, UNIVERSE
-from r4.natives import decision_source
+from r4.natives import WF_SPAN, decision_source
 from r4.synth import synth_panel, write_synthetic_dataset
 from r4.tripwire import SHIFT_DAYS
 from tests.test_calibration import _write_cell_family
@@ -93,8 +93,9 @@ def test_power_curve_recomputes_at_given_v(power_sim, monkeypatch):
     small_v = cal.power_curve(pdir, V_SMALL, joint_draws=50)
     big_v = cal.power_curve(pdir, 50.0, joint_draws=50)
     assert small_v[A_HI]["detected"] == 3
-    assert big_v[A_HI]["detected"] == 0  # the same series, a variance so large the DSR benchmark is out of reach
-    assert big_v[A_HI]["rate"] == 0.0
+    # Item 3 benchmarks at 1.2 x lambda x V0 (A4.2), so the trial-Sharpe V passed in is a recorded diagnostic only.
+    assert big_v[A_HI]["detected"] == small_v[A_HI]["detected"]
+    assert big_v[A_HI]["rate"] == small_v[A_HI]["rate"]
     # The margin helper multiplies V by 1.2 and nothing else.
     seen = []
     real = cal.power_curve
@@ -312,6 +313,24 @@ def _noise_set() -> list[dict]:
     ]
 
 
+def _item3_block(t_days: int = 1277, lam: float = 1.0, margin: float = 1.0, dsr_prob: float = 0.1) -> dict:
+    """An item 3 block on the A4.2 formula: v0 = 1 / (T - 1), v_item3 = margin x lambda x v0."""
+    v0 = 1.0 / (t_days - 1)
+    return {
+        "pass": dsr_prob >= 0.95,
+        "dsr_prob": dsr_prob,
+        "dsr_min": 0.95,
+        "num_trials": 120,
+        "variance_mode": "within_cell",
+        "item3_variance": "a4_v0",
+        "v0": v0,
+        "lambda": lam,
+        "margin": margin,
+        "v_item3": margin * lam * v0,
+        "t_days": t_days,
+    }
+
+
 def _noise_eval(
     *, n_pass: int = 0, n_rej: int = 2, pbo: float = 0.05, cf_n: int | None = 1, wsg_median: float | None = 0.5
 ) -> dict:
@@ -320,6 +339,7 @@ def _noise_eval(
     final = cal.noise_final_set()
     configs = {
         c["id"]: {
+            "item3": _item3_block(),
             "joint_shift": {
                 "p": 0.01 if k < n_rej else 0.5,
                 "seed": c["joint_shift_seed"],
@@ -335,7 +355,12 @@ def _noise_eval(
         "configs": configs,
         "item2": {"pbo": pbo},
         "diagnostics": {
-            "cost_free": {"n_pass_items_1_to_3": cf_n},
+            "cost_free": {
+                "n_pass_items_1_to_3": cf_n,
+                "configs": {
+                    c["id"]: {"item3": _item3_block(), "item3_cost_free_total_v": _item3_block()} for c in final
+                },
+            },
             "within_seed_group_pbo": {"median": wsg_median},
         },
         "verdict": cal._noise_verdicts(n_pass, n_rej, pbo, cf_n, wsg_median, cal.REFERENCE_PANEL_REJECTIONS),
@@ -493,23 +518,52 @@ RULES = ("rv-v1", "s1", "s2", "v8-1h", "v8-4h", "c1")
 
 
 def _retest(rule: str, passed: bool = False, *, applied: bool = True) -> dict:
+    """A re-test receipt whose hurdle flags equal their recorded values against the registered bar (A4.3)."""
+    wf_mean = 0.0004 if passed else -0.0001
+    dsr = 0.97 if passed else 0.2
     rows = (
-        [{"item": 4, "test": "joint_shift_null", "status": "applied", "pass": passed}]
+        [
+            {"item": 1, "test": "walk_forward_mean", "status": "applied", "pass": passed, "value": wf_mean},
+            {"item": 1, "test": "cpcv_paths", "status": "applied", "pass": passed, "value": 5 if passed else 1},
+            {"item": 3, "test": "deflated_sharpe", "status": "applied", "pass": passed, "value": dsr},
+            {
+                "item": 4,
+                "test": "joint_shift_null",
+                "status": "applied",
+                "pass": passed,
+                "value": 0.01 if passed else 0.5,
+            },
+            {"item": 5, "test": "coin_breadth", "status": "applied", "pass": passed, "value": 8 if passed else 3},
+            {
+                "item": 6,
+                "test": "stress_cost",
+                "status": "applied",
+                "pass": passed,
+                "value": 0.0001 if passed else -0.0002,
+            },
+        ]
         if applied
         else [{"item": 4, "test": "joint_shift_null", "status": "unavailable", "reason": "no data"}]
     )
+    names = [h["test"] for h in rows if h["status"] == "applied"]
     return {
         "kind": "retest",
         "rule": rule,
-        "pass": passed,
+        "pass": passed and applied,
         "commit": SHA2,
         **_repro(),
         "dataset_hash": DS_HASH,
         "decision_dataset_hash": decision_source(rule, DS_HASH),
         "calib_v": D_V,
+        "span": {"start_ms": WF_SPAN[0], "end_ms": WF_SPAN[1]},
+        "lookback_months": 12,
+        "n_trials": 120,
+        "n_days": 1277,
+        "wf_mean": wf_mean,
+        "item3": {**_item3_block(dsr_prob=dsr), "phase4_reread": True, "calib_v": D_V},
         "hurdles": rows,
-        "hurdles_passed": ["joint_shift_null"] if applied and passed else [],
-        "hurdles_failed": ["joint_shift_null"] if applied and not passed else [],
+        "hurdles_passed": names if passed else [],
+        "hurdles_failed": [] if passed else names,
     }
 
 
@@ -557,6 +611,7 @@ def _power_doc(**over) -> dict:
         "n_trials": 120,
         "grid": list(cal.POWER_AMPLITUDE_GRID),
         "stop_v": cal.POWER_STOP_V,
+        "item3_variance": "a4_v0",
         "dcov_dataset_hash": DS_HASH,
         "power_meta": {
             "start_ms": DEV_START,
@@ -584,6 +639,8 @@ def _positive(**over) -> dict:
     fam = cal.pc_rerun_family(a_star) if over.get("rerun") else cal.pc_family(a_star)
     ok = {f"item{i}": {"pass": bool(detected)} for i in range(1, 7)}
     no = {f"item{i}": {"pass": False} for i in range(1, 7)}
+    ok["item3"] = {**_item3_block(), "pass": bool(detected)}
+    no["item3"] = {**_item3_block(), "pass": False}
     d = {
         "detected": detected,
         "detected_by": "pc_P1" if detected else None,

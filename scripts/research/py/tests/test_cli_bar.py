@@ -44,6 +44,7 @@ from r4.pipeline import (
     walk_forward,
 )
 from r4.validation import cpcv_path_ids
+from tests.a4_cover import zero_settlements
 
 DAY = 86_400_000
 COMMIT = "abc1234"
@@ -456,21 +457,15 @@ def test_5_item3_num_trials_and_program_prob_monotonic():
 
     is never higher than the round-count probability.
     """
-    receipt = {
-        "metrics": {
-            "wf_sharpe": 1.25,
-            "n_days": 250,
-            "skew": 0.05,
-            "kurt": 3.1,
-        }
-    }
+    receipt: dict = {}
+    series = pd.DataFrame({"drift_free": np.random.default_rng(3).normal(0.001, 0.01, 250)})
     # Test with ledger_count < 120
-    res_small = item3(receipt, round_daily=0.04, ledger_count=50)
+    res_small = item3(receipt, round_daily=0.04, ledger_count=50, candidate_daily=series)
     assert res_small["num_trials"] == 120
     assert res_small["dsr_prob_program"] <= res_small["dsr_prob"]
 
     # Test with ledger_count > 120
-    res_large = item3(receipt, round_daily=0.04, ledger_count=200)
+    res_large = item3(receipt, round_daily=0.04, ledger_count=200, candidate_daily=series)
     assert res_large["num_trials"] == 200
     assert res_large["dsr_prob_program"] <= res_large["dsr_prob"]
 
@@ -539,7 +534,9 @@ def test_7_book_fees_plus_slippage_equals_costs():
 
     # Test beta_hedged_daily
     betas = {"BTCUSDT": 1.0}
-    df_hedged = beta_hedged_daily([tranche_1, tranche_2], five_min, settlements=None, betas=betas, universe=["BTCUSDT"])
+    df_hedged = beta_hedged_daily(
+        [tranche_1, tranche_2], five_min, settlements=zero_settlements(five_min), betas=betas, universe=["BTCUSDT"]
+    )
     assert not df_hedged.empty
     assert "fees" in df_hedged.columns
     assert "slippage" in df_hedged.columns
@@ -625,7 +622,8 @@ def _pulse_panel(
         df = pd.DataFrame({"t": t, "o": o})
         if sym == "BTCUSDT" and btc_days is not None:
             df = df[df["t"] < start_ms + btc_days * DAY].reset_index(drop=True)
-        settle = pd.DataFrame({"t": np.empty(0, dtype=np.int64), "rate": np.empty(0, dtype=np.float64)})
+        # A zero-rate record spanning the bars: the hedge leg (A4.1) needs settlements that cover its windows.
+        settle = zero_settlements({sym: df})[sym]
         panel[sym] = {"5m": df, "settlements": settle, "funding": settle}
     return panel
 
@@ -722,8 +720,7 @@ def test_3_cpcv_group_priced_with_the_splits_own_betas():
     for sym in UNIVERSE[:6]:
         o = 100.0 * np.exp(0.001 * np.arange(n_bars)) if sym == "BTCUSDT" else np.full(n_bars, 100.0)
         five_min[sym] = pd.DataFrame({"t": t5, "o": o})
-    empty = pd.DataFrame({"t": np.empty(0, dtype=np.int64), "rate": np.empty(0, dtype=np.float64)})
-    settlements = {s: empty for s in five_min}
+    settlements = zero_settlements(five_min)
 
     rows = []
     for g in range(CPCV_GROUPS):
@@ -1344,6 +1341,7 @@ def test_item3_raises_below_two_configs():
     """Fewer than two finite trial Sharpes (sequence path) cannot give a variance. A mapping raises (brief 28g)."""
     receipt = {"metrics": {"wf_sharpe": 0.5, "n_days": 120}}
     days = [i * DAY for i in range(120)]
+    series = pd.DataFrame({"drift_free": np.linspace(-0.001, 0.003, 120)})
 
     def frame(h: str) -> pd.DataFrame:
         df = pd.DataFrame({"drift_free": np.linspace(-0.001, 0.003, 120)}, index=pd.Index(days, name="day_start"))
@@ -1358,7 +1356,7 @@ def test_item3_raises_below_two_configs():
         item3(receipt, [0.1], ledger_count=120)
     with pytest.raises(ValueError, match="at least 2"):
         item3(receipt, [0.1, float("nan")], ledger_count=120)
-    ok = item3(receipt, [0.1, 0.3], ledger_count=120)
+    ok = item3(receipt, [0.1, 0.3], ledger_count=120, candidate_daily=series)
     assert ok["n_unique_configs"] is None and ok["var_trial_sharpes"] == pytest.approx(0.02)
 
 
