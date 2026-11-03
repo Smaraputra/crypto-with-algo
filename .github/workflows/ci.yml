@@ -43,7 +43,8 @@ jobs:
       - run: npm run build
 
   e2e:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, where Playwright 1.58.2 cannot install Chromium; pinned until Playwright supports it.
+    runs-on: ubuntu-24.04
     needs: [build]
     services:
       mongo:
