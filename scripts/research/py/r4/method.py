@@ -661,6 +661,117 @@ A4.4 COUNTING AND THE GATE P RECORD. It amends M's "one per re-run after a code 
 - The program-count DSR keeps 2,204 + N (disclosed).
 - The re-run's record carries the Gate P post-run review's disclosures (findings 3, 4, 6, 9 and 11) and the C1
   carry analysis (phase4-results/c1_carry_analysis.json).
+
+AMENDMENT 5 (2026-11-03, owner-approved and SIGNED by the owner on 2026-11-03 (session 44) for this text). It is written
+after the Gate P review of the C4 re-run (PASS WITH CONDITIONS, gates/gate-P-c4-post-run-review.md) and before any
+Phase 5 read of D. It answers that review's conditions C2 and C3 and a parity defect found by the Codex second opinion,
+and sets the record of condition C1. It changes four things:
+- the code binding, extended from Phase 4 to Phase 5 (A5.1);
+- the method of A4.1's netted hedge-cost estimate (A5.2);
+- the basket of the joint-shift null, aligned with the book's (A5.3);
+- the Gate P record (A5.4).
+It changes no threshold, span, budget cap, prediction, H rule, Phase 4 outcome or ledger count.
+
+A5.1 CODE BINDING FOR PHASE 5. It extends A4.3's binding ("Any other change needs a further amendment") to Phase 5.
+- Gate P accepted the pipeline at C4 dfe1ebf5 (r4 source digest de431740...). C5 is the commit that carries this
+  amendment's code.
+- Frozen code. Every top-level node and other top-level statement of every r4 module present at C4 keeps its C4
+  text, and no such module gains or loses one, except:
+  - bar.py: joint_shift_stats and joint_shift_null take their C5 text (A5.3).
+  - method.py: its module docstring, by appending signed amendments only.
+  - cli.py and pipeline.py may gain nodes and imports, and these extension nodes may change: pipeline.py
+    RunConfig, run_config_from_raw, load_panel, decision_samples, _make_model, _binary_labels, fit_side_model,
+    _get_decisions and _make_tranches, and cli.py run_wf, run_tripwire and main.
+- An extension node changes only by adding a branch that no C4 configuration and no configuration already run on D
+  reaches, selected by configuration values the family declares in its ledger commit, for M's configuration
+  dimensions (model, hyperparameters, features, label, threshold, side rule, size rule, family C filter, exit). main
+  may also gain subcommands that only dispatch to new code. Apart from A5.3, the drift-free book, the netting set,
+  fold betas, training windows, refit arms, CPCV paths, items 1 to 6, the seeds and the digest stay as at C4.
+- r4/hedge_cost.py (A5.2) is frozen at its C5 text.
+- New code. A family adds new r4 modules, which read data only through r4.data's loaders. A family that needs a
+  feature outside features.py computes it in its own module, and a test applies causality.assert_future_invariant
+  to it with each input's closing rule: its bar interval, 0 for settlements, TIER_B_STAMP_MS for Tier B rows. A
+  directional family's labels are derived at fit time from tripwire.LABEL_COLUMNS. E4 and E5 apply only to
+  configurations whose features are features.py columns or hash features. Code for a criterion with no C4
+  implementation (family C's forecast criteria and stay-out flag) has tests against M's text.
+- Family registrations. Family D's weights and band, where they differ from A1.4 (centred ranks with the sum of
+  abs(w) at 1), need a further amendment, and family B's Tier B noise control (A1.9) is registered with its
+  configurations and bounds, each before that family's first D read.
+- Review. Before a family's first D run, an Opus review of the diff from C5 to the family's code commit confirms
+  these rules. From the family's first D outcome its code is frozen for it, and a change is a re-run (M).
+- Reproduction check (blocking). Before any Phase 5 D outcome is computed under a source digest, that digest
+  reproduces in the registered research image, into a new directory, the C4 runs noise_00_ridge_C1_s1,
+  noise_12_lgbm_C2_s1, noise_22_lgbmtb_C4_s1, noise_28_logit_C4_s1_alt2, noise_30_noref_C2_s1, noise_36_d_C4_s1,
+  exit_0_E2_noise_06_ridge_C4_s1 and exit_3_E5_noise_06_ridge_C4_s1. For each, tranches.parquet, daily.parquet and
+  folds.json are identical, receipt.json is identical apart from commit, source_sha256 and runtime_s, and the joint
+  shift at its C4 seed and 1,000 draws gives exactly the observed statistic, p and drop share of noise_eval.json or
+  exit_block.json, with the exit rows' zero-shift identity. Each reproduction is recorded under records/ with its
+  digest. One that matches computes no new outcome and is not counted (A4.4). One that differs stops Phase 5 for
+  review, is reported and counts as a control re-run.
+- Runs and seeds. Phase 5 D runs start only from committed entry points, and run_wf receives no panel but
+  load_panel's for the manifest's dataset. The family index of the SPA seed is A 0, B 1, C 2, D 3, E 4, and every
+  Phase 5 configuration carries a joint_shift_seed fixed in the commit that declares it. A report with other seeds
+  is void.
+- requirements.lock and the library versions stay as at C4.
+- One node guard against a C4 fixture of every module replaces the A3 and A4 guards. It allows only the changes
+  above and pins hedge_cost.py and the two bar nodes to their C5 digests.
+- Any other change to frozen code needs a further amendment.
+- Disclosed: CPCV path costs net within each test group, so fills at a path's five group boundaries do not net
+  (conservative, kept as at C4).
+
+A5.2 THE NETTED HEDGE-COST ESTIMATE. It defines A4.1's "netted hedge-cost estimate beside every item 1 pass".
+- Hedge legs. Over each daily part of its life, each tranche of the run's netting set holds -beta x w / n in each of
+  the n coins of that part's basket (the coins used for r_EW, A1.2), with beta the book's beta for that tranche. The
+  legs fill at 5m opens, never intrabar: the coin leg's entry instant, each UTC midnight inside the tranche, and the
+  hedge end (the stamp, or the next 5m boundary for a priced exit). Where consecutive parts share a basket the
+  midnight legs cancel in the netting. Where the basket changes, every basket coin trades the difference.
+- Fills. Hedge legs are taker fills at A1.1's taker fee (5 bps) and the coin's A1.1 slippage. Coin legs keep their own
+  fill types.
+- Netting. A1.1's netting runs once over the union of a run's coin legs and hedge legs, per (coin, fill instant, fill
+  type, native cost), so hedge legs net against each other and against coin legs.
+- Estimate. H_d = netted fees and slippage of the coin and hedge legs together minus those of the coin legs alone,
+  each booked by A1.1's fill-day rule. H_d is negative where hedge legs offset coin legs. Reported beside every
+  item 1 pass, over item 1's walk-forward span with no-bet days zero: the mean of H_d in bps a day and the mean of
+  D_d - H_d, the same with fees x1.5 and slippage x2 on D_d's costs and on both terms of H_d, and the same with
+  every maker leg repriced as taker before both nettings. It never gates.
+- Not modelled (disclosed): hedge drift between fills (no rebalance inside a tranche unless its basket changes),
+  lot sizes, and maker hedging. Funding of the hedge is already in D_d (A4.1). D_d - H_d stays an estimate.
+- Code: r4/hedge_cost.py builds the hedge legs as Tranche objects with weight_override, skips a zero hedge weight,
+  and calls book.netted_costs unchanged. Tests: zero beta gives zero, one tranche gives the closed form,
+  offsetting tranches net to zero, a fully hedged equal-weight book gives minus its coin cost, and a basket change
+  at a midnight trades only the difference. It is frozen at C5 (A5.1).
+
+A5.3 THE JOINT-SHIFT BASKET. It amends the joint-shift null (M item 4, A1.2, A4.1) so its basket follows M's
+interval rule.
+- M defines r_EW per interval: "a coin missing a bar at an interval boundary leaves the basket for that interval".
+  The book applies it to each daily part of a tranche (book.beta_hedged_daily), with A4.1's settlement coverage
+  judged per part. The joint shift judges the basket once over the whole tranche (bar.joint_shift_stats). When a
+  basket coin lacks the 5m open at a UTC midnight inside a tranche, or a settlement in one of its parts, the two
+  differ. Codex and Opus each reproduced a gap on a synthetic panel. It never occurred at C4: in D every 5m instant
+  has all 10 coins (A1.2), and on every day with an open tranche of every C4 run the basket's funding count is 10
+  (phase4-c4-results/diag_basket.log).
+- From this amendment, bar.joint_shift_stats prices r_EW and f_EW of each observed and shifted tranche part by
+  part, split at UTC midnights as the book splits it, with each part's basket by M's interval rule and A4.1's
+  coverage judged on the part's window, and sums the parts. The coin leg is priced from entry to exit, as at C4. A
+  part with no basket coin priced drops the tranche and counts it (A1.2). A part whose priced coins are all
+  uncovered raises for an observed tranche (A4.1) and drops a shifted one, which is counted. A tranche each of whose
+  parts has the price basket and the covered set of its whole window is computed whole, with C4's arithmetic.
+- A shifted tranche whose own coin's settlement record does not cover its window (A4.1's rule) is dropped and
+  counted, as M's "lands on missing data" requires.
+- A test binds book-to-null parity to 1e-12 for tranches whose basket changes inside them (a basket coin missing a
+  midnight open, a basket coin missing a settlement in one part, a listing), on the plain path and on the
+  exit-replay path with an intrabar exit in a later part, where the zero-shift statistic equals the observed one
+  exactly. A second test drops a shifted tranche that lacks its own settlement.
+- bar.joint_shift_stats, and bar.joint_shift_null for its docstring, are the only frozen nodes A5 changes. The
+  reproduction check of A5.1, joint shift included, runs at C5.
+
+A5.4 THE GATE P RECORD. The Gate P record of A4.4 is scripts/research/py/records/gate_p_c4.json, committed with C5
+before any Phase 5 D read. It states Gate P's decision at C4 (PASS WITH CONDITIONS) and the part of this amendment
+that meets each condition, carries the text of the C4 review's condition C1 disclosures (its findings 2, 5 to 10,
+13 and 14, and the first review's findings 3, 4, 6, 9 and 11 at C4) and of the C1 carry analysis, lists the open
+recommendations, and gives the sha256 of each untracked file it rests on (the C4 post-run review and both second
+opinions, the dossier, c1_carry_analysis.json, superseded_retests_diff.json) and of the C4 run files the
+reproduction check compares against. A test checks that it parses and carries each item.
 """
 
 from __future__ import annotations
