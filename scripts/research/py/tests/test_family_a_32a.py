@@ -201,6 +201,20 @@ def test_check_complete(tmp_path: Path, configs: list[dict[str, Any]]) -> None:
     with pytest.raises(ValueError, match="registry entry"):
         phase5.check_complete(wrong_hash)
 
+    bound = {"commit": "c" * 40, "source_sha256": "d" * 64, "dataset_hash": "e" * 64}
+    same = tmp_path / "same"
+    _write_runs(same, configs, mutate={c["id"]: bound for c in configs})
+    phase5.check_complete(same, **bound)
+    for key in bound:
+        other = tmp_path / f"other_{key}"
+        _write_runs(other, configs, mutate={c["id"]: bound for c in configs})
+        f = other / configs[5]["id"] / "receipt.json"
+        r = json.loads(f.read_text(encoding="utf-8"))
+        r[key] = "0" * len(bound[key])
+        f.write_text(json.dumps(r), encoding="utf-8")
+        with pytest.raises(ValueError, match=key):
+            phase5.check_complete(other, **bound)
+
 
 def test_report_family_uses_standard_hedge_profile(
     tmp_path: Path, configs: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
@@ -208,13 +222,17 @@ def test_report_family_uses_standard_hedge_profile(
     runs = tmp_path / "runs"
     _write_runs(runs, configs)
     for c in configs:
-        _daily(np.zeros(5)).to_parquet(runs / c["id"] / "daily.parquet")
+        # The cost drag reads the daily costs column (A5.1 diff review F1): C3 carries the highest costs here, while
+        # its net walk-forward mean below is the best, so a net-mean ranking would not put C3 first.
+        daily = _daily(np.zeros(5))
+        daily["costs"] = 0.002 if c["cell"] == "C3" else 0.0005
+        daily.to_parquet(runs / c["id"] / "daily.parquet")
     passing = "A_lgbm_C5"
 
     def ev(cid: str) -> dict[str, Any]:
         p = cid == passing
         return {
-            "item1": {"pass": p, "wf_mean": -0.001 if cid.endswith("C3") else 0.0},
+            "item1": {"pass": p, "wf_mean": 0.001 if cid.endswith("C3") else 0.0},
             "item2": {"pass": True},
             "item3": {"pass": p},
             "item4": {"pass": p},
@@ -244,7 +262,9 @@ def test_report_family_uses_standard_hedge_profile(
         hedge_calls.append((Path(run_dir).name, profile))
         return {}
 
-    monkeypatch.setattr(phase5, "_load", lambda ds: ({}, {s: {} for s in SYMS}))
+    complete_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(phase5, "_load", lambda ds: ({"datasetHash": "e" * 64}, {s: {} for s in SYMS}))
+    monkeypatch.setattr(phase5, "check_complete", lambda runs_dir, **kw: complete_calls.append(kw))
     monkeypatch.setattr(bar, "family_report", fake_family_report)
     monkeypatch.setattr(bar, "item2", lambda d: {"pbo": 0.1, "pass": True})
     monkeypatch.setattr(cli, "run_tripwire", lambda *a, **k: {"positive": 12, "n": 100})
@@ -268,6 +288,7 @@ def test_report_family_uses_standard_hedge_profile(
         }
     ]
     assert report["cost_drag_by_cell"]["ranked_worst_first"][0] == "C3"
+    assert complete_calls == [{"commit": "abc1234", "source_sha256": cli.source_digest(), "dataset_hash": "e" * 64}]
     assert (out / "family_a_report.json").is_file()
 
 

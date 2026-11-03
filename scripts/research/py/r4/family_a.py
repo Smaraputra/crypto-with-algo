@@ -27,8 +27,10 @@ before any family A configuration reads D). Draft 3 of .superpowers/sdd/round4/f
   M's re-run after a code fix. A defect that needs more re-runs than the reserve holds stops the family unless a
   further amendment provides otherwise.
 - Disclosed: the allocation uses Phase 4 outcomes that describe cost structure only (noise drag, lambda, a*), no
-  real-feature or re-test outcome. The triple-barrier label at 1h and the L2 setting rest on synthetic checks only
-  (the A5.1 reproduction check covers neither). Item 2 does not bind in a mixed-cell family.
+  real-feature or re-test outcome. The triple-barrier label at 1h, the L2 setting, real features.py model inputs and
+  the no-intercept ridge rest on synthetic checks only (neither the A5.1 reproduction check nor any C4 run covers
+  them, A5.1 diff review F8). Item 2 does not bind in a mixed-cell family. The cost drag by cell is the mean daily
+  costs column (fees and slippage), not the net mean (A5.1 diff review F1).
 - Predictions: PREDICTIONS below (M's, and two diagnostics).
 """
 

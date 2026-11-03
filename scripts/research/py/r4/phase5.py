@@ -50,8 +50,18 @@ def run_family(ds: Path | str, out_dir: Path | str, commit: str) -> list[dict[st
     return receipts
 
 
-def check_complete(runs_dir: Path | str) -> None:
-    """The runs directory holds exactly the 45 declared ids, each a trial receipt at its registry config hash."""
+def check_complete(
+    runs_dir: Path | str,
+    *,
+    commit: str | None = None,
+    source_sha256: str | None = None,
+    dataset_hash: str | None = None,
+) -> None:
+    """The runs directory holds exactly the 45 declared ids, each a trial receipt at its registry config hash.
+
+    When given, every receipt must also carry this commit, r4 source digest and dataset hash (A5.1: one source digest
+    per Phase 5 D outcome, the one the reproduction check matched).
+    """
     runs = Path(runs_dir)
     declared = {c["id"]: c for c in family_a.family_a()}
     present = {p.name for p in runs.iterdir()}
@@ -68,6 +78,9 @@ def check_complete(runs_dir: Path | str) -> None:
             raise ValueError(f"{cid} is a {receipt.get('kind')!r} receipt, not a trial")
         if receipt.get("config_hash") != cli.config_hash_of(config):
             raise ValueError(f"{cid} was run with a configuration other than its registry entry")
+        for key, want in (("commit", commit), ("source_sha256", source_sha256), ("dataset_hash", dataset_hash)):
+            if want is not None and receipt.get(key) != want:
+                raise ValueError(f"{cid} has {key} {receipt.get(key)!r}, not {want!r}")
 
 
 def _passes_1_to_3(evaluation: dict[str, Any]) -> bool:
@@ -101,8 +114,13 @@ def report_family(ds: Path | str, runs_dir: Path | str, out_dir: Path | str, com
     """The family's report (draft 3, "Rules declared now"). It never changes a verdict."""
     runs = Path(runs_dir)
     out = Path(out_dir)
-    check_complete(runs)
-    _, panel = _load(ds)
+    manifest, panel = _load(ds)
+    check_complete(
+        runs,
+        commit=cli.resolve_commit(commit),
+        source_sha256=cli.source_digest(),
+        dataset_hash=str(manifest["datasetHash"]),
+    )
     universe = list(panel.keys())
     configs = {c["id"]: c for c in family_a.family_a()}
 
@@ -160,13 +178,14 @@ def report_family(ds: Path | str, runs_dir: Path | str, out_dir: Path | str, com
         except ValueError as exc:
             within_cell_pbo[cell] = {"error": str(exc), "n_configs": len(ids)}
 
+    # The cost drag is the daily costs column (fees and slippage, positive), not the net walk-forward mean.
     drag = {
-        cell: float(np.mean([pass1["configurations"][cid]["item1"]["wf_mean"] for cid in ids]))
+        cell: float(np.mean([daily[cid]["costs"].astype(np.float64).mean() for cid in ids]))
         for cell, ids in sorted(by_cell.items())
     }
     cost_drag = {
-        "mean_wf_mean_by_cell": drag,
-        "ranked_worst_first": sorted(drag, key=lambda cell: drag[cell]),
+        "mean_daily_costs_by_cell": drag,
+        "ranked_worst_first": sorted(drag, key=lambda cell: drag[cell], reverse=True),
         "registered_prediction": family_a.PREDICTIONS["diagnostics"]["cost_drag_worst_first"],
     }
 
