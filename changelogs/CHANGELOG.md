@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Gate P at C4 (pass with conditions), lock Amendment 5 signed, and the C5 code
+- Phase 4 re-run at C4 (`dfe1ebf5`, 2026-11-02 06:04 to 2026-11-03 08:22 UTC): all 8 gated predictions as predicted, and blocking checks 1 to 4 and 6 passed (dossier `gate_p_ready` true):
+  - noise: 0 of 40 pass items 1 to 3, and 1 of 40 rejects the joint shift;
+  - power: 16 of 40 detected at 0.0016 (every miss on item 6, the cost stress) and 40 of 40 at 0.0017, so a* = 0.0017;
+  - the positive control is detected by P1 (item 6 stress mean +6.88 bps a day), while P2 fails item 6 at -1.82;
+  - all six native re-tests fail, with v8-4h (DSR 0.382) and rv-v1 (0.148) failing item 3 only;
+  - the daily null crosses 16 times in 50,000 paths, and 1 of 6 exit controls rejects (E4, which never fires, so it is the base book at p 0.048).
+- Gate P: the Opus post-run review passed with conditions C1 to C3, as did Codex, and agy passed outright. Codex found that the book picks basket coins per daily part while the joint shift picks them per whole tranche. That never occurred on D, where every basket coin is priced and funded throughout.
+- The ridge noise controls' joint-shift p-values fell at C4. Their books lean long when funding is high, and A4.1's hedge leg now removes that market-wide carry from the observed set and every draw alike.
+- Amendment 5, signed by the owner on 2026-11-03 (`65ae8660`), meets the conditions before any Phase 5 read of D:
+  - A5.1, the Phase 5 code binding: every C4 node is frozen except named extension nodes in cli and pipeline, which may only gain branches no configuration already run reaches. Family code goes in new modules, under a per-family Opus diff review, fixed seeds (SPA family index A 0 to E 4), and an eight-run reproduction check for every source digest that computes a Phase 5 D outcome;
+  - A5.2, the netted hedge-cost estimate (`r4/hedge_cost.py`): the extra netted fees and slippage of trading the hedge legs, reported beside every item 1 pass under both item 6 stresses, never gating;
+  - A5.3: the joint shift prices the hedge basket per daily part, as the book does, and drops a shifted tranche whose own coin is not covered. A tranche whose parts all share the whole window's basket keeps C4's arithmetic;
+  - A5.4: the Gate P record `scripts/research/py/records/gate_p_c4.json`, with the disclosures and file hashes.
+- C5 (`45d79cf6`, r4 source digest `be541a25`): the A5.3 joint shift, the hedge-cost module, one node guard against a C4 fixture replacing the A3 and A4 guards, the signed A5 text pin, and the `c5-reproduce` driver. Python 975 passed locally and in the registered 3.12 image.
+- Reproduction check at C5 (`records/c5_reproduction_45d79cf6.json`): the eight registered C4 runs, re-made into a new directory, match C4 in every file byte, every receipt field bar commit, digest and runtime, and every joint-shift observed value, p and drop share. The ledger stays at 2,332.
+
 ### Changed: Round 4 hedge funding, item 3 at V0 and the C4 code, lock Amendment 4 signed
 - The owner signed Amendment 4 on 2026-11-02, after the Gate P post-run review (PASS WITH CONDITIONS) and before any Phase 5 read of D. It changes no threshold, span, budget cap, prediction or holdout rule. A4.1 and A4.2 were chosen after Phase 4 on D was seen, which the amendment discloses as a forking path.
 - Hedge funding (A4.1): the beta hedge was notional and paid no funding, so the four never-refit short-book noise controls collected 1.2 to 1.5 bps a day of carry through the coin leg alone and made up 97% of the within-cell V. The hedge position now pays the basket's funding, `funding_hedge = beta x w x f_EW`:
