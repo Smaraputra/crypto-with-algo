@@ -117,6 +117,13 @@ def _n_tranches(run_dir: Path) -> int:
     return int(len(pd.read_parquet(f))) if f.is_file() else 0
 
 
+def _receipt_hashes(runs: Path) -> dict[str, str]:
+    """sha256 of each declared run's receipt.json, which binds a report to the exact runs it was written from."""
+    return {
+        c["id"]: hashlib.sha256((runs / c["id"] / "receipt.json").read_bytes()).hexdigest() for c in family_a.family_a()
+    }
+
+
 def report_family(ds: Path | str, runs_dir: Path | str, out_dir: Path | str, commit: str) -> dict[str, Any]:
     """The family's report (draft 3, "Rules declared now"). It never changes a verdict."""
     runs = Path(runs_dir)
@@ -219,6 +226,9 @@ def report_family(ds: Path | str, runs_dir: Path | str, out_dir: Path | str, com
     report = {
         "family": "A",
         "commit": commit,
+        "dataset_hash": str(manifest["datasetHash"]),
+        "source_sha256": cli.source_digest(),
+        "receipts_sha256": _receipt_hashes(runs),
         "n_configurations": len(configs),
         "round_alpha_count": ROUND_ALPHA_COUNT,
         "reached_items_1_to_3": reached,
@@ -254,6 +264,13 @@ def run_twins(
     report = json.loads(report_bytes.decode("utf-8"))
     if report.get("commit") != sha:
         raise ValueError(f"the report is at commit {report.get('commit')!r}, not {sha!r}")
+    # The report must have been written from these very runs, on this dataset and source (PR #158 review).
+    if report.get("dataset_hash") != str(manifest["datasetHash"]):
+        raise ValueError(f"the report is on dataset {report.get('dataset_hash')!r}, not {manifest['datasetHash']!r}")
+    if report.get("source_sha256") != cli.source_digest():
+        raise ValueError(f"the report is at source digest {report.get('source_sha256')!r}, not {cli.source_digest()!r}")
+    if report.get("receipts_sha256") != _receipt_hashes(runs):
+        raise ValueError("the report's receipts_sha256 does not match the receipts in the runs directory")
     index_of = {c["id"]: i for i, c in enumerate(family_a.family_a())}
     result_pass = report.get("pass2") or report.get("pass1")
     expected = [] if report.get("halted") else [c["id"] for c in result_pass["candidates"]][: family_a.N_RESERVE]

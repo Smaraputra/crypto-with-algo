@@ -42,6 +42,7 @@ def _run_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, positives: list
         daily = pd.DataFrame({"date_ms": np.arange(5) * DAY, "net": np.zeros(5), "costs": np.full(5, 0.0005)})
         daily.to_parquet(d / "daily.parquet")
         pd.DataFrame({"symbol": ["BTCUSDT"]}).to_parquet(d / "tranches.parquet")
+        (d / "receipt.json").write_text(json.dumps({"id": c["id"]}), encoding="utf-8")
     counts = dict(zip(reached, positives, strict=True))
 
     def fake_family_report(family: str, runs_dir: Any, round_dir: Any, count: int, ds: Any, **kw: Any) -> dict:
@@ -81,8 +82,15 @@ def _twin_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **plan_change: 
     ids = [c["id"] for c in family_a.family_a()]
     cid = ids[3]
     entry = {"id": cid, "registry_index": 3, "slot": 0, "twin_id": f"A_twin0_{cid}", **plan_change}
+    runs = tmp_path / "runs"
+    for i in ids:
+        (runs / i).mkdir(parents=True)
+        (runs / i / "receipt.json").write_text(json.dumps({"id": i}), encoding="utf-8")
     report = {
         "commit": COMMIT,
+        "dataset_hash": DS_HASH,
+        "source_sha256": cli.source_digest(),
+        "receipts_sha256": phase5._receipt_hashes(runs),
         "halted": False,
         "pass1": {"candidates": []},
         "pass2": {"candidates": [{"id": cid}]},
@@ -137,12 +145,46 @@ def test_run_twins_refuses_plan_not_the_candidates(tmp_path: Path, monkeypatch: 
 
 
 def test_run_twins_refuses_incomplete_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    runs, rf, out = _twin_setup(tmp_path, monkeypatch)
+    _, rf, out = _twin_setup(tmp_path, monkeypatch)
     monkeypatch.undo()
     monkeypatch.setattr(phase5, "_load", lambda ds: ({"datasetHash": DS_HASH}, {}))
-    runs.mkdir()
+    empty = tmp_path / "empty_runs"
+    empty.mkdir()
     with pytest.raises(ValueError, match="not the declared family"):
+        phase5.run_twins(tmp_path, empty, rf, out, COMMIT)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("dataset_hash", "f" * 64, "dataset"),
+        ("source_sha256", "0" * 64, "source digest"),
+        ("receipts_sha256", {}, "receipts_sha256"),
+    ],
+)
+def test_run_twins_refuses_a_report_from_other_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: Any, match: str
+) -> None:
+    runs, rf, out = _twin_setup(tmp_path, monkeypatch)
+    report = json.loads(rf.read_text(encoding="utf-8"))
+    report[field] = value
+    rf.write_text(json.dumps(report), encoding="utf-8")
+    with pytest.raises(ValueError, match=match):
         phase5.run_twins(tmp_path, runs, rf, out, COMMIT)
+
+
+def test_run_twins_refuses_a_changed_parent_receipt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runs, rf, out = _twin_setup(tmp_path, monkeypatch)
+    first = family_a.family_a()[0]["id"]
+    (runs / first / "receipt.json").write_text(json.dumps({"id": first, "changed": True}), encoding="utf-8")
+    with pytest.raises(ValueError, match="receipts_sha256"):
+        phase5.run_twins(tmp_path, runs, rf, out, COMMIT)
+
+
+def test_report_family_records_its_binding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    report = _run_report(tmp_path / "c", monkeypatch, [12])
+    assert report["dataset_hash"] == DS_HASH and report["source_sha256"] == cli.source_digest()
+    assert report["receipts_sha256"] == phase5._receipt_hashes(tmp_path / "c" / "runs")
 
 
 def test_zero_tranche_family_report_integration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
