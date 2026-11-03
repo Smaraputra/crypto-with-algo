@@ -43,10 +43,14 @@ def test_conditions_are_met_by_the_named_sections(record):
 
 def test_disclosures_cover_the_sources(record):
     texts = {d["source"]: d["text"] for d in record["disclosures"]}
-    wanted = [f"C4 review finding {n}" for n in (2, 5, 6, 7, 8, 9, 10, 14)]
+    wanted = [f"C4 review finding {n}" for n in (2, 5, 6, 7, 8, 9, 10, 13, 14)]
     wanted += [f"First review finding {n} at C4" for n in (3, 4, 6, 9, 11)]
     for source in wanted:
         assert texts.get(source, "").strip(), source
+
+
+def test_open_recommendations_list_r6(record):
+    assert any(r.startswith("R6:") and "'standard'" in r for r in record["open_recommendations"])
 
 
 def test_c1_carry_analysis_is_present(record):

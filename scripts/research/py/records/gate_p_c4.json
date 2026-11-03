@@ -205,6 +205,10 @@
     {
       "source": "Lead verification of the Codex finding",
       "text": "The book picks basket coins per daily part (book.py beta_hedged_daily) and the joint shift per whole tranche (bar.py joint_shift_stats). It never occurred at C4: on every day with an open tranche of all 46 C4 runs the basket's funding count is 10 (diag_basket.log), and in D every 5m instant has all 10 coins (A1.2). A5.3 aligns the null with the book."
+    },
+    {
+      "source": "C4 review finding 13",
+      "text": "The first review's conditions and recommendations at C4: C1 (carry attribution and the funding decision) discharged by A4.1, with check 6 showing the never-refit pair's total funding at 0.0001 bps a day; C2 (the item 3 wall) discharged by A4.2, SR0 0.0726 a day at N 120 and lambda 1; C3 (superseded re-tests and the ledger) discharged by A4.4, ledger 2,332; C4 (disclosures) carried forward as the C4 review's C1, met by this record; R1 (the dossier recomputes hurdle flags) discharged by A4.3; R2 (v8 receipts record the resolved fee profile) moot, the re-test family is at its cap; R3 (lab-v5 reproduces daily_eprocess bit for bit) open; R4 (reproduce the daily null only in the registered image) open."
     }
   ],
   "c1_carry_analysis": "At 5250b8ea the four never-refit controls (noise_30 to noise_33) held persistent short books (net side -1.00, -0.99, -0.81 and -0.92) and collected 1.2 to 1.5 bps a day of funding through the coin leg, because the beta hedge was notional and paid none. noise_30 and noise_31 reached net daily Sharpes of +0.51 and +0.28, against -0.53 to -0.67 for the other slot controls of their cell, and the four made up 97% of the within-cell V (0.0597 with them, 0.00186 without). A4.1 moved the basket funding onto the hedge leg, and at C4 their mean total funding is 0.000093 and 0.000148 bps a day (check 6).",
@@ -213,7 +217,8 @@
     "R2: reproduce the daily null only in the registered image (LAPACK sign dependence).",
     "R3: store each noise and positive-control run's net and cost-free daily Sharpe, skew and kurtosis beside its item 3 block, and each power replicate's lambda.",
     "R4: if c4_checks.py is reused, check 3 also asserts n_paths 50,000 and the pilot SD.",
-    "R5: keep copies of d_noise_worker.py and watchdog2.sh in tools/, and push the C5 records."
+    "R5: keep copies of d_noise_worker.py and watchdog2.sh in tools/, and push the C5 records.",
+    "R6: r4/hedge_cost.py passes its profile argument to both nettings and its hedge legs carry no fee profile of their own, so A5.2's 5 bps taker holds only with profile 'standard' (PR #156 Codex finding 4). hedge_cost.py is frozen at C5, so every Phase 5 caller passes the default 'standard', and family code tests that."
   ],
   "untracked_files_sha256": {
     ".superpowers/sdd/round4/gates/gate-P-c4-post-run-review.md": "c2b359c7c27f3544ecea9f1771aca18660ad056df15401f231797659ba2e56d1",

@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import r4
 from r4 import bar, calibration
 from r4 import cli as r4_cli
 from r4.method import BAR, DEV_END
@@ -79,8 +80,14 @@ def compare_run_files(c4_run: Path, new_run: Path) -> dict[str, Any]:
 
 
 def compare_joint(c4: dict[str, Any], c5: dict[str, Any]) -> dict[str, Any]:
-    """Exact comparison of the C4 joint-shift entry with the recomputed one, key by key."""
-    keys = {k: {"c4": c4.get(k), "c5": c5.get(k), "match": _same(c4.get(k), c5.get(k))} for k in sorted(c5)}
+    """Exact comparison of the C4 joint-shift entry with the recomputed one, over the union of their keys.
+
+    A key on one side only is a mismatch (the missing side reads as None).
+    """
+    keys = {
+        k: {"c4": c4.get(k), "c5": c5.get(k), "match": (k in c4) == (k in c5) and _same(c4.get(k), c5.get(k))}
+        for k in sorted(set(c4) | set(c5))
+    }
     return {"keys": keys, "match": all(v["match"] for v in keys.values())}
 
 
@@ -181,11 +188,40 @@ def registered_configs() -> dict[str, dict[str, Any]]:
     return {i: pool[i] for i in REPRODUCED_RUNS}
 
 
-def reproduce(ds: Path | str, c4_dir: Path | str, out_dir: Path | str, commit: str) -> dict[str, Any]:
+GATE_P_RECORD = Path(r4.__file__).resolve().parents[1] / "records" / "gate_p_c4.json"
+_REFERENCE_PREFIX = "~/round4-out/phase4-c4/d/"
+
+
+def authenticate_baseline(c4: Path, record_path: Path | str | None = None) -> dict[str, Any]:
+    """Check every C4 reference file against the Gate P record's sha256 map; ValueError naming the first bad file."""
+    path = Path(record_path) if record_path is not None else GATE_P_RECORD
+    raw = path.read_bytes()
+    reference: dict[str, str] = json.loads(raw.decode("utf-8"))["c4_reference_files_sha256"]
+    if not reference:
+        raise ValueError(f"{path}: c4_reference_files_sha256 is empty")
+    for key, want in reference.items():
+        if not key.startswith(_REFERENCE_PREFIX):
+            raise ValueError(f"{path}: unexpected reference key {key}")
+        file = c4 / key[len(_REFERENCE_PREFIX) :]
+        if not file.is_file():
+            raise ValueError(f"C4 reference file missing: {file}")
+        if _sha256(file) != want:
+            raise ValueError(f"C4 reference file differs from the Gate P record: {file}")
+    return {"record_sha256": hashlib.sha256(raw).hexdigest(), "files_checked": len(reference)}
+
+
+def reproduce(
+    ds: Path | str,
+    c4_dir: Path | str,
+    out_dir: Path | str,
+    commit: str,
+    record_path: Path | str | None = None,
+) -> dict[str, Any]:
     """Re-run the eight C4 runs into a new OUT directory and compare them with C4. Writes OUT/reproduction.json."""
     ds, c4, out = Path(ds), Path(c4_dir), Path(out_dir)
     if out.exists():
         raise FileExistsError(f"{out} exists: the reproduction goes into a new directory")
+    baseline = authenticate_baseline(c4, record_path)
     configs = registered_configs()
     for run_id, cfg in configs.items():
         c4_receipt = json.loads((c4_run_dir(c4, run_id) / "receipt.json").read_text(encoding="utf-8"))
@@ -213,6 +249,7 @@ def reproduce(ds: Path | str, c4_dir: Path | str, out_dir: Path | str, commit: s
         "commit": r4_cli.resolve_commit(commit),
         "r4_source_sha256": r4_cli.source_digest(),
         "dataset_hash": str(manifest["datasetHash"]),
+        "baseline_authenticated": baseline,
         "runs": result_runs,
         "all_match": all_match(result_runs),
     }

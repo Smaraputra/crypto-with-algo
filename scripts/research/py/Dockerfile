@@ -21,11 +21,12 @@ RUN pip install --require-hashes --only-binary=:all: --no-deps -r requirements.l
 COPY pyproject.toml ./
 COPY r4 ./r4
 COPY scalp ./scalp
+# The C5 reproduction check authenticates its C4 baseline against records/gate_p_c4.json (Amendment 5).
+COPY records ./records
 
 FROM runtime AS test
 COPY requirements-test.lock ./
 RUN pip install --require-hashes --only-binary=:all: --no-deps -r requirements-test.lock
 COPY lock.py ./
-COPY records ./records
 COPY tests ./tests
 CMD ["sh", "-c", "ruff check . && ruff format --check . && pytest -q"]

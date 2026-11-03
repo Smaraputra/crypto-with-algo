@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -45,6 +46,43 @@ def test_an_existing_out_dir_is_refused(tmp_path):
         rp.reproduce(tmp_path, tmp_path, out, "abcdef1")
 
 
+def _baseline(tmp_path: Path) -> tuple[Path, Path]:
+    c4 = tmp_path / "c4"
+    (c4 / "exits").mkdir(parents=True)
+    files = {"noise_eval.json": b"n", "exits/exit_block.json": b"e"}
+    for rel, data in files.items():
+        (c4 / rel).write_bytes(data)
+    ref = {f"~/round4-out/phase4-c4/d/{rel}": hashlib.sha256(d).hexdigest() for rel, d in files.items()}
+    record = tmp_path / "record.json"
+    record.write_text(json.dumps({"c4_reference_files_sha256": ref}), encoding="utf-8")
+    return c4, record
+
+
+def test_a_correct_baseline_passes_the_check(tmp_path):
+    c4, record = _baseline(tmp_path)
+    res = rp.authenticate_baseline(c4, record)
+    assert res["files_checked"] == 2 and len(res["record_sha256"]) == 64
+
+
+def test_a_tampered_reference_file_stops_reproduce_before_any_run(tmp_path):
+    c4, record = _baseline(tmp_path)
+    (c4 / "noise_eval.json").write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="noise_eval.json"):
+        rp.reproduce(tmp_path, c4, tmp_path / "out", "abcdef1", record)
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_missing_reference_file_is_refused(tmp_path):
+    c4, record = _baseline(tmp_path)
+    (c4 / "exits" / "exit_block.json").unlink()
+    with pytest.raises(ValueError, match="exit_block.json"):
+        rp.authenticate_baseline(c4, record)
+
+
+def test_the_real_record_is_found_beside_the_package():
+    assert rp.GATE_P_RECORD.is_file()
+
+
 def test_strip_removes_the_three_keys_at_any_depth():
     doc = {"commit": "x", "source_sha256": "y", "runtime_s": 1, "k": [{"commit": "z", "v": 2}], "n": {"runtime_s": 3}}
     assert rp.strip(doc) == {"k": [{"v": 2}], "n": {}}
@@ -84,3 +122,9 @@ def test_joint_shift_comparison_is_exact():
     assert rp.compare_joint(c4, dict(c4))["match"]
     assert not rp.compare_joint(c4, {**c4, "p": 0.5000000000000001})["match"]
     assert rp.compare_joint({**c4, "observed": None}, {**c4, "observed": None})["match"]
+
+
+def test_a_joint_key_on_one_side_only_is_a_mismatch():
+    c4 = {"p": 0.5, "seed": 1}
+    assert not rp.compare_joint(c4, {**c4, "extra": 1})["match"]
+    assert not rp.compare_joint({**c4, "extra": None}, c4)["match"]
