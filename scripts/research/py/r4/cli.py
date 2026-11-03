@@ -1061,6 +1061,27 @@ def main() -> None:
     c5_parser.add_argument("--out", required=True, help="New output directory (reproduction.json inside)")
     c5_parser.add_argument("--commit", required=True, help="Commit SHA")
 
+    fr_parser = subparsers.add_parser("family-run", help="Run the declared configurations of a Phase 5 family")
+    fr_parser.add_argument("--family", required=True, help="Family name (only A exists)")
+    fr_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fr_parser.add_argument("--out", required=True, help="Output directory (cfg/ and runs/ inside)")
+    fr_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fp_parser = subparsers.add_parser("family-report", help="Write a Phase 5 family's report (two-pass bar report)")
+    fp_parser.add_argument("--family", required=True, help="Family name (only A exists)")
+    fp_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fp_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    fp_parser.add_argument("--out", required=True, help="Output directory")
+    fp_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    ft_parser = subparsers.add_parser("family-twins", help="Run a Phase 5 family's no-refit twins")
+    ft_parser.add_argument("--family", required=True, help="Family name (only A exists)")
+    ft_parser.add_argument("--ds", required=True, help="Dataset directory")
+    ft_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    ft_parser.add_argument("--report", required=True, help="The family_a_report.json file")
+    ft_parser.add_argument("--out", required=True, help="Output directory (twins/ inside)")
+    ft_parser.add_argument("--commit", required=True, help="Commit SHA")
+
     args = parser.parse_args()
 
     if args.command == "c5-reproduce":
@@ -1332,6 +1353,17 @@ def main() -> None:
             symbol=args.symbol,
             interval=args.interval,
         )
+    elif args.command in ("family-run", "family-report", "family-twins"):
+        if args.family != "A":
+            raise SystemExit(f"family {args.family!r} has no committed entry points: only A exists")
+        from r4 import phase5
+
+        if args.command == "family-run":
+            phase5.run_family(args.ds, args.out, args.commit)
+        elif args.command == "family-report":
+            phase5.report_family(args.ds, args.runs, args.out, args.commit)
+        else:
+            phase5.run_twins(args.ds, args.runs, args.report, args.out, args.commit)
 
 
 if __name__ == "__main__":

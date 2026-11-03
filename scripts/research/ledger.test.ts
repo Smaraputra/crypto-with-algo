@@ -4,8 +4,8 @@ import { LAB_FORWARD_V1_LOCK } from './lab-forward-v1';
 import { LEDGER, ledgerTotal } from './ledger';
 
 describe('ledger', () => {
-  it('returns the running total, 2332 after the Round 4 Phase 4 re-run at C4', () => {
-    expect(ledgerTotal()).toBe(2332);
+  it('returns the running total, 2377 after the Round 4 Phase 5 family A declaration', () => {
+    expect(ledgerTotal()).toBe(2377);
   });
 
   it('counts Round 1 and Round 2 separately', () => {
@@ -17,6 +17,7 @@ describe('ledger', () => {
     expect(ledgerTotal('round4-retests')).toBe(2274);
     expect(ledgerTotal('round4-controls-c4')).toBe(2326);
     expect(ledgerTotal('round4-retests-c4')).toBe(2332);
+    expect(ledgerTotal('round4-family-a')).toBe(2377);
   });
 
   it('matches baseline trials to LAB_FORWARD_V1_LOCK.ledgerAfter', () => {
