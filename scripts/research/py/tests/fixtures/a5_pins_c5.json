@@ -1,0 +1,52 @@
+{
+ "modules": {
+  "bar.py": {
+   "nodes": {
+    "def:joint_shift_null": "f446a77ccdfb49fd4d418a9064e1146c4897d478c8cd5655ac2bd7e1fc3f216b",
+    "def:joint_shift_stats": "6733f709478b822c41207e9b1175b607a5cda35fa8046897b14ad89328859baf"
+   }
+  },
+  "extensions": {
+   "cli.py": {
+    "def:main": "1d7fdb73f379ef4423f4d176072765b98453be55e54046f43fa9b605e3e24cd3",
+    "def:run_tripwire": "e9e99ec1caa33bb9f8d619b87903ac4a8014b013fee036c9d7e1afeb13f17271",
+    "def:run_wf": "d6f1e62b04d7c3f4c9c4650c615416823728d88cc63ebf2120a49281d4efe3cc"
+   },
+   "pipeline.py": {
+    "class:RunConfig": "9671915d52ec4ffd2f01205a1973393e451bfa2737929d06cc22c8b62213842c",
+    "def:_binary_labels": "b88e19df5cca2068bd64247e01a6f5109d27f28079fbcc8e09bfc45b95bc00ff",
+    "def:_get_decisions": "4be89b58045c31129ae2ecb8ab94f99ac5d9359d85b16690bafc33933a707bb5",
+    "def:_make_model": "93032da266bdd4fd1edfd6d5b9846270dd5c736fe3fcfc33729ef3ef7c04ef79",
+    "def:_make_tranches": "7667b99e094aae29967ec879ad53765ca7099cfd74e3ceb27c973b7fab2cdebd",
+    "def:decision_samples": "4e3f3c931ce48c9f30c103a0309f78be7101deb61c67430ef1b86c153e989370",
+    "def:fit_side_model": "5b4181e8402470931b40082dece9b95c9bb000eaddfa814eaad3f7e1b6a38e49",
+    "def:load_panel": "13f6bf591ec42f75e16f58ea2a97f02cf19f17d3b4fe850c759c18c6b00fbdcd",
+    "def:run_config_from_raw": "5dfdecd96b56375183883c3619fa1702e0daaf736b8de91750f0961dc6336e4f"
+   }
+  },
+  "hedge_cost.py": {
+   "nodes": {
+    "assign:BPS": "0a67af3faa07d9aae5e66ffdacdd6f3ed9f8707a50d1ca60d857dcb873fc4919",
+    "assign:STRESS_FEE_MULT": "e3438b6aa729b5691f742da80be3e0887780a8a16d9683497cfcb5426d486ada",
+    "assign:STRESS_SLIPPAGE_MULT": "54292d79646ade9ebe3af5d75b47c4a16f9af2737af76f7fa99fb3123c535c0c",
+    "class:HedgeLegs": "e38466b1c955a23bc09fc79860c099a64e2961676fe1d5f8395ff7fe4cd20a0b",
+    "def:_fold_betas": "443a09e61adad8a6a0d9ca1891dca7cedf24e6bf04d49420710df37d94cdd468",
+    "def:hedge_cost_daily": "8eb6981f26c5770a3bc2686b5ebe865c9e8f41d7f8ff152628aecd9f1c522017",
+    "def:hedge_cost_report": "82ca9ad4e6fb7fec712a799fce202743f26634613e8b99b7a0b6bb7b6aa01c6a",
+    "def:hedge_legs": "6d8970e4496f5dd13a3d5d7488f7fc17f6817ff293b3b3fd56a0fa94ecf09b4f",
+    "def:run_hedge_cost": "9c03c8808d8bc58247c22c59736a96987dd4ba720d7e43b3321bb200dd0a39e6"
+   },
+   "other": [
+    "063e3d97fbe5c7382df417aae2453be61a01861561f37741b5ce484cfd6551d0",
+    "5cbe4bae24b50570580a136cf1b1828af9649e7e4f995aa231b091e3ffdadeec",
+    "641fe59d1d95eb42a4fe04a0c5111f82dec4e2ffc469a23fded4474396675ada",
+    "6d69f2ac09017b8a49d050ab336e953b8fa02ae08c24396916ea7ea42418e627",
+    "6f11581db2b4487aaaf6eb8704a9acbe89cddd1ccde4652211c1a838bc70efde",
+    "8c0859a9b1186849097c8caac42ee23a30f03c1f6ec858d897ac838e28b45b52",
+    "a6284e6d3d43bdfbf0da732945adb2b4f31147c92bea47aee100d7f556c22d00",
+    "ef9b0f360b704474f2d2a6b0ed013da1a319b522a2a8aa6e7e8e2174ef86b478",
+    "ff3e4d4dcf7250cae8d622d77c9a6d69aefcf4ab04ef9920218fafe93c0f1991"
+   ]
+  }
+ }
+}

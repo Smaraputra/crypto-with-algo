@@ -616,6 +616,13 @@ def joint_shift_stats(
     With exit_replay set, every draw shifts the entries only, re-runs the exit engine from them, prices the
     replayed exits and nets the costs on the draw's kept set. Without it, the tranche set must be horizon-only and the
     shifted copy keeps the observed set's hold and netted cost allocation.
+
+    Basket (A5.3): r_EW and f_EW are priced per daily part of a tranche, split at the UTC midnights inside it as the
+    book splits it, each part with its own price basket and covered set (see hedge_terms), and summed. The coin leg is
+    priced from entry to exit. A tranche whose parts all share its whole window's sets keeps C4's arithmetic. A
+    shifted tranche with a part of empty basket, a part whose priced coins are all uncovered, or an own coin whose
+    record does not cover its window is dropped and counted. The same part of an observed tranche raises ValueError
+    (A4.1), or drops it when the basket is empty.
     """
     n_days = int((span_end_ms - span_start_ms) // DAY_MS)
     if n_days < 2 * min_shift_days:
@@ -772,14 +779,23 @@ def joint_shift_stats(
         x_px: np.ndarray,
         x_intra: np.ndarray,
         pe: np.ndarray | None = None,
+        observed: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
         """(side x (r_coin - beta x r_EW), side x (f_coin - beta x f_EW)) per tranche, NaN where an input is missing.
 
         f_coin sums the coin's settlements in (entry, exit], and in (entry, exit) for an intrabar exit (x_intra).
         f_EW is the mean, over the basket coins used for r_EW whose settlement record covers the window (no
-        settlement due in it and inside the data's span is missing, see record_covers), of the same sum (A4.1). A
-        priced tranche with no covered coin raises ValueError. The hedge pays beta x side x f_EW against the
-        coin's side x f_coin.
+        settlement due in it and inside the data's span is missing, see record_covers), of the same sum (A4.1). The
+        hedge pays beta x side x f_EW against the coin's side x f_coin.
+
+        A5.3: a tranche that crosses UTC midnights is priced part by part, as the book splits it. Each part has its
+        own price basket (coins with an exact 5m open > 0 at both ends of the part) and covered set (the price
+        basket's coins whose record covers the part's funding window), and r_EW and f_EW are the sums over the parts
+        of the part means. A tranche whose every part has the whole window's price basket and covered set is
+        computed whole, which is C4's arithmetic. A part with an empty price basket drops the tranche (NaN). A
+        part whose priced coins are all uncovered raises ValueError for an observed tranche and drops a shifted
+        one. A shifted tranche whose own coin's record does not cover its window is dropped. observed is True for
+        the stored tranche set and for the zero shift.
         """
         any_priced = bool(e_priced.any() or x_priced.any())
         hedge_exit = np.where(x_priced, -(-exit_ // 300_000) * 300_000, exit_) if x_priced.any() else exit_
@@ -805,6 +821,7 @@ def joint_shift_stats(
 
         win_sum = np.zeros((len(basket), n_tr), dtype=np.float64)
         covered = ok.copy()
+        rec_ok = np.ones((len(basket), n_tr), dtype=bool)
         for pos, f_t in fund_times.items():
             if len(f_t) == 0:
                 continue
@@ -817,20 +834,82 @@ def joint_shift_stats(
             idx_entry = np.searchsorted(f_t, entry, side="right")
             win_sum[pos] = cum[idx_exit] - cum[idx_entry]
         for pos in fund_times:
-            covered[pos] &= record_covers(pos, entry, np.where(x_intra, exit_ - 1, exit_))
+            rec_ok[pos] = record_covers(pos, entry, np.where(x_intra, exit_ - 1, exit_))
+            covered[pos] &= rec_ok[pos]
         funding = win_sum[sym_idx, arange_tr]
         n_cov = covered.sum(axis=0)
         beta_ok = np.isfinite(beta)
-        if np.any(ok.any(axis=0) & beta_ok & (n_cov == 0)):
-            i = int(np.flatnonzero(ok.any(axis=0) & beta_ok & (n_cov == 0))[0])
-            raise ValueError(
-                f"No basket coin has settlements covering [{int(entry[i])}, {int(exit_[i])}] for "
-                f"{tranche_list[i].symbol}, so the hedge leg's funding is undefined"
-            )
         with np.errstate(all="ignore"):
             f_ew = np.where(n_cov > 0, np.where(covered, win_sum, 0.0).sum(axis=0) / n_cov, np.nan)
+        unc = ok.any(axis=0) & beta_ok & (n_cov == 0)
 
-        return side * (r_coin - beta * r_ew), side * (funding - beta * f_ew)
+        # A5.3: the tranches that cross a UTC midnight, part by part. Part j runs from max(entry, d_start) to
+        # min(hedge_end, d_end) for the prices and to min(exit, d_end) for the funding window.
+        n_mid = np.maximum((exit_ - 1) // DAY_MS - entry // DAY_MS, 0)
+        multi = np.flatnonzero(n_mid > 0)
+        drop = np.zeros(n_tr, dtype=bool)
+        if len(multi):
+            same = np.ones(n_tr, dtype=bool)
+            r_parts = np.zeros(n_tr, dtype=np.float64)
+            f_parts = np.zeros(n_tr, dtype=np.float64)
+            unc_parts = np.zeros(n_tr, dtype=bool)
+            for j in range(int(n_mid[multi].max()) + 1):
+                sub = multi[n_mid[multi] >= j]
+                last = n_mid[sub] == j
+                day_base = (entry[sub] // DAY_MS) * DAY_MS
+                lo = entry[sub] if j == 0 else day_base + j * DAY_MS
+                mid_end = day_base + (j + 1) * DAY_MS
+                p0 = pe[:, sub] if j == 0 else prices_at(lo)
+                p1 = prices_at(np.where(last, hedge_exit[sub], mid_end))
+                ok_j = (p0 > 0.0) & (p1 > 0.0)
+                with np.errstate(all="ignore"):
+                    lr_j = np.where(ok_j, np.log(p1 / p0), 0.0)
+                    cnt_j = ok_j.sum(axis=0)
+                    r_j = np.where(cnt_j > 0, lr_j.sum(axis=0) / cnt_j, np.nan)
+                hi_f = np.where(last, exit_[sub], mid_end)
+                intra_j = last & x_intra[sub]
+                cov_j = ok_j.copy()
+                w_j = np.zeros((len(basket), len(sub)), dtype=np.float64)
+                for pos, f_t in fund_times.items():
+                    cov_j[pos] &= record_covers(pos, lo, np.where(intra_j, hi_f - 1, hi_f))
+                    if len(f_t) == 0:
+                        continue
+                    cum = fund_cum[pos]
+                    idx_hi = np.where(
+                        intra_j,
+                        np.searchsorted(f_t, hi_f, side="left"),
+                        np.searchsorted(f_t, hi_f, side="right"),
+                    )
+                    w_j[pos] = cum[idx_hi] - cum[np.searchsorted(f_t, lo, side="right")]
+                n_cov_j = cov_j.sum(axis=0)
+                with np.errstate(all="ignore"):
+                    f_j = np.where(n_cov_j > 0, np.where(cov_j, w_j, 0.0).sum(axis=0) / n_cov_j, np.nan)
+                same[sub] &= (ok_j == ok[:, sub]).all(axis=0) & (cov_j == covered[:, sub]).all(axis=0)
+                r_parts[sub] += r_j
+                f_parts[sub] += f_j
+                unc_parts[sub] |= ok_j.any(axis=0) & (n_cov_j == 0)
+            parted = multi[~same[multi]]
+            if len(parted):
+                r_ew[parted] = r_parts[parted]
+                f_ew[parted] = f_parts[parted]
+                unc[parted] = unc_parts[parted] & beta_ok[parted]
+        if np.any(unc):
+            i = int(np.flatnonzero(unc)[0])
+            if observed:
+                raise ValueError(
+                    f"No basket coin has settlements covering [{int(entry[i])}, {int(exit_[i])}] for "
+                    f"{tranche_list[i].symbol}, so the hedge leg's funding is undefined"
+                )
+            drop |= unc
+        if not observed:
+            drop |= ~rec_ok[sym_idx, arange_tr]
+
+        out_core = side * (r_coin - beta * r_ew)
+        out_fund = side * (funding - beta * f_ew)
+        if drop.any():
+            out_core = np.where(drop, np.nan, out_core)
+            out_fund = np.where(drop, np.nan, out_fund)
+        return out_core, out_fund
 
     def weighted(ret: np.ndarray, keep: np.ndarray) -> float:
         """Weighted mean return per unit of absolute weight over kept tranches. Inf when none are kept."""
@@ -839,7 +918,9 @@ def joint_shift_stats(
             return float("inf")
         return float(np.sum(w_abs[keep] * ret[keep]) / np.sum(w_abs[keep]))
 
-    core0, fund0 = hedge_terms(entry0, exit0, entry_priced, entry_px0, exit_priced, exit_px0, exit_intra0)
+    core0, fund0 = hedge_terms(
+        entry0, exit0, entry_priced, entry_px0, exit_priced, exit_px0, exit_intra0, observed=True
+    )
     obs_ret = core0 - costs - fund0
     obs_keep = np.isfinite(obs_ret)
     if not np.any(obs_keep):
@@ -854,7 +935,7 @@ def joint_shift_stats(
     rng = np.random.default_rng(seed)
     shifts = rng.integers(min_shift_days, max_shift_days, endpoint=True, size=n_draws)
 
-    def replay_draw(sh_entry: np.ndarray, sh_exit: np.ndarray) -> tuple[float, int]:
+    def replay_draw(sh_entry: np.ndarray, sh_exit: np.ndarray, observed: bool = False) -> tuple[float, int]:
         """(statistic, dropped count) of one set of entry and scheduled-exit times through the exit replay."""
         assert exit_replay is not None and netting is not None
         late = sh_exit > span_end_ms
@@ -888,7 +969,9 @@ def joint_shift_stats(
             ex_priced[rows] = reason != "horizon"
             ex_maker[rows] = res["exit_fill"].to_numpy() == "maker"
             ex_intra[rows] = np.isin(reason, INTRABAR_EXIT_REASONS)
-        core, fund = hedge_terms(sh_entry, ex_ms, no_priced, no_px, ex_priced, ex_px, ex_intra, pe=pe)
+        core, fund = hedge_terms(
+            sh_entry, ex_ms, no_priced, no_px, ex_priced, ex_px, ex_intra, pe=pe, observed=observed
+        )
         gross = core - fund
         keep = np.isfinite(gross) & cand
         kept = np.flatnonzero(keep)
@@ -902,7 +985,7 @@ def joint_shift_stats(
 
     zero_stat: float | None = None
     if zero_shift and replay:
-        zero_stat, _ = replay_draw(entry0, entry0 + hold)
+        zero_stat, _ = replay_draw(entry0, entry0 + hold, observed=True)
 
     null_stats = np.empty(n_draws, dtype=np.float64)
     total_dropped = 0
@@ -972,10 +1055,15 @@ def joint_shift_null(
     opens at exit over entry, r_EW is the mean of that log ratio over the panel coins with an exact 5m open at
     both times, beta is the coin's beta in the fold whose [start_ms, end_ms) holds the (shifted) entry time, and
     funding sums the settlements in (entry, exit]. A shifted tranche is dropped when its exit passes the span
-    end, a price is missing, or its beta is NaN or has no fold. A priced tranche whose window no basket coin's
-    settlements cover raises ValueError. The
+    end, a price is missing, or its beta is NaN or has no fold. The
     statistic is the weighted mean of that
     return per unit of absolute weight over the kept tranches.
+
+    A5.3: for a tranche that crosses UTC midnights, r_EW and f_EW are the sums over its daily parts of each part's
+    mean, with the price basket and the settlement coverage judged on the part, as the book does. A shifted tranche
+    is also dropped when a part has no basket coin priced, when a part's priced coins are all uncovered, or when its
+    own coin's record does not cover its window. An observed tranche whose part has priced coins that are all
+    uncovered raises ValueError.
 
     exit_replay (Amendment 1, N5) is for a declared path-dependent exit. Without it, a non-horizon tranche raises.
     With it, each draw shifts every entry by the same whole days with its side, weight and hold h_ms (the scheduled
