@@ -8,6 +8,7 @@ of .superpowers/sdd/round4/family-a-draft.md (draft 3), "Rules declared now".
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -110,6 +111,12 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _n_tranches(run_dir: Path) -> int:
+    """Rows in a run's tranches.parquet, 0 when the run traded nothing (or wrote no file)."""
+    f = run_dir / "tranches.parquet"
+    return int(len(pd.read_parquet(f))) if f.is_file() else 0
+
+
 def report_family(ds: Path | str, runs_dir: Path | str, out_dir: Path | str, commit: str) -> dict[str, Any]:
     """The family's report (draft 3, "Rules declared now"). It never changes a verdict."""
     runs = Path(runs_dir)
@@ -157,12 +164,19 @@ def report_family(ds: Path | str, runs_dir: Path | str, out_dir: Path | str, com
 
     hedge: dict[str, Any] = {}
     for cid, ev in sorted(pass1["configurations"].items()):
-        if ev["item1"]["pass"]:
+        if not ev["item1"]["pass"]:
+            continue
+        if _n_tranches(runs / cid) == 0:
+            hedge[cid] = {"skipped": "no tranches"}
+        else:
             hedge[cid] = hedge_cost.run_hedge_cost(runs / cid, panel, universe, profile=HEDGE_PROFILE)
 
     accounts: dict[str, Any] = {}
     for cid in sorted(configs):
-        accounts[cid] = account.account_report(runs / cid, Path(ds))
+        if _n_tranches(runs / cid) == 0:
+            accounts[cid] = {"skipped": "no tranches"}
+        else:
+            accounts[cid] = account.account_report(runs / cid, Path(ds))
 
     daily = {cid: pd.read_parquet(runs / cid / "daily.parquet") for cid in sorted(configs)}
     by_cell: dict[str, list[str]] = {}
@@ -233,18 +247,44 @@ def run_twins(
     """Run the report's twins into out_dir/twins/runs and answer the refit question for each."""
     out = Path(out_dir)
     runs = Path(runs_dir)
-    report = json.loads(Path(report_file).read_text(encoding="utf-8"))
-    _, panel = _load(ds)
+    manifest, panel = _load(ds)
+    sha = cli.resolve_commit(commit)
+    check_complete(runs, commit=sha, source_sha256=cli.source_digest(), dataset_hash=str(manifest["datasetHash"]))
+    report_bytes = Path(report_file).read_bytes()
+    report = json.loads(report_bytes.decode("utf-8"))
+    if report.get("commit") != sha:
+        raise ValueError(f"the report is at commit {report.get('commit')!r}, not {sha!r}")
+    index_of = {c["id"]: i for i, c in enumerate(family_a.family_a())}
+    result_pass = report.get("pass2") or report.get("pass1")
+    expected = [] if report.get("halted") else [c["id"] for c in result_pass["candidates"]][: family_a.N_RESERVE]
+    plan = report["twin_plan"]
+    if [e["id"] for e in plan] != expected:
+        raise ValueError(f"the twin plan {[e['id'] for e in plan]} is not the report's candidates {expected}")
+    for entry in plan:
+        slot = entry["slot"]
+        if entry["id"] not in index_of:
+            raise ValueError(f"twin plan id {entry['id']!r} is not a declared configuration")
+        if isinstance(slot, bool) or not isinstance(slot, int) or not 0 <= slot < family_a.N_RESERVE:
+            raise ValueError(f"twin plan slot {slot!r} is outside 0..{family_a.N_RESERVE - 1}")
+        if entry["twin_id"] != f"A_twin{slot}_{entry['id']}":
+            raise ValueError(
+                f"twin plan twin_id {entry['twin_id']!r} does not match slot {slot} and id {entry['id']!r}"
+            )
     questions: dict[str, Any] = {}
-    for entry in report["twin_plan"]:
+    for entry in plan:
         twin = family_a.family_a_twin(entry["id"], int(entry["slot"]))
         config_file = out / "twins" / "cfg" / f"{twin['id']}.json"
         _write_json(config_file, twin)
-        calibration._run_or_reuse(config_file, twin, Path(ds), out / "twins" / "runs", commit, panel)
+        calibration._run_or_reuse(config_file, twin, Path(ds), out / "twins" / "runs", sha, panel)
         config_daily = pd.read_parquet(runs / entry["id"] / "daily.parquet")
         twin_daily = pd.read_parquet(out / "twins" / "runs" / twin["id"] / "daily.parquet")
-        question = family_a.refit_question(config_daily, twin_daily, int(entry["registry_index"]))
+        question = family_a.refit_question(config_daily, twin_daily, index_of[entry["id"]])
         questions[entry["id"]] = {"twin_id": twin["id"], "slot": int(entry["slot"]), **question}
-    result = {"family": "A", "commit": commit, "refit_questions": questions}
+    result = {
+        "family": "A",
+        "commit": sha,
+        "report_sha256": hashlib.sha256(report_bytes).hexdigest(),
+        "refit_questions": questions,
+    }
     _write_json(out / "refit_questions.json", result)
     return result

@@ -227,6 +227,7 @@ def test_report_family_uses_standard_hedge_profile(
         daily = _daily(np.zeros(5))
         daily["costs"] = 0.002 if c["cell"] == "C3" else 0.0005
         daily.to_parquet(runs / c["id"] / "daily.parquet")
+        pd.DataFrame({"symbol": ["BTCUSDT"]}).to_parquet(runs / c["id"] / "tranches.parquet")
     passing = "A_lgbm_C5"
 
     def ev(cid: str) -> dict[str, Any]:
