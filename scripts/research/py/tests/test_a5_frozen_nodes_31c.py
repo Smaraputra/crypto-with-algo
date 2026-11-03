@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -42,15 +43,21 @@ def _head(module: str) -> dict[str, object]:
 
 
 def added_non_imports(source: str, c4_other: list[str]) -> list[str]:
-    """Digests of top-level statements outside def, class and assign that are not at C4 and are not imports."""
+    """Digests of top-level statements outside def, class and assign that are not at C4 and are not imports.
+
+    Counted with multiplicity: a C4 statement repeated beyond its C4 count is an addition (PR #156 review), so a
+    duplicated dispatch block fails like any other added statement.
+    """
     lines = source.splitlines()
-    known = set(c4_other)
+    remaining = Counter(c4_other)
     bad: list[str] = []
     for node in ast.parse(source).body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Assign, ast.AnnAssign)):
             continue
         digest = _digest(node, lines)
-        if digest not in known and not isinstance(node, (ast.Import, ast.ImportFrom)):
+        if remaining[digest] > 0:
+            remaining[digest] -= 1
+        elif not isinstance(node, (ast.Import, ast.ImportFrom)):
             bad.append(digest)
     return bad
 
@@ -120,7 +127,7 @@ def test_extension_modules_keep_c4_bar_the_extension_nodes(module):
     assert drifted == [], f"{module}: extension node not at its pin (re-pin in a reviewed family commit): {drifted}"
     source = (R4 / module).read_text(encoding="utf-8")
     assert added_non_imports(source, frozen["other"]) == [], f"{module}: added a top-level statement that is no import"  # type: ignore[arg-type]
-    lost = sorted(set(frozen["other"]) - set(head["other"]))  # type: ignore[arg-type]
+    lost = sorted((Counter(frozen["other"]) - Counter(head["other"])).elements())  # type: ignore[arg-type]
     assert lost == [], f"{module}: C4 statements removed or changed"
 
 
@@ -130,6 +137,14 @@ def test_an_added_top_level_raise_fails_the_import_check():
     assert added_non_imports(source, c4_other) == []
     assert len(added_non_imports(source + '\nraise SystemExit("x")\n', c4_other)) == 1
     assert added_non_imports(source + "\nimport os\nfrom sys import path\n", c4_other) == []
+
+
+def test_a_duplicated_c4_statement_fails_the_import_check():
+    source = (R4 / "cli.py").read_text(encoding="utf-8")
+    c4_other: list[str] = _FIXTURE["modules"]["cli.py"]["other"]
+    tail = source.rstrip("\n").split("\n\n\n")[-1]
+    assert tail.startswith("if __name__"), "the test expects cli.py to end with its main guard"
+    assert len(added_non_imports(source + "\n\n" + tail + "\n", c4_other)) == 1
 
 
 def test_an_edited_extension_node_is_not_at_its_pin():
