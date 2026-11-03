@@ -1053,9 +1053,24 @@ def main() -> None:
     cdo_parser.add_argument("--commit-order", required=True, help="Commit-order evidence JSON (computed outside)")
     cdo_parser.add_argument("--exit-block", required=True, help="Exit block result JSON (calib-exits output)")
 
+    c5_parser = subparsers.add_parser(
+        "c5-reproduce", help="Re-run the eight C4 runs into a new directory and compare them (A5.1)"
+    )
+    c5_parser.add_argument("--ds", required=True, help="Dataset directory")
+    c5_parser.add_argument("--c4", required=True, help="The C4 results directory (noise_runs/, exits/, *.json)")
+    c5_parser.add_argument("--out", required=True, help="New output directory (reproduction.json inside)")
+    c5_parser.add_argument("--commit", required=True, help="Commit SHA")
+
     args = parser.parse_args()
 
-    if args.command == "calib-grid":
+    if args.command == "c5-reproduce":
+        from r4.reproduce import reproduce
+
+        reproduction = reproduce(args.ds, args.c4, args.out, args.commit)
+        print(f"Reproduction written to {Path(args.out) / 'reproduction.json'}: all_match={reproduction['all_match']}")
+        if not reproduction["all_match"]:
+            raise SystemExit(1)
+    elif args.command == "calib-grid":
         from r4 import calibration
 
         out_root = Path(args.out)

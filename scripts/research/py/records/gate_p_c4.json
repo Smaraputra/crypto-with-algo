@@ -1,0 +1,267 @@
+{
+  "record": "Round 4 Gate P record at C4 (A4.4, A5.4)",
+  "gate": "P",
+  "decision": "PASS WITH CONDITIONS",
+  "decided_by": "Opus post-run review of the C4 re-run (A4.3), .superpowers/sdd/round4/gates/gate-P-c4-post-run-review.md",
+  "decided_on": "2026-11-03",
+  "second_opinions": {
+    "codex": "PASS WITH CONDITIONS (gates/gate-P-c4-codex-review.out): all gated predictions recomputed; HIGH finding, the book picks basket coins per daily part and the joint shift per whole tranche",
+    "agy": "PASS (gates/gate-P-c4-agy-review.md, Gemini 3.8 flash high; Python refused by its review profile, numbers read not recomputed)"
+  },
+  "c4": {
+    "commit": "dfe1ebf51794011b5ef7bd9c31e32d908bd19ec5",
+    "r4_source_sha256": "de431740038ba19982ea24fa02940bdb724a6afdea7e8185c0d5507ed9217882",
+    "dataset_hash": "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62",
+    "requirements_lock_sha256": "73d0c30008fda2363e334ede40ddca2534a269d168166eb2a14ff6711a0e13d1",
+    "amendment_4_signature_commit": "c88c677ef33a6c1001968d94280a2a71fd87b86a",
+    "chain_start_utc": "2026-11-02T06:04:57Z",
+    "chain_done_utc": "2026-11-03T08:22:17Z",
+    "dossier_sha256": "5de28b4c2c732832e3800589d3a7f8eeff8484d7a58dc971541f19d3ea14fcc8",
+    "a_star": 0.0017,
+    "ledger_total": 2332
+  },
+  "predictions": [
+    {
+      "id": "noise_items123_at_most_5",
+      "status": "gated",
+      "text": "At most 5 of the 40 noise controls pass items 1 to 3 (M bound).",
+      "observed": 0,
+      "as_predicted": true
+    },
+    {
+      "id": "noise_items123_zero_of_40",
+      "status": "gated",
+      "text": "0 of the 40 noise controls pass items 1 to 3 (costs make it so).",
+      "observed": 0,
+      "as_predicted": true
+    },
+    {
+      "id": "noise_joint_shift_at_most_6",
+      "status": "gated",
+      "text": "At most 6 of the 40 reject the joint-shift null at 0.05 (1,000 draws each, M bound).",
+      "observed": 1,
+      "as_predicted": true
+    },
+    {
+      "id": "noise_family_pbo_net_below_0_1",
+      "status": "diagnostic",
+      "text": "Family PBO (net) of the 40 is below 0.1.",
+      "observed": 0.0,
+      "as_predicted": true
+    },
+    {
+      "id": "noise_cost_free_items123_0_to_2",
+      "status": "diagnostic",
+      "text": "0 to 2 of 40 pass items 1 to 3 on the cost-free series (gross hedged plus funding).",
+      "observed": 0,
+      "as_predicted": true
+    },
+    {
+      "id": "noise_within_seed_group_pbo_median_0_3_to_0_7",
+      "status": "diagnostic",
+      "text": "The median PBO within seed groups on the cost-free series is between 0.3 and 0.7.",
+      "observed": 0.5421911421911423,
+      "as_predicted": true
+    },
+    {
+      "id": "noise_joint_shift_reference_panels",
+      "status": "diagnostic",
+      "text": "The joint-shift rejection count sits inside the empirical count of 2 synthetic D-shaped panels.",
+      "observed": 1,
+      "as_predicted": true
+    },
+    {
+      "id": "daily_null_crossing_rate_at_most_1_over_600",
+      "status": "gated",
+      "text": "The daily null's false-crossing rate is at most 1/600.",
+      "observed": 0.00032,
+      "as_predicted": true
+    },
+    {
+      "id": "daily_null_at_most_10_crossings",
+      "status": "diagnostic",
+      "text": "At most 10 crossings in 50,000 daily-null paths (Wilson lower bound not above 1/600).",
+      "observed": 16,
+      "as_predicted": false
+    },
+    {
+      "id": "positive_detected_at_astar",
+      "status": "gated",
+      "text": "The planted control is detected (items 1 to 6) at the amplitude a*.",
+      "observed": true,
+      "as_predicted": true
+    },
+    {
+      "id": "natives_all_six_fail",
+      "status": "gated",
+      "text": "All 6 native re-tests fail.",
+      "observed": 0,
+      "as_predicted": true
+    },
+    {
+      "id": "exit_block_at_most_1_of_6_rejects",
+      "status": "gated",
+      "text": "At most 1 of the 6 exit controls rejects its random-entry-same-exit null at p < 0.05.",
+      "observed": 1,
+      "as_predicted": true
+    },
+    {
+      "id": "exit_median_hold_at_least_80pct",
+      "status": "diagnostic",
+      "text": "On synthetic no-edge panels the median hold under E4, E5 and E6 is at least 80% of h.",
+      "observed": "see dossier",
+      "as_predicted": true
+    },
+    {
+      "id": "exit_planted_intrabar_control",
+      "status": "diagnostic",
+      "text": "On the planted reversal E4, E5 and E6 beat E1 on planted tranches, close ahead of the drop on at least 80% of them, and falsely close at most 20% of unplanted tranches.",
+      "observed": "see dossier",
+      "as_predicted": true
+    },
+    {
+      "id": "exit_optional_stopping_zero_mean",
+      "status": "gated",
+      "text": "On 20 zero-drift synthetic panels of 75 days no exit's cost-free mean per tranche differs from zero (two-sided 0.01), and X1's is not positive. E4 and E5 fit on each panel's own real features, at the registered and loosened thresholds.",
+      "observed": "see dossier",
+      "as_predicted": true
+    }
+  ],
+  "conditions": [
+    {
+      "id": "C1",
+      "text": "The Gate P record carries the listed disclosures.",
+      "met_by": "A5.4 (this record)"
+    },
+    {
+      "id": "C2",
+      "text": "The owner records how A4.3's code binding applies to Phase 5, with the guard re-pointed to a C4 fixture.",
+      "met_by": "A5.1"
+    },
+    {
+      "id": "C3",
+      "text": "The method of A4.1's netted hedge-cost estimate is defined and committed, with code and a test.",
+      "met_by": "A5.2"
+    },
+    {
+      "id": "codex-1",
+      "text": "Book and joint shift choose basket coins differently when a basket coin lacks a price or settlement inside a tranche.",
+      "met_by": "A5.3"
+    }
+  ],
+  "disclosures": [
+    {
+      "source": "C4 review finding 2",
+      "text": "A4.3 says A3's nodes keep their b23a7b26 text and also names write_dossier, _validate_retests and evaluate_retest in its own list. The lead read the named list as governing for those three, recorded before the run, and the review accepts that reading. Between b23a7b26 and C4 only A4.3's listed nodes changed, method.py changed only by appending A4, and requirements.lock is unchanged."
+    },
+    {
+      "source": "C4 review finding 5",
+      "text": "One D read sat between the A4 signature (c88c677e) and C4: the lead's completeness check of D's raw funding files (settlement times and stated intervals). It computed no outcome and changed no registered value, but it informed the reading of A4.1's 'covers the window': no settlement due inside the window and inside the data's span is missing, judged from each row's intervalHours."
+    },
+    {
+      "source": "C4 review finding 6",
+      "text": "The exit block met its gated bound at the limit: 1 of 6 rejects (E4, p 0.048). E4 never fires on D, so its book is the base noise_06 book (base p 0.051 on the replay path, 0.053 in the noise evaluation), and the rejection is that book's place in its null drawn again. X1 (0.054) and E5 (0.058) are within one Monte Carlo standard error of the line, so the result is fragile. All six exit p-values and the ridge noise controls' joint-shift p-values fell against the first run (noise_06 0.130 to 0.053). Verified mechanism: A4.1's hedge term removes market-wide funding from the observed set and every draw alike, and the ridge books were net long when funding was high (noise_06 paid 0.55 bps a day of coin funding at an average tilt of +0.019). The observed change equals hedge funding times hold for all 10 ridge and 4 never-refit controls (ratio 0.999 to 1.001). Phase 5: item 4 is now neutral to the timing of market-wide funding, and still credits timing of residual market exposure left by beta errors."
+    },
+    {
+      "source": "C4 review finding 7",
+      "text": "The within-cell V diagnostic is 0.0183 (df 25), against 0.0597 in the first run. About 85% of it is the four never-refit controls, which now sit near a zero Sharpe beside refitting cell-mates at -0.5 to -0.7 from cost drag. Without them it is about 0.0029. Under A4.2 V enters no bar. The cost-free within-cell V of the 36 controls (0.000598) is below V0 (0.000784)."
+    },
+    {
+      "source": "C4 review finding 8",
+      "text": "a* = 0.0017 is a cost threshold, not a detection threshold for item 3: 16 of 40 replicates at 0.0016 (all 24 misses on item 6) and 40 of 40 at 0.0017. Items 1, 2, 3 and 5 pass in every replicate at both, so item 3 never binds and the 1.2 margin is untested by any outcome. The value was foreseeable before the run (the A4 review predicted 0.0017), which belongs to A4's disclosed forking path. The positive control on D at a* has a daily Sharpe of 0.497 (about 9.5 annualized), about four times item 3's bar, so Phase 4 shows the pipeline finds a large edge that clears stressed costs and shows nothing about detection near item 3's bar."
+    },
+    {
+      "source": "C4 review finding 9",
+      "text": "Positive control: P1 passes items 1 to 6 with an item 6 stress mean of +6.88 bps a day on a mean of +35.8. P2 passes items 1 to 5 and fails item 6 at -1.82 bps a day, so detection rests on P1 alone. Tripwire: P1 33 of 100, P2 0 of 100, halt above 60 (P1 was 52 at the first run's 0.0024)."
+    },
+    {
+      "source": "C4 review finding 10",
+      "text": "lambda on D ranges from 1.0 to 3.48 across the noise controls (1h ridge 3.13 and 3.48 in C1, 2.26 and 2.68 in C2), driven by the cost series (cost-free lambda at most 1.40). Item 3's pass Sharpe scales by sqrt(lambda): about 0.18 a day at lambda 2.26 and 0.22 at 3.48. A4.2's 0.119 and 0.144 hold at lambda 1 only."
+    },
+    {
+      "source": "First review finding 3 at C4",
+      "text": "The two post-signing exporter fixes stand. The C4 exports equal b23a7b26's apart from export_commit, with span-end drops of 10 (v8-1h) and 5 (v8-4h), and no v8 or rv-v1 outcome existed before those fixes."
+    },
+    {
+      "source": "First review finding 4 at C4",
+      "text": "The daily null crossed 16 times in 50,000 paths again, against an expectation of at most 10 that was never derived for this simulator. Its Wilson upper bound 0.00052 is 3.2 times below 1/600. The realization depends on LAPACK eigenvector signs (12 on macOS defaults), so it is reproduced only in the registered image."
+    },
+    {
+      "source": "First review finding 6 at C4",
+      "text": "All six natives fail at V0. v8-4h (DSR 0.382, +1.69 bps a day short) and rv-v1 (DSR 0.148, +9.42 short) fail item 3 only. The joint shift rejects 4 of 6 (v8-1h 0.005, rv-v1 0.021, s2 0.029, v8-4h 0.037), two of them losing rules, because it measures timing gross of costs, so it adds little as a negative control."
+    },
+    {
+      "source": "First review finding 9 at C4",
+      "text": "Ledger 2,332 after C4 (round4-controls-c4 52, round4-retests-c4 6). The re-test family is at 12 of 12. The program-count DSR uses 2,204 + N = 2,324 while the alpha-bearing count before Round 4 is at least 2,216."
+    },
+    {
+      "source": "First review finding 11 at C4",
+      "text": "E4 never fires on D, E5 fired on 169 of 76,600 tranches, the family PBO of 0.0 is uninformative, a* path dependence is moot, P1's tripwire is 33 of 100, and v8 parity is unchanged."
+    },
+    {
+      "source": "C4 review finding 14",
+      "text": "E6's missing_funding_share of 0.634 is an empty-window artifact: at the 5m close that falls on a settlement the predicted-funding window is empty, so every E6 tranche not closed early is flagged at that one bar. It does not mean missing data. The funding branch is blind for one 5m close in 96."
+    },
+    {
+      "source": "Lead verification of the Codex finding",
+      "text": "The book picks basket coins per daily part (book.py beta_hedged_daily) and the joint shift per whole tranche (bar.py joint_shift_stats). It never occurred at C4: on every day with an open tranche of all 46 C4 runs the basket's funding count is 10 (diag_basket.log), and in D every 5m instant has all 10 coins (A1.2). A5.3 aligns the null with the book."
+    }
+  ],
+  "c1_carry_analysis": "At 5250b8ea the four never-refit controls (noise_30 to noise_33) held persistent short books (net side -1.00, -0.99, -0.81 and -0.92) and collected 1.2 to 1.5 bps a day of funding through the coin leg, because the beta hedge was notional and paid none. noise_30 and noise_31 reached net daily Sharpes of +0.51 and +0.28, against -0.53 to -0.67 for the other slot controls of their cell, and the four made up 97% of the within-cell V (0.0597 with them, 0.00186 without). A4.1 moved the basket funding onto the hedge leg, and at C4 their mean total funding is 0.000093 and 0.000148 bps a day (check 6).",
+  "open_recommendations": [
+    "R1: lab-v5, before it grades anything, reproduces calibration_null.daily_eprocess bit for bit, extends the 72-hour settlement wait to the basket coins, and states the A5.2 hedge-cost estimate in its lock.",
+    "R2: reproduce the daily null only in the registered image (LAPACK sign dependence).",
+    "R3: store each noise and positive-control run's net and cost-free daily Sharpe, skew and kurtosis beside its item 3 block, and each power replicate's lambda.",
+    "R4: if c4_checks.py is reused, check 3 also asserts n_paths 50,000 and the pilot SD.",
+    "R5: keep copies of d_noise_worker.py and watchdog2.sh in tools/, and push the C5 records."
+  ],
+  "untracked_files_sha256": {
+    ".superpowers/sdd/round4/gates/gate-P-c4-post-run-review.md": "c2b359c7c27f3544ecea9f1771aca18660ad056df15401f231797659ba2e56d1",
+    ".superpowers/sdd/round4/gates/gate-P-c4-codex-review.out": "1305f94bd2b8eea1f5dc4fd475665ee2f1d5463c089aae47b4ba339192f136a1",
+    ".superpowers/sdd/round4/gates/gate-P-c4-agy-review.md": "d5073a605caa94c00868e07ebc46d4a30f210e0b813a1b63e9cf3ecc8454162f",
+    ".superpowers/sdd/round4/gates/gate-P-post-run-review.md": "03f71d14aa071d641d7308df3388aaad00ede0f6b45b10b9c57efb5ea0ff4e67",
+    ".superpowers/sdd/round4/phase4-c4-results/d/dossier.json": "5de28b4c2c732832e3800589d3a7f8eeff8484d7a58dc971541f19d3ea14fcc8",
+    ".superpowers/sdd/round4/phase4-c4-results/commit_order.json": "bc9665429083ce4e6ac51ace2c2ca58acc5aa0b0d77227bde371a686134b6930",
+    ".superpowers/sdd/round4/phase4-results/c1_carry_analysis.json": "ccdb50c88e27cf164b3a499ae34b1f8f7f93e64489f4db8eab6f921df4a4e988",
+    ".superpowers/sdd/round4/phase4-results/superseded_retests_diff.json": "be2342604599fb8f15061444f95d566b45dbe110189a9ae6fda991b34110e7c7",
+    ".superpowers/sdd/round4/phase4-c4-results/diag_tilt.log": "5f8d6fc622df38dc6801a952d093191a398888ada9a6e7b1f5395786e085c398",
+    ".superpowers/sdd/round4/phase4-c4-results/diag_basket.log": "4f31dc06b3cc7aa8116ccea5d139f1e6733e50b6ecb980098fa370280106cdf7"
+  },
+  "c4_reference_files_sha256": {
+    "~/round4-out/phase4-c4/d/dossier.json": "5de28b4c2c732832e3800589d3a7f8eeff8484d7a58dc971541f19d3ea14fcc8",
+    "~/round4-out/phase4-c4/d/exits/exit_block.json": "323ee07a13a7616f45701051c9fd9ea9fc322785c09042c2393a840468b16c74",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_0_E2_noise_06_ridge_C4_s1/daily.parquet": "33846ace24c07fb1d12e5206acd298725d1793c2ed18be39f381c67db5e4f0b2",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_0_E2_noise_06_ridge_C4_s1/folds.json": "d68d7b841571cae904677f56c09baa06057602cb9ecd60ef483f5a2b5325c128",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_0_E2_noise_06_ridge_C4_s1/receipt.json": "f3ca679bf100d2041155f032d7dc45859f1c14862e4ab2f62e997468504d33b5",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_0_E2_noise_06_ridge_C4_s1/tranches.parquet": "29fdec1a6a0feb7d60320c3ea25c72de119a3a96290489e6278de439f3b17f46",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_3_E5_noise_06_ridge_C4_s1/daily.parquet": "ccc8e550bb3633619c755b246d8728a7cfabdcf4dad3caa2cc8243a81d84fda2",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_3_E5_noise_06_ridge_C4_s1/folds.json": "d68d7b841571cae904677f56c09baa06057602cb9ecd60ef483f5a2b5325c128",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_3_E5_noise_06_ridge_C4_s1/receipt.json": "484d274568f3e8b7cf2b146cee2a2a22f122d12d8f0965624f7319be88511629",
+    "~/round4-out/phase4-c4/d/exits/runs/exit_3_E5_noise_06_ridge_C4_s1/tranches.parquet": "34b0cc36e60ed48d6db406cd15541ff6adb227020c1a925e1fcf8e3cf1b92826",
+    "~/round4-out/phase4-c4/d/noise_eval.json": "380a29c28a0c889e52cdc6fbf9120f3e3f700642606e2dc2597f3740335d984a",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_00_ridge_C1_s1/daily.parquet": "f0ddb008c2ae3f954566f431557579dc7b90b092be80d992b94a448f7920839a",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_00_ridge_C1_s1/folds.json": "a08221520a92cedf0deb1cb7726fb66706ed1d5f3732d193a9265d36d67a0679",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_00_ridge_C1_s1/receipt.json": "c472c70973c97308a762eb82b26408670d5da8edc6c01f5ecfe4b975f8832d24",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_00_ridge_C1_s1/tranches.parquet": "d46701aa080f6c4db3fa59f7fb103b48b190d35ae29ce799f98c407b6d86fab6",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_12_lgbm_C2_s1/daily.parquet": "45e5f7ee313a73a61fb98ff679e78610089ca5f26152fdeac782e85889a31491",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_12_lgbm_C2_s1/folds.json": "22d1079eb46b65d5ec461177750c83cc64b93680c72b0f908473dc8bf48cf125",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_12_lgbm_C2_s1/receipt.json": "8683cf7c9c503b017f1913ee47449995a57ad2a332c2bcb0bc2ce8a4ab3f126e",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_12_lgbm_C2_s1/tranches.parquet": "6fe32c34ebc2c886fc437398feb6e705325e7a911170acbc152f61721a137fa3",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_22_lgbmtb_C4_s1/daily.parquet": "30c3e5edeba378a10e0e6e811fe9ea1dbb11c5a08026211ccf34627cd3d21aa0",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_22_lgbmtb_C4_s1/folds.json": "10652845d2dd9111e68fdf928fe48faf79a1735762cd7406569000806c04a9ba",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_22_lgbmtb_C4_s1/receipt.json": "2261339e7227158d883ce511e73c37c892b1a63a4a7ed2a15fd9157251c1a7b5",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_22_lgbmtb_C4_s1/tranches.parquet": "ecb71bb05eef88c9631956f76a962f100e8702a5c0a50b9fa435d6adb7030389",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_28_logit_C4_s1_alt2/daily.parquet": "24afe30e008efe710eca0f6551f1a10e210bd6082df86d04503e13d119ff7824",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_28_logit_C4_s1_alt2/folds.json": "e34d96aa23e60d9dd9b38347e48c5668e0392ca238272bbf16ef815332db8141",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_28_logit_C4_s1_alt2/receipt.json": "fddf4a3e564ff5dd889606f33c322647ce61fd341c5656e5277b985d9e0e2358",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_28_logit_C4_s1_alt2/tranches.parquet": "5f2711ba760f5678ccb7049d3529dc7e86eed9800ab873f82a394fc70b111bdc",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_30_noref_C2_s1/daily.parquet": "41cfe01cb67a071484461e0a0d281f8228b88839e88003357e5fa199e7b91f62",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_30_noref_C2_s1/folds.json": "0f9086703f332e1ab99076a038d557c7ca5b7889d2f70213b1026fe431ca47eb",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_30_noref_C2_s1/receipt.json": "a913df3ceadfdd25b09fe913d348e68196313f99fa658f86a19fbb160dcce3f4",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_30_noref_C2_s1/tranches.parquet": "fee298ed5f2b950db37aaea08374f8f701f8915bc23bb87f91f8a6fc3cf3fe39",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_36_d_C4_s1/daily.parquet": "df11825d30f31020bcf2abfc08ebcd3b2867dc59eab0b7df1f794e37ed7a41be",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_36_d_C4_s1/folds.json": "1f74595cf1fb331d745fd5633d80af6a2aeaf767b2cb8b1c0add30fefd8be4a9",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_36_d_C4_s1/receipt.json": "58ede24e2a8f028f517bd9f8c0d6f922263479909efae53e3b0cfa6e296f96f2",
+    "~/round4-out/phase4-c4/d/noise_runs/noise_36_d_C4_s1/tranches.parquet": "dbadf429b61b408b5c7636e22a0246c95008ddc0a9f35dcff346ef29da588d5b"
+  }
+}
