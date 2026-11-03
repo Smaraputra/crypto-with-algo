@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import functools
+import sys
+import types
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,6 +15,13 @@ import pytest
 from r4.bar import joint_shift_p, joint_shift_stats
 from r4.book import Tranche, beta_hedged_daily
 from r4.method import UNIVERSE
+from tests.a3_nodes_gen import nodes_from_source
+
+# The C4 text of r4/bar.py (git show dfe1ebf5:scripts/research/py/r4/bar.py). The fast-path tests run it beside the
+# C5 code on the same machine, because the last bits of a float sum differ between platforms (the GitHub runner gave
+# -0.07616431549792911 where the Mac and the VPS image give -0.07616431549792917).
+C4_BAR_SOURCE = Path(__file__).resolve().parent / "fixtures" / "bar_dfe1ebf5.py.txt"
+C4_NODES = Path(__file__).resolve().parent / "fixtures" / "a5_nodes_dfe1ebf5.json"
 
 DAY = 86_400_000
 H = 3_600_000
@@ -24,8 +35,9 @@ BETAS = {A: 1.2, B: 0.7, C: 1.1, D: 0.9}
 SPAN_END = DAY0 + N_DAYS * DAY
 FOLDS = [{"start_ms": DAY0, "end_ms": SPAN_END, "betas": BETAS}]
 
-# The observed and null statistics at the C4 text of joint_shift_stats on the complete panel below, recorded before
-# the A5.3 edit (plain path and exit-replay path). The fast path must keep them bit for bit.
+# The observed and null statistics at the C4 text of joint_shift_stats on the complete panel below, recorded on the Mac
+# before the A5.3 edit (plain path and exit-replay path). The bit-for-bit check runs against the C4 text itself; these
+# recorded values are checked to 1e-12 on any platform.
 C4_PLAIN: dict[str, Any] = {
     "obs_stat": -0.07616431549792917,
     "null_stats": [
@@ -173,8 +185,18 @@ def _book_sum(trs: list[Tranche], five: dict[str, pd.DataFrame], settle: dict[st
     return float(daily["drift_free"].sum())
 
 
-def _run(trs: list[Tranche], five, settle, replay: bool = False, n_draws: int = 12, seed: int = 5, **kw: Any):
-    return joint_shift_stats(
+@functools.cache
+def _c4_bar() -> types.ModuleType:
+    """The C4 text of r4/bar.py as its own module, so the C4 and C5 joint shifts share this machine's arithmetic."""
+    module = types.ModuleType("r4_bar_c4")
+    module.__file__ = str(C4_BAR_SOURCE)
+    sys.modules[module.__name__] = module
+    exec(compile(C4_BAR_SOURCE.read_text(encoding="utf-8"), str(C4_BAR_SOURCE), "exec"), module.__dict__)
+    return module
+
+
+def _run(trs: list[Tranche], five, settle, replay: bool = False, n_draws: int = 12, seed: int = 5, fn=None, **kw: Any):
+    return (fn or joint_shift_stats)(
         trs,
         _panel(five, settle),
         FOLDS,
@@ -192,11 +214,24 @@ def _run(trs: list[Tranche], five, settle, replay: bool = False, n_draws: int = 
 # ---------------------------------------------------------------------------
 
 
+def test_the_c4_bar_fixture_is_the_c4_text():
+    c4 = __import__("json").loads(C4_NODES.read_text(encoding="utf-8"))["modules"]["bar.py"]
+    assert nodes_from_source(C4_BAR_SOURCE.read_text(encoding="utf-8")) == c4
+
+
+def _same(st, c4) -> None:
+    assert st.obs_stat == c4.obs_stat
+    assert np.array_equal(st.null_stats, c4.null_stats)
+    assert st.total_dropped == c4.total_dropped
+    assert st.shifts == c4.shifts
+
+
 def test_complete_panel_plain_path_is_bit_identical_to_c4():
     five, settle = _world()
     st = _run(_horizon_set(), five, settle)
-    assert st.obs_stat == C4_PLAIN["obs_stat"]
-    assert [float(x) for x in st.null_stats] == C4_PLAIN["null_stats"]
+    _same(st, _run(_horizon_set(), five, settle, fn=_c4_bar().joint_shift_stats))
+    assert st.obs_stat == pytest.approx(C4_PLAIN["obs_stat"], rel=1e-12)
+    assert [float(x) for x in st.null_stats] == pytest.approx(C4_PLAIN["null_stats"], rel=1e-12)
     assert st.total_dropped == C4_PLAIN["total_dropped"]
     assert st.shifts == C4_PLAIN["shifts"]
 
@@ -204,10 +239,12 @@ def test_complete_panel_plain_path_is_bit_identical_to_c4():
 def test_complete_panel_replay_path_is_bit_identical_to_c4():
     five, settle = _world()
     st = _run(_replay_set(five), five, settle, replay=True, zero_shift=True)
-    assert st.obs_stat == C4_REPLAY["obs_stat"]
-    assert [float(x) for x in st.null_stats] == C4_REPLAY["null_stats"]
+    c4 = _run(_replay_set(five), five, settle, replay=True, zero_shift=True, fn=_c4_bar().joint_shift_stats)
+    _same(st, c4)
+    assert st.zero_shift_stat == c4.zero_shift_stat == st.obs_stat
+    assert st.obs_stat == pytest.approx(C4_REPLAY["obs_stat"], rel=1e-12)
+    assert [float(x) for x in st.null_stats] == pytest.approx(C4_REPLAY["null_stats"], rel=1e-12)
     assert st.total_dropped == C4_REPLAY["total_dropped"]
-    assert st.zero_shift_stat == st.obs_stat
 
 
 # ---------------------------------------------------------------------------
