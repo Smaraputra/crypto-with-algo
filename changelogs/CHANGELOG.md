@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Phase 5 family C declared (9 volatility forecasts)
+- Family C is declared in `scripts/research/py/r4/family_c.py`, which carries the declaration in its header, with entry points in `r4/phase5_c.py`. The owner chose to run C next, then D, then B.
+- Grid: three log-HAR forecasters of 1h, 4h and 1d realized variance from 5m bars (plain, with a continuous and jump split, and with funding, basis and BTC inputs). They are fit per coin and refit monthly with a 24-month lookback, and 3 of the cap of 12 are reserved.
+- Criteria, from M's registered constants:
+  - QLIKE and log-variance loss beat persistence and EWMA under paired Diebold-Mariano tests;
+  - 80% and 95% coverage within 2 points, by filtered historical simulation;
+  - at least 8 of 10 coins;
+  - the two stay-out flags.
+- The refit comparison is descriptive, and the holdout procedure is registered now.
+- Entry points: `cli family-c-run`, `family-c-report` and `family-c-twin`.
+- Ledger: `round4-family-c` 9 trials, counted separately from the 120 alpha-bearing trials, total 2,386, with the site pins.
+- Review fixes before any D run (Codex, then Opus and agy, declaration draft 5):
+  - a 5m bar with zero volume is an exchange placeholder and voids its window, counted in the receipts;
+  - the finalist is ranked on common coin and day support;
+  - a long-lag Diebold-Mariano p is reported, never gating;
+  - receipts carry the reproduction inputs and a forecasts hash, and the twin binds the report's universe and coin minimum;
+  - the H terms are registered: stay-out seed 12,200,000 + index, and no inconclusive state (owner decision);
+  - the owner kept stay-out condition 2 as declared, and its consequence is registered: a 1d finalist cannot flag a dead market, and a 4h finalist almost surely cannot, so either is blocked from H.
+
+### Added: Round 4 Phase 5 family A result (0 of 45 reach the bar)
+- Family A ran on the development data at `b011ea1e` (r4 digest `874bf209`), after its A5.1 reproduction matched every C4 run (`records/a5_reproduction_b011ea1e.json`). The run took from 2026-11-04 02:31 to 08:06 UTC.
+- Result (`records/family_a_result_b011ea1e.json`, with the per-configuration table and the report hashes):
+  - no configuration has a positive walk-forward mean, and none has 4 or more positive CPCV paths, so 0 of 45 reach items 1 to 3;
+  - the CPCV mean before costs, hedged and with funding, runs from -0.7 to +2.1 bps a day, against costs of 5 to 30 bps a day.
+- Predictions:
+  - M's prediction that no directional configuration meets the bar holds for family A;
+  - the family diagnostic of 0 of 45 is met;
+  - the cost drag by cell ranks exactly as registered: C3 30.2, C1 25.4, C4 15.7, C2 14.1, C5 5.1 bps a day.
+- The context-only ablation matches the full feature set within about 0.6 bps a day in every cell. The 5m and 15m intrabar features add no measurable signal over the 4h and 1d context.
+- $100 account replay: 17 of 45 accounts bust at 10x, with a median ending equity of $3.75, and all 45 bust at 50x.
+- No tripwire, twin or hedge-cost estimate ran, and the 3 reserve slots are unused. Family E selects no family A configuration under its declared rule.
+- The result is recorded under `records/`, not as a code header, because Amendment 5 freezes a family's code at its first D outcome.
+
 ### Added: Round 4 Phase 5 family A declared (45 configurations)
 - The family is declared in `scripts/research/py/r4/family_a.py`, which carries the declaration in its header. It was reviewed by Opus (declarable after a draft 2 check), Codex and agy before any family A configuration reads the development data.
 - Grid: ridge, logistic and LightGBM over the five interval and horizon cells:
