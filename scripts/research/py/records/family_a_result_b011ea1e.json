@@ -1,0 +1,1146 @@
+{
+  "record": "Round 4 Phase 5 family A RESULT",
+  "note": "Recorded under records/ rather than as a code header, because Amendment 5 A5.1 freezes a family's code at its first D outcome, so r4/family_a.py cannot change after the run.",
+  "commit": "b011ea1e",
+  "r4_source_sha256": "874bf2094c04046c1e29fab0cf19ce99c8d706111ba9ab129092f2b846719141",
+  "dataset_hash": "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62",
+  "run_window_utc": "2026-11-04T02:31:38Z to 2026-11-04T08:06:26Z",
+  "reproduction": {
+    "record": "records/a5_reproduction_b011ea1e.json",
+    "sha256": "295e1943344eb0a6f8ee7e9bab749cdacbb8c10d867a822d7a017cd05d95221c",
+    "all_match": true
+  },
+  "report_sha256": {
+    "family_a_report.json": "fa61cde634bf1e028f3ea89754bd652df07fc208b5c05607df285c7260cb4fff",
+    "bar_pass1.json": "74b75d334ae0176ec9338dfcf79d49015ffc3a3f71af7bf9a802ee5d9a1a92aa"
+  },
+  "outcome": {
+    "n_configurations": 45,
+    "round_alpha_count": 57,
+    "reached_items_1_to_3": 0,
+    "item_pass_counts": {
+      "item1": 0,
+      "item2": 45,
+      "item3": 0,
+      "item5": 0,
+      "item6": 0
+    },
+    "positive_walk_forward_mean": 0,
+    "four_or_more_cpcv_paths_positive": 0,
+    "candidates": [],
+    "tripwires_run": 0,
+    "twins_run": 0,
+    "reserve_slots_unused": 3,
+    "hedge_cost_estimates": 0,
+    "cpcv_gross_mean_range_bps_day": [
+      -0.737,
+      2.14
+    ],
+    "cpcv_net_mean_range_bps_day": [
+      -31.048,
+      -3.202
+    ]
+  },
+  "predictions": {
+    "m_no_directional_configuration_meets_the_bar": "consistent (family A: 0 of 45)",
+    "family_diagnostic_0_of_45_items_1_to_3": "met (0 of 45)",
+    "family_diagnostic_cost_drag_worst_first": {
+      "registered": [
+        "C3",
+        "C1",
+        "C4",
+        "C2",
+        "C5"
+      ],
+      "observed": [
+        "C3",
+        "C1",
+        "C4",
+        "C2",
+        "C5"
+      ],
+      "mean_daily_costs_bps_by_cell": {
+        "C1": 25.35,
+        "C2": 14.06,
+        "C3": 30.21,
+        "C4": 15.66,
+        "C5": 5.09
+      }
+    }
+  },
+  "diagnostics": {
+    "within_cell_pbo": {
+      "C1": {
+        "pbo": 0.12703962703962704,
+        "pass": true,
+        "n_configs": 6
+      },
+      "C2": {
+        "pbo": 0.27816627816627815,
+        "pass": false,
+        "n_configs": 12
+      },
+      "C3": {
+        "pbo": 0.16091686091686092,
+        "pass": true,
+        "n_configs": 4
+      },
+      "C4": {
+        "pbo": 0.2341880341880342,
+        "pass": true,
+        "n_configs": 11
+      },
+      "C5": {
+        "pbo": 0.6086247086247086,
+        "pass": false,
+        "n_configs": 12
+      }
+    },
+    "context_only_ablation": {
+      "C2": {
+        "full_features": {
+          "cpcv_gross_mean_bps_day": -0.678,
+          "cpcv_net_mean_bps_day": -14.415
+        },
+        "context_only": {
+          "cpcv_gross_mean_bps_day": -0.683,
+          "cpcv_net_mean_bps_day": -14.387
+        }
+      },
+      "C4": {
+        "full_features": {
+          "cpcv_gross_mean_bps_day": -0.01,
+          "cpcv_net_mean_bps_day": -15.403
+        },
+        "context_only": {
+          "cpcv_gross_mean_bps_day": 0.261,
+          "cpcv_net_mean_bps_day": -14.759
+        }
+      },
+      "C5": {
+        "full_features": {
+          "cpcv_gross_mean_bps_day": 0.045,
+          "cpcv_net_mean_bps_day": -5.253
+        },
+        "context_only": {
+          "cpcv_gross_mean_bps_day": -0.207,
+          "cpcv_net_mean_bps_day": -5.486
+        }
+      }
+    },
+    "account_100": {
+      "10x": {
+        "bust": 17,
+        "n": 45,
+        "median_final_equity": 3.75
+      },
+      "20x": {
+        "bust": 32,
+        "n": 45,
+        "median_final_equity": 0.56
+      },
+      "50x": {
+        "bust": 45,
+        "n": 45,
+        "median_final_equity": 0.01
+      }
+    }
+  },
+  "consequences": [
+    "Family E selects no family A configuration (its declared rule takes at most the top 2 passing item 1, and none passes).",
+    "Family D's score model stays the A-lgbm specification, fixed at declaration, not chosen from these results.",
+    "No twin ran and the 3 reserve slots are unused."
+  ],
+  "configurations": [
+    {
+      "id": "A_lgbm-12_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 12,
+      "n_features": 40,
+      "n_tranches": 220549,
+      "wf_mean_bps_day": -16.267,
+      "wf_sharpe_day": -0.4726,
+      "cpcv_gross_mean_bps_day": -0.678,
+      "cpcv_net_mean_bps_day": -14.415,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-12_C4",
+      "cell": "C4",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 56250,
+      "wf_mean_bps_day": -17.439,
+      "wf_sharpe_day": -0.49,
+      "cpcv_gross_mean_bps_day": -0.01,
+      "cpcv_net_mean_bps_day": -15.403,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-12_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 61700,
+      "wf_mean_bps_day": -6.66,
+      "wf_sharpe_day": -0.1861,
+      "cpcv_gross_mean_bps_day": 0.045,
+      "cpcv_net_mean_bps_day": -5.253,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-all_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": null,
+      "n_features": 40,
+      "n_tranches": 209056,
+      "wf_mean_bps_day": -16.294,
+      "wf_sharpe_day": -0.4763,
+      "cpcv_gross_mean_bps_day": -0.678,
+      "cpcv_net_mean_bps_day": -14.415,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-all_C4",
+      "cell": "C4",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": null,
+      "n_features": 39,
+      "n_tranches": 52116,
+      "wf_mean_bps_day": -17.267,
+      "wf_sharpe_day": -0.4403,
+      "cpcv_gross_mean_bps_day": -0.01,
+      "cpcv_net_mean_bps_day": -15.403,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-all_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": null,
+      "n_features": 39,
+      "n_tranches": 56671,
+      "wf_mean_bps_day": -5.54,
+      "wf_sharpe_day": -0.1599,
+      "cpcv_gross_mean_bps_day": 0.045,
+      "cpcv_net_mean_bps_day": -5.253,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-ctx_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 27,
+      "n_tranches": 212057,
+      "wf_mean_bps_day": -16.123,
+      "wf_sharpe_day": -0.451,
+      "cpcv_gross_mean_bps_day": -0.683,
+      "cpcv_net_mean_bps_day": -14.387,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-ctx_C4",
+      "cell": "C4",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 26,
+      "n_tranches": 53211,
+      "wf_mean_bps_day": -16.41,
+      "wf_sharpe_day": -0.4125,
+      "cpcv_gross_mean_bps_day": 0.261,
+      "cpcv_net_mean_bps_day": -14.759,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-ctx_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 26,
+      "n_tranches": 59210,
+      "wf_mean_bps_day": -4.793,
+      "wf_sharpe_day": -0.1426,
+      "cpcv_gross_mean_bps_day": -0.207,
+      "cpcv_net_mean_bps_day": -5.486,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-m_C1",
+      "cell": "C1",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.05,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 125025,
+      "wf_mean_bps_day": -22.344,
+      "wf_sharpe_day": -0.7141,
+      "cpcv_gross_mean_bps_day": 0.295,
+      "cpcv_net_mean_bps_day": -17.726,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-m_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.05,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 132826,
+      "wf_mean_bps_day": -12.223,
+      "wf_sharpe_day": -0.3974,
+      "cpcv_gross_mean_bps_day": -0.572,
+      "cpcv_net_mean_bps_day": -9.922,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-m_C4",
+      "cell": "C4",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.05,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 34324,
+      "wf_mean_bps_day": -13.083,
+      "wf_sharpe_day": -0.3914,
+      "cpcv_gross_mean_bps_day": -0.309,
+      "cpcv_net_mean_bps_day": -11.101,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-m_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.05,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 41616,
+      "wf_mean_bps_day": -3.865,
+      "wf_sharpe_day": -0.1314,
+      "cpcv_gross_mean_bps_day": 0.118,
+      "cpcv_net_mean_bps_day": -3.93,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-r_C1",
+      "cell": "C1",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 200083,
+      "wf_mean_bps_day": -28.904,
+      "wf_sharpe_day": -0.865,
+      "cpcv_gross_mean_bps_day": 0.267,
+      "cpcv_net_mean_bps_day": -25.243,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-r_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 206454,
+      "wf_mean_bps_day": -16.021,
+      "wf_sharpe_day": -0.4642,
+      "cpcv_gross_mean_bps_day": -0.737,
+      "cpcv_net_mean_bps_day": -13.863,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-r_C4",
+      "cell": "C4",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 52685,
+      "wf_mean_bps_day": -16.147,
+      "wf_sharpe_day": -0.4294,
+      "cpcv_gross_mean_bps_day": 0.055,
+      "cpcv_net_mean_bps_day": -14.723,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-r_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 58218,
+      "wf_mean_bps_day": -5.037,
+      "wf_sharpe_day": -0.1466,
+      "cpcv_gross_mean_bps_day": -0.346,
+      "cpcv_net_mean_bps_day": -5.392,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-tb-m_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "triple_barrier",
+      "threshold": 0.05,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 134739,
+      "wf_mean_bps_day": -10.915,
+      "wf_sharpe_day": -0.4116,
+      "cpcv_gross_mean_bps_day": 1.293,
+      "cpcv_net_mean_bps_day": -10.574,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-tb-m_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "triple_barrier",
+      "threshold": 0.05,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 36302,
+      "wf_mean_bps_day": -3.943,
+      "wf_sharpe_day": -0.1462,
+      "cpcv_gross_mean_bps_day": 0.956,
+      "cpcv_net_mean_bps_day": -3.202,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-tb_C1",
+      "cell": "C1",
+      "model": "lightgbm",
+      "label": "triple_barrier",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 160425,
+      "wf_mean_bps_day": -24.395,
+      "wf_sharpe_day": -0.7813,
+      "cpcv_gross_mean_bps_day": 0.802,
+      "cpcv_net_mean_bps_day": -23.869,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-tb_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "triple_barrier",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 176080,
+      "wf_mean_bps_day": -12.942,
+      "wf_sharpe_day": -0.4148,
+      "cpcv_gross_mean_bps_day": 1.259,
+      "cpcv_net_mean_bps_day": -12.999,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-tb_C3",
+      "cell": "C3",
+      "model": "lightgbm",
+      "label": "triple_barrier",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 41633,
+      "wf_mean_bps_day": -27.672,
+      "wf_sharpe_day": -0.6363,
+      "cpcv_gross_mean_bps_day": 1.047,
+      "cpcv_net_mean_bps_day": -26.11,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-tb_C4",
+      "cell": "C4",
+      "model": "lightgbm",
+      "label": "triple_barrier",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 45296,
+      "wf_mean_bps_day": -15.841,
+      "wf_sharpe_day": -0.4924,
+      "cpcv_gross_mean_bps_day": 0.619,
+      "cpcv_net_mean_bps_day": -14.224,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm-tb_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "triple_barrier",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 46009,
+      "wf_mean_bps_day": -4.485,
+      "wf_sharpe_day": -0.1451,
+      "cpcv_gross_mean_bps_day": 1.005,
+      "cpcv_net_mean_bps_day": -4.012,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm_C1",
+      "cell": "C1",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 202508,
+      "wf_mean_bps_day": -30.138,
+      "wf_sharpe_day": -0.8968,
+      "cpcv_gross_mean_bps_day": 0.335,
+      "cpcv_net_mean_bps_day": -25.777,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm_C2",
+      "cell": "C2",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 211694,
+      "wf_mean_bps_day": -16.082,
+      "wf_sharpe_day": -0.4569,
+      "cpcv_gross_mean_bps_day": -0.678,
+      "cpcv_net_mean_bps_day": -14.415,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm_C3",
+      "cell": "C3",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 51002,
+      "wf_mean_bps_day": -34.733,
+      "wf_sharpe_day": -0.7024,
+      "cpcv_gross_mean_bps_day": 0.425,
+      "cpcv_net_mean_bps_day": -30.809,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm_C4",
+      "cell": "C4",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 53282,
+      "wf_mean_bps_day": -17.225,
+      "wf_sharpe_day": -0.4526,
+      "cpcv_gross_mean_bps_day": -0.01,
+      "cpcv_net_mean_bps_day": -15.403,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_lgbm_C5",
+      "cell": "C5",
+      "model": "lightgbm",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 59221,
+      "wf_mean_bps_day": -4.146,
+      "wf_sharpe_day": -0.119,
+      "cpcv_gross_mean_bps_day": 0.045,
+      "cpcv_net_mean_bps_day": -5.253,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_logit_C1",
+      "cell": "C1",
+      "model": "logistic",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 161713,
+      "wf_mean_bps_day": -23.327,
+      "wf_sharpe_day": -0.7336,
+      "cpcv_gross_mean_bps_day": 0.331,
+      "cpcv_net_mean_bps_day": -19.727,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_logit_C2",
+      "cell": "C2",
+      "model": "logistic",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 40,
+      "n_tranches": 174961,
+      "wf_mean_bps_day": -14.777,
+      "wf_sharpe_day": -0.5076,
+      "cpcv_gross_mean_bps_day": -0.061,
+      "cpcv_net_mean_bps_day": -13.18,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_logit_C3",
+      "cell": "C3",
+      "model": "logistic",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 43198,
+      "wf_mean_bps_day": -27.166,
+      "wf_sharpe_day": -0.6605,
+      "cpcv_gross_mean_bps_day": -0.246,
+      "cpcv_net_mean_bps_day": -25.165,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_logit_C4",
+      "cell": "C4",
+      "model": "logistic",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 47133,
+      "wf_mean_bps_day": -16.454,
+      "wf_sharpe_day": -0.4979,
+      "cpcv_gross_mean_bps_day": -0.218,
+      "cpcv_net_mean_bps_day": -14.675,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_logit_C5",
+      "cell": "C5",
+      "model": "logistic",
+      "label": "fixed",
+      "threshold": 0.02,
+      "lookback_months": 24,
+      "n_features": 39,
+      "n_tranches": 48274,
+      "wf_mean_bps_day": -5.455,
+      "wf_sharpe_day": -0.1914,
+      "cpcv_gross_mean_bps_day": -0.412,
+      "cpcv_net_mean_bps_day": -4.832,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge-ni_C2",
+      "cell": "C2",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 40,
+      "n_tranches": 304695,
+      "wf_mean_bps_day": -14.724,
+      "wf_sharpe_day": -0.3775,
+      "cpcv_gross_mean_bps_day": 1.214,
+      "cpcv_net_mean_bps_day": -16.148,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge-ni_C4",
+      "cell": "C4",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 76180,
+      "wf_mean_bps_day": -17.38,
+      "wf_sharpe_day": -0.364,
+      "cpcv_gross_mean_bps_day": 0.057,
+      "cpcv_net_mean_bps_day": -18.342,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge-ni_C5",
+      "cell": "C5",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 76140,
+      "wf_mean_bps_day": -5.136,
+      "wf_sharpe_day": -0.1303,
+      "cpcv_gross_mean_bps_day": -0.46,
+      "cpcv_net_mean_bps_day": -6.159,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge-t_C2",
+      "cell": "C2",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0.0015,
+      "lookback_months": 12,
+      "n_features": 40,
+      "n_tranches": 149008,
+      "wf_mean_bps_day": -11.03,
+      "wf_sharpe_day": -0.3842,
+      "cpcv_gross_mean_bps_day": 1.17,
+      "cpcv_net_mean_bps_day": -8.915,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge-t_C4",
+      "cell": "C4",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0.0015,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 37832,
+      "wf_mean_bps_day": -12.724,
+      "wf_sharpe_day": -0.3827,
+      "cpcv_gross_mean_bps_day": 0.787,
+      "cpcv_net_mean_bps_day": -10.122,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge-t_C5",
+      "cell": "C5",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0.0015,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 57191,
+      "wf_mean_bps_day": -4.549,
+      "wf_sharpe_day": -0.1269,
+      "cpcv_gross_mean_bps_day": -0.501,
+      "cpcv_net_mean_bps_day": -5.515,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge_C1",
+      "cell": "C1",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 40,
+      "n_tranches": 304735,
+      "wf_mean_bps_day": -24.996,
+      "wf_sharpe_day": -0.6699,
+      "cpcv_gross_mean_bps_day": 2.14,
+      "cpcv_net_mean_bps_day": -26.28,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge_C2",
+      "cell": "C2",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 40,
+      "n_tranches": 304695,
+      "wf_mean_bps_day": -14.15,
+      "wf_sharpe_day": -0.3841,
+      "cpcv_gross_mean_bps_day": 1.317,
+      "cpcv_net_mean_bps_day": -15.441,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge_C3",
+      "cell": "C3",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 76190,
+      "wf_mean_bps_day": -31.229,
+      "wf_sharpe_day": -0.5623,
+      "cpcv_gross_mean_bps_day": 0.613,
+      "cpcv_net_mean_bps_day": -31.048,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge_C4",
+      "cell": "C4",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 76180,
+      "wf_mean_bps_day": -16.729,
+      "wf_sharpe_day": -0.3561,
+      "cpcv_gross_mean_bps_day": 0.094,
+      "cpcv_net_mean_bps_day": -17.67,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    },
+    {
+      "id": "A_ridge_C5",
+      "cell": "C5",
+      "model": "ridge",
+      "label": "fixed",
+      "threshold": 0,
+      "lookback_months": 12,
+      "n_features": 39,
+      "n_tranches": 76140,
+      "wf_mean_bps_day": -4.844,
+      "wf_sharpe_day": -0.1332,
+      "cpcv_gross_mean_bps_day": -0.529,
+      "cpcv_net_mean_bps_day": -5.972,
+      "cpcv_paths_positive": 0,
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item5": false,
+        "item6": false
+      }
+    }
+  ]
+}
