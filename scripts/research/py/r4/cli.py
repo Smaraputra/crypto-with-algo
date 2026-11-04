@@ -1082,6 +1082,24 @@ def main() -> None:
     ft_parser.add_argument("--out", required=True, help="Output directory (twins/ inside)")
     ft_parser.add_argument("--commit", required=True, help="Commit SHA")
 
+    fcr_parser = subparsers.add_parser("family-c-run", help="Run the 9 declared Phase 5 family C forecasts")
+    fcr_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fcr_parser.add_argument("--out", required=True, help="Output directory (runs/ inside)")
+    fcr_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fcp_parser = subparsers.add_parser("family-c-report", help="Write the Phase 5 family C report")
+    fcp_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fcp_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    fcp_parser.add_argument("--out", required=True, help="Output directory")
+    fcp_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fct_parser = subparsers.add_parser("family-c-twin", help="Run the family C finalist's no-refit twin")
+    fct_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fct_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    fct_parser.add_argument("--report", required=True, help="The family_c_report.json file")
+    fct_parser.add_argument("--out", required=True, help="Output directory (twins/ inside)")
+    fct_parser.add_argument("--commit", required=True, help="Commit SHA")
+
     args = parser.parse_args()
 
     if args.command == "c5-reproduce":
@@ -1364,6 +1382,15 @@ def main() -> None:
             phase5.report_family(args.ds, args.runs, args.out, args.commit)
         else:
             phase5.run_twins(args.ds, args.runs, args.report, args.out, args.commit)
+    elif args.command in ("family-c-run", "family-c-report", "family-c-twin"):
+        from r4 import phase5_c
+
+        if args.command == "family-c-run":
+            phase5_c.run_family_c(args.ds, args.out, args.commit)
+        elif args.command == "family-c-report":
+            phase5_c.report_family_c(args.ds, args.runs, args.out, args.commit)
+        else:
+            phase5_c.run_family_c_twin(args.ds, args.runs, args.report, args.out, args.commit)
 
 
 if __name__ == "__main__":

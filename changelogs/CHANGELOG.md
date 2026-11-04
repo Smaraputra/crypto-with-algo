@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Phase 5 family C declared (9 volatility forecasts)
+- Family C is declared in `scripts/research/py/r4/family_c.py`, which carries the declaration in its header, with entry points in `r4/phase5_c.py`. The owner chose to run C next, then D, then B.
+- Grid: three log-HAR forecasters of 1h, 4h and 1d realized variance from 5m bars (plain, with a continuous and jump split, and with funding, basis and BTC inputs). They are fit per coin and refit monthly with a 24-month lookback, and 3 of the cap of 12 are reserved.
+- Criteria, from M's registered constants:
+  - QLIKE and log-variance loss beat persistence and EWMA under paired Diebold-Mariano tests;
+  - 80% and 95% coverage within 2 points, by filtered historical simulation;
+  - at least 8 of 10 coins;
+  - the two stay-out flags.
+- The refit comparison is descriptive, and the holdout procedure is registered now.
+- Entry points: `cli family-c-run`, `family-c-report` and `family-c-twin`.
+- Ledger: `round4-family-c` 9 trials, counted separately from the 120 alpha-bearing trials, total 2,386, with the site pins.
+
 ### Added: Round 4 Phase 5 family A result (0 of 45 reach the bar)
 - Family A ran on the development data at `b011ea1e` (r4 digest `874bf209`), after its A5.1 reproduction matched every C4 run (`records/a5_reproduction_b011ea1e.json`). The run took from 2026-11-04 02:31 to 08:06 UTC.
 - Result (`records/family_a_result_b011ea1e.json`, with the per-configuration table and the report hashes):
