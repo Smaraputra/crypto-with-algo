@@ -847,7 +847,12 @@ def refit_comparison(config_rows: pd.DataFrame, twin_rows: pd.DataFrame, registr
             draws.append(float(drawn.mean()))
     n_empty = BOOTSTRAP_ITERATIONS - len(draws)
     if not draws:
-        return base | {"status": "inconclusive", "reason": "every bootstrap draw lacks a day with a value"}
+        return base | {
+            "status": "inconclusive",
+            "reason": "every bootstrap draw lacks a day with a value",
+            "n_empty_draws": int(n_empty),
+            "iterations": BOOTSTRAP_ITERATIONS,
+        }
     sorted_draws = np.sort(np.asarray(draws, dtype=np.float64))
     low = stats._percentile(sorted_draws, REFIT_ALPHA / 2.0)
     high = stats._percentile(sorted_draws, 1.0 - REFIT_ALPHA / 2.0)

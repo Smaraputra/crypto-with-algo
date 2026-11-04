@@ -44,6 +44,18 @@ def test_refit_bootstrap_runs_on_the_calendar_day_grid(monkeypatch: pytest.Monke
     assert res["point"] == pytest.approx(float(expected))
 
 
+def test_refit_bootstrap_all_empty_draws_are_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    days = np.array([90, 100], dtype=np.int64)
+    T = days * DAY
+    cfg = pd.DataFrame({"coin": "BTCUSDT", "T": T, "y": [1.0, 2.0], "f": [1.0, 1.0]})
+    twin = pd.DataFrame({"coin": "BTCUSDT", "T": T, "f": [2.0, 2.0]})
+    # Every draw lands on an empty grid day (position 5 of 11), so no draw has a value.
+    monkeypatch.setattr(stats, "stationary_bootstrap_indices", lambda n, b, rng=None: np.full(n, 5, dtype=np.int64))
+    res = family_c.refit_comparison(cfg, twin, 0)
+    assert res["status"] == "inconclusive"
+    assert res["n_empty_draws"] == family_c.BOOTSTRAP_ITERATIONS == res["iterations"]
+
+
 def _stay_two_days_apart() -> pd.DataFrame:
     # One forecast per day for 200 days, with a gap of days 150 to 159 (no window).
     days = np.array([d for d in range(200) if not 150 <= d < 160], dtype=np.int64)
