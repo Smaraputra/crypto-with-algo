@@ -98,6 +98,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/py/r4/family_c.py family_c(), the 9 declared Phase 5 family C volatility forecasts (counted separately from the 120 alpha-bearing trials, cap 12 with 3 reserved, .superpowers/sdd/round4/family-c-draft.md draft 5, declared by the final reviewed code commit)',
   },
+  {
+    id: 'round4-family-c-twin',
+    date: '2026-11-04',
+    trials: 1,
+    source:
+      'scripts/research/py/r4/family_c.py family_c_twin("C_LHAR-X_1h"), the no-refit twin of the family C finalist, run on D at c8f5849f in one of the 3 reserved slots (descriptive refit comparison, records/family_c_result_c8f5849f.json)',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */
