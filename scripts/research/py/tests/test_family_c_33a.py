@@ -101,6 +101,7 @@ def test_window_values_on_hand_numbers() -> None:
             "h": [max(a, b) + 0.5 for a, b in zip(opens, closes, strict=True)],
             "l": [min(a, b) - 0.5 for a, b in zip(opens, closes, strict=True)],
             "c": closes,
+            "v": 1.0,
         }
     )
     win, info = family_c.window_table(df, H)
@@ -431,20 +432,20 @@ def test_coverage_on_a_known_series() -> None:
 
 
 def test_coin_criteria_pass_and_each_way_to_fail() -> None:
-    good = family_c.coin_criteria(_coin_frame(3000, True, seed=1))
+    good = family_c.coin_criteria(_coin_frame(3000, True, seed=1), H)
     assert good["n_paired"] == 2999
     assert all(t["pass"] for t in good["tests"].values()), good["tests"]
     assert set(good["tests"]) == {"qlike_vs_persistence", "qlike_vs_ewma", "logmse_vs_persistence", "logmse_vs_ewma"}
     assert good["coverage"]["80"]["pass"] and good["coverage"]["95"]["pass"]
     assert good["pass"]
     # Coverage off by more than 2 points fails the coin even if the DM tests pass.
-    wide = family_c.coin_criteria(_coin_frame(3000, True, seed=1, lo=-1.2, hi=1.2))
+    wide = family_c.coin_criteria(_coin_frame(3000, True, seed=1, lo=-1.2, hi=1.2), H)
     assert not wide["coverage"]["80"]["pass"] and not wide["pass"]
     # A flat poor forecast fails the DM tests.
-    bad = family_c.coin_criteria(_coin_frame(3000, False, seed=1))
+    bad = family_c.coin_criteria(_coin_frame(3000, False, seed=1), H)
     assert not bad["pass"] and not bad["tests"]["qlike_vs_ewma"]["pass"]
     # No paired rows: nothing can pass.
-    empty = family_c.coin_criteria(_coin_frame(3000, True).assign(f=np.nan))
+    empty = family_c.coin_criteria(_coin_frame(3000, True).assign(f=np.nan), H)
     assert not empty["pass"] and empty["n_paired"] == 0
 
 
@@ -472,41 +473,108 @@ def test_eight_of_ten_rule() -> None:
     assert small["pass"] and small["n_coins"] == 3
 
 
-def _fin(passing: bool, qlike_by_coin: dict[str, float]) -> dict[str, Any]:
-    return {"pass": passing, "coin_qlike": qlike_by_coin}
+def _y_for(q: float) -> float:
+    """y >= 1 with QLIKE(y, 1) = q (bisection), so a paired row can carry a chosen QLIKE with f = 1."""
+    lo, hi = 1.0, 1e9
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        if mid - math.log(mid) - 1.0 < q:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def _paired_frame(by_coin: dict[str, dict[int, float]]) -> pd.DataFrame:
+    """Paired rows (one per coin and UTC day) with the QLIKE given for each (coin, day); NaN means no row."""
+    rows = [
+        {"coin": c, "T": d * DAY + 3 * H, "y": _y_for(q), "f": 1.0, "persistence": 1.0, "ewma": 1.0}
+        for c, days in by_coin.items()
+        for d, q in days.items()
+        if np.isfinite(q)
+    ]
+    return pd.DataFrame(rows, columns=["coin", "T", "y", "f", "persistence", "ewma"])
+
+
+def _fin(passing: bool, qlike_by_coin: dict[str, float], days: tuple[int, ...] = (0, 1)) -> tuple[dict, pd.DataFrame]:
+    verdict = {"pass": passing, "coin_qlike": qlike_by_coin}
+    return verdict, _paired_frame({c: dict.fromkeys(days, q) for c, q in qlike_by_coin.items()})
+
+
+def _split(items: dict[str, tuple[dict, pd.DataFrame]]) -> tuple[dict[str, dict], dict[str, pd.DataFrame]]:
+    return {k: v[0] for k, v in items.items()}, {k: v[1] for k, v in items.items()}
 
 
 def test_finalist_is_the_lowest_qlike_among_passing_with_ties_by_registry_order() -> None:
     order = ["a", "b", "c", "d"]
     coins = ("X", "Y")
-    v = {
-        "a": _fin(True, dict.fromkeys(coins, 0.30)),
-        "b": _fin(False, dict.fromkeys(coins, 0.10)),
-        "c": _fin(True, dict.fromkeys(coins, 0.20)),
-        "d": _fin(True, dict.fromkeys(coins, 0.20)),
-    }
-    assert family_c.pick_finalist(v, order) == "c"
-    assert family_c.pick_finalist(v, ["d", "c", "b", "a"]) == "d"
-    assert family_c.pick_finalist({k: {**x, "pass": False} for k, x in v.items()}, order) is None
-    v["c"]["coin_qlike"] = dict.fromkeys(coins, float("nan"))
+    v, p = _split(
+        {
+            "a": _fin(True, dict.fromkeys(coins, 0.30)),
+            "b": _fin(False, dict.fromkeys(coins, 0.10)),
+            "c": _fin(True, dict.fromkeys(coins, 0.20)),
+            "d": _fin(True, dict.fromkeys(coins, 0.20)),
+        }
+    )
+    assert family_c.pick_finalist(v, order, p) == "c"
+    assert family_c.pick_finalist(v, ["d", "c", "b", "a"], p) == "d"
+    assert family_c.pick_finalist({k: {**x, "pass": False} for k, x in v.items()}, order, p) is None
+    v2, p2 = _split({**{k: (v[k], p[k]) for k in v}, "c": _fin(True, dict.fromkeys(coins, float("nan")))})
     # A passing configuration without a finite mean on any coin leaves no common support: nothing can be ranked.
-    assert family_c.pick_finalist(v, order) is None
-    v["c"]["pass"] = False
-    assert family_c.pick_finalist(v, order) == "d"
+    assert family_c.pick_finalist(v2, order, p2) is None
+    v2["c"]["pass"] = False
+    assert family_c.pick_finalist(v2, order, p2) == "d"
+    # A single passing configuration is the finalist.
+    v3 = {k: {**x, "pass": k == "b"} for k, x in v.items()}
+    assert family_c.pick_finalist(v3, order, p) == "b"
 
 
 def test_finalist_is_ranked_on_the_common_coin_support() -> None:
     order = ["a", "b"]
-    v = {
-        "a": _fin(True, {"X": 0.10, "Y": 0.50, "Z": float("nan")}),
-        "b": _fin(True, {"X": 0.20, "Y": 0.30, "Z": 0.01}),
-    }
-    rank = family_c.finalist_ranking(v, order)
+    v, p = _split(
+        {
+            "a": _fin(True, {"X": 0.10, "Y": 0.50, "Z": float("nan")}),
+            "b": _fin(True, {"X": 0.20, "Y": 0.30, "Z": 0.01}),
+        }
+    )
+    rank = family_c.finalist_ranking(v, order, p)
     assert rank["support"] == ["X", "Y"]
+    assert rank["support_days"] == {"X": 2, "Y": 2}
     assert rank["scores"] == {"a": pytest.approx(0.30), "b": pytest.approx(0.25)}
     assert rank["finalist"] == "b"
     # On b's own three coins its mean is 0.17, on the shared coins 0.25: a (0.30) still loses either way here.
-    assert family_c.pick_finalist(v, order) == "b"
+    assert family_c.pick_finalist(v, order, p) == "b"
+
+
+def test_finalist_is_ranked_on_the_common_coin_and_day_support() -> None:
+    order = ["a", "b"]
+    easy, hard = 0.05, 0.30
+    # a starts earlier: days 0 to 4 are easy for it, days 5 to 9 are hard. b only has days 5 to 9 (QLIKE 0.20).
+    a_x = {d: easy if d < 5 else hard for d in range(10)}
+    b_x = {d: 0.20 for d in range(5, 10)}
+    # Coin Y: a covers days 0 to 4 and b covers days 5 to 9, so they share no day and Y leaves the support.
+    a_y = dict.fromkeys(range(5), 0.40)
+    b_y = dict.fromkeys(range(5, 10), 0.10)
+    pa = _paired_frame({"X": a_x, "Y": a_y})
+    pb = _paired_frame({"X": b_x, "Y": b_y})
+    v = {
+        "a": {"pass": True, "coin_qlike": {"X": float(np.mean(list(a_x.values()))), "Y": 0.40}},
+        "b": {"pass": True, "coin_qlike": {"X": 0.20, "Y": 0.10}},
+    }
+    rank = family_c.finalist_ranking(v, order, {"a": pa, "b": pb})
+    assert rank["support"] == ["X"] and rank["support_days"] == {"X": 5}
+    assert rank["scores"]["a"] == pytest.approx(hard) and rank["scores"]["b"] == pytest.approx(0.20)
+    assert rank["finalist"] == "b"
+    # Ranked on each coin's own mean over the shared coin (the coin-only rule) a would win: 0.175 against 0.20.
+    assert v["a"]["coin_qlike"]["X"] < v["b"]["coin_qlike"]["X"]
+    # No shared day on any coin among two passing configurations: no finalist. A single one is still the finalist.
+    only_y = family_c.finalist_ranking(v, order, {"a": _paired_frame({"Y": a_y}), "b": _paired_frame({"Y": b_y})})
+    assert only_y["finalist"] is None and only_y["support"] == []
+    solo = {**v, "b": {**v["b"], "pass": False}}
+    assert family_c.finalist_ranking(solo, order, {"a": pa, "b": pb})["finalist"] == "a"
+    # Ties by registry order on the support.
+    same = family_c.finalist_ranking(v, ["b", "a"], {"a": _paired_frame({"X": b_x}), "b": pb})
+    assert same["scores"]["a"] == pytest.approx(same["scores"]["b"]) and same["finalist"] == "b"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -765,7 +833,9 @@ def test_end_to_end_run_writes_forecasts_and_receipts(patched: dict[str, Any], e
         assert receipt["config_hash"] == cli.config_hash_of(config)
         assert receipt["commit"] == COMMIT and receipt["source_sha256"] == cli.source_digest()
         assert receipt["dataset_hash"] == manifest["datasetHash"]
-        assert {"incomplete", "past_partition_end"} == set(receipt["dropped_windows"])
+        assert {"incomplete", "past_partition_end", "zero_volume"} == set(receipt["dropped_windows"])
+        assert receipt["dropped_windows"]["zero_volume"] == 0
+        assert set(receipt["zero_volume_by_coin"]) == set(SYMS)
         assert "untrained_coin_folds" in receipt and receipt["runtime_s"] >= 0
         fc = pd.read_parquet(d / "forecasts.parquet")
         assert list(fc.columns) == family_c.FORECAST_COLUMNS
@@ -802,10 +872,9 @@ def test_end_to_end_report(patched: dict[str, Any], e2e_run: dict[str, Any]) -> 
     }
     assert cfg["coins"]["BTCUSDT"]["n_paired"] > 500
     assert not report["configurations"]["C_LHAR_1d"]["pass"]
-    if report["finalist"] is None:
-        assert report["stay_out"] is None and report["h_read_allowed"] is False
-    else:
-        assert report["finalist"]["id"] in report["passing"]
+    # Pure synthetic noise passes no configuration on this panel (the finalist path has its own test in 33c).
+    assert report["passing"] == []
+    assert report["finalist"] is None and report["stay_out"] is None and report["h_read_allowed"] is False
 
 
 def test_run_is_resumable_and_refuses_a_mismatch(
@@ -908,7 +977,7 @@ def test_twin_runs_only_for_a_finalist_and_binds_the_report(
     monkeypatch.setattr(
         family_c,
         "finalist_ranking",
-        lambda verdicts, order: {"finalist": forced["id"], "support": list(SYMS), "scores": {}},
+        lambda verdicts, order, paired: {"finalist": forced["id"], "support": list(SYMS), "scores": {}},
     )
     fin_file = tmp_path / "fin.json"
     fin_file.write_text(json.dumps(report | {"finalist": {"id": "C_LHAR_1h", "registry_index": 0}}))

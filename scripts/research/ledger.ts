@@ -96,7 +96,7 @@ export const LEDGER: readonly LedgerEntry[] = [
     date: '2026-11-04',
     trials: 9,
     source:
-      'scripts/research/py/r4/family_c.py family_c(), the 9 declared Phase 5 family C volatility forecasts (counted separately from the 120 alpha-bearing trials, cap 12 with 3 reserved, .superpowers/sdd/round4/family-c-draft.md draft 3)',
+      'scripts/research/py/r4/family_c.py family_c(), the 9 declared Phase 5 family C volatility forecasts (counted separately from the 120 alpha-bearing trials, cap 12 with 3 reserved, .superpowers/sdd/round4/family-c-draft.md draft 5, declared by the final reviewed code commit)',
   },
 ];
 

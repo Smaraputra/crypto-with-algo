@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The refit comparison is descriptive, and the holdout procedure is registered now.
 - Entry points: `cli family-c-run`, `family-c-report` and `family-c-twin`.
 - Ledger: `round4-family-c` 9 trials, counted separately from the 120 alpha-bearing trials, total 2,386, with the site pins.
+- Review fixes before any D run (Codex, then Opus and agy, declaration draft 5):
+  - a 5m bar with zero volume is an exchange placeholder and voids its window, counted in the receipts;
+  - the finalist is ranked on common coin and day support;
+  - a long-lag Diebold-Mariano p is reported, never gating;
+  - receipts carry the reproduction inputs and a forecasts hash, and the twin binds the report's universe and coin minimum;
+  - the H terms are registered: stay-out seed 12,200,000 + index, and no inconclusive state (owner decision);
+  - the owner kept stay-out condition 2 as declared, and its consequence is registered: a 1d finalist cannot flag a dead market, and a 4h finalist almost surely cannot, so either is blocked from H.
 
 ### Added: Round 4 Phase 5 family A result (0 of 45 reach the bar)
 - Family A ran on the development data at `b011ea1e` (r4 digest `874bf209`), after its A5.1 reproduction matched every C4 run (`records/a5_reproduction_b011ea1e.json`). The run took from 2026-11-04 02:31 to 08:06 UTC.

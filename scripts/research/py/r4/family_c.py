@@ -1,13 +1,16 @@
 """Phase 5 family C: the 9 declared volatility forecasts, their criteria and the stay-out flag (A5.1).
 
 FAMILY C DECLARATION (2026-11-04, declared in the commit that adds this module and the ledger entry round4-family-c,
-before any family C configuration reads D). Draft 4 of .superpowers/sdd/round4/family-c-draft.md. Nothing here reads
+before any family C configuration reads D). Draft 5 of .superpowers/sdd/round4/family-c-draft.md. Nothing here reads
 data. Family C trades nothing: it is judged by M's family C criteria and stay-out flag (BAR_FORECAST, STAY_OUT,
 STAY_OUT_BLOCK_DAYS in method.py).
 - Windows W in {1h, 4h, 1d}, aligned to UTC (1h at every hour, 4h at 00, 04, ..., 20, 1d at 00:00). A window [T, T + W)
   needs exactly the n_W = W / 5m perp 5m open times T, T + 5m, ..., T + W - 5m (an off-grid open time voids it), else
-  it is dropped and counted. A window with t1 = T + W at or past the partition end (DEV_END on D, H_END on H) is
-  dropped. Returns follow the rv5 convention of features.py (r_1 = log(c_1 / o_1), then close to close). RV = sum r^2,
+  it is dropped and counted. A 5m bar whose volume is zero or not finite is missing (an exchange placeholder): it voids
+  its window like an off-grid open time (no target, no component value), the receipt counts such bars and windows per
+  coin, and the 7d and 30d spans then drop up to 30 days of forecasts per coin after each. A window with t1 = T + W
+  at or past the partition end (DEV_END on D, H_END on H) is dropped. Returns follow the rv5 convention of
+  features.py (r_1 = log(c_1 / o_1), then close to close). RV = sum r^2,
   BPV = (pi / 2) sum_{i>=2} |r_i| |r_(i-1)|, R = log(c_last / o_first), G = log(max high / min low).
 - The forecast for [T, T + W) is made at T from complete windows that ended at or before T. X_prev is the window
   [T - W, T), X_1d, X_7d and X_30d are means over the trailing 1, 7 and 30 days (each needs every window of its span,
@@ -27,9 +30,12 @@ STAY_OUT_BLOCK_DAYS in method.py).
   (log y' - log f')^2. Each is tested against persistence and EWMA by a one-sided Diebold-Mariano test (Newey-West lag
   1, Bartlett weights, p = Phi(statistic) below 0.05). Coverage of R by filtered historical simulation, from each
   fold's training z = R / sqrt(f_fit) (numpy linear quantiles at 0.10, 0.90, 0.025 and 0.975), within 2 points of 80%
-  and of 95%. A coin passes all six, a configuration passes on at least 8 of 10 coins. The finalist is the passing
-  configuration with the lowest mean QLIKE over the coins where every passing configuration has a finite mean QLIKE
-  (their common support), each coin's mean taken on paired rows, ties by registry order.
+  and of 95%. A coin passes all six, a configuration passes on at least 8 of 10 coins. Descriptive, never gating: beside
+  each gated p a long-lag DM p (Bartlett lags spanning 10 calendar days: 240 at 1h, 60 at 4h, 10 at 1d). The finalist is
+  the passing configuration with the lowest score on common (coin, UTC day) support: the coins where every passing
+  configuration has a finite mean QLIKE, for each the UTC days on which every passing configuration has a paired row,
+  the score the mean over those coins of the coin's mean QLIKE on its paired rows in those days. Ties by registry
+  order, a single passing configuration is the finalist, an empty support among two or more gives no finalist.
 - Stay-out flag for the finalist. Flag 1: a window is eligible when at least 90 days have passed since the coin's first
   forecast and the coin has a forecast in [T - 90d, T). An eligible window is flagged when sqrt(f) exceeds the 90th
   percentile of the coin's sqrt(f) in [T - 90d, T). Ineligible windows enter neither group. The statistic is the pooled
@@ -39,25 +45,36 @@ STAY_OUT_BLOCK_DAYS in method.py).
   without flagged or without unflagged windows fail, with no redraw. Flag 2: sqrt(8 / pi) sqrt(f) below 3 round trips
   (2 x (0.0005 + the coin's A1.1 slippage)), and at least 60% of flagged windows, pooled, with G below the same
   bound. No flagged window means not met. Both must pass. A failed flag blocks the finalist's H read and never selects
-  another finalist.
+  another finalist. Registered prediction (owner 2026-11-04, keep as declared): flag 2 fires only below an annualised
+  forecast volatility of 21.1% to 35.2% at 1h, 10.6% to 17.6% at 4h and 4.3% to 7.2% at 1d, so a 1d finalist fails
+  condition 2 with no flagged window, a 4h finalist almost surely does, and either is blocked from H.
 - Refit question (descriptive): a no-refit twin of the finalist (fit once on all windows before the first refit),
   and a block bootstrap over the full calendar-day grid (a day's value the mean paired QLIKE difference twin minus
   finalist, a day with no paired window contributing nothing, the statistic the mean over drawn days with a value, a
   draw with none left out and counted, 90% interval, mean block 10 days, 1,000 iterations, seed 7,100,000 + the
   registry index). It cannot authorize live refitting. An untrainable twin is inconclusive, and so is a comparison
   whose every draw is empty.
-- Holdout H: registered, not implemented. run_holdout raises until the owner signs a finalist lock.
+- Holdout H: registered, not implemented. run_holdout raises until the owner signs a finalist lock. The H pass is the
+  family C criteria on at least 8 of the 10 coins and both stay-out conditions as on D (condition 1 with seed
+  12,200,000 + the registry index), without a power or inconclusive state (owner 2026-11-04, "No inconclusive state"):
+  an H fail is a fail. Fit on windows with t1 before DEV_END minus 30 days, no refit inside H, 30-day component and
+  90-day forecast warm-ups.
+- Regime states are not family C trials: flag 1 is the regime state family C delivers, a later regime model is a new
+  trial.
 - Seeds: every configuration carries joint_shift_seed 12,000,000 + its registry index (unused, A5.1), the stay-out
-  bootstrap uses 12,100,000 + index and the refit bootstrap 7,100,000 + index. No other randomness. No configuration,
-  window, model, criterion, seed or rule changes after family C's first D outcome, except as M's re-run after a code
-  fix. The 3 reserved slots hold the no-refit twin and re-runs. Ledger: round4-family-c, 9 trials, counted separately.
-- Predictions: PREDICTIONS below (M's, and two diagnostics).
+  bootstrap uses 12,100,000 + index on D and 12,200,000 + index on H, and the refit bootstrap 7,100,000 + index. No
+  other randomness. No configuration, window, model, criterion, seed or rule changes after family C's first D outcome,
+  except as M's re-run after a code fix. The 3 reserved slots hold the no-refit twin and re-runs. Ledger:
+  round4-family-c, 9 trials, counted separately.
+- Predictions: PREDICTIONS below (M's, two diagnostics, and the registered flag 2 consequence).
+- Receipts carry cli.reproduction_inputs(), the zero-volume counts and the sha256 of forecasts.parquet.
 """
 
 from __future__ import annotations
 
 import copy
 import math
+from functools import reduce
 from typing import Any
 
 import numpy as np
@@ -73,6 +90,7 @@ LOOKBACK_MONTHS = 24
 MIN_TRAIN_WINDOWS = 500
 JOINT_SHIFT_SEED_BASE = 12_000_000
 STAY_OUT_SEED_BASE = 12_100_000
+STAY_OUT_H_SEED_BASE = 12_200_000
 REFIT_SEED_BASE = 7_100_000
 LOG_FLOOR = 1e-12
 BOOTSTRAP_ITERATIONS = 1000
@@ -85,6 +103,7 @@ BAR_MS = 300_000
 DAY_MS = 86_400_000
 BTC = "BTCUSDT"
 COVERAGE_QUANTILES = (0.10, 0.90, 0.025, 0.975)
+LONG_LAG_DAYS = 10
 
 WINDOWS: dict[str, int] = {"1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 MODELS: tuple[str, ...] = ("LHAR", "LHAR-CJ", "LHAR-X")
@@ -94,6 +113,13 @@ PREDICTIONS: dict[str, Any] = {
     "diagnostics": {
         "lhar_beats_benchmarks_on_qlike_at_1h_and_4h_on_most_coins": True,
         "coverage_most_likely_to_fail": "1h",
+    },
+    "flag2": {
+        "registered_by": "owner decision 2026-11-04 (keep as declared)",
+        "fires_below_annualised_volatility": {"1h": "21.1% to 35.2%", "4h": "10.6% to 17.6%", "1d": "4.3% to 7.2%"},
+        "1d_finalist": "fails stay-out condition 2 with no flagged window",
+        "4h_finalist": "almost surely fails stay-out condition 2",
+        "consequence": "either is blocked from H, without a replacement",
     },
 }
 
@@ -153,26 +179,34 @@ def window_table(
     A window is [T, T + W), T a multiple of W. Its bars are those with open time in it, exactly the n_W = W / 5m
     grid times T, T + 5m, ... are required (an off-grid open time voids the window). A
     window whose t1 = T + W is at or past `end_ms` is dropped. The rv5 return convention of features.py is used.
+
+    A 5m bar whose volume `v` is zero or not finite is missing (an exchange placeholder, not a trade): it voids its
+    window like an off-grid open time. A non-empty frame without a `v` column raises ValueError. `info` counts the
+    zero-volume bars in the frame (before the partition-end cut) and the grid windows they void.
     """
     n_w = window_ms // BAR_MS
     cols = ["RV", "BPV", "R", "G"]
     empty = pd.DataFrame(columns=cols, index=pd.Index([], dtype=np.int64, name="T"), dtype=np.float64)
-    info = {"n_grid": 0, "n_incomplete": 0, "n_partition_end": 0}
+    info = {"n_grid": 0, "n_incomplete": 0, "n_partition_end": 0, "n_zero_volume_bars": 0, "n_zero_volume_windows": 0}
     if bars_5m is None or len(bars_5m) == 0:
         return empty, info
+    if "v" not in bars_5m.columns:
+        raise ValueError("the 5m frame has no volume column 'v': a zero-volume bar cannot be detected")
     df = bars_5m.sort_values("t").drop_duplicates("t", keep="first")
     t = df["t"].to_numpy(dtype=np.int64)
     o = df["o"].to_numpy(dtype=np.float64)
     h = df["h"].to_numpy(dtype=np.float64)
     lo = df["l"].to_numpy(dtype=np.float64)
     c = df["c"].to_numpy(dtype=np.float64)
+    v = df["v"].to_numpy(dtype=np.float64)
+    zero_volume = ~(np.isfinite(v) & (v > 0.0))
     wid = t // window_ms
     first = (t % window_ms) == 0
     prev_c = np.concatenate(([np.nan], c[:-1]))
     with np.errstate(all="ignore"):
         r = np.where(first, np.log(c / o), np.log(c / prev_c))
         a = np.where(first, 0.0, np.abs(r) * np.abs(np.concatenate(([0.0], r[:-1]))))
-    bad = ~np.isfinite(r) | ((t % BAR_MS) != 0)
+    bad = ~np.isfinite(r) | ((t % BAR_MS) != 0) | zero_volume
     frame = pd.DataFrame(
         {
             "wid": wid,
@@ -207,6 +241,8 @@ def window_table(
     else:
         past_end = np.zeros(len(grid), dtype=bool)
     info["n_grid"] = int(len(grid))
+    info["n_zero_volume_bars"] = int(zero_volume.sum())
+    info["n_zero_volume_windows"] = int(np.unique(wid[zero_volume]).size)
     info["n_incomplete"] = int((~valid).sum())
     info["n_partition_end"] = int((valid & past_end).sum())
     keep = valid & ~past_end
@@ -478,6 +514,9 @@ def compute_forecasts(
     counts: dict[str, Any] = {
         "windows_incomplete": 0,
         "windows_past_partition_end": 0,
+        "zero_volume_bars": 0,
+        "zero_volume_windows": 0,
+        "zero_volume_by_coin": {},
         "untrained_coin_folds": 0,
         "untrained_by_coin": {},
         "n_folds": len(bounds),
@@ -485,6 +524,12 @@ def compute_forecasts(
     for sym, p in prep.items():
         counts["windows_incomplete"] += int(p["info"]["n_incomplete"])
         counts["windows_past_partition_end"] += int(p["info"]["n_partition_end"])
+        counts["zero_volume_bars"] += int(p["info"]["n_zero_volume_bars"])
+        counts["zero_volume_windows"] += int(p["info"]["n_zero_volume_windows"])
+        counts["zero_volume_by_coin"][sym] = {
+            "bars": int(p["info"]["n_zero_volume_bars"]),
+            "windows": int(p["info"]["n_zero_volume_windows"]),
+        }
         win = p["win"]
         if win.empty:
             continue
@@ -599,8 +644,13 @@ def coverage(df: pd.DataFrame, level: str) -> dict[str, Any]:
     return {"n": n, "coverage": float(np.mean((r[ok] >= lo[ok]) & (r[ok] <= hi[ok])))}
 
 
-def coin_criteria(df: pd.DataFrame) -> dict[str, Any]:
-    """The six tests of one coin on its walk-forward rows (M, BAR_FORECAST)."""
+def coin_criteria(df: pd.DataFrame, window_ms: int) -> dict[str, Any]:
+    """The six tests of one coin on its walk-forward rows (M, BAR_FORECAST).
+
+    Beside each gated DM test the descriptive long-lag statistic, p and lag (Bartlett lags spanning LONG_LAG_DAYS
+    calendar days) are recorded as stat_long, p_long and lag_long. They never enter `pass`.
+    """
+    long_lag = max(1, LONG_LAG_DAYS * DAY_MS // int(window_ms))
     bar = method.BAR_FORECAST
     p_max = float(bar["dm_p_max"])
     tol = float(bar["coverage_tolerance"])
@@ -615,6 +665,8 @@ def coin_criteria(df: pd.DataFrame) -> dict[str, Any]:
             lb = loss(rows["y"], rows[bcol]) if len(rows) else np.empty(0)
             res = dm_test(lc - lb)
             res["pass"] = bool(np.isfinite(res["p"]) and res["p"] < p_max)
+            long = dm_test(lc - lb, long_lag)
+            res.update({"stat_long": long["stat"], "p_long": long["p"], "lag_long": long_lag})
             tests[f"{lname}_vs_{bname}"] = res
     cov_ok = True
     covs: dict[str, Any] = {}
@@ -653,38 +705,77 @@ def config_verdict(
     }
 
 
-def finalist_ranking(verdicts: dict[str, dict[str, Any]], order: list[str]) -> dict[str, Any]:
-    """Rank the passing configurations on their common coin support (declared).
+def finalist_ranking(
+    verdicts: dict[str, dict[str, Any]], order: list[str], paired: dict[str, pd.DataFrame]
+) -> dict[str, Any]:
+    """Rank the passing configurations on their common (coin, UTC day) support (declared).
 
-    The support is the coins where every passing configuration has a finite mean QLIKE (verdict["coin_qlike"]). A
-    configuration's score is the mean over the support of its coin means. Lowest score wins, ties by registry order.
+    The coins are those where every passing configuration has a finite mean QLIKE (verdict["coin_qlike"]). For each such
+    coin the days are the UTC days (floor(T / 86,400,000)) on which every passing configuration has at least one paired
+    row (`paired[id]`, the rows of paired_rows), and a coin without a shared day leaves the support. A configuration's
+    score is the mean over the support coins of its mean QLIKE on its paired rows in those days. Lowest score wins, ties
+    by registry order. A single passing configuration is the finalist, and an empty support among two or more gives no
+    finalist. The output records the support coins and the number of support days per coin.
     """
     passing = [cid for cid in order if cid in verdicts and verdicts[cid]["pass"]]
-    out: dict[str, Any] = {"finalist": None, "support": [], "scores": {}}
+    out: dict[str, Any] = {"finalist": None, "support": [], "support_days": {}, "scores": {}}
     if not passing:
         return out
     coins = sorted(set().union(*(verdicts[cid].get("coin_qlike", {}).keys() for cid in passing)))
-    support = [
+    candidates = [
         c
         for c in coins
         if all(np.isfinite(verdicts[cid].get("coin_qlike", {}).get(c, float("nan"))) for cid in passing)
     ]
-    out["support"] = support
+    per: dict[str, dict[str, tuple[np.ndarray, np.ndarray]]] = {}
+    for cid in passing:
+        df = paired.get(cid)
+        per[cid] = {}
+        if df is None or len(df) == 0:
+            continue
+        frame = pd.DataFrame(
+            {
+                "coin": df["coin"].to_numpy(),
+                "day": df["T"].to_numpy(dtype=np.int64) // DAY_MS,
+                "ql": qlike(df["y"], df["f"]),
+            }
+        )
+        for coin, g in frame.groupby("coin", sort=True):
+            per[cid][str(coin)] = (g["day"].to_numpy(dtype=np.int64), g["ql"].to_numpy(dtype=np.float64))
+    support: list[str] = []
+    days_by_coin: dict[str, np.ndarray] = {}
+    for coin in candidates:
+        if any(coin not in per[cid] for cid in passing):
+            continue
+        shared = reduce(np.intersect1d, (np.unique(per[cid][coin][0]) for cid in passing))
+        if len(shared):
+            support.append(coin)
+            days_by_coin[coin] = shared
+    if support:
+        out["support"] = support
+        out["support_days"] = {c: int(len(days_by_coin[c])) for c in support}
+        out["scores"] = {
+            cid: float(
+                np.mean([float(per[cid][c][1][np.isin(per[cid][c][0], days_by_coin[c])].mean()) for c in support])
+            )
+            for cid in passing
+        }
+    if len(passing) == 1:
+        out["finalist"] = passing[0]
+        return out
     if not support:
         return out
-    scores = {cid: float(np.mean([verdicts[cid]["coin_qlike"][c] for c in support])) for cid in passing}
-    out["scores"] = scores
     best: str | None = None
     for cid in passing:
-        if best is None or scores[cid] < scores[best]:
+        if best is None or out["scores"][cid] < out["scores"][best]:
             best = cid
     out["finalist"] = best
     return out
 
 
-def pick_finalist(verdicts: dict[str, dict[str, Any]], order: list[str]) -> str | None:
-    """The passing configuration with the lowest mean QLIKE on the common support, ties by registry order."""
-    return finalist_ranking(verdicts, order)["finalist"]  # type: ignore[no-any-return]
+def pick_finalist(verdicts: dict[str, dict[str, Any]], order: list[str], paired: dict[str, pd.DataFrame]) -> str | None:
+    """The passing configuration with the lowest score on the common (coin, day) support, ties by registry order."""
+    return finalist_ranking(verdicts, order, paired)["finalist"]  # type: ignore[no-any-return]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -692,7 +783,7 @@ def pick_finalist(verdicts: dict[str, dict[str, Any]], order: list[str]) -> str 
 # ---------------------------------------------------------------------------------------------------------------------
 
 
-def trailing_vol_flags(t: np.ndarray, f: np.ndarray, window_ms: int) -> tuple[np.ndarray, np.ndarray]:
+def trailing_vol_flags(t: np.ndarray, f: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Flag 1 for one coin. Returns (eligible, flagged) per row, rows sorted by T.
 
     A row is eligible when at least 90 days have passed since the coin's first forecast and the coin has a forecast in
@@ -724,18 +815,18 @@ def stay_out_flag(rows: pd.DataFrame, window_ms: int, registry_index: int) -> di
     """The two stay-out conditions for the finalist's forecasts (columns coin, T, y, f, G). Both must pass."""
     df = rows[np.isfinite(rows[["y", "f", "G"]].to_numpy(dtype=np.float64)).all(axis=1)].sort_values(["coin", "T"])
     df = df.reset_index(drop=True)
-    flag1 = _flag1(df, window_ms, registry_index)
+    flag1 = _flag1(df, registry_index)
     flag2 = _flag2(df)
     return {"flag1": flag1, "flag2": flag2, "pass": bool(flag1["pass"] and flag2["pass"])}
 
 
-def _flag1(df: pd.DataFrame, window_ms: int, registry_index: int) -> dict[str, Any]:
+def _flag1(df: pd.DataFrame, registry_index: int) -> dict[str, Any]:
     seed = STAY_OUT_SEED_BASE + int(registry_index)
     res: dict[str, Any] = {"seed": seed, "pass": False}
     parts = []
     for _coin, g in df.groupby("coin", sort=True):
         t = g["T"].to_numpy(dtype=np.int64)
-        eligible, flagged = trailing_vol_flags(t, g["f"].to_numpy(dtype=np.float64), window_ms)
+        eligible, flagged = trailing_vol_flags(t, g["f"].to_numpy(dtype=np.float64))
         parts.append(
             pd.DataFrame(
                 {

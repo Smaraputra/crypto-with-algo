@@ -3,7 +3,7 @@
 run_family_c runs the 9 declared volatility forecasts on the dataset, report_family_c writes the family's criteria,
 verdicts, finalist and stay-out flag, and run_family_c_twin runs the finalist's no-refit twin and writes the
 descriptive refit comparison. Each is reached through cli.main (family-c-run, family-c-report, family-c-twin). The
-rules are those of .superpowers/sdd/round4/family-c-draft.md (draft 4) and the declaration in r4/family_c.py.
+rules are those of .superpowers/sdd/round4/family-c-draft.md (draft 5) and the declaration in r4/family_c.py.
 """
 
 from __future__ import annotations
@@ -45,6 +45,19 @@ def _write_json(path: Path, obj: Any) -> None:
     path.write_text(json.dumps(_clean(obj), indent=2), encoding="utf-8")
 
 
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _check_forecasts(receipt: dict[str, Any], run_dir: Path, where: str) -> None:
+    """The run's forecasts.parquet must exist and hash to the receipt's forecasts_sha256."""
+    file = run_dir / "forecasts.parquet"
+    if not file.is_file():
+        raise ValueError(f"{where} has no forecasts.parquet beside it")
+    if receipt.get("forecasts_sha256") != _file_sha256(file):
+        raise ValueError(f"{where}: forecasts.parquet does not match the receipt's forecasts_sha256")
+
+
 def _check_receipt(
     receipt: dict[str, Any], config: dict[str, Any], where: str, commit: str, digest: str, dataset_hash: str
 ) -> None:
@@ -77,8 +90,7 @@ def _run_or_reuse(
     if receipt_file.exists():
         receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
         _check_receipt(receipt, config, str(receipt_file), commit, digest, dataset_hash)
-        if not (run_dir / "forecasts.parquet").is_file():
-            raise ValueError(f"{receipt_file} has no forecasts.parquet beside it")
+        _check_forecasts(receipt, run_dir, str(receipt_file))
         return receipt  # type: ignore[no-any-return]
     started = time.monotonic()
     window = str(config["window"])
@@ -98,12 +110,16 @@ def _run_or_reuse(
         "commit": commit,
         "source_sha256": cli.source_digest(),
         "dataset_hash": dataset_hash,
+        **cli.reproduction_inputs(),
+        "forecasts_sha256": _file_sha256(run_dir / "forecasts.parquet"),
         "n_forecast_rows": int((forecasts["f"].notna()).sum()),
         "n_rows": int(len(forecasts)),
         "dropped_windows": {
             "incomplete": counts["windows_incomplete"],
             "past_partition_end": counts["windows_past_partition_end"],
+            "zero_volume": counts["zero_volume_windows"],
         },
+        "zero_volume_by_coin": counts["zero_volume_by_coin"],
         "untrained_coin_folds": counts["untrained_coin_folds"],
         "untrained_by_coin": counts["untrained_by_coin"],
         "n_folds": counts["n_folds"],
@@ -154,6 +170,7 @@ def check_complete(
             raise ValueError(f"{cid} is a {receipt.get('kind')!r} receipt, not a trial")
         if receipt.get("config_hash") != cli.config_hash_of(config):
             raise ValueError(f"{cid} was run with a configuration other than its registry entry")
+        _check_forecasts(receipt, runs / cid, cid)
         for key, want in (("commit", commit), ("source_sha256", source_sha256), ("dataset_hash", dataset_hash)):
             if want is not None and receipt.get(key) != want:
                 raise ValueError(f"{cid} has {key} {receipt.get(key)!r}, not {want!r}")
@@ -175,13 +192,16 @@ def _evaluate(
     """Per-coin criteria, verdicts and the finalist ranking from the runs (shared by the report and the twin check)."""
     per_config: dict[str, Any] = {}
     verdicts: dict[str, dict[str, Any]] = {}
+    paired: dict[str, pd.DataFrame] = {}
     for config in configs:
         fc = pd.read_parquet(runs / config["id"] / "forecasts.parquet")
-        coins = {str(sym): family_c.coin_criteria(g) for sym, g in fc.groupby("coin", sort=True)}
+        wms = family_c.WINDOWS[str(config["window"])]
+        coins = {str(sym): family_c.coin_criteria(g, wms) for sym, g in fc.groupby("coin", sort=True)}
+        paired[config["id"]] = family_c.paired_rows(fc)
         verdict = family_c.config_verdict(coins, uni, symbols_min)
         verdicts[config["id"]] = verdict
         per_config[config["id"]] = {"window": config["window"], "model": config["model"], **verdict, "coins": coins}
-    ranking = family_c.finalist_ranking(verdicts, [c["id"] for c in configs])
+    ranking = family_c.finalist_ranking(verdicts, [c["id"] for c in configs], paired)
     return per_config, verdicts, ranking
 
 
@@ -219,6 +239,7 @@ def report_family_c(
             "id": finalist,
             "registry_index": index,
             "support": ranking["support"],
+            "support_days": ranking["support_days"],
             "scores": ranking["scores"],
         }
         fc = pd.read_parquet(runs / finalist / "forecasts.parquet")
@@ -278,6 +299,11 @@ def run_family_c_twin(
         raise ValueError("the report's receipts_sha256 does not match the receipts in the runs directory")
     configs = family_c.family_c()
     uni = tuple(method.UNIVERSE if universe is None else universe)
+    need = int(method.BAR_FORECAST["symbols_min"] if symbols_min is None else symbols_min)
+    if report.get("universe") != list(uni):
+        raise ValueError(f"the report's universe {report.get('universe')!r} differs from the one in hand {list(uni)!r}")
+    if report.get("symbols_min") != need:
+        raise ValueError(f"the report's symbols_min {report.get('symbols_min')!r} differs from {need!r} in hand")
     computed = _evaluate(runs, configs, uni, symbols_min)[2]["finalist"]
     named = (report.get("finalist") or {}).get("id")
     if named != computed:

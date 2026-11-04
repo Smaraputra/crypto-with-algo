@@ -78,11 +78,11 @@ def test_flag1_bootstrap_runs_on_the_calendar_day_grid(monkeypatch: pytest.Monke
 
 def test_flag1_eligibility_needs_ninety_days_and_a_forecast_in_the_lookback() -> None:
     t = np.array([0, 100], dtype=np.int64) * DAY
-    eligible, flagged = family_c.trailing_vol_flags(t, np.array([1.0, 4.0]), DAY)
+    eligible, flagged = family_c.trailing_vol_flags(t, np.array([1.0, 4.0]))
     assert eligible.tolist() == [False, False] and flagged.tolist() == [False, False]
     # Day 100 with a forecast on day 50 in the lookback is eligible and flagged.
     t2 = np.array([0, 50, 100], dtype=np.int64) * DAY
-    eligible, flagged = family_c.trailing_vol_flags(t2, np.array([1.0, 1.0, 4.0]), DAY)
+    eligible, flagged = family_c.trailing_vol_flags(t2, np.array([1.0, 1.0, 4.0]))
     assert eligible.tolist() == [False, False, True] and flagged.tolist() == [False, False, True]
 
 
@@ -98,7 +98,7 @@ def test_window_needs_the_exact_five_minute_grid() -> None:
     c = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.001, 24)))
     o = np.concatenate(([100.0], c[:-1]))
     df = pd.DataFrame(
-        {"t": np.arange(24) * BAR, "o": o, "h": np.maximum(o, c) + 0.1, "l": np.minimum(o, c) - 0.1, "c": c}
+        {"t": np.arange(24) * BAR, "o": o, "h": np.maximum(o, c) + 0.1, "l": np.minimum(o, c) - 0.1, "c": c, "v": 1.0}
     )
     win, info = family_c.window_table(df, H)
     assert np.isfinite(win["RV"]).all() and info["n_incomplete"] == 0
