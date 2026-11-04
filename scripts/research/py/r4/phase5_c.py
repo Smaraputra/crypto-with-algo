@@ -3,7 +3,7 @@
 run_family_c runs the 9 declared volatility forecasts on the dataset, report_family_c writes the family's criteria,
 verdicts, finalist and stay-out flag, and run_family_c_twin runs the finalist's no-refit twin and writes the
 descriptive refit comparison. Each is reached through cli.main (family-c-run, family-c-report, family-c-twin). The
-rules are those of .superpowers/sdd/round4/family-c-draft.md (draft 3) and the declaration in r4/family_c.py.
+rules are those of .superpowers/sdd/round4/family-c-draft.md (draft 4) and the declaration in r4/family_c.py.
 """
 
 from __future__ import annotations
@@ -166,6 +166,25 @@ def _receipt_hashes(runs: Path) -> dict[str, str]:
     }
 
 
+def _evaluate(
+    runs: Path,
+    configs: list[dict[str, Any]],
+    uni: tuple[str, ...],
+    symbols_min: int | None,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, Any]]:
+    """Per-coin criteria, verdicts and the finalist ranking from the runs (shared by the report and the twin check)."""
+    per_config: dict[str, Any] = {}
+    verdicts: dict[str, dict[str, Any]] = {}
+    for config in configs:
+        fc = pd.read_parquet(runs / config["id"] / "forecasts.parquet")
+        coins = {str(sym): family_c.coin_criteria(g) for sym, g in fc.groupby("coin", sort=True)}
+        verdict = family_c.config_verdict(coins, uni, symbols_min)
+        verdicts[config["id"]] = verdict
+        per_config[config["id"]] = {"window": config["window"], "model": config["model"], **verdict, "coins": coins}
+    ranking = family_c.finalist_ranking(verdicts, [c["id"] for c in configs])
+    return per_config, verdicts, ranking
+
+
 def report_family_c(
     ds: Path | str,
     runs_dir: Path | str,
@@ -189,22 +208,19 @@ def report_family_c(
     configs = family_c.family_c()
     uni = tuple(method.UNIVERSE if universe is None else universe)
 
-    per_config: dict[str, Any] = {}
-    verdicts: dict[str, dict[str, Any]] = {}
-    for config in configs:
-        fc = pd.read_parquet(runs / config["id"] / "forecasts.parquet")
-        coins = {str(sym): family_c.coin_criteria(g) for sym, g in fc.groupby("coin", sort=True)}
-        verdict = family_c.config_verdict(coins, uni, symbols_min)
-        verdicts[config["id"]] = verdict
-        per_config[config["id"]] = {"window": config["window"], "model": config["model"], **verdict, "coins": coins}
-
+    per_config, verdicts, ranking = _evaluate(runs, configs, uni, symbols_min)
     order = [c["id"] for c in configs]
-    finalist = family_c.pick_finalist(verdicts, order)
+    finalist = ranking["finalist"]
     finalist_block: dict[str, Any] | None = None
     stay_out: dict[str, Any] | None = None
     if finalist is not None:
         index = order.index(finalist)
-        finalist_block = {"id": finalist, "registry_index": index}
+        finalist_block = {
+            "id": finalist,
+            "registry_index": index,
+            "support": ranking["support"],
+            "scores": ranking["scores"],
+        }
         fc = pd.read_parquet(runs / finalist / "forecasts.parquet")
         stay_out = family_c.stay_out_flag(fc, family_c.WINDOWS[configs[index]["window"]], index)
 
@@ -216,6 +232,7 @@ def report_family_c(
         "receipts_sha256": _receipt_hashes(runs),
         "n_configurations": len(configs),
         "universe": list(uni),
+        "symbols_min": int(method.BAR_FORECAST["symbols_min"] if symbols_min is None else symbols_min),
         "configurations": per_config,
         "passing": [cid for cid in order if verdicts[cid]["pass"]],
         "finalist": finalist_block,
@@ -228,9 +245,20 @@ def report_family_c(
 
 
 def run_family_c_twin(
-    ds: Path | str, runs_dir: Path | str, report_file: Path | str, out_dir: Path | str, commit: str
+    ds: Path | str,
+    runs_dir: Path | str,
+    report_file: Path | str,
+    out_dir: Path | str,
+    commit: str,
+    *,
+    universe: tuple[str, ...] | None = None,
+    symbols_min: int | None = None,
 ) -> dict[str, Any]:
-    """Run the report finalist's no-refit twin into out_dir/twins/runs and write the descriptive refit comparison."""
+    """Run the report finalist's no-refit twin into out_dir/twins/runs and write the descriptive refit comparison.
+
+    The finalist is recomputed from the bound runs with the report's own criteria, and a report that names another
+    finalist (or one when none passes, or none when one passes) is refused. `universe` and `symbols_min` default to M's.
+    """
     out = Path(out_dir)
     runs = Path(runs_dir)
     manifest, panel = _load(ds)
@@ -248,6 +276,12 @@ def run_family_c_twin(
         raise ValueError(f"the report is at source digest {report.get('source_sha256')!r}, not {digest!r}")
     if report.get("receipts_sha256") != _receipt_hashes(runs):
         raise ValueError("the report's receipts_sha256 does not match the receipts in the runs directory")
+    configs = family_c.family_c()
+    uni = tuple(method.UNIVERSE if universe is None else universe)
+    computed = _evaluate(runs, configs, uni, symbols_min)[2]["finalist"]
+    named = (report.get("finalist") or {}).get("id")
+    if named != computed:
+        raise ValueError(f"the report names finalist {named!r} but the bound runs give {computed!r}")
     result: dict[str, Any] = {
         "family": "C",
         "commit": sha,

@@ -1,14 +1,14 @@
 """Phase 5 family C: the 9 declared volatility forecasts, their criteria and the stay-out flag (A5.1).
 
 FAMILY C DECLARATION (2026-11-04, declared in the commit that adds this module and the ledger entry round4-family-c,
-before any family C configuration reads D). Draft 3 of .superpowers/sdd/round4/family-c-draft.md. Nothing here reads
+before any family C configuration reads D). Draft 4 of .superpowers/sdd/round4/family-c-draft.md. Nothing here reads
 data. Family C trades nothing: it is judged by M's family C criteria and stay-out flag (BAR_FORECAST, STAY_OUT,
 STAY_OUT_BLOCK_DAYS in method.py).
 - Windows W in {1h, 4h, 1d}, aligned to UTC (1h at every hour, 4h at 00, 04, ..., 20, 1d at 00:00). A window [T, T + W)
-  needs all n_W = W / 5m perp 5m bars with open time in it, else it is dropped and counted. A window with t1 = T + W at
-  or past the partition end (DEV_END on D, H_END on H) is dropped. Returns follow the rv5 convention of features.py
-  (r_1 = log(c_1 / o_1), then close to close). RV = sum r^2, BPV = (pi / 2) sum_{i>=2} |r_i| |r_(i-1)|, R = log(c_last
-  / o_first), G = log(max high / min low).
+  needs exactly the n_W = W / 5m perp 5m open times T, T + 5m, ..., T + W - 5m (an off-grid open time voids it), else
+  it is dropped and counted. A window with t1 = T + W at or past the partition end (DEV_END on D, H_END on H) is
+  dropped. Returns follow the rv5 convention of features.py (r_1 = log(c_1 / o_1), then close to close). RV = sum r^2,
+  BPV = (pi / 2) sum_{i>=2} |r_i| |r_(i-1)|, R = log(c_last / o_first), G = log(max high / min low).
 - The forecast for [T, T + W) is made at T from complete windows that ended at or before T. X_prev is the window
   [T - W, T), X_1d, X_7d and X_30d are means over the trailing 1, 7 and 30 days (each needs every window of its span,
   X_1d is left out for 1d). Any missing input drops the forecast, nothing is imputed.
@@ -23,27 +23,34 @@ STAY_OUT_BLOCK_DAYS in method.py).
 - Benchmarks (not trials): persistence f = RV_prev and an EWMA with halflife 7 windows, initialised with the mean of
   the coin's first 7 complete RVs and updated only on complete windows.
 - Criteria, per coin on the walk-forward path, on rows where the configuration, persistence and EWMA all have a
-  forecast: QLIKE = y / f - log(y / f) - 1 and log-variance MSE, each against persistence and EWMA by a one-sided
-  Diebold-Mariano test (Newey-West lag 1, Bartlett weights, p = Phi(statistic) below 0.05). Coverage of R by filtered
-  historical simulation, from each fold's training z = R / sqrt(f_fit) (numpy linear quantiles at 0.10, 0.90, 0.025 and
-  0.975), within 2 points of 80% and of 95%. A coin passes all six, a configuration passes on at least 8 of 10 coins.
-  The finalist is the passing configuration with the lowest mean over coins of each coin's mean QLIKE, ties by
-  registry order.
-- Stay-out flag for the finalist. Flag 1: sqrt(f) above the trailing 90-day 90th percentile of the coin's sqrt(f) (90
-  full days of earlier forecasts as warm-up), the pooled ratio of mean sqrt(RV) flagged over unflagged, a stationary
-  block bootstrap of calendar days (mean block 10, 1,000 iterations, seed 12,000,000 + the registry index) with the
-  95% interval above 1. Empty groups, a zero denominator and a draw without flagged or without unflagged windows fail,
-  with no redraw. Flag 2: sqrt(8 / pi) sqrt(f) below 3 round trips (2 x (0.0005 + the coin's A1.1 slippage)), and at
-  least 60% of flagged windows, pooled, with G below the same bound. No flagged window means not met. Both must pass.
-  A failed flag blocks the finalist's H read and never selects another finalist.
+  forecast. Both losses floor y and f at 1e-12 first: QLIKE = y' / f' - log(y' / f') - 1 and log-variance MSE =
+  (log y' - log f')^2. Each is tested against persistence and EWMA by a one-sided Diebold-Mariano test (Newey-West lag
+  1, Bartlett weights, p = Phi(statistic) below 0.05). Coverage of R by filtered historical simulation, from each
+  fold's training z = R / sqrt(f_fit) (numpy linear quantiles at 0.10, 0.90, 0.025 and 0.975), within 2 points of 80%
+  and of 95%. A coin passes all six, a configuration passes on at least 8 of 10 coins. The finalist is the passing
+  configuration with the lowest mean QLIKE over the coins where every passing configuration has a finite mean QLIKE
+  (their common support), each coin's mean taken on paired rows, ties by registry order.
+- Stay-out flag for the finalist. Flag 1: a window is eligible when at least 90 days have passed since the coin's first
+  forecast and the coin has a forecast in [T - 90d, T). An eligible window is flagged when sqrt(f) exceeds the 90th
+  percentile of the coin's sqrt(f) in [T - 90d, T). Ineligible windows enter neither group. The statistic is the pooled
+  ratio of mean sqrt(RV) flagged over unflagged. The interval is a stationary block bootstrap over the full calendar-day
+  grid from the first to the last eligible day (mean block 10 days, a day with no window contributes nothing, 1,000
+  iterations, seed 12,100,000 + the registry index), 95% interval above 1. Empty groups, a zero denominator and a draw
+  without flagged or without unflagged windows fail, with no redraw. Flag 2: sqrt(8 / pi) sqrt(f) below 3 round trips
+  (2 x (0.0005 + the coin's A1.1 slippage)), and at least 60% of flagged windows, pooled, with G below the same
+  bound. No flagged window means not met. Both must pass. A failed flag blocks the finalist's H read and never selects
+  another finalist.
 - Refit question (descriptive): a no-refit twin of the finalist (fit once on all windows before the first refit),
-  and a bootstrap of the mean calendar-day QLIKE difference twin minus finalist (90% interval, mean block 10, 1,000
-  iterations, seed 7,100,000 + the registry index). It cannot authorize live refitting. An untrainable twin is
-  inconclusive.
+  and a block bootstrap over the full calendar-day grid (a day's value the mean paired QLIKE difference twin minus
+  finalist, a day with no paired window contributing nothing, the statistic the mean over drawn days with a value, a
+  draw with none left out and counted, 90% interval, mean block 10 days, 1,000 iterations, seed 7,100,000 + the
+  registry index). It cannot authorize live refitting. An untrainable twin is inconclusive, and so is a comparison
+  whose every draw is empty.
 - Holdout H: registered, not implemented. run_holdout raises until the owner signs a finalist lock.
-- Seeds: 12,000,000 + index (stay-out), 7,100,000 + index (refit). No other randomness. No configuration, window,
-  model, criterion, seed or rule changes after family C's first D outcome, except as M's re-run after a code fix. The
-  3 reserved slots hold the no-refit twin and re-runs. Ledger: round4-family-c, 9 trials, counted separately.
+- Seeds: every configuration carries joint_shift_seed 12,000,000 + its registry index (unused, A5.1), the stay-out
+  bootstrap uses 12,100,000 + index and the refit bootstrap 7,100,000 + index. No other randomness. No configuration,
+  window, model, criterion, seed or rule changes after family C's first D outcome, except as M's re-run after a code
+  fix. The 3 reserved slots hold the no-refit twin and re-runs. Ledger: round4-family-c, 9 trials, counted separately.
 - Predictions: PREDICTIONS below (M's, and two diagnostics).
 """
 
@@ -64,7 +71,8 @@ N_RESERVE = 3
 FIRST_REFIT_MS = 1_672_531_200_000
 LOOKBACK_MONTHS = 24
 MIN_TRAIN_WINDOWS = 500
-STAY_OUT_SEED_BASE = 12_000_000
+JOINT_SHIFT_SEED_BASE = 12_000_000
+STAY_OUT_SEED_BASE = 12_100_000
 REFIT_SEED_BASE = 7_100_000
 LOG_FLOOR = 1e-12
 BOOTSTRAP_ITERATIONS = 1000
@@ -112,6 +120,7 @@ def family_c() -> list[dict[str, Any]]:
                     "first_refit_ms": FIRST_REFIT_MS,
                     "min_train_windows": MIN_TRAIN_WINDOWS,
                     "partition_end_ms": method.DEV_END,
+                    "joint_shift_seed": JOINT_SHIFT_SEED_BASE + len(out),
                     "index": len(out),
                 }
             )
@@ -141,7 +150,8 @@ def window_table(
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """RV, BPV, R and G per window on the full UTC grid (NaN where the window has no target), and drop counts.
 
-    A window is [T, T + W), T a multiple of W. Its bars are those with open time in it, n_W = W / 5m are required. A
+    A window is [T, T + W), T a multiple of W. Its bars are those with open time in it, exactly the n_W = W / 5m
+    grid times T, T + 5m, ... are required (an off-grid open time voids the window). A
     window whose t1 = T + W is at or past `end_ms` is dropped. The rv5 return convention of features.py is used.
     """
     n_w = window_ms // BAR_MS
@@ -162,11 +172,11 @@ def window_table(
     with np.errstate(all="ignore"):
         r = np.where(first, np.log(c / o), np.log(c / prev_c))
         a = np.where(first, 0.0, np.abs(r) * np.abs(np.concatenate(([0.0], r[:-1]))))
-    bad = ~np.isfinite(r)
+    bad = ~np.isfinite(r) | ((t % BAR_MS) != 0)
     frame = pd.DataFrame(
         {
             "wid": wid,
-            "r2": np.where(bad, 0.0, r * r),
+            "r2": np.where(np.isfinite(r), r * r, 0.0),
             "a": np.where(np.isfinite(a), a, 0.0),
             "bad": bad.astype(np.int64),
             "o": o,
@@ -533,17 +543,18 @@ def compute_forecasts(
 
 
 def qlike(y: Any, f: Any) -> np.ndarray:
-    """y / f - log(y / f) - 1 with f floored at 1e-12 and log floored."""
-    y = np.asarray(y, dtype=np.float64)
-    fe = np.maximum(np.asarray(f, dtype=np.float64), LOG_FLOOR)
-    return np.asarray(y / fe - (safe_log(y) - safe_log(fe)) - 1.0)
+    """y' / f' - log(y' / f') - 1 with y' = max(y, 1e-12) and f' = max(f, 1e-12)."""
+    yf = np.maximum(np.asarray(y, dtype=np.float64), LOG_FLOOR)
+    ff = np.maximum(np.asarray(f, dtype=np.float64), LOG_FLOOR)
+    ratio = yf / ff
+    return np.asarray(ratio - np.log(ratio) - 1.0)
 
 
 def log_mse(y: Any, f: Any) -> np.ndarray:
-    """(log y - log f)^2 with the declared floor."""
-    y = np.asarray(y, dtype=np.float64)
-    f = np.asarray(f, dtype=np.float64)
-    return np.asarray((safe_log(y) - safe_log(f)) ** 2)
+    """(log y' - log f')^2 with y' = max(y, 1e-12) and f' = max(f, 1e-12)."""
+    yf = np.maximum(np.asarray(y, dtype=np.float64), LOG_FLOOR)
+    ff = np.maximum(np.asarray(f, dtype=np.float64), LOG_FLOOR)
+    return np.asarray((np.log(yf) - np.log(ff)) ** 2)
 
 
 def dm_test(d: Any, lag: int = 1) -> dict[str, Any]:
@@ -633,6 +644,7 @@ def config_verdict(
     n_pass = sum(1 for s in uni if s in per_coin and per_coin[s]["pass"])
     q = [per_coin[s]["mean_qlike"] for s in uni if s in per_coin and np.isfinite(per_coin[s]["mean_qlike"])]
     return {
+        "coin_qlike": {s: float(per_coin[s]["mean_qlike"]) for s in uni if s in per_coin},
         "n_coins_pass": n_pass,
         "n_coins": len(uni),
         "symbols_min": need,
@@ -641,16 +653,38 @@ def config_verdict(
     }
 
 
-def pick_finalist(verdicts: dict[str, dict[str, Any]], order: list[str]) -> str | None:
-    """The passing configuration with the lowest mean QLIKE, ties by registry order. None when none passes."""
+def finalist_ranking(verdicts: dict[str, dict[str, Any]], order: list[str]) -> dict[str, Any]:
+    """Rank the passing configurations on their common coin support (declared).
+
+    The support is the coins where every passing configuration has a finite mean QLIKE (verdict["coin_qlike"]). A
+    configuration's score is the mean over the support of its coin means. Lowest score wins, ties by registry order.
+    """
+    passing = [cid for cid in order if cid in verdicts and verdicts[cid]["pass"]]
+    out: dict[str, Any] = {"finalist": None, "support": [], "scores": {}}
+    if not passing:
+        return out
+    coins = sorted(set().union(*(verdicts[cid].get("coin_qlike", {}).keys() for cid in passing)))
+    support = [
+        c
+        for c in coins
+        if all(np.isfinite(verdicts[cid].get("coin_qlike", {}).get(c, float("nan"))) for cid in passing)
+    ]
+    out["support"] = support
+    if not support:
+        return out
+    scores = {cid: float(np.mean([verdicts[cid]["coin_qlike"][c] for c in support])) for cid in passing}
+    out["scores"] = scores
     best: str | None = None
-    for cid in order:
-        v = verdicts.get(cid)
-        if v is None or not v["pass"] or not np.isfinite(v["mean_qlike"]):
-            continue
-        if best is None or v["mean_qlike"] < verdicts[best]["mean_qlike"]:
+    for cid in passing:
+        if best is None or scores[cid] < scores[best]:
             best = cid
-    return best
+    out["finalist"] = best
+    return out
+
+
+def pick_finalist(verdicts: dict[str, dict[str, Any]], order: list[str]) -> str | None:
+    """The passing configuration with the lowest mean QLIKE on the common support, ties by registry order."""
+    return finalist_ranking(verdicts, order)["finalist"]  # type: ignore[no-any-return]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -661,7 +695,8 @@ def pick_finalist(verdicts: dict[str, dict[str, Any]], order: list[str]) -> str 
 def trailing_vol_flags(t: np.ndarray, f: np.ndarray, window_ms: int) -> tuple[np.ndarray, np.ndarray]:
     """Flag 1 for one coin. Returns (eligible, flagged) per row, rows sorted by T.
 
-    A row is eligible when the coin has a forecast at least 90 days before it. It is flagged when sqrt(f) exceeds the
+    A row is eligible when at least 90 days have passed since the coin's first forecast and the coin has a forecast in
+    [T - 90 days, T). Ineligible rows enter neither group. An eligible row is flagged when sqrt(f) exceeds the
     90th percentile (numpy linear interpolation) of sqrt(f) over the coin's forecasts in [T - 90 days, T).
     """
     look = int(method.STAY_OUT["vol_percentile_lookback_days"]) * DAY_MS
@@ -673,11 +708,10 @@ def trailing_vol_flags(t: np.ndarray, f: np.ndarray, window_ms: int) -> tuple[np
         return eligible, flagged
     lo = np.searchsorted(t, t - look, side="left")
     hi = np.arange(len(t))
-    eligible = (t - t[0]) >= look
+    eligible = ((t - t[0]) >= look) & (hi > lo)
     for i in np.flatnonzero(eligible):
         seg = sd[lo[i] : hi[i]]
-        if len(seg):
-            flagged[i] = bool(sd[i] > np.quantile(seg, pct))
+        flagged[i] = bool(sd[i] > np.quantile(seg, pct))
     return eligible, flagged
 
 
@@ -723,7 +757,9 @@ def _flag1(df: pd.DataFrame, window_ms: int, registry_index: int) -> dict[str, A
     )
     day_sum["nf"] = pooled["flag"].astype(np.int64)
     day_sum["nu"] = 1 - day_sum["nf"]
-    per_day = day_sum.groupby("day", sort=True)[["sf", "su", "nf", "nu"]].sum().to_numpy(dtype=np.float64)
+    by_day = day_sum.groupby("day", sort=True)[["sf", "su", "nf", "nu"]].sum()
+    grid = np.arange(int(by_day.index.min()), int(by_day.index.max()) + 1, dtype=np.int64)
+    per_day = by_day.reindex(grid, fill_value=0.0).to_numpy(dtype=np.float64)
     tot = per_day.sum(axis=0)
     if tot[1] == 0.0:
         res["reason"] = "zero denominator"
@@ -741,7 +777,15 @@ def _flag1(df: pd.DataFrame, window_ms: int, registry_index: int) -> dict[str, A
     draws.sort()
     low = stats._percentile(draws, STAY_OUT_ALPHA / 2.0)
     high = stats._percentile(draws, 1.0 - STAY_OUT_ALPHA / 2.0)
-    res.update({"low": float(low), "high": float(high), "pass": bool(low > 1.0), "n_days": int(len(per_day))})
+    res.update(
+        {
+            "low": float(low),
+            "high": float(high),
+            "pass": bool(low > 1.0),
+            "n_days": int(len(per_day)),
+            "n_days_with_windows": int(len(by_day)),
+        }
+    )
     return res
 
 
@@ -773,6 +817,9 @@ def _flag2(df: pd.DataFrame) -> dict[str, Any]:
 def refit_comparison(config_rows: pd.DataFrame, twin_rows: pd.DataFrame, registry_index: int) -> dict[str, Any]:
     """Descriptive: calendar-day mean of (twin QLIKE - finalist QLIKE) on common rows, 90% block bootstrap interval.
 
+    The bootstrap runs over the full calendar-day grid (a day without a paired window has no value and is skipped in the
+    mean of a draw, and a draw with no valued day is left out of the interval and counted).
+
     Cannot authorize live refitting (M). An untrainable twin (no twin forecast) is inconclusive.
     """
     seed = REFIT_SEED_BASE + int(registry_index)
@@ -785,17 +832,34 @@ def refit_comparison(config_rows: pd.DataFrame, twin_rows: pd.DataFrame, registr
     if len(m) == 0:
         return base | {"status": "inconclusive", "reason": "the twin has no forecast (untrainable)"}
     diff = qlike(m["y"], m["f_twin"]) - qlike(m["y"], m["f_cfg"])
-    daily = pd.Series(diff).groupby(m["T"].to_numpy() // DAY_MS).mean().sort_index().to_numpy()
-    point, low, high = stats.bootstrap_ci(
-        daily, np.mean, BOOTSTRAP_ITERATIONS, REFIT_BLOCK_DAYS, seed, alpha=REFIT_ALPHA
-    )
+    by_day = pd.Series(diff).groupby(m["T"].to_numpy() // DAY_MS).mean().sort_index()
+    grid = np.arange(int(by_day.index.min()), int(by_day.index.max()) + 1, dtype=np.int64)
+    daily = by_day.reindex(grid).to_numpy(dtype=np.float64)
+    have = np.isfinite(daily)
+    point = float(daily[have].mean())
+    rng = np.random.default_rng(seed)
+    draws: list[float] = []
+    for _ in range(BOOTSTRAP_ITERATIONS):
+        idx = stats.stationary_bootstrap_indices(len(daily), REFIT_BLOCK_DAYS, rng)
+        drawn = daily[idx]
+        drawn = drawn[np.isfinite(drawn)]
+        if len(drawn):
+            draws.append(float(drawn.mean()))
+    n_empty = BOOTSTRAP_ITERATIONS - len(draws)
+    if not draws:
+        return base | {"status": "inconclusive", "reason": "every bootstrap draw lacks a day with a value"}
+    sorted_draws = np.sort(np.asarray(draws, dtype=np.float64))
+    low = stats._percentile(sorted_draws, REFIT_ALPHA / 2.0)
+    high = stats._percentile(sorted_draws, 1.0 - REFIT_ALPHA / 2.0)
     return base | {
         "status": "descriptive",
-        "point": float(point),
+        "point": point,
         "low": float(low),
         "high": float(high),
         "refit_better": bool(low > 0.0),
-        "n_days": int(len(daily)),
+        "n_days": int(have.sum()),
+        "n_grid_days": int(len(daily)),
+        "n_empty_draws": int(n_empty),
         "n_rows": int(len(m)),
         "n_coins": int(m["coin"].nunique()),
         "iterations": BOOTSTRAP_ITERATIONS,

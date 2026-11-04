@@ -72,7 +72,8 @@ def test_registry_is_the_nine_declared_configurations() -> None:
         assert c["partition_end_ms"] == DEV_END
     assert len({cli.config_hash_of(c) for c in configs}) == 9
     assert family_c.FAMILY_INDEX == 2 and family_c.N_RESERVE == 3
-    assert family_c.STAY_OUT_SEED_BASE == 12_000_000 and family_c.REFIT_SEED_BASE == 7_100_000
+    assert family_c.STAY_OUT_SEED_BASE == 12_100_000 and family_c.REFIT_SEED_BASE == 7_100_000
+    assert [c["joint_shift_seed"] for c in configs] == [12_000_000 + i for i in range(9)]
 
 
 def test_twin_is_the_no_refit_copy() -> None:
@@ -471,19 +472,41 @@ def test_eight_of_ten_rule() -> None:
     assert small["pass"] and small["n_coins"] == 3
 
 
+def _fin(passing: bool, qlike_by_coin: dict[str, float]) -> dict[str, Any]:
+    return {"pass": passing, "coin_qlike": qlike_by_coin}
+
+
 def test_finalist_is_the_lowest_qlike_among_passing_with_ties_by_registry_order() -> None:
     order = ["a", "b", "c", "d"]
+    coins = ("X", "Y")
     v = {
-        "a": {"pass": True, "mean_qlike": 0.30},
-        "b": {"pass": False, "mean_qlike": 0.10},
-        "c": {"pass": True, "mean_qlike": 0.20},
-        "d": {"pass": True, "mean_qlike": 0.20},
+        "a": _fin(True, dict.fromkeys(coins, 0.30)),
+        "b": _fin(False, dict.fromkeys(coins, 0.10)),
+        "c": _fin(True, dict.fromkeys(coins, 0.20)),
+        "d": _fin(True, dict.fromkeys(coins, 0.20)),
     }
     assert family_c.pick_finalist(v, order) == "c"
     assert family_c.pick_finalist(v, ["d", "c", "b", "a"]) == "d"
     assert family_c.pick_finalist({k: {**x, "pass": False} for k, x in v.items()}, order) is None
-    v["c"]["mean_qlike"] = float("nan")
+    v["c"]["coin_qlike"] = dict.fromkeys(coins, float("nan"))
+    # A passing configuration without a finite mean on any coin leaves no common support: nothing can be ranked.
+    assert family_c.pick_finalist(v, order) is None
+    v["c"]["pass"] = False
     assert family_c.pick_finalist(v, order) == "d"
+
+
+def test_finalist_is_ranked_on_the_common_coin_support() -> None:
+    order = ["a", "b"]
+    v = {
+        "a": _fin(True, {"X": 0.10, "Y": 0.50, "Z": float("nan")}),
+        "b": _fin(True, {"X": 0.20, "Y": 0.30, "Z": 0.01}),
+    }
+    rank = family_c.finalist_ranking(v, order)
+    assert rank["support"] == ["X", "Y"]
+    assert rank["scores"] == {"a": pytest.approx(0.30), "b": pytest.approx(0.25)}
+    assert rank["finalist"] == "b"
+    # On b's own three coins its mean is 0.17, on the shared coins 0.25: a (0.30) still loses either way here.
+    assert family_c.pick_finalist(v, order) == "b"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -505,7 +528,7 @@ def test_flag1_passes_when_high_forecasts_precede_high_realised_volatility() -> 
     rows = _stay_rows(set(range(100, 200, 17)))
     res = family_c.stay_out_flag(rows, 4 * H, registry_index=7)
     f1 = res["flag1"]
-    assert f1["seed"] == 12_000_007
+    assert f1["seed"] == 12_100_007
     assert f1["ratio"] == pytest.approx(3.0)
     assert f1["low"] > 1.0 and f1["pass"]
     again = family_c.stay_out_flag(rows, 4 * H, registry_index=7)["flag1"]
@@ -860,22 +883,36 @@ def test_report_checks_completeness_and_binding(
 
 
 def test_twin_runs_only_for_a_finalist_and_binds_the_report(
-    patched: dict[str, Any], e2e_run: dict[str, Any], tmp_path: Path
+    patched: dict[str, Any], e2e_run: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     out = e2e_run["out"]
     runs = out / "runs"
+    kw: dict[str, Any] = {"universe": tuple(SYMS), "symbols_min": 2}
     report_file = out / "family_c_report.json"
     report = json.loads(report_file.read_text())
+    assert report["finalist"] is None
     # With no finalist nothing runs.
     none_file = tmp_path / "none.json"
     none_file.write_text(json.dumps(report | {"finalist": None}))
-    res = phase5_c.run_family_c_twin(patched["ds"], runs, none_file, tmp_path / "t0", COMMIT)
+    res = phase5_c.run_family_c_twin(patched["ds"], runs, none_file, tmp_path / "t0", COMMIT, **kw)
     assert res["finalist"] is None and not (tmp_path / "t0" / "twins").exists()
     assert (tmp_path / "t0" / "refit_comparison.json").is_file()
-    # With a finalist the twin runs and the comparison is descriptive (the 1h twin has windows to fit on).
+    # A report naming a configuration that does not pass (here no configuration passes) is refused.
+    fake = tmp_path / "fake.json"
+    fake.write_text(json.dumps(report | {"finalist": {"id": "C_LHAR_1h", "registry_index": 0}}))
+    with pytest.raises(ValueError, match="names finalist"):
+        phase5_c.run_family_c_twin(patched["ds"], runs, fake, tmp_path / "tf", COMMIT, **kw)
+    assert not (tmp_path / "tf").exists()
+    # With the recomputed finalist forced to C_LHAR_1h the twin runs (the 1h twin has windows to fit on).
+    forced = {"id": "C_LHAR_1h"}
+    monkeypatch.setattr(
+        family_c,
+        "finalist_ranking",
+        lambda verdicts, order: {"finalist": forced["id"], "support": list(SYMS), "scores": {}},
+    )
     fin_file = tmp_path / "fin.json"
     fin_file.write_text(json.dumps(report | {"finalist": {"id": "C_LHAR_1h", "registry_index": 0}}))
-    res = phase5_c.run_family_c_twin(patched["ds"], runs, fin_file, tmp_path / "t1", COMMIT)
+    res = phase5_c.run_family_c_twin(patched["ds"], runs, fin_file, tmp_path / "t1", COMMIT, **kw)
     twin_dir = tmp_path / "t1" / "twins" / "runs" / "C_twin_C_LHAR_1h"
     receipt = json.loads((twin_dir / "receipt.json").read_text())
     assert receipt["config"]["refit"] == "none" and receipt["n_folds"] == 1
@@ -883,9 +920,10 @@ def test_twin_runs_only_for_a_finalist_and_binds_the_report(
     assert res["refit_comparison"]["seed"] == 7_100_000
     assert res["report_sha256"] and (tmp_path / "t1" / "refit_comparison.json").is_file()
     # The twin of the 1d window cannot be trained: inconclusive.
+    forced["id"] = "C_LHAR_1d"
     d_file = tmp_path / "d.json"
     d_file.write_text(json.dumps(report | {"finalist": {"id": "C_LHAR_1d", "registry_index": 6}}))
-    res = phase5_c.run_family_c_twin(patched["ds"], runs, d_file, tmp_path / "t2", COMMIT)
+    res = phase5_c.run_family_c_twin(patched["ds"], runs, d_file, tmp_path / "t2", COMMIT, **kw)
     assert res["refit_comparison"]["status"] == "inconclusive"
     # A report from other runs, another commit or a wrong registry index is refused.
     for field, value, match in (
@@ -897,11 +935,12 @@ def test_twin_runs_only_for_a_finalist_and_binds_the_report(
         bad = tmp_path / f"bad_{field}.json"
         bad.write_text(json.dumps(report | {field: value}))
         with pytest.raises(ValueError, match=match):
-            phase5_c.run_family_c_twin(patched["ds"], runs, bad, tmp_path / "tb", COMMIT)
+            phase5_c.run_family_c_twin(patched["ds"], runs, bad, tmp_path / "tb", COMMIT, **kw)
+    forced["id"] = "C_LHAR_1h"
     wrong = tmp_path / "wrong.json"
     wrong.write_text(json.dumps(report | {"finalist": {"id": "C_LHAR_1h", "registry_index": 3}}))
     with pytest.raises(ValueError, match="registry index"):
-        phase5_c.run_family_c_twin(patched["ds"], runs, wrong, tmp_path / "tw", COMMIT)
+        phase5_c.run_family_c_twin(patched["ds"], runs, wrong, tmp_path / "tw", COMMIT, **kw)
 
 
 def test_cli_dispatches_the_family_c_subcommands(monkeypatch: pytest.MonkeyPatch) -> None:
