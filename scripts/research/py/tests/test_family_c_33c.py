@@ -425,3 +425,23 @@ def test_h_seed_base_and_the_registered_flag2_prediction() -> None:
 
 def test_trailing_vol_flags_has_no_window_parameter() -> None:
     assert list(inspect.signature(family_c.trailing_vol_flags).parameters) == ["t", "f"]
+
+
+@pytest.mark.parametrize("stay_out_pass", [True, False])
+def test_h_read_allowed_follows_a_passing_and_a_failing_stay_out(
+    patched: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stay_out_pass: bool
+) -> None:
+    real_flag = family_c.stay_out_flag
+
+    def forced(rows: pd.DataFrame, window_ms: int, registry_index: int) -> dict[str, Any]:
+        res = real_flag(rows, window_ms, registry_index)
+        res["pass"] = stay_out_pass
+        return res
+
+    monkeypatch.setattr(family_c, "stay_out_flag", forced)
+    report = phase5_c.report_family_c(
+        patched["ds"], patched["out"] / "runs", tmp_path, COMMIT, universe=tuple(SYMS), symbols_min=1
+    )
+    assert report["finalist"] is not None
+    assert report["stay_out"]["pass"] is stay_out_pass
+    assert report["h_read_allowed"] is stay_out_pass
