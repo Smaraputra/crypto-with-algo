@@ -84,6 +84,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'the six native re-tests at C4 (r4/method.py A4.3 and A4.4); the re-test family reaches its cap of 12 and no re-test slot remains',
   },
+  {
+    id: 'round4-family-a',
+    date: '2026-11-04',
+    trials: 45,
+    source:
+      'scripts/research/py/r4/family_a.py family_a(), the 45 declared Phase 5 family A configurations (alpha-bearing, cap 48 with 3 reserved for refit twins and re-runs, .superpowers/sdd/round4/family-a-draft.md draft 3)',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */

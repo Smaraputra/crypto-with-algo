@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Phase 5 family A declared (45 configurations)
+- The family is declared in `scripts/research/py/r4/family_a.py`, which carries the declaration in its header. It was reviewed by Opus (declarable after a draft 2 check), Codex and agy before any family A configuration reads the development data.
+- Grid: ridge, logistic and LightGBM over the five interval and horizon cells:
+  - a no-intercept ridge with and without a 15 bps threshold;
+  - LightGBM at two margins, with a regularised setting, the triple-barrier label, and the 12, 24 and all-history lookback arms;
+  - a context-only LightGBM ablation that tests whether the intrabar features add anything.
+- Features: all 40 Tier A features at 1h, and 39 at 4h, where `ret_4h_last` is NaN by design.
+- Budget: 3 slots are reserved for no-refit twins and re-runs.
+- Rules fixed before any outcome:
+  - seeds;
+  - a two-pass bar report, the second pass with the largest label-shift tripwire count;
+  - no-refit twins with a declared refit bootstrap;
+  - the hedge-cost and $100-account reports;
+  - how families D and E use family A;
+  - nothing changes after the first D outcome.
+- Entry points: `cli family-run`, `family-report` and `family-twins` (`r4/phase5.py`).
+- Ledger: `round4-family-a` 45 trials, total 2,377, with the site pins.
+
 ### Added: Round 4 Gate P at C4 (pass with conditions), lock Amendment 5 signed, and the C5 code
 - Phase 4 re-run at C4 (`dfe1ebf5`, 2026-11-02 06:04 to 2026-11-03 08:22 UTC): all 8 gated predictions as predicted, and blocking checks 1 to 4 and 6 passed (dossier `gate_p_ready` true):
   - noise: 0 of 40 pass items 1 to 3, and 1 of 40 rejects the joint shift;
