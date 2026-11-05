@@ -1,0 +1,304 @@
+{
+  "record": "Round 4 Phase 5 family C RESULT",
+  "note": "Recorded under records/ rather than as a code header, because Amendment 5 A5.1 freezes a family's code at its first D outcome, so r4/family_c.py cannot change after the run. The declaration of record is the final reviewed code commit c8f5849f (draft 5).",
+  "commit": "c8f5849f",
+  "r4_source_sha256": "272dae18facb5e2e226c8089b250faef85e1584fe1ae9bf068a8818a7650b7f0",
+  "dataset_hash": "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62",
+  "run_window_utc": "2026-11-04T19:36:32Z to 2026-11-04T19:41:35Z (run, report and twin)",
+  "reproduction": {
+    "record": "records/a5_reproduction_c8f5849f.json",
+    "sha256": "0956b88d4d6b24f84e24ed2357509b2cfdef4b4077936c1a3b9a0ee262b1b6a7",
+    "all_match": true,
+    "window_utc": "2026-11-04T16:12:39Z to 2026-11-04T19:35:52Z"
+  },
+  "report_sha256": {
+    "family_c_report.json": "0ae6081c38cb57a335ff960944dbe6093a44e085397969b85612e1022bab5a70",
+    "refit_comparison.json": "291c0fee79dc80989e5c736e48352719465753883dcfbd6bc0440c30e22dd8d6",
+    "twin_receipt.json": "2ed934906db7da3b2bceb1b72496e060abf20bdfedf2cac6979da58cde033948"
+  },
+  "receipts_sha256": {
+    "C_LHAR-CJ_1d": "f304505614b8ea4ae307e21c504004814ead3715634e0e09fd9039dcc073e9f5",
+    "C_LHAR-CJ_1h": "ecc75577d57056ac1e4a496e80c5ffe19e62f8467769513f682b31affc356c74",
+    "C_LHAR-CJ_4h": "1ec6d472b95d42b9a994cfbde4fb5359b5c14cd71fc067386a3285fc32962b35",
+    "C_LHAR-X_1d": "d3e067eed40a2939b1f898f1e392f6d5634a0068b60b6cdbc6b6c3fc871df5ec",
+    "C_LHAR-X_1h": "cd766aa9a4701f62b31345a08836c95a2d330fbeab5874e09febabba56285c31",
+    "C_LHAR-X_4h": "58ee3a76a766a63a5fd10a611f772513bb1ab4f6291003364cc8abea4e8e230e",
+    "C_LHAR_1d": "5eec2a7da79355345a548c5d198e2ce872674a431843d3e5e27358259fa7f24a",
+    "C_LHAR_1h": "7c21779152f126052f5eb23e0fdbf4ea4020d4a583d0aee5b099cb7780b400eb",
+    "C_LHAR_4h": "f2cf7feab5504bab65a81100970b6f0aaa0f9acff79f1528b0b8d66af9e9b179"
+  },
+  "outcome": {
+    "n_configurations": 9,
+    "passing": [
+      "C_LHAR_1h",
+      "C_LHAR-CJ_1h",
+      "C_LHAR-X_1h"
+    ],
+    "finalist": "C_LHAR-X_1h",
+    "finalist_registry_index": 2,
+    "finalist_scores_common_support": {
+      "C_LHAR_1h": 0.4964,
+      "C_LHAR-CJ_1h": 0.5013,
+      "C_LHAR-X_1h": 0.4941
+    },
+    "support_coins": 10,
+    "support_days": {
+      "ADAUSDT": 1161,
+      "AVAXUSDT": 1161,
+      "BNBUSDT": 1161,
+      "BTCUSDT": 1132,
+      "DOGEUSDT": 1161,
+      "DOTUSDT": 1161,
+      "ETHUSDT": 1161,
+      "LINKUSDT": 1161,
+      "SOLUSDT": 1161,
+      "XRPUSDT": 1161
+    },
+    "finalist_dm_p_gated_range": [
+      0.0,
+      0.00109
+    ],
+    "finalist_dm_p_long_lag_range": [
+      2.8e-65,
+      0.00234
+    ],
+    "finalist_coverage_80_range": [
+      0.791,
+      0.801
+    ],
+    "finalist_coverage_95_range": [
+      0.948,
+      0.951
+    ],
+    "stay_out": {
+      "flag1": {
+        "seed": 12100002,
+        "pass": true,
+        "n_eligible": 255240,
+        "n_flagged": 26598,
+        "n_unflagged": 228642,
+        "ratio": 2.1273,
+        "low": 2.0014,
+        "high": 2.2662,
+        "n_days": 1187,
+        "n_days_with_windows": 1071
+      },
+      "flag2": {
+        "pass": true,
+        "n_flagged": 8132,
+        "n_below": 6447,
+        "share": 0.7928
+      },
+      "pass": true
+    },
+    "h_read_allowed": true,
+    "refit_comparison": {
+      "seed": 7100002,
+      "descriptive": true,
+      "authorizes_live_refit": false,
+      "alpha": 0.1,
+      "status": "descriptive",
+      "point": 0.0147,
+      "low": 0.0041,
+      "high": 0.0329,
+      "refit_better": true,
+      "n_days": 1161,
+      "n_grid_days": 1277,
+      "n_empty_draws": 0,
+      "n_rows": 276840,
+      "n_coins": 10,
+      "iterations": 1000,
+      "mean_block": 10
+    },
+    "reserve_slots_used": 1,
+    "reserve_slots_unused": 2
+  },
+  "data_quality": {
+    "zero_volume_bars_per_coin": "36 (BTCUSDT 55)",
+    "zero_volume_windows_voided_per_coin": {
+      "1h": "9 (BTCUSDT 11)",
+      "4h": "7 (BTCUSDT 9)",
+      "1d": "6 (BTCUSDT 7)"
+    },
+    "incomplete_windows_all_zero_volume": true,
+    "rows_with_y_or_persistence_at_or_below_1e-12": 0,
+    "note": "The zero-volume rule (draft 5, fixed before any count on D) was binding: every incomplete window on D holds a zero-volume bar. Opus N1 count is 0, so no floored row entered any loss."
+  },
+  "predictions": {
+    "m_family_c_likeliest_to_pass_its_forecast_bar": "consistent so far (family C passes its bar with 3 of 9 and a finalist; family A had 0 of 45; families D and B have not run)",
+    "diagnostic_lhar_beats_benchmarks_on_qlike_at_1h_and_4h_on_most_coins": "met (C_LHAR: 1h 10 of 10 against both, 4h 7 of 10 against persistence and 10 of 10 against EWMA)",
+    "diagnostic_coverage_most_likely_to_fail_at_1h": "not met (coverage passed on every coin at 1h and 4h, and failed on one coin at 1d, DOGEUSDT in C_LHAR_1d and C_LHAR-X_1d; the binding failures were QLIKE against persistence at 4h and 1d)",
+    "registered_flag2_1d_or_4h_finalist_blocked": "not tested (the finalist is 1h; at 1h flag 2 flagged 8,132 windows and passed with share 0.793)"
+  },
+  "diagnostics": {
+    "4h_and_1d_failures": "At 4h, QLIKE against persistence fails on ADAUSDT, AVAXUSDT and DOTUSDT in all three models (statistics -0.18 to -0.96). In each of the 9 failing (model, coin) pairs the largest differential row is the window 2025-10-10 20:00 UTC (the October 10 liquidation crash), with realised variance 1,452 to 1,983 times the forecast and a differential of +447 to +617 against totals of -113 to -439. Without that one window the sums are -714 to -891 (DM statistics -6.6 to -8.2). This counterfactual is descriptive and the declared verdict stands. The lead reads the window as the market-wide liquidation crash of 2025-10-10, an interpretation rather than a source-data validation: the same window is the largest row on all three coins in all three models, and it is a complete window, so each of its 48 5m bars on the exact grid has positive volume (the zero-volume rule did not void it). No re-run is licensed. At 1d, three or four coins fail per model (AVAXUSDT, DOGEUSDT and DOTUSDT in all three, BNBUSDT in C_LHAR-CJ_1d), with failing DM p from 0.051 to 0.340, and DOGEUSDT's 80% coverage is 0.770 and 0.778 in C_LHAR_1d and C_LHAR-X_1d. The 1d configurations are untrained for 8 folds on every coin (receipts untrained_by_coin, 80 coin-folds per model), and no 1d configuration forecasts before 2023-09-01 00:00 UTC (counts.json first_T), so those are the folds refit from 2023-01-01 to 2023-08-01.",
+    "finalist_dm_long_lag": "Every finalist test also passes at the descriptive 10-calendar-day lag (largest p_long 0.0023), so the gated lag-1 result does not rest on the lag choice.",
+    "evidence": "Local copies in .superpowers/sdd/round4/family-c-results/: family_c_report.json, refit_comparison.json, counts.json, outliers.json (tools/fc-outliers.py, run in the c8f5849f image with --network none) and receipts/ (chain.log, mem.log and every receipt.json)."
+  },
+  "consequences": [
+    "C_LHAR-X_1h is the family C forecast finalist. Its H read waits for its finalist lock, signed by the owner, and M's rule that all finalist locks are committed and signed before the first H read, with the reads in one batch.",
+    "The finalist may be used as the family C filter (M's dimension) only as declared in a later family's own declaration, which discloses that it follows this result.",
+    "The no-refit twin used one reserve slot (ledger +1). The refit comparison is descriptive: twin minus finalist QLIKE +0.0147, 90% interval [0.0041, 0.0329], so monthly refitting helped on D, which cannot authorize live refitting under M.",
+    "The 4h and 1d configurations are reported, not validated."
+  ],
+  "configurations": [
+    {
+      "id": "C_LHAR_1h",
+      "window": "1h",
+      "model": "LHAR",
+      "pass": true,
+      "coins_pass": 10,
+      "mean_qlike": 0.4964,
+      "failed_tests": {},
+      "n_forecast_rows": 276858,
+      "untrained_coin_folds": 0
+    },
+    {
+      "id": "C_LHAR-CJ_1h",
+      "window": "1h",
+      "model": "LHAR-CJ",
+      "pass": true,
+      "coins_pass": 10,
+      "mean_qlike": 0.5013,
+      "failed_tests": {},
+      "n_forecast_rows": 276858,
+      "untrained_coin_folds": 0
+    },
+    {
+      "id": "C_LHAR-X_1h",
+      "window": "1h",
+      "model": "LHAR-X",
+      "pass": true,
+      "coins_pass": 10,
+      "mean_qlike": 0.4941,
+      "failed_tests": {},
+      "n_forecast_rows": 276840,
+      "untrained_coin_folds": 0
+    },
+    {
+      "id": "C_LHAR_4h",
+      "window": "4h",
+      "model": "LHAR",
+      "pass": false,
+      "coins_pass": 7,
+      "mean_qlike": 0.5059,
+      "failed_tests": {
+        "qlike_vs_persistence": [
+          "ADAUSDT",
+          "AVAXUSDT",
+          "DOTUSDT"
+        ]
+      },
+      "n_forecast_rows": 69178,
+      "untrained_coin_folds": 0
+    },
+    {
+      "id": "C_LHAR-CJ_4h",
+      "window": "4h",
+      "model": "LHAR-CJ",
+      "pass": false,
+      "coins_pass": 7,
+      "mean_qlike": 0.5063,
+      "failed_tests": {
+        "qlike_vs_persistence": [
+          "ADAUSDT",
+          "AVAXUSDT",
+          "DOTUSDT"
+        ],
+        "qlike_vs_ewma": [
+          "AVAXUSDT"
+        ]
+      },
+      "n_forecast_rows": 69178,
+      "untrained_coin_folds": 0
+    },
+    {
+      "id": "C_LHAR-X_4h",
+      "window": "4h",
+      "model": "LHAR-X",
+      "pass": false,
+      "coins_pass": 7,
+      "mean_qlike": 0.5054,
+      "failed_tests": {
+        "qlike_vs_persistence": [
+          "ADAUSDT",
+          "AVAXUSDT",
+          "DOTUSDT"
+        ]
+      },
+      "n_forecast_rows": 69160,
+      "untrained_coin_folds": 0
+    },
+    {
+      "id": "C_LHAR_1d",
+      "window": "1d",
+      "model": "LHAR",
+      "pass": false,
+      "coins_pass": 7,
+      "mean_qlike": 0.5197,
+      "failed_tests": {
+        "qlike_vs_persistence": [
+          "AVAXUSDT",
+          "DOTUSDT"
+        ],
+        "qlike_vs_ewma": [
+          "AVAXUSDT"
+        ],
+        "logmse_vs_persistence": [
+          "DOGEUSDT"
+        ],
+        "coverage_80": [
+          "DOGEUSDT"
+        ]
+      },
+      "n_forecast_rows": 9059,
+      "untrained_coin_folds": 80
+    },
+    {
+      "id": "C_LHAR-CJ_1d",
+      "window": "1d",
+      "model": "LHAR-CJ",
+      "pass": false,
+      "coins_pass": 6,
+      "mean_qlike": 0.5082,
+      "failed_tests": {
+        "qlike_vs_persistence": [
+          "AVAXUSDT",
+          "DOTUSDT"
+        ],
+        "qlike_vs_ewma": [
+          "AVAXUSDT",
+          "DOTUSDT"
+        ],
+        "logmse_vs_persistence": [
+          "BNBUSDT",
+          "DOGEUSDT"
+        ]
+      },
+      "n_forecast_rows": 9059,
+      "untrained_coin_folds": 80
+    },
+    {
+      "id": "C_LHAR-X_1d",
+      "window": "1d",
+      "model": "LHAR-X",
+      "pass": false,
+      "coins_pass": 7,
+      "mean_qlike": 0.5284,
+      "failed_tests": {
+        "qlike_vs_persistence": [
+          "AVAXUSDT",
+          "DOTUSDT"
+        ],
+        "qlike_vs_ewma": [
+          "AVAXUSDT"
+        ],
+        "coverage_80": [
+          "DOGEUSDT"
+        ]
+      },
+      "n_forecast_rows": 9050,
+      "untrained_coin_folds": 80
+    }
+  ]
+}

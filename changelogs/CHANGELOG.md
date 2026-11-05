@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Phase 5 family C result (a 1h volatility forecast finalist)
+- Family C ran on the development data at `c8f5849f` (r4 digest `272dae18`) on 2026-11-04, from 19:36 to 19:41 UTC. Before the run, its A5.1 reproduction matched every C4 run (`records/a5_reproduction_c8f5849f.json`).
+- Result (`records/family_c_result_c8f5849f.json`):
+  - All three 1h forecasters pass on 10 of 10 coins. The finalist is `C_LHAR-X_1h` (log-HAR with funding, basis and BTC inputs), with a common-support QLIKE of 0.494.
+  - Every Diebold-Mariano test passes at the gated lag and at a 10-day lag (largest p 0.0023). Coverage is 0.791 to 0.801 at 80% and 0.948 to 0.951 at 95%.
+  - The 4h and 1d forecasters fail on 3 or 4 coins. At 4h, a single window dominates the failures: the 2025-10-10 crash.
+- Stay-out flag:
+  - High-volatility windows realise 2.13 times the volatility of the rest (95% interval 2.00 to 2.27).
+  - 79% of the 8,132 dead-market windows stay below 3 round trips.
+  - Both conditions pass, so the finalist may be read on the holdout once its lock is signed.
+- The descriptive no-refit twin shows that monthly refitting helped (QLIKE +0.015, 90% interval 0.004 to 0.033). It used one reserve slot, and the ledger adds `round4-family-c-twin` (1 trial, total 2,387).
+- The zero-volume placeholder bars were real on the data: 36 per coin, 55 on BTC. They voided every incomplete window.
+
 ### Added: Round 4 Phase 5 family C declared (9 volatility forecasts)
 - Family C is declared in `scripts/research/py/r4/family_c.py`, which carries the declaration in its header, with entry points in `r4/phase5_c.py`. The owner chose to run C next, then D, then B.
 - Grid: three log-HAR forecasters of 1h, 4h and 1d realized variance from 5m bars (plain, with a continuous and jump split, and with funding, basis and BTC inputs). They are fit per coin and refit monthly with a 24-month lookback, and 3 of the cap of 12 are reserved.
