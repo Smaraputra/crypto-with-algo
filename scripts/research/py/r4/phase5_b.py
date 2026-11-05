@@ -534,7 +534,9 @@ def check_complete(
     """The runs directory holds exactly the declared ids, each a trial receipt at its registry config hash.
 
     When given, every receipt must also carry this commit, r4 source digest and dataset hash. Every receipt must carry
-    its b block, decisions_sha256 and meta_fits_sha256, and both parquet files must hash to them.
+    its b block, decisions_sha256 and meta_fits_sha256, and both parquet files must hash to
+    them. Every run also holds tranches.parquet, daily.parquet and folds.json, which run_wf writes for every run,
+    including one that trades nothing.
     """
     runs = Path(runs_dir)
     declared = {c["id"]: c for c in family_b.family_b()}
@@ -557,6 +559,9 @@ def check_complete(
                 raise ValueError(f"{cid} has {key} {receipt.get(key)!r}, not {want!r}")
         if not isinstance(receipt.get("b"), dict):
             raise ValueError(f"{cid} has no b block in its receipt")
+        for name in ("tranches.parquet", "daily.parquet", "folds.json"):
+            if not (runs / cid / name).is_file():
+                raise ValueError(f"{cid} has no {name} beside its receipt")
         for sha_key, name in (("decisions_sha256", "decisions.parquet"), ("meta_fits_sha256", "meta_fits.parquet")):
             if not receipt.get(sha_key):
                 raise ValueError(f"{cid} has no {sha_key} in its receipt")
@@ -642,13 +647,15 @@ def _abs_weights(tranches: pd.DataFrame) -> np.ndarray:
 
 
 def _kept_mask(tr: pd.DataFrame, run_dir: Path) -> np.ndarray:
-    """True for each tranche the book keeps: its fold's beta for its coin is finite (A8.4). All True without folds.json.
+    """True for each tranche the book keeps: its fold's beta for its coin is finite (A8.4).
+
+    Raises ValueError without folds.json.
 
     A tranche belongs to the fold whose block [start, end) holds its decision time (entry minus the 10-minute delay).
     """
     folds_file = run_dir / "folds.json"
     if not folds_file.is_file():
-        return np.ones(len(tr), dtype=bool)
+        raise ValueError(f"{run_dir} has no folds.json: the kept tranches cannot be told")
     folds = json.loads(folds_file.read_text(encoding="utf-8"))
     decision = tr["entry_ms"].to_numpy(dtype=np.int64) - ENTRY_DELAY_MS
     kept = np.zeros(len(tr), dtype=bool)
@@ -669,7 +676,9 @@ def _kept_mask(tr: pd.DataFrame, run_dir: Path) -> np.ndarray:
 def _run_statistic(run_dir: Path, first_refit_ms: int) -> dict[str, Any]:
     """A run's kept tranche count and drift-free return per unit of their weight over [first refit, DEV_END)."""
     f = run_dir / "tranches.parquet"
-    tr = pd.read_parquet(f) if f.is_file() else pd.DataFrame()
+    if not f.is_file():
+        raise ValueError(f"{run_dir} has no tranches.parquet")
+    tr = pd.read_parquet(f)
     daily = pd.read_parquet(run_dir / "daily.parquet")
     w = _abs_weights(tr) if len(tr) else np.zeros(0)
     if len(tr):

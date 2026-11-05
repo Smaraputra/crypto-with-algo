@@ -150,6 +150,10 @@ PREDICTIONS: dict[str, Any] = {
     },
 }
 
+# `kept` (A8.4: the tranche's fold beta for its coin is finite) is exact for the "wf" and "tripwire" phases only. On
+# "cpcv:<p>" rows it is descriptive: the CPCV split betas come from cli's own import of estimate_betas, which the
+# kept-tranche wrapper does not touch, so `kept` there reflects the walk-forward's last estimate_betas call. No
+# statistic or report reads `kept` on CPCV rows.
 DECISION_COLUMNS = [
     "phase",
     "block_start",

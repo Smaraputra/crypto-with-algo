@@ -746,6 +746,21 @@ def test_the_real_declared_runs_and_check_complete(chain: dict[str, Any], cheap:
         phase5_b.check_complete(work, **kw)
 
 
+@pytest.mark.parametrize("name", ["tranches.parquet", "daily.parquet", "folds.json"])
+def test_check_complete_refuses_a_declared_run_missing_a_run_file(
+    chain: dict[str, Any], cheap: None, name: str
+) -> None:
+    import shutil
+
+    kw = {"commit": COMMIT, "source_sha256": cli.source_digest(), "dataset_hash": chain["hash"]}
+    work = chain["root"] / f"check_missing_{name.replace('.', '_')}"
+    shutil.copytree(chain["out"] / "runs", work, dirs_exist_ok=True)
+    phase5_b.check_complete(work, **kw)
+    (work / "B_rule_sti_C1" / name).unlink()
+    with pytest.raises(ValueError, match=name.replace(".", r"\.")):
+        phase5_b.check_complete(work, **kw)
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # The report
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1004,6 +1019,34 @@ def test_run_statistic_counts_and_weighs_the_kept_tranches_only(tmp_path: Path) 
     (bad / "folds.json").write_text(json.dumps(folds), encoding="utf-8")
     with pytest.raises(ValueError, match="outside every fold"):
         phase5_b._run_statistic(bad, FIRST_REFIT)
+
+
+def test_kept_mask_and_run_statistic_refuse_a_run_missing_its_files(tmp_path: Path) -> None:
+    tr = pd.DataFrame(
+        {
+            "symbol": ["AUSDT"],
+            "entry_ms": [FIRST_REFIT + family_b.ENTRY_DELAY_MS],
+            "interval": ["1h"],
+            "h_ms": [4 * H],
+            "size": [1.0],
+        }
+    )
+    idx = pd.Index(np.arange(FIRST_REFIT, FIRST_REFIT + 60 * DAY, DAY, dtype=np.int64), name="day_start")
+    daily = pd.DataFrame({"drift_free": np.full(len(idx), 0.001)}, index=idx)
+    no_folds = tmp_path / "no_folds"
+    no_folds.mkdir()
+    tr.to_parquet(no_folds / "tranches.parquet", index=False)
+    daily.to_parquet(no_folds / "daily.parquet")
+    with pytest.raises(ValueError, match="folds.json"):
+        phase5_b._kept_mask(tr, no_folds)
+    with pytest.raises(ValueError, match="folds.json"):
+        phase5_b._run_statistic(no_folds, FIRST_REFIT)
+    no_tr = tmp_path / "no_tranches"
+    no_tr.mkdir()
+    daily.to_parquet(no_tr / "daily.parquet")
+    (no_tr / "folds.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="tranches.parquet"):
+        phase5_b._run_statistic(no_tr, FIRST_REFIT)
 
 
 def test_report_ranks_the_eligible_candidate_and_plans_one_twin(
