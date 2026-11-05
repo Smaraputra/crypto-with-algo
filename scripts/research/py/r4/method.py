@@ -1104,6 +1104,33 @@ counted control", and that A5.1 requires to be registered "with its configuratio
   is family B's first D read.
 - Counting: 8 controls, outside N and V (A1.9), in the ledger entry round4-family-b-noise. Synthetic attempts compute
   no D outcome and add no count.
+
+AMENDMENT 9 (2026-11-06, owner-approved and SIGNED by the owner on 2026-11-06 (session 45) for this text). It is written
+after the A5.1 code reviews of the family B code at ce77b89f, and before any family B outcome on D. Those reviews
+found that A8.6's synthetic activity check cannot run (Codex and agy independently, Opus by its own synthetic
+reproduction after reading Codex's finding). The panel "built as calib-synth-v builds the V panel" carries a zero
+premium index and zero funding, so F's basis_z7d and funding_z30d are undefined and every row of the declared frames
+drops. The lead's run of the check on the VPS raised on an empty frame and wrote no record. It changes one thing,
+A8.6's synthetic panel (A9.1), and no other rule.
+
+A9.1 THE SYNTHETIC PANEL OF A8.6. It amends A8.6's "a synthetic D-shaped panel built as calib-synth-v builds the V
+panel, ..., with synthetic flow and metrics rows from 2023-01-01".
+- The panel's premium index and funding settlements of every coin, which calib-synth-v sets to zero, are replaced over
+  the panel's whole span by seeded synthetic series, under both keys of each (premium_5m and premiumIndex,
+  settlements and funding):
+  - the 5m premium-index close at every 5m open time is drawn from a normal with mean 0.0001 and standard deviation
+    0.00005, one draw per row in time order,
+  - the funding rate at every settlement instant (00:00, 08:00 and 16:00 UTC, intervalHours 8) is drawn from a normal
+    with mean 0.0001 and standard deviation 0.00002, one draw per row in time order.
+- For coin index j in the panel's coin order, the premium draws use numpy.random.default_rng([11_700_000, j, 1]) and
+  the funding draws use numpy.random.default_rng([11_700_000, j, 2]). That is A8.6's panel seed 11,700,000 with
+  streams that leave the synthetic flow and metrics draws unchanged. The distributions are the repository's synthetic
+  convention (tests/test_cli_bar.py, _make_fast_synthetic_panel).
+- The series are synthetic and carry no information about D. They exist only so that F is defined on the synthetic
+  panel, as it is on D.
+- The code lives in r4/family_b.py, in the function that already adds the synthetic flow and metrics rows. A test
+  runs the check on a small synthetic panel with the declared feature frame F unpatched.
+- Nothing else in A8.6 changes: the configurations, seeds, attempts, floor, gates and counts stay as signed.
 """
 
 from __future__ import annotations
