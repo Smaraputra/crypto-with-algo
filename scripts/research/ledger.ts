@@ -105,6 +105,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/py/r4/family_c.py family_c_twin("C_LHAR-X_1h"), the no-refit twin of the family C finalist, run on D at c8f5849f in one of the 3 reserved slots (descriptive refit comparison, records/family_c_result_c8f5849f.json)',
   },
+  {
+    id: 'round4-family-d',
+    date: '2026-11-05',
+    trials: 9,
+    source:
+      'scripts/research/py/r4/family_d.py family_d(), the 9 declared Phase 5 family D configurations under Amendment 6 (A-lgbm score, inverse-volatility weights from the family C finalist, bands 0, 0.045 and 0.09 in cells C2, C4 and C5; alpha-bearing, cap 12 with 3 reserved, .superpowers/sdd/round4/family-d-draft.md draft 3)',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */

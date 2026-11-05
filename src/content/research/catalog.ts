@@ -128,7 +128,7 @@ export const RESEARCH_FAMILIES: Record<ResearchFamily, { label: string; descript
 };
 
 /** The trial ledger total the page shows; the test pins it to ledgerTotal(). */
-export const LEDGER_TOTAL = 2387;
+export const LEDGER_TOTAL = 2396;
 
 export const RESEARCH_CATALOG: readonly ResearchEntry[] = [
   // =========================================================================

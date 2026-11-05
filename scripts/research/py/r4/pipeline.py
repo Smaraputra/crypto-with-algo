@@ -83,6 +83,8 @@ class RunConfig:
     book: str = "slot"  # "slot" (per-coin slot tranches) or "D" (dollar-neutral rank weights)
     noise_seed: int | None = None  # required when a feature is noise_00 to noise_99
     plant: dict[str, Any] | None = None  # {"seed", "amplitude"}: planted signal, required by planted_z
+    d_weights: str = "rank"  # family D weight rule (A6.1): "rank" or "inv_vol"
+    d_band: float = 0.0  # family D book-level band (A6.3), in units of weight; 0 is no band
 
     def __post_init__(self) -> None:
         if self.size_rule != "unit":
@@ -109,6 +111,19 @@ class RunConfig:
             raise ValueError(f"book must be 'slot' or 'D', got {self.book!r}")
         if self.family == "D" and self.book != "D":
             raise ValueError("family D requires book 'D'")
+        if self.d_weights not in ("rank", "inv_vol"):
+            raise ValueError(f"d_weights must be 'rank' or 'inv_vol', got {self.d_weights!r}")
+        if (
+            isinstance(self.d_band, bool)
+            or not isinstance(self.d_band, int | float)
+            or not np.isfinite(self.d_band)
+            or self.d_band < 0
+        ):
+            raise ValueError(f"d_band must be a finite number >= 0, got {self.d_band!r}")
+        if (self.d_weights != "rank" or self.d_band != 0) and (self.family != "D" or self.book != "D"):
+            raise ValueError("d_weights 'inv_vol' and a band need family 'D' and book 'D'")
+        if self.d_band > 0 and self.exit != "horizon":
+            raise ValueError("a band d_band > 0 needs exit E1 (horizon)")
 
 
 @dataclass
@@ -225,8 +240,15 @@ def decision_samples(
     panel: dict[str, dict[str, pd.DataFrame]],
     cfg: RunConfig,
     btc_symbol: str = "BTCUSDT",
+    d_forecasts: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Generate aligned decision samples across panel symbols."""
+    """Generate aligned decision samples across panel symbols.
+
+    With d_weights "inv_vol", d_forecasts (coin, T, f) is left-merged as the column d_f (NaN where missing). It is
+    never a feature and never drops a row.
+    """
+    if cfg.d_weights == "inv_vol" and d_forecasts is None:
+        raise ValueError("d_weights 'inv_vol' needs d_forecasts (the family D full-grid f)")
     interval_ms = 3_600_000 if cfg.interval == "1h" else 14_400_000
     btc_dec = panel[btc_symbol][cfg.interval]
 
@@ -416,6 +438,13 @@ def decision_samples(
             out_cols.extend(["tb_label", "tb_net", "tb_exit", "tb_label_short", "tb_net_short", "tb_exit_short"])
         combined = pd.DataFrame(columns=out_cols)
 
+    if cfg.d_weights == "inv_vol":
+        assert d_forecasts is not None
+        keys = d_forecasts.rename(columns={"coin": "symbol", "f": "d_f"})[["symbol", "T", "d_f"]]
+        if keys.duplicated(["symbol", "T"]).any():
+            raise ValueError("d_forecasts has a duplicate (coin, T)")
+        combined = combined.merge(keys, on=["symbol", "T"], how="left")
+
     combined.attrs["n_dropped"] = total_dropped
     combined.attrs["panel"] = _SharedPanel({symbol: dict(frames) for symbol, frames in panel.items()})
     logger.info("decision_samples: dropped %d rows, kept %d rows", total_dropped, len(combined))
@@ -593,7 +622,21 @@ def _make_tranches(
     """
     tranches: list[Tranche] = []
     if cfg.book == "D":
-        weights = rank_weights(test_df["T"].to_numpy(dtype=np.int64), sides)
+        if cfg.d_weights == "inv_vol" or cfg.d_band > 0:
+            from r4 import family_d
+
+            weights = family_d.book_weights(
+                test_df["T"].to_numpy(dtype=np.int64),
+                test_df["symbol"].to_numpy(),
+                sides,
+                test_df["d_f"].to_numpy(dtype=np.float64) if cfg.d_weights == "inv_vol" else None,
+                cfg.d_weights,
+                float(cfg.d_band),
+                int(cfg.h_ms),
+                int(parse_interval_ms(cfg.interval)),
+            )
+        else:
+            weights = rank_weights(test_df["T"].to_numpy(dtype=np.int64), sides)
         scale = float(parse_interval_ms(cfg.interval)) / float(cfg.h_ms)
     else:
         weights = None
@@ -712,6 +755,8 @@ def run_config_from_raw(raw_config: dict[str, Any]) -> RunConfig:
         book=raw_config.get("book", "slot"),
         noise_seed=raw_config.get("noise_seed"),
         plant=raw_config.get("plant"),
+        d_weights=raw_config.get("d_weights", "rank"),
+        d_band=raw_config.get("d_band", 0.0),
     )
 
 
