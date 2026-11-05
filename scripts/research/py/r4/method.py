@@ -901,6 +901,37 @@ A6.4 CODE BINDING. It extends A5.1's extension-node rule to these dimensions.
 - A5.1's Opus diff review and its eight-run reproduction check bind the family D digest before its first D outcome. The
   reproduction set already holds a D-book run (noise_36_d_C4_s1), which the defaults must reproduce. Disclosed: the
   reproduction exercises only the defaults, and the inv_vol and band branches rest on the tests above.
+
+AMENDMENT 7 (2026-11-05, owner-approved and SIGNED by the owner on 2026-11-05 (session 45) for this text). It is written
+after Amendment 6 was signed and the family D code was committed (7160f421), and before any family D outcome. The
+lead's pre-run parity check on D (A6.2 alone, no family D outcome) found the full-grid f to differ from
+compute_forecasts' f in the last bits on 18 of 276,840 rows (largest relative difference 3.6e-15, research image at
+7160f421, 2026-11-05). compute_forecasts' own recomputation matched the reference digest exactly. family_c.apply_fit's
+matrix product rounds by the batch of rows it is given, by at most about 2 ulps of the exponent argument:
+compute_forecasts multiplies a fold's complete windows, and the full grid multiplies every hour of the fold's month,
+which A6.2's exact causality needs. It changes one thing, A6.2's parity (A7.1), and no other rule.
+
+A7.1 PARITY. It amends A6.2's "Parity (blocking)" and states A6.2's batch rule. The full-grid f applies
+family_c.apply_fit once per coin and fold, to every hour of the fold's month (from its refit to the next refit or the
+partition end), so the batch is fixed by the calendar and never by the data. A6.4's exact causality test and A6.2's
+full-grid digest rest on that rule. Before any family D outcome, all three checks must hold, else the run stops:
+- Exact binding to family C. The run recomputes family_c.compute_forecasts for the finalist. The canonical digest of its
+  rows with a finite f must equal a6ed91ee3228f2c6645536b7b51c200deb34630e0c71bcd68da4fdfdc37ed6da (276,840 rows).
+- Exact model binding. For every coin and fold, the fit behind the full-grid f (beta and s2 from family_c.fit_fold)
+  equals bit for bit the fit that family_c.fit_fold gives on the design and windows compute_forecasts uses.
+- The full grid. The (coin, T) keys of compute_forecasts' finite rows are unique, and each is present in the full grid
+  with a finite f. On every such key, abs(f_full - f_C) <= 1e-12 x f_C, where f_C is compute_forecasts' f (finite and
+  positive). The tolerance is relative only, with no additive term. The receipt records the number of keys where the
+  two differ at all and the largest relative difference.
+- Unchanged: the canonical digest's definition, the reference file, and the full-grid digest's definition and its
+  recording in the receipt (A6.2). Also unchanged: A6.2's timing, CPCV ruling and missing rule, and A6.4's exact
+  causality test. The traded f is the full-grid f.
+- Disclosed: a relative difference of 1e-12 in f moves sigma by about 5e-13 relative. An unbanded target weight changes
+  by the same order, and a rank never changes, because ranks come from the score, not from f. A band decision whose
+  max abs(w_new - w_prev) lies within that order of b can flip, which changes the taken weights by about b. Within one
+  run f is deterministic, so this concerns only a comparison across batch shapes, never the run's own decisions.
+- The finalist lock for any family D finalist states the f parity tolerance for its H read and its TypeScript port
+  (lab-v5), which meet the same rounding.
 """
 
 from __future__ import annotations
