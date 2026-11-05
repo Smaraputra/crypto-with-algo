@@ -19,8 +19,12 @@ before any family D configuration reads D). Draft 3 of .superpowers/sdd/round4/f
   alpha-bearing count), the label-shift tripwire for every configuration whose items 1 to 3 pass (halt above 60), the
   SPA with seed 6,000,003. Beside the bar, never gating: the A5.2 hedge cost, the A1.10 account report, the within-cell
   PBO, the cost drag by cell and by band, and the decision-level reports computed from decisions.parquet (share of
-  decisions that take w_prev, cash shares, the parity and full-grid digests, the cost check and the CPCV gross
+  decision times that take w_prev, cash shares, the parity and full-grid digests, the cost check and the CPCV gross
   diagnostic).
+- The w_prev share (draft 4) is, over walk-forward decision times, the times whose taken target is w_prev divided by
+  the times whose w_new is defined (not cash). The report also gives the numerator and the all-times denominator. The
+  near-duplicate flag (b > 0 and the share under 0.01) uses the non-cash share. The CPCV cash share is reported for
+  each of the five CPCV paths (every decision time of the path's calls), with the per-call detail beside it.
 - Seeds: joint_shift_seed 13,000,000 + k in registry order and 13,000,009 + j for reserve slot j, the refit-question
   bootstrap 7,300,000 + the registry index, the SPA 6,000,003, the model seed 7. No other randomness.
 - Parity (Amendment 7, A7.1, blocking; it amends A6.2): before any D outcome three checks must hold, else the run

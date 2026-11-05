@@ -787,9 +787,13 @@ def test_run_wf_inv_vol_end_to_end(e2e: dict[str, Any], monkeypatch: pytest.Monk
     assert saved["decisions_sha256"] == receipt["decisions_sha256"] and saved["d_vol"] == receipt["d_vol"]
     dec = pd.read_parquet(dec_file)
     assert list(dec.columns) == family_d.DECISION_COLUMNS
-    assert set(dec["phase"]) == {"wf", "cpcv"}
+    assert set(dec["phase"]) == {"wf"} | {f"cpcv:{p}" for p in range(5)}
     assert dec["ranked"].any() and dec["took_prev"].any()
-    assert (dec.loc[dec["phase"] == "wf", "call"].max()) < dec.loc[dec["phase"] == "cpcv", "call"].min()
+    cpcv_rows = dec[dec["phase"].str.startswith("cpcv:")]
+    assert (dec.loc[dec["phase"] == "wf", "call"].max()) < cpcv_rows["call"].min()
+    # calls of one path are consecutive and the paths run in order
+    path_of_call = cpcv_rows.groupby("call")["phase"].first().str.split(":").str[1].astype(int)
+    assert path_of_call.is_monotonic_increasing
     tr = pd.read_parquet(run_dir / "tranches.parquet")
     assert len(tr) > 0
     # the unchanged configurations keep their receipt keys
@@ -824,3 +828,144 @@ def test_run_tripwire_checks_parity_and_runs_inv_vol(e2e: dict[str, Any], monkey
 def test_dev_end_is_the_finalist_partition_end() -> None:
     by_id = {c["id"]: c for c in family_c.family_c()}
     assert by_id[family_d.FINALIST_ID]["partition_end_ms"] == DEV_END
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# A5.1 review fixes (brief 34d): exact weights, band state, the record, the batch rule and the tolerance
+# ---------------------------------------------------------------------------------------------------------------------
+
+
+def test_inv_vol_weights_hand_vector_with_unequal_f() -> None:
+    scores = np.array([0.3, -1.2, 2.5, 0.9, -0.4, 1.7, -2.2])
+    f = np.array([4e-5, 9e-5, 1.6e-4, 2.5e-5, 3.6e-4, 1e-4, 6.4e-5])
+    times = np.full(7, T0)
+    got = family_d.inv_vol_weights(times, scores, f)
+    # independent computation: ranks of the scores 1..7 centred on 4
+    order = np.argsort(scores)
+    rank = np.empty(7)
+    rank[order] = np.arange(1.0, 8.0)
+    c = rank - 4.0
+    u = c / np.sqrt(f)
+    want = np.zeros(7)
+    long_ = c > 0
+    short = c < 0
+    want[long_] = 0.5 * u[long_] / u[long_].sum()
+    want[short] = -0.5 * np.abs(u[short]) / np.abs(u[short]).sum()
+    assert np.max(np.abs(got - want)) <= 1e-15
+    # the same vector with u = c / f would differ clearly
+    wrong = np.zeros(7)
+    uw = c / f
+    wrong[long_] = 0.5 * uw[long_] / uw[long_].sum()
+    wrong[short] = -0.5 * np.abs(uw[short]) / np.abs(uw[short]).sum()
+    assert np.max(np.abs(got - wrong)) > 1e-3
+
+
+def test_band_state_does_not_carry_across_calls() -> None:
+    swapped = [1.0, 0.0, 2.0, 3.0, 4.0, 5.0, 6.0]  # a move of 0.0833 from BASE, inside b = 0.09
+    t1, s1, sc1, _ = _block([BASE, BASE], gap=2)
+    first = family_d.book_weights(t1, s1, sc1, None, "rank", 0.09, 2 * H, H)
+    # the second call starts at T0 + 4h, so its T - h (T0 + 2h) is the last decision of the first call
+    t2 = np.repeat([T0 + 4 * H], 7).astype(np.int64)
+    sc2 = np.array(swapped)
+    second = family_d.book_weights(t2, s1[:7], sc2, None, "rank", 0.09, 2 * H, H)
+    assert np.array_equal(second, rank_weights(t2, sc2))
+    assert not np.array_equal(second, first[7:])
+
+
+def test_band_both_times_cash_with_the_same_ranked_set_is_not_a_repeat() -> None:
+    # only BTC has a finite f at both times: 1 ranked coin, cash at T - h and at T
+    f = [[1.0] + [np.nan] * 6, [1.0] + [np.nan] * 6]
+    times, symbols, scores, fv = _block([BASE, BASE], gap=2, f_rows=f)
+    with family_d.recording() as rec:
+        family_d.set_phase("wf")
+        taken = family_d.book_weights(times, symbols, scores, fv, "inv_vol", 0.5, 2 * H, H)
+    df = rec.frame()
+    assert not taken.any()
+    assert df["cash"].all() and not df["took_prev"].any()
+    assert df["ranked"].sum() == 2
+
+
+def test_run_tripwire_passes_the_band_to_the_shifted_runs(e2e: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    fc, _ = family_c.compute_forecasts(e2e["panel"], {c["id"]: c for c in family_c.family_c()}[family_d.FINALIST_ID])
+    monkeypatch.setitem(family_d.PARITY_REFERENCE, e2e["hash"], family_d.canonical_digest(fc, "f"))
+    seen: list[RunConfig] = []
+    real = cli.label_shift_tripwire
+
+    def spy(samples: Any, cfg: RunConfig, *args: Any, **kwargs: Any) -> Any:
+        seen.append(cfg)
+        return real(samples, cfg, *args, **kwargs)
+
+    monkeypatch.setattr(cli, "label_shift_tripwire", spy)
+    for band in (0.09, 0.0):
+        cfg = _d_config(f"d_twband_{int(band * 100)}", band)
+        f = e2e["root"] / f"twband_{band}.json"
+        f.write_text(json.dumps(cfg), encoding="utf-8")
+        cli.run_tripwire(f, e2e["ds"], e2e["root"] / "twband", commit=COMMIT, panel=e2e["panel"], shifts_days=[30])
+    assert [c.d_band for c in seen] == [0.09, 0.0] and all(c.d_weights == "inv_vol" for c in seen)
+
+
+def test_decision_record_columns_on_a_hand_case() -> None:
+    nan = np.nan
+    # time 0: coin 0 has no f (6 ranked, a book). time 1: the two lowest swap, inside b. time 2: only 5 ranked (cash)
+    f = [[nan] + [1.0] * 6, [nan] + [1.0] * 6, [nan, nan] + [1.0] * 5]
+    swapped = [0.0, 2.0, 1.0, 3.0, 4.0, 5.0, 6.0]
+    times, symbols, scores, fv = _block([BASE, swapped, BASE], gap=2, f_rows=f)
+    with family_d.recording() as rec:
+        family_d.set_phase("wf")
+        taken = family_d.book_weights(times, symbols, scores, fv, "inv_vol", 0.2, 2 * H, H)
+    df = rec.frame()
+    w_new = family_d.inv_vol_weights(times, scores, fv)
+    assert len(df) == 21 and (df["T"].to_numpy() == times).all() and (df["symbol"].to_numpy() == symbols).all()
+    ranked = np.isfinite(fv)
+    assert np.array_equal(df["ranked"].to_numpy(), ranked)
+    assert not df["ranked"].iloc[0] and np.isnan(df["f"].iloc[0])  # the NaN-f coin is unranked with f NaN
+    assert np.array_equal(df["f"].to_numpy(), fv, equal_nan=True)
+    assert np.array_equal(df["w_new"].to_numpy(), w_new)
+    assert np.array_equal(df["w_taken"].to_numpy(), taken)
+    # time 1 repeats time 0's target, which differs from its own new target
+    assert df["took_prev"].tolist() == [False] * 7 + [True] * 7 + [False] * 7
+    assert np.array_equal(taken[7:14], taken[:7]) and not np.array_equal(taken[7:14], w_new[7:14])
+    assert not np.array_equal(w_new[7:14], w_new[:7]) and taken[:7].any()
+    # time 2 is cash: 5 ranked, all weights 0
+    assert df["cash"].tolist() == [False] * 14 + [True] * 7
+    assert (df["w_taken"].iloc[14:] == 0.0).all() and (df["w_new"].iloc[14:] == 0.0).all()
+
+
+def test_full_grid_batch_is_one_apply_fit_per_month_over_every_hour(
+    synth_two: dict[str, dict[str, pd.DataFrame]],
+) -> None:
+    fin = _small_finalist()
+    full = family_d.full_grid_forecasts(synth_two, fin)
+    checked = 0
+    for sym, g in family_d._grid_fits(synth_two, family_d._finalist(fin)).items():
+        got = full[full["coin"] == sym].set_index("T")["f"]
+        for (refit, nxt), fit in zip(g["bounds"], g["fits"], strict=True):
+            if fit is None:
+                continue
+            pos = np.flatnonzero((g["grid"] >= refit) & (g["grid"] < nxt))
+            want = np.asarray(family_c.apply_fit(fit, g["x"].iloc[pos]), dtype=np.float64)
+            want = np.where(np.isfinite(want) & (want > 0.0), want, np.nan)
+            assert np.array_equal(got.loc[g["grid"][pos]].to_numpy(), want, equal_nan=True)
+            checked += len(pos)
+    assert checked > 1000
+
+
+def test_check_parity_tolerance_near_its_value(
+    synth_two: dict[str, dict[str, pd.DataFrame]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fin = _small_finalist()
+    full = family_d.full_grid_forecasts(synth_two, fin)
+    fc, _ = family_c.compute_forecasts(synth_two, fin)
+    monkeypatch.setitem(family_d.PARITY_REFERENCE, "ds-hash", family_d.canonical_digest(fc, "f"))
+    key = fc[np.isfinite(fc["f"])].iloc[3]
+    sel = (full["coin"] == key["coin"]) & (full["T"] == key["T"])
+
+    def scaled(factor: float) -> pd.DataFrame:
+        out = full.copy()
+        out.loc[sel, "f"] = float(key["f"]) * factor
+        return out
+
+    with pytest.raises(ValueError, match="1e-12"):
+        family_d.check_parity(synth_two, "ds-hash", scaled(1 + 2e-12), fin)
+    res = family_d.check_parity(synth_two, "ds-hash", scaled(1 + 5e-13), fin)
+    assert 4e-13 < res["max_rel_diff"] <= 1e-12

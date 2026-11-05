@@ -191,23 +191,33 @@ def _decision_report(config: dict[str, Any], run_dir: Path, receipt: dict[str, A
     """The D-specific, never gating, numbers of one configuration from its decisions.parquet and receipt."""
     times = _decision_times(pd.read_parquet(run_dir / "decisions.parquet"))
     wf = times[times["phase"] == "wf"]
-    cpcv = times[times["phase"] == "cpcv"]
-    ranked_wf = wf[wf["n_ranked"] > 0]
-    take_share = float(ranked_wf["took"].mean()) if len(ranked_wf) else None
+    cpcv = times[times["phase"].astype(str).str.startswith("cpcv:")]
+    non_cash_wf = wf[~wf["cash"]]
+    n_took = int(wf["took"].sum())
+    take_share = float(n_took / len(non_cash_wf)) if len(non_cash_wf) else None
+    take_share_all = float(n_took / len(wf)) if len(wf) else None
     band = float(config["d_band"])
     near_duplicate = bool(band > 0.0 and take_share is not None and take_share < NEAR_DUPLICATE_BELOW)
     per_call = {
         int(call): _cash_shares(g.sort_values("T")) for call, g in sorted(cpcv.groupby("call"), key=lambda kv: kv[0])
+    }
+    per_path = {
+        int(str(phase).split(":", 1)[1]): _cash_shares(g.sort_values(["call", "T"]))
+        for phase, g in sorted(cpcv.groupby("phase"), key=lambda kv: int(str(kv[0]).split(":", 1)[1]))
     }
     gross = [float(v) for v in receipt["metrics"]["cpcv_path_gross_means"]]
     gross_mean = float(np.mean(gross)) if gross else None
     every_cpcv_cash = bool(len(cpcv) == 0 or cpcv["cash"].all())
     return {
         "band": band,
-        "wf_decisions_with_ranked_coins": int(len(ranked_wf)),
+        "wf_take_prev_count": n_took,
+        "wf_non_cash_times": int(len(non_cash_wf)),
+        "wf_all_times": int(len(wf)),
         "wf_take_prev_share": take_share,
+        "wf_take_prev_share_all_times": take_share_all,
         "near_duplicate_of_b0": near_duplicate,
         "wf_cash": _cash_shares(wf),
+        "cpcv_cash_by_path": per_path,
         "cpcv_cash_by_call": per_call,
         "cpcv_gross": {
             "path_means": gross,

@@ -207,13 +207,18 @@ def test_report_family_d_bindings_and_decision_reports(
     for c in configs:
         dec = pd.read_parquet(runs / c["id"] / "decisions.parquet")
         rep = report["decision_reports"][c["id"]]
-        wf = dec[dec["phase"] == "wf"].groupby("T").agg(n=("ranked", "sum"), took=("took_prev", "all"))
-        counted = wf[wf["n"] > 0]
-        assert rep["wf_decisions_with_ranked_coins"] == len(counted)
-        assert rep["wf_take_prev_share"] == pytest.approx(float(counted["took"].mean()))
+        wf = dec[dec["phase"] == "wf"].groupby("T").agg(cash=("cash", "all"), took=("took_prev", "all"))
+        counted = wf[~wf["cash"]]
+        assert rep["wf_non_cash_times"] == len(counted) and rep["wf_all_times"] == len(wf)
+        assert rep["wf_take_prev_count"] == int(wf["took"].sum())
+        assert rep["wf_take_prev_share"] == pytest.approx(float(wf["took"].sum() / len(counted)))
+        assert rep["wf_take_prev_share_all_times"] == pytest.approx(float(wf["took"].mean()))
         assert rep["near_duplicate_of_b0"] is bool(c["d_band"] > 0 and rep["wf_take_prev_share"] < 0.01)
         assert rep["wf_cash"]["n_times"] == len(wf)
-        assert set(rep["cpcv_cash_by_call"]) == {int(k) for k in dec.loc[dec["phase"] == "cpcv", "call"].unique()}
+        cp = dec[dec["phase"].str.startswith("cpcv:")]
+        assert set(rep["cpcv_cash_by_call"]) == {int(k) for k in cp["call"].unique()}
+        assert set(rep["cpcv_cash_by_path"]) == {int(ph.split(":")[1]) for ph in cp["phase"].unique()}
+        assert set(rep["cpcv_cash_by_path"]) == set(range(5))
         gross = json.loads((runs / c["id"] / "receipt.json").read_text())["metrics"]["cpcv_path_gross_means"]
         assert rep["cpcv_gross"]["mean"] == pytest.approx(float(np.mean(gross)))
         assert rep["cpcv_gross"]["within_bound"] is bool(abs(np.mean(gross)) <= 0.0001)
@@ -372,9 +377,9 @@ def test_decision_report_cash_shares_and_cpcv_diagnostic_on_hand_numbers(tmp_pat
     wf = _decisions([False] * 4)
     wf["cash"] = wf["T"].isin([0, H])  # times 0 and 1 are cash
     wf.loc[wf["T"] == H, "ranked"] = wf.loc[wf["T"] == H, "symbol"].isin(["C0USDT", "C1USDT", "C2USDT"])  # 3 ranked
-    cpcv0 = _decisions([False] * 2, phase="cpcv", call=3)
+    cpcv0 = _decisions([False] * 2, phase="cpcv:0", call=3)
     cpcv0["cash"] = True
-    cpcv1 = _decisions([False] * 2, phase="cpcv", call=4)
+    cpcv1 = _decisions([False] * 2, phase="cpcv:1", call=4)
     pd.concat([wf, cpcv0, cpcv1], ignore_index=True).to_parquet(tmp_path / "decisions.parquet", index=False)
     rep = phase5_d._decision_report({"d_band": 0.0}, tmp_path, _receipt([0.00004, 0.00008, 0.00012]))
     assert rep["wf_cash"] == {
@@ -383,8 +388,9 @@ def test_decision_report_cash_shares_and_cpcv_diagnostic_on_hand_numbers(tmp_pat
         "all_tie_cash_share": 0.25,  # time 0: 7 ranked, cash
         "fewer_than_6_cash_share": 0.25,  # time 1: 3 ranked, cash
     }
-    assert rep["wf_decisions_with_ranked_coins"] == 4
+    assert rep["wf_non_cash_times"] == 2 and rep["wf_all_times"] == 4
     assert rep["cpcv_cash_by_call"][3]["cash_share"] == 1.0 and rep["cpcv_cash_by_call"][4]["cash_share"] == 0.0
+    assert rep["cpcv_cash_by_path"][0]["cash_share"] == 1.0 and rep["cpcv_cash_by_path"][1]["cash_share"] == 0.0
     assert rep["cpcv_gross"]["mean"] == pytest.approx(0.00008)
     assert rep["cpcv_gross"]["within_bound"] is True and rep["cpcv_gross"]["uninformative"] is False
     # a bound just beyond 1 bp a day, and an all-cash CPCV
@@ -392,6 +398,51 @@ def test_decision_report_cash_shares_and_cpcv_diagnostic_on_hand_numbers(tmp_pat
     pd.concat([wf, cpcv0, cpcv1], ignore_index=True).to_parquet(tmp_path / "decisions.parquet", index=False)
     rep = phase5_d._decision_report({"d_band": 0.0}, tmp_path, _receipt([0.0002]))
     assert rep["cpcv_gross"]["within_bound"] is False and rep["cpcv_gross"]["uninformative"] is True
+
+
+def test_decision_report_w_prev_share_denominator_is_the_non_cash_times(tmp_path: Path) -> None:
+    config = {"d_band": 0.045}
+    # 200 walk-forward times: the first 100 are cash, one of the others repeats w_prev
+    rows = _decisions([False] * 200)
+    rows["cash"] = rows["T"] < 100 * H
+    rows.loc[rows["T"] == 150 * H, "took_prev"] = True
+    rows.to_parquet(tmp_path / "decisions.parquet", index=False)
+    rep = phase5_d._decision_report(config, tmp_path, _receipt([0.0]))
+    assert (rep["wf_take_prev_count"], rep["wf_non_cash_times"], rep["wf_all_times"]) == (1, 100, 200)
+    assert rep["wf_take_prev_share"] == 0.01 and rep["wf_take_prev_share_all_times"] == 0.005
+    assert rep["near_duplicate_of_b0"] is False  # exactly 0.01 is not under 1 percent
+    # with 101 non-cash times the share is 1 of 101, under 1 percent
+    rows["cash"] = rows["T"] < 99 * H
+    rows.to_parquet(tmp_path / "decisions.parquet", index=False)
+    rep = phase5_d._decision_report(config, tmp_path, _receipt([0.0]))
+    assert rep["wf_non_cash_times"] == 101 and rep["wf_take_prev_share"] == 1 / 101
+    assert rep["near_duplicate_of_b0"] is True
+    # all cash: no defined share and no flag
+    rows["cash"] = True
+    rows.loc[:, "took_prev"] = False
+    rows.to_parquet(tmp_path / "decisions.parquet", index=False)
+    rep = phase5_d._decision_report(config, tmp_path, _receipt([0.0]))
+    assert rep["wf_take_prev_share"] is None and rep["near_duplicate_of_b0"] is False
+
+
+def test_decision_report_cpcv_cash_share_per_path_on_a_hand_count(tmp_path: Path) -> None:
+    # path 0 has calls 10, 11, 12 and path 1 has calls 13, 14, 15, each call with 2 decision times (14 rows each).
+    # path 0 cash times: call 10 both, call 11 none, call 12 one: 3 of 6. Path 1: call 13 none, 14 none, 15 one: 1 of 6.
+    parts = []
+    cash_times = {10: [0, 1], 11: [], 12: [1], 13: [], 14: [], 15: [0]}
+    for call, path in zip(range(10, 16), [0, 0, 0, 1, 1, 1], strict=True):
+        part = _decisions([False, False], phase=f"cpcv:{path}", call=call)
+        part["cash"] = part["T"].isin([k * H for k in cash_times[call]])
+        parts.append(part)
+    pd.concat([_decisions([False] * 3), *parts], ignore_index=True).to_parquet(
+        tmp_path / "decisions.parquet", index=False
+    )
+    rep = phase5_d._decision_report({"d_band": 0.0}, tmp_path, _receipt([0.0]))
+    assert sorted(rep["cpcv_cash_by_path"]) == [0, 1]
+    assert rep["cpcv_cash_by_path"][0]["n_times"] == 6 and rep["cpcv_cash_by_path"][0]["cash_share"] == 0.5
+    assert rep["cpcv_cash_by_path"][1]["n_times"] == 6 and rep["cpcv_cash_by_path"][1]["cash_share"] == 1 / 6
+    assert sorted(rep["cpcv_cash_by_call"]) == [10, 11, 12, 13, 14, 15]
+    assert rep["cpcv_cash_by_call"][10]["cash_share"] == 1.0 and rep["cpcv_cash_by_call"][12]["cash_share"] == 0.5
 
 
 # ---------------------------------------------------------------------------------------------------------------------

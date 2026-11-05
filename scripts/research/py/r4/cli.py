@@ -574,9 +574,9 @@ def run_wf(
         else ExitContext(five_min, cfg.h_ms, premium=_panel_premium(panel), settlements=settlements)
     )
     with family_d.recording(d_recorder) if d_recorder is not None else nullcontext():
-        if d_recorder is not None:
-            family_d.set_phase("cpcv")
         for p in range(paths_predictions.shape[0]):
+            if d_recorder is not None:
+                family_d.set_phase(f"cpcv:{p}")
             p_daily, p_excluded = cpcv_path_daily(
                 p,
                 paths_predictions[p],
