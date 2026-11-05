@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A Tier B noise mini-control (8 pure-null controls, a 1,000-trade activity floor) gates the family.
 - **Amendment 9** (signed 2026-11-06) gives the mini-control's synthetic panel seeded premium and funding series. The calibration panel's zeros left two declared features undefined.
 - **Family B code** (`r4/family_b.py`, `r4/phase5_b.py`): it passed the A5.1 Opus diff review after two fix rounds, with mutation tests and TypeScript parity fixtures for every ported signal. The synthetic activity check registered all 8 controls at their first seeds.
-- Ledger: `round4-family-b` 18 trials and `round4-family-b-noise` 8 controls, total 2,422. 6 reserve slots are logged in `records/family_b_reserve.json`.
+- Ledger: `round4-family-b` 18 trials and `round4-family-b-noise` 8 controls, total 2,422. 6 slots are reserved and none is used yet. `records/family_b_reserve.json` logs each slot when it is consumed.
 
 ### Added: Round 4 Amendments 6 and 7, family D declared and run (0 of 9)
 - **Amendment 6** (signed 2026-11-05) runs family D as the plan describes it:

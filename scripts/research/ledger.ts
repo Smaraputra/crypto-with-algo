@@ -123,7 +123,7 @@ export const LEDGER: readonly LedgerEntry[] = [
     date: '2026-11-06',
     trials: 8,
     source:
-      'scripts/research/py/r4/family_b.py family_b_noise(), the 8 Tier B noise mini-control configurations of Amendment 8 A8.6 (registered after the synthetic activity check records/synth_b_noise_60772326.json); kind control, outside the alpha-bearing N and the round-close V',
+      'scripts/research/py/r4/family_b.py family_b_noise(), the 8 Tier B noise mini-control configurations of Amendment 8 A8.6 (registered after the synthetic activity check records/synth_b_noise_9a30f3f9.json); kind control, outside the alpha-bearing N and the round-close V',
   },
 ];
 
