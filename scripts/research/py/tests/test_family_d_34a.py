@@ -380,7 +380,7 @@ def synth_two(synth_clean: dict[str, dict[str, pd.DataFrame]]) -> dict[str, dict
     return panel
 
 
-def test_full_grid_equals_compute_forecasts_bit_for_bit(synth_two: dict[str, dict[str, pd.DataFrame]]) -> None:
+def test_full_grid_equals_compute_forecasts_within_tolerance(synth_two: dict[str, dict[str, pd.DataFrame]]) -> None:
     fin = _small_finalist()
     full = family_d.full_grid_forecasts(synth_two, fin)
     fc, _ = family_c.compute_forecasts(synth_two, fin)
@@ -388,10 +388,22 @@ def test_full_grid_equals_compute_forecasts_bit_for_bit(synth_two: dict[str, dic
     assert len(rows) > 500
     merged = rows[["coin", "T", "f"]].merge(full, on=["coin", "T"], how="left", suffixes=("", "_full"))
     assert len(merged) == len(rows)
-    assert np.array_equal(merged["f"].to_numpy(), merged["f_full"].to_numpy())
-    assert family_d.canonical_digest(rows, "f") == family_d.canonical_digest(
-        full.merge(rows[["coin", "T"]], on=["coin", "T"]), "f"
-    )
+    got, want = merged["f_full"].to_numpy(), merged["f"].to_numpy()
+    assert np.isfinite(got).all()
+    assert (np.abs(got - want) <= 1e-12 * want).all()
+    digest = family_d.canonical_digest(rows, "f")
+    old = family_d.PARITY_REFERENCE.get("ds-hash")
+    family_d.PARITY_REFERENCE["ds-hash"] = digest
+    try:
+        res = family_d.check_parity(synth_two, "ds-hash", full, fin)
+    finally:
+        if old is None:
+            del family_d.PARITY_REFERENCE["ds-hash"]
+        else:
+            family_d.PARITY_REFERENCE["ds-hash"] = old
+    assert res["n_keys_differing"] == int((got != want).sum())
+    expected = float((np.abs(got - want) / want).max())
+    assert res["max_rel_diff"] == expected and expected <= 1e-12
 
 
 def test_full_grid_covers_incomplete_windows_and_leaves_pre_refit_nan(
@@ -426,20 +438,74 @@ def test_check_parity(synth_two: dict[str, dict[str, pd.DataFrame]], monkeypatch
     assert res["full_grid_digest"] == family_d.canonical_digest(full, "f")
     assert res["full_grid_rows"] == int(np.isfinite(full["f"]).sum())
     assert set(res["missing_wf_hours_by_coin"]) == {"BTCUSDT", "ETHUSDT"}
+    assert isinstance(res["n_keys_differing"], int) and res["max_rel_diff"] <= 1e-12
     eth_missing = int(
         full[(full["coin"] == "ETHUSDT") & (full["T"] >= 40 * DAY) & (full["T"] <= 70 * DAY - H)]["f"].isna().sum()
     )
     assert res["missing_wf_hours_by_coin"]["ETHUSDT"] == eth_missing and eth_missing > 0
+    # a wrong reference digest
     monkeypatch.setitem(family_d.PARITY_REFERENCE, "ds-hash", "0" * 64)
     with pytest.raises(ValueError, match="digest"):
         family_d.check_parity(synth_two, "ds-hash", full, fin)
     monkeypatch.setitem(family_d.PARITY_REFERENCE, "ds-hash", digest)
+    # an f outside the tolerance
+    first = full.index[full["f"].notna()][0]
     bad = full.copy()
-    bad.loc[bad.index[bad["f"].notna()][0], "f"] *= 1.0000000001
-    with pytest.raises(ValueError, match="bit-identical"):
+    bad.loc[first, "f"] *= 1.000000001
+    with pytest.raises(ValueError, match="1e-12"):
         family_d.check_parity(synth_two, "ds-hash", bad, fin)
+    # a key missing from the full grid
+    key = rows.iloc[len(rows) // 2]
+    dropped = full[~((full["coin"] == key["coin"]) & (full["T"] == key["T"]))]
+    with pytest.raises(ValueError, match="missing"):
+        family_d.check_parity(synth_two, "ds-hash", dropped, fin)
+    # a duplicated key in compute_forecasts' rows
+    real = family_c.compute_forecasts
+
+    def dup(panel: Any, config: Any, prepared: Any = None) -> Any:
+        out, counts = real(panel, config, prepared)
+        return pd.concat([out, out.iloc[[0]]], ignore_index=True), counts
+
+    with monkeypatch.context() as m:
+        m.setattr(family_c, "compute_forecasts", dup)
+        m.setitem(family_d.PARITY_REFERENCE, "ds-hash", family_d.canonical_digest(dup(synth_two, fin)[0], "f"))
+        with pytest.raises(ValueError, match="duplicated"):
+            family_d.check_parity(synth_two, "ds-hash", full, fin)
+    # an unknown dataset hash
     with pytest.raises(ValueError, match="no family C parity reference"):
         family_d.check_parity(synth_two, "unknown-hash", full, fin)
+    # a model-binding failure: one coin-fold beta one ulp off
+    real_fits = family_d._grid_fits
+
+    def off_by_one_ulp(panel: Any, fin_: Any) -> Any:
+        out = real_fits(panel, fin_)
+        g = out["ETHUSDT"]
+        k = next(i for i, ft in enumerate(g["fits"]) if ft is not None)
+        beta = g["fits"][k]["beta"].copy()
+        beta[0] = np.nextafter(beta[0], np.inf)
+        g["fits"][k] = {**g["fits"][k], "beta": beta}
+        return out
+
+    with monkeypatch.context() as m:
+        m.setattr(family_d, "_grid_fits", off_by_one_ulp)
+        with pytest.raises(ValueError, match="model binding"):
+            family_d.check_parity(synth_two, "ds-hash", full, fin)
+
+
+def test_check_parity_accepts_an_f_within_tolerance_but_not_bit_identical(
+    synth_two: dict[str, dict[str, pd.DataFrame]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fin = _small_finalist()
+    full = family_d.full_grid_forecasts(synth_two, fin)
+    fc, _ = family_c.compute_forecasts(synth_two, fin)
+    monkeypatch.setitem(family_d.PARITY_REFERENCE, "ds-hash", family_d.canonical_digest(fc, "f"))
+    near = full.copy()
+    key = fc[np.isfinite(fc["f"])].iloc[0]
+    sel = (near["coin"] == key["coin"]) & (near["T"] == key["T"])
+    near.loc[sel, "f"] *= 1 + 1e-14
+    assert near.loc[sel, "f"].iloc[0] != full.loc[sel, "f"].iloc[0]
+    res = family_d.check_parity(synth_two, "ds-hash", near, fin)
+    assert res["n_keys_differing"] >= 1 and 0 < res["max_rel_diff"] <= 1e-12
 
 
 def test_full_grid_is_future_invariant(synth_clean: dict[str, dict[str, pd.DataFrame]]) -> None:

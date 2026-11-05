@@ -332,6 +332,8 @@ def report_family_d(ds: Path | str, runs_dir: Path | str, out_dir: Path | str, c
         "full_grid_digest": first["full_grid_digest"],
         "full_grid_rows": first["full_grid_rows"],
         "missing_wf_hours_by_coin": first["missing_wf_hours_by_coin"],
+        "n_keys_differing": first["n_keys_differing"],
+        "max_rel_diff": first["max_rel_diff"],
         "identical_across_configurations": bool(all(v == first for v in d_vol.values())),
     }
 

@@ -23,8 +23,12 @@ before any family D configuration reads D). Draft 3 of .superpowers/sdd/round4/f
   diagnostic).
 - Seeds: joint_shift_seed 13,000,000 + k in registry order and 13,000,009 + j for reserve slot j, the refit-question
   bootstrap 7,300,000 + the registry index, the SPA 6,000,003, the model seed 7. No other randomness.
-- Parity (A6.2, blocking): before any D outcome the full-grid f must reproduce family C's compute_forecasts rows, bit
-  for bit, and their canonical digest must equal PARITY_REFERENCE for the dataset. A mismatch stops the run.
+- Parity (Amendment 7, A7.1, blocking; it amends A6.2): before any D outcome three checks must hold, else the run
+  stops. (1) The canonical digest of family C's compute_forecasts finite-f rows equals PARITY_REFERENCE for the
+  dataset. (2) Exact model binding: every coin-fold (beta, s2) from family_c.fit_fold on the full grid's design equals
+  bit for bit the fit on compute_forecasts' design. (3) compute_forecasts' finite-f (coin, T) keys are unique, each is
+  in the full grid with a finite f, and abs(f_full - f_C) <= 1e-12 * f_C. The batch rule: the full grid calls
+  family_c.apply_fit once per coin and fold on every hour of the fold's month, so the batch is calendar-fixed.
 - No configuration, cell, band, seed, weight rule, volatility input or reserve rule changes after family D's first D
   outcome, except as M's re-run after a code fix. Ledger: round4-family-d, 9 trials, 2,387 to 2,396.
 - Predictions: PREDICTIONS below (M's, and three diagnostics).
@@ -211,21 +215,12 @@ def _finalist(finalist: dict[str, Any] | None) -> dict[str, Any]:
     return by_id[FINALIST_ID]
 
 
-def full_grid_forecasts(
-    panel: dict[str, dict[str, pd.DataFrame]], finalist: dict[str, Any] | None = None
-) -> pd.DataFrame:
-    """The finalist's variance forecast f at every T of the 1h grid, whether or not [T, T + 1h) is complete (A6.2).
+def _grid_fits(panel: dict[str, dict[str, pd.DataFrame]], fin: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Per coin, the 1h grid, its design x and one family_c.fit_fold result (or None) per refit fold.
 
-    Per coin, T runs over every hour from the hour of the coin's first 5m bar to the last hour with T + 1h at or
-    before the partition end. x_i(T) is family_c.design on component_frame and exog_frame at the requested T. For each
-    refit month, family_c.fit_fold fits exactly as compute_forecasts does and family_c.apply_fit evaluates every T in
-    [refit, next refit). T before the first refit, an untrained fold, a non-finite design row and a non-finite or
-    non-positive result give NaN. `finalist` replaces the registry entry (tests only).
-
-    Each fold is evaluated in one apply_fit call over all of its grid rows, so the batch never depends on which
-    windows turn out complete (a data-dependent batch would change f in the last bits through the matrix product).
+    This is the single source of the grid design and the fits: full_grid_forecasts applies the fits to the grid, and
+    check_parity's model binding compares the same fits. The result maps coin to {"grid", "x", "bounds", "fits"}.
     """
-    fin = _finalist(finalist)
     window = str(fin["window"])
     wms = family_c.WINDOWS[window]
     end_ms = int(fin["partition_end_ms"])
@@ -233,7 +228,7 @@ def full_grid_forecasts(
     bounds = list(zip(refits, [*refits[1:], end_ms], strict=True))
     wins = {sym: family_c.window_table(d["5m"], wms, end_ms)[0] for sym, d in panel.items()}
     btc_win = wins.get(family_c.BTC)
-    frames: list[pd.DataFrame] = []
+    out: dict[str, dict[str, Any]] = {}
     for sym, d in panel.items():
         bars = d["5m"]
         if bars is None or len(bars) == 0:
@@ -246,23 +241,50 @@ def full_grid_forecasts(
         comp = family_c.component_frame(win, wms, grid)
         exog = family_c.exog_frame(grid, wms, d.get("settlements"), d.get("premium_5m"), btc_win)
         x = family_c.design(comp, exog, str(fin["model"]), window, sym == family_c.BTC)
-        f = np.full(len(grid), np.nan)
-        for refit, nxt in bounds:
-            in_fold = (grid >= refit) & (grid < nxt)
-            if not in_fold.any():
-                continue
-            fit = family_c.fit_fold(
-                x,
-                win["RV"],
-                win["R"],
-                wms,
-                refit,
-                fin.get("lookback_months"),
-                int(fin["min_train_windows"]),
+        fits: list[dict[str, Any] | None] = []
+        for refit, _nxt in bounds:
+            fits.append(
+                family_c.fit_fold(
+                    x,
+                    win["RV"],
+                    win["R"],
+                    wms,
+                    refit,
+                    fin.get("lookback_months"),
+                    int(fin["min_train_windows"]),
+                )
             )
+        out[sym] = {"grid": grid, "x": x, "bounds": bounds, "fits": fits}
+    return out
+
+
+def full_grid_forecasts(
+    panel: dict[str, dict[str, pd.DataFrame]], finalist: dict[str, Any] | None = None
+) -> pd.DataFrame:
+    """The finalist's variance forecast f at every T of the 1h grid, whether or not [T, T + 1h) is complete (A6.2).
+
+    Per coin, T runs over every hour from the hour of the coin's first 5m bar to the last hour with T + 1h at or
+    before the partition end. x_i(T) is family_c.design on component_frame and exog_frame at the requested T. For each
+    refit month, family_c.fit_fold fits exactly as compute_forecasts does and family_c.apply_fit evaluates every T in
+    [refit, next refit). T before the first refit, an untrained fold, a non-finite design row and a non-finite or
+    non-positive result give NaN. `finalist` replaces the registry entry (tests only).
+
+    Batch rule (A7.1): family_c.apply_fit is called once per coin and fold, on every hour of the fold's month (from
+    its refit to the next refit or the partition end), so the batch is fixed by the calendar and never by the data.
+    A data-dependent batch (compute_forecasts' complete windows) would change f in the last bits through the matrix
+    product and break A6.4's exact causality test.
+    """
+    fin = _finalist(finalist)
+    frames: list[pd.DataFrame] = []
+    for sym, g in _grid_fits(panel, fin).items():
+        grid, x = g["grid"], g["x"]
+        f = np.full(len(grid), np.nan)
+        for (refit, nxt), fit in zip(g["bounds"], g["fits"], strict=True):
             if fit is None:
                 continue
-            pos = np.flatnonzero(in_fold)
+            pos = np.flatnonzero((grid >= refit) & (grid < nxt))
+            if len(pos) == 0:
+                continue
             f[pos] = family_c.apply_fit(fit, x.iloc[pos])
         f = np.where(np.isfinite(f) & (f > 0.0), f, np.nan)
         frames.append(pd.DataFrame({"coin": sym, "T": grid, "f": f}))
@@ -273,26 +295,48 @@ def full_grid_forecasts(
     return pd.concat(frames, ignore_index=True)
 
 
+def _fits_equal(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    return bool(np.array_equal(a["beta"], b["beta"])) and a["s2"] == b["s2"]
+
+
 def check_parity(
     panel: dict[str, dict[str, pd.DataFrame]],
     dataset_hash: str,
     full: pd.DataFrame,
     finalist: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A6.2's blocking parity check against family C's compute_forecasts. Any failure raises ValueError."""
+    """A7.1's three blocking parity checks against family C's compute_forecasts. Any failure raises ValueError.
+
+    In order: (1) exact binding, the canonical digest of compute_forecasts' finite-f rows equals PARITY_REFERENCE;
+    (2) exact model binding, every coin-fold (beta, s2) from family_c.fit_fold on compute_forecasts' design equals bit
+    for bit the one on the full grid's design (both None together); (3) the full grid, compute_forecasts' finite-f
+    (coin, T) keys are unique, each is in `full` with a finite f, and abs(f_full - f_C) <= 1e-12 * f_C.
+    """
     if dataset_hash not in PARITY_REFERENCE:
         raise ValueError(f"dataset {dataset_hash!r} has no family C parity reference: the run stops")
     fin = _finalist(finalist)
     forecasts, _ = family_c.compute_forecasts(panel, fin)
     rows = forecasts.loc[np.isfinite(forecasts["f"].to_numpy(dtype=np.float64)), ["coin", "T", "f"]]
-    merged = rows.merge(full[["coin", "T", "f"]], on=["coin", "T"], how="left", suffixes=("", "_full"))
-    got = merged["f_full"].to_numpy(dtype=np.float64)
-    want = merged["f"].to_numpy(dtype=np.float64)
-    if len(merged) != len(rows) or not np.array_equal(got, want):
-        raise ValueError("family D parity: the full-grid f is not bit-identical to compute_forecasts on its rows")
     digest = canonical_digest(rows, "f")
     if digest != PARITY_REFERENCE[dataset_hash]:
         raise ValueError(f"family D parity: digest {digest} is not the reference {PARITY_REFERENCE[dataset_hash]}")
+    _check_model_binding(panel, fin)
+    if rows.duplicated(["coin", "T"]).any():
+        raise ValueError("family D parity: compute_forecasts has duplicated (coin, T) keys")
+    merged = rows.merge(full[["coin", "T", "f"]], on=["coin", "T"], how="left", suffixes=("", "_full"))
+    got = merged["f_full"].to_numpy(dtype=np.float64)
+    want = merged["f"].to_numpy(dtype=np.float64)
+    if len(merged) != len(rows) or not np.isfinite(got).all():
+        raise ValueError("family D parity: a compute_forecasts key is missing from the full grid or has a non-finite f")
+    if not (want > 0.0).all():
+        raise ValueError("family D parity: compute_forecasts has a non-positive f")
+    diff = np.abs(got - want)
+    if not (diff <= 1e-12 * want).all():
+        raise ValueError("family D parity: the full-grid f differs from compute_forecasts by more than 1e-12 relative")
+    n_differing = int((got != want).sum())
+    max_rel = float((diff / want).max()) if len(want) else 0.0
     first = int(fin["first_refit_ms"])
     end_ms = int(fin["partition_end_ms"])
     window = family_c.WINDOWS[str(fin["window"])]
@@ -306,7 +350,35 @@ def check_parity(
         "full_grid_digest": canonical_digest(full, "f"),
         "full_grid_rows": int(np.isfinite(full["f"].to_numpy(dtype=np.float64)).sum()),
         "missing_wf_hours_by_coin": missing,
+        "n_keys_differing": n_differing,
+        "max_rel_diff": max_rel,
     }
+
+
+def _check_model_binding(panel: dict[str, dict[str, pd.DataFrame]], fin: dict[str, Any]) -> None:
+    """A7.1's exact model binding: per coin and fold, the grid's fit equals compute_forecasts' fit bit for bit."""
+    window = str(fin["window"])
+    wms = family_c.WINDOWS[window]
+    end_ms = int(fin["partition_end_ms"])
+    grid_fits = _grid_fits(panel, fin)
+    prep = family_c.prepare_window(panel, window, end_ms)
+    refits = family_c.refit_times(int(fin["first_refit_ms"]), end_ms)
+    for sym, g in grid_fits.items():
+        p = prep.get(sym)
+        if p is None or p["win"].empty:
+            ref: list[dict[str, Any] | None] = [None] * len(refits)
+        else:
+            win = p["win"]
+            x = family_c.design(p["comp"], p["exog"], str(fin["model"]), window, sym == family_c.BTC)
+            ref = [
+                family_c.fit_fold(
+                    x, win["RV"], win["R"], wms, refit, fin.get("lookback_months"), int(fin["min_train_windows"])
+                )
+                for refit in refits
+            ]
+        for k, (a, b) in enumerate(zip(ref, g["fits"], strict=True)):
+            if not _fits_equal(a, b):
+                raise ValueError(f"family D parity: model binding failed for {sym} at fold {k}")
 
 
 # ---------------------------------------------------------------------------------------------------------------------

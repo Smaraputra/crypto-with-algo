@@ -144,6 +144,7 @@ def test_run_family_d_writes_runs_with_decision_records(patched: dict[str, Any],
         d = out / "runs" / cid
         receipt = json.loads((d / "receipt.json").read_text(encoding="utf-8"))
         assert receipt["d_vol"]["parity_digest"] == patched["digest"]
+        assert receipt["d_vol"]["n_keys_differing"] >= 0 and 0.0 <= receipt["d_vol"]["max_rel_diff"] <= 1e-12
         assert receipt["decisions_sha256"] == hashlib.sha256((d / "decisions.parquet").read_bytes()).hexdigest()
         assert json.loads((out / "cfg" / f"{cid}.json").read_text(encoding="utf-8"))["id"] == cid
     phase5_d.check_complete(
@@ -201,6 +202,7 @@ def test_report_family_d_bindings_and_decision_reports(
     parity = report["f_parity"]
     assert parity["identical_across_configurations"] is True and parity["parity_digest"] == patched["digest"]
     assert set(parity["missing_wf_hours_by_coin"]) == set(SYMS)
+    assert parity["n_keys_differing"] >= 0 and 0.0 <= parity["max_rel_diff"] <= 1e-12
     # per configuration decision reports from decisions.parquet
     for c in configs:
         dec = pd.read_parquet(runs / c["id"] / "decisions.parquet")
