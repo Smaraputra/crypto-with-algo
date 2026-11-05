@@ -92,7 +92,8 @@
       "LINKUSDT": 2887,
       "SOLUSDT": 2887,
       "XRPUSDT": 2887
-    }
+    },
+    "mean_daily_costs_note": "walk-forward mean daily costs (the daily series' costs column), not CPCV costs"
   },
   "predictions": {
     "m_no_directional_configuration_meets_the_bar": "consistent (family D: 0 of 9; family A: 0 of 45)",
@@ -104,8 +105,8 @@
   "consequences": [
     "Family D has no candidate and no finalist. The 3 reserve slots are unused and the ledger is unchanged at 2,396.",
     "Family E selects nothing from family D.",
-    "The band is nearly inert: the A-lgbm score barely persists over h, as Opus's synthetic check on Amendment 6 anticipated.",
-    "With the forecast missing after the zero-volume outages, the book was cash on 9.5% of walk-forward decision times, as A6.2 disclosed."
+    "The band is nearly inert: w_prev was taken on 0.01% to 2.0% of non-cash walk-forward decision times. The lead reads this as low persistence of the score's targets over h, an interpretation: the share alone does not separate score persistence from volatility changes, coin eligibility or block boundaries.",
+    "With the forecast missing after the zero-volume outages, 9.5% of walk-forward decision times opened no tranche (cash decisions, A6.1: tranches already open ran to their exits), as A6.2 disclosed."
   ],
   "configurations": [
     {
@@ -621,5 +622,6 @@
         }
       }
     }
-  ]
+  ],
+  "evidence": "Local copies in .superpowers/sdd/round4/family-d-results/: family_d_report.json, refit_questions.json, receipts/ (every receipt.json, chain.log, mem.log, report/bar_pass1.json, a5-check-chain.log with the reproduction window) and fd-parity-check.py (the precheck script; its VPS output is in progress.md)."
 }

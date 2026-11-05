@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Family D** ran on the development data at `56276796` on 2026-11-05, after its reproduction matched every C4 run (`records/a5_reproduction_56276796.json`).
   - The 9 configurations cover cells C2, C4 and C5 with bands 0, 0.045 and 0.09.
   - None reaches items 1 to 3, and none has a positive walk-forward mean. The means range from -3.9 to -21.7 bps a day (`records/family_d_result_56276796.json`).
-  - CPCV gross means are +0.8 to +2.0 bps a day against costs of 7 to 21 bps a day.
-  - The band changed under 2% of decisions, so the b = 0.045 configurations are near-duplicates of b = 0. The book was cash on 9.5% of walk-forward decision times, after the zero-volume outages.
+  - CPCV gross means are +0.8 to +2.0 bps a day, against walk-forward costs of 7 to 21 bps a day.
+  - The band changed under 2% of decisions, so the b = 0.045 configurations are near-duplicates of b = 0. After the zero-volume outages, 9.5% of walk-forward decision times opened no tranche.
 - Ledger: `round4-family-d`, 9 trials, total 2,396. No reserve slot was used.
 
 ### Added: Round 4 Phase 5 family C result (a 1h volatility forecast finalist)
