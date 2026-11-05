@@ -1,0 +1,128 @@
+AMENDMENT 6 (2026-11-05, owner-approved and SIGNED by the owner on 2026-11-05 (session 45) for this text). It is written
+after the family A result (0 of 45, records/family_a_result_b011ea1e.json) and the family C result (finalist
+C_LHAR-X_1h, records/family_c_result_c8f5849f.json), and before any family D read of D. The owner chose on 2026-11-05
+to run family D with the plan of record's "weights inverse to forecast volatility" and "book-level band", which A1.4 and
+A5.1 leave to a further amendment, with the family C finalist as the volatility input and the band values 0.045 and
+0.09. It changes four things:
+- two family D configuration dimensions, the weight rule and the band (A6.1);
+- the volatility input of the inverse-volatility weights (A6.2);
+- the book-level band (A6.3);
+- the code binding for them (A6.4).
+It changes no threshold, span, budget cap, H rule, Phase 4 outcome, ledger count, or rule of a family already run.
+
+A6.1 FAMILY D WEIGHTS AND BAND AS CONFIGURATION DIMENSIONS. It amends "A configuration is fully specified by" and A1.4.
+- A family D configuration also specifies its weight rule, "rank" (A1.4, the default and the rule of every
+  configuration already run) or "inv_vol" (below), and its band b (A6.3, default 0, no band).
+- "inv_vol". At a decision time T the ranked coins are those with a finite score and a finite, strictly positive
+  volatility forecast f_i(T) (A6.2). Fewer than 6 means cash.
+  - c_i is the centred average rank of the score among them (A1.4), sigma_i(T) = sqrt(f_i(T)), and
+    u_i = c_i / sigma_i(T).
+  - The long side is scaled so its weights sum to 0.5 and the short side so they sum to -0.5:
+    w_i = 0.5 x u_i / (sum of u_j over u_j > 0) for u_i > 0, and w_i = 0.5 x u_i / (sum of abs(u_j) over u_j < 0) for
+    u_i < 0. So sum abs(w) = 1 and sum w = 0 to floating-point rounding (tests at 1e-12). A median coin of an odd
+    count has c_i = 0 and w_i = 0. All scores tied means cash.
+  - Disclosed: the per-side scaling keeps the book dollar-neutral, not volatility-neutral or beta-neutral between the
+    sides, and the drift-free series still removes beta drift (M). The weights keep each coin's side from its centred
+    rank, but not the rank order of their magnitudes: a higher-ranked coin with a higher sigma can carry less weight.
+- A1.4's other rules hold for both weight rules: the size rule does not apply, ranking never splits a decision time
+  across folds or CPCV groups, cash at T opens no tranche while the tranches already open run to their exits, and item
+  5's jackknife drops a coin's tranches without re-ranking or re-weighting.
+
+A6.2 THE VOLATILITY INPUT.
+- f_i(T) is the family C finalist C_LHAR-X_1h's forecast of coin i's realised variance over the 1h window [T, T + 1h),
+  evaluated at every T on the 1h grid. Decision times at 1h and 4h lie on that grid.
+  - f_i(T) = family_c.apply_fit(fit, x_i(T)), with fit from family_c.fit_fold at the refit of T's UTC month under the
+    finalist's registry configuration (refit monthly from 2023-01-01, 24-month lookback, at least 500 training
+    windows), and x_i(T) the finalist's design row at T (family_c.design on family_c.component_frame and
+    family_c.exog_frame evaluated at the requested T, the terms prepare_window builds on its window grid, extended to
+    T, partition end DEV_END).
+  - The family D run computes it itself, from load_panel's panel for the manifest's dataset, by calling these frozen
+    family C functions (A5.1, frozen since family C's first D outcome). It reads no stored family C output.
+- Timing. f_i(T) uses only 5m bars with t + 5m <= T and settlements at or before T (M's TIMING rule), and fits on
+  windows with t1 < the refit of T's month. It is evaluated whether or not the window [T, T + 1h) turns out complete.
+  family_c.compute_forecasts returns a row only where that window is complete (family_c.py:540), which is data after T,
+  so its rows never decide which coins are ranked. The A6.4 test applies causality.assert_future_invariant to f, its
+  truncation check included. f is not a model feature: it never drops a training sample and enters only the weights of
+  test decisions.
+- CPCV ruling. f is not refit per CPCV split. CPCV's purge and embargo protect the score model's training rows, which
+  may lie after a test block. The fit behind f_i(T) never uses a window that ends after the refit of T's month, so it
+  carries no information from T or later into a test decision. Disclosed (Codex): inside a CPCV split that fit may use
+  earlier windows of the same or the other test group, as any trailing feature does.
+- Parity (blocking). Before any family D outcome, f must equal the family C run on that run's support. On the rows
+  where compute_forecasts at c8f5849f gives a finite f, the run's f has canonical digest
+  a6ed91ee3228f2c6645536b7b51c200deb34630e0c71bcd68da4fdfdc37ed6da (276,840 rows, 2023-01-01 00:00 to
+  2026-06-30 22:00 UTC).
+  - The canonical digest is one SHA-256 over the concatenation, ordered by coin (code-point order) and then T ascending,
+    of each row with a finite value. Each row is the coin's UTF-8 bytes, a NUL byte, T in epoch milliseconds as a
+    little-endian int64, and the value as a little-endian IEEE 754 float64.
+  - The reference was computed from the C_LHAR-X_1h forecasts.parquet of the c8f5849f run (sha256
+    696c5ef14613b4fb6964a057bfbae5a88146a0e5a80af1516f39d3e55b86f557, named in receipt cd766aa9...,
+    records/family_c_result_c8f5849f.json).
+  - r4/family_d.py holds the function, with a test vector. A mismatch stops the run. The run also records the digest
+    of f on its full grid in its receipts.
+- Missing. A coin without a finite, strictly positive f_i(T) is left out of the ranking at T and enters neither side.
+  - The walk-forward lacks f on 2,885 of 30,641 hours for each of nine coins and on 3,603 of 30,639 for BTC
+    (family_c_report.json, C_LHAR-X_1h, n_rows minus n_paired, which equals its hours without a finite f on family C's
+    support). The cause is the 30-day components after the zero-volume windows. The counts are identical on the nine
+    coins, which points to the same hours, so the book is likely cash on about 120 walk-forward days. The run reports
+    the full-grid counts.
+  - No fit exists before the first refit, 2023-01-01, so CPCV test blocks before it are cash. That keeps each path's
+    sign but removes 2022 from item 1's CPCV condition. The PBO and SPA use the walk-forward span (M), and the shared
+    cash days lower their power without a direction of bias.
+  - The family D report gives the cash share of decision times in the walk-forward and in each CPCV path.
+- The no-refit twin of a family D configuration freezes its score model only. Its f is the same walk-forward f.
+- H and lab-v5. f comes from the finalist's final model: per coin, fit_fold with the cutoff DEV_END minus 30 days in
+  place of the refit and the same lookback (family C's declaration), applied without refit.
+- Disclosed: the family C finalist is a development result (H unread, its finalist lock unsigned). Its use here is the
+  plan's "Its output also filters and sizes A, B and D", fixed before family D's first D read. A family D result
+  neither validates the forecast nor depends on its H read. The EWMA benchmark (fit-free, full coverage) was offered
+  and not chosen.
+
+A6.3 THE BOOK-LEVEL BAND. For a family D configuration with b > 0, under either weight rule. A band b > 0 requires exit
+E1.
+- At a decision time T, w_new is the target of the configuration's weight rule. w_prev is the target taken at the
+  decision T - h, whose tranche exits at T + 10m, the 5m open where T's tranche enters.
+- w_prev is defined only when the decision at T - h lies in the same test block and was not cash, and its ranked coins
+  (a zero-weight median coin included) are T's ranked coins.
+- If w_prev is defined and max over i of abs(w_new_i - w_prev_i) <= b, the decision at T takes w_prev. Otherwise it
+  takes w_new. With w_prev taken, the opening tranche equals the expiring one on every coin, and A1.1's netting trades
+  nothing.
+- One decision per time, never a subset of coins, as in the book-level band of scripts/research/exposure-sim.ts (there
+  against the held position, here against the expiring tranche). Either way each target keeps sum abs(w) = 1 and
+  sum w = 0. The book of h / interval stacked tranches keeps sum w = 0, and its net gross is at most 1 (below 1 when a
+  coin's stacked tranches differ in sign, or after a cash decision).
+- The band's state lives within one test block (a walk-forward month or a CPCV test group). The frozen walk_forward
+  calls _make_tranches once per month, and adjacent groups of a CPCV path come from different splits. A decision whose
+  T - h lies before the block's first decision time takes w_new. Disclosed: the first h / interval decisions of each
+  block are unbanded, 8 of about 720 at 1h/8h, 2 of about 180 at 4h/8h and 6 of about 180 at 4h/24h each month.
+- b is in units of weight on the sum abs(w) = 1 book. The registered values are 0.045 and 0.09, which are 0.25 and 0.5
+  of the largest A1.4 weight on 10 coins (4.5 / 25 = 0.18). b = 0 is no band.
+- Disclosed: 0.045 and 0.09 are the band fractions 0.25 and 0.5 of the exposure-gates.ts grid. On that path's
+  linearRank book a positive band was selected in 11 of 12 windows (0.5 in all six at 1h, 0.25 or 0.5 in five of six at
+  4h), on a slow realised-volatility factor. The b = 0 selections in 11 of 12 windows (exposure-gates.ts and
+  exposure-sim.ts) were the tanh path's per-symbol band, a different rule. Here nothing is selected: each band value is
+  its own configuration and trial.
+
+A6.4 CODE BINDING. It extends A5.1's extension-node rule to these dimensions.
+- The extension nodes may gain a branch selected by weight rule "inv_vol" or a band b > 0, which no C4 configuration
+  and no configuration already run on D reaches:
+  - RunConfig and run_config_from_raw: two fields, with the defaults "rank" and 0;
+  - run_wf and run_tripwire: each builds the RunConfig with the two fields and supplies f to decision_samples, and
+    run_wf also runs the parity check once per run and writes the family's decision-level record (one row per decision
+    time and coin in the walk-forward and in every CPCV test block, with its sha256 in the receipt);
+  - decision_samples: the f column, never a feature;
+  - _make_tranches: calling the new module.
+  walk_forward, restrict_to_d and cpcv_path_daily pass the column through unchanged. The node guard is re-pinned in
+  the family commit.
+- New module r4/family_d.py holds the full-grid f, the canonical digest, the inv_vol weights, the band and the family's
+  registry. Its tests cover:
+  - the weights: sum abs(w) = 1 and sum w = 0 at 1e-12, the sides from the centred ranks, cash below 6 coins, on all
+    ties and on a non-positive f;
+  - the band on hand cases: the repeat, the coin-set change, the block start, and cash at T - h;
+  - that the defaults reproduce rank_weights bit for bit, and that banded fills net to zero in book.netted_costs;
+  - the digest against a test vector;
+  - causality.assert_future_invariant on f with each input's closing rule (A5.1): every coin's 5m bars and 5m premium
+    index at 5 minutes, settlements at 0.
+- A5.1's Opus diff review and its eight-run reproduction check bind the family D digest before its first D outcome. The
+  reproduction set already holds a D-book run (noise_36_d_C4_s1), which the defaults must reproduce. Disclosed: the
+  reproduction exercises only the defaults, and the inv_vol and band branches rest on the tests above.

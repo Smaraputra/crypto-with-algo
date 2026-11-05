@@ -11,6 +11,7 @@ import os
 import re
 import time
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -426,6 +427,8 @@ def run_wf(
         book=raw_config.get("book", "slot"),
         noise_seed=raw_config.get("noise_seed"),
         plant=raw_config.get("plant"),
+        d_weights=raw_config.get("d_weights", "rank"),
+        d_band=raw_config.get("d_band", 0.0),
     )
 
     ds_path = Path(ds_dir)
@@ -443,16 +446,32 @@ def run_wf(
     settlements = {s: panel[s].get("settlements", panel[s].get("funding")) for s in universe}
 
     funding_dropped = _count_funding_dropped(panel, cfg)
-    samples, n_outside_d = restrict_to_d(decision_samples(panel, cfg))
+    # Family D (A6.4): the inverse-volatility f and its parity check come before any outcome; a band or inv_vol run
+    # records its decisions. No other configuration reaches these branches.
+    d_active = cfg.d_weights == "inv_vol" or cfg.d_band > 0
+    d_full = None
+    d_parity = None
+    d_recorder = None
+    if d_active:
+        from r4 import family_d
+
+        d_recorder = family_d.Recorder()
+        if cfg.d_weights == "inv_vol":
+            d_full = family_d.full_grid_forecasts(panel)
+            d_parity = family_d.check_parity(panel, dataset_hash, d_full)
+    samples, n_outside_d = restrict_to_d(decision_samples(panel, cfg, d_forecasts=d_full))
 
     # 1. Walk-forward on D
-    run_res = walk_forward(
-        samples,
-        cfg,
-        first_refit_ms=first_refit_ms,
-        end_ms=DEV_END,
-        panel=panel,
-    )
+    with family_d.recording(d_recorder) if d_recorder is not None else nullcontext():
+        if d_recorder is not None:
+            family_d.set_phase("wf")
+        run_res = walk_forward(
+            samples,
+            cfg,
+            first_refit_ms=first_refit_ms,
+            end_ms=DEV_END,
+            panel=panel,
+        )
 
     # 2. Daily drift-free series metrics
     wf_drift_free = run_res.drift_free["drift_free"]
@@ -554,26 +573,29 @@ def run_wf(
         if is_horizon(cfg.exit)
         else ExitContext(five_min, cfg.h_ms, premium=_panel_premium(panel), settlements=settlements)
     )
-    for p in range(paths_predictions.shape[0]):
-        p_daily, p_excluded = cpcv_path_daily(
-            p,
-            paths_predictions[p],
-            samples,
-            test_groups_by_split,
-            layout,
-            split_betas,
-            cfg,
-            five_min,
-            settlements,
-            universe,
-            cpcv_span_start,
-            cpcv_span_end,
-            cpcv_exit_ctx,
-            split_exit_models,
-        )
-        cpcv_path_means.append(float(p_daily["drift_free"].mean()))
-        cpcv_path_gross_means.append(float(p_daily["gross_hedged_funding"].mean()))
-        cpcv_excluded.append(p_excluded)
+    with family_d.recording(d_recorder) if d_recorder is not None else nullcontext():
+        for p in range(paths_predictions.shape[0]):
+            if d_recorder is not None:
+                family_d.set_phase(f"cpcv:{p}")
+            p_daily, p_excluded = cpcv_path_daily(
+                p,
+                paths_predictions[p],
+                samples,
+                test_groups_by_split,
+                layout,
+                split_betas,
+                cfg,
+                five_min,
+                settlements,
+                universe,
+                cpcv_span_start,
+                cpcv_span_end,
+                cpcv_exit_ctx,
+                split_exit_models,
+            )
+            cpcv_path_means.append(float(p_daily["drift_free"].mean()))
+            cpcv_path_gross_means.append(float(p_daily["gross_hedged_funding"].mean()))
+            cpcv_excluded.append(p_excluded)
 
     # 5. Per-coin means and the drop-one-coin jackknife, from the fold tranches and fold betas
     coin_means: dict[str, float | None] = {}
@@ -637,6 +659,10 @@ def run_wf(
             ]
         )
     tranches_df.to_parquet(run_out_dir / "tranches.parquet", index=False)
+    decisions_sha256 = None
+    if d_recorder is not None:
+        d_recorder.frame().to_parquet(run_out_dir / "decisions.parquet", index=False)
+        decisions_sha256 = hashlib.sha256((run_out_dir / "decisions.parquet").read_bytes()).hexdigest()
 
     (run_out_dir / "folds.json").write_text(json.dumps(folds_to_json(run_res.folds), indent=2), encoding="utf-8")
 
@@ -689,6 +715,10 @@ def run_wf(
     }
     if isinstance(panel, PlantedPanel):
         receipt["plant"] = {**panel.plant, "dropped_higher_bars": panel.dropped_total}
+    if d_parity is not None:
+        receipt["d_vol"] = d_parity
+    if decisions_sha256 is not None:
+        receipt["decisions_sha256"] = decisions_sha256
 
     (run_out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     return receipt
@@ -734,6 +764,8 @@ def run_tripwire(
         book=raw_config.get("book", "slot"),
         noise_seed=raw_config.get("noise_seed"),
         plant=raw_config.get("plant"),
+        d_weights=raw_config.get("d_weights", "rank"),
+        d_band=raw_config.get("d_band", 0.0),
     )
     ds_path = Path(ds_dir)
     manifest = read_manifest(ds_path)
@@ -742,7 +774,13 @@ def run_tripwire(
         panel = load_panel(ds_path, symbols_to_load, cache_dir=cache_dir)
     if cfg.plant is not None:
         panel = apply_plant(panel, cfg.plant)
-    samples, _ = restrict_to_d(decision_samples(panel, cfg))
+    d_full = None
+    if cfg.d_weights == "inv_vol":
+        from r4 import family_d
+
+        d_full = family_d.full_grid_forecasts(panel)
+        family_d.check_parity(panel, str(manifest["datasetHash"]), d_full)
+    samples, _ = restrict_to_d(decision_samples(panel, cfg, d_forecasts=d_full))
 
     run_out = Path(out_dir) / run_id
     config_hash = config_hash_of(raw_config)
@@ -1100,6 +1138,24 @@ def main() -> None:
     fct_parser.add_argument("--out", required=True, help="Output directory (twins/ inside)")
     fct_parser.add_argument("--commit", required=True, help="Commit SHA")
 
+    fdr_parser = subparsers.add_parser("family-d-run", help="Run the 9 declared Phase 5 family D configurations")
+    fdr_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fdr_parser.add_argument("--out", required=True, help="Output directory (runs/ inside)")
+    fdr_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fdp_parser = subparsers.add_parser("family-d-report", help="Write the Phase 5 family D report")
+    fdp_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fdp_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    fdp_parser.add_argument("--out", required=True, help="Output directory")
+    fdp_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fdt_parser = subparsers.add_parser("family-d-twins", help="Run the no-refit twins of the family D candidates")
+    fdt_parser.add_argument("--ds", required=True, help="Dataset directory")
+    fdt_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    fdt_parser.add_argument("--report", required=True, help="The family_d_report.json file")
+    fdt_parser.add_argument("--out", required=True, help="Output directory (twins/ inside)")
+    fdt_parser.add_argument("--commit", required=True, help="Commit SHA")
+
     args = parser.parse_args()
 
     if args.command == "c5-reproduce":
@@ -1391,6 +1447,15 @@ def main() -> None:
             phase5_c.report_family_c(args.ds, args.runs, args.out, args.commit)
         else:
             phase5_c.run_family_c_twin(args.ds, args.runs, args.report, args.out, args.commit)
+    elif args.command in ("family-d-run", "family-d-report", "family-d-twins"):
+        from r4 import phase5_d
+
+        if args.command == "family-d-run":
+            phase5_d.run_family_d(args.ds, args.out, args.commit)
+        elif args.command == "family-d-report":
+            phase5_d.report_family_d(args.ds, args.runs, args.out, args.commit)
+        else:
+            phase5_d.run_twins_d(args.ds, args.runs, args.report, args.out, args.commit)
 
 
 if __name__ == "__main__":
