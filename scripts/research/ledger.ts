@@ -111,6 +111,19 @@ export const LEDGER: readonly LedgerEntry[] = [
     trials: 9,
     source:
       'scripts/research/py/r4/family_d.py family_d(), the 9 declared Phase 5 family D configurations under Amendment 6 (A-lgbm score, inverse-volatility weights from the family C finalist, bands 0, 0.045 and 0.09 in cells C2, C4 and C5; alpha-bearing, cap 12 with 3 reserved, .superpowers/sdd/round4/family-d-draft.md draft 3)',
+  },  {
+    id: 'round4-family-b',
+    date: '2026-11-06',
+    trials: 18,
+    source:
+      'scripts/research/py/r4/family_b.py family_b(), the 18 declared Phase 5 family B configurations under Amendments 8 and 9 (six primaries alone and twelve LightGBM meta-labels on v8, BTC lead-lag, 5m RSI, small-trade imbalance and positioning; alpha-bearing, cap 24 with 6 reserved, .superpowers/sdd/round4/family-b-draft.md draft 4)',
+  },
+  {
+    id: 'round4-family-b-noise',
+    date: '2026-11-06',
+    trials: 8,
+    source:
+      'scripts/research/py/r4/family_b.py family_b_noise(), the 8 Tier B noise mini-control configurations of Amendment 8 A8.6 (registered after the synthetic activity check records/synth_b_noise_9a30f3f9.json); kind control, outside the alpha-bearing N and the round-close V',
   },
 ];
 

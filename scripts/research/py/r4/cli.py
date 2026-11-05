@@ -431,11 +431,29 @@ def run_wf(
         d_band=raw_config.get("d_band", 0.0),
     )
 
+    # Family B (A8.5): the run records the primary's decisions and the meta fits. The run is re-entered once under a
+    # recorder, so the recorder is active over the walk-forward and the CPCV and is released on every exit path.
+    b_recorder = None
+    if cfg.family == "B":
+        from r4 import family_b
+
+        b_recorder = family_b.current_recorder()
+        if b_recorder is None or b_recorder.scope != "run_wf":
+            with family_b.recording(family_b.Recorder(scope="run_wf")):
+                return run_wf(config_file, ds_dir, out_dir, cache_dir=cache_dir, commit=commit, panel=panel)
+
     ds_path = Path(ds_dir)
     manifest = read_manifest(ds_path)
     dataset_hash = str(manifest["datasetHash"])
     symbols_to_load = list(manifest["symbols"]) if manifest.get("symbols") else list(UNIVERSE)
 
+    b_v8_record = None
+    if cfg.family == "B":
+        if panel is None:
+            if family_b.needs_v8(cfg):
+                raise ValueError("a v8 configuration needs a panel built with load_panel(v8_exports=...)")
+            panel = load_panel(ds_path, symbols_to_load, cache_dir=cache_dir, tier_b=family_b.needs_tier_b(cfg))
+        b_v8_record = family_b.check_panel(panel, cfg)
     if panel is None:
         panel = load_panel(ds_path, symbols_to_load, cache_dir=cache_dir)
     if cfg.plant is not None:
@@ -460,6 +478,8 @@ def run_wf(
             d_full = family_d.full_grid_forecasts(panel)
             d_parity = family_d.check_parity(panel, dataset_hash, d_full)
     samples, n_outside_d = restrict_to_d(decision_samples(panel, cfg, d_forecasts=d_full))
+    if b_recorder is not None:
+        family_b.set_phase("wf")
 
     # 1. Walk-forward on D
     with family_d.recording(d_recorder) if d_recorder is not None else nullcontext():
@@ -524,6 +544,8 @@ def run_wf(
         exit_factory = ExitModelFactory.from_config(panel, cfg)
         split_exit_models = []
 
+    if b_recorder is not None:
+        family_b.set_phase("cpcv_fit")
     for train_idx, test_idx_list in splits:
         train_df = samples.iloc[train_idx]
         test_groups_by_split.append(test_idx_list)
@@ -577,6 +599,8 @@ def run_wf(
         for p in range(paths_predictions.shape[0]):
             if d_recorder is not None:
                 family_d.set_phase(f"cpcv:{p}")
+            if b_recorder is not None:
+                family_b.set_phase(f"cpcv:{p}")
             p_daily, p_excluded = cpcv_path_daily(
                 p,
                 paths_predictions[p],
@@ -719,6 +743,14 @@ def run_wf(
         receipt["d_vol"] = d_parity
     if decisions_sha256 is not None:
         receipt["decisions_sha256"] = decisions_sha256
+    if b_recorder is not None:
+        b_decisions = b_recorder.frame()
+        b_fits = b_recorder.fits()
+        b_decisions.to_parquet(run_out_dir / "decisions.parquet", index=False)
+        b_fits.to_parquet(run_out_dir / "meta_fits.parquet", index=False)
+        receipt["decisions_sha256"] = hashlib.sha256((run_out_dir / "decisions.parquet").read_bytes()).hexdigest()
+        receipt["meta_fits_sha256"] = hashlib.sha256((run_out_dir / "meta_fits.parquet").read_bytes()).hexdigest()
+        receipt["b"] = family_b.receipt_block(cfg, samples, b_decisions, b_fits, len(run_res.tranches), b_v8_record)
 
     (run_out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     return receipt
@@ -767,9 +799,36 @@ def run_tripwire(
         d_weights=raw_config.get("d_weights", "rank"),
         d_band=raw_config.get("d_band", 0.0),
     )
+    # Family B (A8.2, A8.4): a rule configuration has no label to shift. A meta configuration runs under a recorder, and
+    # each shift's receipt and tripwire.json entry carry its tranche count and drift-free return per unit of weight.
+    b_rec = None
+    if cfg.family == "B":
+        from r4 import family_b
+
+        if cfg.model == "rule":
+            raise ValueError("a family B rule configuration has no label to shift: the tripwire does not apply (A8.2)")
+        b_rec = family_b.current_recorder()
+        if b_rec is None or b_rec.scope != "run_tripwire":
+            with family_b.recording(family_b.Recorder(scope="run_tripwire")):
+                return run_tripwire(
+                    config_file,
+                    ds_dir,
+                    out_dir,
+                    cache_dir=cache_dir,
+                    commit=commit,
+                    panel=panel,
+                    shifts_days=shifts_days,
+                )
+        family_b.set_phase("tripwire")
     ds_path = Path(ds_dir)
     manifest = read_manifest(ds_path)
     symbols_to_load = list(manifest["symbols"]) if manifest.get("symbols") else list(UNIVERSE)
+    if cfg.family == "B":
+        if panel is None:
+            if family_b.needs_v8(cfg):
+                raise ValueError("a v8 configuration needs a panel built with load_panel(v8_exports=...)")
+            panel = load_panel(ds_path, symbols_to_load, cache_dir=cache_dir, tier_b=family_b.needs_tier_b(cfg))
+        family_b.check_panel(panel, cfg)
     if panel is None:
         panel = load_panel(ds_path, symbols_to_load, cache_dir=cache_dir)
     if cfg.plant is not None:
@@ -787,6 +846,8 @@ def run_tripwire(
     repro = reproduction_inputs()
 
     def write_shift(entry: dict[str, Any], daily: pd.DataFrame | None) -> None:
+        if b_rec is not None:
+            entry.update(family_b.shift_record(b_rec.drain(), daily, first_refit_ms))
         shift_dir = run_out / "tripwire" / f"shift_{entry['shift_days']:03d}"
         shift_dir.mkdir(parents=True, exist_ok=True)
         if daily is not None:
@@ -1156,6 +1217,62 @@ def main() -> None:
     fdt_parser.add_argument("--out", required=True, help="Output directory (twins/ inside)")
     fdt_parser.add_argument("--commit", required=True, help="Commit SHA")
 
+    fbs_parser = subparsers.add_parser(
+        "family-b-noise-synth", help="Family B mini-control: the synthetic activity check (synthetic panels only)"
+    )
+    fbs_parser.add_argument("--dcov", required=True, help="JSON from calib-dcov (D's daily covariance, the only read)")
+    fbs_parser.add_argument(
+        "--out", required=True, help="Output directory (synth_b_noise.json inside, never overwritten)"
+    )
+    fbs_parser.add_argument("--commit", required=True, help="Commit SHA")
+    fbs_parser.add_argument("--start-ms", required=False, type=int, default=None, help="Panel start (test only)")
+    fbs_parser.add_argument("--end-ms", required=False, type=int, default=None, help="Panel end (test only)")
+    fbs_parser.add_argument("--first-refit-ms", required=False, type=int, default=None, help="First refit (test only)")
+
+    fbn_parser = subparsers.add_parser("family-b-noise-run", help="Run the 8 registered family B mini-control runs")
+    fbn_parser.add_argument("--ds", "--dataset-dir", dest="ds", required=True, help="Dataset directory")
+    fbn_parser.add_argument("--v8-exports", required=False, default=None, help="Directory holding v8-1h/ and v8-4h/")
+    fbn_parser.add_argument("--synth-record", required=True, help="The committed records/synth_b_noise_<sha>.json")
+    fbn_parser.add_argument("--out", required=True, help="Output directory (noise/runs inside)")
+    fbn_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fbe_parser = subparsers.add_parser("family-b-noise-eval", help="Evaluate the family B mini-control against A8.6")
+    fbe_parser.add_argument("--ds", "--dataset-dir", dest="ds", required=True, help="Dataset directory")
+    fbe_parser.add_argument("--runs", required=False, default=None, help="The noise runs (default: <out>/noise/runs)")
+    fbe_parser.add_argument("--out", required=True, help="Output directory (noise_eval_b.json inside)")
+    fbe_parser.add_argument("--commit", required=True, help="Commit SHA")
+    fbe_parser.add_argument("--draws", required=False, type=int, default=None, help="Joint-shift draws (test only)")
+
+    fbr_parser = subparsers.add_parser("family-b-run", help="Run the 18 declared Phase 5 family B configurations")
+    fbr_parser.add_argument("--ds", "--dataset-dir", dest="ds", required=True, help="Dataset directory")
+    fbr_parser.add_argument("--v8-exports", required=True, help="Directory holding v8-1h/ and v8-4h/")
+    fbr_parser.add_argument("--noise-eval", required=False, default=None, help="Default: <out>/noise_eval_b.json")
+    fbr_parser.add_argument("--out", required=True, help="Output directory (runs/ inside)")
+    fbr_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fbp_parser = subparsers.add_parser("family-b-report", help="Write the Phase 5 family B report")
+    fbp_parser.add_argument("--ds", "--dataset-dir", dest="ds", required=True, help="Dataset directory")
+    fbp_parser.add_argument("--v8-exports", required=True, help="Directory holding v8-1h/ and v8-4h/")
+    fbp_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    fbp_parser.add_argument(
+        "--reserve-log", required=False, default=None, help="Default: records/family_b_reserve.json"
+    )
+    fbp_parser.add_argument("--out", required=True, help="Output directory")
+    fbp_parser.add_argument("--commit", required=True, help="Commit SHA")
+
+    fbt_parser = subparsers.add_parser(
+        "family-b-twins", help="Run the no-refit twin of the family B eligible candidate"
+    )
+    fbt_parser.add_argument("--ds", "--dataset-dir", dest="ds", required=True, help="Dataset directory")
+    fbt_parser.add_argument("--v8-exports", required=True, help="Directory holding v8-1h/ and v8-4h/")
+    fbt_parser.add_argument("--runs", required=True, help="The family's runs directory")
+    fbt_parser.add_argument("--report", required=True, help="The family_b_report.json file")
+    fbt_parser.add_argument(
+        "--reserve-log", required=False, default=None, help="Default: records/family_b_reserve.json"
+    )
+    fbt_parser.add_argument("--out", required=True, help="Output directory (twins/ inside)")
+    fbt_parser.add_argument("--commit", required=True, help="Commit SHA")
+
     args = parser.parse_args()
 
     if args.command == "c5-reproduce":
@@ -1456,6 +1573,37 @@ def main() -> None:
             phase5_d.report_family_d(args.ds, args.runs, args.out, args.commit)
         else:
             phase5_d.run_twins_d(args.ds, args.runs, args.report, args.out, args.commit)
+    elif args.command.startswith("family-b-"):
+        from r4 import phase5_b
+
+        if args.command == "family-b-noise-synth":
+            record = phase5_b.noise_synth_check(
+                args.out,
+                args.commit,
+                args.dcov,
+                start_ms=args.start_ms,
+                end_ms=args.end_ms,
+                first_refit_ms=args.first_refit_ms,
+            )
+            print(f"Synthetic activity check written: verdict={record['verdict']}")
+            if record["verdict"] != "register":
+                raise SystemExit(2)
+        elif args.command == "family-b-noise-run":
+            phase5_b.run_noise_b(args.ds, args.out, args.commit, args.v8_exports, args.synth_record)
+        elif args.command == "family-b-noise-eval":
+            runs = args.runs if args.runs is not None else Path(args.out) / "noise" / "runs"
+            noise_eval = phase5_b.evaluate_noise_b(args.ds, runs, args.out, args.commit, joint_draws=args.draws)
+            print(f"Noise evaluation written: gates_met={noise_eval['gates_met']}")
+            if not noise_eval["gates_met"]:
+                raise SystemExit(1)
+        elif args.command == "family-b-run":
+            phase5_b.run_family_b(args.ds, args.out, args.commit, args.v8_exports, args.noise_eval)
+        elif args.command == "family-b-report":
+            phase5_b.report_family_b(args.ds, args.runs, args.out, args.commit, args.v8_exports, args.reserve_log)
+        else:
+            phase5_b.run_twins_b(
+                args.ds, args.runs, args.report, args.out, args.commit, args.v8_exports, args.reserve_log
+            )
 
 
 if __name__ == "__main__":

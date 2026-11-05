@@ -1,0 +1,211 @@
+{
+ "all_gap_free": true,
+ "coins": {
+  "ADAUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/ADAUSDT/1h.jsonl.gz",
+    "file_sha256": "8b1f2a85271950219790a2049eaac2458203bcbe0e4d943c006ceb92f6818b85",
+    "manifest_sha256": "8b1f2a85271950219790a2049eaac2458203bcbe0e4d943c006ceb92f6818b85",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/ADAUSDT/4h.jsonl.gz",
+    "file_sha256": "322ac56d2379ad46a327e6f7fe0b26672bb41261b8521ea7d41be3b6d03cf2e9",
+    "manifest_sha256": "322ac56d2379ad46a327e6f7fe0b26672bb41261b8521ea7d41be3b6d03cf2e9",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "AVAXUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/AVAXUSDT/1h.jsonl.gz",
+    "file_sha256": "ca444c7506faae15fdf03f3558c29554942a067909db595aebc5f31d2d5b76c0",
+    "manifest_sha256": "ca444c7506faae15fdf03f3558c29554942a067909db595aebc5f31d2d5b76c0",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/AVAXUSDT/4h.jsonl.gz",
+    "file_sha256": "1d11161fb399f972d6706d86e316079e16570c5317154dd5456f9896df68cd53",
+    "manifest_sha256": "1d11161fb399f972d6706d86e316079e16570c5317154dd5456f9896df68cd53",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "BNBUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/BNBUSDT/1h.jsonl.gz",
+    "file_sha256": "be082029944fb197a163b61721966b46b45e44966f54ab78faa5a6e596aff103",
+    "manifest_sha256": "be082029944fb197a163b61721966b46b45e44966f54ab78faa5a6e596aff103",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/BNBUSDT/4h.jsonl.gz",
+    "file_sha256": "3c7d346bf3e6c7f3804376ec966218698c72816c15aba0622239698f21759480",
+    "manifest_sha256": "3c7d346bf3e6c7f3804376ec966218698c72816c15aba0622239698f21759480",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "BTCUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/BTCUSDT/1h.jsonl.gz",
+    "file_sha256": "936944a58956547e6e2f0a16a2f7e3396b2a5db25c4eaefc110a3607e9f2d9e4",
+    "manifest_sha256": "936944a58956547e6e2f0a16a2f7e3396b2a5db25c4eaefc110a3607e9f2d9e4",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/BTCUSDT/4h.jsonl.gz",
+    "file_sha256": "dcd50f5446a6fadce5da02f78ab77915c5ca099e82013ec15e5d3d1ca7278fe2",
+    "manifest_sha256": "dcd50f5446a6fadce5da02f78ab77915c5ca099e82013ec15e5d3d1ca7278fe2",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "DOGEUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/DOGEUSDT/1h.jsonl.gz",
+    "file_sha256": "157c3632e00428912c6842dbf2697cb99f2c64eb8f462ec52020bd56bc6a8789",
+    "manifest_sha256": "157c3632e00428912c6842dbf2697cb99f2c64eb8f462ec52020bd56bc6a8789",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/DOGEUSDT/4h.jsonl.gz",
+    "file_sha256": "ce18f2342260937296e952ce6cd367bfb2f8c152794e76a1953ea6be81aca91b",
+    "manifest_sha256": "ce18f2342260937296e952ce6cd367bfb2f8c152794e76a1953ea6be81aca91b",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "DOTUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/DOTUSDT/1h.jsonl.gz",
+    "file_sha256": "f7bad6600bdd7546026e54b3cb7852fb336ef6d9d0c93e0a14fa454aaa5c1106",
+    "manifest_sha256": "f7bad6600bdd7546026e54b3cb7852fb336ef6d9d0c93e0a14fa454aaa5c1106",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/DOTUSDT/4h.jsonl.gz",
+    "file_sha256": "b12fc9202ad4b9b13d36e40cd28f4d896820eb7d7bbe82a7fadf07bd9ad2a901",
+    "manifest_sha256": "b12fc9202ad4b9b13d36e40cd28f4d896820eb7d7bbe82a7fadf07bd9ad2a901",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "ETHUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/ETHUSDT/1h.jsonl.gz",
+    "file_sha256": "749f91aa0dc8ae9151b8cdaafb48327cd6aba3e9cdf29508cfde1c11e174d4cc",
+    "manifest_sha256": "749f91aa0dc8ae9151b8cdaafb48327cd6aba3e9cdf29508cfde1c11e174d4cc",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/ETHUSDT/4h.jsonl.gz",
+    "file_sha256": "6a5f0aa981ecd8ae02cfbb997f8377ec66f1ffa7f336837ea1fbca38568a1c44",
+    "manifest_sha256": "6a5f0aa981ecd8ae02cfbb997f8377ec66f1ffa7f336837ea1fbca38568a1c44",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "LINKUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/LINKUSDT/1h.jsonl.gz",
+    "file_sha256": "bc364efcd5a8d9fc3182de5bd491c8dd017a87c4b1c8a4ebd49810032d33f640",
+    "manifest_sha256": "bc364efcd5a8d9fc3182de5bd491c8dd017a87c4b1c8a4ebd49810032d33f640",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/LINKUSDT/4h.jsonl.gz",
+    "file_sha256": "5c7688be29eae72a80d1c2d5567a6791c8556ba47754108cbfb5c84d6dd2126c",
+    "manifest_sha256": "5c7688be29eae72a80d1c2d5567a6791c8556ba47754108cbfb5c84d6dd2126c",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "SOLUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/SOLUSDT/1h.jsonl.gz",
+    "file_sha256": "8e6062dacf5712d461eddae03d6340b66dcdfd77b9ff36664bb0749bb27ead8b",
+    "manifest_sha256": "8e6062dacf5712d461eddae03d6340b66dcdfd77b9ff36664bb0749bb27ead8b",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/SOLUSDT/4h.jsonl.gz",
+    "file_sha256": "e44cf7f62e0dce0d63ac023b640282274ef7948b60a8015f4f82335c6bd6bf52",
+    "manifest_sha256": "e44cf7f62e0dce0d63ac023b640282274ef7948b60a8015f4f82335c6bd6bf52",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  },
+  "XRPUSDT": {
+   "1h": {
+    "expected_bars": 22608,
+    "file": "candles/XRPUSDT/1h.jsonl.gz",
+    "file_sha256": "194c881105dd00276a9bf5c76d0ac9337cda02a60d478a87515c6bef07d26ea5",
+    "manifest_sha256": "194c881105dd00276a9bf5c76d0ac9337cda02a60d478a87515c6bef07d26ea5",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 22608
+   },
+   "4h": {
+    "expected_bars": 5652,
+    "file": "candles/XRPUSDT/4h.jsonl.gz",
+    "file_sha256": "3c8d3e526c0462540c8de9c8c7860f4ed801664564ca490b794016961fca8187",
+    "manifest_sha256": "3c8d3e526c0462540c8de9c8c7860f4ed801664564ca490b794016961fca8187",
+    "missing_bars": 0,
+    "off_grid_bars": 0,
+    "present_bars": 5652
+   }
+  }
+ },
+ "dataset": "48ff79609080f11a48c45822f27cd609818b913b2d42455cddf4ea1ef4806e93",
+ "record": "v8 spot grid continuity certificate for Amendment 8 A8.1",
+ "span_ms": [
+  1701475200000,
+  1782864000000
+ ]
+}

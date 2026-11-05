@@ -233,7 +233,8 @@ def test_signed_text_unchanged_and_amendments_appended_only() -> None:
 def test_signed_amendments_unchanged_and_later_ones_appended_only() -> None:
     """Amendment 1 (signed for the text at 3c68c376, record 2f4b26f1), Amendment 2 (signed at 245c4522), Amendment 3
     (signed at c31bfd69), Amendment 4 (signed at c88c677e), Amendment 5 (signed at 65ae8660), Amendment 6 (signed at
-    63d575c6) and Amendment 7 (signed in the commit that adds this pin) follow M byte for byte. Anything after them is a
+    63d575c6), Amendment 7 (signed at 5bd55a29) and Amendment 8 (signed in the commit that adds its pin) follow M
+    byte for byte. Anything after them is a
     later appended AMENDMENT, never an edit (Gate P pre-run review 3, F10).
     """
     from pathlib import Path
@@ -267,5 +268,13 @@ def test_signed_amendments_unchanged_and_later_ones_appended_only() -> None:
     assert rest.startswith(a6)
     rest = rest[len(a6) :].lstrip("\n")
     assert rest.startswith(a7)
-    later = rest[len(a7) :]
-    assert later == "" or later.lstrip("\n").startswith("AMENDMENT 8 ")
+    rest = rest[len(a7) :].lstrip("\n")
+    a8 = (fixtures / "method_doc_amendment8_signed.txt").read_text(encoding="utf-8")
+    assert a8.startswith("AMENDMENT 8 (")
+    assert rest.startswith(a8)
+    rest = rest[len(a8) :].lstrip("\n")
+    a9 = (fixtures / "method_doc_amendment9_signed.txt").read_text(encoding="utf-8")
+    assert a9.startswith("AMENDMENT 9 (")
+    assert rest.startswith(a9)
+    later = rest[len(a9) :]
+    assert later == "" or later.lstrip("\n").startswith("AMENDMENT 10 ")

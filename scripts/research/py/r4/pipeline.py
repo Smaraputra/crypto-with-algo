@@ -87,6 +87,13 @@ class RunConfig:
     d_band: float = 0.0  # family D book-level band (A6.3), in units of weight; 0 is no band
 
     def __post_init__(self) -> None:
+        if self.family == "B":
+            from r4 import family_b
+
+            parsed_b = parse_exit(self.exit)
+            object.__setattr__(self, "exit", "horizon" if parsed_b.rule == "E1" else parsed_b)
+            family_b.validate_config(self)
+            return
         if self.size_rule != "unit":
             raise ValueError(f"unknown size_rule {self.size_rule!r}: only 'unit' exists")
         if self.label not in ("fixed", "triple_barrier"):
@@ -168,8 +175,15 @@ def load_panel(
     ds_dir: str | Path,
     symbols: Sequence[str],
     cache_dir: str | Path | None = None,
+    tier_b: bool = False,
+    v8_exports: dict[str, str | Path] | None = None,
 ) -> dict[str, dict[str, pd.DataFrame]]:
-    """Load perpetual klines, premium index, and funding settlements for symbols."""
+    """Load perpetual klines, premium index, and funding settlements for symbols.
+
+    tier_b (family B, A8.5) adds each coin's flow_5m and metrics_5m rows from 2023-01-01. v8_exports maps an interval
+    ("1h", "4h") to a C4 native export directory and adds each coin's v8 decisions (A8.1). The defaults return the C4
+    panel exactly.
+    """
     panel: dict[str, dict[str, pd.DataFrame]] = {}
     for sym in symbols:
         p_5m = load_perp(ds_dir, sym, "5m", series="klines", cache_dir=cache_dir).rows
@@ -191,6 +205,14 @@ def load_panel(
             "settlements": fund,
             "funding": fund,
         }
+    if tier_b or v8_exports is not None:
+        from r4 import family_b
+
+        if tier_b:
+            for sym in symbols:
+                panel[sym].update(family_b.load_tier_b(ds_dir, sym, cache_dir=cache_dir))
+        if v8_exports is not None:
+            family_b.attach_v8(panel, v8_exports)
     return panel
 
 
@@ -247,6 +269,10 @@ def decision_samples(
     With d_weights "inv_vol", d_forecasts (coin, T, f) is left-merged as the column d_f (NaN where missing). It is
     never a feature and never drops a row.
     """
+    if cfg.family == "B":
+        from r4 import family_b
+
+        return family_b.decision_samples_b(panel, cfg)
     if cfg.d_weights == "inv_vol" and d_forecasts is None:
         raise ValueError("d_weights 'inv_vol' needs d_forecasts (the family D full-grid f)")
     interval_ms = 3_600_000 if cfg.interval == "1h" else 14_400_000
@@ -506,6 +532,10 @@ def _binary_labels(train_df: pd.DataFrame, cfg: RunConfig) -> tuple[np.ndarray, 
 
 
 def fit_side_model(cfg: RunConfig, x_train: np.ndarray, train_df: pd.DataFrame) -> SideModel:
+    if cfg.family == "B":
+        from r4 import family_b
+
+        return family_b.fit_meta(cfg, x_train, train_df)
     if cfg.model == "ridge":
         ridge = _make_model(cfg)
         ridge.fit(x_train, train_df["gross_log"].to_numpy(dtype=np.float64))
@@ -573,7 +603,12 @@ def _get_decisions(model: SideModel, X_test: np.ndarray, cfg: RunConfig) -> np.n
     """Sides in {-1, 0, 1} for the slot book. For the D book, the float score per row instead.
 
     The D score is the ridge prediction, or (p_up - base_up) - (p_dn - base_dn) for the classifiers.
+    Family B returns the meta classifier's probability p per row (float64 in [0, 1]).
     """
+    if cfg.family == "B":
+        from r4 import family_b
+
+        return family_b.meta_proba(model, X_test)
     n = len(X_test)
     if cfg.book == "D":
         if n == 0:
@@ -619,7 +654,12 @@ def _make_tranches(
     The D book ranks the rows by their decision time T, so test_df must hold whole decision times.
     A non-horizon exit needs exit_ctx (the 5m bars and sigma table): the exit engine then sets each tranche's exit
     time, price, fill and reason. The weight keeps the configured h either way.
+    Family B: `sides` is the meta probability p per row, and the tranches carry the A8.4 size.
     """
+    if cfg.family == "B":
+        from r4 import family_b
+
+        return family_b.make_tranches_b(test_df, sides, cfg)
     tranches: list[Tranche] = []
     if cfg.book == "D":
         if cfg.d_weights == "inv_vol" or cfg.d_band > 0:

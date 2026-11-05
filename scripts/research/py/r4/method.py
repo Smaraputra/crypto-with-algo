@@ -932,6 +932,205 @@ full-grid digest rest on that rule. Before any family D outcome, all three check
   run f is deterministic, so this concerns only a comparison across batch shapes, never the run's own decisions.
 - The finalist lock for any family D finalist states the f parity tolerance for its H read and its TypeScript port
   (lab-v5), which meet the same rounding.
+
+AMENDMENT 8 (2026-11-05, owner-approved and SIGNED by the owner on 2026-11-05 (session 45) for this text). It is written
+after the family A result (0 of 45, records/family_a_result_b011ea1e.json), the family C result (finalist
+C_LHAR-X_1h, records/family_c_result_c8f5849f.json) and Amendment 7, and before any family B configuration reads D.
+Family B's design, the declaration's drafts 1 to 3 and every owner decision on it (D1 to D11 of 2026-11-05), was
+fixed before family D's outcome. That outcome exists now: the family D run ended on 2026-11-05 at 09:48 UTC with 0 of
+9 configurations reaching items 1 to 3. The changes made after it, the corrections of the Opus and Codex gate reviews
+and the owner's floor decision for A8.6 ("1,000 trades only", 2026-11-05), use none of family D's outcome. The owner
+chose to run family B with every primary of the plan of record in a transformed form ("Keep, transformed"), at M's
+nearest horizon with exit E1 ("Nearest M horizon, E1"), and with the recommended defaults ("Accept all"). The family
+B declaration in r4/family_b.py holds the configurations. It changes six things, for family B only:
+- the decision source of the v8 primary (A8.1),
+- configurations without a fitted component (A8.2),
+- configurations whose primary is v8 (A8.3),
+- the meta-label classifier (A8.4),
+- the code binding (A8.5),
+- the Tier B noise mini-control (A8.6).
+It changes no threshold, span, budget cap, H rule, Phase 4 outcome, or rule of a family already run.
+
+A8.1 THE V8 PRIMARY'S DECISIONS. It amends A5.1 "A family adds new r4 modules, which read data only through r4.data's
+loaders" for one input.
+- D holds no spot candles, HTF candles or snapshots, so v8 cannot be computed on D (A3.1). Family B's v8 primary takes
+  its decisions from the Phase 4 C4 native exports of v8-1h and v8-4h, whose decision source is dx-ds
+  48ff79609080f11a48c45822f27cd609818b913b2d42455cddf4ea1ef4806e93 (A3.1).
+- Binding. Each export's summary is bound by its sha256 in canonical JSON (sorted keys, separators "," and ":"), as
+  natives.py computes export_summary_sha256 and the C4 receipts hold it: v8-1h
+  1a217d0c794d11507561a2f7e88ed009f83c307967ceefc97c9a4a5faa02a7ef and v8-4h
+  87a5c1da2e8fb926143ab21bff99a548aec9837e9fea236fe46005a817872a74. Each tranches.jsonl is bound by the sha256 of its
+  bytes: v8-1h 2778c45b5adef5e3881f1717e9b62fd7edfc33dbe558dfeaf5600bfcdce377d8 and v8-4h
+  50fd3966acfb41c4b79c2d073f2f42f79283c5e10580d6d486e6d4f78895c7fd, from ~/round4-out/phase4-c4/natives (the lead,
+  2026-11-05), which r4/family_b.py also records. A run refuses any other file, and each receipt records
+  decision_dataset_hash and both digests of the export it read.
+- A decision is (coin, T = entry_ms, side) of an exported row. No row is dropped for its exit. natives.read_export
+  drops stops without a fill price, which is a selection on the path after the entry, and family B does not use it.
+  The native exit price and the weight are not used.
+- Terminal exclusion. H is the native maximum hold: 24 bars of 1h for v8-1h and 30 bars of 4h for v8-4h, that is
+  24 and 120 hours. There is no v8 decision at any T with T + H at or after DEV_END.
+  - The exporter drops a row only when its native exit instant is at or after DEV_END (round4-native-export.ts:376).
+  - The harness counts its time stop in bars (src/lib/backtest/bar-loop.ts:418) and keeps spot gaps, so a hold ends
+    exactly H after its entry only where the coin's spot bars are contiguous. The certificate
+    records/v8_spot_grid_48ff7960.json (sha256 410dd7c733f1d1095504ac5cd05320772cdace4952271ce21d58cc55220a5880,
+    committed with the family B code) finds, for the 10 coins over [2023-12-02, DEV_END), 0 missing and 0 off-grid
+    spot bars at 1h and 4h in dx-ds, with every file's sha256 equal to the dx-ds manifest.
+  - So a hold entered at or after 2023-12-02 exits at most at entry_ms + H: a time stop at entry_ms + H, an
+    end-of-data close only for a hold still open there, and a stop earlier. A hold entered before 2023-12-02 ends at
+    most H after 2023-12-02, long before DEV_END. Every dropped row therefore has T + H at or after DEV_END, the
+    excluded region depends on T alone, no decision below it was dropped, and an entry that a dropped hold would have
+    blocked also lies in the region.
+  - The reader asserts exit_ms <= entry_ms + H on every row with entry_ms at or after 2023-12-02, and records the
+    export's span_end_dropped. A failed assertion, or a certificate with another digest, stops the run.
+- The primary's side at a decision time T of the configuration's interval, with T at or after 2022-01-01 and T + H
+  before DEV_END, is the exported side of the row with entry_ms = T, else 0.
+- The decisions enter the run through load_panel, so run_wf still receives load_panel's panel.
+- Disclosed: the decisions carry the native book's state, which depends only on prices before T. The replay is v8
+  without news, with the long/short ratio and open interest absent before 2026-03 (round4-native-export.ts
+  V8_LABEL), so it changes in 2026-03 and is not the live v8. v8 decides on spot closes, and the book enters on perp
+  opens 10 minutes later. The causality of the decisions rests on the direction-exit harness, not on an r4 test.
+
+A8.2 CONFIGURATIONS WITHOUT A FITTED COMPONENT. It amends M item 4's label-shift tripwire and the finalist rule for
+family B's model "rule" configurations, each primary alone (the owner's same-unit baseline of 2026-11-05).
+- Such a configuration has no training and no label to shift. It takes the primary's side at size 1 at every decision
+  where the side is not 0. The label-shift tripwire is not applicable to it, as for the Phase 4 re-tests, and its
+  look-ahead guard is its primary's causality test (A5.1). Item 4 for it is the joint-shift null and the SPA.
+- The family's tripwire input is the largest positive count over its fitted configurations that pass items 1 to 3. A
+  "rule" configuration never triggers, enters or relaxes the halt.
+- A "rule" configuration is a baseline: alpha-bearing, counted, and in the family's PBO and SPA matrix, but never a
+  candidate or finalist. One that meets every applicable item is reported and treated as A1.9 treats a re-test pass:
+  the evaluation is presumed defective until an independent re-implementation agrees.
+
+A8.3 CONFIGURATIONS WHOSE PRIMARY IS V8. It amends "A directional finalist gets a lab-v5 slot only after an H pass
+(Tier B excepted, forward only)" for them.
+- H holds no spot candles or snapshots, and the dx-ds replay does not exist there, so such a configuration cannot be
+  read on H. The live v8 is not the replay, so a forward record would test another primary.
+- Such a configuration is research only: alpha-bearing, counted, and in the family's matrix, but never a candidate or
+  finalist. One that meets every applicable item is treated as in A8.2.
+
+A8.4 THE META-LABEL CLASSIFIER. It amends A1.3 ("It defines 'side rule' for the logistic and LightGBM models") for
+family B.
+- A1.3's two binary models and margin are the side rule of a classifier that chooses the side. In family B the primary
+  chooses the side, and the configuration's side rule names the primary. The secondary is one binary LightGBM
+  classifier, with calibration.LGBM_PARAMS and model seed 7, fit on the training rows where the primary decides.
+- Its label is 1 when the primary's trade nets above zero at exit E1: labels.fixed_horizon's net, taker both ways at
+  VIP 0, the coin's A1.1 slippage, and funding over (entry, exit]. That is A1.1's per-coin round trip plus funding.
+  The long and short nets are stored in tb_net and tb_net_short, two of tripwire.LABEL_COLUMNS, and the label is
+  derived at fit time from the one that matches the primary's side (A5.1).
+- p is the classifier's probability of label 1, and must be finite and in [0, 1]. A fold with no training row where
+  the primary decides, or with one class, uses the training base rate as p for every test row (0 with no row), and
+  is counted.
+- It acts only when p > 0.5, the fixed p*. Its size is 0 for p <= 0.5, 1 for p = 1, and otherwise
+  2 x Phi((p - 0.5) / sqrt(p (1 - p))) - 1, with Phi the standard normal CDF. The size lies in [0, 1] as the BOOK
+  RULE requires, and the joint shift keeps it.
+- The calibration spec's note that families A and B use A1.3 (calibration-spec.md, section 1, item 4) is superseded
+  for family B.
+- The label-shift tripwire (M item 4, A1.7) keeps b_side, the features and the prices real. A shifted secondary
+  therefore acts on a subset of the primary's real decisions, and its drift-free mean carries the primary's own result
+  on that subset. A primary with a positive result can give more than 60 positive shifts with no leakage, and a
+  secondary that never acts gives a mean of 0, which is not positive. Each shifted run records its tranche count and
+  its drift-free return per unit of absolute weight over its kept tranches (M item 4's statistic) beside the matching
+  "rule" configuration's over the same span, and the leakage review reads them. The halt rule is unchanged.
+
+A8.5 CODE BINDING. It extends A5.1's extension-node rule to family B, as A6.4 did for family D.
+- The extension nodes may gain a branch selected by family "B", which no C4 configuration and no configuration already
+  run on D reaches. Its configuration values are model "rule" or "lightgbm", label "meta", side rule "b_v8", "b_ll",
+  "b_rsi", "b_sti", "b_pos", "b_noise_sti" or "b_noise_pos", size rule "unit" or "afml", threshold 0 or 0.5, book
+  slot, and exit E1.
+  - RunConfig: a validation branch for family "B". No field is added.
+  - load_panel: two keyword arguments, tier_b (False) and v8_exports (None), whose defaults return the C4 panel
+    exactly. With them it adds each coin's flow and metrics rows from 2023-01-01, through data.load_flow and
+    data.load_metrics, and the v8 decisions (A8.1).
+  - decision_samples, fit_side_model, _get_decisions and _make_tranches: one early branch each to r4/family_b.py.
+    SideModel gains no field. Its kind takes the values "rule" and "meta".
+  - run_wf and run_tripwire: the family B branch (panel checks, the decision-level and fit records of run_wf with
+    their sha256 in the receipt, and the per-shift records of A8.4 in run_tripwire). main: dispatch-only subcommands.
+  walk_forward, restrict_to_d and cpcv_path_daily pass the new columns through unchanged.
+- New modules r4/family_b.py and r4/phase5_b.py. The node guard is re-pinned in the family commit.
+- E4 and E5 are never applied to a family B configuration, as A5.1 requires, since every one carries b_side.
+  family_b.allowed_exits states this for family E.
+- Tests:
+  - each ported signal against a TypeScript parity fixture (btcLeadLagZ with its warm-up mask and a coin gap, raw.rsi
+    at 5m with its monthly thresholds, raw.smallTakerImb, positioningZ),
+  - causality.assert_future_invariant on every family B signal at its inputs' closing rules (bars at their interval,
+    flow and metrics at TIER_B_STAMP_MS, settlements at 0), and a perturbation of the flow and metrics columns,
+  - the v8 reader and the terminal exclusion,
+  - frame parity with pipeline.decision_samples, and the base frame built as a non-B configuration for every family B
+    configuration,
+  - the non-B paths byte-identical.
+- A5.1's Opus diff review and its eight-run reproduction bind the family B digest before its first D outcome. The
+  reproduction exercises only the C4 paths, and the family B branches rest on the tests above (disclosed, as in A6.4).
+
+A8.6 THE TIER B NOISE MINI-CONTROL. It registers the control that A1.9 deferred "to before family B runs, as a later
+counted control", and that A5.1 requires to be registered "with its configurations and bounds".
+- Purpose: to calibrate the bar on family B's span (walk-forward 2024-01-01 to DEV_END, 912 days) and on its Tier B
+  frames, under a true null.
+- Configurations: 8, kind control, family "B".
+  - The side is the sign of hashfeat.hash_normal(NOISE_DOMAIN, noise_seed, coin index, 99, T) at the frame's decision
+    times: every 1h close for side rule "b_noise_sti" (cell C1), and 00:00, 08:00 and 16:00 UTC for "b_noise_pos"
+    (cell C4), with 0 at the other 4h closes.
+  - The secondary is A8.4's classifier on noise_00 to noise_19 (the same noise_seed) and the side, with p* 0.5, the
+    A8.4 size, exit E1, and a monthly refit from 2024-01-01.
+  - The frame is the rows of the real sti or pos configuration (F, its Tier B signal and both labels finite). The
+    real signal selects rows only and is never a feature.
+  - ids, j = 0 to 7 in this order: B_noise_sti_C1_12_s1, B_noise_sti_C1_12_s2, B_noise_sti_C1_all_s1,
+    B_noise_sti_C1_all_s2, B_noise_pos_C4_12_s1, B_noise_pos_C4_12_s2, B_noise_pos_C4_all_s1, B_noise_pos_C4_all_s2.
+    The "12" ones use a 12-month lookback and the "all" ones all of D.
+  - noise_seed 11,500,000 + j + 100 x attempt, and joint_shift_seed 11,600,000 + j.
+- Activity floor (owner, 2026-11-05: "1,000 trades only"). A control is active when it trades at least 1,000 tranches
+  in the walk-forward, A1.9's tranche floor. A1.9's floor of 5% of decisions does not apply, a departure from A1.9:
+  A8.4 acts only at p > 0.5, and costs hold the share of primary trades that net above zero near 0.45, so a
+  secondary without skill acts rarely by design (synthetic, Opus gate: under 3% of decisions at C1, about 20% to 30%
+  at C4). The share of the noise side's walk-forward decisions that each control acts on is reported.
+- Synthetic activity check, before registration. The 8 configurations run on a synthetic D-shaped panel built as
+  calib-synth-v builds the V panel, from D's daily covariance (second moments only, the read A1.11 allows for
+  calibration), seed 11,700,000, with synthetic flow and metrics rows from 2023-01-01. A configuration below the floor
+  is replaced by attempt 1, then attempt 2 (id suffixes _alt1 and _alt2, joint_shift_seed unchanged). If any
+  configuration is still below the floor after attempt 2, nothing is registered, no flagged control enters the set,
+  family B is not declared, and the design returns to the owner before any family B read of D. The synthetic record
+  is committed with the declaration.
+- Evaluation on D, as A1.9's noise block: item 1 per control, item 2 as one PBO on their matrix, item 3 at V0 with
+  N = 120, and the joint-shift null for every control (1,000 draws, each control's own seed). No SPA, no tripwire.
+  Calibration's own noise verdicts and trade floor never gate it.
+- Gated:
+  - informative: at least 3 of the 4 controls of each frame are active on D.
+  - 0 of 8 pass items 1 to 3.
+  - at most 2 of 8 reject the joint-shift null at 0.05. Under independence a correct null exceeds this with
+    probability 0.58%, against 0.34% for A1.9's bound of 6 of 40. The controls share frames, prices and labels, so
+    these are benchmarks, not guaranteed error rates (disclosed).
+  A gate not met stops family B before any trial: the pipeline is presumed defective or untested on its span and goes
+  to review, and nothing is tuned. The controls stay counted.
+- The mini-control runs on D after the A5.1 reproduction check and before any family B configuration. Its first run
+  is family B's first D read.
+- Counting: 8 controls, outside N and V (A1.9), in the ledger entry round4-family-b-noise. Synthetic attempts compute
+  no D outcome and add no count.
+
+AMENDMENT 9 (2026-11-06, owner-approved and SIGNED by the owner on 2026-11-06 (session 45) for this text). It is written
+after the A5.1 code reviews of the family B code at ce77b89f, and before any family B outcome on D. Those reviews
+found that A8.6's synthetic activity check cannot run (Codex and agy independently, Opus by its own synthetic
+reproduction after reading Codex's finding). The panel "built as calib-synth-v builds the V panel" carries a zero
+premium index and zero funding, so F's basis_z7d and funding_z30d are undefined and every row of the declared frames
+drops. The lead's run of the check on the VPS raised on an empty frame and wrote no record. It changes one thing,
+A8.6's synthetic panel (A9.1), and no other rule.
+
+A9.1 THE SYNTHETIC PANEL OF A8.6. It amends A8.6's "a synthetic D-shaped panel built as calib-synth-v builds the V
+panel, ..., with synthetic flow and metrics rows from 2023-01-01".
+- The panel's premium index and funding settlements of every coin, which calib-synth-v sets to zero, are replaced over
+  the panel's whole span by seeded synthetic series, under both keys of each (premium_5m and premiumIndex,
+  settlements and funding):
+  - the 5m premium-index close at every 5m open time is drawn from a normal with mean 0.0001 and standard deviation
+    0.00005, one draw per row in time order,
+  - the funding rate at every settlement instant (00:00, 08:00 and 16:00 UTC, intervalHours 8) is drawn from a normal
+    with mean 0.0001 and standard deviation 0.00002, one draw per row in time order.
+- For coin index j in the panel's coin order, the premium draws use numpy.random.default_rng([11_700_000, j, 1]) and
+  the funding draws use numpy.random.default_rng([11_700_000, j, 2]). That is A8.6's panel seed 11,700,000 with
+  streams that leave the synthetic flow and metrics draws unchanged. The distributions are the repository's synthetic
+  convention (tests/test_cli_bar.py, _make_fast_synthetic_panel).
+- The series are synthetic and carry no information about D. They exist only so that F is defined on the synthetic
+  panel, as it is on D.
+- The code lives in r4/family_b.py, in the function that already adds the synthetic flow and metrics rows. A test
+  runs the check on a small synthetic panel with the declared feature frame F unpatched.
+- Nothing else in A8.6 changes: the configurations, seeds, attempts, floor, gates and counts stay as signed.
 """
 
 from __future__ import annotations
