@@ -16,7 +16,8 @@ import pandas as pd
 import pytest
 from scipy.stats import norm
 
-from r4 import calibration, cli, family_a, family_b, labels, tripwire, validation
+from r4 import calibration, cli, family_a, family_b, family_c, family_d, labels, tripwire, validation
+from r4.book import _beta_missing
 from r4.causality import assert_future_invariant
 from r4.costs import coin_slippage_bps, trade_net_return
 from r4.method import DEV_END, ENTRY_DELAY_MS, TIER_B_STAMP_MS, TIER_B_START, UNIVERSE
@@ -1144,6 +1145,46 @@ def test_act_is_strictly_above_one_half_and_afml_size_matches_the_formula() -> N
         family_b.make_tranches_b(_test_df(sides), np.ones(2), cfg)
 
 
+def test_a_nan_beta_tranche_is_in_neither_the_numerator_nor_the_denominator_of_the_shift_statistic() -> None:
+    cfg = _cfg("b_sti")
+    df = _test_df([1.0, 1.0, -1.0, 1.0])
+    df["symbol"] = ["ETHUSDT", "SOLUSDT", "ETHUSDT", "SOLUSDT"]
+    with family_b.recording() as rec:
+        family_b.set_phase("tripwire")
+        rec.betas = {"ETHUSDT": 0.9, "SOLUSDT": float("nan")}
+        family_b.make_tranches_b(df, np.full(4, 0.9), cfg)
+        rec.betas = {"ETHUSDT": 0.9}  # SOLUSDT absent from the fold's betas is missing too
+        family_b.make_tranches_b(df.iloc[:2], np.full(2, 0.9), cfg)
+        rec.betas = None  # no betas seen: every tranche is kept
+        family_b.make_tranches_b(df.iloc[:1], np.full(1, 0.9), cfg)
+        dec = rec.drain()
+    assert dec["kept"].tolist() == [True, False, True, False, True, False, True]
+    assert dec["acted"].all()
+    daily = pd.DataFrame(
+        {"drift_free": [0.02, 0.03]}, index=pd.Index([family_b.FIRST_REFIT_MS, family_b.FIRST_REFIT_MS + DAY])
+    )
+    w = dec["abs_weight"].to_numpy()
+    kept_w = w[dec["kept"].to_numpy()]
+    got = family_b.shift_record(dec, daily)
+    assert got["tranche_count"] == 4 and abs(got["abs_weight_sum"] - kept_w.sum()) < 1e-15
+    assert abs(got["per_unit_weight_mean"] - 0.05 / kept_w.sum()) < 1e-12
+    assert got["abs_weight_sum"] < w.sum()  # the all-acted denominator would differ
+
+
+def test_the_recorder_notes_the_fold_betas_estimate_betas_returns_and_the_wrapper_is_removed() -> None:
+    from r4 import pipeline
+
+    original = pipeline.estimate_betas
+    idx = pd.Index(np.arange(40, dtype=np.int64) * DAY)
+    rng = np.random.default_rng(5)
+    daily_ret = pd.DataFrame({"AUSDT": rng.normal(0, 0.01, 40), "BUSDT": rng.normal(0, 0.01, 40)}, index=idx)
+    with family_b.recording() as rec:
+        assert pipeline.estimate_betas is not original
+        got = pipeline.estimate_betas(daily_ret, start_ms=None, end_ms=None)
+        assert rec.betas is not None and set(rec.betas) == set(got) == {"AUSDT", "BUSDT"}
+    assert pipeline.estimate_betas is original and family_b.current_recorder() is None
+
+
 def test_recorder_rows_for_decisions_and_fits() -> None:
     cfg = _cfg("b_sti")
     with family_b.recording() as rec:
@@ -1623,15 +1664,26 @@ def test_non_b_paths_never_reach_family_b_and_are_identical_with_it_poisoned(
         | {"features": list(SMALL_F)},
         {**base, "id": "c_noise", "family": "C4", "model": "lightgbm", "threshold": 0.02, "side_rule": "prob"}
         | {"params": small, "features": [f"noise_{i:02d}" for i in range(4)], "noise_seed": 5, "kind": "control"},
+        # family D with inv_vol weights and a band (the outline's required case). 120 days from 2023-01-01 end on a
+        # month boundary, which family D's bit-exact parity check needs.
+        {**base, "id": "d_invvol", "family": "D", "model": "ridge", "params": {"alpha": 1.0}, "side_rule": "sign"}
+        | {"features": list(SMALL_F), "book": "D", "d_weights": "inv_vol", "d_band": 0.045, "seed": 7},
     ]
+    d_panel = _make_fast_synthetic_panel(n_days=120, seed=10, inject_signal=True)
+    fc, _ = family_c.compute_forecasts(d_panel, {c["id"]: c for c in family_c.family_c()}[family_d.FINALIST_ID])
+    monkeypatch.setitem(
+        family_d.PARITY_REFERENCE, "plain-hash", family_d.canonical_digest(fc[np.isfinite(fc["f"])], "f")
+    )
 
     def run_all(tag: str) -> dict[str, dict[str, Any]]:
         res = {}
         for raw in configs:
+            is_d = raw["family"] == "D"
+            panel = d_panel if is_d else synth_panel
             f = _write_config(tmp_path, {**raw, "id": f"{tag}_{raw['id']}"})
             cfg = run_config_from_raw({**raw, "id": raw["id"]})
-            frame = decision_samples(synth_panel, cfg)
-            receipt = cli.run_wf(f, ds, tmp_path / tag, commit=COMMIT, panel=synth_panel)
+            frame = None if is_d else decision_samples(panel, cfg)
+            receipt = cli.run_wf(f, ds, tmp_path / tag, commit=COMMIT, panel=panel)
             rd = tmp_path / tag / f"{tag}_{raw['id']}"
             res[raw["id"]] = {
                 "frame": frame,
@@ -1659,7 +1711,8 @@ def test_non_b_paths_never_reach_family_b_and_are_identical_with_it_poisoned(
         monkeypatch.setattr(family_b, name, boom)
     second = run_all("two")
     for cid in first:
-        pd.testing.assert_frame_equal(first[cid]["frame"], second[cid]["frame"], check_exact=True)
+        if first[cid]["frame"] is not None:
+            pd.testing.assert_frame_equal(first[cid]["frame"], second[cid]["frame"], check_exact=True)
         assert first[cid]["tranches"] == second[cid]["tranches"] and first[cid]["daily"] == second[cid]["daily"]
         assert first[cid]["receipt"] == second[cid]["receipt"]
         assert not {"b", "meta_fits_sha256"} & set(first[cid]["receipt"])
@@ -1804,8 +1857,9 @@ def test_tripwire_records_each_shifts_tranche_count_and_per_unit_weight_mean(
         shift_ms = entry["shift_days"] * DAY
         shifted, _ = tripwire.shift_labels(samples, shift_ms, H, with_source_window=True)
         res = walk_forward(shifted, cfg, FIRST_REFIT, DEV_END, panel=synth_panel, exit_label_shift_ms=shift_ms)
-        weights = [abs(t.weight) for t in res.tranches]
-        assert entry["tranche_count"] == len(res.tranches) > 0
+        # the kept tranches: those the book keeps, a NaN fold beta excludes a tranche from both sides (A8.4)
+        weights = [abs(t.weight) for f in res.folds for t in f.tranches if not _beta_missing(f.betas, t.symbol)]
+        assert entry["tranche_count"] == len(weights) > 0
         assert abs(entry["abs_weight_sum"] - sum(weights)) < 1e-12
         want = float(res.drift_free["drift_free"].sum()) / sum(weights)
         assert abs(entry["per_unit_weight_mean"] - want) < 1e-12
@@ -1840,3 +1894,93 @@ def test_run_wf_for_a_noise_control_end_to_end(
     assert r["kind"] == "control" and r["b"]["primary"] == "b_noise_sti"
     assert r["b"]["frame_rows"] == runs["receipts"]["b_meta_sti"]["b"]["frame_rows"]
     assert r["b"]["wf_tranches"] == r["metrics"]["n_tranches"]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Pins for the rule-changing mutations the Opus A5.1 review found surviving (R6)
+# ---------------------------------------------------------------------------------------------------------------------
+
+
+def test_ll_side_threshold_is_1_5_and_inclusive() -> None:
+    z = np.array([1.4999, 1.5, 1.5001, 2.5, -1.4999, -1.5, -1.5001, 1.0, -1.0, 0.0, np.nan])
+    got = family_b.ll_side(z)
+    assert family_b.LL_Z == 1.5
+    assert got[:10].tolist() == [0.0, 1.0, 1.0, 1.0, 0.0, -1.0, -1.0, 0.0, 0.0, 0.0] and np.isnan(got[10])
+
+
+def _rsi_frame_series(start: int, rows: int) -> pd.Series:
+    """A period-288 ramp 0..100, so every 288-row window holds exactly np.linspace(0, 100, 288)."""
+    t = start + np.arange(rows, dtype=np.int64) * M5
+    return pd.Series((np.arange(rows) % 288) / 287.0 * 100.0, index=pd.Index(t, name="t"), name="b_rsi5")
+
+
+def test_rsi_tails_are_the_10th_and_90th_percentiles_on_the_frame_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    feb = int(pd.Timestamp("2023-02-01", tz="UTC").value // 1_000_000)
+    series = _rsi_frame_series(feb - 2 * DAY, 5 * 288)
+    # at the decision closes T the bar opening at T - 5m is read: set it to the probe values
+    probes = {7.0: 1.0, 15.0: 0.0, 50.0: 0.0, 85.0: 0.0, 93.0: -1.0}
+    T = np.array([feb + DAY + (k + 1) * H for k in range(len(probes))], dtype=np.int64)
+    vals = series.copy()
+    for tt, v in zip(T, probes, strict=True):
+        vals.loc[int(tt) - M5] = v
+    monkeypatch.setattr(family_b, "rsi5", lambda five_min: vals)
+    got = family_b.rsi_signal(pd.DataFrame(), T, lookback_days=1)
+    # window = one full ramp: p10 = 10.0 and p90 = 90.0 (5% / 20% tails would flip 7, 15, 85 and 93)
+    assert family_b.RSI_TAIL == 0.10
+    assert got["b_side"].tolist() == list(probes.values())
+
+
+def test_rsi_thresholds_exist_for_a_month_whose_window_starts_exactly_at_the_series_start() -> None:
+    feb = int(pd.Timestamp("2023-02-01", tz="UTC").value // 1_000_000)
+    series = _rsi_frame_series(feb - DAY, 2 * 288)
+    th = family_b.rsi_thresholds(series.index, series.to_numpy(), lookback_days=1)
+    assert th[feb] is not None  # the window starts at the first row: allowed
+    short = _rsi_frame_series(feb - DAY + M5, 2 * 288)  # one row short of the window
+    th2 = family_b.rsi_thresholds(short.index, short.to_numpy(), lookback_days=1)
+    assert th2[feb] is None
+
+
+def test_pos_side_is_zero_at_z_zero_on_every_scheduled_close_and_signed_elsewhere() -> None:
+    day = 20_000 * DAY
+    sched = np.array([day, day + 8 * H, day + 16 * H], dtype=np.int64)
+    assert family_b.pos_scheduled(sched).all()
+    assert family_b.pos_side(np.zeros(3), sched).tolist() == [0.0, 0.0, 0.0]
+    assert family_b.pos_side(np.array([1.0, -1.0, 1e-12]), sched).tolist() == [-1.0, 1.0, -1.0]
+    off = np.array([day + 4 * H, day + 12 * H, day + 20 * H], dtype=np.int64)
+    assert family_b.pos_side(np.array([1.0, -1.0, 0.0]), off).tolist() == [0.0, 0.0, 0.0]
+    nan_sched = family_b.pos_side(np.array([np.nan, np.nan]), np.array([day, day + 4 * H], dtype=np.int64))
+    assert np.isnan(nan_sched[0]) and nan_sched[1] == 0.0
+
+
+def test_noise_features_use_the_configurations_noise_seed(synth_panel: dict[str, dict[str, pd.DataFrame]]) -> None:
+    from r4 import hashfeat
+
+    for seed in (11_500_000, 11_500_100):
+        frame = decision_samples(synth_panel, _cfg("b_noise_sti", noise_seed=seed))
+        for sym, g in frame.groupby("symbol"):
+            want = hashfeat.hash_feature_matrix(
+                list(calibration.NOISE_FEATURES), str(sym), list(synth_panel), g["T"].to_numpy(), seed, None
+            )
+            assert np.array_equal(g[list(calibration.NOISE_FEATURES)].to_numpy(), want)
+
+
+def test_the_v8_terminal_exclusion_assertion_starts_exactly_on_2023_12_02(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    start = family_b.V8_ASSERT_FROM_MS
+    assert start == 1_701_475_200_000
+    over = _v8_export(tmp_path, "1h", [_row("1h", "BTCUSDT", start, hold=24 * H + H)], monkeypatch, name="on")
+    with pytest.raises(ValueError, match="terminal exclusion"):
+        family_b.read_v8_decisions(over, "1h")
+    just_before = _v8_export(
+        tmp_path, "1h", [_row("1h", "BTCUSDT", start - H, hold=24 * H + H)], monkeypatch, name="pre"
+    )
+    assert family_b.read_v8_decisions(just_before, "1h")["T"].tolist() == [start - H]
+
+
+def test_the_receipts_trade_floor_is_met_at_exactly_the_floor() -> None:
+    assert family_b.TRADE_FLOOR_TRANCHES == 1000
+    rec = family_b.Recorder()
+    for n, met in ((999, False), (1000, True), (1001, True)):
+        block = family_b.receipt_block(_cfg("b_sti"), pd.DataFrame(), rec.frame(), rec.fits(), n, None)
+        assert block["trade_floor"] == {"floor": 1000, "met": met}

@@ -161,6 +161,7 @@ DECISION_COLUMNS = [
     "size",
     "abs_weight",
     "net",
+    "kept",
 ]
 FIT_COLUMNS = [
     "phase",
@@ -1143,6 +1144,7 @@ class Recorder:
             scope  # which entry point owns the recorder ("run_wf", "run_tripwire"), so a nested call is told apart
         )
         self.phase = "unset"
+        self.betas: dict[str, float] | None = None  # the latest fold betas pipeline.estimate_betas returned
         self.fit_count = 0
         self._decisions: list[pd.DataFrame] = []
         self._fits: list[dict[str, Any]] = []
@@ -1167,6 +1169,7 @@ class Recorder:
                     "size": pd.Series(dtype=np.float64),
                     "abs_weight": pd.Series(dtype=np.float64),
                     "net": pd.Series(dtype=np.float64),
+                    "kept": pd.Series(dtype=bool),
                 }
             )[DECISION_COLUMNS]
         return pd.concat(self._decisions, ignore_index=True)[DECISION_COLUMNS]
@@ -1203,12 +1206,26 @@ _RECORDER: Recorder | None = None
 def recording(recorder: Recorder | None = None) -> Iterator[Recorder]:
     """Activate a recorder (a fresh one unless given) for the duration of the block, and yield it."""
     global _RECORDER
+    from r4 import pipeline
+
     previous = _RECORDER
     active = recorder if recorder is not None else Recorder()
     _RECORDER = active
+    # The fold betas decide which tranches the book keeps (A8.4), so the walk-forward's estimate_betas hands each
+    # result to the active recorder. The wrapper changes no result and is removed on exit.
+    original = pipeline.estimate_betas
+
+    def estimate_betas_noted(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        if _RECORDER is not None:
+            _RECORDER.betas = dict(result)
+        return result
+
+    pipeline.estimate_betas = estimate_betas_noted
     try:
         yield active
     finally:
+        pipeline.estimate_betas = original
         _RECORDER = previous
 
 
@@ -1227,9 +1244,10 @@ def shift_record(decisions: pd.DataFrame, daily: pd.DataFrame | None, start_ms: 
     """One shifted tripwire run's record (A8.4): its tranche count, sum of abs weights and drift-free mean per weight.
 
     `decisions` is the recorder's drain after the shift. The statistic is M item 4's: the sum of the shifted run's daily
-    drift-free returns over [first refit, DEV_END) over the sum of the absolute weights of its tranches.
+    drift-free returns over [first refit, DEV_END) over the sum of the absolute weights of its kept tranches (A8.4):
+    those the book keeps, so a tranche whose fold beta is NaN is in neither the numerator nor the denominator.
     """
-    acted = decisions.loc[decisions["acted"].to_numpy(dtype=bool)]
+    acted = decisions.loc[decisions["acted"].to_numpy(dtype=bool) & decisions["kept"].to_numpy(dtype=bool)]
     weights = acted["abs_weight"].to_numpy(dtype=np.float64)
     return {
         "tranche_count": int(len(acted)),
@@ -1365,7 +1383,7 @@ def make_tranches_b(test_df: pd.DataFrame, p: np.ndarray, cfg: Any) -> list[Any]
     path builds it (entry at t0 + 10 minutes, exit at t1_max, taker both ways, reason "horizon", no weight override)
     with its size. With a recorder active one row per row with b_side not 0 is appended.
     """
-    from r4.book import Tranche
+    from r4.book import Tranche, _beta_missing
 
     p = np.asarray(p, dtype=np.float64)
     if len(p) != len(test_df):
@@ -1377,6 +1395,8 @@ def make_tranches_b(test_df: pd.DataFrame, p: np.ndarray, cfg: Any) -> list[Any]
     else:
         size = np.where(acted, 1.0, 0.0)
     syms = test_df["symbol"].to_numpy()
+    rec_betas = None if _RECORDER is None else _RECORDER.betas
+    kept = np.array([rec_betas is None or not _beta_missing(rec_betas, str(x)) for x in syms], dtype=bool)
     entries = test_df["entry"].to_numpy(dtype=np.float64)
     exits = test_df["exit"].to_numpy(dtype=np.float64)
     t0s = test_df["t0"].to_numpy(dtype=np.int64)
@@ -1405,6 +1425,7 @@ def make_tranches_b(test_df: pd.DataFrame, p: np.ndarray, cfg: Any) -> list[Any]
                     "size": size[rows],
                     "abs_weight": abs_w[rows],
                     "net": net,
+                    "kept": kept[rows],
                 }
             )
         )
@@ -1595,4 +1616,21 @@ def synthetic_tier_b(panel: dict[str, dict[str, pd.DataFrame]], seed: int) -> di
         stamps = stamps[stamps % POS_PERIOD_MS == 0]
         walk = np.exp(np.cumsum(rng.normal(0.0, 0.05, size=len(stamps))))
         d["metrics_5m"] = pd.DataFrame({"t": stamps, "topTraderPositionRatio": walk})
+        # Amendment 9, A9.1: seeded premium index and funding so F is defined. Own streams, flow draws unchanged.
+        prem_t = d["premium_5m"]["t"].to_numpy(dtype=np.int64)
+        prem_rng = np.random.default_rng([int(seed), j, 1])
+        prem = pd.DataFrame({"t": prem_t, "c": prem_rng.normal(0.0001, 0.00005, size=len(prem_t))})
+        s_t = d["settlements"]["t"].to_numpy(dtype=np.int64)
+        fund_rng = np.random.default_rng([int(seed), j, 2])
+        fund = pd.DataFrame(
+            {
+                "t": s_t,
+                "rate": fund_rng.normal(0.0001, 0.00002, size=len(s_t)),
+                "intervalHours": np.full(len(s_t), 8, dtype=np.int64),
+            }
+        )
+        d["premium_5m"] = prem
+        d["premiumIndex"] = prem
+        d["settlements"] = fund
+        d["funding"] = fund
     return panel

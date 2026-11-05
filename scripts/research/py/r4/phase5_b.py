@@ -26,7 +26,7 @@ import pandas as pd
 
 from r4 import account, bar, calibration, cli, family_b, hedge_cost
 from r4.book import parse_interval_ms
-from r4.method import BAR, DEV_END, DEV_START
+from r4.method import BAR, DEV_END, DEV_START, ENTRY_DELAY_MS
 from r4.pipeline import load_panel
 
 TRIPWIRE_SHIFTS = 100
@@ -259,6 +259,14 @@ def check_synth_record(record: Mapping[str, Any]) -> None:
         raise ValueError("the synthetic record's registered seeds are not the registry's family_b_noise()")
     if record.get("floor_tranches") != family_b.TRADE_FLOOR_TRANCHES:
         raise ValueError("the synthetic record was taken at another tranche floor")
+    span = record.get("span")
+    want_span = {"start_ms": DEV_START, "end_ms": DEV_END, "first_refit_ms": family_b.FIRST_REFIT_MS}
+    if not isinstance(span, Mapping) or {k: span.get(k) for k in want_span} != want_span:
+        raise ValueError(
+            "the synthetic record was not taken over D's span (DEV_START to DEV_END, first refit 2024-01-01)"
+        )
+    if record.get("panel_seed") != family_b.SYNTH_SEED:
+        raise ValueError("the synthetic record's panel seed is not SYNTH_SEED")
 
 
 def run_noise_b(
@@ -271,9 +279,15 @@ def run_noise_b(
     """Run the 8 registered controls into out_dir/noise/runs, once the committed synthetic record says "register"."""
     if synth_record is None:
         raise ValueError("run_noise_b needs the committed synthetic record (records/synth_b_noise_<sha>.json)")
-    check_synth_record(json.loads(Path(synth_record).read_text(encoding="utf-8")))
+    record = json.loads(Path(synth_record).read_text(encoding="utf-8"))
+    check_synth_record(record)
     out = Path(out_dir)
     manifest, panel = _load(ds, v8_exports)
+    if record.get("dcov_dataset_hash") != manifest["datasetHash"]:
+        raise ValueError(
+            f"the synthetic record's covariance came from dataset {record.get('dcov_dataset_hash')!r}, "
+            f"not this dataset {manifest['datasetHash']!r}"
+        )
     print("dataset", manifest["datasetHash"], flush=True)
     receipts: list[dict[str, Any]] = []
     for config in family_b.family_b_noise():
@@ -335,6 +349,10 @@ def evaluate_noise_b(
                 raise ValueError(f"control {i} has {key} {r.get(key)!r}, not {want!r}")
         if "b" not in r:
             raise ValueError(f"control {i} has no b block in its receipt")
+    registry = {c["id"]: c for c in family_b.family_b_noise()}
+    for i in ids:
+        if runs[i]["receipt"].get("config_hash") != cli.config_hash_of(registry[i]):
+            raise ValueError(f"control {i} was run with a configuration other than its registered one")
     if panel is None:
         panel = load_panel(Path(ds), list(manifest["symbols"]))
 
@@ -471,6 +489,14 @@ def check_noise_gates_met(noise_eval: Path | str, commit: str, dataset_hash: str
     ):
         if data.get(key) != want:
             raise ValueError(f"the noise evaluation has {key} {data.get(key)!r}, not {want!r}")
+    controls = data.get("controls")
+    draws = int(BAR["random_entry_draws"])
+    if (
+        not isinstance(controls, Mapping)
+        or len(controls) != len(family_b.family_b_noise())
+        or any(c.get("joint_shift", {}).get("draws") != draws for c in controls.values())
+    ):
+        raise ValueError(f"the noise evaluation does not hold {draws} joint-shift draws for every control (A8.6)")
     if data.get("gates_met") is not True:
         raise ValueError("the noise evaluation did not meet its gates: family B does not run (A8.6)")
     return data  # type: ignore[no-any-return]
@@ -615,14 +641,41 @@ def _abs_weights(tranches: pd.DataFrame) -> np.ndarray:
     )
 
 
+def _kept_mask(tr: pd.DataFrame, run_dir: Path) -> np.ndarray:
+    """True for each tranche the book keeps: its fold's beta for its coin is finite (A8.4). All True without folds.json.
+
+    A tranche belongs to the fold whose block [start, end) holds its decision time (entry minus the 10-minute delay).
+    """
+    folds_file = run_dir / "folds.json"
+    if not folds_file.is_file():
+        return np.ones(len(tr), dtype=bool)
+    folds = json.loads(folds_file.read_text(encoding="utf-8"))
+    decision = tr["entry_ms"].to_numpy(dtype=np.int64) - ENTRY_DELAY_MS
+    kept = np.zeros(len(tr), dtype=bool)
+    seen = np.zeros(len(tr), dtype=bool)
+    symbols = tr["symbol"].to_numpy()
+    for fold in folds:
+        inside = (decision >= int(fold["start_ms"])) & (decision < int(fold["end_ms"]))
+        betas = fold["betas"]
+        for i in np.flatnonzero(inside):
+            seen[i] = True
+            beta = betas.get(str(symbols[i]))
+            kept[i] = beta is not None and math.isfinite(float(beta))
+    if not seen.all():
+        raise ValueError(f"{run_dir} holds tranches outside every fold of its folds.json")
+    return kept
+
+
 def _run_statistic(run_dir: Path, first_refit_ms: int) -> dict[str, Any]:
-    """A run's tranche count and drift-free return per unit of absolute weight over [first refit, DEV_END)."""
+    """A run's kept tranche count and drift-free return per unit of their weight over [first refit, DEV_END)."""
     f = run_dir / "tranches.parquet"
     tr = pd.read_parquet(f) if f.is_file() else pd.DataFrame()
     daily = pd.read_parquet(run_dir / "daily.parquet")
     w = _abs_weights(tr) if len(tr) else np.zeros(0)
+    if len(tr):
+        w = w[_kept_mask(tr, run_dir)]
     return {
-        "tranche_count": int(len(tr)),
+        "tranche_count": int(len(w)),
         "abs_weight_sum": float(w.sum()),
         "per_unit_weight_mean": family_b.per_unit_weight_mean(daily, w, first_refit_ms),
     }
@@ -878,8 +931,15 @@ def report_family_b(
         cand = eligible_candidates[0]
         used = {e["slot"] for e in log}
         free = [s for s in range(family_b.N_RESERVE) if s not in used]
-        if free:
+        # A regenerated report keeps the slot already logged for this candidate's twin.
+        logged = [e["slot"] for e in log if e["id"] == f"B_twin{e['slot']}_{cand['id']}"]
+        if logged:
+            slot: int | None = int(logged[0])
+        elif free:
             slot = free[0]
+        else:
+            slot = None
+        if slot is not None:
             twin_plan.append(
                 {
                     "id": cand["id"],

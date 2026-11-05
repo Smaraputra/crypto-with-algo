@@ -16,7 +16,7 @@ import pytest
 
 from r4 import bar, calibration, cli, family_b, phase5_b, stats
 from r4.book import DAY_MS
-from r4.method import DEV_END, UNIVERSE
+from r4.method import DEV_END, DEV_START, UNIVERSE
 from r4.synth import _jsonl_gz_bytes, write_synthetic_dataset
 from tests.test_cli_bar import _make_fast_synthetic_panel
 
@@ -55,11 +55,16 @@ def _cheap_family() -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def cheap(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The registries and the frame features shrunk so a run takes seconds. The floor stays a parameter of each test."""
-    monkeypatch.setattr(family_b, "frame_features", lambda interval: SMALL_F)
+def cheap_registries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The registries shrunk (small model parameters, an early first refit), the declared frame F left unpatched."""
     monkeypatch.setattr(family_b, "family_b_noise", _cheap_noise)
     monkeypatch.setattr(family_b, "family_b", _cheap_family)
+
+
+@pytest.fixture
+def cheap(monkeypatch: pytest.MonkeyPatch, cheap_registries: None) -> None:
+    """The registries and the frame features shrunk so a run takes seconds. The floor stays a parameter of each test."""
+    monkeypatch.setattr(family_b, "frame_features", lambda interval: SMALL_F)
 
 
 def _manifest_dir(tmp: Path, symbols: list[str], name: str = "ds", ds_hash: str = "b-synth-hash") -> Path:
@@ -214,18 +219,28 @@ def test_synth_check_reads_only_the_covariance_file(tmp_path: Path, monkeypatch:
 
 
 def test_synth_check_real_runs_on_a_small_synthetic_panel(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cheap: None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cheap_registries: None
 ) -> None:
+    # A9.1: the declared frame F is NOT replaced. The seeded premium index and funding make it defined.
+    from r4 import features
+
+    assert family_b.frame_features("1h") == tuple(features.ALL_FEATURE_COLUMNS)
     monkeypatch.setattr(family_b, "TRADE_FLOOR_TRANCHES", 1)
     rec = phase5_b.noise_synth_check(
         tmp_path / "o",
         COMMIT,
         _dcov_file(tmp_path),
         start_ms=T_START,
-        end_ms=T_START + 130 * DAY,
+        end_ms=T_START + 200 * DAY,
         first_refit_ms=FIRST_REFIT,
     )
     assert rec["verdict"] == "register" and len(rec["controls"]) == 8
+    for c in rec["controls"]:
+        final = c["attempts"][-1]
+        receipt = json.loads(
+            (tmp_path / "o" / "synth_b" / "runs" / final["id"] / "receipt.json").read_text(encoding="utf-8")
+        )
+        assert receipt["b"]["frame_rows"] > 0 and final["primary_decisions"] > 0  # a non-empty frame, every control
     for c in rec["controls"]:
         a = c["attempts"][-1]
         assert a["wf_tranches"] >= 1 and a["primary_decisions"] > a["acted_decisions"] >= a["wf_tranches"] - 0
@@ -249,6 +264,9 @@ def _synth_record(tmp: Path, **change: Any) -> Path:
         "kind": "synth_b_noise",
         "verdict": "register",
         "floor_tranches": family_b.TRADE_FLOOR_TRANCHES,
+        "panel_seed": family_b.SYNTH_SEED,
+        "span": {"start_ms": DEV_START, "end_ms": DEV_END, "first_refit_ms": family_b.FIRST_REFIT_MS},
+        "dcov_dataset_hash": "h",
         "registered": [
             {"id": c["id"], "noise_seed": c["noise_seed"], "joint_shift_seed": c["joint_shift_seed"]}
             for c in REAL_NOISE()
@@ -291,6 +309,20 @@ def test_run_noise_b_refuses_a_bad_record_and_runs_the_registered_controls(
         phase5_b.run_noise_b(ds, out, COMMIT, None, _synth_record(tmp_path, kind="other"))
     with pytest.raises(ValueError, match="tranche floor"):
         phase5_b.run_noise_b(ds, out, COMMIT, None, _synth_record(tmp_path, floor_tranches=500))
+    # a record taken over a test-shrunk span, another first refit or another panel seed is refused
+    span = {"start_ms": DEV_START, "end_ms": DEV_END, "first_refit_ms": family_b.FIRST_REFIT_MS}
+    for change in (
+        {"span": {**span, "start_ms": DEV_START + DAY}},
+        {"span": {**span, "end_ms": DEV_END - DAY}},
+        {"span": {**span, "first_refit_ms": family_b.FIRST_REFIT_MS + DAY}},
+        {"span": None},
+        {"panel_seed": family_b.SYNTH_SEED + 1},
+    ):
+        with pytest.raises(ValueError, match="span|panel seed"):
+            phase5_b.run_noise_b(ds, out, COMMIT, None, _synth_record(tmp_path, **change))
+    # a covariance file from another dataset is refused
+    with pytest.raises(ValueError, match="covariance came from dataset"):
+        phase5_b.run_noise_b(ds, out, COMMIT, None, _synth_record(tmp_path, dcov_dataset_hash="other"))
     assert calls == []
     phase5_b.run_noise_b(ds, out, COMMIT, None, _synth_record(tmp_path))
     assert [c[0] for c in calls] == [c["id"] for c in REAL_NOISE()]
@@ -513,6 +545,9 @@ def chain(chain_dataset: dict[str, Any]) -> dict[str, Any]:
                     "kind": "synth_b_noise",
                     "verdict": "register",
                     "floor_tranches": 1,
+                    "panel_seed": family_b.SYNTH_SEED,
+                    "span": {"start_ms": DEV_START, "end_ms": DEV_END, "first_refit_ms": family_b.FIRST_REFIT_MS},
+                    "dcov_dataset_hash": chain_dataset["hash"],
                     "registered": [
                         {"id": c["id"], "noise_seed": c["noise_seed"], "joint_shift_seed": c["joint_shift_seed"]}
                         for c in _cheap_noise()
@@ -526,7 +561,10 @@ def chain(chain_dataset: dict[str, Any]) -> dict[str, Any]:
             chain_dataset["ds"], out / "noise" / "runs", out, COMMIT, joint_draws=3, panel=chain_dataset["panel"]
         )
         # the declared runs need a passing evaluation: take the real file and set only its verdict
-        passing = {**noise_eval, "gates_met": True}
+        # the real file with only its verdict set, and the 1,000 draws the gate requires (the run used 3 to stay fast)
+        passing = copy.deepcopy({**noise_eval, "gates_met": True})
+        for c in passing["controls"].values():
+            c["joint_shift"]["draws"] = int(phase5_b.BAR["random_entry_draws"])
         (out / "noise_eval_b.json").write_text(json.dumps(passing), encoding="utf-8")
         run_receipts = phase5_b.run_family_b(chain_dataset["ds"], out, COMMIT)
     finally:
@@ -560,6 +598,77 @@ def test_the_real_chain_runs_the_controls_and_judges_them(chain: dict[str, Any])
     assert set(ev["receipts_sha256"]) == set(ids)
 
 
+def test_evaluate_noise_b_refuses_a_control_run_under_another_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ds = _manifest_dir(tmp_path, SYMS)
+    runs = _fake_noise_runs(tmp_path, "b-synth-hash", [2000] * 8)
+    _stub_bar(monkeypatch, passes=set(), pvals={})
+    phase5_b.evaluate_noise_b(ds, runs, tmp_path / "ok", COMMIT, panel={})  # the registered configurations pass
+    rf = runs / "B_noise_sti_C1_12_s1" / "receipt.json"
+    original = rf.read_text(encoding="utf-8")
+    for key, value in (("noise_seed", 99), ("threshold", 0.7)):
+        receipt = json.loads(original)
+        receipt["config"] = {**receipt["config"], key: value}
+        receipt["config_hash"] = cli.config_hash_of(receipt["config"])  # self-consistent, not the registry's
+        rf.write_text(json.dumps(receipt), encoding="utf-8")
+        with pytest.raises(ValueError, match="other than its registered one"):
+            phase5_b.evaluate_noise_b(ds, runs, tmp_path / "bad", COMMIT, panel={})
+    receipt = json.loads(original)
+    receipt["config_hash"] = "0" * 64
+    rf.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(ValueError, match="other than its registered one"):
+        phase5_b.evaluate_noise_b(ds, runs, tmp_path / "bad", COMMIT, panel={})
+
+
+def test_synthetic_tier_b_adds_seeded_premium_and_funding_and_leaves_the_flow_draws_unchanged() -> None:
+    """A9.1: own streams [seed, j, 1] and [seed, j, 2]; the flow and metrics draws come from [seed, j] as before."""
+    from r4.synth import synth_panel
+
+    cov = np.array([[0.0009, 0.0004], [0.0004, 0.0016]])
+    start, end = T_START, T_START + 12 * DAY
+    syms = SYMS[:2]
+    seed = family_b.SYNTH_SEED
+    base = synth_panel(cov, syms, start, end, seed=seed)
+    panel = family_b.synthetic_tier_b(synth_panel(cov, syms, start, end, seed=seed), seed)
+    for j, sym in enumerate(syms):
+        d, b0 = panel[sym], base[sym]
+        # flow and metrics: the draws the function made before A9.1, in the same order from default_rng([seed, j])
+        rng = np.random.default_rng([seed, j])
+        bars = b0["5m"].loc[b0["5m"]["t"] >= family_b.TIER_B_START].reset_index(drop=True)
+        n = len(bars)
+        buy = bars["tbv"].to_numpy() * bars["c"].to_numpy()
+        sell = (bars["v"].to_numpy() - bars["tbv"].to_numpy()) * bars["c"].to_numpy()
+        small_b = buy * rng.uniform(0.2, 0.5, size=n)
+        small_s = sell * rng.uniform(0.2, 0.5, size=n)
+        open_b = buy * rng.uniform(0.02, 0.1, size=n)
+        open_s = sell * rng.uniform(0.02, 0.1, size=n)
+        stamps = bars["t"].to_numpy(dtype=np.int64)
+        stamps = stamps[stamps % family_b.POS_PERIOD_MS == 0]
+        walk = np.exp(np.cumsum(rng.normal(0.0, 0.05, size=len(stamps))))
+        np.testing.assert_array_equal(d["flow_5m"]["buyQuoteSmall"].to_numpy(), small_b)
+        np.testing.assert_array_equal(d["flow_5m"]["sellQuoteSmall"].to_numpy(), small_s)
+        np.testing.assert_array_equal(d["flow_5m"]["buyQuoteOpen10s"].to_numpy(), open_b)
+        np.testing.assert_array_equal(d["flow_5m"]["sellQuoteOpen10s"].to_numpy(), open_s)
+        np.testing.assert_array_equal(d["metrics_5m"]["topTraderPositionRatio"].to_numpy(), walk)
+        # premium index: every 5m open time, normal(0.0001, 0.00005) from stream 1
+        np.testing.assert_array_equal(d["premium_5m"]["t"].to_numpy(), d["5m"]["t"].to_numpy())
+        np.testing.assert_array_equal(
+            d["premium_5m"]["c"].to_numpy(),
+            np.random.default_rng([seed, j, 1]).normal(0.0001, 0.00005, size=len(d["5m"])),
+        )
+        # funding: 00:00, 08:00 and 16:00 UTC over the whole span, interval 8 h, normal(0.0001, 0.00002) from stream 2
+        t_s = d["settlements"]["t"].to_numpy(dtype=np.int64)
+        assert len(t_s) == 3 * 12 and t_s[0] == start and (t_s % (8 * H) == 0).all() and (np.diff(t_s) == 8 * H).all()
+        np.testing.assert_array_equal(
+            d["settlements"]["rate"].to_numpy(),
+            np.random.default_rng([seed, j, 2]).normal(0.0001, 0.00002, size=len(t_s)),
+        )
+        assert (d["settlements"]["intervalHours"] == 8).all()
+        assert d["premiumIndex"] is d["premium_5m"] and d["funding"] is d["settlements"]
+        assert d["premium_5m"]["c"].std() > 0 and d["settlements"]["rate"].std() > 0
+
+
 def _eval_file(tmp: Path, ds_hash: str, **change: Any) -> Path:
     data = {
         "kind": "noise_eval_b",
@@ -567,6 +676,7 @@ def _eval_file(tmp: Path, ds_hash: str, **change: Any) -> Path:
         "source_sha256": cli.source_digest(),
         "dataset_hash": ds_hash,
         "gates_met": True,
+        "controls": {c["id"]: {"joint_shift": {"draws": 1000}} for c in REAL_NOISE()},
     }
     data.update(change)
     f = tmp / "noise_eval_b.json"
@@ -591,6 +701,9 @@ def test_run_family_b_refuses_a_missing_failed_or_mismatched_noise_evaluation(
         ({"source_sha256": "0" * 64}, "source_sha256"),
         ({"dataset_hash": "other"}, "dataset_hash"),
         ({"kind": "noise_eval"}, "not a family B noise evaluation"),
+        ({"controls": {c["id"]: {"joint_shift": {"draws": 5}} for c in REAL_NOISE()}}, "1000 joint-shift draws"),
+        ({"controls": {c["id"]: {"joint_shift": {"draws": 1000}} for c in REAL_NOISE()[:7]}}, "joint-shift draws"),
+        ({"controls": None}, "joint-shift draws"),
     ):
         f = _eval_file(tmp_path, chain["hash"], **change)
         with pytest.raises(ValueError, match=match):
@@ -853,6 +966,46 @@ def test_an_ineligible_configuration_ranked_first_does_not_take_the_eligible_slo
     assert [c["id"] for c in cands] == ["B_meta24_ll_C1"]
 
 
+def test_run_statistic_counts_and_weighs_the_kept_tranches_only(tmp_path: Path) -> None:
+    """A8.4: a tranche whose fold beta is NaN (null in folds.json, or absent) is in neither the sum nor the count."""
+    first, second = FIRST_REFIT, FIRST_REFIT + 30 * DAY
+    delay = family_b.ENTRY_DELAY_MS
+    tr = pd.DataFrame(
+        {
+            "symbol": ["AUSDT", "BUSDT", "AUSDT", "BUSDT", "CUSDT"],
+            "entry_ms": [first + delay, first + H + delay, second - H + delay, second + delay, second + 2 * H + delay],
+            "interval": ["1h"] * 5,
+            "h_ms": [4 * H] * 5,
+            "size": [1.0, 0.5, 0.25, 1.0, 1.0],
+        }
+    )
+    run = tmp_path / "run"
+    run.mkdir()
+    tr.to_parquet(run / "tranches.parquet", index=False)
+    idx = pd.Index(np.arange(FIRST_REFIT, FIRST_REFIT + 60 * DAY, DAY, dtype=np.int64), name="day_start")
+    daily = pd.DataFrame({"drift_free": np.full(len(idx), 0.001)}, index=idx)
+    daily.to_parquet(run / "daily.parquet")
+    folds = [
+        {"start_ms": first, "end_ms": second, "betas": {"AUSDT": 1.0, "BUSDT": None, "CUSDT": 1.0}},
+        {"start_ms": second, "end_ms": second + 30 * DAY, "betas": {"AUSDT": 1.0, "BUSDT": 0.8}},
+    ]
+    (run / "folds.json").write_text(json.dumps(folds), encoding="utf-8")
+    got = phase5_b._run_statistic(run, FIRST_REFIT)
+    # kept: AUSDT (fold 1, sizes 1 and 0.25) and BUSDT (fold 2, size 1). BUSDT is null in fold 1, CUSDT absent in fold 2
+    w = np.array([1.0, 0.25, 1.0]) / 4.0 / 10.0
+    assert got["tranche_count"] == 3 and abs(got["abs_weight_sum"] - w.sum()) < 1e-15
+    inside = (daily.index >= FIRST_REFIT) & (daily.index < DEV_END)
+    assert abs(got["per_unit_weight_mean"] - daily["drift_free"].to_numpy()[inside].sum() / w.sum()) < 1e-12
+    # a tranche outside every fold is a malformed run
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    tr.assign(entry_ms=tr["entry_ms"] + 400 * DAY).to_parquet(bad / "tranches.parquet", index=False)
+    daily.to_parquet(bad / "daily.parquet")
+    (bad / "folds.json").write_text(json.dumps(folds), encoding="utf-8")
+    with pytest.raises(ValueError, match="outside every fold"):
+        phase5_b._run_statistic(bad, FIRST_REFIT)
+
+
 def test_report_ranks_the_eligible_candidate_and_plans_one_twin(
     chain: dict[str, Any], tmp_path: Path, cheap: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -882,6 +1035,26 @@ def test_report_ranks_the_eligible_candidate_and_plans_one_twin(
     )
     report2 = _report(chain, tmp_path / "again", reserve_log=full)
     assert report2["twin_plan"] == [] and report2["twin_shortfall"] == [meta_ll] and report2["round_alpha_count"] == 90
+    # a regenerated report keeps the slot already logged for this candidate's twin, not the next free one
+    regen = _reserve_log(
+        tmp_path / "regen",
+        [
+            {"slot": 0, "id": "B_twin0_x", "purpose": "p", "ledger_entry": "e0"},
+            {"slot": 1, "id": f"B_twin1_{meta_ll}", "purpose": "twin", "ledger_entry": "e1"},
+        ],
+    )
+    report3 = _report(chain, tmp_path / "regen", reserve_log=regen)
+    assert report3["twin_plan"] == [{"id": meta_ll, "registry_index": 3, "slot": 1, "twin_id": f"B_twin1_{meta_ll}"}]
+    # the same holds when every slot is logged and the candidate's twin is one of them
+    all_logged = _reserve_log(
+        tmp_path / "all",
+        [
+            {"slot": s_, "id": (f"B_twin{s_}_{meta_ll}" if s_ == 3 else f"x{s_}"), "purpose": "p", "ledger_entry": "e"}
+            for s_ in range(family_b.N_RESERVE)
+        ],
+    )
+    report4 = _report(chain, tmp_path / "all", reserve_log=all_logged)
+    assert report4["twin_plan"][0]["slot"] == 3 and report4["twin_shortfall"] == []
 
 
 def test_a_halting_tripwire_leaves_no_finalist_candidate_or_twin(
@@ -1118,3 +1291,27 @@ def test_phase5_b_constants() -> None:
         phase5_b.TRIPWIRE_SHIFTS == 100 and phase5_b.TRIPWIRE_HALT_ABOVE == 60 and phase5_b.HEDGE_PROFILE == "standard"
     )
     assert DAY_MS == DAY
+
+
+def test_the_tripwire_halt_is_above_60_not_at_60(
+    chain: dict[str, Any], tmp_path: Path, cheap: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configs = _cheap_family()
+    meta = "B_meta12_sti_C1"
+    assert phase5_b.TRIPWIRE_HALT_ABOVE == 60
+    for positive, halted in ((60, False), (61, True)):
+        _fake_bar(monkeypatch, configs, [meta], {meta: 0.3})
+        monkeypatch.setattr(cli, "run_tripwire", lambda f, *a, p=positive, **k: _tripwire_result(p))
+        report = _report(chain, tmp_path / f"halt{positive}")
+        assert report["largest_tripwire_positive"] == positive and report["halted"] is halted
+
+
+def test_the_eligible_slot_needs_all_pass_not_only_items_1_to_3() -> None:
+    real = {c["id"]: c for c in REAL_FAMILY()}
+    partial = _ev(True, 0.9, "lightgbm", "B_meta24_ll_C1")
+    partial["item4"] = {"pass": False}
+    partial["all_pass"] = False  # items 1 to 3 pass, the rest do not
+    full = _ev(True, 0.2, "lightgbm", "B_meta12_sti_C1")
+    assert phase5_b._eligible_candidates({"B_meta24_ll_C1": partial}, real) == []
+    got = phase5_b._eligible_candidates({"B_meta24_ll_C1": partial, "B_meta12_sti_C1": full}, real)
+    assert [c["id"] for c in got] == ["B_meta12_sti_C1"]
