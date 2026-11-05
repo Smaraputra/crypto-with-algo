@@ -1,0 +1,456 @@
+{
+  "commit": "56276796",
+  "r4_source_sha256": "b6b31155d1b11350be1e1c13e71f161c509273d59c473b1ed3012e6107d7f500",
+  "dataset_hash": "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62",
+  "baseline_authenticated": {
+    "record_sha256": "7f0a6255bdd2052e4682538b8da7a0e15ab27c0ba69cbec814d2e5eb29fbe636",
+    "files_checked": 35
+  },
+  "runs": {
+    "noise_00_ridge_C1_s1": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "d46701aa080f6c4db3fa59f7fb103b48b190d35ae29ce799f98c407b6d86fab6",
+          "c5_sha256": "d46701aa080f6c4db3fa59f7fb103b48b190d35ae29ce799f98c407b6d86fab6",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "f0ddb008c2ae3f954566f431557579dc7b90b092be80d992b94a448f7920839a",
+          "c5_sha256": "f0ddb008c2ae3f954566f431557579dc7b90b092be80d992b94a448f7920839a",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "a08221520a92cedf0deb1cb7726fb66706ed1d5f3732d193a9265d36d67a0679",
+          "c5_sha256": "a08221520a92cedf0deb1cb7726fb66706ed1d5f3732d193a9265d36d67a0679",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.00013053126223730585,
+            "c5": 0.00013053126223730585,
+            "match": true
+          },
+          "observed": {
+            "c4": -0.0004020005375048918,
+            "c5": -0.0004020005375048918,
+            "match": true
+          },
+          "p": {
+            "c4": 0.21578421578421578,
+            "c5": 0.21578421578421578,
+            "match": true
+          },
+          "seed": {
+            "c4": 5000000,
+            "c5": 5000000,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    },
+    "noise_12_lgbm_C2_s1": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "6fe32c34ebc2c886fc437398feb6e705325e7a911170acbc152f61721a137fa3",
+          "c5_sha256": "6fe32c34ebc2c886fc437398feb6e705325e7a911170acbc152f61721a137fa3",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "45e5f7ee313a73a61fb98ff679e78610089ca5f26152fdeac782e85889a31491",
+          "c5_sha256": "45e5f7ee313a73a61fb98ff679e78610089ca5f26152fdeac782e85889a31491",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "22d1079eb46b65d5ec461177750c83cc64b93680c72b0f908473dc8bf48cf125",
+          "c5_sha256": "22d1079eb46b65d5ec461177750c83cc64b93680c72b0f908473dc8bf48cf125",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.00026270479202354283,
+            "c5": 0.00026270479202354283,
+            "match": true
+          },
+          "observed": {
+            "c4": -0.0013549316311294527,
+            "c5": -0.0013549316311294527,
+            "match": true
+          },
+          "p": {
+            "c4": 0.41058941058941056,
+            "c5": 0.41058941058941056,
+            "match": true
+          },
+          "seed": {
+            "c4": 5000012,
+            "c5": 5000012,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    },
+    "noise_22_lgbmtb_C4_s1": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "ecb71bb05eef88c9631956f76a962f100e8702a5c0a50b9fa435d6adb7030389",
+          "c5_sha256": "ecb71bb05eef88c9631956f76a962f100e8702a5c0a50b9fa435d6adb7030389",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "30c3e5edeba378a10e0e6e811fe9ea1dbb11c5a08026211ccf34627cd3d21aa0",
+          "c5_sha256": "30c3e5edeba378a10e0e6e811fe9ea1dbb11c5a08026211ccf34627cd3d21aa0",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "10652845d2dd9111e68fdf928fe48faf79a1735762cd7406569000806c04a9ba",
+          "c5_sha256": "10652845d2dd9111e68fdf928fe48faf79a1735762cd7406569000806c04a9ba",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.0002629882641443335,
+            "c5": 0.0002629882641443335,
+            "match": true
+          },
+          "observed": {
+            "c4": -0.0013134209792558759,
+            "c5": -0.0013134209792558759,
+            "match": true
+          },
+          "p": {
+            "c4": 0.945054945054945,
+            "c5": 0.945054945054945,
+            "match": true
+          },
+          "seed": {
+            "c4": 5000022,
+            "c5": 5000022,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    },
+    "noise_28_logit_C4_s1_alt2": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "5f2711ba760f5678ccb7049d3529dc7e86eed9800ab873f82a394fc70b111bdc",
+          "c5_sha256": "5f2711ba760f5678ccb7049d3529dc7e86eed9800ab873f82a394fc70b111bdc",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "24afe30e008efe710eca0f6551f1a10e210bd6082df86d04503e13d119ff7824",
+          "c5_sha256": "24afe30e008efe710eca0f6551f1a10e210bd6082df86d04503e13d119ff7824",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "e34d96aa23e60d9dd9b38347e48c5668e0392ca238272bbf16ef815332db8141",
+          "c5_sha256": "e34d96aa23e60d9dd9b38347e48c5668e0392ca238272bbf16ef815332db8141",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.0002693181818181818,
+            "c5": 0.0002693181818181818,
+            "match": true
+          },
+          "observed": {
+            "c4": -0.0009085147677075682,
+            "c5": -0.0009085147677075682,
+            "match": true
+          },
+          "p": {
+            "c4": 0.07292707292707293,
+            "c5": 0.07292707292707293,
+            "match": true
+          },
+          "seed": {
+            "c4": 5000028,
+            "c5": 5000028,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    },
+    "noise_30_noref_C2_s1": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "fee298ed5f2b950db37aaea08374f8f701f8915bc23bb87f91f8a6fc3cf3fe39",
+          "c5_sha256": "fee298ed5f2b950db37aaea08374f8f701f8915bc23bb87f91f8a6fc3cf3fe39",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "41cfe01cb67a071484461e0a0d281f8228b88839e88003357e5fa199e7b91f62",
+          "c5_sha256": "41cfe01cb67a071484461e0a0d281f8228b88839e88003357e5fa199e7b91f62",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "0f9086703f332e1ab99076a038d557c7ca5b7889d2f70213b1026fe431ca47eb",
+          "c5_sha256": "0f9086703f332e1ab99076a038d557c7ca5b7889d2f70213b1026fe431ca47eb",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.0002610966057441253,
+            "c5": 0.0002610966057441253,
+            "match": true
+          },
+          "observed": {
+            "c4": -5.883110448152735e-07,
+            "c5": -5.883110448152735e-07,
+            "match": true
+          },
+          "p": {
+            "c4": 0.5254745254745254,
+            "c5": 0.5254745254745254,
+            "match": true
+          },
+          "seed": {
+            "c4": 5000030,
+            "c5": 5000030,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    },
+    "noise_36_d_C4_s1": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "dbadf429b61b408b5c7636e22a0246c95008ddc0a9f35dcff346ef29da588d5b",
+          "c5_sha256": "dbadf429b61b408b5c7636e22a0246c95008ddc0a9f35dcff346ef29da588d5b",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "df11825d30f31020bcf2abfc08ebcd3b2867dc59eab0b7df1f794e37ed7a41be",
+          "c5_sha256": "df11825d30f31020bcf2abfc08ebcd3b2867dc59eab0b7df1f794e37ed7a41be",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "1f74595cf1fb331d745fd5633d80af6a2aeaf767b2cb8b1c0add30fefd8be4a9",
+          "c5_sha256": "1f74595cf1fb331d745fd5633d80af6a2aeaf767b2cb8b1c0add30fefd8be4a9",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.0002610966057441253,
+            "c5": 0.0002610966057441253,
+            "match": true
+          },
+          "observed": {
+            "c4": -0.0010270138110600347,
+            "c5": -0.0010270138110600347,
+            "match": true
+          },
+          "p": {
+            "c4": 0.8301698301698301,
+            "c5": 0.8301698301698301,
+            "match": true
+          },
+          "seed": {
+            "c4": 5000036,
+            "c5": 5000036,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    },
+    "exit_0_E2_noise_06_ridge_C4_s1": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "29fdec1a6a0feb7d60320c3ea25c72de119a3a96290489e6278de439f3b17f46",
+          "c5_sha256": "29fdec1a6a0feb7d60320c3ea25c72de119a3a96290489e6278de439f3b17f46",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "33846ace24c07fb1d12e5206acd298725d1793c2ed18be39f381c67db5e4f0b2",
+          "c5_sha256": "33846ace24c07fb1d12e5206acd298725d1793c2ed18be39f381c67db5e4f0b2",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "d68d7b841571cae904677f56c09baa06057602cb9ecd60ef483f5a2b5325c128",
+          "c5_sha256": "d68d7b841571cae904677f56c09baa06057602cb9ecd60ef483f5a2b5325c128",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.0002610966057441253,
+            "c5": 0.0002610966057441253,
+            "match": true
+          },
+          "observed": {
+            "c4": -0.0008939114391434317,
+            "c5": -0.0008939114391434317,
+            "match": true
+          },
+          "p": {
+            "c4": 0.2917082917082917,
+            "c5": 0.2917082917082917,
+            "match": true
+          },
+          "seed": {
+            "c4": 8000000,
+            "c5": 8000000,
+            "match": true
+          },
+          "shift_zero_observed": {
+            "c4": -0.0008939114391434317,
+            "c5": -0.0008939114391434317,
+            "match": true
+          },
+          "shift_zero_replayed": {
+            "c4": -0.0008939114391434317,
+            "c5": -0.0008939114391434317,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    },
+    "exit_3_E5_noise_06_ridge_C4_s1": {
+      "files": {
+        "tranches.parquet": {
+          "c4_sha256": "34b0cc36e60ed48d6db406cd15541ff6adb227020c1a925e1fcf8e3cf1b92826",
+          "c5_sha256": "34b0cc36e60ed48d6db406cd15541ff6adb227020c1a925e1fcf8e3cf1b92826",
+          "match": true
+        },
+        "daily.parquet": {
+          "c4_sha256": "ccc8e550bb3633619c755b246d8728a7cfabdcf4dad3caa2cc8243a81d84fda2",
+          "c5_sha256": "ccc8e550bb3633619c755b246d8728a7cfabdcf4dad3caa2cc8243a81d84fda2",
+          "match": true
+        },
+        "folds.json": {
+          "c4_sha256": "d68d7b841571cae904677f56c09baa06057602cb9ecd60ef483f5a2b5325c128",
+          "c5_sha256": "d68d7b841571cae904677f56c09baa06057602cb9ecd60ef483f5a2b5325c128",
+          "match": true
+        }
+      },
+      "receipt": {
+        "match": true
+      },
+      "joint_shift": {
+        "keys": {
+          "draws": {
+            "c4": 1000,
+            "c5": 1000,
+            "match": true
+          },
+          "drop_share": {
+            "c4": 0.0002610966057441253,
+            "c5": 0.0002610966057441253,
+            "match": true
+          },
+          "observed": {
+            "c4": -0.0005019403359397682,
+            "c5": -0.0005019403359397682,
+            "match": true
+          },
+          "p": {
+            "c4": 0.057942057942057944,
+            "c5": 0.057942057942057944,
+            "match": true
+          },
+          "seed": {
+            "c4": 8000003,
+            "c5": 8000003,
+            "match": true
+          },
+          "shift_zero_observed": {
+            "c4": -0.0005019403359397682,
+            "c5": -0.0005019403359397682,
+            "match": true
+          },
+          "shift_zero_replayed": {
+            "c4": -0.0005019403359397682,
+            "c5": -0.0005019403359397682,
+            "match": true
+          }
+        },
+        "match": true
+      },
+      "match": true
+    }
+  },
+  "all_match": true
+}

@@ -1,0 +1,627 @@
+{
+  "record": "Round 4 Phase 5 family D RESULT",
+  "note": "Recorded under records/ because A5.1 freezes a family's code at its first D outcome. The declaration of record is the reviewed code commit 56276796 (draft 4 of .superpowers/sdd/round4/family-d-draft.md), under signed Amendments 6 and 7.",
+  "commit": "56276796",
+  "r4_source_sha256": "b6b31155d1b11350be1e1c13e71f161c509273d59c473b1ed3012e6107d7f500",
+  "dataset_hash": "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62",
+  "run_window_utc": "2026-11-05T08:17:48Z to 2026-11-05T09:48:00Z (run, report and twins)",
+  "reproduction": {
+    "record": "records/a5_reproduction_56276796.json",
+    "sha256": "3721f5add942f885fefba5c82c0af41bbb371b9762cf07350bce3f4f3ccef52e",
+    "all_match": true,
+    "window_utc": "2026-11-05T05:15:48Z to 2026-11-05T08:16:34Z"
+  },
+  "precheck": "A7.1 parity on D before the run (tools/fd-parity-check.py, no family D outcome): digest a6ed91ee, model binding exact, 18 keys differing, max relative 3.55e-15",
+  "report_sha256": {
+    "family_d_report.json": "973790a14b5af1e08ac216cb44bda73004e27d6448f7a2d068ede8e7afb016ad",
+    "bar_pass1.json": "ecdb718c47376c953c5168a9fbcad989d6e197e3e9809a4c9cf6cc04cb8c8632",
+    "refit_questions.json": "842a5ac2390e705d81ddaf098e6d2d4d1782cc074f556ab20d52fb42ca6c2a6d"
+  },
+  "receipts_sha256": {
+    "D_invvol_b0_C2": "e434f4460420a7e885b187dcd4a626abdd3a545fd3ad58afd6de0fa5c79722c7",
+    "D_invvol_b045_C2": "71b136b5aae4c473f29000286d8d7ebf40e347899d26b2467fab144414a1cd2f",
+    "D_invvol_b09_C2": "dcf7691b9caa656f72ac4901134deff1e3e43f01f593f62ca96fd853d9bbeb49",
+    "D_invvol_b0_C4": "58a373a828903d55ecefe26f99f908327236219df4573c996a957040ace634f7",
+    "D_invvol_b045_C4": "b9b444e3745a651489181664b0571a17f4ac0b7415b5dc30c4541df075244549",
+    "D_invvol_b09_C4": "074c10f4d9143c000f1ef8f70103fabb251483fb8e05b51135f34f43089640c1",
+    "D_invvol_b0_C5": "3d18459343c0f0a0ce4d16b089181edcbb9359236025ad4ee413559246d6246f",
+    "D_invvol_b045_C5": "6da77dd7c761f989c575caf8d20a1eca5ec4aebfd1a9490d34bf0b5d9e8be8e4",
+    "D_invvol_b09_C5": "5d4379e670413f72fdef018a626142d05e7012fdb6c57175ba2414ac943f9fa1"
+  },
+  "outcome": {
+    "n_configurations": 9,
+    "round_alpha_count": 66,
+    "reached_items_1_to_3": 0,
+    "item_pass_counts": {
+      "item1": 0,
+      "item2": 9,
+      "item3": 0,
+      "item5": 0,
+      "item6": 0
+    },
+    "positive_walk_forward_mean": 0,
+    "wf_mean_range_bps_day": [
+      -21.68,
+      -3.915
+    ],
+    "cpcv_gross_mean_range_bps_day": [
+      0.756,
+      2.021
+    ],
+    "cpcv_net_mean_range_bps_day": [
+      -15.925,
+      -3.628
+    ],
+    "cpcv_paths_positive_max": 0,
+    "candidates": [],
+    "tripwires_run": 0,
+    "twins_run": 0,
+    "reserve_slots_unused": 3,
+    "halted": false,
+    "mean_daily_costs_by_cell_bps": {
+      "C2": 19.33,
+      "C4": 21.1,
+      "C5": 6.94
+    },
+    "mean_daily_costs_by_band_bps": {
+      "0.0": 15.812,
+      "0.045": 15.811,
+      "0.09": 15.746
+    },
+    "wf_cash_share": [
+      0.0946,
+      0.0947
+    ],
+    "f_parity": {
+      "parity_digest": "a6ed91ee3228f2c6645536b7b51c200deb34630e0c71bcd68da4fdfdc37ed6da",
+      "parity_rows": 276840,
+      "full_grid_digest": "2ea5eb6f818db53a8ee6afa0ae8f52d8021f629b1bd6fd2d49c49b8ae799a9e8",
+      "full_grid_rows": 276891,
+      "n_keys_differing": 18,
+      "max_rel_diff": 3.554344792749935e-15,
+      "identical_across_configurations": true
+    },
+    "f_missing_wf_hours_by_coin": {
+      "ADAUSDT": 2887,
+      "AVAXUSDT": 2887,
+      "BNBUSDT": 2887,
+      "BTCUSDT": 3606,
+      "DOGEUSDT": 2887,
+      "DOTUSDT": 2887,
+      "ETHUSDT": 2887,
+      "LINKUSDT": 2887,
+      "SOLUSDT": 2887,
+      "XRPUSDT": 2887
+    },
+    "mean_daily_costs_note": "walk-forward mean daily costs (the daily series' costs column), not CPCV costs"
+  },
+  "predictions": {
+    "m_no_directional_configuration_meets_the_bar": "consistent (family D: 0 of 9; family A: 0 of 45)",
+    "family_d_0_of_9_pass_items_1_to_3": "met",
+    "diagnostic_cost_not_rising_with_band": "met in every cell (C2 True, C4 True, C5 True)",
+    "diagnostic_near_duplicates": "b 0.045 near-duplicates in all three cells (w_prev on 0.01% to 0.09% of non-cash decision times), b 0.09 in C4 and C5 (0.84% and 0.99%), not in C2 (2.0%)",
+    "diagnostic_cpcv_gross_within_1bp": "met at C4 only (+0.76 to +0.77 bps a day); not met at C2 (+1.28 to +1.30) or C5 (+2.00 to +2.02)"
+  },
+  "consequences": [
+    "Family D has no candidate and no finalist. The 3 reserve slots are unused and the ledger is unchanged at 2,396.",
+    "Family E selects nothing from family D.",
+    "The band is nearly inert: w_prev was taken on 0.01% to 2.0% of non-cash walk-forward decision times. The lead reads this as low persistence of the score's targets over h, an interpretation: the share alone does not separate score persistence from volatility changes, coin eligibility or block boundaries.",
+    "With the forecast missing after the zero-volume outages, 9.5% of walk-forward decision times opened no tranche (cash decisions, A6.1: tranches already open ran to their exits), as A6.2 disclosed."
+  ],
+  "configurations": [
+    {
+      "id": "D_invvol_b0_C2",
+      "cell": "C2",
+      "band": 0.0,
+      "wf_mean_bps_day": -18.748,
+      "wf_sharpe_day": -0.2902,
+      "cpcv_gross_mean_bps_day": 1.28,
+      "cpcv_net_mean_bps_day": -13.967,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 19.377,
+      "wf_take_prev": [
+        0,
+        27587
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": false,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "1": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "2": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "3": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "4": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b045_C2",
+      "cell": "C2",
+      "band": 0.045,
+      "wf_mean_bps_day": -18.746,
+      "wf_sharpe_day": -0.2902,
+      "cpcv_gross_mean_bps_day": 1.278,
+      "cpcv_net_mean_bps_day": -13.966,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 19.375,
+      "wf_take_prev": [
+        26,
+        27587
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": true,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "1": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "2": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "3": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "4": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b09_C2",
+      "cell": "C2",
+      "band": 0.09,
+      "wf_mean_bps_day": -18.644,
+      "wf_sharpe_day": -0.2893,
+      "cpcv_gross_mean_bps_day": 1.3,
+      "cpcv_net_mean_bps_day": -13.829,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 19.252,
+      "wf_take_prev": [
+        551,
+        27587
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": false,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "1": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "2": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "3": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        },
+        "4": {
+          "n_times": 37525,
+          "cash_share": 0.2648367754830113,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648367754830113
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b0_C4",
+      "cell": "C4",
+      "band": 0.0,
+      "wf_mean_bps_day": -21.68,
+      "wf_sharpe_day": -0.3343,
+      "cpcv_gross_mean_bps_day": 0.757,
+      "cpcv_net_mean_bps_day": -15.925,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 21.115,
+      "wf_take_prev": [
+        0,
+        6897
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": false,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "1": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "2": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "3": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "4": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b045_C4",
+      "cell": "C4",
+      "band": 0.045,
+      "wf_mean_bps_day": -21.675,
+      "wf_sharpe_day": -0.3342,
+      "cpcv_gross_mean_bps_day": 0.756,
+      "cpcv_net_mean_bps_day": -15.924,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 21.114,
+      "wf_take_prev": [
+        3,
+        6897
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": true,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "1": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "2": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "3": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "4": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b09_C4",
+      "cell": "C4",
+      "band": 0.09,
+      "wf_mean_bps_day": -21.577,
+      "wf_sharpe_day": -0.3328,
+      "cpcv_gross_mean_bps_day": 0.77,
+      "cpcv_net_mean_bps_day": -15.847,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 21.063,
+      "wf_take_prev": [
+        58,
+        6897
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": true,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "1": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "2": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "3": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        },
+        "4": {
+          "n_times": 9382,
+          "cash_share": 0.2648688978895758,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.2648688978895758
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b0_C5",
+      "cell": "C5",
+      "band": 0.0,
+      "wf_mean_bps_day": -3.931,
+      "wf_sharpe_day": -0.0677,
+      "cpcv_gross_mean_bps_day": 2.02,
+      "cpcv_net_mean_bps_day": -3.629,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 6.945,
+      "wf_take_prev": [
+        0,
+        6893
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": false,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "1": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "2": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "3": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "4": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b045_C5",
+      "cell": "C5",
+      "band": 0.045,
+      "wf_mean_bps_day": -3.929,
+      "wf_sharpe_day": -0.0676,
+      "cpcv_gross_mean_bps_day": 2.021,
+      "cpcv_net_mean_bps_day": -3.628,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 6.944,
+      "wf_take_prev": [
+        1,
+        6893
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": true,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "1": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "2": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "3": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "4": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        }
+      }
+    },
+    {
+      "id": "D_invvol_b09_C5",
+      "cell": "C5",
+      "band": 0.09,
+      "wf_mean_bps_day": -3.915,
+      "wf_sharpe_day": -0.0675,
+      "cpcv_gross_mean_bps_day": 2.001,
+      "cpcv_net_mean_bps_day": -3.63,
+      "cpcv_paths_positive": 0,
+      "jackknife_positive": 0,
+      "mean_daily_cost_bps": 6.921,
+      "wf_take_prev": [
+        68,
+        6893
+      ],
+      "items": {
+        "item1": false,
+        "item2": true,
+        "item3": false,
+        "item4": false,
+        "item5": false,
+        "item6": false
+      },
+      "near_duplicate_of_b0": true,
+      "cpcv_cash_by_path": {
+        "0": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "1": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "2": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "3": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        },
+        "4": {
+          "n_times": 9378,
+          "cash_share": 0.26498187246747706,
+          "all_tie_cash_share": 0.0,
+          "fewer_than_6_cash_share": 0.26498187246747706
+        }
+      }
+    }
+  ],
+  "evidence": "Local copies in .superpowers/sdd/round4/family-d-results/: family_d_report.json, refit_questions.json, receipts/ (every receipt.json, chain.log, mem.log, report/bar_pass1.json, a5-check-chain.log with the reproduction window) and fd-parity-check.py (the precheck script; its VPS output is in progress.md)."
+}
