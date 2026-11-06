@@ -636,6 +636,7 @@ def write_a10_gate_record(
         "kind": "noise_gate_a10",
         "amendment": "A10",
         "source_file_sha256": file_sha,
+        "source_file": os.path.relpath(f.resolve(), Path(out).resolve()),
         "source_commit": data["commit"],
         "source_digest": data["source_sha256"],
         "dataset_hash": data["dataset_hash"],
@@ -813,6 +814,31 @@ def read_a10_gate_record(
         raise ValueError("the A10 gate record's restated gates differ from the gates recomputed from its controls")
     if not all(g["met"] for g in derived.values()):
         raise ValueError("the gates recomputed from the A10 gate record's controls are not all met (A10.2)")
+    ef = Path(str(data.get("source_file") or ""))
+    if not ef.is_absolute():
+        ef = f.parent / ef
+    if not data.get("source_file") or not ef.is_file() or _file_sha256(ef) != want["eval_sha256"]:
+        raise ValueError(f"the A10 gate record's evaluation {ef} is missing or is not the bound file (A10.3)")
+    ev = json.loads(ef.read_text(encoding="utf-8"))
+    try:
+        from_eval = {
+            i: {
+                "frame": e["frame"],
+                "wf_tranches": e["wf_tranches"],
+                "pass_items_1_to_3": e["pass_items_1_to_3"],
+                "joint_shift_p": float(e["joint_shift"]["p"]),
+                "joint_shift_draws": e["joint_shift"]["draws"],
+            }
+            for i, e in sorted(ev["controls"].items())
+        }
+    except (KeyError, TypeError, AttributeError, ValueError):
+        from_eval = None
+    if (
+        from_eval is None
+        or json.dumps(from_eval, sort_keys=True) != json.dumps(dict(controls), sort_keys=True)
+        or json.dumps(ev.get("receipts_sha256"), sort_keys=True) != json.dumps(dict(receipts), sort_keys=True)
+    ):
+        raise ValueError("the A10 gate record's receipts or controls differ from the bound evaluation's (A10.3)")
     return data  # type: ignore[no-any-return]
 
 

@@ -635,3 +635,66 @@ def test_a_joint_shift_p_of_exactly_the_bound_is_not_a_rejection(
     rec = phase5_b.write_a10_gate_record(h, tmp_path / "o", COMMIT, _repro(tmp_path))
     assert rec["gates"]["joint_shift"]["n_reject"] == (3 if rejected else 0)
     assert rec["gates"]["joint_shift"]["met"] is met and rec["gates_met"] is met
+
+
+def test_the_reader_binds_the_record_content_to_the_bound_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ran: list[dict[str, Any]] = []
+    _stub_run(monkeypatch, ran)
+    out = tmp_path / "out"
+    rec = _record(tmp_path, monkeypatch, out)
+    f = out / "noise_gate_a10.json"
+    i = "B_noise_sti_C1_12_s1"
+    for forged in (
+        {**rec, "receipts_sha256": {k: "0" * 64 for k in rec["receipts_sha256"]}},
+        {
+            **rec,
+            "controls": {**rec["controls"], i: {**rec["controls"][i], "joint_shift_p": 0.01}},
+            "gates": {**rec["gates"], "joint_shift": {**rec["gates"]["joint_shift"], "n_reject": 1}},
+        },
+        {**rec, "source_file": "missing.json"},
+        {k: v for k, v in rec.items() if k != "source_file"},
+    ):
+        f.write_text(json.dumps(forged), encoding="utf-8")
+        with pytest.raises(ValueError, match="bound evaluation|not the bound file"):
+            phase5_b.run_family_b(tmp_path, out, COMMIT)
+    assert ran == []
+    f.write_text(json.dumps(rec), encoding="utf-8")
+    phase5_b.run_family_b(tmp_path, out, COMMIT)
+    assert len(ran) == 15
+
+
+@pytest.mark.parametrize("pos_tranches", [(1000, 1000, 1000, 1000), (999, 1000, 1000, 1000)])
+def test_the_reader_accepts_a_record_at_the_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pos_tranches: tuple[int, ...]
+) -> None:
+    ran: list[dict[str, Any]] = []
+    _stub_run(monkeypatch, ran)
+    out = tmp_path / "out"
+    ev = _eval_data(pos_tranches=pos_tranches)
+    for c in list(ev["controls"].values())[:3]:
+        c["joint_shift"]["p"] = 0.05
+    for c in list(ev["controls"].values())[3:5]:
+        c["joint_shift"]["p"] = 0.0499999
+    h = tmp_path / "ev.json"
+    h.write_text(json.dumps(ev), encoding="utf-8")
+    _bind(monkeypatch, h)
+    rec = phase5_b.write_a10_gate_record(h, out, COMMIT, _repro(tmp_path))
+    assert rec["gates_met"] is True and rec["gates"]["joint_shift"]["n_reject"] == 2
+    phase5_b.run_family_b(tmp_path, out, COMMIT)
+    assert len(ran) == 15
+
+
+def test_the_reader_refuses_an_evaluation_file_that_is_not_the_bound_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ran: list[dict[str, Any]] = []
+    _stub_run(monkeypatch, ran)
+    out = tmp_path / "out"
+    _record(tmp_path, monkeypatch, out)
+    ev = tmp_path / "ev.json"
+    ev.write_text(json.dumps({**json.loads(ev.read_text(encoding="utf-8")), "gates_met": True}), encoding="utf-8")
+    with pytest.raises(ValueError, match="not the bound file"):
+        phase5_b.run_family_b(tmp_path, out, COMMIT)
+    assert ran == []
