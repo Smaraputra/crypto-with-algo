@@ -28,7 +28,7 @@ import resource
 import shutil
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +135,10 @@ MAX_LEDGER_READ_IDS = 4
 
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
+_SHA64 = re.compile(r"^[0-9a-f]{64}$")
 _PKG_DIR = Path(__file__).resolve().parent
+LOCK_RECORD_PATH = str(_PKG_DIR.parent / "records" / "c_lhar_x_1h_finalist_lock.json")
+ARTIFACT_RECORD_PATH = str(_PKG_DIR.parent / "records" / "c_lhar_x_1h_final_model.json")
 
 
 @dataclass(frozen=True)
@@ -164,6 +167,36 @@ class Spec:
 
 SPEC = Spec()
 
+
+def _expected_spec() -> Spec:
+    """The locked values, each from its module constant. Tests that run on a smaller SPEC replace this function."""
+    return Spec(
+        coins=tuple(method.UNIVERSE),
+        dev_start=method.DEV_START,
+        dev_end=method.DEV_END,
+        h_start=method.H_START,
+        h_end=method.H_END,
+        cutoff_ms=CUTOFF_MS,
+        lookback_months=LOOKBACK_MONTHS,
+        min_train=MIN_TRAIN,
+        symbols_min=None,
+        h_seed=H_SEED,
+        h_seed_index_arg=H_SEED_INDEX_ARG,
+        d_dataset_hash=D_DATASET_HASH,
+        reference_sha256=REFERENCE_FORECASTS_SHA256,
+        reference_finite_digest=REFERENCE_FINITE_F_DIGEST,
+        reference_finite_rows=REFERENCE_FINITE_F_ROWS,
+    )
+
+
+def check_spec(spec: Spec) -> None:
+    """Refuses unless every field of `spec` equals the locked value. Pre-load only, raises ValueError."""
+    want = _expected_spec()
+    differ = [f.name for f in fields(Spec) if getattr(spec, f.name) != getattr(want, f.name)]
+    if differ:
+        raise ValueError(f"SPEC differs from the locked values in {differ}")
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------------------------------------------------
@@ -187,7 +220,18 @@ def _sha256_path(path: Path | str) -> str:
 
 
 def _err(exc: BaseException) -> str:
-    return f"{type(exc).__name__}: {exc}"
+    try:
+        return f"{type(exc).__name__}: {exc}"
+    except Exception:
+        return type(exc).__name__
+
+
+def _safe_log(build: Any) -> None:
+    """Logs build() and swallows any failure of the message or of stdout. Used after the first guarded load."""
+    try:
+        _log(build() if callable(build) else build)
+    except Exception:
+        pass
 
 
 def _plain(obj: Any) -> Any:
@@ -253,17 +297,28 @@ def _peaks() -> dict[str, float]:
     }
 
 
+def _strict_path(path: str | Path, what: str) -> str:
+    """The path as a string. Raises unless it is absolute and none of its components, as given, is '.' or '..'."""
+    text = os.fspath(path)
+    if not os.path.isabs(text):
+        raise ValueError(f"{what} {text!r}: the path is not absolute")
+    if any(part in (".", "..") for part in text.split(os.sep)):
+        raise ValueError(f"{what} {text!r}: the path has a '.' or '..' component")
+    return text
+
+
 def contained(path: str | Path, root: str | Path, kind: str) -> str:
-    """The path itself, after proving it has no symlink on the way, lies under `root` and is a `kind`.
+    """The path itself, after proving it is absolute, has no '.' or '..' component and no symlink on the way, lies
+    under `root` and is a `kind`. Callers use the returned path, never the argument.
 
     kind is "file" (a regular file) or "dir". Raises ValueError otherwise. Pre-load only.
     """
     if kind not in ("file", "dir"):
         raise ValueError(f"unknown kind {kind!r}")
-    p = os.path.normpath(os.path.abspath(str(path)))
+    p = _strict_path(path, "path")
     real = os.path.realpath(p)
     if real != p:
-        raise ValueError(f"{path}: resolves to {real}, a symlink is on the way")
+        raise ValueError(f"{path}: resolves to {real}, a symlink or a non-canonical form is on the way")
     real_root = os.path.realpath(os.path.normpath(os.path.abspath(str(root))))
     if os.path.commonpath([real, real_root]) != real_root:
         raise ValueError(f"{path}: lies outside {root}")
@@ -271,7 +326,7 @@ def contained(path: str | Path, root: str | Path, kind: str) -> str:
         raise ValueError(f"{path}: not a regular file")
     if kind == "dir" and not os.path.isdir(real):
         raise ValueError(f"{path}: not a directory")
-    return real
+    return p
 
 
 def check_code(bindings: dict[str, Any] | None) -> dict[str, Any]:
@@ -304,6 +359,10 @@ def check_code(bindings: dict[str, Any] | None) -> dict[str, Any]:
         problems.append(f"library versions {repro['versions']} differ from {VERSIONS}")
     own = _sha256_bytes(_read_bytes(Path(__file__).resolve()))
     if bindings is not None:
+        try:
+            check_spec(SPEC)
+        except ValueError as exc:
+            problems.append(str(exc))
         if repro["source_sha256"] != bindings.get("source_sha256"):
             problems.append("the r4 source digest differs from bindings.source_sha256")
         if own != bindings.get("holdout_c_sha256"):
@@ -625,7 +684,12 @@ def bind_d(
     btc_wt = prepare_btc(panel_d, sp.dev_end)
     per_coin = {c: prepare_coin(panel_d, c, btc_wt, sp.dev_end) for c in coins}
     fold_rows = ref.loc[ref["fold"].to_numpy() == sp.cutoff_ms].reset_index(drop=True)
-    fr, _ = forecast_frame(per_coin, fits, sp.cutoff_ms, sp.dev_end, coins=coins, fold_ms=sp.cutoff_ms)
+    parts = [
+        forecast_frame({c: per_coin[c]}, fits, sp.cutoff_ms, sp.dev_end, coins=(c,), fold_ms=sp.cutoff_ms)[0]
+        for c in coins
+    ]
+    parts = [x for x in parts if len(x)]
+    fr = pd.concat(parts, ignore_index=True) if parts else _empty_forecasts()
     d2 = _diff(_sorted_rows(fr), _sorted_rows(fold_rows), coin_values=True)
     _require_equal("B2 (the cutoff fold through the H builder)", d2)
     out["B2"] = {"equal": True, "rows": int(len(fr)), "fold": int(sp.cutoff_ms)}
@@ -657,13 +721,14 @@ def load_d(ds: str | Path, *, spec: Spec | None = None) -> tuple[dict[str, dict[
     1d frame are recorded (those loaders admit older rows). Returns the panel and the partition record.
     """
     sp = spec or SPEC
-    ds_p = Path(ds)
-    contained(ds_p, ds_p, "dir")
+    ds_p = Path(contained(ds, ds, "dir"))
     contained(ds_p / "manifest.json", ds_p, "file")
     ok, mismatches = data.verify_manifest(ds_p)
     if not ok:
         raise ValueError(f"D: verify_manifest failed: {mismatches[:5]}")
     manifest = data.load_manifest(ds_p)
+    for entry in manifest.get("files", []):
+        contained(ds_p / str(entry["path"]), ds_p, "file")
     if manifest.get("datasetHash") != sp.d_dataset_hash:
         raise ValueError(f"D: datasetHash {manifest.get('datasetHash')} differs from {sp.d_dataset_hash}")
     symbols = list(manifest["symbols"])
@@ -693,6 +758,32 @@ def load_d(ds: str | Path, *, spec: Spec | None = None) -> tuple[dict[str, dict[
     }
 
 
+D_SPAN_FILES = (("5m", "perp/{c}/5m.jsonl.gz"), ("premium_5m", "perp/{c}/5m.premiumIndex.jsonl.gz"))
+
+
+def compare_d_manifest(
+    ds: str | Path, panel: dict[str, dict[str, pd.DataFrame]], coins: tuple[str, ...]
+) -> dict[str, Any]:
+    """D's manifest rowCount, startMs and endMs of each coin's 5m klines and 5m premium file against the row count and
+    first and last t that the loaders returned (the same `_span` the read uses). A difference raises. Artifact run only.
+    """
+    table = {str(f["path"]): f for f in data.load_manifest(ds).get("files", [])}
+    records: list[dict[str, Any]] = []
+    bad: list[str] = []
+    for c in coins:
+        for key, template in D_SPAN_FILES:
+            path = template.format(c=c)
+            entry = table.get(path)
+            rows, first, last = _span(panel[c][key])
+            ok = _matches(rows, first, last, entry)
+            records.append({"coin": c, "path": path, "rows": rows, "first_t": first, "last_t": last, "match": ok})
+            if not ok:
+                bad.append(f"{path}: loader {rows} rows from {first} to {last}, manifest {entry}")
+    if bad:
+        raise ValueError(f"D manifest spans differ from the loaders' spans: {bad[:5]}")
+    return {"files": len(records), "all_match": True, "records": records}
+
+
 def _d_core(
     ds: str | Path,
     ref: str | Path,
@@ -702,6 +793,7 @@ def _d_core(
 ) -> dict[str, Any]:
     """Load D, prepare it, fit the final model, bind it. Used by the artifact run and the child process."""
     panel, partition = load_d(ds, spec=spec)
+    d_manifest = compare_d_manifest(ds, panel, spec.coins) if full else None
     prep_d = family_c.prepare_window(panel, WINDOW, spec.dev_end)
     final = final_model(
         prep_d,
@@ -721,6 +813,8 @@ def _d_core(
     reference = pd.read_parquet(ref_p)
     fits = parse_model(json.loads(model_bytes), coins=spec.coins)
     binding = bind_d(panel, prep_d, reference, fits, spec=spec, full=full, final=final)
+    if d_manifest is not None:
+        binding["D_manifest"] = d_manifest
     return {
         "model": model,
         "model_sha256": _sha256_bytes(model_bytes),
@@ -858,6 +952,9 @@ def check_h_manifest(
         raise ValueError(f"H: datasetHash {manifest.get('datasetHash')} differs from the bound {h_dataset_hash}")
     table = {str(f["path"]): {k: f.get(k) for k in _ENTRY_KEYS} for f in manifest.get("files", [])}
     want_paths = _expected_paths(coins)
+    n_files = len(manifest.get("files", []))
+    if n_files != len(want_paths) or len(table) != n_files:
+        raise ValueError(f"H: the manifest has {n_files} entries, {len(table)} distinct, {len(want_paths)} expected")
     if sorted(table) != want_paths:
         raise ValueError(f"H: the manifest's file set differs from the {len(want_paths)} expected files")
     if forbidden_sha256:
@@ -865,7 +962,7 @@ def check_h_manifest(
             if entry["sha256"] in forbidden_sha256:
                 raise ValueError(f"H: {entry['path']} carries a hash of the real H export")
     bound = table if h_files is None else {str(f["path"]): {k: f.get(k) for k in _ENTRY_KEYS} for f in h_files}
-    if sorted(bound) != want_paths:
+    if sorted(bound) != want_paths or (h_files is not None and len(h_files) != len(want_paths)):
         raise ValueError("H: the bound file table differs from the expected file set")
     for path in want_paths:
         entry, want = table[path], bound[path]
@@ -884,13 +981,18 @@ def check_h_manifest(
 def _span(frame: pd.DataFrame) -> tuple[int, int | None, int | None]:
     if frame is None or len(frame) == 0 or "t" not in frame.columns:
         return 0, None, None
-    t = frame["t"].to_numpy()
-    return int(len(frame)), int(t.min()), int(t.max())
+    try:
+        t = frame["t"].to_numpy()
+        return int(len(frame)), int(t.min()), int(t.max())
+    except Exception:
+        return int(len(frame)), None, None
 
 
 def _matches(rows: int, first: int | None, last: int | None, entry: dict[str, Any] | None) -> bool:
     return (
         entry is not None
+        and first is not None
+        and last is not None
         and rows == entry.get("rowCount")
         and first == entry.get("startMs")
         and last == entry.get("endMs")
@@ -992,8 +1094,11 @@ def dry_run(fits: dict[str, dict[str, Any]], *, spec: Spec | None = None) -> dic
         sub = pooled.loc[pooled["coin"] == c, "f"].to_numpy(dtype=np.float64)
         if not np.isfinite(sub).any():
             raise ValueError(f"dry run: {c} has no row with a finite f")
-    if not np.isfinite((rec["stay_out"]["flag1"] or {}).get("low", float("nan"))):
+    flag1 = rec["stay_out"]["flag1"] or {}
+    if not np.isfinite(flag1.get("low", float("nan"))):
         raise ValueError("dry run: flag 1's bootstrap did not run")
+    if flag1.get("seed") != sp.h_seed:
+        raise ValueError(f"dry run: flag 1 seed {flag1.get('seed')} is not {sp.h_seed}")
     json.dumps(to_jsonable(rec), allow_nan=False, sort_keys=True)
     return {"rows": int(len(pooled)), "coins": list(sp.coins), "flag1_low": float(rec["stay_out"]["flag1"]["low"])}
 
@@ -1288,14 +1393,16 @@ def run_artifact(ds: str, ref: str, out: str, commit: str, reproduction: str) ->
     if not _COMMIT_RE.fullmatch(commit):
         raise ValueError("commit must be 7 to 40 lowercase hex characters")
     code = check_code(None)
-    contained(ds, ds, "dir")
-    contained(ref, os.path.dirname(os.path.abspath(ref)), "file")
-    contained(reproduction, os.path.dirname(os.path.abspath(reproduction)), "file")
+    ds = contained(ds, ds, "dir")
+    ref = contained(ref, os.path.dirname(ref), "file")
+    reproduction = contained(reproduction, os.path.dirname(reproduction), "file")
     out_real = _check_out(out)
     rep_bytes = _read_bytes(reproduction)
     rep = json.loads(rep_bytes)
     if rep.get("all_match") is not True:
         raise ValueError("the reproduction record does not have all_match true")
+    if rep.get("dataset_hash") != spec.d_dataset_hash:
+        raise ValueError("the reproduction record's dataset_hash differs from the D dataset hash")
     if rep.get("r4_source_sha256") != code["reproduction_inputs"]["source_sha256"]:
         raise ValueError("the reproduction record was made at another r4 source digest")
     res = _d_core(ds, ref, spec, None, True)
@@ -1368,7 +1475,8 @@ _REQUIRED_BINDINGS = (
 
 
 def _same_path(a: str, b: str) -> bool:
-    return os.path.normpath(str(a)) == os.path.normpath(str(b))
+    """Exact string equality after the component rule: `a` must be absolute with no '.' or '..' component."""
+    return _strict_path(a, "path") == str(b)
 
 
 def run_read(
@@ -1412,24 +1520,31 @@ def run_read(
     ):
         if not _same_path(got, want):
             raise ValueError(f"{mode} mode: the {name} must be {want}, got {got}")
-    contained(ds, ds, "dir")
-    contained(h, h, "dir")
-    contained(ref, os.path.dirname(os.path.abspath(ref)), "file")
-    contained(ledger, os.path.dirname(os.path.abspath(ledger)), "file")
-    contained(artifact, os.path.dirname(os.path.abspath(artifact)), "file")
+    if not rehearsal:
+        for name, got, want in (
+            ("lock record", lock or "", LOCK_RECORD_PATH),
+            ("artifact", artifact, ARTIFACT_RECORD_PATH),
+        ):
+            if not _same_path(got, want):
+                raise ValueError(f"read mode: the {name} must be {want}, got {got}")
+    ds = contained(ds, ds, "dir")
+    h = contained(h, h, "dir")
+    ref = contained(ref, os.path.dirname(ref), "file")
+    ledger = contained(ledger, os.path.dirname(ledger), "file")
+    artifact = contained(artifact, os.path.dirname(artifact), "file")
     out_real = _check_out(out)
 
     if rehearsal:
         if not bindings_path:
             raise ValueError("rehearsal mode needs --bindings")
-        contained(bindings_path, os.path.dirname(os.path.abspath(bindings_path)), "file")
+        bindings_path = contained(bindings_path, os.path.dirname(bindings_path), "file")
         lock_bytes = _read_bytes(bindings_path)
         lock_rec = json.loads(lock_bytes)
         bindings = lock_rec.get("bindings", lock_rec)
     else:
         if not lock:
             raise ValueError("read mode needs --lock")
-        contained(lock, os.path.dirname(os.path.abspath(lock)), "file")
+        lock = contained(lock, os.path.dirname(lock), "file")
         lock_bytes = _read_bytes(lock)
         lock_rec = json.loads(lock_bytes)
         bindings = lock_rec.get("bindings")
@@ -1440,8 +1555,8 @@ def run_read(
             ("registry_index", REGISTRY_INDEX),
             ("config_hash", CONFIG_HASH),
         ):
-            if key in lock_rec and lock_rec[key] != want:
-                raise ValueError(f"the lock record's {key} differs from {want!r}")
+            if lock_rec.get(key) != want:
+                raise ValueError(f"the lock record's {key} is not {want!r}")
     needed = (*_REQUIRED_BINDINGS, "rehearsal_h_dataset_hash") if rehearsal else _REQUIRED_BINDINGS
     missing = [k for k in needed if k not in bindings]
     if missing:
@@ -1478,7 +1593,13 @@ def run_read(
 
     h_files = bindings["h_files"]
     if rehearsal:
+        if not isinstance(h_files, list) or sorted(str(f["path"]) for f in h_files) != _expected_paths(spec.coins):
+            raise ValueError("rehearsal mode needs the real H export's full file table in bindings.h_files")
         real_hashes = {str(f["sha256"]) for f in h_files}
+        if not all(_SHA64.fullmatch(x) for x in real_hashes):
+            raise ValueError("bindings.h_files must carry a 64-hex sha256 for every real H file")
+        if bindings["rehearsal_h_dataset_hash"] == bindings["h_dataset_hash"]:
+            raise ValueError("the rehearsal datasetHash equals the real H datasetHash")
         manifest_rec = check_h_manifest(
             h,
             bindings["rehearsal_h_dataset_hash"],
@@ -1523,12 +1644,33 @@ def run_read(
     # From here on nothing this function controls raises. load_h's loader exceptions end the run (read, no verdict).
     panel_h, load_records = load_h(h, read_id, ledger, finalist_id, bound_files, funding["frames"], coins=spec.coins)
     record, pooled, preps = evaluate_gated(panel_h, fits, load_records, spec=spec)
-    stay = record["stay_out"]
-    _log(
-        f"H VERDICT {finalist_id} pass={record['h_pass']} coins_pass={record['verdict'].get('n_coins_pass')} "
-        f"flag1={stay['flag1_pass']} flag2={stay['flag2_pass']}"
+    out_p = Path(out_real)
+    failures: list[str] = []
+
+    def guarded(name: str, fn: Any) -> None:
+        try:
+            fn()
+        except Exception as exc:
+            text = f"{name}: {_err(exc)}"
+            failures.append(text)
+            _safe_log(f"WRITE FAILED {text}")
+
+    def verdict_line() -> str:
+        stay = record["stay_out"]
+        return (
+            f"H VERDICT {finalist_id} pass={record['h_pass']} coins_pass={record['verdict'].get('n_coins_pass')} "
+            f"flag1={stay['flag1_pass']} flag2={stay['flag2_pass']}"
+        )
+
+    def record_line() -> str:
+        return "H RECORD " + json.dumps(to_jsonable(record), sort_keys=True, allow_nan=False)
+
+    _safe_log(verdict_line)
+    _safe_log(record_line)
+    guarded(
+        "verdict.txt",
+        lambda: _write_bytes(out_p / "verdict.txt", (verdict_line() + "\n" + record_line() + "\n").encode("utf-8")),
     )
-    _log("H RECORD " + json.dumps(to_jsonable(record), sort_keys=True, allow_nan=False))
 
     descriptive: Any
     try:
@@ -1545,16 +1687,6 @@ def run_read(
         "funding_records": funding["records"],
         "d_training_ranges": d_rec.get("descriptive"),
     }
-    out_p = Path(out_real)
-    failures: list[str] = []
-
-    def guarded(name: str, fn: Any) -> None:
-        try:
-            fn()
-        except Exception as exc:
-            failures.append(f"{name}: {_err(exc)}")
-            _log(f"WRITE FAILED {name}: {_err(exc)}")
-
     guarded("h_report.json", lambda: _write_bytes(out_p / "h_report.json", _json_bytes(report)))
     guarded(
         "h_forecasts.parquet",
@@ -1571,7 +1703,7 @@ def run_read(
         except Exception as exc:
             added = [{"error": _err(exc)}]
         outputs: dict[str, Any] = {}
-        for name in ("h_report.json", "h_forecasts.parquet"):
+        for name in ("verdict.txt", "h_report.json", "h_forecasts.parquet"):
             try:
                 outputs[name] = _sha256_path(out_p / name)
             except Exception as exc:
@@ -1618,6 +1750,7 @@ def main(argv: list[str] | None = None) -> int:
         if name == "rehearse":
             pr.add_argument("--bindings", required=True)
     args = parser.parse_args(argv)
+    check_spec(SPEC)
     if args.cmd == "artifact":
         run_artifact(args.ds, args.ref, args.out, args.commit, args.reproduction)
         return 0

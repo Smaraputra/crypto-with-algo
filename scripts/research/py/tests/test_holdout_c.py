@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -813,6 +815,18 @@ def _write_export(root: Path, panel: dict[str, dict[str, pd.DataFrame]], coins: 
     return manifest
 
 
+def _add_manifest_spans(ds: Path, panel: dict[str, dict[str, pd.DataFrame]]) -> None:
+    """The exporter's rowCount, startMs and endMs on the 5m klines and premium entries of a synthetic D manifest."""
+    manifest = json.loads((ds / "manifest.json").read_text())
+    for entry in manifest["files"]:
+        for c, d in panel.items():
+            for key, template in hc.D_SPAN_FILES:
+                if entry["path"] == template.format(c=c):
+                    t = d[key]["t"].tolist()
+                    entry.update({"rowCount": len(t), "startMs": t[0], "endMs": t[-1]})
+    (ds / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def _entry_table(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     keys = ("path", "rowCount", "startMs", "endMs", "sha256")
     return [{k: f[k] for k in keys} for f in manifest["files"]]
@@ -840,6 +854,7 @@ def env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     from r4.synth import write_synthetic_dataset
 
     ds = write_synthetic_dataset(d_panel, root / "ds")
+    _add_manifest_spans(ds, d_panel)
     config = dict(
         family_c.family_c()[hc.REGISTRY_INDEX],
         first_refit_ms=D_START + 60 * DAY,
@@ -874,7 +889,9 @@ def env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     mp.setattr(hc, "SPEC", spec)
     mp.setattr(cli, "reproduction_inputs", _good_repro)
     rep = root / "reproduction.json"
-    rep.write_text(json.dumps({"all_match": True, "r4_source_sha256": cli.source_digest()}))
+    rep.write_text(
+        json.dumps({"all_match": True, "r4_source_sha256": cli.source_digest(), "dataset_hash": spec.d_dataset_hash})
+    )
     art_out = root / "artifact-out"
     art_out.mkdir()
     art_result = hc.run_artifact(str(ds), str(ref_path), str(art_out), "c" * 40, str(rep))
@@ -905,6 +922,7 @@ class Ctx:
     def __init__(self, env: dict[str, Any], tmp: Path, mp: pytest.MonkeyPatch) -> None:
         self.env, self.tmp, self.mp = env, tmp, mp
         mp.setattr(hc, "SPEC", env["spec"])
+        mp.setattr(hc, "_expected_spec", lambda: env["spec"])
         mp.setattr(cli, "reproduction_inputs", _good_repro)
         self.out = tmp / "out"
         self.out.mkdir()
@@ -928,6 +946,8 @@ class Ctx:
         self.mp.setattr(hc, "REHEARSAL_LEDGER_PATH", str(self.scratch))
         self.mp.setattr(hc, "H_DIR", str(self.tmp / "no-real-h"))
         self.mp.setattr(hc, "LEDGER_PATH", str(self.real_ledger))
+        self.mp.setattr(hc, "LOCK_RECORD_PATH", str(self.tmp / "lock.json"))
+        self.mp.setattr(hc, "ARTIFACT_RECORD_PATH", str(self.artifact))
 
     def h_copy(self) -> Path:
         import shutil
@@ -972,11 +992,19 @@ class Ctx:
         }
         return {**kw, **over}
 
+    def identity(self) -> dict[str, Any]:
+        return {
+            "finalist": hc.FINALIST_CONFIG_ID,
+            "finalist_id": hc.FINALIST_ID,
+            "registry_index": hc.REGISTRY_INDEX,
+            "config_hash": hc.CONFIG_HASH,
+        }
+
     def read_kwargs(self, **over: Any) -> dict[str, Any]:
         self.mp.setattr(hc, "H_DIR", str(self.h_dir))
         bindings = self.bindings(h_dataset_hash=self.env["h_hash"], h_files=self.env["h_table"])
         lock = self.tmp / "lock.json"
-        lock.write_text(json.dumps({"finalist_id": hc.FINALIST_ID, "bindings": over.pop("bindings", bindings)}))
+        lock.write_text(json.dumps({**self.identity(), "bindings": over.pop("bindings", bindings)}))
         kw = {
             "mode": "read",
             "ds": str(self.env["ds"]),
@@ -1035,6 +1063,7 @@ def test_artifact_run_binds_and_writes(env: dict[str, Any]) -> None:
         == hashlib.sha256(env["reproduction"].read_bytes()).hexdigest()
     )
     binding = json.loads((out / "binding.json").read_text())
+    assert binding["D_manifest"]["all_match"] and binding["D_manifest"]["files"] == 2 * len(COINS4)
     assert (
         binding["B1"]["equal"]
         and binding["B2"]["equal"]
@@ -1055,6 +1084,8 @@ def test_artifact_run_refuses(env: dict[str, Any], tmp_path: Path, monkeypatch: 
     for body in (
         {"all_match": False, "r4_source_sha256": cli.source_digest()},
         {"all_match": True, "r4_source_sha256": "0" * 64},
+        {"all_match": True, "r4_source_sha256": cli.source_digest()},
+        {"all_match": True, "r4_source_sha256": cli.source_digest(), "dataset_hash": "0" * 64},
     ):
         bad.write_text(json.dumps(body))
         with pytest.raises(ValueError, match="reproduction record"):
@@ -1102,11 +1133,19 @@ def test_19_rehearsal_end_to_end(ctx: Ctx, capsys: pytest.CaptureFixture[str]) -
     assert [x["path"] for x in lines] == [str(ctx.h_dir / p.format(c=c)) for c in COINS4 for p in hc.H_GUARDED]
     assert not any("settlements" in x["path"] for x in lines)
     assert {c[2] for c in calls} == {hc.REHEARSAL_FINALIST_ID} and hc.FINALIST_ID not in {c[2] for c in calls}
-    assert sorted(p.name for p in ctx.out.iterdir()) == ["h_forecasts.parquet", "h_report.json", "receipt.json"]
+    assert sorted(p.name for p in ctx.out.iterdir()) == [
+        "h_forecasts.parquet",
+        "h_report.json",
+        "receipt.json",
+        "verdict.txt",
+    ]
     assert (ctx.out / "receipt.json").stat().st_mtime_ns >= (ctx.out / "h_report.json").stat().st_mtime_ns
     report = json.loads((ctx.out / "h_report.json").read_text())
     receipt = json.loads((ctx.out / "receipt.json").read_text())
     assert report["gated"]["errors"] == [] and res["write_failures"] == []
+    verdict_lines = (ctx.out / "verdict.txt").read_text().splitlines()
+    assert verdict_lines[0] in log and verdict_lines[1] in log and verdict_lines[0].startswith("H VERDICT")
+    assert json.loads(verdict_lines[1].removeprefix("H RECORD "))["h_pass"] == res["h_pass"]
     assert len(receipt["ledger_lines_added"]) == 2 * len(COINS4) and receipt["mode"] == "rehearsal"
     assert receipt["h_dataset_hash"] == ctx.env["h_hash"] and len(receipt["funding_records"]) == len(COINS4)
     assert (
@@ -1412,6 +1451,12 @@ def test_18_path_containment_in_run_read(ctx: Ctx) -> None:
     assert calls == [] and ctx.scratch.read_bytes() == b""
 
 
+def _set_spec(mp: pytest.MonkeyPatch, spec: hc.Spec) -> None:
+    """A test spec that is also the locked one (the read-mode SPEC check passes on it)."""
+    mp.setattr(hc, "SPEC", spec)
+    mp.setattr(hc, "_expected_spec", lambda: spec)
+
+
 def _perturbed_reference(ctx: Ctx) -> None:
     ref = ctx.env["ref"]
     perturbed = ctx.tmp / "perturbed.parquet"
@@ -1421,14 +1466,14 @@ def _perturbed_reference(ctx: Ctx) -> None:
     frame.loc[idx, "f"] = np.nextafter(frame.loc[idx, "f"], np.inf)
     frame.to_parquet(perturbed)
     ctx.mp.setattr(hc, "REF_PATH", str(perturbed))
-    ctx.mp.setattr(
-        hc, "SPEC", hc.Spec(**{**spec.__dict__, "reference_sha256": hashlib.sha256(perturbed.read_bytes()).hexdigest()})
+    _set_spec(
+        ctx.mp, hc.Spec(**{**spec.__dict__, "reference_sha256": hashlib.sha256(perturbed.read_bytes()).hexdigest()})
     )
 
 
 def _pre_load_cases() -> dict[str, Callable[[Ctx], tuple[dict[str, Any], str]]]:
     def spec_with(ctx: Ctx, **kw: Any) -> None:
-        ctx.mp.setattr(hc, "SPEC", hc.Spec(**{**ctx.env["spec"].__dict__, **kw}))
+        _set_spec(ctx.mp, hc.Spec(**{**ctx.env["spec"].__dict__, **kw}))
 
     def art_sha(ctx: Ctx) -> tuple[dict[str, Any], str]:
         return {"bindings": ctx.bindings(artifact_sha256="0" * 64)}, "artifact file"
@@ -1563,3 +1608,434 @@ def test_main_parses_subcommands(monkeypatch: pytest.MonkeyPatch) -> None:
         hc.main(["read", *base, "--ledger", "/l", "--out", "/o"])
     with pytest.raises(SystemExit):
         hc.main([])
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Brief 38b: Opus fixes R1 to R4, Codex findings 1 to 3 and the Opus recommendations
+# ---------------------------------------------------------------------------------------------------------------------
+
+
+def test_r1_rehearsal_needs_the_full_real_table(ctx: Ctx) -> None:
+    calls = _forbid_loaders(ctx.mp)
+    partial = ctx.fake_real_table[1:]
+    for bindings, match in (
+        (ctx.bindings(h_files=[]), "full file table"),
+        (ctx.bindings(h_files=partial), "full file table"),
+        (ctx.bindings(h_files=[{**f, "sha256": "x"} for f in ctx.fake_real_table]), "64-hex"),
+        (ctx.bindings(h_dataset_hash=ctx.env["h_hash"]), "equals the real H datasetHash"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            hc.run_read(**ctx.rehearse_kwargs(bindings=bindings))
+    assert calls == [] and ctx.scratch.read_bytes() == b"" and list(ctx.out.iterdir()) == []
+
+
+def test_r2_the_records_are_pinned_and_the_identity_required(ctx: Ctx, tmp_path: Path) -> None:
+    calls = _forbid_loaders(ctx.mp)
+    kw = ctx.read_kwargs()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    lock2 = elsewhere / "c_lhar_x_1h_finalist_lock.json"
+    lock2.write_bytes(Path(kw["lock"]).read_bytes())
+    with pytest.raises(ValueError, match="lock record must be"):
+        hc.run_read(**{**kw, "lock": str(lock2)})
+    art2 = elsewhere / "c_lhar_x_1h_final_model.json"
+    art2.write_bytes(ctx.artifact.read_bytes())
+    with pytest.raises(ValueError, match="artifact must be"):
+        hc.run_read(**{**kw, "artifact": str(art2)})
+    rec = json.loads(Path(kw["lock"]).read_text())
+    for key in ("finalist", "registry_index", "config_hash"):
+        Path(kw["lock"]).write_text(json.dumps({k: v for k, v in rec.items() if k != key}))
+        with pytest.raises(ValueError, match=f"lock record's {key}"):
+            hc.run_read(**kw)
+    assert calls == [] and ctx.real_ledger.read_bytes() == b"" and list(ctx.out.iterdir()) == []
+
+
+def test_r3_every_d_file_is_contained(env: dict[str, Any], tmp_path: Path) -> None:
+    import shutil
+
+    ds = tmp_path / "ds"
+    shutil.copytree(env["ds"], ds)
+    victim = ds / "perp" / "ETHUSDT" / "5m.jsonl.gz"
+    outside = tmp_path / "outside.jsonl.gz"
+    outside.write_bytes(victim.read_bytes())
+    victim.unlink()
+    victim.symlink_to(outside)
+    assert data.verify_manifest(ds)[0]
+    with pytest.raises(ValueError, match="symlink"):
+        hc.load_d(ds, spec=env["spec"])
+
+
+def _crafted(coin: str, h_start: int, days: int) -> pd.DataFrame:
+    """Hourly rows: f low with a daily spike (flag 1 flags the spikes, y follows f), G set per coin for condition 2."""
+    n = days * 24
+    T = h_start + np.arange(n, dtype=np.int64) * H
+    f = np.full(n, 1e-7)
+    f[np.arange(n) % 24 == 12] = 4e-6
+    g = {
+        "BTCUSDT": np.full(n, 0.001),
+        "ETHUSDT": np.full(n, 0.01),
+        "SOLUSDT": np.where(np.arange(n) % 2 == 0, 0.001, 0.01),
+    }
+    sd = np.sqrt(f)
+    return pd.DataFrame(
+        {
+            "coin": coin,
+            "T": T,
+            "y": f.copy(),
+            "f": f,
+            "persistence": f,
+            "ewma": f,
+            "R": np.zeros(n),
+            "G": g[coin],
+            "fold": np.int64(hc.CUTOFF_MS),
+            "lo80": -sd,
+            "hi80": sd,
+            "lo95": -2 * sd,
+            "hi95": 2 * sd,
+        }
+    )[family_c.FORECAST_COLUMNS]
+
+
+def test_12_forecast_exception_fails_a_flag_that_the_other_coins_would_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    h_start, days = method.H_START, 200
+    frames = {c: _crafted(c, h_start, days) for c in COINS3}
+    all_rows = pd.concat(list(frames.values()), ignore_index=True)
+    without_eth = pd.concat([frames["BTCUSDT"], frames["SOLUSDT"]], ignore_index=True)
+    full = family_c.stay_out_flag(all_rows, H, hc.H_SEED_INDEX_ARG)
+    rest = family_c.stay_out_flag(without_eth, H, hc.H_SEED_INDEX_ARG)
+    assert full["flag2"]["share"] < 0.6 and full["pass"] is False
+    assert rest["flag2"]["share"] >= 0.6 and rest["flag1"]["pass"] is True and rest["pass"] is True
+    raising: set[str] = set()
+
+    def ff(prep: Any, fits: Any, lo: int, hi: int, **kw: Any) -> tuple[pd.DataFrame, dict[str, Any]]:
+        (c,) = kw["coins"]
+        if c in raising:
+            raise RuntimeError("forecast boom")
+        return frames[c], {"skipped": {}}
+
+    monkeypatch.setattr(hc, "prepare_btc", lambda panel, end: (pd.DataFrame(), {}))
+    monkeypatch.setattr(hc, "prepare_coin", lambda panel, c, wt, end: {"coin": c})
+    monkeypatch.setattr(hc, "forecast_frame", ff)
+    monkeypatch.setattr(family_c, "coin_criteria", lambda df, w: {"pass": True, "mean_qlike": 0.1})
+    spec = hc.Spec(coins=COINS3, h_start=h_start, h_end=h_start + days * DAY, symbols_min=2)
+    records = hc._matching_records(COINS3)
+    base, _, _ = hc.evaluate_gated({}, {}, records, spec=spec)
+    assert base["verdict"]["pass"] is True and base["stay_out"]["pass"] is False and base["h_pass"] is False
+    raising.add("ETHUSDT")
+    rec, pool, _ = hc.evaluate_gated({}, {}, records, spec=spec)
+    assert set(pool["coin"]) == {"BTCUSDT", "SOLUSDT"}
+    assert rec["verdict"]["pass"] is True and rec["stay_out_descriptive"]["pass"] is True
+    assert rec["stay_out"]["reason"] == "forecasts undefined" and rec["stay_out"]["coins"] == ["ETHUSDT"]
+    assert rec["stay_out"]["flag1_pass"] is False and rec["stay_out"]["flag2_pass"] is False
+    assert rec["h_pass"] is False
+    raising.clear()
+    mismatch = [dict(r, match=r["coin"] != "ETHUSDT") for r in records]
+    rec_m, _, _ = hc.evaluate_gated({}, {}, mismatch, spec=spec)
+    assert rec_m["stay_out"]["reason"] == "forecasts undefined" and rec_m["h_pass"] is False
+
+
+def test_r4_the_verdict_line_prints_the_gated_flags(ctx: Ctx, capsys: pytest.CaptureFixture[str]) -> None:
+    real = hc.evaluate_gated
+    seen: list[int] = []
+
+    def gated(*a: Any, **k: Any) -> Any:
+        rec, pool, preps = real(*a, **k)
+        seen.append(1)
+        if len(seen) == 2:  # the call after the guarded load: the computed flag passes, the gated one is undefined
+            rec["stay_out_descriptive"] = {"pass": True, "flag1": {"pass": True}, "flag2": {"pass": True}}
+            rec["forecasts_undefined"] = ["ETHUSDT"]
+            rec["stay_out"].update({"reason": "forecasts undefined", "coins": ["ETHUSDT"]})
+        return rec, pool, preps
+
+    ctx.mp.setattr(hc, "evaluate_gated", gated)
+    hc.run_read(**ctx.rehearse_kwargs())
+    line = next(x for x in capsys.readouterr().out.splitlines() if x.startswith("H VERDICT"))
+    assert line.endswith("flag1=False flag2=False") and "pass=False" in line
+    assert (ctx.out / "verdict.txt").read_text().splitlines()[0] == line
+
+
+def test_r4_b4_refuses_an_info_mismatch(small: dict[str, Any], bound: dict[str, Any]) -> None:
+    prep = {c: dict(p) for c, p in small["prep"].items()}
+    prep["SOLUSDT"]["info"] = {**prep["SOLUSDT"]["info"], "n_incomplete": prep["SOLUSDT"]["info"]["n_incomplete"] + 1}
+    with pytest.raises(ValueError, match=r"B4 \(SOLUSDT, info\)"):
+        hc.bind_d(small["panel"], prep, bound["ref"], bound["fits"], spec=bound["spec"], full=False)
+
+
+def test_c1_a_stdout_failure_after_the_first_load_changes_nothing(ctx: Ctx, capsys: pytest.CaptureFixture[str]) -> None:
+    real_log = hc._log
+
+    def log(message: str) -> None:
+        if message.startswith("H VERDICT"):
+            raise BrokenPipeError("stdout closed")
+        real_log(message)
+
+    ctx.mp.setattr(hc, "_log", log)
+    res = hc.run_read(**ctx.rehearse_kwargs())
+    capsys.readouterr()
+    lines = (ctx.out / "verdict.txt").read_text().splitlines()
+    assert lines[0].startswith("H VERDICT") and lines[1].startswith("H RECORD")
+    assert json.loads(lines[1].removeprefix("H RECORD "))["h_pass"] == res["h_pass"]
+    assert (ctx.out / "h_report.json").is_file() and (ctx.out / "receipt.json").is_file()
+    assert res["write_failures"] == []
+    receipt = json.loads((ctx.out / "receipt.json").read_text())
+    assert (
+        receipt["outputs_sha256"]["verdict.txt"] == hashlib.sha256((ctx.out / "verdict.txt").read_bytes()).hexdigest()
+    )
+
+
+@pytest.mark.parametrize("error", [BrokenPipeError("pipe"), OSError("io"), ValueError("closed file")])
+def test_c1_every_log_after_the_first_load_may_fail(
+    ctx: Ctx, capsys: pytest.CaptureFixture[str], error: Exception
+) -> None:
+    real_log = hc._log
+    state = {"loaded": False}
+
+    def log(message: str) -> None:
+        if message.startswith("PRELOAD OK"):
+            state["loaded"] = True
+            real_log(message)
+            return
+        if state["loaded"]:
+            raise error
+        real_log(message)
+
+    ctx.mp.setattr(hc, "_log", log)
+    ctx.mp.setattr(pd.DataFrame, "to_parquet", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    res = hc.run_read(**ctx.rehearse_kwargs())
+    capsys.readouterr()
+    assert (ctx.out / "verdict.txt").is_file() and (ctx.out / "h_report.json").is_file()
+    assert len(res["write_failures"]) == 1 and "h_forecasts.parquet" in res["write_failures"][0]
+
+
+def test_c1_a_failed_verdict_write_does_not_stop_the_report(ctx: Ctx, capsys: pytest.CaptureFixture[str]) -> None:
+    real = hc._write_bytes
+
+    def flaky(path: Path, raw: bytes) -> None:
+        if path.name == "verdict.txt":
+            raise OSError("verdict boom")
+        real(path, raw)
+
+    ctx.mp.setattr(hc, "_write_bytes", flaky)
+    res = hc.run_read(**ctx.rehearse_kwargs())
+    log = capsys.readouterr().out
+    assert "H VERDICT" in log and "WRITE FAILED verdict.txt" in log
+    assert (ctx.out / "h_report.json").is_file() and (ctx.out / "receipt.json").is_file()
+    assert len(res["write_failures"]) == 1 and not (ctx.out / "verdict.txt").exists()
+
+
+def test_c2_contained_refuses_dots_relative_paths_and_traversal_through_a_link(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    (root / "sub").mkdir(parents=True)
+    (root / "sub" / "f.txt").write_text("x")
+    other = tmp_path / "other"
+    (other / "deep").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(other / "deep")
+    assert hc.contained(root / "sub" / "f.txt", root, "file") == str(root / "sub" / "f.txt")
+    # normpath(link/../root/sub/f.txt) is a real file under root, the OS path walks through the link to other/
+    through_link = f"{tmp_path}/link/../root/sub/f.txt"
+    assert os.path.normpath(through_link) == str(root / "sub" / "f.txt")
+    for bad in (
+        through_link,
+        f"{root}/sub/../sub/f.txt",
+        f"{root}/./sub/f.txt",
+        "root/sub/f.txt",
+        f"{root}//sub/f.txt",
+        f"{root}/sub/f.txt/",
+    ):
+        with pytest.raises(ValueError):
+            hc.contained(bad, root, "file")
+    with pytest.raises(ValueError, match="component"):
+        hc.contained(f"{root}/sub/../sub", root, "dir")
+    with pytest.raises(ValueError, match="not absolute"):
+        hc.contained("root/sub", root, "dir")
+
+
+def test_c2_run_read_refuses_traversal_before_any_loader_call(ctx: Ctx) -> None:
+    calls = _forbid_loaders(ctx.mp)
+    sub = ctx.tmp / "other" / "sub"
+    sub.mkdir(parents=True)
+    (ctx.tmp / "other" / "ledger.jsonl").write_bytes(b"")
+    (ctx.scratch.parent / "link").symlink_to(sub)
+    via_link = f"{ctx.scratch.parent}/link/../ledger.jsonl"
+    assert os.path.normpath(via_link) == str(ctx.scratch)
+    rel_ds = os.path.relpath(ctx.env["ds"])
+    for over in (
+        {"ledger": via_link},
+        {"h": f"{ctx.h_dir}/perp/.."},
+        {"ds": f"{ctx.env['ds']}/."},
+        {"ds": rel_ds},
+        {"out": f"{ctx.out}/../out"},
+        {"artifact": f"{ctx.tmp}/x/../artifact.json"},
+    ):
+        with pytest.raises(ValueError):
+            hc.run_read(**ctx.rehearse_kwargs(**over))
+    kw = ctx.read_kwargs()
+    for over in (
+        {"lock": f"{ctx.tmp}/x/../lock.json"},
+        {"ledger": f"{ctx.real_ledger.parent}/../real/{ctx.real_ledger.name}"},
+    ):
+        with pytest.raises(ValueError):
+            hc.run_read(**{**kw, **over})
+    assert calls == [] and ctx.scratch.read_bytes() == b"" and ctx.real_ledger.read_bytes() == b""
+    assert list(ctx.out.iterdir()) == []
+
+
+def test_c3_run_read_refuses_a_replaced_spec_before_any_loader_call(ctx: Ctx) -> None:
+    calls = _forbid_loaders(ctx.mp)
+    spec = ctx.env["spec"]
+    shifted = replace(spec, symbols_min=7, h_seed=spec.h_seed + 1, h_seed_index_arg=spec.h_seed_index_arg + 1)
+    ctx.mp.setattr(hc, "SPEC", shifted)
+    with pytest.raises(ValueError, match="SPEC differs"):
+        hc.run_read(**ctx.rehearse_kwargs())
+    with pytest.raises(ValueError, match="SPEC differs"):
+        hc.run_read(**ctx.read_kwargs())
+    assert calls == [] and ctx.scratch.read_bytes() == b"" and ctx.real_ledger.read_bytes() == b""
+    assert list(ctx.out.iterdir()) == []
+
+
+def test_c3_the_locked_spec_equals_the_module_constants(monkeypatch: pytest.MonkeyPatch) -> None:
+    hc.check_spec(hc.Spec())
+    hc.check_spec(hc.SPEC)
+    base = hc.Spec()
+    assert base.coins == method.UNIVERSE and base.symbols_min is None and base.cutoff_ms == hc.CUTOFF_MS
+    for change in (
+        {"coins": method.UNIVERSE[::-1]},
+        {"coins": method.UNIVERSE[:9]},
+        {"symbols_min": 7},
+        {"cutoff_ms": hc.CUTOFF_MS + H},
+        {"lookback_months": 23},
+        {"min_train": hc.MIN_TRAIN - 1},
+        {"h_seed": hc.H_SEED + 1},
+        {"h_seed_index_arg": hc.H_SEED_INDEX_ARG + 1},
+        {"d_dataset_hash": "0" * 64},
+        {"h_start": method.H_START + 1},
+    ):
+        with pytest.raises(ValueError, match="SPEC differs"):
+            hc.check_spec(replace(base, **change))
+    # main refuses every subcommand under a replaced SPEC and never reaches the entry points
+    reached: list[str] = []
+    monkeypatch.setattr(hc, "run_read", lambda **kw: reached.append("read"))
+    monkeypatch.setattr(hc, "run_artifact", lambda *a: reached.append("artifact"))
+    monkeypatch.setattr(hc, "SPEC", replace(base, symbols_min=7, h_seed=hc.H_SEED + 1))
+    base_args = ["--ds", "/ds", "--h", "/h", "--ref", "/r", "--artifact", "/a", "--read-id", "a" * 40, "--commit"]
+    with pytest.raises(ValueError, match="SPEC differs"):
+        hc.main(["read", *base_args, "a" * 40, "--ledger", "/l", "--out", "/o", "--lock", "/k"])
+    with pytest.raises(ValueError, match="SPEC differs"):
+        hc.main(["artifact", "--ds", "/d", "--ref", "/r", "--out", "/o", "--commit", "abc1234", "--reproduction", "/p"])
+    assert reached == []
+
+
+def test_rec1_span_falls_back_and_counts_as_a_mismatch() -> None:
+    frame = pd.DataFrame({"t": pd.Series([1, "x", 3], dtype=object)})
+    assert hc._span(frame) == (3, None, None)
+    entry = {"rowCount": 3, "startMs": 1, "endMs": 3}
+    assert hc._matches(*hc._span(frame), entry) is False
+    assert hc._matches(3, 1, 3, entry) is True and hc._matches(*hc._span(pd.DataFrame()), entry) is False
+    assert hc._matches(3, None, None, {"rowCount": 3, "startMs": None, "endMs": None}) is False
+
+
+def test_rec2_err_falls_back_to_the_type_name() -> None:
+    class Odd(Exception):
+        def __str__(self) -> str:
+            raise RuntimeError("no text")
+
+    assert hc._err(Odd()) == "Odd" and hc._err(ValueError("a")) == "ValueError: a"
+
+
+def test_rec4_the_dry_run_binds_the_seed_of_the_gated_path(ctx: Ctx) -> None:
+    fits = hc.parse_model(json.loads(ctx.env["artifact_bytes"])["model"], coins=COINS4)
+    spec = ctx.env["spec"]
+    assert hc.dry_run(fits, spec=spec)["coins"] == list(COINS4)
+    real = hc.evaluate_gated
+
+    def gated(*a: Any, **k: Any) -> Any:
+        rec, pool, preps = real(*a, **k)
+        rec["stay_out"]["flag1"] = {**rec["stay_out"]["flag1"], "seed": spec.h_seed + 1}
+        return rec, pool, preps
+
+    ctx.mp.setattr(hc, "evaluate_gated", gated)
+    with pytest.raises(ValueError, match="seed"):
+        hc.dry_run(fits, spec=spec)
+
+
+def test_rec6_b2_runs_through_per_coin_forecast_frame_calls(small: dict[str, Any], bound: dict[str, Any]) -> None:
+    real = hc.forecast_frame
+    seen: list[tuple[str, ...]] = []
+
+    def spy(prep: Any, fits: Any, lo: int, hi: int, **kw: Any) -> Any:
+        seen.append(tuple(kw["coins"]))
+        assert tuple(prep) == tuple(kw["coins"])
+        return real(prep, fits, lo, hi, **kw)
+
+    mp = pytest.MonkeyPatch()
+    try:
+        mp.setattr(hc, "forecast_frame", spy)
+        hc.bind_d(small["panel"], small["prep"], bound["ref"], bound["fits"], spec=bound["spec"], full=False)
+    finally:
+        mp.undo()
+    assert seen == [(c,) for c in COINS3]
+
+
+def test_rec7_the_artifact_run_compares_the_d_manifest_spans(
+    env: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    record = json.loads((env["art_out"] / "binding.json").read_text())["D_manifest"]
+    assert (
+        record["all_match"] and len(record["records"]) == 2 * len(COINS4) and record["files"] == len(record["records"])
+    )
+    assert {r["path"] for r in record["records"]} == {
+        t.format(c=c) for c in COINS4 for t in ("perp/{c}/5m.jsonl.gz", "perp/{c}/5m.premiumIndex.jsonl.gz")
+    }
+    monkeypatch.setattr(hc, "SPEC", env["spec"])
+    monkeypatch.setattr(cli, "reproduction_inputs", _good_repro)
+    for field, delta, path in (
+        ("rowCount", 1, "perp/ETHUSDT/5m.jsonl.gz"),
+        ("startMs", BAR, "perp/SOLUSDT/5m.premiumIndex.jsonl.gz"),
+        ("endMs", -BAR, "perp/BTCUSDT/5m.jsonl.gz"),
+    ):
+        ds = tmp_path / f"ds-{field}"
+        shutil.copytree(env["ds"], ds)
+        _edit_manifest(
+            ds,
+            path,
+            **{
+                field: next(f for f in json.loads((ds / "manifest.json").read_text())["files"] if f["path"] == path)[
+                    field
+                ]
+                + delta
+            },
+        )
+        out = tmp_path / f"out-{field}"
+        out.mkdir()
+        with pytest.raises(ValueError, match=f"D manifest spans differ.*{path}"):
+            hc.run_artifact(str(ds), str(env["ref"]), str(out), "c" * 40, str(env["reproduction"]))
+        assert list(out.iterdir()) == []
+    # a manifest without the exporter's fields differs as well
+    ds = tmp_path / "ds-bare"
+    shutil.copytree(env["ds"], ds)
+    _edit_manifest(ds, "perp/XRPUSDT/5m.jsonl.gz", rowCount=None, startMs=None, endMs=None)
+    out = tmp_path / "out-bare"
+    out.mkdir()
+    with pytest.raises(ValueError, match="D manifest spans differ"):
+        hc.run_artifact(str(ds), str(env["ref"]), str(out), "c" * 40, str(env["reproduction"]))
+
+
+def test_rec9_the_h_manifest_needs_exactly_the_expected_entries(env: dict[str, Any], tmp_path: Path) -> None:
+    import shutil
+
+    kw = {"coins": COINS4}
+    good = hc.check_h_manifest(env["h_dir"], env["h_hash"], env["h_table"], **kw)
+    assert len(good["files"]) == 3 * len(COINS4)
+    with pytest.raises(ValueError, match="bound file table"):
+        hc.check_h_manifest(env["h_dir"], env["h_hash"], [*env["h_table"], env["h_table"][0]], **kw)
+    root = tmp_path / "h-dup"
+    shutil.copytree(env["h_dir"], root)
+    manifest = json.loads((root / "manifest.json").read_text())
+    manifest["files"].append(dict(manifest["files"][0]))
+    manifest["datasetHash"] = data.dataset_hash_of(manifest["files"])
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    assert data.verify_manifest(root)[0]
+    with pytest.raises(ValueError, match="13 entries, 12 distinct"):
+        hc.check_h_manifest(root, manifest["datasetHash"], None, **kw)
