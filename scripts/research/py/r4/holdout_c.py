@@ -761,11 +761,17 @@ def load_d(ds: str | Path, *, spec: Spec | None = None) -> tuple[dict[str, dict[
 D_SPAN_FILES = (("5m", "perp/{c}/5m.jsonl.gz"), ("premium_5m", "perp/{c}/5m.premiumIndex.jsonl.gz"))
 
 
-def compare_d_manifest(
-    ds: str | Path, panel: dict[str, dict[str, pd.DataFrame]], coins: tuple[str, ...]
-) -> dict[str, Any]:
-    """D's manifest rowCount, startMs and endMs of each coin's 5m klines and 5m premium file against the row count and
-    first and last t that the loaders returned (the same `_span` the read uses). A difference raises. Artifact run only.
+_D_SERIES = {"5m": "klines", "premium_5m": "premiumIndex"}
+
+
+def compare_d_manifest(ds: str | Path, coins: tuple[str, ...]) -> dict[str, Any]:
+    """D's manifest rowCount, startMs and endMs of each coin's 5m klines and 5m premium file against data.load_perp in
+    D mode (the loader behind pipeline.load_panel), with the read's `_span` and `_matches`. Artifact run only.
+
+    D mode drops rows before the holdout-A end and at or after LOCKBOX_START, which the read's H mode never does on H,
+    and the exporter's end bound is inclusive, so a D file may hold the DEV_END bar. The manifest rowCount must equal
+    the rows returned plus the rows the loader reports dropped. With nothing dropped the comparison is `_matches`
+    exactly. A side that dropped rows needs its manifest bound beyond the loader's cut. A difference raises.
     """
     table = {str(f["path"]): f for f in data.load_manifest(ds).get("files", [])}
     records: list[dict[str, Any]] = []
@@ -774,11 +780,38 @@ def compare_d_manifest(
         for key, template in D_SPAN_FILES:
             path = template.format(c=c)
             entry = table.get(path)
-            rows, first, last = _span(panel[c][key])
-            ok = _matches(rows, first, last, entry)
-            records.append({"coin": c, "path": path, "rows": rows, "first_t": first, "last_t": last, "match": ok})
+            res = data.load_perp(ds, c, "5m", series=_D_SERIES[key])
+            rows, first, last = _span(res.rows)
+            below, above = int(res.holdout_dropped_rows), int(res.dropped_rows)
+            if below == 0 and above == 0:
+                ok = _matches(rows, first, last, entry)
+            else:
+                start = entry.get("startMs") if entry is not None else None
+                end = entry.get("endMs") if entry is not None else None
+                ok = (
+                    entry is not None
+                    and first is not None
+                    and last is not None
+                    and entry.get("rowCount") == rows + below + above
+                    and (
+                        start == first if below == 0 else isinstance(start, int) and start < res.holdout_a_end <= first
+                    )
+                    and (end == last if above == 0 else isinstance(end, int) and last < res.lockbox_start <= end)
+                )
+            records.append(
+                {
+                    "coin": c,
+                    "path": path,
+                    "rows": rows,
+                    "first_t": first,
+                    "last_t": last,
+                    "dropped_before": below,
+                    "dropped_after": above,
+                    "match": ok,
+                }
+            )
             if not ok:
-                bad.append(f"{path}: loader {rows} rows from {first} to {last}, manifest {entry}")
+                bad.append(f"{path}: loader {rows} rows from {first} to {last} ({below} and {above} dropped), {entry}")
     if bad:
         raise ValueError(f"D manifest spans differ from the loaders' spans: {bad[:5]}")
     return {"files": len(records), "all_match": True, "records": records}
@@ -793,7 +826,7 @@ def _d_core(
 ) -> dict[str, Any]:
     """Load D, prepare it, fit the final model, bind it. Used by the artifact run and the child process."""
     panel, partition = load_d(ds, spec=spec)
-    d_manifest = compare_d_manifest(ds, panel, spec.coins) if full else None
+    d_manifest = compare_d_manifest(ds, spec.coins) if full else None
     prep_d = family_c.prepare_window(panel, WINDOW, spec.dev_end)
     final = final_model(
         prep_d,

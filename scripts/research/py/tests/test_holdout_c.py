@@ -2039,3 +2039,69 @@ def test_rec9_the_h_manifest_needs_exactly_the_expected_entries(env: dict[str, A
     assert data.verify_manifest(root)[0]
     with pytest.raises(ValueError, match="13 entries, 12 distinct"):
         hc.check_h_manifest(root, manifest["datasetHash"], None, **kw)
+
+
+def _inclusive_end_export(src: Path, dst: Path) -> str:
+    """D as the exporter writes it with an end bound of LOCKBOX_START, inclusive: the bar at END appended to every 5m
+    klines and premium file, rowCount + 1, endMs END, the new sha256 and datasetHash."""
+    import shutil
+
+    from r4.synth import _jsonl_gz_bytes
+
+    shutil.copytree(src, dst)
+    manifest = json.loads((dst / "manifest.json").read_text())
+    paths = {t.format(c=c) for c in COINS4 for _, t in hc.D_SPAN_FILES}
+    for entry in manifest["files"]:
+        if entry["path"] in paths:
+            frame = data._read_jsonl_gz(dst / entry["path"])
+            raw = _jsonl_gz_bytes(pd.concat([frame, frame.iloc[[-1]].assign(t=END)], ignore_index=True))
+            (dst / entry["path"]).write_bytes(raw)
+            entry.update(
+                {
+                    "rowCount": entry["rowCount"] + 1,
+                    "endMs": END,
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "bytes": len(raw),
+                }
+            )
+    manifest["datasetHash"] = data.dataset_hash_of(manifest["files"])
+    (dst / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    return str(manifest["datasetHash"])
+
+
+def test_f1_the_d_comparison_accounts_for_the_rows_the_d_loader_drops(
+    env: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    assert END == data.LOCKBOX_START
+    ds = tmp_path / "ds-inclusive"
+    new_hash = _inclusive_end_export(env["ds"], ds)
+    assert data.verify_manifest(ds)[0]
+    monkeypatch.setattr(hc, "SPEC", replace(env["spec"], d_dataset_hash=new_hash))
+    monkeypatch.setattr(cli, "reproduction_inputs", _good_repro)
+    rep = tmp_path / "rep.json"
+    rep.write_text(json.dumps({"all_match": True, "r4_source_sha256": cli.source_digest(), "dataset_hash": new_hash}))
+    out = tmp_path / "out"
+    out.mkdir()
+    res = hc.run_artifact(str(ds), str(env["ref"]), str(out), "c" * 40, str(rep))
+    record = res["binding"]["D_manifest"]
+    assert record["all_match"] and record["files"] == 2 * len(COINS4)
+    assert {(r["dropped_before"], r["dropped_after"]) for r in record["records"]} == {(0, 1)}
+    assert json.loads((out / "artifact.json").read_bytes())["model"] == json.loads(env["artifact_bytes"])["model"]
+    path = "perp/ETHUSDT/5m.jsonl.gz"
+    entry = next(f for f in json.loads((ds / "manifest.json").read_text())["files"] if f["path"] == path)
+    for field, value in (
+        ("rowCount", entry["rowCount"] + 1),
+        ("rowCount", entry["rowCount"] - 1),
+        ("endMs", END - BAR),
+        ("startMs", entry["startMs"] + BAR),
+    ):
+        bad = tmp_path / f"ds-{field}-{value}"
+        shutil.copytree(ds, bad)
+        _edit_manifest(bad, path, **{field: value})
+        out_bad = tmp_path / f"out-{field}-{value}"
+        out_bad.mkdir()
+        with pytest.raises(ValueError, match=f"D manifest spans differ.*{path}"):
+            hc.run_artifact(str(bad), str(env["ref"]), str(out_bad), "c" * 40, str(rep))
+        assert list(out_bad.iterdir()) == []
