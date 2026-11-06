@@ -1243,10 +1243,25 @@ def main() -> None:
     fbe_parser.add_argument("--commit", required=True, help="Commit SHA")
     fbe_parser.add_argument("--draws", required=False, type=int, default=None, help="Joint-shift draws (test only)")
 
-    fbr_parser = subparsers.add_parser("family-b-run", help="Run the 18 declared Phase 5 family B configurations")
+    fba_parser = subparsers.add_parser(
+        "family-b-noise-a10", help="Write the A10 gate record from the ce7053dc noise evaluation"
+    )
+    fba_parser.add_argument("--noise-eval", required=True, help="The ce7053dc noise_eval_b.json")
+    fba_parser.add_argument(
+        "--reproduction", required=True, help="The receiving commit's eight-run reproduction record"
+    )
+    fba_parser.add_argument("--out", required=True, help="Output directory (noise_gate_a10.json inside)")
+    fba_parser.add_argument("--commit", required=True, help="The receiving commit SHA")
+
+    fbr_parser = subparsers.add_parser("family-b-run", help="Run the 15 Phase 5 family B configurations (A10)")
     fbr_parser.add_argument("--ds", "--dataset-dir", dest="ds", required=True, help="Dataset directory")
     fbr_parser.add_argument("--v8-exports", required=True, help="Directory holding v8-1h/ and v8-4h/")
-    fbr_parser.add_argument("--noise-eval", required=False, default=None, help="Default: <out>/noise_eval_b.json")
+    fbr_parser.add_argument(
+        "--noise-eval",
+        required=False,
+        default=None,
+        help="A8.6 evaluation at this commit (tests only). Default: the A10 gate record <out>/noise_gate_a10.json",
+    )
     fbr_parser.add_argument("--out", required=True, help="Output directory (runs/ inside)")
     fbr_parser.add_argument("--commit", required=True, help="Commit SHA")
 
@@ -1595,6 +1610,11 @@ def main() -> None:
             noise_eval = phase5_b.evaluate_noise_b(args.ds, runs, args.out, args.commit, joint_draws=args.draws)
             print(f"Noise evaluation written: gates_met={noise_eval['gates_met']}")
             if not noise_eval["gates_met"]:
+                raise SystemExit(1)
+        elif args.command == "family-b-noise-a10":
+            record = phase5_b.write_a10_gate_record(args.noise_eval, args.out, args.commit, args.reproduction)
+            print(f"A10 gate record written: gates_met={record['gates_met']}")
+            if not record["gates_met"]:
                 raise SystemExit(1)
         elif args.command == "family-b-run":
             phase5_b.run_family_b(args.ds, args.out, args.commit, args.v8_exports, args.noise_eval)

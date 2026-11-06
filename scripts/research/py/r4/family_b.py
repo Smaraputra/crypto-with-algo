@@ -124,6 +124,9 @@ TRADE_FLOOR_TRANCHES = 1000
 INFORMATIVE_MIN_PER_FRAME = 3
 NOISE_BOUNDS: dict[str, int] = {"pass_items_1_to_3_max": 0, "joint_shift_reject_max": 2}
 
+# A10.1: the three sti-frame configurations withdrawn from family B. They stay declared in family_b(), and never run.
+WITHDRAWN_IDS: tuple[str, ...] = ("B_rule_sti_C1", "B_meta12_sti_C1", "B_metaall_sti_C1")
+
 # Counting: 12 re-tests + 45 family A + 9 family D. Family D used no reserve slot.
 ALPHA_BEFORE_B = 66
 

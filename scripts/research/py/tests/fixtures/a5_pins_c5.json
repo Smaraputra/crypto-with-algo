@@ -8,7 +8,7 @@
   },
   "extensions": {
    "cli.py": {
-    "def:main": "4ca8c9907535ae90ca933113b40c55fe18b3f048adecc660e679b545443a753f",
+    "def:main": "9c743dec0e8f8976d70a067f296eab4cdd38c290dfb17db4a03fda8ab6a76826",
     "def:run_tripwire": "625cb67a8e579d67e82bfef08405f9c67980f22b6eac50d46c220ebafb17f808",
     "def:run_wf": "d4ec3770f2d66b3eebc8317495f65c91865c46bc3769aecf3343f734a29ba83b"
    },

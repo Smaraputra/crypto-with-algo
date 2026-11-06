@@ -502,23 +502,212 @@ def check_noise_gates_met(noise_eval: Path | str, commit: str, dataset_hash: str
     return data  # type: ignore[no-any-return]
 
 
+def write_a10_gate_record(
+    noise_eval: Path | str,
+    out: Path | str,
+    receiving_commit: str,
+    reproduction_record: Path | str,
+    *,
+    bound: tuple[tuple[str, str], ...] = (
+        ("eval_sha256", "4174bbd914689f58a044696b440d68319e3fecf3fa452ff84d615c7b44410ef6"),
+        ("eval_commit", "ce7053dc"),
+        ("eval_digest", "863cf087c3108f10b92f3797fb4babdcf0be170603215ba3c1df4668fdb69aaa"),
+        ("dataset_hash", "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62"),
+    ),
+) -> dict[str, Any]:
+    """A10.2 and A10.3: restate A8.6's three gates from the ce7053dc evaluation, bind the receiving end, and write
+    out/noise_gate_a10.json.
+
+    bound is the evaluation the amendment names: its file sha256, its commit, its r4 digest and D's dataset hash (the
+    default is the signed text, the argument exists so tests can use a synthetic evaluation). The evaluation must
+    match all four, hold the 8 registered control ids with BAR["random_entry_draws"] joint-shift draws each, and
+    record the 8 receipts_sha256 entries. The gates are recomputed from the per-control fields, never taken from the
+    evaluation's verdicts: the pos frame has at least INFORMATIVE_MIN_PER_FRAME of its 4 controls at
+    TRADE_FLOOR_TRANCHES walk-forward tranches, at most NOISE_BOUNDS["pass_items_1_to_3_max"] of the 8 pass items 1 to
+    3, and at most NOISE_BOUNDS["joint_shift_reject_max"] of the 8 reject the joint-shift null at
+    BAR["random_entry_p_max"]. The record is written even when a gate fails (gates_met false).
+
+    The receiving end is the code in hand: receiving_commit, this r4 source digest, D's dataset hash and the sha256 of
+    reproduction_record, which must be that commit's eight-run reproduction (same commit, same digest, D, all_match).
+    """
+    want = dict(bound)
+    f = Path(noise_eval)
+    if not f.is_file():
+        raise ValueError(f"no noise evaluation at {f}")
+    file_sha = _file_sha256(f)
+    if file_sha != want["eval_sha256"]:
+        raise ValueError(f"the noise evaluation has sha256 {file_sha!r}, not {want['eval_sha256']!r} (A10.3)")
+    data = json.loads(f.read_text(encoding="utf-8"))
+    if data.get("kind") != "noise_eval_b":
+        raise ValueError(f"{f} is not a family B noise evaluation")
+    for key, field in (("eval_commit", "commit"), ("eval_digest", "source_sha256"), ("dataset_hash", "dataset_hash")):
+        if data.get(field) != want[key]:
+            raise ValueError(f"the noise evaluation has {field} {data.get(field)!r}, not {want[key]!r} (A10.3)")
+    controls = data.get("controls")
+    registered = sorted(c["id"] for c in family_b.family_b_noise())
+    if not isinstance(controls, Mapping) or sorted(controls) != registered:
+        raise ValueError("the noise evaluation does not hold the 8 registered controls")
+    receipts = data.get("receipts_sha256")
+    if (
+        not isinstance(receipts, Mapping)
+        or sorted(receipts) != registered
+        or not all(isinstance(v, str) and len(v) == 64 for v in receipts.values())
+    ):
+        raise ValueError("the noise evaluation does not record the 8 receipts_sha256 entries")
+    draws = int(BAR["random_entry_draws"])
+    if any(c.get("joint_shift", {}).get("draws") != draws for c in controls.values()):
+        raise ValueError(f"the noise evaluation does not hold {draws} joint-shift draws for every control (A8.6)")
+    sha = cli.resolve_commit(receiving_commit)
+    digest = cli.source_digest()
+    rf = Path(reproduction_record)
+    if not rf.is_file():
+        raise ValueError(f"no reproduction record at {rf}")
+    repro = json.loads(rf.read_text(encoding="utf-8"))
+    repro_commit = str(repro.get("commit", ""))
+    if (
+        not repro_commit
+        or not (sha.startswith(repro_commit) or repro_commit.startswith(sha))
+        or repro.get("r4_source_sha256") != digest
+        or repro.get("dataset_hash") != want["dataset_hash"]
+        or repro.get("all_match") is not True
+    ):
+        raise ValueError(f"{rf} is not a matching eight-run reproduction of commit {sha!r} at digest {digest!r} on D")
+    pos = {i: c for i, c in controls.items() if c.get("frame") == "pos"}
+    if len(pos) != 4:
+        raise ValueError(f"the noise evaluation holds {len(pos)} pos controls, not 4")
+    pos_tranches = {i: int(c["wf_tranches"]) for i, c in sorted(pos.items())}
+    n_active = sum(1 for n in pos_tranches.values() if n >= family_b.TRADE_FLOOR_TRANCHES)
+    n_pass = sum(1 for c in controls.values() if c.get("pass_items_1_to_3") is True)
+    reject_p = float(BAR["random_entry_p_max"])
+    n_rej = sum(1 for c in controls.values() if float(c["joint_shift"]["p"]) < reject_p)
+    gates = {
+        "pos_activity": {
+            "frame": "pos",
+            "active": n_active,
+            "of": len(pos),
+            "min": family_b.INFORMATIVE_MIN_PER_FRAME,
+            "floor_tranches": family_b.TRADE_FLOOR_TRANCHES,
+            "wf_tranches": pos_tranches,
+            "met": bool(n_active >= family_b.INFORMATIVE_MIN_PER_FRAME),
+        },
+        "items_1_to_3": {
+            "n_pass": n_pass,
+            "of": len(controls),
+            "max": family_b.NOISE_BOUNDS["pass_items_1_to_3_max"],
+            "met": bool(n_pass <= family_b.NOISE_BOUNDS["pass_items_1_to_3_max"]),
+        },
+        "joint_shift": {
+            "n_reject": n_rej,
+            "of": len(controls),
+            "p_below": reject_p,
+            "max": family_b.NOISE_BOUNDS["joint_shift_reject_max"],
+            "met": bool(n_rej <= family_b.NOISE_BOUNDS["joint_shift_reject_max"]),
+        },
+    }
+    record = {
+        "kind": "noise_gate_a10",
+        "amendment": "A10",
+        "source_file_sha256": file_sha,
+        "source_commit": data["commit"],
+        "source_digest": data["source_sha256"],
+        "dataset_hash": data["dataset_hash"],
+        "receipts_sha256": dict(receipts),
+        "withdrawn_ids": list(family_b.WITHDRAWN_IDS),
+        "receiving": {
+            "commit": sha,
+            "source_digest": digest,
+            "dataset_hash": data["dataset_hash"],
+            "reproduction_record": str(rf),
+            "reproduction_sha256": _file_sha256(rf),
+        },
+        "gates": gates,
+        "gates_met": bool(all(g["met"] for g in gates.values())),
+    }
+    _write_json(Path(out) / "noise_gate_a10.json", record)
+    return record
+
+
+def read_a10_gate_record(
+    gate_record: Path | str, dataset_hash: str, commit: str, bound: tuple[tuple[str, str], ...] | None = None
+) -> dict[str, Any]:
+    """Refuse unless the A10 gate record is bound to the ce7053dc evaluation, this commit, this r4 digest, this dataset
+    and the sha256 of the commit's reproduction record, with all three gates met.
+
+    bound defaults to write_a10_gate_record's, the evaluation the amendment names.
+    """
+    want = dict(write_a10_gate_record.__kwdefaults__["bound"] if bound is None else bound)  # type: ignore[index]
+    f = Path(gate_record)
+    if not f.is_file():
+        raise ValueError(f"no A10 gate record at {f}: write it with family-b-noise-a10 before family B runs")
+    data = json.loads(f.read_text(encoding="utf-8"))
+    if data.get("kind") != "noise_gate_a10":
+        raise ValueError(f"{f} is not an A10 gate record")
+    for key, want_value in (
+        ("source_file_sha256", want["eval_sha256"]),
+        ("source_commit", want["eval_commit"]),
+        ("source_digest", want["eval_digest"]),
+        ("dataset_hash", dataset_hash),
+    ):
+        if data.get(key) != want_value:
+            raise ValueError(f"the A10 gate record has {key} {data.get(key)!r}, not {want_value!r}")
+    gates = data.get("gates")
+    if (
+        not isinstance(gates, Mapping)
+        or set(gates) != {"pos_activity", "items_1_to_3", "joint_shift"}
+        or any(not isinstance(g, Mapping) or g.get("met") is not True for g in gates.values())
+    ):
+        raise ValueError("the A10 gate record does not restate all three gates as met (A10.2)")
+    if data.get("gates_met") is not True:
+        raise ValueError("the A10 gate record did not meet its gates: family B does not run (A10.2)")
+    receiving = data.get("receiving")
+    needed = ("commit", "source_digest", "dataset_hash", "reproduction_record", "reproduction_sha256")
+    if not isinstance(receiving, Mapping) or any(not receiving.get(k) for k in needed):
+        raise ValueError(f"the A10 gate record's receiving block must hold {list(needed)}")
+    for key, want_value in (
+        ("commit", cli.resolve_commit(commit)),
+        ("source_digest", cli.source_digest()),
+        ("dataset_hash", dataset_hash),
+    ):
+        if receiving.get(key) != want_value:
+            raise ValueError(f"the A10 gate record's receiving {key} is {receiving.get(key)!r}, not {want_value!r}")
+    rf = Path(str(receiving["reproduction_record"]))
+    if not rf.is_absolute():
+        rf = f.parent / rf
+    if not rf.is_file():
+        raise ValueError(f"the A10 gate record's reproduction record {rf} does not exist")
+    if _file_sha256(rf) != receiving["reproduction_sha256"]:
+        raise ValueError("the A10 gate record's reproduction record does not match its reproduction_sha256")
+    return data  # type: ignore[no-any-return]
+
+
 def run_family_b(
     ds: Path | str,
     out_dir: Path | str,
     commit: str,
     v8_exports: Mapping[str, Path | str] | Path | str | None = None,
     noise_eval: Path | str | None = None,
+    gate_record: Path | str | None = None,
 ) -> list[dict[str, Any]]:
-    """Run the 18 declared configurations into out_dir/runs, once the noise gates are met at this commit and dataset."""
+    """Run the 15 configurations that remain after A10.1 into out_dir/runs, once the noise gates are met.
+
+    The default gate is the A10 record (A10.3): gate_record, else out_dir/noise_gate_a10.json, read by
+    read_a10_gate_record against this commit, r4 digest and dataset. Only an explicit noise_eval switches to A8.6's
+    own evaluation at this commit, digest and dataset (the path A8.6's tests use). The two are never mixed.
+    """
     out = Path(out_dir)
     manifest = bar.read_manifest(Path(ds))
-    check_noise_gates_met(
-        out / NOISE_EVAL_FILE if noise_eval is None else noise_eval, commit, str(manifest["datasetHash"])
-    )
+    if noise_eval is not None:
+        if gate_record is not None:
+            raise ValueError("give a noise_eval (A8.6) or a gate_record (A10), not both")
+        check_noise_gates_met(noise_eval, commit, str(manifest["datasetHash"]))
+    else:
+        read_a10_gate_record(
+            out / "noise_gate_a10.json" if gate_record is None else gate_record, str(manifest["datasetHash"]), commit
+        )
     _, panel = _load(ds, v8_exports)
     print("dataset", manifest["datasetHash"], flush=True)
     receipts: list[dict[str, Any]] = []
-    for config in family_b.family_b():
+    for config in [c for c in family_b.family_b() if c["id"] not in family_b.WITHDRAWN_IDS]:
         receipts.append(_run_config(config, Path(ds), out / "cfg", out / "runs", commit, panel))
         print(config["id"], "done", flush=True)
     return receipts
@@ -531,7 +720,9 @@ def check_complete(
     source_sha256: str | None = None,
     dataset_hash: str | None = None,
 ) -> None:
-    """The runs directory holds exactly the declared ids, each a trial receipt at its registry config hash.
+    """The runs directory holds exactly the 15 ids of the run set (A10.1), each a trial receipt at its registry hash.
+
+    A withdrawn id in the directory is an extra and is refused.
 
     When given, every receipt must also carry this commit, r4 source digest and dataset hash. Every receipt must carry
     its b block, decisions_sha256 and meta_fits_sha256, and both parquet files must hash to
@@ -539,7 +730,7 @@ def check_complete(
     including one that trades nothing.
     """
     runs = Path(runs_dir)
-    declared = {c["id"]: c for c in family_b.family_b()}
+    declared = {c["id"]: c for c in family_b.family_b() if c["id"] not in family_b.WITHDRAWN_IDS}
     present = {p.name for p in runs.iterdir()}
     if present != set(declared):
         missing = sorted(set(declared) - present)
@@ -632,7 +823,10 @@ def _n_tranches(run_dir: Path) -> int:
 
 def _receipt_hashes(runs: Path) -> dict[str, str]:
     """sha256 of each declared run's receipt.json, which binds a report to the exact runs it was written from."""
-    return {c["id"]: _file_sha256(runs / c["id"] / "receipt.json") for c in family_b.family_b()}
+    return {
+        c["id"]: _file_sha256(runs / c["id"] / "receipt.json")
+        for c in [c for c in family_b.family_b() if c["id"] not in family_b.WITHDRAWN_IDS]
+    }
 
 
 def _abs_weights(tranches: pd.DataFrame) -> np.ndarray:
@@ -832,8 +1026,9 @@ def report_family_b(
     log = read_reserve_log(reserve_log)
     count = round_alpha_count(log)
     universe = list(panel.keys())
-    configs = {c["id"]: c for c in family_b.family_b()}
-    index_of = {cid: i for i, cid in enumerate(configs)}
+    # A10.1: the run set is the 15 retained configurations, every index and seed comes from the 18-entry registry.
+    configs = {c["id"]: c for c in family_b.family_b() if c["id"] not in family_b.WITHDRAWN_IDS}
+    index_of = {c["id"]: k for k, c in enumerate(family_b.family_b()) if c["id"] in configs}
 
     def family_report(tripwire: dict[str, Any] | None, out_file: Path) -> dict[str, Any]:
         return bar.family_report(
@@ -967,6 +1162,31 @@ def report_family_b(
         "source_sha256": cli.source_digest(),
         "receipts_sha256": _receipt_hashes(runs),
         "n_configurations": len(configs),
+        "amendment": "A10",
+        "withdrawn": [
+            {
+                "id": c["id"],
+                "registry_index": k,
+                "joint_shift_seed": c["joint_shift_seed"],
+                "status": "withdrawn (A10.1): never run, no outcome, not a failure",
+            }
+            for k, c in enumerate(family_b.family_b())
+            if c["id"] in family_b.WITHDRAWN_IDS
+        ],
+        "predictions_unevaluated": {
+            "note": "predictions that count a withdrawn trial are read over what ran (A10.2)",
+            "items_1_to_3_passes": {"declared_of": len(family_b.family_b()), "evaluated_of": len(configs)},
+            "of_meta_configurations": {
+                "declared": family_b.PREDICTIONS["diagnostics"]["of_meta_configurations"],
+                "evaluated": sum(1 for c in configs.values() if c["model"] == "lightgbm"),
+            },
+            "of_pairs": {
+                "declared": family_b.PREDICTIONS["diagnostics"]["of_pairs"],
+                "evaluated": sum(1 for c in configs.values() if c["model"] == "lightgbm"),
+            },
+            "not_computed_ids": list(family_b.WITHDRAWN_IDS),
+            "gated_informative_each_frame": "not met (A8.6 failed on the sti frame, A10.2 reads the pos frame)",
+        },
         "round_alpha_count": count,
         "reserve_log": log,
         "n_item_3": N_TRIALS,
@@ -1034,8 +1254,8 @@ def run_twins_b(
         raise ValueError(f"the report is at source digest {report.get('source_sha256')!r}, not {cli.source_digest()!r}")
     if report.get("receipts_sha256") != _receipt_hashes(runs):
         raise ValueError("the report's receipts_sha256 does not match the receipts in the runs directory")
-    configs = {c["id"]: c for c in family_b.family_b()}
-    index_of = {cid: i for i, cid in enumerate(configs)}
+    configs = {c["id"]: c for c in family_b.family_b() if c["id"] not in family_b.WITHDRAWN_IDS}
+    index_of = {c["id"]: k for k, c in enumerate(family_b.family_b()) if c["id"] in configs}
     expected = [] if report.get("halted") else [c["id"] for c in report.get("eligible_candidates", [])][:1]
     plan = report["twin_plan"]
     if [e["id"] for e in plan] != expected[: len(plan)] or len(plan) > 1:
