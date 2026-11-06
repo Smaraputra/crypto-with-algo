@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Round 4 Amendment 11, how the family C forecast finalist is read on the holdout
+- **Amendment 11** (signed 2026-11-06) applies only to the family C finalist C_LHAR-X_1h, before any computation for its one holdout read:
+  - Its lock states no hedge beta and no power, and its read has no inconclusive state. An H fail is a fail.
+  - An exception in one coin's criteria fails that coin. An exception while preparing any coin's data or building its forecasts, BTC's included, also fails the pooled stay-out flag, so it can never turn a fail into a pass. Opus and Codex each showed that the narrower rule could.
+  - The H procedure is one new module that changes no existing research code. It gets an Opus diff review and an eight-run reproduction at every digest before it computes on the development data.
+- **The no-refit twin's coverage** was computed once from its stored forecasts (A11.3, `records/fc_twin_coverage_c8f5849f.json`). Over 2023-01 to 2026-06, both the 80% and 95% bands stayed within 2 points on all 10 coins. The 80% band drifted low in 2025, with 6 of 10 coins outside that year. It informs the finalist's predictions only and adds no trial.
+
 ### Changed: Round 4 Amendment 10, family B runs without the small-trade imbalance frame
 - Family B's noise mini-control ran on the development data at `ce7053dc` and failed its activity gate on one frame only.
   - In the small-trade imbalance frame, 2 of 4 controls were active: the all-history controls traded 227 and 258 walk-forward tranches against the floor of 1,000.
