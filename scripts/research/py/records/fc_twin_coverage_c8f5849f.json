@@ -1,0 +1,912 @@
+{
+ "amendment": "A11.3",
+ "coins": {
+  "ADAUSDT": {
+   "80": {
+    "coverage": 0.7897391554979104,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9474347888744776,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8000497698146074,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9502301853925594,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7874162323157111,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.947505584512286,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7737086635692813,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9442470620388084,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.801980198019802,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9475017269168777,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "AVAXUSDT": {
+   "80": {
+    "coverage": 0.78220925205361,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9489479752125667,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.7993032225954958,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9519721289038199,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7789774137503103,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9477537850583271,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7629133643071877,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9471166985515168,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.7890858853327193,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9486530048353673,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "BNBUSDT": {
+   "80": {
+    "coverage": 0.7960801268194264,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.95150598068886,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8144830160507652,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9547094687072291,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7858029287664433,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9488706875155125,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7819076250341623,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9513528286417053,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.8049735206078747,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9507253050886484,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "BTCUSDT": {
+   "80": {
+    "coverage": 0.7856191744340879,
+    "n": 27036,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9522118656606007,
+    "n": 27036,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8137214705480388,
+      "n": 7317,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9533962006286729,
+      "n": 7317,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8757
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7756267063787541,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9497393894266567,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7724788193495491,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9546324132276578,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.7789546396500115,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9507253050886484,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30639,
+   "rows_outside_years": 0
+  },
+  "DOGEUSDT": {
+   "80": {
+    "coverage": 0.7847672575299034,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9518662631503099,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8073908174692049,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9580689311932313,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7815835194837428,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9503598907917598,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7601803771522274,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9468433998360207,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.7902371632512089,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.95164632742344,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "DOTUSDT": {
+   "80": {
+    "coverage": 0.7860282461449777,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.949956766104626,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.7969391564016424,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9499813363195222,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7782328121121866,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9509803921568627,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7728887674227931,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9477999453402569,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.8024407091871978,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.95164632742344,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "ETHUSDT": {
+   "80": {
+    "coverage": 0.7984579910649949,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9480472690589422,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8207042428766953,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9523454025133756,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7930007446016382,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9480019856043683,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7776714949439738,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9439737633233124,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.8024407091871978,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.947041215749482,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "LINKUSDT": {
+   "80": {
+    "coverage": 0.7989263582648797,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9489119469664217,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8078885156152793,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9519721289038199,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7942417473318442,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9511044924298834,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7850505602623667,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9427439191035802,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.8144139995394888,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9495740271701589,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "SOLUSDT": {
+   "80": {
+    "coverage": 0.8023130134025076,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9542801556420234,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8063954211770561,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9547094687072291,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.7932489451476793,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9534623976172748,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7905165345722875,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9524460235036896,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.8314529127331338,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9580934837669813,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  },
+  "XRPUSDT": {
+   "80": {
+    "coverage": 0.8026732958639573,
+    "n": 27756,
+    "nominal": 0.8,
+    "within": true
+   },
+   "95": {
+    "coverage": 0.9505332180429457,
+    "n": 27756,
+    "nominal": 0.95,
+    "within": true
+   },
+   "by_year": {
+    "2023": {
+     "80": {
+      "coverage": 0.8204553938036581,
+      "n": 8037,
+      "nominal": 0.8,
+      "within": false
+     },
+     "95": {
+      "coverage": 0.9532163742690059,
+      "n": 8037,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8759
+    },
+    "2024": {
+     "80": {
+      "coverage": 0.8021841648051625,
+      "n": 8058,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9523454951600894,
+      "n": 8058,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8781
+    },
+    "2025": {
+     "80": {
+      "coverage": 0.7838207160426346,
+      "n": 7318,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9480732440557529,
+      "n": 7318,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 8758
+    },
+    "2026": {
+     "80": {
+      "coverage": 0.8024407091871978,
+      "n": 4343,
+      "nominal": 0.8,
+      "within": true
+     },
+     "95": {
+      "coverage": 0.9463504489983882,
+      "n": 4343,
+      "nominal": 0.95,
+      "within": true
+     },
+     "n_rows": 4343
+    }
+   },
+   "first_T_ms": 1672531200000,
+   "first_T_utc": "2023-01-01 00:00",
+   "last_T_ms": 1782856800000,
+   "last_T_utc": "2026-06-30 22:00",
+   "n_rows": 30641,
+   "rows_outside_years": 0
+  }
+ },
+ "image": {
+  "family_c_sha256": "ae5798a15ac50409ca9a1d0f7ba7df2a7293f535290b2041c77154d851b40249",
+  "reproduction_inputs": {
+   "requirements_lock_sha256": "73d0c30008fda2363e334ede40ddca2534a269d168166eb2a14ff6711a0e13d1",
+   "source_sha256": "272dae18facb5e2e226c8089b250faef85e1584fe1ae9bf068a8818a7650b7f0",
+   "versions": {
+    "lightgbm": "4.7.0",
+    "numpy": "2.5.4",
+    "pandas": "3.0.6",
+    "pyarrow": "26.0.0",
+    "python": "3.12.15",
+    "scikit-learn": "1.9.1",
+    "scipy": "1.18.1"
+   }
+  }
+ },
+ "inputs": {
+  "forecasts_path": "/twin/forecasts.parquet",
+  "forecasts_sha256": "9b49773bceefc580ffa900ccf2208344265172ebee0be3b37e3840658d9d7c19",
+  "receipt_fields_checked": {
+   "commit": "c8f5849f",
+   "config.refit": "none",
+   "config.twin_of": "C_LHAR-X_1h",
+   "dataset_hash": "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62",
+   "forecasts_sha256": "9b49773bceefc580ffa900ccf2208344265172ebee0be3b37e3840658d9d7c19",
+   "id": "C_twin_C_LHAR-X_1h",
+   "n_forecast_rows": 276840,
+   "n_rows": 306408,
+   "source_sha256": "272dae18facb5e2e226c8089b250faef85e1584fe1ae9bf068a8818a7650b7f0"
+  },
+  "receipt_path": "/twin/receipt.json",
+  "receipt_sha256": "2ed934906db7da3b2bceb1b72496e060abf20bdfedf2cac6979da58cde033948",
+  "script_sha256": "ecd0267bff8f4d587fd04cc00dde7acb2de3c3605af42346a17492d74d323213"
+ },
+ "record": "Round 4 family C, A11.3: coverage of the no-refit twin on D, descriptive",
+ "rule": "For each coin of method.UNIVERSE and each level 80 and 95, family_c.coverage over the coin's stored rows (rows with finite lo, hi and R, as coin_criteria counts on D), over the whole span and per UTC calendar year of T (2023 to 2026, the last through 2026-06-30). within: n > 0 and abs(coverage - nominal) <= 0.02 + 1e-12, coin_criteria's tolerance. Reported, never gating. No forecast is recomputed.",
+ "summary": {
+  "n_coins": 10,
+  "within_80": {
+   "coins": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "DOGEUSDT",
+    "AVAXUSDT",
+    "DOTUSDT",
+    "LINKUSDT"
+   ],
+   "n": 10
+  },
+  "within_95": {
+   "coins": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "DOGEUSDT",
+    "AVAXUSDT",
+    "DOTUSDT",
+    "LINKUSDT"
+   ],
+   "n": 10
+  },
+  "within_both": {
+   "coins": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "DOGEUSDT",
+    "AVAXUSDT",
+    "DOTUSDT",
+    "LINKUSDT"
+   ],
+   "n": 10
+  }
+ },
+ "twin_id": "C_twin_C_LHAR-X_1h",
+ "twin_of": "C_LHAR-X_1h",
+ "uses": "the forecast finalist's predictions only, A11.3"
+}
