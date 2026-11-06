@@ -1131,6 +1131,143 @@ panel, ..., with synthetic flow and metrics rows from 2023-01-01".
 - The code lives in r4/family_b.py, in the function that already adds the synthetic flow and metrics rows. A test
   runs the check on a small synthetic panel with the declared feature frame F unpatched.
 - Nothing else in A8.6 changes: the configurations, seeds, attempts, floor, gates and counts stay as signed.
+
+AMENDMENT 10 (2026-11-06, owner-approved and SIGNED by the owner on 2026-11-06 (session 45) for this text). It is
+written after family B's Tier B noise mini-control ran on D at ce7053dc1d19ac2b86480a09a49433b79d847922 (r4 digest
+863cf087c3108f10b92f3797fb4babdcf0be170603215ba3c1df4668fdb69aaa, evaluation noise_eval_b.json sha256
+4174bbd914689f58a044696b440d68319e3fecf3fa452ff84d615c7b44410ef6) and failed A8.6's activity gate, and before any
+family B trial outcome. In the sti frame 2 of 4 controls were active: the two all-history controls traded 227 and
+258 walk-forward tranches against the floor of 1,000. In the pos frame 4 of 4 were active. 0 of 8 controls passed items
+1 to 3 and 0 of 8 rejected the joint-shift null. The owner chose on 2026-11-06 to withdraw the sti frame from family B
+and to run the rest. This is a choice made after a control's D outcome, not after any trial's, and it is disclosed as
+such. It changes three things:
+- the sti frame is withdrawn from family B (A10.1),
+- A8.6's activity gate is read on the pos frame (A10.2),
+- the mini-control's evaluation carries over to the code that implements this amendment (A10.3).
+It changes no other rule of A8 or A9, no threshold, span, cap, seed or prediction, and no rule of another family.
+
+A10.1 THE WITHDRAWN STI FRAME.
+- The three family B configurations on the sti frame, B_rule_sti_C1, B_meta12_sti_C1 and B_metaall_sti_C1 (registry
+  indices 4, 14 and 16), are withdrawn. They are never run on D or H, never reported as trials, and never finalists.
+- The other 15 configurations keep their ids, registry indices, joint_shift_seeds and every rule of A8 and the family
+  B declaration.
+- Counting: the ledger entry round4-family-b keeps its 18 declared trials, because the count never goes down (M), and
+  the 3 withdrawn trials compute no outcome. family_b() keeps its 18 entries, so N_DECLARED stays 18, the reserve
+  stays 6 slots with joint_shift_seed 11,000,018 + j, the round's alpha-bearing count stays 84 plus each consumed
+  reserve slot, and every seed taken from a registry index (paired comparisons, refit question) keeps that index. The
+  withdrawal filters the run set and never changes the registry. Item 3's N stays 120.
+- Disclosed: the sti primary's own recorded result failed its frozen forward test (IC -0.0225, 2026-07 to 2026-10), and
+  the withdrawn configurations' D outcomes are unknown. The withdrawal follows from the mini-control's activity on that
+  frame, not from any trial result.
+
+A10.2 THE ACTIVITY GATE ON THE POS FRAME. It amends A8.6's "informative: at least 3 of the 4 controls of each
+frame are active on D".
+- The gate is read on the pos frame, the only Tier B frame family B uses after A10.1: at least 3 of its 4 controls
+  active on D.
+- A8.6's other two gates are unchanged and stay over all 8 controls: 0 of 8 pass items 1 to 3, and at most 2 of 8
+  reject the joint-shift null at 0.05.
+- On the evaluation at ce7053dc: pos 4 of 4 active, 0 of 8 pass items 1 to 3, 0 of 8 reject. The gates are met under
+  this amendment. All 8 controls stay counted (ledger entry round4-family-b-noise).
+- A8.6's gated prediction that each frame is informative is recorded as not met. The diagnostic predictions over 18
+  configurations and 12 meta-labelled pairs are read over the 15 configurations and 10 pairs that run, and the
+  withdrawn ones are reported as not computed.
+- Disclosed: the family's PBO and SPA matrix holds 15 columns instead of 18, a change made after a control's D outcome
+  that makes the SPA slightly less conservative. No threshold, floor, seed, frame rule or configuration of the 15
+  changes, so nothing is tuned (A8.6).
+- This is a one-time exception, written after a control's D outcome. For this evaluation only it supersedes A8.6's stop
+  and the family B declaration's freeze after its first D read, solely for the three withdrawals of A10.1 and the
+  carry-over of A10.3. The activity gate is read on the pos frame alone, fixed now. The original informative gate
+  failed and stays reported as failed: this is a post-control amendment, not a registered gate pass. Any further
+  withdrawal, gate change or carry-over needs another signed amendment.
+
+A10.3 CARRY-OVER OF THE EVALUATION. It amends A5.1's "From the family's first D outcome its code is frozen for it, and
+a change is a re-run (M)" for this amendment's code only, and A8.6's evaluation at the commit that runs the trials.
+- The mini-control is not re-run. Its runs and evaluation at ce7053dc stand, bound by the evaluation's sha256 above
+  and the 8 receipt digests it records.
+- The code that implements this amendment changes no node that a family B run_wf or run_tripwire reaches. It may
+  change only phase5_b.py's run_family_b, check_complete, report_family_b, run_twins_b and _receipt_hashes, add the
+  gate record's writer and reader and one constant naming the withdrawn ids, and add at most one dispatch-only
+  cli.main subcommand. Every other r4 node keeps its ce7053dc text. So it recomputes no outcome, it is not a re-run,
+  and it consumes no reserve slot.
+- That commit gets A5.1's Opus diff review, which confirms the rule above, and its eight-run reproduction at its own
+  digest, as any family code does. The 15 configurations run at that commit.
+- In place of A8.6's evaluation at the same commit, run_family_b requires a gate record written from the ce7053dc
+  evaluation after the receiving commit's reproduction matches, read by path, and committed under records/ with family
+  B's result. The writer checks the file's sha256, its commit, its r4 digest, D's dataset
+  hash 11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62 and the 8 registered control ids with 1,000
+  joint-shift draws each. It recomputes the three gates of A10.2 from the per-control fields (walk-forward tranches,
+  items 1 to 3, the joint-shift p), not from the evaluation's verdicts. run_family_b refuses a gate record for another
+  evaluation, commit, digest or dataset.
+- A test checks that the withdrawn ids are never run, reported, ranked or planned as a twin, that the 15 keep their
+  indices and seeds, and that a gate record for another evaluation, commit, digest or dataset is refused.
+- Receiving end. The gate record also binds the receiving commit (the commit that carries this amendment's code), its
+  r4 digest, D's dataset hash and the record of that commit's matching eight-run reproduction (its sha256).
+  run_family_b refuses a gate record whose receiving commit, digest or reproduction record differs from the code and
+  run in hand, and A5.1's Opus diff review of that commit confirms the confinement rule above.
+
+AMENDMENT 11 (2026-11-06, owner-approved and SIGNED by the owner on 2026-11-06 (session 45) for this text). It is
+written after the family C result (finalist C_LHAR-X_1h, records/family_c_result_c8f5849f.json) and the Opus, Codex
+and agy reviews of its finalist lock draft 1, and before any computation for its H read. It states how M's finalist
+lock and H rules apply to the forecast finalist, binds the code of its H procedure, and permits one descriptive
+statistic for its predictions. The owner chose all three on 2026-11-06, with the reproduction at the H code's digest,
+the twin's coverage and a coin failed on an exception. It changes three things:
+- the forecast finalist's lock and its H verdict (A11.1),
+- the code of its H procedure and the reproduction before that code runs on D (A11.2),
+- one descriptive statistic of the no-refit twin (A11.3).
+It changes no threshold, span, budget cap, seed, H criterion, Phase 4 or Phase 5 outcome or ledger count, and no rule
+of a directional finalist or of another family.
+
+A11.1 THE FORECAST FINALIST'S LOCK AND ITS H VERDICT. It amends "Each finalist lock states three things before any
+read" and "If the stated power is below 0.5, a fail is recorded as inconclusive" for the family C forecast finalist.
+- beta_coin and the power are defined on the drift-free daily series, which a forecast finalist does not have. Its
+  lock states neither.
+- No power is computed for it, and its H read has no inconclusive state (owner decision of 2026-11-04, family C
+  declaration draft 5, "No inconclusive state"). An H fail is a fail, and the finalist is never read again.
+- Its lock states the frozen procedure, the model artifact's file and content hashes, the H dataset hash and its
+  per-file table, the pass criteria of M and of the declaration, and its predictions.
+- Each coin's inputs are prepared on their own, by the frozen family C functions, and on D that preparation must
+  equal the frozen all-coin preparation bit for bit. BTC's window table holds BTC's own windows and feeds every other
+  coin's BTC term, so an exception in it makes every coin's forecasts undefined.
+- An exception raised while the H procedure prepares one coin's inputs or computes its forecasts or criteria makes
+  that coin's test statistics undefined, and draft 5 says "an undefined test statistic cannot pass": that coin fails,
+  the error is recorded, and the other coins are evaluated. The stay-out flag pools every coin's forecasts, so an
+  exception while the procedure prepares any coin's inputs or computes any coin's forecasts also fails the flag. A
+  coin whose criteria raise keeps its forecasts in the flag's input. An exception in the flag's own computation fails
+  the flag. This rule can turn a pass into a fail and never the reverse.
+
+A11.2 THE CODE OF THE H PROCEDURE. It amends A5.1's "From the family's first D outcome its code is frozen for it, and
+a change is a re-run (M)" for the family C H procedure only.
+- The H procedure is one new module, r4/holdout_c.py, with its own entry point, in place of the declaration's H
+  procedure in r4/family_c.py. The commit that adds it adds that module and its tests and changes no other file
+  under scripts/research/py/r4/. No existing r4 node changes, family_c.run_holdout stays the stub that raises, and
+  cli.py gains no subcommand. That commit gets A5.1's Opus diff review, which confirms this rule.
+- The module calls the frozen family C functions and reads data only through r4.data's loaders. Its D forecasts
+  must reproduce the c8f5849f outputs of C_LHAR-X_1h bit for bit: the walk-forward forecasts (forecasts.parquet,
+  sha256 696c5ef14613b4fb6964a057bfbae5a88146a0e5a80af1516f39d3e55b86f557, canonical digest of the finite-f rows
+  a6ed91ee3228f2c6645536b7b51c200deb34630e0c71bcd68da4fdfdc37ed6da over 276,840 rows), and the rows of the fold
+  refit at 2026-06-01, which the final model reproduces. A match is a bit-identical repeat under A4.4: it is not
+  counted and consumes no reserve slot. A mismatch stops the H path and is reported with the number of differing
+  rows and the largest relative difference. A further amendment then decides how it is counted and whether the read
+  may proceed.
+- Before the module computes on D under an r4 source digest, A5.1's eight-run reproduction runs at that digest in
+  the registered research image, into a new directory, as any family code does. It must match, and its record goes
+  under records/ with its digest. A matching record already made at the same digest serves. One that differs stops
+  the H path for review.
+- From the artifact run on D, holdout_c.py is frozen for the finalist. A change to it needs a new eight-run
+  reproduction, a new artifact run and a re-signed lock with a new read id, and is never made once an H row has been
+  returned.
+- requirements.lock and the library versions stay as at C4 (A5.1).
+
+A11.3 THE TWIN'S COVERAGE. It permits one descriptive statistic of a counted configuration.
+- The 80% and 95% coverage of the no-refit twin C_twin_C_LHAR-X_1h on D is computed once, per coin over its whole
+  walk-forward span and per coin and calendar year, with family_c.coverage from the c8f5849f code in the c8f5849f
+  research image. Its input is the twin's stored forecasts.parquet, whose sha256 must equal
+  9b49773bceefc580ffa900ccf2208344265172ebee0be3b37e3840658d9d7c19 from the twin's receipt. No forecast is
+  recomputed.
+- It is recorded as records/fc_twin_coverage_c8f5849f.json before the forecast finalist's predictions are fixed,
+  and it serves those predictions only. No rule, threshold, criterion or verdict uses it.
+- The twin is already counted (ledger entry round4-family-c-twin). The statistic adds no trial and consumes no
+  reserve slot.
 """
 
 from __future__ import annotations

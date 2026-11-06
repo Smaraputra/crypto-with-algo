@@ -1,0 +1,72 @@
+AMENDMENT 10 (2026-11-06, owner-approved and SIGNED by the owner on 2026-11-06 (session 45) for this text). It is
+written after family B's Tier B noise mini-control ran on D at ce7053dc1d19ac2b86480a09a49433b79d847922 (r4 digest
+863cf087c3108f10b92f3797fb4babdcf0be170603215ba3c1df4668fdb69aaa, evaluation noise_eval_b.json sha256
+4174bbd914689f58a044696b440d68319e3fecf3fa452ff84d615c7b44410ef6) and failed A8.6's activity gate, and before any
+family B trial outcome. In the sti frame 2 of 4 controls were active: the two all-history controls traded 227 and
+258 walk-forward tranches against the floor of 1,000. In the pos frame 4 of 4 were active. 0 of 8 controls passed items
+1 to 3 and 0 of 8 rejected the joint-shift null. The owner chose on 2026-11-06 to withdraw the sti frame from family B
+and to run the rest. This is a choice made after a control's D outcome, not after any trial's, and it is disclosed as
+such. It changes three things:
+- the sti frame is withdrawn from family B (A10.1),
+- A8.6's activity gate is read on the pos frame (A10.2),
+- the mini-control's evaluation carries over to the code that implements this amendment (A10.3).
+It changes no other rule of A8 or A9, no threshold, span, cap, seed or prediction, and no rule of another family.
+
+A10.1 THE WITHDRAWN STI FRAME.
+- The three family B configurations on the sti frame, B_rule_sti_C1, B_meta12_sti_C1 and B_metaall_sti_C1 (registry
+  indices 4, 14 and 16), are withdrawn. They are never run on D or H, never reported as trials, and never finalists.
+- The other 15 configurations keep their ids, registry indices, joint_shift_seeds and every rule of A8 and the family
+  B declaration.
+- Counting: the ledger entry round4-family-b keeps its 18 declared trials, because the count never goes down (M), and
+  the 3 withdrawn trials compute no outcome. family_b() keeps its 18 entries, so N_DECLARED stays 18, the reserve
+  stays 6 slots with joint_shift_seed 11,000,018 + j, the round's alpha-bearing count stays 84 plus each consumed
+  reserve slot, and every seed taken from a registry index (paired comparisons, refit question) keeps that index. The
+  withdrawal filters the run set and never changes the registry. Item 3's N stays 120.
+- Disclosed: the sti primary's own recorded result failed its frozen forward test (IC -0.0225, 2026-07 to 2026-10), and
+  the withdrawn configurations' D outcomes are unknown. The withdrawal follows from the mini-control's activity on that
+  frame, not from any trial result.
+
+A10.2 THE ACTIVITY GATE ON THE POS FRAME. It amends A8.6's "informative: at least 3 of the 4 controls of each
+frame are active on D".
+- The gate is read on the pos frame, the only Tier B frame family B uses after A10.1: at least 3 of its 4 controls
+  active on D.
+- A8.6's other two gates are unchanged and stay over all 8 controls: 0 of 8 pass items 1 to 3, and at most 2 of 8
+  reject the joint-shift null at 0.05.
+- On the evaluation at ce7053dc: pos 4 of 4 active, 0 of 8 pass items 1 to 3, 0 of 8 reject. The gates are met under
+  this amendment. All 8 controls stay counted (ledger entry round4-family-b-noise).
+- A8.6's gated prediction that each frame is informative is recorded as not met. The diagnostic predictions over 18
+  configurations and 12 meta-labelled pairs are read over the 15 configurations and 10 pairs that run, and the
+  withdrawn ones are reported as not computed.
+- Disclosed: the family's PBO and SPA matrix holds 15 columns instead of 18, a change made after a control's D outcome
+  that makes the SPA slightly less conservative. No threshold, floor, seed, frame rule or configuration of the 15
+  changes, so nothing is tuned (A8.6).
+- This is a one-time exception, written after a control's D outcome. For this evaluation only it supersedes A8.6's stop
+  and the family B declaration's freeze after its first D read, solely for the three withdrawals of A10.1 and the
+  carry-over of A10.3. The activity gate is read on the pos frame alone, fixed now. The original informative gate
+  failed and stays reported as failed: this is a post-control amendment, not a registered gate pass. Any further
+  withdrawal, gate change or carry-over needs another signed amendment.
+
+A10.3 CARRY-OVER OF THE EVALUATION. It amends A5.1's "From the family's first D outcome its code is frozen for it, and
+a change is a re-run (M)" for this amendment's code only, and A8.6's evaluation at the commit that runs the trials.
+- The mini-control is not re-run. Its runs and evaluation at ce7053dc stand, bound by the evaluation's sha256 above
+  and the 8 receipt digests it records.
+- The code that implements this amendment changes no node that a family B run_wf or run_tripwire reaches. It may
+  change only phase5_b.py's run_family_b, check_complete, report_family_b, run_twins_b and _receipt_hashes, add the
+  gate record's writer and reader and one constant naming the withdrawn ids, and add at most one dispatch-only
+  cli.main subcommand. Every other r4 node keeps its ce7053dc text. So it recomputes no outcome, it is not a re-run,
+  and it consumes no reserve slot.
+- That commit gets A5.1's Opus diff review, which confirms the rule above, and its eight-run reproduction at its own
+  digest, as any family code does. The 15 configurations run at that commit.
+- In place of A8.6's evaluation at the same commit, run_family_b requires a gate record written from the ce7053dc
+  evaluation after the receiving commit's reproduction matches, read by path, and committed under records/ with family
+  B's result. The writer checks the file's sha256, its commit, its r4 digest, D's dataset
+  hash 11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62 and the 8 registered control ids with 1,000
+  joint-shift draws each. It recomputes the three gates of A10.2 from the per-control fields (walk-forward tranches,
+  items 1 to 3, the joint-shift p), not from the evaluation's verdicts. run_family_b refuses a gate record for another
+  evaluation, commit, digest or dataset.
+- A test checks that the withdrawn ids are never run, reported, ranked or planned as a twin, that the 15 keep their
+  indices and seeds, and that a gate record for another evaluation, commit, digest or dataset is refused.
+- Receiving end. The gate record also binds the receiving commit (the commit that carries this amendment's code), its
+  r4 digest, D's dataset hash and the record of that commit's matching eight-run reproduction (its sha256).
+  run_family_b refuses a gate record whose receiving commit, digest or reproduction record differs from the code and
+  run in hand, and A5.1's Opus diff review of that commit confirms the confinement rule above.

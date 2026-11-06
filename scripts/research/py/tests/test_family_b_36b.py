@@ -59,6 +59,7 @@ def cheap_registries(monkeypatch: pytest.MonkeyPatch) -> None:
     """The registries shrunk (small model parameters, an early first refit), the declared frame F left unpatched."""
     monkeypatch.setattr(family_b, "family_b_noise", _cheap_noise)
     monkeypatch.setattr(family_b, "family_b", _cheap_family)
+    monkeypatch.setattr(family_b, "WITHDRAWN_IDS", ())  # the cheap family uses sti ids; A10 has its own tests (36e)
 
 
 @pytest.fixture
@@ -534,6 +535,7 @@ def chain(chain_dataset: dict[str, Any]) -> dict[str, Any]:
     mp.setattr(family_b, "frame_features", lambda interval: SMALL_F)
     mp.setattr(family_b, "family_b_noise", _cheap_noise)
     mp.setattr(family_b, "family_b", _cheap_family)
+    mp.setattr(family_b, "WITHDRAWN_IDS", ())
     mp.setattr(family_b, "TRADE_FLOOR_TRANCHES", 1)
     root = chain_dataset["root"]
     out = root / "out"
@@ -566,7 +568,7 @@ def chain(chain_dataset: dict[str, Any]) -> dict[str, Any]:
         for c in passing["controls"].values():
             c["joint_shift"]["draws"] = int(phase5_b.BAR["random_entry_draws"])
         (out / "noise_eval_b.json").write_text(json.dumps(passing), encoding="utf-8")
-        run_receipts = phase5_b.run_family_b(chain_dataset["ds"], out, COMMIT)
+        run_receipts = phase5_b.run_family_b(chain_dataset["ds"], out, COMMIT, None, out / "noise_eval_b.json")
     finally:
         mp.undo()
     return {
@@ -693,6 +695,8 @@ def test_run_family_b_refuses_a_missing_failed_or_mismatched_noise_evaluation(
     ds = chain["ds"]
     out = tmp_path / "o"
     with pytest.raises(ValueError, match="no noise evaluation"):
+        phase5_b.run_family_b(ds, out, COMMIT, None, out / "noise_eval_b.json")
+    with pytest.raises(ValueError, match="no A10 gate record"):
         phase5_b.run_family_b(ds, out, COMMIT)
     for change, match in (
         ({"gates_met": False}, "did not meet"),
@@ -1358,3 +1362,112 @@ def test_the_eligible_slot_needs_all_pass_not_only_items_1_to_3() -> None:
     assert phase5_b._eligible_candidates({"B_meta24_ll_C1": partial}, real) == []
     got = phase5_b._eligible_candidates({"B_meta24_ll_C1": partial, "B_meta12_sti_C1": full}, real)
     assert [c["id"] for c in got] == ["B_meta12_sti_C1"]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# A10.1: a withdrawn id is never required, reported, ranked or planned as a twin (brief 36e)
+# ---------------------------------------------------------------------------------------------------------------------
+
+A10_WITHDRAWN = "B_meta12_sti_C1"  # registry index 1 of the shrunk registry, so the retained indices 2 and 3 matter
+
+
+def _a10_runs(chain: dict[str, Any], tmp: Path, *, keep_withdrawn: bool = False) -> Path:
+    import shutil
+
+    work = tmp / "a10_runs"
+    shutil.copytree(chain["out"] / "runs", work)
+    if not keep_withdrawn:
+        shutil.rmtree(work / A10_WITHDRAWN)
+    return work
+
+
+def test_check_complete_requires_the_run_set_and_refuses_a_withdrawn_run_directory(
+    chain: dict[str, Any], tmp_path: Path, cheap: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(family_b, "WITHDRAWN_IDS", (A10_WITHDRAWN,))
+    kw = {"commit": COMMIT, "source_sha256": cli.source_digest(), "dataset_hash": chain["hash"]}
+    phase5_b.check_complete(_a10_runs(chain, tmp_path), **kw)
+    with pytest.raises(ValueError, match="extra"):
+        phase5_b.check_complete(_a10_runs(chain, tmp_path / "again", keep_withdrawn=True), **kw)
+    import shutil
+
+    gone = _a10_runs(chain, tmp_path / "gone")
+    shutil.rmtree(gone / "B_rule_ll_C1")
+    with pytest.raises(ValueError, match="missing"):
+        phase5_b.check_complete(gone, **kw)
+
+
+def test_the_report_holds_the_run_set_only_with_the_declared_indices_and_seeds(
+    chain: dict[str, Any], tmp_path: Path, cheap: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(family_b, "WITHDRAWN_IDS", (A10_WITHDRAWN,))
+    retained = [c for c in _cheap_family() if c["id"] != A10_WITHDRAWN]
+    calls = _fake_bar(monkeypatch, retained, ["B_meta24_ll_C1"])
+    monkeypatch.setattr(cli, "run_tripwire", lambda f, *a, **k: _tripwire_result(10))
+    runs = _a10_runs(chain, tmp_path)
+    report = phase5_b.report_family_b(
+        chain["ds"], runs, tmp_path / "rep", COMMIT, None, reserve_log=_reserve_log(tmp_path, [])
+    )
+    ids = {c["id"] for c in retained}
+    assert report["n_configurations"] == 3 and set(report["receipts_sha256"]) == ids
+    assert set(report["account"]) == ids and set(report["b_blocks"]) == ids and set(report["decision_reports"]) == ids
+    assert set(report["cost_drag"]["mean_daily_costs_by_config"]) == ids
+    assert report["within_cell_pbo"]["C1"]["n_configs"] == 3
+    assert set(report["pass1"]["items"]) == ids and set(report["paired_comparisons"]) == {"B_meta24_ll_C1"}
+    assert A10_WITHDRAWN not in json.dumps(
+        {k: v for k, v in report.items() if k not in ("withdrawn", "predictions_unevaluated", "withdrawn_ids")}
+    )
+    # the retained meta configuration keeps its registry index 3 (its position among the three would be 2)
+    pc = report["paired_comparisons"]["B_meta24_ll_C1"]
+    assert pc["net"]["seed"] == 11_800_003 and pc["cost_free"]["seed"] == 11_900_003
+    assert report["twin_plan"] == [
+        {"id": "B_meta24_ll_C1", "registry_index": 3, "slot": 0, "twin_id": "B_twin0_B_meta24_ll_C1"}
+    ]
+    assert [c["id"] for c in report["eligible_candidates"]] == ["B_meta24_ll_C1"]
+    # the count stays the declared 18, the withdrawals are listed without outcomes, the predictions are unevaluated
+    assert report["round_alpha_count"] == 84 and calls[0]["count"] == 84 and report["amendment"] == "A10"
+    assert report["withdrawn"] == [
+        {
+            "id": A10_WITHDRAWN,
+            "registry_index": 1,
+            "joint_shift_seed": 11_000_014,  # the real entry's seed, kept by the shrunk copy
+            "status": "withdrawn (A10.1): never run, no outcome, not a failure",
+        }
+    ]
+    assert report["predictions"] == family_b.PREDICTIONS
+    pu = report["predictions_unevaluated"]
+    assert pu["items_1_to_3_passes"] == {"declared_of": 4, "evaluated_of": 3} and pu["not_computed_ids"] == [
+        A10_WITHDRAWN
+    ]
+    assert pu["of_pairs"]["evaluated"] == 1
+
+
+def test_run_twins_b_seeds_from_the_declared_index_and_refuses_a_withdrawn_plan_id(
+    chain: dict[str, Any], tmp_path: Path, cheap: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(family_b, "WITHDRAWN_IDS", (A10_WITHDRAWN,))
+    retained = [c for c in _cheap_family() if c["id"] != A10_WITHDRAWN]
+    _fake_bar(monkeypatch, retained, ["B_meta24_ll_C1"])
+    monkeypatch.setattr(cli, "run_tripwire", lambda f, *a, **k: _tripwire_result(10))
+    runs = _a10_runs(chain, tmp_path)
+    report = phase5_b.report_family_b(
+        chain["ds"], runs, tmp_path / "rep", COMMIT, None, reserve_log=_reserve_log(tmp_path, [])
+    )
+    log = _reserve_log(
+        tmp_path / "log",
+        [{"slot": 0, "id": "B_twin0_B_meta24_ll_C1", "purpose": "twin", "ledger_entry": "round4-family-b-reserve-0"}],
+    )
+    report_file = tmp_path / "report.json"
+    report_file.write_text(json.dumps(report), encoding="utf-8")
+    res = phase5_b.run_twins_b(chain["ds"], runs, report_file, tmp_path / "tw", COMMIT, None, log)
+    assert res["refit_questions"]["B_meta24_ll_C1"]["seed"] == 7_200_003  # not 7,200,002
+    for plan_id, twin_id in ((A10_WITHDRAWN, f"B_twin0_{A10_WITHDRAWN}"),):
+        bad = {**report, "twin_plan": [{"id": plan_id, "registry_index": 1, "slot": 0, "twin_id": twin_id}]}
+        bad["eligible_candidates"] = [{"id": plan_id}]
+        report_file.write_text(json.dumps(bad), encoding="utf-8")
+        log2 = _reserve_log(
+            tmp_path / "log2",
+            [{"slot": 0, "id": twin_id, "purpose": "twin", "ledger_entry": "round4-family-b-reserve-0"}],
+        )
+        with pytest.raises(ValueError, match="not a declared meta-labelled configuration"):
+            phase5_b.run_twins_b(chain["ds"], runs, report_file, tmp_path / "tw2", COMMIT, None, log2)
