@@ -562,22 +562,50 @@ def write_a10_gate_record(
     rf = Path(reproduction_record)
     if not rf.is_file():
         raise ValueError(f"no reproduction record at {rf}")
+    import os
+    import re
+
+    from r4 import reproduce
+
     repro = json.loads(rf.read_text(encoding="utf-8"))
-    repro_commit = str(repro.get("commit", ""))
+    repro_commit = repro.get("commit")
+    try:
+        runs_match = isinstance(repro.get("runs"), Mapping) and reproduce.all_match(dict(repro["runs"]))
+    except (KeyError, TypeError, AttributeError):
+        runs_match = False
     if (
-        not repro_commit
+        not isinstance(repro_commit, str)
+        or re.fullmatch(r"[0-9a-f]{7,40}", repro_commit) is None
         or not (sha.startswith(repro_commit) or repro_commit.startswith(sha))
         or repro.get("r4_source_sha256") != digest
         or repro.get("dataset_hash") != want["dataset_hash"]
         or repro.get("all_match") is not True
+        or not isinstance(repro.get("baseline_authenticated"), Mapping)
+        or not runs_match
     ):
         raise ValueError(f"{rf} is not a matching eight-run reproduction of commit {sha!r} at digest {digest!r} on D")
+    frames = {c["id"]: str(c["side_rule"]).removeprefix("b_noise_") for c in family_b.family_b_noise()}
+    for i, c in sorted(controls.items()):
+        tr, passed, p = c.get("wf_tranches"), c.get("pass_items_1_to_3"), c["joint_shift"].get("p")
+        if (
+            c.get("frame") != frames[i]
+            or isinstance(tr, bool)
+            or not isinstance(tr, int)
+            or tr < 0
+            or not isinstance(passed, bool)
+            or isinstance(p, bool)
+            or not isinstance(p, int | float)
+            or not 0.0 <= float(p) <= 1.0
+        ):
+            raise ValueError(
+                f"control {i} lacks a valid frame, wf_tranches, pass_items_1_to_3 or joint-shift p (A10.3)"
+            )
     pos = {i: c for i, c in controls.items() if c.get("frame") == "pos"}
     if len(pos) != 4:
         raise ValueError(f"the noise evaluation holds {len(pos)} pos controls, not 4")
     pos_tranches = {i: int(c["wf_tranches"]) for i, c in sorted(pos.items())}
     n_active = sum(1 for n in pos_tranches.values() if n >= family_b.TRADE_FLOOR_TRANCHES)
-    n_pass = sum(1 for c in controls.values() if c.get("pass_items_1_to_3") is True)
+    n_pass = sum(1 for c in controls.values() if c["pass_items_1_to_3"])
     reject_p = float(BAR["random_entry_p_max"])
     n_rej = sum(1 for c in controls.values() if float(c["joint_shift"]["p"]) < reject_p)
     gates = {
@@ -613,11 +641,21 @@ def write_a10_gate_record(
         "dataset_hash": data["dataset_hash"],
         "receipts_sha256": dict(receipts),
         "withdrawn_ids": list(family_b.WITHDRAWN_IDS),
+        "controls": {
+            i: {
+                "frame": c["frame"],
+                "wf_tranches": c["wf_tranches"],
+                "pass_items_1_to_3": c["pass_items_1_to_3"],
+                "joint_shift_p": float(c["joint_shift"]["p"]),
+                "joint_shift_draws": c["joint_shift"]["draws"],
+            }
+            for i, c in sorted(controls.items())
+        },
         "receiving": {
             "commit": sha,
             "source_digest": digest,
             "dataset_hash": data["dataset_hash"],
-            "reproduction_record": str(rf),
+            "reproduction_record": os.path.relpath(rf.resolve(), Path(out).resolve()),
             "reproduction_sha256": _file_sha256(rf),
         },
         "gates": gates,
@@ -646,10 +684,12 @@ def read_a10_gate_record(
         ("source_file_sha256", want["eval_sha256"]),
         ("source_commit", want["eval_commit"]),
         ("source_digest", want["eval_digest"]),
-        ("dataset_hash", dataset_hash),
+        ("dataset_hash", want["dataset_hash"]),
     ):
         if data.get(key) != want_value:
             raise ValueError(f"the A10 gate record has {key} {data.get(key)!r}, not {want_value!r}")
+    if dataset_hash != want["dataset_hash"]:
+        raise ValueError(f"the dataset in hand has dataset_hash {dataset_hash!r}, not {want['dataset_hash']!r} (A10.3)")
     gates = data.get("gates")
     if (
         not isinstance(gates, Mapping)
@@ -666,10 +706,14 @@ def read_a10_gate_record(
     for key, want_value in (
         ("commit", cli.resolve_commit(commit)),
         ("source_digest", cli.source_digest()),
-        ("dataset_hash", dataset_hash),
+        ("dataset_hash", want["dataset_hash"]),
     ):
         if receiving.get(key) != want_value:
             raise ValueError(f"the A10 gate record's receiving {key} is {receiving.get(key)!r}, not {want_value!r}")
+    import re
+
+    from r4 import reproduce
+
     rf = Path(str(receiving["reproduction_record"]))
     if not rf.is_absolute():
         rf = f.parent / rf
@@ -677,6 +721,98 @@ def read_a10_gate_record(
         raise ValueError(f"the A10 gate record's reproduction record {rf} does not exist")
     if _file_sha256(rf) != receiving["reproduction_sha256"]:
         raise ValueError("the A10 gate record's reproduction record does not match its reproduction_sha256")
+    sha = cli.resolve_commit(commit)
+    digest = cli.source_digest()
+    repro = json.loads(rf.read_text(encoding="utf-8"))
+    repro_commit = repro.get("commit") if isinstance(repro, Mapping) else None
+    try:
+        runs_match = isinstance(repro.get("runs"), Mapping) and reproduce.all_match(dict(repro["runs"]))
+    except (KeyError, TypeError, AttributeError):
+        runs_match = False
+    if (
+        not isinstance(repro_commit, str)
+        or re.fullmatch(r"[0-9a-f]{7,40}", repro_commit) is None
+        or not (sha.startswith(repro_commit) or repro_commit.startswith(sha))
+        or repro.get("r4_source_sha256") != digest
+        or repro.get("dataset_hash") != want["dataset_hash"]
+        or repro.get("all_match") is not True
+        or not isinstance(repro.get("baseline_authenticated"), Mapping)
+        or not runs_match
+    ):
+        raise ValueError(f"{rf} is not a matching eight-run reproduction of commit {sha!r} at digest {digest!r} on D")
+    registered = sorted(c["id"] for c in family_b.family_b_noise())
+    frames = {c["id"]: str(c["side_rule"]).removeprefix("b_noise_") for c in family_b.family_b_noise()}
+    receipts = data.get("receipts_sha256")
+    if (
+        not isinstance(receipts, Mapping)
+        or sorted(receipts) != registered
+        or not all(isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) is not None for v in receipts.values())
+    ):
+        raise ValueError("the A10 gate record does not hold the 8 registered receipts_sha256 entries (A10.3)")
+    if data.get("withdrawn_ids") != list(family_b.WITHDRAWN_IDS):
+        raise ValueError("the A10 gate record's withdrawn_ids are not the withdrawn set (A10.1)")
+    controls = data.get("controls")
+    if not isinstance(controls, Mapping) or sorted(controls) != registered:
+        raise ValueError("the A10 gate record does not hold the 8 registered controls (A10.3)")
+    draws = int(BAR["random_entry_draws"])
+    for i, c in sorted(controls.items()):
+        if not isinstance(c, Mapping):
+            raise ValueError(f"control {i} of the A10 gate record is not a mapping")
+        tr, passed, p, nd = (
+            c.get("wf_tranches"),
+            c.get("pass_items_1_to_3"),
+            c.get("joint_shift_p"),
+            c.get("joint_shift_draws"),
+        )
+        if (
+            c.get("frame") != frames[i]
+            or isinstance(tr, bool)
+            or not isinstance(tr, int)
+            or tr < 0
+            or not isinstance(passed, bool)
+            or isinstance(p, bool)
+            or not isinstance(p, int | float)
+            or not 0.0 <= float(p) <= 1.0
+            or isinstance(nd, bool)
+            or nd != draws
+        ):
+            raise ValueError(
+                f"control {i} of the A10 gate record lacks a valid frame, wf_tranches, pass_items_1_to_3, "
+                f"joint-shift p or {draws} draws (A10.3)"
+            )
+    pos_tranches = {i: int(c["wf_tranches"]) for i, c in sorted(controls.items()) if c["frame"] == "pos"}
+    n_active = sum(1 for n in pos_tranches.values() if n >= family_b.TRADE_FLOOR_TRANCHES)
+    n_pass = sum(1 for c in controls.values() if c["pass_items_1_to_3"])
+    reject_p = float(BAR["random_entry_p_max"])
+    n_rej = sum(1 for c in controls.values() if float(c["joint_shift_p"]) < reject_p)
+    derived = {
+        "pos_activity": {
+            "frame": "pos",
+            "active": n_active,
+            "of": len(pos_tranches),
+            "min": family_b.INFORMATIVE_MIN_PER_FRAME,
+            "floor_tranches": family_b.TRADE_FLOOR_TRANCHES,
+            "wf_tranches": pos_tranches,
+            "met": bool(n_active >= family_b.INFORMATIVE_MIN_PER_FRAME),
+        },
+        "items_1_to_3": {
+            "n_pass": n_pass,
+            "of": len(controls),
+            "max": family_b.NOISE_BOUNDS["pass_items_1_to_3_max"],
+            "met": bool(n_pass <= family_b.NOISE_BOUNDS["pass_items_1_to_3_max"]),
+        },
+        "joint_shift": {
+            "n_reject": n_rej,
+            "of": len(controls),
+            "p_below": reject_p,
+            "max": family_b.NOISE_BOUNDS["joint_shift_reject_max"],
+            "met": bool(n_rej <= family_b.NOISE_BOUNDS["joint_shift_reject_max"]),
+        },
+    }
+    if len(pos_tranches) != 4 or json.dumps(dict(gates), sort_keys=True) != json.dumps(derived, sort_keys=True):
+        raise ValueError("the A10 gate record's restated gates differ from the gates recomputed from its controls")
+    if not all(g["met"] for g in derived.values()):
+        raise ValueError("the gates recomputed from the A10 gate record's controls are not all met (A10.2)")
     return data  # type: ignore[no-any-return]
 
 
@@ -692,13 +828,17 @@ def run_family_b(
 
     The default gate is the A10 record (A10.3): gate_record, else out_dir/noise_gate_a10.json, read by
     read_a10_gate_record against this commit, r4 digest and dataset. Only an explicit noise_eval switches to A8.6's
-    own evaluation at this commit, digest and dataset (the path A8.6's tests use). The two are never mixed.
+    own evaluation at this commit, digest and dataset (the path A8.6's tests use), and never on D. The two are never
+    mixed.
     """
     out = Path(out_dir)
     manifest = bar.read_manifest(Path(ds))
     if noise_eval is not None:
         if gate_record is not None:
             raise ValueError("give a noise_eval (A8.6) or a gate_record (A10), not both")
+        d_hash = dict(write_a10_gate_record.__kwdefaults__["bound"])["dataset_hash"]  # type: ignore[index]
+        if str(manifest["datasetHash"]) == d_hash:
+            raise ValueError("on D family B runs on the A10 gate record only, never on an A8.6 evaluation (A10.3)")
         check_noise_gates_met(noise_eval, commit, str(manifest["datasetHash"]))
     else:
         read_a10_gate_record(
