@@ -1,0 +1,579 @@
+{
+ "record": "Round 4 Phase 5 family B RESULT (under Amendment 10)",
+ "note": "Recorded under records/ because A5.1 freezes a family's code at its first D outcome. The declaration of record is .superpowers/sdd/round4/family-b-draft.md (draft 4) with signed Amendments 8, 9 and 10. The run is at the A10 receiving commit fefeaf38, whose A5.1 Opus diff review, Codex and agy confirmed the A10.3 confinement.",
+ "commit": "fefeaf38",
+ "r4_source_sha256": "b805ed712321790096c20c842b4031d894245439c8f5c675e045a6c818144235",
+ "dataset_hash": "11c87b9c8a97c367b6cd7c0c983f4d2bd9e940f62856a85c6e76537ac18a9a62",
+ "run_window_utc": "2026-11-06T04:57:17Z to 2026-11-06T05:55:27Z (gate record, run and report)",
+ "reproduction": {
+  "record": "records/a5_reproduction_fefeaf38.json",
+  "sha256": "eb9a193cda962353eba1696524b8e39a74efcc1303c1a6e2453612b7174afaa7",
+  "all_match": true,
+  "window_utc": "2026-11-06T01:59:17Z to 2026-11-06T04:55:44Z"
+ },
+ "a10_gate": {
+  "record": "records/noise_gate_a10.json",
+  "sha256": "b5e9a2d6a90835df235a7591eb00dba7cd38ce024a4298ede27126c9ceefcc69",
+  "evaluation": "records/noise_eval_b.json",
+  "evaluation_sha256": "4174bbd914689f58a044696b440d68319e3fecf3fa452ff84d615c7b44410ef6",
+  "gates_met": true,
+  "gates": {
+   "pos_activity": "4 of 4 pos controls at 1,000 walk-forward tranches or more (minimum 3)",
+   "items_1_to_3": "0 of 8 (maximum 0)",
+   "joint_shift": "0 of 8 reject at p below 0.05 (maximum 2)",
+   "scope": "Only the activity gate is read on the positioning frame (A10.2). The items 1 to 3 and joint-shift gates cover all 8 controls."
+  },
+  "reread": "read_a10_gate_record re-read the three files side by side in the fefeaf38 image (dataset D, commit fefeaf38) and accepted them"
+ },
+ "report_sha256": {
+  "family_b_report.json": "a9a4f4e2bb4315148aa3bfc5289dd06748d6f022c817f6f2d281be7df6356e42",
+  "bar_pass1.json": "017e07ca09df20d157e685483e53e547491ec42f4d22073e44d7c60dae7c94c0"
+ },
+ "receipts_sha256": {
+  "B_rule_v8_C2": "de1794caf9219d9da3340895ffd303c8b11a7967bf40eb7f9aabf2ffffeaaf44",
+  "B_rule_v8_C5": "525998933a5aedcf1ddad74b5178629aa44f9b5e9e745267699fd40342f0e8eb",
+  "B_rule_ll_C1": "fc6a1a213d39413259698770881de2e0b51b98bc25d4c0cbeca619f25ea24857",
+  "B_rule_rsi_C1": "d5657b395a73328e07490153dfddc41983673b7a02546f1846c0418476982008",
+  "B_rule_pos_C4": "c0ede67accd84136e15f41a900425471c5dc0de2857c09d89054752417575231",
+  "B_meta24_v8_C2": "3cbe33486104aeb69ebae624a96f089f76179a0b8105bfac8dfae7df888e293f",
+  "B_meta24_v8_C5": "14eec67264fec8e3bc468097dc696e5b10ee567229080ab897fc1c26ad24393b",
+  "B_meta24_ll_C1": "b107a664e4f68a25c48229b45635a2eb25f90dd62ff693f0c129297edc1fd4e2",
+  "B_meta24_rsi_C1": "edb2d968fcfb6d3097508320a4a8d6fa3ebadffa58f3ac2d2778326ac2d2bd81",
+  "B_metaall_v8_C2": "1b4f77a38425e7152056258f53d819d6a6fada5fc4f477ee49ed38a347fdcec6",
+  "B_metaall_v8_C5": "e3e8bf1d782b42f02bbf806aa2d04bb02e3c78b5eff73ba4059360bc934afa1b",
+  "B_metaall_ll_C1": "a7a706ede13c24b041da9600002c434562f481ed1f1f24eeda0b4e8602aadcea",
+  "B_metaall_rsi_C1": "7593f7761e7e2695560b8e85bb603c5c9edfc797fcbade3b46ea47b4d63b73a0",
+  "B_meta12_pos_C4": "03b46df33d1e2772d6c24d5b0ef01d7e7224b7c40c501c8ec5d60a2cf4f3b8a0",
+  "B_metaall_pos_C4": "6f37eba8af2b1ac240a98af34942179c0111c853f767d864b8f2a583bd6f24ab"
+ },
+ "outcome": {
+  "n_declared": 18,
+  "n_run": 15,
+  "withdrawn_not_computed": [
+   "B_rule_sti_C1",
+   "B_meta12_sti_C1",
+   "B_metaall_sti_C1"
+  ],
+  "round_alpha_count": 84,
+  "reached_items_1_to_3": 0,
+  "item_pass_counts": {
+   "item1": 0,
+   "item2": 15,
+   "item3": 0,
+   "item4": 0,
+   "item5": 0,
+   "item6": 0
+  },
+  "positive_walk_forward_mean": 0,
+  "wf_mean_range_bps_day": {
+   "meta_labelled": [
+    -0.344,
+    -0.018
+   ],
+   "rule": [
+    -15.338,
+    -0.106
+   ]
+  },
+  "wf_cost_range_bps_day": {
+   "meta_labelled": [
+    0.008,
+    0.435
+   ],
+   "rule": [
+    0.152,
+    15.139
+   ]
+  },
+  "wf_gross_range_bps_day": {
+   "meta_labelled": [
+    -0.01,
+    0.092
+   ],
+   "rule": [
+    -0.199,
+    1.665
+   ]
+  },
+  "cpcv_paths_positive_max": 0,
+  "meta_act_share_range": [
+   0.243,
+   0.4081
+  ],
+  "family_pbo": 0.03877233877233877,
+  "within_cell_pbo": {
+   "C1": {
+    "pbo": 0.0,
+    "pass": true,
+    "n_configs": 6
+   },
+   "C2": {
+    "pbo": 0.05780885780885781,
+    "pass": true,
+    "n_configs": 3
+   },
+   "C4": {
+    "pbo": 0.004195804195804196,
+    "pass": true,
+    "n_configs": 3
+   },
+   "C5": {
+    "pbo": 0.8888888888888888,
+    "pass": false,
+    "n_configs": 3
+   }
+  },
+  "candidates": 0,
+  "eligible_candidates": [],
+  "finalists": [],
+  "tripwires_run": 0,
+  "twins_run": 0,
+  "reserve_slots_unused": 6,
+  "halted": false,
+  "rule_baseline_passes": [],
+  "paired_note": "For the ll, rsi and v8 primaries the meta-labelled configurations lose less than their rule baselines net of costs (paired net +0.18 to +15.05 bps a day, every 90% interval above zero), because they act on 24% to 41% of the primary decisions at a mean size near 0.1. Their cost-free paired means lie between -0.29 and +0.29 bps a day, so the net improvement is dominated by lower costs, with no demonstrated positive cost-free edge. For the pos primary the meta-labelled configurations lose more than the rule net of costs (paired -0.24 and -0.19 bps a day, both intervals spanning zero), with cost-free differences near -1.6 bps a day.",
+  "item2_note": "Item 2 is the family PBO (0.039, below 0.25), so it passes for every configuration. The within-cell PBO is descriptive: C5 reads 0.889."
+ },
+ "predictions": {
+  "m_no_directional_configuration_meets_the_bar": "consistent (family B: 0 of 15; families A 0 of 45, D 0 of 9)",
+  "gated_mini_control_each_frame_informative": "not met (A8.6 failed on the sti frame at ce7053dc); read on the pos frame under A10.2 and met there",
+  "diagnostic_items_1_to_3_passes_0": "met, read over the 15 that ran (declared over 18, A10.2)",
+  "diagnostic_b_rule_v8_c5_fails_item_3": "met (dsr_prob 3.51e-09)",
+  "diagnostic_meta_acts_on_fewer_than_half_of_primary_decisions": "met on 10 of 10 meta-labelled configurations (act share 0.243 to 0.408), read over 10 (declared 12)",
+  "diagnostic_meta_cost_below_its_rule": "met on 10 of 10 pairs (declared 12)"
+ },
+ "consequences": [
+  "No family B configuration reaches items 1 to 3, so family B has no finalist and no twin, and no reserve slot is used.",
+  "No configuration of any directional family passes item 1, so family E does not open.",
+  "The round's directional families end at 0 of 69 (A 0 of 45, D 0 of 9, B 0 of 15). The only finalist of Round 4 is the family C forecast C_LHAR-X_1h, whose H read follows its finalist lock.",
+  "The ledger is unchanged: round4-family-b keeps its 18 declared trials (3 withdrawn and never computed), total 2,422."
+ ],
+ "configurations": {
+  "B_meta12_pos_C4": {
+   "wf_mean_bps_day": -0.344,
+   "wf_cost_bps_day": 0.435,
+   "wf_gross_bps_day": 0.092,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 1,
+   "wf_tranches": 7037,
+   "act_share": 0.289,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 4.394645011155366e-09,
+   "receipt_sha256": "03b46df33d1e2772d6c24d5b0ef01d7e7224b7c40c501c8ec5d60a2cf4f3b8a0",
+   "paired_vs_rule": {
+    "rule": "B_rule_pos_C4",
+    "net_bps_day": [
+     -0.238,
+     -1.751,
+     1.134
+    ],
+    "cost_free_bps_day": [
+     -1.573,
+     -2.969,
+     -0.182
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_meta24_ll_C1": {
+   "wf_mean_bps_day": -0.171,
+   "wf_cost_bps_day": 0.215,
+   "wf_gross_bps_day": 0.044,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 0,
+   "wf_tranches": 5925,
+   "act_share": 0.3068,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 1.3241342458560648e-11,
+   "receipt_sha256": "b107a664e4f68a25c48229b45635a2eb25f90dd62ff693f0c129297edc1fd4e2",
+   "paired_vs_rule": {
+    "rule": "B_rule_ll_C1",
+    "net_bps_day": [
+     6.771,
+     5.94,
+     7.681
+    ],
+    "cost_free_bps_day": [
+     -0.271,
+     -0.814,
+     0.352
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_meta24_rsi_C1": {
+   "wf_mean_bps_day": -0.329,
+   "wf_cost_bps_day": 0.415,
+   "wf_gross_bps_day": 0.087,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 2,
+   "wf_tranches": 11607,
+   "act_share": 0.2796,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 6.294192913273126e-16,
+   "receipt_sha256": "edb2d968fcfb6d3097508320a4a8d6fa3ebadffa58f3ac2d2778326ac2d2bd81",
+   "paired_vs_rule": {
+    "rule": "B_rule_rsi_C1",
+    "net_bps_day": [
+     15.01,
+     14.22,
+     15.758
+    ],
+    "cost_free_bps_day": [
+     0.286,
+     -0.406,
+     0.983
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_meta24_v8_C2": {
+   "wf_mean_bps_day": -0.042,
+   "wf_cost_bps_day": 0.042,
+   "wf_gross_bps_day": -0.0,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 4,
+   "wf_tranches": 1500,
+   "act_share": 0.297,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 1.6674427764157875e-08,
+   "receipt_sha256": "3cbe33486104aeb69ebae624a96f089f76179a0b8105bfac8dfae7df888e293f",
+   "paired_vs_rule": {
+    "rule": "B_rule_v8_C2",
+    "net_bps_day": [
+     0.814,
+     0.659,
+     0.969
+    ],
+    "cost_free_bps_day": [
+     -0.167,
+     -0.32,
+     -0.016
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_meta24_v8_C5": {
+   "wf_mean_bps_day": -0.018,
+   "wf_cost_bps_day": 0.008,
+   "wf_gross_bps_day": -0.01,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 3,
+   "wf_tranches": 190,
+   "act_share": 0.3357,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 7.40722966594312e-07,
+   "receipt_sha256": "14eec67264fec8e3bc468097dc696e5b10ee567229080ab897fc1c26ad24393b",
+   "paired_vs_rule": {
+    "rule": "B_rule_v8_C5",
+    "net_bps_day": [
+     0.186,
+     0.047,
+     0.329
+    ],
+    "cost_free_bps_day": [
+     0.042,
+     -0.093,
+     0.183
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_metaall_ll_C1": {
+   "wf_mean_bps_day": -0.143,
+   "wf_cost_bps_day": 0.164,
+   "wf_gross_bps_day": 0.021,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 0,
+   "wf_tranches": 5561,
+   "act_share": 0.2879,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 1.1310493485494073e-07,
+   "receipt_sha256": "a7a706ede13c24b041da9600002c434562f481ed1f1f24eeda0b4e8602aadcea",
+   "paired_vs_rule": {
+    "rule": "B_rule_ll_C1",
+    "net_bps_day": [
+     6.799,
+     5.992,
+     7.712
+    ],
+    "cost_free_bps_day": [
+     -0.294,
+     -0.849,
+     0.304
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_metaall_pos_C4": {
+   "wf_mean_bps_day": -0.294,
+   "wf_cost_bps_day": 0.312,
+   "wf_gross_bps_day": 0.018,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 0,
+   "wf_tranches": 6164,
+   "act_share": 0.2532,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 6.097293558077247e-09,
+   "receipt_sha256": "6f37eba8af2b1ac240a98af34942179c0111c853f767d864b8f2a583bd6f24ab",
+   "paired_vs_rule": {
+    "rule": "B_rule_pos_C4",
+    "net_bps_day": [
+     -0.188,
+     -1.635,
+     1.144
+    ],
+    "cost_free_bps_day": [
+     -1.647,
+     -3.028,
+     -0.257
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_metaall_rsi_C1": {
+   "wf_mean_bps_day": -0.287,
+   "wf_cost_bps_day": 0.33,
+   "wf_gross_bps_day": 0.043,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 1,
+   "wf_tranches": 11381,
+   "act_share": 0.2741,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 2.6385798339941253e-14,
+   "receipt_sha256": "7593f7761e7e2695560b8e85bb603c5c9edfc797fcbade3b46ea47b4d63b73a0",
+   "paired_vs_rule": {
+    "rule": "B_rule_rsi_C1",
+    "net_bps_day": [
+     15.051,
+     14.235,
+     15.855
+    ],
+    "cost_free_bps_day": [
+     0.243,
+     -0.425,
+     0.967
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_metaall_v8_C2": {
+   "wf_mean_bps_day": -0.02,
+   "wf_cost_bps_day": 0.024,
+   "wf_gross_bps_day": 0.004,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 1,
+   "wf_tranches": 1227,
+   "act_share": 0.243,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 4.046500564314702e-06,
+   "receipt_sha256": "1b4f77a38425e7152056258f53d819d6a6fada5fc4f477ee49ed38a347fdcec6",
+   "paired_vs_rule": {
+    "rule": "B_rule_v8_C2",
+    "net_bps_day": [
+     0.836,
+     0.678,
+     0.995
+    ],
+    "cost_free_bps_day": [
+     -0.163,
+     -0.322,
+     -0.002
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_metaall_v8_C5": {
+   "wf_mean_bps_day": -0.019,
+   "wf_cost_bps_day": 0.011,
+   "wf_gross_bps_day": -0.008,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 4,
+   "wf_tranches": 231,
+   "act_share": 0.4081,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 6.013386827179932e-06,
+   "receipt_sha256": "e3e8bf1d782b42f02bbf806aa2d04bb02e3c78b5eff73ba4059360bc934afa1b",
+   "paired_vs_rule": {
+    "rule": "B_rule_v8_C5",
+    "net_bps_day": [
+     0.185,
+     0.049,
+     0.316
+    ],
+    "cost_free_bps_day": [
+     0.044,
+     -0.084,
+     0.18
+    ],
+    "alpha": 0.1
+   }
+  },
+  "B_rule_ll_C1": {
+   "wf_mean_bps_day": -6.942,
+   "wf_cost_bps_day": 7.256,
+   "wf_gross_bps_day": 0.315,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 0,
+   "wf_tranches": 19315,
+   "act_share": 1.0,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 4.0272389633746506e-54,
+   "receipt_sha256": "fc6a1a213d39413259698770881de2e0b51b98bc25d4c0cbeca619f25ea24857"
+  },
+  "B_rule_pos_C4": {
+   "wf_mean_bps_day": -0.106,
+   "wf_cost_bps_day": 1.771,
+   "wf_gross_bps_day": 1.665,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 5,
+   "wf_tranches": 24348,
+   "act_share": 1.0,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 0.003384986139187736,
+   "receipt_sha256": "c0ede67accd84136e15f41a900425471c5dc0de2857c09d89054752417575231"
+  },
+  "B_rule_rsi_C1": {
+   "wf_mean_bps_day": -15.338,
+   "wf_cost_bps_day": 15.139,
+   "wf_gross_bps_day": -0.199,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 0,
+   "wf_tranches": 41515,
+   "act_share": 1.0,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 6.467423891347126e-114,
+   "receipt_sha256": "d5657b395a73328e07490153dfddc41983673b7a02546f1846c0418476982008"
+  },
+  "B_rule_v8_C2": {
+   "wf_mean_bps_day": -0.856,
+   "wf_cost_bps_day": 1.023,
+   "wf_gross_bps_day": 0.166,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 1,
+   "wf_tranches": 5050,
+   "act_share": 1.0,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 3.0622638326476307e-24,
+   "receipt_sha256": "de1794caf9219d9da3340895ffd303c8b11a7967bf40eb7f9aabf2ffffeaaf44"
+  },
+  "B_rule_v8_C5": {
+   "wf_mean_bps_day": -0.204,
+   "wf_cost_bps_day": 0.152,
+   "wf_gross_bps_day": -0.052,
+   "cpcv_positive_paths": 0,
+   "positive_coins": 3,
+   "wf_tranches": 566,
+   "act_share": 1.0,
+   "items": {
+    "item1": false,
+    "item2": true,
+    "item3": false,
+    "item4": false,
+    "item5": false,
+    "item6": false
+   },
+   "dsr_prob": 3.510167042534214e-09,
+   "receipt_sha256": "525998933a5aedcf1ddad74b5178629aa44f9b5e9e745267699fd40342f0e8eb"
+  }
+ },
+ "evidence": "Local copies in .superpowers/sdd/round4/family-b-results/: family_b_report.json, bar_pass1.json, noise_gate_a10.json, a5_reproduction_fefeaf38.json, noise_eval_b.json and the 15 receipts. VPS: ~/round4-out/family-b."
+}
