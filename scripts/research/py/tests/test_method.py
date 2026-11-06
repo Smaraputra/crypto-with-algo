@@ -280,5 +280,9 @@ def test_signed_amendments_unchanged_and_later_ones_appended_only() -> None:
     a10 = (fixtures / "method_doc_amendment10_signed.txt").read_text(encoding="utf-8")
     assert a10.startswith("AMENDMENT 10 (")
     assert rest.startswith(a10)
-    later = rest[len(a10) :]
-    assert later == "" or later.lstrip("\n").startswith("AMENDMENT 11 ")
+    rest = rest[len(a10) :].lstrip("\n")
+    a11 = (fixtures / "method_doc_amendment11_signed.txt").read_text(encoding="utf-8")
+    assert a11.startswith("AMENDMENT 11 (")
+    assert rest.startswith(a11)
+    later = rest[len(a11) :]
+    assert later == "" or later.lstrip("\n").startswith("AMENDMENT 12 ")

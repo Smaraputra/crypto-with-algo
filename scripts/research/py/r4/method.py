@@ -1204,6 +1204,70 @@ a change is a re-run (M)" for this amendment's code only, and A8.6's evaluation 
   r4 digest, D's dataset hash and the record of that commit's matching eight-run reproduction (its sha256).
   run_family_b refuses a gate record whose receiving commit, digest or reproduction record differs from the code and
   run in hand, and A5.1's Opus diff review of that commit confirms the confinement rule above.
+
+AMENDMENT 11 (2026-11-06, owner-approved and SIGNED by the owner on 2026-11-06 (session 45) for this text). It is
+written after the family C result (finalist C_LHAR-X_1h, records/family_c_result_c8f5849f.json) and the Opus, Codex
+and agy reviews of its finalist lock draft 1, and before any computation for its H read. It states how M's finalist
+lock and H rules apply to the forecast finalist, binds the code of its H procedure, and permits one descriptive
+statistic for its predictions. The owner chose all three on 2026-11-06, with the reproduction at the H code's digest,
+the twin's coverage and a coin failed on an exception. It changes three things:
+- the forecast finalist's lock and its H verdict (A11.1),
+- the code of its H procedure and the reproduction before that code runs on D (A11.2),
+- one descriptive statistic of the no-refit twin (A11.3).
+It changes no threshold, span, budget cap, seed, H criterion, Phase 4 or Phase 5 outcome or ledger count, and no rule
+of a directional finalist or of another family.
+
+A11.1 THE FORECAST FINALIST'S LOCK AND ITS H VERDICT. It amends "Each finalist lock states three things before any
+read" and "If the stated power is below 0.5, a fail is recorded as inconclusive" for the family C forecast finalist.
+- beta_coin and the power are defined on the drift-free daily series, which a forecast finalist does not have. Its
+  lock states neither.
+- No power is computed for it, and its H read has no inconclusive state (owner decision of 2026-11-04, family C
+  declaration draft 5, "No inconclusive state"). An H fail is a fail, and the finalist is never read again.
+- Its lock states the frozen procedure, the model artifact's file and content hashes, the H dataset hash and its
+  per-file table, the pass criteria of M and of the declaration, and its predictions.
+- Each coin's inputs are prepared on their own, by the frozen family C functions, and on D that preparation must
+  equal the frozen all-coin preparation bit for bit. BTC's window table holds BTC's own windows and feeds every other
+  coin's BTC term, so an exception in it makes every coin's forecasts undefined.
+- An exception raised while the H procedure prepares one coin's inputs or computes its forecasts or criteria makes
+  that coin's test statistics undefined, and draft 5 says "an undefined test statistic cannot pass": that coin fails,
+  the error is recorded, and the other coins are evaluated. The stay-out flag pools every coin's forecasts, so an
+  exception while the procedure prepares any coin's inputs or computes any coin's forecasts also fails the flag. A
+  coin whose criteria raise keeps its forecasts in the flag's input. An exception in the flag's own computation fails
+  the flag. This rule can turn a pass into a fail and never the reverse.
+
+A11.2 THE CODE OF THE H PROCEDURE. It amends A5.1's "From the family's first D outcome its code is frozen for it, and
+a change is a re-run (M)" for the family C H procedure only.
+- The H procedure is one new module, r4/holdout_c.py, with its own entry point, in place of the declaration's H
+  procedure in r4/family_c.py. The commit that adds it adds that module and its tests and changes no other file
+  under scripts/research/py/r4/. No existing r4 node changes, family_c.run_holdout stays the stub that raises, and
+  cli.py gains no subcommand. That commit gets A5.1's Opus diff review, which confirms this rule.
+- The module calls the frozen family C functions and reads data only through r4.data's loaders. Its D forecasts
+  must reproduce the c8f5849f outputs of C_LHAR-X_1h bit for bit: the walk-forward forecasts (forecasts.parquet,
+  sha256 696c5ef14613b4fb6964a057bfbae5a88146a0e5a80af1516f39d3e55b86f557, canonical digest of the finite-f rows
+  a6ed91ee3228f2c6645536b7b51c200deb34630e0c71bcd68da4fdfdc37ed6da over 276,840 rows), and the rows of the fold
+  refit at 2026-06-01, which the final model reproduces. A match is a bit-identical repeat under A4.4: it is not
+  counted and consumes no reserve slot. A mismatch stops the H path and is reported with the number of differing
+  rows and the largest relative difference. A further amendment then decides how it is counted and whether the read
+  may proceed.
+- Before the module computes on D under an r4 source digest, A5.1's eight-run reproduction runs at that digest in
+  the registered research image, into a new directory, as any family code does. It must match, and its record goes
+  under records/ with its digest. A matching record already made at the same digest serves. One that differs stops
+  the H path for review.
+- From the artifact run on D, holdout_c.py is frozen for the finalist. A change to it needs a new eight-run
+  reproduction, a new artifact run and a re-signed lock with a new read id, and is never made once an H row has been
+  returned.
+- requirements.lock and the library versions stay as at C4 (A5.1).
+
+A11.3 THE TWIN'S COVERAGE. It permits one descriptive statistic of a counted configuration.
+- The 80% and 95% coverage of the no-refit twin C_twin_C_LHAR-X_1h on D is computed once, per coin over its whole
+  walk-forward span and per coin and calendar year, with family_c.coverage from the c8f5849f code in the c8f5849f
+  research image. Its input is the twin's stored forecasts.parquet, whose sha256 must equal
+  9b49773bceefc580ffa900ccf2208344265172ebee0be3b37e3840658d9d7c19 from the twin's receipt. No forecast is
+  recomputed.
+- It is recorded as records/fc_twin_coverage_c8f5849f.json before the forecast finalist's predictions are fixed,
+  and it serves those predictions only. No rule, threshold, criterion or verdict uses it.
+- The twin is already counted (ledger entry round4-family-c-twin). The statistic adds no trial and consumes no
+  reserve slot.
 """
 
 from __future__ import annotations
