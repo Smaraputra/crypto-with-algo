@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 Phase 5 family B result (0 of 15)
+- Family B ran on the development data at `fefeaf38` on 2026-11-06, under Amendment 10:
+  - Its eight-run reproduction matched every C4 run first (`records/a5_reproduction_fefeaf38.json`).
+  - Its gate record carried the mini-control's evaluation over, with its activity gate met on the positioning frame and its other two gates met over all 8 controls (`records/noise_gate_a10.json`, `records/noise_eval_b.json`).
+- None of the 15 configurations reaches items 1 to 3, and none has a positive walk-forward mean (`records/family_b_result_fefeaf38.json`).
+  - **The five rule baselines** lose -0.1 to -15.3 bps a day, mostly to costs of up to 15 bps a day.
+  - **The ten meta-labelled configurations** lose -0.02 to -0.34 bps a day. They act on 24% to 41% of the primary decisions at a mean size near 0.1, so they cut costs to 0.01 to 0.44 bps a day. Their gross results stay between -0.01 and +0.09 bps a day. The improvement over the rules is dominated by lower costs, with no demonstrated positive cost-free edge.
+  - No CPCV path is positive, so there are no candidates, no twins and no reserve slots used.
+- No directional configuration of the round passes item 1, so family E does not open. The directional families end at 0 of 69. The ledger is unchanged at 2,422.
+
 ### Changed: Round 4 Amendment 11, how the family C forecast finalist is read on the holdout
 - **Amendment 11** (signed 2026-11-06) applies only to the family C finalist C_LHAR-X_1h, before any computation for its one holdout read:
   - Its lock states no hedge beta and no power, and its read has no inconclusive state. An H fail is a fail.
