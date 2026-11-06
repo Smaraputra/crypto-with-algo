@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed: Round 4 Amendment 10, family B runs without the small-trade imbalance frame
+- Family B's noise mini-control ran on the development data at `ce7053dc` and failed its activity gate on one frame only.
+  - In the small-trade imbalance frame, 2 of 4 controls were active: the all-history controls traded 227 and 258 walk-forward tranches against the floor of 1,000.
+  - In the positioning frame, 4 of 4 were active.
+  - No control passed items 1 to 3, and none rejected the joint-shift null. No family B trial had run.
+- **Amendment 10** (signed 2026-11-06) is the owner's choice after that outcome, disclosed as such:
+  - The three sti-frame configurations are withdrawn (registry indices 4, 14 and 16). They never run and are never finalists. The ledger keeps all 18 declared trials, and every seed keeps its registry index.
+  - The activity gate is read on the positioning frame. The other two gates stay over all 8 controls.
+  - The mini-control is not re-run. Its evaluation carries over through a gate record bound to the evaluation file's sha256 and to the receiving commit, its digest and its eight-run reproduction.
+- The code change is confined to the run set, the report, the twin plan and the gate record. The A5.1 Opus diff review confirmed that no node a family B run reaches changed. Codex's review added full checks of the reproduction record and of the gate record's restated counts.
+
 ### Added: Round 4 Amendments 8 and 9, family B declared (meta-labelling)
 - **Amendment 8** (signed 2026-11-05) defines family B.
   - **Five primaries:**
