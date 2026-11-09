@@ -20,6 +20,10 @@ services:
     image: mongo:7
     container_name: crypto-mongodb
     restart: unless-stopped
+    # Cap the WiredTiger cache at 2 GB (the default takes half of RAM, about 3.5 GB) and release freed memory back to
+    # the OS at 10 MiB/s, so research containers on the same host keep their headroom. Both were set at runtime on
+    # 2026-10-25 and this keeps them across a restart. The entrypoint prepends mongod and adds --auth.
+    command: ["--wiredTigerCacheSizeGB", "2", "--setParameter", "tcmallocReleaseRate=10485760"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD}
