@@ -250,7 +250,7 @@
    "DOTUSDT": "80% coverage 0.762 (low)",
    "ETHUSDT": "log-MSE vs EWMA p 0.993",
    "LINKUSDT": "log-MSE vs EWMA p 0.997",
-   "SOLUSDT": "all four DM tests and 80% coverage 0.751 (low); mean QLIKE 6,996 from a forecast collapse (descriptive below)",
+   "SOLUSDT": "all four DM tests and 80% coverage 0.751 (low); 95% coverage passed; mean QLIKE 6,996 from a forecast collapse (descriptive below)",
    "XRPUSDT": "80% coverage 0.821 (high, 0.1 point outside the band)"
   },
   "criteria_failure_counts": {
@@ -291,7 +291,7 @@
  },
  "descriptive_after_the_read": {
   "note": "Read after the verdict, never gating.",
-  "sol_collapse": "SOL's mean QLIKE of 6,996 comes from a handful of hours on 2021-01-06 and 07: the forecast fell to about 4e-11 (2021-01-06 20:00 UTC, realised 0.0027, QLIKE 6.9e7). SOL's absolute premium on H reached 0.1116 against a D training maximum of 0.0088, and the linear terms extrapolate unclipped (lock section 11). Median QLIKE 0.132, and 0.66% of SOL hours exceed 10.",
+  "sol_collapse": "SOL's mean QLIKE of 6,996 comes from a handful of hours on 2021-01-06 and 07: the forecast fell to about 4e-11 (2021-01-06 20:00 UTC, realised 0.0027, QLIKE 6.9e7). Median QLIKE 0.132, and 66 of 9,925 SOL hours (0.66%) exceed 10. SOL's absolute premium on H reached 0.1116 against a D training maximum of 0.0088 (12.7 times), and the linear terms extrapolate unclipped (lock section 11). The report records the range but not the time of that maximum, so the link between the premium and the collapse is plausible, not shown.",
   "regressor_extrapolation": "Absolute funding on H reached 0.0075 for SOL against a D maximum of 0.0030. Every coin's H regressor ranges against its D training ranges are in h_report.json descriptive.regressor_ranges."
  },
  "consequences": [
@@ -299,5 +299,6 @@
   "Round 4 ends with no finalist promoted: the directional families 0 of 69 (A 0 of 45, D 0 of 9, B 0 of 15, E not opened) and the one forecast finalist fails H.",
   "The read adds no trial to the ledger (2,422 unchanged). H's 5m klines and premium index of these 10 coins are now spent for any later study."
  ],
- "evidence": "Local copies in .superpowers/sdd/round4/c-holdout/read-02a386b0/ (h_report.json, h_forecasts.parquet, receipt.json, verdict.txt, the read log, ledger-added, outputs.sha256, chain-c.log, chain-c.stdout, mem-c-read.log). VPS: ~/round4-out/h-c-lhar-x-1h and ~/round4-out/c-holdout/."
+ "evidence": "Local copies in .superpowers/sdd/round4/c-holdout/read-02a386b0/ (h_report.json, h_forecasts.parquet, receipt.json, verdict.txt, the read log, ledger-added, outputs.sha256, chain-c.log, chain-c.stdout, mem-c-read.log). VPS: ~/round4-out/h-c-lhar-x-1h and ~/round4-out/c-holdout/.",
+ "review_corrections": "Codex closing review (gates/round4-close-codex.out): the AVAX QLIKE-vs-EWMA failure added to the changelog, SOL described as failing all four DM tests (its 95% coverage passed), and the premium link marked plausible."
 }
