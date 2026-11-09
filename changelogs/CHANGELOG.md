@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Round 4 family C holdout read: the volatility forecast fails H (4 of 10 coins)
+- The owner signed the family C finalist lock on 2026-11-06 (`records/c_lhar_x_1h_finalist_lock.json`). The commit that added it, `02a386b0`, is the read id. The final model, fit on 2024-06 to 2026-05 and never refit, ran once on the holdout H (2020-01 to 2021-12) on 2026-11-06, from 14:08 to 14:11 UTC. Every pre-read check held, and the run ended cleanly with 20 ledger lines.
+- **H fail.** 4 of 10 coins pass every criterion (ADA, BNB, BTC, DOGE), against 8 required (`records/c_holdout_result_02a386b0.json`).
+  - **Failures:** 80% coverage failed on AVAX, DOT and SOL (low) and on XRP (high). AVAX also failed QLIKE against the EWMA (p 0.40). The log-MSE test against the EWMA failed on ETH and LINK. On SOL all four DM tests failed, with its 95% coverage passing. Descriptively, SOL's forecast collapsed to about 4e-11 on 2021-01-06. SOL's premium on H reached 0.1116, about 12.7 times the training maximum, and the linear terms extrapolate unclipped. The report does not record when that maximum occurred, so the link between the two is plausible, not shown.
+  - **Passed:** the stay-out flag passed both conditions, and 95% coverage held on all 10 coins.
+- **Predictions:** the registered overall call "Pass" was wrong. Of the diagnostics:
+  - stay-out conditions 1 and 2: met;
+  - 95% coverage on at least 9 coins: met (10 of 10);
+  - 80% coverage as the likeliest failing criterion: met (4 coins), with 3 of the 4 misses low;
+  - DM tests on at least 8 coins: not met (6).
+- The forecast is not promoted and gets no Focus risk panel. Round 4 ends with no finalist promoted. The read adds no trial, and the ledger stays at 2,422.
+
 ### Added: Round 4 Phase 5 family B result (0 of 15)
 - Family B ran on the development data at `fefeaf38` on 2026-11-06, under Amendment 10:
   - Its eight-run reproduction matched every C4 run first (`records/a5_reproduction_fefeaf38.json`).

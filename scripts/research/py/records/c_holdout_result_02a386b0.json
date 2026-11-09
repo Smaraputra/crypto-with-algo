@@ -1,0 +1,304 @@
+{
+ "record": "Round 4 family C finalist C_LHAR-X_1h: the one H read, RESULT",
+ "read_id": "02a386b0719feb556a40aaee3cc1e34909697229",
+ "finalist_id": "c-lhar-x-1h",
+ "lock_record": "records/c_lhar_x_1h_finalist_lock.json",
+ "lock_record_sha256": "8f931c042fd572cea8493177298fa62c1737881c24be8f518dedf881ac9a3913",
+ "lock_text_sha256": "89699eeb7f8305c93222d6a0f392f6bc235b02b566d2a628d7a45a86211f423f",
+ "signed": "owner, 2026-11-06, session 45, \"Sign as written\" (draft 12)",
+ "image": {
+  "tag": "crypto-ops:round4-py-02a386b0",
+  "archive_sha256": "578f94b84e0d8d85b3659ca82264a0c72317b7db187279ecbe4f732c63334750",
+  "archive_equal_both_ends": true,
+  "r4_source_sha256": "721f8f8aeb94e6da0801d135f724942875e35d90000e81962add31aae1c4074b"
+ },
+ "run": {
+  "window_utc": "2026-11-06T14:08:14Z to 2026-11-06T14:11:07Z",
+  "exit": 0,
+  "container_s": 173,
+  "module_runtime_s": 168.1,
+  "memory_cap_mib": 3328,
+  "cgroup_peak_mib": 2592,
+  "mem_available_at_start_mib": 3900,
+  "launched": "setsid nohup, detached from ssh, as the lead user",
+  "preload_ok": true,
+  "caught_exceptions": [],
+  "forecasts_undefined": [],
+  "skipped": {}
+ },
+ "ledger": {
+  "path": "~/round4-out/holdout-reads.jsonl",
+  "before": {
+   "bytes": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "after_sha256": "65eceeb439d76ac1fe9347430b2a43c8fc377d76a6b9193e8d54713477a5e7a3",
+  "lines_added": 20,
+  "lines": "one per guarded file: 5m klines and 5m premium index of the 10 coins, all with this read id and c-lhar-x-1h",
+  "spent": true
+ },
+ "outputs_sha256": {
+  "h_report.json": "ee220e91efa8809c5556f1da8294605685c0f6526cc3e8e31cfa6f1b64c4ee29",
+  "h_forecasts.parquet": "292f63e5428a5823ddf3b2e944e61d01b5dcbf862030e3f719a2f8ae063d3e29",
+  "receipt.json": "ead5fc7dd4c2a455e7adfaf5b4542e1a29d181ff1fbfb89fd2e41379d11cc493",
+  "verdict.txt": "bcd5d04c81de0dd0efcbe97ee09ba44390e42393897e516eea83af8006dbf12c"
+ },
+ "verdict": {
+  "h_pass": false,
+  "line": "H VERDICT c-lhar-x-1h pass=False coins_pass=4 flag1=True flag2=True",
+  "coins_pass": 4,
+  "coins_needed": 8,
+  "config_pass": false,
+  "stay_out": {
+   "pass": true,
+   "condition1": {
+    "ratio": 2.262741390617192,
+    "low": 1.9969098084938244,
+    "high": 2.547351102074218,
+    "n_flagged": 12440,
+    "n_unflagged": 99891,
+    "n_days": 611,
+    "seed": 12200002,
+    "pass": true
+   },
+   "condition2": {
+    "n_flagged": 424,
+    "n_below": 301,
+    "share": 0.7099056603773585,
+    "pass": true
+   }
+  }
+ },
+ "coins": {
+  "ADAUSDT": {
+   "pass": true,
+   "n_paired": 12720,
+   "coverage_80": 0.8055,
+   "coverage_95": 0.9494,
+   "dm_p": {
+    "logmse_vs_ewma": 1.168418858534975e-12,
+    "logmse_vs_persistence": 2.2631567440050003e-22,
+    "qlike_vs_ewma": 0.009730771578625867,
+    "qlike_vs_persistence": 4.08806605379736e-53
+   },
+   "mean_qlike": 0.41025350152800333,
+   "mean_logmse": 0.7379090222044561,
+   "failed": []
+  },
+  "AVAXUSDT": {
+   "pass": false,
+   "n_paired": 9709,
+   "coverage_80": 0.767,
+   "coverage_95": 0.9362,
+   "dm_p": {
+    "logmse_vs_ewma": 4.797289893766804e-45,
+    "logmse_vs_persistence": 1.4853232894857028e-162,
+    "qlike_vs_ewma": 0.4002935701464094,
+    "qlike_vs_persistence": 5.793158753549333e-35
+   },
+   "mean_qlike": 0.40221021891085157,
+   "mean_logmse": 0.6078133262240901,
+   "failed": [
+    "qlike_vs_ewma",
+    "coverage_80"
+   ]
+  },
+  "BNBUSDT": {
+   "pass": true,
+   "n_paired": 15132,
+   "coverage_80": 0.8052,
+   "coverage_95": 0.9495,
+   "dm_p": {
+    "logmse_vs_ewma": 2.141824115654021e-60,
+    "logmse_vs_persistence": 3.5480997098321544e-67,
+    "qlike_vs_ewma": 0.0005971388589683336,
+    "qlike_vs_persistence": 7.731865409679249e-35
+   },
+   "mean_qlike": 0.4337732287708379,
+   "mean_logmse": 0.7125262589260831,
+   "failed": []
+  },
+  "BTCUSDT": {
+   "pass": true,
+   "n_paired": 16100,
+   "coverage_80": 0.8184,
+   "coverage_95": 0.953,
+   "dm_p": {
+    "logmse_vs_ewma": 7.417239868401469e-16,
+    "logmse_vs_persistence": 5.510657382067796e-27,
+    "qlike_vs_ewma": 0.007777002740851547,
+    "qlike_vs_persistence": 2.6903986343581864e-17
+   },
+   "mean_qlike": 0.5195371043191256,
+   "mean_logmse": 0.8265671023867985,
+   "failed": []
+  },
+  "DOGEUSDT": {
+   "pass": true,
+   "n_paired": 10786,
+   "coverage_80": 0.8177,
+   "coverage_95": 0.956,
+   "dm_p": {
+    "logmse_vs_ewma": 6.142356401738513e-27,
+    "logmse_vs_persistence": 3.0243067577678597e-07,
+    "qlike_vs_ewma": 2.24852007520284e-05,
+    "qlike_vs_persistence": 1.4289459139126797e-06
+   },
+   "mean_qlike": 0.5687632223723246,
+   "mean_logmse": 0.8921272874463475,
+   "failed": []
+  },
+  "DOTUSDT": {
+   "pass": false,
+   "n_paired": 9756,
+   "coverage_80": 0.7622,
+   "coverage_95": 0.9355,
+   "dm_p": {
+    "logmse_vs_ewma": 2.391487215750709e-67,
+    "logmse_vs_persistence": 1.2816006841792811e-127,
+    "qlike_vs_ewma": 0.018239931381431658,
+    "qlike_vs_persistence": 6.2005777277416875e-15
+   },
+   "mean_qlike": 0.38572360869546296,
+   "mean_logmse": 0.5698476782854699,
+   "failed": [
+    "coverage_80"
+   ]
+  },
+  "ETHUSDT": {
+   "pass": false,
+   "n_paired": 16100,
+   "coverage_80": 0.8143,
+   "coverage_95": 0.9569,
+   "dm_p": {
+    "logmse_vs_ewma": 0.9929887571433424,
+    "logmse_vs_persistence": 6.307984252815463e-06,
+    "qlike_vs_ewma": 2.0748207318610174e-05,
+    "qlike_vs_persistence": 8.551412640159796e-41
+   },
+   "mean_qlike": 0.40744815687531893,
+   "mean_logmse": 0.7801344939295531,
+   "failed": [
+    "logmse_vs_ewma"
+   ]
+  },
+  "LINKUSDT": {
+   "pass": false,
+   "n_paired": 15708,
+   "coverage_80": 0.814,
+   "coverage_95": 0.9521,
+   "dm_p": {
+    "logmse_vs_ewma": 0.997479829616116,
+    "logmse_vs_persistence": 1.8417411692612033e-10,
+    "qlike_vs_ewma": 0.0001257935155519283,
+    "qlike_vs_persistence": 3.491234607726355e-24
+   },
+   "mean_qlike": 0.38527143014862764,
+   "mean_logmse": 0.7489861014125653,
+   "failed": [
+    "logmse_vs_ewma"
+   ]
+  },
+  "SOLUSDT": {
+   "pass": false,
+   "n_paired": 9925,
+   "coverage_80": 0.7505,
+   "coverage_95": 0.9305,
+   "dm_p": {
+    "logmse_vs_ewma": 0.91178625534329,
+    "logmse_vs_persistence": 0.6163985466772965,
+    "qlike_vs_ewma": 0.8428763384114926,
+    "qlike_vs_persistence": 0.8428697165717371
+   },
+   "mean_qlike": 6996.333502645599,
+   "mean_logmse": 0.8507369728757487,
+   "failed": [
+    "logmse_vs_ewma",
+    "logmse_vs_persistence",
+    "qlike_vs_ewma",
+    "qlike_vs_persistence",
+    "coverage_80"
+   ]
+  },
+  "XRPUSDT": {
+   "pass": false,
+   "n_paired": 14827,
+   "coverage_80": 0.8211,
+   "coverage_95": 0.9512,
+   "dm_p": {
+    "logmse_vs_ewma": 7.627889988876788e-31,
+    "logmse_vs_persistence": 8.06189188737518e-43,
+    "qlike_vs_ewma": 4.206717765675058e-09,
+    "qlike_vs_persistence": 4.1553186352685214e-77
+   },
+   "mean_qlike": 0.4747872889757564,
+   "mean_logmse": 0.8192733917326764,
+   "failed": [
+    "coverage_80"
+   ]
+  }
+ },
+ "summary": {
+  "coins_passing_all_six": [
+   "ADAUSDT",
+   "BNBUSDT",
+   "BTCUSDT",
+   "DOGEUSDT"
+  ],
+  "failures": {
+   "AVAXUSDT": "80% coverage 0.767 (low), QLIKE vs EWMA p 0.40",
+   "DOTUSDT": "80% coverage 0.762 (low)",
+   "ETHUSDT": "log-MSE vs EWMA p 0.993",
+   "LINKUSDT": "log-MSE vs EWMA p 0.997",
+   "SOLUSDT": "all four DM tests and 80% coverage 0.751 (low); 95% coverage passed; mean QLIKE 6,996 from a forecast collapse (descriptive below)",
+   "XRPUSDT": "80% coverage 0.821 (high, 0.1 point outside the band)"
+  },
+  "criteria_failure_counts": {
+   "coverage_80": 4,
+   "coverage_95": 0,
+   "qlike_vs_ewma": 2,
+   "qlike_vs_persistence": 1,
+   "logmse_vs_ewma": 3,
+   "logmse_vs_persistence": 1
+  }
+ },
+ "predictions": {
+  "overall_call": {
+   "registered": "Pass",
+   "outcome": "Fail",
+   "scored": "wrong"
+  },
+  "d1_four_dm_tests_pass_on_at_least_8_coins": {
+   "outcome": "6 coins (AVAX, ETH, LINK, SOL fail at least one)",
+   "scored": "not met"
+  },
+  "d2_stay_out_condition_1_passes": {
+   "outcome": "ratio 2.263, interval [1.997, 2.547]",
+   "scored": "met"
+  },
+  "d3_condition_2_has_flagged_windows_and_passes": {
+   "outcome": "424 flagged, share 0.710",
+   "scored": "met"
+  },
+  "d4_80pct_coverage_likeliest_failing_and_misses_low": {
+   "outcome": "80% coverage fails on 4 coins, the most of any criterion; 3 of the 4 misses low (AVAX, DOT, SOL), 1 high (XRP)",
+   "scored": "met on the likeliest-failing part, 3 of 4 on direction"
+  },
+  "d5_95pct_coverage_passes_on_at_least_9_coins": {
+   "outcome": "10 of 10",
+   "scored": "met"
+  }
+ },
+ "descriptive_after_the_read": {
+  "note": "Read after the verdict, never gating.",
+  "sol_collapse": "SOL's mean QLIKE of 6,996 comes from a handful of hours on 2021-01-06 and 07: the forecast fell to about 4e-11 (2021-01-06 20:00 UTC, realised 0.0027, QLIKE 6.9e7). Median QLIKE 0.132, and 66 of 9,925 SOL hours (0.66%) exceed 10. SOL's absolute premium on H reached 0.1116 against a D training maximum of 0.0088 (12.7 times), and the linear terms extrapolate unclipped (lock section 11). The report records the range but not the time of that maximum, so the link between the premium and the collapse is plausible, not shown.",
+  "regressor_extrapolation": "Absolute funding on H reached 0.0075 for SOL against a D maximum of 0.0030. Every coin's H regressor ranges against its D training ranges are in h_report.json descriptive.regressor_ranges."
+ },
+ "consequences": [
+  "H fail: C_LHAR-X_1h is not promoted, gets no Focus risk panel and no forward record, and is never read again (lock section 10). The forecast route ends for this round.",
+  "Round 4 ends with no finalist promoted: the directional families 0 of 69 (A 0 of 45, D 0 of 9, B 0 of 15, E not opened) and the one forecast finalist fails H.",
+  "The read adds no trial to the ledger (2,422 unchanged). H's 5m klines and premium index of these 10 coins are now spent for any later study."
+ ],
+ "evidence": "Local copies in .superpowers/sdd/round4/c-holdout/read-02a386b0/ (h_report.json, h_forecasts.parquet, receipt.json, verdict.txt, the read log, ledger-added, outputs.sha256, chain-c.log, chain-c.stdout, mem-c-read.log). VPS: ~/round4-out/h-c-lhar-x-1h and ~/round4-out/c-holdout/.",
+ "review_corrections": "Codex closing review (gates/round4-close-codex.out): the AVAX QLIKE-vs-EWMA failure added to the changelog, SOL described as failing all four DM tests (its 95% coverage passed), and the premium link marked plausible."
+}
