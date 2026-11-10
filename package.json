@@ -37,7 +37,7 @@
     "klinecharts": "10.0.0-beta1",
     "lucide-react": "^0.563.0",
     "mongodb": "^7.6.0",
-    "mongoose": "^9.11.1",
+    "mongoose": "^9.11.4",
     "next": "16.4.2",
     "next-auth": "^5.0.0-beta.32",
     "nodemailer": "^10.1.4",
