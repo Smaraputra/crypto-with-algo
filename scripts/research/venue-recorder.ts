@@ -402,7 +402,12 @@ export function parseLighterFunding(json: unknown): LighterFunding {
     }
   }
 
-  const fundingRate = latestRow ? toFiniteOrNull(latestRow.rate) : null;
+  // The API `rate` is a PERCENT per hour ("0.0012" is 0.0012% = 1.2e-5, checked against the cross-venue
+  // funding-rates endpoint on 2026-11-11). `direction` names the paying side: "short" means shorts pay,
+  // which is a negative rate on the convention where a positive rate means longs pay.
+  const pct = latestRow ? toFiniteOrNull(latestRow.rate) : null;
+  const fundingRate =
+    pct === null ? null : (pct / 100) * (latestRow !== null && latestRow.direction === 'short' ? -1 : 1);
   return { fundingRate, fundingIntervalHours: 1 };
 }
 

@@ -299,8 +299,15 @@ describe('1. Parsers on samples', () => {
 
   it('parses Lighter funding selecting latest row', () => {
     const funding = parseLighterFunding(lighterFundingsSample);
-    expect(funding.fundingRate).toBe(0.0008);
+    expect(funding.fundingRate).toBeCloseTo(0.0008 / 100, 15);
     expect(funding.fundingIntervalHours).toBe(1);
+  });
+
+  it('converts the Lighter percent rate to a fraction and signs it by direction', () => {
+    const long = parseLighterFunding({ fundings: [{ timestamp: 1, rate: '0.0012', direction: 'long' }] });
+    expect(long.fundingRate).toBeCloseTo(1.2e-5, 15);
+    const short = parseLighterFunding({ fundings: [{ timestamp: 1, rate: '0.0012', direction: 'short' }] });
+    expect(short.fundingRate).toBeCloseTo(-1.2e-5, 15);
   });
 
   it('parses Lighter orders', () => {
