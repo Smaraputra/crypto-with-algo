@@ -1,0 +1,63 @@
+LOCK v3: Binance against Hyperliquid funding spread, one read of 2024-07-01 to 2026-07-01 (UNSIGNED until the owner signs this exact file)
+
+Status. Proposed 2026-11-11 for the owner's signature. Nothing at or after 2024-07-01 00:00 UTC has been read. The text was reviewed twice by Codex and by agy (v1: 12 and 12 findings, v2: 10 and 10). The valid findings changed the design to a forward, causal simulation of the whole book, a cluster bootstrap on the annual return, a short-leg-only liquidation with a 5% maintenance margin, liquidation taking precedence over unavailability, and a guard bound to the dates and input hashes below. v3 itself was not reviewed a third time. Owner choices recorded this session: median-based primary cost, hurdle 5% a year with a bootstrap lower bound above 0, positions open at the span end closed and counted, prediction positive but under 7.75%.
+
+Implementation. `scripts/research/venue-spread-locked.ts` (simulateBook, clusterBootstrapAnnual, summariseLocked, assertSpanAllowed, assertLockBinding, acquireReadMarkers). The read is run once on the VPS with `--from 2024-07-01 --end 2026-07-01 --lock-file <this file> --lock-sha256 <its sha256> --universe <universe file> --hl-meta <meta file>`.
+
+## 1. Question
+
+Would a frozen rule that is short the venue with the higher trailing-24h funding and long the other, Binance USDT-M against Hyperliquid, have earned more than its costs and a 5% a year hurdle on 2024-07-01 00:00 UTC to 2026-07-01 00:00 UTC, using real traded prices?
+
+## 2. Scouted configurations to count
+
+The scout looked at 14 cells before this lock: 3 Hyperliquid spread levels (0.10%, 0.20%, 0.50% a day), 3 Bybit levels and 8 funding-farming census cells. The rule was chosen from them on data up to 2024-06-30 only. The read is one out-of-sample test of one frozen rule, so no deflation is applied. The ledger rises from 2,422 to 2,423.
+
+## 3. Data (keyless, read-only) and universe
+
+- Binance funding: archive `fundingRate` monthly files through `fetchArchiveFile`, `parseFundingCsv`, `normaliseSettlements` (event time rounded to the hour, rate as published, interval hours per event).
+- Hyperliquid funding: `POST /info {"type":"fundingHistory"}`, hourly rate paid, event time rounded to the hour, duplicates in the same hour keep the LAST row in response order.
+- Binance price: archive perp 1h klines (open, high, low). Hyperliquid price: `candleSnapshot` 8h candles (open, high, low).
+- Universe: every folder of the universe file (content id `21924712`, exchangeInfo 2026-10-07, file sha256 `2338b1dcb0ec65595dea1f6c5003539c0e1f3415940835738ec9ad0228aebf00`; it holds no `unclassified-absent` folder, checked 2026-11-11) with `include === true` and at least one funding month, matched to a Hyperliquid coin by `hyperliquidCoinFor` (strip the quote, strip a multiplier prefix `1000000`, `1000` or `1M`, and for a `1000` prefix other than `1000000` prepend `k`) against the Hyperliquid `meta` universe saved in `hyperliquid-meta-2026-11-11.json` (file sha256 `3fcc787862033a6d3ef452c3a35323eefe3588bed11577cab66b0f0ae949b8d8`, 235 names of which 56 flagged delisted, all kept). No coin is added or removed after the signature.
+- A coin is tradable at a decision time T only if both venues have a price open at T (Binance 1h bar opening at T, Hyperliquid 8h candle opening at T) and funding coverage holds (section 4).
+
+## 4. Rule (frozen)
+
+- Span: from `2024-07-01T00:00:00.000Z` to `2026-07-01T00:00:00.000Z` (exclusive). Decision times T: 2024-07-01 00:00 UTC, then every 8 hours, last 2026-06-30 16:00 UTC (2,190 times).
+- Spread S(T) = (sum of Hyperliquid funding rates with event time in (T - 24h, T]) - (sum of Binance settlement rates with event time in (T - 24h, T]).
+- Funding coverage at T: Hyperliquid has at least 22 events in (T - 24h, T], and Binance has at least (24 / intervalHours - 1) events in the same window, where intervalHours is the interval of its latest settlement at or before T. Without coverage S(T) is undefined and treated as 0 for the "previous" test.
+- Entry at T for a coin that is tradable, not currently held, with |S(T)| >= 0.0020 (tolerance 1e-12) and either T is the first decision time or |S(T - 8h)| < 0.0020 (undefined counts as below). Sign +1 (S > 0) is short Hyperliquid, long Binance. Sign -1 is the reverse. Entry prices are the opens at T. A crossing that finds no free slot is lost (counted `noSlot`); a coin that stays above the level without crossing never enters. A crossing with prices missing is lost (counted `noPrice`). `noCoverage` is counted at a decision time when a coin that is not held has S(T) undefined, S(T - 8h) defined, and either T is the first decision time or |S(T - 8h)| < 0.0020. Nothing enters at the last decision time. A position closed at T frees its slot for entries at the same T.
+- Order of entries at the same T: larger |S(T)| first, ties by Hyperliquid coin name ascending.
+- Slots: 10 concurrent positions. Unit notional per leg at entry, each leg 1x margined on its own venue, capital 2 per unit per slot (20 for the book).
+- Unavailability: at every decision time T after entry, if either price at T (Binance 1h bar or Hyperliquid 8h candle opening at T) is missing, the position closes at once at the opens of the last earlier decision time at which both prices existed, with funding counted up to that earlier time and the slot freed at T (reason `unavailable`). This takes precedence over every exit test at that T and applies whether or not an exit signal exists, with ONE exception: a liquidation of the short leg inside the step that ends at T (next bullet) is still applied. It covers a delisting, where funding stops and no signal could ever fire.
+- Exit at the first T' after entry with sign x S(T') <= 0 (tolerance 1e-12) when S(T') is defined (an undefined S(T') gives no exit), at the opens of T', provided both prices at T' exist. At the last decision time every open position with both prices closes at the opens with reason `end`, even when an exit signal also fires there.
+- Liquidation (checked for each 8h step (T - 8h, T] a position was held across, before the exit and unavailability tests at T). Each leg is margined 1x on its own venue with a maintenance margin of 5%. A 1x long leg is never liquidated before its price reaches zero, so only the SHORT leg is tested: it is liquidated when its venue's high over the step reaches `2 / 1.05` (1.9047619...) times its entry open or more. Binance uses the eight 1h bars opening T - 8h to T - 1h (those that exist), Hyperliquid the 8h candle opening T - 8h (if it exists). If it happens the position closes (reason `liquidated`) with the short leg's return replaced by -1.0 of unit notional. The long leg closes at the opens of T when both prices at T exist, otherwise at the opens of the last earlier decision time with both prices, with funding counted up to the same time. Costs are charged as for any exit. Candle highs stand in for the exchange mark price, a stated approximation.
+- Funding is credited on the unit notional at entry; the drift of the notional with price during the hold is ignored (an approximation, stated). Funding rates missing during a hold count as zero (stated limitation).
+- Capital accounting is fixed-exposure: every position has unit notional, the book never resizes, no equity or fee reserve is tracked, and the denominator 20 is the margin of ten full slots at 1x on two venues. The statistic is the P&L of a fixed-size book per unit of that capital.
+- Execution convention: fills happen at the open of the bar at T, which assumes the settlement published at T is known at that bar's first trade. The same book is also reported with entry one decision time later (entry at the opens of T + 8h for the crossings found at T, no re-test, if tradable and a slot is free). Only the zero-delay book is judged.
+
+## 5. Costs (judged profile)
+
+Per side, both legs, taker: Binance 5 bps fee + 2 bps slippage, Hyperliquid 4.5 bps fee + 7 bps slippage, total 0.00185 a side, 0.0037 a round trip, charged at entry and at every exit including liquidation, `unavailable` and `end`. Sources: Binance VIP 0 taker 5 bps (owner's fills 2026-02), Hyperliquid base taker 4.5 bps (docs 2026-11-10), Hyperliquid slippage 7.06 bps is the median one-way over 179 coins for a 1,000 USD market order on 2026-11-11, the Binance slippage of 2 bps is an ASSUMPTION, unmeasured. Limitation: 2026 depth is applied to 2024-2026 trades, and in 2024 small-coin books were probably thinner. Reported but NOT judged: scout `taker` (0.00155 a side), `taker+10bps` (0.00355 a side), and the locked profile plus 5 bps a leg (0.00285 a side). Because the book does not depend on cost, those profiles re-price the same positions.
+
+## 6. Statistics and hurdle
+
+- Per-position net = sign x (sum of Hyperliquid minus Binance funding rates with event time in (entryT, exitT]) + basis - 2 x perSide, with basis = sign x ((B_exit / B_entry - 1) - (H_exit / H_entry - 1)) (B Binance open, H Hyperliquid open) or the liquidation rule above.
+- Annual return on capital = sum of net of all positions / 20 / 2.0 (730 days = 2.0 years exactly).
+- 95% interval: cluster bootstrap on the annual return itself. Clusters are the 105 seven-day blocks of the span from 2024-07-01 (cluster of a position = floor((entryT - 2024-07-01) / 7 days)), a block with no entries is an empty cluster. Each resample draws 105 clusters with replacement and recomputes sum of nets / 20 / 2.0. 10,000 resamples, generator mulberry32 seed 20261111, one draw `floor(rng() * 105)` per cluster in order, percentile method with linear interpolation, lower end = 2.5% quantile.
+- PASS: annual return on capital >= 5.0% AND the lower end of the interval > 0. Anything else is FAIL.
+- Also reported, not judged: by half-year and by year, slot use, number of distinct coins, counts of positions by exit reason, `noSlot`, `noPrice`, `noCoverage`, the worst position, the zero-delay against one-step-delay books, profiles in section 5.
+
+## 7. Prediction (owner, registered before the read)
+
+The annual return on capital is positive but below 7.75% a year (half of the scouted +15.5%), because the scout window was Hyperliquid's points season. The weekly entry clusters do not capture overlap of holds across weeks, so the interval may be too narrow (stated). The hurdle is 5%, so the prediction is compatible with a FAIL (0 to 5%) and with a narrow PASS (5% to 7.75%), but a point estimate above 5% can still FAIL on the interval. A result at or above 7.75% or at or below 0% contradicts the prediction.
+
+## 8. Procedure, checks done before signing, and guard
+
+Checks done (2026-11-11), all on the allowed span before 2024-07-01:
+1. An independent Python implementation written only from sections 4 to 6 matches the TypeScript book exactly on a seeded synthetic scenario (80 and 84 positions, every field identical) and on real data for 2023-06-01 to 2024-07-01 (213 coins matched, 127 simulated, delay0 324 positions and delay1 325, identical entries, exits, reasons, counts and nets, maximum difference 0).
+2. Five positions of that run (SNX, BNT, FET, STX, 1000SHIB) were recomputed by hand from the raw Hyperliquid and Binance APIs: entry spread, funding, basis and net agree to 1e-16, and the FET short-leg liquidation was confirmed against the 8h candle highs.
+3. For information only, seen before signing: on that scouted span the rule gives an annual return on capital of +2.49% at the judged costs (95% interval -10.7% to +14.3%, 324 positions, 11 liquidations) and +9.1% for the one-step-delay book. This is the span the rule was chosen on, so it is not evidence. Before the v3 liquidation change (maintenance margin 0.5%) the same span read +6.8%.
+
+Procedure for the read:
+4. The lock commit (this file) precedes the read commit. The module refuses any span end after 2024-07-01 00:00 UTC unless it is given `--lock-file` and `--lock-sha256` equal to the sha256 of this file, this text contains the run's `--from` and `--end` as ISO strings, the sha256 of the universe file bytes and the sha256 of the Hyperliquid meta file bytes, and `--coins` is not given. It then creates the marker files `<out>.read-done` and `<lock-file>.read-done` exclusively (a second process or run fails) BEFORE loading any data, and rewrites them with a completion line at the end. A crash leaves the marker in place: a rerun needs the owner to delete both markers, and is allowed only if no report or series file was written. No existing date guard is edited.
+5. A PASS earns a paper record of the same rule (no capital). A FAIL closes the idea and the span is spent. Holding funds on Hyperliquid is not decided here.
