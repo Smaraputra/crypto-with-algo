@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: small-wins scout: funding farming and cross-venue funding spreads (descriptive)
+- The owner asked for many entries with small wins. The cost arithmetic rules out directional scalping (a 1 USD net win at 1,000 USDT notional needs a 0.14% to 0.20% captured move against a measured gross edge of 0.002% to 0.014%). This scout measured three mechanisms where the win does not pay a round trip each time. It is descriptive: no trial is added, and the ledger stays at 2,422.
+- **Data discipline:** both scripts read nothing after 2024-06-30. A constant enforces it and a helper throws on any later month. The span from 2024-07-01 to 2026-06-30 stays unread for a pre-registered test.
+- **`scripts/research/funding-scout.ts`:** spot-hedged funding episodes on 674 USDT-M perps (delisted included), 2020-01 to 2024-06.
+  - Results: at 0.10% per 8h, 2,566 episodes on 264 coins have a median net of +0.20% after taker costs over a 60h hold. Episodes cluster in time, so a 10-slot book earns +3.7% a year on capital, and 2021 carries 73% of the total. 2023 is about flat, and the book sits idle 85% of the time. The 0.05% level loses.
+  - Checks: verified against Binance REST on six episodes and by a blind Python re-implementation (1,673 episodes, max difference 8.9e-16).
+  - `--analyse` re-reads the report as a fixed-slot book.
+- **`scripts/research/venue-funding-scout.ts`:** the Binance funding spread against Hyperliquid (2023-05 to 2024-06) and Bybit (2020 to 2024-06), with both legs on perps.
+  - Bybit leaves little: the median net is negative at every level.
+  - Hyperliquid at 0.20% a day has 983 episodes with a median net of +0.37% over 87h, collected as hourly payments. A 10-slot book earns +15.5% a year on capital in the scouting window, positive in each half-year but falling (+0.90% per episode in 2023H2, +0.65% in 2024H1).
+  - Caveats: the window is short and early, the price leg is approximated from premium indices, 10 bps more slippage per leg takes the median to about zero, and 3x legs would have been liquidated in 13% to 21% of episodes.
+- **Zero-maker spread probe** (2026-11-10, live, 10 minutes):
+  - USDC-margined perps and FDUSD pairs quote one tick, from 0.001 bps on BTCFDUSD to 5.6 bps on ADAUSDC.
+  - Capture depends on queue position, which no stored data can measure. It is not pursued.
+
 ### Added: Round 4 family C holdout read: the volatility forecast fails H (4 of 10 coins)
 - The owner signed the family C finalist lock on 2026-11-06 (`records/c_lhar_x_1h_finalist_lock.json`). The commit that added it, `02a386b0`, is the read id. The final model, fit on 2024-06 to 2026-05 and never refit, ran once on the holdout H (2020-01 to 2021-12) on 2026-11-06, from 14:08 to 14:11 UTC. Every pre-read check held, and the run ended cleanly with 20 ledger lines.
 - **H fail.** 4 of 10 coins pass every criterion (ADA, BNB, BTC, DOGE), against 8 required (`records/c_holdout_result_02a386b0.json`).
