@@ -776,6 +776,8 @@ export interface LockedArgs {
   concurrency: number;
   lockFile?: string;
   lockSha256?: string;
+  /** Optional path: write the loaded series (inputs of the book) as JSON, for an independent re-implementation. */
+  dumpSeries?: string;
 }
 
 const KNOWN_FLAGS = [
@@ -789,6 +791,7 @@ const KNOWN_FLAGS = [
   'concurrency',
   'lock-file',
   'lock-sha256',
+  'dump-series',
 ];
 
 function parseUtcFlag(flags: ReadonlyMap<string, string>, name: string): number {
@@ -839,6 +842,7 @@ export function parseLockedArgs(argv: string[]): LockedArgs {
     concurrency,
     ...(flags.has('lock-file') ? { lockFile: flags.get('lock-file')! } : {}),
     ...(flags.has('lock-sha256') ? { lockSha256: flags.get('lock-sha256')! } : {}),
+    ...(flags.has('dump-series') ? { dumpSeries: flags.get('dump-series')! } : {}),
   };
 }
 
@@ -1027,6 +1031,21 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     level: LOCKED_LEVEL,
     perSide: LOCKED_PER_SIDE,
   };
+  if (args.dumpSeries !== undefined) {
+    const pxObject = (m: ReadonlyMap<number, PriceBar>): Record<string, number[]> =>
+      Object.fromEntries([...m.entries()].map(([t, b]) => [String(t), [b.open, b.high, b.low]]));
+    writeFileSync(
+      args.dumpSeries,
+      JSON.stringify({
+        fromT: args.fromT,
+        lastT,
+        level: LOCKED_LEVEL,
+        perSide: LOCKED_PER_SIDE,
+        slots: LOCKED_SLOTS,
+        series: series.map((x) => ({ coin: x.coin, symbol: x.symbol, bf: x.bf, hf: x.hf, bpx: pxObject(x.bpx), hpx: pxObject(x.hpx) })),
+      })
+    );
+  }
   const delay0 = simulateBook(series, { ...base, entryDelaySteps: 0 });
   const delay1 = simulateBook(series, { ...base, entryDelaySteps: 1 });
   const statOpts: SummaryOpts = {

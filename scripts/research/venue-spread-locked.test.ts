@@ -828,6 +828,11 @@ describe('request guards and parsers', () => {
 });
 
 describe('parseLockedArgs', () => {
+
+  it('accepts --dump-series and omits it otherwise', () => {
+    expect(parseLockedArgs([...ok, '--dump-series', '/tmp/series.json']).dumpSeries).toBe('/tmp/series.json');
+    expect(parseLockedArgs(ok).dumpSeries).toBeUndefined();
+  });
   const ok = [
     '--universe', 'u.json',
     '--cache', 'c',
