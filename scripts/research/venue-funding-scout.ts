@@ -193,10 +193,10 @@ const MAKER = 'maker';
 /** Tolerance on threshold comparisons (see EPISODE RULES). */
 const EPS = 1e-12;
 
-const HYPERLIQUID_URL = 'https://api.hyperliquid.xyz/info';
+export const HYPERLIQUID_URL = 'https://api.hyperliquid.xyz/info';
 const BYBIT_URL = 'https://api.bybit.com';
 const BYBIT_FUNDING_PAGE = 200;
-const BACKOFF_MS = [10_000, 20_000, 40_000];
+export const BACKOFF_MS = [10_000, 20_000, 40_000];
 const MIN_GAP_MS: Record<Venue, number> = { hyperliquid: 2_500, bybit: 150 };
 
 // ---------------------------------------------------------------------------
@@ -491,7 +491,7 @@ export function measureSpreadEpisode(
 }
 
 /** Hyperliquid candles are 8h. */
-const CANDLE_MS = 8 * HOUR_MS;
+export const CANDLE_MS = 8 * HOUR_MS;
 
 export interface HyperliquidCandle {
   open: number;
@@ -970,21 +970,21 @@ export function lockedReadSummary(rows: readonly VenueSlotRow[], params: LockedR
 // Parsers (no network)
 // ---------------------------------------------------------------------------
 
-function asRecord(value: unknown, what: string): Record<string, unknown> {
+export function asRecord(value: unknown, what: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${what}: expected an object`);
   }
   return value as Record<string, unknown>;
 }
 
-function toNum(value: unknown): number {
+export function toNum(value: unknown): number {
   if (typeof value === 'number') return value;
   if (typeof value === 'string' && value.trim() !== '') return Number(value);
   return Number.NaN;
 }
 
 /** Stable sort ascending by `t`; among rows sharing an hour the last one in INPUT order is kept. */
-function dedupeByHour<T extends { t: number }>(rows: T[]): T[] {
+export function dedupeByHour<T extends { t: number }>(rows: T[]): T[] {
   const sorted = [...rows].sort((a, b) => a.t - b.t);
   const unique: T[] = [];
   for (const row of sorted) {
@@ -1248,16 +1248,16 @@ export function parseArgs(argv: string[]): VenueScoutArgs {
   };
 }
 
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function postInit(body: unknown): RequestInit {
+export function postInit(body: unknown): RequestInit {
   return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
 }
 
 /** Filesystem-safe file name part. */
-function safeName(value: string): string {
+export function safeName(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
@@ -1265,7 +1265,7 @@ function safeName(value: string): string {
  * Sequential, throttled JSON client with a one-file-per-request cache. A cached
  * response makes no network call and does not count against the throttle.
  */
-class ApiClient {
+export class ApiClient {
   private lastRequestAt = 0;
 
   constructor(
