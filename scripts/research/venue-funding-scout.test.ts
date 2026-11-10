@@ -13,21 +13,27 @@ import {
   bybitPremiumUrl,
   bybitSymbolFor,
   detectSpreadEpisodes,
+  hyperliquidCandleBody,
   hyperliquidCoinFor,
   hyperliquidFundingBody,
   measureSpreadEpisode,
+  measureSpreadEpisodeReal,
   parseArgs,
   parseBybitFunding,
   parseBybitInstruments,
   parseBybitPremium,
+  parseHyperliquidCandles,
   parseHyperliquidFunding,
   parseHyperliquidMeta,
   scanWindow,
   summariseSpread,
   trailingSum,
+  venueSlotBook,
   type FundingEvent,
+  type HyperliquidCandle,
   type MeasuredSpreadEpisode,
   type SpreadEpisode,
+  type VenueSlotRow,
 } from './venue-funding-scout';
 
 const T0 = Date.UTC(2023, 6, 1, 0);
@@ -113,6 +119,33 @@ describe('detectSpreadEpisodes', () => {
 
   it('starts nothing when the spread never reaches the level', () => {
     expect(detectSpreadEpisodes(base, other, 0.005, h(24), h(112))).toEqual([]);
+  });
+
+  it('gives the same episodes when stepHours is omitted or 1', () => {
+    const omitted = detectSpreadEpisodes(base, other, 0.001, h(24), h(112));
+    expect(detectSpreadEpisodes(base, other, 0.001, h(24), h(112), 1)).toEqual(omitted);
+    expect(omitted).toEqual([{ level: 0.001, sign: 1, entryT: h(40), exitT: h(80), truncated: false }]);
+  });
+
+  // On the 8h grid (T0 is a multiple of 8h UTC) decisions fall at hours 32, 40, ..., 112 when fromT is hour 25.
+  //   level 0.001: hour 32 has k = 3, spread 0.00042 < level. Hour 40 has k = 11, spread 0.00106 >= level, previous
+  //     decision below level: entry hour 40. Hour 80 is the first decision with spread 0: exit hour 80.
+  //   level 0.002: hour 48 has k = 19, spread 0.0017 < level. Hour 56 holds 24 events of 0.0001, spread 0.0021
+  //     >= level: entry hour 56 (the hourly grid enters at hour 52). Exit hour 80.
+  it('decides only at multiples of 8h UTC when stepHours is 8', () => {
+    const low = detectSpreadEpisodes(base, other, 0.001, h(25), h(112), 8);
+    const high = detectSpreadEpisodes(base, other, 0.002, h(25), h(112), 8);
+    expect(low).toEqual([{ level: 0.001, sign: 1, entryT: h(40), exitT: h(80), truncated: false }]);
+    expect(high).toEqual([{ level: 0.002, sign: 1, entryT: h(56), exitT: h(80), truncated: false }]);
+    for (const ep of [...low, ...high]) {
+      expect(ep.entryT % (8 * HOUR_MS)).toBe(0);
+      expect(ep.exitT % (8 * HOUR_MS)).toBe(0);
+    }
+  });
+
+  it('truncates at the last 8h decision time', () => {
+    const episodes = detectSpreadEpisodes(base, other, 0.001, h(24), h(70), 8);
+    expect(episodes).toEqual([{ level: 0.001, sign: 1, entryT: h(40), exitT: h(64), truncated: true }]);
   });
 });
 
@@ -240,6 +273,191 @@ describe('measureSpreadEpisode', () => {
   });
 });
 
+describe('measureSpreadEpisodeReal', () => {
+  // sign +1, entryT = hour 0, exitT = hour 24, hold 24h.
+  // Binance 1h opens: 100 at hour 0, 103 at hour 24, flat 100 on the bars of hours 1..23.
+  // Hyperliquid 8h candle opens: 50 at hours 0, 8, 16 (flat) and 49 at hour 24.
+  //   basis = (103/100 - 1) - (49/50 - 1) = 0.03 + 0.02 = 0.05.
+  // Funding. Hyperliquid events: hour 0 (entry, excluded), 8 0.0002, 16 0.0003, 24 0.0001 (3 collected), hour 32
+  // (past the exit, excluded). Binance events: hour 0 (excluded), hour 8 0.0004 (1 collected), hour 32 (excluded).
+  //   grossFunding = 1 x ((0.0002 + 0.0003 + 0.0001) - 0.0004) = 0.0002.
+  // Hyperliquid perSide: taker 0.00155, maker 0.00035.
+  //   net taker = 0.0002 + 0.05 - 0.0031 = 0.0471, net maker = 0.0002 + 0.05 - 0.0007 = 0.0495.
+  const ep: SpreadEpisode = { level: 0.001, sign: 1, entryT: h(0), exitT: h(24), truncated: false };
+  const baseEvents: FundingEvent[] = [
+    { t: h(0), rate: 0.0005 },
+    { t: h(8), rate: 0.0004 },
+    { t: h(32), rate: 0.0009 },
+  ];
+  const otherEvents: FundingEvent[] = [
+    { t: h(0), rate: 0.0009 },
+    { t: h(8), rate: 0.0002 },
+    { t: h(16), rate: 0.0003 },
+    { t: h(24), rate: 0.0001 },
+    { t: h(32), rate: 0.0009 },
+  ];
+  const flat = (open: number): HyperliquidCandle => ({ open, high: open, low: open, close: open });
+  function perpFlat(): Map<number, KlineCsvRow> {
+    const entries: Array<[number, KlineCsvRow]> = [];
+    for (let i = 0; i < 24; i++) entries.push(bar(h(i), 100));
+    entries.push(bar(h(24), 103));
+    return new Map(entries);
+  }
+  function candles(): Map<number, HyperliquidCandle> {
+    return new Map([
+      [h(0), flat(50)],
+      [h(8), flat(50)],
+      [h(16), flat(50)],
+      [h(24), flat(49)],
+    ]);
+  }
+  const costs = VENUE_COSTS.hyperliquid;
+
+  it('measures sign +1 from traded opens', () => {
+    const m = measureSpreadEpisodeReal(ep, baseEvents, otherEvents, perpFlat(), candles(), costs);
+    expect(m.status).toBe('ok');
+    expect(m.priceSource).toBe('real');
+    expect(m.missingBars).toBe(0);
+    expect(m.grossFunding).toBeCloseTo(0.0002, 12);
+    expect(m.basisApprox).toBeCloseTo(0.05, 12);
+    expect(m.net?.taker).toBeCloseTo(0.0471, 12);
+    expect(m.net?.maker).toBeCloseTo(0.0495, 12);
+    expect(m.net?.['taker+10bps']).toBeCloseTo(0.0002 + 0.05 - 2 * 0.00355, 12);
+    expect(m.holdHours).toBe(24);
+    expect(m.otherEventsCollected).toBe(3);
+    expect(m.baseEventsCollected).toBe(1);
+    expect(m.worstLeg).toBe(0);
+    expect(m.liquidated).toEqual({ '1x': false, '2x': false, '3x': false });
+  });
+
+  it('flips funding and basis for sign -1', () => {
+    const m = measureSpreadEpisodeReal({ ...ep, sign: -1 }, baseEvents, otherEvents, perpFlat(), candles(), costs);
+    expect(m.grossFunding).toBeCloseTo(-0.0002, 12);
+    expect(m.basisApprox).toBeCloseTo(-0.05, 12);
+    expect(m.net?.taker).toBeCloseTo(-0.0002 - 0.05 - 0.0031, 12);
+  });
+
+  it('returns no-price when a Hyperliquid candle at the exit is missing', () => {
+    const missing = candles();
+    missing.delete(h(24));
+    const m = measureSpreadEpisodeReal(ep, baseEvents, otherEvents, perpFlat(), missing, costs);
+    expect(m.status).toBe('no-price');
+    expect(m.net).toBeNull();
+    expect(m.basisApprox).toBeNull();
+  });
+
+  it('returns no-price when a Binance open at the entry or exit is missing', () => {
+    const noEntry = perpFlat();
+    noEntry.delete(h(0));
+    expect(measureSpreadEpisodeReal(ep, baseEvents, otherEvents, noEntry, candles(), costs).status).toBe('no-price');
+    const noExit = perpFlat();
+    noExit.delete(h(24));
+    expect(measureSpreadEpisodeReal(ep, baseEvents, otherEvents, noExit, candles(), costs).status).toBe('no-price');
+  });
+
+  it('returns gap when a path bar or a path candle is missing, and empty for a zero hold', () => {
+    const noBar = perpFlat();
+    noBar.delete(h(5));
+    const gapBar = measureSpreadEpisodeReal(ep, baseEvents, otherEvents, noBar, candles(), costs);
+    expect(gapBar.status).toBe('gap');
+    expect(gapBar.missingBars).toBe(1);
+    const noCandle = candles();
+    noCandle.delete(h(8));
+    const gapCandle = measureSpreadEpisodeReal(ep, baseEvents, otherEvents, perpFlat(), noCandle, costs);
+    expect(gapCandle.status).toBe('gap');
+    expect(gapCandle.missingBars).toBe(1);
+    expect(
+      measureSpreadEpisodeReal({ ...ep, exitT: ep.entryT }, baseEvents, otherEvents, perpFlat(), candles(), costs).status
+    ).toBe('empty');
+  });
+
+  it('liquidates on a Hyperliquid candle high of twice the entry open while the Binance bars stay flat', () => {
+    const spiky = candles();
+    spiky.set(h(8), { open: 50, high: 100, low: 50, close: 50 });
+    const m = measureSpreadEpisodeReal(ep, baseEvents, otherEvents, perpFlat(), spiky, costs);
+    expect(m.status).toBe('ok');
+    expect(m.upMove).toBeCloseTo(1, 12);
+    expect(m.downMove).toBeCloseTo(0, 12);
+    expect(m.worstLeg).toBeCloseTo(1, 12);
+    expect(m.liquidated).toEqual({ '1x': true, '2x': true, '3x': true });
+  });
+
+  it('liquidates on a Hyperliquid low only when it halves the entry open', () => {
+    const dip = candles();
+    dip.set(h(16), { open: 50, high: 50, low: 20, close: 50 });
+    const m = measureSpreadEpisodeReal(ep, baseEvents, otherEvents, perpFlat(), dip, costs);
+    expect(m.downMove).toBeCloseTo(0.6, 12);
+    expect(m.liquidated).toEqual({ '1x': false, '2x': true, '3x': true });
+  });
+});
+
+describe('venueSlotBook', () => {
+  function row(partial: Partial<VenueSlotRow>): VenueSlotRow {
+    return {
+      symbol: 'A',
+      level: 0.001,
+      entryT: h(0),
+      exitT: h(10),
+      status: 'ok',
+      truncated: false,
+      net: { taker: 0.01, maker: 0.02 },
+      worstLeg: 0.1,
+      ...partial,
+    };
+  }
+  const spanFrom = Date.UTC(2023, 0, 1);
+  const spanTo = spanFrom + 730 * 24 * HOUR_MS;
+
+  // 2 slots, capital 2 x 2 = 4, span exactly 2 years.
+  //   A hours 0..100 into slot 0 (net 0.04), B hours 10..50 into slot 1 (net 0.02).
+  //   C hours 20..60: slots free at 100 and 50, both busy at 20: skipped.
+  //   D hours 70..120: slot 1 (free at 50) is the earliest: taken (net -0.01).
+  //   taken 3 of 4 eligible, totalNet 0.05, annual 0.05 / 4 / 2 = 0.00625, byYear 2023 return 0.05 / 4 = 0.0125.
+  //   slotUse = (100 + 40 + 50) h / (2 slots x 730 x 24 h).
+  //   C worstLeg 0.996 >= 1 - 0.005 counts as one 1x liquidation (eligible rows, as in slotBook).
+  const rows: VenueSlotRow[] = [
+    row({ symbol: 'A', entryT: h(0), exitT: h(100), net: { taker: 0.04, maker: 0.05 } }),
+    row({ symbol: 'B', entryT: h(10), exitT: h(50), net: { taker: 0.02, maker: 0.03 } }),
+    row({ symbol: 'C', entryT: h(20), exitT: h(60), net: { taker: 0.1, maker: 0.1 }, worstLeg: 0.996 }),
+    row({ symbol: 'D', entryT: h(70), exitT: h(120), net: { taker: -0.01, maker: 0 } }),
+  ];
+
+  it('takes rows first come first served and skips the overlapping one', () => {
+    const r = venueSlotBook(rows, 2, 0.001, spanFrom, spanTo);
+    expect(r.eligible).toBe(4);
+    expect(r.taken).toBe(3);
+    expect(r.totalNet).toBeCloseTo(0.05, 12);
+    expect(r.annualReturnOnCapital).toBeCloseTo(0.00625, 12);
+    expect(r.slotUse).toBeCloseTo(190 / (2 * 730 * 24), 12);
+    expect(r.perpLiquidations1x).toBe(1);
+    expect(r.byYear['2023'].n).toBe(3);
+    expect(r.byYear['2023'].sumNet).toBeCloseTo(0.05, 12);
+    expect(r.byYear['2023'].returnOnCapital).toBeCloseTo(0.0125, 12);
+  });
+
+  it('uses the net of the named profile and a custom capital per unit', () => {
+    const r = venueSlotBook(rows, 2, 0.001, spanFrom, spanTo, 1, 'maker');
+    // A and B and D are taken: 0.05 + 0.03 + 0 = 0.08, capital 2 x 1 = 2, 2 years.
+    expect(r.profile).toBe('maker');
+    expect(r.totalNet).toBeCloseTo(0.08, 12);
+    expect(r.annualReturnOnCapital).toBeCloseTo(0.08 / 2 / 2, 12);
+  });
+
+  it('ignores other levels, truncated rows, non-ok statuses and rows without a net', () => {
+    const noise: VenueSlotRow[] = [
+      row({ symbol: 'L', level: 0.002 }),
+      row({ symbol: 'T', truncated: true }),
+      row({ symbol: 'G', status: 'gap', net: null }),
+      row({ symbol: 'P', status: 'no-price', net: null }),
+      row({ symbol: 'N', net: null }),
+    ];
+    const r = venueSlotBook([...noise, ...rows], 2, 0.001, spanFrom, spanTo);
+    expect(r.eligible).toBe(4);
+    expect(r.taken).toBe(3);
+    expect(r.totalNet).toBeCloseTo(0.05, 12);
+  });
+});
+
 describe('summariseSpread', () => {
   const costNet = (taker: number): Record<string, number> => ({ taker, maker: taker + 0.001, 'taker+10bps': taker - 0.002 });
   function ep(partial: Partial<MeasuredSpreadEpisode>): MeasuredSpreadEpisode {
@@ -363,6 +581,34 @@ describe('parsers', () => {
     ]);
   });
 
+  it('parses Hyperliquid 8h candles: keyed by open time, numbers, last repeat wins, cutoff dropped, non-array throws', () => {
+    const a = Date.UTC(2024, 5, 30, 0);
+    const row = (t: number, o: string, c: string, hi: string, lo: string) => ({
+      t,
+      T: t + 8 * HOUR_MS - 1,
+      s: 'BTC',
+      i: '8h',
+      o,
+      c,
+      h: hi,
+      l: lo,
+      v: '5',
+      n: 3,
+    });
+    const json = [
+      row(a, '100', '101', '102', '99'),
+      row(a + 8 * HOUR_MS, '101', '103', '104', '100.5'),
+      row(a, '110', '111', '112', '109'),
+      row(SCOUT_CUTOFF_MS, '1', '1', '1', '1'),
+    ];
+    const map = parseHyperliquidCandles(json);
+    expect([...map.keys()]).toEqual([a, a + 8 * HOUR_MS]);
+    expect(map.get(a)).toEqual({ open: 110, high: 112, low: 109, close: 111 });
+    expect(map.get(a + 8 * HOUR_MS)).toEqual({ open: 101, high: 104, low: 100.5, close: 103 });
+    expect(map.has(SCOUT_CUTOFF_MS)).toBe(false);
+    expect(() => parseHyperliquidCandles({})).toThrow();
+  });
+
   it('parses the Hyperliquid meta list and Bybit instruments', () => {
     expect(parseHyperliquidMeta({ universe: [{ name: 'BTC' }, { name: 'kPEPE' }, { name: 'OLD', isDelisted: true }] })).toEqual([
       'BTC',
@@ -421,6 +667,28 @@ describe('data discipline and args', () => {
     expect(url).toContain('category=linear');
     expect(url).toContain('limit=200');
     expect(url).toContain(`endTime=${SCOUT_CUTOFF_MS - 1}`);
+  });
+  it('builds the Hyperliquid candle body and refuses an end at the cutoff', () => {
+    const start = Date.UTC(2023, 0, 1);
+    expect(hyperliquidCandleBody('BTC', start, SCOUT_CUTOFF_MS - 1)).toEqual({
+      type: 'candleSnapshot',
+      req: { coin: 'BTC', interval: '8h', startTime: start, endTime: SCOUT_CUTOFF_MS - 1 },
+    });
+    expect(() => hyperliquidCandleBody('BTC', start, SCOUT_CUTOFF_MS)).toThrow(/data discipline/);
+  });
+  it('parses --price and keeps the default args unchanged', () => {
+    const base = ['--universe', 'u.json', '--cache', 'c', '--out', 'o.json'];
+    expect(parseArgs(['--venue', 'hyperliquid', ...base])).toEqual({
+      venue: 'hyperliquid',
+      universe: 'u.json',
+      cache: 'c',
+      out: 'o.json',
+      coins: null,
+    });
+    expect(parseArgs(['--venue', 'hyperliquid', ...base, '--price', 'real']).price).toBe('real');
+    expect(parseArgs(['--venue', 'hyperliquid', ...base, '--price', 'premium']).price).toBe('premium');
+    expect(() => parseArgs(['--venue', 'bybit', ...base, '--price', 'real'])).toThrow(/--price real/);
+    expect(() => parseArgs(['--venue', 'hyperliquid', ...base, '--price', 'mid'])).toThrow(/--price/);
   });
   it('parses args and rejects unknown flags and venues', () => {
     expect(parseArgs(['--venue', 'bybit', '--universe', 'u.json', '--cache', 'c', '--out', 'o.json', '--coins', 'A, B'])).toEqual({

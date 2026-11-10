@@ -112,7 +112,13 @@
  *
  * Usage:
  *   npx tsx scripts/research/venue-funding-scout.ts --venue hyperliquid|bybit \
- *     --universe <universe-source.json> --cache <dir> --out <report.json> [--coins A,B]
+ *     --universe <universe-source.json> --cache <dir> --out <report.json> [--coins A,B] \
+ *     [--price premium|real]
+ *
+ * PRICE MODES. `premium` (default) is the approximation above. `real` (only with
+ * --venue hyperliquid) decides on the 8h grid (00:00, 08:00, 16:00 UTC), where both
+ * venues have a price at the same instant, and measures the basis from the opens of
+ * Hyperliquid 8h candles and Binance 1h klines (`measureSpreadEpisodeReal`).
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -196,6 +202,15 @@ export function hyperliquidFundingBody(
 ): { type: 'fundingHistory'; coin: string; startTime: number; endTime: number } {
   assertEndAllowed(endTime);
   return { type: 'fundingHistory', coin, startTime, endTime };
+}
+
+export function hyperliquidCandleBody(
+  coin: string,
+  startTime: number,
+  endTime: number
+): { type: 'candleSnapshot'; req: { coin: string; interval: '8h'; startTime: number; endTime: number } } {
+  assertEndAllowed(endTime);
+  return { type: 'candleSnapshot', req: { coin, interval: '8h', startTime, endTime } };
 }
 
 export function bybitFundingUrl(symbol: string, startTime: number, endTime: number): string {
@@ -299,16 +314,19 @@ export function detectSpreadEpisodes(
   other: readonly FundingEvent[],
   level: number,
   fromT: number,
-  toT: number
+  toT: number,
+  stepHours = 1
 ): SpreadEpisode[] {
+  const stepMs = stepHours * HOUR_MS;
+  const start = Math.ceil(fromT / stepMs) * stepMs;
   const episodes: SpreadEpisode[] = [];
   const baseWindow = new TrailingWindow(base);
   const otherWindow = new TrailingWindow(other);
   let open: { sign: 1 | -1; entryT: number } | null = null;
   let previous: number | null = null;
-  let lastT = fromT;
+  let lastT = start;
 
-  for (let time = fromT; time <= toT; time += HOUR_MS) {
+  for (let time = start; time <= toT; time += stepMs) {
     lastT = time;
     const spread = otherWindow.at(time) - baseWindow.at(time);
     if (open !== null) {
@@ -331,7 +349,7 @@ export function detectSpreadEpisodes(
 // Measurement
 // ---------------------------------------------------------------------------
 
-export type SpreadStatus = 'ok' | 'no-premium' | 'gap' | 'empty';
+export type SpreadStatus = 'ok' | 'no-premium' | 'gap' | 'empty' | 'no-price';
 
 export interface SpreadMeasure {
   status: SpreadStatus;
@@ -346,6 +364,8 @@ export interface SpreadMeasure {
   otherEventsCollected: number | null;
   baseEventsCollected: number | null;
   net: Record<string, number> | null;
+  /** 'real' when the basis comes from traded prices (measureSpreadEpisodeReal). Absent for the premium approximation. */
+  priceSource?: 'real';
 }
 
 function nullSpreadMeasure(status: SpreadStatus, missingBars = 0): SpreadMeasure {
@@ -455,6 +475,124 @@ export function measureSpreadEpisode(
   };
 }
 
+/** Hyperliquid candles are 8h. */
+const CANDLE_MS = 8 * HOUR_MS;
+
+export interface HyperliquidCandle {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+/**
+ * The real-price measurement, on the 8h decision grid. Entry and exit prices
+ * are the opens at entryT and exitT: Hyperliquid from the 8h candle opening
+ * there, Binance from the 1h kline opening there (`perp` and `otherCandles` are
+ * both keyed by bar open). Sign +1 is short the other venue, long Binance, so
+ * Binance rising helps and Hyperliquid rising hurts:
+ * basis = sign x ((B_exit / B_entry - 1) - (O_exit / O_entry - 1)).
+ * Funding is as in measureSpreadEpisode. Liquidation tests the worst move of
+ * either leg from its own entry open: Binance 1h bars opening at entryT through
+ * exitT - 1h, Hyperliquid 8h candles opening at entryT through exitT - 8h.
+ * A missing price at either end gives 'no-price', a missing path bar or candle
+ * gives 'gap'.
+ */
+export function measureSpreadEpisodeReal(
+  ep: SpreadEpisode,
+  base: readonly FundingEvent[],
+  other: readonly FundingEvent[],
+  perp: ReadonlyMap<number, KlineCsvRow>,
+  otherCandles: ReadonlyMap<number, HyperliquidCandle>,
+  costs: readonly VenueCost[]
+): SpreadMeasure {
+  if (ep.exitT <= ep.entryT) return nullSpreadMeasure('empty');
+
+  const binanceEntry = perp.get(ep.entryT)?.open;
+  const binanceExit = perp.get(ep.exitT)?.open;
+  const otherEntry = otherCandles.get(ep.entryT)?.open;
+  const otherExit = otherCandles.get(ep.exitT)?.open;
+  if (
+    binanceEntry === undefined ||
+    binanceExit === undefined ||
+    otherEntry === undefined ||
+    otherExit === undefined
+  ) {
+    return nullSpreadMeasure('no-price');
+  }
+
+  let missingBars = 0;
+  for (let open = ep.entryT; open <= ep.exitT - HOUR_MS; open += HOUR_MS) if (!perp.has(open)) missingBars++;
+  for (let open = ep.entryT; open <= ep.exitT - CANDLE_MS; open += CANDLE_MS) if (!otherCandles.has(open)) missingBars++;
+  if (missingBars > 0) return nullSpreadMeasure('gap', missingBars);
+
+  let otherSum = 0;
+  let baseSum = 0;
+  let otherEventsCollected = 0;
+  let baseEventsCollected = 0;
+  for (const event of other) {
+    if (event.t > ep.entryT && event.t <= ep.exitT) {
+      otherSum += event.rate;
+      otherEventsCollected++;
+    }
+  }
+  for (const event of base) {
+    if (event.t > ep.entryT && event.t <= ep.exitT) {
+      baseSum += event.rate;
+      baseEventsCollected++;
+    }
+  }
+  const grossFunding = ep.sign * (otherSum - baseSum);
+  const basis = ep.sign * (binanceExit / binanceEntry - 1 - (otherExit / otherEntry - 1));
+
+  let upMove = Number.NEGATIVE_INFINITY;
+  let downMove = Number.NEGATIVE_INFINITY;
+  let high = Number.NEGATIVE_INFINITY;
+  let low = Number.POSITIVE_INFINITY;
+  for (let open = ep.entryT; open <= ep.exitT - HOUR_MS; open += HOUR_MS) {
+    const bar = perp.get(open)!;
+    high = Math.max(high, bar.high);
+    low = Math.min(low, bar.low);
+  }
+  upMove = Math.max(upMove, high / binanceEntry - 1);
+  downMove = Math.max(downMove, 1 - low / binanceEntry);
+  high = Number.NEGATIVE_INFINITY;
+  low = Number.POSITIVE_INFINITY;
+  for (let open = ep.entryT; open <= ep.exitT - CANDLE_MS; open += CANDLE_MS) {
+    const candle = otherCandles.get(open)!;
+    high = Math.max(high, candle.high);
+    low = Math.min(low, candle.low);
+  }
+  if (high !== Number.NEGATIVE_INFINITY) {
+    upMove = Math.max(upMove, high / otherEntry - 1);
+    downMove = Math.max(downMove, 1 - low / otherEntry);
+  }
+  const worstLeg = Math.max(upMove, downMove);
+  const liquidated: Record<string, boolean> = {};
+  for (const leverage of [1, ...SCOUT_LEVERAGES]) {
+    liquidated[`${leverage}x`] = worstLeg >= 1 / leverage - MAINTENANCE_MARGIN;
+  }
+
+  const net: Record<string, number> = {};
+  for (const cost of costs) net[cost.name] = grossFunding + basis - 2 * cost.perSide;
+
+  return {
+    status: 'ok',
+    missingBars: 0,
+    grossFunding,
+    basisApprox: basis,
+    upMove,
+    downMove,
+    worstLeg,
+    liquidated,
+    holdHours: (ep.exitT - ep.entryT) / HOUR_MS,
+    otherEventsCollected,
+    baseEventsCollected,
+    net,
+    priceSource: 'real',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
@@ -498,7 +636,7 @@ export function summariseSpread(venue: Venue, level: number, episodes: MeasuredS
     } else if (ep.status === 'no-premium') {
       counts.noPremium++;
       included.push(ep);
-    } else if (ep.status === 'gap') counts.gap++;
+    } else if (ep.status === 'gap' || ep.status === 'no-price') counts.gap++;
     else counts.empty++;
   }
 
@@ -555,6 +693,93 @@ export function summariseSpread(venue: Venue, level: number, episodes: MeasuredS
 }
 
 // ---------------------------------------------------------------------------
+// Slot book
+// ---------------------------------------------------------------------------
+
+/** The fields of a measured episode that the slot book reads. */
+export type VenueSlotRow = Pick<
+  MeasuredSpreadEpisode,
+  'symbol' | 'level' | 'entryT' | 'exitT' | 'status' | 'truncated' | 'net' | 'worstLeg'
+>;
+
+export interface VenueSlotBookResult {
+  level: number;
+  slots: number;
+  profile: string;
+  eligible: number;
+  taken: number;
+  totalNet: number;
+  annualReturnOnCapital: number;
+  slotUse: number;
+  perpLiquidations1x: number;
+  byYear: Record<string, { n: number; sumNet: number; returnOnCapital: number }>;
+}
+
+/**
+ * K fixed slots, first come first served, as `slotBook` in ./funding-scout but
+ * with the span as parameters and the net of cost profile `profile`. Eligible
+ * rows (status 'ok', not truncated, a net for the profile) are taken in
+ * (entryT, symbol) order into the slot that frees earliest (lowest index on
+ * ties) when that slot is free by the row's entryT; otherwise the row is skipped.
+ * Capital is `capitalPerUnit` per unit of notional per slot.
+ */
+export function venueSlotBook(
+  rows: readonly VenueSlotRow[],
+  slots: number,
+  level: number,
+  spanFromMs: number,
+  spanToMs: number,
+  capitalPerUnit = 2,
+  profile = TAKER
+): VenueSlotBookResult {
+  const eligible = rows
+    .filter(
+      (r) =>
+        r.level === level && r.status === 'ok' && !r.truncated && r.net !== null && r.net[profile] !== undefined
+    )
+    .sort((a, b) => a.entryT - b.entryT || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
+
+  const spanMs = spanToMs - spanFromMs;
+  const capital = slots * capitalPerUnit;
+  const freeAt = new Array<number>(slots).fill(0);
+  let taken = 0;
+  let totalNet = 0;
+  let slotUse = 0;
+  const byYear: VenueSlotBookResult['byYear'] = {};
+
+  for (const row of eligible) {
+    let best = 0;
+    for (let i = 1; i < slots; i++) if (freeAt[i] < freeAt[best]) best = i;
+    if (freeAt[best] > row.entryT) continue;
+    freeAt[best] = row.exitT;
+    const net = (row.net as Record<string, number>)[profile];
+    taken++;
+    totalNet += net;
+    slotUse += (row.exitT - row.entryT) / (slots * spanMs);
+    const year = String(new Date(row.entryT).getUTCFullYear());
+    const entry = byYear[year] ?? { n: 0, sumNet: 0, returnOnCapital: 0 };
+    entry.n++;
+    entry.sumNet += net;
+    entry.returnOnCapital = entry.sumNet / capital;
+    byYear[year] = entry;
+  }
+
+  const years = spanMs / (365 * 24 * HOUR_MS);
+  return {
+    level,
+    slots,
+    profile,
+    eligible: eligible.length,
+    taken,
+    totalNet,
+    annualReturnOnCapital: totalNet / capital / years,
+    slotUse,
+    perpLiquidations1x: eligible.filter((r) => r.worstLeg !== null && r.worstLeg >= 1 - MAINTENANCE_MARGIN).length,
+    byYear,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Parsers (no network)
 // ---------------------------------------------------------------------------
 
@@ -596,6 +821,24 @@ export function parseHyperliquidFunding(json: unknown): Array<{ t: number; rate:
     rows.push({ t, rate, premium });
   }
   return dedupeByHour(rows);
+}
+
+/** Hyperliquid 8h candleSnapshot rows ({ t, T, s, i, o, c, h, l, v, n }, numbers as strings), keyed by the open time `t`. */
+export function parseHyperliquidCandles(json: unknown): Map<number, HyperliquidCandle> {
+  if (!Array.isArray(json)) throw new Error('hyperliquid candleSnapshot: expected an array');
+  const map = new Map<number, HyperliquidCandle>();
+  for (const item of json) {
+    const r = asRecord(item, 'hyperliquid candleSnapshot row');
+    const t = toNum(r.t);
+    const open = toNum(r.o);
+    const high = toNum(r.h);
+    const low = toNum(r.l);
+    const close = toNum(r.c);
+    if (![t, open, high, low, close].every(Number.isFinite)) continue;
+    if (t >= SCOUT_CUTOFF_MS) continue;
+    map.set(t, { open, high, low, close });
+  }
+  return map;
 }
 
 /** The `result.list` of a Bybit response. Throws on retCode !== 0. */
@@ -703,7 +946,11 @@ export interface VenueScoutArgs {
   cache: string;
   out: string;
   coins: string[] | null;
+  /** Absent means 'premium' (the default). 'real' needs --venue hyperliquid. */
+  price?: PriceMode;
 }
+
+export type PriceMode = 'premium' | 'real';
 
 export function parseArgs(argv: string[]): VenueScoutArgs {
   const flags = new Map<string, string>();
@@ -711,7 +958,7 @@ export function parseArgs(argv: string[]): VenueScoutArgs {
     const flag = argv[i];
     if (!flag.startsWith('--')) throw new Error(`Unexpected argument ${flag}`);
     const key = flag.slice(2);
-    if (!['venue', 'universe', 'cache', 'out', 'coins'].includes(key)) throw new Error(`Unknown flag ${flag}`);
+    if (!['venue', 'universe', 'cache', 'out', 'coins', 'price'].includes(key)) throw new Error(`Unknown flag ${flag}`);
     const value = argv[i + 1];
     if (value === undefined || value.startsWith('--')) throw new Error(`Missing value for ${flag}`);
     flags.set(key, value);
@@ -722,6 +969,9 @@ export function parseArgs(argv: string[]): VenueScoutArgs {
   }
   const venue = flags.get('venue')!;
   if (venue !== 'hyperliquid' && venue !== 'bybit') throw new Error('--venue must be hyperliquid or bybit');
+  const price = flags.get('price');
+  if (price !== undefined && price !== 'premium' && price !== 'real') throw new Error('--price must be premium or real');
+  if (price === 'real' && venue !== 'hyperliquid') throw new Error('--price real is only valid with --venue hyperliquid');
   return {
     venue,
     universe: flags.get('universe')!,
@@ -734,6 +984,7 @@ export function parseArgs(argv: string[]): VenueScoutArgs {
           .map((x) => x.trim())
           .filter(Boolean)
       : null,
+    ...(price === undefined ? {} : { price }),
   };
 }
 
@@ -917,6 +1168,30 @@ async function fetchHyperliquidFunding(coin: string, client: ApiClient, cacheRoo
   return all;
 }
 
+/** Pages Hyperliquid 8h candleSnapshot forward from 2023-01-01; returns the combined raw rows. */
+async function fetchHyperliquidCandles(coin: string, client: ApiClient, cacheRoot: string): Promise<unknown[]> {
+  const end = SCOUT_CUTOFF_MS - 1;
+  const all: unknown[] = [];
+  let start = Date.UTC(2023, 0, 1);
+  for (;;) {
+    const body = hyperliquidCandleBody(coin, start, end);
+    const json = await client.getJson(
+      join(cacheRoot, 'hyperliquid', 'candles', safeName(coin), `${start}-${end}.json`),
+      HYPERLIQUID_URL,
+      postInit(body)
+    );
+    if (!Array.isArray(json)) throw new Error('hyperliquid candleSnapshot: expected an array');
+    if (json.length === 0) break;
+    all.push(...json);
+    const lastTime = toNum(asRecord(json[json.length - 1], 'hyperliquid candleSnapshot row').t);
+    if (!Number.isFinite(lastTime)) throw new Error('hyperliquid candleSnapshot: last row has no open time');
+    if (lastTime >= end) break;
+    start = lastTime + CANDLE_MS;
+    if (start > end) break;
+  }
+  return all;
+}
+
 /** Pages Bybit funding history backward from the cutoff to 2020-01-01; returns a combined response. */
 async function fetchBybitFunding(symbol: string, client: ApiClient, cacheRoot: string): Promise<unknown> {
   const list: unknown[] = [];
@@ -951,6 +1226,7 @@ interface ScoutContext {
   venue: Venue;
   cacheRoot: string;
   client: ApiClient;
+  price: PriceMode;
 }
 
 async function scoutCoin(folder: UniverseFolder, venueSymbol: string, ctx: ScoutContext): Promise<CoinResult> {
@@ -989,6 +1265,18 @@ async function scoutCoin(folder: UniverseFolder, venueSymbol: string, ctx: Scout
   const premiumStore = new ArchiveKlineStore('premiumIndex', folder.name, archiveCache);
   const bybitPremium = ctx.venue === 'bybit' ? new BybitPremiumStore(venueSymbol, ctx.client, ctx.cacheRoot) : null;
   const otherPremium = bybitPremium !== null ? bybitPremium.closes : hyperliquidPremium;
+
+  if (ctx.price === 'real') {
+    const candles = parseHyperliquidCandles(await fetchHyperliquidCandles(venueSymbol, ctx.client, ctx.cacheRoot));
+    for (const level of SPREAD_LEVELS) {
+      for (const ep of detectSpreadEpisodes(base, other, level, window.fromT, window.toT, 8)) {
+        for (const month of monthsBetween(ep.entryT, ep.exitT)) await perpStore.ensure(month);
+        const measure = measureSpreadEpisodeReal(ep, base, other, perpStore.bars, candles, VENUE_COSTS[ctx.venue]);
+        result.episodes.push({ ...ep, ...measure, symbol: folder.name });
+      }
+    }
+    return result;
+  }
 
   for (const level of SPREAD_LEVELS) {
     for (const ep of detectSpreadEpisodes(base, other, level, window.fromT, window.toT)) {
@@ -1036,7 +1324,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   folders = folders.filter((f) => f.fundingMonths.some((m) => m <= SCOUT_LAST_MONTH));
 
   const client = new ApiClient(fetch, MIN_GAP_MS[args.venue]);
-  const ctx: ScoutContext = { venue: args.venue, cacheRoot: args.cache, client };
+  const price: PriceMode = args.price ?? 'premium';
+  const ctx: ScoutContext = { venue: args.venue, cacheRoot: args.cache, client, price };
 
   const listed = args.venue === 'hyperliquid' ? await loadHyperliquidCoins(client, args.cache) : await loadBybitSymbols(client, args.cache);
   const matched: Array<{ folder: UniverseFolder; venueSymbol: string }> = [];
@@ -1085,6 +1374,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       levels: SPREAD_LEVELS,
       costs: VENUE_COSTS[args.venue],
       leverages: SCOUT_LEVERAGES,
+      // Written in real mode only, so the premium-mode report body (and its hash) stays unchanged.
+      ...(price === 'real' ? { price } : {}),
     },
     universeSha256: universe.sha256,
     coins: {
