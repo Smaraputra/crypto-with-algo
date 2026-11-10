@@ -20,6 +20,9 @@ services:
     image: mongo:7
     container_name: crypto-mongodb
     restart: unless-stopped
+    # Cap the WiredTiger cache at 2 GB (the default takes about half of RAM, 3.5 GB here), so research containers on
+    # the same host keep their headroom. The entrypoint prepends mongod and adds --auth.
+    command: ["--wiredTigerCacheSizeGB", "2"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD}
