@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,10 +9,14 @@ import { HOUR_MS } from './carry-sim';
 import { SCOUT_CUTOFF_MS, normaliseSettlements } from './funding-scout';
 import {
   EPS,
+  LIQ_HIGH_MULTIPLE,
+  LIQ_MAINTENANCE,
   LOCKED_PER_SIDE,
   READ_CUTOFF_MS,
   STEP_MS,
+  acquireReadMarkers,
   archiveMonthsForSpan,
+  assertLockBinding,
   assertRequestEnd,
   assertSpanAllowed,
   clusterBootstrapAnnual,
@@ -314,7 +318,8 @@ describe('5. missing prices', () => {
   });
 });
 
-describe('6. liquidation', () => {
+describe('6. liquidation (short leg only, at 2 / 1.05 of its entry open)', () => {
+  // longCoin: sign +1, long Binance, SHORT Hyperliquid, entered at T1. shortCoin: sign -1, long Hyperliquid, SHORT Binance.
   const longCoin = (extra: Partial<Spec>): Spec => ({
     coin: 'L',
     spreads: [0, 0.003, 0.003, 0.003, 0.003, 0.003],
@@ -326,78 +331,87 @@ describe('6. liquidation', () => {
     ...extra,
   });
 
-  it('liquidates a long Binance leg whose step low is 0.4 of its entry', () => {
+  it('defines the multiple as 2 / (1 + 5 percent)', () => {
+    expect(LIQ_MAINTENANCE).toBe(0.05);
+    expect(LIQ_HIGH_MULTIPLE).toBeCloseTo(1.9047619047619047, 15);
+  });
+
+  it('does not liquidate a short Hyperliquid leg whose step high is just below 1.9047 times its entry', () => {
+    // 50 x 1.9047 = 95.235 < 95.2381.
+    const book = run([longCoin({ hOver: { [T(1)]: { open: 50, high: 95.235, low: 50 } } })]);
+    expect(book.positions[0]).toMatchObject({ entryT: T(1), exitT: T(5), reason: 'end' });
+  });
+
+  it('liquidates a short Hyperliquid leg whose step high is 1.905 times its entry, short return -1', () => {
+    // 50 x 1.905 = 95.25. Long Binance leg 101 / 100 - 1 = 0.01, short leg replaced by -1.
     const book = run([
       longCoin({
-        bOver: { [T(1) + 3 * HOUR_MS]: { open: 100, high: 100, low: 0.4 } },
-        hOver: { [T(2)]: flat(48) },
+        hOver: { [T(1)]: { open: 50, high: 95.25, low: 50 } },
+        bOver: { [T(2)]: flat(101) },
       }),
     ]);
     expect(book.positions).toHaveLength(1);
-    // Long leg -1, short Hyperliquid leg -(48 / 50 - 1) = 0.04.
     expectPosition(book.positions[0], {
       entryT: T(1),
       exitT: T(2),
       funding: 0,
-      basis: -1 + 0.04,
-      net: -0.96 - COST,
-      reason: 'liquidated',
-    });
-  });
-
-  it('does not liquidate a long leg that fell 99.4 percent', () => {
-    const book = run([longCoin({ bOver: { [T(1) + 3 * HOUR_MS]: { open: 100, high: 100, low: 0.6 } } })]);
-    expect(book.positions[0].reason).toBe('end');
-  });
-
-  it('liquidates a short Hyperliquid leg whose step high is 2.0 times its entry', () => {
-    const book = run([
-      longCoin({
-        hOver: { [T(1)]: { open: 50, high: 100, low: 50 } },
-        bOver: { [T(2)]: flat(101) },
-      }),
-    ]);
-    expectPosition(book.positions[0], {
-      entryT: T(1),
-      exitT: T(2),
       basis: 0.01 - 1,
       net: -0.99 - COST,
       reason: 'liquidated',
     });
   });
 
-  it('liquidates the long Hyperliquid leg when the sign is -1', () => {
-    const book = run([
-      shortCoin({
-        hOver: { [T(1)]: { open: 50, high: 50, low: 0.2 } },
-        bOver: { [T(2)]: flat(98) },
-      }),
-    ]);
-    // Long Hyperliquid leg -1, short Binance leg -(98 / 100 - 1) = 0.02.
-    expectPosition(book.positions[0], {
-      sign: -1,
-      exitT: T(2),
-      basis: -1 + 0.02,
-      net: -0.98 - COST,
-      reason: 'liquidated',
-    });
+  it('liquidates a short Hyperliquid leg at exactly the multiple and at 2.0 times its entry', () => {
+    const exact = run([longCoin({ hOver: { [T(1)]: { open: 50, high: LIQ_HIGH_MULTIPLE * 50, low: 50 } } })]);
+    expect(exact.positions[0].reason).toBe('liquidated');
+    const double = run([longCoin({ hOver: { [T(1)]: { open: 50, high: 100, low: 50 } } })]);
+    expect(double.positions[0].reason).toBe('liquidated');
   });
 
-  it('liquidates the short Binance leg when the sign is -1', () => {
+  it('tests the high against the entry open, not the open of the step', () => {
+    // Entered at T1 at 50. Step (T2, T3] candle opens at 80 with high 100: 100 / 50 = 2 >= multiple.
+    const book = run([longCoin({ hOver: { [T(2)]: { open: 80, high: 100, low: 80 } } })]);
+    expect(book.positions[0]).toMatchObject({ entryT: T(1), exitT: T(3), reason: 'liquidated' });
+  });
+
+  it('does not liquidate a short Binance leg whose step high is just below 1.9047 times its entry', () => {
+    // 100 x 1.9047 = 190.47 < 190.476.
+    const book = run([shortCoin({ bOver: { [T(1) + HOUR_MS]: { open: 100, high: 190.47, low: 100 } } })]);
+    expect(book.positions[0]).toMatchObject({ sign: -1, entryT: T(1), exitT: T(5), reason: 'end' });
+  });
+
+  it('liquidates a short Binance leg (sign -1) whose step high is 1.905 times its entry, short return -1', () => {
+    // Long Hyperliquid leg 52 / 50 - 1 = 0.04, short Binance leg replaced by -1.
     const book = run([
       shortCoin({
-        bOver: { [T(1) + HOUR_MS]: { open: 100, high: 200, low: 100 } },
+        bOver: { [T(1) + 7 * HOUR_MS]: { open: 100, high: 190.5, low: 100 } },
         hOver: { [T(2)]: flat(52) },
       }),
     ]);
-    // Long Hyperliquid leg 52 / 50 - 1 = 0.04, short Binance leg -1.
     expectPosition(book.positions[0], {
       sign: -1,
+      entryT: T(1),
       exitT: T(2),
       basis: 0.04 - 1,
       net: -0.96 - COST,
       reason: 'liquidated',
     });
+  });
+
+  it('counts a Binance spike in the bar opening T(2) only in the step ending at T(3)', () => {
+    // The bar opening T(2) belongs to the step (T2, T3], not to the step ending at T2, so the position survives T2.
+    const book = run([shortCoin({ bOver: { [T(2)]: { open: 100, high: 300, low: 100 } } })]);
+    expect(book.positions[0]).toMatchObject({ entryT: T(1), exitT: T(3), reason: 'liquidated' });
+  });
+
+  it('never liquidates a long leg: Binance long crashing to 0.001 of its entry', () => {
+    const book = run([longCoin({ bOver: { [T(1) + 3 * HOUR_MS]: { open: 100, high: 100, low: 0.1 } } })]);
+    expect(book.positions[0].reason).toBe('end');
+  });
+
+  it('never liquidates a long leg: Hyperliquid long crashing to 0.001 of its entry', () => {
+    const book = run([shortCoin({ hOver: { [T(1)]: { open: 50, high: 50, low: 0.05 } } })]);
+    expect(book.positions[0].reason).toBe('end');
   });
 
   it('does not liquidate when the long leg doubles and the short leg collapses', () => {
@@ -417,7 +431,48 @@ describe('6. liquidation', () => {
     expect(minus.positions[0].reason).toBe('end');
   });
 
-  it('closes as unavailable, without the liquidation override, when a price at T is missing', () => {
+  it('liquidation takes precedence over unavailability: closes as liquidated at the stored opens of T - 8h', () => {
+    // Entered T1 (opens 100 and 50). Step (T2, T3]: Hyperliquid candle T2 has high 96 (>= 95.238, the multiple times the entry open 50), and the Hyperliquid candle at T3 is missing.
+    // Stored last prices are the opens of T2 (Binance 104, Hyperliquid 48). Funding is counted up to T2:
+    // spreads give b1 = 0.003, b2 = 0.004 - 0.003 = 0.001, b3 = 0.0045 - 0.001 - 0.003 = 0.0005, so (T1, T2] = 0.001 and not 0.0015.
+    // Long Binance return 104 / 100 - 1 = 0.04, short Hyperliquid return -1.
+    const book = run([
+      {
+        coin: 'L',
+        spreads: [0, 0.003, 0.004, 0.0045, 0.0045, 0.0045],
+        bOver: { [T(2)]: flat(104), [T(3)]: flat(130) },
+        hOver: { [T(2)]: { open: 48, high: 96, low: 48 }, [T(3)]: null },
+      },
+    ]);
+    expect(book.positions).toHaveLength(1);
+    expectPosition(book.positions[0], {
+      sign: 1,
+      entryT: T(1),
+      exitT: T(2),
+      funding: 0.001,
+      basis: 0.04 - 1,
+      net: 0.001 + 0.04 - 1 - COST,
+      reason: 'liquidated',
+    });
+  });
+
+  it('liquidation takes precedence over unavailability for a short Binance leg with the Binance bar at T missing', () => {
+    // sign -1: long Hyperliquid, short Binance. Entered T1. Spike in the bar opening T2 + 2h (step (T2, T3]), Binance bar at T3 missing.
+    // Stored opens of T2: Binance 100, Hyperliquid 51. Long Hyperliquid return 51 / 50 - 1 = 0.02, short Binance -1.
+    const book = run([
+      {
+        coin: 'S',
+        spreads: [0, -0.003, -0.003, -0.003, -0.003, -0.003],
+        bOver: { [T(2) + 2 * HOUR_MS]: { open: 100, high: 191, low: 100 }, [T(3)]: null },
+        hOver: { [T(2)]: flat(51) },
+      },
+    ]);
+    expect(book.positions).toHaveLength(1);
+    expect(book.positions[0]).toMatchObject({ sign: -1, entryT: T(1), exitT: T(2), reason: 'liquidated' });
+    expect(book.positions[0].basis).toBeCloseTo(0.02 - 1, 12);
+  });
+
+  it('still closes as unavailable when a price at T is missing and the step had no spike', () => {
     const book = run([
       longCoin({
         bOver: { [T(1) + 3 * HOUR_MS]: { open: 100, high: 100, low: 0.4 } },
@@ -740,6 +795,16 @@ describe('13. assertSpanAllowed', () => {
     expect(() => assertSpanAllowed(READ_CUTOFF_MS, { out })).not.toThrow();
   });
 
+  it('refuses once the marker beside the lock file exists', () => {
+    rmSync(`${out}.read-done`, { force: true });
+    expect(() => assertSpanAllowed(Date.UTC(2026, 6, 1), { out, lockFile: lock, lockSha256: sha })).not.toThrow();
+    writeFileSync(`${lock}.read-done`, 'x');
+    expect(() => assertSpanAllowed(Date.UTC(2026, 6, 1), { out, lockFile: lock, lockSha256: sha })).toThrow(
+      /lock\.md\.read-done/
+    );
+    rmSync(`${lock}.read-done`, { force: true });
+  });
+
   it('main refuses a late span before reading any file or making any request', async () => {
     const args = [
       '--universe', join(dir, 'missing-universe.json'),
@@ -750,6 +815,91 @@ describe('13. assertSpanAllowed', () => {
       '--end', '2024-07-09',
     ];
     await expect(main(args)).rejects.toThrow(/span guard/);
+  });
+});
+
+describe('13b. assertLockBinding', () => {
+  const binding = {
+    universeSha256: 'aa'.repeat(32),
+    metaSha256: 'bb'.repeat(32),
+    fromIso: '2024-07-01T00:00:00.000Z',
+    endIso: '2026-07-01T00:00:00.000Z',
+    coins: null,
+  };
+  const text = `lock ${binding.universeSha256} ${binding.metaSha256} ${binding.fromIso} ${binding.endIso}\n`;
+
+  it('passes when the lock text holds all four strings and coins is null', () => {
+    expect(() => assertLockBinding(text, binding)).not.toThrow();
+  });
+
+  it.each([
+    ['universeSha256', binding.universeSha256],
+    ['metaSha256', binding.metaSha256],
+    ['fromIso', binding.fromIso],
+    ['endIso', binding.endIso],
+  ])('throws when the lock text lacks %s', (name, value) => {
+    expect(() => assertLockBinding(text.replace(value, 'xxxx'), binding)).toThrow(new RegExp(name));
+  });
+
+  it('throws when coins is given, even an empty list', () => {
+    expect(() => assertLockBinding(text, { ...binding, coins: ['BTC'] })).toThrow(/--coins/);
+    expect(() => assertLockBinding(text, { ...binding, coins: [] })).toThrow(/--coins/);
+  });
+});
+
+describe('13c. acquireReadMarkers', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'venue-markers-'));
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  const sha = 'cd'.repeat(32);
+
+  it('creates both markers with a started line, completes them, and refuses a second call', () => {
+    const out = join(dir, 'a-report.json');
+    const lockFile = join(dir, 'a-lock.md');
+    const markers = acquireReadMarkers(out, lockFile, sha);
+    for (const path of [`${out}.read-done`, `${lockFile}.read-done`]) {
+      expect(readFileSync(path, 'utf8')).toMatch(new RegExp(`^started \\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z ${sha}\\n$`));
+    }
+    expect(() => acquireReadMarkers(out, lockFile, sha)).toThrow(/a-report\.json\.read-done/);
+    // The failed second call did not overwrite either marker.
+    for (const path of [`${out}.read-done`, `${lockFile}.read-done`]) {
+      expect(readFileSync(path, 'utf8')).toMatch(/^started /);
+    }
+    markers.complete();
+    for (const path of [`${out}.read-done`, `${lockFile}.read-done`]) {
+      expect(readFileSync(path, 'utf8')).toMatch(new RegExp(`^completed \\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z ${sha}\\n$`));
+    }
+  });
+
+  it('throws on a pre-existing marker beside the lock file and creates nothing', () => {
+    const out = join(dir, 'b-report.json');
+    const lockFile = join(dir, 'b-lock.md');
+    writeFileSync(`${lockFile}.read-done`, 'old\n');
+    expect(() => acquireReadMarkers(out, lockFile, sha)).toThrow(/b-lock\.md\.read-done/);
+    expect(existsSync(`${out}.read-done`)).toBe(false);
+    expect(readFileSync(`${lockFile}.read-done`, 'utf8')).toBe('old\n');
+  });
+
+  it('throws on a pre-existing marker beside the output and leaves it untouched', () => {
+    const out = join(dir, 'c-report.json');
+    const lockFile = join(dir, 'c-lock.md');
+    writeFileSync(`${out}.read-done`, 'old\n');
+    expect(() => acquireReadMarkers(out, lockFile, sha)).toThrow(/c-report\.json\.read-done/);
+    expect(existsSync(`${lockFile}.read-done`)).toBe(false);
+    expect(readFileSync(`${out}.read-done`, 'utf8')).toBe('old\n');
+  });
+
+  it('keeps the first marker and throws when the second creation fails', () => {
+    // The lock marker path has a missing parent directory, so the exclusive create of the second marker fails with ENOENT
+    // after the first marker was created. Nothing is removed.
+    const out = join(dir, 'd-report.json');
+    const lockFile = join(dir, 'missing-dir', 'd-lock.md');
+    expect(() => acquireReadMarkers(out, lockFile, sha)).toThrow();
+    expect(readFileSync(`${out}.read-done`, 'utf8')).toMatch(/^started /);
+    expect(existsSync(`${lockFile}.read-done`)).toBe(false);
   });
 });
 
@@ -913,8 +1063,8 @@ const PARITY_FIXTURE = {
       coin: 'AAA',
       spreads: [0, 0.003, 0.003, 0.0025, -0.001, -0.001, 0.0045, 0.0045, 0.0045, 0.0045, 0.0045, 0.0045],
       bn: { 3: 0.0004, 4: 0.0001 } as Record<number, number>,
-      bOver: { 32: [102, 102, 102], 66: [100, 100, 0.4] } as Record<number, Ohlc>,
-      hOver: { 4: [49, 49, 49], 9: [48, 48, 48] } as Record<number, Ohlc>,
+      bOver: { 32: [102, 102, 102], 66: [100, 100, 0.4], 72: [101, 101, 101] } as Record<number, Ohlc>,
+      hOver: { 4: [49, 49, 49], 8: [50, 96, 50], 9: [48, 48, 48] } as Record<number, Ohlc>,
     },
     {
       coin: 'BBB',
@@ -990,13 +1140,15 @@ function summarise(book: BookResult): { rows: Row[]; counts: BookResult['counts'
 
 // Rows are [coin, sign, entry step, exit step, reason, net], nets rounded to 12 decimals. Derived by hand:
 // AAA first trade net = funding -0.001 + basis 0.04 - 0.0037; BBB net = funding -0.001 - 0.0037;
-// AAA second trade net = funding 0.0045 + basis (-1 + 0.04) - 0.0037 (delay 0) or funding 0.005 (delay 1);
+// AAA second trade: short Hyperliquid leg, candle T(8) high 96 >= 2 / 1.05 x its entry open 50 (95.238), so it is liquidated at T(9)
+// with short return -1 and the long Binance leg 101 / 100 - 1 = 0.01 (the Binance bar low 0.4 at hour 66 is a long-side move and does not matter),
+// basis 0.01 - 1 = -0.99, net = funding 0.0045 - 0.99 - 0.0037 = -0.9892 (delay 0) or funding 0.005 (delay 1) = -0.9887;
 // CCC net = -0.0037 (no funding and no price move).
 const EXPECTED_DELAY0: Expected = {
   rows: [
     ['AAA', 1, 1, 4, 'signal', 0.0353],
     ['BBB', -1, 2, 7, 'signal', -0.0047],
-    ['AAA', 1, 6, 9, 'liquidated', -0.9592],
+    ['AAA', 1, 6, 9, 'liquidated', -0.9892],
     ['CCC', 1, 8, 9, 'unavailable', -0.0037],
   ],
   counts: { noSlot: 1, noPrice: 0, noCoverage: 0 },
@@ -1005,7 +1157,7 @@ const EXPECTED_DELAY1: Expected = {
   rows: [
     ['AAA', 1, 2, 4, 'signal', 0.0353],
     ['BBB', -1, 3, 7, 'signal', -0.0047],
-    ['AAA', 1, 7, 9, 'liquidated', -0.9587],
+    ['AAA', 1, 7, 9, 'liquidated', -0.9887],
     ['CCC', 1, 9, 9, 'unavailable', -0.0037],
   ],
   counts: { noSlot: 1, noPrice: 0, noCoverage: 0 },

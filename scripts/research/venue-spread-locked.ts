@@ -1,15 +1,16 @@
 /**
  * LOCKED READ: BINANCE AGAINST HYPERLIQUID FUNDING SPREAD, FORWARD BOOK SIMULATOR.
  *
- * The specification is `.superpowers/sdd/venue-frontier/lock-draft.md` (v2),
- * sections 3 to 6. This module simulates the whole book causally: at each
+ * The specification is `.superpowers/sdd/venue-frontier/lock-draft.md` (v3),
+ * sections 3 to 6 and 8. This module simulates the whole book causally: at each
  * decision time T on the 8h grid it sees only data at or before T (funding with
  * event time <= T, and the OPEN of the bar at T), closes positions, then opens
  * new ones in a fixed order. There is no precomputed episode list and no post-hoc
  * slot book.
  *
  * Order inside one decision time T (simulateBook):
- *   1. liquidation check of every position held across the step (T - 8h, T];
+ *   1. liquidation check of the SHORT leg of every position held across the step
+ *      (T - 8h, T]; it takes precedence over unavailability;
  *   2. exit test (price availability, end of span, sign flip);
  *   3. entries (crossings of the spread level), or the delayed variant.
  * Ties between crossings: larger |S| first, then Hyperliquid coin name ascending
@@ -17,7 +18,10 @@
  *
  * SPAN GUARD. Any run whose span end is after READ_CUTOFF_MS (2024-07-01 00:00
  * UTC) needs the signed lock file and its sha256, and refuses to run when
- * `<out>.read-done` exists (`assertSpanAllowed`). Every external request builder
+ * `<out>.read-done` or `<lock-file>.read-done` exists (`assertSpanAllowed`). It
+ * must also pass `assertLockBinding` (the lock text names the span and the input
+ * hashes, and `--coins` is not given) and creates both markers exclusively
+ * before any data is loaded (`acquireReadMarkers`). Every external request builder
  * checks its end time against the span end of the run. The older date guards in
  * ./venue-funding-scout and ./funding-scout are not used and not edited.
  *
@@ -69,10 +73,10 @@ export const LOCKED_LEVEL = 0.002;
 export const LOCKED_PER_SIDE = 0.00185;
 export const LOCKED_SEED = 20261111;
 export const LOCKED_HURDLE = 0.05;
-/** Long leg liquidated at a low of this fraction of its entry open or less. */
-const LIQ_LOW_FRACTION = 0.005;
-/** Short leg liquidated at a high of this multiple of its entry open or more. */
-const LIQ_HIGH_MULTIPLE = 1.995;
+/** Maintenance margin of a 1x margined leg. */
+export const LIQ_MAINTENANCE = 0.05;
+/** Short leg liquidated at a high of this multiple of its entry open or more. A 1x long leg is never liquidated. */
+export const LIQ_HIGH_MULTIPLE = 2 / (1 + LIQ_MAINTENANCE);
 
 export interface PriceBar {
   open: number;
@@ -212,34 +216,29 @@ function assertParams(params: LockedParams): void {
 }
 
 /**
- * Whether the long and short legs of a position were liquidated over the step
- * (T - 8h, T]. The long leg is Binance when sign is +1, else Hyperliquid.
+ * Whether the SHORT leg of a position was liquidated over the step (T - 8h, T].
+ * The short leg is Hyperliquid when sign is +1 and Binance when sign is -1. The
+ * long leg is never liquidated. Binance uses the 1h bars opening T - 8h through
+ * T - 1h that exist, Hyperliquid the 8h candle opening T - 8h if it exists.
  */
-function liquidationOver(op: OpenPosition, T: number): { longLiq: boolean; shortLiq: boolean } {
+function liquidationOver(op: OpenPosition, T: number): { longLiq: false; shortLiq: boolean } {
   const stepStart = T - STEP_MS;
-  let bLow = Number.POSITIVE_INFINITY;
-  let bHigh = Number.NEGATIVE_INFINITY;
-  let bSeen = false;
-  for (let k = 0; k < 8; k++) {
-    const bar = op.series.bpx.get(stepStart + k * HOUR_MS);
-    if (bar === undefined) continue;
-    bSeen = true;
-    if (bar.low < bLow) bLow = bar.low;
-    if (bar.high > bHigh) bHigh = bar.high;
-  }
-  const candle = op.series.hpx.get(stepStart);
-
-  const longIsBinance = op.sign === 1;
-  let longLiq = false;
   let shortLiq = false;
-  if (longIsBinance) {
-    if (bSeen) longLiq = bLow <= LIQ_LOW_FRACTION * op.bEntry;
+  if (op.sign === 1) {
+    const candle = op.series.hpx.get(stepStart);
     if (candle !== undefined) shortLiq = candle.high >= LIQ_HIGH_MULTIPLE * op.hEntry;
   } else {
-    if (candle !== undefined) longLiq = candle.low <= LIQ_LOW_FRACTION * op.hEntry;
+    let bHigh = Number.NEGATIVE_INFINITY;
+    let bSeen = false;
+    for (let k = 0; k < 8; k++) {
+      const bar = op.series.bpx.get(stepStart + k * HOUR_MS);
+      if (bar === undefined) continue;
+      bSeen = true;
+      if (bar.high > bHigh) bHigh = bar.high;
+    }
     if (bSeen) shortLiq = bHigh >= LIQ_HIGH_MULTIPLE * op.bEntry;
   }
-  return { longLiq, shortLiq };
+  return { longLiq: false, shortLiq };
 }
 
 function closePosition(
@@ -328,19 +327,21 @@ export function simulateBook(series: readonly CoinSeries[], params: LockedParams
   };
 
   for (let T = fromT; T <= lastT; T += STEP_MS) {
-    // Step 1: liquidation of positions held across the step (T - 8h, T].
+    // Step 1: liquidation of the short leg of positions held across the step (T - 8h, T].
     const afterLiquidation: OpenPosition[] = [];
     for (const op of open) {
       if (op.entryT < T) {
         const liq = liquidationOver(op, T);
-        if (liq.longLiq || liq.shortLiq) {
+        if (liq.shortLiq) {
           const b = op.series.bpx.get(T);
           const h = op.series.hpx.get(T);
           if (b !== undefined && h !== undefined) {
             close(op, T, b.open, h.open, 'liquidated', liq);
-            continue;
+          } else {
+            // A price at T is missing: still liquidated, at the stored opens and time of the last decision time with both prices.
+            close(op, op.lastPriceT, op.lastB, op.lastH, 'liquidated', liq);
           }
-          // A price at T is missing: no liquidation override, the exit test closes it as unavailable.
+          continue;
         }
       }
       afterLiquidation.push(op);
@@ -642,6 +643,57 @@ export function assertSpanAllowed(endMs: number, opts: SpanGuardOpts): void {
   if (existsSync(`${opts.out}.read-done`)) {
     throw new Error(`span guard: ${opts.out}.read-done exists, this span has already been read`);
   }
+  if (existsSync(`${opts.lockFile}.read-done`)) {
+    throw new Error(`span guard: ${opts.lockFile}.read-done exists, this lock has already been read`);
+  }
+}
+
+export interface LockBinding {
+  universeSha256: string;
+  metaSha256: string;
+  fromIso: string;
+  endIso: string;
+  coins: readonly string[] | null;
+}
+
+/**
+ * Binds a read to the lock text: `--coins` must not be given, and the lock text
+ * must contain the sha256 of the universe file bytes, the sha256 of the meta file
+ * bytes, and the run's from and end as ISO strings.
+ */
+export function assertLockBinding(lockText: string, b: LockBinding): void {
+  if (b.coins !== null) throw new Error('lock binding: --coins must not be given for a read span');
+  const required: Array<[string, string]> = [
+    ['universeSha256', b.universeSha256],
+    ['metaSha256', b.metaSha256],
+    ['fromIso', b.fromIso],
+    ['endIso', b.endIso],
+  ];
+  for (const [name, value] of required) {
+    if (!lockText.includes(value)) throw new Error(`lock binding: the lock text does not contain ${name} ${value}`);
+  }
+}
+
+/**
+ * Creates `<out>.read-done` and `<lockFile>.read-done` exclusively with a
+ * `started` line. Throws when either already exists. If the second creation
+ * fails after the first succeeded nothing is removed (the read is consumed).
+ * `complete()` rewrites both with a `completed` line.
+ */
+export function acquireReadMarkers(out: string, lockFile: string, lockSha256: string): { complete: () => void } {
+  const paths = [`${out}.read-done`, `${lockFile}.read-done`];
+  for (const path of paths) {
+    if (existsSync(path)) throw new Error(`read marker: ${path} exists, this span has already been read`);
+  }
+  const line = (word: 'started' | 'completed'): string => `${word} ${new Date().toISOString()} ${lockSha256}\n`;
+  const started = line('started');
+  for (const path of paths) writeFileSync(path, started, { flag: 'wx' });
+  return {
+    complete: () => {
+      const completed = line('completed');
+      for (const path of paths) writeFileSync(path, completed);
+    },
+  };
 }
 
 /** Throws when a request's end time is after the span end of the run. */
@@ -967,8 +1019,27 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   // The guard runs before any file is read or any request is made.
   assertSpanAllowed(args.endT, { out: args.out, lockFile: args.lockFile, lockSha256: args.lockSha256 });
 
-  const universe = JSON.parse(readFileSync(args.universe, 'utf8')) as UniverseSource;
+  const universeBytes = readFileSync(args.universe);
+  const universe = JSON.parse(universeBytes.toString('utf8')) as UniverseSource;
   const metaBytes = readFileSync(args.hlMeta);
+  const universeFileSha256 = sha256Hex(universeBytes);
+  const metaSha256 = sha256Hex(metaBytes);
+
+  // A read span is bound to the lock text and consumed exclusively before any request or data load.
+  let markers: { complete: () => void } | null = null;
+  if (args.endT > READ_CUTOFF_MS) {
+    const lockFile = args.lockFile as string;
+    const lockSha256Arg = args.lockSha256 as string;
+    assertLockBinding(readFileSync(lockFile, 'utf8'), {
+      universeSha256: universeFileSha256,
+      metaSha256,
+      fromIso: new Date(args.fromT).toISOString(),
+      endIso: new Date(args.endT).toISOString(),
+      coins: args.coins,
+    });
+    markers = acquireReadMarkers(args.out, lockFile, lockSha256Arg);
+  }
+
   const listed = new Set(parseHyperliquidMeta(JSON.parse(metaBytes.toString('utf8'))));
 
   const folders = universe.folders
@@ -1062,8 +1133,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const report = {
     params: {
       lockSha256,
-      universeSha256: universe.sha256,
-      metaSha256: sha256Hex(metaBytes),
+      universeFileSha256,
+      universeContentSha256: universe.sha256,
+      metaSha256,
       from: args.fromT,
       end: args.endT,
       fromIso: new Date(args.fromT).toISOString(),
@@ -1082,9 +1154,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   };
   writeFileSync(args.out, `${JSON.stringify(report, null, 2)}\n`);
 
-  if (args.endT > READ_CUTOFF_MS) {
-    writeFileSync(`${args.out}.read-done`, `${lockSha256 ?? ''}\n${new Date().toISOString()}\n`);
-  }
+  if (markers !== null) markers.complete();
 
   const judged = report.summary.delay0;
   console.log(
