@@ -114,6 +114,9 @@
  *   npx tsx scripts/research/venue-funding-scout.ts --venue hyperliquid|bybit \
  *     --universe <universe-source.json> --cache <dir> --out <report.json> [--coins A,B] \
  *     [--price premium|real]
+ *   npx tsx scripts/research/venue-funding-scout.ts --analyse <real-report.json> --from <ISO date> \
+ *     --to <ISO date> [--profile locked] [--level 0.002] [--slots 10] [--seed 20261111] [--hurdle 0.05]
+ *     (offline: the locked read summary of a real-mode report, no network)
  *
  * PRICE MODES. `premium` (default) is the approximation above. `real` (only with
  * --venue hyperliquid) decides on the 8h grid (00:00, 08:00, 16:00 UTC), where both
@@ -172,6 +175,18 @@ export const VENUE_COSTS: Record<Venue, VenueCost[]> = {
     { name: 'taker+10bps', perSide: 0.0005 + 0.00055 + 2 * 0.0013 },
   ],
 };
+
+/**
+ * The judged cost profile of the locked read, per side for both legs: Binance 5 bps fee + 2 bps slippage
+ * (ASSUMED, unmeasured), Hyperliquid 4.5 bps fee + 7 bps slippage (median over 179 coins for a 1,000 USD
+ * market order, 2026-11-11). perSide is 0.00185.
+ */
+export const LOCKED_COSTS: VenueCost[] = [{ name: 'locked', perSide: 0.0005 + 0.0002 + 0.00045 + 0.0007 }];
+
+/** The cost profiles of the real-price branch: the judged `locked` profile first, then the scouted ones. */
+export function realCostProfiles(venue: Venue): VenueCost[] {
+  return [...LOCKED_COSTS, ...VENUE_COSTS[venue]];
+}
 
 const TAKER = 'taker';
 const MAKER = 'maker';
@@ -713,38 +728,41 @@ export interface VenueSlotBookResult {
   slotUse: number;
   perpLiquidations1x: number;
   byYear: Record<string, { n: number; sumNet: number; returnOnCapital: number }>;
+  /** Taken rows that were truncated (closed at the span end). Always 0 unless `includeTruncated`. */
+  closedAtEnd: number;
+  /** Sum of the nets (for the profile) of those rows. */
+  closedAtEndNet: number;
 }
 
-/**
- * K fixed slots, first come first served, as `slotBook` in ./funding-scout but
- * with the span as parameters and the net of cost profile `profile`. Eligible
- * rows (status 'ok', not truncated, a net for the profile) are taken in
- * (entryT, symbol) order into the slot that frees earliest (lowest index on
- * ties) when that slot is free by the row's entryT; otherwise the row is skipped.
- * Capital is `capitalPerUnit` per unit of notional per slot.
- */
-export function venueSlotBook(
+function runVenueSlotBook(
   rows: readonly VenueSlotRow[],
   slots: number,
   level: number,
   spanFromMs: number,
   spanToMs: number,
-  capitalPerUnit = 2,
-  profile = TAKER
-): VenueSlotBookResult {
+  capitalPerUnit: number,
+  profile: string,
+  includeTruncated: boolean
+): { result: VenueSlotBookResult; takenRows: VenueSlotRow[] } {
   const eligible = rows
     .filter(
       (r) =>
-        r.level === level && r.status === 'ok' && !r.truncated && r.net !== null && r.net[profile] !== undefined
+        r.level === level &&
+        r.status === 'ok' &&
+        (includeTruncated || !r.truncated) &&
+        r.net !== null &&
+        r.net[profile] !== undefined
     )
     .sort((a, b) => a.entryT - b.entryT || (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
 
   const spanMs = spanToMs - spanFromMs;
   const capital = slots * capitalPerUnit;
   const freeAt = new Array<number>(slots).fill(0);
-  let taken = 0;
+  const takenRows: VenueSlotRow[] = [];
   let totalNet = 0;
   let slotUse = 0;
+  let closedAtEnd = 0;
+  let closedAtEndNet = 0;
   const byYear: VenueSlotBookResult['byYear'] = {};
 
   for (const row of eligible) {
@@ -753,8 +771,12 @@ export function venueSlotBook(
     if (freeAt[best] > row.entryT) continue;
     freeAt[best] = row.exitT;
     const net = (row.net as Record<string, number>)[profile];
-    taken++;
+    takenRows.push(row);
     totalNet += net;
+    if (row.truncated) {
+      closedAtEnd++;
+      closedAtEndNet += net;
+    }
     slotUse += (row.exitT - row.entryT) / (slots * spanMs);
     const year = String(new Date(row.entryT).getUTCFullYear());
     const entry = byYear[year] ?? { n: 0, sumNet: 0, returnOnCapital: 0 };
@@ -766,16 +788,181 @@ export function venueSlotBook(
 
   const years = spanMs / (365 * 24 * HOUR_MS);
   return {
-    level,
+    result: {
+      level,
+      slots,
+      profile,
+      eligible: eligible.length,
+      taken: takenRows.length,
+      totalNet,
+      annualReturnOnCapital: totalNet / capital / years,
+      slotUse,
+      perpLiquidations1x: eligible.filter((r) => r.worstLeg !== null && r.worstLeg >= 1 - MAINTENANCE_MARGIN).length,
+      byYear,
+      closedAtEnd,
+      closedAtEndNet,
+    },
+    takenRows,
+  };
+}
+
+/**
+ * K fixed slots, first come first served, as `slotBook` in ./funding-scout but
+ * with the span as parameters and the net of cost profile `profile`. Eligible
+ * rows (status 'ok', not truncated, a net for the profile) are taken in
+ * (entryT, symbol) order into the slot that frees earliest (lowest index on
+ * ties) when that slot is free by the row's entryT; otherwise the row is skipped.
+ * Capital is `capitalPerUnit` per unit of notional per slot. With
+ * `includeTruncated` the truncated rows (positions still open at the span end,
+ * closed at their exitT) are eligible too and reported as `closedAtEnd`.
+ */
+export function venueSlotBook(
+  rows: readonly VenueSlotRow[],
+  slots: number,
+  level: number,
+  spanFromMs: number,
+  spanToMs: number,
+  capitalPerUnit = 2,
+  profile = TAKER,
+  options: { includeTruncated?: boolean } = {}
+): VenueSlotBookResult {
+  return runVenueSlotBook(
+    rows,
     slots,
+    level,
+    spanFromMs,
+    spanToMs,
+    capitalPerUnit,
     profile,
-    eligible: eligible.length,
+    options.includeTruncated === true
+  ).result;
+}
+
+// ---------------------------------------------------------------------------
+// Locked read: bootstrap interval and summary
+// ---------------------------------------------------------------------------
+
+/** The standard mulberry32 generator: uniform draws in [0, 1) from a 32-bit seed. */
+export function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Percentile bootstrap of the mean: `resamples` resamples of size n, indices
+ * floor(rng() x n) from one mulberry32(seed) stream drawn in order, interval
+ * [quantile(alpha / 2), quantile(1 - alpha / 2)] of the sorted resample means.
+ * `mean` is the plain mean of `values`. Null for an empty input.
+ */
+export function bootstrapMeanCI(
+  values: readonly number[],
+  seed: number,
+  resamples = 10000,
+  alpha = 0.05
+): { mean: number; lo: number; hi: number } | null {
+  const n = values.length;
+  if (n === 0) return null;
+  const rng = mulberry32(seed);
+  const means: number[] = [];
+  for (let r = 0; r < resamples; r++) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += values[Math.floor(rng() * n)];
+    means.push(sum / n);
+  }
+  means.sort((a, b) => a - b);
+  return {
+    mean: values.reduce((a, b) => a + b, 0) / n,
+    lo: quantile(means, alpha / 2) as number,
+    hi: quantile(means, 1 - alpha / 2) as number,
+  };
+}
+
+export interface LockedReadParams {
+  level: number;
+  slots: number;
+  spanFromMs: number;
+  spanToMs: number;
+  profile: string;
+  seed: number;
+  hurdle: number;
+}
+
+export interface LockedReadSummary {
+  book: VenueSlotBookResult;
+  /** Nets (for the profile) of the rows the slot book took, in taking order. */
+  taken: number[];
+  ci: { mean: number; lo: number; hi: number } | null;
+  pass: boolean;
+  byHalfYear: Record<string, { n: number; sumNet: number; returnOnCapital: number }>;
+  worst: { net: number; symbol: string; entryT: number } | null;
+  /** Rows of the level that could not be measured, by status. */
+  excluded: { 'no-price': number; gap: number; empty: number };
+  distinctCoins: number;
+}
+
+/**
+ * The judged summary of the locked read (lock draft sections 4 to 6): the slot
+ * book with positions still open at the span end closed and counted, the
+ * bootstrap interval on the mean net per taken position, and the PASS rule
+ * (annual return on capital at or above the hurdle AND interval lower end above 0).
+ * Pure: no I/O.
+ */
+export function lockedReadSummary(rows: readonly VenueSlotRow[], params: LockedReadParams): LockedReadSummary {
+  const { level, slots, spanFromMs, spanToMs, profile, seed, hurdle } = params;
+  const { result: book, takenRows } = runVenueSlotBook(
+    rows,
+    slots,
+    level,
+    spanFromMs,
+    spanToMs,
+    2,
+    profile,
+    true
+  );
+  const netOf = (row: VenueSlotRow): number => (row.net as Record<string, number>)[profile];
+  const taken = takenRows.map(netOf);
+  const ci = bootstrapMeanCI(taken, seed);
+  const pass = book.annualReturnOnCapital >= hurdle && ci !== null && ci.lo > 0;
+
+  const capital = slots * 2;
+  const byHalfYear: LockedReadSummary['byHalfYear'] = {};
+  for (const row of takenRows) {
+    const date = new Date(row.entryT);
+    const key = `${date.getUTCFullYear()}-H${date.getUTCMonth() < 6 ? 1 : 2}`;
+    const entry = byHalfYear[key] ?? { n: 0, sumNet: 0, returnOnCapital: 0 };
+    entry.n++;
+    entry.sumNet += netOf(row);
+    entry.returnOnCapital = entry.sumNet / capital;
+    byHalfYear[key] = entry;
+  }
+
+  let worst: LockedReadSummary['worst'] = null;
+  for (const row of takenRows) {
+    const net = netOf(row);
+    if (worst === null || net < worst.net) worst = { net, symbol: row.symbol, entryT: row.entryT };
+  }
+
+  const excluded = { 'no-price': 0, gap: 0, empty: 0 };
+  for (const row of rows) {
+    if (row.level !== level) continue;
+    if (row.status === 'no-price' || row.status === 'gap' || row.status === 'empty') excluded[row.status]++;
+  }
+
+  return {
+    book,
     taken,
-    totalNet,
-    annualReturnOnCapital: totalNet / capital / years,
-    slotUse,
-    perpLiquidations1x: eligible.filter((r) => r.worstLeg !== null && r.worstLeg >= 1 - MAINTENANCE_MARGIN).length,
-    byYear,
+    ci,
+    pass,
+    byHalfYear,
+    worst,
+    excluded,
+    distinctCoins: new Set(takenRows.map((row) => row.symbol)).size,
   };
 }
 
@@ -940,6 +1127,18 @@ export function bybitSymbolFor(folder: string, listed: ReadonlySet<string>): str
 // CLI
 // ---------------------------------------------------------------------------
 
+/** The offline `--analyse` mode: reads a real-mode report and prints the locked read summary. */
+export interface AnalyseArgs {
+  report: string;
+  fromMs: number;
+  toMs: number;
+  profile: string;
+  level: number;
+  slots: number;
+  seed: number;
+  hurdle: number;
+}
+
 export interface VenueScoutArgs {
   venue: Venue;
   universe: string;
@@ -948,9 +1147,62 @@ export interface VenueScoutArgs {
   coins: string[] | null;
   /** Absent means 'premium' (the default). 'real' needs --venue hyperliquid. */
   price?: PriceMode;
+  /** Present only with --analyse (offline). The other fields are then placeholders and unused. */
+  analyse?: AnalyseArgs;
 }
 
 export type PriceMode = 'premium' | 'real';
+
+const ANALYSE_ONLY_FLAGS = ['from', 'to', 'profile', 'level', 'slots', 'seed', 'hurdle'];
+const ANALYSE_EXCLUDED_FLAGS = ['venue', 'universe', 'cache', 'out', 'coins', 'price'];
+
+function parseDateFlag(flags: ReadonlyMap<string, string>, name: string): number {
+  const raw = flags.get(name);
+  if (raw === undefined) throw new Error(`--${name} is required with --analyse`);
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) throw new Error(`--${name} must be an ISO date`);
+  return ms;
+}
+
+function parseNumberFlag(flags: ReadonlyMap<string, string>, name: string, fallback: number): number {
+  const raw = flags.get(name);
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (raw.trim() === '' || !Number.isFinite(value)) throw new Error(`--${name} must be a number`);
+  return value;
+}
+
+function parseAnalyseArgs(flags: ReadonlyMap<string, string>): VenueScoutArgs {
+  for (const flag of ANALYSE_EXCLUDED_FLAGS) {
+    if (flags.has(flag)) throw new Error(`--analyse cannot be combined with --${flag}`);
+  }
+  const fromMs = parseDateFlag(flags, 'from');
+  const toMs = parseDateFlag(flags, 'to');
+  if (toMs <= fromMs) throw new Error('--to must be after --from');
+  const slots = parseNumberFlag(flags, 'slots', 10);
+  if (!Number.isInteger(slots) || slots < 1) throw new Error('--slots must be a positive integer');
+  const seed = parseNumberFlag(flags, 'seed', 20261111);
+  if (!Number.isInteger(seed)) throw new Error('--seed must be an integer');
+  const level = parseNumberFlag(flags, 'level', 0.002);
+  if (level <= 0) throw new Error('--level must be positive');
+  return {
+    venue: 'hyperliquid',
+    universe: '',
+    cache: '',
+    out: '',
+    coins: null,
+    analyse: {
+      report: flags.get('analyse')!,
+      fromMs,
+      toMs,
+      profile: flags.get('profile') ?? 'locked',
+      level,
+      slots,
+      seed,
+      hurdle: parseNumberFlag(flags, 'hurdle', 0.05),
+    },
+  };
+}
 
 export function parseArgs(argv: string[]): VenueScoutArgs {
   const flags = new Map<string, string>();
@@ -958,11 +1210,19 @@ export function parseArgs(argv: string[]): VenueScoutArgs {
     const flag = argv[i];
     if (!flag.startsWith('--')) throw new Error(`Unexpected argument ${flag}`);
     const key = flag.slice(2);
-    if (!['venue', 'universe', 'cache', 'out', 'coins', 'price'].includes(key)) throw new Error(`Unknown flag ${flag}`);
+    if (
+      !['venue', 'universe', 'cache', 'out', 'coins', 'price', 'analyse', ...ANALYSE_ONLY_FLAGS].includes(key)
+    ) {
+      throw new Error(`Unknown flag ${flag}`);
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith('--')) throw new Error(`Missing value for ${flag}`);
     flags.set(key, value);
     i++;
+  }
+  if (flags.has('analyse')) return parseAnalyseArgs(flags);
+  for (const flag of ANALYSE_ONLY_FLAGS) {
+    if (flags.has(flag)) throw new Error(`--${flag} is only valid with --analyse`);
   }
   for (const required of ['venue', 'universe', 'cache', 'out']) {
     if (!flags.has(required)) throw new Error(`--${required} is required`);
@@ -1271,7 +1531,7 @@ async function scoutCoin(folder: UniverseFolder, venueSymbol: string, ctx: Scout
     for (const level of SPREAD_LEVELS) {
       for (const ep of detectSpreadEpisodes(base, other, level, window.fromT, window.toT, 8)) {
         for (const month of monthsBetween(ep.entryT, ep.exitT)) await perpStore.ensure(month);
-        const measure = measureSpreadEpisodeReal(ep, base, other, perpStore.bars, candles, VENUE_COSTS[ctx.venue]);
+        const measure = measureSpreadEpisodeReal(ep, base, other, perpStore.bars, candles, realCostProfiles(ctx.venue));
         result.episodes.push({ ...ep, ...measure, symbol: folder.name });
       }
     }
@@ -1306,8 +1566,55 @@ function fmt(value: number | null, digits = 4): string {
   return value === null ? 'n/a' : value.toFixed(digits);
 }
 
+/**
+ * The slot-book rows of a saved report ({ episodes: [...] }). A real-mode report
+ * carries `net` (all cost profiles). An older report carries only netTaker and
+ * netMaker, which become the `taker` and `maker` profiles.
+ */
+export function reportRows(json: unknown): VenueSlotRow[] {
+  const report = asRecord(json, 'report');
+  if (!Array.isArray(report.episodes)) throw new Error('report.episodes: expected an array');
+  return report.episodes.map((item) => {
+    const ep = asRecord(item, 'report episode');
+    let net: Record<string, number> | null = null;
+    if (typeof ep.net === 'object' && ep.net !== null && !Array.isArray(ep.net)) {
+      net = ep.net as Record<string, number>;
+    } else if (typeof ep.netTaker === 'number' || typeof ep.netMaker === 'number') {
+      net = {};
+      if (typeof ep.netTaker === 'number') net[TAKER] = ep.netTaker;
+      if (typeof ep.netMaker === 'number') net[MAKER] = ep.netMaker;
+    }
+    return {
+      symbol: String(ep.symbol),
+      level: toNum(ep.level),
+      entryT: toNum(ep.entryT),
+      exitT: toNum(ep.exitT),
+      status: ep.status as SpreadStatus,
+      truncated: ep.truncated === true,
+      net,
+      worstLeg: typeof ep.worstLeg === 'number' ? ep.worstLeg : null,
+    };
+  });
+}
+
+function analyseReport(args: AnalyseArgs): number {
+  const rows = reportRows(JSON.parse(readFileSync(args.report, 'utf8')) as unknown);
+  const result = lockedReadSummary(rows, {
+    level: args.level,
+    slots: args.slots,
+    spanFromMs: args.fromMs,
+    spanToMs: args.toMs,
+    profile: args.profile,
+    seed: args.seed,
+    hurdle: args.hurdle,
+  });
+  console.log(JSON.stringify(result, null, 2));
+  return 0;
+}
+
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
+  if (args.analyse !== undefined) return analyseReport(args.analyse);
   const universe = JSON.parse(readFileSync(args.universe, 'utf8')) as UniverseSource;
 
   let folders: UniverseFolder[];
@@ -1372,7 +1679,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       from: SCOUT_FROM_MS,
       cutoff: SCOUT_CUTOFF_MS,
       levels: SPREAD_LEVELS,
-      costs: VENUE_COSTS[args.venue],
+      costs: price === 'real' ? realCostProfiles(args.venue) : VENUE_COSTS[args.venue],
       leverages: SCOUT_LEVERAGES,
       // Written in real mode only, so the premium-mode report body (and its hash) stays unchanged.
       ...(price === 'real' ? { price } : {}),
@@ -1397,6 +1704,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       basisApprox: ep.basisApprox,
       netTaker: ep.net?.[TAKER] ?? null,
       netMaker: ep.net?.[MAKER] ?? null,
+      // Written in real mode only (the locked profile has no netX field), so the premium-mode body stays unchanged.
+      ...(price === 'real' ? { net: ep.net } : {}),
       worstLeg: ep.worstLeg,
       holdHours: ep.holdHours,
     })),

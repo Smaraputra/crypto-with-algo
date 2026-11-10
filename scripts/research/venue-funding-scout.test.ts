@@ -6,9 +6,11 @@ import type { KlineCsvRow } from '@/lib/external/binance-archive';
 import { HOUR_MS } from './carry-sim';
 import { SCOUT_CUTOFF_MS, SCOUT_FROM_MS } from './funding-scout';
 import {
+  LOCKED_COSTS,
   SPREAD_LEVELS,
   VENUE_COSTS,
   assertEndAllowed,
+  bootstrapMeanCI,
   bybitFundingUrl,
   bybitPremiumUrl,
   bybitSymbolFor,
@@ -16,8 +18,10 @@ import {
   hyperliquidCandleBody,
   hyperliquidCoinFor,
   hyperliquidFundingBody,
+  lockedReadSummary,
   measureSpreadEpisode,
   measureSpreadEpisodeReal,
+  mulberry32,
   parseArgs,
   parseBybitFunding,
   parseBybitInstruments,
@@ -25,6 +29,8 @@ import {
   parseHyperliquidCandles,
   parseHyperliquidFunding,
   parseHyperliquidMeta,
+  realCostProfiles,
+  reportRows,
   scanWindow,
   summariseSpread,
   trailingSum,
@@ -456,6 +462,173 @@ describe('venueSlotBook', () => {
     expect(r.taken).toBe(3);
     expect(r.totalNet).toBeCloseTo(0.05, 12);
   });
+
+  it('takes a truncated row only with includeTruncated and counts it as closed at the end', () => {
+    const truncated = row({ symbol: 'E', entryT: h(200), exitT: h(300), truncated: true, net: { taker: 0.03, maker: 0.04 } });
+    const without = venueSlotBook([...rows, truncated], 2, 0.001, spanFrom, spanTo);
+    expect(without.taken).toBe(3);
+    expect(without.closedAtEnd).toBe(0);
+    expect(without.closedAtEndNet).toBe(0);
+    expect(without.totalNet).toBeCloseTo(0.05, 12);
+
+    const withIt = venueSlotBook([...rows, truncated], 2, 0.001, spanFrom, spanTo, 2, 'taker', { includeTruncated: true });
+    expect(withIt.eligible).toBe(5);
+    expect(withIt.taken).toBe(4);
+    expect(withIt.closedAtEnd).toBe(1);
+    expect(withIt.closedAtEndNet).toBeCloseTo(0.03, 12);
+    expect(withIt.totalNet).toBeCloseTo(0.08, 12);
+
+    const off = venueSlotBook([...rows, truncated], 2, 0.001, spanFrom, spanTo, 2, 'taker', { includeTruncated: false });
+    expect(off.closedAtEnd).toBe(0);
+    expect(off.taken).toBe(3);
+  });
+});
+
+describe('mulberry32', () => {
+  it('reproduces the reference sequence for seed 1 and is deterministic per seed', () => {
+    const rng = mulberry32(1);
+    expect(rng()).toBeCloseTo(0.6270739405881613, 15);
+    expect(rng()).toBeCloseTo(0.002735721180215478, 15);
+    expect(rng()).toBeCloseTo(0.5274470399599522, 15);
+    const a = mulberry32(42);
+    const b = mulberry32(42);
+    for (let i = 0; i < 20; i++) expect(a()).toBe(b());
+    expect(mulberry32(2)()).not.toBe(mulberry32(1)());
+  });
+});
+
+describe('bootstrapMeanCI', () => {
+  it('returns the plain mean with an ordered, reproducible interval', () => {
+    const ci = bootstrapMeanCI([1, 2, 3, 4, 5], 7, 1000);
+    expect(ci).not.toBeNull();
+    expect(ci!.mean).toBe(3);
+    expect(ci!.lo).toBeLessThanOrEqual(ci!.mean);
+    expect(ci!.mean).toBeLessThanOrEqual(ci!.hi);
+    expect(bootstrapMeanCI([1, 2, 3, 4, 5], 7, 1000)).toEqual(ci);
+  });
+  it('is null for no values and degenerate for a constant array', () => {
+    expect(bootstrapMeanCI([], 1)).toBeNull();
+    expect(bootstrapMeanCI([2, 2, 2], 1)).toEqual({ mean: 2, lo: 2, hi: 2 });
+  });
+});
+
+describe('locked costs and real-mode profiles', () => {
+  it('has the locked profile at 0.00185 a side and lists it first in real mode', () => {
+    expect(LOCKED_COSTS).toHaveLength(1);
+    expect(LOCKED_COSTS[0].name).toBe('locked');
+    expect(LOCKED_COSTS[0].perSide).toBeCloseTo(0.00185, 12);
+    expect(realCostProfiles('hyperliquid').map((c) => c.name)).toEqual(['locked', 'taker', 'maker', 'taker+10bps']);
+    expect(realCostProfiles('hyperliquid').slice(1)).toEqual(VENUE_COSTS.hyperliquid);
+    expect(VENUE_COSTS.hyperliquid.map((c) => c.name)).toEqual(['taker', 'maker', 'taker+10bps']);
+  });
+});
+
+describe('lockedReadSummary', () => {
+  function row(partial: Partial<VenueSlotRow>): VenueSlotRow {
+    return {
+      symbol: 'A',
+      level: 0.002,
+      entryT: Date.UTC(2024, 7, 1),
+      exitT: Date.UTC(2024, 7, 2),
+      status: 'ok',
+      truncated: false,
+      net: { locked: 0.01 },
+      worstLeg: 0.1,
+      ...partial,
+    };
+  }
+  const day = 24 * HOUR_MS;
+  const spanFrom = Date.UTC(2024, 6, 1);
+  const spanTo = spanFrom + 730 * day;
+  const params = { level: 0.002, slots: 2, spanFromMs: spanFrom, spanToMs: spanTo, profile: 'locked', seed: 5, hurdle: 0.001 };
+
+  // Six rows, 2 slots (capital 4), a two-year span.
+  //   A 2024-08-01 net 0.02 (H2 2024), B 2024-09-01 net 0.03 (H2 2024), C 2025-02-01 net 0.01 (H1 2025),
+  //   D 2025-08-01 net 0.04 (H2 2025, truncated, closed at the end), A again 2025-09-01 net 0.02 (H2 2025),
+  //   a level-0.001 row (ignored), and the unmeasured rows below.
+  // None overlap in time, so every eligible row is taken: 5 taken, totalNet 0.12, annual 0.12 / 4 / 2 = 0.015.
+  const taken: VenueSlotRow[] = [
+    row({ symbol: 'A', entryT: Date.UTC(2024, 7, 1), exitT: Date.UTC(2024, 7, 3), net: { locked: 0.02 } }),
+    row({ symbol: 'B', entryT: Date.UTC(2024, 8, 1), exitT: Date.UTC(2024, 8, 3), net: { locked: 0.03 } }),
+    row({ symbol: 'C', entryT: Date.UTC(2025, 1, 1), exitT: Date.UTC(2025, 1, 3), net: { locked: 0.01 } }),
+    row({ symbol: 'D', entryT: Date.UTC(2025, 7, 1), exitT: Date.UTC(2025, 7, 3), truncated: true, net: { locked: 0.04 } }),
+    row({ symbol: 'A', entryT: Date.UTC(2025, 8, 1), exitT: Date.UTC(2025, 8, 3), net: { locked: 0.02 } }),
+  ];
+  const noise: VenueSlotRow[] = [
+    row({ symbol: 'L', level: 0.001, net: { locked: 9 } }),
+    row({ symbol: 'L', level: 0.001, status: 'no-price', net: null }),
+    row({ symbol: 'P', status: 'no-price', net: null }),
+    row({ symbol: 'Q', status: 'no-price', net: null }),
+    row({ symbol: 'G', status: 'gap', net: null }),
+    row({ symbol: 'E', status: 'empty', net: null }),
+  ];
+
+  it('computes the book, half-years, worst, exclusions and distinct coins', () => {
+    const r = lockedReadSummary([...noise, ...taken], params);
+    expect(r.book.taken).toBe(5);
+    expect(r.book.closedAtEnd).toBe(1);
+    expect(r.book.closedAtEndNet).toBeCloseTo(0.04, 12);
+    expect(r.book.totalNet).toBeCloseTo(0.12, 12);
+    expect(r.book.annualReturnOnCapital).toBeCloseTo(0.015, 12);
+    expect(r.taken).toEqual([0.02, 0.03, 0.01, 0.04, 0.02]);
+    expect(Object.keys(r.byHalfYear).sort()).toEqual(['2024-H2', '2025-H1', '2025-H2']);
+    expect(r.byHalfYear['2024-H2'].n).toBe(2);
+    expect(r.byHalfYear['2024-H2'].sumNet).toBeCloseTo(0.05, 12);
+    expect(r.byHalfYear['2024-H2'].returnOnCapital).toBeCloseTo(0.05 / 4, 12);
+    expect(r.byHalfYear['2025-H1']).toEqual({ n: 1, sumNet: 0.01, returnOnCapital: 0.01 / 4 });
+    expect(r.byHalfYear['2025-H2'].n).toBe(2);
+    expect(r.byHalfYear['2025-H2'].sumNet).toBeCloseTo(0.06, 12);
+    expect(r.worst).toEqual({ net: 0.01, symbol: 'C', entryT: Date.UTC(2025, 1, 1) });
+    expect(r.excluded).toEqual({ 'no-price': 2, gap: 1, empty: 1 });
+    expect(r.distinctCoins).toBe(4);
+    expect(r.ci).toEqual(bootstrapMeanCI(r.taken, params.seed));
+  });
+
+  it('passes when the return clears the hurdle and the interval lower end is above 0', () => {
+    const r = lockedReadSummary(taken, params);
+    expect(r.ci!.lo).toBeGreaterThan(0);
+    expect(r.pass).toBe(true);
+  });
+
+  it('fails when the hurdle is above the return', () => {
+    const r = lockedReadSummary(taken, { ...params, hurdle: 0.02 });
+    expect(r.book.annualReturnOnCapital).toBeCloseTo(0.015, 12);
+    expect(r.ci!.lo).toBeGreaterThan(0);
+    expect(r.pass).toBe(false);
+  });
+
+  it('fails when one huge negative net pulls the interval lower end to 0 or below', () => {
+    const bad = row({ symbol: 'Z', entryT: Date.UTC(2025, 10, 1), exitT: Date.UTC(2025, 10, 3), net: { locked: -0.5 } });
+    const r = lockedReadSummary([...taken, bad], { ...params, hurdle: -1 });
+    expect(r.ci!.lo).toBeLessThanOrEqual(0);
+    expect(r.pass).toBe(false);
+  });
+
+  it('returns a null interval and no worst for an empty book', () => {
+    const r = lockedReadSummary(noise, params);
+    expect(r.book.taken).toBe(0);
+    expect(r.ci).toBeNull();
+    expect(r.worst).toBeNull();
+    expect(r.pass).toBe(false);
+    expect(r.distinctCoins).toBe(0);
+  });
+});
+
+describe('reportRows', () => {
+  it('reads net when present and falls back to netTaker and netMaker', () => {
+    const base = { symbol: 'A', level: 0.002, entryT: 1, exitT: 2, status: 'ok', truncated: false, worstLeg: 0.1 };
+    const rows = reportRows({
+      episodes: [
+        { ...base, net: { locked: 0.01 } },
+        { ...base, netTaker: 0.02, netMaker: 0.03 },
+        { ...base, netTaker: null, netMaker: null },
+      ],
+    });
+    expect(rows[0].net).toEqual({ locked: 0.01 });
+    expect(rows[1].net).toEqual({ taker: 0.02, maker: 0.03 });
+    expect(rows[2].net).toBeNull();
+    expect(() => reportRows({})).toThrow(/episodes/);
+  });
 });
 
 describe('summariseSpread', () => {
@@ -703,6 +876,33 @@ describe('data discipline and args', () => {
     );
     expect(() => parseArgs(['--venue', 'okx', '--universe', 'u', '--cache', 'c', '--out', 'o'])).toThrow(/--venue/);
     expect(() => parseArgs(['--venue', 'bybit', '--universe', 'u', '--cache', 'c'])).toThrow(/--out is required/);
+  });
+  it('parses --analyse with its defaults and rejects bad combinations', () => {
+    const parsed = parseArgs(['--analyse', 'r.json', '--from', '2024-07-01', '--to', '2026-07-01']);
+    expect(parsed.analyse).toEqual({
+      report: 'r.json',
+      fromMs: Date.UTC(2024, 6, 1),
+      toMs: Date.UTC(2026, 6, 1),
+      profile: 'locked',
+      level: 0.002,
+      slots: 10,
+      seed: 20261111,
+      hurdle: 0.05,
+    });
+    const custom = parseArgs([
+      '--analyse', 'r.json', '--from', '2024-07-01', '--to', '2026-07-01',
+      '--profile', 'taker', '--level', '0.001', '--slots', '5', '--seed', '3', '--hurdle', '0.1',
+    ]);
+    expect(custom.analyse).toMatchObject({ profile: 'taker', level: 0.001, slots: 5, seed: 3, hurdle: 0.1 });
+    expect(() =>
+      parseArgs(['--analyse', 'r.json', '--venue', 'hyperliquid', '--from', '2024-07-01', '--to', '2026-07-01'])
+    ).toThrow(/--analyse/);
+    expect(() => parseArgs(['--analyse', 'r.json', '--to', '2026-07-01'])).toThrow(/--from/);
+    expect(() => parseArgs(['--analyse', 'r.json', '--from', '2024-07-01'])).toThrow(/--to/);
+    expect(() => parseArgs(['--venue', 'hyperliquid', '--universe', 'u', '--cache', 'c', '--out', 'o', '--from', '2024-07-01'])).toThrow(
+      /--analyse/
+    );
+    expect('analyse' in parseArgs(['--venue', 'bybit', '--universe', 'u', '--cache', 'c', '--out', 'o'])).toBe(false);
   });
   it('keeps the spread levels and cost profile names stable', () => {
     expect(SPREAD_LEVELS).toEqual([0.001, 0.002, 0.005]);
