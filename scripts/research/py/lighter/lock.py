@@ -25,8 +25,9 @@ file is absent or anything differs. (eligibility and scalescan do not need it: t
 
 DATA (every read goes through lighter/data.py, which enforces the span guards)
 - Fold: <fold>/v1/date=YYYY-MM-DD.parquet, one row per (market_id, UTC minute), the fold manifest
-  <fold>/manifest.jsonl and the market list <fold>/markets.json (markets_file_version 2, static fields only). Prices
-  are raw integers, real price = raw / 10^supported_price_decimals. FILL_DELAY_MS = 500 is imported from fold_trades.
+  <fold>/manifest.jsonl and the market list <fold>/markets.json (markets_file_version 2 or 3, static fields only).
+  Prices are raw integers, real price = raw / 10^supported_price_decimals. FILL_DELAY_MS = 500 is imported from
+  fold_trades.
 - Binance 1m bars: <dir>/<SYMBOL>/<SYMBOL>-1m-YYYY-MM.csv.gz (open_time, open, high, low, close, volume,
   quote_volume, trades, taker_buy_base, taker_buy_quote). A row outside its file's month or a duplicate open_time is an
   error.
@@ -39,8 +40,13 @@ DATA (every read goes through lighter/data.py, which enforces the span guards)
 
 MARKET LIST AND CLASSES. Markets are the perp entries of the fold's markets.json (market_type "perp"), identified by
 market_id, with symbol and supported_price_decimals from that file. Three explicit tuples, fixed on 2026-11-11 from
-symbols alone, before any return was computed: CRYPTO_SYMBOLS, TRADFI_SYMBOLS, UNCLASSIFIED_SYMBOLS. A perp symbol found
-in none of the three, or in more than one, stops every command with the symbol named. F2 baskets are the eligible
+symbols alone, before any return was computed: CRYPTO_SYMBOLS (123), TRADFI_SYMBOLS (103), UNCLASSIFIED_SYMBOLS (17),
+BINANCE_MAP (243 entries). On 2026-11-11, still before any return was computed, eight symbols were added because the
+venue's market list omitted delisted markets: MKR RESOLV PROVE DOLO MYX EDEN FOGO as crypto and URA as tradfi, each
+mapped to symbol + "USDT". Every perp symbol in markets.json must be in exactly one of the three tuples, else every
+command stops with the symbol named. A tuple symbol absent from markets.json is fine. markets.json lists every perp
+the venue still resolves, delisted ones included (listed_in_order_books false). Ids the venue no longer resolves are
+listed as unknown and can never be traded. If one meets the activity clause the run stops. F2 baskets are the eligible
 markets of the same class, CRYPTO or TRADFI. An UNCLASSIFIED market gets no F2 signal and is in no basket. F3 applies
 to CRYPTO markets other than BTC. F1, F4, F5 and F6 apply to every market. BTC for family F3 is the market whose symbol
 is exactly "BTC". Every market_id present in the fold is listed in the output. A market_id that is absent from
@@ -479,10 +485,12 @@ CRYPTO_SYMBOLS: tuple[str, ...] = (
     "CRV",
     "DASH",
     "DOGE",
+    "DOLO",
     "DOT",
     "DRV",
     "DUSK",
     "DYDX",
+    "EDEN",
     "EDGE",
     "EIGEN",
     "ENA",
@@ -491,6 +499,7 @@ CRYPTO_SYMBOLS: tuple[str, ...] = (
     "FARTCOIN",
     "FF",
     "FIL",
+    "FOGO",
     "FOLKS",
     "GMX",
     "GRAM",
@@ -508,9 +517,11 @@ CRYPTO_SYMBOLS: tuple[str, ...] = (
     "LIT",
     "LTC",
     "MET",
+    "MKR",
     "MNT",
     "MON",
     "MORPHO",
+    "MYX",
     "NEAR",
     "NMR",
     "ONDO",
@@ -522,10 +533,12 @@ CRYPTO_SYMBOLS: tuple[str, ...] = (
     "PONS",
     "POPCAT",
     "PRL",
+    "PROVE",
     "PUMP",
     "PYTH",
     "QNT",
     "RAY",
+    "RESOLV",
     "RIVER",
     "S",
     "SEI",
@@ -647,6 +660,7 @@ TRADFI_SYMBOLS: tuple[str, ...] = (
     "TTWO",
     "TUR30",
     "UNITREE",
+    "URA",
     "US100",
     "US10Y",
     "US500",
@@ -755,11 +769,13 @@ BINANCE_MAP: dict[str, str | None] = {
     "DELL": "DELLUSDT",
     "DIA": "DIAUSDT",
     "DOGE": "DOGEUSDT",
+    "DOLO": "DOLOUSDT",
     "DOT": "DOTUSDT",
     "DRAM": "DRAMUSDT",
     "DRV": "DRVUSDT",
     "DUSK": "DUSKUSDT",
     "DYDX": "DYDXUSDT",
+    "EDEN": "EDENUSDT",
     "EDGE": "EDGEUSDT",
     "EIGEN": "EIGENUSDT",
     "ENA": "ENAUSDT",
@@ -770,6 +786,7 @@ BINANCE_MAP: dict[str, str | None] = {
     "FARTCOIN": "FARTCOINUSDT",
     "FF": "FFUSDT",
     "FIL": "FILUSDT",
+    "FOGO": "FOGOUSDT",
     "FOLKS": "FOLKSUSDT",
     "GBPUSD": "GBPUSDUSDT",
     "GEV": "GEVUSDT",
@@ -808,6 +825,7 @@ BINANCE_MAP: dict[str, str | None] = {
     "MET": "METUSDT",
     "META": "METAUSDT",
     "MINIMAX": "MINIMAXUSDT",
+    "MKR": "MKRUSDT",
     "MNT": "MNTUSDT",
     "MON": "MONUSDT",
     "MORPHO": "MORPHOUSDT",
@@ -816,6 +834,7 @@ BINANCE_MAP: dict[str, str | None] = {
     "MSFT": "MSFTUSDT",
     "MSTR": "MSTRUSDT",
     "MU": "MUUSDT",
+    "MYX": "MYXUSDT",
     "NATGAS": "NATGASUSDT",
     "NBIS": "NBISUSDT",
     "NEAR": "NEARUSDT",
@@ -839,6 +858,7 @@ BINANCE_MAP: dict[str, str | None] = {
     "POPCAT": "POPCATUSDT",
     "POPMART": "POPMARTUSDT",
     "PRL": "PRLUSDT",
+    "PROVE": "PROVEUSDT",
     "PUMP": "PUMPUSDT",
     "PYTH": "PYTHUSDT",
     "QCOM": "QCOMUSDT",
@@ -846,6 +866,7 @@ BINANCE_MAP: dict[str, str | None] = {
     "QQQ": "QQQUSDT",
     "RAIL": "RAILUSDT",
     "RAY": "RAYUSDT",
+    "RESOLV": "RESOLVUSDT",
     "RIVER": "RIVERUSDT",
     "RKLB": "RKLBUSDT",
     "ROBO": "ROBOUSDT",
@@ -888,6 +909,7 @@ BINANCE_MAP: dict[str, str | None] = {
     "TUR30": None,
     "UNI": "UNIUSDT",
     "UNITREE": "UNITREEUSDT",
+    "URA": "URAUSDT",
     "US100": None,
     "US10Y": None,
     "US500": None,

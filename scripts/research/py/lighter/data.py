@@ -269,8 +269,8 @@ class DataReader:
         if not path.exists():
             raise DataError(f"{path} is missing")
         doc = json.loads(path.read_bytes())
-        if int(doc.get("markets_file_version", 0)) < 2:
-            raise DataError("markets.json is not markets_file_version 2")
+        if int(doc.get("markets_file_version", 0)) not in (2, 3):
+            raise DataError("markets.json is not markets_file_version 2 or 3")
         self._record("fold/markets.json", path)
         out = []
         for b in doc["order_books"]:

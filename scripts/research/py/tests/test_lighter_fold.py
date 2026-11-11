@@ -545,7 +545,8 @@ def test_markets_json_keeps_only_static_fields(tmp_path, monkeypatch):
     doc = json.loads((tmp_path / "markets.json").read_text())
     assert doc["markets_file_version"] == ft.MARKETS_FILE_VERSION and "fetched_at" in doc
     [book] = doc["order_books"]
-    assert set(book) == set(ft.MARKET_FIELDS)
+    assert set(book) == {*ft.MARKET_FIELDS, "listed_in_order_books"}
+    assert book["listed_in_order_books"] is True and doc["unknown_market_ids"] == []
     assert book["symbol"] == "ETH" and book["created_at"] == "1700000000000"
     assert "open_interest" not in json.dumps(doc)
 
@@ -558,7 +559,8 @@ def test_unversioned_markets_json_is_cleaned_in_place(tmp_path, monkeypatch):
     doc = json.loads((tmp_path / "markets.json").read_text())
     assert doc["fetched_at"] == "2026-11-10T00:00:00+00:00"
     assert doc["markets_file_version"] == ft.MARKETS_FILE_VERSION
-    assert set(doc["order_books"][0]) == set(ft.MARKET_FIELDS)
+    assert set(doc["order_books"][0]) == {*ft.MARKET_FIELDS, "listed_in_order_books"}
+    assert doc["order_books"][0]["listed_in_order_books"] is True
     # A second call leaves the cleaned file alone.
     assert ft.write_markets(tmp_path) is False
 
@@ -568,3 +570,241 @@ def test_unreadable_markets_json_is_refetched(tmp_path, monkeypatch):
     (tmp_path / "markets.json").write_text("{not json")
     assert ft.write_markets(tmp_path) is True
     assert json.loads((tmp_path / "markets.json").read_text())["order_books"][0]["symbol"] == "ETH"
+
+
+# ---- complete_markets (delisted markets from orderBookDetails) --------------------------------------------------
+
+DELISTED_PERP = {
+    "symbol": "MKR",
+    "market_id": 28,
+    "market_type": "perp",
+    "status": "inactive",
+    "supported_price_decimals": 2,
+    "supported_size_decimals": 4,
+    "min_base_amount": "0.0000",
+    "min_quote_amount": "0.000000",
+    "created_at": "1741193078035",
+    "maker_fee": "0.0000",
+    "taker_fee": "0.0000",
+    # live fields that must never be stored
+    "mark_price": "0.00",
+    "index_price": "0.00",
+    "last_trade_price": 1699.84,
+    "open_interest": 12,
+    "open_interest_usd": "100.0",
+    "daily_quote_token_volume": 5,
+    "daily_trades_count": 7,
+    "daily_chart": {"1": 2},
+    "market_config": {"x": 1},
+}
+SPOT = {**DELISTED_PERP, "symbol": "AZTEC/USDC", "market_id": 2055, "market_type": "spot", "status": "active"}
+
+
+class DetailsApi:
+    """orderBookDetails stub: perp ids in `perps`, spot ids in `spots`, anything else HTTP 400 code 21602."""
+
+    def __init__(self, perps=(28,), spots=(2055,), fail_first=None):
+        self.perps = {i: {**DELISTED_PERP, "market_id": i} for i in perps}
+        self.spots = {i: {**SPOT, "market_id": i} for i in spots}
+        self.requests: list[int] = []
+        self.fail_first = fail_first  # HTTP code to answer on the first request
+
+    def __call__(self, req, timeout=0):
+        mid = int(req.full_url.rsplit("market_id=", 1)[1])
+        self.requests.append(mid)
+        if self.fail_first and len(self.requests) == 1:
+            raise urllib.error.HTTPError(req.full_url, self.fail_first, "slow", {}, None)
+        if mid in self.perps:
+            body = {"code": 200, "order_book_details": [self.perps[mid]], "spot_order_book_details": []}
+        elif mid in self.spots:
+            body = {"code": 200, "order_book_details": [], "spot_order_book_details": [self.spots[mid]]}
+        else:
+            err = io.BytesIO(json.dumps({"code": 21602, "message": "invalid market index"}).encode())
+            raise urllib.error.HTTPError(req.full_url, 400, "bad", {}, err)
+        return FakeResp(json.dumps(body).encode(), None)
+
+
+def write_folded(out_dir, ids_by_day):
+    version_dir = out_dir / ft.FOLD_VERSION
+    version_dir.mkdir(parents=True)
+    for n, ids in enumerate(ids_by_day):
+        table = pa.table({"market_id": pa.array(ids, pa.int16()), "minute": pa.array([0] * len(ids), pa.int64())})
+        pq.write_table(table, version_dir / f"date=2025-01-{20 + n}.parquet")
+
+
+def listed_doc(version, books=None, **extra):
+    base = {"symbol": "ETH", "market_id": 0, "market_type": "perp", "status": "active"}
+    return {
+        "markets_file_version": version,
+        "fetched_at": "2026-11-10T00:00:00+00:00",
+        "source": ft.ORDER_BOOKS_URL,
+        "order_books": books if books is not None else [base],
+        **extra,
+    }
+
+
+@pytest.fixture
+def completion(tmp_path, monkeypatch):
+    clock = [100.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(ft, "_clock", lambda: clock[0])
+
+    def fake_sleep(sec):
+        sleeps.append(sec)
+        clock[0] += sec
+
+    monkeypatch.setattr(ft, "_sleep", fake_sleep)
+    api = DetailsApi()
+    monkeypatch.setattr(ft, "_urlopen", api)
+    out = tmp_path / "out"
+    out.mkdir()
+    write_folded(out, [[0, 28, 2055], [0, 5000, 28]])
+    (out / "markets.json").write_text(json.dumps(listed_doc(2)))
+    return out, api, sleeps
+
+
+def read_markets(out):
+    return json.loads((out / "markets.json").read_text())
+
+
+def test_complete_markets_resolves_perp_spot_and_unknown(completion):
+    out, api, _ = completion
+    assert ft.complete_markets(out) is True
+    doc = read_markets(out)
+    assert doc["markets_file_version"] == 3 and doc["fetched_at"] == "2026-11-10T00:00:00+00:00"
+    assert "completed_at" in doc and doc["unknown_market_ids"] == [5000]
+    by_id = {b["market_id"]: b for b in doc["order_books"]}
+    assert set(by_id) == {0, 28, 2055}
+    assert by_id[0]["listed_in_order_books"] is True
+    assert by_id[28]["listed_in_order_books"] is False
+    assert by_id[28]["symbol"] == "MKR" and by_id[28]["market_type"] == "perp" and by_id[28]["status"] == "inactive"
+    assert by_id[28]["created_at"] == "1741193078035"
+    assert by_id[2055]["market_type"] == "spot" and by_id[2055]["symbol"] == "AZTEC/USDC"
+    assert api.requests == [28, 2055, 5000]
+
+
+def test_complete_markets_stores_only_whitelisted_fields(completion):
+    out, _, _ = completion
+    ft.complete_markets(out)
+    text = (out / "markets.json").read_text()
+    for banned in ("mark_price", "index_price", "last_trade_price", "open_interest", "daily_", "market_config"):
+        assert banned not in text
+    for entry in read_markets(out)["order_books"][1:]:
+        assert set(entry) <= {*ft.MARKET_FIELDS, "listed_in_order_books"}
+
+
+def test_complete_markets_is_idempotent_with_zero_requests(completion):
+    out, api, _ = completion
+    ft.complete_markets(out)
+    first = (out / "markets.json").read_bytes()
+    n = len(api.requests)
+    assert ft.complete_markets(out) is False
+    assert len(api.requests) == n and (out / "markets.json").read_bytes() == first
+
+
+def test_complete_markets_only_requests_new_ids_later(completion):
+    out, api, _ = completion
+    ft.complete_markets(out)
+    write_folded_extra = out / ft.FOLD_VERSION / "date=2025-02-01.parquet"
+    pq.write_table(pa.table({"market_id": pa.array([75], pa.int16())}), write_folded_extra)
+    api.perps[75] = {**DELISTED_PERP, "market_id": 75, "symbol": "DOLO"}
+    n = len(api.requests)
+    assert ft.complete_markets(out) is True
+    assert api.requests[n:] == [75]
+    assert [b["market_id"] for b in read_markets(out)["order_books"]][-1] == 75
+
+
+def test_complete_markets_upgrades_version_2_without_requests_when_nothing_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(ft, "_urlopen", lambda *a, **k: pytest.fail("no request expected"))
+    out = tmp_path / "out"
+    out.mkdir()
+    write_folded(out, [[0]])
+    (out / "markets.json").write_text(json.dumps(listed_doc(2)))
+    assert ft.complete_markets(out) is True
+    doc = read_markets(out)
+    assert doc["markets_file_version"] == 3 and doc["unknown_market_ids"] == []
+    assert doc["order_books"][0]["listed_in_order_books"] is True
+    assert ft.complete_markets(out) is False
+
+
+def test_complete_markets_needs_a_current_file(tmp_path):
+    with pytest.raises(ft.FoldError, match="does not exist"):
+        ft.complete_markets(tmp_path)
+    (tmp_path / "markets.json").write_text(json.dumps(listed_doc(1)))
+    with pytest.raises(ft.FoldError, match="older than version"):
+        ft.complete_markets(tmp_path)
+
+
+def test_complete_markets_pacing_and_rate_limit_retries(completion, monkeypatch):
+    out, _, sleeps = completion
+    api = DetailsApi(fail_first=405)
+    monkeypatch.setattr(ft, "_urlopen", api)
+    ft.complete_markets(out)
+    # First request answered 405: the retry waits out the backoff, and later requests are paced 2.5 s apart.
+    assert api.requests[:2] == [28, 28]
+    assert 5.0 in sleeps
+    assert ft.DETAILS_INTERVAL_S == 2.5
+    assert all(s >= 0 for s in sleeps)
+
+
+def test_pacer_spaces_calls_by_the_interval(monkeypatch):
+    now = [0.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(ft, "_clock", lambda: now[0])
+    monkeypatch.setattr(ft, "_sleep", lambda s: (sleeps.append(s), now.__setitem__(0, now[0] + s)))
+    pacer = ft.Pacer(2.5)
+    pacer.wait()
+    now[0] += 0.5
+    pacer.wait()
+    pacer.wait()
+    assert sleeps == [pytest.approx(2.0), pytest.approx(2.5)]
+
+
+def test_429_is_retried_with_retry_after(completion, monkeypatch):
+    out, _, sleeps = completion
+    calls = []
+    inner = DetailsApi()
+
+    def fake(req, timeout=0):
+        calls.append(1)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(req.full_url, 429, "slow", {"Retry-After": "30"}, None)
+        return inner(req, timeout)
+
+    monkeypatch.setattr(ft, "_urlopen", fake)
+    ft.complete_markets(out)
+    assert 30.0 in sleeps
+
+
+def test_other_http_errors_fail_without_writing(completion, monkeypatch):
+    out, _, _ = completion
+    before = (out / "markets.json").read_bytes()
+
+    def fake(req, timeout=0):
+        raise urllib.error.HTTPError(req.full_url, 403, "no", {}, None)
+
+    monkeypatch.setattr(ft, "_urlopen", fake)
+    with pytest.raises(ft.FoldError, match="HTTP 403"):
+        ft.complete_markets(out)
+    assert (out / "markets.json").read_bytes() == before
+
+
+def test_normal_fold_leaves_versions_2_and_3_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(ft, "fetch_order_books", lambda: pytest.fail("no refetch expected"))
+    for version in (2, 3):
+        out = tmp_path / f"v{version}"
+        out.mkdir()
+        text = json.dumps(listed_doc(version, unknown_market_ids=[5000], completed_at="x"), indent=1)
+        (out / "markets.json").write_text(text)
+        assert ft.write_markets(out) is False
+        assert (out / "markets.json").read_text() == text
+
+
+def test_cli_complete_markets_needs_only_out_dir(completion, capsys):
+    out, api, _ = completion
+    assert ft.main(["--complete-markets", "--out-dir", str(out)]) == 0
+    assert read_markets(out)["markets_file_version"] == 3
+    assert ft.main(["--complete-markets", "--out-dir", str(out)]) == 0
+    assert "already complete" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        ft.main(["--out-dir", str(out)])

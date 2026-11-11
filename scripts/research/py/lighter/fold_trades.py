@@ -22,7 +22,10 @@ SOURCE
 - Market metadata (symbol, market_id, decimals, market_type) is fetched once from
   https://mainnet.zklighter.elliot.ai/api/v1/orderBooks into out-dir/markets.json with a fetched_at stamp. Only the
   static fields in MARKET_FIELDS are kept (no open interest or prices, which would be post-cutoff data). A file without
-  markets_file_version >= MARKETS_FILE_VERSION is cleaned in place on the next run.
+  markets_file_version >= 2 is cleaned in place on the next run; version 2 and 3 files are never rewritten by the fold.
+  --complete-markets (version 3) adds the delisted markets that orderBooks omits: every market id present in the folded
+  files and missing from the file is looked up in orderBookDetails?market_id=N and appended with the same static fields
+  and listed_in_order_books false; an id answering 'invalid market index' goes into unknown_market_ids.
 
 HARD GUARD
 - FOLD_LAST_DATE = 2026-10-31. Any later date is refused, with no override flag: later days are a reserved forward
@@ -101,7 +104,13 @@ ARCHIVE_URL = (
     "https://aws-public-blockchain.s3.amazonaws.com/v1.1/lighter/core/mainnet/trades/date={date}/trades.parquet"
 )
 ORDER_BOOKS_URL = "https://mainnet.zklighter.elliot.ai/api/v1/orderBooks"
-MARKETS_FILE_VERSION = 2
+MARKETS_FILE_VERSION = 3
+# The fold treats a markets.json at this version or later as final and never rewrites it. Version 2 (static fields of
+# the orderBooks list) is what the fold produced while it ran; version 3 adds delisted markets (complete_markets).
+MIN_MARKETS_FILE_VERSION = 2
+ORDER_BOOK_DETAILS_URL = "https://mainnet.zklighter.elliot.ai/api/v1/orderBookDetails"
+DETAILS_INTERVAL_S = 2.5
+INVALID_MARKET_INDEX = 21602
 # Static metadata only. Live fields (open interest, prices) would be post-cutoff data next to a dataset that must
 # hold none.
 MARKET_FIELDS = (
@@ -156,6 +165,7 @@ OUTPUT_SCHEMA = pa.schema(
 # Hooks the tests replace.
 _urlopen = urllib.request.urlopen
 _sleep = time.sleep
+_clock = time.monotonic
 
 
 class FoldError(RuntimeError):
@@ -239,12 +249,16 @@ def _write_json(path: Path, doc: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+def _listed_entries(books: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**static_market_fields(b), "listed_in_order_books": True} for b in books]
+
+
 def write_markets(out_dir: Path) -> bool:
     """Write out-dir/markets.json with static fields only. Returns True when the file was written or rewritten.
 
-    A file that already carries MARKETS_FILE_VERSION is left alone. An older or unversioned file (the first version
-    stored the whole payload, including live open interest) is cleaned in place from its own content, keeping its
-    fetched_at, so no post-cutoff market data stays next to the dataset.
+    A file at version MIN_MARKETS_FILE_VERSION or later (including the completed version 3) is left alone. An older or
+    unversioned file (the first version stored the whole payload, including live open interest) is cleaned in place
+    from its own content, keeping its fetched_at, so no post-cutoff market data stays next to the dataset.
     """
     path = out_dir / "markets.json"
     if path.exists():
@@ -252,7 +266,7 @@ def write_markets(out_dir: Path) -> bool:
             old = json.loads(path.read_text())
         except json.JSONDecodeError:
             old = None
-        if isinstance(old, dict) and old.get("markets_file_version", 0) >= MARKETS_FILE_VERSION:
+        if isinstance(old, dict) and old.get("markets_file_version", 0) >= MIN_MARKETS_FILE_VERSION:
             return False
         if isinstance(old, dict) and isinstance(old.get("order_books"), list):
             _write_json(
@@ -261,7 +275,8 @@ def write_markets(out_dir: Path) -> bool:
                     "markets_file_version": MARKETS_FILE_VERSION,
                     "fetched_at": old.get("fetched_at"),
                     "source": ORDER_BOOKS_URL,
-                    "order_books": [static_market_fields(b) for b in old["order_books"]],
+                    "order_books": _listed_entries(old["order_books"]),
+                    "unknown_market_ids": [],
                 },
             )
             return True
@@ -272,7 +287,128 @@ def write_markets(out_dir: Path) -> bool:
             "markets_file_version": MARKETS_FILE_VERSION,
             "fetched_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
             "source": ORDER_BOOKS_URL,
-            "order_books": [static_market_fields(b) for b in payload["order_books"]],
+            "order_books": _listed_entries(payload["order_books"]),
+            "unknown_market_ids": [],
+        },
+    )
+    return True
+
+
+class Pacer:
+    """Blocks so that calls are at least min_interval seconds apart."""
+
+    def __init__(self, min_interval: float = DETAILS_INTERVAL_S) -> None:
+        self.min_interval = min_interval
+        self._last: float | None = None
+
+    def wait(self) -> None:
+        now = _clock()
+        if self._last is not None:
+            gap = self.min_interval - (now - self._last)
+            if gap > 0:
+                _sleep(gap)
+        self._last = _clock()
+
+
+def folded_market_ids(out_dir: Path) -> set[int]:
+    """Every market id present in the folded files (reads the market_id column only)."""
+    files = sorted((out_dir / FOLD_VERSION).glob("date=*.parquet"))
+    if not files:
+        raise FoldError(f"no folded files under {out_dir / FOLD_VERSION}")
+    ids: set[int] = set()
+    for f in files:
+        ids.update(int(x) for x in pc.unique(pq.read_table(f, columns=["market_id"]).column("market_id")).to_pylist())
+    return ids
+
+
+def fetch_market_details(market_id: int, pacer: Pacer, *, retries: int = 6) -> dict[str, Any] | None:
+    """Static entry for one market from orderBookDetails, or None for an invalid market index.
+
+    Handles both the perp list (order_book_details) and the spot list (spot_order_book_details). Rate limiting (HTTP
+    405 and 429) and 5xx are retried with backoff, Retry-After honoured. An invalid index answers HTTP 400 with code
+    21602 in the body.
+    """
+    url = f"{ORDER_BOOK_DETAILS_URL}?market_id={market_id}"
+    last: Exception | None = None
+    for attempt in range(1, retries + 1):
+        pacer.wait()
+        delay = min(120.0, 5.0 * 2 ** (attempt - 1))
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "cryptowithalgo-research"})
+            with _urlopen(req, timeout=60) as resp:
+                payload = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code in (405, 429, 500, 502, 503, 504):
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                if retry_after and str(retry_after).isdigit():
+                    delay = max(delay, float(retry_after))
+            elif exc.code == 400:
+                try:
+                    body = json.loads(exc.read())
+                except (ValueError, OSError):
+                    body = None
+                if isinstance(body, dict) and body.get("code") == INVALID_MARKET_INDEX:
+                    return None
+                raise FoldError(f"GET {url} failed with HTTP 400: {body}") from exc
+            else:
+                raise FoldError(f"GET {url} failed with HTTP {exc.code}") from exc
+        except (urllib.error.URLError, OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
+            last = exc
+        else:
+            if isinstance(payload, dict) and payload.get("code") == INVALID_MARKET_INDEX:
+                return None
+            for key in ("order_book_details", "spot_order_book_details"):
+                for entry in (payload.get(key) or []) if isinstance(payload, dict) else []:
+                    if int(entry.get("market_id", -1)) == market_id:
+                        return {**static_market_fields(entry), "listed_in_order_books": False}
+            raise FoldError(f"orderBookDetails for market {market_id} holds no entry for it: {str(payload)[:200]}")
+        if attempt < retries:
+            _sleep(delay)
+    raise FoldError(f"GET {url} failed after {retries} attempts: {last}")
+
+
+def complete_markets(out_dir: Path, pacer: Pacer | None = None) -> bool:
+    """Add delisted markets to markets.json (version 3). Returns True when the file was written.
+
+    Every market id present in the folded files but absent from the file is looked up in orderBookDetails. A market
+    found is appended with the same static fields plus listed_in_order_books false. An id the API calls an invalid
+    market index goes into unknown_market_ids. Existing entries and fetched_at are kept (entries from a version 2
+    file get listed_in_order_books true). Ids already listed or already unknown cost no request, and a run with
+    nothing to add to a version 3 file writes nothing, so a second run leaves the file byte for byte identical.
+    """
+    path = out_dir / "markets.json"
+    if not path.exists():
+        raise FoldError(f"{path} does not exist: run the fold first")
+    doc = json.loads(path.read_text())
+    if not isinstance(doc, dict) or doc.get("markets_file_version", 0) < MIN_MARKETS_FILE_VERSION:
+        raise FoldError(f"{path} is older than version {MIN_MARKETS_FILE_VERSION}: run the fold once to clean it")
+    books = [{**b, "listed_in_order_books": b.get("listed_in_order_books", True)} for b in doc["order_books"]]
+    unknown = {int(x) for x in doc.get("unknown_market_ids", [])}
+    todo = sorted(folded_market_ids(out_dir) - {int(b["market_id"]) for b in books} - unknown)
+    upgrade = doc["markets_file_version"] < MARKETS_FILE_VERSION
+    if not todo and not upgrade:
+        return False
+    pacer = pacer or Pacer()
+    for market_id in todo:
+        entry = fetch_market_details(market_id, pacer)
+        if entry is None:
+            unknown.add(market_id)
+            print(f"market {market_id}: invalid market index", file=sys.stderr)
+        else:
+            books.append(entry)
+            print(
+                f"market {market_id}: {entry.get('symbol')} {entry.get('market_type')} {entry.get('status')}",
+                file=sys.stderr,
+            )
+    _write_json(
+        path,
+        {
+            **{k: v for k, v in doc.items() if k not in ("order_books", "unknown_market_ids", "markets_file_version")},
+            "markets_file_version": MARKETS_FILE_VERSION,
+            "order_books": books,
+            "unknown_market_ids": sorted(unknown),
+            "completed_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         },
     )
     return True
@@ -607,15 +743,24 @@ def run(date_from: dt.date, date_to: dt.date, raw_dir: Path, out_dir: Path, *, k
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Fold the Lighter trade archive into per-minute bars")
-    parser.add_argument("--from", dest="date_from", required=True, help="first UTC date, YYYY-MM-DD")
-    parser.add_argument(
-        "--to", dest="date_to", required=True, help=f"last UTC date, inclusive, at most {FOLD_LAST_DATE}"
-    )
-    parser.add_argument("--raw-dir", type=Path, required=True)
+    parser.add_argument("--from", dest="date_from", help="first UTC date, YYYY-MM-DD")
+    parser.add_argument("--to", dest="date_to", help=f"last UTC date, inclusive, at most {FOLD_LAST_DATE}")
+    parser.add_argument("--raw-dir", type=Path)
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--keep-raw", action="store_true", help="keep each downloaded day file (default: delete)")
+    parser.add_argument(
+        "--complete-markets",
+        action="store_true",
+        help="add delisted markets found in the folded files to markets.json (no folding, needs only --out-dir)",
+    )
     args = parser.parse_args(argv)
     try:
+        if args.complete_markets:
+            written = complete_markets(args.out_dir)
+            print("markets.json completed" if written else "markets.json already complete", file=sys.stderr)
+            return 0
+        if not (args.date_from and args.date_to and args.raw_dir):
+            parser.error("--from, --to and --raw-dir are required unless --complete-markets is given")
         return run(
             parse_date(args.date_from),
             parse_date(args.date_to),

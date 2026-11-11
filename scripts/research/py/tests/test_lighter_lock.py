@@ -80,10 +80,25 @@ def test_prediction_ledger_and_fill_delay():
 
 def test_class_tuples_are_disjoint_and_sized_as_registered():
     groups = (lock.CRYPTO_SYMBOLS, lock.TRADFI_SYMBOLS, lock.UNCLASSIFIED_SYMBOLS)
-    assert [len(g) for g in groups] == [116, 102, 17]
+    assert [len(g) for g in groups] == [123, 103, 17]
     allsyms = [s for g in groups for s in g]
-    assert len(set(allsyms)) == len(allsyms) == 235  # no symbol in two tuples
+    assert len(set(allsyms)) == len(allsyms) == 243  # no symbol in two tuples
     assert set(lock.BINANCE_MAP) == set(allsyms)  # the literal map covers every symbol and nothing else
+
+
+ADDED_2026_11_11 = ("MKR", "RESOLV", "PROVE", "DOLO", "MYX", "EDEN", "FOGO", "URA")
+
+
+def test_the_eight_symbols_added_for_delisted_markets_classify_and_map():
+    for sym in ADDED_2026_11_11[:-1]:
+        assert lock.symbol_class(sym) == "crypto" and sym in lock.CRYPTO_SYMBOLS
+    assert lock.symbol_class("URA") == "tradfi" and "URA" in lock.TRADFI_SYMBOLS
+    for sym in ADDED_2026_11_11:
+        assert lock.BINANCE_MAP[sym] == sym + "USDT" and lock.binance_symbol(sym) == sym + "USDT"
+        assert Market(sym, 1, 2).binance_symbol == sym + "USDT"
+    doc = " ".join(lock.__doc__.split())
+    assert "2026-11-11" in doc and "delisted" in doc and "listed_in_order_books false" in doc
+    assert "If one meets the activity clause the run stops." in doc
 
 
 def test_symbol_class_and_markets():
@@ -124,7 +139,7 @@ def test_binance_map_is_literal_and_has_the_registered_exceptions():
     assert Market("US500", 1, 2).binance_symbol is None
     src = inspect.getsource(lock)
     code = src.split("BINANCE_MAP: dict[str, str | None] = {")[1].split("\n}\n")[0]
-    assert " for " not in code and code.count('":') == 235  # written out entry by entry, no comprehension
+    assert " for " not in code and code.count('":') == 243  # written out entry by entry, no comprehension
 
 
 def test_tier_rule_boundaries():
@@ -786,11 +801,57 @@ def test_markets_json_must_be_covered_exactly_by_the_class_tuples(tmp_path):
     everything = [*lock.CRYPTO_SYMBOLS, *lock.TRADFI_SYMBOLS, *lock.UNCLASSIFIED_SYMBOLS]
     write_markets_json(root, dict(enumerate(everything, start=1)))
     markets = DataReader(fold_dir=root, mode="dev").load_markets()
-    assert len(markets) == 235
+    assert len(markets) == 243
     assert {m.cls for m in markets} == {"crypto", "tradfi", "unclassified"}
     write_markets_json(root, {1: "BTC", 2: "NOTLISTED", 3: "ETH"})
     with pytest.raises(data.DataError, match="NOTLISTED"):
         DataReader(fold_dir=root, mode="dev").load_markets()
+
+
+def _as_version_3(root, unknown, delisted=()):
+    """Rewrite markets.json as markets_file_version 3: listed flags, delisted entries and unknown_market_ids."""
+    doc = json.loads((root / "markets.json").read_text())
+    doc["markets_file_version"] = 3
+    for b in doc["order_books"]:
+        b["listed_in_order_books"] = b["market_id"] not in delisted
+    doc["unknown_market_ids"] = list(unknown)
+    (root / "markets.json").write_text(json.dumps(doc))
+
+
+def test_a_version_3_markets_file_loads_and_a_delisted_entry_is_a_normal_market(tmp_path):
+    root = tmp_path / "fold"
+    root.mkdir()
+    write_markets_json(root, {1: "BTC", 2: "MKR", 3: "URA", 4: "XAU"})
+    _as_version_3(root, unknown=[28, 31], delisted={2, 3})
+    r = DataReader(fold_dir=root, mode="dev")
+    markets = {m.market_id: m for m in r.load_markets()}
+    assert sorted(markets) == [1, 2, 3, 4]  # the unknown ids are not markets
+    assert markets[2].cls == "crypto" and markets[2].binance_symbol == "MKRUSDT"
+    assert markets[3].cls == "tradfi" and markets[3].binance_symbol == "URAUSDT"
+    # version 2 still loads, version 4 does not, and a tuple symbol absent from the file is fine
+    write_markets_json(root, {1: "BTC"}, version=2)
+    assert [m.market_id for m in DataReader(fold_dir=root, mode="dev").load_markets()] == [1]
+    write_markets_json(root, {1: "BTC"}, version=4)
+    with pytest.raises(data.DataError, match="version"):
+        DataReader(fold_dir=root, mode="dev").load_markets()
+    # a perp symbol in no tuple still stops, delisted or not
+    write_markets_json(root, {1: "BTC", 2: "NOTLISTED"}, version=3)
+    with pytest.raises(data.DataError, match="NOTLISTED"):
+        DataReader(fold_dir=root, mode="dev").load_markets()
+
+
+def test_an_unknown_id_below_the_activity_clause_is_ignored_and_one_meeting_it_stops_with_the_id(tmp_path):
+    root = june_root(tmp_path, spec={**JUNE, 99: MM(activity=4999)})
+    _as_version_3(root, unknown=[99])
+    r = dev_reader(root)
+    run.compute_eligibility(r, r.load_markets(), [(2025, 7)])  # listed as unknown, quiet: ignored
+    assert 99 in r.fold_market_ids
+    (tmp_path / "b").mkdir()
+    root2 = june_root(tmp_path / "b", spec={**JUNE, 99: MM(activity=5000)})
+    _as_version_3(root2, unknown=[99])
+    r2 = dev_reader(root2)
+    with pytest.raises(data.DataError, match="market_id 99"):
+        run.compute_eligibility(r2, r2.load_markets(), [(2025, 7)])
 
 
 def test_a_fold_market_id_missing_from_markets_json_that_meets_the_activity_clause_stops_the_run(tmp_path):
