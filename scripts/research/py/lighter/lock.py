@@ -9,11 +9,19 @@ fold_trades.py and fetch_funding.py included, this file included). Every result 
 HEAD commit. Any change to a lighter/*.py file after the first real run changes the lock digest, gets a new ledger id,
 and its trials are added to the ledger. The commands dev, null, report, confirm and eligibility refuse to run when the
 git working tree has uncommitted changes under scripts/research/py/lighter, unless the fold directory holds a marker
-file named SYNTHETIC (written by lighter/synthetic.py): such a run writes "synthetic": true into its results, and report
-and confirm refuse to mix synthetic and non-synthetic files. When git is not available (the research image has no
+file named SYNTHETIC (written by lighter/synthetic.py) AND markets.json carries "source": "synthetic" AND no entry of
+the fold manifest has a source_url starting with https (the marker alone never disables a guard): such a run writes
+"synthetic": true into its results, and report and confirm refuse to mix synthetic and non-synthetic files. Every
+result also records the numpy, pandas and pyarrow versions. When git is not available (the research image has no
 .git) the commit and a clean-tree attestation are taken from the environment variables LIGHTER_GIT_HEAD and
 LIGHTER_TREE_CLEAN=1 and the result says "attested by environment"; when git is available it is checked directly. The
 digest over the file bytes is what binds the code, the commit id is a label.
+
+REGISTRATION ANCHOR. scripts/research/py/records/lighter_l1_registration.json (outside lighter/, written by the lead at
+registration) holds the lock digest and the sha256 of the fold manifest.jsonl, of markets.json and of the funding
+manifest, and a sorted listing (name, size) of the Binance files. The command register-check prints what the file
+should contain for given data directories. dev, null, report and confirm refuse to run on non-synthetic data when the
+file is absent or anything differs. (eligibility and scalescan do not need it: they run before registration.)
 
 DATA (every read goes through lighter/data.py, which enforces the span guards)
 - Fold: <fold>/v1/date=YYYY-MM-DD.parquet, one row per (market_id, UTC minute), the fold manifest
@@ -76,16 +84,25 @@ PRICES FOR SIGNALS
   all of F5 exist only in months whose source is "binance".
 - SOURCE GUARD, computed on month P only (so it is point in time): over the 5m grid points of P where both the Lighter
   5m close and the Binance 5m close are valid, |median of ln(Lighter close / Binance close)| <= 50 bps AND the Pearson
-  correlation of the two 5m log-return series (points where both returns are valid, at least 2,000 such points) is >=
-  0.5. It protects against a ticker that means a different asset on Binance. It reads Binance file content, so dev,
-  null, report and confirm compute it (cached in the dev result). The eligibility command reports file existence only,
-  and says "source pending guard" for a month whose files exist.
+  correlation of the two series of 15 minute log returns (non-overlapping windows where both closes are valid, at
+  least 1,000 such points) is >= 0.5. It protects against a ticker that means a different asset on Binance. It reads
+  Binance file content, so dev, null, report and confirm compute it (cached in the dev result). The eligibility command
+  reports file existence only, and says "source pending guard" for a month whose files exist.
 - 5m close at g: Binance = close of the 1m bar with open_time g - 60 s, valid only if all five 1m bars of the five
   minutes exist. Lighter = mid proxy of minute g - 60 s, valid only if at least one trade print (last_px present) fell
   in the five minutes.
-- Price-scale guard: if a market's mid proxy changes by more than ln 2 (in absolute log ratio) between two consecutive
-  minutes that both have a trade print, the command stops with the market and the minute named (exceptions can be
-  listed in KNOWN_SCALE_BREAKS, empty).
+- Price-scale guard: a scale break is a jump between two consecutive PRINTED minutes of the mid proxy with
+  |ln(ratio) - k ln 10| < 0.05 for an integer k != 0, AND the new level holds: the median mid proxy of the next 60
+  printed minutes (the jump minute included) is within 0.05 (in ln) of the post-jump level. Read as a level shift: the
+  median of the previous 60 printed minutes must likewise sit within 0.05 of the pre-jump level (so the return from a
+  crash minute is no rescaling), and each window needs at least 30 printed minutes (a listing minute or the end of the
+  data cannot be confirmed). Only that stops a command,
+  with the market and the minute named; a crash or a listing minute that does not hold is only listed.
+  KNOWN_SCALE_BREAKS
+  (empty) is frozen from the output of the scalescan command at registration. scalescan reads mid proxy inputs
+  (last_px, last_buy_px, last_sell_px) of the development span only, computes no signal and no strategy return, may be
+  run before registration and writes scale_breaks.json with every candidate jump (market, minute, ln ratio, whether it
+  holds).
 
 INPUTS
 - r_k(g) = ln(close5(g) / close5(g - 5k min)), valid when both closes are valid.
@@ -123,28 +140,35 @@ below with stable ids.
 
 FILLS (entries and exits alike)
 - A taker order of side s sent at minute boundary t fills at the first Lighter trade print of EITHER side with
-  timestamp at or after t + 500 ms. Search minute t first (the earlier of first_buy_ts and first_sell_ts of that
-  minute's row, which are by construction at or after t + 500 ms), then minutes t + 1 to t + 15 in order (the earlier
-  of that minute's first_buy_ts and first_sell_ts). If the print is of side s (a taker-buy print for a buy order, a
-  taker-sell print for a sell order) the fill price is the print price. If it is of the other side, the fill price is
-  the print price moved by the market's spread proxy sp of the month containing t against the order: a buy fills at
-  sell_print_px x (1 + sp / 10,000), a sell fills at buy_print_px x (1 - sp / 10,000), where sp is that market's
-  MONTHLY ELIGIBILITY spread proxy in bps for that month (if the market is not eligible that month, which can happen
-  for an exit, the latest month in which it had a spread proxy). If both first prints of a minute have the same
-  timestamp, the same-side one is used. An entry with no print in those 16 minutes is unfilled (no trade, counted). An
-  exit with no print in those 16 minutes fills at the mid proxy of minute t + 15 moved by half the spread proxy against
-  the order, stamped at the end of minute t + 15, and is flagged. A long entry and a short exit are buy orders, a short
-  entry and a long exit are sell orders. (Waiting for a same-side print would fill each leg late exactly when waiting
-  helps, because trade signs persist: it is not used.) An entry that fills after g + hold (only possible for hold 5 and
-  a fill more than 5 minutes after g) sends its exit order the minute after the entry fill, and stop/target marks
-  before the entry fill minute cannot fire: there is no position yet.
+  timestamp at or after t + 500 ms. An ENTRY searches minute t only (the earlier of first_buy_ts and first_sell_ts of
+  that minute's row, which are by construction at or after t + 500 ms): with no print of either side at or after
+  t + 500 ms in minute t it is unfilled (no trade, counted). An EXIT searches minute t first and then minutes t + 1 to
+  t + 15 in order (16 minutes). If the print is of side s (a taker-buy print for a buy order, a taker-sell print for a
+  sell order) the fill price is the print price. If it is of the other side, the fill price is the print price moved
+  against the order by sp_fill: a buy fills at sell_print_px x (1 + sp_fill / 10,000), a sell at buy_print_px x
+  (1 - sp_fill / 10,000).
+- sp_fill(t') for a fill found in minute t' is max(sp, x(t'), x(t' - 1 minute)) where sp is the MONTHLY ELIGIBILITY
+  spread proxy (bps) of the month containing the order's boundary t (if the market is not eligible that month, which can
+  happen for an exit, the latest month in which it had a proxy; before the first month with a proxy there is none and
+  such minutes cannot carry a fill), and x(m) = (last_buy_px - last_sell_px) / ((last_buy_px + last_sell_px) / 2) in bps
+  when both exist in minute m and |last_buy_ts - last_sell_ts| <= 2,000 ms (the pair rule of the eligibility proxy),
+  else undefined. Negative x counts as 0. x is used only to price a fill, never a decision, and taking the maximum can
+  only raise the cost. The historical cost model has no order book and is known to understate the spread at event
+  times. The doubled-spread condition is the binding one. The forward tape, which records the real book, is the
+  measurement of this cost.
+- If both first prints of a minute have the same timestamp, the fill is the WORSE of the two candidate prices for the
+  order: the same-side print price against the adjusted opposite-side price. The tie share is reported per
+  configuration.
+- An exit with no print in the 16 minutes fills at the mid proxy of minute t + 15 moved against the order by sp_fill / 2
+  (t' = t + 15), stamped at the end of minute t + 15, and is flagged. A long entry and a short exit are buy orders, a
+  short entry and a long exit are sell orders. (Waiting for a same-side print would fill each leg late exactly when
+  waiting helps, because trade signs persist: it is not used.) The spread sensitivity run doubles sp_fill.
 - Zero fees. One open position per (configuration, market): an entry at g is allowed only if the previous trade's exit
   fill timestamp is at or before g. An entry whose data (entry and exit windows) would pass the span end is not a
   candidate.
 
-EXITS. Time: e = g + hold, but never before the minute after the entry fill. With sigma_H = sigma(g) x sqrt(hold / 5
-min), "stop2_target2" and "target1" look at every minute boundary t with g < t < g + hold at which the position
-already exists (the minute t - 60 s is at or after the entry fill minute): mark = mid proxy of minute t - 60 s, u =
+EXITS. Time: e = g + hold. With sigma_H = sigma(g) x sqrt(hold / 5 min), "stop2_target2" and "target1" look at every
+minute boundary t with g < t < g + hold: mark = mid proxy of minute t - 60 s, u =
 side x ln(mark / entry fill price). stop2_target2 decides at the first t with u <= -2 sigma_H or u >= 2 sigma_H.
 target1 decides at the first t with u >= sigma_H. Otherwise e = g + hold. A candidate without a valid sigma(g) cannot be
 evaluated by these two exits and is counted as no_sigma.
@@ -157,10 +181,13 @@ FUNDING SIGN AND STAMP. The reading "direction names the paying side" (so rate_l
 positive) was checked on 2026-11-11 against the hourly venue recorder: over Lighter rows whose hourly rate was at least
 2e-5 in size, the rate signed that way had the sign of the mark-minus-index premium in 155 of 170 rows (the rest of the
 rows sit at the 0.0012% baseline, where the premium sign carries no information). It is still to be checked against a
-realised payment before any live use. A funding row with timestamp t is the payment made at t for the hour (t - 3,600
-s, t]. Checked on 2026-11-11: at 07:50 UTC the endpoint already returned rows stamped 07:00 with non-baseline values (to
-be re-checked after 08:00 for immutability, result recorded at registration). FUNDING_STAMP_VERIFIED is False until the
-lead flips it at registration, and dev refuses to run on non-synthetic data while it is False.
+realised payment before any live use. A funding row stamped t is treated as the
+payment made at t for the hour ending at t. Evidence: rows stamped 07:00 UTC on 2026-11-11 were visible at 07:50 and
+unchanged at 09:16, rows for 08:00 and 09:00 appeared afterwards, and the venue's documentation says payments occur at
+each hour mark from the premium of the last hour. Not excluded: the rate being fixed at t and paid at t + 1 hour. Under
+that reading F6's signal is the rate actually paid and every funding charge is one hour late. A realised payment settles
+it (the fill probe). An F6 finalist cannot go forward before that check. FUNDING_STAMP_VERIFIED is False until the lead
+flips it at registration, and dev refuses to run on non-synthetic data while it is False.
 
 STATISTICS. Daily series: for every configuration, every UTC day from 2025-07-01 (dev) or 2026-07-01 (confirm) to the
 span end, the sum of net over trades whose exit fill timestamp falls on that day (0 on days with no exit). t = mean /
@@ -175,8 +202,10 @@ NOISE CONTROL. Two sets of 20 runs.
   of EVERY market and every F1 to F5 configuration by that many days, circularly within the fixed span (np.roll), the
   same for every market. The array shifted is the real run's decision array before eligibility masking (for F2 and F3
   the months in which the market and enough basket members exist), and after the shift a decision still requires the
-  market to be eligible, in the right tier, in the month containing the shifted time. Prices, fills, exits and funding
-  are not shifted. NOISE_BAR = the LARGEST of the 20 maxima of the daily t over the F1 to F5 configurations.
+  market to be eligible, in the right tier, in the month containing the shifted time. The F5 and F4-binance decision
+  arrays are zero outside the months whose source guard passed even before the shift (as the F2 and F3 arrays are zero
+  outside the months in which the market is a basket member). Prices, fills, exits and funding are not shifted.
+  NOISE_BAR = the LARGEST of the 20 maxima of the daily t over the F1 to F5 configurations.
 - F6 sign-flip runs: F6 is judged separately. In run i (seed i) every F6 decision is multiplied by an independent fair
   random sign drawn from numpy default_rng([20261111, i]) (arrays drawn per market, in market id order, per F6 signal in
   id order). F6_BAR = the LARGEST of the 20 maxima of the daily t over the 12 F6 configurations.
@@ -187,28 +216,40 @@ least 5 markets with 100 or more trades and at least 60% of them positive, (e) a
 at most 1% of the configuration's trades. Class "desk" if entries per hour pooled >= 10, else "slow".
 
 FINALISTS. At most 3. Candidates are the configurations that pass items (a) to (f), are not SUSPECT (see TRIPWIRE)
-unless listed in SUSPECT_CLEARED, and meet all three registered conditions:
-- MIRROR DIAGNOSTIC: the configuration is also run with every side multiplied by -1. With mean(cfg) and mean(mirror)
-  the mean net per trade of the two runs, (mean(cfg) - mean(mirror)) / 2 > 0. Both means are reported.
-- SPREAD SENSITIVITY: the configuration is re-run with the spread proxy doubled in the fill rule (every use of sp).
+unless listed in the audit file (see TRIPWIRE), and meet all registered conditions:
+- MIRROR DIAGNOSTIC (cost-adjusted): the configuration is also run with every side multiplied by -1. With mean(cfg)
+  and mean(mirror) the mean net per trade of the two runs, (mean(cfg) - mean(mirror)) / 2 must exceed the mean over the
+  configuration's trades of (sp_fill at entry + sp_fill at exit) / 2, both sides in the same units (bps, i.e. log
+  return x 10,000). Both numbers are recorded, with the two means.
+- SOURCE: the mean net per trade is > 0 within the signal price source (binance or lighter) that carried the majority
+  of the configuration's development trades.
+- SPREAD SENSITIVITY: the configuration is re-run with sp_fill doubled in the fill rule (every use of it).
   Mean net per trade under the doubled proxy must be > 0 too.
 - FUNDING COVERAGE: the missing-settlement counter is at most 1% of the settlements its trades crossed.
 For each family take the candidate with the highest daily t, restricted to class desk when any desk candidate of that
 family exists. Rank those family bests by daily t and keep the top 3. Written to finalists.json (may be empty).
 
 CONFIRMATION PASS: mean net per trade > 0, at least 3 of the 4 calendar months (July to October 2026) positive, the
-mirror diagnostic and the spread sensitivity above on the confirmation data, and Holm at family level 0.05 on the
+mirror diagnostic, the spread sensitivity and the source condition above on the confirmation data (the source being the
+development majority source), and Holm at family level 0.05 on the
 one-sided p values (normal, from the daily-series t): with F finalists ordered by p, the smallest p must be < 0.05 / F,
 the next < 0.05 / (F - 1), and so on, stopping at the first failure.
-CONFIRM INTEGRITY. confirm takes --dev-dir (the dev result and the 20 + 20 null result files), checks every file's lock
-digest and content hash, recomputes the finalists itself (re-running the mirror and doubled-spread variants on the
-development data) and refuses when they differ from the supplied finalists file. It writes a one-time record
-confirm_record.json (and stores the record's hash in the confirm result) and refuses to run when such a record already
-exists for this lock digest in its out dir or in the dev dir.
+CONFIRM INTEGRITY (two steps). `confirm --prepare` takes --dev-dir (the dev result and the 20 + 20 null result
+files), checks every file's lock digest and content hash (finalists file included), recomputes the finalists itself
+(re-running the mirror and doubled-spread variants on the development data), refuses when they differ from the supplied
+finalists file, writes scripts/research/py/records/confirm_record.json (lock digest, finalists, the content hashes of
+the
+dev and null files, "ran": false) and stops. `confirm --run` requires that record to be committed (git: tracked and
+unmodified at HEAD; where git is unavailable, LIGHTER_RECORD_COMMITTED=1), refuses when a confirm result already
+exists in the out dir or the record says it ran, re-runs each finalist on the development data first (stopping on any
+difference from the dev result), marks the record consumed (records/confirm_ran_<digest>.json) and then runs the
+confirmation. Null runs with no maximum (None) are an error.
 
 TRIPWIRE. Any configuration with mean net above 5 bps a trade or daily t above 8 is marked SUSPECT in the report, and
 the report says to audit for look-ahead before anything else. A SUSPECT configuration cannot be a finalist until an
-audit note is committed and its id is added to SUSPECT_CLEARED (an empty tuple).
+audit note is committed and its id is listed in scripts/research/py/records/lighter_l1_suspect_cleared.json (a list of
+configuration ids with a note each; absent means empty). The file lives outside lighter/ because editing a lock constant
+would change the digest. report reads it and records its sha256, and confirm checks the same hash.
 
 ACCOUNT LAYER (report only, finalists only): start 100 USD, leverage L in (3, 10, 20), at most 10 concurrent
 positions, notional per entry = max(10, equity x L / 10) USD, an entry is skipped when 10 positions are open or
@@ -225,8 +266,8 @@ READINGS OF AMBIGUOUS TEXT (each is the most literal reading, or the lead's ruli
 5. F5: the print window uses max(last_buy_ts, last_sell_ts) of the minute, which is the last trade print.
 6. F6: only the settlement stamped at minute 0 of g's hour is used, whatever the rate.
 7. F6: a trade's signal is the previous hour's settled rate, and the trade collects or pays the next settlement.
-8. The first stop/target mark is the mid proxy of the entry minute (or of the entry fill minute if later), and a mark
-   may be a stale carried-forward value.
+8. The first stop/target mark is the mid proxy of the entry minute, and a mark may
+   be a stale carried-forward value.
 9. A candidate whose entry and exit windows pass the span end is not a candidate. A candidate without a valid sigma(g)
    cannot be evaluated by the stop/target exits: it is counted as no_sigma and does not hold the position.
 10. Entries per hour pooled = trades / (24 x days of the configuration's daily series).
@@ -252,10 +293,14 @@ READINGS OF AMBIGUOUS TEXT (each is the most literal reading, or the lead's ruli
     whatever its activity.
 21. A configuration with no eligible market still has a zero daily series, so its t is 0 and its mean net per trade is
     undefined.
-22. An exit decision never precedes the entry fill (also stated in FILLS).
-23. The fill rule's sp for a minute is the proxy of the month containing it, carried forward from the latest earlier
-    month that had one. The spread sensitivity doubles sp in the fill and in the fallback.
-24. The Holm family is the set of finalists, and the source guard uses grid points where both 5m closes are valid.
+22. A configuration's F2 statistics are also split by asset class (crypto, tradfi).
+23. The fill rule's month proxy is the proxy of the month containing the order boundary, carried forward from the latest
+    earlier month that had one; before the first month with a proxy there is none and the minute cannot carry a fill.
+    The spread sensitivity doubles sp_fill in the fill and in the fallback.
+24. The Holm family is the set of finalists, and the source guard uses grid points where both 5m closes are valid (the
+    level clause) and non-overlapping 15 minute windows (the correlation clause).
+25. Cost-adjusted mirror: the cost is the mean over the configuration's trades of (sp_fill at entry + sp_fill at exit)
+    / 2, evaluated for every fill including those priced by a same-side print.
 
 PREDICTION (registered before any run, also the constant PREDICTION below): "Registered 2026-11-11 by the lead before
 any run: no finalist passes the confirmation slice. Most likely no configuration passes development item (b)."
@@ -267,7 +312,6 @@ import datetime as dt
 import functools
 import hashlib
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -313,17 +357,17 @@ TIER_B_MAX_BPS = 2.5
 KNOWN_MISSING_FOLD_DAYS: tuple[str, ...] = ()
 # (symbol, minute start in ms) pairs where a price-scale break is known and accepted. Empty.
 KNOWN_SCALE_BREAKS: tuple[tuple[str, int], ...] = ()
-SCALE_BREAK_LN = math.log(2.0)
+SCALE_BREAK_TOL = 0.05
+SCALE_HOLD_MINUTES = 60
+SCALE_MIN_WINDOW = 30
 
 # To be flipped by the lead at registration, after the funding stamp is re-checked (see FUNDING SIGN AND STAMP).
 FUNDING_STAMP_VERIFIED = False
-# Configuration ids whose SUSPECT flag was cleared by a committed audit note. Empty.
-SUSPECT_CLEARED: tuple[str, ...] = ()
 
 # Source guard (month P only).
 GUARD_MAX_MEDIAN_BPS = 50.0
 GUARD_MIN_CORR = 0.5
-GUARD_MIN_POINTS = 2_000
+GUARD_MIN_POINTS = 1_000
 
 # Fixed on 2026-11-11 from symbols alone, before any return was computed.
 CRYPTO_SYMBOLS: tuple[str, ...] = (

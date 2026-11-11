@@ -420,8 +420,11 @@ class DataReader:
         end_ms: int,
         binance_months: set[tuple[int, int]] | None = None,
         binance_symbol: str | None = None,
+        mid_only: bool = False,
     ) -> MinuteData:
-        """Fold rows of the market (and the given Binance months) from t0_ms (a day start) to end_ms."""
+        """Fold rows of the market (and the given Binance months) from t0_ms (a day start) to end_ms.
+
+        mid_only reads only last_px, last_buy_px and last_sell_px (the mid proxy inputs, for the scale scan)."""
         self.check_end_ms(end_ms)
         if t0_ms % DAY_MS or end_ms % DAY_MS:
             raise DataError("span edges must be UTC day starts")
@@ -447,7 +450,10 @@ class DataReader:
         day = dt.datetime.fromtimestamp(t0_ms / 1000, dt.UTC).date()
         last_day = dt.datetime.fromtimestamp((end_ms - 1) / 1000, dt.UTC).date()
         while day <= last_day:
-            table = self._read_fold(day, list(FOLD_COLUMNS), market.market_id)
+            columns = (
+                ["market_id", "minute", "last_px", "last_buy_px", "last_sell_px"] if mid_only else list(FOLD_COLUMNS)
+            )
+            table = self._read_fold(day, columns, market.market_id)
             day += dt.timedelta(days=1)
             if table is None or table.num_rows == 0:
                 continue
@@ -457,8 +463,12 @@ class DataReader:
                 raise DataError("fold rows outside the requested span")
             idx = (minute - t0_ms) // MINUTE_MS
             for name in price_cols:
+                if mid_only and name not in ("last_px", "last_buy_px", "last_sell_px"):
+                    continue
                 col = pc.cast(table.column(name), pa.float64()).to_numpy(zero_copy_only=False)
                 floats[name][idx] = col / scale
+            if mid_only:
+                continue
             for name in ts_cols:
                 floats[name][idx] = pc.cast(table.column(name), pa.float64()).to_numpy(zero_copy_only=False)
 
@@ -528,8 +538,27 @@ SYNTHETIC_MARKER = "SYNTHETIC"
 
 
 def is_synthetic(fold_dir: str | Path) -> bool:
-    """True when the fold directory holds the marker file written by lighter/synthetic.py."""
-    return (Path(fold_dir) / SYNTHETIC_MARKER).exists()
+    """True only when ALL of: the SYNTHETIC marker file exists, markets.json says "source": "synthetic" and no entry of
+    the fold manifest has a source_url starting with https. The marker alone never disables a guard."""
+    root = Path(fold_dir)
+    if not (root / SYNTHETIC_MARKER).exists():
+        return False
+    try:
+        markets = json.loads((root / "markets.json").read_text())
+    except (OSError, ValueError):
+        return False
+    if not isinstance(markets, dict) or markets.get("source") != "synthetic":
+        return False
+    manifest = root / "manifest.jsonl"
+    if manifest.exists():
+        for line in manifest.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(rec, dict) and str(rec.get("source_url", "")).startswith("https"):
+                return False
+    return True
 
 
 def ensure_dir(path: str | Path) -> Path:

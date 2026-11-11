@@ -68,7 +68,7 @@ def test_normal_sf():
     assert stats.normal_sf(1.6448536269514722) == pytest.approx(0.05, abs=1e-9)
 
 
-def batch(exit_ts, net, flag=None, side=1, miss=0, unfilled=0, nsettle=1):
+def batch(exit_ts, net, flag=None, side=1, miss=0, unfilled=0, nsettle=1, cost=2.0, ties=0):
     n = len(exit_ts)
     z = np.zeros(n)
     return fills.TradeBatch(
@@ -84,6 +84,8 @@ def batch(exit_ts, net, flag=None, side=1, miss=0, unfilled=0, nsettle=1):
         flag=np.zeros(n, bool) if flag is None else np.asarray(flag, bool),
         miss=np.full(n, miss, np.int64),
         nsettle=np.full(n, nsettle, np.int64),
+        cost=np.full(n, cost),
+        ties=np.full(n, ties, np.int64),
         unfilled=unfilled,
     )
 
@@ -318,6 +320,15 @@ def test_finalists_need_the_mirror_and_the_doubled_spread_and_funding_coverage_a
     assert len(stats.finalist_candidates([suspect], 0.0, 0.0, cleared=("F1-s",))) == 1
 
 
+def test_the_mirror_diagnostic_must_beat_the_modelled_fill_cost():
+    # (3 - (-1)) / 2 = 2 bps of directional edge
+    assert stats.variant_checks(3.0, -1.0, 1.0, cost_bps=1.9)["mirror_ok"]
+    assert not stats.variant_checks(3.0, -1.0, 1.0, cost_bps=2.0)["mirror_ok"]  # equal is not enough
+    assert not stats.variant_checks(3.0, -1.0, 1.0, cost_bps=3.5)["mirror_ok"]
+    c = stats.variant_checks(3.0, -1.0, 1.0, cost_bps=1.5)
+    assert c["mean_fill_cost_bps"] == 1.5 and c["mirror_diagnostic_bps"] == 2.0
+
+
 def test_variant_checks_formula():
     c = stats.variant_checks(3.0, -1.0, 1.0)
     assert c["mirror_diagnostic_bps"] == 2.0 and c["mirror_ok"] and c["doubled_ok"]
@@ -468,3 +479,33 @@ def test_account_liquidation_and_minimum_equity():
 def test_account_with_no_trades():
     out = stats.simulate_account(trades_dict([]), {}, 10)
     assert out["final_equity"] == 100.0 and out["entries_taken"] == 0
+
+
+def test_majority_source_condition_for_candidates_and_for_confirmation():
+    good_src = good(id="F1-a", majority_source="binance", majority_source_mean_net_bps=0.4)
+    bad_src = good(id="F1-b", majority_source="binance", majority_source_mean_net_bps=-0.1)
+    assert [c["id"] for c in stats.finalist_candidates([good_src, bad_src], 0.0, 0.0)] == ["F1-a"]
+    months = [{"month": f"2026-{m:02d}", "net": 1.0, "trades": 10} for m in (7, 8, 9, 10)]
+    checks = stats.variant_checks(2.0, 0.0, 0.5, 0.5)
+    stat = good(t=3.0, months=months, by_source={"binance": {"mean_net_bps": -0.5}, "lighter": {"mean_net_bps": 2.0}})
+    assert not stats.confirm_flags(stat, checks, "binance")["pre_holm_ok"]  # positive overall, negative in its source
+    assert stats.confirm_flags(stat, checks, "lighter")["pre_holm_ok"]
+    assert stats.confirm_flags(stat, checks)["source_ok"]  # no development source given: not applied
+
+
+def test_majority_source_class_split_cost_and_ties_in_finalize():
+    cfg = next(c for c in lock.GRID if c.family == "F2")
+    acc = stats.ConfigAcc(cfg, D0, 3)
+    acc.add(1, batch([D0 + 10] * 3, [0.001] * 3, cost=1.0, ties=1), np.array([True, True, False]), "crypto")
+    acc.add(2, batch([D0 + 20] * 2, [-0.001] * 2, cost=3.0, ties=0), np.array([False, False]), "tradfi")
+    out = stats.ConfigAcc.finalize(acc)
+    assert out["by_source"]["binance"]["trades"] == 2 and out["by_source"]["lighter"]["trades"] == 3
+    assert out["majority_source"] == "lighter"
+    assert out["majority_source_mean_net_bps"] == pytest.approx((10 - 20) / 3)
+    assert out["by_class"]["crypto"]["trades"] == 3 and out["by_class"]["tradfi"]["trades"] == 2
+    assert "unclassified" not in out["by_class"]
+    assert out["mean_fill_cost_bps"] == pytest.approx((3 * 1.0 + 2 * 3.0) / 5)
+    assert out["tie_share"] == pytest.approx(3 / 10)  # three ties over ten fills
+    f1 = stats.ConfigAcc(next(c for c in lock.GRID if c.family == "F1"), D0, 3)
+    f1.add(1, batch([D0 + 10], [0.001]), None, "crypto")
+    assert "by_class" not in f1.finalize()

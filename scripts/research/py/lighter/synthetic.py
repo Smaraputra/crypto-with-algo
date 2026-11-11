@@ -98,6 +98,8 @@ class PanelSpec:
     micro_prints_per_min: float = 6.0
     micro_impact_bps: float = 0.4
     micro_stay: float = 0.7
+    micro_burst_frac: float = 0.0  # share of minutes in which the half spread is multiplied by micro_burst_factor
+    micro_burst_factor: float = 10.0
 
 
 @dataclass
@@ -111,6 +113,8 @@ class Panel:
     markets: list[Market]
     start_ms: int
     half_spreads_bps: dict[int, float]
+    first_day_ms: int = 0
+    quote_half_bps: dict[int, np.ndarray] | None = None  # the generator's own half spread per minute from first_day_ms
 
 
 def _month_starts(first: dt.date, last: dt.date) -> list[tuple[int, int]]:
@@ -138,7 +142,9 @@ def _micro_events(spec: PanelSpec, n_min: int, rng: np.random.Generator) -> dict
     before = after - steps
     cum = np.cumsum(counts)
     end_bps = np.where(cum > 0, after[np.maximum(cum - 1, 0)], 0.0)
+    burst = rng.random(n_min) < spec.micro_burst_frac
     return {
+        "burst_factor": np.where(burst, spec.micro_burst_factor, 1.0),
         "counts": counts,
         "cum": cum,
         "minute": minute,
@@ -211,7 +217,8 @@ def _raw_day(
             sign = ev["sign"][lo:hi]
             n = hi - lo
             ts = day_start_ms + minute * MINUTE + ev["offset"][lo:hi]
-            px = np.exp(p[minute] + ev["before_bps"][lo:hi] * 1e-4) * 100.0 * (1.0 + sign * h)
+            hf = h * ev["burst_factor"][ev["minute"][lo:hi]]
+            px = np.exp(p[minute] + ev["before_bps"][lo:hi] * 1e-4) * 100.0 * (1.0 + sign * hf)
             raw = np.rint(px * scale).astype(np.int64)
             usd = np.exp(rng.normal(6.5, 1.5, n))
             micro = np.rint(usd * 1e6).astype(np.int64)
@@ -397,7 +404,23 @@ def make_panel(root: Path, spec: PanelSpec) -> Panel:
             indent=1,
         )
     )
-    return Panel(root, spec, fold_dir, binance_dir, funding_dir, last_day, markets, ft.day_start_ms(spec.start), half)
+    quote_half = {
+        m.market_id: half[m.market_id] * (events[m.market_id]["burst_factor"] if events else np.ones(n_min))
+        for m in markets
+    }
+    return Panel(
+        root,
+        spec,
+        fold_dir,
+        binance_dir,
+        funding_dir,
+        last_day,
+        markets,
+        ft.day_start_ms(spec.start),
+        half,
+        t0,
+        quote_half,
+    )
 
 
 def blank_minute_data(market: Market, t0_ms: int, n: int) -> MinuteData:

@@ -38,12 +38,30 @@ class FillContext:
     fs_px: np.ndarray
     fs_ts: np.ndarray
     nxt_any: np.ndarray  # next minute at or after m with a first print of either side
-    sp_bps: np.ndarray  # spread proxy of the month containing each minute, in bps
+    sp_bps: np.ndarray  # spread proxy of the month containing each minute, in bps (NaN: none yet, cannot carry a fill)
+    xs: np.ndarray  # x(m): last_buy_px - last_sell_px over the mid in bps, 0 where the minute has no pair 2 s apart
     sp_mult: float
     sigma: np.ndarray
     hour0: int
     cum_rate: np.ndarray
     cum_miss: np.ndarray
+
+
+def quote_spread(md: MinuteData) -> np.ndarray:
+    """x(m) in bps: (last_buy_px - last_sell_px) / ((last_buy_px + last_sell_px) / 2) when both exist in minute m and
+    |last_buy_ts - last_sell_ts| <= 2,000 ms (the pair rule of the eligibility proxy), else 0. Negative values count
+    as 0.
+
+    It is used only to price a fill, never a decision.
+    """
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pair = (
+            ~np.isnan(md.last_buy_px)
+            & ~np.isnan(md.last_sell_px)
+            & (np.abs(md.last_buy_ts - md.last_sell_ts) <= lock.ELIG_MAX_TS_GAP_MS)
+        )
+        x = (md.last_buy_px - md.last_sell_px) * lock.BPS / ((md.last_buy_px + md.last_sell_px) / 2.0)
+    return np.where(pair & np.isfinite(x), np.maximum(x, 0.0), 0.0)
 
 
 def _next_valid(valid: np.ndarray) -> np.ndarray:
@@ -87,6 +105,7 @@ def build_context(
         fs_ts=md.first_sell_ts,
         nxt_any=_next_valid(~np.isnan(md.first_buy_px) | ~np.isnan(md.first_sell_px)),
         sp_bps=sp,
+        xs=quote_spread(md),
         sp_mult=float(sp_mult),
         sigma=sigma,
         hour0=hour0,
@@ -112,39 +131,46 @@ class Outcomes:
     net: np.ndarray
     miss: np.ndarray
     nsettle: np.ndarray
+    cost: np.ndarray  # (sp_fill at entry + sp_fill at exit) / 2, in bps: the cost the model charges this trade
+    ties: np.ndarray  # number of fills (0 to 2) whose two first prints shared a timestamp
 
 
 def last_entry_j(ctx: FillContext, hold: int) -> int:
-    """Last grid point whose entry search, exit decision and exit search (a fallback stamp before the end) fit."""
-    room = max(hold, lock.EXIT_SEARCH_MINUTES + 1) + lock.EXIT_SEARCH_MINUTES
+    """Last grid point whose exit decision and exit search (a fallback stamp before the end) fit."""
+    room = hold + lock.EXIT_SEARCH_MINUTES
     return min(ctx.ng - 1, (ctx.n - 2 - room) // GRID_MIN)
 
 
 def first_print_fill(
-    ctx: FillContext, order_side: int, m: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ctx: FillContext, order_side: int, m: np.ndarray, search: int = lock.EXIT_SEARCH_MINUTES
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Fill of a taker order of side order_side (+1 buy, -1 sell) sent at the start of minute m.
 
-    The first print of either side in minutes m .. m + 15. Returns (found, minute, price, timestamp). A print of the
-    other side is moved by the spread proxy of the month containing m against the order. A tie in time goes to the
-    same-side print.
+    The first print of either side in minutes m .. m + search (an entry searches minute m only, an exit 16 minutes).
+    Returns (found, minute, price, timestamp, sp_fill in bps, tie). A print of the other side is moved against the
+    order by sp_fill = max(the month's proxy at m, x(t'), x(t' - 1 minute)) x sp_mult, where t' is the fill minute.
+    When the two first prints share a timestamp the fill is the WORSE of the same-side price and the adjusted
+    opposite-side price.
     """
     f = ctx.nxt_any[m]
-    found = (f - m) <= lock.EXIT_SEARCH_MINUTES
+    found = (f - m) <= search
     fc = np.where(found, f, m)
     tb, tsl = ctx.fb_ts[fc], ctx.fs_ts[fc]
     pb, ps = ctx.fb_px[fc], ctx.fs_px[fc]
-    sp = ctx.sp_bps[m] * ctx.sp_mult / lock.BPS
+    spf = np.maximum(np.maximum(ctx.sp_bps[m], ctx.xs[fc]), ctx.xs[np.maximum(fc - 1, 0)]) * ctx.sp_mult
+    adj = spf / lock.BPS
     buy_ok, sell_ok = ~np.isnan(tb), ~np.isnan(tsl)
+    tie = buy_ok & sell_ok & (tb == tsl)
     if order_side > 0:
-        same = buy_ok & (~sell_ok | (tb <= tsl))
-        px = np.where(same, pb, ps * (1.0 + sp))
-        ts = np.where(same, tb, tsl)
+        same_first = buy_ok & (~sell_ok | (tb < tsl))
+        opp = ps * (1.0 + adj)
+        px = np.where(same_first, pb, np.where(tie, np.maximum(pb, opp), opp))
     else:
-        same = sell_ok & (~buy_ok | (tsl <= tb))
-        px = np.where(same, ps, pb * (1.0 - sp))
-        ts = np.where(same, tsl, tb)
-    return found, fc, px, ts
+        same_first = sell_ok & (~buy_ok | (tsl < tb))
+        opp = pb * (1.0 - adj)
+        px = np.where(same_first, ps, np.where(tie, np.minimum(ps, opp), opp))
+    ts = np.fmin(tb, tsl)
+    return found, fc, px, ts, spf, tie & found
 
 
 def _first_hits(
@@ -153,14 +179,10 @@ def _first_hits(
     hold: int,
     mg: np.ndarray,
     ent_px: np.ndarray,
-    skip: np.ndarray,
     sig_h: np.ndarray,
     can: np.ndarray,
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """First column (0 = the minute t = g + 1 min) at which each early-exit rule fires, per row.
-
-    Marks before the entry fill minute (column < skip) cannot fire: there is no position yet.
-    """
+    """First column (0 = the minute t = g + 1 min) at which each early-exit rule fires, per row."""
     nrow = len(mg)
     first = {k: np.zeros(nrow, dtype=np.int64) for k in ("stop2_target2", "target1")}
     hit = {k: np.zeros(nrow, dtype=bool) for k in first}
@@ -170,15 +192,11 @@ def _first_hits(
     cols = hold - 1
     view = sliding_window_view(ctx.logmid, cols)
     ent_log = np.log(ent_px[rows])
-    col_idx = np.arange(cols)[None, :]
     for lo in range(0, len(rows), _PATH_CHUNK):
         sl = rows[lo : lo + _PATH_CHUNK]
         marks = view[mg[sl]]
         with np.errstate(invalid="ignore"):
             u = side * (marks - ent_log[lo : lo + len(sl), None])
-            sk = skip[sl]
-            if sk.max() > 0:
-                u = np.where(col_idx < sk[:, None], np.nan, u)
             s = sig_h[sl][:, None]
             h2 = (u <= -lock.STOP_MULT * s) | (u >= lock.TARGET_MULT * s)
             h1 = u >= lock.TARGET1_MULT * s
@@ -197,11 +215,14 @@ def _finish(
     ent_px: np.ndarray,
     ent_ts: np.ndarray,
     status: np.ndarray,
+    ent_sp: np.ndarray,
+    ent_tie: np.ndarray,
 ) -> Outcomes:
     """Exit fills at decision minute e (the fill search, the fallback), funding and returns."""
-    found, _, x_px, x_ts = first_print_fill(ctx, -side, e)
+    found, _, x_px, x_ts, x_sp, x_tie = first_print_fill(ctx, -side, e)
     fallback_min = e + lock.EXIT_SEARCH_MINUTES
-    half = 0.5 * ctx.sp_bps[e] * ctx.sp_mult / lock.BPS
+    fb_sp = np.maximum(np.maximum(ctx.sp_bps[e], ctx.xs[fallback_min]), ctx.xs[fallback_min - 1]) * ctx.sp_mult
+    half = 0.5 * fb_sp / lock.BPS
     # the exit of a long is a sell: the fallback mid is moved down, the exit of a short is a buy: moved up
     fb_px = ctx.mid[fallback_min] * (1.0 - side * half)
     exit_px = np.where(found, x_px, fb_px)
@@ -239,6 +260,8 @@ def _finish(
         net=net,
         miss=miss.astype(np.int64),
         nsettle=nsettle.astype(np.int64),
+        cost=np.where(ok, (ent_sp + np.where(found, x_sp, fb_sp)) / 2.0, np.nan),
+        ties=(ent_tie.astype(np.int64) + x_tie.astype(np.int64)),
     )
 
 
@@ -249,23 +272,22 @@ def outcomes(ctx: FillContext, side: int, hold: int, kinds: tuple[str, ...], j_l
         return None
     j = np.arange(j_lo, j_hi + 1, dtype=np.int64)
     mg = j * GRID_MIN
-    filled, fe, ent_px, ent_ts = first_print_fill(ctx, side, mg)
-    filled = filled & np.isfinite(ent_px)
-    skip = fe - mg
+    filled, _, ent_px, ent_ts, ent_sp, ent_tie = first_print_fill(ctx, side, mg, search=0)
+    filled = filled & np.isfinite(ent_px) & np.isfinite(ent_sp)
     sig_h = ctx.sigma[j] * np.sqrt(hold / GRID_MIN)
     has_sigma = np.isfinite(sig_h)
     hits: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     if any(k != "time" for k in kinds):
-        hits = _first_hits(ctx, side, hold, mg, ent_px, skip, sig_h, filled & has_sigma)
+        hits = _first_hits(ctx, side, hold, mg, ent_px, sig_h, filled & has_sigma)
     out: dict[str, Outcomes] = {}
     for kind in kinds:
         status = np.where(filled, STATUS_OK, STATUS_UNFILLED).astype(np.int8)
-        e = np.maximum(mg + hold, fe + 1)
+        e = mg + hold
         if kind != "time":
             first, hit = hits[kind]
             status = np.where(filled & ~has_sigma, STATUS_NO_SIGMA, status).astype(np.int8)
             e = np.where(hit, mg + first + 1, e)
-        out[kind] = _finish(ctx, side, j, e, ent_px, ent_ts, status)
+        out[kind] = _finish(ctx, side, j, e, ent_px, ent_ts, status, ent_sp, ent_tie)
     return out
 
 
@@ -285,6 +307,8 @@ class TradeBatch:
     flag: np.ndarray
     miss: np.ndarray
     nsettle: np.ndarray
+    cost: np.ndarray
+    ties: np.ndarray
     unfilled: int = 0
     no_sigma: int = 0
     no_exit: int = 0
@@ -297,7 +321,7 @@ class TradeBatch:
 def empty_batch() -> TradeBatch:
     z = np.zeros(0)
     zi = np.zeros(0, dtype=np.int64)
-    return TradeBatch(zi, zi.astype(np.int8), zi, zi, z, z, z, z, z, np.zeros(0, dtype=bool), zi, zi)
+    return TradeBatch(zi, zi.astype(np.int8), zi, zi, z, z, z, z, z, np.zeros(0, dtype=bool), zi, zi, z, zi)
 
 
 def select_trades(
@@ -351,6 +375,8 @@ def select_trades(
         flag=pick("flag")[taken_pos],
         miss=pick("miss")[taken_pos],
         nsettle=pick("nsettle")[taken_pos],
+        cost=pick("cost")[taken_pos],
+        ties=pick("ties")[taken_pos],
     )
     other = np.flatnonzero(status != STATUS_OK)
     if len(other):

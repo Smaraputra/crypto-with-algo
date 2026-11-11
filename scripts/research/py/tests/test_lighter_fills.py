@@ -87,9 +87,9 @@ def test_entry_is_the_first_print_not_last_px():
     assert out.gross[i] == pytest.approx(-math.log(101.0 / 99.6))
 
 
-def test_no_print_of_either_side_in_16_minutes_means_unfilled_and_is_counted_once():
+def test_no_print_of_either_side_in_the_entry_minute_means_unfilled_and_is_counted_once():
     md = flat_md()
-    empty_minutes(md, 10, 26)  # minutes 10 .. 25 = t .. t + 15
+    empty_minutes(md, 10, 11)  # an entry searches minute t only
     ctx = ctx_for(md)
     out, i = one(ctx, 1, 5, "time", 2)
     assert out.status[i] == fills.STATUS_UNFILLED
@@ -103,7 +103,7 @@ def test_no_print_of_either_side_in_16_minutes_means_unfilled_and_is_counted_onc
 
 def test_unfilled_entry_does_not_hold_the_position():
     md = flat_md()
-    empty_minutes(md, 10, 26)
+    empty_minutes(md, 10, 11)
     ctx = ctx_for(md)
     sides = np.zeros(ctx.ng, dtype=np.int8)
     sides[2] = 1
@@ -189,29 +189,80 @@ def test_the_earlier_of_the_two_first_prints_decides_and_a_tie_goes_to_the_same_
     assert out.entry_px[i] == pytest.approx(100.5)
     out, i = one(ctx_for(md), -1, 5, "time", 2)
     assert out.entry_px[i] == pytest.approx(100.5 * (1 - SP / 1e4))
-    md.first_buy_ts[10] = md.first_sell_ts[10] = T0 + 10 * MIN + 750  # a tie: the same-side print
+    md.first_buy_ts[10] = md.first_sell_ts[10] = T0 + 10 * MIN + 750  # a tie: the WORSE of the two prices
     out, i = one(ctx_for(md), 1, 5, "time", 2)
-    assert out.entry_px[i] == pytest.approx(100.5)
+    assert out.entry_px[i] == pytest.approx(100.5)  # same-side 100.5 against the adjusted 99.5 x (1 + sp)
+    assert out.ties[i] == 2  # the entry minute and the exit minute of flat_md both tie
     out, i = one(ctx_for(md), -1, 5, "time", 2)
     assert out.entry_px[i] == pytest.approx(99.5)
-
-
-def test_the_search_runs_minute_t_to_t_plus_15_and_uses_the_proxy_of_the_month_of_t():
-    md = flat_md()
-    empty_minutes(md, 10, 12)
-    one_sided_minute(md, 12, -1, 99.9)
-    sp = np.full(md.n, 1.0)
-    sp[12:] = 50.0  # the fill minute is in a month with another proxy: the proxy of minute t (10) is used
-    out, i = one(ctx_for(md, sp=sp), 1, 5, "time", 2)
-    assert out.entry_px[i] == pytest.approx(99.9 * (1 + 1.0 / 1e4)) and out.entry_ts[i] == T0 + 12 * MIN + 700
-    md = flat_md()
-    empty_minutes(md, 10, 25)  # the print is in minute 25 = t + 15: still found
+    # a crossed book makes the adjusted opposite-side price the worse one: it is the one charged
+    md.first_buy_px[10], md.first_sell_px[10] = 99.5, 100.5
     out, i = one(ctx_for(md), 1, 5, "time", 2)
-    assert out.status[i] == fills.STATUS_OK and out.entry_ts[i] == T0 + 25 * MIN + 700
+    assert out.entry_px[i] == pytest.approx(100.5 * (1 + SP / 1e4))
+    out, i = one(ctx_for(md), -1, 5, "time", 2)
+    assert out.entry_px[i] == pytest.approx(99.5 * (1 - SP / 1e4))
+
+
+def test_an_entry_searches_its_own_minute_only_and_an_exit_sixteen_minutes():
     md = flat_md()
-    empty_minutes(md, 10, 26)  # minute 26 = t + 16 is out of reach
+    empty_minutes(md, 10, 11)  # no print in the entry minute: unfilled, although minute 11 has prints
     out, i = one(ctx_for(md), 1, 5, "time", 2)
     assert out.status[i] == fills.STATUS_UNFILLED
+    md = flat_md()
+    one_sided_minute(md, 10, -1, 99.9, ts_off=500)  # a print exactly at t + 500 ms fills
+    out, i = one(ctx_for(md), 1, 5, "time", 2)
+    assert out.status[i] == fills.STATUS_OK and out.entry_ts[i] == T0 + 10 * MIN + 500
+    # exits: minute t first, then t + 1 .. t + 15, the proxy is that of the month of t
+    md = flat_md()
+    empty_minutes(md, 15, 17)
+    one_sided_minute(md, 17, 1, 100.2)
+    sp = np.full(md.n, 1.0)
+    sp[17:] = 50.0  # the fill minute is in a month with another proxy: the proxy of minute t (15) is used
+    out, i = one(ctx_for(md, sp=sp), 1, 5, "time", 2)
+    assert out.exit_px[i] == pytest.approx(100.2 * (1 - 1.0 / 1e4)) and out.exit_ts[i] == T0 + 17 * MIN + 700
+    md = flat_md()
+    empty_minutes(md, 15, 30)  # the print is in minute 30 = t + 15: still found
+    assert one(ctx_for(md), 1, 5, "time", 2)[0].flag[2] == False  # noqa: E712
+    md = flat_md()
+    empty_minutes(md, 15, 31)  # minute 31 = t + 16 is out of reach: the flagged fallback
+    assert one(ctx_for(md), 1, 5, "time", 2)[0].flag[2]
+
+
+def test_sp_fill_is_the_max_of_the_month_proxy_and_the_quoted_spread_of_the_fill_minute_and_the_one_before():
+    md = flat_md()
+    one_sided_minute(md, 10, -1, 99.9)  # a buy order meets a sell print: moved by sp_fill
+    # x(10): both last prints 1 s apart and 6 bps apart
+    md.last_buy_px[10], md.last_sell_px[10] = 100.03, 99.97
+    md.last_buy_ts[10], md.last_sell_ts[10] = T0 + 10 * MIN + 30_000, T0 + 10 * MIN + 31_000
+    out, i = one(ctx_for(md), 1, 5, "time", 2)
+    x10 = (100.03 - 99.97) / 100.0 * 1e4
+    assert out.entry_px[i] == pytest.approx(99.9 * (1 + max(SP, x10) / 1e4))
+    assert out.cost[i] == pytest.approx((max(SP, x10) + SP) / 2)  # entry sp_fill and the exit's month proxy
+    # the minute before counts too
+    md = flat_md()
+    one_sided_minute(md, 10, -1, 99.9)
+    md.last_buy_px[9], md.last_sell_px[9] = 100.05, 99.95
+    md.last_buy_ts[9], md.last_sell_ts[9] = T0 + 9 * MIN + 30_000, T0 + 9 * MIN + 30_000
+    x9 = (100.05 - 99.95) / 100.0 * 1e4
+    out, i = one(ctx_for(md), 1, 5, "time", 2)
+    assert out.entry_px[i] == pytest.approx(99.9 * (1 + max(SP, x9) / 1e4))
+    # a pair more than 2 s apart is undefined, a negative x counts as 0
+    md = flat_md()
+    one_sided_minute(md, 10, -1, 99.9)
+    md.last_buy_px[10], md.last_sell_px[10] = 100.2, 99.8
+    md.last_buy_ts[10], md.last_sell_ts[10] = T0 + 10 * MIN + 30_000, T0 + 10 * MIN + 32_001
+    assert one(ctx_for(md), 1, 5, "time", 2)[0].entry_px[2] == pytest.approx(99.9 * (1 + SP / 1e4))
+    md.last_buy_ts[10] = T0 + 10 * MIN + 32_000  # exactly 2,000 ms: defined
+    assert one(ctx_for(md), 1, 5, "time", 2)[0].entry_px[2] > 99.9 * (1 + 3 * SP / 1e4)
+    md.last_buy_px[10], md.last_sell_px[10] = 99.8, 100.2  # crossed: negative x is 0
+    assert one(ctx_for(md), 1, 5, "time", 2)[0].entry_px[2] == pytest.approx(99.9 * (1 + SP / 1e4))
+    # the fallback uses sp_fill / 2 with t' = t + 15
+    md = flat_md()
+    empty_minutes(md, 15, 31)
+    md.last_buy_px[30], md.last_sell_px[30] = 100.1, 99.9
+    md.last_buy_ts[30] = md.last_sell_ts[30] = T0 + 30 * MIN + 1000
+    out, i = one(ctx_for(md), 1, 5, "time", 2)
+    assert out.flag[i] and out.exit_px[i] == pytest.approx(100.0 * (1 - 0.5 * 20.0 / 1e4))
 
 
 def test_the_doubled_spread_proxy_moves_every_use_of_sp():
@@ -223,23 +274,6 @@ def test_the_doubled_spread_proxy_moves_every_use_of_sp():
     empty_minutes(md, 15, 31)
     out, i = one(ctx_for(md, sp_mult=2.0), 1, 5, "time", 2)
     assert out.flag[i] and out.exit_px[i] == pytest.approx(100.0 * (1 - 0.5 * 2 * SP / 1e4))
-
-
-def test_an_entry_that_fills_after_the_hold_exits_the_minute_after_the_fill_and_ignores_earlier_marks():
-    md = flat_md(500)
-    empty_minutes(md, 10, 18)  # the entry fills at minute 18, after g + hold (15) with hold 5
-    ctx = ctx_for(md, sigma=0.001)
-    out, i = one(ctx, 1, 5, "time", 2)
-    assert out.entry_ts[i] == T0 + 18 * MIN + 700
-    assert out.exit_ts[i] == T0 + 19 * MIN + 700  # the exit order is sent at minute 19 = fill minute + 1
-    # a spike before the fill cannot trigger a target: there was no position yet
-    path = np.full(500, 100.0)
-    path[11] = 105.0
-    md2 = flat_md(500)
-    set_path(md2, path)
-    empty_minutes(md2, 10, 18)
-    out, i = one(ctx_for(md2, sigma=0.001), 1, 15, "target1", 2)
-    assert out.exit_ts[i] > T0 + 18 * MIN  # not exited off the minute-11 mark
 
 
 def test_one_position_per_market_and_boundary_equality():
@@ -270,6 +304,8 @@ def test_one_position_per_market_and_boundary_equality():
             net=np.zeros(10),
             miss=np.zeros(10, np.int64),
             nsettle=np.zeros(10, np.int64),
+            cost=np.zeros(10),
+            ties=np.zeros(10, np.int64),
         )
         # entry 2 releases at grid point 3 exactly (delta 0) or one ms after it
         outs.exit_ts[2] = T0 + 3 * lock.GRID_MS + delta
@@ -313,7 +349,7 @@ def _exit_minute(md, side, kind, hold=HOLD, j=2):
     i = j - out.j0
     px = md.first_sell_px if side > 0 else md.first_buy_px
     minute = int(round((out.exit_ts[i] - T0 - 700) / MIN))
-    assert px[minute] == out.exit_px[i]
+    assert px[minute] == pytest.approx(out.exit_px[i], rel=1e-6)  # a tie at the fill: within 1e-8 of the print
     return minute - 5 * j, out, i  # minutes after the entry
 
 
@@ -322,7 +358,7 @@ def test_target1_long_fires_at_first_mark_above_sigma_h():
     md = _path_md({18: 100.3})
     m, out, i = _exit_minute(md, 1, "target1")
     assert m == 9
-    assert out.net[i] == pytest.approx(math.log(100.3 * 0.9999 / (100.0 * 1.0001)))
+    assert out.net[i] == pytest.approx(math.log(100.3 * 0.9999 / (100.0 * 1.0001)), abs=1e-7)  # ties: 1e-8 off
 
 
 def test_stop2_target2_needs_two_sigma():
@@ -352,6 +388,7 @@ def test_only_marks_strictly_inside_the_hold_are_examined():
     assert _exit_minute(md, 1, "target1")[0] == HOLD
     md = _path_md({10: 100.4})  # the very first mark, the mid of minute mg, already counts
     md.first_buy_px[10] = 100.0  # the entry print of that minute was before the move
+    md.first_sell_px[10] = 99.0  # (and the tie rule must not pick the opposite print: its adjusted price is lower)
     assert _exit_minute(md, 1, "target1")[0] == 1
 
 
@@ -448,20 +485,43 @@ def test_off_grid_funding_rows_are_not_used():
 # A literal loop against the vectorised engine
 
 
-def ref_fill(md, sp, order_side, m):
-    """The first print of either side in minutes m .. m + 15 (spec text, one minute at a time)."""
-    for k in range(m, m + 16):
+def ref_xs(md):
+    """x(m) in bps, one minute at a time (spec text)."""
+    out = np.zeros(md.n)
+    for m in range(md.n):
+        b, a = md.last_buy_px[m], md.last_sell_px[m]
+        if math.isnan(b) or math.isnan(a):
+            continue
+        if abs(md.last_buy_ts[m] - md.last_sell_ts[m]) > 2000:
+            continue
+        out[m] = max(0.0, (b - a) * 1e4 / ((b + a) / 2))
+    return out
+
+
+def ref_fill(md, sp, xs, order_side, m, search):
+    """The first print of either side in minutes m .. m + search (spec text, one minute at a time).
+
+    Returns (minute, price, timestamp, sp_fill, tie) or None.
+    """
+    for k in range(m, m + search + 1):
         tb, tsl = md.first_buy_ts[k], md.first_sell_ts[k]
         has_b, has_s = not math.isnan(tb), not math.isnan(tsl)
         if not (has_b or has_s):
             continue
+        spf = max(sp[m], xs[k], xs[max(k - 1, 0)])
+        adj = spf / 1e4
+        tie = has_b and has_s and tb == tsl
         if order_side > 0:
-            if has_b and (not has_s or tb <= tsl):
-                return k, md.first_buy_px[k], int(tb)
-            return k, md.first_sell_px[k] * (1 + sp[m] / 1e4), int(tsl)
-        if has_s and (not has_b or tsl <= tb):
-            return k, md.first_sell_px[k], int(tsl)
-        return k, md.first_buy_px[k] * (1 - sp[m] / 1e4), int(tb)
+            if has_b and (not has_s or tb < tsl):
+                return k, md.first_buy_px[k], int(tb), spf, False
+            if tie:
+                return k, max(md.first_buy_px[k], md.first_sell_px[k] * (1 + adj)), int(tb), spf, True
+            return k, md.first_sell_px[k] * (1 + adj), int(tsl), spf, False
+        if has_s and (not has_b or tsl < tb):
+            return k, md.first_sell_px[k], int(tsl), spf, False
+        if tie:
+            return k, min(md.first_sell_px[k], md.first_buy_px[k] * (1 - adj)), int(tsl), spf, True
+        return k, md.first_buy_px[k] * (1 - adj), int(tb), spf, False
     return None
 
 
@@ -470,7 +530,8 @@ def ref_run(md, ctx, sides, hold, kind, f_map, sp):
     mid = ctx.mid
     sigma = ctx.sigma
     n = md.n
-    j1 = (n - 2 - max(hold, 16) - 15) // 5
+    xs = ref_xs(md)
+    j1 = (n - 2 - hold - 15) // 5
     trades, unfilled, no_sigma = [], 0, 0
     busy = -(10**18)
     for j in range(len(sides)):
@@ -481,12 +542,12 @@ def ref_run(md, ctx, sides, hold, kind, f_map, sp):
             continue
         side = int(sides[j])
         mg = 5 * j
-        fill = ref_fill(md, sp, side, mg)
+        fill = ref_fill(md, sp, xs, side, mg, 0)
         if fill is None:
             unfilled += 1
             continue
-        fe, entry_px, entry_ts = fill
-        e = max(mg + hold, fe + 1)
+        _, entry_px, entry_ts, e_sp, e_tie = fill
+        e = mg + hold
         if kind != "time":
             s = sigma[j]
             if math.isnan(s):
@@ -494,20 +555,20 @@ def ref_run(md, ctx, sides, hold, kind, f_map, sp):
                 continue
             sh = s * math.sqrt(hold / 5)
             for t in range(1, hold):
-                if mg + t - 1 < fe:
-                    continue
                 u = side * math.log(mid[mg + t - 1] / entry_px)
                 if (kind == "stop2_target2" and (u <= -2 * sh or u >= 2 * sh)) or (kind == "target1" and u >= sh):
                     e = mg + t
                     break
-        xfill = ref_fill(md, sp, -side, e)
+        xfill = ref_fill(md, sp, xs, -side, e, 15)
         if xfill is None:
             flagged = True
-            exit_px = mid[e + 15] * (1 - side * 0.5 * sp[e] / 1e4)
+            x_sp = max(sp[e], xs[e + 15], xs[e + 14])
+            exit_px = mid[e + 15] * (1 - side * 0.5 * x_sp / 1e4)
             exit_ts = T0 + (e + 16) * MIN
+            x_tie = False
         else:
             flagged = False
-            _, exit_px, exit_ts = xfill
+            _, exit_px, exit_ts, x_sp, x_tie = xfill
         fund, miss = 0.0, 0
         for h in range(int(entry_ts) // HOUR + 1, exit_ts // HOUR + 1):
             r = f_map.get(h * HOUR)
@@ -516,7 +577,7 @@ def ref_run(md, ctx, sides, hold, kind, f_map, sp):
             else:
                 fund += r
         net = side * math.log(exit_px / entry_px) - side * fund
-        trades.append((j, net, exit_ts, flagged, miss))
+        trades.append((j, net, exit_ts, flagged, miss, (e_sp + x_sp) / 2, int(e_tie) + int(x_tie)))
         busy = exit_ts
     return trades, unfilled, no_sigma
 
@@ -548,6 +609,8 @@ def test_engine_matches_literal_loop_on_random_data(hold):
             assert got.exit_ts.tolist() == [w[2] for w in want]
             assert got.flag.tolist() == [w[3] for w in want]
             assert got.miss.tolist() == [w[4] for w in want]
+            np.testing.assert_allclose(got.cost, [w[5] for w in want], rtol=1e-9, atol=1e-12)
+            assert got.ties.tolist() == [w[6] for w in want]
             assert (got.unfilled, got.no_sigma) == (unf, nos)
             total += len(want)
     assert total > 20

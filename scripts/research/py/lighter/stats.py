@@ -48,6 +48,8 @@ class _Block:
         self.flagged = 0
         self.missing = 0
         self.settlements = 0
+        self.cost = 0.0
+        self.ties = 0
         self.markets: dict[int, list[float]] = {}
 
     def add(self, market_id: int, day: np.ndarray, batch: TradeBatch, sel: np.ndarray | None = None) -> None:
@@ -63,6 +65,8 @@ class _Block:
         self.flagged += int(np.count_nonzero(pick(batch.flag)))
         self.missing += int(pick(batch.miss).sum())
         self.settlements += int(pick(batch.nsettle).sum())
+        self.cost += float(pick(batch.cost).sum())
+        self.ties += int(pick(batch.ties).sum())
         self.gross += float(pick(batch.gross).sum())
         self.fund += float(pick(batch.fund).sum())
         row[0] += len(net)
@@ -77,6 +81,8 @@ class _Block:
             "flagged_exits": self.flagged,
             "missing_funding": self.missing,
             "settlements_crossed": self.settlements,
+            "mean_fill_cost_bps": (self.cost / self.n) if self.n else None,
+            "tie_share": (self.ties / (2 * self.n)) if self.n else None,
             "days": len(series),
             "mean_net_bps": (float(series.sum()) / self.n * lock.BPS) if self.n else None,
             "mean_gross_bps": (self.gross / self.n * lock.BPS) if self.n else None,
@@ -116,6 +122,7 @@ class ConfigAcc:
         self.n_days = n_days
         self.total = _Block(n_days)
         self.by_source = {src: _Block(n_days) for src in self.SOURCES}
+        self.by_class = {k: _Block(n_days) for k in ("crypto", "tradfi", "unclassified")}
         self.unfilled = 0
         self.no_sigma = 0
         self.no_exit = 0
@@ -126,8 +133,12 @@ class ConfigAcc:
         self.trigger_fired += fired
         self.trigger_valid += valid
 
-    def add(self, market_id: int, batch: TradeBatch, binance: np.ndarray | None = None) -> None:
-        """binance: per trade, True when the decision month's price source was binance (None: all lighter)."""
+    def add(
+        self, market_id: int, batch: TradeBatch, binance: np.ndarray | None = None, klass: str | None = None
+    ) -> None:
+        """binance: per trade, True when the decision month's price source was binance (None: all lighter).
+
+        klass: the asset class of the market, for the split of the F2 statistics."""
         self.unfilled += batch.unfilled
         self.no_sigma += batch.no_sigma
         self.no_exit += batch.no_exit
@@ -139,6 +150,8 @@ class ConfigAcc:
             raise ValueError("a trade exits outside the span")
         flags = np.zeros(batch.n, dtype=bool) if binance is None else np.asarray(binance, dtype=bool)
         self.total.add(market_id, day, batch)
+        if klass in self.by_class:
+            self.by_class[klass].add(market_id, day, batch)
         if flags.any():
             self.by_source["binance"].add(market_id, day, batch, flags)
         if (~flags).any():
@@ -168,6 +181,16 @@ class ConfigAcc:
         for src, block in self.by_source.items():
             sub = block.summary(self.day0_ms)
             out["by_source"][src] = {k: sub[k] for k in keep} | {"months": sub["months"]}
+        counts = {src: out["by_source"][src]["trades"] for src in self.SOURCES}
+        majority = max(counts, key=lambda k: (counts[k], k)) if out["trades"] else None
+        out["majority_source"] = majority
+        out["majority_source_mean_net_bps"] = out["by_source"][majority]["mean_net_bps"] if majority else None
+        if cfg.family == "F2":
+            out["by_class"] = {}
+            for klass, block in self.by_class.items():
+                sub = block.summary(self.day0_ms)
+                if sub["trades"]:
+                    out["by_class"][klass] = {k: sub[k] for k in keep}
         if cfg.family == "F4":
             out["trigger_rate"] = self.trigger_fired / self.trigger_valid if self.trigger_valid else None
             out["trigger_valid_points"] = self.trigger_valid
@@ -246,18 +269,31 @@ def finalist_candidates(
             continue
         if s.get("missing_funding_share", 0.0) > lock.MAX_MISSING_FUNDING_SHARE:
             continue
+        if "majority_source_mean_net_bps" in s and not (s["majority_source_mean_net_bps"] or 0.0) > 0:
+            continue
         out.append(s)
     return out
 
 
-def variant_checks(cfg_mean: float | None, mirror_mean: float | None, doubled_mean: float | None) -> dict[str, Any]:
-    """The mirror diagnostic and the spread sensitivity of one configuration (means in bps per trade)."""
+def variant_checks(
+    cfg_mean: float | None,
+    mirror_mean: float | None,
+    doubled_mean: float | None,
+    cost_bps: float | None = 0.0,
+) -> dict[str, Any]:
+    """The cost-adjusted mirror diagnostic and the spread sensitivity of one configuration (means in bps per trade).
+
+    The diagnostic (mean(cfg) - mean(mirror)) / 2 must exceed the mean over the configuration's trades of
+    (sp_fill at entry + sp_fill at exit) / 2, both in bps, i.e. the same units (log return x 10,000).
+    """
     diag = None if cfg_mean is None or mirror_mean is None else (cfg_mean - mirror_mean) / 2.0
+    cost = 0.0 if cost_bps is None else cost_bps
     return {
         "mean_cfg_bps": cfg_mean,
         "mean_mirror_bps": mirror_mean,
         "mirror_diagnostic_bps": diag,
-        "mirror_ok": bool(diag is not None and diag > 0),
+        "mean_fill_cost_bps": cost,
+        "mirror_ok": bool(diag is not None and diag > cost),
         "mean_doubled_spread_bps": doubled_mean,
         "doubled_ok": bool(doubled_mean is not None and doubled_mean > 0),
     }
@@ -296,8 +332,14 @@ def holm(pvalues: dict[str, float], alpha: float = lock.CONFIRM_ALPHA) -> dict[s
     return out
 
 
-def confirm_flags(stat: dict[str, Any], checks: dict[str, Any] | None = None) -> dict[str, Any]:
-    """One finalist's confirmation items before Holm: mean, p, months, mirror and doubled spread."""
+def confirm_flags(
+    stat: dict[str, Any], checks: dict[str, Any] | None = None, majority_source: str | None = None
+) -> dict[str, Any]:
+    """One finalist's confirmation items before Holm: mean, p, months, mirror, doubled spread and the source.
+
+    majority_source: the signal price source that carried most of the configuration's DEVELOPMENT trades. The mean net
+    per trade within that source on the confirmation data must be positive too.
+    """
     mean = stat.get("mean_net_bps")
     p = normal_sf(stat["t"])
     by_month = {m["month"]: m["net"] for m in stat.get("months", [])}
@@ -310,12 +352,19 @@ def confirm_flags(stat: dict[str, Any], checks: dict[str, Any] | None = None) ->
         "positive_months": int(positive),
         "months_ok": bool(ok_m),
     }
+    ok_source = True
+    if majority_source is not None:
+        src_mean = stat.get("by_source", {}).get(majority_source, {}).get("mean_net_bps")
+        ok_source = bool(src_mean is not None and src_mean > 0)
+        out["majority_source"] = majority_source
+        out["majority_source_mean_net_bps"] = src_mean
+    out["source_ok"] = ok_source
     ok_checks = True
     if checks is not None:
         out.update(checks)
         ok_checks = bool(checks["mirror_ok"] and checks["doubled_ok"])
     out["checks_ok"] = ok_checks
-    out["pre_holm_ok"] = bool(ok_mean and ok_m and ok_checks)
+    out["pre_holm_ok"] = bool(ok_mean and ok_m and ok_checks and ok_source)
     return out
 
 

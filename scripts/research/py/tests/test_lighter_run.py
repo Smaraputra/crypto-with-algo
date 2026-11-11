@@ -8,13 +8,15 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from lighter import lock, run, stats
+from lighter import data, lock, run, stats
 from lighter.data import DataError, DataReader, read_json
 from lighter.fold_trades import day_start_ms
 from lighter.synthetic import PanelSpec, make_panel, random_minute_data, rewrite_binance_wrong_asset
@@ -111,6 +113,15 @@ def test_results_record_provenance_and_the_source_split(zero):
     _, out, result = zero
     assert result["lock_sha256"] == lock.lock_digest() and result["synthetic"] is True
     assert "git_head" in result and result["ledger_id"] == "lighter-l1" and result["trials"] == 2064
+    assert set(result["versions"]) == {"numpy", "pandas", "pyarrow"} and "git_source" in result
+    f2 = by_id(result)["F2-k1-th1.0-h15-time-AB"]
+    assert set(f2["by_class"]) <= {"crypto", "tradfi"} and f2["by_class"]["crypto"]["trades"] > 0
+    assert sum(v["trades"] for v in f2["by_class"].values()) == f2["trades"]
+    assert "by_class" not in by_id(result)["F1-k1-th1.0-h15-time-AB"]
+    for c in result["configs"][:300]:
+        if c["trades"]:
+            assert 0.0 <= c["tie_share"] <= 1.0 and c["mean_fill_cost_bps"] > 0.3
+            assert c["majority_source"] in ("binance", "lighter")
     text = (out / "dev_result.json").read_text()
     assert text.count("generated_at") == 1 and "elapsed" not in text
     for c in result["configs"][:200]:
@@ -177,8 +188,9 @@ def test_planted_edge_passes_all_items_but_the_month_count_which_a_one_month_pan
     assert 1.5 < c["mean_net_bps"] < 5.0 and c["t"] > 3.0
     # item (d) asks for 60% of the markets positive, not all of them: a tier B market can sit below zero by noise
     assert c["markets_100"] == 6 and c["pos_market_share"] >= lock.PASS_MIN_MARKET_SHARE
-    best = max(result["configs"], key=lambda r: r["t"])
-    assert best["id"].startswith("F1-k1-th1.5-h60")
+    # the best t's belong to the planted reversal (F1 k 1 theta 1.5 hold 60) or to configurations that share its effect
+    ranked = sorted(result["configs"], key=lambda r: -r["t"])
+    assert sum(r["id"].startswith("F1-k1-th1.5-h60") for r in ranked[:4]) >= 2
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -302,9 +314,12 @@ def test_the_spread_proxy_in_force_is_carried_forward():
     assert sp[minute(dt.date(2025, 7, 15))] == 0.8
     assert sp[minute(dt.date(2025, 8, 15))] == 0.8  # August has none: July's is carried forward
     assert sp[minute(dt.date(2025, 9, 15))] == 3.0
-    assert sp[0] == 0.8  # the warm-up days take the first proxy
+    assert np.isnan(sp[0])  # the warm-up days precede the first month with a proxy: no proxy, no fill
     late = {(2025, 8): {1: 1.5}}
-    assert run.sp_per_minute(late, 1, span)[minute(dt.date(2025, 7, 10))] == 1.5
+    sp_late = run.sp_per_minute(late, 1, span)
+    # before the first month with a proxy there is none: such minutes cannot carry a fill
+    assert np.isnan(sp_late[minute(dt.date(2025, 7, 10))]) and np.isnan(sp_late[0])
+    assert sp_late[minute(dt.date(2025, 8, 10))] == 1.5
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -415,12 +430,19 @@ def copy_dev(dev_out, dest):
     return dest
 
 
+def write_audit(records: Path, ids):
+    records.mkdir(parents=True, exist_ok=True)
+    (records / run.SUSPECT_FILE).write_text(json.dumps([{"id": i, "note": "audited in the test"} for i in ids]))
+
+
 @pytest.fixture
-def relaxed(planted, monkeypatch):
-    """One-month panels cannot meet item (c); the planted configurations are SUSPECT (t above 8) only if so."""
+def relaxed(planted, monkeypatch, tmp_path):
+    """One-month panels cannot meet item (c). SUSPECT planted configurations are cleared by an audit file."""
     _, _, dev = planted
     monkeypatch.setattr(lock, "PASS_MIN_MONTHS_WITH_TRADES", 1)
-    monkeypatch.setattr(lock, "SUSPECT_CLEARED", tuple(c["id"] for c in dev["configs"] if stats.is_suspect(c)))
+    records = tmp_path / "records"
+    monkeypatch.setattr(run, "RECORDS_DIR", records)
+    write_audit(records, [c["id"] for c in dev["configs"] if stats.is_suspect(c)])
     return dev
 
 
@@ -453,13 +475,23 @@ def test_a_suspect_configuration_is_not_a_finalist_until_cleared(planted, tmp_pa
     panel, dev_out, dev = planted
     suspects = [c["id"] for c in dev["configs"] if stats.is_suspect(c)]
     monkeypatch.setattr(lock, "PASS_MIN_MONTHS_WITH_TRADES", 1)
-    monkeypatch.setattr(lock, "SUSPECT_CLEARED", ())
+    monkeypatch.setattr(run, "RECORDS_DIR", tmp_path / "no_records")  # no audit file: nothing is cleared
     out = copy_dev(dev_out, tmp_path / "rep")
     write_nulls(out, prov_of(panel), [2.0] * 20, [1.0] * 20)
     rep = read_json(run.cmd_report(args_for(panel, out), last_date=JULY_END))
     assert set(rep["tripwire"]["suspect"]) == set(suspects)
     assert not set(suspects) & {f["config_id"] for f in rep["finalists"]}
     assert ("audit for look-ahead" in rep["tripwire"]["notice"]) == bool(suspects)
+    assert rep["tripwire"]["cleared"] == [] and rep["tripwire"]["cleared_file_sha256"] is None
+    # clearing them by an audit file OUTSIDE lighter/ lets them through, and the file's hash is recorded
+    if suspects:
+        write_audit(tmp_path / "records", suspects)
+        monkeypatch.setattr(run, "RECORDS_DIR", tmp_path / "records")
+        rep2 = read_json(run.cmd_report(args_for(panel, out), last_date=JULY_END))
+        assert set(rep2["tripwire"]["cleared"]) == set(suspects)
+        assert rep2["tripwire"]["cleared_file_sha256"] == run._sha256_file(tmp_path / "records" / run.SUSPECT_FILE)
+        assert read_json(out / "finalists.json")["suspect_cleared_sha256"] == rep2["tripwire"]["cleared_file_sha256"]
+        assert set(rep["candidates"]) <= set(rep2["candidates"])  # clearing can only add candidates
 
 
 def test_report_with_a_high_noise_bar_has_no_finalists(planted, tmp_path, relaxed):
@@ -524,21 +556,48 @@ def confirm_setup(planted, tmp_path, monkeypatch):
     return panel, dev_dir
 
 
+def confirm_args(panel, dev_dir, out, finalists=None, **flags):
+    return args_for(panel, out, finalists=str(finalists or dev_dir / "finalists.json"), dev_dir=str(dev_dir), **flags)
+
+
+def prepare_confirm(panel, dev_dir, finalists=None):
+    return run.cmd_confirm(
+        confirm_args(panel, dev_dir, dev_dir, finalists, prepare=True, run=False), dev_last_date=JULY_END
+    )
+
+
 def run_confirm(panel, dev_dir, out, finalists=None):
-    args = args_for(panel, out, finalists=str(finalists or dev_dir / "finalists.json"), dev_dir=str(dev_dir))
+    args = confirm_args(panel, dev_dir, out, finalists, prepare=False, run=True)
     return run.cmd_confirm(args, last_date=dt.date(2025, 8, 14), dev_last_date=JULY_END)
 
 
-def test_confirm_recomputes_the_finalists_runs_once_and_applies_holm(planted, tmp_path, relaxed, monkeypatch):
+def test_confirm_prepare_writes_the_record_and_stops_and_run_needs_it(planted, tmp_path, relaxed, monkeypatch):
     panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
-    fin = read_json(dev_dir / "finalists.json")
-    ids = [f["config_id"] for f in fin["finalists"]]
+    ids = [f["config_id"] for f in read_json(dev_dir / "finalists.json")["finalists"]]
     assert ids
-    # extra keys in the finalists file are ignored: eligibility is recomputed from the data
-    bogus = {k: v for k, v in fin.items() if k not in ("generated_at", "content_sha256")}
-    run.write_result(tmp_path / "bogus.json", {**bogus, "markets": [{"market_id": 1}], "eligibility": {"x": 1}})
+    with pytest.raises(SystemExit, match="no confirm record"):
+        run_confirm(panel, dev_dir, tmp_path / "early")
+    with pytest.raises(SystemExit, match="exactly one of"):
+        run.cmd_confirm(confirm_args(panel, dev_dir, tmp_path / "x", prepare=True, run=True))
+    with pytest.raises(SystemExit, match="exactly one of"):
+        run.cmd_confirm(confirm_args(panel, dev_dir, tmp_path / "x", prepare=False, run=False))
+    record_path = prepare_confirm(panel, dev_dir)
+    assert record_path == run.RECORDS_DIR / "confirm_record.json"
+    record = read_json(record_path)
+    assert record["finalists"] == ids and record["ran"] is False and record["lock_sha256"] == lock.lock_digest()
+    assert record["dev_hashes"]["dev_result.json"] == read_json(dev_dir / "dev_result.json")["content_sha256"]
+    assert len(record["dev_hashes"]) == 41  # the dev result and 20 + 20 null files
+    assert not (tmp_path / "confirm").exists() and not list(dev_dir.glob("confirm_result.json"))  # prepare stops
+    with pytest.raises(SystemExit, match="exists already"):
+        prepare_confirm(panel, dev_dir)
+
+
+def test_confirm_run_checks_finalists_runs_once_and_applies_holm(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    ids = [f["config_id"] for f in read_json(dev_dir / "finalists.json")["finalists"]]
+    prepare_confirm(panel, dev_dir)
     out = tmp_path / "confirm"
-    res = read_json(run_confirm(panel, dev_dir, out, tmp_path / "bogus.json"))
+    res = read_json(run_confirm(panel, dev_dir, out))
     assert res["kind"] == "confirm" and [r["id"] for r in res["results"]] == ids
     assert res["holm_family_size"] == len(ids)
     rows = res["eligibility"]["months"]["2025-08"]["eligible"]
@@ -546,22 +605,38 @@ def test_confirm_recomputes_the_finalists_runs_once_and_applies_holm(planted, tm
     r = res["results"][0]
     assert r["days"] == 14 and [m["month"] for m in r["months"]] == ["2025-08"]
     flags = r["confirm"]
-    assert {"mean_positive", "p_one_sided", "months_ok", "checks_ok", "pre_holm_ok", "p_below_holm", "pass"} <= set(
-        flags
-    )
+    assert {
+        "mean_positive",
+        "p_one_sided",
+        "months_ok",
+        "checks_ok",
+        "source_ok",
+        "pre_holm_ok",
+        "p_below_holm",
+    } <= set(flags)
     assert flags["mirror_diagnostic_bps"] is not None and flags["mean_doubled_spread_bps"] is not None
+    assert flags["mean_fill_cost_bps"] > 0 and flags["majority_source"] in ("binance", "lighter")
     assert flags["p_one_sided"] == pytest.approx(stats.normal_sf(r["t"]))
-    assert not flags["months_ok"]  # a fortnight of one month: at most 1 of 4 months positive
-    assert not flags["pass"]
-    record = read_json(out / "confirm_record.json")
-    assert record["finalists"] == ids and res["confirm_record_sha256"] == record["content_sha256"]
-    assert (dev_dir / "confirm_record.json").exists()
+    assert not flags["months_ok"] and not flags["pass"]  # a fortnight of one month: at most 1 of 4 months positive
+    record = read_json(run.RECORDS_DIR / "confirm_record.json")
+    assert res["confirm_record_sha256"] == record["content_sha256"]
+    marker = run.consumed_marker(lock.lock_digest())
+    assert marker.exists() and res["consumed_marker_sha256"] == read_json(marker)["content_sha256"]
     assert not any("2025-11" in k for k in res["manifest"] if k.startswith("fold/"))
-    # one time only, wherever the out dir points
+    # one time only: the same out dir, another out dir, and a record that says it ran
     with pytest.raises(SystemExit, match="confirm runs once"):
         run_confirm(panel, dev_dir, out)
     with pytest.raises(SystemExit, match="confirm runs once"):
         run_confirm(panel, dev_dir, tmp_path / "elsewhere")
+    marker.unlink()
+    with pytest.raises(SystemExit, match="confirm runs once"):
+        run_confirm(panel, dev_dir, out)  # the result already exists in this out dir
+    record["ran"] = True
+    run.write_result(
+        run.RECORDS_DIR / "confirm_record.json", {k: v for k, v in record.items() if k != "content_sha256"}
+    )
+    with pytest.raises(SystemExit, match="confirm runs once"):
+        run_confirm(panel, dev_dir, tmp_path / "third")
 
 
 def test_confirm_refuses_a_different_finalists_list_a_tampered_file_and_a_tampered_null(
@@ -572,38 +647,105 @@ def test_confirm_refuses_a_different_finalists_list_a_tampered_file_and_a_tamper
     base = {k: v for k, v in fin.items() if k not in ("generated_at", "content_sha256")}
     run.write_result(tmp_path / "empty.json", {**base, "finalists": []})
     with pytest.raises(SystemExit, match="differ from the supplied file"):
-        run_confirm(panel, dev_dir, tmp_path / "o1", tmp_path / "empty.json")
+        prepare_confirm(panel, dev_dir, tmp_path / "empty.json")
     other = {**base, "finalists": [{"config_id": "F4-small-k3-q0.8-follow-h5-time-AB"}]}
     run.write_result(tmp_path / "other.json", other)
     with pytest.raises(SystemExit, match="differ from the supplied file"):
-        run_confirm(panel, dev_dir, tmp_path / "o2", tmp_path / "other.json")
+        prepare_confirm(panel, dev_dir, tmp_path / "other.json")
     forged = json.loads((dev_dir / "finalists.json").read_text())
     forged["noise_bar"] = 0.0  # edited without a new hash
     (tmp_path / "forged.json").write_text(json.dumps(forged))
     with pytest.raises(SystemExit, match="content hash"):
-        run_confirm(panel, dev_dir, tmp_path / "o3", tmp_path / "forged.json")
-    wrong_lock = {**base, "lock_sha256": "0" * 64}
-    run.write_result(tmp_path / "lock.json", wrong_lock)
+        prepare_confirm(panel, dev_dir, tmp_path / "forged.json")
+    run.write_result(tmp_path / "lock.json", {**base, "lock_sha256": "0" * 64})
     with pytest.raises(SystemExit, match="different lock digest"):
-        run_confirm(panel, dev_dir, tmp_path / "o4", tmp_path / "lock.json")
+        prepare_confirm(panel, dev_dir, tmp_path / "lock.json")
+    # the audit file the finalists used must be the one on disk now
+    run.write_result(tmp_path / "audit.json", {**base, "suspect_cleared_sha256": "0" * 64})
+    with pytest.raises(SystemExit, match="audit file"):
+        prepare_confirm(panel, dev_dir, tmp_path / "audit.json")
     p = dev_dir / "null_f6_2.json"
     doc = json.loads(p.read_text())
     doc["max_t"] = 99.0
     p.write_text(json.dumps(doc))
     with pytest.raises(SystemExit, match="content hash"):
-        run_confirm(panel, dev_dir, tmp_path / "o5")
-    assert not (dev_dir / "confirm_record.json").exists()  # nothing ran, so no record was spent
+        prepare_confirm(panel, dev_dir)
+    assert not (run.RECORDS_DIR / "confirm_record.json").exists()  # nothing was prepared
+
+
+def test_confirm_run_refuses_when_the_dev_files_or_the_finalists_changed_after_prepare(
+    planted, tmp_path, relaxed, monkeypatch
+):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    prepare_confirm(panel, dev_dir)
+    p = dev_dir / "null_shift_5.json"
+    doc = json.loads(p.read_text())
+    doc["max_t"] = 0.5
+    run.write_result(p, {k: v for k, v in doc.items() if k != "content_sha256"})  # valid file, different content
+    with pytest.raises(SystemExit, match="differ from the committed confirm record"):
+        run_confirm(panel, dev_dir, tmp_path / "out")
+    assert not run.consumed_marker(lock.lock_digest()).exists()
+
+
+def test_confirm_rerun_on_the_development_data_must_match_the_dev_result(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    ids = [f["config_id"] for f in read_json(dev_dir / "finalists.json")["finalists"]]
+    prepare_confirm(panel, dev_dir)
+    real = run.rerun_matches
+
+    def forged(inputs):
+        for c in inputs.dev["configs"]:
+            if c["id"] in ids:
+                c["trades"] += 1
+        real(inputs)
+
+    monkeypatch.setattr(run, "rerun_matches", forged)
+    with pytest.raises(SystemExit, match="differs from the dev result"):
+        run_confirm(panel, dev_dir, tmp_path / "out")
+    assert not run.consumed_marker(lock.lock_digest()).exists()
+
+
+def test_the_confirm_record_must_be_committed_on_real_data(tmp_path, monkeypatch):
+    path = tmp_path / "confirm_record.json"
+    path.write_text("{}")
+    calls = []
+
+    def fake(args):
+        calls.append(args)
+        return ""
+
+    monkeypatch.setattr(run, "_git", fake)
+    assert run.record_committed(path) is True and calls[0][0] == "ls-files" and calls[1][0] == "status"
+
+    def untracked(args):
+        raise subprocess.CalledProcessError(1, "git")
+
+    monkeypatch.setattr(run, "_git", untracked)
+    assert run.record_committed(path) is False
+    monkeypatch.setattr(run, "_git", lambda a: " M x\n" if a[0] == "status" else "")
+    assert run.record_committed(path) is False  # tracked but modified
+
+    def no_git(args):
+        raise OSError("no git")
+
+    monkeypatch.setattr(run, "_git", no_git)
+    monkeypatch.delenv("LIGHTER_RECORD_COMMITTED", raising=False)
+    assert run.record_committed(path) is False
+    monkeypatch.setenv("LIGHTER_RECORD_COMMITTED", "1")
+    assert run.record_committed(path) is True
 
 
 def test_confirm_with_no_finalists_writes_an_empty_result(planted, tmp_path, monkeypatch):
     panel, dev_out, _ = planted
     monkeypatch.setattr(lock, "CONFIRM_FIRST_DATE", dt.date(2025, 8, 1))
+    monkeypatch.setattr(run, "RECORDS_DIR", tmp_path / "records")
     dev_dir = copy_dev(dev_out, tmp_path / "dev")
     write_nulls(dev_dir, prov_of(panel), [50.0] * 20, [50.0] * 20)
     run.cmd_report(args_for(panel, dev_dir), last_date=JULY_END)
     assert read_json(dev_dir / "finalists.json")["finalists"] == []
+    prepare_confirm(panel, dev_dir)
     res = read_json(run_confirm(panel, dev_dir, tmp_path / "out"))
-    assert res["results"] == [] and (tmp_path / "out" / "confirm_record.json").exists()
+    assert res["results"] == []
 
 
 def test_confirm_needs_the_dev_dir(planted, tmp_path):
@@ -612,8 +754,18 @@ def test_confirm_needs_the_dev_dir(planted, tmp_path):
     run.write_result(fin, {**prov_of(panel), "finalists": []})
     with pytest.raises(SystemExit, match="dev-dir"):
         run.cmd_confirm(
-            args_for(panel, tmp_path / "o", finalists=str(fin), dev_dir=None), last_date=dt.date(2025, 8, 14)
+            args_for(panel, tmp_path / "o", finalists=str(fin), dev_dir=None, prepare=True, run=False),
+            last_date=dt.date(2025, 8, 14),
         )
+
+
+def test_null_runs_without_a_maximum_are_an_error():
+    shift = [{"max_t": 1.0}] * 19 + [{"max_t": None}]
+    with pytest.raises(SystemExit, match="no maximum"):
+        run.bars_from_nulls(shift, [{"max_t": 1.0}] * 20)
+    with pytest.raises(SystemExit, match="no maximum"):
+        run.bars_from_nulls([{"max_t": 1.0}] * 20, [{"max_t": None}] + [{"max_t": 1.0}] * 19)
+    assert run.bars_from_nulls([{"max_t": 1.0}, {"max_t": 3.0}], [{"max_t": 2.0}])[:2] == (3.0, 2.0)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -765,3 +917,232 @@ def test_the_development_span_is_the_locked_one():
     assert lock.DEV_FIRST_DATE == dt.date(2025, 7, 1)
     reader = DataReader(fold_dir=".", mode="dev")
     assert reader.end_ms == day_start_ms(dt.date(2026, 7, 1))
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# The registration anchor
+
+
+@pytest.fixture
+def real_looking(tmp_path, monkeypatch):
+    """Data directories that are NOT synthetic, a clean mocked git and an empty records directory."""
+    monkeypatch.setattr(run, "_git", lambda a: "abc\n" if a[0] == "rev-parse" else "")
+    monkeypatch.setattr(run, "RECORDS_DIR", tmp_path / "records")
+    fold, binance, funding = tmp_path / "fold", tmp_path / "binance", tmp_path / "funding"
+    (fold / "v1").mkdir(parents=True)
+    (fold / "manifest.jsonl").write_text(
+        json.dumps({"date": "2025-06-01", "source_url": "https://aws.example/x"}) + "\n"
+    )
+    (fold / "markets.json").write_text(
+        json.dumps({"markets_file_version": 2, "source": "https://x", "order_books": []})
+    )
+    (funding / "funding").mkdir(parents=True)
+    (funding / "funding" / "manifest.jsonl").write_text('{"market_id": 1, "status": "ok"}\n')
+    (binance / "BTCUSDT").mkdir(parents=True)
+    (binance / "BTCUSDT" / "BTCUSDT-1m-2025-07.csv.gz").write_bytes(b"abc")
+    return argparse.Namespace(fold_dir=fold, binance_dir=binance, funding_dir=funding, out_dir=tmp_path / "out")
+
+
+def test_register_check_prints_the_anchor_and_commands_refuse_on_any_difference(real_looking, capsys):
+    args = real_looking
+    got = run.anchor_contents(args.fold_dir, args.binance_dir, args.funding_dir)
+    assert got["lock_sha256"] == lock.lock_digest()
+    assert got["binance_files"] == [["BTCUSDT/BTCUSDT-1m-2025-07.csv.gz", 3]]
+    assert all(got[k] for k in ("fold_manifest_sha256", "markets_json_sha256", "funding_manifest_sha256"))
+    assert (
+        run.main(
+            [
+                "register-check",
+                "--fold-dir",
+                str(args.fold_dir),
+                "--binance-dir",
+                str(args.binance_dir),
+                "--funding-dir",
+                str(args.funding_dir),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == got
+    prov = run.provenance(args.fold_dir)
+    assert prov["synthetic"] is False
+    with pytest.raises(SystemExit, match="registration anchor"):
+        run.check_registration(args, prov)  # the file is absent
+    anchor = run.RECORDS_DIR / run.REGISTRATION_FILE
+    anchor.parent.mkdir(parents=True)
+    anchor.write_text(json.dumps(got))
+    run.check_registration(args, prov)  # matches
+    (args.fold_dir / "manifest.jsonl").write_text("{}\n")
+    with pytest.raises(SystemExit, match="fold_manifest_sha256"):
+        run.check_registration(args, prov)
+    anchor.write_text(
+        json.dumps(
+            {
+                **got,
+                "fold_manifest_sha256": run.anchor_contents(args.fold_dir, args.binance_dir, args.funding_dir)[
+                    "fold_manifest_sha256"
+                ],
+            }
+        )
+    )
+    run.check_registration(args, prov)
+    (args.binance_dir / "BTCUSDT" / "BTCUSDT-1m-2025-07.csv.gz").write_bytes(b"abcd")  # one byte longer
+    with pytest.raises(SystemExit, match="binance_files"):
+        run.check_registration(args, prov)
+    (args.binance_dir / "BTCUSDT" / "BTCUSDT-1m-2025-07.csv.gz").write_bytes(b"abc")
+    (args.fold_dir / "markets.json").write_text("{}")
+    with pytest.raises(SystemExit, match="markets_json_sha256"):
+        run.check_registration(args, prov)
+    anchor.write_text(json.dumps({**got, "lock_sha256": "0" * 64}))
+    with pytest.raises(SystemExit, match="lock_sha256"):
+        run.check_registration(args, prov)
+    run.check_registration(args, {**prov, "synthetic": True})  # synthetic data needs no anchor
+
+
+def test_dev_null_report_and_confirm_refuse_without_the_anchor_and_eligibility_does_not_need_it(
+    real_looking, monkeypatch
+):
+    args = real_looking
+    monkeypatch.setattr(lock, "FUNDING_STAMP_VERIFIED", True)
+    for cmd, extra in (
+        (run.cmd_dev, {}),
+        (run.cmd_null, {"seed": 1}),
+        (run.cmd_report, {}),
+        (run.cmd_confirm, {"finalists": None, "dev_dir": None, "prepare": True, "run": False}),
+    ):
+        with pytest.raises(SystemExit, match="registration anchor"):
+            cmd(argparse.Namespace(**vars(args), **extra))
+    # eligibility and scalescan run before registration: they fail on missing data, not on the anchor
+    with pytest.raises((DataError, FileNotFoundError, ValueError, KeyError)):
+        run.cmd_eligibility(argparse.Namespace(**vars(args), through="dev", finalists=None))
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# The scale scan
+
+
+def test_scalescan_lists_a_planted_rescaling_and_dev_stops_on_it(tmp_path, monkeypatch):
+    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=6, seed=2))
+    # market 2: from 2025-07-04 on every price is 10 times higher (a unit change)
+    for day in range(4, 7):
+        path = panel.fold_dir / "v1" / f"date=2025-07-0{day}.parquet"
+        table = pq.read_table(path)
+        for name in ("last_px", "last_buy_px", "last_sell_px", "first_buy_px", "first_sell_px"):
+            col = table.column(name).to_numpy(zero_copy_only=False)
+            mask = table.column("market_id").to_numpy() == 2
+            null = np.isnan(col)
+            vals = np.where(null, 0, np.where(mask, col * 10, col)).astype(np.int64)
+            table = table.set_column(
+                table.schema.get_field_index(name), name, pa.array(vals, mask=null, type=pa.int64())
+            )
+        pq.write_table(table, path)
+    seen: list[tuple[str, ...]] = []
+    real = pq.read_table
+
+    def spy(path, *a, **k):
+        seen.append(tuple(k.get("columns") or ()))
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(data.pq, "read_table", spy)
+    path = run.cmd_scalescan(args_for(panel, tmp_path / "o"), last_date=panel.last_date)
+    monkeypatch.setattr(data.pq, "read_table", real)
+    doc = read_json(path)
+    assert set().union(*seen) <= {"market_id", "minute", "last_px", "last_buy_px", "last_sell_px"}  # mid inputs only
+    assert doc["markets_scanned"] == 3 and "no strategy return" in doc["computes"]
+    holding = [c for c in doc["candidates"] if c["holds"]]
+    assert [(c["market_id"], c["decades"]) for c in holding] == [(2, 1)]
+    assert day_start_ms(dt.date(2025, 7, 4)) <= holding[0]["minute"] < day_start_ms(dt.date(2025, 7, 4)) + 3_600_000
+    assert doc["holding"] == holding
+    with pytest.raises(DataError, match=r"price-scale break in ETH \(market_id 2\)"):
+        run.cmd_dev(args_for(panel, tmp_path / "dev"), last_date=panel.last_date, configs=[lock.GRID[0]])
+    # freezing it in KNOWN_SCALE_BREAKS (as the lead does at registration) lets the run through
+    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", (("ETH", holding[0]["minute"]),))
+    run.cmd_dev(args_for(panel, tmp_path / "dev2"), last_date=panel.last_date, configs=[lock.GRID[0]])
+
+
+def test_scalescan_on_a_clean_panel_finds_nothing(tmp_path):
+    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=4, seed=2))
+    doc = read_json(run.cmd_scalescan(args_for(panel, tmp_path / "o"), last_date=panel.last_date))
+    assert doc["candidates"] == [] and doc["holding"] == [] and doc["kind"] == "scalescan"
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# The source guard on 15 minute returns
+
+
+def test_the_guard_correlates_non_overlapping_15_minute_returns():
+    ok = run.guard_month(_month_md())
+    # about one 15 minute return per three 5m grid points of a 30 day month, minus invalid ones
+    assert 2000 < ok["return_points"] <= 2880
+    assert lock.GUARD_MIN_POINTS == 1000 and lock.GUARD_MIN_CORR == 0.5 and lock.GUARD_MAX_MEDIAN_BPS == 50.0
+    assert ok["corr"] > 0.9
+
+
+# ----------------------------------------------------------------------------------------------------------------
+# Bursts: the cost model against the generator's own quotes
+
+
+@pytest.fixture(scope="module")
+def burst_panel(tmp_path_factory):
+    root = tmp_path_factory.mktemp("burst")
+    panel = make_panel(
+        root,
+        PanelSpec(
+            n_markets=3,
+            days=31,
+            seed=23,
+            micro=True,
+            half_spreads_bps=(0.4, 0.4, 0.4),
+            micro_burst_frac=0.1,
+            micro_burst_factor=10.0,
+        ),
+    )
+    return panel
+
+
+def test_burst_regression_the_doubled_spread_run_is_not_optimistic_against_the_true_cost(burst_panel, tmp_path):
+    panel = burst_panel
+    reader, span, prep = _grid_inputs(panel)
+    assert len(prep.elig[(2025, 7)]) == 3, "all three markets must be eligible for the test to mean anything"
+    cfgs = [lock.CONFIG_BY_ID["F1-k1-th1.0-h15-time-AB"], lock.CONFIG_BY_ID["F1-k3-th1.0-h15-time-AB"]]
+    out = {}
+    for mult in (1.0, 2.0):
+        res, _ = run.run_grid(
+            reader,
+            prep.markets,
+            prep.elig,
+            prep.proxies,
+            cfgs,
+            span,
+            spread_mult=mult,
+            trades_dir=tmp_path / f"x{mult}",
+        )
+        out[mult] = res
+    lines = []
+    for cfg in cfgs:
+        true_cost, nets = {}, {}
+        for mult in (1.0, 2.0):
+            files = sorted((tmp_path / f"x{mult}" / cfg.cid).glob("market_*.parquet"))
+            tables = [pq.read_table(f) for f in files]
+            net = np.concatenate([t.column("net").to_numpy() for t in tables]) * 1e4
+            cost = []
+            for t in tables:
+                mid = int(t["market_id"][0].as_py())
+                half = panel.quote_half_bps[mid]
+                e_min = (t.column("entry_ts").to_numpy() - panel.first_day_ms) // 60_000
+                x_min = (t.column("exit_ts").to_numpy() - panel.first_day_ms) // 60_000
+                cost.append(half[e_min] + half[x_min])  # half a spread at each fill, from the generator's quotes
+            nets[mult], true_cost[mult] = net, np.concatenate(cost)
+        for mult in (1.0, 2.0):
+            net, cost = nets[mult], true_cost[mult]
+            se = net.std() / np.sqrt(len(net) / 3)  # overlapping decisions: inflate by sqrt(3)
+            bias = net.mean() + cost.mean()  # > 0: the simulation charges less than the true cost
+            lines.append(
+                f"{cfg.cid} x{mult:.0f}: net {net.mean():.3f} true cost {cost.mean():.3f} bias {bias:+.3f} se {se:.3f}"
+            )
+            if mult == 2.0:
+                assert bias < 3 * se, lines[-1]  # not optimistic against the quotes, within what its error allows
+        assert nets[2.0].mean() < nets[1.0].mean()  # doubling can only cost more
+    print("\n".join(lines))
+    for r in out[1.0]:
+        assert 0.0 <= r["tie_share"] <= 1.0 and r["mean_fill_cost_bps"] > 0

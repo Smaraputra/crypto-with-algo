@@ -295,12 +295,15 @@ class MM:
         self.extra, self.extra_diff, self.null_rows, self.active_days = extra, extra_diff, null_rows, active_days
 
 
-def write_markets_json(root: Path, symbols: dict[int, str], version=2):
+def write_markets_json(root: Path, symbols: dict[int, str], version=2, source="synthetic"):
     books = [
         {"symbol": s, "market_id": i, "market_type": "perp", "supported_price_decimals": 2} for i, s in symbols.items()
     ]
     books.append({"symbol": "ETH/USDC", "market_id": 900, "market_type": "spot", "supported_price_decimals": 2})
-    (root / "markets.json").write_text(json.dumps({"markets_file_version": version, "order_books": books}))
+    doc = {"markets_file_version": version, "order_books": books}
+    if source is not None:
+        doc["source"] = source
+    (root / "markets.json").write_text(json.dumps(doc))
 
 
 def write_fold_month(root: Path, year: int, month: int, spec: dict[int, MM], skip=(), manifest=True, files=True):
@@ -666,14 +669,27 @@ def git_calls(monkeypatch):
     return state
 
 
+def mark_synthetic(root: Path):
+    """The three conditions of a synthetic fold: the marker, markets.json from the generator, no https source."""
+    (root / "SYNTHETIC").write_text("x")
+    write_markets_json(root, {1: "BTC"})
+    (root / "manifest.jsonl").write_text(json.dumps({"date": "2025-06-01"}) + "\n")
+
+
 def test_a_clean_tree_runs_and_the_head_is_recorded(tmp_path, git_calls):
     prov = run.provenance(tmp_path)
+    versions = prov.pop("versions")
     assert prov == {
         "lock_sha256": lock.lock_digest(),
         "git_head": "abc123",
         "git_source": "git",
         "synthetic": False,
     }
+    import numpy
+    import pandas
+    import pyarrow
+
+    assert versions == {"numpy": numpy.__version__, "pandas": pandas.__version__, "pyarrow": pyarrow.__version__}
     status = [c for c in git_calls["calls"] if c[0] == "status"][0]
     assert status[:3] == ["status", "--porcelain", "--"] and status[3].rstrip("/").endswith("lighter")
 
@@ -682,17 +698,35 @@ def test_a_dirty_tree_refuses_unless_the_fold_is_marked_synthetic(tmp_path, git_
     git_calls["dirty"] = " M scripts/research/py/lighter/fills.py\n"
     with pytest.raises(SystemExit, match="uncommitted changes"):
         run.provenance(tmp_path)
-    (tmp_path / "SYNTHETIC").write_text("x")
+    mark_synthetic(tmp_path)
     prov = run.provenance(tmp_path)
     assert prov["synthetic"] is True and prov["git_head"] == "abc123"
     assert not any(c[0] == "status" for c in git_calls["calls"][2:])  # a synthetic run does not even look at the tree
+
+
+def test_the_synthetic_marker_alone_does_not_disable_the_guards(tmp_path, git_calls):
+    git_calls["dirty"] = " M scripts/research/py/lighter/fills.py\n"
+    (tmp_path / "SYNTHETIC").write_text("x")  # the marker alone
+    assert data.is_synthetic(tmp_path) is False
+    with pytest.raises(SystemExit, match="uncommitted"):
+        run.provenance(tmp_path)
+    write_markets_json(tmp_path, {1: "BTC"}, source=None)  # markets.json without the generator's source
+    assert data.is_synthetic(tmp_path) is False
+    write_markets_json(tmp_path, {1: "BTC"}, source="https://mainnet.zklighter.elliot.ai/api/v1/orderBooks")
+    assert data.is_synthetic(tmp_path) is False
+    mark_synthetic(tmp_path)
+    assert data.is_synthetic(tmp_path) is True
+    (tmp_path / "manifest.jsonl").write_text(json.dumps({"date": "2025-06-01", "source_url": "https://aws.example/x"}))
+    assert data.is_synthetic(tmp_path) is False  # a real download is recorded in the manifest
+    with pytest.raises(SystemExit, match="uncommitted"):
+        run.provenance(tmp_path)
 
 
 def test_without_git_a_real_run_refuses_and_a_synthetic_one_goes_on(tmp_path, git_calls):
     git_calls["fail"] = True
     with pytest.raises(SystemExit, match="git"):
         run.provenance(tmp_path)
-    (tmp_path / "SYNTHETIC").write_text("x")
+    mark_synthetic(tmp_path)
     assert run.provenance(tmp_path)["git_head"] is None
 
 
@@ -770,9 +804,10 @@ def test_a_fold_market_id_missing_from_markets_json_that_meets_the_activity_clau
     assert 99 in doc["market_ids_in_fold"]
 
 
-def _md_with_prices(prices, has):
+def _md_with_prices(prices, has=None):
     from lighter.synthetic import blank_minute_data
 
+    has = [True] * len(prices) if has is None else has
     md = blank_minute_data(Market("BTC", 1, 2), ft.day_start_ms(dt.date(2025, 7, 1)), len(prices))
     for k, (px, h) in enumerate(zip(prices, has, strict=True)):
         if h:
@@ -780,19 +815,58 @@ def _md_with_prices(prices, has):
     return md
 
 
-def test_price_scale_guard_names_the_market_and_the_minute(monkeypatch):
-    md = _md_with_prices([100.0, 100.1, 250.0, 250.2], [True] * 4)
+def test_price_scale_guard_stops_only_on_a_power_of_ten_jump_whose_new_level_holds(monkeypatch):
+    rng = np.random.default_rng(1)
+    noise = 1 + rng.normal(0, 1e-4, 200)
+    held = np.concatenate([100.0 * noise[:50], 1000.0 * noise[50:]])  # x10 at minute 50 and it stays
+    md = _md_with_prices(held)
+    cands = run.scale_candidates(md)
+    assert len(cands) == 1 and cands[0]["holds"] and cands[0]["decades"] == 1
+    assert cands[0]["minute"] == md.t0_ms + 50 * lock.MINUTE_MS
+    assert cands[0]["ln_ratio"] == pytest.approx(np.log(10), abs=1e-3)
     with pytest.raises(data.DataError, match=r"BTC \(market_id 1\) at minute"):
         run.check_scale(md.market, md)
-    run.check_scale(md.market, _md_with_prices([100.0, 100.1, 100.0, 140.0], [True] * 4))  # +34%: under a factor 2
-    # a gap of one minute without a print is not a consecutive pair
-    run.check_scale(md.market, _md_with_prices([100.0, 100.1, 250.0, 250.2], [True, True, False, False]))
-    # the other direction of a factor 2 trips it too
+    # downward (k = -1) holds too
     with pytest.raises(data.DataError):
-        run.check_scale(md.market, _md_with_prices([100.0, 49.0], [True, True]))
-    minute = md.t0_ms + 2 * lock.MINUTE_MS
-    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", (("BTC", minute),))
-    run.check_scale(md.market, md)  # a listed exception passes
+        run.check_scale(md.market, _md_with_prices(held[::-1].copy()))
+    # a crash minute: x10 for 5 minutes and back. A candidate, but it does not hold, so the run goes on
+    crash = 100.0 * noise.copy()
+    crash[50:55] *= 10
+    cands = run.scale_candidates(_md_with_prices(crash))
+    assert [c["holds"] for c in cands] == [False, False]  # the jump up and the return to the old level
+    run.check_scale(md.market, _md_with_prices(crash))
+    # too little history before the jump (or after it) cannot confirm a level shift
+    short = _md_with_prices(np.concatenate([100.0 * noise[:20], 1000.0 * noise[20:]]))
+    assert [c["holds"] for c in run.scale_candidates(short)] == [False]
+    assert run.scale_candidates(short)[0]["printed_minutes_before"] == 20
+    # a listing minute: one printed minute at 10x, then the real level
+    listing = 100.0 * noise.copy()
+    listing[0] = 1000.0
+    assert [c["holds"] for c in run.scale_candidates(_md_with_prices(listing))] == [False]
+    run.check_scale(md.market, _md_with_prices(listing))
+    # not a power of ten: a 2.5x jump that holds is no scale break (and a 3x one neither)
+    for factor in (2.5, 3.0, 0.4):
+        plain = np.concatenate([100.0 * noise[:50], 100.0 * factor * noise[50:]])
+        assert run.scale_candidates(_md_with_prices(plain)) == []
+    # the tolerance: 0.05 in ln around k ln 10
+    near = np.concatenate([100.0 * noise[:50], 100.0 * np.exp(np.log(10) + 0.04) * noise[50:]])
+    assert len(run.scale_candidates(_md_with_prices(near))) == 1
+    far = np.concatenate([100.0 * noise[:50], 100.0 * np.exp(np.log(10) + 0.06) * noise[50:]])
+    assert run.scale_candidates(_md_with_prices(far)) == []
+    # consecutive PRINTED minutes: unprinted minutes between the two do not hide the jump
+    gap_has = [True] * 200
+    for k in range(48, 52):
+        gap_has[k] = False
+    gapped = _md_with_prices(held, gap_has)
+    assert len(run.scale_candidates(gapped)) == 1
+    minute = md.t0_ms + 52 * lock.MINUTE_MS  # the first printed minute at the new level
+    assert run.scale_candidates(gapped)[0]["minute"] == minute
+    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", (("BTC", cands_minute(md)),))
+    run.check_scale(md.market, md)  # a frozen exception passes
+
+
+def cands_minute(md):
+    return md.t0_ms + 50 * lock.MINUTE_MS
 
 
 def _write_binance(path, rows):
