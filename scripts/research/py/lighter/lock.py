@@ -46,7 +46,11 @@ venue's market list omitted delisted markets: MKR RESOLV PROVE DOLO MYX EDEN FOG
 mapped to symbol + "USDT". Every perp symbol in markets.json must be in exactly one of the three tuples, else every
 command stops with the symbol named. A tuple symbol absent from markets.json is fine. markets.json lists every perp
 the venue still resolves, delisted ones included (listed_in_order_books false). Ids the venue no longer resolves are
-listed as unknown and can never be traded. If one meets the activity clause the run stops. Entries whose
+listed as unknown and can never be traded. If one meets the activity clause the run stops. On 2026-11-11, before
+registration and with no price, return or signal read, a counts-only check of the n_trades column over the fold days
+2026-07-01 to 2026-09-30 (the months that feed the confirmation eligibility, run with the owner's approval) found rows
+for one of the 245 unknown ids: id 234, in September only, with a median of 2,098 trades a day against the 5,000 of the
+clause, so no stop is expected. It is recorded in records/lighter_l1_preflight_metadata.json. Entries whose
 market_type is exactly "spot" are known and out of scope: their fold rows are ignored, and they are listed in the
 eligibility output under non_perp_market_ids with their symbol. An entry of any other non-perp type (or none) on a fold
 id that meets the activity clause stops the run, naming the id and the type. F2 baskets are the eligible
@@ -225,8 +229,10 @@ funding file that is NOT a no-funding market is an error. A no-funding market tr
 no funding signal). Its trades are charged zero funding and each is counted in no_funding_trades. They are left out of
 the missing-funding share (both its numerator and denominator). Because the zero is an assumption, every configuration
 carries a full second statistics block without its no-funding-market trades (ex_no_funding, from a second accumulator in
-the same pass: the same daily series and Newey-West code, the same month and market shares, the same counters; the
-block equals the total, and every condition on it is trivially met, when there are no such trades). In development a
+the same pass: the same daily series and Newey-West code, the same month and market shares, and the same trade,
+flagged-exit, funding, fill-cost and tie counters; the unfilled, no-sigma and no-exit counters, the split by price
+source and the missing-funding and flagged shares belong to the whole configuration only; the block equals the total,
+and every condition on it is trivially met, when there are no such trades). In development a
 finalist needs items (a) to (e) to hold on that block as well, with the same noise bar. In confirmation it needs mean
 net per trade > 0 and the one-sided p value under the finalist's own Holm threshold on that block as well. Each
 configuration also reports no_funding_trades, trades_ex_no_funding and mean_net_ex_no_funding_bps. The confirm
@@ -241,10 +247,13 @@ payment made at t for the hour ending at t. Evidence: rows stamped 07:00 UTC on 
 unchanged at 09:16, rows for 08:00 and 09:00 appeared afterwards, and the venue's documentation says payments occur at
 each hour mark from the premium of the last hour. Not excluded: the rate being fixed at t and paid at t + 1 hour. Under
 that reading F6's signal is the rate actually paid and every funding charge is one hour late. A realised payment settles
-it (the fill probe). An F6 finalist cannot go forward before that check. FUNDING_STAMP_VERIFIED is False until the lead
-flips it at registration, and dev refuses to run on non-synthetic data while it is False. FUNDING_STAMP_VERIFIED True
-certifies that a row stamped t was observed to be final at t and unchanged afterwards. It does not certify the payment
-time (reading B stays open until a realised payment is checked).
+it (the fill probe). An F6 finalist cannot go forward before that check. FUNDING_STAMP_VERIFIED was set to True by the
+lead at registration, and dev refuses to run on non-synthetic data while it is False. It certifies that a row stamped
+t was observed to be final at t and unchanged afterwards. It does not certify the payment time (reading B stays open
+until a realised payment is checked). Re-checked live at registration on 2026-11-11 for market ids 0, 1 and 2 (ETH,
+BTC, SOL): the rows stamped 12:00 to 17:00 UTC, fetched at 17:32 UTC, were identical when fetched again at 18:04 UTC (18
+of 18 rows unchanged, among them ETH's 0.0009, 0.0011 and 0.0001), and the row stamped 18:00 was already present at
+18:04:20 for all three.
 
 STATISTICS. Daily series: for every configuration, every UTC day from 2025-07-01 (dev) or 2026-07-01 (confirm) to the
 span end, the sum of net over trades whose exit fill timestamp falls on that day (0 on days with no exit). t = mean /
@@ -295,10 +304,12 @@ family exists. Rank those family bests by daily t and keep the top 3. Written to
 CONFIRMATION PASS: mean net per trade > 0, at least 3 of the 4 calendar months (July to October 2026) positive, the
 mirror diagnostic, the spread sensitivity and the source condition above on the confirmation data (the source being the
 development majority source), and Holm at family level 0.05 on the
-one-sided p values (normal, from the daily-series t): with F finalists ordered by p, the smallest p must be < 0.05 / F,
-the next < 0.05 / (F - 1), and so on, stopping at the first failure. A finalist with no-funding-market trades also needs
-mean net per trade > 0 and a one-sided p value below its own Holm threshold (0.05 / (F - rank)) on the block without
-those trades.
+one-sided p values (normal, from the daily-series t): with F finalists ordered by p (ties by configuration id), the
+smallest p must be < 0.05 / F, the next < 0.05 / (F - 1), and so on, stopping at the first failure. A finalist with
+no-funding-market trades also needs mean net per trade > 0 and a one-sided p value below its own Holm threshold on the
+block without those trades. Its own Holm threshold is 0.05 / (F - r), where r is its 0-based position in the order of
+the total p values just described. That order is never re-sorted by the p values of the blocks, and a failure on a
+block neither changes another finalist's threshold nor stops the sequence for the other finalists.
 CONFIRM INTEGRITY (two steps). `confirm --prepare` takes --dev-dir (the dev result and the 20 + 20 null result
 files), checks every file's lock digest and content hash (finalists file included), recomputes the finalists itself
 (re-running the mirror and doubled-spread variants on the development data), refuses when they differ from the supplied
@@ -469,8 +480,8 @@ SCALE_MIN_WINDOW = 30
 REAL_MOVE_MINUTES = 60
 REAL_MOVE_TOL = 0.05
 
-# To be flipped by the lead at registration, after the funding stamp is re-checked (see FUNDING SIGN AND STAMP).
-FUNDING_STAMP_VERIFIED = False
+# Set by the lead at registration, after the funding stamp was re-checked live (see FUNDING SIGN AND STAMP).
+FUNDING_STAMP_VERIFIED = True
 
 # Source guard (month P only).
 GUARD_MAX_MEDIAN_BPS = 50.0

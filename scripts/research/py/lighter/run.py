@@ -1062,7 +1062,8 @@ def evaluate_candidates(
     guard: dict[str, Any],
     cleared: tuple[str, ...] = (),
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], list[dict[str, Any]]]:
-    """Candidates (items a to f, not suspect, funding coverage), their mirror and doubled-spread checks, finalists."""
+    """Candidates (items a to f, not suspect, funding coverage, items a to e on the block without the no-funding
+    markets' trades), their mirror, doubled-spread and no-funding checks, finalists."""
     configs = dev["configs"]
     cand = stats.finalist_candidates(configs, bar, f6_bar, cleared)
     checks: dict[str, dict[str, Any]] = {}

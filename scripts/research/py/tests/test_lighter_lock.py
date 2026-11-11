@@ -765,11 +765,15 @@ def test_every_command_refuses_a_dirty_tree_on_real_data(tmp_path, git_calls):
             cmd(argparse.Namespace(**base, **extra))
 
 
-def test_dev_refuses_real_data_while_the_funding_stamp_is_unverified(tmp_path, git_calls):
-    assert lock.FUNDING_STAMP_VERIFIED is False
+def test_dev_refuses_real_data_while_the_funding_stamp_is_unverified(tmp_path, git_calls, monkeypatch):
+    monkeypatch.setattr(lock, "FUNDING_STAMP_VERIFIED", False)
     args = argparse.Namespace(fold_dir=tmp_path, binance_dir=tmp_path, funding_dir=tmp_path, out_dir=tmp_path / "o")
     with pytest.raises(SystemExit, match="FUNDING_STAMP_VERIFIED"):
         run.cmd_dev(args)
+
+
+def test_the_funding_stamp_flag_was_set_at_registration():
+    assert lock.FUNDING_STAMP_VERIFIED is True
 
 
 def test_results_must_carry_this_lock_digest_a_valid_hash_and_the_same_synthetic_flag(tmp_path, git_calls):
