@@ -46,7 +46,9 @@ venue's market list omitted delisted markets: MKR RESOLV PROVE DOLO MYX EDEN FOG
 mapped to symbol + "USDT". Every perp symbol in markets.json must be in exactly one of the three tuples, else every
 command stops with the symbol named. A tuple symbol absent from markets.json is fine. markets.json lists every perp
 the venue still resolves, delisted ones included (listed_in_order_books false). Ids the venue no longer resolves are
-listed as unknown and can never be traded. If one meets the activity clause the run stops. F2 baskets are the eligible
+listed as unknown and can never be traded. If one meets the activity clause the run stops. Entries of any other
+market_type (spot) are known and out of scope: their fold rows are ignored, and they are listed in the eligibility
+output under non_perp_market_ids with their symbol. F2 baskets are the eligible
 markets of the same class, CRYPTO or TRADFI. An UNCLASSIFIED market gets no F2 signal and is in no basket. F3 applies
 to CRYPTO markets other than BTC. F1, F4, F5 and F6 apply to every market. BTC for family F3 is the market whose symbol
 is exactly "BTC". Every market_id present in the fold is listed in the output. A market_id that is absent from

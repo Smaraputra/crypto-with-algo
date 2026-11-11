@@ -847,6 +847,11 @@ def test_pre_flight_checks_funding_unknown_ids_and_the_binance_structure(planted
     prep = run.prepare(reader, span)
     pre = run.confirm_preflight(reader, span, prep)
     assert pre["scale_breaks_found"] == [] and pre["funding_files_checked"] == 6 and pre["binance_files_checked"] > 0
+    # a spot entry (the synthetic markets.json lists id 2048 as spot) is known: its fold rows do not stop the run
+    assert reader.non_perp == {2048: "ETH/USDC"}
+    reader.fold_market_ids.add(2048)
+    assert run.confirm_preflight(reader, span, prep)["scale_breaks_found"] == []
+    reader.fold_market_ids.discard(2048)
     # a market id in the fold that markets.json does not list
     reader.fold_market_ids.add(77)
     with pytest.raises(DataError, match=r"\[77\]"):

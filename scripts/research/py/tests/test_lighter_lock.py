@@ -854,6 +854,40 @@ def test_an_unknown_id_below_the_activity_clause_is_ignored_and_one_meeting_it_s
         run.compute_eligibility(r2, r2.load_markets(), [(2025, 7)])
 
 
+def test_a_spot_entry_with_heavy_activity_is_known_and_ignored_and_listed(tmp_path):
+    # markets.json (write_markets_json) holds a spot entry, id 900 "ETH/USDC", beside the perps 1 to 14
+    root = june_root(tmp_path, spec={**JUNE, 900: MM(activity=80_000)})
+    _as_version_3(root, unknown=[])
+    r = dev_reader(root)
+    markets = r.load_markets()
+    assert r.non_perp == {900: "ETH/USDC"} and 900 not in {m.market_id for m in markets}
+    elig = run.compute_eligibility(r, markets, [(2025, 7)])  # no stop
+    assert 900 not in elig[(2025, 7)] and 1 in elig[(2025, 7)]
+    doc = run.eligibility_document(elig, markets, r.fold_market_ids, r.non_perp)
+    assert doc["non_perp_market_ids"] == [{"market_id": 900, "symbol": "ETH/USDC"}]
+    # the command writes it once in its output and does not stop
+    args = argparse.Namespace(fold_dir=root, out_dir=tmp_path / "out", through="dev", finalists=None)
+    out = run.cmd_eligibility(args, last_date=dt.date(2025, 7, 31), first_date=dt.date(2025, 7, 1))
+    written = json.loads(out.read_text())
+    assert written["non_perp_market_ids"] == [{"market_id": 900, "symbol": "ETH/USDC"}]
+    assert all(row["market_id"] != 900 for row in written["months"]["2025-07"]["eligible"])
+    # a spot id absent from the fold is not listed
+    (tmp_path / "b").mkdir()
+    root2 = june_root(tmp_path / "b", spec=JUNE)
+    r2 = dev_reader(root2)
+    d2 = run.eligibility_document({}, r2.load_markets(), r2.fold_market_ids, r2.non_perp)
+    assert d2["non_perp_market_ids"] == []
+
+
+def test_a_spot_entry_does_not_hide_an_unknown_id_that_meets_the_clause(tmp_path):
+    root = june_root(tmp_path, spec={**JUNE, 900: MM(activity=80_000), 99: MM(activity=5000)})
+    _as_version_3(root, unknown=[99])
+    r = dev_reader(root)
+    with pytest.raises(data.DataError, match="market_id 99") as exc:
+        run.compute_eligibility(r, r.load_markets(), [(2025, 7)])
+    assert "market_id 900" not in str(exc.value)
+
+
 def test_a_fold_market_id_missing_from_markets_json_that_meets_the_activity_clause_stops_the_run(tmp_path):
     spec = {**JUNE, 99: MM(activity=5000)}
     root = june_root(tmp_path, spec=spec)

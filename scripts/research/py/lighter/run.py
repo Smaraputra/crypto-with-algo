@@ -335,6 +335,8 @@ def compute_eligibility(reader: DataReader, markets: list[Market], months: list[
         for mid, cs in sorted(cost.items()):
             market = by_id.get(mid)
             if market is None:
+                if mid in reader.non_perp:
+                    continue  # a known entry of another market_type (spot): out of scope, ignored
                 if cs.activity_median >= lock.ELIG_MIN_MEDIAN_TRADES:
                     raise DataError(
                         f"market_id {mid} meets the activity clause in {py:04d}-{pm:02d} but is not in markets.json"
@@ -394,7 +396,9 @@ def sp_per_minute(proxies: Proxies, market_id: int, span: Span) -> np.ndarray:
     return out
 
 
-def eligibility_document(elig: Eligibility, markets: list[Market], fold_market_ids: set[int]) -> dict[str, Any]:
+def eligibility_document(
+    elig: Eligibility, markets: list[Market], fold_market_ids: set[int], non_perp: dict[int, str] | None = None
+) -> dict[str, Any]:
     by_id = {m.market_id: m for m in markets}
     months: dict[str, Any] = {}
     symbols: set[str] = set()
@@ -426,6 +430,11 @@ def eligibility_document(elig: Eligibility, markets: list[Market], fold_market_i
         "binance_months_needed": {k: sorted(v) for k, v in sorted(needed.items())},
         "markets_in_list": len(markets),
         "market_ids_in_fold": sorted(fold_market_ids),
+        "non_perp_market_ids": [
+            {"market_id": mid, "symbol": sym}
+            for mid, sym in sorted((non_perp or {}).items())
+            if mid in fold_market_ids and mid not in by_id
+        ],
     }
 
 
@@ -865,7 +874,7 @@ def prepare(reader: DataReader, span: Span) -> Prepared:
     markets = reader.load_markets()
     elig = compute_eligibility(reader, markets, span.months)
     proxies = spread_proxies(reader, span.months)
-    doc = eligibility_document(elig, markets, reader.fold_market_ids)
+    doc = eligibility_document(elig, markets, reader.fold_market_ids, reader.non_perp)
     return Prepared(markets, elig, proxies, doc, content_hash(doc))
 
 
@@ -1353,7 +1362,7 @@ def confirm_preflight(reader: DataReader, span: Span, prep: Prepared) -> dict[st
     first_day = dt.date(first_p[0], first_p[1], 1)
     reader.require_fold_days(first_day, span.last)
     known = {m.market_id for m in prep.markets}
-    unknown = sorted(reader.fold_market_ids - known)
+    unknown = sorted(reader.fold_market_ids - known - set(reader.non_perp))
     if unknown:
         raise DataError(f"market ids in the fold that markets.json does not list: {unknown}")
     active = sorted({mid for infos in prep.elig.values() for mid in infos})

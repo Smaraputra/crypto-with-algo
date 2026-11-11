@@ -239,6 +239,7 @@ class DataReader:
         self._off_grid: dict[int, int] = {}
         self._cost_cache: dict[tuple[int, int], dict[int, CostStats]] = {}
         self.fold_market_ids: set[int] = set()
+        self.non_perp: dict[int, str] = {}  # market_id -> symbol of the known entries of any other market_type (spot)
 
     # ------------------------------------------------------------------ guards
 
@@ -265,7 +266,11 @@ class DataReader:
     # ------------------------------------------------------------------ markets and the fold manifest
 
     def load_markets(self) -> list[Market]:
-        """The perp markets of <fold>/markets.json, sorted by market id."""
+        """The perp markets of <fold>/markets.json, sorted by market id.
+
+        Entries of any other market_type (spot) are known and out of scope: they are kept in `non_perp` and their
+        fold rows are ignored. An id with no entry at all (listed as unknown or absent) is still unknown.
+        """
         path = self.fold_dir / "markets.json"
         if not path.exists():
             raise DataError(f"{path} is missing")
@@ -274,8 +279,11 @@ class DataReader:
             raise DataError("markets.json is not markets_file_version 2 or 3")
         self._record("fold/markets.json", path)
         out = []
+        self.non_perp = {}
         for b in doc["order_books"]:
             if b.get("market_type") != "perp":
+                if isinstance(b.get("market_id"), int):
+                    self.non_perp[b["market_id"]] = str(b.get("symbol", ""))
                 continue
             if b.get("supported_price_decimals") is None:
                 raise DataError(f"market {b.get('symbol')} has no supported_price_decimals")
