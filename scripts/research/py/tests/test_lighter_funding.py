@@ -130,10 +130,13 @@ class FakeApi:
         self.holes = set(holes)
         self.flaky = set(flaky)
         self.requests = []
+        self.order_book_requests = 0
+        self.market_ids_seen = []
 
     def __call__(self, req, timeout=0):
         url = req.full_url
         if url.startswith(ft.ORDER_BOOKS_URL):
+            self.order_book_requests += 1
             books = [
                 {"symbol": "AAA", "market_id": 7, "market_type": "perp", "created_at": str(self.created_at * 1000)},
                 {"symbol": "BBB", "market_id": 8, "market_type": "spot", "created_at": "0"},
@@ -141,6 +144,7 @@ class FakeApi:
             return reply({"order_books": books})
         p = params(req)
         self.requests.append(p)
+        self.market_ids_seen.append(p["market_id"])
         assert p["count_back"] == 0 and p["resolution"] == "1h"
         assert p["end_timestamp"] <= ff.end_exclusive_s()
         direct = p["end_timestamp"] - p["start_timestamp"] <= HOUR + 1
@@ -451,3 +455,119 @@ def test_normal_run_verifies_an_old_file_instead_of_skipping_it(tmp_path, monkey
     statuses = [r["status"] for r in funding_manifest(tmp_path)]
     assert statuses[-2:] == ["failed", "ok"]
     assert funding_manifest(tmp_path)[-1]["ends_checked"] is True
+
+
+def write_markets_file(path, version=3):
+    books = [
+        {
+            "symbol": "MKR",
+            "market_id": 28,
+            "market_type": "perp",
+            "created_at": str(T0 * 1000),
+            "listed_in_order_books": False,
+        },
+        {
+            "symbol": "AAA",
+            "market_id": 7,
+            "market_type": "perp",
+            "created_at": str(T0 * 1000),
+            "listed_in_order_books": True,
+        },
+        {
+            "symbol": "ZZZ/USDC",
+            "market_id": 2055,
+            "market_type": "spot",
+            "created_at": "0",
+            "listed_in_order_books": False,
+        },
+    ]
+    path.write_text(json.dumps({"markets_file_version": version, "order_books": books, "unknown_market_ids": []}))
+    return path
+
+
+def test_markets_file_fetches_a_delisted_market_without_any_orderbooks_request(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    mf = write_markets_file(tmp_path / "markets.json")
+    assert ff.run(tmp_path / "out", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {28}, markets_file=mf) == 0
+    assert api.order_book_requests == 0
+    assert set(api.market_ids_seen) == {28}
+    out = tmp_path / "out" / "funding"
+    assert [p.name for p in out.glob("*.parquet")] == ["market_28.parquet"]
+    df = pq.read_table(out / "market_28.parquet").to_pandas()
+    assert df.symbol.iloc[0] == "MKR" and len(df) == (ff.end_exclusive_s() - T0) // HOUR
+
+
+def test_markets_file_without_market_ids_takes_every_perp_and_skips_spot(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    mf = write_markets_file(tmp_path / "markets.json")
+    assert ff.run(tmp_path / "out", ft.FIRST_DATE, ft.FOLD_LAST_DATE, markets_file=mf) == 0
+    assert api.order_book_requests == 0
+    assert sorted(p.name for p in (tmp_path / "out" / "funding").glob("*.parquet")) == [
+        "market_28.parquet",
+        "market_7.parquet",
+    ]
+    assert 2055 not in api.market_ids_seen
+
+
+def test_markets_file_rejects_an_id_it_does_not_hold_and_a_spot_id(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    mf = write_markets_file(tmp_path / "markets.json")
+    with pytest.raises(ft.FoldError, match=r"not perp markets in the markets file: \[999\]"):
+        ff.run(tmp_path / "out", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {28, 999}, markets_file=mf)
+    with pytest.raises(ft.FoldError, match=r"not perp markets in the markets file: \[2055\]"):
+        ff.run(tmp_path / "out", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {2055}, markets_file=mf)
+    assert api.requests == []
+
+
+def test_markets_file_must_be_version_2_or_later(tmp_path, monkeypatch):
+    install(monkeypatch, FakeApi(T0))
+    mf = write_markets_file(tmp_path / "markets.json", version=1)
+    with pytest.raises(ft.FoldError, match="version 2 or later"):
+        ff.run(tmp_path / "out", ft.FIRST_DATE, ft.FOLD_LAST_DATE, markets_file=mf)
+    with pytest.raises(ft.FoldError, match="cannot read markets file"):
+        ff.run(tmp_path / "out", ft.FIRST_DATE, ft.FOLD_LAST_DATE, markets_file=tmp_path / "missing.json")
+
+
+def test_manifest_records_the_markets_source(tmp_path, monkeypatch):
+    install(monkeypatch, FakeApi(T0))
+    mf = write_markets_file(tmp_path / "markets.json")
+    ff.run(tmp_path / "from_file", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {28}, markets_file=mf)
+    [rec] = funding_manifest(tmp_path / "from_file")
+    assert rec["markets_source"] == ft.sha256_file(mf) and rec["status"] == "ok" and rec["ends_checked"] is True
+    ff.run(tmp_path / "default", ft.FIRST_DATE, ft.FOLD_LAST_DATE)
+    [rec] = funding_manifest(tmp_path / "default")
+    assert rec["markets_source"] == "orderBooks"
+
+
+def test_failed_and_empty_manifest_lines_carry_the_source_and_default_mode_is_unchanged(tmp_path, monkeypatch):
+    api = FakeApi(T0, empty_ordinals=[0])
+    install(monkeypatch, api)
+    mf = write_markets_file(tmp_path / "markets.json")
+    assert ff.run(tmp_path / "o", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {28}, markets_file=mf) == 1
+    assert funding_manifest(tmp_path / "o")[0]["markets_source"] == ft.sha256_file(mf)
+    # Default mode still asks orderBooks and still rejects an id it does not list.
+    assert api.order_book_requests == 0
+    with pytest.raises(ft.FoldError, match="not perp markets in orderBooks"):
+        ff.run(tmp_path / "d", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {28})
+    assert api.order_book_requests == 1
+
+
+def test_existing_checked_file_is_skipped_in_markets_file_mode(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    mf = write_markets_file(tmp_path / "markets.json")
+    ff.run(tmp_path / "o", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {28}, markets_file=mf)
+    n = len(api.requests)
+    ff.run(tmp_path / "o", ft.FIRST_DATE, ft.FOLD_LAST_DATE, {28}, markets_file=mf)
+    assert len(api.requests) == n
+
+
+def test_cli_passes_the_markets_file(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    mf = write_markets_file(tmp_path / "markets.json")
+    rc = ff.main(["--out-dir", str(tmp_path / "o"), "--markets-file", str(mf), "--market-ids", "28"])
+    assert rc == 0 and api.order_book_requests == 0

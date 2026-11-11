@@ -643,6 +643,7 @@ def run_grid(
     binj: dict[int, np.ndarray] = {}
     cs_feats: dict[int, dict[str, signals.MarketFeatures]] = {}
     f_exists: dict[int, bool] = {}
+    no_funding: dict[int, bool] = {}
     final_source: dict[tuple[int, int], dict[int, str]] = {ym: {} for ym in elig}
     trig: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
     f4_ids = {c.signal.sig_id for c in configs if c.family == "F4"}
@@ -688,6 +689,7 @@ def run_grid(
             bj = first_excluded_grid(break_at.get(mid, ng * signals.GRID_MIN))
         funding = reader.load_funding(mid, span.end_ms)
         f_exists[mid] = reader.funding_exists(mid)
+        no_funding[mid] = reader.is_no_funding(mid)
         flag = np.zeros(ng, dtype=bool)
         for ym in ok_months:
             flag |= selectors[ym]
@@ -706,6 +708,10 @@ def run_grid(
                 for arr in f.valid.values():
                     arr[bj:] = False
         base[mid], sigma_comp[mid] = signals.compose_by_source(by_source, flag)
+        if no_funding[mid]:
+            for sig_id in base[mid]:
+                if sig_id.startswith("F6-"):
+                    base[mid][sig_id][:] = 0  # no funding signal: F6 never trades a no-funding market
         if f4_ids:
             valid = signals.compose_valid(by_source, flag)
             for sig_id in f4_ids:
@@ -771,6 +777,8 @@ def run_grid(
         }
         sp = sp_per_minute(proxies, mid, span)
         ctx = fills.build_context(md, sigma_comp[mid], funding, mid_px, sp, spread_mult, break_min=break_at.get(mid))
+        if no_funding.get(mid):
+            quality[str(mid)]["no_funding"] = True
         if mid in break_at:
             quality[str(mid)]["excluded_scale_breaks"] = [
                 {k: c[k] for k in ("minute", "decades", "insufficient_window")} for c in break_list[mid]
@@ -807,9 +815,11 @@ def run_grid(
                     if sides is None:
                         continue
                     batch = fills.select_trades(ctx, sides, ol, os_)
-                    if batch.n and not f_exists[mid]:
+                    if batch.n and not f_exists[mid] and not no_funding[mid]:
                         raise DataError(f"market {market.symbol} has trades but no funding file")
-                    accs[cfg.cid].add(mid, batch, binj[mid][batch.j] if batch.n else None, market.cls)
+                    accs[cfg.cid].add(
+                        mid, batch, binj[mid][batch.j] if batch.n else None, market.cls, no_funding=no_funding[mid]
+                    )
                     if trades_dir is not None and batch.n:
                         d = ensure_dir(Path(trades_dir) / cfg.cid)
                         pq.write_table(trade_frame(mid, ctx, batch), d / f"market_{mid}.parquet", compression="zstd")
@@ -1044,7 +1054,12 @@ def evaluate_candidates(
         )
         for c, m, d in zip(cand, mirror, doubled, strict=True):
             checks[c["id"]] = stats.variant_checks(
-                c["mean_net_bps"], m["mean_net_bps"], d["mean_net_bps"], c["mean_fill_cost_bps"]
+                c["mean_net_bps"],
+                m["mean_net_bps"],
+                d["mean_net_bps"],
+                c["mean_fill_cost_bps"],
+                c.get("no_funding_trades", 0),
+                c.get("mean_net_ex_no_funding_bps"),
             )
     return cand, checks, stats.select_finalists(cand, checks)
 
@@ -1342,9 +1357,10 @@ def confirm_preflight(reader: DataReader, span: Span, prep: Prepared) -> dict[st
     if unknown:
         raise DataError(f"market ids in the fold that markets.json does not list: {unknown}")
     active = sorted({mid for infos in prep.elig.values() for mid in infos})
-    no_funding = [mid for mid in active if not reader.funding_exists(mid)]
-    if no_funding:
-        raise DataError(f"no funding file for market ids {no_funding}")
+    missing_funding = [mid for mid in active if not reader.funding_exists(mid) and not reader.is_no_funding(mid)]
+    if missing_funding:
+        raise DataError(f"no funding file (and no manifest line saying empty) for market ids {missing_funding}")
+    no_funding_markets = [mid for mid in active if reader.is_no_funding(mid)]
     checked: set[tuple[str, int, int]] = set()
     for ym, infos in sorted(prep.elig.items()):
         for info in infos.values():
@@ -1367,7 +1383,8 @@ def confirm_preflight(reader: DataReader, span: Span, prep: Prepared) -> dict[st
                 (real_moves if is_real_move(c, mid) else breaks).append(row)
     return {
         "fold_days_checked": (span.last - first_day).days + 1,
-        "funding_files_checked": len(active),
+        "funding_files_checked": len(active) - len(no_funding_markets),
+        "no_funding_markets": no_funding_markets,
         "binance_files_checked": len(checked),
         "scale_breaks_found": breaks,
         "real_moves_found": real_moves,
@@ -1507,7 +1524,12 @@ def confirm_statistics(
         flags: dict[str, dict[str, Any]] = {}
         for r, m, d in zip(results, mirror, doubled, strict=True):
             checks = stats.variant_checks(
-                r["mean_net_bps"], m["mean_net_bps"], d["mean_net_bps"], r["mean_fill_cost_bps"]
+                r["mean_net_bps"],
+                m["mean_net_bps"],
+                d["mean_net_bps"],
+                r["mean_fill_cost_bps"],
+                r.get("no_funding_trades", 0),
+                r.get("mean_net_ex_no_funding_bps"),
             )
             majority = next(c for c in inputs.dev["configs"] if c["id"] == r["id"])["majority_source"]
             flags[r["id"]] = stats.confirm_flags(r, checks, majority)

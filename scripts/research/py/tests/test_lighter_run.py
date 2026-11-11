@@ -854,7 +854,7 @@ def test_pre_flight_checks_funding_unknown_ids_and_the_binance_structure(planted
     reader.fold_market_ids.discard(77)
     # no funding file for an eligible market
     monkeypatch.setattr(DataReader, "funding_exists", lambda self, mid: mid != 3)
-    with pytest.raises(DataError, match=r"funding file for market ids \[3\]"):
+    with pytest.raises(DataError, match=r"funding file .* for market ids \[3\]"):
         run.confirm_preflight(reader, span, prep)
 
 
@@ -1562,6 +1562,123 @@ def _moved_panels(tmp_path, with_binance: bool):
     if with_binance:
         scale_binance(moved, "ETHUSDT", 10, from_ms=day_start_ms(dt.date(2025, 7, 4)))
     return plain, moved
+
+
+def _nf_run(panel, cfgs, trades_dir):
+    reader, span, prep = grid_inputs_for(panel)
+    results, quality = run.run_grid(reader, prep.markets, prep.elig, prep.proxies, cfgs, span, trades_dir=trades_dir)
+    return {r["id"]: r for r in results}, quality
+
+
+def test_no_funding_classification_follows_file_and_the_last_manifest_line(tmp_path):
+    fdir = tmp_path / "funding"
+    fdir.mkdir()
+    for mid in (1, 6):
+        (fdir / f"market_{mid}.parquet").write_bytes(b"x")  # a file exists
+    lines = [
+        {"market_id": 1, "status": "empty"},  # a file wins over the manifest
+        {"market_id": 2, "status": "empty"},  # no file, empty: a no-funding market
+        {"market_id": 3, "status": "failed"},  # failed is not empty
+        {"market_id": 5, "status": "failed"},
+        {"market_id": 5, "status": "empty"},  # the LAST line wins: empty
+        {"market_id": 7, "status": "empty"},
+        {"market_id": 7, "status": "failed"},  # the last line is failed: not empty
+        {"market_id": 8, "status": "ok"},  # no file but ok: not empty
+    ]
+    (fdir / "manifest.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines) + "not json\n")
+    r = DataReader(fold_dir=tmp_path, funding_dir=fdir, mode="dev")
+    got = {mid: r.is_no_funding(mid) for mid in (1, 2, 3, 4, 5, 6, 7, 8)}  # 4 has no line at all
+    assert got == {1: False, 2: True, 3: False, 4: False, 5: True, 6: False, 7: False, 8: False}
+    assert "funding/manifest.jsonl" in r.manifest  # the manifest read is in the data manifest
+    # a nested funding/funding layout and no manifest at all
+    nested = tmp_path / "n"
+    (nested / "funding").mkdir(parents=True)
+    (nested / "funding" / "manifest.jsonl").write_text(json.dumps({"market_id": 9, "status": "empty"}) + "\n")
+    assert DataReader(fold_dir=tmp_path, funding_dir=nested, mode="dev").is_no_funding(9)
+    assert not DataReader(fold_dir=tmp_path, funding_dir=tmp_path / "none", mode="dev").is_no_funding(9)
+    assert not DataReader(fold_dir=tmp_path, mode="dev").is_no_funding(9)
+
+
+def test_a_no_funding_market_trades_with_zero_funding_and_stays_out_of_the_missing_share(tmp_path):
+    spec = dict(n_markets=3, days=6, seed=2)
+    plain = make_panel(tmp_path / "plain", PanelSpec(**spec))
+    nf = make_panel(tmp_path / "nf", PanelSpec(**spec, no_funding_markets=(2,)))
+    assert not list((nf.funding_dir).glob("market_2.parquet")) and (nf.funding_dir / "market_1.parquet").exists()
+    cfgs = f1_configs(holds=(15, 60), thetas=(1.0,), ks=(1, 3))
+    a, _ = _nf_run(plain, cfgs, tmp_path / "ta")
+    b, quality = _nf_run(nf, cfgs, tmp_path / "tb")
+    assert quality["2"]["no_funding"] is True and "no_funding" not in quality["1"]
+    for cfg in cfgs:
+        t2 = trades_of(tmp_path / "tb", cfg.cid, 2)
+        assert t2 is not None and len(t2["net"]) > 0
+        assert b[cfg.cid]["no_funding_trades"] == len(t2["net"]) and a[cfg.cid]["no_funding_trades"] == 0
+        assert all(f == 0.0 for f in t2["fund"])  # charged zero funding
+        # the other markets are untouched, and the missing-funding share does not see the market
+        assert trades_of(tmp_path / "ta", cfg.cid, 1) == trades_of(tmp_path / "tb", cfg.cid, 1)
+        assert b[cfg.cid]["missing_funding"] == 0 and b[cfg.cid]["missing_funding_share"] == 0.0
+        assert 0 < b[cfg.cid]["settlements_crossed"] < a[cfg.cid]["settlements_crossed"]
+        # the mean without the no-funding trades, by hand from the trade lists
+        rest = [x for mid in (1, 3) for x in (trades_of(tmp_path / "tb", cfg.cid, mid) or {"net": []})["net"]]
+        assert b[cfg.cid]["trades_ex_no_funding"] == len(rest) == b[cfg.cid]["trades"] - len(t2["net"])
+        assert b[cfg.cid]["mean_net_ex_no_funding_bps"] == pytest.approx(sum(rest) / len(rest) * lock.BPS)
+        assert a[cfg.cid]["mean_net_ex_no_funding_bps"] == pytest.approx(a[cfg.cid]["mean_net_bps"])
+
+
+def test_f6_never_trades_a_no_funding_market(tmp_path):
+    spec = dict(n_markets=3, days=6, seed=2, funding_sd=4e-4)
+    plain = make_panel(tmp_path / "plain", PanelSpec(**spec))
+    nf = make_panel(tmp_path / "nf", PanelSpec(**spec, no_funding_markets=(2,)))
+    cfgs = [c for c in lock.GRID if c.family == "F6" and c.universe == "AB"]
+    assert len(cfgs) == 6
+    _nf_run(plain, cfgs, tmp_path / "ta")
+    b, _ = _nf_run(nf, cfgs, tmp_path / "tb")
+    assert any(trades_of(tmp_path / "ta", c.cid, 2) for c in cfgs)  # with a file, F6 does trade market 2
+    assert not any(trades_of(tmp_path / "tb", c.cid, 2) for c in cfgs)  # without one it never does
+    assert any(trades_of(tmp_path / "tb", c.cid, 1) for c in cfgs) and all(
+        b[c.cid]["no_funding_trades"] == 0 for c in cfgs
+    )
+
+
+def test_trades_without_a_funding_file_and_without_an_empty_line_are_an_error(tmp_path):
+    cfgs = f1_configs(holds=(15,), thetas=(1.0,), ks=(1,))
+    for tag, line in (
+        ("failed", {"market_id": 2, "status": "failed"}),
+        ("noline", None),
+        ("ok", {"market_id": 2, "status": "ok"}),
+    ):
+        panel = make_panel(tmp_path / tag, PanelSpec(n_markets=3, days=6, seed=2))
+        (panel.funding_dir / "market_2.parquet").unlink()
+        manifest = panel.funding_dir / "manifest.jsonl"
+        kept = [x for x in manifest.read_text().splitlines() if json.loads(x)["market_id"] != 2]
+        manifest.write_text("".join(x + "\n" for x in kept) + (json.dumps(line) + "\n" if line else ""))
+        with pytest.raises(DataError, match="market ETH has trades but no funding file"):
+            _nf_run(panel, cfgs, tmp_path / ("t" + tag))
+
+
+def test_confirm_preflight_accepts_a_no_funding_market_and_refuses_a_missing_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(lock, "CONFIRM_FIRST_DATE", dt.date(2025, 8, 1))
+    monkeypatch.setattr(lock, "CONFIRM_MONTHS", ((2025, 8),))
+    monkeypatch.setattr(lock, "CONFIRM_LAST_DATE", CONFIRM_LAST)
+    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=6, days=45, seed=21, no_funding_markets=(3,)))
+
+    def preflight():
+        reader = DataReader(
+            fold_dir=panel.fold_dir,
+            binance_dir=panel.binance_dir,
+            funding_dir=panel.funding_dir,
+            mode="confirm",
+            last_date=CONFIRM_LAST,
+        )
+        span = run.Span(lock.CONFIRM_FIRST_DATE, CONFIRM_LAST)
+        return run.confirm_preflight(reader, span, run.prepare(reader, span))
+
+    pre = preflight()
+    assert pre["no_funding_markets"] == [3] and pre["funding_files_checked"] == 5
+    manifest = panel.funding_dir / "manifest.jsonl"
+    text = manifest.read_text()
+    manifest.write_text(text.replace('"status": "empty"', '"status": "failed"'))
+    with pytest.raises(DataError, match=r"market ids \[3\]"):
+        preflight()
 
 
 def test_a_real_move_confirmed_by_binance_is_left_alone(tmp_path):

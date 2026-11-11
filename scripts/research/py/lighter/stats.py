@@ -52,7 +52,16 @@ class _Block:
         self.ties = 0
         self.markets: dict[int, list[float]] = {}
 
-    def add(self, market_id: int, day: np.ndarray, batch: TradeBatch, sel: np.ndarray | None = None) -> None:
+    def add(
+        self,
+        market_id: int,
+        day: np.ndarray,
+        batch: TradeBatch,
+        sel: np.ndarray | None = None,
+        count_funding: bool = True,
+    ) -> None:
+        """count_funding False (a no-funding market): the trade's settlements and missing rows stay out of the
+        missing-funding share, numerator and denominator."""
         row = self.markets.setdefault(market_id, [0.0, 0.0])
         net = batch.net if sel is None else batch.net[sel]
         if len(net) == 0:
@@ -63,8 +72,9 @@ class _Block:
         self.daily_cnt += np.bincount(d, minlength=self.n_days)
         self.n += len(net)
         self.flagged += int(np.count_nonzero(pick(batch.flag)))
-        self.missing += int(pick(batch.miss).sum())
-        self.settlements += int(pick(batch.nsettle).sum())
+        if count_funding:
+            self.missing += int(pick(batch.miss).sum())
+            self.settlements += int(pick(batch.nsettle).sum())
         self.cost += float(pick(batch.cost).sum())
         self.ties += int(pick(batch.ties).sum())
         self.gross += float(pick(batch.gross).sum())
@@ -123,6 +133,8 @@ class ConfigAcc:
         self.total = _Block(n_days)
         self.by_source = {src: _Block(n_days) for src in self.SOURCES}
         self.by_class = {k: _Block(n_days) for k in ("crypto", "tradfi", "unclassified")}
+        self.no_funding_trades = 0  # trades of no-funding markets (charged zero funding)
+        self.no_funding_net = 0.0  # their summed net, so the mean without them needs no second run
         self.unfilled = 0
         self.no_sigma = 0
         self.no_exit = 0
@@ -134,11 +146,17 @@ class ConfigAcc:
         self.trigger_valid += valid
 
     def add(
-        self, market_id: int, batch: TradeBatch, binance: np.ndarray | None = None, klass: str | None = None
+        self,
+        market_id: int,
+        batch: TradeBatch,
+        binance: np.ndarray | None = None,
+        klass: str | None = None,
+        no_funding: bool = False,
     ) -> None:
         """binance: per trade, True when the decision month's price source was binance (None: all lighter).
 
-        klass: the asset class of the market, for the split of the F2 statistics."""
+        klass: the asset class of the market, for the split of the F2 statistics. no_funding: the market is a
+        no-funding market: its trades are counted in no_funding_trades and kept out of the missing-funding share."""
         self.unfilled += batch.unfilled
         self.no_sigma += batch.no_sigma
         self.no_exit += batch.no_exit
@@ -149,13 +167,17 @@ class ConfigAcc:
         if day.min() < 0 or day.max() >= self.n_days:
             raise ValueError("a trade exits outside the span")
         flags = np.zeros(batch.n, dtype=bool) if binance is None else np.asarray(binance, dtype=bool)
-        self.total.add(market_id, day, batch)
+        cf = not no_funding
+        self.total.add(market_id, day, batch, count_funding=cf)
+        if no_funding:
+            self.no_funding_trades += batch.n
+            self.no_funding_net += float(batch.net.sum())
         if klass in self.by_class:
-            self.by_class[klass].add(market_id, day, batch)
+            self.by_class[klass].add(market_id, day, batch, count_funding=cf)
         if flags.any():
-            self.by_source["binance"].add(market_id, day, batch, flags)
+            self.by_source["binance"].add(market_id, day, batch, flags, count_funding=cf)
         if (~flags).any():
-            self.by_source["lighter"].add(market_id, day, batch, ~flags)
+            self.by_source["lighter"].add(market_id, day, batch, ~flags, count_funding=cf)
 
     def finalize(self) -> dict[str, Any]:
         cfg = self.cfg
@@ -183,6 +205,12 @@ class ConfigAcc:
             out["by_source"][src] = {k: sub[k] for k in keep} | {"months": sub["months"]}
         counts = {src: out["by_source"][src]["trades"] for src in self.SOURCES}
         majority = max(counts, key=lambda k: (counts[k], k)) if out["trades"] else None
+        rest = out["trades"] - self.no_funding_trades
+        out["no_funding_trades"] = self.no_funding_trades
+        out["trades_ex_no_funding"] = rest
+        out["mean_net_ex_no_funding_bps"] = (
+            (float(self.total.daily_sum.sum()) - self.no_funding_net) / rest * lock.BPS if rest > 0 else None
+        )
         out["majority_source"] = majority
         out["majority_source_mean_net_bps"] = out["by_source"][majority]["mean_net_bps"] if majority else None
         if cfg.family == "F2":
@@ -280,11 +308,17 @@ def variant_checks(
     mirror_mean: float | None,
     doubled_mean: float | None,
     cost_bps: float | None = 0.0,
+    no_funding_trades: int = 0,
+    mean_ex_no_funding: float | None = None,
 ) -> dict[str, Any]:
     """The cost-adjusted mirror diagnostic and the spread sensitivity of one configuration (means in bps per trade).
 
     The diagnostic (mean(cfg) - mean(mirror)) / 2 must exceed the mean over the configuration's trades of
     (sp_fill at entry + sp_fill at exit) / 2, both in bps, i.e. the same units (log return x 10,000).
+
+    The no-funding condition: funding of a no-funding market is assumed zero, so with every trade of such a market
+    removed the mean net per trade must still be positive (nothing left counts as failing). It holds trivially when
+    the configuration has no no-funding trades.
     """
     diag = None if cfg_mean is None or mirror_mean is None else (cfg_mean - mirror_mean) / 2.0
     cost = 0.0 if cost_bps is None else cost_bps
@@ -296,6 +330,9 @@ def variant_checks(
         "mirror_ok": bool(diag is not None and diag > cost),
         "mean_doubled_spread_bps": doubled_mean,
         "doubled_ok": bool(doubled_mean is not None and doubled_mean > 0),
+        "no_funding_trades": int(no_funding_trades),
+        "mean_net_ex_no_funding_bps": mean_ex_no_funding,
+        "no_funding_ok": bool(no_funding_trades == 0 or (mean_ex_no_funding is not None and mean_ex_no_funding > 0)),
     }
 
 
@@ -310,7 +347,13 @@ def select_finalists(
     for fam in lock.FAMILIES:
         pool = [s for s in candidates if s["family"] == fam]
         if checks is not None:
-            pool = [s for s in pool if checks.get(s["id"], {}).get("mirror_ok") and checks[s["id"]].get("doubled_ok")]
+            pool = [
+                s
+                for s in pool
+                if checks.get(s["id"], {}).get("mirror_ok")
+                and checks[s["id"]].get("doubled_ok")
+                and checks[s["id"]].get("no_funding_ok", True)
+            ]
         if not pool:
             continue
         desk = [s for s in pool if s["class"] == "desk"]
@@ -362,7 +405,7 @@ def confirm_flags(
     ok_checks = True
     if checks is not None:
         out.update(checks)
-        ok_checks = bool(checks["mirror_ok"] and checks["doubled_ok"])
+        ok_checks = bool(checks["mirror_ok"] and checks["doubled_ok"] and checks.get("no_funding_ok", True))
     out["checks_ok"] = ok_checks
     out["pre_holm_ok"] = bool(ok_mean and ok_m and ok_checks and ok_source)
     return out

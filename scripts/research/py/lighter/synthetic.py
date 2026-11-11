@@ -101,6 +101,9 @@ class PanelSpec:
     micro_stay: float = 0.7
     micro_burst_frac: float = 0.0  # share of minutes in which the half spread is multiplied by micro_burst_factor
     micro_burst_factor: float = 10.0
+    # market ids made no-funding markets: no funding file and a funding manifest line with status "empty" (a delisted
+    # market on the venue). The other markets get a manifest line with status "ok".
+    no_funding_markets: tuple[int, ...] = ()
 
 
 @dataclass
@@ -358,7 +361,12 @@ def make_panel(root: Path, spec: PanelSpec) -> Panel:
     # Hourly funding from a day before the span to a day after (the guard filters the rest).
     f_first = t0 // 1000 - 86_400
     n_hours = (n_days + 2) * 24
+    manifest_lines = []
     for market in markets:
+        if market.market_id in spec.no_funding_markets:
+            manifest_lines.append({"market_id": market.market_id, "symbol": market.symbol, "status": "empty"})
+            continue
+        manifest_lines.append({"market_id": market.market_id, "symbol": market.symbol, "status": "ok"})
         frng = np.random.default_rng([spec.seed, 7, market.market_id])
         ts = f_first + np.arange(n_hours, dtype=np.int64) * 3600
         rate = frng.normal(0.0, spec.funding_sd, n_hours)
@@ -378,6 +386,8 @@ def make_panel(root: Path, spec: PanelSpec) -> Panel:
             ),
             funding_dir / f"market_{market.market_id}.parquet",
         )
+
+    (funding_dir / "manifest.jsonl").write_text("".join(json.dumps(x) + "\n" for x in manifest_lines))
 
     order_books = [
         {

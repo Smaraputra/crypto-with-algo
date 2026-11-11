@@ -232,6 +232,7 @@ class DataReader:
         self.funding_dir = None if funding_dir is None else Path(funding_dir)
         self._hash_cache: dict[Path, str] = {}
         self._fold_days: dict[str, str | None] | None = None
+        self._funding_status: dict[int, str] | None = None
         self.manifest: dict[str, str] = {}
         self._missing_months: set[str] = set()
         self._known_missing: set[str] = set()
@@ -579,6 +580,39 @@ class DataReader:
 
     def funding_exists(self, market_id: int) -> bool:
         return self.funding_dir is not None and self.funding_path(market_id).exists()
+
+    def funding_manifest_path(self) -> Path | None:
+        if self.funding_dir is None:
+            return None
+        nested = self.funding_dir / "funding" / "manifest.jsonl"
+        return nested if nested.exists() else self.funding_dir / "manifest.jsonl"
+
+    def _funding_statuses(self) -> dict[int, str]:
+        """market_id -> status of the LAST line for that market in the funding manifest (no file: no entries)."""
+        if self._funding_status is None:
+            out: dict[int, str] = {}
+            path = self.funding_manifest_path()
+            if path is not None and path.exists():
+                for line in path.read_text().splitlines():
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(rec, dict) and isinstance(rec.get("market_id"), int):
+                        out[rec["market_id"]] = str(rec.get("status"))
+                self._record("funding/manifest.jsonl", path)
+            self._funding_status = out
+        return self._funding_status
+
+    def is_no_funding(self, market_id: int) -> bool:
+        """A no-funding market: no funding file AND the last funding manifest line for the id says "empty".
+
+        The venue serves no funding history for delisted markets. A market with a funding file is never one, whatever
+        the manifest says. A status "failed", or no line at all, is not "empty".
+        """
+        if self.funding_exists(market_id):
+            return False
+        return self._funding_statuses().get(market_id) == "empty"
 
     def load_funding(self, market_id: int, end_ms: int) -> tuple[np.ndarray, np.ndarray]:
         """Settlement times (ms) and rate_long_pays, only rows with a timestamp before end_ms. Empty when no file."""

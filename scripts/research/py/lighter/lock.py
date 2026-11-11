@@ -211,6 +211,19 @@ RETURNS. net = side x ln(exit price / entry price) - sum over funding settlement
 exit fill timestamp of side x rate_long_pays(s). Settlements are the UTC hour boundaries. A missing settlement row
 counts as 0 and increments a counter. Equal notional per trade.
 
+NO-FUNDING MARKETS. A perp market is a no-funding market when it has no funding file AND the last line for its
+market_id in the funding manifest (funding/manifest.jsonl, one JSON line per market attempt, the last line per market_id
+wins) has status empty. The venue serves no funding history for delisted markets. Such a market trades in every family
+except F6 (it has no funding signal). Its trades are charged zero funding and each is counted in no_funding_trades. They
+are left out of the missing-funding share (both its numerator and denominator). A market with a funding file is never a
+no-funding market, whatever the manifest says, and a manifest line with status failed, or no line at all, is not
+"empty". A market with trades and no funding file that is NOT a no-funding market is an error. Because the zero is an
+assumption, a finalist must also have mean net per trade > 0 when every trade of a no-funding market is removed, in
+development and in confirmation. Each configuration reports no_funding_trades, trades_ex_no_funding and
+mean_net_ex_no_funding_bps (the mean net per trade with those trades removed, from a second accumulator in the same
+pass). The confirm pre-flight needs, for every market eligible in some confirmation month, a funding file or a
+no-funding market.
+
 FUNDING SIGN AND STAMP. The reading "direction names the paying side" (so rate_long_pays is a cost to longs when
 positive) was checked on 2026-11-11 against the hourly venue recorder: over Lighter rows whose hourly rate was at least
 2e-5 in size, the rate signed that way had the sign of the mark-minus-index premium in 155 of 170 rows (the rest of the
@@ -263,7 +276,11 @@ unless listed in the audit file (see TRIPWIRE), and meet all registered conditio
   of the configuration's development trades.
 - SPREAD SENSITIVITY: the configuration is re-run with sp_fill doubled in the fill rule (every use of it).
   Mean net per trade under the doubled proxy must be > 0 too.
-- FUNDING COVERAGE: the missing-settlement counter is at most 1% of the settlements its trades crossed.
+- FUNDING COVERAGE: the missing-settlement counter is at most 1% of the settlements its trades crossed (trades of
+  no-funding markets are in neither the counter nor the settlements).
+- NO-FUNDING: with every trade of a no-funding market removed, the mean net per trade is still > 0 (see NO-FUNDING
+  MARKETS). Recorded in variant_checks beside the mirror and doubled-spread numbers, in development and in
+  confirmation.
 For each family take the candidate with the highest daily t, restricted to class desk when any desk candidate of that
 family exists. Rank those family bests by daily t and keep the top 3. Written to finalists.json (may be empty).
 
@@ -284,10 +301,11 @@ difference from the dev result), makes a metadata pre-flight, marks the record c
 (records/confirm_ran_<digest>.json) and then runs the confirmation. Null runs with no maximum (None) are an error.
 The pre-flight runs BEFORE the marker is written, and anything it finds stops the command with the marker untouched:
 every fold day from the previous month of the first confirmation month to the last is in the manifest with a matching
-file hash, no market id in the fold is missing from markets.json, a funding file exists for every market eligible in
-some confirmation month, every Binance file the source guard may read parses (header, open_time strictly increasing and
-inside its month, no duplicates), and the scale scan over the confirmation window (as in the price-scale guard) is made
-and its holding breaks are listed in the result (the exclusion rule below handles them).
+file hash, no market id in the fold is missing from markets.json, a funding file exists, or the market is a no-funding
+market, for every market eligible in some confirmation month, every Binance file the source guard may read parses
+(header, open_time strictly increasing and inside its month, no duplicates), and the scale scan over the confirmation
+window (as in the price-scale guard) is made and its holding breaks are listed in the result (the exclusion rule below
+handles them).
 A holding scale break found in confirmation data excludes that market from the break minute onward for the rest of the
 confirmation span (a trade open at that minute exits by the fallback rule at that minute, flagged: a trade whose exit
 is decided at or after the break, or whose found fill lies at or after it, or whose search window reaches it with no

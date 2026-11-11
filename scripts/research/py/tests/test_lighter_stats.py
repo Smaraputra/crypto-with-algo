@@ -337,6 +337,52 @@ def test_variant_checks_formula():
     assert not stats.variant_checks(1.0, 1.0, None)["doubled_ok"]
 
 
+def test_no_funding_trades_are_counted_kept_out_of_the_missing_share_and_the_mean_without_them_is_exact():
+    cfg = next(c for c in lock.GRID if c.family == "F1")
+    acc = stats.ConfigAcc(cfg, D0, 4)
+    # market 1 has funding: two trades, one missing settlement of two crossed
+    acc.add(1, batch([D0 + 10, D0 + DAY + 10], [0.0010, 0.0020], miss=1, nsettle=2))
+    # market 2 is a no-funding market: its settlements are all "missing" in the engine and must not count
+    acc.add(2, batch([D0 + 2 * DAY + 10, D0 + 3 * DAY + 10], [-0.0050, 0.0040], miss=5, nsettle=5), no_funding=True)
+    out = acc.finalize()
+    assert out["trades"] == 4 and out["no_funding_trades"] == 2 and out["trades_ex_no_funding"] == 2
+    assert out["missing_funding"] == 2 and out["settlements_crossed"] == 4  # market 1 only: 1 + 1 of 2 + 2
+    assert out["missing_funding_share"] == pytest.approx(0.5)
+    assert out["mean_net_bps"] == pytest.approx((0.0010 + 0.0020 - 0.0050 + 0.0040) / 4 * 1e4)
+    assert out["mean_net_ex_no_funding_bps"] == pytest.approx((0.0010 + 0.0020) / 2 * 1e4)  # 15 bps by hand
+    # every trade in no-funding markets: nothing is left, the mean without them is undefined
+    only = stats.ConfigAcc(cfg, D0, 4)
+    only.add(2, batch([D0 + 10], [0.0030]), no_funding=True)
+    got = only.finalize()
+    assert got["trades_ex_no_funding"] == 0 and got["mean_net_ex_no_funding_bps"] is None
+    assert got["missing_funding_share"] == 0.0
+    # no no-funding trades: the mean without them is the mean
+    plain = stats.ConfigAcc(cfg, D0, 4)
+    plain.add(1, batch([D0 + 10], [0.0030]))
+    assert plain.finalize()["mean_net_ex_no_funding_bps"] == pytest.approx(30.0)
+
+
+def test_a_configuration_that_profits_only_from_a_no_funding_market_is_not_a_finalist_and_does_not_confirm():
+    a = good(id="F1-a", family="F1", t=5.0)
+    cand = stats.finalist_candidates([a], 0.0, 0.0)
+    # mean +3 bps overall, but -1 bps once the no-funding market's 50 trades are removed
+    bad = stats.variant_checks(3.0, -3.0, 2.0, 0.5, no_funding_trades=50, mean_ex_no_funding=-1.0)
+    assert bad["mirror_ok"] and bad["doubled_ok"] and not bad["no_funding_ok"]
+    assert bad["no_funding_trades"] == 50 and bad["mean_net_ex_no_funding_bps"] == -1.0
+    assert stats.select_finalists(cand, {"F1-a": bad}) == []
+    fine = stats.variant_checks(3.0, -3.0, 2.0, 0.5, no_funding_trades=50, mean_ex_no_funding=0.4)
+    assert fine["no_funding_ok"] and [s["id"] for s in stats.select_finalists(cand, {"F1-a": fine})] == ["F1-a"]
+    # nothing left once they are removed counts as failing, no no-funding trades passes trivially
+    assert not stats.variant_checks(3.0, -3.0, 2.0, 0.5, no_funding_trades=9, mean_ex_no_funding=None)["no_funding_ok"]
+    assert stats.variant_checks(3.0, -3.0, 2.0, 0.5)["no_funding_ok"]
+    # the same condition blocks a confirmation
+    months = [{"month": f"2026-{m:02d}", "net": 1.0, "trades": 10} for m in (7, 8, 9, 10)]
+    ok = stats.confirm_flags(good(t=3.0, months=months), stats.variant_checks(3.0, -3.0, 2.0, 0.5))
+    assert ok["pre_holm_ok"]
+    blocked = stats.confirm_flags(good(t=3.0, months=months), bad)
+    assert not blocked["checks_ok"] and not blocked["pre_holm_ok"] and blocked["no_funding_ok"] is False
+
+
 def test_holm_with_one_two_and_three_finalists():
     assert stats.holm({"a": 0.049}) == {"a": True}
     assert stats.holm({"a": 0.05}) == {"a": False}

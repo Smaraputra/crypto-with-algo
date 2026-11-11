@@ -24,6 +24,12 @@ BEHAVIOUR OBSERVED 2026-11-11 (market 1, probes of start S and end E in seconds)
   archive day, or an empty window lies at or before the market's own created_at (orderBooks, milliseconds, plus one
   window of margin), after which no earlier data is expected. Rows are de-duplicated on timestamp.
 
+MARKET LIST: by default the perp markets come from GET orderBooks, which omits delisted markets. --markets-file PATH
+takes the perp markets and their created_at from a markets.json of version 2 or later (the fold's file, with the
+delisted markets added by --complete-markets) instead, with no orderBooks request at all; entries with
+listed_in_order_books false are included, and --market-ids then filters within that list. Every manifest line carries
+markets_source: "orderBooks", or the sha256 of the markets file used.
+
 CONTIGUITY CHECK: after a market is fetched, consecutive timestamps between its first and last row must be exactly 3,600
 s apart. Each missing hour is asked for directly (S = hour - 3600, E = hour + 1, which returns that one hour if it
 exists). A hole the direct request also finds empty is confirmed missing at the source and is listed in
@@ -64,7 +70,7 @@ name and an example, not verified. It must be checked against one realised fundi
 any result uses the sign of this column.
 
 Run: python -m lighter.fetch_funding --out-dir OUT [--from 2025-01-17] [--to 2026-10-31] [--market-ids 1,2]
-     [--verify-existing]
+     [--verify-existing] [--markets-file PATH]
 """
 
 from __future__ import annotations
@@ -315,17 +321,20 @@ def latest_manifest(path: Path) -> dict[int, dict[str, Any]]:
     return latest
 
 
-def base_record(market: dict[str, Any]) -> dict[str, Any]:
+def base_record(market: dict[str, Any], source: str = "orderBooks") -> dict[str, Any]:
     return {
         "market_id": int(market["market_id"]),
         "symbol": str(market.get("symbol", "")),
+        "markets_source": source,
         "fetched_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
     }
 
 
-def ok_record(market: dict[str, Any], stamps: list[int], info: dict[str, Any]) -> dict[str, Any]:
+def ok_record(
+    market: dict[str, Any], stamps: list[int], info: dict[str, Any], source: str = "orderBooks"
+) -> dict[str, Any]:
     return {
-        **base_record(market),
+        **base_record(market, source),
         "status": "ok",
         "rows": len(stamps),
         "first_ts": stamps[0],
@@ -343,7 +352,13 @@ def needs_verification(path: Path, latest: dict[int, dict[str, Any]], market_id:
 
 
 def verify_existing_file(
-    market: dict[str, Any], path: Path, date_from: dt.date, date_to: dt.date, limiter: RateLimiter, manifest: Path
+    market: dict[str, Any],
+    path: Path,
+    date_from: dt.date,
+    date_to: dt.date,
+    limiter: RateLimiter,
+    manifest: Path,
+    source: str = "orderBooks",
 ) -> bool:
     """Check a market file already on disk. Appends an ends_checked line, or deletes the file and marks it failed."""
     market_id = int(market["market_id"])
@@ -355,12 +370,25 @@ def verify_existing_file(
         info = check_series(market_id, stamps, earliest_s, end_s, limiter)
     except ContiguityError as exc:
         path.unlink(missing_ok=True)
-        append_manifest(manifest, {**base_record(market), "status": "failed", "reason": f"verify: {exc}"})
+        append_manifest(manifest, {**base_record(market, source), "status": "failed", "reason": f"verify: {exc}"})
         print(f"market {market_id} {market.get('symbol')}: verify FAILED, file deleted: {exc}", file=sys.stderr)
         return False
-    append_manifest(manifest, ok_record(market, stamps, info))
+    append_manifest(manifest, ok_record(market, stamps, info, source))
     print(f"market {market_id} {market.get('symbol')}: verified {len(stamps):,} rows", file=sys.stderr)
     return True
+
+
+def load_markets_file(path: Path) -> tuple[list[dict[str, Any]], str]:
+    """Perp markets (delisted ones included) of a markets.json of version 2 or later, and the file's sha256."""
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise FoldError(f"cannot read markets file {path}: {exc}") from exc
+    version = doc.get("markets_file_version", 0) if isinstance(doc, dict) else 0
+    if version < fold_trades.MIN_MARKETS_FILE_VERSION or not isinstance(doc.get("order_books"), list):
+        raise FoldError(f"{path} is not a markets.json of version {fold_trades.MIN_MARKETS_FILE_VERSION} or later")
+    markets = [m for m in doc["order_books"] if m.get("market_type") == "perp"]
+    return markets, fold_trades.sha256_file(path)
 
 
 def run(
@@ -370,20 +398,29 @@ def run(
     market_ids: set[int] | None = None,
     limiter: RateLimiter | None = None,
     verify_only: bool = False,
+    markets_file: Path | None = None,
 ) -> int:
-    """Fetch (or only verify) the selected perp markets. Returns 1 when any market failed its checks, else 0."""
+    """Fetch (or only verify) the selected perp markets. Returns 1 when any market failed its checks, else 0.
+
+    The market list comes from GET orderBooks, or from markets_file (no orderBooks request) when given.
+    """
     check_date(date_from)
     check_date(date_to)
     if date_from > date_to:
         raise FoldError(f"--from {date_from} is after --to {date_to}")
     limiter = limiter or RateLimiter()
-    books = fold_trades.fetch_order_books()["order_books"]
-    markets = [m for m in books if m.get("market_type") == "perp"]
+    if markets_file is not None:
+        markets, source = load_markets_file(markets_file)
+        listing = "the markets file"
+    else:
+        books = fold_trades.fetch_order_books()["order_books"]
+        markets = [m for m in books if m.get("market_type") == "perp"]
+        source, listing = "orderBooks", "orderBooks"
     if market_ids is not None:
         known = {int(m["market_id"]) for m in markets}
         unknown = sorted(market_ids - known)
         if unknown:
-            raise FoldError(f"not perp markets in orderBooks: {unknown}")
+            raise FoldError(f"not perp markets in {listing}: {unknown}")
         markets = [m for m in markets if int(m["market_id"]) in market_ids]
     target = out_dir / "funding"
     target.mkdir(parents=True, exist_ok=True)
@@ -394,7 +431,7 @@ def run(
         path = target / f"market_{market_id}.parquet"
         if path.exists():
             if needs_verification(path, latest_manifest(manifest), market_id):
-                if verify_existing_file(market, path, date_from, date_to, limiter, manifest):
+                if verify_existing_file(market, path, date_from, date_to, limiter, manifest, source):
                     verified += 1
                     continue
                 if verify_only:
@@ -409,7 +446,7 @@ def run(
         try:
             rows, info = fetch_market(market, date_from, date_to, limiter)
         except ContiguityError as exc:
-            append_manifest(manifest, {**base_record(market), "status": "failed", "reason": str(exc)})
+            append_manifest(manifest, {**base_record(market, source), "status": "failed", "reason": str(exc)})
             print(f"market {market_id} {market.get('symbol')}: FAILED {exc}", file=sys.stderr)
             failed += 1
             continue
@@ -417,7 +454,7 @@ def run(
             append_manifest(
                 manifest,
                 {
-                    **base_record(market),
+                    **base_record(market, source),
                     "status": "empty",
                     "rows": 0,
                     "first_ts": None,
@@ -431,7 +468,7 @@ def run(
             empty += 1
             continue
         write_market(path, rows)
-        append_manifest(manifest, ok_record(market, [r["timestamp"] for r in rows], info))
+        append_manifest(manifest, ok_record(market, [r["timestamp"] for r in rows], info, source))
         done += 1
         suffix = " (ended early)" if info["ended_early"] else ""
         print(f"market {market_id} {market.get('symbol')}: {len(rows):,} rows{suffix}", file=sys.stderr)
@@ -449,6 +486,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--to", dest="date_to", default=FOLD_LAST_DATE.isoformat())
     parser.add_argument("--market-ids", default=None, help="comma separated market ids (default: every perp)")
     parser.add_argument(
+        "--markets-file",
+        type=Path,
+        default=None,
+        help="markets.json (version 2 or 3) to take the perp markets from instead of orderBooks (delisted included)",
+    )
+    parser.add_argument(
         "--verify-existing",
         action="store_true",
         help="only verify market files whose latest manifest line lacks ends_checked (no fetching)",
@@ -457,7 +500,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         ids = {int(x) for x in args.market_ids.split(",")} if args.market_ids else None
         return run(
-            args.out_dir, parse_date(args.date_from), parse_date(args.date_to), ids, verify_only=args.verify_existing
+            args.out_dir,
+            parse_date(args.date_from),
+            parse_date(args.date_to),
+            ids,
+            verify_only=args.verify_existing,
+            markets_file=args.markets_file,
         )
     except (FoldError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
