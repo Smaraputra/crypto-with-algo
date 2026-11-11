@@ -226,9 +226,15 @@ def _finish(
     ent_tie: np.ndarray,
 ) -> Outcomes:
     """Exit fills at decision minute e (the fill search, the fallback), funding and returns."""
-    forced = e >= ctx.break_min  # open at an excluded scale break: exit there by the fallback rule, flagged
-    e = np.where(forced, ctx.break_min - 1, e)
-    found, _, x_px, x_ts, x_sp, x_tie = first_print_fill(ctx, -side, e)
+    # A trade still open at an excluded scale break exits there by the fallback rule, flagged: when its exit is decided
+    # at or after the break minute, or its found fill lies at or after it, or nothing is found and the search window
+    # (e .. e + 15) reaches it. A fill on the later scale is never booked.
+    decided_late = e >= ctx.break_min
+    e = np.where(decided_late, ctx.break_min - 1, e)
+    found, x_min, x_px, x_ts, x_sp, x_tie = first_print_fill(ctx, -side, e)
+    forced = (
+        decided_late | (found & (x_min >= ctx.break_min)) | (~found & (e + lock.EXIT_SEARCH_MINUTES >= ctx.break_min))
+    )
     found = found & ~forced
     fallback_min = np.where(forced, ctx.break_min - 1, e + lock.EXIT_SEARCH_MINUTES)
     fb_sp = np.maximum(np.maximum(ctx.sp_bps[e], ctx.xs[fallback_min]), ctx.xs[np.maximum(fallback_min - 1, 0)])

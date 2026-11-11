@@ -937,8 +937,76 @@ def test_a_data_error_after_the_marker_is_recorded_and_allows_one_rerun(planted,
     assert second["status"] == "started" and second["attempt"] == 2 and second["rerun_note_sha256"] == note_sha
     assert second["previous_marker_sha256"] == first["content_sha256"]
     assert res["consumed_marker_sha256"] == second["content_sha256"]
+    assert second["anchor_sha256"] == first["anchor_sha256"] and second["record_sha256"] == first["record_sha256"]
     with pytest.raises(SystemExit, match="confirm runs once"):
         run_confirm(panel, dev_dir, out)
+
+
+def _failing_run(panel, dev_dir, out, monkeypatch, write_output=False):
+    """Prepare, then make confirm_statistics fail (after writing a trade file when asked). Returns the paths."""
+    prepare_confirm(panel, dev_dir, out=out)
+    paths = confirm_files(panel, out)
+
+    def boom(*a, **k):
+        if write_output:
+            (out / "confirm_trades" / "cfg").mkdir(parents=True)
+            (out / "confirm_trades" / "cfg" / "market_1.parquet").write_bytes(b"x")
+        raise DataError("boom in the data")
+
+    monkeypatch.setattr(run, "confirm_statistics", boom)
+    with pytest.raises(DataError, match="boom"):
+        run_confirm(panel, dev_dir, out)
+    return paths
+
+
+def _name_error(paths):
+    marker = read_json(paths.marker)
+    run.write_result(paths.note, {"marker_sha256": marker["content_sha256"], "error": marker["error"]})
+    return marker
+
+
+def test_an_error_after_a_trade_file_exists_leaves_the_confirmation_consumed(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "after"
+    paths = _failing_run(panel, dev_dir, out, monkeypatch, write_output=True)
+    marker = _name_error(paths)
+    assert marker["status"] == "error-after-output"
+    with pytest.raises(SystemExit, match="confirm runs once"):
+        run_confirm(panel, dev_dir, out)  # even with a note that names the error
+
+
+def test_confirm_output_already_in_the_out_dir_is_refused_before_the_marker(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "stale"
+    prepare_confirm(panel, dev_dir, out=out)
+    (out / "confirm_trades" / "cfg").mkdir(parents=True)
+    (out / "confirm_trades" / "cfg" / "market_1.parquet").write_bytes(b"x")
+    with pytest.raises(SystemExit, match="holds confirm output"):
+        run_confirm(panel, dev_dir, out)
+    assert not confirm_files(panel, out).marker.exists()
+
+
+def test_a_rerun_needs_the_same_anchor_and_the_same_record(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "pinned"
+    answers = iter(["aa" * 32, "bb" * 32])
+    monkeypatch.setattr(run, "anchor_file_sha", lambda prov: next(answers))
+    paths = _failing_run(panel, dev_dir, out, monkeypatch)
+    marker = _name_error(paths)
+    assert marker["status"] == "error" and marker["anchor_sha256"] == "aa" * 32
+    assert marker["record_sha256"] == read_json(paths.record)["content_sha256"]
+    with pytest.raises(SystemExit, match="same registration anchor"):
+        run_confirm(panel, dev_dir, out)  # the anchor changed between the attempts
+    # the record changed between the attempts (a valid file with other content)
+    monkeypatch.setattr(run, "anchor_file_sha", lambda prov: "aa" * 32)
+    record = read_json(paths.record)
+    run.write_result(paths.record, {**{k: v for k, v in record.items() if k != "content_sha256"}, "extra": 1})
+    with pytest.raises(SystemExit, match="same registration anchor and confirm record"):
+        run_confirm(panel, dev_dir, out)
+
+
+def test_the_first_excluded_grid_point_is_the_first_at_or_after_the_break():
+    assert [run.first_excluded_grid(m) for m in (0, 1, 4, 5, 6, 10, 11)] == [0, 1, 1, 1, 2, 2, 3]
 
 
 def test_a_second_data_error_leaves_the_confirmation_consumed(planted, tmp_path, relaxed, monkeypatch):
@@ -989,7 +1057,8 @@ def test_confirm_excludes_a_market_from_a_holding_scale_break_and_exits_open_tra
     rescale_market(bad, 2, 10, 14, month="2025-08")  # ETH is 10 times higher from 2025-08-10 on
     res = read_json(run_confirm(bad, dev_dir, out))
     [found] = res["preflight"]["scale_breaks_found"]
-    assert found["market_id"] == 2 and found["decades"] == 1
+    assert found["market_id"] == 2 and found["decades"] == 1 and found["binance_confirms"] is False
+    assert res["preflight"]["real_moves_found"] == []
     brk = found["minute"]
     assert day_start_ms(dt.date(2025, 8, 10)) <= brk < day_start_ms(dt.date(2025, 8, 11))
     assert res["markets"]["2"]["excluded_scale_breaks"][0]["minute"] == brk
@@ -1009,6 +1078,20 @@ def test_confirm_excludes_a_market_from_a_holding_scale_break_and_exits_open_tra
                 n_forced += 1
     assert n_forced > 0
     assert read_json(paths_of(bad, out).marker)["status"] == "started"
+
+
+def test_confirm_leaves_a_binance_confirmed_real_move_alone(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "real"
+    prepare_confirm(panel, dev_dir, out=out)
+    bad = copy_panel(panel, tmp_path / "bad")
+    rescale_market(bad, 2, 10, 14, month="2025-08")
+    scale_binance(bad, "ETHUSDT", 10, from_ms=day_start_ms(dt.date(2025, 8, 10)))
+    res = read_json(run_confirm(bad, dev_dir, out))
+    assert res["preflight"]["scale_breaks_found"] == []
+    [move] = res["preflight"]["real_moves_found"]
+    assert move["market_id"] == 2 and move["binance_confirms"] is True
+    assert all("excluded_scale_breaks" not in q for q in res["markets"].values())
 
 
 def paths_of(panel, out):
@@ -1378,15 +1461,16 @@ def rescale_market(panel, market_id: int, first_day: int, last_day: int, factor:
     rehash_manifest(panel.fold_dir)
 
 
-def scale_binance(panel, symbol: str, factor: float):
-    """Multiply open, high, low and close of every month file of one symbol (the later unit of a rescaled market)."""
+def scale_binance(panel, symbol: str, factor: float, from_ms: int = 0):
+    """Multiply open, high, low and close of every month file of one symbol, from open_time from_ms on."""
     for path in sorted((panel.binance_dir / symbol).glob(f"{symbol}-1m-*.csv.gz")):
         with gzip.open(path, "rt") as f:
             lines = f.read().splitlines()
         out = [lines[0]]
         for line in lines[1:]:
             r = line.split(",")
-            px = ",".join(f"{float(x) * factor:.6f}" for x in r[1:5])
+            f_ = factor if int(r[0]) >= from_ms else 1.0
+            px = ",".join(f"{float(x) * f_:.6f}" for x in r[1:5])
             out.append(",".join([r[0], px, *r[5:]]))
         with gzip.open(path, "wt") as f:
             f.write("\n".join(out) + "\n")
@@ -1412,8 +1496,26 @@ def test_scalescan_lists_a_planted_rescaling_and_dev_stops_on_it(tmp_path, monke
     assert [(c["market_id"], c["decades"]) for c in holding] == [(2, 1)]
     assert day_start_ms(dt.date(2025, 7, 4)) <= holding[0]["minute"] < day_start_ms(dt.date(2025, 7, 4)) + 3_600_000
     assert doc["holding"] == holding
+    # Binance did not move with it, so it is no real move: it would stop a run
+    assert holding[0]["binance_confirms"] is False and abs(holding[0]["binance_ln_ratio"]) < 0.05
+    assert doc["real_moves"] == [] and doc["would_stop"] == holding
     with pytest.raises(DataError, match=r"price-scale break in ETH \(market_id 2\)"):
         run.cmd_dev(args_for(panel, tmp_path / "dev"), last_date=panel.last_date, configs=[lock.GRID[0]])
+    # without a Binance directory the check cannot be made (null), and the run stops all the same
+    no_binance = args_for(panel, tmp_path / "o2")
+    no_binance.binance_dir = None
+    nb = read_json(run.cmd_scalescan(no_binance, last_date=panel.last_date))
+    assert [c["binance_confirms"] for c in nb["holding"]] == [None] and nb["would_stop"] == nb["holding"]
+    # in confirmation (the exclude policy) the same market is excluded from the break on, not stopped
+    reader, span, prep = grid_inputs_for(panel)
+    cfgs = f1_configs(holds=(15,), thetas=(1.0,), ks=(1,))
+    _, quality = run.run_grid(
+        reader, prep.markets, prep.elig, prep.proxies, cfgs, span, trades_dir=tmp_path / "ex", scale_policy="exclude"
+    )
+    assert quality["2"]["excluded_scale_breaks"][0]["minute"] == holding[0]["minute"]
+    assert "excluded_scale_breaks" not in quality["1"]
+    after = trades_of(tmp_path / "ex", cfgs[0].cid, 2)
+    assert after is not None and max(after["decision_ms"]) < holding[0]["minute"]
 
 
 def test_a_listed_scale_break_gives_the_same_trades_as_the_panel_without_it(tmp_path, monkeypatch):
@@ -1447,11 +1549,82 @@ def test_a_listed_scale_break_gives_the_same_trades_as_the_panel_without_it(tmp_
     assert after["holding"] == []
 
 
-def test_a_known_scale_break_with_k_zero_is_refused(tmp_path, monkeypatch):
-    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=4, seed=2))
-    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", ((2, day_start_ms(dt.date(2025, 7, 3)), 0),))
-    with pytest.raises(DataError, match="k = 0"):
-        run.cmd_dev(args_for(panel, tmp_path / "o"), last_date=panel.last_date, configs=[lock.GRID[0]])
+def grid_inputs_for(panel):
+    return _grid_inputs(panel, panel.last_date)
+
+
+def _moved_panels(tmp_path, with_binance: bool):
+    """A plain panel and one where ETH is 10 times higher from 2025-07-04, on Binance too when with_binance."""
+    spec = PanelSpec(n_markets=3, days=6, seed=2)
+    plain = make_panel(tmp_path / "plain", spec)
+    moved = make_panel(tmp_path / "moved", spec)
+    rescale_market(moved, 2, 4, 6)
+    if with_binance:
+        scale_binance(moved, "ETHUSDT", 10, from_ms=day_start_ms(dt.date(2025, 7, 4)))
+    return plain, moved
+
+
+def test_a_real_move_confirmed_by_binance_is_left_alone(tmp_path):
+    plain, moved = _moved_panels(tmp_path, with_binance=True)
+    doc = read_json(run.cmd_scalescan(args_for(moved, tmp_path / "s"), last_date=moved.last_date))
+    [row] = doc["holding"]
+    assert row["market_id"] == 2 and row["binance_confirms"] is True
+    assert row["binance_ln_ratio"] == pytest.approx(np.log(10), abs=0.05) and row["real_move"] is True
+    assert doc["real_moves"] == [row] and doc["would_stop"] == []
+    cfgs = f1_configs(holds=(15, 60), thetas=(1.0,), ks=(1, 3))
+    # no stop in development
+    run.cmd_dev(args_for(moved, tmp_path / "d"), last_date=moved.last_date, configs=cfgs)
+    # no rescale: the prices before the move are the plain panel's, the ones after it are 10 times higher
+    p_reader, m_reader = grid_inputs_for(plain)[0], grid_inputs_for(moved)[0]
+    market = next(m for m in m_reader.load_markets() if m.market_id == 2)
+    t0, end = day_start_ms(dt.date(2025, 7, 1)), day_start_ms(dt.date(2025, 7, 7))
+    pa_, ma_ = (
+        p_reader.load_minutes(market, t0, end, mid_only=True),
+        m_reader.load_minutes(market, t0, end, mid_only=True),
+    )
+    k = (row["minute"] - t0) // lock.MINUTE_MS
+    assert np.array_equal(pa_.last_px[:k], ma_.last_px[:k], equal_nan=True)
+    assert np.allclose(ma_.last_px[k + 5 :], 10 * pa_.last_px[k + 5 :], equal_nan=True)
+    # no exclusion in confirmation, and the other markets trade exactly as in the plain panel
+    for tag, panel in (("plain", plain), ("moved", moved)):
+        reader, span, prep = grid_inputs_for(panel)
+        _, quality = run.run_grid(
+            reader, prep.markets, prep.elig, prep.proxies, cfgs, span, trades_dir=tmp_path / tag, scale_policy="exclude"
+        )
+        assert all("excluded_scale_breaks" not in q for q in quality.values())
+    for cfg in cfgs:
+        assert trades_of(tmp_path / "plain", cfg.cid, 1) == trades_of(tmp_path / "moved", cfg.cid, 1)
+    market2 = [trades_of(tmp_path / "moved", cfg.cid, 2) for cfg in cfgs]
+    assert any(t and max(t["decision_ms"]) >= row["minute"] for t in market2)  # it keeps trading after the move
+
+
+def test_an_unconfirmed_jump_stops_development_and_is_excluded_in_confirmation(tmp_path):
+    _, moved = _moved_panels(tmp_path, with_binance=False)
+    doc = read_json(run.cmd_scalescan(args_for(moved, tmp_path / "s"), last_date=moved.last_date))
+    [row] = doc["would_stop"]
+    assert row["binance_confirms"] is False and doc["real_moves"] == []
+    with pytest.raises(DataError, match="price-scale break"):
+        run.cmd_dev(args_for(moved, tmp_path / "d"), last_date=moved.last_date, configs=[lock.GRID[0]])
+
+
+def test_a_listed_k_zero_entry_acknowledges_a_real_move_without_rescaling(tmp_path, monkeypatch):
+    plain, moved = _moved_panels(tmp_path, with_binance=False)  # Binance does not confirm: it would stop
+    [row] = read_json(run.cmd_scalescan(args_for(moved, tmp_path / "s"), last_date=moved.last_date))["would_stop"]
+    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", ((2, row["minute"], 0),))
+    doc = read_json(run.cmd_scalescan(args_for(moved, tmp_path / "s2"), last_date=moved.last_date))
+    assert [c["real_move"] for c in doc["holding"]] == [True] and doc["would_stop"] == []
+    cfgs = f1_configs(holds=(15,), thetas=(1.0,), ks=(1,))
+    run.cmd_dev(args_for(moved, tmp_path / "d"), last_date=moved.last_date, configs=cfgs)  # no stop
+    reader, span, prep = grid_inputs_for(moved)
+    _, quality = run.run_grid(
+        reader, prep.markets, prep.elig, prep.proxies, cfgs, span, scale_policy="exclude"
+    )  # and no exclusion
+    assert all("excluded_scale_breaks" not in q for q in quality.values())
+    market = next(m for m in reader.load_markets() if m.market_id == 2)
+    t0 = day_start_ms(dt.date(2025, 7, 1))
+    raw = reader.load_minutes(market, t0, day_start_ms(dt.date(2025, 7, 7)), mid_only=True)
+    k = (row["minute"] - t0) // lock.MINUTE_MS
+    assert np.nanmedian(raw.last_px[k + 5 : k + 60]) > 5 * np.nanmedian(raw.last_px[k - 60 : k - 5])  # not rescaled
 
 
 def test_scalescan_and_the_run_cover_the_same_window(tmp_path, monkeypatch):

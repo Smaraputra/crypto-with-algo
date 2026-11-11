@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import hashlib
 import json
 import math
@@ -30,6 +31,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -200,6 +202,13 @@ def anchor_contents(
 def funding_listing(funding: Path, label: str, progress: bool) -> str:
     files = [p for p in funding.rglob("market_*.parquet") if p.is_file()]
     return hashed_listing(funding, files, label, progress)
+
+
+def anchor_file_sha(prov: dict[str, Any]) -> str | None:
+    """The sha256 of the registration anchor file (None for a synthetic run, which needs no anchor)."""
+    if prov["synthetic"]:
+        return None
+    return _sha256_file(RECORDS_DIR / REGISTRATION_FILE)
 
 
 def check_registration(args: Any, prov: dict[str, Any]) -> None:
@@ -458,14 +467,40 @@ def guard_key(market_id: int, year: int, month: int) -> str:
     return f"{market_id}:{year:04d}-{month:02d}"
 
 
-def scale_candidates(md: Any) -> list[dict[str, Any]]:
+BinanceLoader = Callable[[], Any]  # returns (has, close) arrays on the minute grid, or None
+
+
+def binance_confirmation(
+    c: dict[str, Any], t0_ms: int, closes: tuple[np.ndarray, np.ndarray] | None
+) -> tuple[bool | None, float | None]:
+    """Did the Binance 1m close move by the same factor as the Lighter jump?
+
+    |ln(close 60 minutes after the jump minute / close 60 minutes before it) - the Lighter ln ratio| < 0.05. None
+    (cannot be checked) when there is no Binance data or either of the two bars is missing.
+    """
+    if closes is None:
+        return None, None
+    has, close = closes
+    i = (c["minute"] - t0_ms) // lock.MINUTE_MS
+    a, b = int(i + lock.REAL_MOVE_MINUTES), int(i - lock.REAL_MOVE_MINUTES)
+    if b < 0 or a >= len(has) or not (has[a] and has[b]):
+        return None, None
+    if not (np.isfinite(close[a]) and np.isfinite(close[b]) and close[a] > 0 and close[b] > 0):
+        return None, None
+    ln_b = float(np.log(close[a] / close[b]))
+    return bool(abs(ln_b - c["ln_ratio"]) < lock.REAL_MOVE_TOL), ln_b
+
+
+def scale_candidates(md: Any, binance: BinanceLoader | None = None) -> list[dict[str, Any]]:
     """Every jump between two consecutive PRINTED minutes that looks like a power-of-ten rescaling.
 
     |ln(ratio) - k ln 10| < 0.05 for an integer k != 0. `holds` says whether the jump is a level shift: the median mid
     proxy of the next 60 printed minutes (the jump minute included) is within 0.05 (in ln) of the post-jump level, and
     so is the median of the previous 60 printed minutes around the pre-jump level (the return from a crash minute is
     thereby not a rescaling), each window holding at least SCALE_MIN_WINDOW printed minutes (a listing minute or the
-    end of the data cannot be confirmed). Reads mid proxy inputs only.
+    end of the data cannot be confirmed), else the candidate counts as holding. `binance_confirms` says whether the
+    Binance 1m close moved by the same factor (a real move, not a rescaling): True, False, or None when it cannot be
+    checked. `binance` is called only when there is a candidate. Reads price levels only.
     """
     mid, _ = signals.mid_proxy(md)
     printed = np.flatnonzero(md.has_print)
@@ -477,35 +512,53 @@ def scale_candidates(md: Any) -> list[dict[str, Any]]:
         d = np.log(m[1:] / m[:-1])
     k = np.rint(d / np.log(10.0))
     cand = np.flatnonzero(np.isfinite(d) & (k != 0) & (np.abs(d - k * np.log(10.0)) < lock.SCALE_BREAK_TOL))
+    closes = binance() if (binance is not None and len(cand)) else None
     for i in cand:
         after = np.log(m[i + 1 : i + 1 + lock.SCALE_HOLD_MINUTES])
         before = np.log(m[max(0, i + 1 - lock.SCALE_HOLD_MINUTES) : i + 1])
         holds_after = abs(float(np.median(after)) - float(np.log(m[i + 1]))) < lock.SCALE_BREAK_TOL
         holds_before = abs(float(np.median(before)) - float(np.log(m[i]))) < lock.SCALE_BREAK_TOL
         enough = len(after) >= lock.SCALE_MIN_WINDOW and len(before) >= lock.SCALE_MIN_WINDOW
-        out.append(
-            {
-                "minute": int(md.t0_ms + int(printed[i + 1]) * lock.MINUTE_MS),
-                "ln_ratio": float(d[i]),
-                "decades": int(k[i]),
-                # fewer than SCALE_MIN_WINDOW printed minutes on a side cannot refute the break: it counts as holding
-                "holds": bool(not enough or (holds_after and holds_before)),
-                "insufficient_window": bool(not enough),
-                "printed_minutes_before": int(len(before)),
-                "printed_minutes_after": int(len(after)),
-            }
-        )
+        row = {
+            "minute": int(md.t0_ms + int(printed[i + 1]) * lock.MINUTE_MS),
+            "ln_ratio": float(d[i]),
+            "decades": int(k[i]),
+            # fewer than SCALE_MIN_WINDOW printed minutes on a side cannot refute the break: it counts as holding
+            "holds": bool(not enough or (holds_after and holds_before)),
+            "insufficient_window": bool(not enough),
+            "printed_minutes_before": int(len(before)),
+            "printed_minutes_after": int(len(after)),
+        }
+        confirms, ln_b = binance_confirmation(row, md.t0_ms, closes)
+        row["binance_confirms"] = confirms
+        row["binance_ln_ratio"] = ln_b
+        out.append(row)
     return out
 
 
-def holding_breaks(md: Any) -> list[dict[str, Any]]:
-    """The candidates that hold (or cannot be refuted): the scale breaks. Same code for scalescan and the run."""
-    return [c for c in scale_candidates(md) if c["holds"]]
+def first_excluded_grid(break_minute: int) -> int:
+    """First grid point at or after the break minute (ceiling): a decision up to four minutes before it still stands."""
+    return -(-int(break_minute) // signals.GRID_MIN)
 
 
-def check_scale(market: Market, md: Any) -> None:
-    """Stops on a scale break: a power-of-ten jump whose new level holds or cannot be refuted."""
-    for c in holding_breaks(md):
+def is_real_move(c: dict[str, Any], market_id: int) -> bool:
+    """A holding candidate that Binance confirms, or one acknowledged by a KNOWN_SCALE_BREAKS entry with k = 0."""
+    if c["binance_confirms"] is True:
+        return True
+    return any(mid == market_id and minute == c["minute"] and k == 0 for mid, minute, k in lock.KNOWN_SCALE_BREAKS)
+
+
+def holding_breaks(md: Any, binance: BinanceLoader | None = None) -> list[dict[str, Any]]:
+    """The candidates that hold (or cannot be refuted) and are not real moves: the scale breaks. Same code for
+    scalescan, the development check, the confirmation pre-flight and the exclusion rule."""
+    mid = md.market.market_id
+    return [c for c in scale_candidates(md, binance) if c["holds"] and not is_real_move(c, mid)]
+
+
+def check_scale(market: Market, md: Any, binance: BinanceLoader | None = None) -> None:
+    """Stops on a scale break: a power-of-ten jump whose new level holds or cannot be refuted, that Binance does not
+    confirm as a real move."""
+    for c in holding_breaks(md, binance):
         raise DataError(
             f"price-scale break in {market.symbol} (market_id {market.market_id}) at minute {c['minute']} "
             f"({dt.datetime.fromtimestamp(c['minute'] / 1000, dt.UTC).isoformat()})"
@@ -623,15 +676,16 @@ def run_grid(
                 final_source[ym][mid] = "binance" if ym in ok_months else "lighter"
         if t0_load < span.t0_ms:
             md = md.slice((span.t0_ms - t0_load) // lock.MINUTE_MS)
+        closes = functools.partial(reader.load_binance_closes, market, md.t0_ms, md.n)
         if scale_policy == "stop":
-            check_scale(market, md)
+            check_scale(market, md, closes)
             bj = ng
         else:
-            found = holding_breaks(md)
+            found = holding_breaks(md, closes)
             if found:
                 break_list[mid] = found
                 break_at[mid] = int((min(c["minute"] for c in found) - md.t0_ms) // lock.MINUTE_MS)
-            bj = break_at.get(mid, ng * signals.GRID_MIN) // signals.GRID_MIN
+            bj = first_excluded_grid(break_at.get(mid, ng * signals.GRID_MIN))
         funding = reader.load_funding(mid, span.end_ms)
         f_exists[mid] = reader.funding_exists(mid)
         flag = np.zeros(ng, dtype=bool)
@@ -680,7 +734,7 @@ def run_grid(
     xs = signals.cross_sectional_sides(cs_feats, slices, ng, needed)
     for (xmid, _, _), arr in xs.items():
         if xmid in break_at:
-            arr[break_at[xmid] // signals.GRID_MIN :] = 0
+            arr[first_excluded_grid(break_at[xmid]) :] = 0
     del cs_feats
     if shift_days is not None:
         base = {m: {k: stats.shift_sides(v, start_j, shift_days) for k, v in d.items()} for m, d in base.items()}
@@ -1303,16 +1357,27 @@ def confirm_preflight(reader: DataReader, span: Span, prep: Prepared) -> dict[st
                     checked.add(key)
     by_id = {m.market_id: m for m in prep.markets}
     breaks: list[dict[str, Any]] = []
+    real_moves: list[dict[str, Any]] = []
     for mid in active:
         md = reader.load_minutes(by_id[mid], span.t0_ms, span.end_ms, mid_only=True)
-        for c in holding_breaks(md):
-            breaks.append({"market_id": mid, "symbol": by_id[mid].symbol, **c})
+        closes = functools.partial(reader.load_binance_closes, by_id[mid], md.t0_ms, md.n)
+        for c in scale_candidates(md, closes):
+            if c["holds"]:
+                row = {"market_id": mid, "symbol": by_id[mid].symbol, **c}
+                (real_moves if is_real_move(c, mid) else breaks).append(row)
     return {
         "fold_days_checked": (span.last - first_day).days + 1,
         "funding_files_checked": len(active),
         "binance_files_checked": len(checked),
         "scale_breaks_found": breaks,
+        "real_moves_found": real_moves,
     }
+
+
+def confirm_output_exists(out_dir: Path) -> bool:
+    """True when a confirm trade list or a confirm result exists in the out dir."""
+    trades = Path(out_dir) / "confirm_trades"
+    return (Path(out_dir) / "confirm_result.json").exists() or (trades.exists() and any(trades.rglob("*.parquet")))
 
 
 def confirm_run(
@@ -1325,12 +1390,17 @@ def confirm_run(
     check_result_file(record, "confirm_record.json", prov)
     if record.get("ran") or (out_dir / "confirm_result.json").exists():
         raise SystemExit("confirm has run already for this lock digest: confirm runs once")
+    anchor_sha = anchor_file_sha(prov)
     attempt, previous_marker, note_sha = 1, None, None
     if paths.marker.exists():
         old = read_json(paths.marker)
         check_result_file(old, "the consumed marker", prov)
         if old.get("status") != "error" or int(old.get("attempt", 1)) >= 2:
             raise SystemExit("confirm has run already for this lock digest: confirm runs once")
+        if old.get("anchor_sha256") != anchor_sha or old.get("record_sha256") != record["content_sha256"]:
+            raise SystemExit("a re-run needs the same registration anchor and confirm record as the first attempt")
+        if not prov["synthetic"] and not record_committed(RECORDS_DIR / REGISTRATION_FILE):
+            raise SystemExit("the registration anchor is not committed (tracked and unmodified at HEAD)")
         note_sha = check_rerun_note(paths, old, prov)
         attempt, previous_marker = int(old.get("attempt", 1)) + 1, old["content_sha256"]
     if not prov["synthetic"] and not record_committed(paths.record):
@@ -1339,6 +1409,8 @@ def confirm_run(
         raise SystemExit("the finalists or the dev files differ from the committed confirm record")
     if record["finalists_sha256"] != inputs.finalists_doc["content_sha256"]:
         raise SystemExit("the finalists file differs from the committed confirm record")
+    if confirm_output_exists(out_dir):
+        raise SystemExit(f"{out_dir} holds confirm output already: confirm runs once")
     rerun_matches(inputs)
 
     reader = make_reader(args, "confirm", last_date)
@@ -1352,6 +1424,7 @@ def confirm_run(
         **prov,
         "finalists": inputs.finalists,
         "record_sha256": record["content_sha256"],
+        "anchor_sha256": anchor_sha,
         "status": "started",
         "error": None,
         "attempt": attempt,
@@ -1364,7 +1437,9 @@ def confirm_run(
             args, prov, inputs, reader, span, prep, preflight, out_dir, record, marker_hash, attempt, note_sha
         )
     except Exception as exc:
-        write_result(paths.marker, {**marker_body, "status": "error", "error": f"{type(exc).__name__}: {exc}"})
+        # an error before any trade list or statistic leaves one re-run; after any output the read is spent
+        status = "error-after-output" if confirm_output_exists(out_dir) else "error"
+        write_result(paths.marker, {**marker_body, "status": status, "error": f"{type(exc).__name__}: {exc}"})
         raise
     print(
         "commit these two files together:\n"
@@ -1456,7 +1531,8 @@ def confirm_statistics(
 
 
 def cmd_scalescan(args: Any, last_date: dt.date | None = None, first_date: dt.date | None = None) -> Path:
-    """Every candidate price-scale jump of the development span. Reads mid proxy inputs only: no signal, no return."""
+    """Every candidate price-scale jump of the development span. Reads price levels only (Lighter mid proxy inputs and
+    Binance closes): no signal, no return."""
     prov = provenance(args.fold_dir)
     out_dir = ensure_dir(args.out_dir)
     reader = make_reader(args, "dev", last_date)
@@ -1466,15 +1542,25 @@ def cmd_scalescan(args: Any, last_date: dt.date | None = None, first_date: dt.da
     for market in markets:
         # the same window (warm-up included) and the same code path as the run-time check in run_grid
         md = reader.load_minutes(market, span.t0_ms, span.end_ms, mid_only=True)
-        for c in scale_candidates(md):
-            rows.append({"market_id": market.market_id, "symbol": market.symbol, **c})
+        closes = functools.partial(reader.load_binance_closes, market, md.t0_ms, md.n)
+        for c in scale_candidates(md, closes):
+            rows.append(
+                {
+                    "market_id": market.market_id,
+                    "symbol": market.symbol,
+                    **c,
+                    "real_move": is_real_move(c, market.market_id),
+                }
+            )
     body = study_header("scalescan", reader, prov)
     body.update(
         {
-            "computes": "mid proxy inputs only: no signal and no strategy return",
+            "computes": "price levels only (Lighter mid proxy inputs, Binance closes): no signal, no strategy return",
             "markets_scanned": len(markets),
             "candidates": rows,
             "holding": [r for r in rows if r["holds"]],
+            "real_moves": [r for r in rows if r["holds"] and r["real_move"]],
+            "would_stop": [r for r in rows if r["holds"] and not r["real_move"]],
             "manifest": reader.sorted_manifest(),
         }
     )
@@ -1515,6 +1601,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--fold-dir", required=True)
         if name != "scalescan":
             sp.add_argument("--binance-dir", required=name != "eligibility")
+        else:
+            sp.add_argument("--binance-dir", default=None, help="optional: lets the scan check a jump against Binance")
         if name not in ("eligibility", "scalescan"):
             sp.add_argument("--funding-dir", required=True)
         sp.add_argument("--out-dir", required=True)
@@ -1530,8 +1618,9 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "scalescan":
             sp.description = (
                 "Writes scale_breaks.json: every jump between consecutive printed minutes that looks like a power of "
-                "ten rescaling, with market, minute, ln ratio and whether the new level holds. Reads the mid proxy "
-                "inputs of the development span only and computes no signal and no strategy return."
+                "ten rescaling, with market, minute, ln ratio, whether the new level holds and whether the Binance 1m "
+                "close moved by the same factor (a real move). Reads price levels only (the Lighter mid proxy inputs "
+                "and Binance closes) of the development span and computes no signal and no strategy return."
             )
         if name == "dev":
             sp.add_argument("--save-trades", action="store_true", help="write every configuration's trade list (huge)")

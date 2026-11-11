@@ -105,9 +105,17 @@ PRICES FOR SIGNALS
   KNOWN_SCALE_BREAKS (empty) is frozen from the output of the scalescan command at registration. An entry is
   (market_id, minute start in ms, k): when the fold rows are read, data.py multiplies the market's raw prices
   (every price column) of all minutes BEFORE that minute by 10^k, so the series is continuous in the later scale, before
-  anything else reads them. k = 0 is not allowed. scalescan reads mid proxy inputs (last_px, last_buy_px,
-  last_sell_px) only, computes no signal and no strategy return, may be run before registration and writes
-  scale_breaks.json with every candidate jump (market, minute, ln ratio, whether it holds).
+  anything else reads them. An entry with k = 0 means "acknowledged real move": no rescale, and the candidate at that
+  minute never stops a run and is never excluded.
+  Real moves. A holding candidate is a REAL MOVE, not a scale break, when the market has a Binance mapping with files
+  for those months and the Binance 1m close moved by the same factor: |ln(Binance close 60 minutes after the jump
+  minute / Binance close 60 minutes before it) - the ln ratio of the Lighter jump| < 0.05, both Binance bars existing
+  (otherwise it is not confirmed). A real move is never rescaled, never excluded and never stops a run. In development
+  an unlisted holding candidate that Binance does not confirm stops the run. In confirmation it is excluded (see
+  CONFIRM INTEGRITY). scalescan reads price levels only (the Lighter mid proxy inputs last_px, last_buy_px,
+  last_sell_px and Binance closes), computes no signal and no strategy return, may be run before registration and
+  writes scale_breaks.json with every candidate jump (market, minute, ln ratio, whether it holds, binance_confirms
+  true, false or null when it cannot be checked, and the Binance ln ratio).
 - Fold integrity: every fold day read is hashed and its sha256 must equal that day's output_sha256 in the fold
   manifest, else the command stops (synthetic panels carry correct hashes too).
 - Registration anchor (records/lighter_l1_registration.json, printed by register-check): the lock digest, the sha256 of
@@ -275,11 +283,19 @@ some confirmation month, every Binance file the source guard may read parses (he
 inside its month, no duplicates), and the scale scan over the confirmation window (as in the price-scale guard) is made
 and its holding breaks are listed in the result (the exclusion rule below handles them).
 A holding scale break found in confirmation data excludes that market from the break minute onward for the rest of the
-confirmation span (a trade open at that minute exits by the fallback rule at that minute, flagged). A run stopped by a
-data error before any statistic is written records the error in the marker (status "error") and may be re-run once,
-after a committed note in records/lighter_l1_confirm_rerun_note.json that names the error (a JSON object with
-"marker_sha256", the content hash of the marker it answers, and "error", the marker's error text); the result records
-the sha256 of the note. A second error leaves the confirmation consumed. The consumed marker and the confirm result are
+confirmation span (a trade open at that minute exits by the fallback rule at that minute, flagged: a trade whose exit
+is decided at or after the break, or whose found fill lies at or after it, or whose search window reaches it with no
+fill found, exits at the mid of the minute before the break moved by half the fill spread, stamped at the break
+minute's start). A holding candidate that Binance confirms as a real move is left alone. Grid points at or after the
+break (ceiling to the 5 minute grid) carry no decision of that market. A run stopped by an error before any trade list
+or statistic is written records the error in the marker (status "error") and may be re-run once, with the same
+registration anchor and confirm record, after a committed note in records/lighter_l1_confirm_rerun_note.json that
+names the error (a JSON object with "marker_sha256", the content hash of the marker it answers, and "error", the
+marker's error text). The marker stores the sha256 of the anchor file and of the confirm record, and a re-run needs
+both unchanged and the anchor still committed. The result records the sha256 of the note. An error after any output
+(a trade list or a result exists in the out dir; status "error-after-output") leaves the confirmation consumed, and so
+does a second error. The trade lists go into a directory created only when the first trade file is written, and
+nothing else is written before the result. The consumed marker and the confirm result are
 to be committed together, and confirm prints the two paths with their sha256 at the end. A synthetic rehearsal keeps
 its confirm record, marker and note in its own out dir with a "synthetic" suffix, which a real run ignores and refuses
 to accept as its own.
@@ -406,12 +422,17 @@ TIER_B_MAX_BPS = 2.5
 # ISO dates of fold days known to be absent upstream. Empty: any absent day stops the command.
 KNOWN_MISSING_FOLD_DAYS: tuple[str, ...] = ()
 # (market_id, minute start in ms, k) of the rescalings found by scalescan, frozen at registration. For an entry the
-# market's raw prices BEFORE that minute are multiplied by 10^k (k = the number of decades of the jump, never 0) when
-# the fold rows are read, so the series is continuous in the later scale.
+# market's raw prices BEFORE that minute are multiplied by 10^k (k = the number of decades of the jump) when the fold
+# rows are read, so the series is continuous in the later scale. k = 0 means "acknowledged real move": no rescale, and
+# the candidate at that minute never stops a run and is never excluded.
 KNOWN_SCALE_BREAKS: tuple[tuple[int, int, int], ...] = ()
 SCALE_BREAK_TOL = 0.05
 SCALE_HOLD_MINUTES = 60
 SCALE_MIN_WINDOW = 30
+# A holding candidate is a real move when the Binance 1m close moved by the same factor (within REAL_MOVE_TOL in ln)
+# between 60 minutes before and 60 minutes after the jump minute.
+REAL_MOVE_MINUTES = 60
+REAL_MOVE_TOL = 0.05
 
 # To be flipped by the lead at registration, after the funding stamp is re-checked (see FUNDING SIGN AND STAMP).
 FUNDING_STAMP_VERIFIED = False

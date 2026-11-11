@@ -165,6 +165,49 @@ def test_a_trade_open_at_an_excluded_scale_break_exits_by_the_fallback_rule_flag
     assert a.exit_px[i] == b.exit_px[i] and a.exit_ts[i] == b.exit_ts[i]
 
 
+def _break_toy(empty_lo, empty_hi, fill_min=None):
+    """Prices 100 before minute 200 and 1000 from it on (x10), no prints in minutes empty_lo .. empty_hi - 1."""
+    md = flat_md()
+    path = np.full(400, 100.0)
+    path[200:] = 1000.0
+    set_path(md, path)
+    empty_minutes(md, empty_lo, empty_hi)
+    ng = md.n // 5
+    f = (np.zeros(0, np.int64), np.zeros(0))
+    ctx = fills.build_context(md, np.full(ng, 0.001), f, sp_bps=SP, sp_mult=1.0, break_min=200)
+    out = fills.outcomes(ctx, 1, 5, ("time",), 0)["time"]
+    return out, 38 - out.j0  # entered at minute 190, the exit is decided at minute 195
+
+
+def test_an_exit_decided_before_the_break_that_would_fill_after_it_is_forced_to_the_break_minute():
+    # the reviewer's toy: no prints in minutes 192 to 199, so the exit search reaches the first print at minute 200
+    out, i = _break_toy(192, 200)
+    assert out.status[i] == fills.STATUS_OK and out.flag[i]
+    assert out.exit_ts[i] == T0 + 200 * MIN  # stamped at the start of the break minute
+    assert out.exit_px[i] == pytest.approx(100.0 * (1 - 0.5 * SP / 1e4))  # the mid of minute 199, a long sells: down
+    assert abs(out.gross[i]) < 1e-3  # not the +23,024 bps of the later scale
+    # nothing is found at all and e + 15 reaches the break: forced as well
+    out, i = _break_toy(192, 215)
+    assert out.flag[i] and out.exit_ts[i] == T0 + 200 * MIN and abs(out.gross[i]) < 1e-3
+
+
+def test_an_exit_filled_before_the_break_is_not_forced():
+    out, i = _break_toy(195, 197)  # the first print is at minute 197, before the break
+    assert out.status[i] == fills.STATUS_OK and not out.flag[i]
+    assert out.exit_ts[i] == T0 + 197 * MIN + 700
+    assert abs(out.gross[i]) < 1e-3
+    # a fallback that stays clear of the break is the ordinary one: nothing found, e + 15 = 195 < break 400
+    md = flat_md()
+    empty_minutes(md, 180, 200)
+    ng = md.n // 5
+    f = (np.zeros(0, np.int64), np.zeros(0))
+    ctx = fills.build_context(md, np.full(ng, 0.001), f, sp_bps=SP, sp_mult=1.0, break_min=400)
+    plain = fills.build_context(md, np.full(ng, 0.001), f, sp_bps=SP, sp_mult=1.0)
+    a = fills.outcomes(ctx, 1, 5, ("time",), 0)["time"]
+    b = fills.outcomes(plain, 1, 5, ("time",), 0)["time"]
+    assert np.array_equal(a.exit_ts, b.exit_ts) and np.array_equal(a.flag, b.flag)
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # The print-selection rule: first print of EITHER side, the far quote for an opposite-side print
 

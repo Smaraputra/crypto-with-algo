@@ -438,6 +438,28 @@ class DataReader:
             tbq[idx] = frame["taker_buy_quote"].to_numpy()[keep]
         return {"b_has": has, "b_close": close, "b_qv": qv, "b_tbq": tbq}
 
+    def load_binance_closes(self, market: Market, t0_ms: int, n: int) -> tuple[np.ndarray, np.ndarray] | None:
+        """Binance 1m closes on the minute grid t0_ms + i minutes, from the month files that exist (price levels only).
+
+        None when the market has no Binance mapping, no Binance directory was given or no file exists for the window.
+        A month without a file leaves its minutes unobserved. Used by the real-move check of the scale guard.
+        """
+        symbol = market.binance_symbol
+        if symbol is None or self.binance_dir is None:
+            return None
+        last_ms = t0_ms + max(n, 1) * MINUTE_MS - 1
+        first = dt.datetime.fromtimestamp(t0_ms / 1000, dt.UTC)
+        last = dt.datetime.fromtimestamp(last_ms / 1000, dt.UTC)
+        months = {
+            ym
+            for ym in month_range((first.year, first.month), (last.year, last.month))
+            if self.binance_path(symbol, *ym).exists()
+        }
+        if not months:
+            return None
+        b = self._load_binance(symbol, months, t0_ms, n)
+        return b["b_has"], b["b_close"]
+
     def check_binance_structure(self, symbol: str, year: int, month: int) -> None:
         """Header, open_time strictly increasing, inside the file's month, no duplicates. A missing file is an error."""
         path = self.binance_path(symbol, year, month)
@@ -531,7 +553,7 @@ class DataReader:
             if mid != market.market_id:
                 continue
             if k == 0:
-                raise DataError("a KNOWN_SCALE_BREAKS entry with k = 0 is not allowed")
+                continue  # an acknowledged real move: no rescale (run.py also never stops or excludes on it)
             upto = int(np.clip((minute_ms - t0_ms) // MINUTE_MS, 0, n))
             for name in price_cols:
                 floats[name][:upto] *= 10.0**k
