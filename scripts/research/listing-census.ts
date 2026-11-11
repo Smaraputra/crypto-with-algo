@@ -49,7 +49,23 @@
  * month is reported as a cluster check: the number of months with positive mean
  * and the total number of months.
  *
- * RESULT: not run yet
+ * RESULT, 2026-11-11 (descriptive, no ledger trial). Universe `21924712` (file sha256 `2338b1dc`), 299 contracts with
+ * a listing inside 2020-01-03 to 2024-06-30 (3 left-censored excluded), 0 errors, run on the VPS from this
+ * branch (`~/funding-scout/census-out/listing-census.json`). Five N7 H30 positions were recomputed from Binance
+ * REST (entry open, exit close, worst high, summed funding): all equal to 6 decimals. Short held from day N for H
+ * days, taker costs 0.16% round trip, all cohorts:
+ *   N  H    n    net mean  net median  share>0  squeeze med / p90  1x liquidated  months positive
+ *   1  30   291  +1.1%     +14.4%      67%      +24% / +113%       35             33/48
+ *   7  30   290  -1.5%     +13.6%      66%      +27% / +109%       37             30/48
+ *   7  90   281  -26.3%    +24.4%      67%      +44% / +337%       80             30/46
+ *   30 30   288  -7.0%     +11.6%      64%      +21% / +91%        27             30/47
+ * The net mean is uncapped (a short can lose more than its margin). Capping each 1x-liquidated position at the
+ * loss of its margin (price return -1) gives means of +3.4% (N1 H30), +1.0% (N7 H30), -1.9% (N7 H90) and +1.4%
+ * (N30 H30) with medians of +11% to +21%. READING: the median short after a listing wins and two thirds of
+ * positions are positive, but the squeeze tail takes the mean to about zero: 7% to 28% of 1x shorts would be
+ * liquidated, the worst squeeze exceeds +400% in the 99th percentile, and cohorts differ (2022 +34%, 2021 -61%
+ * at N7 H90). Listings cluster by month, so positions are not independent. No rule is chosen. A manual-trade aid
+ * at best, and not a scalp.
  *
  * Usage:
  *   npx tsx scripts/research/listing-census.ts --universe <universe-source.json> \

@@ -25,6 +25,26 @@
  * checks its end time against the span end of the run. The older date guards in
  * ./venue-funding-scout and ./funding-scout are not used and not edited.
  *
+ * RESULT, 2026-11-11: FAIL. One read, lock v3 (`scripts/research/venue-spread-lock.txt`, sha256
+ * `6baba23fa47cab25427c1df24b2396b7271edee1f9306e467e16c82bb46a446c`, signed by the owner's approval in the
+ * session of 2026-11-11, lock commit `42d731b6` precedes the run). Span 2024-07-01 to 2026-07-01, 213 Hyperliquid
+ * coins matched, 209 simulated, run once on the VPS (`~/funding-scout/read-out/read-2024-07_2026-07.json`, the
+ * series in `series-read.json`, markers `.read-done`). The independent Python implementation, run on the dumped
+ * series, reproduces every position (909 and 916), count and net with maximum difference 0.
+ *   Judged (zero delay, locked costs 0.00185 a side): annual return on capital -5.23%, 95% cluster interval
+ *   [-19.21%, +10.18%], 909 positions on 160 coins, slot use 57.5%, exits signal 869, liquidated 20,
+ *   unavailable 14, end 6, noSlot 370, noPrice 158, noCoverage 20. PASS needed >= 5.0% and a lower end above 0.
+ *   One step later (reported): -1.83% [-14.08%, +11.17%]. Cost profiles (reported): scout taker -3.87%,
+ *   taker+10bps -12.96%, locked+5bps -9.78%. By half-year of entry (return on capital, not annualised):
+ *   2024-H2 -10.6% (123), 2025-H1 -4.2% (226), 2025-H2 +7.8% (263), 2026-H1 -3.4% (297).
+ *   Where it went (sum of net over 20 capital over 2 years): signal exits -1.4% a year (funding +3.96 in total,
+ *   basis -1.31, costs about -3.2), liquidated short legs -5.7% a year (20 positions, 18 coins, worst FTT
+ *   -0.999), unavailable closes +1.8%, end closes +0.1%. The signal exits' mean net is -0.065% and 39% are positive.
+ *   PREDICTION: positive but under 7.75% a year. Wrong: the result is negative. The idea is closed, the span
+ *   2024-07-01 to 2026-06-30 is spent for this pair of venues. The scouted-span read with the same code, for
+ *   information (2023-06-01 to 2024-07-01), was +2.49% [-10.66%, +14.27%] and +6.8% before the v3 liquidation
+ *   change. The ledger rises from 2,422 to 2,423.
+ *
  * Usage:
  *   npx tsx scripts/research/venue-spread-locked.ts --universe <universe-source.json> \
  *     --cache <dir> --out <report.json> --hl-meta <meta.json> --from <ISO> --end <ISO> \

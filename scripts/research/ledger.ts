@@ -125,6 +125,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/py/r4/family_b.py family_b_noise(), the 8 Tier B noise mini-control configurations of Amendment 8 A8.6 (registered after the synthetic activity check records/synth_b_noise_9a30f3f9.json); kind control, outside the alpha-bearing N and the round-close V',
   },
+  {
+    id: 'venue-spread-locked-read',
+    date: '2026-11-11',
+    trials: 1,
+    source:
+      'scripts/research/venue-spread-lock.txt (lock v3, sha256 6baba23f), the one read of the Binance against Hyperliquid funding spread rule on 2024-07-01 to 2026-07-01: one frozen rule, one test. The 14 scouted cells were descriptive and added nothing.',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */
