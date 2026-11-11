@@ -121,8 +121,12 @@ class FakeApi:
     windows drop while a one-hour direct request still finds them. Market 8 is spot.
     """
 
-    def __init__(self, since, holes=(), flaky=()):
+    def __init__(self, since, holes=(), flaky=(), until=None, created_at=None, empty_ordinals=()):
         self.since = since
+        self.until = until
+        self.created_at = since if created_at is None else created_at
+        self.empty_ordinals = set(empty_ordinals)  # long-window requests (by order) that return an empty 200
+        self.long_requests = 0
         self.holes = set(holes)
         self.flaky = set(flaky)
         self.requests = []
@@ -131,7 +135,7 @@ class FakeApi:
         url = req.full_url
         if url.startswith(ft.ORDER_BOOKS_URL):
             books = [
-                {"symbol": "AAA", "market_id": 7, "market_type": "perp", "created_at": str(self.since * 1000)},
+                {"symbol": "AAA", "market_id": 7, "market_type": "perp", "created_at": str(self.created_at * 1000)},
                 {"symbol": "BBB", "market_id": 8, "market_type": "spot", "created_at": "0"},
             ]
             return reply({"order_books": books})
@@ -141,9 +145,18 @@ class FakeApi:
         assert p["end_timestamp"] <= ff.end_exclusive_s()
         direct = p["end_timestamp"] - p["start_timestamp"] <= HOUR + 1
         rows = []
+        if not direct:
+            self.long_requests += 1
+            if self.long_requests - 1 in self.empty_ordinals:
+                return reply({"code": 200, "fundings": []})
         first = p["start_timestamp"] + HOUR
         for ts in range(first + (-first) % HOUR, p["end_timestamp"], HOUR):
-            if ts < self.since or ts in self.holes or (ts in self.flaky and not direct):
+            if (
+                ts < self.since
+                or (self.until is not None and ts >= self.until)
+                or ts in self.holes
+                or (ts in self.flaky and not direct)
+            ):
                 continue
             rows.append(
                 {
@@ -325,3 +338,116 @@ def test_405_is_treated_like_429(monkeypatch, fast):
 
 def test_pace_is_one_request_every_two_and_a_half_seconds():
     assert ff.MIN_INTERVAL_S >= 2.5
+
+
+def strip_ends_checked(tmp_path):
+    """Rewrite the manifest the way the previous version wrote it (no ends_checked key)."""
+    path = tmp_path / "funding" / "manifest.jsonl"
+    lines = []
+    for rec in funding_manifest(tmp_path):
+        rec.pop("ends_checked", None)
+        lines.append(json.dumps(rec))
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_transient_empty_newest_window_fails_the_market(tmp_path, monkeypatch):
+    api = FakeApi(T0, empty_ordinals=[0])
+    install(monkeypatch, api)
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE) == 1
+    assert not (tmp_path / "funding" / "market_7.parquet").exists()
+    [rec] = funding_manifest(tmp_path)
+    assert rec["status"] == "failed" and "after the last row" in rec["reason"] and "ends_checked" not in rec
+    # The next run refetches and succeeds.
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE) == 0
+    df = pq.read_table(tmp_path / "funding" / "market_7.parquet").to_pandas()
+    assert len(df) == (ff.end_exclusive_s() - T0) // HOUR
+
+
+def test_empty_window_that_trips_the_created_at_stop_fails_the_head(tmp_path, monkeypatch):
+    api = FakeApi(T0, empty_ordinals=[2])  # the third window holds the first hour(s) of the market
+    install(monkeypatch, api)
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE) == 1
+    assert not (tmp_path / "funding" / "market_7.parquet").exists()
+    [rec] = funding_manifest(tmp_path)
+    assert rec["status"] == "failed" and "before the first row" in rec["reason"]
+
+
+def test_delisted_market_records_ended_early(tmp_path, monkeypatch):
+    until = T0 + 400 * HOUR
+    api = FakeApi(T0, until=until, created_at=T0 - 5 * HOUR)
+    install(monkeypatch, api)
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE) == 0
+    df = pq.read_table(tmp_path / "funding" / "market_7.parquet").to_pandas()
+    assert df.timestamp.max() == until - HOUR and df.timestamp.min() == T0
+    [rec] = funding_manifest(tmp_path)
+    assert rec["status"] == "ok" and rec["ended_early"] is True and rec["ends_checked"] is True
+    assert rec["last_ts"] == until - HOUR and rec["first_ts"] == T0 and rec["created_at_ms"] == (T0 - 5 * HOUR) * 1000
+
+
+def test_full_market_is_not_ended_early_and_is_flagged_checked(tmp_path, monkeypatch):
+    install(monkeypatch, FakeApi(T0))
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE) == 0
+    [rec] = funding_manifest(tmp_path)
+    assert rec["ended_early"] is False and rec["ends_checked"] is True and rec["created_at_ms"] == T0 * 1000
+
+
+def test_probe_is_skipped_at_the_range_edges(monkeypatch):
+    full = list(range(T0, T0 + 5 * HOUR, HOUR))
+    monkeypatch.setattr(ff, "_urlopen", lambda *a, **k: pytest.fail("no probe expected"))
+    assert ff.check_ends(7, full, T0, T0 + 5 * HOUR, ff.RateLimiter(0.0)) is False
+
+
+def test_verify_existing_accepts_a_good_file_and_skips_it_afterwards(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE)
+    strip_ends_checked(tmp_path)
+    n = len(api.requests)
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE, verify_only=True) == 0
+    assert (tmp_path / "funding" / "market_7.parquet").exists()
+    last = funding_manifest(tmp_path)[-1]
+    assert last["status"] == "ok" and last["ends_checked"] is True
+    assert len(api.requests) - n == 1  # head probe only: the last row is the final hour
+    # With ends_checked on the latest line the file is skipped without any request.
+    n = len(api.requests)
+    ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE)
+    assert len(api.requests) == n
+
+
+def test_verify_existing_rejects_a_truncated_file_and_the_next_run_refetches(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE)
+    path = tmp_path / "funding" / "market_7.parquet"
+    table = pq.read_table(path)
+    pq.write_table(table.slice(0, table.num_rows - 100), path)
+    strip_ends_checked(tmp_path)
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE, verify_only=True) == 1
+    assert not path.exists()
+    last = funding_manifest(tmp_path)[-1]
+    assert last["status"] == "failed" and "ends_checked" not in last and "after the last row" in last["reason"]
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE) == 0
+    assert pq.read_table(path).num_rows == table.num_rows
+
+
+def test_verify_only_does_not_fetch_missing_markets(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE, verify_only=True) == 0
+    assert api.requests == [] and not list((tmp_path / "funding").glob("*.parquet"))
+
+
+def test_normal_run_verifies_an_old_file_instead_of_skipping_it(tmp_path, monkeypatch):
+    api = FakeApi(T0)
+    install(monkeypatch, api)
+    ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE)
+    path = tmp_path / "funding" / "market_7.parquet"
+    table = pq.read_table(path)
+    pq.write_table(table.slice(0, table.num_rows - 100), path)
+    strip_ends_checked(tmp_path)
+    # A normal run catches the truncation, deletes the file and refetches it in the same run.
+    assert ff.run(tmp_path, ft.FIRST_DATE, ft.FOLD_LAST_DATE) == 0
+    assert pq.read_table(path).num_rows == table.num_rows
+    statuses = [r["status"] for r in funding_manifest(tmp_path)]
+    assert statuses[-2:] == ["failed", "ok"]
+    assert funding_manifest(tmp_path)[-1]["ends_checked"] is True

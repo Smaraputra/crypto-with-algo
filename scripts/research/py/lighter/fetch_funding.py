@@ -31,6 +31,20 @@ confirmed_missing_hours in the manifest. Any other hole (a direct request that f
 more than MAX_HOLES_TO_CONFIRM holes) fails the market: its file is not written and the manifest records the failure.
 A market with no rows is recorded as empty, never written as a file, and is retried on the next run.
 
+END CHECK: the contiguity check cannot see hours missing at either end of a series (a transient empty HTTP 200 for the
+newest window, or an empty window that trips the created_at stop rule, leaves a short but gap-free series). So after
+paging, the hour before the first row and the hour after the last row are each asked for directly. If the source
+returns either row the market FAILS and says which end. The probe before the first row is skipped when the first row is
+the start of the requested range, and the probe after the last row when the last row is the final hour of the range
+(2026-10-31 23:00 UTC by default). When the last row is earlier than the final hour and the next hour is confirmed
+absent, the manifest records ended_early: true (a delisted or halted market) next to last_ts, and every line also
+carries first_ts and created_at_ms (the orderBooks creation time) so the head can be compared with the listing.
+
+ends_checked: every manifest line written by this version carries ends_checked: true when the market passed both
+checks. A market file whose latest manifest line lacks it (written by an older version) is verified, not trusted: a
+normal run does this before skipping the file, and --verify-existing does it for every such file and nothing else. A
+file that fails is deleted and marked failed in the manifest, so the next normal run refetches it.
+
 HARD GUARD: nothing at or after 2026-11-01 00:00 UTC is requested or written (same FOLD_LAST_DATE as the trade fold).
 Later funding is a reserved forward sample. There is no override flag.
 
@@ -50,6 +64,7 @@ name and an example, not verified. It must be checked against one realised fundi
 any result uses the sign of this column.
 
 Run: python -m lighter.fetch_funding --out-dir OUT [--from 2025-01-17] [--to 2026-10-31] [--market-ids 1,2]
+     [--verify-existing]
 """
 
 from __future__ import annotations
@@ -200,13 +215,42 @@ def check_contiguity(market_id: int, stamps: list[int], limiter: RateLimiter) ->
     return confirmed
 
 
+def range_bounds(date_from: dt.date, date_to: dt.date) -> tuple[int, int]:
+    """First second of the range and the first second after it (both unix seconds)."""
+    return day_start_ms(date_from) // 1000, (day_start_ms(date_to) + fold_trades.DAY_MS) // 1000
+
+
+def check_ends(market_id: int, stamps: list[int], earliest_s: int, end_s: int, limiter: RateLimiter) -> bool:
+    """Probe the hour before the first row and the hour after the last. Returns True when the series ended early.
+
+    A row at either probe means the paging dropped data at that end, so the market fails.
+    """
+    first, last = stamps[0], stamps[-1]
+    if first > earliest_s and window_rows(market_id, first - HOUR_S, first, limiter):
+        raise ContiguityError(f"market {market_id}: an hour before the first row ({first}) exists at the source")
+    if last >= end_s - HOUR_S:
+        return False
+    if window_rows(market_id, last + HOUR_S, last + HOUR_S + 1, limiter):
+        raise ContiguityError(f"market {market_id}: an hour after the last row ({last}) exists at the source")
+    return True
+
+
+def check_series(
+    market_id: int, stamps: list[int], earliest_s: int, end_s: int, limiter: RateLimiter
+) -> dict[str, Any]:
+    """Contiguity plus both end probes for a non-empty sorted series. Returns the manifest facts."""
+    confirmed = check_contiguity(market_id, stamps, limiter)
+    ended_early = check_ends(market_id, stamps, earliest_s, end_s, limiter)
+    return {"confirmed_missing_hours": confirmed, "ended_early": ended_early}
+
+
 def fetch_market(
     market: dict[str, Any], date_from: dt.date, date_to: dt.date, limiter: RateLimiter
-) -> tuple[list[dict[str, Any]], list[int]]:
-    """All hourly rows of one market in the range, and the hours confirmed missing at the source."""
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """All hourly rows of one market in the range, and the checked facts (confirmed holes, ended_early)."""
     market_id = int(market["market_id"])
-    earliest_s = day_start_ms(date_from) // 1000
-    end_s = (day_start_ms(date_to) + fold_trades.DAY_MS) // 1000
+    earliest_s, range_end_s = range_bounds(date_from, date_to)
+    end_s = range_end_s
     created_ms = int(market.get("created_at") or 0)
     created_s = created_ms // 1000
     window_s = WINDOW_HOURS * HOUR_S
@@ -220,7 +264,7 @@ def fetch_market(
             break
         end_s = start_s
     stamps = sorted(by_ts)
-    confirmed = check_contiguity(market_id, stamps, limiter) if stamps else []
+    info = check_series(market_id, stamps, earliest_s, range_end_s, limiter) if stamps else {}
     out = []
     for ts in stamps:
         r = by_ts[ts]
@@ -237,7 +281,7 @@ def fetch_market(
                 "rate_long_pays": signed_rate(pct, str(r["direction"])),
             }
         )
-    return out, confirmed
+    return out, info
 
 
 def write_market(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -256,14 +300,78 @@ def append_manifest(path: Path, record: dict[str, Any]) -> None:
         os.fsync(fh.fileno())
 
 
+def latest_manifest(path: Path) -> dict[int, dict[str, Any]]:
+    """Latest manifest line per market. Torn lines are ignored."""
+    latest: dict[int, dict[str, Any]] = {}
+    if not path.exists():
+        return latest
+    for line in path.read_text().splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(rec, dict) and "market_id" in rec:
+            latest[int(rec["market_id"])] = rec
+    return latest
+
+
+def base_record(market: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "market_id": int(market["market_id"]),
+        "symbol": str(market.get("symbol", "")),
+        "fetched_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+    }
+
+
+def ok_record(market: dict[str, Any], stamps: list[int], info: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **base_record(market),
+        "status": "ok",
+        "rows": len(stamps),
+        "first_ts": stamps[0],
+        "last_ts": stamps[-1],
+        "created_at_ms": int(market.get("created_at") or 0),
+        "confirmed_missing_hours": info["confirmed_missing_hours"],
+        "ended_early": info["ended_early"],
+        "ends_checked": True,
+    }
+
+
+def needs_verification(path: Path, latest: dict[int, dict[str, Any]], market_id: int) -> bool:
+    rec = latest.get(market_id)
+    return path.exists() and not (rec is not None and rec.get("status") == "ok" and rec.get("ends_checked") is True)
+
+
+def verify_existing_file(
+    market: dict[str, Any], path: Path, date_from: dt.date, date_to: dt.date, limiter: RateLimiter, manifest: Path
+) -> bool:
+    """Check a market file already on disk. Appends an ends_checked line, or deletes the file and marks it failed."""
+    market_id = int(market["market_id"])
+    earliest_s, end_s = range_bounds(date_from, date_to)
+    try:
+        stamps = sorted(int(t) for t in pq.read_table(path, columns=["timestamp"]).column("timestamp").to_pylist())
+        if not stamps:
+            raise ContiguityError(f"market {market_id}: the file has no rows")
+        info = check_series(market_id, stamps, earliest_s, end_s, limiter)
+    except ContiguityError as exc:
+        path.unlink(missing_ok=True)
+        append_manifest(manifest, {**base_record(market), "status": "failed", "reason": f"verify: {exc}"})
+        print(f"market {market_id} {market.get('symbol')}: verify FAILED, file deleted: {exc}", file=sys.stderr)
+        return False
+    append_manifest(manifest, ok_record(market, stamps, info))
+    print(f"market {market_id} {market.get('symbol')}: verified {len(stamps):,} rows", file=sys.stderr)
+    return True
+
+
 def run(
     out_dir: Path,
     date_from: dt.date,
     date_to: dt.date,
     market_ids: set[int] | None = None,
     limiter: RateLimiter | None = None,
+    verify_only: bool = False,
 ) -> int:
-    """Fetch every selected perp market. Returns 1 when any market failed its contiguity check, else 0."""
+    """Fetch (or only verify) the selected perp markets. Returns 1 when any market failed its checks, else 0."""
     check_date(date_from)
     check_date(date_to)
     if date_from > date_to:
@@ -280,22 +388,28 @@ def run(
     target = out_dir / "funding"
     target.mkdir(parents=True, exist_ok=True)
     manifest = target / "manifest.jsonl"
-    done = skipped = empty = failed = 0
+    done = skipped = empty = failed = verified = 0
     for market in sorted(markets, key=lambda m: int(m["market_id"])):
         market_id = int(market["market_id"])
         path = target / f"market_{market_id}.parquet"
         if path.exists():
-            skipped += 1
+            if needs_verification(path, latest_manifest(manifest), market_id):
+                if verify_existing_file(market, path, date_from, date_to, limiter, manifest):
+                    verified += 1
+                    continue
+                if verify_only:
+                    failed += 1
+                    continue
+                # The deleted file is refetched below in this same run.
+            else:
+                skipped += 1
+                continue
+        elif verify_only:
             continue
-        record: dict[str, Any] = {
-            "market_id": market_id,
-            "symbol": str(market.get("symbol", "")),
-            "fetched_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-        }
         try:
-            rows, confirmed = fetch_market(market, date_from, date_to, limiter)
+            rows, info = fetch_market(market, date_from, date_to, limiter)
         except ContiguityError as exc:
-            append_manifest(manifest, {**record, "status": "failed", "reason": str(exc)})
+            append_manifest(manifest, {**base_record(market), "status": "failed", "reason": str(exc)})
             print(f"market {market_id} {market.get('symbol')}: FAILED {exc}", file=sys.stderr)
             failed += 1
             continue
@@ -303,32 +417,28 @@ def run(
             append_manifest(
                 manifest,
                 {
-                    **record,
+                    **base_record(market),
                     "status": "empty",
                     "rows": 0,
                     "first_ts": None,
                     "last_ts": None,
+                    "created_at_ms": int(market.get("created_at") or 0),
                     "confirmed_missing_hours": [],
+                    "ends_checked": True,
                 },
             )
             print(f"market {market_id} {market.get('symbol')}: empty, retried on the next run", file=sys.stderr)
             empty += 1
             continue
         write_market(path, rows)
-        append_manifest(
-            manifest,
-            {
-                **record,
-                "status": "ok",
-                "rows": len(rows),
-                "first_ts": rows[0]["timestamp"],
-                "last_ts": rows[-1]["timestamp"],
-                "confirmed_missing_hours": confirmed,
-            },
-        )
+        append_manifest(manifest, ok_record(market, [r["timestamp"] for r in rows], info))
         done += 1
-        print(f"market {market_id} {market.get('symbol')}: {len(rows):,} rows", file=sys.stderr)
-    print(f"done: {done} fetched, {skipped} skipped, {empty} empty, {failed} failed", file=sys.stderr)
+        suffix = " (ended early)" if info["ended_early"] else ""
+        print(f"market {market_id} {market.get('symbol')}: {len(rows):,} rows{suffix}", file=sys.stderr)
+    print(
+        f"done: {done} fetched, {verified} verified, {skipped} skipped, {empty} empty, {failed} failed",
+        file=sys.stderr,
+    )
     return 1 if failed else 0
 
 
@@ -338,10 +448,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from", dest="date_from", default=FIRST_DATE.isoformat())
     parser.add_argument("--to", dest="date_to", default=FOLD_LAST_DATE.isoformat())
     parser.add_argument("--market-ids", default=None, help="comma separated market ids (default: every perp)")
+    parser.add_argument(
+        "--verify-existing",
+        action="store_true",
+        help="only verify market files whose latest manifest line lacks ends_checked (no fetching)",
+    )
     args = parser.parse_args(argv)
     try:
         ids = {int(x) for x in args.market_ids.split(",")} if args.market_ids else None
-        return run(args.out_dir, parse_date(args.date_from), parse_date(args.date_to), ids)
+        return run(
+            args.out_dir, parse_date(args.date_from), parse_date(args.date_to), ids, verify_only=args.verify_existing
+        )
     except (FoldError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
