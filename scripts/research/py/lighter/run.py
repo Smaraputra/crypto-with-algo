@@ -1,0 +1,1091 @@
+"""Lighter stage 2 runner: python -m lighter.run {eligibility,dev,null,report,confirm} (specification: lighter/lock.py).
+
+eligibility  month-by-month eligible markets, tiers and file existence, computed from the previous month's cost and
+             activity fields only. It computes no signal and no return, so it may be run BEFORE registration. Writes
+             eligibility.json, with the union of mapped Binance symbols (the list to fetch). `--through confirm` is
+             allowed only together with a finalists file, as for confirm.
+dev          the 2,064-configuration grid on the development span, with the source guard, writes dev_result.json
+             (statistics, no trade lists unless --save-trades).
+null         one seed (1 to 20): a shift run over F1 to F5 (null_shift_N.json) and a sign-flip run over F6
+             (null_f6_N.json).
+report       needs dev_result.json and the 20 + 20 null runs: the two noise bars, passing configurations, the mirror
+             and spread-sensitivity checks, tripwire, finalists.json, and the account layer for the finalists.
+confirm      needs --dev-dir and --finalists: recomputes the finalists, writes a one-time record, recomputes eligibility
+             from the data and runs only the finalists on 2026-07-01 to 2026-10-31, with Holm.
+
+All inputs are read by lighter/data.py. Outputs are JSON (sorted keys, a sha256 of the content in content_sha256, a
+generated_at stamp excluded from that hash), and Parquet trade lists. Every result records the lock digest (which covers
+the code), the git HEAD, and whether the run was synthetic.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import math
+import os
+import subprocess
+import sys
+import time
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from lighter import fills, lock, signals, stats
+from lighter.data import (
+    DataError,
+    DataReader,
+    Market,
+    SpanError,
+    ensure_dir,
+    is_synthetic,
+    month_range,
+    read_json,
+)
+from lighter.fold_trades import day_start_ms
+
+DAY_MS = lock.DAY_MS
+TIER_CODE = {"A": 1, "B": 2}
+LIGHTER_DIR = Path(__file__).resolve().parent
+
+
+def log(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# JSON output and provenance
+
+
+def sanitize(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {str(k): sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize(v) for v in obj]
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating, float)):
+        v = float(obj)
+        return v if math.isfinite(v) else None
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    return obj
+
+
+def content_hash(body: dict[str, Any]) -> str:
+    clean = {k: v for k, v in body.items() if k not in ("generated_at", "content_sha256")}
+    canon = json.dumps(sanitize(clean), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(canon.encode()).hexdigest()
+
+
+def write_result(path: Path, body: dict[str, Any]) -> str:
+    """Write a result file. The hash covers everything except generated_at (and itself)."""
+    out = sanitize(body)
+    digest = content_hash(out)
+    out["content_sha256"] = digest
+    out["generated_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    Path(path).write_text(json.dumps(out, sort_keys=True, indent=1) + "\n", encoding="utf-8")
+    return digest
+
+
+def _git(args: list[str]) -> str:
+    """Read-only git call in the lighter directory (replaced in tests)."""
+    return subprocess.run(["git", *args], cwd=LIGHTER_DIR, capture_output=True, text=True, check=True).stdout
+
+
+def provenance(fold_dir: str | Path) -> dict[str, Any]:
+    """Lock digest, git HEAD and the synthetic flag. Refuses a dirty lighter tree unless the fold is synthetic.
+
+    When git is unavailable the commit and a clean-tree attestation come from LIGHTER_GIT_HEAD and LIGHTER_TREE_CLEAN=1
+    (recorded as "attested by environment"). When git is available it is always checked directly.
+    """
+    synthetic = is_synthetic(fold_dir)
+    head: str | None = None
+    git_ok = True
+    try:
+        head = _git(["rev-parse", "HEAD"]).strip() or None
+    except (OSError, subprocess.CalledProcessError):
+        git_ok = False
+    source = "git"
+    if not git_ok:
+        env_head = os.environ.get("LIGHTER_GIT_HEAD") or None
+        attested = os.environ.get("LIGHTER_TREE_CLEAN") == "1"
+        if synthetic:
+            head, source = env_head, "synthetic, git unavailable"
+        elif env_head and attested:
+            head, source = env_head, "attested by environment"
+        else:
+            raise SystemExit(
+                "git is not available and LIGHTER_GIT_HEAD with LIGHTER_TREE_CLEAN=1 is not set: refusing to run"
+            )
+    elif not synthetic:
+        try:
+            dirty = _git(["status", "--porcelain", "--", str(LIGHTER_DIR)]).strip()
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise SystemExit("git status failed: refusing to run") from exc
+        if dirty:
+            raise SystemExit(f"uncommitted changes under scripts/research/py/lighter, refusing to run:\n{dirty}")
+    return {"lock_sha256": lock.lock_digest(), "git_head": head, "git_source": source, "synthetic": synthetic}
+
+
+def check_result_file(doc: dict[str, Any], name: str, prov: dict[str, Any]) -> None:
+    """A result file must carry this lock digest, an intact content hash and the same synthetic flag as this run."""
+    if doc.get("lock_sha256") != prov["lock_sha256"]:
+        raise SystemExit(f"{name} was written under a different lock digest")
+    if content_hash(doc) != doc.get("content_sha256"):
+        raise SystemExit(f"{name} fails its content hash")
+    if bool(doc.get("synthetic")) != bool(prov["synthetic"]):
+        raise SystemExit(f"{name} and this run do not agree on synthetic: they cannot be mixed")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Span and eligibility
+
+
+@dataclass(frozen=True)
+class Span:
+    """A study span: decisions from first to last (inclusive), features warmed up on the WARMUP_DAYS before."""
+
+    first: dt.date
+    last: dt.date
+
+    @property
+    def start_ms(self) -> int:
+        return day_start_ms(self.first)
+
+    @property
+    def end_ms(self) -> int:
+        return day_start_ms(self.last) + DAY_MS
+
+    @property
+    def t0_ms(self) -> int:
+        return self.start_ms - lock.WARMUP_DAYS * DAY_MS
+
+    @property
+    def ng(self) -> int:
+        return (self.end_ms - self.t0_ms) // lock.GRID_MS
+
+    @property
+    def start_j(self) -> int:
+        return lock.WARMUP_DAYS * lock.GRID_PER_DAY
+
+    @property
+    def months(self) -> list[tuple[int, int]]:
+        return month_range((self.first.year, self.first.month), (self.last.year, self.last.month))
+
+
+@dataclass(frozen=True)
+class MonthInfo:
+    tier: str
+    activity_median: float
+    spread_proxy_bps: float
+    qualifying_minutes: int
+    binance_symbol: str | None
+    source: str  # "pending" (Binance files exist, the source guard decides) or "lighter"
+
+
+Eligibility = dict[tuple[int, int], dict[int, MonthInfo]]
+Proxies = dict[tuple[int, int], dict[int, float]]
+
+
+def compute_eligibility(reader: DataReader, markets: list[Market], months: list[tuple[int, int]]) -> Eligibility:
+    """For each month M the markets eligible in it, from the fold rows of the previous month only."""
+    by_id = {m.market_id: m for m in markets}
+    out: Eligibility = {}
+    for y, mo in months:
+        py, pm = lock.previous_month(y, mo)
+        cost = reader.month_cost_stats(py, pm)
+        infos: dict[int, MonthInfo] = {}
+        for mid, cs in sorted(cost.items()):
+            market = by_id.get(mid)
+            if market is None:
+                if cs.activity_median >= lock.ELIG_MIN_MEDIAN_TRADES:
+                    raise DataError(
+                        f"market_id {mid} meets the activity clause in {py:04d}-{pm:02d} but is not in markets.json"
+                    )
+                continue
+            tier = lock.classify_tier(cs.activity_median, cs.qualifying_minutes, cs.spread_proxy_bps)
+            if tier is None:
+                continue
+            sym = market.binance_symbol
+            files = bool(sym) and reader.binance_month_exists(sym, py, pm) and reader.binance_month_exists(sym, y, mo)
+            infos[mid] = MonthInfo(
+                tier,
+                cs.activity_median,
+                cs.spread_proxy_bps,
+                cs.qualifying_minutes,
+                sym,
+                "pending" if files else "lighter",
+            )
+        out[(y, mo)] = infos
+    return out
+
+
+def spread_proxies(reader: DataReader, months: list[tuple[int, int]]) -> Proxies:
+    """Per month M and market, the spread proxy of the previous month (for markets with enough qualifying minutes)."""
+    out: Proxies = {}
+    for y, mo in months:
+        py, pm = lock.previous_month(y, mo)
+        cost = reader.month_cost_stats(py, pm)
+        out[(y, mo)] = {
+            mid: cs.spread_proxy_bps
+            for mid, cs in cost.items()
+            if cs.qualifying_minutes >= lock.ELIG_MIN_QUALIFYING_MINUTES and np.isfinite(cs.spread_proxy_bps)
+        }
+    return out
+
+
+def sp_per_minute(proxies: Proxies, market_id: int, span: Span) -> np.ndarray:
+    """The spread proxy in force at each minute from span.t0: that of the month, else the latest earlier month's."""
+    n = (span.end_ms - span.t0_ms) // lock.MINUTE_MS
+    values: dict[int, float] = {}
+    last = float("nan")
+    for y, mo in span.months:
+        v = proxies.get((y, mo), {}).get(market_id)
+        if v is not None:
+            last = v
+        values[lock.month_index(y, mo)] = last
+    firsts = [v for v in values.values() if np.isfinite(v)]
+    default = firsts[0] if firsts else 0.0
+    out = np.full(n, default)
+    month_of_minute = (
+        (span.t0_ms + np.arange(n, dtype=np.int64) * lock.MINUTE_MS).astype("datetime64[ms]").astype("datetime64[M]")
+    ).astype(np.int64)
+    for idx, v in values.items():
+        if np.isfinite(v):
+            out[month_of_minute == idx] = v
+    return out
+
+
+def eligibility_document(elig: Eligibility, markets: list[Market], fold_market_ids: set[int]) -> dict[str, Any]:
+    by_id = {m.market_id: m for m in markets}
+    months: dict[str, Any] = {}
+    symbols: set[str] = set()
+    needed: dict[str, set[str]] = defaultdict(set)
+    for (y, mo), infos in sorted(elig.items()):
+        py, pm = lock.previous_month(y, mo)
+        rows = []
+        for mid, info in sorted(infos.items()):
+            rows.append(
+                {
+                    "market_id": mid,
+                    "symbol": by_id[mid].symbol,
+                    "class": by_id[mid].cls,
+                    "tier": info.tier,
+                    "activity_median_trades": info.activity_median,
+                    "spread_proxy_bps": info.spread_proxy_bps,
+                    "qualifying_minutes": info.qualifying_minutes,
+                    "binance_symbol": info.binance_symbol,
+                    "source": "source pending guard" if info.source == "pending" else "lighter",
+                }
+            )
+            if info.binance_symbol:
+                symbols.add(info.binance_symbol)
+                needed[info.binance_symbol] |= {f"{py:04d}-{pm:02d}", f"{y:04d}-{mo:02d}"}
+        months[f"{y:04d}-{mo:02d}"] = {"previous_month": f"{py:04d}-{pm:02d}", "eligible": rows}
+    return {
+        "months": months,
+        "binance_symbols": sorted(symbols),
+        "binance_months_needed": {k: sorted(v) for k, v in sorted(needed.items())},
+        "markets_in_list": len(markets),
+        "market_ids_in_fold": sorted(fold_market_ids),
+    }
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The source guard (month P of a month M)
+
+
+def guard_month(md_p: Any) -> dict[str, Any]:
+    """The source guard on one month P of data (a MinuteData holding both Lighter and Binance for the month)."""
+    cl, vl = signals.grid_prices(md_p, "lighter")
+    cb, vb = signals.grid_prices(md_p, "binance")
+    both = vl & vb
+    out: dict[str, Any] = {"points": int(both.sum()), "median_bps": None, "corr": None, "return_points": 0, "ok": False}
+    if not both.any():
+        return out
+    med = float(np.median(np.log(cl[both] / cb[both])))
+    rl, rb = signals.log_returns(cl, vl, 1), signals.log_returns(cb, vb, 1)
+    ok2 = ~np.isnan(rl) & ~np.isnan(rb)
+    out["median_bps"] = med * lock.BPS
+    out["return_points"] = int(ok2.sum())
+    if ok2.sum() >= 2:
+        a, b = rl[ok2], rb[ok2]
+        out["corr"] = float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else None
+    out["ok"] = bool(
+        abs(med) * lock.BPS <= lock.GUARD_MAX_MEDIAN_BPS
+        and out["return_points"] >= lock.GUARD_MIN_POINTS
+        and out["corr"] is not None
+        and out["corr"] >= lock.GUARD_MIN_CORR
+    )
+    return out
+
+
+def guard_key(market_id: int, year: int, month: int) -> str:
+    return f"{market_id}:{year:04d}-{month:02d}"
+
+
+def check_scale(market: Market, md: Any) -> None:
+    """Stops when the mid proxy jumps by more than a factor 2 between two consecutive minutes that both have prints."""
+    mid, _ = signals.mid_proxy(md)
+    has = md.has_print
+    both = has[1:] & has[:-1]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        jump = np.abs(np.log(mid[1:] / mid[:-1])) > lock.SCALE_BREAK_LN
+    bad = np.flatnonzero(both & jump)
+    for i in bad:
+        minute = md.t0_ms + int(i + 1) * lock.MINUTE_MS
+        if (market.symbol, minute) not in lock.KNOWN_SCALE_BREAKS:
+            raise DataError(
+                f"price-scale break in {market.symbol} (market_id {market.market_id}) at minute {minute} "
+                f"({dt.datetime.fromtimestamp(minute / 1000, dt.UTC).isoformat()})"
+            )
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The grid engine
+
+
+def eligible_for(cfg: lock.Config, tier_codes: np.ndarray) -> np.ndarray:
+    """Grid points at which a market may open a trade in the configuration's universe."""
+    return (tier_codes == 1) if cfg.universe == "A" else (tier_codes >= 1)
+
+
+def trade_frame(market_id: int, ctx: fills.FillContext, batch: fills.TradeBatch) -> pa.Table:
+    return pa.table(
+        {
+            "market_id": pa.array(np.full(batch.n, market_id), pa.int32()),
+            "side": pa.array(batch.side, pa.int8()),
+            "decision_ms": pa.array(ctx.t0_ms + batch.j * lock.GRID_MS, pa.int64()),
+            "entry_ts": pa.array(batch.entry_ts, pa.int64()),
+            "exit_ts": pa.array(batch.exit_ts, pa.int64()),
+            "entry_px": pa.array(batch.entry_px, pa.float64()),
+            "exit_px": pa.array(batch.exit_px, pa.float64()),
+            "gross": pa.array(batch.gross, pa.float64()),
+            "fund": pa.array(batch.fund, pa.float64()),
+            "net": pa.array(batch.net, pa.float64()),
+            "flagged": pa.array(batch.flag, pa.bool_()),
+        }
+    )
+
+
+def month_selectors(span: Span) -> dict[tuple[int, int], np.ndarray]:
+    """Boolean mask over the grid for each month of the span (decision times inside the span only)."""
+    gm = signals.grid_month_index(span.t0_ms, span.ng)
+    in_span = np.arange(span.ng) >= span.start_j
+    return {(y, mo): (gm == lock.month_index(y, mo)) & in_span for y, mo in span.months}
+
+
+def run_grid(
+    reader: DataReader,
+    markets: list[Market],
+    elig: Eligibility,
+    proxies: Proxies,
+    configs: list[lock.Config],
+    span: Span,
+    *,
+    shift_days: int | None = None,
+    signflip_seed: int | None = None,
+    mirror: bool = False,
+    spread_mult: float = 1.0,
+    trades_dir: Path | None = None,
+    guard: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Run configs over the span. Returns the stats in config order and per-market data-quality figures.
+
+    guard: the source-guard table (key "market_id:YYYY-MM"). Months missing from it are computed and added to it, so a
+    caller can pass {} to receive the table or a cached one to skip the computation.
+    """
+    reader.check_end_ms(span.end_ms)
+    ng, start_j = span.ng, span.start_j
+    if guard is None:
+        guard = {}
+    selectors = month_selectors(span)
+    tier = {m.market_id: np.zeros(ng, dtype=np.int8) for m in markets}
+    for ym, infos in elig.items():
+        for mid, info in infos.items():
+            tier[mid][selectors[ym]] = TIER_CODE[info.tier]
+    study = [m for m in markets if tier[m.market_id].any()]
+    n_days = (span.end_ms - span.start_ms) // DAY_MS
+    needed = {c.signal.sig_id for c in configs}
+    accs = {c.cid: stats.ConfigAcc(c, span.start_ms, n_days) for c in configs}
+
+    base: dict[int, dict[str, np.ndarray]] = {}
+    sigma_comp: dict[int, np.ndarray] = {}
+    binj: dict[int, np.ndarray] = {}
+    cs_feats: dict[int, dict[str, signals.MarketFeatures]] = {}
+    f_exists: dict[int, bool] = {}
+    final_source: dict[tuple[int, int], dict[int, str]] = {ym: {} for ym in elig}
+    trig: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
+    f4_ids = {c.signal.sig_id for c in configs if c.family == "F4"}
+    for market in study:
+        mid = market.market_id
+        cand = [ym for ym, infos in sorted(elig.items()) if mid in infos and infos[mid].source == "pending"]
+        todo = [ym for ym in cand if guard_key(mid, *ym) not in guard]
+        sym = market.binance_symbol
+        t0_load = span.t0_ms
+        load_months: set[tuple[int, int]] = set()
+        if todo:
+            p_first = min(lock.previous_month(*ym) for ym in todo)
+            t0_load = min(t0_load, day_start_ms(dt.date(p_first[0], p_first[1], 1)))
+            load_months = {ym for ym in todo} | {lock.previous_month(*ym) for ym in todo}
+        known_ok = [ym for ym in cand if ym not in todo and guard[guard_key(mid, *ym)]["ok"]]
+        for ym in known_ok:
+            load_months |= {ym, lock.previous_month(*ym)}
+        md = reader.load_minutes(market, t0_load, span.end_ms, load_months, sym)
+        for ym in todo:
+            p = lock.previous_month(*ym)
+            a = (day_start_ms(dt.date(p[0], p[1], 1)) - md.t0_ms) // lock.MINUTE_MS
+            b = (day_start_ms(dt.date(ym[0], ym[1], 1)) - md.t0_ms) // lock.MINUTE_MS
+            guard[guard_key(mid, *ym)] = guard_month(md.slice(a, b))
+        ok_months = {ym for ym in cand if guard[guard_key(mid, *ym)]["ok"]}
+        for ym in elig:
+            if mid in elig[ym]:
+                final_source[ym][mid] = "binance" if ym in ok_months else "lighter"
+        if t0_load < span.t0_ms:
+            md = md.slice((span.t0_ms - t0_load) // lock.MINUTE_MS)
+        check_scale(market, md)
+        funding = reader.load_funding(mid, span.end_ms)
+        f_exists[mid] = reader.funding_exists(mid)
+        flag = np.zeros(ng, dtype=bool)
+        for ym in ok_months:
+            flag |= selectors[ym]
+        binj[mid] = flag
+        by_source = {"lighter": signals.compute_features(md, "lighter", span.start_ms, funding, needed)}
+        if ok_months:
+            by_source["binance"] = signals.compute_features(md, "binance", span.start_ms, funding, needed)
+        base[mid], sigma_comp[mid] = signals.compose_by_source(by_source, flag)
+        if f4_ids:
+            valid = signals.compose_valid(by_source, flag)
+            for sig_id in f4_ids:
+                if sig_id not in valid:
+                    continue
+                for universe in lock.UNIVERSES:
+                    mask = (tier[mid] == 1) if universe == "A" else (tier[mid] >= 1)
+                    t = trig[(sig_id, universe)]
+                    t[0] += int(np.count_nonzero(base[mid].get(sig_id, np.zeros(ng, np.int8))[mask]))
+                    t[1] += int(np.count_nonzero(valid[sig_id] & mask))
+        for f in by_source.values():
+            f.sides, f.z, f.valid = {}, {}, {}
+        cs_feats[mid] = by_source
+        log(f"  features {market.symbol} ({'+'.join(sorted(by_source))})")
+        del md
+    slices = []
+    for ym, infos in sorted(elig.items()):
+        idx = np.flatnonzero(selectors[ym])
+        if len(idx) == 0:
+            continue
+        slices.append(
+            signals.MonthSlice(
+                int(idx[0]), int(idx[-1]) + 1, {m: (i.tier, final_source[ym][m]) for m, i in infos.items()}
+            )
+        )
+    xs = signals.cross_sectional_sides(cs_feats, slices, ng, needed)
+    del cs_feats
+    if shift_days is not None:
+        base = {m: {k: stats.shift_sides(v, start_j, shift_days) for k, v in d.items()} for m, d in base.items()}
+        xs = {key: stats.shift_sides(v, start_j, shift_days) for key, v in xs.items()}
+    if signflip_seed is not None:
+        rng = stats.signflip_rng(signflip_seed)
+        for m in sorted(base):
+            for sig_id in sorted(k for k in base[m] if k.startswith("F6-")):
+                base[m][sig_id] = stats.signflip(base[m][sig_id], rng, start_j)
+    for (sig_id, universe), (fired, valid) in trig.items():
+        if shift_days is None and signflip_seed is None:
+            for c in configs:
+                if c.signal.sig_id == sig_id and c.universe == universe:
+                    accs[c.cid].add_trigger(fired, valid)
+
+    by_hold: dict[int, dict[str, list[lock.Config]]] = defaultdict(lambda: defaultdict(list))
+    for c in configs:
+        by_hold[c.hold][c.exit].append(c)
+
+    quality: dict[str, Any] = {}
+    for market in study:
+        mid = market.market_id
+        md = reader.load_minutes(market, span.t0_ms, span.end_ms)
+        funding = reader.load_funding(mid, span.end_ms)
+        mid_px, stale = signals.mid_proxy(md)
+        span_stale = stale[start_j * 5 :]
+        quality[str(mid)] = {
+            "symbol": market.symbol,
+            "class": market.cls,
+            "eligible_months": sum(1 for infos in elig.values() if mid in infos),
+            "binance_months": int(sum(1 for ym in elig if final_source[ym].get(mid) == "binance")),
+            "stale_share": float(np.mean(span_stale != 0)),
+            "max_stale_minutes": int(span_stale.max()),
+        }
+        sp = sp_per_minute(proxies, mid, span)
+        ctx = fills.build_context(md, sigma_comp[mid], funding, mid_px, sp, spread_mult)
+        del md
+        masked: dict[tuple[str, str], np.ndarray | None] = {}
+
+        def sides_of(cfg: lock.Config, mid: int = mid, masked: dict = masked) -> np.ndarray | None:
+            key = (cfg.signal.sig_id, cfg.universe)
+            if key not in masked:
+                sig = cfg.signal
+                if sig.family in ("F2", "F3"):
+                    raw = xs.get((mid, cfg.universe, sig.sig_id))
+                else:
+                    raw = base[mid].get(sig.sig_id)
+                if raw is None:
+                    masked[key] = None
+                else:
+                    gated = np.where(eligible_for(cfg, tier[mid]), raw, 0).astype(np.int8)
+                    if mirror:
+                        gated = -gated
+                    masked[key] = gated if gated.any() else None
+            return masked[key]
+
+        for hold in sorted(by_hold):
+            kinds = tuple(k for k in lock.EXITS if k in by_hold[hold])
+            outs_l = fills.outcomes(ctx, 1, hold, kinds, start_j)
+            outs_s = fills.outcomes(ctx, -1, hold, kinds, start_j)
+            for kind in kinds:
+                ol = outs_l[kind] if outs_l else None
+                os_ = outs_s[kind] if outs_s else None
+                for cfg in by_hold[hold][kind]:
+                    sides = sides_of(cfg)
+                    if sides is None:
+                        continue
+                    batch = fills.select_trades(ctx, sides, ol, os_)
+                    if batch.n and not f_exists[mid]:
+                        raise DataError(f"market {market.symbol} has trades but no funding file")
+                    accs[cfg.cid].add(mid, batch, binj[mid][batch.j] if batch.n else None)
+                    if trades_dir is not None and batch.n:
+                        d = ensure_dir(Path(trades_dir) / cfg.cid)
+                        pq.write_table(trade_frame(mid, ctx, batch), d / f"market_{mid}.parquet", compression="zstd")
+        log(f"  fills {market.symbol}")
+    return [accs[c.cid].finalize() for c in configs], quality
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Commands
+
+
+def make_reader(args: Any, mode: str, last_date: dt.date | None = None) -> DataReader:
+    return DataReader(
+        fold_dir=args.fold_dir,
+        binance_dir=getattr(args, "binance_dir", None),
+        funding_dir=getattr(args, "funding_dir", None),
+        mode=mode,
+        last_date=last_date,
+    )
+
+
+def study_header(kind: str, reader: DataReader, prov: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        **prov,
+        "ledger_id": lock.LEDGER_ID,
+        "trials": lock.TRIALS,
+        "mode": reader.mode,
+        "last_date": reader.last_date.isoformat(),
+    }
+
+
+@dataclass
+class Prepared:
+    markets: list[Market]
+    elig: Eligibility
+    proxies: Proxies
+    doc: dict[str, Any]
+    digest: str
+
+
+def prepare(reader: DataReader, span: Span) -> Prepared:
+    markets = reader.load_markets()
+    elig = compute_eligibility(reader, markets, span.months)
+    proxies = spread_proxies(reader, span.months)
+    doc = eligibility_document(elig, markets, reader.fold_market_ids)
+    return Prepared(markets, elig, proxies, doc, content_hash(doc))
+
+
+def check_finalists_file(path: str | None, prov: dict[str, Any]) -> dict[str, Any]:
+    if not path or not Path(path).exists():
+        raise SystemExit("this needs a finalists file")
+    doc = read_json(path)
+    check_result_file(doc, "the finalists file", prov)
+    return doc
+
+
+def cmd_eligibility(args: Any, last_date: dt.date | None = None, first_date: dt.date | None = None) -> Path:
+    """Eligible markets, tiers and file existence per month. Reads cost and activity fields only."""
+    through = getattr(args, "through", "dev")
+    prov = provenance(args.fold_dir)
+    mode = "dev"
+    if through == "confirm":
+        check_finalists_file(getattr(args, "finalists", None), prov)
+        mode = "confirm"
+    elif through != "dev":
+        raise SystemExit("--through must be dev or confirm")
+    out_dir = ensure_dir(args.out_dir)
+    reader = make_reader(args, mode, last_date)
+    span = Span(first_date or lock.DEV_FIRST_DATE, reader.last_date)
+    prep = prepare(reader, span)
+    body = study_header("eligibility", reader, prov)
+    body.update(prep.doc)
+    body.update({"through": through, "eligibility_sha256": prep.digest, "manifest": reader.sorted_manifest()})
+    body["data_quality"] = reader.quality
+    path = out_dir / "eligibility.json"
+    write_result(path, body)
+    return path
+
+
+def cmd_dev(
+    args: Any,
+    last_date: dt.date | None = None,
+    configs: list[lock.Config] | None = None,
+    first_date: dt.date | None = None,
+) -> Path:
+    prov = provenance(args.fold_dir)
+    if not lock.FUNDING_STAMP_VERIFIED and not prov["synthetic"]:
+        raise SystemExit("FUNDING_STAMP_VERIFIED is False: dev refuses to run on non-synthetic data")
+    out_dir = ensure_dir(args.out_dir)
+    reader = make_reader(args, "dev", last_date)
+    span = Span(first_date or lock.DEV_FIRST_DATE, reader.last_date)
+    prep = prepare(reader, span)
+    cfgs = list(lock.GRID) if configs is None else configs
+    trades_dir = out_dir / "trades" if getattr(args, "save_trades", False) else None
+    began = time.monotonic()
+    guard: dict[str, Any] = {}
+    results, quality = run_grid(
+        reader, prep.markets, prep.elig, prep.proxies, cfgs, span, trades_dir=trades_dir, guard=guard
+    )
+    body = study_header("dev", reader, prov)
+    body.update(
+        {
+            "first_date": span.first.isoformat(),
+            "eligibility": prep.doc,
+            "eligibility_sha256": prep.digest,
+            "source_guard": guard,
+            "markets": quality,
+            "configs": results,
+            "data_quality": reader.quality,
+            "manifest": reader.sorted_manifest(),
+        }
+    )
+    path = out_dir / "dev_result.json"
+    write_result(path, body)
+    log(f"dev done in {time.monotonic() - began:.0f}s: {path}")
+    return path
+
+
+def _cached_guard(out_dir: Path, prov: dict[str, Any], eligibility_sha: str) -> dict[str, Any]:
+    path = out_dir / "dev_result.json"
+    if not path.exists():
+        return {}
+    doc = read_json(path)
+    check_result_file(doc, "dev_result.json", prov)
+    if doc.get("eligibility_sha256") != eligibility_sha:
+        raise SystemExit("dev_result.json was computed on different eligibility")
+    return dict(doc.get("source_guard", {}))
+
+
+def cmd_null(
+    args: Any,
+    last_date: dt.date | None = None,
+    configs: list[lock.Config] | None = None,
+    first_date: dt.date | None = None,
+) -> tuple[Path, Path]:
+    """Seed N: the shift run over F1 to F5 and the sign-flip run over F6."""
+    if args.seed not in lock.NOISE_SEEDS:
+        raise SystemExit(f"seed must be one of {lock.NOISE_SEEDS[0]}..{lock.NOISE_SEEDS[-1]}")
+    prov = provenance(args.fold_dir)
+    out_dir = ensure_dir(args.out_dir)
+    reader = make_reader(args, "dev", last_date)
+    span = Span(first_date or lock.DEV_FIRST_DATE, reader.last_date)
+    prep = prepare(reader, span)
+    guard = _cached_guard(out_dir, prov, prep.digest)
+    cfgs = list(lock.GRID) if configs is None else configs
+    paths = []
+    for kind, family_test in (("shift", lambda c: c.family != "F6"), ("f6", lambda c: c.family == "F6")):
+        sel = [c for c in cfgs if family_test(c)]
+        days = stats.noise_offset_days(args.seed) if kind == "shift" else None
+        results: list[dict[str, Any]] = []
+        if sel:
+            results, _ = run_grid(
+                reader,
+                prep.markets,
+                prep.elig,
+                prep.proxies,
+                sel,
+                span,
+                shift_days=days,
+                signflip_seed=None if kind == "shift" else args.seed,
+                guard=guard,
+            )
+        t_by = {r["id"]: r["t"] for r in results}
+        best = max(results, key=lambda r: (r["t"], r["id"])) if results else None
+        body = study_header(f"null_{kind}", reader, prov)
+        body.update(
+            {
+                "seed": args.seed,
+                "offset_days": days,
+                "max_t": best["t"] if best else None,
+                "argmax": best["id"] if best else None,
+                "t_by_config": t_by,
+                "eligibility_sha256": prep.digest,
+                "manifest": reader.sorted_manifest(),
+            }
+        )
+        path = out_dir / f"null_{kind}_{args.seed}.json"
+        write_result(path, body)
+        paths.append(path)
+    return paths[0], paths[1]
+
+
+def load_nulls(
+    dev_dir: Path, prov: dict[str, Any], seeds: tuple[int, ...] = lock.NOISE_SEEDS
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    names = [f"null_shift_{s}.json" for s in seeds] + [f"null_f6_{s}.json" for s in seeds]
+    missing = [n for n in names if not (dev_dir / n).exists()]
+    if missing:
+        raise SystemExit(f"missing null result files: {missing}")
+    shift = [read_json(dev_dir / f"null_shift_{s}.json") for s in seeds]
+    f6 = [read_json(dev_dir / f"null_f6_{s}.json") for s in seeds]
+    for name, doc in zip(names, shift + f6, strict=True):
+        check_result_file(doc, name, prov)
+    return shift, f6
+
+
+def bars_from_nulls(
+    shift: list[dict[str, Any]], f6: list[dict[str, Any]]
+) -> tuple[float, float, list[float], list[float]]:
+    m_shift = [n["max_t"] for n in shift if n["max_t"] is not None]
+    m_f6 = [n["max_t"] for n in f6 if n["max_t"] is not None]
+    return stats.noise_bar(m_shift), stats.noise_bar(m_f6), m_shift, m_f6
+
+
+def evaluate_candidates(
+    reader: DataReader,
+    prep: Prepared,
+    span: Span,
+    dev: dict[str, Any],
+    bar: float,
+    f6_bar: float,
+    guard: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Candidates (items a to f, not suspect, funding coverage), their mirror and doubled-spread checks, finalists."""
+    configs = dev["configs"]
+    cand = stats.finalist_candidates(configs, bar, f6_bar, lock.SUSPECT_CLEARED)
+    checks: dict[str, dict[str, Any]] = {}
+    if cand:
+        cfgs = [lock.CONFIG_BY_ID[c["id"]] for c in cand]
+        mirror, _ = run_grid(reader, prep.markets, prep.elig, prep.proxies, cfgs, span, mirror=True, guard=guard)
+        doubled, _ = run_grid(
+            reader,
+            prep.markets,
+            prep.elig,
+            prep.proxies,
+            cfgs,
+            span,
+            spread_mult=lock.SPREAD_SENSITIVITY_MULT,
+            guard=guard,
+        )
+        for c, m, d in zip(cand, mirror, doubled, strict=True):
+            checks[c["id"]] = stats.variant_checks(c["mean_net_bps"], m["mean_net_bps"], d["mean_net_bps"])
+    return cand, checks, stats.select_finalists(cand, checks)
+
+
+def cmd_report(
+    args: Any,
+    last_date: dt.date | None = None,
+    seeds: tuple[int, ...] = lock.NOISE_SEEDS,
+    first_date: dt.date | None = None,
+) -> Path:
+    prov = provenance(args.fold_dir)
+    out_dir = ensure_dir(args.out_dir)
+    dev = read_json(out_dir / "dev_result.json")
+    check_result_file(dev, "dev_result.json", prov)
+    shift, f6 = load_nulls(out_dir, prov, seeds)
+    bar, f6_bar, m_shift, m_f6 = bars_from_nulls(shift, f6)
+    configs = dev["configs"]
+    flags = {c["id"]: stats.dev_flags(c, bar, f6_bar) for c in configs}
+    passing = [c["id"] for c in configs if flags[c["id"]]["pass"]]
+    item_counts = {k: sum(f[k] for f in flags.values()) for k in "abcdef"}
+    suspects = [c["id"] for c in configs if stats.is_suspect(c)]
+
+    reader = make_reader(args, "dev", last_date)
+    span = Span(first_date or lock.DEV_FIRST_DATE, reader.last_date)
+    prep = prepare(reader, span)
+    if prep.digest != dev["eligibility_sha256"]:
+        raise SystemExit("the eligibility recomputed now differs from the one in dev_result.json")
+    guard = dict(dev["source_guard"])
+    cand, checks, finalists = evaluate_candidates(reader, prep, span, dev, bar, f6_bar, guard)
+    final_doc = {
+        **prov,
+        "dev_result_sha256": dev["content_sha256"],
+        "noise_bar": bar,
+        "f6_bar": f6_bar,
+        "finalists": [
+            {
+                "config_id": c["id"],
+                "family": c["family"],
+                "class": c["class"],
+                "dev_t": c["t"],
+                "dev_mean_bps": c["mean_net_bps"],
+                **checks.get(c["id"], {}),
+            }
+            for c in finalists
+        ],
+    }
+    write_result(out_dir / "finalists.json", final_doc)
+
+    account: dict[str, Any] = {}
+    rerun_ok: dict[str, bool] = {}
+    if finalists:
+        cfgs = [lock.CONFIG_BY_ID[c["id"]] for c in finalists]
+        trades_dir = out_dir / "trades"
+        rerun, _ = run_grid(
+            reader, prep.markets, prep.elig, prep.proxies, cfgs, span, trades_dir=trades_dir, guard=guard
+        )
+        for new in rerun:
+            old = next(c for c in configs if c["id"] == new["id"])
+            rerun_ok[new["id"]] = bool(new["trades"] == old["trades"] and new["t"] == old["t"])
+        if not all(rerun_ok.values()):
+            raise SystemExit(f"the finalist re-run differs from the development result: {rerun_ok}")
+        account = account_layer(reader, prep.markets, span, cfgs, trades_dir, prep.proxies)
+    body = {
+        "kind": "report",
+        **prov,
+        "dev_result_sha256": dev["content_sha256"],
+        "prediction": lock.PREDICTION,
+        "null_runs": {
+            "seeds": list(seeds),
+            "shift_maxima": m_shift,
+            "f6_maxima": m_f6,
+            "offset_days": [n["offset_days"] for n in shift],
+        },
+        "noise_bar": bar,
+        "f6_bar": f6_bar,
+        "pass_threshold_t": max(lock.PASS_MIN_T, bar),
+        "pass_threshold_t_f6": max(lock.PASS_MIN_T, f6_bar),
+        "items_passed_counts": item_counts,
+        "passing": passing,
+        "candidates": [c["id"] for c in cand],
+        "variant_checks": checks,
+        "finalists": final_doc["finalists"],
+        "tripwire": {
+            "suspect": suspects,
+            "cleared": list(lock.SUSPECT_CLEARED),
+            "notice": (
+                "SUSPECT configurations exist: audit for look-ahead before anything else."
+                if suspects
+                else "No configuration tripped the tripwire."
+            ),
+        },
+        "rerun_matches_dev": rerun_ok,
+        "account_layer": account,
+        "configs": [
+            {
+                "id": c["id"],
+                "t": c["t"],
+                "mean_net_bps": c["mean_net_bps"],
+                "trades": c["trades"],
+                "class": c["class"],
+                "by_source": c["by_source"],
+                **flags[c["id"]],
+            }
+            for c in configs
+        ],
+    }
+    path = out_dir / "report.json"
+    write_result(path, body)
+    return path
+
+
+def account_layer(
+    reader: DataReader, markets: list[Market], span: Span, cfgs: list[lock.Config], trades_dir: Path, proxies: Proxies
+) -> dict[str, Any]:
+    by_id = {m.market_id: m for m in markets}
+    out: dict[str, Any] = {}
+    mids: dict[int, tuple[int, np.ndarray]] = {}
+    for cfg in cfgs:
+        files = sorted((trades_dir / cfg.cid).glob("market_*.parquet")) if (trades_dir / cfg.cid).exists() else []
+        if not files:
+            out[cfg.cid] = {"note": "no trades"}
+            continue
+        merged = pa.concat_tables([pq.read_table(f) for f in files])
+        cols = {name: merged.column(name).to_numpy(zero_copy_only=False) for name in merged.column_names}
+        for mid in {int(x) for x in cols["market_id"]}:
+            if mid not in mids:
+                md = reader.load_minutes(by_id[mid], span.t0_ms, span.end_ms)
+                mids[mid] = (span.t0_ms, signals.mid_proxy(md)[0])
+        out[cfg.cid] = {f"L{lev}": stats.simulate_account(cols, mids, lev) for lev in lock.ACCOUNT_LEVERAGES}
+    return out
+
+
+def _record_exists(directory: Path, digest: str) -> bool:
+    path = directory / "confirm_record.json"
+    if not path.exists():
+        return False
+    try:
+        return read_json(path).get("lock_sha256") == digest
+    except (OSError, ValueError):
+        return True  # an unreadable record counts as a record
+
+
+def cmd_confirm(args: Any, last_date: dt.date | None = None, dev_last_date: dt.date | None = None) -> Path:
+    prov = provenance(args.fold_dir)
+    doc = check_finalists_file(getattr(args, "finalists", None), prov)
+    dev_dir_arg = getattr(args, "dev_dir", None)
+    if not dev_dir_arg:
+        raise SystemExit("confirm needs --dev-dir")
+    dev_dir = Path(dev_dir_arg)
+    out_dir = ensure_dir(args.out_dir)
+    if _record_exists(out_dir, prov["lock_sha256"]) or _record_exists(dev_dir, prov["lock_sha256"]):
+        raise SystemExit("a confirm_record.json already exists for this lock digest: confirm runs once")
+    dev = read_json(dev_dir / "dev_result.json")
+    check_result_file(dev, "dev_result.json", prov)
+    shift, f6 = load_nulls(dev_dir, prov)
+    bar, f6_bar, _, _ = bars_from_nulls(shift, f6)
+
+    # recompute the finalists from the development data (read-only for dev, the same code as report)
+    dev_reader = make_reader(args, "dev", dev_last_date)
+    dev_span = Span(lock.DEV_FIRST_DATE, dev_reader.last_date)
+    dev_prep = prepare(dev_reader, dev_span)
+    if dev_prep.digest != dev["eligibility_sha256"]:
+        raise SystemExit("the development eligibility recomputed now differs from dev_result.json")
+    _, _, finalists = evaluate_candidates(dev_reader, dev_prep, dev_span, dev, bar, f6_bar, dict(dev["source_guard"]))
+    computed = [c["id"] for c in finalists]
+    supplied = [f["config_id"] for f in doc["finalists"]]
+    if computed != supplied:
+        raise SystemExit(
+            f"the finalists recomputed from {dev_dir} ({computed}) differ from the supplied file ({supplied})"
+        )
+
+    record = {
+        "kind": "confirm_record",
+        **prov,
+        "finalists": computed,
+        "finalists_sha256": doc.get("content_sha256"),
+        "dev_result_sha256": dev["content_sha256"],
+    }
+    record_hash = write_result(out_dir / "confirm_record.json", record)
+    if dev_dir.resolve() != out_dir.resolve():
+        write_result(dev_dir / "confirm_record.json", record)
+
+    reader = make_reader(args, "confirm", last_date)
+    span = Span(lock.CONFIRM_FIRST_DATE, reader.last_date)
+    prep = prepare(reader, span)
+    cfgs = [lock.CONFIG_BY_ID[i] for i in computed]
+    body = study_header("confirm", reader, prov)
+    body.update(
+        {
+            "finalists_sha256": doc.get("content_sha256"),
+            "confirm_record_sha256": record_hash,
+            "eligibility": prep.doc,
+            "eligibility_sha256": prep.digest,
+        }
+    )
+    if not cfgs:
+        body.update({"results": [], "manifest": reader.sorted_manifest()})
+    else:
+        guard: dict[str, Any] = {}
+        results, quality = run_grid(
+            reader,
+            prep.markets,
+            prep.elig,
+            prep.proxies,
+            cfgs,
+            span,
+            trades_dir=out_dir / "confirm_trades",
+            guard=guard,
+        )
+        mirror, _ = run_grid(reader, prep.markets, prep.elig, prep.proxies, cfgs, span, mirror=True, guard=guard)
+        doubled, _ = run_grid(
+            reader,
+            prep.markets,
+            prep.elig,
+            prep.proxies,
+            cfgs,
+            span,
+            spread_mult=lock.SPREAD_SENSITIVITY_MULT,
+            guard=guard,
+        )
+        flags: dict[str, dict[str, Any]] = {}
+        for r, m, d in zip(results, mirror, doubled, strict=True):
+            checks = stats.variant_checks(r["mean_net_bps"], m["mean_net_bps"], d["mean_net_bps"])
+            flags[r["id"]] = stats.confirm_flags(r, checks)
+        stats.apply_holm(flags)
+        for r in results:
+            r["confirm"] = flags[r["id"]]
+            r["tripwire_suspect"] = stats.is_suspect(r)
+        body.update(
+            {
+                "results": results,
+                "holm_family_size": len(results),
+                "source_guard": guard,
+                "markets": quality,
+                "data_quality": reader.quality,
+                "manifest": reader.sorted_manifest(),
+            }
+        )
+    path = out_dir / "confirm_result.json"
+    write_result(path, body)
+    return path
+
+
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(prog="lighter.run", description=__doc__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("eligibility", "dev", "null", "report", "confirm"):
+        sp = sub.add_parser(
+            name,
+            help=(
+                "eligible markets per month from cost and activity fields only: computes no signal and no return, "
+                "safe to run before registration"
+            )
+            if name == "eligibility"
+            else None,
+        )
+        sp.add_argument("--fold-dir", required=True)
+        sp.add_argument("--binance-dir", required=name != "eligibility")
+        if name != "eligibility":
+            sp.add_argument("--funding-dir", required=True)
+        sp.add_argument("--out-dir", required=True)
+        if name == "eligibility":
+            sp.description = (
+                "Writes eligibility.json: per month the eligible markets with tier, activity, spread proxy, "
+                "qualifying minutes, mapped Binance symbol and file existence, and the union of Binance symbols. "
+                "Reads fold cost and activity fields of the previous month only, checks Binance file existence only, "
+                "and computes no signal and no return, so it is safe to run before registration."
+            )
+            sp.add_argument("--through", choices=("dev", "confirm"), default="dev")
+            sp.add_argument("--finalists", default=None, help="required with --through confirm")
+        if name == "dev":
+            sp.add_argument("--save-trades", action="store_true", help="write every configuration's trade list (huge)")
+        if name == "null":
+            sp.add_argument("--seed", type=int, required=True)
+        if name == "confirm":
+            sp.add_argument("--finalists", required=False, default=None)
+            sp.add_argument("--dev-dir", required=False, default=None)
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        {
+            "eligibility": cmd_eligibility,
+            "dev": cmd_dev,
+            "null": cmd_null,
+            "report": cmd_report,
+            "confirm": cmd_confirm,
+        }[args.cmd](args)
+    except (SpanError, DataError) as exc:
+        log(f"refused: {exc}")
+        return 3
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
