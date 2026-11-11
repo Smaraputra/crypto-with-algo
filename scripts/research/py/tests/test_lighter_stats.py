@@ -383,6 +383,110 @@ def test_a_configuration_that_profits_only_from_a_no_funding_market_is_not_a_fin
     assert not blocked["checks_ok"] and not blocked["pre_holm_ok"] and blocked["no_funding_ok"] is False
 
 
+def _ex(**over):
+    block = {
+        "trades": 2200,
+        "mean_net_bps": 0.8,
+        "t": 3.4,
+        "months_with_trades": 8,
+        "pos_month_share": 0.8,
+        "markets_100": 6,
+        "pos_market_share": 0.7,
+    }
+    block.update(over)
+    return block
+
+
+def test_the_block_without_no_funding_trades_is_the_same_statistics_over_the_other_trades():
+    cfg = next(c for c in lock.GRID if c.family == "F1")
+    full = stats.ConfigAcc(cfg, D0, 6)
+    only = stats.ConfigAcc(cfg, D0, 6)
+    for acc in (full, only):
+        acc.add(1, batch([D0 + 10, D0 + DAY + 10, D0 + 2 * DAY + 10], [0.0010, -0.0004, 0.0020], miss=1, nsettle=2))
+        acc.add(3, batch([D0 + 3 * DAY + 10, D0 + 4 * DAY + 10], [0.0005, 0.0007], miss=0, nsettle=3))
+    full.add(2, batch([D0 + 10, D0 + DAY + 10, D0 + 4 * DAY + 10], [0.0090, 0.0080, 0.0100]), no_funding=True)
+    out, ref = full.finalize(), only.finalize()
+    block = out["ex_no_funding"]
+    for key in (
+        "trades",
+        "mean_net_bps",
+        "t",
+        "se_daily",
+        "months",
+        "months_with_trades",
+        "pos_month_share",
+        "markets_100",
+        "pos_market_share",
+        "per_market",
+        "missing_funding",
+        "settlements_crossed",
+        "flagged_exits",
+        "mean_fill_cost_bps",
+    ):
+        assert block[key] == ref[key], key  # the same code on the same trades: identical
+    assert out["mean_net_bps"] > ref["mean_net_bps"] and out["trades"] == ref["trades"] + 3  # the total leans on it
+    assert out["trades_ex_no_funding"] == 5 and out["mean_net_ex_no_funding_bps"] == pytest.approx(ref["mean_net_bps"])
+    assert ref["ex_no_funding"] is None  # nothing to remove: the block is the total
+
+
+def test_development_needs_items_a_to_e_on_the_block_without_no_funding_trades():
+    cand = [good(id="F1-a", t=6.0, ex_no_funding=_ex(t=3.4))]
+    assert len(stats.finalist_candidates(cand, 3.0, 3.0)) == 1  # the block clears the bar 3.0 and every item
+    assert stats.finalist_candidates(cand, 3.5, 3.5) == []  # the total clears 3.5, the block does not: (b) on the block
+    for over in (
+        {"mean_net_bps": -0.1},  # (a)
+        {"months_with_trades": 3},  # (c)
+        {"markets_100": 2},  # (d)
+        {"trades": 1900},  # (e)
+        {"mean_net_bps": None, "trades": 0},  # nothing left once they are removed
+    ):
+        bad = [good(id="F1-a", t=6.0, ex_no_funding=_ex(**over))]
+        assert stats.finalist_candidates(bad, 0.0, 0.0) == [], over
+    # an F6 configuration is held to the F6 bar on its block
+    f6 = [good(id="F6-a", family="F6", t=6.0, ex_no_funding=_ex(t=3.4))]
+    assert stats.finalist_candidates(f6, 0.0, 3.0) != [] and stats.finalist_candidates(f6, 0.0, 3.5) == []
+    # no no-funding trades: the block is the total, trivially met
+    assert stats.no_funding_block_flags(good(ex_no_funding=None), 9.0)["ok"] is True
+    flags = stats.no_funding_block_flags(cand[0], 3.0)
+    assert flags["applies"] and flags["items"] == {k: True for k in "abcde"} and flags["ok"]
+
+
+def test_confirmation_holds_the_block_without_no_funding_trades_to_the_holm_threshold():
+    months = [{"month": f"2026-{m:02d}", "net": 1.0, "trades": 10} for m in (7, 8, 9, 10)]
+    checks = stats.variant_checks(2.0, 0.0, 0.5)
+    # the total is strong (t 3), the block is not (t 1.5): the p value of the block is over the threshold 0.05
+    weak = stats.confirm_flags(good(t=3.0, months=months, ex_no_funding=_ex(t=1.5, mean_net_bps=0.5)), checks)
+    strong = stats.confirm_flags(good(t=3.0, months=months, ex_no_funding=_ex(t=2.9, mean_net_bps=0.5)), checks)
+    assert weak["ex_no_funding"]["p_one_sided"] == pytest.approx(stats.normal_sf(1.5)) and weak["pre_holm_ok"]
+    flags = {"weak": weak}
+    stats.apply_holm(flags)
+    assert flags["weak"]["p_below_holm"] and not flags["weak"]["ex_p_below_holm"] and not flags["weak"]["pass"]
+    flags = {"strong": strong}
+    stats.apply_holm(flags)
+    assert flags["strong"]["ex_p_below_holm"] and flags["strong"]["pass"] and flags["strong"]["holm_threshold"] == 0.05
+    # two finalists: the first needs 0.025 on its block too, the second 0.05
+    a = stats.confirm_flags(good(t=3.5, months=months, ex_no_funding=_ex(t=2.0, mean_net_bps=0.5)), checks)
+    b = stats.confirm_flags(good(t=3.0, months=months, ex_no_funding=_ex(t=1.8, mean_net_bps=0.5)), checks)
+    two = {"a": a, "b": b}
+    stats.apply_holm(two)
+    assert two["a"]["holm_threshold"] == pytest.approx(0.025) and two["b"]["holm_threshold"] == pytest.approx(0.05)
+    assert two["a"]["ex_p_below_holm"] and two["b"]["ex_p_below_holm"]  # 0.0228 < 0.025 and 0.0359 < 0.05
+    assert two["a"]["pass"] and two["b"]["pass"]
+    c = stats.confirm_flags(good(t=3.5, months=months, ex_no_funding=_ex(t=1.9, mean_net_bps=0.5)), checks)
+    tight = {"a": c, "b": b}
+    stats.apply_holm(tight)
+    assert not tight["a"]["ex_p_below_holm"] and not tight["a"]["pass"]  # 0.0287 is not < 0.025
+    assert tight["b"]["pass"]
+    # a block with a negative mean blocks the finalist before Holm
+    neg = stats.confirm_flags(good(t=3.0, months=months, ex_no_funding=_ex(t=2.9, mean_net_bps=-0.2)), checks)
+    assert not neg["ex_no_funding_mean_ok"] and not neg["pre_holm_ok"]
+    # no no-funding trades: nothing extra to clear
+    plain = stats.confirm_flags(good(t=3.0, months=months), checks)
+    one = {"p": plain}
+    stats.apply_holm(one)
+    assert plain["ex_no_funding_mean_ok"] and one["p"]["ex_p_below_holm"] and one["p"]["pass"]
+
+
 def test_holm_with_one_two_and_three_finalists():
     assert stats.holm({"a": 0.049}) == {"a": True}
     assert stats.holm({"a": 0.05}) == {"a": False}

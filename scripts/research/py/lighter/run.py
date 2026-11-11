@@ -324,6 +324,24 @@ Eligibility = dict[tuple[int, int], dict[int, MonthInfo]]
 Proxies = dict[tuple[int, int], dict[int, float]]
 
 
+def check_out_of_scope_ids(reader: DataReader, perp_ids: set[int], cost: dict[int, Any], py: int, pm: int) -> None:
+    """Stops on a fold id that is not a perp market of markets.json and meets the activity clause in month P.
+
+    A "spot" entry is known and out of scope (ignored). An entry of any other market_type, or an id with no entry at
+    all (including the ids listed as unknown), stops the run with the id named (and the type). Below the clause such
+    an id is ignored. The one rule used by eligibility and by the confirm pre-flight.
+    """
+    for mid, cs in sorted(cost.items()):
+        if mid in perp_ids or mid in reader.non_perp or cs.activity_median < lock.ELIG_MIN_MEDIAN_TRADES:
+            continue
+        if mid in reader.other_types:
+            raise DataError(
+                f"market_id {mid} has market_type {reader.other_types[mid]!r} (neither perp nor spot) and meets the "
+                f"activity clause in {py:04d}-{pm:02d}"
+            )
+        raise DataError(f"market_id {mid} meets the activity clause in {py:04d}-{pm:02d} but is not in markets.json")
+
+
 def compute_eligibility(reader: DataReader, markets: list[Market], months: list[tuple[int, int]]) -> Eligibility:
     """For each month M the markets eligible in it, from the fold rows of the previous month only."""
     by_id = {m.market_id: m for m in markets}
@@ -331,16 +349,11 @@ def compute_eligibility(reader: DataReader, markets: list[Market], months: list[
     for y, mo in months:
         py, pm = lock.previous_month(y, mo)
         cost = reader.month_cost_stats(py, pm)
+        check_out_of_scope_ids(reader, set(by_id), cost, py, pm)
         infos: dict[int, MonthInfo] = {}
         for mid, cs in sorted(cost.items()):
             market = by_id.get(mid)
             if market is None:
-                if mid in reader.non_perp:
-                    continue  # a known entry of another market_type (spot): out of scope, ignored
-                if cs.activity_median >= lock.ELIG_MIN_MEDIAN_TRADES:
-                    raise DataError(
-                        f"market_id {mid} meets the activity clause in {py:04d}-{pm:02d} but is not in markets.json"
-                    )
                 continue
             tier = lock.classify_tier(cs.activity_median, cs.qualifying_minutes, cs.spread_proxy_bps)
             if tier is None:
@@ -825,7 +838,12 @@ def run_grid(
                         continue
                     batch = fills.select_trades(ctx, sides, ol, os_)
                     if batch.n and not f_exists[mid] and not no_funding[mid]:
-                        raise DataError(f"market {market.symbol} has trades but no funding file")
+                        hint = (
+                            " (the funding manifest says empty but the market is still listed in order books)"
+                            if reader.empty_but_listed(mid)
+                            else ""
+                        )
+                        raise DataError(f"market {market.symbol} has trades but no funding file{hint}")
                     accs[cfg.cid].add(
                         mid, batch, binj[mid][batch.j] if batch.n else None, market.cls, no_funding=no_funding[mid]
                     )
@@ -1070,6 +1088,7 @@ def evaluate_candidates(
                 c.get("no_funding_trades", 0),
                 c.get("mean_net_ex_no_funding_bps"),
             )
+            checks[c["id"]]["no_funding_block"] = stats.no_funding_block_flags(c, bar, f6_bar)
     return cand, checks, stats.select_finalists(cand, checks)
 
 
@@ -1178,6 +1197,8 @@ def cmd_report(
                 "majority_source": c["majority_source"],
                 "mean_fill_cost_bps": c["mean_fill_cost_bps"],
                 "tie_share": c["tie_share"],
+                "no_funding_trades": c.get("no_funding_trades", 0),
+                "no_funding_block": stats.no_funding_block_flags(c, bar, f6_bar),
                 **flags[c["id"]],
             }
             for c in configs
@@ -1352,23 +1373,26 @@ def check_rerun_note(paths: ConfirmPaths, marker: dict[str, Any], prov: dict[str
 def confirm_preflight(reader: DataReader, span: Span, prep: Prepared) -> dict[str, Any]:
     """Metadata checks made BEFORE the consumed marker is written. Any failure stops with the marker untouched.
 
-    Every fold day from the previous month of the first confirmation month to the last is in the manifest and its file
-    hash matches. No market id in the fold is unknown to markets.json. A funding file exists for every market eligible
-    in some confirmation month. Every Binance file the source guard may read parses structurally. The scale scan over
-    the confirmation window (warm-up start to end, the run-time code path) lists the holding breaks it finds: they are
-    recorded and handled by the exclusion rule of the run, they do not stop it.
+    Every fold day from the previous month of the first confirmation month to the last is in the manifest and
+    its file hash matches. No fold id that is not a perp market (or spot) of markets.json meets the activity
+    clause. A funding file exists for every market eligible in some confirmation month. Every Binance file the
+    source guard may read parses structurally. The scale scan over the confirmation window (warm-up start to
+    end, the run-time code path) lists the holding breaks it finds: they are recorded and handled by the
+    exclusion rule of the run, they do not stop it.
     """
     first_p = lock.previous_month(span.first.year, span.first.month)
     first_day = dt.date(first_p[0], first_p[1], 1)
     reader.require_fold_days(first_day, span.last)
-    known = {m.market_id for m in prep.markets}
-    unknown = sorted(reader.fold_market_ids - known - set(reader.non_perp))
-    if unknown:
-        raise DataError(f"market ids in the fold that markets.json does not list: {unknown}")
+    perp_ids = {m.market_id for m in prep.markets}
+    for y, mo in span.months:  # the same activity condition as eligibility, the same code
+        py, pm = lock.previous_month(y, mo)
+        check_out_of_scope_ids(reader, perp_ids, reader.month_cost_stats(py, pm), py, pm)
     active = sorted({mid for infos in prep.elig.values() for mid in infos})
     missing_funding = [mid for mid in active if not reader.funding_exists(mid) and not reader.is_no_funding(mid)]
     if missing_funding:
-        raise DataError(f"no funding file (and no manifest line saying empty) for market ids {missing_funding}")
+        raise DataError(
+            f"no funding file (and no empty manifest line for a delisted market) for market ids {missing_funding}"
+        )
     no_funding_markets = [mid for mid in active if reader.is_no_funding(mid)]
     checked: set[tuple[str, int, int]] = set()
     for ym, infos in sorted(prep.elig.items()):

@@ -239,7 +239,10 @@ class DataReader:
         self._off_grid: dict[int, int] = {}
         self._cost_cache: dict[tuple[int, int], dict[int, CostStats]] = {}
         self.fold_market_ids: set[int] = set()
-        self.non_perp: dict[int, str] = {}  # market_id -> symbol of the known entries of any other market_type (spot)
+        self.non_perp: dict[int, str] = {}  # market_id -> symbol of the known "spot" entries (out of scope)
+        self.other_types: dict[int, str] = {}  # market_id -> market_type of entries that are neither perp nor spot
+        self.delisted: set[int] = set()  # perp ids whose entry says listed_in_order_books false
+        self._markets_loaded = False
 
     # ------------------------------------------------------------------ guards
 
@@ -268,8 +271,10 @@ class DataReader:
     def load_markets(self) -> list[Market]:
         """The perp markets of <fold>/markets.json, sorted by market id.
 
-        Entries of any other market_type (spot) are known and out of scope: they are kept in `non_perp` and their
-        fold rows are ignored. An id with no entry at all (listed as unknown or absent) is still unknown.
+        Only an entry whose market_type is exactly "spot" is known and out of scope: it is kept in `non_perp` and its
+        fold rows are ignored. An entry of any other non-perp type (or none) is kept in `other_types`: a fold id there
+        that meets the activity clause stops the run. An id with no entry at all (listed as unknown or absent) is
+        unknown. `delisted` holds the perp ids with listed_in_order_books false (a version 2 file has none).
         """
         path = self.fold_dir / "markets.json"
         if not path.exists():
@@ -279,12 +284,17 @@ class DataReader:
             raise DataError("markets.json is not markets_file_version 2 or 3")
         self._record("fold/markets.json", path)
         out = []
-        self.non_perp = {}
+        self.non_perp, self.other_types, self.delisted = {}, {}, set()
         for b in doc["order_books"]:
             if b.get("market_type") != "perp":
                 if isinstance(b.get("market_id"), int):
-                    self.non_perp[b["market_id"]] = str(b.get("symbol", ""))
+                    if b.get("market_type") == "spot":
+                        self.non_perp[b["market_id"]] = str(b.get("symbol", ""))
+                    else:
+                        self.other_types[b["market_id"]] = str(b.get("market_type"))
                 continue
+            if b.get("listed_in_order_books") is False and isinstance(b.get("market_id"), int):
+                self.delisted.add(b["market_id"])
             if b.get("supported_price_decimals") is None:
                 raise DataError(f"market {b.get('symbol')} has no supported_price_decimals")
             try:
@@ -296,6 +306,7 @@ class DataReader:
         if len(set(ids)) != len(ids):
             raise DataError("duplicate market ids in markets.json")
         out.sort(key=lambda m: m.market_id)
+        self._markets_loaded = True
         return out
 
     def _manifest_days(self) -> dict[str, str | None]:
@@ -613,14 +624,29 @@ class DataReader:
         return self._funding_status
 
     def is_no_funding(self, market_id: int) -> bool:
-        """A no-funding market: no funding file AND the last funding manifest line for the id says "empty".
+        """A no-funding market: a DELISTED market (markets.json: listed_in_order_books false) with no funding file AND
+        the last funding manifest line for the id says "empty".
 
         The venue serves no funding history for delisted markets. A market with a funding file is never one, whatever
-        the manifest says. A status "failed", or no line at all, is not "empty".
+        the manifest says. A status "failed", or no line at all, is not "empty". A market that is still listed (true,
+        or a version 2 file without the key) is never one: a transient empty answer must not let an active market
+        trade at zero funding.
         """
         if self.funding_exists(market_id):
             return False
+        if not self._markets_loaded:
+            self.load_markets()
+        if market_id not in self.delisted:
+            return False
         return self._funding_statuses().get(market_id) == "empty"
+
+    def empty_but_listed(self, market_id: int) -> bool:
+        """True when the funding manifest says "empty" for a market that is not delisted (the error case to name)."""
+        if self.funding_exists(market_id):
+            return False
+        if not self._markets_loaded:
+            self.load_markets()
+        return market_id not in self.delisted and self._funding_statuses().get(market_id) == "empty"
 
     def load_funding(self, market_id: int, end_ms: int) -> tuple[np.ndarray, np.ndarray]:
         """Settlement times (ms) and rate_long_pays, only rows with a timestamp before end_ms. Empty when no file."""

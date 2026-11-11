@@ -852,11 +852,22 @@ def test_pre_flight_checks_funding_unknown_ids_and_the_binance_structure(planted
     reader.fold_market_ids.add(2048)
     assert run.confirm_preflight(reader, span, prep)["scale_breaks_found"] == []
     reader.fold_market_ids.discard(2048)
-    # a market id in the fold that markets.json does not list
-    reader.fold_market_ids.add(77)
-    with pytest.raises(DataError, match=r"\[77\]"):
+    # a fold id that markets.json does not list stops the pre-flight only when it meets the activity clause
+    cost = reader.month_cost_stats(2025, 7)
+    cost[77] = data.CostStats(40.0, 0, float("nan"))  # a handful of trades: ignored
+    run.confirm_preflight(reader, span, prep)
+    cost[77] = data.CostStats(6000.0, 0, float("nan"))
+    with pytest.raises(DataError, match="market_id 77 meets the activity clause"):
         run.confirm_preflight(reader, span, prep)
-    reader.fold_market_ids.discard(77)
+    del cost[77]
+    # an entry that is neither perp nor spot stops by id and type; spot with heavy activity does not
+    cost[2048] = data.CostStats(90_000.0, 0, float("nan"))
+    run.confirm_preflight(reader, span, prep)
+    reader.other_types[2049] = "margin"
+    cost[2049] = data.CostStats(6000.0, 0, float("nan"))
+    with pytest.raises(DataError, match="market_id 2049 has market_type 'margin'"):
+        run.confirm_preflight(reader, span, prep)
+    del cost[2048], cost[2049]
     # no funding file for an eligible market
     monkeypatch.setattr(DataReader, "funding_exists", lambda self, mid: mid != 3)
     with pytest.raises(DataError, match=r"funding file .* for market ids \[3\]"):
@@ -1589,19 +1600,42 @@ def test_no_funding_classification_follows_file_and_the_last_manifest_line(tmp_p
         {"market_id": 7, "status": "empty"},
         {"market_id": 7, "status": "failed"},  # the last line is failed: not empty
         {"market_id": 8, "status": "ok"},  # no file but ok: not empty
+        {"market_id": 10, "status": "empty"},  # empty, but the market is still listed (true): not a no-funding market
+        {"market_id": 11, "status": "empty"},  # empty, but the entry has no listed flag (a version 2 file): not one
     ]
     (fdir / "manifest.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines) + "not json\n")
+    delisted = {1, 2, 3, 4, 5, 7, 8}
+    names = dict(
+        zip((1, 2, 3, 4, 5, 6, 7, 8, 10, 11), "BTC ETH SOL XRP DOGE ADA LINK AVAX DOT LTC".split(), strict=True)
+    )
+    books = [
+        {"symbol": names[i], "market_id": i, "market_type": "perp", "supported_price_decimals": 2}
+        | ({"listed_in_order_books": i not in delisted} if i != 11 else {})
+        for i in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11)
+    ]
+    (tmp_path / "markets.json").write_text(json.dumps({"markets_file_version": 3, "order_books": books}))
     r = DataReader(fold_dir=tmp_path, funding_dir=fdir, mode="dev")
-    got = {mid: r.is_no_funding(mid) for mid in (1, 2, 3, 4, 5, 6, 7, 8)}  # 4 has no line at all
-    assert got == {1: False, 2: True, 3: False, 4: False, 5: True, 6: False, 7: False, 8: False}
+    assert len(r.load_markets()) == 10 and r.delisted == delisted
+    got = {mid: r.is_no_funding(mid) for mid in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11)}  # 4 has no line at all
+    assert got == {1: False, 2: True, 3: False, 4: False, 5: True, 6: False, 7: False, 8: False, 10: False, 11: False}
+    assert r.empty_but_listed(10) and r.empty_but_listed(11) and not r.empty_but_listed(2)
     assert "funding/manifest.jsonl" in r.manifest  # the manifest read is in the data manifest
     # a nested funding/funding layout and no manifest at all
     nested = tmp_path / "n"
     (nested / "funding").mkdir(parents=True)
     (nested / "funding" / "manifest.jsonl").write_text(json.dumps({"market_id": 9, "status": "empty"}) + "\n")
-    assert DataReader(fold_dir=tmp_path, funding_dir=nested, mode="dev").is_no_funding(9)
+    (tmp_path / "markets.json").write_text(
+        json.dumps(
+            {
+                "markets_file_version": 3,
+                "order_books": [
+                    {**books[0], "market_id": 9, "symbol": "UNI", "listed_in_order_books": False},
+                ],
+            }
+        )
+    )
+    assert DataReader(fold_dir=tmp_path, funding_dir=nested, mode="dev").is_no_funding(9)  # loads markets.json itself
     assert not DataReader(fold_dir=tmp_path, funding_dir=tmp_path / "none", mode="dev").is_no_funding(9)
-    assert not DataReader(fold_dir=tmp_path, mode="dev").is_no_funding(9)
 
 
 def test_a_no_funding_market_trades_with_zero_funding_and_stays_out_of_the_missing_share(tmp_path):
@@ -1627,6 +1661,13 @@ def test_a_no_funding_market_trades_with_zero_funding_and_stays_out_of_the_missi
         assert b[cfg.cid]["trades_ex_no_funding"] == len(rest) == b[cfg.cid]["trades"] - len(t2["net"])
         assert b[cfg.cid]["mean_net_ex_no_funding_bps"] == pytest.approx(sum(rest) / len(rest) * lock.BPS)
         assert a[cfg.cid]["mean_net_ex_no_funding_bps"] == pytest.approx(a[cfg.cid]["mean_net_bps"])
+        # the full block without the market: its own series, shares and counters
+        block = b[cfg.cid]["ex_no_funding"]
+        assert (
+            block["trades"] == len(rest) and "2" not in block["per_market"] and set(block["per_market"]) <= {"1", "3"}
+        )
+        assert block["mean_net_bps"] == pytest.approx(b[cfg.cid]["mean_net_ex_no_funding_bps"])
+        assert a[cfg.cid]["ex_no_funding"] is None  # nothing removed: the block is the total
 
 
 def test_f6_never_trades_a_no_funding_market(tmp_path):
@@ -1644,20 +1685,35 @@ def test_f6_never_trades_a_no_funding_market(tmp_path):
     )
 
 
-def test_trades_without_a_funding_file_and_without_an_empty_line_are_an_error(tmp_path):
+def test_trades_without_a_funding_file_are_an_error_unless_delisted_and_empty(tmp_path):
     cfgs = f1_configs(holds=(15,), thetas=(1.0,), ks=(1,))
-    for tag, line in (
-        ("failed", {"market_id": 2, "status": "failed"}),
-        ("noline", None),
-        ("ok", {"market_id": 2, "status": "ok"}),
-    ):
-        panel = make_panel(tmp_path / tag, PanelSpec(n_markets=3, days=6, seed=2))
-        (panel.funding_dir / "market_2.parquet").unlink()
-        manifest = panel.funding_dir / "manifest.jsonl"
-        kept = [x for x in manifest.read_text().splitlines() if json.loads(x)["market_id"] != 2]
-        manifest.write_text("".join(x + "\n" for x in kept) + (json.dumps(line) + "\n" if line else ""))
-        with pytest.raises(DataError, match="market ETH has trades but no funding file"):
-            _nf_run(panel, cfgs, tmp_path / ("t" + tag))
+    lines = {
+        "empty": {"market_id": 2, "status": "empty"},
+        "failed": {"market_id": 2, "status": "failed"},
+        "noline": None,
+        "ok": {"market_id": 2, "status": "ok"},
+    }
+    for listed in (True, False):
+        for tag, line in lines.items():
+            name = f"{tag}_{'listed' if listed else 'delisted'}"
+            panel = make_panel(tmp_path / name, PanelSpec(n_markets=3, days=6, seed=2))
+            (panel.funding_dir / "market_2.parquet").unlink()
+            manifest = panel.funding_dir / "manifest.jsonl"
+            kept = [x for x in manifest.read_text().splitlines() if json.loads(x)["market_id"] != 2]
+            manifest.write_text("".join(x + "\n" for x in kept) + (json.dumps(line) + "\n" if line else ""))
+            doc = json.loads((panel.fold_dir / "markets.json").read_text())
+            for b in doc["order_books"]:
+                if b["market_id"] == 2 and b["market_type"] == "perp":
+                    b["listed_in_order_books"] = listed
+            (panel.fold_dir / "markets.json").write_text(json.dumps(doc))
+            if not listed and tag == "empty":
+                results, quality = _nf_run(panel, cfgs, tmp_path / ("t" + name))  # the one case that trades
+                assert quality["2"]["no_funding"] is True
+                continue
+            with pytest.raises(DataError, match="market ETH has trades but no funding file") as exc:
+                _nf_run(panel, cfgs, tmp_path / ("t" + name))
+            hinted = "still listed in order books" in str(exc.value)
+            assert hinted == (listed and tag == "empty")  # the transient-empty case is named as such
 
 
 def test_confirm_preflight_accepts_a_no_funding_market_and_refuses_a_missing_file(tmp_path, monkeypatch):

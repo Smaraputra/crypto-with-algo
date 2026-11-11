@@ -134,7 +134,7 @@ class ConfigAcc:
         self.by_source = {src: _Block(n_days) for src in self.SOURCES}
         self.by_class = {k: _Block(n_days) for k in ("crypto", "tradfi", "unclassified")}
         self.no_funding_trades = 0  # trades of no-funding markets (charged zero funding)
-        self.no_funding_net = 0.0  # their summed net, so the mean without them needs no second run
+        self.ex = _Block(n_days)  # the configuration without its no-funding-market trades, same code and counters
         self.unfilled = 0
         self.no_sigma = 0
         self.no_exit = 0
@@ -171,7 +171,8 @@ class ConfigAcc:
         self.total.add(market_id, day, batch, count_funding=cf)
         if no_funding:
             self.no_funding_trades += batch.n
-            self.no_funding_net += float(batch.net.sum())
+        else:
+            self.ex.add(market_id, day, batch)
         if klass in self.by_class:
             self.by_class[klass].add(market_id, day, batch, count_funding=cf)
         if flags.any():
@@ -205,12 +206,13 @@ class ConfigAcc:
             out["by_source"][src] = {k: sub[k] for k in keep} | {"months": sub["months"]}
         counts = {src: out["by_source"][src]["trades"] for src in self.SOURCES}
         majority = max(counts, key=lambda k: (counts[k], k)) if out["trades"] else None
-        rest = out["trades"] - self.no_funding_trades
+        ex = self.ex.summary(self.day0_ms)
         out["no_funding_trades"] = self.no_funding_trades
-        out["trades_ex_no_funding"] = rest
-        out["mean_net_ex_no_funding_bps"] = (
-            (float(self.total.daily_sum.sum()) - self.no_funding_net) / rest * lock.BPS if rest > 0 else None
-        )
+        out["trades_ex_no_funding"] = ex["trades"]
+        out["mean_net_ex_no_funding_bps"] = ex["mean_net_bps"]
+        # the full statistics block without the no-funding-market trades (None when there are none: it equals the
+        # total, and every condition on it is trivially met)
+        out["ex_no_funding"] = ex if self.no_funding_trades else None
         out["majority_source"] = majority
         out["majority_source_mean_net_bps"] = out["by_source"][majority]["mean_net_bps"] if majority else None
         if cfg.family == "F2":
@@ -285,6 +287,28 @@ def is_suspect(stat: dict[str, Any]) -> bool:
     return bool((mean is not None and mean > lock.TRIPWIRE_MEAN_BPS) or stat["t"] > lock.TRIPWIRE_T)
 
 
+def no_funding_block_flags(
+    stat: dict[str, Any], bar: float, f6_bar: float | None = None, family: str | None = None
+) -> dict[str, Any]:
+    """Development: items (a) to (e) on the block without the no-funding-market trades, with the same noise bar.
+
+    Trivially met when the configuration has no no-funding trades (the block equals the total).
+    """
+    ex = stat.get("ex_no_funding")
+    if ex is None:
+        return {"applies": False, "ok": True}
+    f = dev_flags({**ex, "family": family or stat.get("family")}, bar, f6_bar)
+    items = {k: f[k] for k in "abcde"}
+    return {
+        "applies": True,
+        "trades": ex["trades"],
+        "mean_net_bps": ex["mean_net_bps"],
+        "t": ex["t"],
+        "items": items,
+        "ok": all(items.values()),
+    }
+
+
 def finalist_candidates(
     stats: list[dict[str, Any]], bar: float, f6_bar: float, cleared: tuple[str, ...] = ()
 ) -> list[dict[str, Any]]:
@@ -296,6 +320,8 @@ def finalist_candidates(
         if is_suspect(s) and s["id"] not in cleared:
             continue
         if s.get("missing_funding_share", 0.0) > lock.MAX_MISSING_FUNDING_SHARE:
+            continue
+        if not no_funding_block_flags(s, bar, f6_bar)["ok"]:
             continue
         if "majority_source_mean_net_bps" in s and not (s["majority_source_mean_net_bps"] or 0.0) > 0:
             continue
@@ -402,21 +428,43 @@ def confirm_flags(
         out["majority_source"] = majority_source
         out["majority_source_mean_net_bps"] = src_mean
     out["source_ok"] = ok_source
+    ex = stat.get("ex_no_funding")
+    ex_mean_ok = True
+    if ex is not None:
+        # the block without the no-funding-market trades: mean > 0 here, its p value is held to the Holm threshold below
+        ex_mean = ex.get("mean_net_bps")
+        ex_mean_ok = bool(ex_mean is not None and ex_mean > 0)
+        out["ex_no_funding"] = {
+            "trades": ex["trades"],
+            "mean_net_bps": ex_mean,
+            "t": ex["t"],
+            "p_one_sided": normal_sf(ex["t"]),
+            "mean_positive": ex_mean_ok,
+        }
+    out["ex_no_funding_mean_ok"] = ex_mean_ok
     ok_checks = True
     if checks is not None:
         out.update(checks)
         ok_checks = bool(checks["mirror_ok"] and checks["doubled_ok"] and checks.get("no_funding_ok", True))
     out["checks_ok"] = ok_checks
-    out["pre_holm_ok"] = bool(ok_mean and ok_m and ok_checks and ok_source)
+    out["pre_holm_ok"] = bool(ok_mean and ok_m and ok_checks and ok_source and ex_mean_ok)
     return out
 
 
 def apply_holm(flags_by_id: dict[str, dict[str, Any]]) -> None:
     """Adds p_below_holm and pass to each finalist's flags (Holm over the finalists' p values)."""
-    verdict = holm({k: v["p_one_sided"] for k, v in flags_by_id.items()})
-    for k, v in flags_by_id.items():
+    pvalues = {k: v["p_one_sided"] for k, v in flags_by_id.items()}
+    verdict = holm(pvalues)
+    order = sorted(pvalues, key=lambda k: (pvalues[k], k))
+    for rank, k in enumerate(order):
+        v = flags_by_id[k]
+        threshold = lock.CONFIRM_ALPHA / (len(order) - rank)  # this finalist's Holm threshold
+        v["holm_threshold"] = threshold
         v["p_below_holm"] = bool(verdict[k])
-        v["pass"] = bool(v["pre_holm_ok"] and verdict[k])
+        ex = v.get("ex_no_funding")
+        # the block without the no-funding-market trades must clear the same threshold
+        v["ex_p_below_holm"] = True if ex is None else bool(ex["p_one_sided"] < threshold)
+        v["pass"] = bool(v["pre_holm_ok"] and verdict[k] and v["ex_p_below_holm"])
 
 
 # ---------------------------------------------------------------------------------------------------------------

@@ -402,6 +402,7 @@ def make_panel(root: Path, spec: PanelSpec) -> Panel:
             "created_at": 0,
             "maker_fee": "0",
             "taker_fee": "0",
+            "listed_in_order_books": m.market_id not in spec.no_funding_markets,  # a no-funding market is delisted
         }
         for m in markets
     ]
@@ -409,9 +410,10 @@ def make_panel(root: Path, spec: PanelSpec) -> Panel:
     (fold_dir / "markets.json").write_text(
         json.dumps(
             {
-                "markets_file_version": 2,
+                "markets_file_version": 3,
                 "fetched_at": "2026-11-11T00:00:00+00:00",
                 "source": "synthetic",
+                "unknown_market_ids": [],
                 "order_books": order_books,
             },
             indent=1,

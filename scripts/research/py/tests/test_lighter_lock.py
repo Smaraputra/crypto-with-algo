@@ -879,6 +879,29 @@ def test_a_spot_entry_with_heavy_activity_is_known_and_ignored_and_listed(tmp_pa
     assert d2["non_perp_market_ids"] == []
 
 
+def test_only_a_spot_entry_is_out_of_scope_any_other_type_with_activity_stops_with_the_type(tmp_path):
+    for kind in ("margin", None):
+        # below the clause the id is ignored; at the clause it stops, naming the id and the type
+        for act, stops in ((4999, False), (5000, True)):
+            (tmp_path / f"{kind}{act}").mkdir()
+            r2 = june_root(tmp_path / f"{kind}{act}", spec={**JUNE, 900: MM(activity=act)})
+            d2 = json.loads((r2 / "markets.json").read_text())
+            s2 = next(b for b in d2["order_books"] if b["market_id"] == 900)
+            if kind is None:
+                del s2["market_type"]
+            else:
+                s2["market_type"] = kind
+            (r2 / "markets.json").write_text(json.dumps(d2))
+            reader = dev_reader(r2)
+            markets = reader.load_markets()
+            assert reader.non_perp == {} and reader.other_types == {900: str(kind)}
+            if stops:
+                with pytest.raises(data.DataError, match=rf"market_id 900 has market_type '{kind}'"):
+                    run.compute_eligibility(reader, markets, [(2025, 7)])
+            else:
+                run.compute_eligibility(reader, markets, [(2025, 7)])
+
+
 def test_a_spot_entry_does_not_hide_an_unknown_id_that_meets_the_clause(tmp_path):
     root = june_root(tmp_path, spec={**JUNE, 900: MM(activity=80_000), 99: MM(activity=5000)})
     _as_version_3(root, unknown=[99])
