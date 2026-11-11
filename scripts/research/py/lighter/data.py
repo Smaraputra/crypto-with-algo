@@ -42,6 +42,18 @@ DAY_MS = lock.DAY_MS
 NEVER_READ_FROM = dt.date(2026, 11, 1)
 
 BINANCE_COLUMNS = ("open_time", "close", "quote_volume", "taker_buy_quote")
+BINANCE_HEADER = (
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "quote_volume",
+    "trades",
+    "taker_buy_base",
+    "taker_buy_quote",
+)
 ELIGIBILITY_COLUMNS = ("market_id", "n_trades", "last_buy_px", "last_buy_ts", "last_sell_px", "last_sell_ts")
 FOLD_COLUMNS = (
     "market_id",
@@ -219,7 +231,7 @@ class DataReader:
         self.binance_dir = None if binance_dir is None else Path(binance_dir)
         self.funding_dir = None if funding_dir is None else Path(funding_dir)
         self._hash_cache: dict[Path, str] = {}
-        self._fold_days: set[str] | None = None
+        self._fold_days: dict[str, str | None] | None = None
         self.manifest: dict[str, str] = {}
         self._missing_months: set[str] = set()
         self._known_missing: set[str] = set()
@@ -277,19 +289,20 @@ class DataReader:
         out.sort(key=lambda m: m.market_id)
         return out
 
-    def _manifest_days(self) -> set[str]:
+    def _manifest_days(self) -> dict[str, str | None]:
+        """Date -> output_sha256 of the fold manifest (the last line of a date wins)."""
         if self._fold_days is None:
             path = self.fold_dir / "manifest.jsonl"
             if not path.exists():
                 raise DataError(f"the fold manifest {path} is missing")
-            days: set[str] = set()
+            days: dict[str, str | None] = {}
             for line in path.read_text().splitlines():
                 try:
                     rec = json.loads(line)
                 except json.JSONDecodeError:
                     continue
                 if isinstance(rec, dict) and isinstance(rec.get("date"), str):
-                    days.add(rec["date"])
+                    days[rec["date"]] = rec.get("output_sha256")
             self._fold_days = days
             self._record("fold/manifest.jsonl", path)
         return self._fold_days
@@ -301,11 +314,25 @@ class DataReader:
         """True when the day is in the fold manifest and its file exists. A known-missing day is False, not an error."""
         iso = day.isoformat()
         if iso in self._manifest_days() and self.fold_path(day).exists():
+            self._verify_fold_hash(day)
             return True
         if iso in lock.KNOWN_MISSING_FOLD_DAYS:
             self._known_missing.add(iso)
             return False
         raise DataError(f"fold day {iso} is absent from the fold manifest or its file is missing")
+
+    def _verify_fold_hash(self, day: dt.date) -> None:
+        """The file's sha256 must equal that day's output_sha256 in the fold manifest."""
+        iso = day.isoformat()
+        want = self._manifest_days()[iso]
+        if not want:
+            raise DataError(f"fold day {iso}: the manifest line carries no output_sha256")
+        path = self.fold_path(day)
+        digest = self._hash_cache.get(path)
+        if digest is None:
+            digest = self._hash_cache[path] = sha256_file(path)
+        if digest != want:
+            raise DataError(f"fold day {iso}: the file's sha256 differs from the fold manifest's output_sha256")
 
     def require_fold_days(self, first: dt.date, last: dt.date) -> None:
         day = first
@@ -411,6 +438,27 @@ class DataReader:
             tbq[idx] = frame["taker_buy_quote"].to_numpy()[keep]
         return {"b_has": has, "b_close": close, "b_qv": qv, "b_tbq": tbq}
 
+    def check_binance_structure(self, symbol: str, year: int, month: int) -> None:
+        """Header, open_time strictly increasing, inside the file's month, no duplicates. A missing file is an error."""
+        path = self.binance_path(symbol, year, month)
+        if not path.exists():
+            raise DataError(f"{path.name} is missing")
+        try:
+            with gzip.open(path, "rt") as f:
+                header = f.readline().strip().split(",")
+                if header[: len(BINANCE_HEADER)] != list(BINANCE_HEADER):
+                    raise DataError(f"{path.name}: unexpected header {header[:4]}")
+            frame = pd.read_csv(path, usecols=["open_time"], dtype=np.int64)
+        except (OSError, ValueError, EOFError) as exc:
+            raise DataError(f"{path.name} does not parse: {exc}") from exc
+        t = frame["open_time"].to_numpy()
+        lo = day_start_ms(dt.date(year, month, 1))
+        hi = day_start_ms(dt.date(year + (month == 12), 1 if month == 12 else month + 1, 1))
+        if len(t) and (t.min() < lo or t.max() >= hi):
+            raise DataError(f"{path.name} holds a row outside its month")
+        if len(t) > 1 and not (np.diff(t) > 0).all():
+            raise DataError(f"{path.name}: open_time is not strictly increasing (duplicates or disorder)")
+
     # ------------------------------------------------------------------ minutes
 
     def load_minutes(
@@ -479,6 +527,14 @@ class DataReader:
             flows["sell_small"][idx] = num("sell_usd_lt_1k")
             flows["buy_large"][idx] = num("buy_usd_10k_100k") + num("buy_usd_ge_100k")
             flows["sell_large"][idx] = num("sell_usd_10k_100k") + num("sell_usd_ge_100k")
+        for mid, minute_ms, k in lock.KNOWN_SCALE_BREAKS:
+            if mid != market.market_id:
+                continue
+            if k == 0:
+                raise DataError("a KNOWN_SCALE_BREAKS entry with k = 0 is not allowed")
+            upto = int(np.clip((minute_ms - t0_ms) // MINUTE_MS, 0, n))
+            for name in price_cols:
+                floats[name][:upto] *= 10.0**k
         if binance_months and binance_symbol:
             b = self._load_binance(binance_symbol, binance_months, t0_ms, n)
         else:

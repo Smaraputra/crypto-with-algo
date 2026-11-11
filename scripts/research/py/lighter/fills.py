@@ -45,6 +45,7 @@ class FillContext:
     hour0: int
     cum_rate: np.ndarray
     cum_miss: np.ndarray
+    break_min: int = BIG  # first minute of an excluded scale break (confirmation only): trades open then exit at it
 
 
 def quote_spread(md: MinuteData) -> np.ndarray:
@@ -76,6 +77,7 @@ def build_context(
     mid: np.ndarray | None = None,
     sp_bps: np.ndarray | float = 0.0,
     sp_mult: float = 1.0,
+    break_min: int | None = None,
 ) -> FillContext:
     if mid is None:
         mid, _ = mid_proxy(md)
@@ -93,6 +95,10 @@ def build_context(
     cum_rate = np.concatenate([[0.0], np.cumsum(np.nan_to_num(rate))])
     cum_miss = np.concatenate([[0], np.cumsum(np.isnan(rate))]).astype(np.int64)
     sp = np.full(md.n, float(sp_bps)) if np.isscalar(sp_bps) else np.asarray(sp_bps, dtype=np.float64)
+    brk = BIG if break_min is None else int(break_min)
+    if brk < md.n:
+        logmid = logmid.copy()
+        logmid[brk:] = np.nan  # no stop/target mark across a scale break
     return FillContext(
         t0_ms=md.t0_ms,
         n=md.n,
@@ -111,6 +117,7 @@ def build_context(
         hour0=hour0,
         cum_rate=cum_rate,
         cum_miss=cum_miss,
+        break_min=brk,
     )
 
 
@@ -219,14 +226,19 @@ def _finish(
     ent_tie: np.ndarray,
 ) -> Outcomes:
     """Exit fills at decision minute e (the fill search, the fallback), funding and returns."""
+    forced = e >= ctx.break_min  # open at an excluded scale break: exit there by the fallback rule, flagged
+    e = np.where(forced, ctx.break_min - 1, e)
     found, _, x_px, x_ts, x_sp, x_tie = first_print_fill(ctx, -side, e)
-    fallback_min = e + lock.EXIT_SEARCH_MINUTES
-    fb_sp = np.maximum(np.maximum(ctx.sp_bps[e], ctx.xs[fallback_min]), ctx.xs[fallback_min - 1]) * ctx.sp_mult
+    found = found & ~forced
+    fallback_min = np.where(forced, ctx.break_min - 1, e + lock.EXIT_SEARCH_MINUTES)
+    fb_sp = np.maximum(np.maximum(ctx.sp_bps[e], ctx.xs[fallback_min]), ctx.xs[np.maximum(fallback_min - 1, 0)])
+    fb_sp = fb_sp * ctx.sp_mult
     half = 0.5 * fb_sp / lock.BPS
     # the exit of a long is a sell: the fallback mid is moved down, the exit of a short is a buy: moved up
     fb_px = ctx.mid[fallback_min] * (1.0 - side * half)
     exit_px = np.where(found, x_px, fb_px)
-    exit_ts_f = np.where(found, x_ts, (ctx.t0_ms + (fallback_min + 1) * lock.MINUTE_MS).astype(np.float64))
+    stamp = ctx.t0_ms + (fallback_min + 1) * lock.MINUTE_MS  # the end of minute e + 15, or the break minute's start
+    exit_ts_f = np.where(found, x_ts, stamp.astype(np.float64))
     ok = status == STATUS_OK
     bad_exit = ok & ~(np.isfinite(exit_px) & (exit_px > 0) & np.isfinite(exit_ts_f))
     status = np.where(bad_exit, STATUS_NO_EXIT, status)
@@ -273,7 +285,7 @@ def outcomes(ctx: FillContext, side: int, hold: int, kinds: tuple[str, ...], j_l
     j = np.arange(j_lo, j_hi + 1, dtype=np.int64)
     mg = j * GRID_MIN
     filled, _, ent_px, ent_ts, ent_sp, ent_tie = first_print_fill(ctx, side, mg, search=0)
-    filled = filled & np.isfinite(ent_px) & np.isfinite(ent_sp)
+    filled = filled & np.isfinite(ent_px) & np.isfinite(ent_sp) & (mg < ctx.break_min)  # no entry from a break on
     sig_h = ctx.sigma[j] * np.sqrt(hold / GRID_MIN)
     has_sigma = np.isfinite(sig_h)
     hits: dict[str, tuple[np.ndarray, np.ndarray]] = {}

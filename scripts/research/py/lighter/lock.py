@@ -98,14 +98,24 @@ PRICES FOR SIGNALS
   |ln(ratio) - k ln 10| < 0.05 for an integer k != 0, AND the new level holds: the median mid proxy of the next 60
   printed minutes (the jump minute included) is within 0.05 (in ln) of the post-jump level. Read as a level shift: the
   median of the previous 60 printed minutes must likewise sit within 0.05 of the pre-jump level (so the return from a
-  crash minute is no rescaling), and each window needs at least 30 printed minutes (a listing minute or the end of the
-  data cannot be confirmed). Only that stops a command,
-  with the market and the minute named; a crash or a listing minute that does not hold is only listed.
-  KNOWN_SCALE_BREAKS
-  (empty) is frozen from the output of the scalescan command at registration. scalescan reads mid proxy inputs
-  (last_px, last_buy_px, last_sell_px) of the development span only, computes no signal and no strategy return, may be
-  run before registration and writes scale_breaks.json with every candidate jump (market, minute, ln ratio, whether it
-  holds).
+  crash minute is no rescaling). A candidate with fewer than 30 printed minutes (SCALE_MIN_WINDOW) on either side
+  cannot be refuted and counts as holding: it stops the run and is listed. Only a holding break stops a command, with
+  the market and the minute named; a crash that does not hold is only listed. scalescan and the run-time check use the
+  same code over the same window, from the warm-up start (t0, two days before the span start) to the span end.
+  KNOWN_SCALE_BREAKS (empty) is frozen from the output of the scalescan command at registration. An entry is
+  (market_id, minute start in ms, k): when the fold rows are read, data.py multiplies the market's raw prices
+  (every price column) of all minutes BEFORE that minute by 10^k, so the series is continuous in the later scale, before
+  anything else reads them. k = 0 is not allowed. scalescan reads mid proxy inputs (last_px, last_buy_px,
+  last_sell_px) only, computes no signal and no strategy return, may be run before registration and writes
+  scale_breaks.json with every candidate jump (market, minute, ln ratio, whether it holds).
+- Fold integrity: every fold day read is hashed and its sha256 must equal that day's output_sha256 in the fold
+  manifest, else the command stops (synthetic panels carry correct hashes too).
+- Registration anchor (records/lighter_l1_registration.json, printed by register-check): the lock digest, the sha256 of
+  the fold manifest, markets.json and the funding manifest, one sha256 over the sorted (file name, sha256 of the file's
+  bytes) of the funding Parquet files and one of the Binance files. Per-file hashes are cached in memory for one
+  process, computed once at the start of a command, with progress on stderr. On non-synthetic data dev, null, report
+  and confirm refuse unless the anchor file is committed (tracked and unmodified at HEAD, or LIGHTER_RECORD_COMMITTED=1
+  where git is unavailable) and matches.
 
 INPUTS
 - r_k(g) = ln(close5(g) / close5(g - 5k min)), valid when both closes are valid.
@@ -197,7 +207,9 @@ unchanged at 09:16, rows for 08:00 and 09:00 appeared afterwards, and the venue'
 each hour mark from the premium of the last hour. Not excluded: the rate being fixed at t and paid at t + 1 hour. Under
 that reading F6's signal is the rate actually paid and every funding charge is one hour late. A realised payment settles
 it (the fill probe). An F6 finalist cannot go forward before that check. FUNDING_STAMP_VERIFIED is False until the lead
-flips it at registration, and dev refuses to run on non-synthetic data while it is False.
+flips it at registration, and dev refuses to run on non-synthetic data while it is False. FUNDING_STAMP_VERIFIED True
+certifies that a row stamped t was observed to be final at t and unchanged afterwards. It does not certify the payment
+time (reading B stays open until a realised payment is checked).
 
 STATISTICS. Daily series: for every configuration, every UTC day from 2025-07-01 (dev) or 2026-07-01 (confirm) to the
 span end, the sum of net over trades whose exit fill timestamp falls on that day (0 on days with no exit). t = mean /
@@ -254,14 +266,34 @@ the
 dev and null files, "ran": false) and stops. `confirm --run` requires that record to be committed (git: tracked and
 unmodified at HEAD; where git is unavailable, LIGHTER_RECORD_COMMITTED=1), refuses when a confirm result already
 exists in the out dir or the record says it ran, re-runs each finalist on the development data first (stopping on any
-difference from the dev result), marks the record consumed (records/confirm_ran_<digest>.json) and then runs the
-confirmation. Null runs with no maximum (None) are an error.
+difference from the dev result), makes a metadata pre-flight, marks the record consumed
+(records/confirm_ran_<digest>.json) and then runs the confirmation. Null runs with no maximum (None) are an error.
+The pre-flight runs BEFORE the marker is written, and anything it finds stops the command with the marker untouched:
+every fold day from the previous month of the first confirmation month to the last is in the manifest with a matching
+file hash, no market id in the fold is missing from markets.json, a funding file exists for every market eligible in
+some confirmation month, every Binance file the source guard may read parses (header, open_time strictly increasing and
+inside its month, no duplicates), and the scale scan over the confirmation window (as in the price-scale guard) is made
+and its holding breaks are listed in the result (the exclusion rule below handles them).
+A holding scale break found in confirmation data excludes that market from the break minute onward for the rest of the
+confirmation span (a trade open at that minute exits by the fallback rule at that minute, flagged). A run stopped by a
+data error before any statistic is written records the error in the marker (status "error") and may be re-run once,
+after a committed note in records/lighter_l1_confirm_rerun_note.json that names the error (a JSON object with
+"marker_sha256", the content hash of the marker it answers, and "error", the marker's error text); the result records
+the sha256 of the note. A second error leaves the confirmation consumed. The consumed marker and the confirm result are
+to be committed together, and confirm prints the two paths with their sha256 at the end. A synthetic rehearsal keeps
+its confirm record, marker and note in its own out dir with a "synthetic" suffix, which a real run ignores and refuses
+to accept as its own.
+
+REPORT. The report says at the top of its output, and in its caution field: "Development statistics at normal spread are
+optimistic for event-driven configurations, and the noise bar is built from shifted decisions that are not at event
+times. Only finalists, which also pass the doubled-spread and cost-adjusted mirror conditions, carry meaning."
 
 TRIPWIRE. Any configuration with mean net above 5 bps a trade or daily t above 8 is marked SUSPECT in the report, and
 the report says to audit for look-ahead before anything else. A SUSPECT configuration cannot be a finalist until an
 audit note is committed and its id is listed in scripts/research/py/records/lighter_l1_suspect_cleared.json (a list of
 configuration ids with a note each; absent means empty). The file lives outside lighter/ because editing a lock constant
-would change the digest. report reads it and records its sha256, and confirm checks the same hash.
+would change the digest. report reads it and records its sha256, and confirm checks the same hash. When the file is
+present, report and confirm refuse on non-synthetic data unless it is committed (tracked and unmodified at HEAD).
 
 ACCOUNT LAYER (report only, finalists only): start 100 USD, leverage L in (3, 10, 20), at most 10 concurrent
 positions, notional per entry = max(10, equity x L / 10) USD, an entry is skipped when 10 positions are open or
@@ -330,6 +362,12 @@ from typing import Any
 
 from lighter.fold_trades import FILL_DELAY_MS
 
+REPORT_CAUTION = (
+    "Development statistics at normal spread are optimistic for event-driven configurations, and the noise bar is "
+    "built from shifted decisions that are not at event times. Only finalists, which also pass the doubled-spread "
+    "and cost-adjusted mirror conditions, carry meaning."
+)
+
 PREDICTION = (
     "Registered 2026-11-11 by the lead before any run: no finalist passes the confirmation slice. "
     "Most likely no configuration passes development item (b)."
@@ -367,8 +405,10 @@ TIER_A_MAX_BPS = 1.0
 TIER_B_MAX_BPS = 2.5
 # ISO dates of fold days known to be absent upstream. Empty: any absent day stops the command.
 KNOWN_MISSING_FOLD_DAYS: tuple[str, ...] = ()
-# (symbol, minute start in ms) pairs where a price-scale break is known and accepted. Empty.
-KNOWN_SCALE_BREAKS: tuple[tuple[str, int], ...] = ()
+# (market_id, minute start in ms, k) of the rescalings found by scalescan, frozen at registration. For an entry the
+# market's raw prices BEFORE that minute are multiplied by 10^k (k = the number of decades of the jump, never 0) when
+# the fold rows are read, so the series is continuous in the later scale.
+KNOWN_SCALE_BREAKS: tuple[tuple[int, int, int], ...] = ()
 SCALE_BREAK_TOL = 0.05
 SCALE_HOLD_MINUTES = 60
 SCALE_MIN_WINDOW = 30

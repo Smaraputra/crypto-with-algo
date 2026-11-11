@@ -140,6 +140,31 @@ def test_exit_fill_tries_following_minutes_then_falls_back_flagged():
     assert out.flag[i] and out.exit_px[i] == pytest.approx(96.5 * (1 + 0.5 * SP / 1e4))
 
 
+def test_a_trade_open_at_an_excluded_scale_break_exits_by_the_fallback_rule_flagged():
+    md = flat_md()
+    path = np.full(400, 100.0)
+    path[12:] = 1000.0  # the break: 10 times higher from minute 12 (prices after it are never used)
+    set_path(md, path)
+    f = (np.zeros(0, np.int64), np.zeros(0))
+    ng = md.n // 5
+    ctx = fills.build_context(md, np.full(ng, 0.001), f, sp_bps=SP, sp_mult=1.0, break_min=12)
+    out = fills.outcomes(ctx, 1, 5, ("time",), 0)["time"]
+    i = 2 - out.j0  # decision at grid 2 (minute 10): entry in minute 10, the exit would be at minute 15
+    assert out.status[i] == fills.STATUS_OK and out.flag[i]
+    assert out.exit_px[i] == pytest.approx(100.0 * (1 - 0.5 * SP / 1e4))  # the mid of minute 11, a long sells: down
+    assert out.exit_ts[i] == T0 + 12 * MIN  # stamped at the start of the break minute
+    assert abs(out.gross[i]) < 1e-3  # no 10x jump in the return
+    # an entry at or after the break minute cannot happen
+    j3 = 3 - out.j0  # minute 15
+    assert out.status[j3] != fills.STATUS_OK
+    # a break far away changes nothing for this trade
+    far = fills.build_context(md, np.full(ng, 0.001), f, sp_bps=SP, sp_mult=1.0, break_min=300)
+    plain = fills.build_context(md, np.full(ng, 0.001), f, sp_bps=SP, sp_mult=1.0)
+    a = fills.outcomes(far, 1, 5, ("time",), 0)["time"]
+    b = fills.outcomes(plain, 1, 5, ("time",), 0)["time"]
+    assert a.exit_px[i] == b.exit_px[i] and a.exit_ts[i] == b.exit_ts[i]
+
+
 # ----------------------------------------------------------------------------------------------------------------
 # The print-selection rule: first print of EITHER side, the far quote for an opposite-side print
 

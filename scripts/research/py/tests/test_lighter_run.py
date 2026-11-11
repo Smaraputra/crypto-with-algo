@@ -5,9 +5,12 @@ universe and the command line. Everything is generated under tmp_path."""
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
+import gzip
 import hashlib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -446,11 +449,14 @@ def relaxed(planted, monkeypatch, tmp_path):
     return dev
 
 
-def test_report_finalists_variant_checks_and_account_layer(planted, tmp_path, relaxed):
+def test_report_finalists_variant_checks_and_account_layer(planted, tmp_path, relaxed, capsys):
     panel, dev_out, dev = planted
     out = copy_dev(dev_out, tmp_path / "rep")
     write_nulls(out, prov_of(panel), [2.0 + 0.1 * i for i in range(20)], [1.0] * 20)
+    capsys.readouterr()
     rep = read_json(run.cmd_report(args_for(panel, out), last_date=JULY_END))
+    assert capsys.readouterr().out.startswith(lock.REPORT_CAUTION)  # the caution comes first in the output
+    assert rep["caution"] == lock.REPORT_CAUTION and lock.REPORT_CAUTION.startswith("Development statistics")
     assert rep["noise_bar"] == pytest.approx(3.9) and rep["f6_bar"] == 1.0  # the LARGEST maxima
     assert rep["pass_threshold_t"] == pytest.approx(3.9)
     assert PLANTED in rep["passing"] and PLANTED in rep["candidates"]
@@ -560,10 +566,15 @@ def confirm_args(panel, dev_dir, out, finalists=None, **flags):
     return args_for(panel, out, finalists=str(finalists or dev_dir / "finalists.json"), dev_dir=str(dev_dir), **flags)
 
 
-def prepare_confirm(panel, dev_dir, finalists=None):
+def prepare_confirm(panel, dev_dir, finalists=None, out=None):
+    """A synthetic record lives in the out dir, so --run must use the out dir that --prepare used."""
     return run.cmd_confirm(
-        confirm_args(panel, dev_dir, dev_dir, finalists, prepare=True, run=False), dev_last_date=JULY_END
+        confirm_args(panel, dev_dir, out or dev_dir, finalists, prepare=True, run=False), dev_last_date=JULY_END
     )
+
+
+def confirm_files(panel, out):
+    return run.confirm_paths(prov_of(panel), out)
 
 
 def run_confirm(panel, dev_dir, out, finalists=None):
@@ -577,12 +588,15 @@ def test_confirm_prepare_writes_the_record_and_stops_and_run_needs_it(planted, t
     assert ids
     with pytest.raises(SystemExit, match="no confirm record"):
         run_confirm(panel, dev_dir, tmp_path / "early")
+    assert not (run.RECORDS_DIR / "confirm_record.json").exists()
     with pytest.raises(SystemExit, match="exactly one of"):
         run.cmd_confirm(confirm_args(panel, dev_dir, tmp_path / "x", prepare=True, run=True))
     with pytest.raises(SystemExit, match="exactly one of"):
         run.cmd_confirm(confirm_args(panel, dev_dir, tmp_path / "x", prepare=False, run=False))
     record_path = prepare_confirm(panel, dev_dir)
-    assert record_path == run.RECORDS_DIR / "confirm_record.json"
+    # a synthetic rehearsal never touches records/: its record sits in the out dir with a synthetic suffix
+    assert record_path == dev_dir / "confirm_record.synthetic.json"
+    assert not (run.RECORDS_DIR / "confirm_record.json").exists()
     record = read_json(record_path)
     assert record["finalists"] == ids and record["ran"] is False and record["lock_sha256"] == lock.lock_digest()
     assert record["dev_hashes"]["dev_result.json"] == read_json(dev_dir / "dev_result.json")["content_sha256"]
@@ -595,8 +609,8 @@ def test_confirm_prepare_writes_the_record_and_stops_and_run_needs_it(planted, t
 def test_confirm_run_checks_finalists_runs_once_and_applies_holm(planted, tmp_path, relaxed, monkeypatch):
     panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
     ids = [f["config_id"] for f in read_json(dev_dir / "finalists.json")["finalists"]]
-    prepare_confirm(panel, dev_dir)
     out = tmp_path / "confirm"
+    prepare_confirm(panel, dev_dir, out=out)
     res = read_json(run_confirm(panel, dev_dir, out))
     assert res["kind"] == "confirm" and [r["id"] for r in res["results"]] == ids
     assert res["holm_family_size"] == len(ids)
@@ -618,22 +632,31 @@ def test_confirm_run_checks_finalists_runs_once_and_applies_holm(planted, tmp_pa
     assert flags["mean_fill_cost_bps"] > 0 and flags["majority_source"] in ("binance", "lighter")
     assert flags["p_one_sided"] == pytest.approx(stats.normal_sf(r["t"]))
     assert not flags["months_ok"] and not flags["pass"]  # a fortnight of one month: at most 1 of 4 months positive
-    record = read_json(run.RECORDS_DIR / "confirm_record.json")
+    paths = confirm_files(panel, out)
+    record = read_json(paths.record)
     assert res["confirm_record_sha256"] == record["content_sha256"]
-    marker = run.consumed_marker(lock.lock_digest())
-    assert marker.exists() and res["consumed_marker_sha256"] == read_json(marker)["content_sha256"]
+    marker = paths.marker
+    assert marker.name.endswith(".synthetic.json") and marker.parent == out
+    assert not list(run.RECORDS_DIR.glob("confirm_ran_*"))  # nothing consumed in records/
+    marker_doc = read_json(marker)
+    assert res["consumed_marker_sha256"] == marker_doc["content_sha256"]
+    assert marker_doc["status"] == "started" and marker_doc["attempt"] == 1 and marker_doc["synthetic"] is True
+    assert res["attempt"] == 1 and res["rerun_note_sha256"] is None and res["scale_policy"] == "exclude"
+    pre = res["preflight"]
+    assert pre["scale_breaks_found"] == [] and pre["funding_files_checked"] >= 1 and pre["binance_files_checked"] >= 1
     assert not any("2025-11" in k for k in res["manifest"] if k.startswith("fold/"))
     # one time only: the same out dir, another out dir, and a record that says it ran
     with pytest.raises(SystemExit, match="confirm runs once"):
         run_confirm(panel, dev_dir, out)
-    with pytest.raises(SystemExit, match="confirm runs once"):
-        run_confirm(panel, dev_dir, tmp_path / "elsewhere")
+    with pytest.raises(SystemExit, match="no confirm record"):
+        run_confirm(panel, dev_dir, tmp_path / "elsewhere")  # a synthetic record belongs to its own out dir
     marker.unlink()
     with pytest.raises(SystemExit, match="confirm runs once"):
         run_confirm(panel, dev_dir, out)  # the result already exists in this out dir
     record["ran"] = True
+    (tmp_path / "third").mkdir()
     run.write_result(
-        run.RECORDS_DIR / "confirm_record.json", {k: v for k, v in record.items() if k != "content_sha256"}
+        confirm_files(panel, tmp_path / "third").record, {k: v for k, v in record.items() if k != "content_sha256"}
     )
     with pytest.raises(SystemExit, match="confirm runs once"):
         run_confirm(panel, dev_dir, tmp_path / "third")
@@ -670,7 +693,7 @@ def test_confirm_refuses_a_different_finalists_list_a_tampered_file_and_a_tamper
     p.write_text(json.dumps(doc))
     with pytest.raises(SystemExit, match="content hash"):
         prepare_confirm(panel, dev_dir)
-    assert not (run.RECORDS_DIR / "confirm_record.json").exists()  # nothing was prepared
+    assert not confirm_files(panel, dev_dir).record.exists()  # nothing was prepared
 
 
 def test_confirm_run_refuses_when_the_dev_files_or_the_finalists_changed_after_prepare(
@@ -683,8 +706,8 @@ def test_confirm_run_refuses_when_the_dev_files_or_the_finalists_changed_after_p
     doc["max_t"] = 0.5
     run.write_result(p, {k: v for k, v in doc.items() if k != "content_sha256"})  # valid file, different content
     with pytest.raises(SystemExit, match="differ from the committed confirm record"):
-        run_confirm(panel, dev_dir, tmp_path / "out")
-    assert not run.consumed_marker(lock.lock_digest()).exists()
+        run_confirm(panel, dev_dir, dev_dir)
+    assert not confirm_files(panel, dev_dir).marker.exists()
 
 
 def test_confirm_rerun_on_the_development_data_must_match_the_dev_result(planted, tmp_path, relaxed, monkeypatch):
@@ -701,8 +724,8 @@ def test_confirm_rerun_on_the_development_data_must_match_the_dev_result(planted
 
     monkeypatch.setattr(run, "rerun_matches", forged)
     with pytest.raises(SystemExit, match="differs from the dev result"):
-        run_confirm(panel, dev_dir, tmp_path / "out")
-    assert not run.consumed_marker(lock.lock_digest()).exists()
+        run_confirm(panel, dev_dir, dev_dir)
+    assert not confirm_files(panel, dev_dir).marker.exists()
 
 
 def test_the_confirm_record_must_be_committed_on_real_data(tmp_path, monkeypatch):
@@ -735,6 +758,290 @@ def test_the_confirm_record_must_be_committed_on_real_data(tmp_path, monkeypatch
     assert run.record_committed(path) is True
 
 
+CONFIRM_LAST = dt.date(2025, 8, 14)
+
+
+def test_confirm_files_are_separate_for_synthetic_and_real_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(run, "RECORDS_DIR", tmp_path / "records")
+    digest = "ab" * 32
+    syn = run.confirm_paths({"synthetic": True, "lock_sha256": digest}, tmp_path / "o")
+    real = run.confirm_paths({"synthetic": False, "lock_sha256": digest}, tmp_path / "o")
+    assert syn.record.parent == syn.marker.parent == syn.note.parent == tmp_path / "o"
+    assert all("synthetic" in p.name for p in (syn.record, syn.marker, syn.note))
+    assert real.record == run.RECORDS_DIR / "confirm_record.json"
+    assert real.marker == run.RECORDS_DIR / f"confirm_ran_{digest[:16]}.json"
+    assert real.note == run.RECORDS_DIR / "lighter_l1_confirm_rerun_note.json"
+    assert {syn.record, syn.marker, syn.note}.isdisjoint({real.record, real.marker, real.note})
+
+
+def test_a_real_run_refuses_a_synthetic_record_or_marker(planted, tmp_path, monkeypatch):
+    panel, _, _ = planted
+    records = tmp_path / "records"
+    monkeypatch.setattr(run, "RECORDS_DIR", records)
+    prov = {**prov_of(panel), "synthetic": False}
+    paths = run.confirm_paths(prov, tmp_path / "o")
+    records.mkdir()
+    args = argparse.Namespace(out_dir=tmp_path / "o")
+    run.write_result(paths.record, {"kind": "confirm_record", **prov, "synthetic": True, "ran": False})
+    with pytest.raises(SystemExit, match="synthetic"):
+        run.confirm_run(args, prov, None, paths, None)
+    run.write_result(paths.record, {"kind": "confirm_record", **prov, "ran": False, "finalists": []})
+    run.write_result(paths.marker, {"kind": "confirm_ran", **prov, "synthetic": True, "status": "started"})
+    with pytest.raises(SystemExit, match="synthetic"):
+        run.confirm_run(args, prov, None, paths, None)
+
+
+def copy_panel(panel, dest: Path):
+    """A private copy of the fold, Binance and funding directories, so a test can damage them."""
+    dest.mkdir(parents=True)
+    moved = {}
+    for name in ("fold_dir", "binance_dir", "funding_dir"):
+        shutil.copytree(getattr(panel, name), dest / name)
+        moved[name] = dest / name
+    return dataclasses.replace(panel, **moved)
+
+
+def test_confirm_preflight_failures_stop_before_the_marker(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "pf"
+    prepare_confirm(panel, dev_dir, out=out)
+    marker = confirm_files(panel, out).marker
+    bad = copy_panel(panel, tmp_path / "bad")
+    # a fold day whose bytes changed after the manifest was written
+    day = bad.fold_dir / "v1" / "date=2025-08-10.parquet"
+    good = day.read_bytes()
+    day.write_bytes(good + b"x")
+    with pytest.raises(DataError, match="2025-08-10"):
+        run_confirm(bad, dev_dir, out)
+    day.write_bytes(good)
+    # a fold day missing from the manifest
+    manifest = bad.fold_dir / "manifest.jsonl"
+    text = manifest.read_text()
+    manifest.write_text("".join(x + "\n" for x in text.splitlines() if "2025-08-11" not in x))
+    with pytest.raises(DataError, match="2025-08-11"):
+        run_confirm(bad, dev_dir, out)
+    manifest.write_text(text)
+    # Binance files that do not parse for a month the source guard may read
+    for path in (bad.binance_dir).rglob("*-2025-08.csv.gz"):
+        with gzip.open(path, "wt") as f:
+            f.write("not,a,header\n1,2,3\n")
+    with pytest.raises(DataError, match="header|parse|Binance"):
+        run_confirm(bad, dev_dir, out)
+    assert not marker.exists()
+    # the unharmed data still runs
+    res = read_json(run_confirm(panel, dev_dir, out))
+    assert marker.exists() and res["preflight"]["fold_days_checked"] == 45
+
+
+def test_pre_flight_checks_funding_unknown_ids_and_the_binance_structure(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    monkeypatch.setattr(lock, "CONFIRM_LAST_DATE", CONFIRM_LAST)
+    reader = DataReader(
+        fold_dir=panel.fold_dir,
+        binance_dir=panel.binance_dir,
+        funding_dir=panel.funding_dir,
+        mode="confirm",
+        last_date=CONFIRM_LAST,
+    )
+    span = run.Span(lock.CONFIRM_FIRST_DATE, CONFIRM_LAST)
+    prep = run.prepare(reader, span)
+    pre = run.confirm_preflight(reader, span, prep)
+    assert pre["scale_breaks_found"] == [] and pre["funding_files_checked"] == 6 and pre["binance_files_checked"] > 0
+    # a market id in the fold that markets.json does not list
+    reader.fold_market_ids.add(77)
+    with pytest.raises(DataError, match=r"\[77\]"):
+        run.confirm_preflight(reader, span, prep)
+    reader.fold_market_ids.discard(77)
+    # no funding file for an eligible market
+    monkeypatch.setattr(DataReader, "funding_exists", lambda self, mid: mid != 3)
+    with pytest.raises(DataError, match=r"funding file for market ids \[3\]"):
+        run.confirm_preflight(reader, span, prep)
+
+
+def test_binance_structure_checks_header_order_duplicates_and_month(tmp_path):
+    reader = DataReader(fold_dir=tmp_path, binance_dir=tmp_path, mode="dev")
+    head = ",".join(data.BINANCE_HEADER)
+    t0 = day_start_ms(dt.date(2025, 7, 1))
+
+    def write(rows, header=head, symbol="XUSDT"):
+        path = tmp_path / symbol
+        path.mkdir(exist_ok=True)
+        with gzip.open(path / f"{symbol}-1m-2025-07.csv.gz", "wt") as f:
+            f.write(header + "\n" + "".join(f"{t},1,1,1,1,1,1,1,1,1\n" for t in rows))
+
+    write([t0, t0 + 60_000, t0 + 120_000])
+    reader.check_binance_structure("XUSDT", 2025, 7)
+    write([t0, t0 + 120_000, t0 + 60_000])
+    with pytest.raises(DataError, match="strictly increasing"):
+        reader.check_binance_structure("XUSDT", 2025, 7)
+    write([t0, t0 + 60_000, t0 + 60_000])
+    with pytest.raises(DataError, match="strictly increasing"):
+        reader.check_binance_structure("XUSDT", 2025, 7)
+    write([t0 - 60_000, t0])
+    with pytest.raises(DataError, match="outside its month"):
+        reader.check_binance_structure("XUSDT", 2025, 7)
+    write([t0], header="open_time,open,close")
+    with pytest.raises(DataError, match="header"):
+        reader.check_binance_structure("XUSDT", 2025, 7)
+    with pytest.raises(DataError, match="missing"):
+        reader.check_binance_structure("YUSDT", 2025, 7)
+
+
+def test_a_fold_day_is_checked_against_its_manifest_hash(tmp_path):
+    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=4, seed=2))
+    reader = DataReader(fold_dir=panel.fold_dir, mode="dev", last_date=panel.last_date)
+    day = dt.date(2025, 7, 2)
+    assert reader.fold_day_present(day)
+    path = panel.fold_dir / "v1" / "date=2025-07-02.parquet"
+    path.write_bytes(path.read_bytes() + b"\0")
+    with pytest.raises(DataError, match="sha256 differs"):
+        DataReader(fold_dir=panel.fold_dir, mode="dev", last_date=panel.last_date).fold_day_present(day)
+    manifest = panel.fold_dir / "manifest.jsonl"
+    manifest.write_text(
+        "".join(json.dumps({"date": json.loads(x)["date"]}) + "\n" for x in manifest.read_text().splitlines())
+    )
+    with pytest.raises(DataError, match="no output_sha256"):
+        DataReader(fold_dir=panel.fold_dir, mode="dev", last_date=panel.last_date).fold_day_present(day)
+
+
+def test_a_data_error_after_the_marker_is_recorded_and_allows_one_rerun(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "again"
+    prepare_confirm(panel, dev_dir, out=out)
+    paths = confirm_files(panel, out)
+    real = run.confirm_statistics
+
+    def boom(*a, **k):
+        raise DataError("boom in the data")
+
+    monkeypatch.setattr(run, "confirm_statistics", boom)
+    with pytest.raises(DataError, match="boom"):
+        run_confirm(panel, dev_dir, out)
+    first = read_json(paths.marker)
+    assert first["status"] == "error" and "boom in the data" in first["error"] and first["attempt"] == 1
+    assert not (out / "confirm_result.json").exists()
+    with pytest.raises(SystemExit, match="needs the committed note"):
+        run_confirm(panel, dev_dir, out)
+    run.write_result(paths.note, {"marker_sha256": first["content_sha256"], "error": "another error"})
+    with pytest.raises(SystemExit, match="does not name the error"):
+        run_confirm(panel, dev_dir, out)
+    run.write_result(paths.note, {"marker_sha256": "0" * 64, "error": first["error"]})
+    with pytest.raises(SystemExit, match="does not name the consumed marker"):
+        run_confirm(panel, dev_dir, out)
+    run.write_result(paths.note, {"marker_sha256": first["content_sha256"], "error": first["error"]})
+    monkeypatch.setattr(run, "confirm_statistics", real)
+    res = read_json(run_confirm(panel, dev_dir, out))
+    note_sha = hashlib.sha256(paths.note.read_bytes()).hexdigest()
+    second = read_json(paths.marker)
+    assert res["attempt"] == 2 and res["rerun_note_sha256"] == note_sha
+    assert second["status"] == "started" and second["attempt"] == 2 and second["rerun_note_sha256"] == note_sha
+    assert second["previous_marker_sha256"] == first["content_sha256"]
+    assert res["consumed_marker_sha256"] == second["content_sha256"]
+    with pytest.raises(SystemExit, match="confirm runs once"):
+        run_confirm(panel, dev_dir, out)
+
+
+def test_a_second_data_error_leaves_the_confirmation_consumed(planted, tmp_path, relaxed, monkeypatch):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "twice"
+    prepare_confirm(panel, dev_dir, out=out)
+    paths = confirm_files(panel, out)
+
+    def boom(*a, **k):
+        raise DataError("boom in the data")
+
+    monkeypatch.setattr(run, "confirm_statistics", boom)
+
+    def fail_and_name():
+        with pytest.raises(DataError, match="boom"):
+            run_confirm(panel, dev_dir, out)
+        marker = read_json(paths.marker)
+        assert marker["status"] == "error"
+        run.write_result(paths.note, {"marker_sha256": marker["content_sha256"], "error": marker["error"]})
+        return marker
+
+    assert fail_and_name()["attempt"] == 1  # the first error, then a note naming it
+    assert fail_and_name()["attempt"] == 2  # the one permitted re-run fails too
+    with pytest.raises(SystemExit, match="confirm runs once"):
+        run_confirm(panel, dev_dir, out)  # even with a note naming the second error
+
+
+def test_the_rerun_note_must_be_committed_on_real_data(tmp_path, monkeypatch):
+    note = tmp_path / "note.json"
+    marker = {"content_sha256": "ab" * 32, "error": "DataError: x"}
+    run.write_result(note, {"marker_sha256": marker["content_sha256"], "error": marker["error"]})
+    paths = run.ConfirmPaths(tmp_path / "r", tmp_path / "m", note)
+    monkeypatch.setattr(run, "_git", lambda a: " M note\n" if a[0] == "status" else "")
+    with pytest.raises(SystemExit, match="not committed"):
+        run.check_rerun_note(paths, marker, {"synthetic": False})
+    assert run.check_rerun_note(paths, marker, {"synthetic": True}) == hashlib.sha256(note.read_bytes()).hexdigest()
+    monkeypatch.setattr(run, "_git", lambda a: "")
+    assert run.check_rerun_note(paths, marker, {"synthetic": False})
+
+
+def test_confirm_excludes_a_market_from_a_holding_scale_break_and_exits_open_trades_flagged(
+    planted, tmp_path, relaxed, monkeypatch
+):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "ex"
+    prepare_confirm(panel, dev_dir, out=out)
+    bad = copy_panel(panel, tmp_path / "bad")
+    rescale_market(bad, 2, 10, 14, month="2025-08")  # ETH is 10 times higher from 2025-08-10 on
+    res = read_json(run_confirm(bad, dev_dir, out))
+    [found] = res["preflight"]["scale_breaks_found"]
+    assert found["market_id"] == 2 and found["decades"] == 1
+    brk = found["minute"]
+    assert day_start_ms(dt.date(2025, 8, 10)) <= brk < day_start_ms(dt.date(2025, 8, 11))
+    assert res["markets"]["2"]["excluded_scale_breaks"][0]["minute"] == brk
+    assert "excluded_scale_breaks" not in res["markets"]["1"]
+    assert res["scale_policy"] == "exclude"
+    n_forced = 0
+    for cid_dir in (out / "confirm_trades").iterdir():
+        files = list(cid_dir.glob("market_2.parquet"))
+        if not files:
+            continue
+        t = pq.read_table(files[0]).to_pydict()
+        assert max(t["decision_ms"]) < brk  # no decision from the break minute on
+        assert all(x <= brk for x in t["exit_ts"])
+        for ex, fl in zip(t["exit_ts"], t["flagged"], strict=True):
+            if ex == brk:
+                assert fl  # the forced exit is flagged
+                n_forced += 1
+    assert n_forced > 0
+    assert read_json(paths_of(bad, out).marker)["status"] == "started"
+
+
+def paths_of(panel, out):
+    return confirm_files(panel, out)
+
+
+def test_confirm_prints_the_marker_and_the_result_with_their_hashes(planted, tmp_path, relaxed, monkeypatch, capsys):
+    panel, dev_dir = confirm_setup(planted, tmp_path, monkeypatch)
+    out = tmp_path / "pr"
+    prepare_confirm(panel, dev_dir, out=out)
+    capsys.readouterr()
+    result = run_confirm(panel, dev_dir, out)
+    printed = capsys.readouterr().out
+    marker = confirm_files(panel, out).marker
+    assert "commit these two files together" in printed
+    assert f"{marker}  sha256 {hashlib.sha256(marker.read_bytes()).hexdigest()}" in printed
+    assert f"{result}  sha256 {hashlib.sha256(result.read_bytes()).hexdigest()}" in printed
+
+
+def test_a_present_audit_file_must_be_committed_on_real_data(tmp_path, monkeypatch):
+    records = tmp_path / "records"
+    monkeypatch.setattr(run, "RECORDS_DIR", records)
+    assert run.load_suspect_cleared(False) == ((), None)  # absent means empty
+    write_audit(records, ["cfg-a"])
+    monkeypatch.setattr(run, "_git", lambda a: " M x\n" if a[0] == "status" else "")
+    with pytest.raises(SystemExit, match="not committed"):
+        run.load_suspect_cleared(False)
+    assert run.load_suspect_cleared(True)[0] == ("cfg-a",)  # a synthetic rehearsal needs no commit
+    monkeypatch.setattr(run, "_git", lambda a: "")
+    ids, sha = run.load_suspect_cleared(False)
+    assert ids == ("cfg-a",) and sha == hashlib.sha256((records / run.SUSPECT_FILE).read_bytes()).hexdigest()
+
+
 def test_confirm_with_no_finalists_writes_an_empty_result(planted, tmp_path, monkeypatch):
     panel, dev_out, _ = planted
     monkeypatch.setattr(lock, "CONFIRM_FIRST_DATE", dt.date(2025, 8, 1))
@@ -743,7 +1050,7 @@ def test_confirm_with_no_finalists_writes_an_empty_result(planted, tmp_path, mon
     write_nulls(dev_dir, prov_of(panel), [50.0] * 20, [50.0] * 20)
     run.cmd_report(args_for(panel, dev_dir), last_date=JULY_END)
     assert read_json(dev_dir / "finalists.json")["finalists"] == []
-    prepare_confirm(panel, dev_dir)
+    prepare_confirm(panel, dev_dir, out=tmp_path / "out")
     res = read_json(run_confirm(panel, dev_dir, tmp_path / "out"))
     assert res["results"] == []
 
@@ -943,12 +1250,22 @@ def real_looking(tmp_path, monkeypatch):
     return argparse.Namespace(fold_dir=fold, binance_dir=binance, funding_dir=funding, out_dir=tmp_path / "out")
 
 
-def test_register_check_prints_the_anchor_and_commands_refuse_on_any_difference(real_looking, capsys):
+def test_register_check_prints_the_anchor_and_commands_refuse_on_any_difference(real_looking, capsys, monkeypatch):
     args = real_looking
+    (args.funding_dir / "funding" / "market_1.parquet").write_bytes(b"funding-bytes")
     got = run.anchor_contents(args.fold_dir, args.binance_dir, args.funding_dir)
     assert got["lock_sha256"] == lock.lock_digest()
     assert got["binance_files"] == [["BTCUSDT/BTCUSDT-1m-2025-07.csv.gz", 3]]
-    assert all(got[k] for k in ("fold_manifest_sha256", "markets_json_sha256", "funding_manifest_sha256"))
+    assert all(
+        got[k]
+        for k in (
+            "fold_manifest_sha256",
+            "markets_json_sha256",
+            "funding_manifest_sha256",
+            "funding_files_sha256",
+            "binance_files_sha256",
+        )
+    )
     assert (
         run.main(
             [
@@ -972,6 +1289,11 @@ def test_register_check_prints_the_anchor_and_commands_refuse_on_any_difference(
     anchor.parent.mkdir(parents=True)
     anchor.write_text(json.dumps(got))
     run.check_registration(args, prov)  # matches
+    committed = run._git
+    monkeypatch.setattr(run, "_git", lambda a: " M anchor\n" if a[0] == "status" and "records" in a[-1] else "")
+    with pytest.raises(SystemExit, match="not committed"):
+        run.check_registration(args, prov)  # the anchor is edited since HEAD
+    monkeypatch.setattr(run, "_git", committed)
     (args.fold_dir / "manifest.jsonl").write_text("{}\n")
     with pytest.raises(SystemExit, match="fold_manifest_sha256"):
         run.check_registration(args, prov)
@@ -989,7 +1311,16 @@ def test_register_check_prints_the_anchor_and_commands_refuse_on_any_difference(
     (args.binance_dir / "BTCUSDT" / "BTCUSDT-1m-2025-07.csv.gz").write_bytes(b"abcd")  # one byte longer
     with pytest.raises(SystemExit, match="binance_files"):
         run.check_registration(args, prov)
+    (args.binance_dir / "BTCUSDT" / "BTCUSDT-1m-2025-07.csv.gz").write_bytes(b"abd")  # same size, other bytes
+    with pytest.raises(SystemExit, match="binance_files_sha256") as exc:
+        run.check_registration(args, prov)
+    assert "binance_files'" not in str(exc.value)
     (args.binance_dir / "BTCUSDT" / "BTCUSDT-1m-2025-07.csv.gz").write_bytes(b"abc")
+    (args.funding_dir / "funding" / "market_1.parquet").write_bytes(b"funding-byteX")
+    with pytest.raises(SystemExit, match="funding_files_sha256"):
+        run.check_registration(args, prov)
+    (args.funding_dir / "funding" / "market_1.parquet").write_bytes(b"funding-bytes")
+    run.check_registration(args, prov)
     (args.fold_dir / "markets.json").write_text("{}")
     with pytest.raises(SystemExit, match="markets_json_sha256"):
         run.check_registration(args, prov)
@@ -1021,21 +1352,49 @@ def test_dev_null_report_and_confirm_refuse_without_the_anchor_and_eligibility_d
 # The scale scan
 
 
-def test_scalescan_lists_a_planted_rescaling_and_dev_stops_on_it(tmp_path, monkeypatch):
-    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=6, seed=2))
-    # market 2: from 2025-07-04 on every price is 10 times higher (a unit change)
-    for day in range(4, 7):
-        path = panel.fold_dir / "v1" / f"date=2025-07-0{day}.parquet"
+def rehash_manifest(fold_dir: Path):
+    """Rewrite output_sha256 of every manifest line after a test edited the fold files."""
+    lines = [json.loads(x) for x in (fold_dir / "manifest.jsonl").read_text().splitlines()]
+    for rec in lines:
+        path = fold_dir / "v1" / f"date={rec['date']}.parquet"
+        rec["output_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    (fold_dir / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in lines))
+
+
+def rescale_market(panel, market_id: int, first_day: int, last_day: int, factor: int = 10, month: str = "2025-07"):
+    """From <month>-<first_day> on every price of one market is `factor` times higher (a unit change)."""
+    for day in range(first_day, last_day + 1):
+        path = panel.fold_dir / "v1" / f"date={month}-{day:02d}.parquet"
         table = pq.read_table(path)
         for name in ("last_px", "last_buy_px", "last_sell_px", "first_buy_px", "first_sell_px"):
             col = table.column(name).to_numpy(zero_copy_only=False)
-            mask = table.column("market_id").to_numpy() == 2
+            mask = table.column("market_id").to_numpy() == market_id
             null = np.isnan(col)
-            vals = np.where(null, 0, np.where(mask, col * 10, col)).astype(np.int64)
+            vals = np.where(null, 0, np.where(mask, col * factor, col)).astype(np.int64)
             table = table.set_column(
                 table.schema.get_field_index(name), name, pa.array(vals, mask=null, type=pa.int64())
             )
         pq.write_table(table, path)
+    rehash_manifest(panel.fold_dir)
+
+
+def scale_binance(panel, symbol: str, factor: float):
+    """Multiply open, high, low and close of every month file of one symbol (the later unit of a rescaled market)."""
+    for path in sorted((panel.binance_dir / symbol).glob(f"{symbol}-1m-*.csv.gz")):
+        with gzip.open(path, "rt") as f:
+            lines = f.read().splitlines()
+        out = [lines[0]]
+        for line in lines[1:]:
+            r = line.split(",")
+            px = ",".join(f"{float(x) * factor:.6f}" for x in r[1:5])
+            out.append(",".join([r[0], px, *r[5:]]))
+        with gzip.open(path, "wt") as f:
+            f.write("\n".join(out) + "\n")
+
+
+def test_scalescan_lists_a_planted_rescaling_and_dev_stops_on_it(tmp_path, monkeypatch):
+    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=6, seed=2))
+    rescale_market(panel, 2, 4, 6)
     seen: list[tuple[str, ...]] = []
     real = pq.read_table
 
@@ -1055,9 +1414,60 @@ def test_scalescan_lists_a_planted_rescaling_and_dev_stops_on_it(tmp_path, monke
     assert doc["holding"] == holding
     with pytest.raises(DataError, match=r"price-scale break in ETH \(market_id 2\)"):
         run.cmd_dev(args_for(panel, tmp_path / "dev"), last_date=panel.last_date, configs=[lock.GRID[0]])
-    # freezing it in KNOWN_SCALE_BREAKS (as the lead does at registration) lets the run through
-    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", (("ETH", holding[0]["minute"]),))
-    run.cmd_dev(args_for(panel, tmp_path / "dev2"), last_date=panel.last_date, configs=[lock.GRID[0]])
+
+
+def test_a_listed_scale_break_gives_the_same_trades_as_the_panel_without_it(tmp_path, monkeypatch):
+    spec = PanelSpec(n_markets=3, days=6, seed=2)
+    plain = make_panel(tmp_path / "plain", spec)
+    rescaled = make_panel(tmp_path / "rescaled", spec)
+    rescale_market(rescaled, 2, 4, 6)
+    scale_binance(rescaled, "ETHUSDT", 10)  # the later unit, so the source guard sees one scale after listing
+    cfgs = f1_configs(holds=(15, 60), thetas=(1.0,), ks=(1, 3))
+    base = read_json(run.cmd_dev(args_for(plain, tmp_path / "o1"), last_date=plain.last_date, configs=cfgs))
+    with pytest.raises(DataError, match="price-scale break"):
+        run.cmd_dev(args_for(rescaled, tmp_path / "o2"), last_date=rescaled.last_date, configs=cfgs)
+    found = [
+        c
+        for c in read_json(run.cmd_scalescan(args_for(rescaled, tmp_path / "s"), last_date=rescaled.last_date))[
+            "holding"
+        ]
+    ]
+    assert len(found) == 1
+    # listed: the raw prices before the minute are multiplied by 10^k, so the series is continuous at the later scale
+    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", ((found[0]["market_id"], found[0]["minute"], found[0]["decades"]),))
+    listed = read_json(run.cmd_dev(args_for(rescaled, tmp_path / "o3"), last_date=rescaled.last_date, configs=cfgs))
+    a, b = by_id(base), by_id(listed)
+    assert a.keys() == b.keys() and any(c["trades"] > 0 for c in a.values())
+    for cid in a:
+        assert a[cid]["trades"] == b[cid]["trades"]
+        assert b[cid]["t"] == pytest.approx(a[cid]["t"], abs=1e-9)
+        assert b[cid]["mean_net_bps"] == pytest.approx(a[cid]["mean_net_bps"], abs=1e-9)
+    # the run no longer stops, and the scan of the listed panel finds nothing left to list
+    after = read_json(run.cmd_scalescan(args_for(rescaled, tmp_path / "s2"), last_date=rescaled.last_date))
+    assert after["holding"] == []
+
+
+def test_a_known_scale_break_with_k_zero_is_refused(tmp_path, monkeypatch):
+    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=4, seed=2))
+    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", ((2, day_start_ms(dt.date(2025, 7, 3)), 0),))
+    with pytest.raises(DataError, match="k = 0"):
+        run.cmd_dev(args_for(panel, tmp_path / "o"), last_date=panel.last_date, configs=[lock.GRID[0]])
+
+
+def test_scalescan_and_the_run_cover_the_same_window(tmp_path, monkeypatch):
+    panel = make_panel(tmp_path / "p", PanelSpec(n_markets=3, days=4, seed=2))
+    windows: list[tuple[int, int]] = []
+    real = DataReader.load_minutes
+
+    def spy(self, market, t0_ms, end_ms, *a, **k):
+        if k.get("mid_only"):
+            windows.append((t0_ms, end_ms))
+        return real(self, market, t0_ms, end_ms, *a, **k)
+
+    monkeypatch.setattr(DataReader, "load_minutes", spy)
+    run.cmd_scalescan(args_for(panel, tmp_path / "o"), last_date=panel.last_date)
+    span = run.Span(lock.DEV_FIRST_DATE, panel.last_date)
+    assert set(windows) == {(span.t0_ms, span.end_ms)}  # warm-up start to the end, as run_grid checks
 
 
 def test_scalescan_on_a_clean_panel_finds_nothing(tmp_path):

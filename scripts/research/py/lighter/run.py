@@ -60,6 +60,7 @@ RECORDS_DIR = LIGHTER_DIR.parent / "records"
 REGISTRATION_FILE = "lighter_l1_registration.json"
 SUSPECT_FILE = "lighter_l1_suspect_cleared.json"
 CONFIRM_RECORD_FILE = "confirm_record.json"
+RERUN_NOTE_FILE = "lighter_l1_confirm_rerun_note.json"
 
 
 def log(msg: str) -> None:
@@ -156,28 +157,63 @@ def funding_manifest_path(funding_dir: str | Path) -> Path:
     return nested if nested.exists() else Path(funding_dir) / "manifest.jsonl"
 
 
-def anchor_contents(fold_dir: str | Path, binance_dir: str | Path, funding_dir: str | Path) -> dict[str, Any]:
+_FILE_HASHES: dict[tuple[str, int, int], str] = {}  # per process only: (path, size, mtime) -> sha256 of the bytes
+
+
+def file_sha256(path: Path) -> str:
+    st = path.stat()
+    key = (str(path), st.st_size, st.st_mtime_ns)
+    if key not in _FILE_HASHES:
+        _FILE_HASHES[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return _FILE_HASHES[key]
+
+
+def hashed_listing(root: Path, files: list[Path], label: str, progress: bool) -> str:
+    """One sha256 over the sorted list of (relative file name, sha256 of the file's bytes)."""
+    ordered = sorted(files, key=lambda p: str(p.relative_to(root)))
+    entries = []
+    for i, path in enumerate(ordered, 1):
+        entries.append([str(path.relative_to(root)), file_sha256(path)])
+        if progress and (i % 25 == 0 or i == len(ordered)):
+            log(f"  hashing {label}: {i}/{len(ordered)} files")
+    return hashlib.sha256(json.dumps(entries, separators=(",", ":")).encode()).hexdigest()
+
+
+def anchor_contents(
+    fold_dir: str | Path, binance_dir: str | Path, funding_dir: str | Path, progress: bool = False
+) -> dict[str, Any]:
     """What the registration anchor file should contain for these data directories."""
-    fold, binance = Path(fold_dir), Path(binance_dir)
-    files = sorted((str(p.relative_to(binance)), p.stat().st_size) for p in binance.rglob("*") if p.is_file())
+    fold, binance, funding = Path(fold_dir), Path(binance_dir), Path(funding_dir)
+    binance_files = [p for p in binance.rglob("*") if p.is_file()]
+    listing = sorted((str(p.relative_to(binance)), p.stat().st_size) for p in binance_files)
     return {
         "lock_sha256": lock.lock_digest(),
         "fold_manifest_sha256": _sha256_file(fold / "manifest.jsonl"),
         "markets_json_sha256": _sha256_file(fold / "markets.json"),
-        "funding_manifest_sha256": _sha256_file(funding_manifest_path(funding_dir)),
-        "binance_files": [list(f) for f in files],
+        "funding_manifest_sha256": _sha256_file(funding_manifest_path(funding)),
+        "funding_files_sha256": funding_listing(funding, "funding", progress),
+        "binance_files": [list(f) for f in listing],
+        "binance_files_sha256": hashed_listing(binance, binance_files, "binance", progress),
     }
 
 
+def funding_listing(funding: Path, label: str, progress: bool) -> str:
+    files = [p for p in funding.rglob("market_*.parquet") if p.is_file()]
+    return hashed_listing(funding, files, label, progress)
+
+
 def check_registration(args: Any, prov: dict[str, Any]) -> None:
-    """dev, null, report and confirm refuse on non-synthetic data unless the registration anchor matches the data."""
+    """dev, null, report and confirm refuse on non-synthetic data unless the registration anchor is committed and
+    matches the data (every file's bytes, not only names and sizes)."""
     if prov["synthetic"]:
         return
     path = RECORDS_DIR / REGISTRATION_FILE
     if not path.exists():
         raise SystemExit(f"the registration anchor {path} is absent: refusing to run")
+    if not record_committed(path):
+        raise SystemExit(f"the registration anchor {path} is not committed (tracked and unmodified at HEAD)")
     want = read_json(path)
-    got = anchor_contents(args.fold_dir, args.binance_dir, args.funding_dir)
+    got = anchor_contents(args.fold_dir, args.binance_dir, args.funding_dir, progress=True)
     diff = sorted(k for k in got if want.get(k) != got[k])
     if diff:
         raise SystemExit(f"the data or the code differ from the registration anchor in: {diff}")
@@ -192,11 +228,16 @@ def start(args: Any, *, stamp: bool = False) -> dict[str, Any]:
     return prov
 
 
-def load_suspect_cleared() -> tuple[tuple[str, ...], str | None]:
-    """Configuration ids cleared by a committed audit note, and the file's sha256 (None when the file is absent)."""
+def load_suspect_cleared(synthetic: bool = False) -> tuple[tuple[str, ...], str | None]:
+    """Configuration ids cleared by a committed audit note, and the file's sha256 (None when the file is absent).
+
+    A present file must be committed (tracked and unmodified at HEAD) on a non-synthetic run.
+    """
     path = RECORDS_DIR / SUSPECT_FILE
     if not path.exists():
         return (), None
+    if not synthetic and not record_committed(path):
+        raise SystemExit(f"the audit file {path} is not committed (tracked and unmodified at HEAD)")
     doc = read_json(path)
     entries = doc.get("cleared", doc) if isinstance(doc, dict) else doc
     ids = tuple(e["id"] if isinstance(e, dict) else str(e) for e in entries)
@@ -447,7 +488,9 @@ def scale_candidates(md: Any) -> list[dict[str, Any]]:
                 "minute": int(md.t0_ms + int(printed[i + 1]) * lock.MINUTE_MS),
                 "ln_ratio": float(d[i]),
                 "decades": int(k[i]),
-                "holds": bool(holds_after and holds_before and enough),
+                # fewer than SCALE_MIN_WINDOW printed minutes on a side cannot refute the break: it counts as holding
+                "holds": bool(not enough or (holds_after and holds_before)),
+                "insufficient_window": bool(not enough),
                 "printed_minutes_before": int(len(before)),
                 "printed_minutes_after": int(len(after)),
             }
@@ -455,14 +498,18 @@ def scale_candidates(md: Any) -> list[dict[str, Any]]:
     return out
 
 
+def holding_breaks(md: Any) -> list[dict[str, Any]]:
+    """The candidates that hold (or cannot be refuted): the scale breaks. Same code for scalescan and the run."""
+    return [c for c in scale_candidates(md) if c["holds"]]
+
+
 def check_scale(market: Market, md: Any) -> None:
-    """Stops on a scale break: a power-of-ten jump whose new level holds (a crash or a listing minute does not)."""
-    for c in scale_candidates(md):
-        if c["holds"] and (market.symbol, c["minute"]) not in lock.KNOWN_SCALE_BREAKS:
-            raise DataError(
-                f"price-scale break in {market.symbol} (market_id {market.market_id}) at minute {c['minute']} "
-                f"({dt.datetime.fromtimestamp(c['minute'] / 1000, dt.UTC).isoformat()})"
-            )
+    """Stops on a scale break: a power-of-ten jump whose new level holds or cannot be refuted."""
+    for c in holding_breaks(md):
+        raise DataError(
+            f"price-scale break in {market.symbol} (market_id {market.market_id}) at minute {c['minute']} "
+            f"({dt.datetime.fromtimestamp(c['minute'] / 1000, dt.UTC).isoformat()})"
+        )
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -513,8 +560,13 @@ def run_grid(
     spread_mult: float = 1.0,
     trades_dir: Path | None = None,
     guard: dict[str, Any] | None = None,
+    scale_policy: str = "stop",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run configs over the span. Returns the stats in config order and per-market data-quality figures.
+
+    scale_policy: "stop" (the default) raises on a holding scale break. "exclude" (the confirmation only) drops the
+    market from the first such break on: no signal fires from the grid point holding it, trades open at it exit by
+    the fallback rule, flagged, and the breaks are listed in the quality figures.
 
     guard: the source-guard table (key "market_id:YYYY-MM"). Months missing from it are computed and added to it, so a
     caller can pass {} to receive the table or a cached one to skip the computation.
@@ -541,6 +593,10 @@ def run_grid(
     final_source: dict[tuple[int, int], dict[int, str]] = {ym: {} for ym in elig}
     trig: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
     f4_ids = {c.signal.sig_id for c in configs if c.family == "F4"}
+    if scale_policy not in ("stop", "exclude"):
+        raise DataError(f"unknown scale policy {scale_policy!r}")
+    break_at: dict[int, int] = {}
+    break_list: dict[int, list[dict[str, Any]]] = {}
     for market in study:
         mid = market.market_id
         cand = [ym for ym, infos in sorted(elig.items()) if mid in infos and infos[mid].source == "pending"]
@@ -567,7 +623,15 @@ def run_grid(
                 final_source[ym][mid] = "binance" if ym in ok_months else "lighter"
         if t0_load < span.t0_ms:
             md = md.slice((span.t0_ms - t0_load) // lock.MINUTE_MS)
-        check_scale(market, md)
+        if scale_policy == "stop":
+            check_scale(market, md)
+            bj = ng
+        else:
+            found = holding_breaks(md)
+            if found:
+                break_list[mid] = found
+                break_at[mid] = int((min(c["minute"] for c in found) - md.t0_ms) // lock.MINUTE_MS)
+            bj = break_at.get(mid, ng * signals.GRID_MIN) // signals.GRID_MIN
         funding = reader.load_funding(mid, span.end_ms)
         f_exists[mid] = reader.funding_exists(mid)
         flag = np.zeros(ng, dtype=bool)
@@ -577,6 +641,16 @@ def run_grid(
         by_source = {"lighter": signals.compute_features(md, "lighter", span.start_ms, funding, needed)}
         if ok_months:
             by_source["binance"] = signals.compute_features(md, "binance", span.start_ms, funding, needed)
+        if mid in break_at:
+            for f in by_source.values():
+                f.sigma[bj:] = np.nan
+                for k in f.r:
+                    f.r[k][bj:] = np.nan
+                    f.z[k][bj:] = np.nan
+                for arr in f.sides.values():
+                    arr[bj:] = 0
+                for arr in f.valid.values():
+                    arr[bj:] = False
         base[mid], sigma_comp[mid] = signals.compose_by_source(by_source, flag)
         if f4_ids:
             valid = signals.compose_valid(by_source, flag)
@@ -604,6 +678,9 @@ def run_grid(
             )
         )
     xs = signals.cross_sectional_sides(cs_feats, slices, ng, needed)
+    for (xmid, _, _), arr in xs.items():
+        if xmid in break_at:
+            arr[break_at[xmid] // signals.GRID_MIN :] = 0
     del cs_feats
     if shift_days is not None:
         base = {m: {k: stats.shift_sides(v, start_j, shift_days) for k, v in d.items()} for m, d in base.items()}
@@ -639,7 +716,11 @@ def run_grid(
             "max_stale_minutes": int(span_stale.max()),
         }
         sp = sp_per_minute(proxies, mid, span)
-        ctx = fills.build_context(md, sigma_comp[mid], funding, mid_px, sp, spread_mult)
+        ctx = fills.build_context(md, sigma_comp[mid], funding, mid_px, sp, spread_mult, break_min=break_at.get(mid))
+        if mid in break_at:
+            quality[str(mid)]["excluded_scale_breaks"] = [
+                {k: c[k] for k in ("minute", "decades", "insufficient_window")} for c in break_list[mid]
+            ]
         del md
         masked: dict[tuple[str, str], np.ndarray | None] = {}
 
@@ -921,6 +1002,7 @@ def cmd_report(
     first_date: dt.date | None = None,
 ) -> Path:
     prov = start(args)
+    print(lock.REPORT_CAUTION)
     out_dir = ensure_dir(args.out_dir)
     dev = read_json(out_dir / "dev_result.json")
     check_result_file(dev, "dev_result.json", prov)
@@ -938,7 +1020,7 @@ def cmd_report(
     if prep.digest != dev["eligibility_sha256"]:
         raise SystemExit("the eligibility recomputed now differs from the one in dev_result.json")
     guard = dict(dev["source_guard"])
-    cleared, cleared_sha = load_suspect_cleared()
+    cleared, cleared_sha = load_suspect_cleared(prov["synthetic"])
     cand, checks, finalists = evaluate_candidates(reader, prep, span, dev, bar, f6_bar, guard, cleared)
     final_doc = {
         **prov,
@@ -976,6 +1058,7 @@ def cmd_report(
         account = account_layer(reader, prep.markets, span, cfgs, trades_dir, prep.proxies)
     body = {
         "kind": "report",
+        "caution": lock.REPORT_CAUTION,
         **prov,
         "dev_result_sha256": dev["content_sha256"],
         "prediction": lock.PREDICTION,
@@ -1074,7 +1157,7 @@ def verify_dev_inputs(args: Any, prov: dict[str, Any], dev_last_date: dt.date | 
     check_result_file(dev, "dev_result.json", prov)
     shift, f6 = load_nulls(dev_dir, prov)
     bar, f6_bar, _, _ = bars_from_nulls(shift, f6)
-    cleared, cleared_sha = load_suspect_cleared()
+    cleared, cleared_sha = load_suspect_cleared(prov["synthetic"])
     if doc.get("suspect_cleared_sha256") != cleared_sha:
         raise SystemExit("the audit file of cleared SUSPECT configurations differs from the one the finalists used")
     dev_reader = make_reader(args, "dev", dev_last_date)
@@ -1112,8 +1195,31 @@ def rerun_matches(inputs: DevInputs) -> None:
             raise SystemExit(f"finalist {new['id']} re-run on the development data differs from the dev result")
 
 
-def consumed_marker(digest: str) -> Path:
-    return RECORDS_DIR / f"confirm_ran_{digest[:16]}.json"
+@dataclass(frozen=True)
+class ConfirmPaths:
+    """Where the confirmation record, the consumed marker and a re-run note live.
+
+    A real run keeps them in records/ (committed). A synthetic rehearsal keeps them beside its other outputs, with a
+    "synthetic" suffix, so it can neither block nor consume the real confirmation.
+    """
+
+    record: Path
+    marker: Path
+    note: Path
+
+
+def confirm_paths(prov: dict[str, Any], out_dir: str | Path) -> ConfirmPaths:
+    digest16 = prov["lock_sha256"][:16]
+    if prov["synthetic"]:
+        base = Path(out_dir)
+        return ConfirmPaths(
+            base / "confirm_record.synthetic.json",
+            base / f"confirm_ran_{digest16}.synthetic.json",
+            base / "confirm_rerun_note.synthetic.json",
+        )
+    return ConfirmPaths(
+        RECORDS_DIR / CONFIRM_RECORD_FILE, RECORDS_DIR / f"confirm_ran_{digest16}.json", RECORDS_DIR / RERUN_NOTE_FILE
+    )
 
 
 def cmd_confirm(args: Any, last_date: dt.date | None = None, dev_last_date: dt.date | None = None) -> Path:
@@ -1122,13 +1228,14 @@ def cmd_confirm(args: Any, last_date: dt.date | None = None, dev_last_date: dt.d
     prepare_flag, run_flag = bool(getattr(args, "prepare", False)), bool(getattr(args, "run", False))
     if prepare_flag == run_flag:
         raise SystemExit("confirm needs exactly one of --prepare and --run")
+    out_dir = ensure_dir(args.out_dir)
+    paths = confirm_paths(prov, out_dir)
     inputs = verify_dev_inputs(args, prov, dev_last_date)
-    record_path = RECORDS_DIR / CONFIRM_RECORD_FILE
     if prepare_flag:
-        if record_path.exists():
-            raise SystemExit(f"{record_path} exists already: confirm is prepared once")
-        _, cleared_sha = load_suspect_cleared()
-        ensure_dir(RECORDS_DIR)
+        if paths.record.exists():
+            raise SystemExit(f"{paths.record} exists already: confirm is prepared once")
+        _, cleared_sha = load_suspect_cleared(prov["synthetic"])
+        ensure_dir(paths.record.parent)
         record = {
             "kind": "confirm_record",
             **prov,
@@ -1138,38 +1245,149 @@ def cmd_confirm(args: Any, last_date: dt.date | None = None, dev_last_date: dt.d
             "suspect_cleared_sha256": cleared_sha,
             "dev_hashes": inputs.hashes,
         }
-        write_result(record_path, record)
-        return record_path
-    return confirm_run(args, prov, inputs, record_path, last_date)
+        write_result(paths.record, record)
+        return paths.record
+    return confirm_run(args, prov, inputs, paths, last_date)
+
+
+def check_rerun_note(paths: ConfirmPaths, marker: dict[str, Any], prov: dict[str, Any]) -> str:
+    """The one permitted re-run: the marker records a data error, and a committed note names that error.
+
+    The note is a JSON object with "marker_sha256" (the content_sha256 of the marker it answers) and "error" (the
+    marker's error text, copied). Returns the sha256 of the note file.
+    """
+    if not paths.note.exists():
+        raise SystemExit(
+            f"the consumed marker records a data error ({marker.get('error')}): a re-run needs the committed note "
+            f"{paths.note} that names it"
+        )
+    if not prov["synthetic"] and not record_committed(paths.note):
+        raise SystemExit(f"the re-run note {paths.note} is not committed (tracked and unmodified at HEAD)")
+    note = read_json(paths.note)
+    if not isinstance(note, dict) or note.get("marker_sha256") != marker["content_sha256"]:
+        raise SystemExit("the re-run note does not name the consumed marker (marker_sha256 differs)")
+    if not marker.get("error") or note.get("error") != marker["error"]:
+        raise SystemExit("the re-run note does not name the error recorded in the consumed marker")
+    return str(_sha256_file(paths.note))
+
+
+def confirm_preflight(reader: DataReader, span: Span, prep: Prepared) -> dict[str, Any]:
+    """Metadata checks made BEFORE the consumed marker is written. Any failure stops with the marker untouched.
+
+    Every fold day from the previous month of the first confirmation month to the last is in the manifest and its file
+    hash matches. No market id in the fold is unknown to markets.json. A funding file exists for every market eligible
+    in some confirmation month. Every Binance file the source guard may read parses structurally. The scale scan over
+    the confirmation window (warm-up start to end, the run-time code path) lists the holding breaks it finds: they are
+    recorded and handled by the exclusion rule of the run, they do not stop it.
+    """
+    first_p = lock.previous_month(span.first.year, span.first.month)
+    first_day = dt.date(first_p[0], first_p[1], 1)
+    reader.require_fold_days(first_day, span.last)
+    known = {m.market_id for m in prep.markets}
+    unknown = sorted(reader.fold_market_ids - known)
+    if unknown:
+        raise DataError(f"market ids in the fold that markets.json does not list: {unknown}")
+    active = sorted({mid for infos in prep.elig.values() for mid in infos})
+    no_funding = [mid for mid in active if not reader.funding_exists(mid)]
+    if no_funding:
+        raise DataError(f"no funding file for market ids {no_funding}")
+    checked: set[tuple[str, int, int]] = set()
+    for ym, infos in sorted(prep.elig.items()):
+        for info in infos.values():
+            if info.source != "pending" or not info.binance_symbol:
+                continue
+            for y, mo in (lock.previous_month(*ym), ym):
+                key = (info.binance_symbol, y, mo)
+                if key not in checked:
+                    reader.check_binance_structure(*key)
+                    checked.add(key)
+    by_id = {m.market_id: m for m in prep.markets}
+    breaks: list[dict[str, Any]] = []
+    for mid in active:
+        md = reader.load_minutes(by_id[mid], span.t0_ms, span.end_ms, mid_only=True)
+        for c in holding_breaks(md):
+            breaks.append({"market_id": mid, "symbol": by_id[mid].symbol, **c})
+    return {
+        "fold_days_checked": (span.last - first_day).days + 1,
+        "funding_files_checked": len(active),
+        "binance_files_checked": len(checked),
+        "scale_breaks_found": breaks,
+    }
 
 
 def confirm_run(
-    args: Any, prov: dict[str, Any], inputs: DevInputs, record_path: Path, last_date: dt.date | None
+    args: Any, prov: dict[str, Any], inputs: DevInputs, paths: ConfirmPaths, last_date: dt.date | None
 ) -> Path:
     out_dir = ensure_dir(args.out_dir)
-    if not record_path.exists():
+    if not paths.record.exists():
         raise SystemExit("no confirm record: run confirm --prepare and commit the record first")
-    record = read_json(record_path)
+    record = read_json(paths.record)
     check_result_file(record, "confirm_record.json", prov)
-    marker = consumed_marker(prov["lock_sha256"])
-    if record.get("ran") or marker.exists() or (out_dir / "confirm_result.json").exists():
+    if record.get("ran") or (out_dir / "confirm_result.json").exists():
         raise SystemExit("confirm has run already for this lock digest: confirm runs once")
-    if not prov["synthetic"] and not record_committed(record_path):
+    attempt, previous_marker, note_sha = 1, None, None
+    if paths.marker.exists():
+        old = read_json(paths.marker)
+        check_result_file(old, "the consumed marker", prov)
+        if old.get("status") != "error" or int(old.get("attempt", 1)) >= 2:
+            raise SystemExit("confirm has run already for this lock digest: confirm runs once")
+        note_sha = check_rerun_note(paths, old, prov)
+        attempt, previous_marker = int(old.get("attempt", 1)) + 1, old["content_sha256"]
+    if not prov["synthetic"] and not record_committed(paths.record):
         raise SystemExit("the confirm record is not committed (tracked and unmodified at HEAD): commit it first")
     if record["finalists"] != inputs.finalists or record["dev_hashes"] != inputs.hashes:
         raise SystemExit("the finalists or the dev files differ from the committed confirm record")
     if record["finalists_sha256"] != inputs.finalists_doc["content_sha256"]:
         raise SystemExit("the finalists file differs from the committed confirm record")
     rerun_matches(inputs)
-    ensure_dir(RECORDS_DIR)
-    marker_hash = write_result(
-        marker,
-        {"kind": "confirm_ran", **prov, "finalists": inputs.finalists, "record_sha256": record["content_sha256"]},
-    )
 
     reader = make_reader(args, "confirm", last_date)
     span = Span(lock.CONFIRM_FIRST_DATE, reader.last_date)
     prep = prepare(reader, span)
+    preflight = confirm_preflight(reader, span, prep)
+
+    ensure_dir(paths.marker.parent)
+    marker_body = {
+        "kind": "confirm_ran",
+        **prov,
+        "finalists": inputs.finalists,
+        "record_sha256": record["content_sha256"],
+        "status": "started",
+        "error": None,
+        "attempt": attempt,
+        "previous_marker_sha256": previous_marker,
+        "rerun_note_sha256": note_sha,
+    }
+    marker_hash = write_result(paths.marker, marker_body)
+    try:
+        path = confirm_statistics(
+            args, prov, inputs, reader, span, prep, preflight, out_dir, record, marker_hash, attempt, note_sha
+        )
+    except Exception as exc:
+        write_result(paths.marker, {**marker_body, "status": "error", "error": f"{type(exc).__name__}: {exc}"})
+        raise
+    print(
+        "commit these two files together:\n"
+        f"  {paths.marker}  sha256 {_sha256_file(paths.marker)}\n"
+        f"  {path}  sha256 {_sha256_file(path)}"
+    )
+    return path
+
+
+def confirm_statistics(
+    args: Any,
+    prov: dict[str, Any],
+    inputs: DevInputs,
+    reader: DataReader,
+    span: Span,
+    prep: Prepared,
+    preflight: dict[str, Any],
+    out_dir: Path,
+    record: dict[str, Any],
+    marker_hash: str,
+    attempt: int,
+    note_sha: str | None,
+) -> Path:
     cfgs = [lock.CONFIG_BY_ID[i] for i in inputs.finalists]
     body = study_header("confirm", reader, prov)
     body.update(
@@ -1177,6 +1395,10 @@ def confirm_run(
             "finalists_sha256": inputs.finalists_doc["content_sha256"],
             "confirm_record_sha256": record["content_sha256"],
             "consumed_marker_sha256": marker_hash,
+            "attempt": attempt,
+            "rerun_note_sha256": note_sha,
+            "preflight": preflight,
+            "scale_policy": "exclude",
             "eligibility": prep.doc,
             "eligibility_sha256": prep.digest,
         }
@@ -1185,6 +1407,7 @@ def confirm_run(
         body.update({"results": [], "manifest": reader.sorted_manifest()})
     else:
         guard: dict[str, Any] = {}
+        common = {"guard": guard, "scale_policy": "exclude"}
         results, quality = run_grid(
             reader,
             prep.markets,
@@ -1193,9 +1416,9 @@ def confirm_run(
             cfgs,
             span,
             trades_dir=out_dir / "confirm_trades",
-            guard=guard,
+            **common,
         )
-        mirror, _ = run_grid(reader, prep.markets, prep.elig, prep.proxies, cfgs, span, mirror=True, guard=guard)
+        mirror, _ = run_grid(reader, prep.markets, prep.elig, prep.proxies, cfgs, span, mirror=True, **common)
         doubled, _ = run_grid(
             reader,
             prep.markets,
@@ -1204,7 +1427,7 @@ def confirm_run(
             cfgs,
             span,
             spread_mult=lock.SPREAD_SENSITIVITY_MULT,
-            guard=guard,
+            **common,
         )
         flags: dict[str, dict[str, Any]] = {}
         for r, m, d in zip(results, mirror, doubled, strict=True):
@@ -1241,7 +1464,8 @@ def cmd_scalescan(args: Any, last_date: dt.date | None = None, first_date: dt.da
     rows: list[dict[str, Any]] = []
     markets = reader.load_markets()
     for market in markets:
-        md = reader.load_minutes(market, span.start_ms, span.end_ms, mid_only=True)
+        # the same window (warm-up included) and the same code path as the run-time check in run_grid
+        md = reader.load_minutes(market, span.t0_ms, span.end_ms, mid_only=True)
         for c in scale_candidates(md):
             rows.append({"market_id": market.market_id, "symbol": market.symbol, **c})
     body = study_header("scalescan", reader, prov)
@@ -1261,7 +1485,8 @@ def cmd_scalescan(args: Any, last_date: dt.date | None = None, first_date: dt.da
 
 def cmd_register_check(args: Any) -> int:
     """Print what the registration anchor file should contain for these data directories."""
-    print(json.dumps(anchor_contents(args.fold_dir, args.binance_dir, args.funding_dir), indent=1, sort_keys=True))
+    anchor = anchor_contents(args.fold_dir, args.binance_dir, args.funding_dir, progress=True)
+    print(json.dumps(anchor, indent=1, sort_keys=True))
     return 0
 
 
@@ -1315,7 +1540,11 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "confirm":
             sp.add_argument("--finalists", required=False, default=None)
             sp.add_argument("--dev-dir", required=False, default=None)
-            sp.add_argument("--prepare", action="store_true", help="write records/confirm_record.json and stop")
+            sp.add_argument(
+                "--prepare",
+                action="store_true",
+                help="write the confirm record (records/ for a real run, the out dir for a synthetic one) and stop",
+            )
             sp.add_argument("--run", action="store_true", help="run the confirmation (needs the committed record)")
     return ap
 

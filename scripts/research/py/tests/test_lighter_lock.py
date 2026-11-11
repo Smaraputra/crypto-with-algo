@@ -311,10 +311,10 @@ def write_fold_month(root: Path, year: int, month: int, spec: dict[int, MM], ski
     days = data.month_days(year, month)
     for d, day in enumerate(days):
         iso = day.isoformat()
-        if manifest and iso not in skip:
-            with open(root / "manifest.jsonl", "a") as f:
-                f.write(json.dumps({"date": iso}) + "\n")
         if not files or iso in skip:
+            if manifest and iso not in skip:
+                with open(root / "manifest.jsonl", "a") as f:
+                    f.write(json.dumps({"date": iso, "output_sha256": "0" * 64}) + "\n")
             continue
         cols = {k: [] for k in ("market_id", "n_trades", "last_buy_px", "last_buy_ts", "last_sell_px", "last_sell_ts")}
 
@@ -348,7 +348,13 @@ def write_fold_month(root: Path, year: int, month: int, spec: dict[int, MM], ski
                 "last_sell_ts": pa.array(cols["last_sell_ts"], pa.int64()),
             }
         )
-        pq.write_table(table, root / "v1" / f"date={iso}.parquet")
+        path = root / "v1" / f"date={iso}.parquet"
+        pq.write_table(table, path)
+        if manifest and iso not in skip:
+            with open(root / "manifest.jsonl", "a") as f:
+                f.write(
+                    json.dumps({"date": iso, "output_sha256": hashlib.sha256(path.read_bytes()).hexdigest()}) + "\n"
+                )
 
 
 NAMES = ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "LINK", "AVAX", "DOT", "LTC", "BCH", "TRX", "AAVE", "UNI"]
@@ -815,7 +821,7 @@ def _md_with_prices(prices, has=None):
     return md
 
 
-def test_price_scale_guard_stops_only_on_a_power_of_ten_jump_whose_new_level_holds(monkeypatch):
+def test_price_scale_guard_stops_only_on_a_power_of_ten_jump_whose_new_level_holds():
     rng = np.random.default_rng(1)
     noise = 1 + rng.normal(0, 1e-4, 200)
     held = np.concatenate([100.0 * noise[:50], 1000.0 * noise[50:]])  # x10 at minute 50 and it stays
@@ -835,15 +841,24 @@ def test_price_scale_guard_stops_only_on_a_power_of_ten_jump_whose_new_level_hol
     cands = run.scale_candidates(_md_with_prices(crash))
     assert [c["holds"] for c in cands] == [False, False]  # the jump up and the return to the old level
     run.check_scale(md.market, _md_with_prices(crash))
-    # too little history before the jump (or after it) cannot confirm a level shift
+    # too little history before the jump (or after it) cannot refute the break: it counts as holding and stops the run
     short = _md_with_prices(np.concatenate([100.0 * noise[:20], 1000.0 * noise[20:]]))
-    assert [c["holds"] for c in run.scale_candidates(short)] == [False]
-    assert run.scale_candidates(short)[0]["printed_minutes_before"] == 20
-    # a listing minute: one printed minute at 10x, then the real level
+    [short_c] = run.scale_candidates(short)
+    assert short_c["holds"] and short_c["insufficient_window"] and short_c["printed_minutes_before"] == 20
+    with pytest.raises(data.DataError):
+        run.check_scale(md.market, short)
+    ends_soon = _md_with_prices(np.concatenate([100.0 * noise[:150], 1000.0 * noise[150:170]]))
+    [ends_c] = run.scale_candidates(ends_soon)
+    assert ends_c["holds"] and ends_c["printed_minutes_after"] == 20
+    # a listing minute: one printed minute at 10x, then the real level: too little history, so it holds
     listing = 100.0 * noise.copy()
     listing[0] = 1000.0
-    assert [c["holds"] for c in run.scale_candidates(_md_with_prices(listing))] == [False]
-    run.check_scale(md.market, _md_with_prices(listing))
+    [listing_c] = run.scale_candidates(_md_with_prices(listing))
+    assert listing_c["holds"] and listing_c["insufficient_window"]
+    with pytest.raises(data.DataError):
+        run.check_scale(md.market, _md_with_prices(listing))
+    # a break with full windows on both sides is not "insufficient"
+    assert cands[0]["insufficient_window"] is False
     # not a power of ten: a 2.5x jump that holds is no scale break (and a 3x one neither)
     for factor in (2.5, 3.0, 0.4):
         plain = np.concatenate([100.0 * noise[:50], 100.0 * factor * noise[50:]])
@@ -861,8 +876,6 @@ def test_price_scale_guard_stops_only_on_a_power_of_ten_jump_whose_new_level_hol
     assert len(run.scale_candidates(gapped)) == 1
     minute = md.t0_ms + 52 * lock.MINUTE_MS  # the first printed minute at the new level
     assert run.scale_candidates(gapped)[0]["minute"] == minute
-    monkeypatch.setattr(lock, "KNOWN_SCALE_BREAKS", (("BTC", cands_minute(md)),))
-    run.check_scale(md.market, md)  # a frozen exception passes
 
 
 def cands_minute(md):

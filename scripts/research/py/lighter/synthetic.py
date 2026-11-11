@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import gzip
+import hashlib
 import io
 import json
 import tempfile
@@ -320,9 +321,11 @@ def make_panel(root: Path, spec: PanelSpec) -> Panel:
             pq.write_table(table, raw)
             with contextlib.redirect_stderr(io.StringIO()):
                 folded, _ = ft.fold_file(raw, day)
-        pq.write_table(folded, fold_dir / "v1" / f"date={day.isoformat()}.parquet", compression="zstd")
+        out_path = fold_dir / "v1" / f"date={day.isoformat()}.parquet"
+        pq.write_table(folded, out_path, compression="zstd")
+        digest = hashlib.sha256(out_path.read_bytes()).hexdigest()
         with open(fold_dir / "manifest.jsonl", "a") as f:
-            f.write(json.dumps({"date": day.isoformat(), "fold_version": "v1"}) + "\n")
+            f.write(json.dumps({"date": day.isoformat(), "fold_version": "v1", "output_sha256": digest}) + "\n")
 
     # Binance 1m files: one per month of the span, header-only stubs for every later month through 2026-10.
     all_minutes = t0 + np.arange(n_min, dtype=np.int64) * MINUTE
