@@ -85,9 +85,12 @@ PRICES FOR SIGNALS
 - SOURCE GUARD, computed on month P only (so it is point in time): over the 5m grid points of P where both the Lighter
   5m close and the Binance 5m close are valid, |median of ln(Lighter close / Binance close)| <= 50 bps AND the Pearson
   correlation of the two series of 15 minute log returns (non-overlapping windows where both closes are valid, at
-  least 1,000 such points) is >= 0.5. It protects against a ticker that means a different asset on Binance. It reads
-  Binance file content, so dev, null, report and confirm compute it (cached in the dev result). The eligibility command
-  reports file existence only, and says "source pending guard" for a month whose files exist.
+  least 1,000 such points) is >= 0.5. Only 5m bars lying wholly inside month P count (a bar whose return would need a
+  close from before the first minute of P is excluded). The 15 minute returns are over non-overlapping windows ending
+  at the UTC quarter hours (minute 0, 15, 30, 45), each wholly inside P. It protects against a ticker that means a
+  different asset on Binance. It reads Binance file content, so dev, null, report and confirm compute it (cached in
+  the dev result). The eligibility command reports file existence only, and says "source pending guard" for a month
+  whose files exist.
 - 5m close at g: Binance = close of the 1m bar with open_time g - 60 s, valid only if all five 1m bars of the five
   minutes exist. Lighter = mid proxy of minute g - 60 s, valid only if at least one trade print (last_px present) fell
   in the five minutes.
@@ -114,7 +117,8 @@ FAMILIES (signal configurations, 57 plus 6)
 - F2 basket-residual reversal: as F1 on r_k minus the equal-weight mean r_k of the OTHER eligible markets of the same
   class and universe in the month (at least 3 others with a valid r_k, else no signal). The z is residual_k / (sd_res x
   sqrt(k)) where sd_res is the sample sd of the residual's own 288 trailing 5m values (the k = 1 residual, same window
-  and 260 minimum as sigma). 9 (computed per month and universe).
+  and 260 minimum as sigma). The decision month's basket (its members and their sources) is used for the whole
+  trailing window of the residual, including the warm-up days before the month. 9 (computed per month and universe).
 - F3 leader continuation: crypto markets other than BTC only. side = sign(z_k of BTC) when |z_k of BTC| >= theta. BTC
   must belong to the universe that month, else the family has no signal there. 9.
 - F4 flow imbalance: I = (B - S) / (B + S) over the last k 5m bars, B + S > 0. Three inputs: "binance" (B =
@@ -148,24 +152,30 @@ FILLS (entries and exits alike)
   against the order by sp_fill: a buy fills at sell_print_px x (1 + sp_fill / 10,000), a sell at buy_print_px x
   (1 - sp_fill / 10,000).
 - sp_fill(t') for a fill found in minute t' is max(sp, x(t'), x(t' - 1 minute)) where sp is the MONTHLY ELIGIBILITY
-  spread proxy (bps) of the month containing the order's boundary t (if the market is not eligible that month, which can
-  happen for an exit, the latest month in which it had a proxy; before the first month with a proxy there is none and
-  such minutes cannot carry a fill), and x(m) = (last_buy_px - last_sell_px) / ((last_buy_px + last_sell_px) / 2) in bps
-  when both exist in minute m and |last_buy_ts - last_sell_ts| <= 2,000 ms (the pair rule of the eligibility proxy),
-  else undefined. Negative x counts as 0. x is used only to price a fill, never a decision, and taking the maximum can
-  only raise the cost. The historical cost model has no order book and is known to understate the spread at event
-  times. The doubled-spread condition is the binding one. The forward tape, which records the real book, is the
-  measurement of this cost.
+  spread proxy (bps) of the month containing the order's boundary t, not the minute of the print. A market that is not
+  eligible in that month (which can happen for an exit) uses that same month's proxy when it has one (at least 1,000
+  qualifying minutes), otherwise the latest earlier month with a proxy; before the first month with a proxy there is
+  none and such minutes cannot carry a fill. x(m) = (last_buy_px - last_sell_px) / ((last_buy_px + last_sell_px) / 2)
+  in bps when both exist in minute m and |last_buy_ts - last_sell_ts| <= 2,000 ms (the pair rule of the eligibility
+  proxy), else undefined. Negative x counts as 0. x is used only to price a fill, never a decision, and taking the
+  maximum can only raise the cost. The historical cost model has no order book and is known to understate the spread
+  at event times. The doubled-spread condition is the binding one. The forward tape, which records the real book, is
+  the measurement of this cost.
 - If both first prints of a minute have the same timestamp, the fill is the WORSE of the two candidate prices for the
   order: the same-side print price against the adjusted opposite-side price. The tie share is reported per
-  configuration.
-- An exit with no print in the 16 minutes fills at the mid proxy of minute t + 15 moved against the order by sp_fill / 2
-  (t' = t + 15), stamped at the end of minute t + 15, and is flagged. A long entry and a short exit are buy orders, a
-  short entry and a long exit are sell orders. (Waiting for a same-side print would fill each leg late exactly when
-  waiting helps, because trade signs persist: it is not used.) The spread sensitivity run doubles sp_fill.
+  configuration: tie_share is the number of fills that hit a timestamp tie divided by the number of fills (two per
+  trade).
+- An exit with no print in the 16 minutes fills at the mid proxy of minute t + 15 moved against the order by sp_fill /
+  2 (t' = t + 15), stamped at the end of minute t + 15, and is flagged. The reported mean_fill_cost_bps uses the full
+  sp_fill for a flagged fallback exit, not the halved amount that moves its price. A long entry and a short exit are
+  buy orders, a short entry and a long exit are sell orders. (Waiting for a same-side print would fill each leg late
+  exactly when waiting helps, because trade signs persist: it is not used.) The spread sensitivity run doubles
+  sp_fill.
 - Zero fees. One open position per (configuration, market): an entry at g is allowed only if the previous trade's exit
-  fill timestamp is at or before g. An entry whose data (entry and exit windows) would pass the span end is not a
-  candidate.
+  fill timestamp is at or before g. An entry at g is not a candidate when g + hold + 16 minutes is later than the span
+  end (the latest fallback stamp, the end of minute g + hold + 15 minutes, must lie before it; on the 5-minute grid this
+  is the same as g + hold + 17 minutes <= span end). An entry excluded by this rule is counted nowhere. For a candidate
+  the entry fill is checked before sigma, so a candidate with neither a fill nor a sigma counts as unfilled.
 
 EXITS. Time: e = g + hold. With sigma_H = sigma(g) x sqrt(hold / 5 min), "stop2_target2" and "target1" look at every
 minute boundary t with g < t < g + hold: mark = mid proxy of minute t - 60 s, u =
@@ -191,7 +201,9 @@ flips it at registration, and dev refuses to run on non-synthetic data while it 
 
 STATISTICS. Daily series: for every configuration, every UTC day from 2025-07-01 (dev) or 2026-07-01 (confirm) to the
 span end, the sum of net over trades whose exit fill timestamp falls on that day (0 on days with no exit). t = mean /
-standard error with Newey-West, Bartlett kernel, 5 lags. Also: trades, mean net per trade in bps, entries per hour
+standard error with Newey-West, Bartlett kernel, 5 lags (weights 1 - j / 6 for lags j = 1 to 5, divisor n: the
+autocovariances are sums over n days divided by n, the standard error is the square root of the long-run variance over
+n; with fewer than 6 days the lags stop at n - 1). Also: trades, mean net per trade in bps, entries per hour
 pooled (trades / hours in the series), unfilled count, flagged exits, share of positive calendar months (months with
 at least one trade, by exit day), share of positive markets among markets with at least 100 trades, the counters of
 missing settlements and settlements crossed, and all of it again split by signal price source (binance, lighter).
@@ -268,8 +280,8 @@ READINGS OF AMBIGUOUS TEXT (each is the most literal reading, or the lead's ruli
 7. F6: a trade's signal is the previous hour's settled rate, and the trade collects or pays the next settlement.
 8. The first stop/target mark is the mid proxy of the entry minute, and a mark may
    be a stale carried-forward value.
-9. A candidate whose entry and exit windows pass the span end is not a candidate. A candidate without a valid sigma(g)
-   cannot be evaluated by the stop/target exits: it is counted as no_sigma and does not hold the position.
+9. A candidate whose exit window passes the span end is not a candidate (see FILLS). A candidate without a valid
+   sigma(g) cannot be evaluated by the stop/target exits: it is counted as no_sigma and does not hold the position.
 10. Entries per hour pooled = trades / (24 x days of the configuration's daily series).
 11. Positive months are counted by exit month, over months with at least one trade, partial months included.
 12. A shift by D days of a span shorter than D days wraps (np.roll semantics).
