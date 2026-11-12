@@ -49,5 +49,10 @@
       "activity_clause_median_daily_trades": 5000,
       "id_month_pairs_meeting_the_clause": 0
     }
-  }
+  },
+  "notes_added_2026-11-12_after_the_final_opus_look": [
+    "Coverage of the activity clause's month P: July eligibility reads June 2026, which the 530-day development scan above covers (0 unknown ids with rows). August to October read July to September, which the counts-only read covers. Together this is complete for every eligibility month the confirmation slice uses.",
+    "The other 244 unknown ids are not read anywhere. By arithmetic from the counts (245 unknown ids in the fold, 0 with rows before 2026-07-01, 1 with rows in July to September), they have rows only in October 2026 fold days. October rows only feed November eligibility, which is never computed. This is an inference from the counts, not an observation.",
+    "It was not recorded whether the 2,098 median counts days without rows as 0, which the clause does. Id 234 had rows on 16 of 30 September days. If the 2,098 excludes the 14 empty days, the clause's median (empty days count as 0) is the mean of the two smallest positive days and cannot exceed 2,098. If it includes them, it equals 2,098. Either way it is below 5,000."
+  ]
 }
