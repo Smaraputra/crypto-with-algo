@@ -1,0 +1,53 @@
+{
+  "kind": "lighter-l1-preflight-metadata",
+  "ledger_id": "lighter-l1",
+  "date_utc": "2026-11-11",
+  "purpose": "Metadata checks made before the registration anchor, prompted by the Opus gate review of de262f71..4b4ecd6c. No price, return or signal was read or computed.",
+  "markets_json": {
+    "markets_file_version": 3,
+    "perp_entries": 243,
+    "spot_entries": 12,
+    "entries_of_any_other_market_type": 0,
+    "unknown_market_ids": 245
+  },
+  "perp_funding_state": {
+    "listed_with_funding_file_status_ok": 233,
+    "delisted_no_file_manifest_empty": {
+      "count": 8,
+      "symbols": ["MKR", "RESOLV", "PROVE", "DOLO", "MYX", "EDEN", "FOGO", "URA"]
+    },
+    "listed_no_file_manifest_empty": {
+      "count": 2,
+      "markets": [
+        {"market_id": 7829, "symbol": "IREN", "created_at_ms": 1793814754983},
+        {"market_id": 8286, "symbol": "ASELS", "created_at_ms": 1793978413244}
+      ],
+      "note": "Both were created after the last fold day (2026-10-31), so the fold holds no rows for them and the listed-but-empty error cannot fire."
+    },
+    "funding_files_without_a_perp_entry": 0
+  },
+  "unknown_market_ids_activity": {
+    "development_days_before_2026-07-01": {
+      "fold_days_read": 530,
+      "unknown_ids_with_rows": 0
+    },
+    "counts_only_read_with_owner_approval": {
+      "columns_read": ["market_id", "n_trades"],
+      "fold_days": "2026-07-01 to 2026-09-30",
+      "reason": "These are the months whose rows feed the confirmation eligibility for August to October. October rows were not read, they only feed November.",
+      "unknown_ids_with_rows": 1,
+      "rows": [
+        {
+          "market_id": 234,
+          "month": "2026-09",
+          "median_daily_n_trades": 2098,
+          "total_n_trades": 82891,
+          "max_day_n_trades": 11403,
+          "days_with_rows": 16
+        }
+      ],
+      "activity_clause_median_daily_trades": 5000,
+      "id_month_pairs_meeting_the_clause": 0
+    }
+  }
+}

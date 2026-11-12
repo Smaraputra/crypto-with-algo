@@ -132,6 +132,13 @@ export const LEDGER: readonly LedgerEntry[] = [
     source:
       'scripts/research/venue-spread-lock.txt (lock v3, sha256 6baba23f), the one read of the Binance against Hyperliquid funding spread rule on 2024-07-01 to 2026-07-01: one frozen rule, one test. The 14 scouted cells were descriptive and added nothing.',
   },
+  {
+    id: 'lighter-l1',
+    date: '2026-11-11',
+    trials: 2064,
+    source:
+      'scripts/research/py/lighter/lock.py (LEDGER_ID lighter-l1, TRIALS = len(GRID)), the declared stage 2 grid on Lighter perpetuals: F1 to F5 as 57 signal configurations x 6 holds x 3 exits x 2 universes = 2,052, plus F6 as 6 x 2 = 12. Development 2025-07-01 to 2026-06-30, one confirmation slice 2026-07-01 to 2026-10-31 read once. The 20 shift runs and 20 sign-flip runs of the noise control set the bars and add no trials. Registration anchor: scripts/research/py/records/lighter_l1_registration.json.',
+  },
 ];
 
 /** Sum of trials over the ledger, or over the entries up to and including `throughId`. */

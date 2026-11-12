@@ -1,0 +1,725 @@
+"""Lighter stage 2: every input file read happens in this module, behind the span guards of lighter/lock.py.
+
+Guards (no override flag exists):
+- Nothing dated 2026-11-01 or later is ever read (NEVER_READ_FROM).
+- A reader opened in "dev" mode cannot read past 2026-06-30. A reader in "confirm" mode can read through 2026-10-31.
+- Rows are filtered at read time (the funding file is read with a timestamp filter), so rows beyond the allowed end
+  never enter memory.
+- A fold day absent from the fold manifest (or whose file is absent) is an error, unless the date is listed in
+  lock.KNOWN_MISSING_FOLD_DAYS.
+
+Each file read is recorded in the reader's manifest with its sha256 (funding: the sha256 of the allowed rows only, so
+the hash never covers a byte beyond the guard). Paths in the manifest are relative to their input directory.
+
+The eligibility reads (`month_cost_stats`) open only the cost and activity columns of the fold (ELIGIBILITY_COLUMNS) and
+only check that Binance files exist. They never open a first-print price, a vwap or a Binance file.
+"""
+
+from __future__ import annotations
+
+import calendar
+import datetime as dt
+import gzip
+import hashlib
+import json
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
+
+from lighter import lock
+from lighter.fold_trades import day_start_ms
+
+MINUTE_MS = lock.MINUTE_MS
+DAY_MS = lock.DAY_MS
+# Literal, not taken from lock.py, so no other module can relax it: no input dated on or after this day is read.
+NEVER_READ_FROM = dt.date(2026, 11, 1)
+
+BINANCE_COLUMNS = ("open_time", "close", "quote_volume", "taker_buy_quote")
+BINANCE_HEADER = (
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "quote_volume",
+    "trades",
+    "taker_buy_base",
+    "taker_buy_quote",
+)
+ELIGIBILITY_COLUMNS = ("market_id", "n_trades", "last_buy_px", "last_buy_ts", "last_sell_px", "last_sell_ts")
+FOLD_COLUMNS = (
+    "market_id",
+    "minute",
+    "buy_usd_lt_1k",
+    "sell_usd_lt_1k",
+    "buy_usd_10k_100k",
+    "buy_usd_ge_100k",
+    "sell_usd_10k_100k",
+    "sell_usd_ge_100k",
+    "last_px",
+    "last_buy_px",
+    "last_buy_ts",
+    "last_sell_px",
+    "last_sell_ts",
+    "first_buy_px",
+    "first_buy_ts",
+    "first_sell_px",
+    "first_sell_ts",
+)
+
+
+class SpanError(RuntimeError):
+    """A read was refused by a span guard."""
+
+
+class DataError(RuntimeError):
+    """An input file is missing or unusable."""
+
+
+@dataclass(frozen=True)
+class Market:
+    symbol: str
+    market_id: int
+    price_decimals: int
+
+    @property
+    def coin(self) -> str:
+        return self.symbol
+
+    @property
+    def cls(self) -> str:
+        return lock.symbol_class(self.symbol)
+
+    @property
+    def is_leader(self) -> bool:
+        return lock.is_leader(self.symbol)
+
+    @property
+    def binance_symbol(self) -> str | None:
+        return lock.binance_symbol(self.symbol)
+
+
+@dataclass
+class MinuteData:
+    """Dense per-minute arrays of one market from t0_ms. Absent values are NaN (flags are False, flows are 0)."""
+
+    market: Market
+    t0_ms: int
+    n: int
+    last_px: np.ndarray
+    last_buy_px: np.ndarray
+    last_sell_px: np.ndarray
+    last_buy_ts: np.ndarray
+    last_sell_ts: np.ndarray
+    first_buy_px: np.ndarray
+    first_sell_px: np.ndarray
+    first_buy_ts: np.ndarray
+    first_sell_ts: np.ndarray
+    buy_small: np.ndarray
+    sell_small: np.ndarray
+    buy_large: np.ndarray
+    sell_large: np.ndarray
+    b_has: np.ndarray
+    b_close: np.ndarray
+    b_qv: np.ndarray
+    b_tbq: np.ndarray
+
+    @property
+    def has_print(self) -> np.ndarray:
+        return ~np.isnan(self.last_px)
+
+    def slice(self, start_minute: int, end_minute: int | None = None) -> MinuteData:
+        """The minutes start_minute .. end_minute - 1 as a new MinuteData (t0 moves with it)."""
+        end = self.n if end_minute is None else end_minute
+        kw = {
+            name: getattr(self, name)[start_minute:end]
+            for name in (
+                "last_px",
+                "last_buy_px",
+                "last_sell_px",
+                "last_buy_ts",
+                "last_sell_ts",
+                "first_buy_px",
+                "first_sell_px",
+                "first_buy_ts",
+                "first_sell_ts",
+                "buy_small",
+                "sell_small",
+                "buy_large",
+                "sell_large",
+                "b_has",
+                "b_close",
+                "b_qv",
+                "b_tbq",
+            )
+        }
+        return MinuteData(market=self.market, t0_ms=self.t0_ms + start_minute * MINUTE_MS, n=end - start_minute, **kw)
+
+
+@dataclass
+class CostStats:
+    """What the eligibility rule reads about one market in one month."""
+
+    activity_median: float
+    qualifying_minutes: int
+    spread_proxy_bps: float
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def month_range(first: tuple[int, int], last: tuple[int, int]) -> list[tuple[int, int]]:
+    out = []
+    y, m = first
+    while (y, m) <= (last[0], last[1]):
+        out.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def month_days(year: int, month: int) -> list[dt.date]:
+    return [dt.date(year, month, d) for d in range(1, calendar.monthrange(year, month)[1] + 1)]
+
+
+def read_json(path: str | Path) -> Any:
+    """Reads a small JSON input (finalists, earlier results). Not subject to the span guards."""
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+class DataReader:
+    """Reads fold, Binance and funding inputs for one study mode ("dev" or "confirm")."""
+
+    def __init__(
+        self,
+        *,
+        fold_dir: str | Path,
+        binance_dir: str | Path | None = None,
+        funding_dir: str | Path | None = None,
+        mode: str,
+        last_date: dt.date | None = None,
+    ) -> None:
+        if mode not in ("dev", "confirm"):
+            raise SpanError(f"unknown mode {mode!r}")
+        mode_last = lock.DEV_LAST_DATE if mode == "dev" else lock.CONFIRM_LAST_DATE
+        mode_last = min(mode_last, NEVER_READ_FROM - dt.timedelta(days=1))
+        if last_date is None:
+            last_date = mode_last
+        if last_date > mode_last:
+            raise SpanError(f"mode {mode} cannot read past {mode_last}, asked for {last_date}")
+        self.mode = mode
+        self.last_date = last_date
+        self.end_ms = day_start_ms(last_date) + DAY_MS
+        self.fold_dir = Path(fold_dir)
+        self.binance_dir = None if binance_dir is None else Path(binance_dir)
+        self.funding_dir = None if funding_dir is None else Path(funding_dir)
+        self._hash_cache: dict[Path, str] = {}
+        self._fold_days: dict[str, str | None] | None = None
+        self._funding_status: dict[int, str] | None = None
+        self.manifest: dict[str, str] = {}
+        self._missing_months: set[str] = set()
+        self._known_missing: set[str] = set()
+        self._off_grid: dict[int, int] = {}
+        self._cost_cache: dict[tuple[int, int], dict[int, CostStats]] = {}
+        self.fold_market_ids: set[int] = set()
+        self.non_perp: dict[int, str] = {}  # market_id -> symbol of the known "spot" entries (out of scope)
+        self.other_types: dict[int, str] = {}  # market_id -> market_type of entries that are neither perp nor spot
+        self.delisted: set[int] = set()  # perp ids whose entry says listed_in_order_books false
+        self._markets_loaded = False
+
+    # ------------------------------------------------------------------ guards
+
+    def check_day(self, day: dt.date) -> None:
+        if day >= NEVER_READ_FROM:
+            raise SpanError(f"{day} is in the reserved forward sample (from {NEVER_READ_FROM}): never read")
+        if day > self.last_date:
+            raise SpanError(f"mode {self.mode} cannot read {day} (last readable day {self.last_date})")
+
+    def check_end_ms(self, end_ms: int) -> None:
+        if end_ms > self.end_ms:
+            raise SpanError(f"mode {self.mode} cannot read up to {end_ms} (limit {self.end_ms})")
+        if end_ms > day_start_ms(NEVER_READ_FROM):
+            raise SpanError("nothing at or after 2026-11-01 is ever read")
+
+    # ------------------------------------------------------------------ manifest
+
+    def _record(self, label: str, path: Path, digest: str | None = None) -> None:
+        if digest is None:
+            digest = self._hash_cache.get(path) or sha256_file(path)
+            self._hash_cache[path] = digest
+        self.manifest[label] = digest
+
+    # ------------------------------------------------------------------ markets and the fold manifest
+
+    def load_markets(self) -> list[Market]:
+        """The perp markets of <fold>/markets.json, sorted by market id.
+
+        Only an entry whose market_type is exactly "spot" is known and out of scope: it is kept in `non_perp` and its
+        fold rows are ignored. An entry of any other non-perp type (or none) is kept in `other_types`: a fold id there
+        that meets the activity clause stops the run. An id with no entry at all (listed as unknown or absent) is
+        unknown. `delisted` holds the perp ids with listed_in_order_books false (a version 2 file has none).
+        """
+        path = self.fold_dir / "markets.json"
+        if not path.exists():
+            raise DataError(f"{path} is missing")
+        doc = json.loads(path.read_bytes())
+        if int(doc.get("markets_file_version", 0)) not in (2, 3):
+            raise DataError("markets.json is not markets_file_version 2 or 3")
+        self._record("fold/markets.json", path)
+        out = []
+        self.non_perp, self.other_types, self.delisted = {}, {}, set()
+        for b in doc["order_books"]:
+            if b.get("market_type") != "perp":
+                if isinstance(b.get("market_id"), int):
+                    if b.get("market_type") == "spot":
+                        self.non_perp[b["market_id"]] = str(b.get("symbol", ""))
+                    else:
+                        self.other_types[b["market_id"]] = str(b.get("market_type"))
+                continue
+            if b.get("listed_in_order_books") is False and isinstance(b.get("market_id"), int):
+                self.delisted.add(b["market_id"])
+            if b.get("supported_price_decimals") is None:
+                raise DataError(f"market {b.get('symbol')} has no supported_price_decimals")
+            try:
+                lock.symbol_class(str(b["symbol"]))
+            except ValueError as exc:
+                raise DataError(str(exc)) from exc
+            out.append(Market(str(b["symbol"]), int(b["market_id"]), int(b["supported_price_decimals"])))
+        ids = [m.market_id for m in out]
+        if len(set(ids)) != len(ids):
+            raise DataError("duplicate market ids in markets.json")
+        out.sort(key=lambda m: m.market_id)
+        self._markets_loaded = True
+        return out
+
+    def _manifest_days(self) -> dict[str, str | None]:
+        """Date -> output_sha256 of the fold manifest (the last line of a date wins)."""
+        if self._fold_days is None:
+            path = self.fold_dir / "manifest.jsonl"
+            if not path.exists():
+                raise DataError(f"the fold manifest {path} is missing")
+            days: dict[str, str | None] = {}
+            for line in path.read_text().splitlines():
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(rec, dict) and isinstance(rec.get("date"), str):
+                    days[rec["date"]] = rec.get("output_sha256")
+            self._fold_days = days
+            self._record("fold/manifest.jsonl", path)
+        return self._fold_days
+
+    def fold_path(self, day: dt.date) -> Path:
+        return self.fold_dir / "v1" / f"date={day.isoformat()}.parquet"
+
+    def fold_day_present(self, day: dt.date) -> bool:
+        """True when the day is in the fold manifest and its file exists. A known-missing day is False, not an error."""
+        iso = day.isoformat()
+        if iso in self._manifest_days() and self.fold_path(day).exists():
+            self._verify_fold_hash(day)
+            return True
+        if iso in lock.KNOWN_MISSING_FOLD_DAYS:
+            self._known_missing.add(iso)
+            return False
+        raise DataError(f"fold day {iso} is absent from the fold manifest or its file is missing")
+
+    def _verify_fold_hash(self, day: dt.date) -> None:
+        """The file's sha256 must equal that day's output_sha256 in the fold manifest."""
+        iso = day.isoformat()
+        want = self._manifest_days()[iso]
+        if not want:
+            raise DataError(f"fold day {iso}: the manifest line carries no output_sha256")
+        path = self.fold_path(day)
+        digest = self._hash_cache.get(path)
+        if digest is None:
+            digest = self._hash_cache[path] = sha256_file(path)
+        if digest != want:
+            raise DataError(f"fold day {iso}: the file's sha256 differs from the fold manifest's output_sha256")
+
+    def require_fold_days(self, first: dt.date, last: dt.date) -> None:
+        day = first
+        while day <= last:
+            self.check_day(day)
+            self.fold_day_present(day)
+            day += dt.timedelta(days=1)
+
+    def _read_fold(self, day: dt.date, columns: list[str], market_id: int | None) -> pa.Table | None:
+        self.check_day(day)
+        if not self.fold_day_present(day):
+            return None
+        path = self.fold_path(day)
+        self._record(f"fold/{path.name}", path)
+        filters = None if market_id is None else [("market_id", "==", market_id)]
+        return pq.read_table(path, columns=columns, filters=filters)
+
+    # ------------------------------------------------------------------ eligibility inputs
+
+    def month_cost_stats(self, year: int, month: int) -> dict[int, CostStats]:
+        """Activity and spread-proxy figures of every market from the fold rows of one calendar month.
+
+        Reads ELIGIBILITY_COLUMNS only. A market with no row in the month is absent from the result.
+        """
+        key = (year, month)
+        if key in self._cost_cache:
+            return self._cost_cache[key]
+        days = month_days(year, month)
+        per_day: dict[int, np.ndarray] = {}
+        spreads: dict[int, list[np.ndarray]] = {}
+        for i, day in enumerate(days):
+            table = self._read_fold(day, list(ELIGIBILITY_COLUMNS), None)
+            if table is None or table.num_rows == 0:
+                continue
+            grouped = table.group_by("market_id").aggregate([("n_trades", "sum")])
+            for mid, total in zip(
+                grouped.column("market_id").to_numpy(), grouped.column("n_trades_sum").to_numpy(), strict=True
+            ):
+                per_day.setdefault(int(mid), np.zeros(len(days), dtype=np.int64))[i] = int(total)
+
+            def num(name: str, table: pa.Table = table) -> np.ndarray:
+                return pc.cast(table.column(name), pa.float64()).to_numpy(zero_copy_only=False)
+
+            ids = table.column("market_id").to_numpy()
+            bp, sp = num("last_buy_px"), num("last_sell_px")
+            bt, st = num("last_buy_ts"), num("last_sell_ts")
+            with np.errstate(invalid="ignore"):
+                ok = ~np.isnan(bp) & ~np.isnan(sp) & (np.abs(bt - st) <= lock.ELIG_MAX_TS_GAP_MS)
+            if ok.any():
+                b, s, m = bp[ok], sp[ok], ids[ok]
+                x = (b - s) * lock.BPS / ((b + s) / 2.0)
+                for mid in np.unique(m):
+                    spreads.setdefault(int(mid), []).append(x[m == mid])
+        out: dict[int, CostStats] = {}
+        self.fold_market_ids |= set(per_day)
+        for mid, counts in per_day.items():
+            xs = np.concatenate(spreads[mid]) if mid in spreads else np.zeros(0)
+            proxy = max(0.0, float(np.median(xs))) if len(xs) else float("nan")
+            out[mid] = CostStats(float(np.median(counts)), int(len(xs)), proxy)
+        self._cost_cache[key] = out
+        return out
+
+    # ------------------------------------------------------------------ Binance
+
+    def binance_path(self, symbol: str, year: int, month: int) -> Path:
+        if self.binance_dir is None:
+            raise DataError("no Binance directory was given")
+        return self.binance_dir / symbol / f"{symbol}-1m-{year:04d}-{month:02d}.csv.gz"
+
+    def binance_month_exists(self, symbol: str, year: int, month: int) -> bool:
+        """Existence only: no file is opened, so this is allowed for months beyond the mode's last readable day."""
+        if self.binance_dir is None:
+            return False
+        return self.binance_path(symbol, year, month).exists()
+
+    def _load_binance(self, symbol: str, months: set[tuple[int, int]], t0_ms: int, n: int) -> dict[str, np.ndarray]:
+        end_ms = t0_ms + n * MINUTE_MS
+        self.check_end_ms(end_ms)
+        has = np.zeros(n, dtype=bool)
+        close = np.full(n, np.nan)
+        qv = np.full(n, np.nan)
+        tbq = np.full(n, np.nan)
+        for y, m in sorted(months):
+            path = self.binance_path(symbol, y, m)
+            if not path.exists():
+                self._missing_months.add(f"{symbol}-{y:04d}-{m:02d}")
+                continue
+            self._record(f"binance/{symbol}/{path.name}", path)
+            with gzip.open(path, "rb") as f:
+                frame = pd.read_csv(f, usecols=list(BINANCE_COLUMNS), dtype=np.float64)
+            open_time = frame["open_time"].to_numpy(dtype=np.int64)
+            m_lo = day_start_ms(dt.date(y, m, 1))
+            m_hi = day_start_ms(dt.date(y + (m == 12), 1 if m == 12 else m + 1, 1))
+            if len(open_time) and (open_time.min() < m_lo or open_time.max() >= m_hi):
+                raise DataError(f"{path.name} holds a row outside its month")
+            if len(np.unique(open_time)) != len(open_time):
+                raise DataError(f"{path.name} holds a duplicate open_time")
+            keep = (open_time >= t0_ms) & (open_time < end_ms) & (open_time % MINUTE_MS == 0)
+            idx = (open_time[keep] - t0_ms) // MINUTE_MS
+            has[idx] = True
+            close[idx] = frame["close"].to_numpy()[keep]
+            qv[idx] = frame["quote_volume"].to_numpy()[keep]
+            tbq[idx] = frame["taker_buy_quote"].to_numpy()[keep]
+        return {"b_has": has, "b_close": close, "b_qv": qv, "b_tbq": tbq}
+
+    def load_binance_closes(self, market: Market, t0_ms: int, n: int) -> tuple[np.ndarray, np.ndarray] | None:
+        """Binance 1m closes on the minute grid t0_ms + i minutes, from the month files that exist (price levels only).
+
+        None when the market has no Binance mapping, no Binance directory was given or no file exists for the window.
+        A month without a file leaves its minutes unobserved. Used by the real-move check of the scale guard.
+        """
+        symbol = market.binance_symbol
+        if symbol is None or self.binance_dir is None:
+            return None
+        last_ms = t0_ms + max(n, 1) * MINUTE_MS - 1
+        first = dt.datetime.fromtimestamp(t0_ms / 1000, dt.UTC)
+        last = dt.datetime.fromtimestamp(last_ms / 1000, dt.UTC)
+        months = {
+            ym
+            for ym in month_range((first.year, first.month), (last.year, last.month))
+            if self.binance_path(symbol, *ym).exists()
+        }
+        if not months:
+            return None
+        b = self._load_binance(symbol, months, t0_ms, n)
+        return b["b_has"], b["b_close"]
+
+    def check_binance_structure(self, symbol: str, year: int, month: int) -> None:
+        """Header, open_time strictly increasing, inside the file's month, no duplicates. A missing file is an error."""
+        path = self.binance_path(symbol, year, month)
+        if not path.exists():
+            raise DataError(f"{path.name} is missing")
+        try:
+            with gzip.open(path, "rt") as f:
+                header = f.readline().strip().split(",")
+                if header[: len(BINANCE_HEADER)] != list(BINANCE_HEADER):
+                    raise DataError(f"{path.name}: unexpected header {header[:4]}")
+            frame = pd.read_csv(path, usecols=["open_time"], dtype=np.int64)
+        except (OSError, ValueError, EOFError) as exc:
+            raise DataError(f"{path.name} does not parse: {exc}") from exc
+        t = frame["open_time"].to_numpy()
+        lo = day_start_ms(dt.date(year, month, 1))
+        hi = day_start_ms(dt.date(year + (month == 12), 1 if month == 12 else month + 1, 1))
+        if len(t) and (t.min() < lo or t.max() >= hi):
+            raise DataError(f"{path.name} holds a row outside its month")
+        if len(t) > 1 and not (np.diff(t) > 0).all():
+            raise DataError(f"{path.name}: open_time is not strictly increasing (duplicates or disorder)")
+
+    # ------------------------------------------------------------------ minutes
+
+    def load_minutes(
+        self,
+        market: Market,
+        t0_ms: int,
+        end_ms: int,
+        binance_months: set[tuple[int, int]] | None = None,
+        binance_symbol: str | None = None,
+        mid_only: bool = False,
+    ) -> MinuteData:
+        """Fold rows of the market (and the given Binance months) from t0_ms (a day start) to end_ms.
+
+        mid_only reads only last_px, last_buy_px and last_sell_px (the mid proxy inputs, for the scale scan)."""
+        self.check_end_ms(end_ms)
+        if t0_ms % DAY_MS or end_ms % DAY_MS:
+            raise DataError("span edges must be UTC day starts")
+        n = (end_ms - t0_ms) // MINUTE_MS
+        scale = 10.0**market.price_decimals
+        floats = {
+            k: np.full(n, np.nan)
+            for k in (
+                "last_px",
+                "last_buy_px",
+                "last_sell_px",
+                "last_buy_ts",
+                "last_sell_ts",
+                "first_buy_px",
+                "first_sell_px",
+                "first_buy_ts",
+                "first_sell_ts",
+            )
+        }
+        flows = {k: np.zeros(n) for k in ("buy_small", "sell_small", "buy_large", "sell_large")}
+        price_cols = ("last_px", "last_buy_px", "last_sell_px", "first_buy_px", "first_sell_px")
+        ts_cols = ("last_buy_ts", "last_sell_ts", "first_buy_ts", "first_sell_ts")
+        day = dt.datetime.fromtimestamp(t0_ms / 1000, dt.UTC).date()
+        last_day = dt.datetime.fromtimestamp((end_ms - 1) / 1000, dt.UTC).date()
+        while day <= last_day:
+            columns = (
+                ["market_id", "minute", "last_px", "last_buy_px", "last_sell_px"] if mid_only else list(FOLD_COLUMNS)
+            )
+            table = self._read_fold(day, columns, market.market_id)
+            day += dt.timedelta(days=1)
+            if table is None or table.num_rows == 0:
+                continue
+            minute = table.column("minute").to_numpy()
+            keep = (minute >= t0_ms) & (minute < end_ms)
+            if not keep.all():
+                raise DataError("fold rows outside the requested span")
+            idx = (minute - t0_ms) // MINUTE_MS
+            for name in price_cols:
+                if mid_only and name not in ("last_px", "last_buy_px", "last_sell_px"):
+                    continue
+                col = pc.cast(table.column(name), pa.float64()).to_numpy(zero_copy_only=False)
+                floats[name][idx] = col / scale
+            if mid_only:
+                continue
+            for name in ts_cols:
+                floats[name][idx] = pc.cast(table.column(name), pa.float64()).to_numpy(zero_copy_only=False)
+
+            def num(name: str, table: pa.Table = table) -> np.ndarray:
+                return table.column(name).to_numpy(zero_copy_only=False)
+
+            flows["buy_small"][idx] = num("buy_usd_lt_1k")
+            flows["sell_small"][idx] = num("sell_usd_lt_1k")
+            flows["buy_large"][idx] = num("buy_usd_10k_100k") + num("buy_usd_ge_100k")
+            flows["sell_large"][idx] = num("sell_usd_10k_100k") + num("sell_usd_ge_100k")
+        for mid, minute_ms, k in lock.KNOWN_SCALE_BREAKS:
+            if mid != market.market_id:
+                continue
+            if k == 0:
+                continue  # an acknowledged real move: no rescale (run.py also never stops or excludes on it)
+            upto = int(np.clip((minute_ms - t0_ms) // MINUTE_MS, 0, n))
+            for name in price_cols:
+                floats[name][:upto] *= 10.0**k
+        if binance_months and binance_symbol:
+            b = self._load_binance(binance_symbol, binance_months, t0_ms, n)
+        else:
+            b = {
+                "b_has": np.zeros(n, dtype=bool),
+                "b_close": np.full(n, np.nan),
+                "b_qv": np.full(n, np.nan),
+                "b_tbq": np.full(n, np.nan),
+            }
+        return MinuteData(market=market, t0_ms=t0_ms, n=n, **floats, **flows, **b)
+
+    # ------------------------------------------------------------------ funding
+
+    def funding_path(self, market_id: int) -> Path:
+        if self.funding_dir is None:
+            raise DataError("no funding directory was given")
+        direct = self.funding_dir / f"market_{market_id}.parquet"
+        nested = self.funding_dir / "funding" / f"market_{market_id}.parquet"
+        return nested if (not direct.exists() and nested.exists()) else direct
+
+    def funding_exists(self, market_id: int) -> bool:
+        return self.funding_dir is not None and self.funding_path(market_id).exists()
+
+    def funding_manifest_path(self) -> Path | None:
+        if self.funding_dir is None:
+            return None
+        nested = self.funding_dir / "funding" / "manifest.jsonl"
+        return nested if nested.exists() else self.funding_dir / "manifest.jsonl"
+
+    def _funding_statuses(self) -> dict[int, str]:
+        """market_id -> status of the LAST line for that market in the funding manifest (no file: no entries)."""
+        if self._funding_status is None:
+            out: dict[int, str] = {}
+            path = self.funding_manifest_path()
+            if path is not None and path.exists():
+                for line in path.read_text().splitlines():
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(rec, dict) and isinstance(rec.get("market_id"), int):
+                        out[rec["market_id"]] = str(rec.get("status"))
+                self._record("funding/manifest.jsonl", path)
+            self._funding_status = out
+        return self._funding_status
+
+    def is_no_funding(self, market_id: int) -> bool:
+        """A no-funding market: a DELISTED market (markets.json: listed_in_order_books false) with no funding file AND
+        the last funding manifest line for the id says "empty".
+
+        The venue serves no funding history for delisted markets. A market with a funding file is never one, whatever
+        the manifest says. A status "failed", or no line at all, is not "empty". A market that is still listed (true,
+        or a version 2 file without the key) is never one: a transient empty answer must not let an active market
+        trade at zero funding.
+        """
+        if self.funding_exists(market_id):
+            return False
+        if not self._markets_loaded:
+            self.load_markets()
+        if market_id not in self.delisted:
+            return False
+        return self._funding_statuses().get(market_id) == "empty"
+
+    def empty_but_listed(self, market_id: int) -> bool:
+        """True when the funding manifest says "empty" for a market that is not delisted (the error case to name)."""
+        if self.funding_exists(market_id):
+            return False
+        if not self._markets_loaded:
+            self.load_markets()
+        return market_id not in self.delisted and self._funding_statuses().get(market_id) == "empty"
+
+    def load_funding(self, market_id: int, end_ms: int) -> tuple[np.ndarray, np.ndarray]:
+        """Settlement times (ms) and rate_long_pays, only rows with a timestamp before end_ms. Empty when no file."""
+        self.check_end_ms(end_ms)
+        if not self.funding_exists(market_id):
+            return np.zeros(0, dtype=np.int64), np.zeros(0)
+        path = self.funding_path(market_id)
+        table = pq.read_table(
+            path, columns=["timestamp", "rate_long_pays"], filters=[("timestamp", "<", end_ms // 1000)]
+        )
+        ts = table.column("timestamp").to_numpy().astype(np.int64) * 1000
+        rate = table.column("rate_long_pays").to_numpy(zero_copy_only=False).astype(np.float64)
+        order = np.argsort(ts, kind="stable")
+        ts, rate = ts[order], rate[order]
+        self._off_grid[market_id] = int(np.count_nonzero(ts % lock.HOUR_MS))
+        digest = sha256_bytes(ts.tobytes() + rate.tobytes())
+        self._record(f"funding/{path.name}", path, digest)
+        return ts, rate
+
+    @property
+    def quality(self) -> dict[str, Any]:
+        """Data-quality counters of everything read so far (sets, so repeated reads do not double count)."""
+        return {
+            "known_missing_fold_days": sorted(self._known_missing),
+            "missing_binance_months": len(self._missing_months),
+            "missing_binance_months_first": sorted(self._missing_months)[:20],
+            "funding_off_grid_rows": sum(self._off_grid.values()),
+        }
+
+    def sorted_manifest(self) -> dict[str, str]:
+        return dict(sorted(self.manifest.items()))
+
+
+SYNTHETIC_MARKER = "SYNTHETIC"
+
+
+def is_synthetic(fold_dir: str | Path) -> bool:
+    """True only when ALL of: the SYNTHETIC marker file exists, markets.json says "source": "synthetic" and no entry of
+    the fold manifest has a source_url starting with https. The marker alone never disables a guard."""
+    root = Path(fold_dir)
+    if not (root / SYNTHETIC_MARKER).exists():
+        return False
+    try:
+        markets = json.loads((root / "markets.json").read_text())
+    except (OSError, ValueError):
+        return False
+    if not isinstance(markets, dict) or markets.get("source") != "synthetic":
+        return False
+    manifest = root / "manifest.jsonl"
+    if manifest.exists():
+        for line in manifest.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(rec, dict) and str(rec.get("source_url", "")).startswith("https"):
+                return False
+    return True
+
+
+def ensure_dir(path: str | Path) -> Path:
+    p = Path(path)
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+__all__ = [
+    "DataError",
+    "DataReader",
+    "Market",
+    "MinuteData",
+    "SpanError",
+    "ensure_dir",
+    "month_range",
+    "read_json",
+]

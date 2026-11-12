@@ -21,6 +21,7 @@ RUN pip install --require-hashes --only-binary=:all: --no-deps -r requirements.l
 COPY pyproject.toml ./
 COPY r4 ./r4
 COPY scalp ./scalp
+COPY lighter ./lighter
 # The C5 reproduction check authenticates its C4 baseline against records/gate_p_c4.json (Amendment 5).
 COPY records ./records
 

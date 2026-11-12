@@ -130,12 +130,77 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Forward-only order book and trade tape for Lighter and the matching Binance
+  # USDT-M perps (scripts/ops/tape-recorder.ts). Research data: no study may
+  # read it before its own pre-registration. Standalone: no MongoDB, no Redis,
+  # no .env (it needs no secret), so it sits on its own bridge network and only
+  # reaches the internet through Docker's NAT.
+  #
+  # Host paths (create them before the first start; the tape folder must be
+  # writable by uid 1000, which is the container user):
+  #   TAPE_HOST_DIR           default /home/smara/lighter-track/tape, receives the
+  #                           dated folders, gaps.jsonl and heartbeat.json. Back it up
+  #                           and prune it from the host; nothing here deletes data.
+  #   TAPE_MARKETS_HOST_FILE  default /home/smara/lighter-track/tools/tape-markets.json,
+  #                           the markets list, mounted read-only. The recorder validates
+  #                           it at start and fails loudly if it is missing or invalid.
+  #
+  # Hardening: non-root user, no capabilities, no privilege escalation, a read-only
+  # root filesystem (tsx and node write only under the /tmp tmpfs; HOME and the
+  # cache dirs point there), process and CPU limits. The recorder stops writing
+  # rows when the tape volume has less than TAPE_MIN_FREE_GB (default 10) free.
+  #
+  # Every image change recreates this container on deploy, which the recorder
+  # logs as a process-start gap in gaps.jsonl.
+  tape:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: seeder
+    container_name: crypto-tape
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    cpus: 1
+    environment:
+      NODE_OPTIONS: --max-old-space-size=384
+      HOME: /tmp
+      TMPDIR: /tmp
+      XDG_CACHE_HOME: /tmp
+      TAPE_DIR: /tape
+      TAPE_MARKETS_FILE: /config/markets.json
+    command: ["node_modules/.bin/tsx", "scripts/ops/tape-recorder.ts"]
+    init: true
+    # Time for the shutdown flush (bounded at 20 s in the recorder).
+    stop_grace_period: 30s
+    mem_limit: 512m
+    volumes:
+      - ${TAPE_HOST_DIR:-/home/smara/lighter-track/tape}:/tape
+      - ${TAPE_MARKETS_HOST_FILE:-/home/smara/lighter-track/tools/tape-markets.json}:/config/markets.json:ro
+    networks:
+      - tape-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   mongodb_data:
   redis_data:
 
 networks:
   crypto-internal:
+    driver: bridge
+  # The tape recorder needs neither MongoDB nor Redis.
+  tape-net:
     driver: bridge
   caddy-net:
     external: true
