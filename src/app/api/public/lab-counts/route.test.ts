@@ -118,7 +118,7 @@ describe('GET /api/public/lab-counts', () => {
     expect(data.notStarted).toBe(2);
     expect(data.hypotheses).toBe(13);
     expect(data.rejectedRules).toBe(1);
-    expect(data.ledgerTrials).toBe(2422);
+    expect(data.ledgerTrials).toBe(2423);
     expect(typeof data.asOf).toBe('string');
   });
 

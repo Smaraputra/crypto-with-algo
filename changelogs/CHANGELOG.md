@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added: Binance against Hyperliquid funding spread, one locked read: FAIL (ledger 2,423)
+- The follow-up to the small-wins scout. A rule chosen on 2023-05 to 2024-06 (enter when the trailing-24h funding spread crosses 0.20%, exit on the sign flip, 10 slots, 8h grid) was frozen as lock v3 (`scripts/research/venue-spread-lock.txt`, sha256 `6baba23f`) and read once on 2024-07-01 to 2026-07-01 with real traded prices. The owner approved the exact file hash before the run.
+- **Result: FAIL.** Annual return on capital -5.23%, 95% interval [-19.2%, +10.2%], 909 positions on 160 coins, against a 5% hurdle. One decision later: -1.83%. Even at the scout's optimistic 3 bps a leg: -3.87%. The registered prediction (positive, under 7.75%) was wrong. The idea is closed and the span is spent for this pair.
+- **Where it went:** signal exits -1.4% a year (funding +3.96, basis -1.31, costs about -3.2, over 2 years on 20 capital), 20 liquidated short legs -5.7% a year (the FTT short lost 99.9%), the rest +1.9%.
+- **`scripts/research/venue-spread-locked.ts`:** a causal forward book simulator (liquidation of the short leg at 2/1.05 of its entry open, unavailability, coverage rules), a cluster bootstrap on the annual return, and a span guard bound to the signed lock (dates, universe and meta hashes, no `--coins`, exclusive one-read markers).
+- **Verification:** an independent Python implementation written only from the lock text reproduces the book exactly on seeded synthetic data, on real 2023-06 to 2024-07 data (324 and 325 positions) and on the final read (909 and 916 positions), maximum difference 0. Five positions were recomputed from the raw venue APIs. Two review rounds by Codex and agy changed the design (they found a liquidation loss erased by a missing price, a guard that did not bind the run, span leakage into the slot book, and a 0.5% maintenance margin).
+- **`scripts/research/venue-funding-scout.ts`:** a `--price real` mode (Hyperliquid 8h candles on an 8h decision grid), locked costs and the read summary. The premium mode is unchanged. Hyperliquid 8h candles are the only interval that reaches 2023-01 (4h from 2024-07-30, 1h from 2026-04).
+- **Depth:** live Hyperliquid books at 1,000 USD give a median 7.1 bps one-way slippage over 179 coins (p90 15.1, p99 29.5), against the scout's 3 bps.
+- Ledger: `venue-spread-locked-read`, one trial, 2,422 to 2,423.
+
+### Added: keyless multi-venue snapshot recorder (running hourly on the VPS)
+- `scripts/research/venue-recorder.ts`: funding, mark, index, open interest, top of book and slippage for a 1,000 USD market order on Binance, Bybit, Hyperliquid, Lighter and Aster, for every coin listed on at least two (about 760 coins). Append-only JSON Lines under `~/funding-scout/venue-recorder-out/venue-snapshots/` on the VPS, hourly at minute 7 by a user cron line (owner approved), about 6.5 minutes per run. No rule is judged on its data.
+- Checked against the live APIs: Lighter's funding `rate` is a percent (fixed, 1.2e-5 for BTC), Aster has an open-interest endpoint, Lighter history starts 2025-01-17, Aster funding history reaches 2021-08.
+
+### Added: listing-age drift census (descriptive)
+- `scripts/research/listing-census.ts`: a short held from day N after a perp's first bar for H days, 299 contracts listed 2020-2024-06. At N7 H30 the median position wins +13.6% and 66% are positive, but a 1x short is liquidated in 37 of 290 cases and the mean after costs is about +1% (liquidation-capped) or -1.5% (uncapped). At 90 days the mean is negative. Five positions match Binance REST. No rule is chosen.
+
+### Added: small-wins scout: funding farming and cross-venue funding spreads (descriptive)
+- The owner asked for many entries with small wins. The cost arithmetic rules out directional scalping (a 1 USD net win at 1,000 USDT notional needs a 0.14% to 0.20% captured move against a measured gross edge of 0.002% to 0.014%). This scout measured three mechanisms where the win does not pay a round trip each time. It is descriptive: no trial is added, and the ledger stays at 2,422.
+- **Data discipline:** both scripts read nothing after 2024-06-30. A constant enforces it and a helper throws on any later month. The span from 2024-07-01 to 2026-06-30 stays unread for a pre-registered test.
+- **`scripts/research/funding-scout.ts`:** spot-hedged funding episodes on 674 USDT-M perps (delisted included), 2020-01 to 2024-06.
+  - Results: at 0.10% per 8h, 2,566 episodes on 264 coins have a median net of +0.20% after taker costs over a 60h hold. Episodes cluster in time, so a 10-slot book earns +3.7% a year on capital, and 2021 carries 73% of the total. 2023 is about flat, and the book sits idle 85% of the time. The 0.05% level loses.
+  - Checks: verified against Binance REST on six episodes and by a blind Python re-implementation (1,673 episodes, max difference 8.9e-16).
+  - `--analyse` re-reads the report as a fixed-slot book.
+- **`scripts/research/venue-funding-scout.ts`:** the Binance funding spread against Hyperliquid (2023-05 to 2024-06) and Bybit (2020 to 2024-06), with both legs on perps.
+  - Bybit leaves little: the median net is negative at every level.
+  - Hyperliquid at 0.20% a day has 983 episodes with a median net of +0.37% over 87h, collected as hourly payments. A 10-slot book earns +15.5% a year on capital in the scouting window, positive in each half-year but falling (+0.90% per episode in 2023H2, +0.65% in 2024H1).
+  - Caveats: the window is short and early, the price leg is approximated from premium indices, 10 bps more slippage per leg takes the median to about zero, and 3x legs would have been liquidated in 13% to 21% of episodes.
+- **Zero-maker spread probe** (2026-11-10, live, 10 minutes):
+  - USDC-margined perps and FDUSD pairs quote one tick, from 0.001 bps on BTCFDUSD to 5.6 bps on ADAUSDC.
+  - Capture depends on queue position, which no stored data can measure. It is not pursued.
+
 ### Added: Round 4 family C holdout read: the volatility forecast fails H (4 of 10 coins)
 - The owner signed the family C finalist lock on 2026-11-06 (`records/c_lhar_x_1h_finalist_lock.json`). The commit that added it, `02a386b0`, is the read id. The final model, fit on 2024-06 to 2026-05 and never refit, ran once on the holdout H (2020-01 to 2021-12) on 2026-11-06, from 14:08 to 14:11 UTC. Every pre-read check held, and the run ended cleanly with 20 ledger lines.
 - **H fail.** 4 of 10 coins pass every criterion (ADA, BNB, BTC, DOGE), against 8 required (`records/c_holdout_result_02a386b0.json`).
