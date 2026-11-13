@@ -46,10 +46,13 @@ at registration) holds the lock digest, the sha256 of the frozen event record, t
 of the manifest of the downloaded files, and the owner's signature (the date and the lock digest the owner signed in
 chat). The command register-check prints what the file should contain. The command run refuses to run when the file is
 absent or anything differs. The commands fetch-plan, register-check and data-check compute no return: data-check opens
-the planned files for structure only, counts rows and lists problems, and needs no anchor. The frozen record's sha256 is
-also the constant EVENTS_SHA256 of this module: a real run refuses any other record, and the SYNTHETIC marker of a data
-folder is refused for this one (the marker alone never disables a guard: a synthetic run also needs meta.synthetic true
-in the record and synthetic true on every manifest line, which the real downloader never writes).
+the planned files for structure only, counts rows and lists problems, and needs no anchor. The command smoke runs the
+whole pipeline in memory on the real files before registration, to find a crash, and prints only counts of pairs,
+exclusions and clusters (never a return, a bound or a pass flag); it needs the frozen record and a clean plan. The
+frozen record's sha256 is also the constant EVENTS_SHA256 of this module: a real run refuses any other record, and the
+SYNTHETIC marker of a data folder is refused for this one (the marker alone never disables a guard: a synthetic run also
+needs meta.synthetic true in the record and synthetic true on every manifest line, which the real downloader never
+writes).
 
 1. EVENTS (frozen). The frozen event record is scripts/research/py/records/horizon_e1_events.json, written once by
    horizon/e1/scan_events.py on 2026-11-13 UTC (scan time in its meta) from Binance's public announcement lists (general

@@ -868,3 +868,37 @@ def test_a_planned_file_that_is_missing_or_repaired_stops_the_run(
         problems = json.loads(capsys.readouterr().out)["problems"]
         assert problems
         assert any(lines[0]["symbol"] in p for p in problems)
+
+
+def test_smoke_prints_counts_and_no_return(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """smoke runs the whole pipeline in memory and prints only return-free counts."""
+    world = _setup_world(tmp_path)
+    args = ["smoke", "--events", str(world["events_path"]), "--plan", str(world["plan_path"])]
+    args += ["--data-dir", str(world["data_dir"])]
+
+    # Not the frozen record: refused
+    assert main(args) == 2
+    capsys.readouterr()
+
+    monkeypatch.setattr(run_mod, "FROZEN_EVENTS_SHA256", hashlib.sha256(world["events_path"].read_bytes()).hexdigest())
+    assert main(args) == 0
+    text = capsys.readouterr().out
+    counts = json.loads(text)
+    assert set(counts) == set(lock.TRIAL_IDS)
+    first = counts["T-4h"]
+    assert set(first) == {
+        "announcements",
+        "tokens",
+        "tokens_with_symbol",
+        "eligible_by_record",
+        "priced_ok",
+        "exclusions",
+        "units",
+        "clusters",
+    }
+    assert first["priced_ok"] >= 1
+    # No return, bound, flag or price may appear in the output
+    for forbidden in ("mean", "net", "bound", "passed", "gross", "pe", "px", "funding_token"):
+        assert f'"{forbidden}"' not in text

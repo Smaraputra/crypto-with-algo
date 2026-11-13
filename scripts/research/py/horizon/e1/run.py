@@ -302,6 +302,41 @@ def _raise_on_plan_problems(store: Store, plan_path: Path) -> None:
         raise GuardError(f"planned files are not all downloaded cleanly: {shown}{extra}")
 
 
+def smoke(
+    events_path: Path | str, plan_path: Path | str, data_dir: Path | str, *, store_cls: type = Store
+) -> dict[str, Any]:
+    """Run the whole pipeline in memory on the real files and return only return-free counts (subcommand smoke).
+
+    It exists to find a crash before registration. It needs the frozen record and a clean plan, prints counts of
+    pairs by outcome and exclusion reason and the number of clusters, and never a return, a bound or a pass flag.
+    """
+    if sha256_file(events_path) != FROZEN_EVENTS_SHA256:
+        raise GuardError("smoke runs on the frozen event record only")
+    record = load_record(events_path)
+    pairs = build_pairs(record)
+    plan_p = Path(plan_path)
+    if plan_p.read_bytes() != plan_bytes(build_fetch_plan(record, pairs)):
+        raise GuardError("plan file bytes differ from recomputed plan from record")
+    store = store_cls(Path(data_dir))
+    _raise_on_plan_problems(store, plan_p)
+    result = report.run_trials(record, pairs, store)
+    json.dumps(result)  # the full result must serialise, but it is discarded here
+    counts: dict[str, Any] = {}
+    for tid in lock.TRIAL_IDS:
+        trial = result["trials"][tid]["counts"]
+        counts[tid] = {
+            "announcements": trial["announcements"],
+            "tokens": trial["tokens"],
+            "tokens_with_symbol": trial["tokens_with_symbol"],
+            "eligible_by_record": trial["eligible_by_record"],
+            "priced_ok": trial["ok"],
+            "exclusions": trial["exclusions"],
+            "units": trial["units"],
+            "clusters": trial["clusters"],
+        }
+    return counts
+
+
 def run_pipeline(
     events_path: Path | str,
     plan_path: Path | str,
@@ -478,6 +513,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_data.add_argument("--plan", required=True, type=Path, help="Path to fetch plan JSON.")
     p_data.add_argument("--data-dir", required=True, type=Path, help="Path to data directory.")
 
+    p_smoke = subparsers.add_parser("smoke", help="Run in memory and print return-free counts only.")
+    p_smoke.add_argument("--events", required=True, type=Path, help="Path to event record JSON.")
+    p_smoke.add_argument("--plan", required=True, type=Path, help="Path to fetch plan JSON.")
+    p_smoke.add_argument("--data-dir", required=True, type=Path, help="Path to data directory.")
+
     p_run = subparsers.add_parser("run", help="Run trials with guards.")
     p_run.add_argument("--events", required=True, type=Path, help="Path to event record JSON.")
     p_run.add_argument("--plan", required=True, type=Path, help="Path to fetch plan JSON.")
@@ -520,6 +560,10 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] | None = N
             check_dict, code = data_check(args.plan, args.data_dir)
             print(json.dumps(check_dict, sort_keys=True, indent=1))
             return code
+
+        if args.cmd == "smoke":
+            print(json.dumps(smoke(args.events, args.plan, args.data_dir), sort_keys=True, indent=1))
+            return 0
 
         if args.cmd == "run":
             _, summary_lines = run_pipeline(
