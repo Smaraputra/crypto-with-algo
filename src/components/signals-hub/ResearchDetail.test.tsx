@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ResearchDetail } from './ResearchDetail';
-import { RESEARCH_CATALOG } from '@/content/research/catalog';
+import { LEDGER_TOTAL, RESEARCH_CATALOG } from '@/content/research/catalog';
 
 vi.mock('./LabLiveState', () => ({
   LabLiveState: ({ hypothesisIds }: { hypothesisIds: string[] }) => (
@@ -46,7 +46,9 @@ describe('ResearchDetail', () => {
     expect(
       screen.getByText(/The program ledger stood at 2,161 after this study/)
     ).toBeInTheDocument();
-    expect(screen.getByText(/Program total today: 4,487/)).toBeInTheDocument();
+    expect(
+      screen.getByText(new RegExp(`Program total today: ${LEDGER_TOTAL.toLocaleString('en-US')}`))
+    ).toBeInTheDocument();
 
     // One run row with its date and commit
     const commits = screen.getAllByText('ef4043a');

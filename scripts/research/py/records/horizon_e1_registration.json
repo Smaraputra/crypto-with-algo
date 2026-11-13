@@ -1,0 +1,15 @@
+{
+ "code_commit": "729b95b0e3421a20691e966d6362fea81b0a3f8a",
+ "events_sha256": "41009340d52315e833dbc7c0b89bdbd91bea9a8bf661b038a55ba8e91b141d89",
+ "ledger_id": "horizon-e1",
+ "lock_digest": "19b98de7ef7569055ae2270c6b5b8933f652af05d3c2ba064be51f5099f9416e",
+ "manifest_sha256": "730a9a265b6a67d43276b5109d5b37bcdfb05b5828a7da3534f3d50e4d4d4aa2",
+ "owner_signature": {
+  "date": "2026-11-14",
+  "how": "answered 'Sign as written' to the signature question in the Claude Code chat (2026-11-14), after the plain-language summary of the lock",
+  "lock_digest": "19b98de7ef7569055ae2270c6b5b8933f652af05d3c2ba064be51f5099f9416e"
+ },
+ "plan_sha256": "e75c3d861293a27a4eb2e89906fec0a435ad50d23de1a3439320a736bafc77c7",
+ "prediction": "Registered 2026-11-14 by the lead before any return was computed: class T at 24 hours passes with probability about 0.25 and class T at 4 hours about 0.15. Each class D trial passes with probability about 0.07. At least one of the four trials passes with probability about 0.3. Where a trial fails, the most likely cause is clause (b), a bound that cannot clear zero with about 25 clusters, and not a negative mean.",
+ "registered_utc": "2026-11-13T22:10:09Z"
+}
