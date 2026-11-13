@@ -72,6 +72,17 @@ describe('1. parsePlan', () => {
     expect(parsed.funding).toEqual([{ symbol: 'BTCUSDT', month: '2026-10' }]);
   });
 
+  it('accepts a one-letter ticker such as DUSDT (the D token) and still rejects a bare USDT', () => {
+    const parsed = parsePlan({
+      version: 1,
+      klines: [{ symbol: 'DUSDT', day: '2026-01-02' }],
+      funding: [{ symbol: 'DUSDT', month: '2026-01' }],
+    });
+    expect(parsed.klines).toEqual([{ symbol: 'DUSDT', day: '2026-01-02' }]);
+    expect(parsed.funding).toEqual([{ symbol: 'DUSDT', month: '2026-01' }]);
+    expect(() => parsePlan({ version: 1, klines: [{ symbol: 'USDT', day: '2026-01-02' }], funding: [] })).toThrow(/USDT/);
+  });
+
   it('rejects a lowercase symbol (message contains offending value)', () => {
     const plan = {
       version: 1,
@@ -424,7 +435,7 @@ describe('5. Funding job', () => {
 });
 
 describe('6. Re-run and skip logic', () => {
-  it('skips existing files without calling stream, refetches with --force, and summarises disk files missing from manifest', async () => {
+  it('skips existing files without calling stream, refetches with --force, and never adopts a file that has no manifest line', async () => {
     const klineLines = [ARCHIVE_KLINE_HEADER, archiveKlineRow(0, '0')];
     const fundingLines = [ARCHIVE_FUNDING_HEADER, '1727740800000,8,0.00010000'];
 
@@ -456,14 +467,15 @@ describe('6. Re-run and skip logic', () => {
     expect(summary3.written).toBe(2);
     expect(mockStream).toHaveBeenCalledTimes(2);
 
-    // Delete manifest.jsonl but keep files on disk: summarises from disk and skips
+    // Delete manifest.jsonl but keep files on disk: the files are not adopted, they are downloaded again
     unlinkSync(join(dir, 'manifest.jsonl'));
     expect(existsSync(join(dir, 'manifest.jsonl'))).toBe(false);
 
     mockStream.mockClear();
     const summary4 = await runJobs(plan, dir, { force: false, concurrency: 1 });
-    expect(summary4.skipped).toBe(2);
-    expect(mockStream).not.toHaveBeenCalled();
+    expect(summary4.skipped).toBe(0);
+    expect(summary4.written).toBe(2);
+    expect(mockStream).toHaveBeenCalledTimes(2);
 
     const manifestMap = readManifest(join(dir, 'manifest.jsonl'));
     expect(manifestMap.has('klines|BTCUSDT|2026-10-09')).toBe(true);

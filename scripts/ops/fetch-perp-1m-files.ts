@@ -66,7 +66,7 @@ export const OUTPUT_HEADER = 'open_time,open,high,low,close,volume,quote_volume,
 const SOURCE_COLUMNS = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10] as const;
 
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
-const SYMBOL_PATTERN = /^[A-Z0-9]{2,20}USDT$/;
+const SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
 
 export interface FetchArgs {
   universe: string;

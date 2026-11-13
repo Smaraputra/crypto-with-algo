@@ -7,7 +7,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { gunzipSync, gzipSync } from 'node:zlib';
+import { gzipSync } from 'node:zlib';
 
 import { looksLikeHeader, parseArchiveTimestamp, streamArchiveCsvLines } from '@/lib/external/binance-archive';
 import {
@@ -16,7 +16,6 @@ import {
   parseKlineLines,
   sha256Hex,
   shapeRows,
-  summariseOutputCsv,
 } from './fetch-perp-1m-files';
 
 export const HARD_LAST_DAY = '2026-11-12';
@@ -28,7 +27,7 @@ const DAY_MINUTES = 1440;
 const MINUTE_MS = 60_000;
 const DAY_MS = DAY_MINUTES * MINUTE_MS;
 
-const SYMBOL_PATTERN = /^[A-Z0-9]{2,20}USDT$/;
+const SYMBOL_PATTERN = /^[A-Z0-9]{1,20}USDT$/;
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -239,47 +238,6 @@ export function readManifest(manifestPath: string): Map<string, EventManifestEnt
   return entries;
 }
 
-export function summariseFundingCsv(csv: string): {
-  rows: number;
-  firstTs: number | null;
-  lastTs: number | null;
-  badRows: number;
-  duplicates: number;
-} {
-  const seen = new Set<number>();
-  let badRows = 0;
-  let duplicates = 0;
-  let first = true;
-  for (const raw of csv.split('\n')) {
-    const line = raw.trim();
-    if (line === '') continue;
-    if (first) {
-      first = false;
-      if (line === FUNDING_OUTPUT_HEADER || looksLikeHeader(line)) continue;
-    }
-    const fields = line.split(',');
-    if (fields.length !== 3) {
-      badRows++;
-      continue;
-    }
-    const calcTime = parseArchiveTimestamp(fields[0] ?? '');
-    if (!Number.isFinite(calcTime)) {
-      badRows++;
-      continue;
-    }
-    if (seen.has(calcTime)) duplicates++;
-    else seen.add(calcTime);
-  }
-  const times = [...seen].sort((a, b) => a - b);
-  return {
-    rows: times.length,
-    firstTs: times.length > 0 ? times[0] : null,
-    lastTs: times.length > 0 ? times[times.length - 1] : null,
-    badRows,
-    duplicates,
-  };
-}
-
 function hasContent(path: string): boolean {
   try {
     return statSync(path).size > 0;
@@ -305,32 +263,10 @@ export async function processKlineJob(
   const manifestPath = join(outDir, 'manifest.jsonl');
   const key = `klines|${job.symbol}|${job.day}`;
 
+  // A file with no manifest line is never adopted: it could be stale or foreign, so it is downloaded again.
   if (!options.force && hasContent(finalPath)) {
     const existing = options.manifest.get(key);
-    if (existing !== undefined) {
-      if (existing.status === 'ok') return 'skipped';
-    } else {
-      const bytes = readFileSync(finalPath);
-      const shaped = summariseOutputCsv(gunzipSync(bytes).toString('utf8'));
-      const entry: EventManifestEntry = {
-        kind: 'klines',
-        symbol: job.symbol,
-        date: job.day,
-        status: 'ok',
-        rows: shaped.rows,
-        firstTs: shaped.firstOpenTime,
-        lastTs: shaped.lastOpenTime,
-        gaps: shaped.gaps,
-        badRows: shaped.badRows,
-        duplicates: shaped.duplicates,
-        sha256: sha256Hex(bytes),
-        bytes: bytes.length,
-      };
-      mkdirSync(outDir, { recursive: true });
-      appendFileSync(manifestPath, JSON.stringify(entry) + '\n');
-      options.manifest.set(key, entry);
-      return 'skipped';
-    }
+    if (existing !== undefined && existing.status === 'ok') return 'skipped';
   }
 
   const lines = await fetchDailyLines(job.symbol, job.day);
@@ -415,32 +351,10 @@ export async function processFundingJob(
   const manifestPath = join(outDir, 'manifest.jsonl');
   const key = `funding|${job.symbol}|${job.month}`;
 
+  // A file with no manifest line is never adopted: it could be stale or foreign, so it is downloaded again.
   if (!options.force && hasContent(finalPath)) {
     const existing = options.manifest.get(key);
-    if (existing !== undefined) {
-      if (existing.status === 'ok') return 'skipped';
-    } else {
-      const bytes = readFileSync(finalPath);
-      const shaped = summariseFundingCsv(gunzipSync(bytes).toString('utf8'));
-      const entry: EventManifestEntry = {
-        kind: 'funding',
-        symbol: job.symbol,
-        date: job.month,
-        status: 'ok',
-        rows: shaped.rows,
-        firstTs: shaped.firstTs,
-        lastTs: shaped.lastTs,
-        gaps: null,
-        badRows: shaped.badRows,
-        duplicates: shaped.duplicates,
-        sha256: sha256Hex(bytes),
-        bytes: bytes.length,
-      };
-      mkdirSync(outDir, { recursive: true });
-      appendFileSync(manifestPath, JSON.stringify(entry) + '\n');
-      options.manifest.set(key, entry);
-      return 'skipped';
-    }
+    if (existing !== undefined && existing.status === 'ok') return 'skipped';
   }
 
   let lines: string[] = [];
